@@ -755,10 +755,6 @@ apply_root() {
   fi
   local plan_file changed expected_policy_before_sha256 expected_policy_after_sha256 expected_policy_etag apply_log exit_code
   local old_proxmox=${PROXMOX_VE_API_TOKEN:-}
-  local old_omada_username=${OMADA_USERNAME:-}
-  local old_omada_password=${OMADA_PASSWORD:-}
-  local old_tailscale_client_id=${TAILSCALE_OAUTH_CLIENT_ID:-}
-  local old_tailscale_audience=${TAILSCALE_AUDIENCE:-}
   plan_file=$(jq -r --arg root "$root" '.plans[] | select(.root == $root) | .file' "$plan_dir/manifest.json")
   changed=$(jq -r --arg root "$root" '.plans[] | select(.root == $root) | .changed' "$plan_dir/manifest.json")
   backend_init "$root"
@@ -771,22 +767,16 @@ apply_root() {
       [[ -z ${PROXMOX_APPLY_API_TOKEN:-} ]] || export PROXMOX_VE_API_TOKEN=$PROXMOX_APPLY_API_TOKEN
       ;;
     omada)
-      [[ $changed == false || (-n ${OMADA_APPLY_USERNAME:-} && -n ${OMADA_APPLY_PASSWORD:-}) ]] || {
-        echo "Separated Omada apply credentials are required." >&2
+      [[ $changed == false || (-n ${OMADA_USERNAME:-} && -n ${OMADA_PASSWORD:-}) ]] || {
+        echo "The local Omada apply credential is required." >&2
         exit 66
       }
-      [[ -z ${OMADA_APPLY_USERNAME:-} ]] || export OMADA_USERNAME=$OMADA_APPLY_USERNAME
-      [[ -z ${OMADA_APPLY_PASSWORD:-} ]] || export OMADA_PASSWORD=$OMADA_APPLY_PASSWORD
       ;;
     tailscale)
-      if [[ $changed == true && (-z ${TAILSCALE_APPLY_OAUTH_CLIENT_ID:-} || -z ${TAILSCALE_APPLY_AUDIENCE:-}) ]]; then
-        [[ -n ${TAILSCALE_OAUTH_CLIENT_SECRET:-} && ${TAILSCALE_BOOTSTRAP_CONFIRMED:-} == apply-reviewed-tailscale-bootstrap ]] || {
-          echo "The separated Tailscale apply workload identity or explicit temporary bootstrap credential is required." >&2
-          exit 66
-        }
-      fi
-      [[ -z ${TAILSCALE_APPLY_OAUTH_CLIENT_ID:-} ]] || export TAILSCALE_OAUTH_CLIENT_ID=$TAILSCALE_APPLY_OAUTH_CLIENT_ID
-      [[ -z ${TAILSCALE_APPLY_AUDIENCE:-} ]] || export TAILSCALE_AUDIENCE=$TAILSCALE_APPLY_AUDIENCE
+      [[ $changed == false || (-n ${TAILSCALE_OAUTH_CLIENT_ID:-} && -n ${TAILSCALE_OAUTH_CLIENT_SECRET:-}) ]] || {
+        echo "The local Tailscale apply OAuth client is required." >&2
+        exit 66
+      }
       ;;
   esac
   if [[ $root == tailscale ]]; then
@@ -815,9 +805,6 @@ apply_root() {
     tailscale_verify_state_policy
   fi
   export PROXMOX_VE_API_TOKEN=$old_proxmox
-  export OMADA_USERNAME=$old_omada_username OMADA_PASSWORD=$old_omada_password
-  export TAILSCALE_OAUTH_CLIENT_ID=$old_tailscale_client_id
-  export TAILSCALE_AUDIENCE=$old_tailscale_audience
 }
 
 ansible_extra_args=()
