@@ -6,7 +6,6 @@ recovery:
   critical_rpo_hours: 24
   critical_rto_hours: 8
   recovery_age_recipient: age1vvzm5pczjum52v5alall8euucjen9q4v9xa5g0xmswhna5vare9qwv9rq6
-  ci_age_recipient: age17z5dvwfetww88x3juenueyughe7uh8njfls6fajk62s9aga8svssz7ah8y
 network:
   cidr: 192.168.0.0/24
   gateway: 192.168.0.1
@@ -162,9 +161,11 @@ arch:
     tailscale: 1.98.10-1
   coral:
     package_version: r236.5815ee3-3
+    dkms_version: r236.5815ee3
     source_commit: 5815ee3908a46a415aac616ac7b9aedcb98a504c
-    artifact_repository: ghcr.io/soodoh/home-lab/gasket-dkms-git
-    artifact_digest: sha256:bee681944b4c4ccbe8cbd5f90b418591e289d4fc026dc11aedcfa39ec5e543cb
+    source_tree_sha256: 1222d040b6e8b91f76f049fadfd853ef7c6b012a97f728b7fa264aca74fb9cb9
+    build_image: archlinux:base-devel@sha256:c1829f370be8434135f43fb3acaef1256780804ac3b2d2eec90dfb1232e1ffdf
+    source_date_epoch: 1704067200
     package_sha256: a08bf28a90071cf3d18b219ed54856681937d792787fd0c5ef77f52106e6a71e
 omada:
   controller_version: 6.2.14.11
@@ -178,21 +179,11 @@ tailscale:
     arch: tag:docker-host
     proxmox: tag:proxmox
     infra_router: tag:infra-router
-    ci_legacy: tag:ci
-    ci_plan: tag:ci-plan
-    ci_apply: tag:ci-apply
   required_endpoints:
     - docker-host:22
     - proxmox:22
     - proxmox:8006
     - docker-host:8043
-github:
-  owner: soodoh
-  repository: home-lab
-  default_branch: main
-  environments:
-    plan: infrastructure-plan
-    apply: infrastructure-apply
 aws:
   region: us-east-1
   recovery_region: us-west-2

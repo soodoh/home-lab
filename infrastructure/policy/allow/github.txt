@@ -1,2 +1,0 @@
-# Reviewed GitHub branch and environment control plane. Deletion remains forbidden.
-github_repository_ruleset.main[0]

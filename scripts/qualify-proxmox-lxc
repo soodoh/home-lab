@@ -5,7 +5,7 @@ umask 077
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 root=infrastructure/tofu/proxmox-lxc-qualification
-helper=.github/scripts/proxmox-lxc-qualification.py
+helper=scripts/controller/proxmox-lxc-qualification.py
 bundle_dir=${LXC_QUALIFICATION_PLAN_DIR:-$repo_root/.reconcile/lxc-qualification}
 plan_file=$bundle_dir/qualification.tfplan
 manifest=$bundle_dir/manifest.json
@@ -55,23 +55,8 @@ fi
 export TF_IN_AUTOMATION=1 TF_INPUT=0 TF_VAR_qualification_operation=$operation
 commit=$(git rev-parse HEAD)
 if [[ $action == apply || $action == inspect-recovery ]]; then
-  if [[ ${GITHUB_ACTIONS:-false} == true ]]; then
-    [[ ${GITHUB_REF:-} == refs/heads/main && ${GITHUB_SHA:-} == "$commit" ]] || {
-      echo "qualification operation requires the exact dispatched main commit" >&2
-      exit 64
-    }
-  else
-    [[ $(git branch --show-current) == main ]] || {
-      echo "qualification operation is main-only" >&2
-      exit 64
-    }
-    [[ $(git rev-parse origin/main) == "$commit" ]] || {
-      echo "qualification operation requires the existing origin/main commit" >&2
-      exit 64
-    }
-  fi
   [[ -z $(git status --porcelain --untracked-files=all) ]] || {
-    echo "qualification operation requires a clean checkout" >&2
+    echo "qualification operation requires a clean committed revision" >&2
     exit 65
   }
 fi

@@ -165,7 +165,6 @@ def parse_args() -> argparse.Namespace:
     transition = subparsers.add_parser("transition")
     transition.add_argument("--base-contract", type=Path, required=True)
     transition.add_argument("--head-contract", type=Path, required=True)
-    transition.add_argument("--github-output", type=Path)
     transition.add_argument(
         "--qualification-evidence", type=Path, default=QUALIFICATION_EVIDENCE
     )
@@ -220,11 +219,7 @@ def main() -> int:
                 raise RetirementError(
                     "CT retirement transition requires qualified LXC provider evidence"
                 )
-            if args.github_output:
-                with args.github_output.open("a") as output:
-                    output.write(f"operation={operation}\n")
-            else:
-                print(operation)
+            print(operation)
             return 0
 
         stage = contract_stage(args.contract)

@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_root"
+
+usage() {
+  echo "usage: scripts/detach-github-state <plan|review|apply> --plan-dir <protected-directory>" >&2
+  exit 64
+}
+
+(($# >= 3)) || usage
+action=$1
+shift
+[[ $1 == --plan-dir ]] || usage
+plan_dir=$2
+shift 2
+(($# == 0)) || usage
+case "$action" in plan|review|apply) ;; *) usage ;; esac
+
+: "${TF_BACKEND_BUCKET:?TF_BACKEND_BUCKET is required}"
+: "${AWS_REGION:?AWS_REGION is required}"
+[[ -z $(git status --porcelain --untracked-files=all) ]] || {
+  echo "GitHub state detachment requires a clean committed revision" >&2
+  exit 65
+}
+commit=$(git rev-parse HEAD)
+manifest=$plan_dir/manifest.json
+saved_state=$plan_dir/github-state.json
+saved_addresses=$plan_dir/github-addresses.txt
+
+expected_addresses() {
+  cat <<'EOF'
+data.terraform_remote_state.tailscale[0]
+github_actions_environment_variable.tailscale_apply["TS_AUDIENCE"]
+github_actions_environment_variable.tailscale_apply["TS_OAUTH_CLIENT_ID"]
+github_actions_environment_variable.tailscale_apply["TS_PROVIDER_APPLY_AUDIENCE"]
+github_actions_environment_variable.tailscale_apply["TS_PROVIDER_APPLY_CLIENT_ID"]
+github_actions_environment_variable.tailscale_plan["TS_AUDIENCE"]
+github_actions_environment_variable.tailscale_plan["TS_OAUTH_CLIENT_ID"]
+github_actions_environment_variable.tailscale_plan["TS_PROVIDER_PLAN_AUDIENCE"]
+github_actions_environment_variable.tailscale_plan["TS_PROVIDER_PLAN_CLIENT_ID"]
+github_actions_variable.infrastructure["ARCH_SSH_HOST"]
+github_actions_variable.infrastructure["ARCH_SSH_HOST_KEY_FINGERPRINT"]
+github_actions_variable.infrastructure["AWS_APPLY_ROLE_ARN"]
+github_actions_variable.infrastructure["AWS_PLAN_ROLE_ARN"]
+github_actions_variable.infrastructure["AWS_RECOVERY_REGION"]
+github_actions_variable.infrastructure["AWS_REGION"]
+github_actions_variable.infrastructure["INFRASTRUCTURE_APPLY_ENABLED"]
+github_actions_variable.infrastructure["INFRASTRUCTURE_AUTO_PLAN_ENABLED"]
+github_actions_variable.infrastructure["OMADA_ENDPOINT"]
+github_actions_variable.infrastructure["PLAN_ARTIFACT_AGE_RECIPIENT"]
+github_actions_variable.infrastructure["PROXMOX_API_ENDPOINT"]
+github_actions_variable.infrastructure["PROXMOX_SSH_HOST"]
+github_actions_variable.infrastructure["PROXMOX_SSH_HOST_KEY_FINGERPRINT"]
+github_repository_environment.apply[0]
+github_repository_environment.plan[0]
+github_repository_environment_deployment_policy.apply["main"]
+github_repository_ruleset.main[0]
+EOF
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
+
+work=$(mktemp -d "${TMPDIR:-/tmp}/github-state-detach.XXXXXX")
+chmod 0700 "$work"
+cleanup() { rm -rf "$work"; }
+trap cleanup EXIT
+cat >"$work/main.tf" <<'EOF'
+terraform {
+  required_version = ">= 1.11.0, < 2.0.0"
+  backend "s3" {}
+}
+EOF
+BACKEND_FILE="$work/backend.hcl" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+path = Path(os.environ["BACKEND_FILE"])
+path.write_text("\n".join((
+    f"bucket = {json.dumps(os.environ['TF_BACKEND_BUCKET'])}",
+    f"region = {json.dumps(os.environ['AWS_REGION'])}",
+    'key = "home-lab/github/tofu.tfstate"',
+    "encrypt = true",
+    "use_lockfile = true",
+)) + "\n")
+path.chmod(0o600)
+PY
+tofu -chdir="$work" init -input=false -reconfigure -backend-config="$work/backend.hcl" >/dev/null
+
+validate_addresses() {
+  local expected="$work/expected-addresses.txt"
+  expected_addresses >"$expected"
+  cmp -s "$expected" "$1" || {
+    echo "GitHub state address set differs from the exact reviewed detachment set" >&2
+    exit 1
+  }
+}
+
+case "$action" in
+  plan)
+    rm -rf "$plan_dir"
+    mkdir -p "$plan_dir"
+    chmod 0700 "$plan_dir"
+    tofu -chdir="$work" state pull >"$saved_state"
+    tofu -chdir="$work" state list >"$saved_addresses"
+    chmod 0600 "$saved_state" "$saved_addresses"
+    validate_addresses "$saved_addresses"
+    state_sha=$(sha256_file "$saved_state")
+    addresses_sha=$(sha256_file "$saved_addresses")
+    serial=$(jq -er '.serial | select(type == "number" and . >= 0)' "$saved_state")
+    lineage_sha=$(jq -er '.lineage | select(type == "string" and length > 0)' "$saved_state" | shasum -a 256 | awk '{print $1}')
+    jq -n --arg commit "$commit" --arg state_sha "$state_sha" --arg addresses_sha "$addresses_sha" \
+      --arg lineage_sha "$lineage_sha" --argjson serial "$serial" \
+      '{version:2,commit:$commit,operation:"github-state-detach",state_sha256:$state_sha,addresses_sha256:$addresses_sha,lineage_sha256:$lineage_sha,serial:$serial,resource_count:26,plans:[]}' \
+      >"$manifest"
+    chmod 0600 "$manifest"
+    echo "github_state_detach=planned resources=26"
+    ;;
+  review)
+    [[ -f $manifest && -f $saved_state && -f $saved_addresses ]] || exit 66
+    validate_addresses "$saved_addresses"
+    jq -e --arg commit "$commit" --arg state_sha "$(sha256_file "$saved_state")" --arg addresses_sha "$(sha256_file "$saved_addresses")" \
+      '.version == 2 and .commit == $commit and .operation == "github-state-detach" and .state_sha256 == $state_sha and .addresses_sha256 == $addresses_sha and .resource_count == 26' \
+      "$manifest" >/dev/null
+    jq -r '[.resources[] | .type] | group_by(.) | map("\(.[0])=\(length)") | .[]' "$saved_state"
+    echo "github_state_detach=reviewed resources=26 live_resources_unchanged=true"
+    ;;
+  apply)
+    [[ -f $manifest && -f $saved_state && -f $saved_addresses ]] || exit 66
+    validate_addresses "$saved_addresses"
+    current_state="$work/current-state.json"
+    current_addresses="$work/current-addresses.txt"
+    tofu -chdir="$work" state pull >"$current_state"
+    tofu -chdir="$work" state list >"$current_addresses"
+    validate_addresses "$current_addresses"
+    jq -e --arg commit "$commit" --arg state_sha "$(sha256_file "$current_state")" --arg addresses_sha "$(sha256_file "$current_addresses")" \
+      '.version == 2 and .commit == $commit and .operation == "github-state-detach" and .state_sha256 == $state_sha and .addresses_sha256 == $addresses_sha and .resource_count == 26' \
+      "$manifest" >/dev/null
+    mapfile -t addresses <"$saved_addresses"
+    tofu -chdir="$work" state rm -lock-timeout=5m "${addresses[@]}" >/dev/null
+    [[ -z $(tofu -chdir="$work" state list) ]] || {
+      echo "GitHub state is not empty after detachment" >&2
+      exit 1
+    }
+    echo "github_state_detach=applied resources=26 live_resources_unchanged=true"
+    ;;
+esac

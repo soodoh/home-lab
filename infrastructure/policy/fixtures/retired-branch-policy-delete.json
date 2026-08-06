@@ -1,1 +1,0 @@
-{"resource_changes":[{"address":"github_repository_environment_deployment_policy.apply[\"feat/infrastructure-reconciliation\"]","type":"github_repository_environment_deployment_policy","change":{"actions":["delete"],"before":{"branch_pattern":"feat/infrastructure-reconciliation"},"after":null}}]}

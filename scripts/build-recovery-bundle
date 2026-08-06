@@ -9,7 +9,6 @@ output=
 omada_export=.local/omada/export.json
 current_lock=
 previous_lock=
-wolf_lock=
 evidence_file=
 while (($#)); do
   case "$1" in
@@ -17,13 +16,12 @@ while (($#)); do
     --omada-export) omada_export=${2:?}; shift 2 ;;
     --current-image-lock) current_lock=${2:?}; shift 2 ;;
     --previous-image-lock) previous_lock=${2:?}; shift 2 ;;
-    --wolf-image-lock) wolf_lock=${2:?}; shift 2 ;;
     --recovery-evidence) evidence_file=${2:?}; shift 2 ;;
     *) exit 64 ;;
   esac
 done
 [[ $output == *.tar.gz.age ]]
-[[ -f $omada_export && -f $current_lock && -f $previous_lock && -f $wolf_lock && -f $evidence_file ]]
+[[ -f $omada_export && -f $current_lock && -f $previous_lock && -f $evidence_file ]]
 for command in age git jq node python3; do
   command -v "$command" >/dev/null || { echo "missing command: $command" >&2; exit 69; }
 done
@@ -33,10 +31,6 @@ jq -e --arg commit "$commit" '.schema == 1 and .commit == $commit' "$evidence_fi
 for lock in "$current_lock" "$previous_lock"; do
   jq -e '.schema == 1 and (.images | type == "array" and length > 0)' "$lock" >/dev/null
 done
-jq -e '
-  .schema == 1 and (.images | type == "array" and length > 0) and
-  all(.images[]; (.name | type == "string") and (.source_image_id | test("^sha256:[0-9a-f]{64}$")) and (.digest | test("^ghcr\\.io/.+@sha256:[0-9a-f]{64}$")))
-' "$wolf_lock" >/dev/null
 
 contract_json=$(node --input-type=module - <<'NODE'
 import fs from "node:fs";
@@ -45,11 +39,12 @@ process.stdout.write(JSON.stringify(yaml.load(fs.readFileSync("infrastructure/co
 NODE
 )
 recovery_recipient=$(jq -r '.recovery.recovery_age_recipient' <<<"$contract_json")
-ci_recipient=$(jq -r '.recovery.ci_age_recipient // empty' <<<"$contract_json")
-coral_digest=$(jq -r '.arch.coral.artifact_digest // empty' <<<"$contract_json")
+coral_build_image=$(jq -r '.arch.coral.build_image // empty' <<<"$contract_json")
+coral_source_tree_sha256=$(jq -r '.arch.coral.source_tree_sha256 // empty' <<<"$contract_json")
 coral_sha256=$(jq -r '.arch.coral.package_sha256 // empty' <<<"$contract_json")
-[[ $recovery_recipient == age1* && $ci_recipient == age1* ]]
-[[ $coral_digest =~ ^sha256:[0-9a-f]{64}$ && $coral_sha256 =~ ^[0-9a-f]{64}$ ]]
+[[ $recovery_recipient == age1* ]]
+[[ $coral_build_image =~ @sha256:[0-9a-f]{64}$ ]]
+[[ $coral_source_tree_sha256 =~ ^[0-9a-f]{64}$ && $coral_sha256 =~ ^[0-9a-f]{64}$ ]]
 evidence_max_age_days=$(jq -r '.recovery.evidence_max_age_days' <<<"$contract_json")
 EVIDENCE_FILE="$evidence_file" EVIDENCE_MAX_AGE_DAYS="$evidence_max_age_days" python3 - <<'PY'
 import os
@@ -69,17 +64,18 @@ git archive HEAD | tar -xf - -C "$workspace/bundle"
 install -m 0600 "$omada_export" "$workspace/bundle/private/omada-export.json"
 install -m 0600 "$current_lock" "$workspace/bundle/evidence/current-images.json"
 install -m 0600 "$previous_lock" "$workspace/bundle/evidence/previous-images.json"
-install -m 0600 "$wolf_lock" "$workspace/bundle/evidence/wolf-images.json"
 install -m 0600 "$evidence_file" "$workspace/bundle/evidence/recovery-proof.json"
 
 jq -n \
   --arg commit "$commit" \
   --arg arch_image_version "$(jq -r '.proxmox.vm.cloud_image.version' <<<"$contract_json")" \
   --arg arch_image_sha256 "$(jq -r '.proxmox.vm.cloud_image.sha256' <<<"$contract_json")" \
-  --arg coral_digest "$coral_digest" \
+  --arg coral_build_image "$coral_build_image" \
+  --arg coral_source_tree_sha256 "$coral_source_tree_sha256" \
   --arg coral_package_sha256 "$coral_sha256" \
   '{schema: 1, commit: $commit, arch_image_version: $arch_image_version,
-    arch_image_sha256: $arch_image_sha256, coral_digest: $coral_digest,
+    arch_image_sha256: $arch_image_sha256, coral_build_image: $coral_build_image,
+    coral_source_tree_sha256: $coral_source_tree_sha256,
     coral_package_sha256: $coral_package_sha256}' \
   >"$workspace/bundle/RECOVERY-METADATA.json"
 
@@ -116,7 +112,6 @@ with open(os.environ["BUNDLE_ARCHIVE"], "wb") as raw:
 PY
 
 mkdir -p "$(dirname "$output")"
-age --recipient "$recovery_recipient" --recipient "$ci_recipient" \
-  --output "$output" "$workspace/bundle.tar.gz"
+age --recipient "$recovery_recipient" --output "$output" "$workspace/bundle.tar.gz"
 chmod 0600 "$output"
 echo "recovery_bundle_sha256=$(shasum -a 256 "$output" | awk '{print $1}')"

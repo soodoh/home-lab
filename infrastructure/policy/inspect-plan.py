@@ -37,6 +37,24 @@ MAPPING_ADDRESSES = RECOVERY_ADDRESSES - {
     "proxmox_download_file.arch_recovery_image[0]",
     "proxmox_virtual_environment_vm.arch",
 }
+CONTROLLER_BOOTSTRAP_ADDRESSES = {
+    "aws_dynamodb_table.mutation_lease[0]",
+    "aws_iam_openid_connect_provider.github",
+    "aws_iam_policy.state_apply",
+    "aws_iam_policy.state_plan",
+    "aws_iam_role.controller_apply",
+    "aws_iam_role.controller_plan",
+    "aws_rolesanywhere_profile.controller_apply",
+    "aws_rolesanywhere_profile.controller_plan",
+    "aws_rolesanywhere_trust_anchor.local_controller",
+}
+TAILSCALE_CONTROLLER_RETIREMENT_ADDRESSES = {
+    "terraform_data.tailscale_policy[0]",
+    "tailscale_federated_identity.ci_plan[0]",
+    "tailscale_federated_identity.ci_apply[0]",
+    "tailscale_federated_identity.provider_plan[0]",
+    "tailscale_federated_identity.provider_apply[0]",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -56,6 +74,8 @@ def parse_args() -> argparse.Namespace:
             "network-migration",
             "disk-growth",
             "qualification",
+            "controller-bootstrap",
+            "tailscale-controller-retirement",
         ),
         default="normal",
     )
@@ -106,10 +126,8 @@ def detached_gateway_policy(active: Any) -> Any:
     if not isinstance(active, dict):
         raise ValueError("managed policy is not an object")
     policy = deepcopy(active)
-    owners = policy.get("tagOwners")
-    if not isinstance(owners, dict) or owners.get("tag:ci") != ["autogroup:admin"]:
-        raise ValueError("legacy tag owner is missing or malformed")
-    del owners["tag:ci"]
+    if any(contains_exact(policy, tag) for tag in ("tag:ci", "tag:ci-plan", "tag:ci-apply")):
+        raise ValueError("gateway lifecycle policy contains a retired CI tag")
     expected_approvers = {
         "routes": {
             "192.168.0.100/32": ["tag:infra-router"],
@@ -121,35 +139,77 @@ def detached_gateway_policy(active: Any) -> Any:
     del policy["autoApprovers"]
 
     grants = policy.get("grants")
-    for grant in (
-        {"src": ["autogroup:admin", "tag:ci"], "dst": ["192.168.0.123"], "ip": ["tcp:8006"]},
-        {"src": ["autogroup:admin", "tag:ci"], "dst": ["192.168.0.100"], "ip": ["tcp:22"]},
-    ):
+    if not isinstance(grants, list):
+        raise ValueError("grants are missing or malformed")
+    routed_grants = (
+        {"src": ["autogroup:owner", "autogroup:admin"], "dst": ["192.168.0.123"], "ip": ["tcp:8006"]},
+        {"src": ["autogroup:owner", "autogroup:admin"], "dst": ["192.168.0.100"], "ip": ["tcp:22"]},
+    )
+    for grant in routed_grants:
         del grants[unique_index(grants, grant, "routed LAN grant")]
-    docker_candidates = [
-        index for index, grant in enumerate(grants)
-        if isinstance(grant, dict) and grant.get("dst") == ["tag:docker-host"] and grant.get("ip") == ["tcp:22"]
-    ]
-    if len(docker_candidates) != 1:
-        raise ValueError("direct Docker grant must occur exactly once")
-    docker_grant = grants[docker_candidates[0]]
-    if not isinstance(docker_grant.get("src"), list) or docker_grant["src"].count("tag:ci") != 1:
-        raise ValueError("direct Docker grant has the wrong legacy-tag occurrence")
-    docker_grant["src"] = [source for source in docker_grant["src"] if source != "tag:ci"]
+    return policy
+
+
+def local_controller_gateway_policy(detached: Any) -> Any:
+    if not isinstance(detached, dict):
+        raise ValueError("managed policy is not an object")
+    policy = deepcopy(detached)
+    ci_tags = {"tag:ci-plan", "tag:ci-apply"}
+    if "autoApprovers" in policy or contains_exact(policy, "tag:ci"):
+        raise ValueError("policy is not in the detached gateway stage")
+    owners = policy.get("tagOwners")
+    if not isinstance(owners, dict):
+        raise ValueError("tag owners are missing or malformed")
+    for tag in ci_tags:
+        if owners.get(tag) != ["autogroup:admin"]:
+            raise ValueError("CI tag owner is missing or malformed")
+        del owners[tag]
+
+    grants = policy.get("grants")
+    if not isinstance(grants, list):
+        raise ValueError("grants are missing or malformed")
+    retained_grants = []
+    for grant in grants:
+        if not isinstance(grant, dict) or not isinstance(grant.get("src"), list):
+            raise ValueError("grant is malformed")
+        sources = grant["src"]
+        if grant.get("dst") == ["tag:docker-host"] and grant.get("ip") == ["tcp:22"]:
+            if not all(tag in sources for tag in ci_tags):
+                raise ValueError("direct Docker grant lacks both CI tags")
+            grant["src"] = ["autogroup:owner", "autogroup:admin"]
+            retained_grants.append(grant)
+        elif not any(source in ci_tags for source in sources):
+            retained_grants.append(grant)
+        elif not all(source in ci_tags for source in sources):
+            raise ValueError("unexpected mixed CI grant")
+    policy["grants"] = retained_grants
 
     ssh = policy.get("ssh")
-    deploy_candidates = [
-        index for index, rule in enumerate(ssh)
-        if isinstance(rule, dict) and rule.get("dst") == ["tag:docker-host"] and rule.get("users") == ["ansible-deploy"]
-    ] if isinstance(ssh, list) else []
-    if len(deploy_candidates) != 1:
-        raise ValueError("ansible-deploy SSH rule must occur exactly once")
-    deploy_rule = ssh[deploy_candidates[0]]
-    if not isinstance(deploy_rule.get("src"), list) or deploy_rule["src"].count("tag:ci") != 1:
-        raise ValueError("ansible-deploy SSH rule has the wrong legacy-tag occurrence")
-    deploy_rule["src"] = [source for source in deploy_rule["src"] if source != "tag:ci"]
-    if contains_exact(policy, "tag:ci"):
-        raise ValueError("an unreviewed legacy tag occurrence remains")
+    if not isinstance(ssh, list):
+        raise ValueError("SSH policy is missing or malformed")
+    retained_ssh = []
+    for rule in ssh:
+        if not isinstance(rule, dict) or not isinstance(rule.get("src"), list):
+            raise ValueError("SSH rule is malformed")
+        sources = rule["src"]
+        if rule.get("dst") == ["tag:docker-host"] and rule.get("users") == ["ansible-deploy"]:
+            if sources != ["autogroup:admin"]:
+                raise ValueError("detached ansible-deploy SSH rule is malformed")
+            rule["src"] = ["autogroup:owner", "autogroup:admin"]
+            retained_ssh.append(rule)
+        elif not any(source in ci_tags for source in sources):
+            retained_ssh.append(rule)
+        elif not all(source in ci_tags for source in sources):
+            raise ValueError("unexpected mixed CI SSH rule")
+    policy["ssh"] = retained_ssh
+
+    for key in ("tests", "sshTests"):
+        entries = policy.get(key)
+        if not isinstance(entries, list):
+            raise ValueError(f"{key} are missing or malformed")
+        policy[key] = [entry for entry in entries if isinstance(entry, dict) and entry.get("src") not in ci_tags]
+    if any(contains_exact(policy, tag) for tag in ci_tags):
+        raise ValueError("an unreviewed CI tag occurrence remains")
     return policy
 
 
@@ -226,6 +286,31 @@ def main() -> int:
         if args.mode in {"adopt", "adopt-or-noop"}:
             if not importing or any(action in actions for action in ("create", "update", "delete")):
                 failures.append(f"{address}: adoption permits import-only actions")
+            continue
+
+        if args.mode == "controller-bootstrap":
+            before = change.get("before") or {}
+            after = change.get("after") or {}
+            valid = address in CONTROLLER_BOOTSTRAP_ADDRESSES
+            if address == "aws_dynamodb_table.mutation_lease[0]":
+                valid = valid and actions == ["delete"] and before.get("name") == "home-lab-infrastructure-lease" and after == {}
+            elif address == "aws_iam_openid_connect_provider.github":
+                valid = valid and actions == ["delete"] and before.get("url") == "token.actions.githubusercontent.com" and after == {}
+            elif address in {"aws_iam_policy.state_apply", "aws_iam_policy.state_plan"}:
+                expected_name = "home-lab-opentofu-state-apply" if address.endswith("state_apply") else "home-lab-opentofu-state-plan"
+                policy = after.get("policy", "")
+                valid = valid and actions == ["update"] and after.get("name") == expected_name and "rolesanywhere:" in policy and "home-lab/github/tofu.tfstate" not in policy and "OpenIDConnectProvider" not in policy and "dynamodb:" not in policy
+            elif address in {"aws_iam_role.controller_apply", "aws_iam_role.controller_plan"}:
+                expected_name = "home-lab-infrastructure-apply" if address.endswith("controller_apply") else "home-lab-infrastructure-plan"
+                valid = valid and actions == ["update"] and before.get("name") == expected_name and after.get("name") == expected_name
+            elif address in {"aws_rolesanywhere_profile.controller_apply", "aws_rolesanywhere_profile.controller_plan"}:
+                expected_name = "home-lab-local-controller-apply" if address.endswith("controller_apply") else "home-lab-local-controller-plan"
+                valid = valid and actions == ["create"] and before == {} and after.get("name") == expected_name and after.get("enabled") is True and after.get("duration_seconds") == 3600
+            elif address == "aws_rolesanywhere_trust_anchor.local_controller":
+                source = after.get("source") or []
+                valid = valid and actions == ["create"] and before == {} and after.get("name") == "home-lab-local-controller" and after.get("enabled") is True and len(source) == 1 and source[0].get("source_type") == "CERTIFICATE_BUNDLE"
+            if not valid:
+                failures.append(f"{address}: controller bootstrap action or identity is invalid")
             continue
 
         if args.mode == "qualification":
@@ -322,6 +407,34 @@ def main() -> int:
                 failures.append(f"{address}: disk-growth mode permits only VM 100 scsi0 growth from 400 to 550 GiB")
             continue
 
+        if args.mode == "tailscale-controller-retirement":
+            if address == "terraform_data.tailscale_policy[0]":
+                try:
+                    before_policy = policy_json(change, "before")
+                    after_policy = policy_json(change, "after")
+                    valid_change = actions == ["update"] and after_policy == local_controller_gateway_policy(before_policy)
+                except (AttributeError, json.JSONDecodeError, TypeError, ValueError):
+                    valid_change = False
+            else:
+                before = change.get("before") or {}
+                expected_descriptions = {
+                    "tailscale_federated_identity.ci_plan[0]": "infrastructure-plan",
+                    "tailscale_federated_identity.ci_apply[0]": "infrastructure-apply",
+                    "tailscale_federated_identity.provider_plan[0]": "home-lab GitHub OpenTofu Tailscale plan provider",
+                    "tailscale_federated_identity.provider_apply[0]": "home-lab GitHub OpenTofu Tailscale apply provider",
+                }
+                valid_change = (
+                    address in expected_descriptions
+                    and resource_type == "tailscale_federated_identity"
+                    and actions == ["delete"]
+                    and before.get("issuer") == "https://token.actions.githubusercontent.com"
+                    and before.get("description") == expected_descriptions[address]
+                    and change.get("after") is None
+                )
+            if not valid_change:
+                failures.append(f"{address}: Tailscale controller retirement permits only the exact CI policy and identity removal")
+            continue
+
         if args.mode in {"ct-gateway-detach", "ct-gateway-retire"}:
             try:
                 before_policy = policy_json(change, "before")
@@ -388,15 +501,6 @@ def main() -> int:
             failures.append(f"{address}: creating or recreating retired CT 101 is forbidden")
             continue
 
-        retired_branch_policy_delete = (
-            address
-            == 'github_repository_environment_deployment_policy.apply["feat/infrastructure-reconciliation"]'
-            and actions == ["delete"]
-            and (change.get("before") or {}).get("branch_pattern") == "feat/infrastructure-reconciliation"
-            and change.get("after") is None
-        )
-        if retired_branch_policy_delete:
-            continue
 
         retired_mutation_lease_before = change.get("before") or {}
         retired_mutation_lease_delete = (
@@ -449,6 +553,13 @@ def main() -> int:
         failures.append("adoption plan contains no import actions")
     if args.mode == "recovery" and observed_addresses != RECOVERY_ADDRESSES:
         failures.append("recovery plan must contain the complete expected fresh resource set")
+    if args.mode == "controller-bootstrap" and observed_addresses != CONTROLLER_BOOTSTRAP_ADDRESSES:
+        failures.append("controller bootstrap plan must contain the exact AWS migration action set")
+    if (
+        args.mode == "tailscale-controller-retirement"
+        and (observed_actions != 5 or observed_addresses != TAILSCALE_CONTROLLER_RETIREMENT_ADDRESSES)
+    ):
+        failures.append("Tailscale controller retirement plan must contain one policy update and four identity deletions")
     if (
         args.mode == "network-migration"
         and observed_addresses != MAPPING_ADDRESSES | {"proxmox_virtual_environment_vm.arch"}

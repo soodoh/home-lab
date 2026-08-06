@@ -1,0 +1,49 @@
+{
+  "resource_changes": [
+    {
+      "address": "aws_dynamodb_table.mutation_lease[0]",
+      "type": "aws_dynamodb_table",
+      "change": {"actions": ["delete"], "before": {"name": "home-lab-infrastructure-lease"}, "after": null}
+    },
+    {
+      "address": "aws_iam_openid_connect_provider.github",
+      "type": "aws_iam_openid_connect_provider",
+      "change": {"actions": ["delete"], "before": {"url": "token.actions.githubusercontent.com"}, "after": null}
+    },
+    {
+      "address": "aws_iam_policy.state_apply",
+      "type": "aws_iam_policy",
+      "change": {"actions": ["update"], "before": {"name": "home-lab-opentofu-state-apply"}, "after": {"name": "home-lab-opentofu-state-apply", "policy": "rolesanywhere:Create*"}}
+    },
+    {
+      "address": "aws_iam_policy.state_plan",
+      "type": "aws_iam_policy",
+      "change": {"actions": ["update"], "before": {"name": "home-lab-opentofu-state-plan"}, "after": {"name": "home-lab-opentofu-state-plan", "policy": "rolesanywhere:Get*"}}
+    },
+    {
+      "address": "aws_iam_role.controller_apply",
+      "type": "aws_iam_role",
+      "change": {"actions": ["update"], "before": {"name": "home-lab-infrastructure-apply"}, "after": {"name": "home-lab-infrastructure-apply"}}
+    },
+    {
+      "address": "aws_iam_role.controller_plan",
+      "type": "aws_iam_role",
+      "change": {"actions": ["update"], "before": {"name": "home-lab-infrastructure-plan"}, "after": {"name": "home-lab-infrastructure-plan"}}
+    },
+    {
+      "address": "aws_rolesanywhere_profile.controller_apply",
+      "type": "aws_rolesanywhere_profile",
+      "change": {"actions": ["create"], "before": null, "after": {"name": "home-lab-local-controller-apply", "enabled": true, "duration_seconds": 3600}}
+    },
+    {
+      "address": "aws_rolesanywhere_profile.controller_plan",
+      "type": "aws_rolesanywhere_profile",
+      "change": {"actions": ["create"], "before": null, "after": {"name": "home-lab-local-controller-plan", "enabled": true, "duration_seconds": 3600}}
+    },
+    {
+      "address": "aws_rolesanywhere_trust_anchor.local_controller",
+      "type": "aws_rolesanywhere_trust_anchor",
+      "change": {"actions": ["create"], "before": null, "after": {"name": "home-lab-local-controller", "enabled": true, "source": [{"source_type": "CERTIFICATE_BUNDLE"}]}}
+    }
+  ]
+}

@@ -65,7 +65,7 @@ x-backup-volumes: &backup-volumes
 
 services:
   omada:
-    image: mbentley/omada-controller:6.2
+    image: mbentley/omada-controller:6.2@sha256:d281c115461bd5969e6e1864483e7bf57ca966bddde69d6a3b9a770f3289e273
     container_name: omada
     restart: always
     logging: *default-logging
@@ -88,7 +88,7 @@ services:
       docker-volume-backup.stop-during-backup: true
 
   ddns-updater:
-    image: ghcr.io/qdm12/ddns-updater:v2.10.0
+    image: ghcr.io/qdm12/ddns-updater:v2.10.0@sha256:3e2aa558946b5a293def4d73008fa4651c072b2c12932cecd02126fb23979831
     container_name: ddns-updater
     restart: always
     logging: *default-logging
@@ -103,7 +103,7 @@ services:
       - proxy
 
   caddy:
-    image: caddy:2.11.4
+    image: caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
     container_name: caddy
     restart: always
     logging: *default-logging
@@ -127,7 +127,7 @@ services:
         ipv4_address: 172.23.0.250
 
   pihole:
-    image: pihole/pihole:2026.07.2
+    image: pihole/pihole:2026.07.2@sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b
     container_name: pihole
     restart: always
     logging: *default-logging

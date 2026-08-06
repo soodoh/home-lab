@@ -6,28 +6,23 @@ This is a repository-only design for a future Proxmox LXC. It does **not** autho
 creating or starting a container, changing Proxmox networking, enabling IP forwarding, installing Tailscale,
 advertising routes, or changing tailnet policy.
 
-The `tag:ci` GitHub workload identity and routed CI path below are retained as historical design context only. That
-identity was retired after plan/apply automation moved to direct Docker connectivity through `tag:ci-plan` and
-`tag:ci-apply`; the gateway remains available as an independent recovery path.
-
-The gateway provides a stable management path when the Docker VM is absent or being reprovisioned:
+The gateway remains an independent recovery path for the trusted MacBook controller; no hosted workload identity or CI tag is retained.
 
 ```text
-GitHub-hosted runner
-  -> hosted Tailscale workload identity (`tag:ci`)
+Recovery path:
+trusted MacBook controller
+  -> operator Tailscale identity
   -> unprivileged gateway LXC (`tag:infra-router`)
-  -> Proxmox API at 192.168.0.123:8006
-  -> Docker LAN OpenSSH at 192.168.0.100:22 (bootstrap/recovery)
+  -> Proxmox API and Docker LAN OpenSSH
 
 Normal Docker management:
-GitHub-hosted runner
+trusted MacBook controller
+  -> operator Tailscale identity
   -> direct Tailscale SSH
   -> Docker VM (`tag:docker-host`, local user `ansible-deploy`)
 ```
 
-The routed path provides network connectivity only. OpenTofu still requires a Proxmox API token, and routed
-OpenSSH still requires a key, certificate, or another OpenSSH credential. Direct Tailscale SSH on the Docker VM
-remains the normal keyless identity path.
+The routed path provides connectivity only. OpenTofu still requires its separated API token, and routed OpenSSH still requires an SSH credential. Direct Tailscale SSH remains the normal identity path.
 
 ## Observed Proxmox baseline
 

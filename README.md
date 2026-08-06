@@ -15,7 +15,7 @@ Frigate uses a PCIe Coral passed through to the Arch VM. Proxmox binds the PCI f
 - Linux 6.0+ removal of `no_llseek`; and
 - Linux 7.1+ replacement of `zap_vma_ptes()` with `zap_special_vma_range()`.
 
-[`coral-package.yml`](.github/workflows/coral-package.yml) builds `gasket-dkms-git r236.5815ee3-3` in a digest-pinned Arch environment, publishes the package as an OCI artifact, and keylessly signs its immutable digest. Recovery remains blocked until that digest and the package SHA-256 are recorded in the contract. Ansible verifies both the Sigstore identity and package checksum before installation, then checks DKMS status, running-kernel vermagic, PCI binding, `/dev/apex_0` ownership/mode, and Frigate health.
+The `coral` Ansible role copies the exact tracked `recovery/coral` recipe to the Docker host, builds it twice in a digest-pinned Arch environment with a fixed source epoch, requires byte identity and the contract package SHA-256, installs the local package, and removes the temporary build. It then verifies DKMS status, running-kernel vermagic, PCI binding, `/dev/apex_0` ownership/mode, and Frigate health. No package registry, GitHub OIDC identity, or persistent Coral artifact is required.
 
 Do not reinstall the mutable AUR package or use `SKIP` checksums. To verify the converged runtime:
 

@@ -23,7 +23,7 @@ class QualificationOrchestrationTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.repo = Path(self.temporary.name)
         (self.repo / "scripts").mkdir()
-        (self.repo / ".github/scripts").mkdir(parents=True)
+        (self.repo / "scripts/controller").mkdir(parents=True)
         (self.repo / "infrastructure/tofu/proxmox-lxc-qualification").mkdir(parents=True)
         (self.repo / "infrastructure/contract").mkdir(parents=True)
         (self.repo / ".reconcile/lxc-qualification").mkdir(parents=True)
@@ -36,9 +36,6 @@ class QualificationOrchestrationTests(unittest.TestCase):
         self._write_fake_commands()
         self.env = os.environ | {
             "PATH": f"{self.bin}:{os.environ['PATH']}",
-            "GITHUB_ACTIONS": "true",
-            "GITHUB_REF": "refs/heads/main",
-            "GITHUB_SHA": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             "TF_BACKEND_BUCKET": "test-bucket",
             "AWS_REGION": "test-region",
             "TF_VAR_proxmox_endpoint": "https://proxmox:8006/api2/json",
@@ -66,7 +63,7 @@ class QualificationOrchestrationTests(unittest.TestCase):
         path.chmod(0o755)
 
     def _write_fake_commands(self) -> None:
-        helper = self.repo / ".github/scripts/proxmox-lxc-qualification.py"
+        helper = self.repo / "scripts/controller/proxmox-lxc-qualification.py"
         helper.write_text(
             textwrap.dedent(
                 """\

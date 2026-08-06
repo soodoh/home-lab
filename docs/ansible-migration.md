@@ -2,19 +2,15 @@
 
 ## Current scope and stop point
 
-Phases 1 through 5 are complete through the first successful remote GitHub-hosted audit. A protected automatic
-single-tag plan pipeline is staged on a feature branch, while normal apply remains disabled by repository variable and
-is not authorized. Stop before enabling the apply gate.
-
-The target execution path remains:
+The host migration is complete and GitHub-hosted execution is retired. Normal mutation is authorized only through an operation-specific, manifest-bound local approval.
 
 ```text
-protected main
-  -> ephemeral GitHub-hosted runner
-  -> Tailscale workload identity
-  -> SSH to Docker VM
-  -> Ansible
-  -> existing Docker Compose project
+clean committed revision on the trusted MacBook
+  -> separate local plan credential
+  -> reviewed exact saved plan and single-use approval
+  -> separate local apply credential
+  -> direct operator Tailscale access
+  -> Ansible and the existing Docker Compose project
 ```
 
 Tailscale runs as the host-level `tailscaled.service`. Tailscale, SSH, firewall, mount, upgrade, and reboot work remains a
@@ -85,9 +81,7 @@ read-only CLI probes, and makes assertions. Every `command` task declares `chang
 probes execute during `--check`, so both ordinary audit and check-mode audit must finish with `changed=0`. There are
 no handlers or Docker mutations.
 
-Production inventory targets the stable Docker Tailscale IP as `ansible-deploy`. The now-retired manual GitHub-hosted
-audit recorded in [`github-actions-ansible.md`](./github-actions-ansible.md) completed successfully with
-`ok=45 changed=0 unreachable=0 failed=0`; its ephemeral `tag:ci` node logged out cleanly.
+Production inventory targets the stable Docker Tailscale identity. Historical hosted-controller audits completed with zero changes; the current authority is the manual trusted-controller workflow.
 
 The operator separately installed `ansible` `14.2.0-1` (`ansible-core` `2.21.2`) using the previously approved
 bootstrap command and reported that the audit completed with `changed=0`.
@@ -140,15 +134,7 @@ Final bootstrap, audit, and site checks all report `changed=0`.
 The completed record and rollback boundaries are in [`tailscale-bootstrap.md`](./tailscale-bootstrap.md). Production
 inventory is now validated through the successful remote audit.
 
-The completed Phase 5 manual audit used a main-restricted GitHub OIDC environment, an ephemeral `tag:ci` node, pinned
-actions, strict SSH host-key checking, and `audit.yml --check --diff` only. That standalone path was later retired; its
-activation record remains in [`github-actions-ansible.md`](./github-actions-ansible.md).
-
-The deployment pipeline is documented in [`github-actions-deploy.md`](./github-actions-deploy.md). Same-repository pull
-requests and manual dispatches plan through the unprivileged `infrastructure-plan`/`tag:ci-plan` identity; drafts and
-forks cannot contact the host. The required PR merge is the explicit approval for a changed merged-commit plan to use
-the one-tag guard, persistent host lock, zero-change post-check, and complete audit without a second environment-review
-click.
+GitHub-hosted execution is retired. The manual workflow in [`local-controller.md`](./local-controller.md) permits any clean committed revision, separates plan/apply credentials, binds approvals to exact saved plans, retains the host lock, proves zero-change post-checks, and runs the complete audit.
 ## Recovery work still required
 
 A manual restore drill is mandatory before any stateful Compose adoption or apply. It must be separately planned

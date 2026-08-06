@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   nextcloud:
-    image: nextcloud:34.0.2-apache
+    image: nextcloud:34.0.2-apache@sha256:d7666d54d87c58d52869ddda36d1acbd4a7f53faf8ab6b91293daf204f3434e8
     container_name: nextcloud
     restart: always
     logging: *default-logging
@@ -31,7 +31,7 @@ services:
       - nextcloud
 
   nextcloud-db:
-    image: mariadb:lts-ubi9
+    image: mariadb:lts-ubi9@sha256:29dd37f5df222f7c2668b51d412536ffeff0efc4d4b68d849e9bcead913bffe0
     container_name: nextcloud-db
     restart: always
     logging: *default-logging
@@ -51,7 +51,7 @@ services:
       - nextcloud
 
   nextcloud-redis:
-    image: redis:8.2-m01-alpine
+    image: redis:8.2-m01-alpine@sha256:73785dd3f61435fbea1a14bafd2c6509f9df112f50953e09eb31c94717c77e76
     container_name: nextcloud-redis
     restart: always
     logging: *default-logging

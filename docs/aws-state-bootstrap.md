@@ -1,23 +1,32 @@
-# AWS state bootstrap and migration
+# AWS state bootstrap and local-controller migration
 
-The AWS foundation root is intentionally local-state first because it creates the remote state bucket, recovery bucket, KMS keys, and GitHub OIDC roles used by later roots. Root operations use native OpenTofu S3 lockfiles rather than a separate DynamoDB lease table.
+The AWS foundation root owns the encrypted OpenTofu state bucket, the separately regional KMS-encrypted recovery bucket, and the IAM Roles Anywhere identities used by the trusted MacBook controller. Roots use native S3 lockfiles; the former DynamoDB lease is an explicit retirement tombstone.
 
-The migration away from the former global lease is destructive only for that obsolete table. The reviewed AWS-foundation plan first updates the apply policy with temporary `GetItem`, `DescribeTable`, and `DeleteTable` authority scoped to the exact former table; the count-zero tombstone depends on that update. Immediately before exact-plan apply, the reconciler performs a consistent read of only the fixed production lease key and refuses retirement unless the item is absent. Plan policy permits only the exact former name, key schema, billing mode, TTL schema, and deletion address. After a successful delete and no-op proof, use a follow-up reviewed PR to remove the transitional tombstone and temporary DynamoDB authority. A failed deletion is non-authoritative and must be replanned after inspection.
+## One-time Roles Anywhere transition
 
-1. Authenticate with a reviewed bootstrap identity and populate protected `TF_VAR_*` values.
-2. Ensure the checkout is clean and inspect `scripts/bootstrap-aws-state`.
-3. When retaining the existing off-site backup bucket, independently verify its identity and set `AWS_FOUNDATION_RECOVERY_ADOPTION_CONFIRMED=import-existing-recovery-bucket`. The bootstrap then imports only that bucket's existing base, versioning, encryption, ownership, and public-access resources; lifecycle remains a reviewed create when absent.
+The reviewed `controller-bootstrap` plan is intentionally narrow:
 
-The foundation and existing off-site bucket intentionally use separate reviewed regions. `TF_VAR_recovery_bucket_region` selects the aliased recovery provider, and the recovery bucket uses a region-local rotating KMS key; never attempt to encrypt it with the state region's KMS key.
+- create one enabled trust anchor from the committed public controller CA;
+- create separate plan and apply Roles Anywhere profiles;
+- update the existing plan/apply role trust policies to Roles Anywhere;
+- update their least-privilege IAM policies for local reconciliation;
+- delete the obsolete GitHub OIDC provider; and
+- delete the obsolete empty DynamoDB lease table.
 
-If the account already has the GitHub Actions OIDC provider, independently verify its URL and set `AWS_FOUNDATION_GITHUB_OIDC_ADOPTION_CONFIRMED=import-existing-github-oidc-provider`; the bootstrap imports and reconciles it instead of attempting a duplicate.
+Run the transition from any clean committed revision using the existing authorized AWS bootstrap session:
 
-Resolve the stable numeric GitHub owner and repository IDs and provide `TF_VAR_github_owner_id` and `TF_VAR_github_repository_id`. This repository's GitHub OIDC customization emits canonical subjects containing those IDs; name-only trust conditions will be rejected by AWS even when the environment name matches.
-4. Set the exact `AWS_FOUNDATION_BOOTSTRAP_CONFIRMED=create-and-migrate-reviewed-aws-foundation` gate.
-5. Run `scripts/bootstrap-aws-state`. It creates a private ignored copy with a local backend, permits only allowlisted creates plus the explicit recovery-bucket imports/updates, applies the saved plan serially, and migrates that state to the encrypted S3 backend.
+```sh
+scripts/local-controller plan controller-bootstrap
+scripts/local-controller review controller-bootstrap
+scripts/local-controller approve controller-bootstrap --confirmation bootstrap-reviewed-local-controller
+scripts/local-controller apply controller-bootstrap
+scripts/configure-local-controller-aws
+```
 
-If apply fails after creating resources, retain the private workspace and state. After correcting the reviewed cause, set `AWS_FOUNDATION_BOOTSTRAP_RESUME_CONFIRMED=resume-reviewed-partial-aws-bootstrap`. Resume is allowed only when the current root and contract match the retained copy; the policy permits remaining creates and explicit imports but no deletes.
-6. The script compares the canonical local and remote outputs/resources without printing state, removes transient state from the tracked root, and requires a remote-backend no-op. It tolerates backend-assigned lineage/serial changes only when the complete managed state projection is identical.
-7. Retain `.local/aws-foundation-bootstrap` as protected sensitive recovery material until the remote state is independently verified, then securely remove it and revoke the temporary bootstrap access key, attached policy, and IAM identity. Root login is reserved only for creating and deleting that temporary identity and must be logged out afterward.
+Plan policy permits only the reviewed nine-action shape and binds all resources to the expected names and trust-anchor source. Apply consumes the exact saved plan, verifies that the former lease key is absent immediately before deletion, and requires a fresh no-op afterward. A failed apply is non-authoritative; inspect state and create a new reviewed plan rather than retrying blindly.
 
-Do not create empty state objects manually, use `-migrate-state` in CI, or infer bucket/table names. Migration remains blocked until protected backend coordinates and AWS credentials are supplied. The canonical reconciler refuses to treat an unqualified local-state foundation as steady production.
+`scripts/configure-local-controller-aws` writes short-lived certificate-backed `home-lab-plan` and `home-lab-apply` profiles to the controller's protected AWS files. It verifies that both identities assume the expected distinct role ARNs. Private keys remain mode `0600` outside Git; only the public CA is tracked.
+
+The foundation and off-site recovery bucket intentionally use separate reviewed regions. `TF_VAR_recovery_bucket_region` selects the aliased recovery provider, and the recovery bucket uses a region-local rotating KMS key.
+
+Never print or infer bucket names, KMS identities, role ARNs, or certificate material. Keep protected coordinates in the mode-`0600` local controller credentials. Do not create state objects manually or replan during apply.

@@ -269,7 +269,6 @@ def parse_args() -> argparse.Namespace:
     transition = subparsers.add_parser("transition")
     transition.add_argument("--base-contract", type=Path, required=True)
     transition.add_argument("--head-contract", type=Path, required=True)
-    transition.add_argument("--github-output", type=Path)
 
     manifest = subparsers.add_parser("verify-manifest")
     manifest.add_argument("--manifest", type=Path, required=True)
@@ -329,11 +328,7 @@ def main() -> int:
             return 0
         if args.command == "transition":
             operation = transition_operation(args.base_contract, args.head_contract)
-            if args.github_output:
-                with args.github_output.open("a") as output:
-                    output.write(f"operation={operation}\n")
-            else:
-                print(operation)
+            print(operation)
             return 0
         stage = gateway_stage(args.contract)
         if not operation_matches_stage(args.operation, stage, ct_stage(args.contract)):

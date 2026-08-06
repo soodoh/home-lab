@@ -79,17 +79,68 @@ class GatewayLifecycleTests(unittest.TestCase):
                 rendered[stage] = json.loads(json.loads(result.stdout.strip()))
             return rendered
 
+    def legacy_detached_policy(self) -> dict:
+        policy = deepcopy(self.policies["detached"])
+        policy["tagOwners"].update({
+            "tag:ci-plan": ["autogroup:admin"],
+            "tag:ci-apply": ["autogroup:admin"],
+        })
+        policy["grants"][1]["src"].extend(["tag:ci-plan", "tag:ci-apply"])
+        policy["grants"].extend([
+            {"src": ["tag:ci-plan"], "dst": ["tag:proxmox"], "ip": ["tcp:22", "tcp:8006"]},
+            {"src": ["tag:ci-apply"], "dst": ["tag:proxmox"], "ip": ["tcp:22", "tcp:8006"]},
+            {"src": ["tag:ci-plan", "tag:ci-apply"], "dst": ["tag:docker-host"], "ip": ["tcp:8043"]},
+        ])
+        policy["ssh"][1]["src"] = ["autogroup:admin"]
+        policy["ssh"][2:2] = [
+            {"action": "accept", "src": ["tag:ci-plan"], "dst": ["tag:docker-host"], "users": ["ansible-plan"]},
+            {"action": "accept", "src": ["tag:ci-apply"], "dst": ["tag:docker-host"], "users": ["ansible-plan", "ansible-deploy"]},
+        ]
+        policy["tests"][0:0] = [
+            {"src": "tag:ci-plan", "proto": "tcp", "accept": ["tag:docker-host:22", "tag:docker-host:8043", "tag:proxmox:22", "tag:proxmox:8006"], "deny": ["tag:proxmox:8007"]},
+            {"src": "tag:ci-apply", "proto": "tcp", "accept": ["tag:docker-host:22", "tag:docker-host:8043", "tag:proxmox:22", "tag:proxmox:8006"], "deny": ["tag:proxmox:8007"]},
+        ]
+        policy["sshTests"][0:0] = [
+            {"src": "tag:ci-plan", "dst": ["tag:proxmox"], "accept": ["tofu-plan"], "deny": ["root", "tofu-apply"]},
+            {"src": "tag:ci-apply", "dst": ["tag:proxmox"], "accept": ["tofu-apply"], "deny": ["root", "tofu-plan"]},
+        ]
+        return policy
+
+    @staticmethod
+    def identity_deletions() -> list[dict]:
+        descriptions = {
+            "tailscale_federated_identity.ci_plan[0]": "infrastructure-plan",
+            "tailscale_federated_identity.ci_apply[0]": "infrastructure-apply",
+            "tailscale_federated_identity.provider_plan[0]": "home-lab GitHub OpenTofu Tailscale plan provider",
+            "tailscale_federated_identity.provider_apply[0]": "home-lab GitHub OpenTofu Tailscale apply provider",
+        }
+        return [
+            {
+                "address": address,
+                "type": "tailscale_federated_identity",
+                "mode": "managed",
+                "change": {
+                    "actions": ["delete"],
+                    "before": {
+                        "description": description,
+                        "issuer": "https://token.actions.githubusercontent.com",
+                    },
+                    "after": None,
+                },
+            }
+            for address, description in descriptions.items()
+        ]
+
     def test_real_root_exact_stages_and_unrelated_policy(self) -> None:
         active = self.policies["active"]
         detached = self.policies["detached"]
         retired = self.policies["retired"]
         self.assertEqual(detached, inspector.detached_gateway_policy(active))
         self.assertEqual(retired, inspector.retired_gateway_policy(detached))
-        for field in ("tests", "sshTests"):
-            self.assertEqual(active[field], detached[field])
-            self.assertEqual(detached[field], retired[field])
+        for tag in ("tag:ci", "tag:ci-plan", "tag:ci-apply"):
+            self.assertFalse(inspector.contains_exact(detached, tag))
+            self.assertFalse(inspector.contains_exact(retired, tag))
         self.assertNotIn("autoApprovers", detached)
-        self.assertFalse(inspector.contains_exact(detached, "tag:ci"))
         self.assertFalse(inspector.contains_exact(retired, "tag:infra-router"))
 
     def test_transition_and_cross_lifecycle_rules(self) -> None:
@@ -130,6 +181,21 @@ class GatewayLifecycleTests(unittest.TestCase):
     def test_exact_detach_and_retire_plans(self) -> None:
         self.assertEqual(self.run_policy(self.policies["active"], self.policies["detached"], "ct-gateway-detach").returncode, 0)
         self.assertEqual(self.run_policy(self.policies["detached"], self.policies["retired"], "ct-gateway-retire").returncode, 0)
+
+    def test_exact_local_controller_retirement(self) -> None:
+        legacy_detached = self.legacy_detached_policy()
+        result = self.run_policy(
+            legacy_detached,
+            self.policies["detached"],
+            "tailscale-controller-retirement",
+            self.identity_deletions(),
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        missing_identity = self.identity_deletions()[:-1]
+        self.assertNotEqual(
+            self.run_policy(legacy_detached, self.policies["detached"], "tailscale-controller-retirement", missing_identity).returncode,
+            0,
+        )
 
     def test_normal_rejects_required_lifecycle_mutation_but_allows_pre_retirement_rollback_shape(self) -> None:
         self.assertNotEqual(self.run_policy(self.policies["active"], self.policies["detached"], "normal").returncode, 0)
