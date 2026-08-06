@@ -28,6 +28,8 @@ Credential JSON is an object of environment variable names and string values. It
 AWS uses separate, independently verified IAM Roles Anywhere certificates and profiles. The former hosted OIDC provider and DynamoDB lease are retired, and the foundation is converged under native S3 lockfiles.
 Tailscale uses distinct local OAuth clients for plan and apply; the apply client intentionally lacks device-deletion authority. Omada uses distinct local viewer and administrator accounts. Their values live only in the corresponding protected JSON files.
 
+Create the Tailscale plan client with `policy_file:read`, `federated_keys:read`, `devices:core:read`, and `devices:posture_attributes:read`. Create the apply client with `policy_file`, `federated_keys`, `devices:core:read`, and `devices:posture_attributes`; do not grant device deletion. In Omada, create a viewer for plans and a distinct administrator for applies. Run `scripts/configure-local-provider-credentials` locally to enter all four credentials through hidden terminal prompts; it writes only to the existing protected JSON files.
+
 ## Manual workflow
 
 ```sh

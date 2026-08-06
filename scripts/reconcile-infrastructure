@@ -213,6 +213,7 @@ if [[ $action == validate ]]; then
   python3 -m py_compile scripts/*.py scripts/controller/*.py
   shellcheck scripts/reconcile-infrastructure scripts/local-controller \
     scripts/bootstrap-proxmox-host scripts/build-recovery-bundle scripts/configure-local-controller-aws \
+    scripts/configure-local-provider-credentials \
     scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack \
     scripts/prepare-omada-plan-input scripts/qualify-proxmox-lxc scripts/rehearse-recovery \
     scripts/restore-critical-backup scripts/test-recovery-tools recovery/coral/build-package
