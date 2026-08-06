@@ -65,6 +65,10 @@ sha256_file() {
   if command -v sha256sum >/dev/null; then sha256sum "$1" | awk '{print $1}'; else shasum -a 256 "$1" | awk '{print $1}'; fi
 }
 
+state_projection_sha256() {
+  jq -cS '{version,terraform_version,serial,lineage,outputs,resources}' "$1" | shasum -a 256 | awk '{print $1}'
+}
+
 work=$(mktemp -d "${TMPDIR:-/tmp}/github-state-detach.XXXXXX")
 chmod 0700 "$work"
 cleanup() { rm -rf "$work"; }
@@ -109,13 +113,14 @@ case "$action" in
     tofu -chdir="$work" state list >"$saved_addresses"
     chmod 0600 "$saved_state" "$saved_addresses"
     validate_addresses "$saved_addresses"
-    state_sha=$(sha256_file "$saved_state")
+    state_file_sha=$(sha256_file "$saved_state")
+    state_projection_sha=$(state_projection_sha256 "$saved_state")
     addresses_sha=$(sha256_file "$saved_addresses")
     serial=$(jq -er '.serial | select(type == "number" and . >= 0)' "$saved_state")
     lineage_sha=$(jq -er '.lineage | select(type == "string" and length > 0)' "$saved_state" | shasum -a 256 | awk '{print $1}')
-    jq -n --arg commit "$commit" --arg state_sha "$state_sha" --arg addresses_sha "$addresses_sha" \
+    jq -n --arg commit "$commit" --arg state_file_sha "$state_file_sha" --arg state_projection_sha "$state_projection_sha" --arg addresses_sha "$addresses_sha" \
       --arg lineage_sha "$lineage_sha" --argjson serial "$serial" \
-      '{version:2,commit:$commit,operation:"github-state-detach",state_sha256:$state_sha,addresses_sha256:$addresses_sha,lineage_sha256:$lineage_sha,serial:$serial,resource_count:26,plans:[]}' \
+      '{version:2,commit:$commit,operation:"github-state-detach",saved_state_file_sha256:$state_file_sha,state_projection_sha256:$state_projection_sha,addresses_sha256:$addresses_sha,lineage_sha256:$lineage_sha,serial:$serial,resource_count:26,plans:[]}' \
       >"$manifest"
     chmod 0600 "$manifest"
     echo "github_state_detach=planned resources=26"
@@ -123,8 +128,8 @@ case "$action" in
   review)
     [[ -f $manifest && -f $saved_state && -f $saved_addresses ]] || exit 66
     validate_addresses "$saved_addresses"
-    jq -e --arg commit "$commit" --arg state_sha "$(sha256_file "$saved_state")" --arg addresses_sha "$(sha256_file "$saved_addresses")" \
-      '.version == 2 and .commit == $commit and .operation == "github-state-detach" and .state_sha256 == $state_sha and .addresses_sha256 == $addresses_sha and .resource_count == 26' \
+    jq -e --arg commit "$commit" --arg state_file_sha "$(sha256_file "$saved_state")" --arg state_projection_sha "$(state_projection_sha256 "$saved_state")" --arg addresses_sha "$(sha256_file "$saved_addresses")" \
+      '.version == 2 and .commit == $commit and .operation == "github-state-detach" and .saved_state_file_sha256 == $state_file_sha and .state_projection_sha256 == $state_projection_sha and .addresses_sha256 == $addresses_sha and .resource_count == 26' \
       "$manifest" >/dev/null
     jq -r '[.resources[] | .type] | group_by(.) | map("\(.[0])=\(length)") | .[]' "$saved_state"
     echo "github_state_detach=reviewed resources=26 live_resources_unchanged=true"
@@ -137,8 +142,8 @@ case "$action" in
     tofu -chdir="$work" state pull >"$current_state"
     tofu -chdir="$work" state list >"$current_addresses"
     validate_addresses "$current_addresses"
-    jq -e --arg commit "$commit" --arg state_sha "$(sha256_file "$current_state")" --arg addresses_sha "$(sha256_file "$current_addresses")" \
-      '.version == 2 and .commit == $commit and .operation == "github-state-detach" and .state_sha256 == $state_sha and .addresses_sha256 == $addresses_sha and .resource_count == 26' \
+    jq -e --arg commit "$commit" --arg saved_state_file_sha "$(sha256_file "$saved_state")" --arg state_projection_sha "$(state_projection_sha256 "$current_state")" --arg addresses_sha "$(sha256_file "$current_addresses")" \
+      '.version == 2 and .commit == $commit and .operation == "github-state-detach" and .saved_state_file_sha256 == $saved_state_file_sha and .state_projection_sha256 == $state_projection_sha and .addresses_sha256 == $addresses_sha and .resource_count == 26' \
       "$manifest" >/dev/null
     mapfile -t addresses <"$saved_addresses"
     tofu -chdir="$work" state rm -lock-timeout=5m "${addresses[@]}" >/dev/null
