@@ -77,7 +77,13 @@ locals {
       },
       {
         action = "accept"
-        src    = ["autogroup:owner", "autogroup:admin", local.tags.arch]
+        src    = ["autogroup:owner", "autogroup:admin"]
+        dst    = [local.tags.proxmox]
+        users  = ["root", "tofu-plan", "tofu-apply"]
+      },
+      {
+        action = "accept"
+        src    = [local.tags.arch]
         dst    = [local.tags.proxmox]
         users  = ["root"]
       },
@@ -96,6 +102,11 @@ locals {
     ]
 
     sshTests = [
+      {
+        src    = "autogroup:owner"
+        dst    = [local.tags.proxmox]
+        accept = ["root", "tofu-plan", "tofu-apply"]
+      },
       {
         src    = local.tags.arch
         dst    = [local.tags.proxmox]

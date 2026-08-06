@@ -64,6 +64,7 @@ def parse_args() -> argparse.Namespace:
             "disk-growth",
             "qualification",
             "tailscale-controller-retirement",
+            "tailscale-controller-access",
         ),
         default="normal",
     )
@@ -198,6 +199,44 @@ def local_controller_gateway_policy(detached: Any) -> Any:
         policy[key] = [entry for entry in entries if isinstance(entry, dict) and entry.get("src") not in ci_tags]
     if any(contains_exact(policy, tag) for tag in ci_tags):
         raise ValueError("an unreviewed CI tag occurrence remains")
+    return local_controller_access_policy(policy)
+
+def local_controller_access_policy(detached: Any) -> Any:
+    if not isinstance(detached, dict):
+        raise ValueError("managed policy is not an object")
+    policy = deepcopy(detached)
+    if any(contains_exact(policy, tag) for tag in ("tag:ci", "tag:ci-plan", "tag:ci-apply")):
+        raise ValueError("local-controller policy contains a retired CI tag")
+    old_rule = {
+        "action": "accept",
+        "src": ["autogroup:owner", "autogroup:admin", "tag:docker-host"],
+        "dst": ["tag:proxmox"],
+        "users": ["root"],
+    }
+    rules = policy.get("ssh")
+    index = unique_index(rules, old_rule, "combined Proxmox SSH rule")
+    rules[index:index + 1] = [
+        {
+            "action": "accept",
+            "src": ["autogroup:owner", "autogroup:admin"],
+            "dst": ["tag:proxmox"],
+            "users": ["root", "tofu-plan", "tofu-apply"],
+        },
+        {
+            "action": "accept",
+            "src": ["tag:docker-host"],
+            "dst": ["tag:proxmox"],
+            "users": ["root"],
+        },
+    ]
+    ssh_tests = policy.get("sshTests")
+    if not isinstance(ssh_tests, list) or len(ssh_tests) != 1:
+        raise ValueError("detached SSH tests are malformed")
+    ssh_tests.insert(0, {
+        "src": "autogroup:owner",
+        "dst": ["tag:proxmox"],
+        "accept": ["root", "tofu-plan", "tofu-apply"],
+    })
     return policy
 
 
@@ -371,6 +410,21 @@ def main() -> int:
                 failures.append(f"{address}: disk-growth mode permits only VM 100 scsi0 growth from 400 to 550 GiB")
             continue
 
+        if args.mode == "tailscale-controller-access":
+            try:
+                before_policy = policy_json(change, "before")
+                after_policy = policy_json(change, "after")
+                valid_change = (
+                    address == "terraform_data.tailscale_policy[0]"
+                    and actions == ["update"]
+                    and after_policy == local_controller_access_policy(before_policy)
+                )
+            except (AttributeError, json.JSONDecodeError, TypeError, ValueError):
+                valid_change = False
+            if not valid_change:
+                failures.append(f"{address}: local-controller access repair permits only the exact Proxmox SSH policy split")
+            continue
+
         if args.mode == "tailscale-controller-retirement":
             if address == "terraform_data.tailscale_policy[0]":
                 try:
@@ -500,6 +554,10 @@ def main() -> int:
         and (observed_actions != 5 or observed_addresses != TAILSCALE_CONTROLLER_RETIREMENT_ADDRESSES)
     ):
         failures.append("Tailscale controller retirement plan must contain one policy update and four identity deletions")
+    if args.mode == "tailscale-controller-access" and (
+        observed_actions != 1 or observed_addresses != {"terraform_data.tailscale_policy[0]"}
+    ):
+        failures.append("local-controller access repair plan must contain exactly one policy update")
     if (
         args.mode == "network-migration"
         and observed_addresses != MAPPING_ADDRESSES | {"proxmox_virtual_environment_vm.arch"}

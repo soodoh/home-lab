@@ -79,8 +79,33 @@ class GatewayLifecycleTests(unittest.TestCase):
                 rendered[stage] = json.loads(json.loads(result.stdout.strip()))
             return rendered
 
-    def legacy_detached_policy(self) -> dict:
+    def pre_access_policy(self) -> dict:
         policy = deepcopy(self.policies["detached"])
+        owner_rule = {
+            "action": "accept",
+            "src": ["autogroup:owner", "autogroup:admin"],
+            "dst": ["tag:proxmox"],
+            "users": ["root", "tofu-plan", "tofu-apply"],
+        }
+        arch_rule = {
+            "action": "accept",
+            "src": ["tag:docker-host"],
+            "dst": ["tag:proxmox"],
+            "users": ["root"],
+        }
+        owner_index = policy["ssh"].index(owner_rule)
+        self.assertEqual(policy["ssh"][owner_index + 1], arch_rule)
+        policy["ssh"][owner_index:owner_index + 2] = [{
+            "action": "accept",
+            "src": ["autogroup:owner", "autogroup:admin", "tag:docker-host"],
+            "dst": ["tag:proxmox"],
+            "users": ["root"],
+        }]
+        policy["sshTests"] = policy["sshTests"][1:]
+        return policy
+
+    def legacy_detached_policy(self) -> dict:
+        policy = self.pre_access_policy()
         policy["tagOwners"].update({
             "tag:ci-plan": ["autogroup:admin"],
             "tag:ci-apply": ["autogroup:admin"],
@@ -196,6 +221,14 @@ class GatewayLifecycleTests(unittest.TestCase):
             self.run_policy(legacy_detached, self.policies["detached"], "tailscale-controller-retirement", missing_identity).returncode,
             0,
         )
+
+    def test_exact_local_controller_access_repair(self) -> None:
+        before = self.pre_access_policy()
+        result = self.run_policy(before, self.policies["detached"], "tailscale-controller-access")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        changed = deepcopy(self.policies["detached"])
+        changed["sshTests"] = []
+        self.assertNotEqual(self.run_policy(before, changed, "tailscale-controller-access").returncode, 0)
 
     def test_normal_rejects_required_lifecycle_mutation_but_allows_pre_retirement_rollback_shape(self) -> None:
         self.assertNotEqual(self.run_policy(self.policies["active"], self.policies["detached"], "normal").returncode, 0)

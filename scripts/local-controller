@@ -11,7 +11,7 @@ usage: scripts/local-controller <validate|plan|review|approve|apply> [operation]
 
 Operations:
   steady | disk-growth | ct-unprotect | ct-delete
-  tailscale-controller-retirement | tailscale-detach | tailscale-retire | recovery
+  tailscale-controller-retirement | tailscale-controller-access | tailscale-detach | tailscale-retire | recovery
 
 Options:
   --confirmation <non-secret-review-phrase>
@@ -78,6 +78,10 @@ case "$operation" in
   tailscale-controller-retirement)
     operation_args=(--phase steady --tailscale-controller-retirement)
     expected_confirmation=retire-reviewed-tailscale-ci-identities
+    ;;
+  tailscale-controller-access)
+    operation_args=(--phase steady --tailscale-controller-access)
+    expected_confirmation=repair-reviewed-tailscale-controller-access
     ;;
   tailscale-detach)
     operation_args=(--phase steady --tailscale-gateway-operation detach)

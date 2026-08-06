@@ -27,6 +27,7 @@ Options:
   --network-migration                 Permit only the reviewed hardware-mapping migration
   --disk-growth                      Permit only reviewed VM 100 root-disk growth
   --tailscale-controller-retirement  Remove only the four CI identities and every CI policy grant
+  --tailscale-controller-access      Repair only trusted-controller Proxmox SSH access
 
 Required environment:
   TF_BACKEND_BUCKET                   Existing encrypted OpenTofu state bucket
@@ -79,6 +80,7 @@ tailscale_gateway_operation=none
 network_migration=false
 disk_growth=false
 tailscale_controller_retirement=false
+tailscale_controller_access=false
 
 while (($#)); do
   case "$1" in
@@ -130,6 +132,10 @@ while (($#)); do
       tailscale_controller_retirement=true
       shift
       ;;
+    --tailscale-controller-access)
+      tailscale_controller_access=true
+      shift
+      ;;
     *) usage ;;
   esac
 done
@@ -174,7 +180,7 @@ if [[ $ct_retirement_operation != none ]]; then ct_operation=true; fi
 tailscale_gateway_lifecycle=false
 if [[ $tailscale_gateway_operation != none ]]; then tailscale_gateway_lifecycle=true; fi
 special_operation_count=0
-for enabled in "$ct_operation" "$tailscale_gateway_lifecycle" "$network_migration" "$disk_growth" "$tailscale_controller_retirement"; do
+for enabled in "$ct_operation" "$tailscale_gateway_lifecycle" "$network_migration" "$disk_growth" "$tailscale_controller_retirement" "$tailscale_controller_access"; do
   [[ $enabled == true ]] && ((special_operation_count += 1))
 done
 [[ $omada_qualification_operation == none ]] || ((special_operation_count += 1))
@@ -186,7 +192,7 @@ if ((special_operation_count == 1)) && [[ $phase != steady ]]; then
   echo "Special reconciliation operations require steady phase." >&2
   exit 64
 fi
-if [[ $action == apply && ($disk_growth == true || $ct_operation == true || $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true) ]]; then
+if [[ $action == apply && ($disk_growth == true || $ct_operation == true || $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true || $tailscale_controller_access == true) ]]; then
   python3 scripts/controller/reconcile-apply-source.py
 fi
 case "$plan_dir" in
@@ -293,7 +299,7 @@ roots=(aws-foundation proxmox omada tailscale)
 if [[ $phase != recovery ]]; then
   roots=(aws-foundation proxmox-legacy proxmox omada tailscale)
 fi
-if [[ $tailscale_controller_retirement == true ]]; then
+if [[ $tailscale_controller_retirement == true || $tailscale_controller_access == true ]]; then
   roots=(tailscale)
 fi
 enabled_roots=()
@@ -310,8 +316,8 @@ if [[ ($ct_operation == true || $tailscale_gateway_lifecycle == true) && ${#root
   echo "Lifecycle operations require every OpenTofu root to be enabled for no-op proof." >&2
   exit 64
 fi
-if [[ $tailscale_controller_retirement == true && ${#roots[@]} -ne 1 ]]; then
-  echo "Tailscale controller retirement requires the managed Tailscale root." >&2
+if [[ ($tailscale_controller_retirement == true || $tailscale_controller_access == true) && ${#roots[@]} -ne 1 ]]; then
+  echo "Tailscale controller operations require the managed Tailscale root." >&2
   exit 64
 fi
 sha256_file() {
@@ -509,6 +515,9 @@ policy_args() {
   if [[ $tailscale_controller_retirement == true && $root == tailscale ]]; then
     mode=tailscale-controller-retirement
   fi
+  if [[ $tailscale_controller_access == true && $root == tailscale ]]; then
+    mode=tailscale-controller-access
+  fi
   if [[ $root == omada && $omada_qualification_operation != none ]]; then
     mode=qualification
   fi
@@ -588,7 +597,7 @@ plan_all() {
       tailscale_policy_before_sha256=$(sha256_file "$planned_before_policy")
       tailscale_policy_after_sha256=$(sha256_file "$planned_after_policy")
       rm -f "$planned_before_policy" "$planned_after_policy"
-      if [[ $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true ]]; then
+      if [[ $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true || $tailscale_controller_access == true ]]; then
         python3 scripts/controller/tailscale-gateway-policy.py validate-before-identity \
           --planned-before-sha "$tailscale_policy_before_sha256" \
           --live-before-sha "$tailscale_live_policy_sha256"
@@ -636,6 +645,12 @@ plan_all() {
       exit 1
     }
   fi
+  if [[ $tailscale_controller_access == true ]]; then
+    jq -s -e 'length == 1 and .[0].root == "tailscale" and .[0].changed == true' "$records" >/dev/null || {
+      echo "Tailscale controller access repair requires one changed Tailscale plan." >&2
+      exit 1
+    }
+  fi
   if [[ $network_migration == true ]]; then
     jq -s -e '
       (map(select(.root == "proxmox" and .changed == true)) | length == 1) and
@@ -669,6 +684,7 @@ plan_all() {
     --argjson network_migration "$network_migration" \
     --argjson disk_growth "$disk_growth" \
     --argjson tailscale_controller_retirement "$tailscale_controller_retirement" \
+    --argjson tailscale_controller_access "$tailscale_controller_access" \
     --arg backend_bucket "$backend_bucket" \
     --arg compose_hash "$compose_hash" \
     --arg recovery_backup_identity_sha256 "$recovery_backup_identity_sha256" \
@@ -676,7 +692,7 @@ plan_all() {
       ct_retirement_operation: $ct_retirement_operation, retirement_stage: $retirement_stage,
       tailscale_gateway_operation: $tailscale_gateway_operation,
       tailscale_gateway_policy_stage: $tailscale_gateway_policy_stage,
-      network_migration: $network_migration, disk_growth: $disk_growth, tailscale_controller_retirement: $tailscale_controller_retirement, backend_bucket: $backend_bucket,
+      network_migration: $network_migration, disk_growth: $disk_growth, tailscale_controller_retirement: $tailscale_controller_retirement, tailscale_controller_access: $tailscale_controller_access, backend_bucket: $backend_bucket,
       recovery_backup_identity_sha256: $recovery_backup_identity_sha256,
       compose_artifact_sha256: $compose_hash, plans: .}' \
     "$records" >"$plan_dir/manifest.json"
@@ -704,6 +720,7 @@ verify_manifest() {
   [[ $(jq -r .network_migration "$manifest") == "$network_migration" ]]
   [[ $(jq -r .disk_growth "$manifest") == "$disk_growth" ]]
   [[ $(jq -r .tailscale_controller_retirement "$manifest") == "$tailscale_controller_retirement" ]]
+  [[ $(jq -r .tailscale_controller_access "$manifest") == "$tailscale_controller_access" ]]
   [[ $(jq -r .backend_bucket "$manifest") == "$backend_bucket" ]]
   [[ $(jq -r .compose_artifact_sha256 "$manifest") == "$(python3 scripts/compose-artifact.py hash)" ]]
   [[ $(jq -r .recovery_backup_identity_sha256 "$manifest") == "$(recovery_expected_backup_identity_sha256)" ]]
@@ -1109,6 +1126,10 @@ case "$action" in
     fi
     if [[ $ct_operation == true ]]; then
       apply_ct_retirement
+      exit 0
+    fi
+    if [[ $tailscale_controller_access == true ]]; then
+      apply_tailscale_controller_retirement
       exit 0
     fi
     if [[ $tailscale_controller_retirement == true ]]; then
