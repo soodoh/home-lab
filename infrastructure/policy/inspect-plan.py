@@ -37,17 +37,6 @@ MAPPING_ADDRESSES = RECOVERY_ADDRESSES - {
     "proxmox_download_file.arch_recovery_image[0]",
     "proxmox_virtual_environment_vm.arch",
 }
-CONTROLLER_BOOTSTRAP_ADDRESSES = {
-    "aws_dynamodb_table.mutation_lease[0]",
-    "aws_iam_openid_connect_provider.github",
-    "aws_iam_policy.state_apply",
-    "aws_iam_policy.state_plan",
-    "aws_iam_role.controller_apply",
-    "aws_iam_role.controller_plan",
-    "aws_rolesanywhere_profile.controller_apply",
-    "aws_rolesanywhere_profile.controller_plan",
-    "aws_rolesanywhere_trust_anchor.local_controller",
-}
 TAILSCALE_CONTROLLER_RETIREMENT_ADDRESSES = {
     "terraform_data.tailscale_policy[0]",
     "tailscale_federated_identity.ci_plan[0]",
@@ -74,7 +63,6 @@ def parse_args() -> argparse.Namespace:
             "network-migration",
             "disk-growth",
             "qualification",
-            "controller-bootstrap",
             "tailscale-controller-retirement",
         ),
         default="normal",
@@ -288,30 +276,6 @@ def main() -> int:
                 failures.append(f"{address}: adoption permits import-only actions")
             continue
 
-        if args.mode == "controller-bootstrap":
-            before = change.get("before") or {}
-            after = change.get("after") or {}
-            valid = address in CONTROLLER_BOOTSTRAP_ADDRESSES
-            if address == "aws_dynamodb_table.mutation_lease[0]":
-                valid = valid and actions == ["delete"] and before.get("name") == "home-lab-infrastructure-lease" and after == {}
-            elif address == "aws_iam_openid_connect_provider.github":
-                valid = valid and actions == ["delete"] and before.get("url") == "token.actions.githubusercontent.com" and after == {}
-            elif address in {"aws_iam_policy.state_apply", "aws_iam_policy.state_plan"}:
-                expected_name = "home-lab-opentofu-state-apply" if address.endswith("state_apply") else "home-lab-opentofu-state-plan"
-                policy = after.get("policy", "")
-                valid = valid and actions == ["update"] and after.get("name") == expected_name and "rolesanywhere:" in policy and "home-lab/github/tofu.tfstate" not in policy and "OpenIDConnectProvider" not in policy and "dynamodb:" not in policy
-            elif address in {"aws_iam_role.controller_apply", "aws_iam_role.controller_plan"}:
-                expected_name = "home-lab-infrastructure-apply" if address.endswith("controller_apply") else "home-lab-infrastructure-plan"
-                valid = valid and actions == ["update"] and before.get("name") == expected_name and after.get("name") == expected_name
-            elif address in {"aws_rolesanywhere_profile.controller_apply", "aws_rolesanywhere_profile.controller_plan"}:
-                expected_name = "home-lab-local-controller-apply" if address.endswith("controller_apply") else "home-lab-local-controller-plan"
-                valid = valid and actions == ["create"] and before == {} and after.get("name") == expected_name and after.get("enabled") is True and after.get("duration_seconds") == 3600
-            elif address == "aws_rolesanywhere_trust_anchor.local_controller":
-                source = after.get("source") or []
-                valid = valid and actions == ["create"] and before == {} and after.get("name") == "home-lab-local-controller" and after.get("enabled") is True and len(source) == 1 and source[0].get("source_type") == "CERTIFICATE_BUNDLE"
-            if not valid:
-                failures.append(f"{address}: controller bootstrap action or identity is invalid")
-            continue
 
         if args.mode == "qualification":
             before = change.get("before")
@@ -502,28 +466,6 @@ def main() -> int:
             continue
 
 
-        retired_mutation_lease_before = change.get("before") or {}
-        retired_mutation_lease_delete = (
-            (
-                address == "aws_dynamodb_table.mutation_lease"
-                or (
-                    address == "aws_dynamodb_table.mutation_lease[0]"
-                    and resource.get("previous_address") == "aws_dynamodb_table.mutation_lease"
-                )
-            )
-            and resource_type == "aws_dynamodb_table"
-            and actions == ["delete"]
-            and retired_mutation_lease_before.get("name") == "home-lab-infrastructure-lease"
-            and retired_mutation_lease_before.get("billing_mode") == "PAY_PER_REQUEST"
-            and retired_mutation_lease_before.get("hash_key") == "LeaseName"
-            and retired_mutation_lease_before.get("attribute") == [{"name": "LeaseName", "type": "S"}]
-            and retired_mutation_lease_before.get("ttl")
-            == [{"attribute_name": "ExpiresAt", "enabled": True}]
-            and change.get("after") is None
-        )
-        if retired_mutation_lease_delete:
-            continue
-
         if "delete" in actions:
             failures.append(f"{address}: delete or replacement is forbidden")
             continue
@@ -553,8 +495,6 @@ def main() -> int:
         failures.append("adoption plan contains no import actions")
     if args.mode == "recovery" and observed_addresses != RECOVERY_ADDRESSES:
         failures.append("recovery plan must contain the complete expected fresh resource set")
-    if args.mode == "controller-bootstrap" and observed_addresses != CONTROLLER_BOOTSTRAP_ADDRESSES:
-        failures.append("controller bootstrap plan must contain the exact AWS migration action set")
     if (
         args.mode == "tailscale-controller-retirement"
         and (observed_actions != 5 or observed_addresses != TAILSCALE_CONTROLLER_RETIREMENT_ADDRESSES)

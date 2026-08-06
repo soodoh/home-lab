@@ -29,15 +29,11 @@ python3 "$policy" "$fixtures/adopt-noop.json" --mode adopt-or-noop
 python3 "$policy" "$fixtures/recovery-create.json" --mode recovery
 python3 "$policy" "$fixtures/network-migration.json" --mode network-migration
 python3 "$policy" "$fixtures/disk-growth.json" --mode disk-growth
-python3 "$policy" "$fixtures/controller-bootstrap.json" --mode controller-bootstrap
 python3 "$policy" "$fixtures/ct-unprotect.json" --mode ct-unprotect
 python3 "$policy" "$fixtures/ct-delete.json" --mode ct-delete
 python3 "$policy" "$fixtures/protection-enable.json"
-python3 "$policy" "$fixtures/mutation-lease-retirement.json"
-python3 "$policy" "$fixtures/mutation-lease-retirement-moved.json"
 python3 "$policy" "$fixtures/qualification-create.json" --mode qualification
 python3 "$policy" "$fixtures/qualification-delete.json" --mode qualification
-expect_rejection controller-bootstrap normal
 python3 "$root/../../scripts/controller/test-tailscale-gateway-policy.py"
 python3 "$root/../../scripts/controller/test-reconcile-apply-source.py"
 python3 "$root/../../scripts/controller/test-proxmox-lxc-qualification.py"
@@ -64,9 +60,6 @@ lxc_expect_rejection lxc-qualification-empty verify-protected
 lxc_expect_rejection lxc-qualification-noop-protected verify-empty
 
 for fixture in delete replace protection-disable ct-create ct-recreate; do
-  expect_rejection "$fixture" normal
-done
-for fixture in mutation-lease-retirement-wrong-key mutation-lease-retirement-wrong-name mutation-lease-retirement-wrong-mode mutation-lease-retirement-wrong-schema; do
   expect_rejection "$fixture" normal
 done
 for fixture in recovery-wrong-vm recovery-update; do

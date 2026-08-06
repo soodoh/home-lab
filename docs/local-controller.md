@@ -25,7 +25,7 @@ Create `~/.config/home-lab/controller` with mode `0700`. The controller reads:
 
 Credential JSON is an object of environment variable names and string values. It contains protected provider values such as the backend identity, provider CA PEMs, provider endpoints, and separate provider credentials. Never commit, print, pass, or copy these values into command arguments or logs.
 
-AWS uses separate IAM Roles Anywhere certificates and profiles. The one-time `controller-bootstrap` operation may use an authenticated local AWS bootstrap session solely to replace GitHub OIDC with the reviewed Roles Anywhere trust, profiles, and role trusts. After it succeeds, run `scripts/configure-local-controller-aws` and prove both profiles independently.
+AWS uses separate, independently verified IAM Roles Anywhere certificates and profiles. The former hosted OIDC provider and DynamoDB lease are retired, and the foundation is converged under native S3 lockfiles.
 Tailscale uses distinct local OAuth clients for plan and apply; the apply client intentionally lacks device-deletion authority. Omada uses distinct local viewer and administrator accounts. Their values live only in the corresponding protected JSON files.
 
 ## Manual workflow
@@ -60,16 +60,7 @@ scripts/local-controller apply tailscale-controller-retirement
 
 Planning a CT operation does not authorize it. Stop after review and obtain explicit approval before running the matching `approve` command. CT unprotection and deletion must never share one plan or approval.
 
-During the one-time authorized bootstrap session, detach preserved GitHub resources from their obsolete OpenTofu state without calling the GitHub API:
-
-```sh
-scripts/local-controller plan github-state-detach
-scripts/local-controller review github-state-detach
-scripts/local-controller approve github-state-detach --confirmation detach-reviewed-github-state
-scripts/local-controller apply github-state-detach
-```
-
-The operation binds the exact 26-address state snapshot, removes all addresses in one locked state transaction, verifies the remote state is empty, and leaves every live repository resource unchanged.
+The obsolete GitHub OpenTofu state was detached through an exact 26-address, single-transaction operation. The remote state is empty and all live repository protections remain unchanged.
 
 ## Repository hosting
 

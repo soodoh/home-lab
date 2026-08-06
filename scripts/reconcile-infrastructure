@@ -26,7 +26,6 @@ Options:
                                       Select the guarded gateway-policy lifecycle (default: none)
   --network-migration                 Permit only the reviewed hardware-mapping migration
   --disk-growth                      Permit only reviewed VM 100 root-disk growth
-  --controller-bootstrap              Permit only the reviewed hosted-to-local AWS identity migration
   --tailscale-controller-retirement  Remove only the four CI identities and every CI policy grant
 
 Required environment:
@@ -79,7 +78,6 @@ ct_retirement_operation=none
 tailscale_gateway_operation=none
 network_migration=false
 disk_growth=false
-controller_bootstrap=false
 tailscale_controller_retirement=false
 
 while (($#)); do
@@ -126,10 +124,6 @@ while (($#)); do
       ;;
     --disk-growth)
       disk_growth=true
-      shift
-      ;;
-    --controller-bootstrap)
-      controller_bootstrap=true
       shift
       ;;
     --tailscale-controller-retirement)
@@ -180,7 +174,7 @@ if [[ $ct_retirement_operation != none ]]; then ct_operation=true; fi
 tailscale_gateway_lifecycle=false
 if [[ $tailscale_gateway_operation != none ]]; then tailscale_gateway_lifecycle=true; fi
 special_operation_count=0
-for enabled in "$ct_operation" "$tailscale_gateway_lifecycle" "$network_migration" "$disk_growth" "$controller_bootstrap" "$tailscale_controller_retirement"; do
+for enabled in "$ct_operation" "$tailscale_gateway_lifecycle" "$network_migration" "$disk_growth" "$tailscale_controller_retirement"; do
   [[ $enabled == true ]] && ((special_operation_count += 1))
 done
 [[ $omada_qualification_operation == none ]] || ((special_operation_count += 1))
@@ -192,7 +186,7 @@ if ((special_operation_count == 1)) && [[ $phase != steady ]]; then
   echo "Special reconciliation operations require steady phase." >&2
   exit 64
 fi
-if [[ $action == apply && ($controller_bootstrap == true || $disk_growth == true || $ct_operation == true || $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true) ]]; then
+if [[ $action == apply && ($disk_growth == true || $ct_operation == true || $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true) ]]; then
   python3 scripts/controller/reconcile-apply-source.py
 fi
 case "$plan_dir" in
@@ -219,7 +213,7 @@ if [[ $action == validate ]]; then
   python3 -m py_compile scripts/*.py scripts/controller/*.py
   shellcheck scripts/reconcile-infrastructure scripts/local-controller \
     scripts/bootstrap-proxmox-host scripts/build-recovery-bundle scripts/configure-local-controller-aws \
-    scripts/collect-proxmox-protected-inputs scripts/detach-github-state scripts/migrate-proxmox-zfs-stack \
+    scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack \
     scripts/prepare-omada-plan-input scripts/qualify-proxmox-lxc scripts/rehearse-recovery \
     scripts/restore-critical-backup scripts/test-recovery-tools recovery/coral/build-package
   tofu fmt -check -recursive infrastructure/tofu
@@ -297,9 +291,6 @@ commit=$(git rev-parse HEAD)
 roots=(aws-foundation proxmox omada tailscale)
 if [[ $phase != recovery ]]; then
   roots=(aws-foundation proxmox-legacy proxmox omada tailscale)
-fi
-if [[ $controller_bootstrap == true ]]; then
-  roots=(aws-foundation)
 fi
 if [[ $tailscale_controller_retirement == true ]]; then
   roots=(tailscale)
@@ -496,9 +487,6 @@ backend_init() {
 
 policy_args() {
   local root=$1 mode=normal
-  if [[ $controller_bootstrap == true && $root == aws-foundation ]]; then
-    mode=controller-bootstrap
-  fi
   if [[ $phase == adoption && ($root == proxmox || $root == proxmox-legacy || $root == omada || $root == tailscale) ]]; then
     mode=adopt-or-noop
   fi
@@ -641,17 +629,11 @@ plan_all() {
       exit 1
     }
   fi
-  if [[ $controller_bootstrap == true ]]; then
-    jq -s -e 'length == 1 and .[0].root == "aws-foundation" and .[0].changed == true' "$records" >/dev/null || {
-      echo "Controller bootstrap requires one changed AWS foundation plan." >&2
-      exit 1
-    }
   if [[ $tailscale_controller_retirement == true ]]; then
     jq -s -e 'length == 1 and .[0].root == "tailscale" and .[0].changed == true' "$records" >/dev/null || {
       echo "Tailscale controller retirement requires one changed Tailscale plan." >&2
       exit 1
     }
-  fi
   fi
   if [[ $network_migration == true ]]; then
     jq -s -e '
@@ -685,7 +667,6 @@ plan_all() {
     --arg tailscale_gateway_policy_stage "$tailscale_gateway_policy_stage" \
     --argjson network_migration "$network_migration" \
     --argjson disk_growth "$disk_growth" \
-    --argjson controller_bootstrap "$controller_bootstrap" \
     --argjson tailscale_controller_retirement "$tailscale_controller_retirement" \
     --arg backend_bucket "$backend_bucket" \
     --arg compose_hash "$compose_hash" \
@@ -694,7 +675,7 @@ plan_all() {
       ct_retirement_operation: $ct_retirement_operation, retirement_stage: $retirement_stage,
       tailscale_gateway_operation: $tailscale_gateway_operation,
       tailscale_gateway_policy_stage: $tailscale_gateway_policy_stage,
-      network_migration: $network_migration, disk_growth: $disk_growth, controller_bootstrap: $controller_bootstrap, tailscale_controller_retirement: $tailscale_controller_retirement, backend_bucket: $backend_bucket,
+      network_migration: $network_migration, disk_growth: $disk_growth, tailscale_controller_retirement: $tailscale_controller_retirement, backend_bucket: $backend_bucket,
       recovery_backup_identity_sha256: $recovery_backup_identity_sha256,
       compose_artifact_sha256: $compose_hash, plans: .}' \
     "$records" >"$plan_dir/manifest.json"
@@ -721,7 +702,6 @@ verify_manifest() {
   [[ $(jq -r .phase "$manifest") == "$phase" ]]
   [[ $(jq -r .network_migration "$manifest") == "$network_migration" ]]
   [[ $(jq -r .disk_growth "$manifest") == "$disk_growth" ]]
-  [[ $(jq -r .controller_bootstrap "$manifest") == "$controller_bootstrap" ]]
   [[ $(jq -r .tailscale_controller_retirement "$manifest") == "$tailscale_controller_retirement" ]]
   [[ $(jq -r .backend_bucket "$manifest") == "$backend_bucket" ]]
   [[ $(jq -r .compose_artifact_sha256 "$manifest") == "$(python3 scripts/compose-artifact.py hash)" ]]
@@ -766,42 +746,6 @@ verify_manifest() {
   done < <(jq -r '.plans[] | [.root, .file, .sha256] | @tsv' "$manifest")
 }
 
-assert_retired_mutation_lease_absent() {
-  local plan=$1 classification response
-  classification=$(tofu -chdir=infrastructure/tofu/aws-foundation show -json "$plan" \
-    | jq -r 'if any(.resource_changes[]?;
-        ((.address == "aws_dynamodb_table.mutation_lease") or
-         (.address == "aws_dynamodb_table.mutation_lease[0]" and
-          .previous_address == "aws_dynamodb_table.mutation_lease")) and
-        .type == "aws_dynamodb_table" and
-        .change.actions == ["delete"])
-      then "retire" else "skip" end') || {
-    echo "obsolete mutation lease retirement plan inspection failed" >&2
-    exit 66
-  }
-  case "$classification" in
-    skip) return ;;
-    retire) ;;
-    *)
-      echo "obsolete mutation lease retirement plan classification is invalid" >&2
-      exit 66
-      ;;
-  esac
-  response=$(aws dynamodb get-item \
-    --region "$aws_region" \
-    --table-name home-lab-infrastructure-lease \
-    --key '{"LeaseName":{"S":"home-lab-production"}}' \
-    --projection-expression LeaseName \
-    --consistent-read \
-    --output json) || {
-      echo "obsolete mutation lease absence query failed" >&2
-      exit 66
-    }
-  if [[ -n $response ]] && ! jq -e '((.Item // {}) | length) == 0' >/dev/null <<<"$response"; then
-      echo "obsolete mutation lease is not proved absent; refusing table retirement" >&2
-      exit 66
-  fi
-}
 
 apply_root() {
   local root=$1
@@ -845,9 +789,6 @@ apply_root() {
       [[ -z ${TAILSCALE_APPLY_AUDIENCE:-} ]] || export TAILSCALE_AUDIENCE=$TAILSCALE_APPLY_AUDIENCE
       ;;
   esac
-  if [[ $root == aws-foundation ]]; then
-    assert_retired_mutation_lease_absent "$plan_dir/$plan_file"
-  fi
   if [[ $root == tailscale ]]; then
     expected_policy_before_sha256=$(jq -r --arg root "$root" '.plans[] | select(.root == $root) | .tailscale_policy_before_sha256' "$plan_dir/manifest.json")
     expected_policy_after_sha256=$(jq -r --arg root "$root" '.plans[] | select(.root == $root) | .tailscale_policy_after_sha256' "$plan_dir/manifest.json")
@@ -1125,10 +1066,9 @@ apply_network_migration() {
 
 apply_disk_growth() {
   local root exit_code verify_log="$plan_dir/proxmox.disk-growth.verify.log"
-  for root in proxmox-legacy omada tailscale; do
+  for root in aws-foundation proxmox-legacy omada tailscale; do
     apply_root "$root"
   done
-  echo "Leaving the separately reviewed AWS retirement plan unapplied during disk growth."
   pushd ansible >/dev/null
   ansible-playbook -i "$arch_inventory" playbooks/root-disk-transaction-lock.yml \
     -e root_disk_transaction_lock_action=acquire
@@ -1163,22 +1103,6 @@ apply_disk_growth() {
   popd >/dev/null
 }
 
-apply_controller_bootstrap() {
-  local exit_code verify_log="$plan_dir/aws-foundation.bootstrap.verify.log"
-  apply_root aws-foundation
-  backend_init aws-foundation
-  : >"$verify_log"
-  chmod 0600 "$verify_log"
-  set +e
-  tofu -chdir=infrastructure/tofu/aws-foundation plan -input=false -lock-timeout=5m -no-color \
-    -parallelism=1 -detailed-exitcode >"$verify_log" 2>&1
-  exit_code=$?
-  set -e
-  [[ $exit_code == 0 ]] || {
-    echo "AWS foundation is not converged after local-controller bootstrap; inspect the protected local verification log." >&2
-    exit 1
-  }
-}
 
 case "$action" in
   plan)
@@ -1193,10 +1117,6 @@ case "$action" in
     if [[ $phase == adoption ]]; then
       for root in "${roots[@]}"; do apply_root "$root"; done
       verify_all
-      exit 0
-    fi
-    if [[ $controller_bootstrap == true ]]; then
-      apply_controller_bootstrap
       exit 0
     fi
     if [[ $ct_operation == true ]]; then

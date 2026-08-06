@@ -7,9 +7,8 @@ locals {
     "home-lab/omada/tofu.tfstate",
     "home-lab/tailscale/tofu.tfstate",
   ]
-  state_arns                 = [for key in local.state_keys : "${aws_s3_bucket.state.arn}/${key}"]
-  lock_arns                  = [for key in local.state_keys : "${aws_s3_bucket.state.arn}/${key}.tflock"]
-  retired_mutation_lease_arn = "arn:${data.aws_partition.current.partition}:dynamodb:${var.aws_region}:${data.aws_caller_identity.current.account_id}:table/home-lab-infrastructure-lease"
+  state_arns = [for key in local.state_keys : "${aws_s3_bucket.state.arn}/${key}"]
+  lock_arns  = [for key in local.state_keys : "${aws_s3_bucket.state.arn}/${key}.tflock"]
 }
 
 resource "aws_rolesanywhere_trust_anchor" "local_controller" {
@@ -65,15 +64,6 @@ data "aws_iam_policy_document" "controller_apply_trust" {
   }
 }
 
-moved {
-  from = aws_iam_role.github_plan
-  to   = aws_iam_role.controller_plan
-}
-
-moved {
-  from = aws_iam_role.github_apply
-  to   = aws_iam_role.controller_apply
-}
 
 resource "aws_iam_role" "controller_plan" {
   name               = "home-lab-infrastructure-plan"
@@ -276,15 +266,6 @@ resource "aws_iam_policy" "state_apply" {
   policy = data.aws_iam_policy_document.state_apply.json
 }
 
-moved {
-  from = aws_iam_role_policy_attachment.github_plan
-  to   = aws_iam_role_policy_attachment.controller_plan
-}
-
-moved {
-  from = aws_iam_role_policy_attachment.github_apply
-  to   = aws_iam_role_policy_attachment.controller_apply
-}
 
 resource "aws_iam_role_policy_attachment" "controller_plan" {
   role       = aws_iam_role.controller_plan.name

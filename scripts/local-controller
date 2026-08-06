@@ -10,7 +10,7 @@ usage() {
 usage: scripts/local-controller <validate|plan|review|approve|apply> [operation] [options]
 
 Operations:
-  controller-bootstrap | github-state-detach | steady | disk-growth | ct-unprotect | ct-delete
+  steady | disk-growth | ct-unprotect | ct-delete
   tailscale-controller-retirement | tailscale-detach | tailscale-retire | recovery
 
 Options:
@@ -59,13 +59,6 @@ operation_args=()
 expected_confirmation=
 case "$operation" in
   validate) ;;
-  controller-bootstrap)
-    operation_args=(--phase steady --controller-bootstrap)
-    expected_confirmation=bootstrap-reviewed-local-controller
-    ;;
-  github-state-detach)
-    expected_confirmation=detach-reviewed-github-state
-    ;;
   steady)
     operation_args=(--phase steady)
     expected_confirmation=apply-reviewed-steady
@@ -169,33 +162,22 @@ manifest_sha256() {
 case "$action" in
   plan)
     load_credentials plan
-    if [[ $operation == controller-bootstrap || $operation == github-state-detach ]]; then export AWS_PROFILE=default; fi
-    if [[ $operation == github-state-detach ]]; then
-      scripts/detach-github-state plan --plan-dir "$plan_dir"
-    else
-      prepare_provider_tls
-      scripts/reconcile-infrastructure plan --plan-dir "$plan_dir" "${operation_args[@]}"
-    fi
+    prepare_provider_tls
+    scripts/reconcile-infrastructure plan --plan-dir "$plan_dir" "${operation_args[@]}"
     printf 'local_controller=planned operation=%s commit=%s manifest_sha256=%s\n' \
       "$operation" "$commit" "$(manifest_sha256)"
     ;;
   review)
     [[ -f $manifest ]] || { echo "local_controller=failed reason=manifest_missing" >&2; exit 66; }
     jq -e --arg commit "$commit" '.version == 2 and .commit == $commit' "$manifest" >/dev/null
-    if [[ $operation == github-state-detach ]]; then
-      load_credentials plan
-      export AWS_PROFILE=default
-      scripts/detach-github-state review --plan-dir "$plan_dir"
-    else
-      while IFS=$'\t' read -r root file expected; do
-        actual=$(shasum -a 256 "$plan_dir/$file" | awk '{print $1}')
-        [[ $actual == "$expected" ]]
-        printf '\n[%s]\n' "$root"
-        tofu -chdir="infrastructure/tofu/$root" show -json "$plan_dir/$file" | jq -r '
-          [.resource_changes[]? | select(.change.actions != ["no-op"]) |
-            {address, actions: .change.actions}]'
-      done < <(jq -r '.plans[] | [.root,.file,.sha256] | @tsv' "$manifest")
-    fi
+    while IFS=$'\t' read -r root file expected; do
+      actual=$(shasum -a 256 "$plan_dir/$file" | awk '{print $1}')
+      [[ $actual == "$expected" ]]
+      printf '\n[%s]\n' "$root"
+      tofu -chdir="infrastructure/tofu/$root" show -json "$plan_dir/$file" | jq -r '
+        [.resource_changes[]? | select(.change.actions != ["no-op"]) |
+          {address, actions: .change.actions}]'
+    done < <(jq -r '.plans[] | [.root,.file,.sha256] | @tsv' "$manifest")
     printf '\nlocal_controller=reviewed operation=%s commit=%s manifest_sha256=%s\n' \
       "$operation" "$commit" "$(manifest_sha256)"
     ;;
@@ -242,13 +224,8 @@ PY
       .manifest_sha256 == $sha and .consumed == false
     ' "$approval" >/dev/null
     load_credentials apply
-    if [[ $operation == controller-bootstrap || $operation == github-state-detach ]]; then export AWS_PROFILE=default; fi
-    if [[ $operation == github-state-detach ]]; then
-      scripts/detach-github-state apply --plan-dir "$plan_dir"
-    else
-      prepare_provider_tls
-      scripts/reconcile-infrastructure apply --plan-dir "$plan_dir" "${operation_args[@]}"
-    fi
+    prepare_provider_tls
+    scripts/reconcile-infrastructure apply --plan-dir "$plan_dir" "${operation_args[@]}"
     rm -f -- "$approval"
     printf 'local_controller=applied operation=%s commit=%s\n' "$operation" "$commit"
     ;;

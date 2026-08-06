@@ -94,7 +94,6 @@ class ManifestVerificationTests(unittest.TestCase):
                 "tailscale_gateway_policy_stage": gateway_stage,
                 "network_migration": False,
                 "disk_growth": False,
-                "controller_bootstrap": False,
                 "tailscale_controller_retirement": False,
                 "backend_bucket": "test-state-bucket",
                 "recovery_backup_identity_sha256": "",
@@ -191,7 +190,7 @@ exit 86
             )
 
             self.assertEqual(result.returncode, 73, result.stderr)
-            self.assertIn("unexpected tofu command", result.stderr)
+            self.assertIn("inspect the protected local apply log", result.stderr)
             self.assertNotIn("unexpected AWS call", result.stderr)
             events = log.read_text().splitlines()
             tailscale_init = events.index("init:tailscale")

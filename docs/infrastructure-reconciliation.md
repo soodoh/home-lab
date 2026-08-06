@@ -16,7 +16,7 @@ scripts/local-controller apply steady
 
 Plan credentials must be read-only. Apply credentials are loaded only after a manifest-bound local approval. Provider secrets remain in mode-`0600` controller JSON, never command arguments, plans, manifests, or logs. The protected CT confirmation is loaded only into the local process and is independently validated by OpenTofu; it never authorizes either CT stage without the separate exact operation approval.
 
-Special modes (`recovery`, network migration, VM 100 root-disk growth, CT retirement, Tailscale gateway-policy lifecycle, and Omada qualification) have narrower policy allowlists and dedicated gates. They cannot be combined. Disk-growth mode permits only `scsi0` growth from 400 to 550 GiB. It acquires the Docker-host mutation lock before the Proxmox apply, verifies the exact 550 GiB virtual disk and single `/dev/sda1` ext4 root geometry, performs guarded online partition/filesystem expansion, proves a fresh Proxmox and guest no-op, and releases the lock only after success. A separately reviewed pending AWS retirement plan is left unapplied. A successful static plan is not proof that a provider can perform a live operation.
+Special modes (`recovery`, network migration, VM 100 root-disk growth, CT retirement, Tailscale controller retirement, gateway-policy lifecycle, and Omada qualification) have narrower policy allowlists and dedicated gates. They cannot be combined. Disk-growth mode permits only `scsi0` growth from 400 to 550 GiB, spans the Proxmox and guest operations with the host mutation lock, and requires exact disk, partition, filesystem, and no-op proofs. A successful static plan is not proof that a provider can perform a live operation.
 
 ## Tailscale gateway-policy lifecycle
 

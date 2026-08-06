@@ -1,31 +1,20 @@
-# AWS state bootstrap and local-controller migration
+# AWS state and trusted-controller identity
 
-The AWS foundation root owns the encrypted OpenTofu state bucket, the separately regional KMS-encrypted recovery bucket, and the IAM Roles Anywhere identities used by the trusted MacBook controller. Roots use native S3 lockfiles; the former DynamoDB lease is an explicit retirement tombstone.
+The AWS foundation owns the encrypted OpenTofu state bucket, the separately regional KMS-encrypted recovery bucket, and the IAM Roles Anywhere identities used by the trusted MacBook controller. Every root uses native S3 lockfiles.
 
-## One-time Roles Anywhere transition
+## Current state
 
-The reviewed `controller-bootstrap` plan is intentionally narrow:
+The one-time hosted-to-local migration is complete:
 
-- create one enabled trust anchor from the committed public controller CA;
-- create separate plan and apply Roles Anywhere profiles;
-- update the existing plan/apply role trust policies to Roles Anywhere;
-- update their least-privilege IAM policies for local reconciliation;
-- delete the obsolete GitHub OIDC provider; and
-- delete the obsolete empty DynamoDB lease table.
+- the local public CA is an enabled Roles Anywhere trust anchor;
+- separate one-hour plan and apply profiles assume distinct IAM roles;
+- each role trust is restricted to its exact certificate common name and trust-anchor ARN;
+- the hosted OIDC provider is absent;
+- the former DynamoDB mutation-lease table is absent;
+- both IAM policies exclude the obsolete GitHub state key, OIDC management, and DynamoDB authority; and
+- the AWS foundation has a verified no-op under the certificate-backed plan identity.
 
-Run the transition from any clean committed revision using the existing authorized AWS bootstrap session:
-
-```sh
-scripts/local-controller plan controller-bootstrap
-scripts/local-controller review controller-bootstrap
-scripts/local-controller approve controller-bootstrap --confirmation bootstrap-reviewed-local-controller
-scripts/local-controller apply controller-bootstrap
-scripts/configure-local-controller-aws
-```
-
-Plan policy permits only the reviewed nine-action shape and binds all resources to the expected names and trust-anchor source. Apply consumes the exact saved plan, verifies that the former lease key is absent immediately before deletion, and requires a fresh no-op afterward. A failed apply is non-authoritative; inspect state and create a new reviewed plan rather than retrying blindly.
-
-`scripts/configure-local-controller-aws` writes short-lived certificate-backed `home-lab-plan` and `home-lab-apply` profiles to the controller's protected AWS files. It verifies that both identities assume the expected distinct role ARNs. Private keys remain mode `0600` outside Git; only the public CA is tracked.
+`scripts/configure-local-controller-aws` writes the two `credential_process` profiles and independently verifies both assumed-role identities without printing their ARNs. Private keys remain mode `0600` outside Git; only the public CA is tracked.
 
 The foundation and off-site recovery bucket intentionally use separate reviewed regions. `TF_VAR_recovery_bucket_region` selects the aliased recovery provider, and the recovery bucket uses a region-local rotating KMS key.
 

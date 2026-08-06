@@ -1,1 +1,0 @@
-{"format_version":"1.2","resource_changes":[{"address":"aws_dynamodb_table.mutation_lease","type":"aws_dynamodb_table","change":{"actions":["delete"],"before":{"attribute":[{"name":"UnexpectedKey","type":"S"}],"billing_mode":"PAY_PER_REQUEST","hash_key":"UnexpectedKey","name":"home-lab-infrastructure-lease","ttl":[{"attribute_name":"ExpiresAt","enabled":true}]},"after":null}}]}

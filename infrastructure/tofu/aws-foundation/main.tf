@@ -221,36 +221,3 @@ resource "aws_s3_bucket_lifecycle_configuration" "recovery" {
     }
   }
 }
-
-
-# Transitional tombstone for the former global serialization table. count = 0
-# plans its exact deletion while preserving a dependency on the temporary,
-# narrowly scoped deletion grant in the apply policy.
-resource "aws_dynamodb_table" "mutation_lease" {
-  count = 0
-
-  name         = "home-lab-infrastructure-lease"
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LeaseName"
-
-  attribute {
-    name = "LeaseName"
-    type = "S"
-  }
-
-  ttl {
-    attribute_name = "ExpiresAt"
-    enabled        = true
-  }
-
-  point_in_time_recovery {
-    enabled = true
-  }
-
-  depends_on = [aws_iam_policy.state_apply]
-}
-
-moved {
-  from = aws_dynamodb_table.mutation_lease
-  to   = aws_dynamodb_table.mutation_lease[0]
-}
