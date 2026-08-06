@@ -116,10 +116,9 @@ manifest="$plan_dir/manifest.json"
 approval="$plan_dir/approval.json"
 
 load_credentials() {
-  local capability=$1 file="$config_dir/$1-credentials.json" key value
-  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
-    export "$key=$value"
-  done < <(CAPABILITY="$capability" CREDENTIAL_FILE="$file" CONFIG_DIR="$config_dir" python3 - <<'PY'
+  local capability=$1 file="$config_dir/$1-credentials.json" key value encoded
+  encoded=$(mktemp "${TMPDIR:-/tmp}/home-lab-controller-credentials.XXXXXX")
+  if ! CAPABILITY="$capability" CREDENTIAL_FILE="$file" CONFIG_DIR="$config_dir" python3 - <<'PY' >"$encoded"
 import json
 import os
 from pathlib import Path
@@ -139,7 +138,7 @@ except json.JSONDecodeError as error:
     raise SystemExit("controller credential JSON is invalid") from error
 if not isinstance(values, dict) or not values:
     raise SystemExit("controller credential JSON must be a non-empty object")
-allowed = re.compile(r"^(AWS|TF|PROXMOX|OMADA|TAILSCALE|RECONCILE|ANSIBLE|SOPS|AGE)_[A-Z0-9_]+$")
+allowed = re.compile(r"^(AWS|TF|PROXMOX|OMADA|TAILSCALE|RECONCILE|ANSIBLE|SOPS|AGE)_[A-Za-z0-9_]+$")
 blocked = {"BASH_ENV", "ENV", "PATH", "HOME", "SHELLOPTS"}
 for key, value in sorted(values.items()):
     if not isinstance(key, str) or allowed.fullmatch(key) is None or key in blocked:
@@ -148,7 +147,14 @@ for key, value in sorted(values.items()):
         raise SystemExit("controller credential value must be a string without NUL bytes")
     sys.stdout.buffer.write(key.encode() + b"\0" + value.encode() + b"\0")
 PY
-  )
+  then
+    rm -f "$encoded"
+    return 1
+  fi
+  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+    export "$key=$value"
+  done <"$encoded"
+  rm -f "$encoded"
 }
 
 prepare_provider_tls() {
