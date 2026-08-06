@@ -232,11 +232,6 @@ def local_controller_access_policy(detached: Any) -> Any:
     ssh_tests = policy.get("sshTests")
     if not isinstance(ssh_tests, list) or len(ssh_tests) != 1:
         raise ValueError("detached SSH tests are malformed")
-    ssh_tests.insert(0, {
-        "src": "autogroup:owner",
-        "dst": ["tag:proxmox"],
-        "accept": ["root", "tofu-plan", "tofu-apply"],
-    })
     return policy
 
 

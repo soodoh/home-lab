@@ -103,11 +103,6 @@ locals {
 
     sshTests = [
       {
-        src    = "autogroup:owner"
-        dst    = [local.tags.proxmox]
-        accept = ["root", "tofu-plan", "tofu-apply"]
-      },
-      {
         src    = local.tags.arch
         dst    = [local.tags.proxmox]
         accept = ["root"]

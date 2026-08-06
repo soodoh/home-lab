@@ -101,7 +101,6 @@ class GatewayLifecycleTests(unittest.TestCase):
             "dst": ["tag:proxmox"],
             "users": ["root"],
         }]
-        policy["sshTests"] = policy["sshTests"][1:]
         return policy
 
     def legacy_detached_policy(self) -> dict:
