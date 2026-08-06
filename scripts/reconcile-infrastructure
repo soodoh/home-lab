@@ -562,7 +562,7 @@ plan_all() {
   ./scripts/validate-contract
   ./scripts/validate-provider-locks
 
-  local root plan exit_code tailscale_live_policy_sha256 tailscale_policy_before_sha256 tailscale_policy_after_sha256 tailscale_policy_etag tailscale_policy_changed
+  local root plan plan_log exit_code tailscale_live_policy_sha256 tailscale_policy_before_sha256 tailscale_policy_after_sha256 tailscale_policy_etag tailscale_policy_changed
   local planned_before_policy planned_after_policy compose_hash retirement_stage tailscale_gateway_policy_stage recovery_backup_identity_sha256
   for root in "${roots[@]}"; do
     echo "Planning OpenTofu root: $root"
@@ -576,12 +576,18 @@ plan_all() {
     fi
     plan="$plan_dir/$root.tfplan"
     mapfile -d '' -t plan_args < <(root_plan_args "$root")
+    plan_log="$plan_dir/$root.plan.log"
+    : >"$plan_log"
+    chmod 0600 "$plan_log"
     set +e
-    tofu -chdir="infrastructure/tofu/$root" plan -input=false -lock-timeout=5m \
-      -parallelism=1 -detailed-exitcode -out="$plan" "${plan_args[@]}"
+    tofu -chdir="infrastructure/tofu/$root" plan -input=false -lock-timeout=5m -no-color \
+      -parallelism=1 -detailed-exitcode -out="$plan" "${plan_args[@]}" >"$plan_log" 2>&1
     exit_code=$?
     set -e
-    [[ $exit_code == 0 || $exit_code == 2 ]] || exit "$exit_code"
+    [[ $exit_code == 0 || $exit_code == 2 ]] || {
+      echo "OpenTofu planning failed for $root; inspect the protected local plan log." >&2
+      exit "$exit_code"
+    }
     assert_plan_excludes_credentials "$plan"
     tailscale_policy_changed=false
     if [[ $root == tailscale && ${TF_VAR_tailscale_enable_management:-false} == true ]]; then
@@ -799,7 +805,7 @@ apply_root() {
     echo "Skipping disabled OpenTofu root: $root"
     return
   fi
-  local plan_file changed expected_policy_before_sha256 expected_policy_after_sha256 expected_policy_etag
+  local plan_file changed expected_policy_before_sha256 expected_policy_after_sha256 expected_policy_etag apply_log exit_code
   local old_proxmox=${PROXMOX_VE_API_TOKEN:-}
   local old_omada_username=${OMADA_USERNAME:-}
   local old_omada_password=${OMADA_PASSWORD:-}
@@ -848,8 +854,18 @@ apply_root() {
     fi
   fi
   echo "Applying exact saved OpenTofu plan: $root"
-  tofu -chdir="infrastructure/tofu/$root" apply -input=false -lock-timeout=5m \
-    -parallelism=1 -auto-approve "$plan_dir/$plan_file"
+  apply_log="$plan_dir/$root.apply.log"
+  : >"$apply_log"
+  chmod 0600 "$apply_log"
+  set +e
+  tofu -chdir="infrastructure/tofu/$root" apply -input=false -lock-timeout=5m -no-color \
+    -parallelism=1 -auto-approve "$plan_dir/$plan_file" >"$apply_log" 2>&1
+  exit_code=$?
+  set -e
+  [[ $exit_code == 0 ]] || {
+    echo "OpenTofu apply failed for $root; inspect the protected local apply log." >&2
+    exit "$exit_code"
+  }
   if [[ $root == tailscale && ${TF_VAR_tailscale_enable_management:-false} == true ]]; then
     tailscale_verify_state_policy
   fi
@@ -1000,17 +1016,20 @@ compose_recovery_apply() {
 }
 
 verify_all() {
-  local root exit_code
+  local root exit_code verify_log
   for root in "${roots[@]}"; do
     backend_init "$root"
     mapfile -d '' -t plan_args < <(root_plan_args "$root")
+    verify_log="$plan_dir/$root.verify.log"
+    : >"$verify_log"
+    chmod 0600 "$verify_log"
     set +e
-    tofu -chdir="infrastructure/tofu/$root" plan -input=false -lock-timeout=5m \
-      -parallelism=1 -detailed-exitcode "${plan_args[@]}"
+    tofu -chdir="infrastructure/tofu/$root" plan -input=false -lock-timeout=5m -no-color \
+      -parallelism=1 -detailed-exitcode "${plan_args[@]}" >"$verify_log" 2>&1
     exit_code=$?
     set -e
     [[ $exit_code == 0 ]] || {
-      echo "OpenTofu root is not converged: $root" >&2
+      echo "OpenTofu root is not converged: $root; inspect the protected local verification log." >&2
       exit 1
     }
     if [[ $root == tailscale && ${TF_VAR_tailscale_enable_management:-false} == true ]]; then
@@ -1101,7 +1120,7 @@ apply_network_migration() {
 }
 
 apply_disk_growth() {
-  local root exit_code
+  local root exit_code verify_log="$plan_dir/proxmox.disk-growth.verify.log"
   for root in proxmox-legacy omada tailscale; do
     apply_root "$root"
   done
@@ -1118,13 +1137,15 @@ apply_disk_growth() {
   popd >/dev/null
   backend_init proxmox
   mapfile -d '' -t plan_args < <(root_plan_args proxmox)
+  : >"$verify_log"
+  chmod 0600 "$verify_log"
   set +e
-  tofu -chdir=infrastructure/tofu/proxmox plan -input=false -lock-timeout=5m \
-    -parallelism=1 -detailed-exitcode "${plan_args[@]}"
+  tofu -chdir=infrastructure/tofu/proxmox plan -input=false -lock-timeout=5m -no-color \
+    -parallelism=1 -detailed-exitcode "${plan_args[@]}" >"$verify_log" 2>&1
   exit_code=$?
   set -e
   [[ $exit_code == 0 ]] || {
-    echo "Proxmox root is not converged after disk growth." >&2
+    echo "Proxmox root is not converged after disk growth; inspect the protected local verification log." >&2
     exit 1
   }
   pushd ansible >/dev/null
@@ -1139,16 +1160,18 @@ apply_disk_growth() {
 }
 
 apply_controller_bootstrap() {
-  local exit_code
+  local exit_code verify_log="$plan_dir/aws-foundation.bootstrap.verify.log"
   apply_root aws-foundation
   backend_init aws-foundation
+  : >"$verify_log"
+  chmod 0600 "$verify_log"
   set +e
-  tofu -chdir=infrastructure/tofu/aws-foundation plan -input=false -lock-timeout=5m \
-    -parallelism=1 -detailed-exitcode
+  tofu -chdir=infrastructure/tofu/aws-foundation plan -input=false -lock-timeout=5m -no-color \
+    -parallelism=1 -detailed-exitcode >"$verify_log" 2>&1
   exit_code=$?
   set -e
   [[ $exit_code == 0 ]] || {
-    echo "AWS foundation is not converged after local-controller bootstrap." >&2
+    echo "AWS foundation is not converged after local-controller bootstrap; inspect the protected local verification log." >&2
     exit 1
   }
 }
