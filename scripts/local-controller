@@ -163,6 +163,29 @@ manifest_sha256() {
   shasum -a 256 "$manifest" | awk '{print $1}'
 }
 
+consume_approval() {
+  APPROVAL_FILE="$approval" python3 - <<'PY'
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+import tempfile
+
+target = Path(os.environ["APPROVAL_FILE"])
+value = json.loads(target.read_text())
+if value.get("consumed") is not False:
+    raise SystemExit("approval is already consumed")
+value["consumed"] = True
+value["consumed_at"] = datetime.now(timezone.utc).isoformat()
+with tempfile.NamedTemporaryFile(mode="w", dir=target.parent, prefix=".approval-consumed.", delete=False) as stream:
+    json.dump(value, stream, sort_keys=True, separators=(",", ":"))
+    stream.write("\n")
+    temporary = Path(stream.name)
+temporary.chmod(0o600)
+temporary.replace(target)
+PY
+}
+
 case "$action" in
   plan)
     load_credentials plan
@@ -229,8 +252,8 @@ PY
     ' "$approval" >/dev/null
     load_credentials apply
     prepare_provider_tls
+    consume_approval
     scripts/reconcile-infrastructure apply --plan-dir "$plan_dir" "${operation_args[@]}"
-    rm -f -- "$approval"
     printf 'local_controller=applied operation=%s commit=%s\n' "$operation" "$commit"
     ;;
 esac

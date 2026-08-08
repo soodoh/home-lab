@@ -1078,8 +1078,10 @@ apply_disk_growth() {
   ansible-playbook -i "$arch_inventory" playbooks/root-disk-transaction-lock.yml \
     -e root_disk_transaction_lock_action=acquire
   popd >/dev/null
-  apply_root proxmox
   pushd ansible >/dev/null
+  ansible-playbook -i "$proxmox_inventory" playbooks/resize-proxmox-root-disk.yml \
+    -e proxmox_root_disk_growth_action=apply \
+    -e proxmox_root_disk_growth_confirmation=grow-reviewed-docker-root-disk
   ansible-playbook -i "$arch_inventory" playbooks/grow-root-filesystem.yml \
     -e arch_root_disk_growth_confirmation=grow-reviewed-docker-root-disk \
     -e root_disk_growth_lock_already_held=true

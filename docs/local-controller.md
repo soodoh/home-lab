@@ -7,7 +7,7 @@ Paul's MacBook is the interactive infrastructure controller. GitHub is only a Gi
 - The complete working tree, including untracked files, must be clean.
 - The saved manifest records the exact commit, operation, Compose artifact hash, and every plan hash.
 - Plan and apply use separate mode-`0600` JSON credential files.
-- Apply verifies and consumes the exact saved plans without replanning.
+- Apply verifies the exact saved plans without replanning and atomically consumes the approval before its first apply attempt.
 - Native OpenTofu S3 lockfiles and host-side mutation locks serialize changes.
 - Each apply requires a local manifest-bound approval; CT unprotection and deletion remain separate approvals.
 - Plans remain under the ignored `.reconcile/` directory on the FileVault-protected controller.
@@ -49,6 +49,8 @@ scripts/local-controller approve disk-growth \
   --confirmation grow-reviewed-docker-root-disk
 scripts/local-controller apply disk-growth
 ```
+
+The Proxmox provider cannot update a VM containing an arbitrary host-path passthrough disk with a non-root API token. Disk-growth mode therefore uses the policy-inspected saved OpenTofu plan as the exact authorization record, applies every unchanged saved root plan, and realizes only the approved VM 100 `scsi0` resize through the guarded `tofu-apply` SSH identity. The host helper requires the protected `scsi1` identity, a running protected VM, the exact 400 GiB source geometry, the exact confirmation, and an exclusive lock before issuing `qm resize`; OpenTofu and guest checks must then prove 550 GiB convergence.
 
 The one-time Tailscale hosted-identity cleanup is also separately bound:
 
