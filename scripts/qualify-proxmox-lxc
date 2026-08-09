@@ -144,6 +144,19 @@ preflight() {
   unset PROXMOX_VE_API_TOKEN PROXMOX_VERIFY_STORAGE_VOLUME || true
 }
 
+post_apply_api_check() {
+  local mode=$1 attempt
+  for ((attempt = 1; attempt <= 6; attempt++)); do
+    if python3 "$helper" api-check --mode "$mode" >"$work/post-api.log" 2>&1; then
+      echo "qualification post-apply API identity verified: mode=$mode"
+      return
+    fi
+    sleep 5
+  done
+  echo "qualification post-apply API identity did not converge" >&2
+  return 1
+}
+
 inspect_saved_plan() {
   local source=$1 mode=$2
   tofu -chdir="$root" show -json "$source" >"$work/plan.json" 2>"$work/show.log" || {
@@ -216,7 +229,7 @@ post_apply_proof() {
   esac
   export PROXMOX_VE_API_TOKEN=$PROXMOX_APPLY_API_TOKEN
   export PROXMOX_VERIFY_STORAGE_VOLUME=true
-  python3 "$helper" api-check --mode "$expected_api"
+  post_apply_api_check "$expected_api"
   unset PROXMOX_VE_API_TOKEN PROXMOX_VERIFY_STORAGE_VOLUME
   export PROXMOX_VE_API_TOKEN=$PROXMOX_PLAN_API_TOKEN
   pull_state "$work/post-state.json" false
