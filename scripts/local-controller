@@ -159,15 +159,59 @@ PY
   rm -f "$encoded"
 }
 
+provider_tls_work=
+provider_tls_keychain=
+provider_tls_original_keychains=()
+cleanup_provider_tls() {
+  local status=$?
+  if [[ -n $provider_tls_keychain ]]; then
+    security list-keychains -d user -s "${provider_tls_original_keychains[@]}" >/dev/null 2>&1 || true
+    security delete-keychain "$provider_tls_keychain" >/dev/null 2>&1 || true
+  fi
+  if [[ -n $provider_tls_work ]]; then
+    rm -rf "$provider_tls_work"
+  fi
+  return "$status"
+}
+
 prepare_provider_tls() {
+  local item keychain_password
   scripts/prepare-provider-ca-bundle
   export SSL_CERT_FILE="$repo_root/.local/provider-ca/bundle.pem"
+  if [[ $(uname -s) != Darwin ]]; then
+    return
+  fi
+
+  command -v security >/dev/null || { echo "missing command: security" >&2; exit 69; }
+  provider_tls_work=$(mktemp -d "${TMPDIR:-/tmp}/home-lab-provider-trust.XXXXXX")
+  provider_tls_keychain="$provider_tls_work/provider-trust.keychain-db"
+  while IFS= read -r item; do
+    item=${item#*\"}
+    item=${item%\"*}
+    [[ -n $item ]] && provider_tls_original_keychains+=("$item")
+  done < <(security list-keychains -d user)
+  ((${#provider_tls_original_keychains[@]} > 0))
+
+  keychain_password=$(openssl rand -hex 32)
+  security create-keychain -p "$keychain_password" "$provider_tls_keychain"
+  security unlock-keychain -p "$keychain_password" "$provider_tls_keychain"
+  security set-keychain-settings -lut 3600 "$provider_tls_keychain"
+  security add-trusted-cert -r trustRoot -k "$provider_tls_keychain" \
+    "$repo_root/.local/provider-ca/proxmox.pem"
+  if [[ -f $repo_root/.local/provider-ca/omada.pem ]]; then
+    security add-trusted-cert -r trustRoot -k "$provider_tls_keychain" \
+      "$repo_root/.local/provider-ca/omada.pem"
+  fi
+  security list-keychains -d user -s "$provider_tls_keychain" \
+    "${provider_tls_original_keychains[@]}"
+  trap cleanup_provider_tls EXIT
 }
 
 if [[ $action == validate ]]; then
   load_credentials plan
   prepare_provider_tls
-  exec scripts/reconcile-infrastructure validate
+  scripts/reconcile-infrastructure validate
+  exit
 fi
 
 manifest_sha256() {
