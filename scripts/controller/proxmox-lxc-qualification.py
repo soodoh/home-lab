@@ -327,7 +327,7 @@ def validate_change_unknowns(change: dict[str, Any], actions: list[str]) -> None
         raise QualificationError("qualification before_unknown capabilities are forbidden")
     if actions == ["create"]:
         expected_after_unknown: Any = CREATE_AFTER_UNKNOWN
-    elif actions in (["update"], ["no-op"]):
+    elif actions == ["update"]:
         expected_after_unknown = KNOWN_AFTER_UNKNOWN
     else:
         expected_after_unknown = {}
