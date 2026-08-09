@@ -18,6 +18,15 @@ root_fstype=$(findmnt --noheadings --output FSTYPE --target / | xargs)
 [[ $(lsblk --noheadings --output TYPE /dev/sda1 | xargs) == part ]]
 [[ $(lsblk --noheadings --output TYPE /dev/sda | grep -c '^part$') == 1 ]]
 
+filesystem_size_bytes() {
+  local metadata block_count block_size
+  metadata=$(LC_ALL=C tune2fs -l /dev/sda1 2>/dev/null)
+  block_count=$(awk -F: '$1 == "Block count" {gsub(/[[:space:]]/, "", $2); print $2; exit}' <<<"$metadata")
+  block_size=$(awk -F: '$1 == "Block size" {gsub(/[[:space:]]/, "", $2); print $2; exit}' <<<"$metadata")
+  [[ $block_count =~ ^[0-9]+$ && $block_size =~ ^[0-9]+$ ]]
+  printf '%s\n' "$((block_count * block_size))"
+}
+
 desired_disk_bytes=$((550 * 1024 * 1024 * 1024))
 disk_tolerance_bytes=$((64 * 1024 * 1024))
 tolerance_bytes=$((2 * 1024 * 1024 * 1024))
@@ -27,7 +36,7 @@ maximum_partition_bytes=$((desired_disk_bytes + disk_tolerance_bytes))
 minimum_filesystem_bytes=$((desired_disk_bytes - (2 * tolerance_bytes)))
 disk_bytes=$(blockdev --getsize64 /dev/sda)
 partition_bytes=$(blockdev --getsize64 /dev/sda1)
-filesystem_bytes=$(df --block-size=1 --output=size / | awk 'NR == 2 {print $1}')
+filesystem_bytes=$(filesystem_size_bytes)
 ((disk_bytes >= desired_disk_bytes && disk_bytes <= desired_disk_bytes + disk_tolerance_bytes)) || {
   echo "root_disk_growth=failed reason=virtual_disk_identity_mismatch" >&2
   exit 1
@@ -58,7 +67,7 @@ if [[ $partition_requires_growth == true ]]; then
 fi
 resize2fs /dev/sda1 >/dev/null
 partition_bytes=$(blockdev --getsize64 /dev/sda1)
-filesystem_bytes=$(df --block-size=1 --output=size / | awk 'NR == 2 {print $1}')
+filesystem_bytes=$(filesystem_size_bytes)
 ((partition_bytes >= minimum_partition_bytes && partition_bytes <= maximum_partition_bytes))
 ((filesystem_bytes >= minimum_filesystem_bytes && filesystem_bytes <= partition_bytes))
 printf 'root_disk_growth=verified\n'
