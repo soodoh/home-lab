@@ -29,6 +29,6 @@ Backend coordinates, provider credentials, SSH fingerprints/keys, hardware ident
 
 ## Requires live qualification
 
-The remaining retirement proof is deletion of the offline stale Tailscale gateway device through a separately authorized administrator followed by the exact `detached -> retired` gateway-policy plan. Scheduled daily/weekly backup evidence, disposable-VM Proxmox behavior, cold boot, recovery-time objective, and final post-cleanup no-op remain operational observations rather than static claims.
+CT 101 retirement is complete: the container and adopted Omada reservation are absent, read-only Tailscale verification found no stale gateway device, and the exact `detached -> retired` gateway-policy plan converged with a full no-op proof. Scheduled daily/weekly backup evidence, disposable-VM Proxmox behavior, cold boot, and recovery-time objective remain operational observations rather than static claims.
 
 Static validation must not be represented as production readiness. Update this document only with evidence from the protected qualification process; never paste secrets or protected identifiers.
