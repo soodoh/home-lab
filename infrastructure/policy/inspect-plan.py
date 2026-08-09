@@ -62,6 +62,7 @@ def parse_args() -> argparse.Namespace:
             "ct-gateway-retire",
             "network-migration",
             "disk-growth",
+            "omada-gateway-reservation-retirement",
             "qualification",
             "tailscale-controller-retirement",
             "tailscale-controller-access",
@@ -319,6 +320,19 @@ def main() -> int:
             continue
 
 
+        if args.mode == "omada-gateway-reservation-retirement":
+            expected_address = 'omada_dhcp_reservation.reservation["bc:24:11:fd:4c:5c"]'
+            before = change.get("before") or {}
+            before_mac = str(before.get("mac", "")).lower().replace("-", ":")
+            valid_change = (
+                address == expected_address
+                and actions == ["delete"]
+                and before_mac == "bc:24:11:fd:4c:5c"
+                and change.get("after") is None
+            )
+            if not valid_change:
+                failures.append(f"{address}: gateway-reservation retirement permits only the exact retired CT reservation deletion")
+            continue
         if args.mode == "qualification":
             before = change.get("before")
             after = change.get("after")
@@ -581,6 +595,11 @@ def main() -> int:
         or observed_addresses != {"proxmox_virtual_environment_container.tailscale_gateway[0]"}
     ):
         failures.append("CT retirement plan must contain exactly one complete target action")
+    if args.mode == "omada-gateway-reservation-retirement" and (
+        observed_actions != 1
+        or observed_addresses != {'omada_dhcp_reservation.reservation["bc:24:11:fd:4c:5c"]'}
+    ):
+        failures.append("Omada gateway-reservation retirement must contain exactly one target deletion")
 
     if failures:
         for failure in sorted(set(failures)):

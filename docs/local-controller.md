@@ -71,6 +71,18 @@ scripts/local-controller apply tailscale-controller-retirement
 
 Planning a CT operation does not authorize it. Stop after review and obtain explicit approval before running the matching `approve` command. CT unprotection and deletion must never share one plan or approval.
 
+Retired Omada reservation cleanup is another independent exact operation:
+
+```sh
+scripts/local-controller plan omada-retire
+scripts/local-controller review omada-retire
+scripts/local-controller approve omada-retire \
+  --confirmation retire-reviewed-omada-gateway-reservation
+scripts/local-controller apply omada-retire
+```
+
+It may delete only the reservation matching the retired CT contract identity. The Omada LAN, all other reservations, and all other OpenTofu roots must remain unchanged.
+
 The obsolete GitHub OpenTofu state was detached through an exact 26-address, single-transaction operation. The remote state is empty and all live repository protections remain unchanged.
 
 ## Repository hosting

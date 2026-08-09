@@ -10,7 +10,7 @@ usage() {
 usage: scripts/local-controller <validate|plan|review|approve|apply> [operation] [options]
 
 Operations:
-  steady | backup-deployment | disk-growth | ct-unprotect | ct-delete
+  steady | backup-deployment | disk-growth | ct-unprotect | ct-delete | omada-retire
   tailscale-controller-retirement | tailscale-controller-access | tailscale-detach | tailscale-retire | recovery
 
 Options:
@@ -79,6 +79,10 @@ case "$operation" in
     operation_args=(--phase steady --ct-operation delete)
     expected_confirmation=delete-reviewed-ct-101
     ;;
+  omada-retire)
+    operation_args=(--phase steady --omada-gateway-reservation-retirement)
+    expected_confirmation=retire-reviewed-omada-gateway-reservation
+    ;;
   tailscale-controller-retirement)
     operation_args=(--phase steady --tailscale-controller-retirement)
     expected_confirmation=retire-reviewed-tailscale-ci-identities
@@ -102,13 +106,10 @@ case "$operation" in
   *) usage ;;
 esac
 
-if [[ $action == validate ]]; then
-  exec scripts/reconcile-infrastructure validate
-fi
 
 commit=$(git rev-parse HEAD)
 [[ $commit =~ ^[0-9a-f]{40}$ ]]
-[[ -z $(git status --porcelain --untracked-files=all) ]] || {
+[[ $action == validate || -z $(git status --porcelain --untracked-files=all) ]] || {
   echo "local_controller=failed reason=working_tree_not_clean" >&2
   exit 65
 }
@@ -162,6 +163,12 @@ prepare_provider_tls() {
   scripts/prepare-provider-ca-bundle
   export SSL_CERT_FILE="$repo_root/.local/provider-ca/bundle.pem"
 }
+
+if [[ $action == validate ]]; then
+  load_credentials plan
+  prepare_provider_tls
+  exec scripts/reconcile-infrastructure validate
+fi
 
 manifest_sha256() {
   shasum -a 256 "$manifest" | awk '{print $1}'

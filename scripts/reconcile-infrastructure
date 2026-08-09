@@ -29,6 +29,8 @@ Options:
   --tailscale-controller-retirement  Remove only the four CI identities and every CI policy grant
   --tailscale-controller-access      Repair only trusted-controller Proxmox SSH access
   --backup-deployment                Allow only the reviewed three-path backup helper deployment
+  --omada-gateway-reservation-retirement
+                                      Remove only the retired CT DHCP reservation
 
 Required environment:
   TF_BACKEND_BUCKET                   Existing encrypted OpenTofu state bucket
@@ -83,6 +85,7 @@ disk_growth=false
 tailscale_controller_retirement=false
 tailscale_controller_access=false
 backup_deployment=false
+omada_gateway_reservation_retirement=false
 
 while (($#)); do
   case "$1" in
@@ -142,6 +145,10 @@ while (($#)); do
       backup_deployment=true
       shift
       ;;
+    --omada-gateway-reservation-retirement)
+      omada_gateway_reservation_retirement=true
+      shift
+      ;;
     *) usage ;;
   esac
 done
@@ -186,7 +193,7 @@ if [[ $ct_retirement_operation != none ]]; then ct_operation=true; fi
 tailscale_gateway_lifecycle=false
 if [[ $tailscale_gateway_operation != none ]]; then tailscale_gateway_lifecycle=true; fi
 special_operation_count=0
-for enabled in "$ct_operation" "$tailscale_gateway_lifecycle" "$network_migration" "$disk_growth" "$tailscale_controller_retirement" "$tailscale_controller_access" "$backup_deployment"; do
+for enabled in "$ct_operation" "$tailscale_gateway_lifecycle" "$network_migration" "$disk_growth" "$tailscale_controller_retirement" "$tailscale_controller_access" "$backup_deployment" "$omada_gateway_reservation_retirement"; do
   [[ $enabled == true ]] && ((special_operation_count += 1))
 done
 [[ $omada_qualification_operation == none ]] || ((special_operation_count += 1))
@@ -198,7 +205,7 @@ if ((special_operation_count == 1)) && [[ $phase != steady ]]; then
   echo "Special reconciliation operations require steady phase." >&2
   exit 64
 fi
-if [[ $action == apply && ($disk_growth == true || $ct_operation == true || $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true || $tailscale_controller_access == true || $backup_deployment == true) ]]; then
+if [[ $action == apply && ($disk_growth == true || $ct_operation == true || $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true || $tailscale_controller_access == true || $backup_deployment == true || $omada_gateway_reservation_retirement == true) ]]; then
   python3 scripts/controller/reconcile-apply-source.py
 fi
 case "$plan_dir" in
@@ -527,6 +534,9 @@ policy_args() {
   if [[ $root == omada && $omada_qualification_operation != none ]]; then
     mode=qualification
   fi
+  if [[ $omada_gateway_reservation_retirement == true && $root == omada ]]; then
+    mode=omada-gateway-reservation-retirement
+  fi
   printf '%s\0' --mode "$mode"
   if [[ -f infrastructure/policy/allow/$root.txt ]]; then
     printf '%s\0' --allow-change-file "$repo_root/infrastructure/policy/allow/$root.txt"
@@ -675,6 +685,15 @@ plan_all() {
       exit 1
     }
   fi
+  if [[ $omada_gateway_reservation_retirement == true ]]; then
+    jq -s -e '
+      (map(select(.root == "omada" and .changed == true)) | length == 1) and
+      (map(select(.root != "omada" and .changed == true)) | length == 0)
+    ' "$records" >/dev/null || {
+      echo "Omada gateway-reservation retirement requires every other OpenTofu root to be a no-op." >&2
+      exit 1
+    }
+  fi
 
   compose_hash=$(python3 scripts/compose-artifact.py hash)
   retirement_stage=$(contract_value proxmox.legacy_container.retirement_stage)
@@ -692,6 +711,7 @@ plan_all() {
     --argjson tailscale_controller_retirement "$tailscale_controller_retirement" \
     --argjson tailscale_controller_access "$tailscale_controller_access" \
     --argjson backup_deployment "$backup_deployment" \
+    --argjson omada_gateway_reservation_retirement "$omada_gateway_reservation_retirement" \
     --arg backend_bucket "$backend_bucket" \
     --arg compose_hash "$compose_hash" \
     --arg recovery_backup_identity_sha256 "$recovery_backup_identity_sha256" \
@@ -699,7 +719,7 @@ plan_all() {
       ct_retirement_operation: $ct_retirement_operation, retirement_stage: $retirement_stage,
       tailscale_gateway_operation: $tailscale_gateway_operation,
       tailscale_gateway_policy_stage: $tailscale_gateway_policy_stage,
-      network_migration: $network_migration, disk_growth: $disk_growth, tailscale_controller_retirement: $tailscale_controller_retirement, tailscale_controller_access: $tailscale_controller_access, backup_deployment: $backup_deployment, backend_bucket: $backend_bucket,
+      network_migration: $network_migration, disk_growth: $disk_growth, tailscale_controller_retirement: $tailscale_controller_retirement, tailscale_controller_access: $tailscale_controller_access, backup_deployment: $backup_deployment, omada_gateway_reservation_retirement: $omada_gateway_reservation_retirement, backend_bucket: $backend_bucket,
       recovery_backup_identity_sha256: $recovery_backup_identity_sha256,
       compose_artifact_sha256: $compose_hash, plans: .}' \
     "$records" >"$plan_dir/manifest.json"
@@ -729,6 +749,7 @@ verify_manifest() {
   [[ $(jq -r .tailscale_controller_retirement "$manifest") == "$tailscale_controller_retirement" ]]
   [[ $(jq -r .tailscale_controller_access "$manifest") == "$tailscale_controller_access" ]]
   [[ $(jq -r .backup_deployment "$manifest") == "$backup_deployment" ]]
+  [[ $(jq -r .omada_gateway_reservation_retirement "$manifest") == "$omada_gateway_reservation_retirement" ]]
   [[ $(jq -r .backend_bucket "$manifest") == "$backend_bucket" ]]
   [[ $(jq -r .compose_artifact_sha256 "$manifest") == "$(python3 scripts/compose-artifact.py hash)" ]]
   [[ $(jq -r .recovery_backup_identity_sha256 "$manifest") == "$(recovery_expected_backup_identity_sha256)" ]]
@@ -1123,6 +1144,14 @@ apply_disk_growth() {
 }
 
 
+apply_omada_gateway_reservation_retirement() {
+  local root
+  for root in aws-foundation proxmox-legacy proxmox tailscale; do
+    apply_root "$root"
+  done
+  apply_root omada
+  verify_all
+}
 case "$action" in
   plan)
     plan_all
@@ -1152,6 +1181,10 @@ case "$action" in
     fi
     if [[ $tailscale_gateway_lifecycle == true ]]; then
       apply_tailscale_gateway_lifecycle
+      exit 0
+    fi
+    if [[ $omada_gateway_reservation_retirement == true ]]; then
+      apply_omada_gateway_reservation_retirement
       exit 0
     fi
     if [[ $network_migration == true ]]; then

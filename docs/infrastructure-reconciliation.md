@@ -35,6 +35,8 @@ The saved-plan manifest binds operation, stage, canonical before/after policy SH
 
 Retirement additionally fails closed unless `TAILSCALE_GATEWAY_DEVICE_ABSENCE_APPROVED` is exactly `true` in the protected local plan and apply credentials. Set it only after separate device-deletion approval and read-only absence verification; it does not authorize deletion.
 
+After the CT is durably `retired`, `scripts/local-controller ... omada-retire` permits exactly one deletion: the adopted DHCP reservation whose MAC matches the retired contract identity. The LAN remains protected from destruction, every other reservation remains desired, and every non-Omada OpenTofu root must be a no-op. The saved plan, manifest flag, separated credentials, and post-apply full no-op verification remain mandatory.
+
 ## Proxmox LXC provider qualification gate
 
 Before CT 101 unprotection, complete the isolated saved-plan lifecycle in [`proxmox-lxc-qualification.md`](./proxmox-lxc-qualification.md) from the trusted controller. The dedicated root has its own backend and may own only the fixed-marker disposable LXC.

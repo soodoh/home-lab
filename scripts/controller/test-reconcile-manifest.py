@@ -52,6 +52,14 @@ class ManifestVerificationTests(unittest.TestCase):
             if line.strip().startswith("gateway_policy_stage:")
         )
         self.assertIn(gateway_stage, {"active", "detached", "retired"})
+        retirement_stage = next(
+            line.split(":", 1)[1].strip()
+            for line in (REPOSITORY / "infrastructure/contract/home-lab.yml").read_text().splitlines()
+            if line.strip().startswith("retirement_stage:")
+        )
+        self.assertIn(retirement_stage, {"protected", "unprotected", "retired"})
+        if retirement_stage != "protected" and not os.environ.get("PROXMOX_CT_DECOMMISSION_CONFIRMATION"):
+            self.skipTest("retired-stage manifest verification requires the protected local confirmation")
 
         with tempfile.TemporaryDirectory(dir=reconcile_root) as directory:
             temporary = Path(directory)
@@ -89,7 +97,7 @@ class ManifestVerificationTests(unittest.TestCase):
                 "commit": commit,
                 "phase": "steady",
                 "ct_retirement_operation": "none",
-                "retirement_stage": "protected",
+                "retirement_stage": retirement_stage,
                 "tailscale_gateway_operation": "none",
                 "tailscale_gateway_policy_stage": gateway_stage,
                 "network_migration": False,
@@ -97,6 +105,7 @@ class ManifestVerificationTests(unittest.TestCase):
                 "tailscale_controller_retirement": False,
                 "tailscale_controller_access": False,
                 "backup_deployment": False,
+                "omada_gateway_reservation_retirement": False,
                 "backend_bucket": "test-state-bucket",
                 "recovery_backup_identity_sha256": "",
                 "compose_artifact_sha256": compose_hash,

@@ -1,5 +1,7 @@
 locals {
-  contract = yamldecode(file("${path.module}/../../contract/home-lab.yml"))
+  contract               = yamldecode(file("${path.module}/../../contract/home-lab.yml"))
+  legacy_gateway_retired = local.contract.proxmox.legacy_container.retirement_stage == "retired"
+  legacy_gateway_mac     = lower(replace(local.contract.proxmox.legacy_container.mac, "-", ":"))
   export = var.omada_enable_management ? jsondecode(file(var.omada_export_path)) : {
     exported_at        = ""
     controller_version = ""
@@ -7,7 +9,10 @@ locals {
     network            = { id = "", name = "", vlan_id = 1, gateway_subnet = "", dhcp_enabled = false, dhcp_start = "", dhcp_end = "" }
     reservations       = []
   }
-  reservations = var.omada_enable_management ? { for reservation in local.export.reservations : lower(replace(reservation.mac, "-", ":")) => reservation } : {}
+  reservations = var.omada_enable_management ? {
+    for reservation in local.export.reservations : lower(replace(reservation.mac, "-", ":")) => reservation
+    if !(local.legacy_gateway_retired && lower(replace(reservation.mac, "-", ":")) == local.legacy_gateway_mac)
+  } : {}
 }
 
 provider "omada" {
@@ -63,10 +68,6 @@ resource "omada_dhcp_reservation" "reservation" {
   ip         = each.value.ip
   name       = each.value.name
   enable     = each.value.enable
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "omada_dhcp_reservation" "qualification" {

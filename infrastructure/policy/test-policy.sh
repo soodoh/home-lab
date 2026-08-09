@@ -32,6 +32,7 @@ python3 "$policy" "$fixtures/disk-growth.json" --mode disk-growth
 python3 "$policy" "$fixtures/ct-unprotect.json" --mode ct-unprotect
 python3 "$policy" "$fixtures/ct-unprotect-import-id.json" --mode ct-unprotect
 python3 "$policy" "$fixtures/ct-delete.json" --mode ct-delete
+python3 "$policy" "$fixtures/omada-gateway-reservation-delete.json" --mode omada-gateway-reservation-retirement
 python3 "$policy" "$fixtures/protection-enable.json"
 python3 "$policy" "$fixtures/qualification-create.json" --mode qualification
 python3 "$policy" "$fixtures/qualification-delete.json" --mode qualification
@@ -74,6 +75,8 @@ done
 expect_rejection disk-growth-extra disk-growth
 expect_rejection disk-growth normal
 expect_rejection qualification-wrong-resource qualification
+expect_rejection omada-gateway-reservation-wrong omada-gateway-reservation-retirement
+expect_rejection noop omada-gateway-reservation-retirement
 
 # CT retirement modes are intentionally non-interchangeable and non-repeatable.
 expect_rejection ct-delete ct-unprotect
