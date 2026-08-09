@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   postgres:
-    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+    image: postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
     container_name: authentik-postgres
     restart: unless-stopped
     logging: *default-logging
@@ -19,7 +19,9 @@ services:
     volumes:
       - type: volume
         source: authentik-data
-        target: /var/lib/postgresql/data
+        # PostgreSQL 18+ stores versioned clusters below this mount.
+        # See docs/authentik-postgres-18-migration.md before changing major versions.
+        target: /var/lib/postgresql
         volume:
           subpath: postgresql
     labels:
@@ -97,8 +99,10 @@ services:
         volume:
           subpath: custom-templates
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     labels:
       docker-volume-backup.stop-during-backup: true
     networks:
@@ -151,8 +155,10 @@ services:
         volume:
           subpath: custom-templates
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - authentik
       - proxy

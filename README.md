@@ -5,6 +5,9 @@
 The authoritative desired-state contract is [`infrastructure/contract/home-lab.yml`](infrastructure/contract/home-lab.yml). Independent OpenTofu roots keep AWS foundation, Proxmox VM 100, protected legacy CT 101, Omada, Tailscale, and GitHub state isolated. [`scripts/reconcile-infrastructure`](scripts/reconcile-infrastructure) creates policy-inspected saved plans, applies only those exact plans, serializes each root with native OpenTofu S3 locks plus GitHub/host concurrency controls, runs reproducible Ansible checks, deploys the exact Compose artifact, and requires post-apply no-op/audit results.
 
 No apply is implicit. Storage imports, network/firewall changes, passthrough mapping migrations, critical-data restore, and CT decommission each retain dedicated confirmation gates. See [`recovery/README.md`](recovery/README.md) for the fresh-Proxmox recovery order and unresolved operational inputs.
+
+The PostgreSQL 18 image and storage-layout change for Authentik requires the guarded [`docs/authentik-postgres-18-migration.md`](docs/authentik-postgres-18-migration.md) dump-and-restore procedure before Compose convergence.
+
 Hardware mapping conversion is a dedicated migration: run the reconciler with `--phase steady --network-migration`, require every non-Proxmox root and all Ansible/Compose checks to be no-ops, then retain `PROXMOX_HARDWARE_MAPPINGS_ENABLED=true` for subsequent steady plans.
 
 ## Coral Edge TPU driver on Linux 7.1+

@@ -45,6 +45,16 @@
       "platformAutomerge": true
     },
     {
+      "description": "Require an explicit migration for PostgreSQL major releases",
+      "matchDatasources": [
+        "docker"
+      ],
+      "matchPackageNames": [
+        "postgres"
+      ],
+      "allowedVersions": "/^18(?:$|\\.|-)/"
+    },
+    {
       "matchDatasources": [
         "docker"
       ],
