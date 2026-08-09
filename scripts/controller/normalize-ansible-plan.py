@@ -31,4 +31,9 @@ text = re.sub(
     "/.ansible/tmp/<normalized>",
     text,
 )
+text = re.sub(
+    r"(?m)(/\.ansible/tmp/<normalized>)/[^/\s\"']+/",
+    r"\1/<normalized>/",
+    text,
+)
 sys.stdout.write(text)
