@@ -233,5 +233,3 @@ audit_container_health_format: >-
   {% raw %}{{ index .Config.Labels "com.docker.compose.service" }}|{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}{% endraw %}
 audit_mount_device_format: >-
   {% raw %}{{range .Mounts}}{{if eq .Type "bind"}}bind|{{println .Source}}{{end}}{{end}}{{range .HostConfig.Devices}}device|{{println .PathOnHost}}{{end}}{% endraw %}
-audit_archive_mount_format: >-
-  {% raw %}{{range .Mounts}}{{if eq .Destination "/archive"}}{{.Source}}{{end}}{{end}}{% endraw %}

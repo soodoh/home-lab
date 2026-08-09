@@ -379,51 +379,63 @@
       - audit_root_cron_stat.stat.exists
     fail_msg: "Phase 0 stop gate: root cron metadata changed; inspect it with separately approved privilege."
 
-- name: Locate the local backup archive mount without reading backup configuration
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/docker
-      - inspect
-      - --format
-      - "{{ audit_archive_mount_format }}"
-      - daily-local-backup
-  register: audit_backup_archive
+- name: Verify the newest encrypted local backup across all three replica paths
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -euo pipefail
+      expected_name=
+      expected_sha256=
+      expected_size=
+      seen_devices=' '
+      replicas=0
+      for path in {{ backups.local_paths | map('quote') | join(' ') }}; do
+        candidate=$(
+          find "$path" -maxdepth 1 -type f \
+            -name 'daily-local-backup-????-??-??T??-??-??.tar.gz.gpg' \
+            -printf '%T@ %f\n' | sort -nr | head -n 1 | cut -d' ' -f2-
+        )
+        if [[ -z $candidate || ! -f "$path/$candidate.sha256" ]]; then
+          echo 'local_backup_replica_audit=failed reason=archive_or_checksum_missing' >&2
+          exit 1
+        fi
+        read -r recorded_sha256 recorded_name <"$path/$candidate.sha256"
+        if [[ ! $recorded_sha256 =~ ^[0-9a-f]{64}$ || $recorded_name != "$candidate" ]]; then
+          echo 'local_backup_replica_audit=failed reason=checksum_metadata_invalid' >&2
+          exit 1
+        fi
+        archive_size=$(stat -c '%s' "$path/$candidate")
+        device_id=$(stat -c '%d' "$path")
+        if [[ $seen_devices == *" $device_id "* ]]; then
+          echo 'local_backup_replica_audit=failed reason=filesystems_not_distinct' >&2
+          exit 1
+        fi
+        seen_devices+="$device_id "
+        if ((replicas == 0)); then
+          expected_name=$candidate
+          expected_sha256=$recorded_sha256
+          expected_size=$archive_size
+        elif [[ $candidate != "$expected_name" || $recorded_sha256 != "$expected_sha256" || $archive_size != "$expected_size" ]]; then
+          echo 'local_backup_replica_audit=failed reason=replicas_mismatch' >&2
+          exit 1
+        fi
+        ((replicas += 1))
+      done
+      if ((replicas != 3)); then
+        echo 'local_backup_replica_audit=failed reason=replica_count_invalid' >&2
+        exit 1
+      fi
+      echo 'local_backup_replica_audit=verified replicas=3'
   changed_when: false
   check_mode: false
+  register: audit_local_backup_replicas
 
-- name: Inspect the local backup archive directory
-  ansible.builtin.stat:
-    path: "{{ audit_backup_archive.stdout }}"
-    get_checksum: false
-    get_mime: false
-  register: audit_backup_archive_stat
-
-- name: Find one encrypted local backup without reading its contents
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/find
-      - "{{ audit_backup_archive.stdout }}"
-      - -maxdepth
-      - "1"
-      - -type
-      - f
-      - -name
-      - "*.gpg"
-      - -print
-      - -quit
-  register: audit_encrypted_backup
-  changed_when: false
-  check_mode: false
-  when: audit_backup_archive_stat.stat.isdir | default(false)
-
-- name: Assert an encrypted local backup exists
+- name: Assert the three-path local backup audit passed
   ansible.builtin.assert:
     that:
-      - audit_backup_archive_stat.stat.isdir | default(false)
-      - audit_encrypted_backup.stdout | default('') | length > 0
+      - audit_local_backup_replicas.stdout == 'local_backup_replica_audit=verified replicas=3'
     fail_msg: >-
-      Phase 0 stop gate: no encrypted local backup was found. Restore drilling and remote-backup
-      verification remain manual requirements.
+      The newest local backup is absent, invalid, or inconsistent across home, games, and storage.
 
 - name: Simulate active Compose create without builds, pulls, or changes
   ansible.builtin.command:

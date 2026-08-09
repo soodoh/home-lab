@@ -7,8 +7,8 @@
 - isolated OpenTofu roots and serial apply orchestration
 - Proxmox/Arch bootstrap and steady Ansible gates
 - exact backup-ID, version, checksum, archive, and fresh-target recovery controls
-- current/previous Compose image locks and immutable Wolf publication tooling
-- CI plan/apply credential separation and protected confirmation gates
+- current/previous Compose locks with uniform readable-tag plus digest image pins
+- trusted local-controller plan/apply credential separation and protected confirmation gates
 - static recovery fixtures and playbook syntax rehearsal
 - isolated saved-plan Proxmox LXC lifecycle qualification, exact policy modes, protected-delete classification, identity proofs, and empty-state tombstone controls
 
@@ -17,6 +17,11 @@
 - Omada strict-TLS export and import-only adoption of the existing LAN and 17 DHCP reservations
 - Omada disposable reservation create/read/delete behavior with separated plan/apply identities
 - three consecutive protected no-op Omada plans after cleanup
+- schema-valid six-operation disposable Proxmox LXC lifecycle evidence and the enabled provider gate
+- separately staged CT 101 unprotection, full no-op proof, and deletion
+- exact retired-CT Omada reservation deletion with every other reservation and root unchanged
+- reproducible local Coral double-build, exact package checksum, installed marker, runtime, and Frigate health
+- three-path local backup deployment with distinct filesystems and matching newest archive metadata
 
 ## Requires protected inputs
 
@@ -24,6 +29,6 @@ Backend coordinates, provider credentials, SSH fingerprints/keys, hardware ident
 
 ## Requires live qualification
 
-The disposable Proxmox LXC create/protected-delete/no-op/unprotect/delete/empty sequence remains an operational proof; `proxmox.legacy_container.lxc_provider_qualified` therefore remains `false`. Disposable-VM Proxmox provider behavior, raw disks/passthrough/mappings, ZFS import evidence, immutable Wolf image publication, Coral package publication/runtime, full restore, cold boot, service health, cleanup, recovery-time objective, and final no-op also remain operational proofs.
+The remaining retirement proof is deletion of the offline stale Tailscale gateway device through a separately authorized administrator followed by the exact `detached -> retired` gateway-policy plan. Scheduled daily/weekly backup evidence, disposable-VM Proxmox behavior, cold boot, recovery-time objective, and final post-cleanup no-op remain operational observations rather than static claims.
 
 Static validation must not be represented as production readiness. Update this document only with evidence from the protected qualification process; never paste secrets or protected identifiers.
