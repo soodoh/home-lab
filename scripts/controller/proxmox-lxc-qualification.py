@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import ssl
 import sys
+import time
 from typing import Any
 from urllib import parse, request
 
@@ -412,7 +413,8 @@ def create_manifest(operation: str, commit: str, plan: Path) -> dict[str, Any]:
     if operation not in OPERATIONS:
         raise QualificationError("saved-plan manifest operation is invalid")
     return {
-        "version": 2,
+        "version": 3,
+        "run_id": str(time.time_ns()),
         "operation": operation,
         "commit": commit,
         "marker": MARKER,
@@ -423,11 +425,13 @@ def create_manifest(operation: str, commit: str, plan: Path) -> dict[str, Any]:
 
 
 def validate_manifest(manifest: Any, operation: str, commit: str, plan: Path) -> None:
-    expected_keys = {"version", "operation", "commit", "marker", "plan_file", "plan_sha256", "target_identities"}
+    expected_keys = {"version", "run_id", "operation", "commit", "marker", "plan_file", "plan_sha256", "target_identities"}
     if not isinstance(manifest, dict) or set(manifest) != expected_keys:
         raise QualificationError("saved-plan manifest fields are invalid")
-    if manifest.get("version") != 2 or manifest.get("operation") != operation:
+    if manifest.get("version") != 3 or manifest.get("operation") != operation:
         raise QualificationError("saved-plan manifest operation is invalid")
+    if not isinstance(manifest.get("run_id"), str) or not re.fullmatch(r"[1-9][0-9]*", manifest["run_id"]):
+        raise QualificationError("saved-plan manifest run ID is invalid")
     if operation not in OPERATIONS or manifest.get("commit") != commit:
         raise QualificationError("saved-plan manifest source is invalid")
     if manifest.get("marker") != MARKER or manifest.get("plan_file") != "qualification.tfplan":

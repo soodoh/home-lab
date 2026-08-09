@@ -331,6 +331,7 @@ class QualificationEvidenceTests(unittest.TestCase):
             plan.write_bytes(b"saved plan")
             manifest = qualification.create_manifest("create", "a" * 40, plan)
             qualification.validate_manifest(manifest, "create", "a" * 40, plan)
+            self.assertRegex(manifest["run_id"], r"^[1-9][0-9]*$")
             serialized = json.dumps(manifest)
             for secret in (VMID, TEMPLATE, ENDPOINT, "protected-backend-bucket", "BEGIN CERTIFICATE"):
                 self.assertNotIn(secret, serialized)
@@ -340,7 +341,7 @@ class QualificationEvidenceTests(unittest.TestCase):
                 changed["target_identities"][key] = "0" * 64
                 with self.subTest(key=key), self.assertRaises(qualification.QualificationError):
                     qualification.validate_manifest(changed, "create", "a" * 40, plan)
-            for key, value in (("operation", "delete"), ("commit", "b" * 40), ("plan_sha256", "0" * 64)):
+            for key, value in (("run_id", "invalid"), ("operation", "delete"), ("commit", "b" * 40), ("plan_sha256", "0" * 64)):
                 changed = deepcopy(manifest)
                 changed[key] = value
                 with self.subTest(key=key), self.assertRaises(qualification.QualificationError):
