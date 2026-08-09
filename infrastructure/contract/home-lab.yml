@@ -102,7 +102,7 @@ proxmox:
     name: tailscale-gateway
     mac: BC:24:11:FD:4C:5C
     retirement_stage: protected
-    lxc_provider_qualified: false
+    lxc_provider_qualified: true
     recreate_after_decommission: false
     root_datastore: local-lvm
     root_size_gb: 4

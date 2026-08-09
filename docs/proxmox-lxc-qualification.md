@@ -40,6 +40,6 @@ A split, mismatched, or locked result is evidence only. It requires a separate r
 
 ## CT 101 gate
 
-`proxmox.legacy_container.lxc_provider_qualified` remains `false` in this static implementation. The CT retirement helper and the legacy root reject `unprotect` and `delete` while it is false. The real evidence path `infrastructure/evidence/proxmox-lxc-qualification.json` must remain absent while the gate is false; the adjacent schema and `.example.json` define its secret-free machine format without representing completed evidence.
+`proxmox.legacy_container.lxc_provider_qualified` is `true` only because the complete disposable live sequence passed and the schema-valid, secret-free evidence is committed at `infrastructure/evidence/proxmox-lxc-qualification.json`. The evidence binds the exact qualification tooling commit, pinned provider lock, six distinct local operation IDs in order, and the final empty-state/API/volume/lock plus no-op proof.
 
-After the complete live sequence, add the exact schema-valid evidence and set the gate to `true` in a separate clean commit. Evidence must bind the qualification tooling commit, pinned provider lock, six distinct local operation IDs in order, and the final empty-state/API/volume/lock plus no-op proof. It must contain no protected identifiers. Do not combine this evidence change with a CT stage transition.
+This gate does not authorize a CT 101 mutation. Unprotection and deletion remain separate exact-plan operations with separate explicit approvals, and the evidence change must never be combined with either CT stage transition.
