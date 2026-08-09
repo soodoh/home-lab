@@ -1039,7 +1039,7 @@ apply_ct_retirement() {
   pushd ansible >/dev/null
   ansible_require_noop "$proxmox_inventory" playbooks/proxmox-site.yml proxmox -e proxmox_ssh_access_proven=true
   for tag in base arch_network tailscale ssh storage docker sops_age hardware coral host_files compose maintenance; do
-    ansible_require_noop "$arch_inventory" playbooks/site.yml docker-host-production --tags "$tag"
+    ansible_require_noop "$arch_inventory" playbooks/site.yml docker-host-production --tags "$tag" -e arch_ssh_access_proven=true
   done
   ansible_require_noop "$arch_inventory" playbooks/audit.yml docker-host-production
   popd >/dev/null
@@ -1073,7 +1073,7 @@ apply_network_migration() {
   pushd ansible >/dev/null
   ansible_require_noop "$proxmox_inventory" playbooks/proxmox-site.yml proxmox -e proxmox_ssh_access_proven=true
   for tag in base arch_network tailscale ssh storage docker sops_age hardware coral host_files compose maintenance; do
-    ansible_require_noop "$arch_inventory" playbooks/site.yml docker-host-production --tags "$tag"
+    ansible_require_noop "$arch_inventory" playbooks/site.yml docker-host-production --tags "$tag" -e arch_ssh_access_proven=true
   done
   ansible_require_noop "$arch_inventory" playbooks/audit.yml docker-host-production
   popd >/dev/null
