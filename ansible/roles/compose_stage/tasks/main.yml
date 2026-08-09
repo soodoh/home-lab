@@ -12,7 +12,7 @@
 - name: Recompute the controller artifact hash
   ansible.builtin.command:
     argv:
-      - python
+      - "{{ ansible_playbook_python }}"
       - "{{ compose_artifact_controller_dir }}/scripts/compose-artifact.py"
       - --root
       - "{{ compose_artifact_controller_dir }}"
