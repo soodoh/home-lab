@@ -314,6 +314,7 @@ class QualificationEvidenceTests(unittest.TestCase):
 
     def test_probe_rejection_requires_protection_specific_failure(self) -> None:
         self.assertTrue(qualification.classify_probe_log("Error: can't remove CT protected-value - protection mode enabled"))
+        self.assertTrue(qualification.classify_probe_log("Reason: can't\nremove CT protected-value - protection mode enabled"))
         for message in (
             "401 unauthorized",
             "x509 certificate signed by unknown authority",

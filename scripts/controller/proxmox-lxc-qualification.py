@@ -406,7 +406,8 @@ def inspect_plan(plan: Any, mode: str) -> None:
 
 
 def classify_probe_log(text: str) -> bool:
-    return any(pattern.search(text) for pattern in PROTECTION_REJECTIONS) and not INCONCLUSIVE_ERRORS.search(text)
+    normalized = re.sub(r"\s+", " ", re.sub(r"[\u2500-\u257f]+", " ", re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)))
+    return any(pattern.search(normalized) for pattern in PROTECTION_REJECTIONS) and not INCONCLUSIVE_ERRORS.search(normalized)
 
 
 def create_manifest(operation: str, commit: str, plan: Path) -> dict[str, Any]:
