@@ -1,8 +1,13 @@
 ---
-- name: Validate the human-access account contract
+- name: Require at least one human-access account
   ansible.builtin.assert:
     that:
       - human_access_accounts | length > 0
+    fail_msg: "The human-access role requires at least one declared account."
+
+- name: Validate the human-access account contract
+  ansible.builtin.assert:
+    that:
       - item.name | length > 0
       - item.group | length > 0
       - item.home is match('^/home/[a-z_][a-z0-9_-]*$')
