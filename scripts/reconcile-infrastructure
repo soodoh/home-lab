@@ -270,8 +270,8 @@ contract_value() {
   local expression=$1
   EXPRESSION="$expression" node --input-type=module - <<'NODE'
 import fs from "node:fs";
-import yaml from "js-yaml";
-const document = yaml.load(fs.readFileSync("infrastructure/contract/home-lab.yml", "utf8"));
+import { load } from "js-yaml";
+const document = load(fs.readFileSync("infrastructure/contract/home-lab.yml", "utf8"));
 let value = document;
 for (const segment of process.env.EXPRESSION.split(".")) value = value?.[segment];
 if (value === null || value === undefined || value === "") process.exit(1);
@@ -290,8 +290,8 @@ recovery_expected_backup_identity_sha256() {
   }
   EXTRA_VARS_FILE="$RECONCILE_ANSIBLE_EXTRA_VARS_FILE" node --input-type=module - <<'NODE'
 import fs from "node:fs";
-import yaml from "js-yaml";
-const document = yaml.load(fs.readFileSync(process.env.EXTRA_VARS_FILE, "utf8"));
+import { load } from "js-yaml";
+const document = load(fs.readFileSync(process.env.EXTRA_VARS_FILE, "utf8"));
 const value = document?.recovery_expected_backup_identity_sha256;
 if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) process.exit(1);
 process.stdout.write(value);

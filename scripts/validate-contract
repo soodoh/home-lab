@@ -5,7 +5,7 @@ const fs = require("node:fs");
 const crypto = require("node:crypto");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const yaml = require("js-yaml");
+const { load } = require("js-yaml");
 const Ajv2020 = require("ajv/dist/2020");
 
 const root = path.resolve(__dirname, "..");
@@ -16,7 +16,7 @@ const qualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence
 const qualificationValidatorPath = path.join(root, "scripts/controller/proxmox-lxc-qualification.py");
 const operational = process.argv.includes("--operational");
 
-const contract = yaml.load(fs.readFileSync(contractPath, "utf8"));
+const contract = load(fs.readFileSync(contractPath, "utf8"));
 const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
 const qualificationEvidenceSchema = JSON.parse(fs.readFileSync(qualificationEvidenceSchemaPath, "utf8"));
 const ajv = new Ajv2020({ allErrors: true, strict: true });

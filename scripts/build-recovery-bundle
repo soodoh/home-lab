@@ -34,8 +34,8 @@ done
 
 contract_json=$(node --input-type=module - <<'NODE'
 import fs from "node:fs";
-import yaml from "js-yaml";
-process.stdout.write(JSON.stringify(yaml.load(fs.readFileSync("infrastructure/contract/home-lab.yml", "utf8"))));
+import { load } from "js-yaml";
+process.stdout.write(JSON.stringify(load(fs.readFileSync("infrastructure/contract/home-lab.yml", "utf8"))));
 NODE
 )
 recovery_recipient=$(jq -r '.recovery.recovery_age_recipient' <<<"$contract_json")
