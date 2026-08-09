@@ -163,16 +163,22 @@
     msg: >-
       compose_deploy_plan_sha256={{ (compose_deploy_plan | to_json) | hash('sha256') }}
 
-- name: Require a deployment with no service-set or untracked data-file changes
+- name: Require a deployment with no unreviewed service-set or data-file changes
   ansible.builtin.assert:
     that:
       - compose_deploy_plan.missing_runtime_services | length == 0
       - compose_deploy_plan.unexpected_runtime_services | length == 0
       - compose_deploy_plan.forbidden_actions | length == 0
-      - compose_deploy_plan.manual_only_paths | length == 0
+      - >-
+        compose_deploy_plan.manual_only_paths | length == 0 or
+        (
+          (compose_deploy_manual_paths_confirmation | default('')) == 'deploy-reviewed-three-path-backups' and
+          compose_deploy_plan.manual_only_paths == ['services/data/replicate-local-backup'] and
+          'daily-local-backup' in compose_deploy_plan.recreate_services
+        )
     fail_msg: >-
-      Automatic deployment refuses service additions/removals, forbidden Compose actions, and
-      services/data changes that require an explicit service restart decision.
+      Deployment refuses service additions/removals, forbidden Compose actions, and data-file changes
+      without their exact operation-specific restart approval.
 
 - name: Report the check-mode deployment boundary
   ansible.builtin.debug:

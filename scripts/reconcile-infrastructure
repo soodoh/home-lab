@@ -28,6 +28,7 @@ Options:
   --disk-growth                      Permit only reviewed VM 100 root-disk growth
   --tailscale-controller-retirement  Remove only the four CI identities and every CI policy grant
   --tailscale-controller-access      Repair only trusted-controller Proxmox SSH access
+  --backup-deployment                Allow only the reviewed three-path backup helper deployment
 
 Required environment:
   TF_BACKEND_BUCKET                   Existing encrypted OpenTofu state bucket
@@ -81,6 +82,7 @@ network_migration=false
 disk_growth=false
 tailscale_controller_retirement=false
 tailscale_controller_access=false
+backup_deployment=false
 
 while (($#)); do
   case "$1" in
@@ -136,6 +138,10 @@ while (($#)); do
       tailscale_controller_access=true
       shift
       ;;
+    --backup-deployment)
+      backup_deployment=true
+      shift
+      ;;
     *) usage ;;
   esac
 done
@@ -180,7 +186,7 @@ if [[ $ct_retirement_operation != none ]]; then ct_operation=true; fi
 tailscale_gateway_lifecycle=false
 if [[ $tailscale_gateway_operation != none ]]; then tailscale_gateway_lifecycle=true; fi
 special_operation_count=0
-for enabled in "$ct_operation" "$tailscale_gateway_lifecycle" "$network_migration" "$disk_growth" "$tailscale_controller_retirement" "$tailscale_controller_access"; do
+for enabled in "$ct_operation" "$tailscale_gateway_lifecycle" "$network_migration" "$disk_growth" "$tailscale_controller_retirement" "$tailscale_controller_access" "$backup_deployment"; do
   [[ $enabled == true ]] && ((special_operation_count += 1))
 done
 [[ $omada_qualification_operation == none ]] || ((special_operation_count += 1))
@@ -192,7 +198,7 @@ if ((special_operation_count == 1)) && [[ $phase != steady ]]; then
   echo "Special reconciliation operations require steady phase." >&2
   exit 64
 fi
-if [[ $action == apply && ($disk_growth == true || $ct_operation == true || $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true || $tailscale_controller_access == true) ]]; then
+if [[ $action == apply && ($disk_growth == true || $ct_operation == true || $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true || $tailscale_controller_access == true || $backup_deployment == true) ]]; then
   python3 scripts/controller/reconcile-apply-source.py
 fi
 case "$plan_dir" in
@@ -685,6 +691,7 @@ plan_all() {
     --argjson disk_growth "$disk_growth" \
     --argjson tailscale_controller_retirement "$tailscale_controller_retirement" \
     --argjson tailscale_controller_access "$tailscale_controller_access" \
+    --argjson backup_deployment "$backup_deployment" \
     --arg backend_bucket "$backend_bucket" \
     --arg compose_hash "$compose_hash" \
     --arg recovery_backup_identity_sha256 "$recovery_backup_identity_sha256" \
@@ -692,7 +699,7 @@ plan_all() {
       ct_retirement_operation: $ct_retirement_operation, retirement_stage: $retirement_stage,
       tailscale_gateway_operation: $tailscale_gateway_operation,
       tailscale_gateway_policy_stage: $tailscale_gateway_policy_stage,
-      network_migration: $network_migration, disk_growth: $disk_growth, tailscale_controller_retirement: $tailscale_controller_retirement, tailscale_controller_access: $tailscale_controller_access, backend_bucket: $backend_bucket,
+      network_migration: $network_migration, disk_growth: $disk_growth, tailscale_controller_retirement: $tailscale_controller_retirement, tailscale_controller_access: $tailscale_controller_access, backup_deployment: $backup_deployment, backend_bucket: $backend_bucket,
       recovery_backup_identity_sha256: $recovery_backup_identity_sha256,
       compose_artifact_sha256: $compose_hash, plans: .}' \
     "$records" >"$plan_dir/manifest.json"
@@ -721,6 +728,7 @@ verify_manifest() {
   [[ $(jq -r .disk_growth "$manifest") == "$disk_growth" ]]
   [[ $(jq -r .tailscale_controller_retirement "$manifest") == "$tailscale_controller_retirement" ]]
   [[ $(jq -r .tailscale_controller_access "$manifest") == "$tailscale_controller_access" ]]
+  [[ $(jq -r .backup_deployment "$manifest") == "$backup_deployment" ]]
   [[ $(jq -r .backend_bucket "$manifest") == "$backend_bucket" ]]
   [[ $(jq -r .compose_artifact_sha256 "$manifest") == "$(python3 scripts/compose-artifact.py hash)" ]]
   [[ $(jq -r .recovery_backup_identity_sha256 "$manifest") == "$(recovery_expected_backup_identity_sha256)" ]]
@@ -902,6 +910,10 @@ apply_arch_steady() {
 
 compose_apply() {
   local artifact_root artifact_hash plan_log plan_hash repeat_log repeat_hash postcheck_log
+  local compose_deploy_args=()
+  if [[ $backup_deployment == true ]]; then
+    compose_deploy_args=(-e compose_deploy_manual_paths_confirmation=deploy-reviewed-three-path-backups)
+  fi
   artifact_root=$(mktemp -d)
   artifact_hash=$(python3 scripts/compose-artifact.py copy "$artifact_root")
   pushd ansible >/dev/null
@@ -913,17 +925,17 @@ compose_apply() {
   repeat_log=$(mktemp)
   postcheck_log=$(mktemp)
   ansible-playbook -i "$arch_inventory" playbooks/deploy-compose.yml --check --diff \
-    -e "compose_artifact_hash=$artifact_hash" "${ansible_extra_args[@]}" | tee "$plan_log"
+    -e "compose_artifact_hash=$artifact_hash" "${compose_deploy_args[@]}" "${ansible_extra_args[@]}" | tee "$plan_log"
   plan_hash=$(grep -oE 'compose_deploy_plan_sha256=[0-9a-f]{64}' "$plan_log" | cut -d= -f2 | sort -u)
   ansible-playbook -i "$arch_inventory" playbooks/deploy-compose.yml --check --diff \
-    -e "compose_artifact_hash=$artifact_hash" "${ansible_extra_args[@]}" | tee "$repeat_log"
+    -e "compose_artifact_hash=$artifact_hash" "${compose_deploy_args[@]}" "${ansible_extra_args[@]}" | tee "$repeat_log"
   repeat_hash=$(grep -oE 'compose_deploy_plan_sha256=[0-9a-f]{64}' "$repeat_log" | cut -d= -f2 | sort -u)
   [[ $plan_hash =~ ^[0-9a-f]{64}$ && $plan_hash == "$repeat_hash" ]]
   ansible-playbook -i "$arch_inventory" playbooks/deploy-compose.yml \
     -e "compose_artifact_hash=$artifact_hash" \
-    -e compose_deploy_confirmed=true "${ansible_extra_args[@]}"
+    -e compose_deploy_confirmed=true "${compose_deploy_args[@]}" "${ansible_extra_args[@]}"
   ansible-playbook -i "$arch_inventory" playbooks/deploy-compose.yml --check --diff \
-    -e "compose_artifact_hash=$artifact_hash" "${ansible_extra_args[@]}" | tee "$postcheck_log"
+    -e "compose_artifact_hash=$artifact_hash" "${compose_deploy_args[@]}" "${ansible_extra_args[@]}" | tee "$postcheck_log"
   python3 "$repo_root/scripts/controller/parse-ansible-recap.py" "$postcheck_log" docker-host-production \
     | jq -e '.changed == 0 and .unreachable == 0 and .failed == 0' >/dev/null
   popd >/dev/null

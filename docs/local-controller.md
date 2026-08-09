@@ -43,6 +43,13 @@ scripts/local-controller apply steady
 Special operations use their own directories and confirmation phrases:
 
 ```sh
+scripts/local-controller plan backup-deployment
+scripts/local-controller review backup-deployment
+scripts/local-controller approve backup-deployment \
+  --confirmation deploy-reviewed-three-path-backups
+scripts/local-controller apply backup-deployment
+
+# Disk growth remains a different approval boundary.
 scripts/local-controller plan disk-growth
 scripts/local-controller review disk-growth
 scripts/local-controller approve disk-growth \

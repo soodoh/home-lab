@@ -96,6 +96,7 @@ class ManifestVerificationTests(unittest.TestCase):
                 "disk_growth": False,
                 "tailscale_controller_retirement": False,
                 "tailscale_controller_access": False,
+                "backup_deployment": False,
                 "backend_bucket": "test-state-bucket",
                 "recovery_backup_identity_sha256": "",
                 "compose_artifact_sha256": compose_hash,

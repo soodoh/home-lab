@@ -10,7 +10,7 @@ usage() {
 usage: scripts/local-controller <validate|plan|review|approve|apply> [operation] [options]
 
 Operations:
-  steady | disk-growth | ct-unprotect | ct-delete
+  steady | backup-deployment | disk-growth | ct-unprotect | ct-delete
   tailscale-controller-retirement | tailscale-controller-access | tailscale-detach | tailscale-retire | recovery
 
 Options:
@@ -62,6 +62,10 @@ case "$operation" in
   steady)
     operation_args=(--phase steady)
     expected_confirmation=apply-reviewed-steady
+    ;;
+  backup-deployment)
+    operation_args=(--phase steady --backup-deployment)
+    expected_confirmation=deploy-reviewed-three-path-backups
     ;;
   disk-growth)
     operation_args=(--phase steady --disk-growth)
