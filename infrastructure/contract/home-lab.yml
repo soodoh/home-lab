@@ -101,7 +101,7 @@ proxmox:
     vmid: 101
     name: tailscale-gateway
     mac: BC:24:11:FD:4C:5C
-    retirement_stage: unprotected
+    retirement_stage: retired
     lxc_provider_qualified: true
     recreate_after_decommission: false
     root_datastore: local-lvm
