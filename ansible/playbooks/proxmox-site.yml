@@ -30,6 +30,7 @@
         apply_lock_operation: proxmox-site
   roles:
     - role: proxmox_host
+    - role: human_access
     - role: proxmox_network
     - role: proxmox_passthrough
     - role: proxmox_storage

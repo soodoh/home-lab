@@ -38,6 +38,7 @@
         apply_lock_operation: proxmox-bootstrap
   roles:
     - role: proxmox_host
+    - role: human_access
     - role: proxmox_network
     - role: proxmox_passthrough
     - role: tailscale

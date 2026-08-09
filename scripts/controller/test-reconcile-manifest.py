@@ -52,6 +52,12 @@ class ManifestVerificationTests(unittest.TestCase):
             if line.strip().startswith("gateway_policy_stage:")
         )
         self.assertIn(gateway_stage, {"active", "detached", "retired"})
+        human_ssh_stage = next(
+            line.split(":", 1)[1].strip()
+            for line in (REPOSITORY / "infrastructure/contract/home-lab.yml").read_text().splitlines()
+            if line.strip().startswith("human_ssh_policy_stage:")
+        )
+        self.assertIn(human_ssh_stage, {"transition", "final"})
         retirement_stage = next(
             line.split(":", 1)[1].strip()
             for line in (REPOSITORY / "infrastructure/contract/home-lab.yml").read_text().splitlines()
@@ -100,6 +106,8 @@ class ManifestVerificationTests(unittest.TestCase):
                 "retirement_stage": retirement_stage,
                 "tailscale_gateway_operation": "none",
                 "tailscale_gateway_policy_stage": gateway_stage,
+                "tailscale_human_ssh_policy_stage": human_ssh_stage,
+                "tailscale_human_ssh_operation": "none",
                 "network_migration": False,
                 "disk_growth": False,
                 "tailscale_controller_retirement": False,

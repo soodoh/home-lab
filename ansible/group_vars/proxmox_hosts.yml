@@ -73,3 +73,12 @@ proxmox_tailscale_tag: tag:proxmox
 proxmox_tailscale_auth_key: "{{ lookup('ansible.builtin.env', 'TAILSCALE_AUTH_KEY') }}"
 proxmox_plan_ssh_public_keys: "{{ lookup('ansible.builtin.env', 'PROXMOX_PLAN_SSH_PUBLIC_KEYS').splitlines() }}"
 proxmox_apply_ssh_public_keys: "{{ lookup('ansible.builtin.env', 'PROXMOX_APPLY_SSH_PUBLIC_KEYS').splitlines() }}"
+
+human_access_visudo_path: /usr/sbin/visudo
+human_access_accounts:
+  - name: proxmox
+    comment: Home Lab Proxmox Administrator
+    group: proxmox
+    home: /home/proxmox
+    shell: /bin/bash
+    sudoers_path: /etc/sudoers.d/proxmox

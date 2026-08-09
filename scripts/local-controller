@@ -11,7 +11,8 @@ usage: scripts/local-controller <validate|plan|review|approve|apply> [operation]
 
 Operations:
   steady | backup-deployment | disk-growth | ct-unprotect | ct-delete | omada-retire
-  tailscale-controller-retirement | tailscale-controller-access | tailscale-detach | tailscale-retire | recovery
+  tailscale-controller-retirement | tailscale-controller-access | tailscale-human-ssh-transition | tailscale-human-ssh-final
+  tailscale-detach | tailscale-retire | recovery
 
 Options:
   --confirmation <non-secret-review-phrase>
@@ -90,6 +91,14 @@ case "$operation" in
   tailscale-controller-access)
     operation_args=(--phase steady --tailscale-controller-access)
     expected_confirmation=repair-reviewed-tailscale-controller-access
+    ;;
+  tailscale-human-ssh-transition)
+    operation_args=(--phase steady --tailscale-human-ssh-operation transition)
+    expected_confirmation=apply-reviewed-tailscale-human-ssh-transition
+    ;;
+  tailscale-human-ssh-final)
+    operation_args=(--phase steady --tailscale-human-ssh-operation final)
+    expected_confirmation=finalize-reviewed-tailscale-human-ssh
     ;;
   tailscale-detach)
     operation_args=(--phase steady --tailscale-gateway-operation detach)

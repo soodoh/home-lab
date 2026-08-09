@@ -175,6 +175,15 @@ tailscale_accept_dns: false
 tailscale_accept_routes: false
 tailscale_auth_key: "{{ lookup('ansible.builtin.env', 'TAILSCALE_AUTH_KEY') }}"
 
+human_access_visudo_path: /usr/bin/visudo
+human_access_accounts:
+  - name: docker
+    comment: Home Lab Docker Administrator
+    group: docker
+    home: /home/docker
+    shell: /bin/bash
+    sudoers_path: /etc/sudoers.d/docker
+
 deploy_user_name: ansible-deploy
 deploy_user_home: /home/ansible-deploy
 deploy_user_shell: /bin/bash

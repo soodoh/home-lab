@@ -22,6 +22,7 @@
     - role: arch_network
     - role: arch_mounts
     - role: docker
+    - role: human_access
     - role: sops_age
     - role: coral
       vars:

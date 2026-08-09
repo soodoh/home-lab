@@ -66,6 +66,8 @@ def parse_args() -> argparse.Namespace:
             "qualification",
             "tailscale-controller-retirement",
             "tailscale-controller-access",
+            "tailscale-human-ssh-transition",
+            "tailscale-human-ssh-final",
         ),
         default="normal",
     )
@@ -239,9 +241,118 @@ def local_controller_access_policy(detached: Any) -> Any:
         },
     ]
     ssh_tests = policy.get("sshTests")
-    if not isinstance(ssh_tests, list) or len(ssh_tests) != 1:
+    legacy_ssh_tests = [{
+        "src": "tag:docker-host",
+        "dst": ["tag:proxmox"],
+        "accept": ["root"],
+        "deny": ["tofu-plan", "tofu-apply"],
+    }]
+    if ssh_tests not in (legacy_ssh_tests, human_ssh_transition_tests()):
         raise ValueError("detached SSH tests are malformed")
     return policy
+
+
+def human_ssh_transition_policy(current: Any) -> Any:
+    if not isinstance(current, dict):
+        raise ValueError("managed policy is not an object")
+    policy = deepcopy(current)
+    rules = policy.get("ssh")
+    if not isinstance(rules, list):
+        raise ValueError("SSH policy is missing or malformed")
+    service_rule = {
+        "action": "accept",
+        "src": ["autogroup:owner", "autogroup:admin"],
+        "dst": ["tag:proxmox"],
+        "users": ["root", "tofu-plan", "tofu-apply"],
+    }
+    service_index = unique_index(rules, service_rule, "Proxmox service SSH rule")
+    rules.insert(service_index, {
+        "action": "accept",
+        "src": ["autogroup:owner"],
+        "dst": ["tag:proxmox"],
+        "users": ["proxmox"],
+    })
+    expected_before_tests = [{
+        "src": "tag:docker-host",
+        "dst": ["tag:proxmox"],
+        "accept": ["root"],
+        "deny": ["tofu-plan", "tofu-apply"],
+    }]
+    if policy.get("sshTests") != expected_before_tests:
+        raise ValueError("pre-transition SSH tests are malformed")
+    policy["sshTests"] = human_ssh_transition_tests()
+    return policy
+
+
+def human_ssh_final_policy(transition: Any) -> Any:
+    if not isinstance(transition, dict):
+        raise ValueError("managed policy is not an object")
+    policy = deepcopy(transition)
+    grants = policy.get("grants")
+    if not isinstance(grants, list):
+        raise ValueError("grants are missing or malformed")
+    transition_grant = {
+        "src": ["autogroup:owner", "autogroup:admin", "tag:docker-host"],
+        "dst": ["tag:proxmox"],
+        "ip": ["tcp:22", "tcp:8006"],
+    }
+    grant_index = unique_index(grants, transition_grant, "transitional Proxmox grant")
+    grants[grant_index:grant_index + 1] = [
+        {"src": ["autogroup:owner", "autogroup:admin"], "dst": ["tag:proxmox"], "ip": ["tcp:22", "tcp:8006"]},
+        {"src": ["tag:docker-host"], "dst": ["tag:proxmox"], "ip": ["tcp:8006"]},
+    ]
+
+    rules = policy.get("ssh")
+    if not isinstance(rules, list):
+        raise ValueError("SSH policy is missing or malformed")
+    transition_rules = [
+        {"action": "accept", "src": ["autogroup:owner"], "dst": ["tag:proxmox"], "users": ["proxmox"]},
+        {"action": "accept", "src": ["autogroup:owner", "autogroup:admin"], "dst": ["tag:proxmox"], "users": ["root", "tofu-plan", "tofu-apply"]},
+        {"action": "accept", "src": ["tag:docker-host"], "dst": ["tag:proxmox"], "users": ["root"]},
+    ]
+    rule_index = unique_index(rules, transition_rules[0], "transitional Proxmox owner rule")
+    if rules[rule_index:rule_index + len(transition_rules)] != transition_rules:
+        raise ValueError("transitional Proxmox SSH rules are malformed")
+    rules[rule_index:rule_index + len(transition_rules)] = [
+        {"action": "accept", "src": ["autogroup:owner"], "dst": ["tag:proxmox"], "users": ["proxmox", "tofu-plan", "tofu-apply"]},
+        {"action": "accept", "src": ["autogroup:admin"], "dst": ["tag:proxmox"], "users": ["tofu-plan", "tofu-apply"]},
+    ]
+
+    transition_tests = [{
+        "src": "tag:docker-host",
+        "proto": "tcp",
+        "accept": ["tag:proxmox:22", "tag:proxmox:8006"],
+        "deny": ["tag:proxmox:8007"],
+    }]
+    if policy.get("tests") != transition_tests:
+        raise ValueError("transitional network tests are malformed")
+    policy["tests"] = [{
+        "src": "tag:docker-host",
+        "proto": "tcp",
+        "accept": ["tag:proxmox:8006"],
+        "deny": ["tag:proxmox:22", "tag:proxmox:8007"],
+    }]
+
+    expected_transition_ssh_tests = human_ssh_transition_tests()
+    if policy.get("sshTests") != expected_transition_ssh_tests:
+        raise ValueError("transitional SSH tests are malformed")
+    policy["sshTests"] = [
+        {"src": "autogroup:owner", "dst": ["tag:docker-host"], "accept": ["docker", "ansible-deploy"], "deny": ["proxmox", "root"]},
+        {"src": "autogroup:owner", "dst": ["tag:proxmox"], "accept": ["proxmox", "tofu-plan", "tofu-apply"], "deny": ["docker", "root"]},
+        {"src": "autogroup:admin", "dst": ["tag:docker-host"], "accept": ["ansible-deploy"], "deny": ["docker", "proxmox", "root"]},
+        {"src": "autogroup:admin", "dst": ["tag:proxmox"], "accept": ["tofu-plan", "tofu-apply"], "deny": ["docker", "proxmox", "root"]},
+    ]
+    return policy
+
+
+def human_ssh_transition_tests() -> list[dict[str, Any]]:
+    return [
+        {"src": "autogroup:owner", "dst": ["tag:docker-host"], "accept": ["docker", "ansible-deploy"], "deny": ["proxmox", "root"]},
+        {"src": "autogroup:owner", "dst": ["tag:proxmox"], "accept": ["proxmox", "root", "tofu-plan", "tofu-apply"], "deny": ["docker"]},
+        {"src": "autogroup:admin", "dst": ["tag:docker-host"], "accept": ["ansible-deploy"], "deny": ["docker", "proxmox", "root"]},
+        {"src": "autogroup:admin", "dst": ["tag:proxmox"], "accept": ["root", "tofu-plan", "tofu-apply"], "deny": ["docker", "proxmox"]},
+        {"src": "tag:docker-host", "dst": ["tag:proxmox"], "accept": ["root"], "deny": ["docker", "proxmox", "tofu-plan", "tofu-apply"]},
+    ]
 
 
 def retired_gateway_policy(detached: Any) -> Any:
@@ -442,6 +553,26 @@ def main() -> int:
                 failures.append(f"{address}: local-controller access repair permits only the exact Proxmox SSH policy split")
             continue
 
+        if args.mode in {"tailscale-human-ssh-transition", "tailscale-human-ssh-final"}:
+            try:
+                before_policy = policy_json(change, "before")
+                after_policy = policy_json(change, "after")
+                expected_policy = (
+                    human_ssh_transition_policy(before_policy)
+                    if args.mode == "tailscale-human-ssh-transition"
+                    else human_ssh_final_policy(before_policy)
+                )
+                valid_change = (
+                    address == "terraform_data.tailscale_policy[0]"
+                    and actions == ["update"]
+                    and after_policy == expected_policy
+                )
+            except (AttributeError, json.JSONDecodeError, TypeError, ValueError):
+                valid_change = False
+            if not valid_change:
+                failures.append(f"{address}: human SSH migration permits only the exact requested policy stage")
+            continue
+
         if args.mode == "tailscale-controller-retirement":
             if address == "terraform_data.tailscale_policy[0]":
                 try:
@@ -575,6 +706,10 @@ def main() -> int:
         observed_actions != 1 or observed_addresses != {"terraform_data.tailscale_policy[0]"}
     ):
         failures.append("local-controller access repair plan must contain exactly one policy update")
+    if args.mode in {"tailscale-human-ssh-transition", "tailscale-human-ssh-final"} and (
+        observed_actions != 1 or observed_addresses != {"terraform_data.tailscale_policy[0]"}
+    ):
+        failures.append("human SSH migration plan must contain exactly one policy update")
     if (
         args.mode == "network-migration"
         and observed_addresses != MAPPING_ADDRESSES | {"proxmox_virtual_environment_vm.arch"}

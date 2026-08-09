@@ -1,0 +1,162 @@
+---
+- name: Validate the human-access account contract
+  ansible.builtin.assert:
+    that:
+      - human_access_accounts | length > 0
+      - item.name | length > 0
+      - item.group | length > 0
+      - item.home is match('^/home/[a-z_][a-z0-9_-]*$')
+      - item.shell.startswith('/')
+      - item.sudoers_path is match('^/etc/sudoers\.d/[a-z_][a-z0-9_-]*$')
+    fail_msg: "Every human-access account requires a name, primary group, /home path, shell, and sudoers path."
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Inspect human-access accounts before convergence
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/getent
+      - passwd
+      - "{{ item.name }}"
+  register: human_access_account_inspection
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Record existing human-access accounts
+  ansible.builtin.set_fact:
+    human_access_existing_accounts: >-
+      {{ human_access_account_inspection.results |
+         selectattr('rc', 'equalto', 0) |
+         map(attribute='item.name') |
+         list }}
+
+- name: Keep human-access primary groups present
+  ansible.builtin.group:
+    name: "{{ item.group }}"
+    state: present
+  become: true
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    label: "{{ item.group }}"
+
+- name: Create or safely adopt human-access accounts
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    comment: "{{ item.comment }}"
+    group: "{{ item.group }}"
+    groups: ""
+    append: false
+    home: "{{ item.home }}"
+    shell: "{{ item.shell }}"
+    create_home: true
+    move_home: true
+    password_lock: true
+    state: present
+  become: true
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Remove conventional OpenSSH authorized-key files for human accounts
+  ansible.builtin.file:
+    path: "{{ item.0.home }}/.ssh/{{ item.1 }}"
+    state: absent
+  become: true
+  loop: "{{ human_access_accounts | product(['authorized_keys', 'authorized_keys2']) | list }}"
+  loop_control:
+    label: "{{ item.0.name }}:{{ item.1 }}"
+  when: not ansible_check_mode or item.0.name in human_access_existing_accounts
+
+- name: Install validated passwordless sudo policies for human accounts
+  ansible.builtin.copy:
+    content: "{{ item.name }} ALL=(root) NOPASSWD: ALL\n"
+    dest: "{{ item.sudoers_path }}"
+    owner: root
+    group: root
+    mode: "0440"
+    backup: false
+    validate: "{{ human_access_visudo_path }} --check --file=%s"
+  become: true
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Inspect converged human-access identities
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/getent
+      - passwd
+      - "{{ item.name }}"
+  register: human_access_identity_result
+  changed_when: false
+  check_mode: false
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: not ansible_check_mode
+
+- name: Inspect converged human-access password locks
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/passwd
+      - --status
+      - "{{ item.name }}"
+  register: human_access_password_result
+  changed_when: false
+  check_mode: false
+  become: true
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: not ansible_check_mode
+
+- name: Inspect converged human-access supplementary groups
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/id
+      - --name
+      - --groups
+      - "{{ item.name }}"
+  register: human_access_groups_result
+  changed_when: false
+  check_mode: false
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: not ansible_check_mode
+
+- name: Verify passwordless sudo from human-access accounts
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/sudo
+      - --non-interactive
+      - --
+      - /usr/bin/true
+  changed_when: false
+  check_mode: false
+  become: true
+  become_user: "{{ item.name }}"
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: not ansible_check_mode
+
+- name: Assert human-access account convergence
+  ansible.builtin.assert:
+    that:
+      - human_access_identity_result.results[account_index].stdout.split(':')[0] == item.name
+      - human_access_identity_result.results[account_index].stdout.split(':')[5] == item.home
+      - human_access_identity_result.results[account_index].stdout.split(':')[6] == item.shell
+      - human_access_password_result.results[account_index].stdout.split()[1] == 'L'
+      - human_access_groups_result.results[account_index].stdout.split() == [item.group]
+    fail_msg: "The human-access identity, password lock, home, shell, or group boundary differs from the declared state."
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    index_var: account_index
+    label: "{{ item.name }}"
+  when: not ansible_check_mode

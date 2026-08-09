@@ -70,13 +70,21 @@ class GatewayLifecycleTests(unittest.TestCase):
             (root / "versions.tf").write_text(versions)
             contract_dir = Path(directory) / "infrastructure/contract"
             contract_dir.mkdir(parents=True)
-            shutil.copy(REPOSITORY / "infrastructure/contract/home-lab.yml", contract_dir / "home-lab.yml")
+            contract_path = contract_dir / "home-lab.yml"
+            contract_text = (REPOSITORY / "infrastructure/contract/home-lab.yml").read_text()
             subprocess.run(["tofu", f"-chdir={root}", "init", "-backend=false", "-input=false"], check=True, capture_output=True, text=True)
             rendered: dict[str, dict] = {}
-            for stage in ("active", "detached", "retired"):
-                expression = f"jsonencode(local.{stage}_policy)\n"
-                result = subprocess.run(["tofu", f"-chdir={root}", "console"], input=expression, check=True, capture_output=True, text=True)
-                rendered[stage] = json.loads(json.loads(result.stdout.strip()))
+            for human_stage in ("transition", "final"):
+                contract_path.write_text(re.sub(
+                    r"(?m)^  human_ssh_policy_stage: .+$",
+                    f"  human_ssh_policy_stage: {human_stage}",
+                    contract_text,
+                ))
+                for gateway_stage in ("active", "detached", "retired"):
+                    expression = f"jsonencode(local.{gateway_stage}_policy)\n"
+                    result = subprocess.run(["tofu", f"-chdir={root}", "console"], input=expression, check=True, capture_output=True, text=True)
+                    key = gateway_stage if human_stage == "transition" else f"final_{gateway_stage}"
+                    rendered[key] = json.loads(json.loads(result.stdout.strip()))
             return rendered
 
     def pre_access_policy(self) -> dict:
@@ -228,6 +236,30 @@ class GatewayLifecycleTests(unittest.TestCase):
         changed = deepcopy(self.policies["detached"])
         changed["sshTests"] = []
         self.assertNotEqual(self.run_policy(before, changed, "tailscale-controller-access").returncode, 0)
+
+    def test_exact_human_ssh_migration_stages(self) -> None:
+        transition = self.policies["retired"]
+        final = self.policies["final_retired"]
+        before = deepcopy(transition)
+        before["ssh"].remove({
+            "action": "accept",
+            "src": ["autogroup:owner"],
+            "dst": ["tag:proxmox"],
+            "users": ["proxmox"],
+        })
+        before["sshTests"] = [{
+            "src": "tag:docker-host",
+            "dst": ["tag:proxmox"],
+            "accept": ["root"],
+            "deny": ["tofu-plan", "tofu-apply"],
+        }]
+        transition_result = self.run_policy(before, transition, "tailscale-human-ssh-transition")
+        self.assertEqual(transition_result.returncode, 0, transition_result.stderr)
+        final_result = self.run_policy(transition, final, "tailscale-human-ssh-final")
+        self.assertEqual(final_result.returncode, 0, final_result.stderr)
+        changed = deepcopy(final)
+        changed["sshTests"] = []
+        self.assertNotEqual(self.run_policy(transition, changed, "tailscale-human-ssh-final").returncode, 0)
 
     def test_normal_rejects_required_lifecycle_mutation_but_allows_pre_retirement_rollback_shape(self) -> None:
         self.assertNotEqual(self.run_policy(self.policies["active"], self.policies["detached"], "normal").returncode, 0)

@@ -1,0 +1,15 @@
+---
+- name: Converge dedicated human access on managed hosts
+  hosts:
+    - docker_host
+    - proxmox_hosts
+  gather_facts: false
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require explicit approval before changing human access
+      ansible.builtin.assert:
+        that:
+          - ansible_check_mode or (human_access_apply_confirmed | default(false) | bool)
+        fail_msg: "Human-access convergence requires --check or -e human_access_apply_confirmed=true."
+  roles:
+    - role: human_access

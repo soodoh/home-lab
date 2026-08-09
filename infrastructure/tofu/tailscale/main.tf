@@ -7,7 +7,191 @@ locals {
   contract = yamldecode(file("${path.module}/../../contract/home-lab.yml"))
   tags     = local.contract.tailscale.tags
 
-  gateway_policy_stage = local.contract.tailscale.gateway_policy_stage
+  gateway_policy_stage   = local.contract.tailscale.gateway_policy_stage
+  human_ssh_policy_stage = local.contract.tailscale.human_ssh_policy_stage
+
+  direct_proxmox_grants_by_stage = {
+    transition = [
+      {
+        src = ["autogroup:owner", "autogroup:admin", local.tags.arch]
+        dst = [local.tags.proxmox]
+        ip  = ["tcp:22", "tcp:8006"]
+      },
+    ]
+    final = [
+      {
+        src = ["autogroup:owner", "autogroup:admin"]
+        dst = [local.tags.proxmox]
+        ip  = ["tcp:22", "tcp:8006"]
+      },
+      {
+        src = [local.tags.arch]
+        dst = [local.tags.proxmox]
+        ip  = ["tcp:8006"]
+      },
+    ]
+  }
+
+  ssh_by_human_stage = {
+    transition = [
+      {
+        action = "accept"
+        src    = ["autogroup:owner"]
+        dst    = [local.tags.arch]
+        users  = ["docker"]
+      },
+      {
+        action = "accept"
+        src    = ["autogroup:owner", "autogroup:admin"]
+        dst    = [local.tags.arch]
+        users  = ["ansible-deploy"]
+      },
+      {
+        action = "accept"
+        src    = ["autogroup:owner"]
+        dst    = ["autogroup:self"]
+        users  = ["pauldiloreto"]
+      },
+      {
+        action = "accept"
+        src    = ["autogroup:owner"]
+        dst    = [local.tags.proxmox]
+        users  = ["proxmox"]
+      },
+      {
+        action = "accept"
+        src    = ["autogroup:owner", "autogroup:admin"]
+        dst    = [local.tags.proxmox]
+        users  = ["root", "tofu-plan", "tofu-apply"]
+      },
+      {
+        action = "accept"
+        src    = [local.tags.arch]
+        dst    = [local.tags.proxmox]
+        users  = ["root"]
+      },
+    ]
+    final = [
+      {
+        action = "accept"
+        src    = ["autogroup:owner"]
+        dst    = [local.tags.arch]
+        users  = ["docker"]
+      },
+      {
+        action = "accept"
+        src    = ["autogroup:owner", "autogroup:admin"]
+        dst    = [local.tags.arch]
+        users  = ["ansible-deploy"]
+      },
+      {
+        action = "accept"
+        src    = ["autogroup:owner"]
+        dst    = ["autogroup:self"]
+        users  = ["pauldiloreto"]
+      },
+      {
+        action = "accept"
+        src    = ["autogroup:owner"]
+        dst    = [local.tags.proxmox]
+        users  = ["proxmox", "tofu-plan", "tofu-apply"]
+      },
+      {
+        action = "accept"
+        src    = ["autogroup:admin"]
+        dst    = [local.tags.proxmox]
+        users  = ["tofu-plan", "tofu-apply"]
+      },
+    ]
+  }
+
+  tests_by_human_stage = {
+    transition = [
+      {
+        src   = local.tags.arch
+        proto = "tcp"
+        accept = [
+          "${local.tags.proxmox}:22",
+          "${local.tags.proxmox}:8006",
+        ]
+        deny = ["${local.tags.proxmox}:8007"]
+      },
+    ]
+    final = [
+      {
+        src   = local.tags.arch
+        proto = "tcp"
+        accept = [
+          "${local.tags.proxmox}:8006",
+        ]
+        deny = [
+          "${local.tags.proxmox}:22",
+          "${local.tags.proxmox}:8007",
+        ]
+      },
+    ]
+  }
+
+  ssh_tests_by_human_stage = {
+    transition = [
+      {
+        src    = "autogroup:owner"
+        dst    = [local.tags.arch]
+        accept = ["docker", "ansible-deploy"]
+        deny   = ["proxmox", "root"]
+      },
+      {
+        src    = "autogroup:owner"
+        dst    = [local.tags.proxmox]
+        accept = ["proxmox", "root", "tofu-plan", "tofu-apply"]
+        deny   = ["docker"]
+      },
+      {
+        src    = "autogroup:admin"
+        dst    = [local.tags.arch]
+        accept = ["ansible-deploy"]
+        deny   = ["docker", "proxmox", "root"]
+      },
+      {
+        src    = "autogroup:admin"
+        dst    = [local.tags.proxmox]
+        accept = ["root", "tofu-plan", "tofu-apply"]
+        deny   = ["docker", "proxmox"]
+      },
+      {
+        src    = local.tags.arch
+        dst    = [local.tags.proxmox]
+        accept = ["root"]
+        deny   = ["docker", "proxmox", "tofu-plan", "tofu-apply"]
+      },
+    ]
+    final = [
+      {
+        src    = "autogroup:owner"
+        dst    = [local.tags.arch]
+        accept = ["docker", "ansible-deploy"]
+        deny   = ["proxmox", "root"]
+      },
+      {
+        src    = "autogroup:owner"
+        dst    = [local.tags.proxmox]
+        accept = ["proxmox", "tofu-plan", "tofu-apply"]
+        deny   = ["docker", "root"]
+      },
+      {
+        src    = "autogroup:admin"
+        dst    = [local.tags.arch]
+        accept = ["ansible-deploy"]
+        deny   = ["docker", "proxmox", "root"]
+      },
+      {
+        src    = "autogroup:admin"
+        dst    = [local.tags.proxmox]
+        accept = ["tofu-plan", "tofu-apply"]
+        deny   = ["docker", "proxmox", "root"]
+      },
+    ]
+  }
 
   active_policy = {
     tagOwners = {
@@ -23,7 +207,7 @@ locals {
       }
     }
 
-    grants = [
+    grants = concat([
       {
         src = ["autogroup:admin"]
         dst = [local.tags.infra_router]
@@ -49,76 +233,19 @@ locals {
         dst = ["autogroup:self"]
         ip  = ["tcp:22"]
       },
-      {
-        src = ["autogroup:owner", "autogroup:admin", local.tags.arch]
-        dst = [local.tags.proxmox]
-        ip  = ["tcp:22", "tcp:8006"]
-      },
-    ]
+    ], local.direct_proxmox_grants_by_stage[local.human_ssh_policy_stage])
 
-    ssh = [
-      {
-        action = "accept"
-        src    = ["autogroup:owner"]
-        dst    = [local.tags.arch]
-        users  = ["docker"]
-      },
-      {
-        action = "accept"
-        src    = ["autogroup:owner", "autogroup:admin"]
-        dst    = [local.tags.arch]
-        users  = ["ansible-deploy"]
-      },
-      {
-        action = "accept"
-        src    = ["autogroup:owner"]
-        dst    = ["autogroup:self"]
-        users  = ["pauldiloreto"]
-      },
-      {
-        action = "accept"
-        src    = ["autogroup:owner", "autogroup:admin"]
-        dst    = [local.tags.proxmox]
-        users  = ["root", "tofu-plan", "tofu-apply"]
-      },
-      {
-        action = "accept"
-        src    = [local.tags.arch]
-        dst    = [local.tags.proxmox]
-        users  = ["root"]
-      },
-    ]
-
-    tests = [
-      {
-        src   = local.tags.arch
-        proto = "tcp"
-        accept = [
-          "${local.tags.proxmox}:22",
-          "${local.tags.proxmox}:8006",
-        ]
-        deny = ["${local.tags.proxmox}:8007"]
-      },
-    ]
-
-    sshTests = [
-      {
-        src    = local.tags.arch
-        dst    = [local.tags.proxmox]
-        accept = ["root"]
-        deny   = ["tofu-plan", "tofu-apply"]
-      },
-    ]
+    ssh      = local.ssh_by_human_stage[local.human_ssh_policy_stage]
+    tests    = local.tests_by_human_stage[local.human_ssh_policy_stage]
+    sshTests = local.ssh_tests_by_human_stage[local.human_ssh_policy_stage]
   }
 
   detached_policy = {
     tagOwners = local.active_policy.tagOwners
-    grants = [
-      local.active_policy.grants[0],
-      local.active_policy.grants[3],
-      local.active_policy.grants[4],
-      local.active_policy.grants[5],
-    ]
+    grants = concat(
+      [local.active_policy.grants[0]],
+      slice(local.active_policy.grants, 3, length(local.active_policy.grants)),
+    )
     ssh      = local.active_policy.ssh
     tests    = local.active_policy.tests
     sshTests = local.active_policy.sshTests

@@ -28,6 +28,8 @@ Options:
   --disk-growth                      Permit only reviewed VM 100 root-disk growth
   --tailscale-controller-retirement  Remove only the four CI identities and every CI policy grant
   --tailscale-controller-access      Repair only trusted-controller Proxmox SSH access
+  --tailscale-human-ssh-operation <none|transition|final>
+                                      Apply only the exact staged human SSH policy change
   --backup-deployment                Allow only the reviewed three-path backup helper deployment
   --omada-gateway-reservation-retirement
                                       Remove only the retired CT DHCP reservation
@@ -84,6 +86,7 @@ network_migration=false
 disk_growth=false
 tailscale_controller_retirement=false
 tailscale_controller_access=false
+tailscale_human_ssh_operation=none
 backup_deployment=false
 omada_gateway_reservation_retirement=false
 
@@ -141,6 +144,11 @@ while (($#)); do
       tailscale_controller_access=true
       shift
       ;;
+    --tailscale-human-ssh-operation)
+      (($# >= 2)) || usage
+      tailscale_human_ssh_operation=$2
+      shift 2
+      ;;
     --backup-deployment)
       backup_deployment=true
       shift
@@ -178,6 +186,7 @@ if [[ $omada_qualification_operation != none && $phase != steady ]]; then
 fi
 case "$ct_retirement_operation" in none|unprotect|delete) ;; *) usage ;; esac
 case "$tailscale_gateway_operation" in none|detach|retire) ;; *) usage ;; esac
+case "$tailscale_human_ssh_operation" in none|transition|final) ;; *) usage ;; esac
 unset TF_VAR_decommission_confirmation
 python3 scripts/controller/ct-retirement.py validate-operation \
   --contract infrastructure/contract/home-lab.yml \
@@ -192,8 +201,10 @@ ct_operation=false
 if [[ $ct_retirement_operation != none ]]; then ct_operation=true; fi
 tailscale_gateway_lifecycle=false
 if [[ $tailscale_gateway_operation != none ]]; then tailscale_gateway_lifecycle=true; fi
+tailscale_human_ssh_change=false
+if [[ $tailscale_human_ssh_operation != none ]]; then tailscale_human_ssh_change=true; fi
 special_operation_count=0
-for enabled in "$ct_operation" "$tailscale_gateway_lifecycle" "$network_migration" "$disk_growth" "$tailscale_controller_retirement" "$tailscale_controller_access" "$backup_deployment" "$omada_gateway_reservation_retirement"; do
+for enabled in "$ct_operation" "$tailscale_gateway_lifecycle" "$network_migration" "$disk_growth" "$tailscale_controller_retirement" "$tailscale_controller_access" "$tailscale_human_ssh_change" "$backup_deployment" "$omada_gateway_reservation_retirement"; do
   [[ $enabled == true ]] && ((special_operation_count += 1))
 done
 [[ $omada_qualification_operation == none ]] || ((special_operation_count += 1))
@@ -205,7 +216,7 @@ if ((special_operation_count == 1)) && [[ $phase != steady ]]; then
   echo "Special reconciliation operations require steady phase." >&2
   exit 64
 fi
-if [[ $action == apply && ($disk_growth == true || $ct_operation == true || $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true || $tailscale_controller_access == true || $backup_deployment == true || $omada_gateway_reservation_retirement == true) ]]; then
+if [[ $action == apply && ($disk_growth == true || $ct_operation == true || $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true || $tailscale_controller_access == true || $tailscale_human_ssh_change == true || $backup_deployment == true || $omada_gateway_reservation_retirement == true) ]]; then
   python3 scripts/controller/reconcile-apply-source.py
 fi
 case "$plan_dir" in
@@ -312,7 +323,7 @@ roots=(aws-foundation proxmox omada tailscale)
 if [[ $phase != recovery ]]; then
   roots=(aws-foundation proxmox-legacy proxmox omada tailscale)
 fi
-if [[ $tailscale_controller_retirement == true || $tailscale_controller_access == true ]]; then
+if [[ $tailscale_controller_retirement == true || $tailscale_controller_access == true || $tailscale_human_ssh_change == true ]]; then
   roots=(tailscale)
 fi
 enabled_roots=()
@@ -329,7 +340,7 @@ if [[ ($ct_operation == true || $tailscale_gateway_lifecycle == true) && ${#root
   echo "Lifecycle operations require every OpenTofu root to be enabled for no-op proof." >&2
   exit 64
 fi
-if [[ ($tailscale_controller_retirement == true || $tailscale_controller_access == true) && ${#roots[@]} -ne 1 ]]; then
+if [[ ($tailscale_controller_retirement == true || $tailscale_controller_access == true || $tailscale_human_ssh_change == true) && ${#roots[@]} -ne 1 ]]; then
   echo "Tailscale controller operations require the managed Tailscale root." >&2
   exit 64
 fi
@@ -531,6 +542,9 @@ policy_args() {
   if [[ $tailscale_controller_access == true && $root == tailscale ]]; then
     mode=tailscale-controller-access
   fi
+  if [[ $tailscale_human_ssh_change == true && $root == tailscale ]]; then
+    mode="tailscale-human-ssh-$tailscale_human_ssh_operation"
+  fi
   if [[ $root == omada && $omada_qualification_operation != none ]]; then
     mode=qualification
   fi
@@ -577,7 +591,7 @@ plan_all() {
   ./scripts/validate-provider-locks
 
   local root plan plan_log exit_code tailscale_live_policy_sha256 tailscale_policy_before_sha256 tailscale_policy_after_sha256 tailscale_policy_etag tailscale_policy_changed
-  local planned_before_policy planned_after_policy compose_hash retirement_stage tailscale_gateway_policy_stage recovery_backup_identity_sha256
+  local planned_before_policy planned_after_policy compose_hash retirement_stage tailscale_gateway_policy_stage tailscale_human_ssh_policy_stage recovery_backup_identity_sha256
   for root in "${roots[@]}"; do
     echo "Planning OpenTofu root: $root"
     backend_init "$root"
@@ -613,7 +627,7 @@ plan_all() {
       tailscale_policy_before_sha256=$(sha256_file "$planned_before_policy")
       tailscale_policy_after_sha256=$(sha256_file "$planned_after_policy")
       rm -f "$planned_before_policy" "$planned_after_policy"
-      if [[ $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true || $tailscale_controller_access == true ]]; then
+      if [[ $tailscale_gateway_lifecycle == true || $tailscale_controller_retirement == true || $tailscale_controller_access == true || $tailscale_human_ssh_change == true ]]; then
         python3 scripts/controller/tailscale-gateway-policy.py validate-before-identity \
           --planned-before-sha "$tailscale_policy_before_sha256" \
           --live-before-sha "$tailscale_live_policy_sha256"
@@ -667,6 +681,12 @@ plan_all() {
       exit 1
     }
   fi
+  if [[ $tailscale_human_ssh_change == true ]]; then
+    jq -s -e 'length == 1 and .[0].root == "tailscale" and .[0].changed == true' "$records" >/dev/null || {
+      echo "Tailscale human SSH migration requires one changed Tailscale plan." >&2
+      exit 1
+    }
+  fi
   if [[ $network_migration == true ]]; then
     jq -s -e '
       (map(select(.root == "proxmox" and .changed == true)) | length == 1) and
@@ -698,6 +718,7 @@ plan_all() {
   compose_hash=$(python3 scripts/compose-artifact.py hash)
   retirement_stage=$(contract_value proxmox.legacy_container.retirement_stage)
   tailscale_gateway_policy_stage=$(contract_value tailscale.gateway_policy_stage)
+  tailscale_human_ssh_policy_stage=$(contract_value tailscale.human_ssh_policy_stage)
   recovery_backup_identity_sha256=$(recovery_expected_backup_identity_sha256)
   jq -s \
     --arg commit "$commit" \
@@ -706,10 +727,12 @@ plan_all() {
     --arg retirement_stage "$retirement_stage" \
     --arg tailscale_gateway_operation "$tailscale_gateway_operation" \
     --arg tailscale_gateway_policy_stage "$tailscale_gateway_policy_stage" \
+    --arg tailscale_human_ssh_policy_stage "$tailscale_human_ssh_policy_stage" \
     --argjson network_migration "$network_migration" \
     --argjson disk_growth "$disk_growth" \
     --argjson tailscale_controller_retirement "$tailscale_controller_retirement" \
     --argjson tailscale_controller_access "$tailscale_controller_access" \
+    --arg tailscale_human_ssh_operation "$tailscale_human_ssh_operation" \
     --argjson backup_deployment "$backup_deployment" \
     --argjson omada_gateway_reservation_retirement "$omada_gateway_reservation_retirement" \
     --arg backend_bucket "$backend_bucket" \
@@ -719,6 +742,8 @@ plan_all() {
       ct_retirement_operation: $ct_retirement_operation, retirement_stage: $retirement_stage,
       tailscale_gateway_operation: $tailscale_gateway_operation,
       tailscale_gateway_policy_stage: $tailscale_gateway_policy_stage,
+      tailscale_human_ssh_policy_stage: $tailscale_human_ssh_policy_stage,
+      tailscale_human_ssh_operation: $tailscale_human_ssh_operation,
       network_migration: $network_migration, disk_growth: $disk_growth, tailscale_controller_retirement: $tailscale_controller_retirement, tailscale_controller_access: $tailscale_controller_access, backup_deployment: $backup_deployment, omada_gateway_reservation_retirement: $omada_gateway_reservation_retirement, backend_bucket: $backend_bucket,
       recovery_backup_identity_sha256: $recovery_backup_identity_sha256,
       compose_artifact_sha256: $compose_hash, plans: .}' \
@@ -748,6 +773,8 @@ verify_manifest() {
   [[ $(jq -r .disk_growth "$manifest") == "$disk_growth" ]]
   [[ $(jq -r .tailscale_controller_retirement "$manifest") == "$tailscale_controller_retirement" ]]
   [[ $(jq -r .tailscale_controller_access "$manifest") == "$tailscale_controller_access" ]]
+  [[ $(jq -r .tailscale_human_ssh_operation "$manifest") == "$tailscale_human_ssh_operation" ]]
+  [[ $(jq -r .tailscale_human_ssh_policy_stage "$manifest") == "$(contract_value tailscale.human_ssh_policy_stage)" ]]
   [[ $(jq -r .backup_deployment "$manifest") == "$backup_deployment" ]]
   [[ $(jq -r .omada_gateway_reservation_retirement "$manifest") == "$omada_gateway_reservation_retirement" ]]
   [[ $(jq -r .backend_bucket "$manifest") == "$backend_bucket" ]]
@@ -1172,6 +1199,10 @@ case "$action" in
       exit 0
     fi
     if [[ $tailscale_controller_access == true ]]; then
+      apply_tailscale_controller_retirement
+      exit 0
+    fi
+    if [[ $tailscale_human_ssh_change == true ]]; then
       apply_tailscale_controller_retirement
       exit 0
     fi

@@ -16,7 +16,7 @@ scripts/local-controller apply steady
 
 Plan credentials must be read-only. Apply credentials are loaded only after a manifest-bound local approval. Provider secrets remain in mode-`0600` controller JSON, never command arguments, plans, manifests, or logs. The protected CT confirmation is loaded only into the local process and is independently validated by OpenTofu; it never authorizes either CT stage without the separate exact operation approval.
 
-Special modes (`recovery`, network migration, VM 100 root-disk growth, CT retirement, Tailscale controller retirement, gateway-policy lifecycle, and Omada qualification) have narrower policy allowlists and dedicated gates. They cannot be combined. Disk-growth mode permits only `scsi0` growth from 400 to 550 GiB, spans the Proxmox and guest operations with exclusive mutation locks, and requires exact disk, partition, filesystem, and no-op proofs. Because the provider cannot update a VM with an arbitrary host-path passthrough disk under a non-root API token, the policy-inspected saved plan authorizes a guarded `qm resize` through the separate SSH apply identity; the helper verifies VM protection, runtime state, source geometry, and the protected `scsi1` identity before mutation. A successful static plan is not proof that a provider can perform a live operation.
+Special modes (`recovery`, network migration, VM 100 root-disk growth, CT retirement, Tailscale controller retirement, Tailscale human SSH migration, gateway-policy lifecycle, and Omada qualification) have narrower policy allowlists and dedicated gates. They cannot be combined. Disk-growth mode permits only `scsi0` growth from 400 to 550 GiB, spans the Proxmox and guest operations with exclusive mutation locks, and requires exact disk, partition, filesystem, and no-op proofs. Because the provider cannot update a VM with an arbitrary host-path passthrough disk under a non-root API token, the policy-inspected saved plan authorizes a guarded `qm resize` through the separate SSH apply identity; the helper verifies VM protection, runtime state, source geometry, and the protected `scsi1` identity before mutation. A successful static plan is not proof that a provider can perform a live operation.
 
 ## Tailscale gateway-policy lifecycle
 
@@ -34,6 +34,12 @@ scripts/local-controller review tailscale-detach
 The saved-plan manifest binds operation, stage, canonical before/after policy SHA-256 values, and the live plan-time ETag. Apply revalidates the exact plan and live ETag before an `If-Match` update, proves live policy equals state, and finishes with a no-op. Unrelated drift is never overwritten.
 
 Retirement additionally fails closed unless `TAILSCALE_GATEWAY_DEVICE_ABSENCE_APPROVED` is exactly `true` in the protected local plan and apply credentials. Set it only after separate device-deletion approval and read-only absence verification; it does not authorize deletion.
+
+## Tailscale human SSH lifecycle
+
+The independent `tailscale.human_ssh_policy_stage` is `transition` or `final`. `transition` adds the named `proxmox` human login for verification but retains the prior owner/admin and tagged-host root paths. `final` preserves owner-only `docker` and `proxmox` human logins and owner/admin service accounts while removing every Tailscale SSH rule for Proxmox root. It also removes tagged Docker-host TCP/22 access to Proxmox while preserving TCP/8006.
+
+Normal policy inspection rejects either mutation. Use only `tailscale-human-ssh-transition` or `tailscale-human-ssh-final`; each operation permits one exact Tailscale policy update, binds the human SSH contract stage and canonical policy identities into the saved-plan manifest, and requires its operation-specific approval. Local account convergence is a separate first phase through `ansible/playbooks/human-access.yml`, so a policy update never creates or repairs Linux users.
 
 After the CT is durably `retired`, `scripts/local-controller ... omada-retire` permits exactly one deletion: the adopted DHCP reservation whose MAC matches the retired contract identity. The LAN remains protected from destruction, every other reservation remains desired, and every non-Omada OpenTofu root must be a no-op. The saved plan, manifest flag, separated credentials, and post-apply full no-op verification remain mandatory.
 

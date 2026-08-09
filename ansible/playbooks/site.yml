@@ -45,6 +45,9 @@
     - role: docker
       tags:
         - docker
+    - role: human_access
+      tags:
+        - ssh
     - role: sops_age
       tags:
         - sops_age
@@ -63,7 +66,6 @@
         ssh_password_authentication: false
         ssh_access_proven: "{{ arch_ssh_access_proven | default(false) }}"
         ssh_allow_users:
-          - docker
           - ansible-plan
           - ansible-deploy
       tags:

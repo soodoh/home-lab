@@ -42,6 +42,9 @@
     - role: deploy_user
       tags:
         - management_plane
+    - role: human_access
+      tags:
+        - management_plane
     - role: tailscale
       tags:
         - management_plane

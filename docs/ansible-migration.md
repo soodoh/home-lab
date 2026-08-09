@@ -135,6 +135,8 @@ The completed record and rollback boundaries are in [`tailscale-bootstrap.md`](.
 inventory is now validated through the successful remote audit.
 
 GitHub-hosted execution is retired. The manual workflow in [`local-controller.md`](./local-controller.md) permits any clean committed revision, separates plan/apply credentials, binds approvals to exact saved plans, retains the host lock, proves zero-change post-checks, and runs the complete audit.
+
+The reusable `human_access` role now declares the human `docker` and `proxmox` accounts independently from automation identities. `playbooks/human-access.yml` is the narrow first-phase convergence path: it safely adopts existing numeric identities, enforces account-named primary groups with no supplementary groups, locks passwords, removes conventional SSH keys, installs validated account-specific passwordless sudo, and verifies the resulting boundary before the staged Tailscale policy migration.
 ## Recovery work still required
 
 A manual restore drill is mandatory before any stateful Compose adoption or apply. It must be separately planned
