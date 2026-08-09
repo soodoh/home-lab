@@ -140,12 +140,16 @@
     argv:
       - /usr/bin/sudo
       - --non-interactive
+      - --user
+      - "{{ item.name }}"
+      - --
+      - /usr/bin/sudo
+      - --non-interactive
       - --
       - /usr/bin/true
   changed_when: false
   check_mode: false
   become: true
-  become_user: "{{ item.name }}"
   loop: "{{ human_access_accounts }}"
   loop_control:
     label: "{{ item.name }}"
