@@ -82,6 +82,14 @@ def changed_keys(before: Any, after: Any, prefix: tuple[str, ...] = ()) -> set[t
         return {prefix}
     return set()
 
+
+def is_exact_ct101(value: dict[str, Any]) -> bool:
+    vm_id = value.get("vm_id")
+    identifier = value.get("id")
+    if vm_id is None:
+        return identifier == "101"
+    return vm_id == 101 and identifier in {None, "101"}
+
 def value_at_path(value: Any, path: tuple[str, ...]) -> Any:
     current = value
     for part in path:
@@ -478,8 +486,8 @@ def main() -> int:
                 valid_change = (
                     address == target
                     and actions == ["update"]
-                    and before.get("vm_id") == 101
-                    and after.get("vm_id") == 101
+                    and is_exact_ct101(before)
+                    and is_exact_ct101(after)
                     and before.get("protection") is True
                     and after.get("protection") is False
                     and changed_keys(before, after) == {("protection",)}
@@ -489,7 +497,7 @@ def main() -> int:
                 valid_change = (
                     address == target
                     and actions == ["delete"]
-                    and before.get("vm_id") == 101
+                    and is_exact_ct101(before)
                     and before.get("protection") is False
                     and change.get("after") is None
                 )

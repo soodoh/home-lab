@@ -30,6 +30,7 @@ python3 "$policy" "$fixtures/recovery-create.json" --mode recovery
 python3 "$policy" "$fixtures/network-migration.json" --mode network-migration
 python3 "$policy" "$fixtures/disk-growth.json" --mode disk-growth
 python3 "$policy" "$fixtures/ct-unprotect.json" --mode ct-unprotect
+python3 "$policy" "$fixtures/ct-unprotect-import-id.json" --mode ct-unprotect
 python3 "$policy" "$fixtures/ct-delete.json" --mode ct-delete
 python3 "$policy" "$fixtures/protection-enable.json"
 python3 "$policy" "$fixtures/qualification-create.json" --mode qualification
@@ -78,6 +79,7 @@ expect_rejection ct-unprotect ct-delete
 expect_rejection noop ct-unprotect
 expect_rejection noop ct-delete
 expect_rejection ct-wrong-id ct-unprotect
+expect_rejection ct-unprotect-wrong-import-id ct-unprotect
 expect_rejection ct-wrong-id ct-delete
 expect_rejection ct-delete-protected ct-unprotect
 expect_rejection ct-delete-protected ct-delete
