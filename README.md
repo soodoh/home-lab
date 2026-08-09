@@ -2,7 +2,7 @@
 
 ## Infrastructure reconciliation and recovery
 
-The authoritative desired-state contract is [`infrastructure/contract/home-lab.yml`](infrastructure/contract/home-lab.yml). Independent OpenTofu roots keep AWS foundation, Proxmox VM 100, protected legacy CT 101, Omada, Tailscale, and GitHub state isolated. [`scripts/reconcile-infrastructure`](scripts/reconcile-infrastructure) creates policy-inspected saved plans, applies those exact plans under the DynamoDB mutation lease, runs reproducible Ansible checks, deploys the exact Compose artifact, and requires post-apply no-op/audit results.
+The authoritative desired-state contract is [`infrastructure/contract/home-lab.yml`](infrastructure/contract/home-lab.yml). Independent OpenTofu roots keep AWS foundation, Proxmox VM 100, protected legacy CT 101, Omada, Tailscale, and GitHub state isolated. [`scripts/reconcile-infrastructure`](scripts/reconcile-infrastructure) creates policy-inspected saved plans, applies only those exact plans, serializes each root with native OpenTofu S3 locks plus GitHub/host concurrency controls, runs reproducible Ansible checks, deploys the exact Compose artifact, and requires post-apply no-op/audit results.
 
 No apply is implicit. Storage imports, network/firewall changes, passthrough mapping migrations, critical-data restore, and CT decommission each retain dedicated confirmation gates. See [`recovery/README.md`](recovery/README.md) for the fresh-Proxmox recovery order and unresolved operational inputs.
 Hardware mapping conversion is a dedicated migration: run the reconciler with `--phase steady --network-migration`, require every non-Proxmox root and all Ansible/Compose checks to be no-ops, then retain `PROXMOX_HARDWARE_MAPPINGS_ENABLED=true` for subsequent steady plans.
@@ -15,7 +15,7 @@ Frigate uses a PCIe Coral passed through to the Arch VM. Proxmox binds the PCI f
 - Linux 6.0+ removal of `no_llseek`; and
 - Linux 7.1+ replacement of `zap_vma_ptes()` with `zap_special_vma_range()`.
 
-[`coral-package.yml`](.github/workflows/coral-package.yml) builds `gasket-dkms-git r236.5815ee3-3` in a digest-pinned Arch environment, publishes the package as an OCI artifact, and keylessly signs its immutable digest. Recovery remains blocked until that digest and the package SHA-256 are recorded in the contract. Ansible verifies both the Sigstore identity and package checksum before installation, then checks DKMS status, running-kernel vermagic, PCI binding, `/dev/apex_0` ownership/mode, and Frigate health.
+The `coral` Ansible role copies the exact tracked `recovery/coral` recipe to the Docker host, builds it twice in a digest-pinned Arch environment with a fixed source epoch, requires byte identity and the contract package SHA-256, installs the local package, and removes the temporary build. It then verifies DKMS status, running-kernel vermagic, PCI binding, `/dev/apex_0` ownership/mode, and Frigate health. No package registry, GitHub OIDC identity, or persistent Coral artifact is required.
 
 Do not reinstall the mutable AUR package or use `SKIP` checksums. To verify the converged runtime:
 

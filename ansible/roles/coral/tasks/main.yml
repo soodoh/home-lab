@@ -1,12 +1,29 @@
 ---
-- name: Require immutable Coral artifact identity
+- name: Require exact local Coral build identity
   ansible.builtin.assert:
     that:
-      - arch.coral.artifact_digest is string
-      - arch.coral.artifact_digest is match('^sha256:[0-9a-f]{64}$')
-      - arch.coral.package_sha256 is string
+      - arch.coral.package_version is match('^r[0-9]+\.[0-9a-f]+-[1-9][0-9]*$')
+      - arch.coral.dkms_version is match('^r[0-9]+\.[0-9a-f]+$')
+      - arch.coral.source_commit is match('^[0-9a-f]{40}$')
+      - arch.coral.source_tree_sha256 is match('^[0-9a-f]{64}$')
+      - arch.coral.build_image is match('^[^@]+@sha256:[0-9a-f]{64}$')
+      - arch.coral.source_date_epoch | int > 0
       - arch.coral.package_sha256 is match('^[0-9a-f]{64}$')
-    fail_msg: "Build, sign, and record the immutable Coral package artifact first."
+    fail_msg: "Coral local build identity is incomplete or invalid."
+
+- name: Derive the exact Coral build marker
+  ansible.builtin.set_fact:
+    coral_build_marker_content: >-
+      {{ {
+        'version': 1,
+        'package_version': arch.coral.package_version,
+        'dkms_version': arch.coral.dkms_version,
+        'source_commit': arch.coral.source_commit,
+        'source_tree_sha256': arch.coral.source_tree_sha256,
+        'build_image': arch.coral.build_image,
+        'source_date_epoch': arch.coral.source_date_epoch,
+        'package_sha256': arch.coral.package_sha256
+      } | to_json }}
 
 - name: Read installed Coral package version
   ansible.builtin.command:
@@ -19,93 +36,127 @@
   changed_when: false
   check_mode: false
 
-- name: Install exact signed Coral package artifact
-  when: coral_installed_package.stdout != 'gasket-dkms-git ' ~ arch.coral.package_version
+- name: Read the installed Coral build marker
+  ansible.builtin.slurp:
+    src: /var/lib/home-lab/coral-build.json
+  register: coral_build_marker
+  failed_when: false
+  changed_when: false
+
+- name: Decide whether the exact Coral package must be rebuilt
+  ansible.builtin.set_fact:
+    coral_build_required: >-
+      {{
+        coral_installed_package.stdout != 'gasket-dkms-git ' ~ arch.coral.package_version or
+        coral_build_marker.content is not defined or
+        (coral_build_marker.content | b64decode | trim) != (coral_build_marker_content | trim)
+      }}
+
+- name: Report pending Coral local build in check mode
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/true
+  changed_when: coral_build_required | bool
+  check_mode: false
+  when: ansible_check_mode
+
+- name: Reproducibly build and install the exact Coral package locally
+  when:
+    - coral_build_required | bool
+    - not ansible_check_mode
   block:
-    - name: Verify the keyless artifact signature
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/cosign
-          - verify
-          - --certificate-identity
-          - "{{ coral_cosign_identity }}"
-          - --certificate-oidc-issuer
-          - https://token.actions.githubusercontent.com
-          - "{{ arch.coral.artifact_repository }}@{{ arch.coral.artifact_digest }}"
-      changed_when: false
+    - name: Create protected Coral build workspace
+      ansible.builtin.tempfile:
+        path: /var/tmp
+        prefix: home-lab-coral-build.
+        state: directory
+      register: coral_build_workspace
 
-    - name: Remove any interrupted Coral extraction container
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/docker
-          - rm
-          - --force
-          - home-lab-coral-artifact
-      failed_when: false
-      changed_when: false
+    - name: Copy exact tracked Coral build sources
+      ansible.builtin.copy:
+        src: "{{ role_path }}/../../../recovery/coral/"
+        dest: "{{ coral_build_workspace.path }}/source/"
+        owner: root
+        group: root
+        mode: preserve
+        directory_mode: "0700"
 
-    - name: Pull only the exact Coral artifact digest
+    - name: Create Coral package output directory
+      ansible.builtin.file:
+        path: "{{ coral_build_workspace.path }}/output"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Pull only the exact Coral build environment
       ansible.builtin.command:
         argv:
           - /usr/bin/docker
           - pull
-          - "{{ arch.coral.artifact_repository }}@{{ arch.coral.artifact_digest }}"
-      register: coral_pull
-      changed_when: "'Downloaded newer image' in coral_pull.stdout"
+          - "{{ arch.coral.build_image }}"
+      register: coral_build_image_pull
+      changed_when: "'Downloaded newer image' in coral_build_image_pull.stdout"
 
-    - name: Create a stopped Coral extraction container
+    - name: Build the Coral package twice and require byte identity
       ansible.builtin.command:
         argv:
           - /usr/bin/docker
-          - create
-          - --name
-          - home-lab-coral-artifact
-          - "{{ arch.coral.artifact_repository }}@{{ arch.coral.artifact_digest }}"
+          - run
+          - --rm
+          - --platform
+          - linux/amd64
+          - --env
+          - "SOURCE_DATE_EPOCH={{ arch.coral.source_date_epoch }}"
+          - --volume
+          - "{{ coral_build_workspace.path }}/source:/source:ro"
+          - --volume
+          - "{{ coral_build_workspace.path }}/output:/output"
+          - "{{ arch.coral.build_image }}"
+          - /usr/bin/bash
+          - /source/build-package
       changed_when: true
 
-    - name: Copy the exact package from the stopped artifact
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/docker
-          - cp
-          - home-lab-coral-artifact:/artifact/gasket-dkms-git-r236.5815ee3-3-x86_64.pkg.tar.zst
-          - /var/tmp/gasket-dkms-git-r236.5815ee3-3-x86_64.pkg.tar.zst
-      changed_when: true
-
-    - name: Verify the package checksum
+    - name: Verify the reproducible Coral package checksum
       ansible.builtin.command:
         argv:
           - /usr/bin/sha256sum
           - --check
           - --status
       args:
-        stdin: "{{ arch.coral.package_sha256 }}  /var/tmp/gasket-dkms-git-r236.5815ee3-3-x86_64.pkg.tar.zst\n"
+        stdin: >-
+          {{ arch.coral.package_sha256 }}  {{ coral_build_workspace.path }}/output/gasket-dkms-git.pkg.tar.zst
       changed_when: false
 
-    - name: Install the exact Coral package
+    - name: Install the exact locally built Coral package
       ansible.builtin.command:
         argv:
           - /usr/bin/pacman
           - --upgrade
           - --noconfirm
-          - /var/tmp/gasket-dkms-git-r236.5815ee3-3-x86_64.pkg.tar.zst
+          - "{{ coral_build_workspace.path }}/output/gasket-dkms-git.pkg.tar.zst"
       changed_when: true
-  always:
-    - name: Remove the Coral extraction container
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/docker
-          - rm
-          - --force
-          - home-lab-coral-artifact
-      failed_when: false
-      changed_when: false
 
-    - name: Remove the extracted Coral package
+    - name: Create protected local build marker directory
       ansible.builtin.file:
-        path: /var/tmp/gasket-dkms-git-r236.5815ee3-3-x86_64.pkg.tar.zst
-        state: absent
+        path: /var/lib/home-lab
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
 
+    - name: Record the installed Coral build identity
+      ansible.builtin.copy:
+        content: "{{ coral_build_marker_content | trim }}\n"
+        dest: /var/lib/home-lab/coral-build.json
+        owner: root
+        group: root
+        mode: "0600"
+  always:
+    - name: Remove Coral build workspace
+      ansible.builtin.file:
+        path: "{{ coral_build_workspace.path | default('/var/tmp/home-lab-coral-build-absent') }}"
+        state: absent
 - name: Load the exact installed Coral modules
   ansible.builtin.command:
     argv:
@@ -134,7 +185,7 @@
     argv:
       - /usr/bin/dkms
       - status
-      - gasket/r236.5815ee3
+      - "gasket/{{ arch.coral.dkms_version }}"
       - -k
       - "{{ ansible_facts.kernel }}"
   register: coral_dkms_status

@@ -5,7 +5,7 @@ umask 077
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 root=infrastructure/tofu/proxmox-lxc-qualification
-helper=.github/scripts/proxmox-lxc-qualification.py
+helper=scripts/controller/proxmox-lxc-qualification.py
 bundle_dir=${LXC_QUALIFICATION_PLAN_DIR:-$repo_root/.reconcile/lxc-qualification}
 plan_file=$bundle_dir/qualification.tfplan
 manifest=$bundle_dir/manifest.json
@@ -13,12 +13,12 @@ backend_key=home-lab/proxmox-lxc-qualification/tofu.tfstate
 
 usage() {
   echo "usage: scripts/qualify-proxmox-lxc <plan|apply> <create|probe-protected-delete|verify-protected|unprotect|reprotect|delete|verify-empty>" >&2
-  echo "       scripts/qualify-proxmox-lxc <inspect-recovery|recover-lock>" >&2
+  echo "       scripts/qualify-proxmox-lxc inspect-recovery" >&2
   exit 64
 }
 
-if (($# == 1)) && [[ $1 == inspect-recovery || $1 == recover-lock ]]; then
-  action=$1
+if (($# == 1)) && [[ $1 == inspect-recovery ]]; then
+  action=inspect-recovery
   operation=verify-protected
 elif (($# == 2)); then
   action=$1
@@ -38,12 +38,6 @@ for command in tofu python3 aws git; do
     exit 69
   }
 done
-if [[ $action == apply || $action == recover-lock ]]; then
-  command -v node >/dev/null || {
-    echo "required qualification command is unavailable: node" >&2
-    exit 69
-  }
-fi
 : "${TF_BACKEND_BUCKET:?TF_BACKEND_BUCKET is required}"
 : "${AWS_REGION:?AWS_REGION is required}"
 : "${TF_VAR_proxmox_endpoint:?TF_VAR_proxmox_endpoint is required}"
@@ -51,79 +45,25 @@ fi
 : "${TF_VAR_qualification_template_file_id:?protected qualification template file ID is required}"
 : "${PROXMOX_PLAN_API_TOKEN:?separate Proxmox plan API token is required}"
 : "${PROXMOX_CA_PEM:?protected Proxmox CA certificate is required}"
-if [[ $action == apply || $action == recover-lock ]]; then
+if [[ $action == apply ]]; then
   : "${PROXMOX_APPLY_API_TOKEN:?separate Proxmox apply API token is required}"
   [[ $PROXMOX_PLAN_API_TOKEN != "$PROXMOX_APPLY_API_TOKEN" ]] || {
     echo "plan and apply Proxmox credentials must be distinct" >&2
     exit 64
   }
 fi
-if [[ $action == recover-lock ]]; then
-  command -v gh >/dev/null || {
-    echo "required qualification command is unavailable: gh" >&2
-    exit 69
-  }
-  : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required for reviewed recovery}"
-  : "${PROXMOX_LXC_QUALIFICATION_RECOVERY_RUN_ID:?protected recovery run ID is required}"
-  : "${PROXMOX_LXC_QUALIFICATION_RECOVERY_LOCK_SHA256:?protected recovery lock SHA-256 is required}"
-  [[ $PROXMOX_LXC_QUALIFICATION_RECOVERY_RUN_ID =~ ^[0-9]+$ ]] || {
-    echo "protected recovery run ID is invalid" >&2
-    exit 64
-  }
-  [[ $PROXMOX_LXC_QUALIFICATION_RECOVERY_LOCK_SHA256 =~ ^[0-9a-f]{64}$ ]] || {
-    echo "protected recovery lock SHA-256 is invalid" >&2
-    exit 64
-  }
-fi
 export TF_IN_AUTOMATION=1 TF_INPUT=0 TF_VAR_qualification_operation=$operation
 commit=$(git rev-parse HEAD)
-if [[ $action == apply || $action == inspect-recovery || $action == recover-lock ]]; then
-  if [[ ${GITHUB_ACTIONS:-false} == true ]]; then
-    [[ ${GITHUB_REF:-} == refs/heads/main && ${GITHUB_SHA:-} == "$commit" ]] || {
-      echo "qualification operation requires the exact dispatched main commit" >&2
-      exit 64
-    }
-  else
-    [[ $(git branch --show-current) == main ]] || {
-      echo "qualification operation is main-only" >&2
-      exit 64
-    }
-    [[ $(git rev-parse origin/main) == "$commit" ]] || {
-      echo "qualification operation requires the existing origin/main commit" >&2
-      exit 64
-    }
-  fi
+if [[ $action == apply || $action == inspect-recovery ]]; then
   [[ -z $(git status --porcelain --untracked-files=all) ]] || {
-    echo "qualification operation requires a clean checkout" >&2
+    echo "qualification operation requires a clean committed revision" >&2
     exit 65
   }
 fi
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/lxc-qualification.XXXXXX")
 chmod 0700 "$work"
-lease_table=
-lease_owner="${GITHUB_RUN_ID:-local}:lxc-qualification:$$:$commit"
-lease_held=false
-release_lease_on_exit=false
-release_lease() {
-  if [[ $lease_held == true ]]; then
-    aws dynamodb delete-item \
-      --region "$AWS_REGION" \
-      --table-name "$lease_table" \
-      --key '{"LeaseName":{"S":"home-lab-production"}}' \
-      --condition-expression '#owner = :owner' \
-      --expression-attribute-names '{"#owner":"Owner"}' \
-      --expression-attribute-values "{\":owner\":{\"S\":\"$lease_owner\"}}" \
-      >/dev/null 2>&1 || echo "warning: global mutation lease release failed" >&2
-    lease_held=false
-  fi
-}
 cleanup() {
-  if [[ $release_lease_on_exit == true ]]; then
-    release_lease
-  elif [[ $lease_held == true ]]; then
-    echo "qualification failed closed with the mutation lease retained; run inspect-recovery before any reviewed recovery plan" >&2
-  fi
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -204,6 +144,19 @@ preflight() {
   unset PROXMOX_VE_API_TOKEN PROXMOX_VERIFY_STORAGE_VOLUME || true
 }
 
+post_apply_api_check() {
+  local mode=$1 attempt
+  for ((attempt = 1; attempt <= 6; attempt++)); do
+    if python3 "$helper" api-check --mode "$mode" >"$work/post-api.log" 2>&1; then
+      echo "qualification post-apply API identity verified: mode=$mode"
+      return
+    fi
+    sleep 5
+  done
+  echo "qualification post-apply API identity did not converge" >&2
+  return 1
+}
+
 inspect_saved_plan() {
   local source=$1 mode=$2
   tofu -chdir="$root" show -json "$source" >"$work/plan.json" 2>"$work/show.log" || {
@@ -227,27 +180,6 @@ PY
   done
 }
 
-acquire_lease() {
-  local now expires
-  lease_table=$(node --input-type=module - <<'NODE'
-import fs from "node:fs";
-import yaml from "js-yaml";
-const contract = yaml.load(fs.readFileSync("infrastructure/contract/home-lab.yml", "utf8"));
-process.stdout.write(contract.aws.mutation_lease_table);
-NODE
-)
-  now=$(date +%s)
-  expires=$((now + 14400))
-  aws dynamodb put-item \
-    --region "$AWS_REGION" \
-    --table-name "$lease_table" \
-    --item "{\"LeaseName\":{\"S\":\"home-lab-production\"},\"Owner\":{\"S\":\"$lease_owner\"},\"ExpiresAt\":{\"N\":\"$expires\"}}" \
-    --condition-expression 'attribute_not_exists(LeaseName) OR #expires < :now' \
-    --expression-attribute-names '{"#expires":"ExpiresAt"}' \
-    --expression-attribute-values "{\":now\":{\"N\":\"$now\"}}" \
-    >/dev/null
-  lease_held=true
-}
 
 backend_lock_count() {
   aws s3api list-objects-v2 \
@@ -297,7 +229,7 @@ post_apply_proof() {
   esac
   export PROXMOX_VE_API_TOKEN=$PROXMOX_APPLY_API_TOKEN
   export PROXMOX_VERIFY_STORAGE_VOLUME=true
-  python3 "$helper" api-check --mode "$expected_api"
+  post_apply_api_check "$expected_api"
   unset PROXMOX_VE_API_TOKEN PROXMOX_VERIFY_STORAGE_VOLUME
   export PROXMOX_VE_API_TOKEN=$PROXMOX_PLAN_API_TOKEN
   pull_state "$work/post-state.json" false
@@ -327,173 +259,6 @@ post_apply_proof() {
   echo "fresh qualification no-op and identity proof passed"
 }
 
-if [[ $action == recover-lock ]]; then
-  recovery_run=$PROXMOX_LXC_QUALIFICATION_RECOVERY_RUN_ID
-  recovery_failed_commit=926899dec1d5511f668339c8ef040e2cbfe0724f
-  gh api "repos/$GITHUB_REPOSITORY/actions/runs/$recovery_run" >"$work/run.json"
-  gh api "repos/$GITHUB_REPOSITORY/actions/runs/$recovery_run/jobs?filter=all" >"$work/jobs.json"
-  gh run view "$recovery_run" --repo "$GITHUB_REPOSITORY" --log >"$work/run.log"
-  lease_table=$(node --input-type=module - <<'NODE'
-import fs from "node:fs";
-import yaml from "js-yaml";
-const contract = yaml.load(fs.readFileSync("infrastructure/contract/home-lab.yml", "utf8"));
-process.stdout.write(contract.aws.mutation_lease_table);
-NODE
-  )
-  aws s3api get-object \
-    --bucket "$TF_BACKEND_BUCKET" \
-    --key "${backend_key}.tflock" \
-    "$work/backend-lock.json" >/dev/null
-  aws dynamodb get-item \
-    --region "$AWS_REGION" \
-    --table-name "$lease_table" \
-    --key '{"LeaseName":{"S":"home-lab-production"}}' \
-    --consistent-read >"$work/lease.json"
-  RECOVERY_RUN=$recovery_run RECOVERY_FAILED_COMMIT=$recovery_failed_commit \
-    RECOVERY_BUCKET=$TF_BACKEND_BUCKET RECOVERY_KEY=$backend_key python3 - \
-    "$work/backend-lock.json" "$work/lease.json" "$work/run.json" "$work/jobs.json" \
-    "$work/run.log" "$work/lock-id" "$work/lease-owner" <<'PY'
-from datetime import datetime
-import hashlib
-import json
-import os
-from pathlib import Path
-import re
-import sys
-import uuid
-
-
-def timestamp(value: object) -> datetime:
-    if not isinstance(value, str):
-        raise ValueError
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
-
-
-lock_bytes = Path(sys.argv[1]).read_bytes()
-lock = json.loads(lock_bytes)
-lease = json.loads(Path(sys.argv[2]).read_text()).get("Item")
-run = json.loads(Path(sys.argv[3]).read_text())
-jobs = json.loads(Path(sys.argv[4]).read_text()).get("jobs")
-run_log = Path(sys.argv[5]).read_text()
-failed_commit = os.environ["RECOVERY_FAILED_COMMIT"]
-if hashlib.sha256(lock_bytes).hexdigest() != os.environ["PROXMOX_LXC_QUALIFICATION_RECOVERY_LOCK_SHA256"]:
-    raise SystemExit("stale backend lock does not match the reviewed incident fingerprint")
-if (
-    str(run.get("id")) != os.environ["RECOVERY_RUN"]
-    or run.get("status") != "completed"
-    or run.get("conclusion") != "failure"
-    or run.get("head_sha") != failed_commit
-    or run.get("event") != "workflow_dispatch"
-    or run.get("path") != ".github/workflows/proxmox-lxc-qualification.yml"
-):
-    raise SystemExit("protected recovery run is not the exact completed failed qualification run")
-if not isinstance(jobs, list):
-    raise SystemExit("protected recovery job evidence is malformed")
-job_name = "Apply exact qualification plan and prove identity"
-apply_jobs = [job for job in jobs if isinstance(job, dict) and job.get("name") == job_name]
-if len(apply_jobs) != 1:
-    raise SystemExit("protected recovery apply job is not exact")
-apply_job = apply_jobs[0]
-failed_steps = [
-    step for step in apply_job.get("steps", [])
-    if isinstance(step, dict) and step.get("name") == "Apply one exact operation and prove the postcondition"
-]
-if (
-    str(apply_job.get("run_id")) != os.environ["RECOVERY_RUN"]
-    or apply_job.get("conclusion") != "failure"
-    or len(failed_steps) != 1
-    or failed_steps[0].get("conclusion") != "failure"
-):
-    raise SystemExit("protected recovery failed step is not exact")
-step_name = "Apply one exact operation and prove the postcondition"
-step_log = "\n".join(
-    fields[2]
-    for line in run_log.splitlines()
-    if len(fields := line.split("\t", 2)) == 3 and fields[0] == job_name and fields[1] == step_name
-)
-required_log_evidence = (
-    "./scripts/qualify-proxmox-lxc apply 'create'",
-    "exact qualification saved plan applied",
-    "live qualification inventory identity is invalid",
-    "qualification failed closed with the mutation lease retained",
-)
-if any(evidence not in step_log for evidence in required_log_evidence):
-    raise SystemExit("protected recovery step log does not prove the failed create postcondition")
-required_lock = {"ID", "Operation", "Info", "Who", "Version", "Created", "Path"}
-if set(lock) != required_lock:
-    raise SystemExit("stale backend lock shape is not exact")
-try:
-    uuid.UUID(lock["ID"])
-    lock_created = timestamp(lock["Created"])
-    step_started = timestamp(failed_steps[0].get("started_at"))
-    step_completed = timestamp(failed_steps[0].get("completed_at"))
-except (AttributeError, TypeError, ValueError):
-    raise SystemExit("stale backend lock identity is invalid") from None
-expected_path = f'{os.environ["RECOVERY_BUCKET"]}/{os.environ["RECOVERY_KEY"]}'
-if (
-    lock["Operation"] != "OperationTypeApply"
-    or lock["Version"] != "1.12.5"
-    or lock["Info"] != ""
-    or not isinstance(lock["Who"], str)
-    or not re.fullmatch(r"runner@[A-Za-z0-9._-]+", lock["Who"])
-    or lock["Path"] not in {expected_path, f"s3://{expected_path}"}
-    or not step_started <= lock_created <= step_completed
-):
-    raise SystemExit("stale backend lock does not bind the exact failed apply step")
-if not isinstance(lease, dict) or set(lease) != {"LeaseName", "Owner", "ExpiresAt"}:
-    raise SystemExit("retained mutation lease shape is not exact")
-try:
-    lease_name = lease["LeaseName"]["S"]
-    owner = lease["Owner"]["S"]
-    expires = lease["ExpiresAt"]["N"]
-except (KeyError, TypeError):
-    raise SystemExit("retained mutation lease identity is invalid") from None
-expected_owner = rf'{re.escape(os.environ["RECOVERY_RUN"])}:lxc-qualification:[0-9]+:{re.escape(failed_commit)}'
-if lease_name != "home-lab-production" or not re.fullmatch(expected_owner, owner) or not expires.isdigit():
-    raise SystemExit("retained mutation lease does not belong to the reviewed failed run")
-Path(sys.argv[6]).write_text(lock["ID"] + "\n")
-Path(sys.argv[7]).write_text(owner + "\n")
-PY
-  chmod 0600 "$work/lock-id" "$work/lease-owner"
-  backend_init
-  tofu -chdir="$root" force-unlock -force "$(<"$work/lock-id")" >"$work/force-unlock.log" 2>&1
-  verify_backend_lock_absent
-  pull_state_recovery "$work/recovery-state.json" || {
-    echo "qualification state could not be read after reviewed lock recovery" >&2
-    exit 1
-  }
-  export PROXMOX_VE_API_TOKEN=$PROXMOX_APPLY_API_TOKEN
-  export PROXMOX_VERIFY_STORAGE_VOLUME=true
-  classification=$(python3 "$helper" inspect-recovery --state-json "$work/recovery-state.json")
-  unset PROXMOX_VE_API_TOKEN PROXMOX_VERIFY_STORAGE_VOLUME
-  [[ $classification == aligned-protected ]] || {
-    echo "reviewed lock recovery did not prove aligned-protected" >&2
-    exit 1
-  }
-  lease_owner=$(<"$work/lease-owner")
-  aws dynamodb delete-item \
-    --region "$AWS_REGION" \
-    --table-name "$lease_table" \
-    --key '{"LeaseName":{"S":"home-lab-production"}}' \
-    --condition-expression '#owner = :owner' \
-    --expression-attribute-names '{"#owner":"Owner"}' \
-    --expression-attribute-values "{\":owner\":{\"S\":\"$lease_owner\"}}" \
-    >/dev/null
-  aws dynamodb get-item \
-    --region "$AWS_REGION" \
-    --table-name "$lease_table" \
-    --key '{"LeaseName":{"S":"home-lab-production"}}' \
-    --consistent-read >"$work/post-lease.json"
-  python3 - "$work/post-lease.json" <<'PY'
-import json
-from pathlib import Path
-import sys
-if json.loads(Path(sys.argv[1]).read_text()).get("Item"):
-    raise SystemExit("reviewed mutation lease release was not proven")
-PY
-  echo "reviewed stale locks removed after aligned-protected proof"
-  exit 0
-fi
 
 if [[ $action == inspect-recovery ]]; then
   if ! backend_init >/dev/null 2>&1; then
@@ -573,7 +338,6 @@ if [[ $action == plan ]]; then
 fi
 
 inspect_saved_plan "$plan_file" "$operation"
-acquire_lease
 export PROXMOX_VE_API_TOKEN=$PROXMOX_APPLY_API_TOKEN
 set +e
 tofu -chdir="$root" apply -input=false -lock-timeout=5m -parallelism=1 -auto-approve \
@@ -594,4 +358,3 @@ else
   echo "exact qualification saved plan applied"
 fi
 post_apply_proof
-release_lease_on_exit=true

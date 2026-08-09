@@ -18,17 +18,20 @@ proxmox_storage_migration_confirmed: false
 # Permit removing cloud-image DHCP only while console/LAN rollback remains available.
 arch_network_restart_confirmed: false
 
-# Select exactly one immutable encrypted daily backup object and version.
-recovery_backup_id: ""
+# Recovery automatically tries the newest decryptable local archive across
+# /home/docker/backups, /mnt/games/backups, then /mnt/storage/backups (path order breaks ties).
+# Supply the independently reviewed latest weekly S3 object as the final fallback.
+recovery_remote_backup_id: ""
+recovery_remote_backup_sha256: ""
 recovery_backup_url: ""
 recovery_backup_version_id: ""
-recovery_backup_sha256: ""
+recovery_remote_backup_latest_confirmed: false
+# Hash the reviewed exact local selection (or remote fallback) with
+# scripts/derive-recovery-backup-identity.py before the apply.
+recovery_expected_backup_identity_sha256: ""
 recovery_target: ""
 recovery_gpg_key_file: ""
 recovery_gpg_passphrase_file: ""
-# Local-only rehearsal bypasses S3 transport but uses the same checksum, decrypt, and extraction path.
-recovery_local_rehearsal_source: ""
-recovery_local_rehearsal_confirmation: ""
 recovery_restore_confirmed: false
 recovery_target_approved_empty: false
 recovery_retain_existing_bind_data: false

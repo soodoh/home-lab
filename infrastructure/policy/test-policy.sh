@@ -12,7 +12,7 @@ expect_rejection() {
   fi
 }
 
-lxc_policy="$root/../../.github/scripts/proxmox-lxc-qualification.py"
+lxc_policy="$root/../../scripts/controller/proxmox-lxc-qualification.py"
 export TF_VAR_qualification_vm_id=9020
 export TF_VAR_qualification_template_file_id=local:vztmpl/debian-test_1_amd64.tar.zst
 lxc_expect_rejection() {
@@ -28,16 +28,20 @@ python3 "$policy" "$fixtures/adopt-import.json" --mode adopt
 python3 "$policy" "$fixtures/adopt-noop.json" --mode adopt-or-noop
 python3 "$policy" "$fixtures/recovery-create.json" --mode recovery
 python3 "$policy" "$fixtures/network-migration.json" --mode network-migration
+python3 "$policy" "$fixtures/disk-growth.json" --mode disk-growth
 python3 "$policy" "$fixtures/ct-unprotect.json" --mode ct-unprotect
+python3 "$policy" "$fixtures/ct-unprotect-import-id.json" --mode ct-unprotect
 python3 "$policy" "$fixtures/ct-delete.json" --mode ct-delete
+python3 "$policy" "$fixtures/omada-gateway-reservation-delete.json" --mode omada-gateway-reservation-retirement
 python3 "$policy" "$fixtures/protection-enable.json"
-python3 "$policy" "$fixtures/retired-branch-policy-delete.json"
 python3 "$policy" "$fixtures/qualification-create.json" --mode qualification
 python3 "$policy" "$fixtures/qualification-delete.json" --mode qualification
-python3 "$root/../../.github/scripts/test-tailscale-gateway-policy.py"
-python3 "$root/../../.github/scripts/test-reconcile-apply-source.py"
-python3 "$root/../../.github/scripts/test-proxmox-lxc-qualification.py"
-python3 "$root/../../.github/scripts/test-qualify-proxmox-lxc.py"
+python3 "$root/../../scripts/controller/test-tailscale-gateway-policy.py"
+python3 "$root/../../scripts/controller/test-reconcile-apply-source.py"
+python3 "$root/../../scripts/controller/test-normalize-ansible-plan.py"
+python3 "$root/../../scripts/controller/test-reconcile-ct-audits.py"
+python3 "$root/../../scripts/controller/test-proxmox-lxc-qualification.py"
+python3 "$root/../../scripts/controller/test-qualify-proxmox-lxc.py"
 
 python3 "$lxc_policy" inspect-plan --plan-json "$fixtures/lxc-qualification-create.json" --mode create
 python3 "$lxc_policy" inspect-plan --plan-json "$fixtures/lxc-qualification-protected-delete.json" --mode probe-protected-delete
@@ -68,7 +72,11 @@ done
 for fixture in network-migration-extra-change mapping-device-change; do
   expect_rejection "$fixture" network-migration
 done
+expect_rejection disk-growth-extra disk-growth
+expect_rejection disk-growth normal
 expect_rejection qualification-wrong-resource qualification
+expect_rejection omada-gateway-reservation-wrong omada-gateway-reservation-retirement
+expect_rejection noop omada-gateway-reservation-retirement
 
 # CT retirement modes are intentionally non-interchangeable and non-repeatable.
 expect_rejection ct-delete ct-unprotect
@@ -76,6 +84,7 @@ expect_rejection ct-unprotect ct-delete
 expect_rejection noop ct-unprotect
 expect_rejection noop ct-delete
 expect_rejection ct-wrong-id ct-unprotect
+expect_rejection ct-unprotect-wrong-import-id ct-unprotect
 expect_rejection ct-wrong-id ct-delete
 expect_rejection ct-delete-protected ct-unprotect
 expect_rejection ct-delete-protected ct-delete

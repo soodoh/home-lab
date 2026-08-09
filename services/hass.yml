@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   homeassistant:
-    image: ghcr.io/home-assistant/home-assistant:2026.7.4
+    image: ghcr.io/home-assistant/home-assistant:2026.7.4@sha256:5a531753cea96444200158fc2b0ac7ccd739291ec50414877b396de6e0bb29b3
     container_name: hass
     restart: unless-stopped
     logging: *default-logging
@@ -28,7 +28,7 @@ services:
     network_mode: host
 
   zwave:
-    image: ghcr.io/zwave-js/zwave-js-ui:11.22
+    image: ghcr.io/zwave-js/zwave-js-ui:11.22@sha256:f24115c115f98a1cd69fea620bf20180be17889e9ae3c58ceabf5df1bc56c2a8
     container_name: zwave
     restart: always
     logging: *default-logging
@@ -52,7 +52,7 @@ services:
       - proxy
 
   mosquitto:
-    image: eclipse-mosquitto:2.0.22-openssl
+    image: eclipse-mosquitto:2.0.22-openssl@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c
     container_name: mosquitto
     restart: unless-stopped
     logging: *default-logging
@@ -82,7 +82,7 @@ services:
       - hass
 
   frigate:
-    image: ghcr.io/blakeblackshear/frigate:0.17.2
+    image: ghcr.io/blakeblackshear/frigate:0.17.2@sha256:d4351369984d4a9e2a49ac59736f6490856a7ea11f7790040746d21496967010
     container_name: frigate
     restart: unless-stopped
     logging: *default-logging

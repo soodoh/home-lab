@@ -163,17 +163,34 @@
     msg: >-
       compose_deploy_plan_sha256={{ (compose_deploy_plan | to_json) | hash('sha256') }}
 
-- name: Require a deployment with no service-set or untracked data-file changes
+- name: Require a deployment with no unreviewed service-set or data-file changes
   ansible.builtin.assert:
     that:
       - compose_deploy_plan.missing_runtime_services | length == 0
       - compose_deploy_plan.unexpected_runtime_services | length == 0
       - compose_deploy_plan.forbidden_actions | length == 0
-      - compose_deploy_plan.manual_only_paths | length == 0
+      - >-
+        compose_deploy_plan.manual_only_paths | length == 0 or
+        (
+          (compose_deploy_manual_paths_confirmation | default('')) == 'deploy-reviewed-three-path-backups' and
+          compose_deploy_plan.manual_only_paths == ['services/data/replicate-local-backup'] and
+          'daily-local-backup' in compose_deploy_plan.recreate_services
+        )
     fail_msg: >-
-      Automatic deployment refuses service additions/removals, forbidden Compose actions, and
-      services/data changes that require an explicit service restart decision.
+      Deployment refuses service additions/removals, forbidden Compose actions, and data-file changes
+      without their exact operation-specific restart approval.
 
+- name: Select dependency handling for the exact full backup rollout
+  ansible.builtin.set_fact:
+    compose_deploy_dependency_args: >-
+      {{
+        []
+        if (
+          (compose_deploy_manual_paths_confirmation | default('')) == 'deploy-reviewed-three-path-backups' and
+          compose_deploy_plan.recreate_services | length == 41
+        )
+        else ['--no-deps']
+      }}
 - name: Report the check-mode deployment boundary
   ansible.builtin.debug:
     msg:
@@ -329,14 +346,40 @@
     - name: Converge only the reviewed services without builds, removal, or orphan removal
       ansible.builtin.command:
         argv: >-
-          {{ compose_runtime_cli + ['up', '--detach', '--no-build', '--pull', 'never', '--no-deps']
+          {{ compose_runtime_cli + ['up', '--detach', '--no-build', '--pull', 'never']
+             + compose_deploy_dependency_args
              + (compose_deploy_plan.recreate_services | sort) }}
       become: true
       environment:
         HOME: "{{ compose_home_dir }}"
+      register: compose_deploy_converge
+      failed_when: false
       no_log: true
       when: compose_deploy_plan.recreate_services | length > 0
       changed_when: true
+
+    - name: Retain protected Compose convergence diagnostics
+      ansible.builtin.copy:
+        content: |-
+          rc={{ compose_deploy_converge.rc }}
+          stdout:
+          {{ compose_deploy_converge.stdout }}
+          stderr:
+          {{ compose_deploy_converge.stderr }}
+        dest: "/var/lib/docker-compose/deploy-{{ compose_artifact_hash }}.log"
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      no_log: true
+      when: compose_deploy_plan.recreate_services | length > 0
+
+    - name: Require successful reviewed Compose convergence
+      ansible.builtin.assert:
+        that:
+          - compose_deploy_plan.recreate_services | length == 0 or compose_deploy_converge.rc == 0
+        fail_msg: "Compose convergence failed; inspect the protected host deployment log."
+      no_log: true
 
     - name: Produce the root-only post-deployment action plan
       ansible.builtin.script:

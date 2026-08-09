@@ -2,6 +2,7 @@
 "use strict";
 
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const yaml = require("js-yaml");
@@ -12,7 +13,7 @@ const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
 const schemaPath = path.join(root, "infrastructure/contract/schema.json");
 const qualificationEvidencePath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.json");
 const qualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.schema.json");
-const qualificationValidatorPath = path.join(root, ".github/scripts/proxmox-lxc-qualification.py");
+const qualificationValidatorPath = path.join(root, "scripts/controller/proxmox-lxc-qualification.py");
 const operational = process.argv.includes("--operational");
 
 const contract = yaml.load(fs.readFileSync(contractPath, "utf8"));
@@ -30,6 +31,22 @@ if (!validate(contract)) {
 }
 
 const failures = [];
+const coralRoot = path.join(root, "recovery/coral");
+const coralFiles = fs.readdirSync(coralRoot, { recursive: true })
+  .filter((name) => fs.statSync(path.join(coralRoot, name)).isFile())
+  .sort();
+const coralHash = crypto.createHash("sha256");
+for (const name of coralFiles) {
+  coralHash.update(name);
+  coralHash.update("\0");
+  coralHash.update(fs.readFileSync(path.join(coralRoot, name)));
+}
+if (coralHash.digest("hex") !== contract.arch.coral.source_tree_sha256) {
+  failures.push("arch.coral.source_tree_sha256 does not match recovery/coral");
+}
+const coralPkgbuild = fs.readFileSync(path.join(coralRoot, "PKGBUILD"), "utf8");
+if (!coralPkgbuild.includes(`pkgver=${contract.arch.coral.dkms_version}`)) failures.push("Coral PKGBUILD pkgver differs from contract");
+if (!coralPkgbuild.includes(`_commit=${contract.arch.coral.source_commit}`)) failures.push("Coral PKGBUILD source commit differs from contract");
 const refs = contract.storage.zfs.members.map((member) => member.secret_ref);
 if (new Set(refs).size !== refs.length) failures.push("ZFS member secret references must be unique");
 for (let mirror = 0; mirror < 6; mirror += 1) {
@@ -65,10 +82,9 @@ if (contract.proxmox.legacy_container.lxc_provider_qualified) {
 
 if (operational) {
   const required = [
-    [contract.recovery.ci_age_recipient, "recovery.ci_age_recipient"],
     [contract.aws.state_bucket, "aws.state_bucket"],
     [contract.aws.recovery_bucket, "aws.recovery_bucket"],
-    [contract.arch.coral.artifact_digest, "arch.coral.artifact_digest"],
+    [contract.arch.coral.build_image, "arch.coral.build_image"],
     [contract.arch.coral.package_sha256, "arch.coral.package_sha256"],
   ];
   for (const [value, name] of required) if (!value) failures.push(`${name} is required for operational recovery`);

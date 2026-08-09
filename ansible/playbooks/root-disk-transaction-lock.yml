@@ -1,0 +1,14 @@
+---
+- name: Manage only the Docker root-disk transaction lock
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  tasks:
+    - name: Apply the requested root-disk transaction lock action
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: "{{ root_disk_transaction_lock_action }}"
+        apply_lock_operation: root-disk-growth

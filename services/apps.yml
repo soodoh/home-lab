@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   jellyfin:
-    image: ghcr.io/jellyfin/jellyfin:10.11.11
+    image: ghcr.io/jellyfin/jellyfin:10.11.11@sha256:45f648c382a0c8b552582fcea40e95cb17c5d475473a891cba0eb7523fb92112
     container_name: jellyfin
     restart: unless-stopped
     logging: *default-logging
@@ -46,7 +46,7 @@ services:
       - proxy
 
   audiobookshelf:
-    image: ghcr.io/advplyr/audiobookshelf:2.36.0
+    image: ghcr.io/advplyr/audiobookshelf:2.36.0@sha256:180acad33d69c99ed208676465d8edcb268fa46967735579a7810859885b1a8e
     container_name: audiobookshelf
     restart: unless-stopped
     logging: *default-logging
@@ -70,7 +70,7 @@ services:
       - proxy
 
   calibre:
-    image: ghcr.io/linuxserver/calibre:9.11.0
+    image: ghcr.io/linuxserver/calibre:9.11.0@sha256:a65e85852ae4dfec58ff6b65ffa0717fd5d2c21dddf0f5683e778365d87c588d
     container_name: calibre
     restart: unless-stopped
     logging: *default-logging
@@ -102,7 +102,7 @@ services:
         ipv4_address: 172.23.0.99
 
   calibre-web-automated:
-    image: ghcr.io/crocodilestick/calibre-web-automated:v4.0.6
+    image: ghcr.io/crocodilestick/calibre-web-automated:v4.0.6@sha256:c31a738b6d5ec6982c050063dd3f063b6943eb1051fc81144789f840d9093a8d
     container_name: calibre-web-automated
     restart: unless-stopped
     logging: *default-logging
@@ -126,7 +126,7 @@ services:
       - proxy
 
   karaoke-eternal:
-    image: radrootllc/karaoke-eternal:latest
+    image: radrootllc/karaoke-eternal:latest@sha256:96a4ff5f14657aaa0e7308f1455fedab7065756e1e3e163522619ee3aa9f5c5f
     container_name: karaoke-eternal
     restart: unless-stopped
     logging: *default-logging
@@ -139,7 +139,7 @@ services:
       - proxy
 
   vaultwarden:
-    image: ghcr.io/dani-garcia/vaultwarden:1.37.1
+    image: ghcr.io/dani-garcia/vaultwarden:1.37.1@sha256:ebdfe70701c60ac0c28c697e787cea767d7972940b786037b29fe0d507f821e8
     container_name: vaultwarden
     restart: unless-stopped
     logging: *default-logging
@@ -163,7 +163,7 @@ services:
       - proxy
 
   vikunja:
-    image: ghcr.io/go-vikunja/vikunja:2.4.0
+    image: ghcr.io/go-vikunja/vikunja:2.4.0@sha256:1a5dd2d410b5359f689c77bbd1c66742cde1993f82d4adfe9aefa400ff1dd833
     container_name: vikunja
     restart: unless-stopped
     logging: *default-logging
@@ -187,7 +187,7 @@ services:
       - proxy
 
   litellm:
-    image: ghcr.io/berriai/litellm:1.94.0
+    image: ghcr.io/berriai/litellm:1.94.0@sha256:65d84a2282137b4dc73bbe184650a7c807177c533e4223b3bfbc87963fe3fabe
     container_name: litellm
     restart: unless-stopped
     logging: *default-logging

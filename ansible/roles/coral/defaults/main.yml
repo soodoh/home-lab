@@ -1,3 +1,2 @@
 ---
-coral_cosign_identity: https://github.com/soodoh/home-lab/.github/workflows/coral-package.yml@refs/heads/main
 coral_verify_frigate: true

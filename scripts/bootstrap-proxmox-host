@@ -45,7 +45,7 @@ trap cleanup EXIT INT TERM
 python3 -m venv "$venv"
 "$venv/bin/python" -m pip install --disable-pip-version-check --no-cache-dir \
   --only-binary=:all: --require-hashes \
-  --requirement .github/requirements-ansible-controller.lock
+  --requirement controller/requirements-ansible-controller.lock
 
 playbook=(
   "$venv/bin/ansible-playbook"

@@ -25,11 +25,11 @@ The canonical artifact hash is SHA-256 over a version marker followed by each so
 /etc/docker-compose/previous.env
 ```
 
-`current` is the only live project directory and its recomputed artifact hash is the deployment identity. Staging directories are immutable and hash-addressed, while `previous` and `previous.env` retain one separately reviewed rollback generation. GitHub Actions checkouts are controller inputs only; no live bind, audit, health check, or rollback operation depends on a host Git checkout.
+`current` is the only live project directory and its recomputed artifact hash is the deployment identity. Staging directories are immutable and hash-addressed, while `previous` and `previous.env` retain one separately reviewed rollback generation. The trusted local checkout is a controller input only; no live bind, audit, health check, or rollback operation depends on a host Git checkout.
 
 ## Staging workflow
 
-`.github/workflows/compose-stage.yml` is manual, main-only, serialized with other production Ansible work, and uses the existing environment-bound `tag:ci-apply` identity. It:
+The trusted local controller stages only the exact committed Compose artifact after manifest review and local approval. Host-side apply locks serialize it with other production work.
 
 1. checks out the exact `main` commit;
 2. computes and copies the deterministic artifact on the controller;
@@ -96,13 +96,13 @@ The initial cutover, failed-lock clearance, and rollback enable variables were r
 
 ## Protected ongoing deployment
 
-`.github/workflows/compose-deploy.yml` is the post-cutover deployment path. Pull requests remain secret-free and unprivileged: `compose-artifact.yml` validates and hashes the exact candidate without contacting the host. After a reviewed merge, the trusted `main` workflow may use the protected apply identity to stage the exact artifact and its isolated candidate environment, display the restricted model differences, and produce a hash-locked check-mode deployment plan.
+`scripts/local-controller` is the deployment path. It validates and hashes the exact candidate, stores the saved manifest locally, uses separate plan/apply credentials, stages the exact artifact and isolated candidate environment, displays restricted model differences, and produces a hash-locked check-mode deployment plan before activation.
 
 The apply job is independently disabled unless `COMPOSE_AUTO_APPLY_ENABLED=true`. A changed merged plan must still match the current `main` tip and reproduce the deterministic secret-free deployment-plan hash. Deployment refuses service additions/removals, Docker create/remove actions, and `services/data/**` changes that lack an explicit restart decision. It pulls only services whose reviewed image reference changed, preserves current as `previous` plus a root-only previous environment, rotates the hash-verified artifact, and converges only the reviewed recreation set with `--no-deps`, without builds or orphan removal. No image or volume pruning occurs.
 
 Reviewed changes limited to host-executed helper files selected by `scripts/compose-artifact.py` may use the separate `COMPOSE_ARTIFACT_PROMOTION_ENABLED=true` gate, exact candidate hash, and typed `promote-artifact:<hash>` confirmation. Controller-only planning helpers do not alter the artifact identity. This artifact-only lane requires zero image differences, recreations, service-set changes, and forbidden actions; it rotates the artifact and environment but executes no Compose pull or `up` command.
 
-Every apply attempt retains the production lock on failure. Success requires an idempotent post-deployment Compose action plan, all 41 services running, healthy Gluetun and Seerr, a zero-change deployment post-check, and a zero-change complete audit. There is no automatic stateful rollback; the tracked previous artifact and unchanged previous environment are recovery inputs for a separately reviewed rollback. A failed pre-apply canary may be retried manually only with the exact candidate hash, typed `deploy-canary:<candidate-sha256>` confirmation, the same canary-only policy, and `COMPOSE_AUTO_APPLY_ENABLED=true`.
+Every apply attempt retains the production lock on failure. Success requires an idempotent post-deployment Compose action plan, all 41 configured services running, healthy Gluetun and Seerr, a zero-change deployment post-check, and a zero-change complete audit. There is no automatic stateful rollback; the tracked previous artifact and unchanged previous environment are recovery inputs for a separately reviewed rollback. A failed pre-apply canary may be retried manually only with the exact candidate hash, typed `deploy-canary:<candidate-sha256>` confirmation, the same canary-only policy, and `COMPOSE_AUTO_APPLY_ENABLED=true`.
 
 ### Host-checkout independence
 

@@ -6,7 +6,6 @@ recovery:
   critical_rpo_hours: 24
   critical_rto_hours: 8
   recovery_age_recipient: age1vvzm5pczjum52v5alall8euucjen9q4v9xa5g0xmswhna5vare9qwv9rq6
-  ci_age_recipient: age17z5dvwfetww88x3juenueyughe7uh8njfls6fajk62s9aga8svssz7ah8y
 network:
   cidr: 192.168.0.0/24
   gateway: 192.168.0.1
@@ -45,7 +44,7 @@ proxmox:
     root_disk:
       datastore: local-lvm
       interface: scsi0
-      size_gb: 400
+      size_gb: 550
       iothread: true
     games_disk:
       interface: scsi1
@@ -102,8 +101,8 @@ proxmox:
     vmid: 101
     name: tailscale-gateway
     mac: BC:24:11:FD:4C:5C
-    retirement_stage: protected
-    lxc_provider_qualified: false
+    retirement_stage: retired
+    lxc_provider_qualified: true
     recreate_after_decommission: false
     root_datastore: local-lvm
     root_size_gb: 4
@@ -162,9 +161,11 @@ arch:
     tailscale: 1.98.10-1
   coral:
     package_version: r236.5815ee3-3
+    dkms_version: r236.5815ee3
     source_commit: 5815ee3908a46a415aac616ac7b9aedcb98a504c
-    artifact_repository: ghcr.io/soodoh/home-lab/gasket-dkms-git
-    artifact_digest: sha256:bee681944b4c4ccbe8cbd5f90b418591e289d4fc026dc11aedcfa39ec5e543cb
+    source_tree_sha256: 1222d040b6e8b91f76f049fadfd853ef7c6b012a97f728b7fa264aca74fb9cb9
+    build_image: archlinux:base-devel@sha256:c1829f370be8434135f43fb3acaef1256780804ac3b2d2eec90dfb1232e1ffdf
+    source_date_epoch: 1704067200
     package_sha256: a08bf28a90071cf3d18b219ed54856681937d792787fd0c5ef77f52106e6a71e
 omada:
   controller_version: 6.2.14.11
@@ -173,37 +174,34 @@ omada:
   provider_qualified: true
   required_consecutive_noop_plans: 3
 tailscale:
-  gateway_policy_stage: detached
+  gateway_policy_stage: retired
   tags:
     arch: tag:docker-host
     proxmox: tag:proxmox
     infra_router: tag:infra-router
-    ci_legacy: tag:ci
-    ci_plan: tag:ci-plan
-    ci_apply: tag:ci-apply
   required_endpoints:
     - docker-host:22
     - proxmox:22
     - proxmox:8006
     - docker-host:8043
-github:
-  owner: soodoh
-  repository: home-lab
-  default_branch: main
-  environments:
-    plan: infrastructure-plan
-    apply: infrastructure-apply
 aws:
   region: us-east-1
   recovery_region: us-west-2
   state_bucket: null
   recovery_bucket: null
-  mutation_lease_table: home-lab-infrastructure-lease
   kms_alias: alias/home-lab-opentofu
 backups:
-  critical_schedule: "0 6 * * *"
+  local_schedule: "0 5 * * *"
+  local_paths:
+    - /home/docker/backups
+    - /mnt/games/backups
+    - /mnt/storage/backups
+  estimated_archive_bytes: 50000000000
+  remote_schedule: "0 6 * * 0"
+  remote_rpo_hours: 168
   remote_retention_days: 14
-  local_retention_days: 14
+  local_retention_days: 7
+  home_retention_days: 2
   excluded_classes:
     - bulk-media
     - steam-data

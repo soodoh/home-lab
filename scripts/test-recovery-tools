@@ -158,4 +158,324 @@ expect_limit("member-limit", member_limit=1, byte_limit=100)
 expect_limit("byte-limit", member_limit=10, byte_limit=3)
 PY
 
+# Exercise the local-first ciphertext selector with a copied driver whose fixed
+# production roots are relocated into this disposable fixture.
+test_repo="$work/restore-repo"
+home_backup_root="$work/home-backups"
+games_backup_root="$work/games-backups"
+storage_backup_root="$work/storage-backups"
+recovery_root="$work/recovery-root"
+identity_file="$work/backup-identity.json"
+mkdir -p "$test_repo/scripts" "$test_repo/bin" "$home_backup_root" "$games_backup_root" \
+  "$storage_backup_root" "$recovery_root"
+cp "$repo_root/scripts/restore-critical-archive.py" "$test_repo/scripts/restore-critical-archive.py"
+TEST_REPO="$test_repo" HOME_BACKUP_ROOT="$home_backup_root" GAMES_BACKUP_ROOT="$games_backup_root" \
+  STORAGE_BACKUP_ROOT="$storage_backup_root" RECOVERY_ROOT="$recovery_root" \
+  IDENTITY_FILE="$identity_file" REPO_ROOT="$repo_root" python3 - <<'PY'
+import os
+from pathlib import Path
+
+source = Path(os.environ["REPO_ROOT"], "scripts/restore-critical-backup").read_text()
+source = source.replace("/home/docker/backups", os.environ["HOME_BACKUP_ROOT"])
+source = source.replace("/mnt/games/backups", os.environ["GAMES_BACKUP_ROOT"])
+source = source.replace("/mnt/storage/backups", os.environ["STORAGE_BACKUP_ROOT"])
+source = source.replace("/srv/home-lab-recovery", os.environ["RECOVERY_ROOT"])
+source = source.replace("/run/home-lab-recovery-backup-identity.json", os.environ["IDENTITY_FILE"])
+source = source.replace("{1,1024}", "{1,200}")
+source = source.replace("cp --reflink=auto --sparse=always --", "cp --")
+source = source.replace(
+    "/usr/local/libexec/home-lab-restore-critical-archive.py",
+    str(Path(os.environ["TEST_REPO"], "scripts/restore-critical-archive.py")),
+)
+target = Path(os.environ["TEST_REPO"], "scripts/restore-critical-backup")
+target.write_text(source)
+target.chmod(0o755)
+PY
+cat >"$test_repo/bin/gpg" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+output=
+last=
+for argument in "$@"; do last=$argument; done
+while (($#)); do
+  if [[ $1 == --output ]]; then
+    output=$2
+    shift 2
+  else
+    shift
+  fi
+done
+if [[ -n $output ]]; then
+  cp "$last" "$output"
+fi
+SH
+cat >"$test_repo/bin/curl" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'download\n' >>"$CURL_LOG"
+output=
+while (($#)); do
+  if [[ $1 == --output ]]; then
+    output=$2
+    shift 2
+  else
+    shift
+  fi
+done
+cp "$REMOTE_FIXTURE" "$output"
+SH
+cat >"$test_repo/bin/sha256sum" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+if (($# == 1)) && [[ $1 != -* ]]; then
+  shasum -a 256 "$1"
+  exit
+fi
+IFS=' ' read -r expected file
+actual=$(shasum -a 256 "$file" | awk '{print $1}')
+[[ $actual == "$expected" ]]
+SH
+chmod +x "$test_repo/bin/gpg" "$test_repo/bin/curl" "$test_repo/bin/sha256sum"
+older_backup_id=daily-local-backup-2026-08-05T05-00-00.tar.gz.gpg
+newer_backup_id=daily-local-backup-2026-08-06T05-00-00.tar.gz.gpg
+remote_backup_id=weekly-backup-2026-08-02T06-00-00.tar.gz.gpg
+cp "$work/valid.tar.gz" "$home_backup_root/$older_backup_id"
+cp "$work/safe-symlink.tar.gz" "$games_backup_root/$newer_backup_id"
+older_sha=$(sha256sum "$work/valid.tar.gz" | awk '{print $1}')
+newer_sha=$(sha256sum "$work/safe-symlink.tar.gz" | awk '{print $1}')
+backup_identity_hash() {
+  SOURCE=$1 BACKUP_ID=$2 CIPHERTEXT_SHA256=$3 VERSION_ID=${4:-} python3 - <<'PY'
+import hashlib
+import json
+import os
+
+source = os.environ["SOURCE"]
+version = os.environ["VERSION_ID"]
+identity = {
+    "backup_id_sha256": hashlib.sha256(os.environ["BACKUP_ID"].encode()).hexdigest(),
+    "ciphertext_sha256": os.environ["CIPHERTEXT_SHA256"],
+    "remote_version_id_sha256": hashlib.sha256(version.encode()).hexdigest() if source == "remote" else None,
+    "source": source,
+    "version": 1,
+}
+encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+print(hashlib.sha256(encoded.encode()).hexdigest())
+PY
+}
+newer_identity_sha=$(backup_identity_hash local "$newer_backup_id" "$newer_sha")
+home_identity_sha=$(backup_identity_hash local "$newer_backup_id" "$older_sha")
+remote_identity_sha=$(backup_identity_hash remote "$remote_backup_id" "$older_sha" version-1)
+cat >"$work/reviewed-backup.json" <<JSON
+{"source":"local","backup_id":"$newer_backup_id","ciphertext_sha256":"$newer_sha"}
+JSON
+chmod 0600 "$work/reviewed-backup.json"
+[[ $("$repo_root/scripts/derive-recovery-backup-identity.py" --input "$work/reviewed-backup.json") == \
+  "recovery_backup_identity_sha256=$newer_identity_sha" ]]
+printf '%s  %s\n' "$older_sha" "$older_backup_id" >"$home_backup_root/$older_backup_id.sha256"
+printf '%s  %s\n' "$newer_sha" "$newer_backup_id" >"$games_backup_root/$newer_backup_id.sha256"
+touch "$work/recovery-key.asc"
+mkdir "$recovery_root/local" "$recovery_root/mismatch" "$recovery_root/tie" "$recovery_root/remote" "$recovery_root/reject"
+common_env=(
+  "PATH=$test_repo/bin:$PATH"
+  "RECOVERY_GPG_KEY_FILE=$work/recovery-key.asc"
+  "RECOVERY_BACKUP_IDENTITY_FILE=$identity_file"
+)
+env "${common_env[@]}" RECOVERY_TARGET="$recovery_root/local" \
+  RECOVERY_EXPECTED_BACKUP_IDENTITY_SHA256="$newer_identity_sha" \
+  "$test_repo/scripts/restore-critical-backup" --remote-backup-id "$remote_backup_id" \
+  --confirmed-empty-target >/dev/null
+IDENTITY_FILE="$identity_file" NEWER_ID="$newer_backup_id" NEWER_SHA="$newer_sha" python3 - <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+identity = json.loads(Path(os.environ["IDENTITY_FILE"]).read_text())
+assert identity["source"] == "local"
+assert identity["backup_id_sha256"] == hashlib.sha256(os.environ["NEWER_ID"].encode()).hexdigest()
+assert identity["ciphertext_sha256"] == os.environ["NEWER_SHA"]
+assert identity["remote_version_id_sha256"] is None
+PY
+if env "${common_env[@]}" RECOVERY_TARGET="$recovery_root/mismatch" \
+  RECOVERY_EXPECTED_BACKUP_IDENTITY_SHA256="$home_identity_sha" \
+  "$test_repo/scripts/restore-critical-backup" --remote-backup-id "$remote_backup_id" \
+  --confirmed-empty-target >/dev/null 2>&1; then
+  echo "unreviewed local backup identity unexpectedly passed" >&2
+  exit 1
+fi
+[[ ! -e $identity_file ]]
+rm -f "$home_backup_root"/* "$games_backup_root"/* "$storage_backup_root"/*
+cp "$work/valid.tar.gz" "$home_backup_root/$newer_backup_id"
+cp "$work/safe-symlink.tar.gz" "$games_backup_root/$newer_backup_id"
+printf '%s  %s\n' "$older_sha" "$newer_backup_id" >"$home_backup_root/$newer_backup_id.sha256"
+printf '%s  %s\n' "$newer_sha" "$newer_backup_id" >"$games_backup_root/$newer_backup_id.sha256"
+env "${common_env[@]}" RECOVERY_TARGET="$recovery_root/tie" \
+  RECOVERY_EXPECTED_BACKUP_IDENTITY_SHA256="$home_identity_sha" \
+  "$test_repo/scripts/restore-critical-backup" --remote-backup-id "$remote_backup_id" \
+  --confirmed-empty-target >/dev/null
+IDENTITY_FILE="$identity_file" HOME_SHA="$older_sha" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+identity = json.loads(Path(os.environ["IDENTITY_FILE"]).read_text())
+assert identity["source"] == "local"
+assert identity["ciphertext_sha256"] == os.environ["HOME_SHA"]
+PY
+rm -f "$home_backup_root"/* "$games_backup_root"/* "$storage_backup_root"/*
+env "${common_env[@]}" RECOVERY_TARGET="$recovery_root/remote" \
+  RECOVERY_EXPECTED_BACKUP_IDENTITY_SHA256="$remote_identity_sha" \
+  RECOVERY_BACKUP_URL="https://example.invalid/$remote_backup_id?versionId=version-1" \
+  RECOVERY_BACKUP_VERSION_ID=version-1 RECOVERY_REMOTE_BACKUP_SHA256="$older_sha" \
+  RECOVERY_REMOTE_BACKUP_LATEST_CONFIRMED=true REMOTE_FIXTURE="$work/valid.tar.gz" \
+  CURL_LOG="$work/curl.log" "$test_repo/scripts/restore-critical-backup" \
+  --remote-backup-id "$remote_backup_id" --confirmed-empty-target >/dev/null
+(( $(wc -l <"$work/curl.log") == 1 ))
+IDENTITY_FILE="$identity_file" python3 - <<'PY'
+import hashlib
+import json
+import os
+from pathlib import Path
+identity = json.loads(Path(os.environ["IDENTITY_FILE"]).read_text())
+assert identity["source"] == "remote"
+assert identity["backup_id_sha256"] == hashlib.sha256(b"weekly-backup-2026-08-02T06-00-00.tar.gz.gpg").hexdigest()
+assert identity["remote_version_id_sha256"] == hashlib.sha256(b"version-1").hexdigest()
+PY
+if env "${common_env[@]}" RECOVERY_TARGET="$recovery_root/reject" \
+  RECOVERY_EXPECTED_BACKUP_IDENTITY_SHA256="$remote_identity_sha" \
+  RECOVERY_BACKUP_URL="https://example.invalid/$remote_backup_id?versionId=version-1" \
+  RECOVERY_BACKUP_VERSION_ID=version-1 RECOVERY_REMOTE_BACKUP_SHA256="$older_sha" \
+  RECOVERY_REMOTE_BACKUP_LATEST_CONFIRMED=false REMOTE_FIXTURE="$work/valid.tar.gz" \
+  CURL_LOG="$work/reject-curl.log" "$test_repo/scripts/restore-critical-backup" \
+  --remote-backup-id "$remote_backup_id" --confirmed-empty-target >/dev/null 2>&1; then
+  echo "unconfirmed remote fallback unexpectedly passed" >&2
+  exit 1
+fi
+[[ ! -e $work/reject-curl.log ]]
+[[ ! -e $identity_file ]]
+
+replication_primary="$work/replication-primary"
+replication_home="$work/replication-home"
+replication_games="$work/replication-games"
+mkdir "$replication_primary" "$replication_home" "$replication_games"
+replication_id=daily-local-backup-2026-08-07T05-00-00.tar.gz.gpg
+cp "$work/valid.tar.gz" "$replication_primary/$replication_id"
+REPO_ROOT="$repo_root" WORK="$work" PRIMARY="$replication_primary" HOME_REPLICA="$replication_home" \
+  GAMES_REPLICA="$replication_games" python3 - <<'PY'
+import os
+from pathlib import Path
+source = Path(os.environ["REPO_ROOT"], "services/data/replicate-local-backup").read_text()
+source = source.replace("/replica-home", os.environ["HOME_REPLICA"])
+source = source.replace("/replica-games", os.environ["GAMES_REPLICA"])
+source = source.replace("/archive", os.environ["PRIMARY"])
+target = Path(os.environ["WORK"], "replicate-local-backup")
+target.write_text(source)
+target.chmod(0o755)
+PY
+COMMAND_RUNTIME_ARCHIVE_FILEPATH="$replication_primary/$replication_id" \
+  "$work/replicate-local-backup" >/dev/null
+for destination in "$replication_primary" "$replication_home" "$replication_games"; do
+  [[ -f $destination/$replication_id && -f $destination/$replication_id.sha256 ]]
+  expected=$(awk '{print $1}' "$destination/$replication_id.sha256")
+  actual=$(sha256sum "$destination/$replication_id" | awk '{print $1}')
+  [[ $expected == "$actual" ]]
+done
+
+WORK="$work" REPO_ROOT="$repo_root" python3 - <<'PY'
+import contextlib
+import importlib.util
+import io
+import os
+from pathlib import Path
+import sys
+
+repo = Path(os.environ["REPO_ROOT"])
+root = Path(os.environ["WORK"], "plan-fixture")
+recovery_root = root / "recovery"
+target = recovery_root / "target"
+backup = target / "backup"
+staged = root / "staged"
+for required in ("vaultwarden-data", "omada-data", "hass-data", "wolf/cfg", ".ssh"):
+    (backup / required).mkdir(parents=True, exist_ok=True)
+(backup / ".env").write_text("fixture")
+staged.mkdir(parents=True)
+(staged / ".env").write_text("fixture")
+
+spec = importlib.util.spec_from_file_location("compose_recovery_plan", repo / "scripts/compose-recovery-plan.py")
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+spec.loader.exec_module(module)
+module.RECOVERY_ROOT = recovery_root.resolve()
+module.run = lambda arguments: '{"services":{}}' if "config" in arguments else ""
+
+common = [
+    "compose-recovery-plan.py",
+    "--artifact-hash", "a" * 64,
+    "--backup-id-sha256", "b" * 64,
+    "--backup-sha256", "c" * 64,
+    "--target", str(target),
+    "--current-dir", str(root / "current"),
+    "--runtime-env", str(root / "runtime.env"),
+    "--staged-dir", str(staged),
+    "--staged-env", str(staged / ".env"),
+    "--project", "recovery-fixture",
+]
+
+def derive(source: str, version: str = "") -> str:
+    sys.argv = common + ["--backup-source", source]
+    if version:
+        sys.argv += ["--backup-version-id-sha256", version]
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        module.main()
+    return output.getvalue().strip()
+
+local_plan = derive("local")
+remote_plan = derive("remote", "d" * 64)
+assert local_plan.startswith("compose_recovery_plan_sha256=")
+assert remote_plan.startswith("compose_recovery_plan_sha256=")
+assert local_plan != remote_plan
+
+sys.argv = common + ["--backup-source", "local", "--backup-version-id-sha256", "d" * 64]
+with contextlib.redirect_stderr(io.StringIO()):
+    try:
+        module.main()
+    except SystemExit:
+        pass
+    else:
+        raise SystemExit("local recovery plan unexpectedly accepted a remote version")
+PY
+
+REPO_ROOT="$repo_root" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+import subprocess
+
+repo = Path(os.environ["REPO_ROOT"])
+model = json.loads(subprocess.run(
+    ["docker", "compose", "config", "--no-interpolate", "--format", "json"],
+    cwd=repo,
+    check=True,
+    text=True,
+    stdout=subprocess.PIPE,
+).stdout)
+assert len(model["services"]) == 41
+daily_service = model["services"]["daily-local-backup"]
+weekly_service = model["services"]["weekly-remote-backup"]
+daily = daily_service["environment"]
+weekly = weekly_service["environment"]
+assert not {"AWS_S3_BUCKET_NAME", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} & daily.keys()
+assert daily["BACKUP_CRON_EXPRESSION"] == "0 5 * * *"
+assert daily["BACKUP_FILENAME"].startswith("daily-local-backup-")
+assert daily["BACKUP_RETENTION_DAYS"] == 7
+assert daily_service["labels"]["docker-volume-backup.copy-post"] == "/bin/sh -c /usr/local/bin/replicate-local-backup"
+backup_mounts = {volume["target"]: volume["source"] for volume in daily_service["volumes"]}
+assert backup_mounts["/archive"] == "/mnt/storage/backups"
+assert backup_mounts["/replica-home"] == "/home/docker/backups"
+assert backup_mounts["/replica-games"] == "/mnt/games/backups"
+assert weekly["BACKUP_CRON_EXPRESSION"] == "0 6 * * 0"
+assert weekly["BACKUP_FILENAME"].startswith("weekly-backup-")
+assert weekly["BACKUP_ARCHIVE"] == "/archive-disabled"
+assert {"AWS_S3_BUCKET_NAME", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} <= weekly.keys()
+PY
+
 echo "recovery tool safety fixtures passed"

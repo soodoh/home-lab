@@ -221,27 +221,3 @@ resource "aws_s3_bucket_lifecycle_configuration" "recovery" {
     }
   }
 }
-
-resource "aws_dynamodb_table" "mutation_lease" {
-  name         = var.mutation_lease_table_name
-  billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "LeaseName"
-
-  attribute {
-    name = "LeaseName"
-    type = "S"
-  }
-
-  ttl {
-    attribute_name = "ExpiresAt"
-    enabled        = true
-  }
-
-  point_in_time_recovery {
-    enabled = true
-  }
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}

@@ -2,7 +2,7 @@
 
 ## Status
 
-The foundation is active for Compose. GitHub Actions stages the exact encrypted repository artifact, and the host decrypts it with `/etc/sops/age/keys.txt` into root-owned `/etc/docker-compose/production.env`; the legacy checkout `.env` is not a runtime input.
+The foundation is active for Compose. The trusted local controller stages the exact encrypted repository artifact, and the host decrypts it with `/etc/sops/age/keys.txt` into root-owned `/etc/docker-compose/production.env`; the legacy checkout `.env` is not a runtime input.
 
 The repository contains only:
 
@@ -11,7 +11,7 @@ The repository contains only:
 - a non-secret blank-line layout manifest at `secrets/production.env.layout.json`; and
 - the public age recipient in `.sops.yaml`.
 
-No production age identity is present in GitHub Actions, Git, or repository files.
+No production age identity is present in Git or repository files.
 
 ## Pinned tooling
 
@@ -62,9 +62,9 @@ variable_name_sets=pass count=90
 
 The migrated source checksum and metadata were unchanged during encryption. Production now uses only the root-owned reconstructed environment.
 
-## Secret-free CI
+## Secret-free validation
 
-`.github/workflows/sops-secrets.yml` receives no age identity and cannot decrypt production secrets. It:
+`scripts/validate-secrets` runs locally without an age identity and cannot decrypt production secrets. It:
 
 1. rejects every tracked `*.env` except `secrets/production.sops.env`;
 2. requires the exact single-file `.sops.yaml` rule and public recipient;

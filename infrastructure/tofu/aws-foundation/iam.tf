@@ -6,66 +6,89 @@ locals {
     "home-lab/proxmox-lxc-qualification/tofu.tfstate",
     "home-lab/omada/tofu.tfstate",
     "home-lab/tailscale/tofu.tfstate",
-    "home-lab/github/tofu.tfstate",
   ]
-  state_arns            = [for key in local.state_keys : "${aws_s3_bucket.state.arn}/${key}"]
-  lock_arns             = [for key in local.state_keys : "${aws_s3_bucket.state.arn}/${key}.tflock"]
-  github_subject_prefix = "repo:${var.github_owner}@${var.github_owner_id}/${var.github_repository}@${var.github_repository_id}"
+  state_arns = [for key in local.state_keys : "${aws_s3_bucket.state.arn}/${key}"]
+  lock_arns  = [for key in local.state_keys : "${aws_s3_bucket.state.arn}/${key}.tflock"]
 }
 
-resource "aws_iam_openid_connect_provider" "github" {
-  url            = "https://token.actions.githubusercontent.com"
-  client_id_list = ["sts.amazonaws.com"]
+resource "aws_rolesanywhere_trust_anchor" "local_controller" {
+  name       = "home-lab-local-controller"
+  enabled    = true
+  depends_on = [aws_iam_policy.state_apply]
+
+  source {
+    source_data {
+      x509_certificate_data = file("${path.module}/../../local-controller/roles-anywhere-ca.pem")
+    }
+    source_type = "CERTIFICATE_BUNDLE"
+  }
 }
 
-data "aws_iam_policy_document" "github_plan_trust" {
+data "aws_iam_policy_document" "controller_plan_trust" {
   statement {
-    actions = ["sts:AssumeRoleWithWebIdentity"]
+    actions = ["sts:AssumeRole", "sts:TagSession", "sts:SetSourceIdentity"]
     principals {
-      type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
+      type        = "Service"
+      identifiers = ["rolesanywhere.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_rolesanywhere_trust_anchor.local_controller.arn]
     }
     condition {
       test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:aud"
-      values   = ["sts.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:sub"
-      values   = ["${local.github_subject_prefix}:environment:${var.github_plan_environment}"]
+      variable = "aws:PrincipalTag/x509Subject/CN"
+      values   = ["home-lab-local-controller-plan"]
     }
   }
 }
 
-data "aws_iam_policy_document" "github_apply_trust" {
+data "aws_iam_policy_document" "controller_apply_trust" {
   statement {
-    actions = ["sts:AssumeRoleWithWebIdentity"]
+    actions = ["sts:AssumeRole", "sts:TagSession", "sts:SetSourceIdentity"]
     principals {
-      type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
+      type        = "Service"
+      identifiers = ["rolesanywhere.amazonaws.com"]
+    }
+    condition {
+      test     = "ArnEquals"
+      variable = "aws:SourceArn"
+      values   = [aws_rolesanywhere_trust_anchor.local_controller.arn]
     }
     condition {
       test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:aud"
-      values   = ["sts.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:sub"
-      values   = ["${local.github_subject_prefix}:environment:${var.github_apply_environment}"]
+      variable = "aws:PrincipalTag/x509Subject/CN"
+      values   = ["home-lab-local-controller-apply"]
     }
   }
 }
 
-resource "aws_iam_role" "github_plan" {
+
+resource "aws_iam_role" "controller_plan" {
   name               = "home-lab-infrastructure-plan"
-  assume_role_policy = data.aws_iam_policy_document.github_plan_trust.json
+  assume_role_policy = data.aws_iam_policy_document.controller_plan_trust.json
 }
 
-resource "aws_iam_role" "github_apply" {
+resource "aws_iam_role" "controller_apply" {
   name               = "home-lab-infrastructure-apply"
-  assume_role_policy = data.aws_iam_policy_document.github_apply_trust.json
+  assume_role_policy = data.aws_iam_policy_document.controller_apply_trust.json
+}
+
+resource "aws_rolesanywhere_profile" "controller_plan" {
+  name                     = "home-lab-local-controller-plan"
+  enabled                  = true
+  role_arns                = [aws_iam_role.controller_plan.arn]
+  duration_seconds         = 3600
+  accept_role_session_name = true
+}
+
+resource "aws_rolesanywhere_profile" "controller_apply" {
+  name                     = "home-lab-local-controller-apply"
+  enabled                  = true
+  role_arns                = [aws_iam_role.controller_apply.arn]
+  duration_seconds         = 3600
+  accept_role_session_name = true
 }
 
 data "aws_iam_policy_document" "state_plan" {
@@ -131,13 +154,8 @@ data "aws_iam_policy_document" "state_plan" {
     resources = ["*"]
   }
   statement {
-    actions = [
-      "dynamodb:DescribeContinuousBackups",
-      "dynamodb:DescribeTable",
-      "dynamodb:DescribeTimeToLive",
-      "dynamodb:ListTagsOfResource",
-    ]
-    resources = [aws_dynamodb_table.mutation_lease.arn]
+    actions   = ["rolesanywhere:Get*", "rolesanywhere:List*"]
+    resources = ["*"]
   }
 }
 
@@ -162,16 +180,6 @@ data "aws_iam_policy_document" "state_apply" {
   statement {
     actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
     resources = [aws_kms_key.opentofu.arn]
-  }
-  statement {
-    actions = [
-      "dynamodb:DeleteItem",
-      "dynamodb:DescribeTable",
-      "dynamodb:GetItem",
-      "dynamodb:PutItem",
-      "dynamodb:UpdateItem",
-    ]
-    resources = [aws_dynamodb_table.mutation_lease.arn]
   }
 
   statement {
@@ -225,9 +233,7 @@ data "aws_iam_policy_document" "state_apply" {
   }
   statement {
     actions = [
-      "iam:AddClientIDToOpenIDConnectProvider",
       "iam:AttachRolePolicy",
-      "iam:CreateOpenIDConnectProvider",
       "iam:CreatePolicy",
       "iam:CreatePolicyVersion",
       "iam:DeletePolicyVersion",
@@ -236,28 +242,16 @@ data "aws_iam_policy_document" "state_apply" {
       "iam:Get*",
       "iam:List*",
       "iam:PutUserPolicy",
-      "iam:TagOpenIDConnectProvider",
       "iam:TagPolicy",
       "iam:TagRole",
       "iam:TagUser",
       "iam:SetDefaultPolicyVersion",
       "iam:UpdateAssumeRolePolicy",
-      "iam:UpdateOpenIDConnectProviderThumbprint",
     ]
     resources = ["*"]
   }
   statement {
-    actions = [
-      "dynamodb:CreateTable",
-      "dynamodb:DescribeContinuousBackups",
-      "dynamodb:DescribeTable",
-      "dynamodb:DescribeTimeToLive",
-      "dynamodb:ListTagsOfResource",
-      "dynamodb:TagResource",
-      "dynamodb:UpdateContinuousBackups",
-      "dynamodb:UpdateTable",
-      "dynamodb:UpdateTimeToLive",
-    ]
+    actions   = ["rolesanywhere:Create*", "rolesanywhere:Delete*", "rolesanywhere:Disable*", "rolesanywhere:Enable*", "rolesanywhere:Get*", "rolesanywhere:List*", "rolesanywhere:Put*", "rolesanywhere:TagResource", "rolesanywhere:UntagResource", "rolesanywhere:Update*"]
     resources = ["*"]
   }
 }
@@ -272,13 +266,14 @@ resource "aws_iam_policy" "state_apply" {
   policy = data.aws_iam_policy_document.state_apply.json
 }
 
-resource "aws_iam_role_policy_attachment" "github_plan" {
-  role       = aws_iam_role.github_plan.name
+
+resource "aws_iam_role_policy_attachment" "controller_plan" {
+  role       = aws_iam_role.controller_plan.name
   policy_arn = aws_iam_policy.state_plan.arn
 }
 
-resource "aws_iam_role_policy_attachment" "github_apply" {
-  role       = aws_iam_role.github_apply.name
+resource "aws_iam_role_policy_attachment" "controller_apply" {
+  role       = aws_iam_role.controller_apply.name
   policy_arn = aws_iam_policy.state_apply.arn
 }
 

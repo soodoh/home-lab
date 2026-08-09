@@ -1,22 +1,22 @@
 {
   "version": 1,
-  "qualification_tooling_commit": "<exact-40-character-main-commit>",
+  "qualification_tooling_commit": "<exact-40-character-clean-commit>",
   "provider": {
     "source": "registry.opentofu.org/bpg/proxmox",
     "version": "<exact-locked-version>",
     "lock_sha256": "<sha256-of-qualification-provider-lock>"
   },
   "runs": [
-    { "operation": "create", "run_id": "<github-run-id>" },
-    { "operation": "probe-protected-delete", "run_id": "<github-run-id>" },
-    { "operation": "verify-protected", "run_id": "<github-run-id>" },
-    { "operation": "unprotect", "run_id": "<github-run-id>" },
-    { "operation": "delete", "run_id": "<github-run-id>" },
-    { "operation": "verify-empty", "run_id": "<github-run-id>" }
+    { "operation": "create", "run_id": "<local-operation-id>" },
+    { "operation": "probe-protected-delete", "run_id": "<local-operation-id>" },
+    { "operation": "verify-protected", "run_id": "<local-operation-id>" },
+    { "operation": "unprotect", "run_id": "<local-operation-id>" },
+    { "operation": "delete", "run_id": "<local-operation-id>" },
+    { "operation": "verify-empty", "run_id": "<local-operation-id>" }
   ],
   "final_proof": {
     "operation": "verify-empty",
-    "run_id": "<same-verify-empty-github-run-id>",
+    "run_id": "<same-verify-empty-local-operation-id>"
     "state": "empty",
     "plan": "no-op",
     "api": "absent",

@@ -15,14 +15,23 @@ output "recovery_kms_key_arn" {
   value = aws_kms_key.recovery.arn
 }
 
-output "mutation_lease_table" {
-  value = aws_dynamodb_table.mutation_lease.name
+
+output "controller_plan_role_arn" {
+  value = aws_iam_role.controller_plan.arn
 }
 
-output "github_plan_role_arn" {
-  value = aws_iam_role.github_plan.arn
+output "controller_apply_role_arn" {
+  value = aws_iam_role.controller_apply.arn
 }
 
-output "github_apply_role_arn" {
-  value = aws_iam_role.github_apply.arn
+output "controller_plan_profile_arn" {
+  value = aws_rolesanywhere_profile.controller_plan.arn
+}
+
+output "controller_apply_profile_arn" {
+  value = aws_rolesanywhere_profile.controller_apply.arn
+}
+
+output "controller_trust_anchor_arn" {
+  value = aws_rolesanywhere_trust_anchor.local_controller.arn
 }

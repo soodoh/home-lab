@@ -55,12 +55,17 @@ x-backup-volumes: &backup-volumes
   # Needed so that the container reflects the $TZ timezone
   - /etc/localtime:/etc/localtime:ro
   - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
-  # Daily backups use this local destination; weekly backups explicitly disable it.
-  - ${BACKUP_PATH}:/archive
+  # Preserve the existing storage archive as the write target during rollout,
+  # then synchronously replicate to the host root filesystem and games disk.
+  # Recovery independently prefers home, games, then storage. Weekly S3 backups disable it.
+  - ./data/replicate-local-backup:/usr/local/bin/replicate-local-backup:ro
+  - /mnt/storage/backups:/archive
+  - /home/docker/backups:/replica-home
+  - /mnt/games/backups:/replica-games
 
 services:
   omada:
-    image: mbentley/omada-controller:6.2
+    image: mbentley/omada-controller:6.2@sha256:d281c115461bd5969e6e1864483e7bf57ca966bddde69d6a3b9a770f3289e273
     container_name: omada
     restart: always
     logging: *default-logging
@@ -83,7 +88,7 @@ services:
       docker-volume-backup.stop-during-backup: true
 
   ddns-updater:
-    image: ghcr.io/qdm12/ddns-updater:v2.10.0
+    image: ghcr.io/qdm12/ddns-updater:v2.10.0@sha256:3e2aa558946b5a293def4d73008fa4651c072b2c12932cecd02126fb23979831
     container_name: ddns-updater
     restart: always
     logging: *default-logging
@@ -98,7 +103,7 @@ services:
       - proxy
 
   caddy:
-    image: caddy:2.11.4
+    image: caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
     container_name: caddy
     restart: always
     logging: *default-logging
@@ -122,7 +127,7 @@ services:
         ipv4_address: 172.23.0.250
 
   pihole:
-    image: pihole/pihole:2026.07.2
+    image: pihole/pihole:2026.07.2@sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b
     container_name: pihole
     restart: always
     logging: *default-logging
@@ -151,14 +156,14 @@ services:
       <<: *backup-env
       BACKUP_FILENAME: daily-local-backup-%Y-%m-%dT%H-%M-%S.tar.gz
       BACKUP_PRUNING_PREFIX: daily-local-backup-
-      # Run before the daily off-site copy to avoid simultaneous volume quiescence.
       BACKUP_CRON_EXPRESSION: "0 5 * * *"
-      BACKUP_RETENTION_DAYS: 14
+      BACKUP_RETENTION_DAYS: 7
+    labels:
+      docker-volume-backup.copy-post: /bin/sh -c /usr/local/bin/replicate-local-backup
     volumes: *backup-volumes
     networks:
       - infra
 
-  # Legacy service/container ID retained; this job now enforces the daily off-site RPO.
   weekly-remote-backup:
     image: ghcr.io/offen/docker-volume-backup:v2.48.2@sha256:19102d8e59eb1d598cf8c647c2b21100abaadc5a1c808ac643fa612e323c3013
     container_name: weekly-remote-backup
@@ -166,14 +171,13 @@ services:
     logging: *default-logging
     environment:
       <<: *backup-env
-      BACKUP_FILENAME: daily-remote-backup-%Y-%m-%dT%H-%M-%S.tar.gz
-      BACKUP_PRUNING_PREFIX: daily-remote-backup-
-      # The directory does not exist, so the local backend is skipped for off-site backups.
+      BACKUP_FILENAME: weekly-backup-%Y-%m-%dT%H-%M-%S.tar.gz
+      BACKUP_PRUNING_PREFIX: weekly-backup-
       BACKUP_ARCHIVE: /archive-disabled
       AWS_S3_BUCKET_NAME: $AWS_S3_BUCKET_NAME
       AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
       AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
-      BACKUP_CRON_EXPRESSION: "0 6 * * *"
+      BACKUP_CRON_EXPRESSION: "0 6 * * 0"
       BACKUP_RETENTION_DAYS: 14
     volumes: *backup-volumes
     networks:

@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_root"
+config_dir=${HOME_LAB_CONTROLLER_CONFIG_DIR:-$HOME/.config/home-lab/controller}
+[[ -d $config_dir && ! -L $config_dir ]]
+[[ $(stat -f '%Lp' "$config_dir" 2>/dev/null || stat -c '%a' "$config_dir") == 700 ]]
+helper="$config_dir/bin/aws_signing_helper"
+[[ -x $helper ]]
+for file in roles-anywhere-plan.pem roles-anywhere-plan-key.pem roles-anywhere-apply.pem roles-anywhere-apply-key.pem; do
+  [[ -f $config_dir/$file && ! -L $config_dir/$file ]]
+done
+
+outputs=$(mktemp)
+plan_identity=$(mktemp)
+apply_identity=$(mktemp)
+trap 'rm -f "$outputs" "$plan_identity" "$apply_identity"' EXIT INT TERM
+tofu -chdir=infrastructure/tofu/aws-foundation output -json >"$outputs"
+AWS_OUTPUTS="$outputs" CONTROLLER_CONFIG="$config_dir" HELPER="$helper" python3 - <<'PY'
+import configparser
+import json
+import os
+from pathlib import Path
+
+config_dir = Path(os.environ["CONTROLLER_CONFIG"])
+outputs = json.loads(Path(os.environ["AWS_OUTPUTS"]).read_text())
+required = {
+    name: outputs[name]["value"]
+    for name in (
+        "controller_plan_role_arn",
+        "controller_apply_role_arn",
+        "controller_plan_profile_arn",
+        "controller_apply_profile_arn",
+        "controller_trust_anchor_arn",
+    )
+}
+aws_dir = Path.home() / ".aws"
+aws_dir.mkdir(mode=0o700, exist_ok=True)
+aws_config = aws_dir / "config"
+parser = configparser.RawConfigParser()
+if aws_config.exists():
+    parser.read(aws_config)
+for capability in ("plan", "apply"):
+    section = f"profile home-lab-{capability}"
+    if not parser.has_section(section):
+        parser.add_section(section)
+    command = " ".join(
+        [
+            os.environ["HELPER"],
+            "credential-process",
+            "--certificate",
+            str(config_dir / f"roles-anywhere-{capability}.pem"),
+            "--private-key",
+            str(config_dir / f"roles-anywhere-{capability}-key.pem"),
+            "--trust-anchor-arn",
+            required["controller_trust_anchor_arn"],
+            "--profile-arn",
+            required[f"controller_{capability}_profile_arn"],
+            "--role-arn",
+            required[f"controller_{capability}_role_arn"],
+            "--region",
+            "us-east-1",
+        ]
+    )
+    parser.set(section, "credential_process", command)
+    parser.set(section, "region", "us-east-1")
+with aws_config.open("w") as stream:
+    parser.write(stream)
+aws_config.chmod(0o600)
+
+for capability in ("plan", "apply"):
+    target = config_dir / f"{capability}-credentials.json"
+    values = json.loads(target.read_text()) if target.exists() else {}
+    if not isinstance(values, dict):
+        raise SystemExit("controller credential file must contain an object")
+    values["AWS_PROFILE"] = f"home-lab-{capability}"
+    values["AWS_REGION"] = "us-east-1"
+    target.write_text(json.dumps(values, indent=2, sort_keys=True) + "\n")
+    target.chmod(0o600)
+PY
+AWS_PROFILE=home-lab-plan aws sts get-caller-identity >"$plan_identity"
+AWS_PROFILE=home-lab-apply aws sts get-caller-identity >"$apply_identity"
+AWS_OUTPUTS="$outputs" PLAN_IDENTITY="$plan_identity" APPLY_IDENTITY="$apply_identity" python3 - <<'PY'
+import json
+import os
+import re
+from pathlib import Path
+
+outputs = json.loads(Path(os.environ["AWS_OUTPUTS"]).read_text())
+for capability, path_name in (("plan", "PLAN_IDENTITY"), ("apply", "APPLY_IDENTITY")):
+    role_arn = outputs[f"controller_{capability}_role_arn"]["value"]
+    match = re.fullmatch(r"arn:([^:]+):iam::([0-9]{12}):role/(.+)", role_arn)
+    caller = json.loads(Path(os.environ[path_name]).read_text())
+    if match is None or caller.get("Account") != match.group(2):
+        raise SystemExit(f"{capability} Roles Anywhere identity account mismatch")
+    expected = rf"arn:{re.escape(match.group(1))}:sts::{match.group(2)}:assumed-role/{re.escape(match.group(3))}/[^/]+"
+    if re.fullmatch(expected, caller.get("Arn", "")) is None:
+        raise SystemExit(f"{capability} Roles Anywhere identity role mismatch")
+PY
+printf 'local_controller_aws=configured\n'

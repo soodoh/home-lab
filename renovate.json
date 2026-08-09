@@ -21,6 +21,7 @@
       "matchDatasources": [
         "docker"
       ],
+      "pinDigests": true,
       "groupName": null,
       "separateMinorPatch": true,
       "minimumReleaseAge": "3 days",
@@ -39,19 +40,9 @@
         "compose-canary"
       ],
       "minimumReleaseAge": "7 days",
-      "pinDigests": true,
       "automerge": true,
       "automergeType": "pr",
       "platformAutomerge": true
-    },
-    {
-      "matchDatasources": [
-        "docker"
-      ],
-      "matchPackageNames": [
-        "postgres"
-      ],
-      "enabled": false
     },
     {
       "matchDatasources": [

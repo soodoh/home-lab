@@ -16,6 +16,7 @@ REQUIRED_CLASSES = (
     ".env",
     ".ssh",
 )
+RECOVERY_ROOT = Path("/srv/home-lab-recovery")
 
 
 def fail(reason: str) -> None:
@@ -44,9 +45,10 @@ def digest(value: str) -> str:
 def main() -> None:
     parser = ArgumentParser()
     parser.add_argument("--artifact-hash", required=True)
-    parser.add_argument("--backup-id", required=True)
+    parser.add_argument("--backup-source", choices=("local", "remote"), required=True)
+    parser.add_argument("--backup-id-sha256", required=True)
     parser.add_argument("--backup-sha256", required=True)
-    parser.add_argument("--backup-version-id", required=True)
+    parser.add_argument("--backup-version-id-sha256", default="")
     parser.add_argument("--target", required=True, type=Path)
     parser.add_argument("--current-dir", required=True, type=Path)
     parser.add_argument("--runtime-env", required=True, type=Path)
@@ -61,16 +63,23 @@ def main() -> None:
         character not in "0123456789abcdef" for character in args.artifact_hash
     ):
         fail("artifact_hash_invalid")
-    if len(args.backup_sha256) != 64 or any(
-        character not in "0123456789abcdef" for character in args.backup_sha256
+    for name, value in (
+        ("backup_id_sha256", args.backup_id_sha256),
+        ("backup_sha256", args.backup_sha256),
     ):
-        fail("backup_sha256_invalid")
-    if not args.backup_version_id:
-        fail("backup_version_id_missing")
+        if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+            fail(f"{name}_invalid")
+    if args.backup_source == "remote":
+        if len(args.backup_version_id_sha256) != 64 or any(
+            character not in "0123456789abcdef" for character in args.backup_version_id_sha256
+        ):
+            fail("backup_version_id_sha256_invalid")
+    elif args.backup_version_id_sha256:
+        fail("local_backup_has_remote_version")
     if args.retain_existing_binds and not args.retained_bind_review_confirmed:
         fail("retained_bind_review_missing")
     target = args.target.resolve(strict=True)
-    if not target.is_relative_to(Path("/srv/home-lab-recovery")):
+    if not target.is_relative_to(RECOVERY_ROOT):
         fail("target_outside_recovery_root")
     backup = target / "backup"
     if not backup.is_dir():
@@ -114,14 +123,15 @@ def main() -> None:
     plan = {
         "artifact_sha256": args.artifact_hash,
         "backup_ciphertext_sha256": args.backup_sha256,
-        "backup_id_sha256": digest(args.backup_id),
-        "backup_version_id_sha256": digest(args.backup_version_id),
+        "backup_id_sha256": args.backup_id_sha256,
+        "backup_source": args.backup_source,
+        "backup_version_id_sha256": args.backup_version_id_sha256 or None,
         "compose_model_sha256": digest(canonical_model),
         "critical_classes": REQUIRED_CLASSES,
         "retain_existing_binds": args.retain_existing_binds,
         "retained_bind_review_confirmed": args.retained_bind_review_confirmed,
         "target_sha256": digest(str(target)),
-        "version": 1,
+        "version": 2,
     }
     encoded = json.dumps(plan, sort_keys=True, separators=(",", ":"))
     print(f"compose_recovery_plan_sha256={digest(encoded)}")

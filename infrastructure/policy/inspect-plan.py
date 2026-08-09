@@ -37,6 +37,13 @@ MAPPING_ADDRESSES = RECOVERY_ADDRESSES - {
     "proxmox_download_file.arch_recovery_image[0]",
     "proxmox_virtual_environment_vm.arch",
 }
+TAILSCALE_CONTROLLER_RETIREMENT_ADDRESSES = {
+    "terraform_data.tailscale_policy[0]",
+    "tailscale_federated_identity.ci_plan[0]",
+    "tailscale_federated_identity.ci_apply[0]",
+    "tailscale_federated_identity.provider_plan[0]",
+    "tailscale_federated_identity.provider_apply[0]",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -54,7 +61,11 @@ def parse_args() -> argparse.Namespace:
             "ct-gateway-detach",
             "ct-gateway-retire",
             "network-migration",
+            "disk-growth",
+            "omada-gateway-reservation-retirement",
             "qualification",
+            "tailscale-controller-retirement",
+            "tailscale-controller-access",
         ),
         default="normal",
     )
@@ -71,6 +82,14 @@ def changed_keys(before: Any, after: Any, prefix: tuple[str, ...] = ()) -> set[t
     if before != after:
         return {prefix}
     return set()
+
+
+def is_exact_ct101(value: dict[str, Any]) -> bool:
+    vm_id = value.get("vm_id")
+    identifier = value.get("id")
+    if vm_id is None:
+        return identifier == "101"
+    return vm_id == 101 and identifier in {None, "101"}
 
 def value_at_path(value: Any, path: tuple[str, ...]) -> Any:
     current = value
@@ -105,10 +124,8 @@ def detached_gateway_policy(active: Any) -> Any:
     if not isinstance(active, dict):
         raise ValueError("managed policy is not an object")
     policy = deepcopy(active)
-    owners = policy.get("tagOwners")
-    if not isinstance(owners, dict) or owners.get("tag:ci") != ["autogroup:admin"]:
-        raise ValueError("legacy tag owner is missing or malformed")
-    del owners["tag:ci"]
+    if any(contains_exact(policy, tag) for tag in ("tag:ci", "tag:ci-plan", "tag:ci-apply")):
+        raise ValueError("gateway lifecycle policy contains a retired CI tag")
     expected_approvers = {
         "routes": {
             "192.168.0.100/32": ["tag:infra-router"],
@@ -120,35 +137,110 @@ def detached_gateway_policy(active: Any) -> Any:
     del policy["autoApprovers"]
 
     grants = policy.get("grants")
-    for grant in (
-        {"src": ["autogroup:admin", "tag:ci"], "dst": ["192.168.0.123"], "ip": ["tcp:8006"]},
-        {"src": ["autogroup:admin", "tag:ci"], "dst": ["192.168.0.100"], "ip": ["tcp:22"]},
-    ):
+    if not isinstance(grants, list):
+        raise ValueError("grants are missing or malformed")
+    routed_grants = (
+        {"src": ["autogroup:owner", "autogroup:admin"], "dst": ["192.168.0.123"], "ip": ["tcp:8006"]},
+        {"src": ["autogroup:owner", "autogroup:admin"], "dst": ["192.168.0.100"], "ip": ["tcp:22"]},
+    )
+    for grant in routed_grants:
         del grants[unique_index(grants, grant, "routed LAN grant")]
-    docker_candidates = [
-        index for index, grant in enumerate(grants)
-        if isinstance(grant, dict) and grant.get("dst") == ["tag:docker-host"] and grant.get("ip") == ["tcp:22"]
-    ]
-    if len(docker_candidates) != 1:
-        raise ValueError("direct Docker grant must occur exactly once")
-    docker_grant = grants[docker_candidates[0]]
-    if not isinstance(docker_grant.get("src"), list) or docker_grant["src"].count("tag:ci") != 1:
-        raise ValueError("direct Docker grant has the wrong legacy-tag occurrence")
-    docker_grant["src"] = [source for source in docker_grant["src"] if source != "tag:ci"]
+    return policy
+
+
+def local_controller_gateway_policy(detached: Any) -> Any:
+    if not isinstance(detached, dict):
+        raise ValueError("managed policy is not an object")
+    policy = deepcopy(detached)
+    ci_tags = {"tag:ci-plan", "tag:ci-apply"}
+    if "autoApprovers" in policy or contains_exact(policy, "tag:ci"):
+        raise ValueError("policy is not in the detached gateway stage")
+    owners = policy.get("tagOwners")
+    if not isinstance(owners, dict):
+        raise ValueError("tag owners are missing or malformed")
+    for tag in ci_tags:
+        if owners.get(tag) != ["autogroup:admin"]:
+            raise ValueError("CI tag owner is missing or malformed")
+        del owners[tag]
+
+    grants = policy.get("grants")
+    if not isinstance(grants, list):
+        raise ValueError("grants are missing or malformed")
+    retained_grants = []
+    for grant in grants:
+        if not isinstance(grant, dict) or not isinstance(grant.get("src"), list):
+            raise ValueError("grant is malformed")
+        sources = grant["src"]
+        if grant.get("dst") == ["tag:docker-host"] and grant.get("ip") == ["tcp:22"]:
+            if not all(tag in sources for tag in ci_tags):
+                raise ValueError("direct Docker grant lacks both CI tags")
+            grant["src"] = ["autogroup:owner", "autogroup:admin"]
+            retained_grants.append(grant)
+        elif not any(source in ci_tags for source in sources):
+            retained_grants.append(grant)
+        elif not all(source in ci_tags for source in sources):
+            raise ValueError("unexpected mixed CI grant")
+    policy["grants"] = retained_grants
 
     ssh = policy.get("ssh")
-    deploy_candidates = [
-        index for index, rule in enumerate(ssh)
-        if isinstance(rule, dict) and rule.get("dst") == ["tag:docker-host"] and rule.get("users") == ["ansible-deploy"]
-    ] if isinstance(ssh, list) else []
-    if len(deploy_candidates) != 1:
-        raise ValueError("ansible-deploy SSH rule must occur exactly once")
-    deploy_rule = ssh[deploy_candidates[0]]
-    if not isinstance(deploy_rule.get("src"), list) or deploy_rule["src"].count("tag:ci") != 1:
-        raise ValueError("ansible-deploy SSH rule has the wrong legacy-tag occurrence")
-    deploy_rule["src"] = [source for source in deploy_rule["src"] if source != "tag:ci"]
-    if contains_exact(policy, "tag:ci"):
-        raise ValueError("an unreviewed legacy tag occurrence remains")
+    if not isinstance(ssh, list):
+        raise ValueError("SSH policy is missing or malformed")
+    retained_ssh = []
+    for rule in ssh:
+        if not isinstance(rule, dict) or not isinstance(rule.get("src"), list):
+            raise ValueError("SSH rule is malformed")
+        sources = rule["src"]
+        if rule.get("dst") == ["tag:docker-host"] and rule.get("users") == ["ansible-deploy"]:
+            if sources != ["autogroup:admin"]:
+                raise ValueError("detached ansible-deploy SSH rule is malformed")
+            rule["src"] = ["autogroup:owner", "autogroup:admin"]
+            retained_ssh.append(rule)
+        elif not any(source in ci_tags for source in sources):
+            retained_ssh.append(rule)
+        elif not all(source in ci_tags for source in sources):
+            raise ValueError("unexpected mixed CI SSH rule")
+    policy["ssh"] = retained_ssh
+
+    for key in ("tests", "sshTests"):
+        entries = policy.get(key)
+        if not isinstance(entries, list):
+            raise ValueError(f"{key} are missing or malformed")
+        policy[key] = [entry for entry in entries if isinstance(entry, dict) and entry.get("src") not in ci_tags]
+    if any(contains_exact(policy, tag) for tag in ci_tags):
+        raise ValueError("an unreviewed CI tag occurrence remains")
+    return local_controller_access_policy(policy)
+
+def local_controller_access_policy(detached: Any) -> Any:
+    if not isinstance(detached, dict):
+        raise ValueError("managed policy is not an object")
+    policy = deepcopy(detached)
+    if any(contains_exact(policy, tag) for tag in ("tag:ci", "tag:ci-plan", "tag:ci-apply")):
+        raise ValueError("local-controller policy contains a retired CI tag")
+    old_rule = {
+        "action": "accept",
+        "src": ["autogroup:owner", "autogroup:admin", "tag:docker-host"],
+        "dst": ["tag:proxmox"],
+        "users": ["root"],
+    }
+    rules = policy.get("ssh")
+    index = unique_index(rules, old_rule, "combined Proxmox SSH rule")
+    rules[index:index + 1] = [
+        {
+            "action": "accept",
+            "src": ["autogroup:owner", "autogroup:admin"],
+            "dst": ["tag:proxmox"],
+            "users": ["root", "tofu-plan", "tofu-apply"],
+        },
+        {
+            "action": "accept",
+            "src": ["tag:docker-host"],
+            "dst": ["tag:proxmox"],
+            "users": ["root"],
+        },
+    ]
+    ssh_tests = policy.get("sshTests")
+    if not isinstance(ssh_tests, list) or len(ssh_tests) != 1:
+        raise ValueError("detached SSH tests are malformed")
     return policy
 
 
@@ -227,6 +319,20 @@ def main() -> int:
                 failures.append(f"{address}: adoption permits import-only actions")
             continue
 
+
+        if args.mode == "omada-gateway-reservation-retirement":
+            expected_address = 'omada_dhcp_reservation.reservation["bc:24:11:fd:4c:5c"]'
+            before = change.get("before") or {}
+            before_mac = str(before.get("mac", "")).lower().replace("-", ":")
+            valid_change = (
+                address == expected_address
+                and actions == ["delete"]
+                and before_mac == "bc:24:11:fd:4c:5c"
+                and change.get("after") is None
+            )
+            if not valid_change:
+                failures.append(f"{address}: gateway-reservation retirement permits only the exact retired CT reservation deletion")
+            continue
         if args.mode == "qualification":
             before = change.get("before")
             after = change.get("after")
@@ -289,6 +395,81 @@ def main() -> int:
                 failures.append(f"{address}: migration permits only the complete VM 100 host-device mapping transition")
             continue
 
+        if args.mode == "disk-growth":
+            before = change.get("before") or {}
+            after = change.get("after") or {}
+            before_disks = before.get("disk")
+            after_disks = after.get("disk")
+            expected_after = deepcopy(before)
+            valid_disks = (
+                isinstance(before_disks, list)
+                and isinstance(after_disks, list)
+                and len(before_disks) == 2
+                and len(after_disks) == 2
+                and before_disks[0].get("interface") == "scsi0"
+                and before_disks[0].get("datastore_id") == "local-lvm"
+                and before_disks[0].get("size") == 400
+                and after_disks[0].get("size") == 550
+            )
+            if valid_disks:
+                expected_after["disk"] = deepcopy(before_disks)
+                expected_after["disk"][0]["size"] = 550
+            if (
+                address != "proxmox_virtual_environment_vm.arch"
+                or actions != ["update"]
+                or before.get("vm_id") != 100
+                or after.get("vm_id") != 100
+                or before.get("protection") is not True
+                or after.get("protection") is not True
+                or not valid_disks
+                or after != expected_after
+            ):
+                failures.append(f"{address}: disk-growth mode permits only VM 100 scsi0 growth from 400 to 550 GiB")
+            continue
+
+        if args.mode == "tailscale-controller-access":
+            try:
+                before_policy = policy_json(change, "before")
+                after_policy = policy_json(change, "after")
+                valid_change = (
+                    address == "terraform_data.tailscale_policy[0]"
+                    and actions == ["update"]
+                    and after_policy == local_controller_access_policy(before_policy)
+                )
+            except (AttributeError, json.JSONDecodeError, TypeError, ValueError):
+                valid_change = False
+            if not valid_change:
+                failures.append(f"{address}: local-controller access repair permits only the exact Proxmox SSH policy split")
+            continue
+
+        if args.mode == "tailscale-controller-retirement":
+            if address == "terraform_data.tailscale_policy[0]":
+                try:
+                    before_policy = policy_json(change, "before")
+                    after_policy = policy_json(change, "after")
+                    valid_change = actions == ["update"] and after_policy == local_controller_gateway_policy(before_policy)
+                except (AttributeError, json.JSONDecodeError, TypeError, ValueError):
+                    valid_change = False
+            else:
+                before = change.get("before") or {}
+                expected_descriptions = {
+                    "tailscale_federated_identity.ci_plan[0]": "infrastructure-plan",
+                    "tailscale_federated_identity.ci_apply[0]": "infrastructure-apply",
+                    "tailscale_federated_identity.provider_plan[0]": "home-lab GitHub OpenTofu Tailscale plan provider",
+                    "tailscale_federated_identity.provider_apply[0]": "home-lab GitHub OpenTofu Tailscale apply provider",
+                }
+                valid_change = (
+                    address in expected_descriptions
+                    and resource_type == "tailscale_federated_identity"
+                    and actions == ["delete"]
+                    and before.get("issuer") == "https://token.actions.githubusercontent.com"
+                    and before.get("description") == expected_descriptions[address]
+                    and change.get("after") is None
+                )
+            if not valid_change:
+                failures.append(f"{address}: Tailscale controller retirement permits only the exact CI policy and identity removal")
+            continue
+
         if args.mode in {"ct-gateway-detach", "ct-gateway-retire"}:
             try:
                 before_policy = policy_json(change, "before")
@@ -319,8 +500,8 @@ def main() -> int:
                 valid_change = (
                     address == target
                     and actions == ["update"]
-                    and before.get("vm_id") == 101
-                    and after.get("vm_id") == 101
+                    and is_exact_ct101(before)
+                    and is_exact_ct101(after)
                     and before.get("protection") is True
                     and after.get("protection") is False
                     and changed_keys(before, after) == {("protection",)}
@@ -330,7 +511,7 @@ def main() -> int:
                 valid_change = (
                     address == target
                     and actions == ["delete"]
-                    and before.get("vm_id") == 101
+                    and is_exact_ct101(before)
                     and before.get("protection") is False
                     and change.get("after") is None
                 )
@@ -355,15 +536,6 @@ def main() -> int:
             failures.append(f"{address}: creating or recreating retired CT 101 is forbidden")
             continue
 
-        retired_branch_policy_delete = (
-            address
-            == 'github_repository_environment_deployment_policy.apply["feat/infrastructure-reconciliation"]'
-            and actions == ["delete"]
-            and (change.get("before") or {}).get("branch_pattern") == "feat/infrastructure-reconciliation"
-            and change.get("after") is None
-        )
-        if retired_branch_policy_delete:
-            continue
 
         if "delete" in actions:
             failures.append(f"{address}: delete or replacement is forbidden")
@@ -395,10 +567,24 @@ def main() -> int:
     if args.mode == "recovery" and observed_addresses != RECOVERY_ADDRESSES:
         failures.append("recovery plan must contain the complete expected fresh resource set")
     if (
+        args.mode == "tailscale-controller-retirement"
+        and (observed_actions != 5 or observed_addresses != TAILSCALE_CONTROLLER_RETIREMENT_ADDRESSES)
+    ):
+        failures.append("Tailscale controller retirement plan must contain one policy update and four identity deletions")
+    if args.mode == "tailscale-controller-access" and (
+        observed_actions != 1 or observed_addresses != {"terraform_data.tailscale_policy[0]"}
+    ):
+        failures.append("local-controller access repair plan must contain exactly one policy update")
+    if (
         args.mode == "network-migration"
         and observed_addresses != MAPPING_ADDRESSES | {"proxmox_virtual_environment_vm.arch"}
     ):
         failures.append("hardware migration plan must contain all mappings and the VM transition")
+    if args.mode == "disk-growth" and (
+        observed_actions != 1
+        or observed_addresses != {"proxmox_virtual_environment_vm.arch"}
+    ):
+        failures.append("disk growth plan must contain exactly one VM 100 action")
     if args.mode in {"ct-gateway-detach", "ct-gateway-retire"} and (
         observed_actions != 1
         or observed_addresses != {"terraform_data.tailscale_policy[0]"}
@@ -409,6 +595,11 @@ def main() -> int:
         or observed_addresses != {"proxmox_virtual_environment_container.tailscale_gateway[0]"}
     ):
         failures.append("CT retirement plan must contain exactly one complete target action")
+    if args.mode == "omada-gateway-reservation-retirement" and (
+        observed_actions != 1
+        or observed_addresses != {'omada_dhcp_reservation.reservation["bc:24:11:fd:4c:5c"]'}
+    ):
+        failures.append("Omada gateway-reservation retirement must contain exactly one target deletion")
 
     if failures:
         for failure in sorted(set(failures)):

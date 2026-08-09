@@ -25,6 +25,12 @@
         state: absent
       no_log: true
 
+    - name: Remove the consumed selected-backup identity after health passes
+      ansible.builtin.file:
+        path: /run/home-lab-recovery-backup-identity.json
+        state: absent
+      no_log: true
+
     - name: Release the shared host-side mutation lock after success
       ansible.builtin.import_role:
         name: apply_lock

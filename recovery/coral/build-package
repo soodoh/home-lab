@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 022
+
+: "${SOURCE_DATE_EPOCH:?SOURCE_DATE_EPOCH is required}"
+[[ -d /source && -d /output ]]
+[[ $(id -u) == 0 ]]
+
+useradd --create-home builder
+for attempt in one two; do
+  build_dir=/tmp/build
+  rm -rf "$build_dir"
+  install -d -m 0755 "$build_dir"
+  cp -a /source/. "$build_dir/"
+  chown -R builder:builder "$build_dir"
+  (
+    cd "$build_dir"
+    runuser -u builder -- env SOURCE_DATE_EPOCH="$SOURCE_DATE_EPOCH" makepkg --noconfirm --nodeps
+  )
+  package=$(find "$build_dir" -maxdepth 1 -type f -name 'gasket-dkms-git-*-x86_64.pkg.tar.zst' -print -quit)
+  [[ -n $package ]]
+  install -m 0644 "$package" "/output/package-$attempt.pkg.tar.zst"
+done
+cmp /output/package-one.pkg.tar.zst /output/package-two.pkg.tar.zst
+mv /output/package-one.pkg.tar.zst /output/gasket-dkms-git.pkg.tar.zst
+rm -f /output/package-two.pkg.tar.zst

@@ -1,12 +1,35 @@
 ---
+- name: Read the verified selected-backup identity
+  ansible.builtin.slurp:
+    src: /run/home-lab-recovery-backup-identity.json
+  register: compose_recovery_preflight_backup_identity
+  no_log: true
+
+- name: Parse the verified selected-backup identity
+  ansible.builtin.set_fact:
+    compose_recovery_preflight_selected_backup: >-
+      {{ compose_recovery_preflight_backup_identity.content | b64decode | from_json }}
+  no_log: true
+
+- name: Validate the verified selected-backup identity shape
+  ansible.builtin.assert:
+    that:
+      - compose_recovery_preflight_selected_backup.version == 1
+      - compose_recovery_preflight_selected_backup.source in ['local', 'remote']
+      - compose_recovery_preflight_selected_backup.backup_id_sha256 is match('^[0-9a-f]{64}$')
+      - compose_recovery_preflight_selected_backup.ciphertext_sha256 is match('^[0-9a-f]{64}$')
+    quiet: true
+  no_log: true
 - name: Derive the secret-free first-deployment recovery plan
   ansible.builtin.script:
     cmd: >-
       {{ role_path }}/../../../scripts/compose-recovery-plan.py
       --artifact-hash {{ compose_artifact_hash | quote }}
-      --backup-id {{ recovery_backup_id | quote }}
-      --backup-sha256 {{ recovery_backup_sha256 | quote }}
-      --backup-version-id {{ recovery_backup_version_id | quote }}
+      --backup-source {{ compose_recovery_preflight_selected_backup.source | quote }}
+      --backup-id-sha256 {{ compose_recovery_preflight_selected_backup.backup_id_sha256 | quote }}
+      --backup-sha256 {{ compose_recovery_preflight_selected_backup.ciphertext_sha256 | quote }}
+      --backup-version-id-sha256
+      {{ (compose_recovery_preflight_selected_backup.remote_version_id_sha256 | default('', true)) | quote }}
       --target {{ recovery_target | quote }}
       --current-dir {{ compose_current_dir | quote }}
       --runtime-env {{ compose_runtime_env_path | quote }}

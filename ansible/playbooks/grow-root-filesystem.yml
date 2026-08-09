@@ -1,0 +1,52 @@
+---
+- name: Grow only the reviewed Docker root partition and ext4 filesystem
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  pre_tasks:
+    - name: Acquire the host-side production apply lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: root-disk-growth
+      when: not (root_disk_growth_lock_already_held | default(false) | bool)
+  tasks:
+    - name: Inspect the exact root disk growth state
+      ansible.builtin.script:
+        cmd: "{{ playbook_dir }}/../../scripts/grow-docker-root-filesystem inspect"
+        executable: /usr/bin/bash
+      register: root_disk_growth_inspect
+      changed_when: root_disk_growth_inspect.rc == 2
+      failed_when: root_disk_growth_inspect.rc not in [0, 2]
+      become: true
+      check_mode: false
+
+    - name: Grow the exact root partition and ext4 filesystem
+      ansible.builtin.script:
+        cmd: "{{ playbook_dir }}/../../scripts/grow-docker-root-filesystem apply"
+        executable: /usr/bin/bash
+      environment:
+        ARCH_ROOT_DISK_GROWTH_CONFIRMED: "{{ arch_root_disk_growth_confirmation | default('') }}"
+      when: root_disk_growth_inspect.rc == 2
+      become: true
+      no_log: true
+
+    - name: Prove the root partition and filesystem are converged
+      ansible.builtin.script:
+        cmd: "{{ playbook_dir }}/../../scripts/grow-docker-root-filesystem inspect"
+        executable: /usr/bin/bash
+      register: root_disk_growth_verify
+      changed_when: false
+      become: true
+      check_mode: false
+  post_tasks:
+    - name: Release the host-side production apply lock after success
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+      when: not (root_disk_growth_lock_already_held | default(false) | bool)

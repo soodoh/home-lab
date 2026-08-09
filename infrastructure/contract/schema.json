@@ -4,20 +4,19 @@
   "title": "Home lab infrastructure contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "system_name", "recovery", "network", "proxmox", "storage", "arch", "omada", "tailscale", "github", "aws", "backups"],
+  "required": ["version", "system_name", "recovery", "network", "proxmox", "storage", "arch", "omada", "tailscale", "aws", "backups"],
   "properties": {
     "version": { "const": 1 },
     "system_name": { "const": "home-lab" },
     "recovery": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["evidence_max_age_days", "critical_rpo_hours", "critical_rto_hours", "recovery_age_recipient", "ci_age_recipient"],
+      "required": ["evidence_max_age_days", "critical_rpo_hours", "critical_rto_hours", "recovery_age_recipient"],
       "properties": {
         "evidence_max_age_days": { "type": "integer", "minimum": 1, "maximum": 365 },
         "critical_rpo_hours": { "type": "integer", "maximum": 24 },
         "critical_rto_hours": { "type": "integer", "maximum": 8 },
-        "recovery_age_recipient": { "$ref": "#/$defs/ageRecipient" },
-        "ci_age_recipient": { "anyOf": [{ "$ref": "#/$defs/ageRecipient" }, { "type": "null" }] }
+        "recovery_age_recipient": { "$ref": "#/$defs/ageRecipient" }
       }
     },
     "network": {
@@ -77,13 +76,15 @@
         "coral": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["package_version", "source_commit", "artifact_repository", "artifact_digest", "package_sha256"],
+          "required": ["package_version", "dkms_version", "source_commit", "source_tree_sha256", "build_image", "source_date_epoch", "package_sha256"],
           "properties": {
-            "package_version": { "type": "string" },
+            "package_version": { "type": "string", "pattern": "^r[0-9]+\\.[0-9a-f]+-[1-9][0-9]*$" },
+            "dkms_version": { "type": "string", "pattern": "^r[0-9]+\\.[0-9a-f]+$" },
             "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-            "artifact_repository": { "type": "string", "pattern": "^ghcr\\.io/" },
-            "artifact_digest": { "anyOf": [{ "$ref": "#/$defs/sha256Digest" }, { "type": "null" }] },
-            "package_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] }
+            "source_tree_sha256": { "$ref": "#/$defs/sha256" },
+            "build_image": { "type": "string", "pattern": "^[^@]+@sha256:[0-9a-f]{64}$" },
+            "source_date_epoch": { "type": "integer", "minimum": 1 },
+            "package_sha256": { "$ref": "#/$defs/sha256" }
           }
         }
       }
@@ -108,52 +109,52 @@
         "gateway_policy_stage": { "type": "string", "enum": ["active", "detached", "retired"] },
         "tags": {
           "type": "object",
-          "additionalProperties": { "type": "string", "pattern": "^tag:" },
-          "required": ["arch", "proxmox", "infra_router", "ci_legacy", "ci_plan", "ci_apply"],
+          "additionalProperties": false,
+          "required": ["arch", "proxmox", "infra_router"],
           "properties": {
             "arch": { "type": "string", "pattern": "^tag:" },
             "proxmox": { "type": "string", "pattern": "^tag:" },
-            "infra_router": { "const": "tag:infra-router" },
-            "ci_legacy": { "const": "tag:ci" },
-            "ci_plan": { "type": "string", "pattern": "^tag:" },
-            "ci_apply": { "type": "string", "pattern": "^tag:" }
+            "infra_router": { "const": "tag:infra-router" }
           }
         },
         "required_endpoints": { "type": "array", "minItems": 4, "items": { "type": "string" }, "uniqueItems": true }
       }
     },
-    "github": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["owner", "repository", "default_branch", "environments"],
-      "properties": {
-        "owner": { "type": "string", "minLength": 1 },
-        "repository": { "type": "string", "minLength": 1 },
-        "default_branch": { "type": "string", "minLength": 1 },
-        "environments": { "type": "object", "additionalProperties": false, "required": ["plan", "apply"], "properties": { "plan": { "type": "string" }, "apply": { "type": "string" } } }
-      }
-    },
     "aws": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["region", "recovery_region", "state_bucket", "recovery_bucket", "mutation_lease_table", "kms_alias"],
+      "required": ["region", "recovery_region", "state_bucket", "recovery_bucket", "kms_alias"],
       "properties": {
         "region": { "type": "string", "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$" },
         "recovery_region": { "type": "string", "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$" },
         "state_bucket": { "anyOf": [{ "$ref": "#/$defs/bucket" }, { "type": "null" }] },
         "recovery_bucket": { "anyOf": [{ "$ref": "#/$defs/bucket" }, { "type": "null" }] },
-        "mutation_lease_table": { "type": "string", "minLength": 3 },
         "kms_alias": { "type": "string", "pattern": "^alias/" }
       }
     },
     "backups": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["critical_schedule", "remote_retention_days", "local_retention_days", "excluded_classes"],
+      "required": ["local_schedule", "local_paths", "estimated_archive_bytes", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "local_retention_days", "home_retention_days", "excluded_classes"],
       "properties": {
-        "critical_schedule": { "type": "string", "minLength": 9 },
+        "local_schedule": { "type": "string", "minLength": 9 },
+        "local_paths": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "/home/docker/backups" },
+            { "const": "/mnt/games/backups" },
+            { "const": "/mnt/storage/backups" }
+          ],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "estimated_archive_bytes": { "type": "integer", "minimum": 1000000000 },
+        "remote_schedule": { "type": "string", "minLength": 9 },
+        "remote_rpo_hours": { "type": "integer", "minimum": 24 },
         "remote_retention_days": { "type": "integer", "minimum": 2 },
         "local_retention_days": { "type": "integer", "minimum": 2 },
+        "home_retention_days": { "const": 2 },
         "excluded_classes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
       }
     }
