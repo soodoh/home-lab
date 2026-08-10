@@ -198,6 +198,47 @@ proxmox:
       - tasksel
       - util-linux
       - xfsprogs
+      - fdutils
+      - fonts-glyphicons-halflings
+      - grub-pc-bin
+      - libaio1
+      - libapt-pkg6.0
+      - libargon2-1
+      - libassuan0
+      - libblas3
+      - libcbor0.8
+      - libflac12
+      - libfmt9
+      - libfuse3-3
+      - libglusterd0
+      - libicu72
+      - libjs-bootstrap
+      - libjs-jquery
+      - libjs-sencha-touch
+      - libldap-2.5-0
+      - liblinear4
+      - libpcre3
+      - libperl5.36
+      - libpve-u2f-server-perl
+      - libpython3.11-minimal
+      - libpython3.11-stdlib
+      - libsubid4
+      - libthrift-0.17.0
+      - libu2f-server0
+      - libunistring2
+      - perl-modules-5.36
+      - perl-openssl-defaults
+      - python3-debian
+      - python3-debianbts
+      - python3-httplib2
+      - python3-launchpadlib
+      - python3-pycurl
+      - python3-pyparsing
+      - python3-pysimplesoap
+      - python3-reportbug
+      - python3.11
+      - python3.11-minimal
+      - usrmerge
   kernels:
     current: 7.0.14-8-pve
     fallback: 6.14.11-4-pve

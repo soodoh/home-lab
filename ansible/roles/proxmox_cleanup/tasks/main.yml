@@ -382,6 +382,7 @@
            proxmox_cleanup_retained_kernel_packages +
            proxmox_cleanup_approved_dependency_packages.stdout_lines
          ) |
+         reject('match', '^(proxmox-(kernel|headers)-|linux-(image|headers)-)') |
          sort }}
 
 - name: Audit root-local paths against explicit preserve and removal policy
