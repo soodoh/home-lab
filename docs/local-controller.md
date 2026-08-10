@@ -40,7 +40,23 @@ scripts/local-controller approve steady --confirmation apply-reviewed-steady
 scripts/local-controller apply steady
 ```
 
-Special operations use their own directories and confirmation phrases:
+Special operations use their own directories and confirmation phrases.
+
+The one-time Omada controller access bootstrap adds only owner/admin TCP 8043 access to the Docker host. Plan and review the Tailscale-only change, stop for separate approval, apply its exact saved plan, then configure and verify the marked local hostname alias before returning to steady reconciliation:
+
+```sh
+scripts/local-controller plan omada-controller-access
+scripts/local-controller review omada-controller-access
+# After separate approval only:
+scripts/local-controller approve omada-controller-access \
+  --confirmation enable-reviewed-omada-controller-access
+scripts/local-controller apply omada-controller-access
+scripts/prepare-omada-plan-input configure-alias
+scripts/prepare-omada-plan-input verify-alias
+scripts/local-controller plan steady
+```
+
+`configure-alias` resolves `docker-host` through MagicDNS, requires its Tailscale CGNAT address, and atomically manages only the marked `Omada` entry in `/etc/hosts` through explicit sudo. Canonical `steady` plan and apply runs refresh the protected Omada inputs and verify the alias without mutating `/etc/hosts`; the Tailscale-only bootstrap is exempt until the grant and alias exist. Use `scripts/prepare-omada-plan-input remove-alias` to remove only the marked entry.
 
 ```sh
 scripts/local-controller plan backup-deployment

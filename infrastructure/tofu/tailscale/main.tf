@@ -106,6 +106,12 @@ locals {
     ]
   }
 
+  omada_controller_access_test = {
+    src    = local.owner_identity
+    proto  = "tcp"
+    accept = ["${local.tags.arch}:8043"]
+  }
+
   tests_by_human_stage = {
     transition = [
       {
@@ -206,6 +212,11 @@ locals {
         ip  = ["tcp:22"]
       },
       {
+        src = ["autogroup:owner", "autogroup:admin"]
+        dst = [local.tags.arch]
+        ip  = ["tcp:8043"]
+      },
+      {
         src = ["autogroup:owner"]
         dst = ["autogroup:self"]
         ip  = ["tcp:22"]
@@ -213,7 +224,7 @@ locals {
     ], local.direct_proxmox_grants_by_stage[local.human_ssh_policy_stage])
 
     ssh      = local.ssh_by_human_stage[local.human_ssh_policy_stage]
-    tests    = local.tests_by_human_stage[local.human_ssh_policy_stage]
+    tests    = concat(local.tests_by_human_stage[local.human_ssh_policy_stage], [local.omada_controller_access_test])
     sshTests = local.ssh_tests_by_human_stage[local.human_ssh_policy_stage]
   }
 

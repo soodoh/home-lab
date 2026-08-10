@@ -112,6 +112,7 @@ class ManifestVerificationTests(unittest.TestCase):
                 "disk_growth": False,
                 "tailscale_controller_retirement": False,
                 "tailscale_controller_access": False,
+                "omada_controller_access": False,
                 "backup_deployment": False,
                 "omada_gateway_reservation_retirement": False,
                 "backend_bucket": "test-state-bucket",

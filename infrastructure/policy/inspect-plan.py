@@ -24,6 +24,16 @@ SENSITIVE_FIELDS = {
 STORAGE_RESOURCE_MARKERS = ("zfs", "filesystem", "disk", "mount", "storage")
 NETWORK_RESOURCE_MARKERS = ("firewall", "network", "acl", "ruleset", "federated_identity")
 TAILSCALE_OWNER_IDENTITY = "soodoh@github"
+OMADA_CONTROLLER_ACCESS_GRANT = {
+    "src": ["autogroup:owner", "autogroup:admin"],
+    "dst": ["tag:docker-host"],
+    "ip": ["tcp:8043"],
+}
+OMADA_CONTROLLER_ACCESS_TEST = {
+    "src": TAILSCALE_OWNER_IDENTITY,
+    "proto": "tcp",
+    "accept": ["tag:docker-host:8043"],
+}
 RECOVERY_ADDRESSES = {
     "proxmox_download_file.arch_recovery_image[0]",
     'proxmox_hardware_mapping_pci.device["coral"]',
@@ -64,6 +74,7 @@ def parse_args() -> argparse.Namespace:
             "network-migration",
             "disk-growth",
             "omada-gateway-reservation-retirement",
+            "omada-controller-access",
             "qualification",
             "tailscale-controller-retirement",
             "tailscale-controller-access",
@@ -213,6 +224,36 @@ def local_controller_gateway_policy(detached: Any) -> Any:
         raise ValueError("an unreviewed CI tag occurrence remains")
     return local_controller_access_policy(policy)
 
+
+def omada_controller_access_policy(current: Any) -> Any:
+    if not isinstance(current, dict):
+        raise ValueError("managed policy is not an object")
+    policy = deepcopy(current)
+    if any(contains_exact(policy, tag) for tag in ("tag:ci", "tag:ci-plan", "tag:ci-apply")):
+        raise ValueError("Omada controller access policy contains a retired CI tag")
+
+    grants = policy.get("grants")
+    if not isinstance(grants, list):
+        raise ValueError("grants are missing or malformed")
+    if OMADA_CONTROLLER_ACCESS_GRANT in grants:
+        raise ValueError("Omada controller access grant already exists")
+    docker_ssh_grant = {
+        "src": ["autogroup:owner", "autogroup:admin"],
+        "dst": ["tag:docker-host"],
+        "ip": ["tcp:22"],
+    }
+    grant_index = unique_index(grants, docker_ssh_grant, "direct Docker SSH grant")
+    grants.insert(grant_index + 1, deepcopy(OMADA_CONTROLLER_ACCESS_GRANT))
+
+    tests = policy.get("tests")
+    if not isinstance(tests, list):
+        raise ValueError("network tests are missing or malformed")
+    if OMADA_CONTROLLER_ACCESS_TEST in tests:
+        raise ValueError("Omada controller access test already exists")
+    tests.append(deepcopy(OMADA_CONTROLLER_ACCESS_TEST))
+    return policy
+
+
 def local_controller_access_policy(detached: Any) -> Any:
     if not isinstance(detached, dict):
         raise ValueError("managed policy is not an object")
@@ -319,20 +360,26 @@ def human_ssh_final_policy(transition: Any) -> Any:
         {"action": "accept", "src": ["autogroup:admin"], "dst": ["tag:proxmox"], "users": ["tofu-plan", "tofu-apply"]},
     ]
 
-    transition_tests = [{
-        "src": "tag:docker-host",
-        "proto": "tcp",
-        "accept": ["tag:proxmox:22", "tag:proxmox:8006"],
-        "deny": ["tag:proxmox:8007"],
-    }]
+    transition_tests = [
+        {
+            "src": "tag:docker-host",
+            "proto": "tcp",
+            "accept": ["tag:proxmox:22", "tag:proxmox:8006"],
+            "deny": ["tag:proxmox:8007"],
+        },
+        deepcopy(OMADA_CONTROLLER_ACCESS_TEST),
+    ]
     if policy.get("tests") != transition_tests:
         raise ValueError("transitional network tests are malformed")
-    policy["tests"] = [{
-        "src": "tag:docker-host",
-        "proto": "tcp",
-        "accept": ["tag:proxmox:8006"],
-        "deny": ["tag:proxmox:22", "tag:proxmox:8007"],
-    }]
+    policy["tests"] = [
+        {
+            "src": "tag:docker-host",
+            "proto": "tcp",
+            "accept": ["tag:proxmox:8006"],
+            "deny": ["tag:proxmox:22", "tag:proxmox:8007"],
+        },
+        deepcopy(OMADA_CONTROLLER_ACCESS_TEST),
+    ]
 
     expected_transition_ssh_tests = human_ssh_transition_tests()
     if policy.get("sshTests") != expected_transition_ssh_tests:
@@ -535,6 +582,21 @@ def main() -> int:
                 failures.append(f"{address}: disk-growth mode permits only VM 100 scsi0 growth from 400 to 550 GiB")
             continue
 
+        if args.mode == "omada-controller-access":
+            try:
+                before_policy = policy_json(change, "before")
+                after_policy = policy_json(change, "after")
+                valid_change = (
+                    address == "terraform_data.tailscale_policy[0]"
+                    and actions == ["update"]
+                    and after_policy == omada_controller_access_policy(before_policy)
+                )
+            except (AttributeError, json.JSONDecodeError, TypeError, ValueError):
+                valid_change = False
+            if not valid_change:
+                failures.append(f"{address}: Omada controller access permits only the exact owner/admin TCP 8043 grant and test")
+            continue
+
         if args.mode == "tailscale-controller-access":
             try:
                 before_policy = policy_json(change, "before")
@@ -699,6 +761,10 @@ def main() -> int:
         and (observed_actions != 5 or observed_addresses != TAILSCALE_CONTROLLER_RETIREMENT_ADDRESSES)
     ):
         failures.append("Tailscale controller retirement plan must contain one policy update and four identity deletions")
+    if args.mode == "omada-controller-access" and (
+        observed_actions != 1 or observed_addresses != {"terraform_data.tailscale_policy[0]"}
+    ):
+        failures.append("Omada controller access plan must contain exactly one policy update")
     if args.mode == "tailscale-controller-access" and (
         observed_actions != 1 or observed_addresses != {"terraform_data.tailscale_policy[0]"}
     ):

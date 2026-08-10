@@ -1,6 +1,6 @@
 # Omada export, TLS, and adoption
 
-The controller certificate is self-signed for the DNS name `Omada`. CI therefore stores the authenticated controller certificate as the protected `OMADA_CA_PEM` secret, maps `Omada` to the Tailscale address of `docker-host` on the ephemeral runner, and keeps provider TLS verification enabled. Do not replace this with `skip_tls_verify = true`.
+The controller certificate is self-signed for the DNS name `Omada`. The trusted local controller stores the authenticated certificate as protected `OMADA_CA_PEM`, maps the marked `Omada` hosts entry to the MagicDNS-resolved Tailscale address of `docker-host`, and keeps provider TLS verification enabled. The tailnet policy grants owner/admin access only to TCP 8043 on the Docker host. Do not replace this with `skip_tls_verify = true`. Manage and verify the alias only through `scripts/prepare-omada-plan-input`; normal planning never edits `/etc/hosts`.
 
 Capture the certificate over an already authenticated SSH connection and verify its fingerprint out of band. With a dedicated read-only plan account, export the adopted LAN and its reservations without changing controller configuration:
 

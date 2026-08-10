@@ -10,7 +10,7 @@ usage() {
 usage: scripts/local-controller <validate|plan|review|approve|apply> [operation] [options]
 
 Operations:
-  steady | backup-deployment | disk-growth | ct-unprotect | ct-delete | omada-retire
+  steady | backup-deployment | disk-growth | ct-unprotect | ct-delete | omada-retire | omada-controller-access
   tailscale-controller-retirement | tailscale-controller-access | tailscale-human-ssh-transition | tailscale-human-ssh-final
   tailscale-detach | tailscale-retire | recovery
 
@@ -83,6 +83,10 @@ case "$operation" in
   omada-retire)
     operation_args=(--phase steady --omada-gateway-reservation-retirement)
     expected_confirmation=retire-reviewed-omada-gateway-reservation
+    ;;
+  omada-controller-access)
+    operation_args=(--phase steady --omada-controller-access)
+    expected_confirmation=enable-reviewed-omada-controller-access
     ;;
   tailscale-controller-retirement)
     operation_args=(--phase steady --tailscale-controller-retirement)
@@ -227,6 +231,12 @@ manifest_sha256() {
   shasum -a 256 "$manifest" | awk '{print $1}'
 }
 
+prepare_steady_omada_input() {
+  if [[ $operation == steady ]]; then
+    scripts/prepare-omada-plan-input prepare
+  fi
+}
+
 consume_approval() {
   APPROVAL_FILE="$approval" python3 - <<'PY'
 import json
@@ -254,6 +264,7 @@ case "$action" in
   plan)
     load_credentials plan
     prepare_provider_tls
+    prepare_steady_omada_input
     scripts/reconcile-infrastructure plan --plan-dir "$plan_dir" "${operation_args[@]}"
     printf 'local_controller=planned operation=%s commit=%s manifest_sha256=%s\n' \
       "$operation" "$commit" "$(manifest_sha256)"
@@ -316,6 +327,7 @@ PY
     ' "$approval" >/dev/null
     load_credentials apply
     prepare_provider_tls
+    prepare_steady_omada_input
     consume_approval
     scripts/reconcile-infrastructure apply --plan-dir "$plan_dir" "${operation_args[@]}"
     printf 'local_controller=applied operation=%s commit=%s\n' "$operation" "$commit"

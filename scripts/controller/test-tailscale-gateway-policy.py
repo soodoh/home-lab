@@ -39,13 +39,19 @@ def contract(path: Path, gateway_stage: str, ct_stage: str) -> None:
     )
 
 
-def plan(before: dict, after: dict, extra_changes: list[dict] | None = None) -> dict:
+def plan(
+    before: dict,
+    after: dict,
+    extra_changes: list[dict] | None = None,
+    address: str = "terraform_data.tailscale_policy[0]",
+    actions: list[str] | None = None,
+) -> dict:
     changes = [{
-        "address": "terraform_data.tailscale_policy[0]",
+        "address": address,
         "type": "terraform_data",
         "mode": "managed",
         "change": {
-            "actions": ["update"],
+            "actions": actions or ["update"],
             "before": {"input": {"policy_json": json.dumps(before, separators=(",", ":"))}},
             "after": {"input": {"policy_json": json.dumps(after, separators=(",", ":"))}},
         },
@@ -204,9 +210,17 @@ class GatewayLifecycleTests(unittest.TestCase):
                 with self.assertRaises(gateway.GatewayPolicyError):
                     gateway.transition_operation(base, head)
 
-    def run_policy(self, before: dict, after: dict, mode: str, extra_changes: list[dict] | None = None) -> subprocess.CompletedProcess[str]:
+    def run_policy(
+        self,
+        before: dict,
+        after: dict,
+        mode: str,
+        extra_changes: list[dict] | None = None,
+        address: str = "terraform_data.tailscale_policy[0]",
+        actions: list[str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as fixture:
-            json.dump(plan(before, after, extra_changes), fixture)
+            json.dump(plan(before, after, extra_changes, address, actions), fixture)
             fixture.flush()
             return subprocess.run(["python3", str(INSPECTOR), fixture.name, "--mode", mode], check=False, capture_output=True, text=True)
 
@@ -228,6 +242,51 @@ class GatewayLifecycleTests(unittest.TestCase):
             self.run_policy(legacy_detached, self.policies["detached"], "tailscale-controller-retirement", missing_identity).returncode,
             0,
         )
+
+    def test_exact_omada_controller_access(self) -> None:
+        after = self.policies["final_retired"]
+        before = deepcopy(after)
+        before["grants"].remove(inspector.OMADA_CONTROLLER_ACCESS_GRANT)
+        before["tests"].remove(inspector.OMADA_CONTROLLER_ACCESS_TEST)
+
+        result = self.run_policy(before, after, "omada-controller-access")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        for field, value in (
+            ("src", ["autogroup:admin"]),
+            ("dst", ["tag:proxmox"]),
+            ("ip", ["tcp:443"]),
+        ):
+            changed = deepcopy(after)
+            grant = changed["grants"][changed["grants"].index(inspector.OMADA_CONTROLLER_ACCESS_GRANT)]
+            grant[field] = value
+            with self.subTest(grant_field=field):
+                self.assertNotEqual(self.run_policy(before, changed, "omada-controller-access").returncode, 0)
+
+        changed_test = deepcopy(after)
+        test = changed_test["tests"][changed_test["tests"].index(inspector.OMADA_CONTROLLER_ACCESS_TEST)]
+        test["accept"] = ["tag:docker-host:443"]
+        self.assertNotEqual(self.run_policy(before, changed_test, "omada-controller-access").returncode, 0)
+
+        extra_change = {
+            "address": "terraform_data.unrelated",
+            "type": "terraform_data",
+            "mode": "managed",
+            "change": {"actions": ["update"], "before": {}, "after": {"input": True}},
+        }
+        self.assertNotEqual(
+            self.run_policy(before, after, "omada-controller-access", [extra_change]).returncode,
+            0,
+        )
+        self.assertNotEqual(
+            self.run_policy(before, after, "omada-controller-access", address="terraform_data.wrong").returncode,
+            0,
+        )
+        self.assertNotEqual(
+            self.run_policy(before, after, "omada-controller-access", actions=["create"]).returncode,
+            0,
+        )
+        self.assertNotEqual(self.run_policy(after, after, "omada-controller-access").returncode, 0)
 
     def test_exact_local_controller_access_repair(self) -> None:
         before = self.pre_access_policy()

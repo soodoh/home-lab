@@ -37,6 +37,7 @@ python3 "$policy" "$fixtures/protection-enable.json"
 python3 "$policy" "$fixtures/qualification-create.json" --mode qualification
 python3 "$policy" "$fixtures/qualification-delete.json" --mode qualification
 python3 "$root/../../scripts/controller/test-tailscale-gateway-policy.py"
+python3 "$root/../../scripts/controller/test-omada-host-alias.py"
 python3 "$root/../../scripts/controller/test-reconcile-apply-source.py"
 python3 "$root/../../scripts/controller/test-normalize-ansible-plan.py"
 python3 "$root/../../scripts/controller/test-reconcile-ct-audits.py"

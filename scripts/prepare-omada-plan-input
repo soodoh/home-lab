@@ -2,12 +2,39 @@
 set -euo pipefail
 umask 077
 
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_root"
+action=${1:-prepare}
+alias_helper=$repo_root/scripts/controller/omada-host-alias.py
+
+case "$action" in
+  configure-alias)
+    python_path=$(command -v python3) || { echo "missing command: python3" >&2; exit 69; }
+    command -v sudo >/dev/null || { echo "missing command: sudo" >&2; exit 69; }
+    exec sudo "$python_path" "$alias_helper" configure
+    ;;
+  verify-alias)
+    command -v python3 >/dev/null || { echo "missing command: python3" >&2; exit 69; }
+    exec python3 "$alias_helper" verify
+    ;;
+  remove-alias)
+    python_path=$(command -v python3) || { echo "missing command: python3" >&2; exit 69; }
+    command -v sudo >/dev/null || { echo "missing command: sudo" >&2; exit 69; }
+    exec sudo "$python_path" "$alias_helper" remove
+    ;;
+  prepare) ;;
+  *)
+    echo "usage: scripts/prepare-omada-plan-input [prepare|configure-alias|verify-alias|remove-alias]" >&2
+    exit 64
+    ;;
+esac
+
 [[ ${TF_VAR_omada_enable_management:-false} == true ]] || exit 0
 : "${OMADA_EXPORT_JSON:?OMADA_EXPORT_JSON is required when Omada management is enabled}"
 : "${OMADA_CA_PEM:?OMADA_CA_PEM is required when Omada management is enabled}"
 : "${OMADA_URL:?OMADA_URL is required when Omada management is enabled}"
 [[ $OMADA_URL == https://Omada:8043 ]]
-for command in getent openssl sudo; do
+for command in openssl python3; do
   command -v "$command" >/dev/null || { echo "missing command: $command" >&2; exit 69; }
 done
 
@@ -16,10 +43,4 @@ printf '%s' "$OMADA_EXPORT_JSON" >.local/omada/export.json
 printf '%s' "$OMADA_CA_PEM" >.local/omada/controller-ca.pem
 chmod 0600 .local/omada/export.json .local/omada/controller-ca.pem
 openssl verify -CAfile .local/omada/controller-ca.pem .local/omada/controller-ca.pem >/dev/null
-
-omada_ip=$(getent ahostsv4 docker-host | awk '$1 ~ /^[0-9.]+$/ {print $1; exit}')
-[[ -n $omada_ip ]]
-if ! getent ahostsv4 Omada >/dev/null 2>&1; then
-  printf '%s\t%s\n' "$omada_ip" Omada | sudo tee -a /etc/hosts >/dev/null
-fi
-[[ $(getent ahostsv4 Omada | awk '$1 ~ /^[0-9.]+$/ {print $1; exit}') == "$omada_ip" ]]
+python3 "$alias_helper" verify
