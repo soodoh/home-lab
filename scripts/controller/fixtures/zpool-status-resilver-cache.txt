@@ -1,0 +1,15 @@
+  pool: storage
+ state: ONLINE
+  scan: resilver in progress since Sun Aug  2 01:02:03 2026
+        1.00T scanned at 1.00G/s, 500G issued at 500M/s, 12.0T total
+config:
+
+        NAME                                      STATE     READ WRITE CKSUM
+        storage                                   ONLINE       0     0     0
+          mirror-0                                ONLINE       0     0     0
+            /dev/disk/by-id/member-01             ONLINE       0     0     0
+            /dev/disk/by-id/member-02             ONLINE       0     0     0
+        cache
+          /dev/disk/by-id/unexpected-cache        ONLINE       0     0     0
+
+errors: No known data errors

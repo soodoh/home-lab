@@ -9,9 +9,13 @@ for command in apt-cache apt-get modinfo pveversion qm pct zfs zpool; do
   command -v "$command" >/dev/null || { echo "missing command: $command" >&2; exit 69; }
 done
 
-kernel_package=proxmox-kernel-7.0
-kernel_package_version=7.0.14-8
-kernel_release=7.0.14-8-pve
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+kernel_release=$(awk '$1 == "current:" {print $2; exit}' \
+  "$repo_root/infrastructure/contract/home-lab.yml")
+[[ $kernel_release =~ ^[0-9]+\.[0-9]+\.[0-9]+-[0-9]+-pve$ ]]
+kernel_package_version=${kernel_release%-pve}
+kernel_family=$(sed -E 's/^([0-9]+\.[0-9]+).*/\1/' <<<"$kernel_release")
+kernel_package="proxmox-kernel-$kernel_family"
 zfs_package_version=2.4.3-pve1
 packages=(
   "$kernel_package=$kernel_package_version"
