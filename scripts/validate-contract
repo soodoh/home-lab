@@ -62,6 +62,54 @@ for (let mirror = 0; mirror < 6; mirror += 1) {
     failures.push(`ZFS mirror ${mirror} must contain exactly two members`);
   }
 }
+const expectedVfioIds = [
+  contract.proxmox.vm.pci.coral.vendor_device,
+  contract.proxmox.vm.pci.gpu.vendor_device,
+  contract.proxmox.vm.pci.gpu_audio.vendor_device,
+];
+if (JSON.stringify(contract.proxmox.vfio.device_ids) !== JSON.stringify(expectedVfioIds)) {
+  failures.push("canonical VFIO IDs must match Coral and discrete GPU contract devices");
+}
+for (const key of ["coral", "gpu", "gpu_audio"]) {
+  if (contract.proxmox.vm.pci[key].required_driver !== "vfio-pci") {
+    failures.push(`proxmox.vm.pci.${key}.required_driver must be vfio-pci`);
+  }
+}
+const usbSerialRefs = ["zigbee", "zwave"].map((key) => contract.proxmox.vm.usb[key].serial_secret_ref);
+if (new Set(usbSerialRefs).size !== usbSerialRefs.length) failures.push("USB serial secret references must be unique");
+const repositoryNames = contract.proxmox.apt.repositories.map((repository) => repository.name);
+const repositoryFiles = contract.proxmox.apt.repositories.map((repository) => repository.file);
+if (new Set(repositoryNames).size !== repositoryNames.length) failures.push("APT repository names must be unique");
+if (new Set(repositoryFiles).size !== repositoryFiles.length) failures.push("APT repository files must be unique");
+for (const repository of contract.proxmox.apt.repositories) {
+  if (!contract.proxmox.apt.permitted_keyrings.includes(repository.signed_by)) {
+    failures.push(`APT repository ${repository.name} uses an unapproved signing key`);
+  }
+}
+const requiredPackages = new Set(contract.proxmox.packages.required);
+const prohibitedPackages = new Set(contract.proxmox.packages.prohibited);
+const permittedManualPackages = new Set(contract.proxmox.packages.permitted_manual);
+for (const packageName of requiredPackages) {
+  if (prohibitedPackages.has(packageName)) failures.push(`required package ${packageName} is also prohibited`);
+}
+for (const packageName of permittedManualPackages) {
+  if (prohibitedPackages.has(packageName)) failures.push(`permitted manual package ${packageName} is also prohibited`);
+}
+if (contract.proxmox.kernels.current === contract.proxmox.kernels.fallback) {
+  failures.push("current and fallback Proxmox kernels must differ");
+}
+if (contract.proxmox.kernels.retention_count !== 2) failures.push("kernel retention count must be exactly two");
+const archHostAddress = contract.network.arch.ipv4.split("/")[0];
+if (contract.storage.nfs.client !== `${archHostAddress}/32`) failures.push("NFS client must be the Arch VM /32 address");
+if (contract.storage.nfs.client_vmid !== contract.proxmox.vm.vmid) failures.push("NFS client VMID must identify VM 100");
+const pveStorage = contract.storage.zfs.pve_storage;
+if (pveStorage.pool !== contract.storage.zfs.pool || pveStorage.nodes[0] !== contract.proxmox.node) {
+  failures.push("PVE storage registration must reference the protected ZFS pool and Proxmox node");
+}
+const preservedRootPaths = new Set(contract.proxmox.root_cleanup.preserve_paths);
+for (const removablePath of contract.proxmox.root_cleanup.remove_paths) {
+  if (preservedRootPaths.has(removablePath)) failures.push(`root cleanup path ${removablePath} is also preserved`);
+}
 if (contract.network.proxmox.ipv4 === contract.network.arch.ipv4) failures.push("host addresses must differ");
 if (contract.network.proxmox.mac === contract.network.arch.mac) failures.push("host MAC addresses must differ");
 

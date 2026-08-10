@@ -22,6 +22,26 @@ function check(value, expected, label) {
 
 check(structuredClone(contract), true, "current contract");
 
+const duplicateZfsMember = structuredClone(contract);
+duplicateZfsMember.storage.zfs.members[1].secret_ref = duplicateZfsMember.storage.zfs.members[0].secret_ref;
+check(duplicateZfsMember, false, "duplicate ZFS member identity");
+
+const wrongMirrorIndex = structuredClone(contract);
+wrongMirrorIndex.storage.zfs.members[10].mirror = 4;
+check(wrongMirrorIndex, false, "missing exact mirror index");
+
+const incompleteMirror = structuredClone(contract);
+incompleteMirror.storage.zfs.members.pop();
+check(incompleteMirror, false, "one-member mirror");
+
+const pinnedSerialUsbPort = structuredClone(contract);
+pinnedSerialUsbPort.proxmox.vm.usb.zigbee.host = "1-6";
+check(pinnedSerialUsbPort, false, "serial USB mapping must resolve at runtime");
+
+const unknownHostPolicy = structuredClone(contract);
+unknownHostPolicy.proxmox.packages.optional = [];
+check(unknownHostPolicy, false, "unknown host package policy");
+
 const missing = structuredClone(contract);
 delete missing.arch.packages.kernel;
 check(missing, false, "missing required package");
@@ -52,4 +72,4 @@ for (const key of ["kernel", "docker", "docker_compose", "tailscale"]) {
   check(malformed, false, `malformed ${key} version`);
 }
 
-console.log("contract_package_schema=verified");
+console.log("contract_schema=verified");

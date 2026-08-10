@@ -13,6 +13,10 @@ network:
     - 1.1.1.1
   bridge: vmbr0
   bridge_port: eno1
+  ownership:
+    interfaces_file: /etc/network/interfaces
+    snippets_directory: /etc/network/interfaces.d
+    permitted_active_snippets: []
   proxmox:
     hostname: proxmox
     magicdns_name: proxmox
@@ -26,10 +30,126 @@ network:
 proxmox:
   node: proxmox
   api_endpoint: https://proxmox:8006/api2/json
+  vfio:
+    modules:
+      - vfio
+      - vfio_iommu_type1
+      - vfio_pci
+    device_ids:
+      - 1ac1:089a
+      - 1002:744c
+      - 1002:ab30
+    prohibited_modules:
+      - apex
+      - gasket
+  apt:
+    repositories:
+      - name: debian
+        file: /etc/apt/sources.list.d/debian.sources
+        types: [deb]
+        uris: [http://deb.debian.org/debian]
+        suites: [trixie, trixie-updates]
+        components: [main, contrib, non-free-firmware]
+        signed_by: /usr/share/keyrings/debian-archive-keyring.gpg
+      - name: debian-security
+        file: /etc/apt/sources.list.d/debian-security.sources
+        types: [deb]
+        uris: [http://security.debian.org/debian-security]
+        suites: [trixie-security]
+        components: [main, contrib, non-free-firmware]
+        signed_by: /usr/share/keyrings/debian-archive-keyring.gpg
+      - name: pve-no-subscription
+        file: /etc/apt/sources.list.d/pve-no-subscription.sources
+        types: [deb]
+        uris: [http://download.proxmox.com/debian/pve]
+        suites: [trixie]
+        components: [pve-no-subscription]
+        signed_by: /usr/share/keyrings/proxmox-archive-keyring.gpg
+      - name: tailscale
+        file: /etc/apt/sources.list.d/tailscale.sources
+        types: [deb]
+        uris: [https://pkgs.tailscale.com/stable/debian]
+        suites: [trixie]
+        components: [main]
+        signed_by: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    permitted_keyrings:
+      - /usr/share/keyrings/debian-archive-keyring.gpg
+      - /usr/share/keyrings/proxmox-archive-keyring.gpg
+      - /usr/share/keyrings/tailscale-archive-keyring.gpg
+  packages:
+    required:
+      - chrony
+      - curl
+      - git
+      - ifupdown2
+      - jq
+      - nfs-kernel-server
+      - nvme-cli
+      - openssh-server
+      - proxmox-ve
+      - python3
+      - python3-apt
+      - smartmontools
+      - sudo
+      - tailscale
+      - zfsutils-linux
+    prohibited:
+      - build-essential
+      - cargo
+      - dh-dkms
+      - dkms
+      - fish
+      - golang
+      - htop
+      - gasket-dkms
+      - libedgetpu1-std
+      - linux-headers-amd64
+      - linux-image-amd64
+      - neovim
+      - nodejs
+      - npm
+      - python3-pip
+      - rustc
+      - snapd
+      - tmux
+    permitted_manual:
+      - amd64-microcode
+      - proxmox-default-kernel
+  kernels:
+    current: 7.0.14-8-pve
+    fallback: 6.14.11-4-pve
+    retention_count: 2
+    require_boot_history_proof: true
+  root_cleanup:
+    approved_shell: /bin/bash
+    preserve_paths:
+      - /root/.ssh
+      - /root/.config/home-lab
+    remove_paths:
+      - /root/.bun
+      - /root/.cargo
+      - /root/.rustup
+      - /root/.pyenv
+      - /root/.nvm
+      - /root/.fnm
+      - /root/go
+      - /root/snap
+      - /root/.config/fish
+      - /root/.local/share/fish
+      - /root/.local/bin/bun
+      - /root/.local/bin/bunx
+      - /root/.local/share/bun
+      - /root/.local/share/pyenv
+      - /usr/local/bin/bun
+      - /usr/local/bin/bunx
+    inspect_roots:
+      - /root/.config
+      - /root/.local
+      - /usr/local
   vm:
     vmid: 100
     name: arch
-    hardware_attachment_mode: raw
+    hardware_attachment_mode: managed
     desired_protection: true
     on_boot: true
     started: true
@@ -61,17 +181,20 @@ proxmox:
       coral:
         bdf: "0000:0b:00.0"
         vendor_device: 1ac1:089a
+        required_driver: vfio-pci
         mapping: coral-tpu
       gpu:
         bdf: "0000:03:00.0"
         vendor_device: 1002:744c
         mapping: rx-7900-xtx
+        required_driver: vfio-pci
         pcie: true
         xvga: true
       gpu_audio:
         bdf: "0000:03:00.1"
         vendor_device: 1002:ab30
         mapping: rx-7900-xtx-audio
+        required_driver: vfio-pci
         pcie: true
       host_igpu:
         bdf: "0000:0e:00.0"
@@ -80,12 +203,10 @@ proxmox:
         required_driver: amdgpu
     usb:
       zigbee:
-        host: "1-6"
         vendor_device: 10c4:ea60
         mapping: zigbee-cp210x
         serial_secret_ref: HOMELAB_ZIGBEE_USB_SERIAL
       zwave:
-        host: "1-7"
         vendor_device: 10c4:ea60
         mapping: zwave-cp210x
         serial_secret_ref: HOMELAB_ZWAVE_USB_SERIAL
@@ -110,6 +231,17 @@ storage:
     pool_guid_secret_ref: HOMELAB_ZFS_POOL_GUID
     expected_health: ONLINE
     corrected_checksum_baseline: 4
+    arc_max_bytes: 68719476736
+    pve_storage:
+      id: storage
+      type: zfspool
+      pool: storage
+      mountpoint: /storage
+      content:
+        - images
+        - rootdir
+      nodes:
+        - proxmox
     dataset: storage/docker
     mountpoint: /storage/docker
     members:
@@ -140,6 +272,7 @@ storage:
   nfs:
     export: /storage/docker
     client: 192.168.0.100/32
+    client_vmid: 100
     mountpoint: /mnt/storage
     retain_no_root_squash: true
 arch:

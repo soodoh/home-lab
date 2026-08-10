@@ -22,13 +22,14 @@
     "network": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cidr", "gateway", "dns", "bridge", "bridge_port", "proxmox", "arch"],
+      "required": ["cidr", "gateway", "dns", "bridge", "bridge_port", "ownership", "proxmox", "arch"],
       "properties": {
         "cidr": { "$ref": "#/$defs/cidr" },
         "gateway": { "$ref": "#/$defs/ipv4" },
         "dns": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/ipv4" } },
         "bridge": { "type": "string", "minLength": 1 },
         "bridge_port": { "type": "string", "minLength": 1 },
+        "ownership": { "$ref": "#/$defs/networkOwnership" },
         "proxmox": { "$ref": "#/$defs/host" },
         "arch": { "$ref": "#/$defs/host" }
       }
@@ -36,10 +37,15 @@
     "proxmox": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["node", "api_endpoint", "vm", "legacy_container"],
+      "required": ["node", "api_endpoint", "vfio", "apt", "packages", "kernels", "root_cleanup", "vm", "legacy_container"],
       "properties": {
         "node": { "type": "string", "minLength": 1 },
         "api_endpoint": { "type": "string", "pattern": "^https://" },
+        "vfio": { "$ref": "#/$defs/vfioPolicy" },
+        "apt": { "$ref": "#/$defs/aptPolicy" },
+        "packages": { "$ref": "#/$defs/hostPackagePolicy" },
+        "kernels": { "$ref": "#/$defs/kernelPolicy" },
+        "root_cleanup": { "$ref": "#/$defs/rootCleanupPolicy" },
         "vm": { "$ref": "#/$defs/vm" },
         "legacy_container": { "$ref": "#/$defs/legacyContainer" }
       }
@@ -53,10 +59,11 @@
         "nfs": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["export", "client", "mountpoint", "retain_no_root_squash"],
+          "required": ["export", "client", "client_vmid", "mountpoint", "retain_no_root_squash"],
           "properties": {
             "export": { "type": "string", "pattern": "^/" },
             "client": { "$ref": "#/$defs/cidr" },
+            "client_vmid": { "const": 100 },
             "mountpoint": { "type": "string", "pattern": "^/" },
             "retain_no_root_squash": { "type": "boolean" }
           }
@@ -174,6 +181,8 @@
     "sha256Digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
     "ageRecipient": { "type": "string", "pattern": "^age1[0-9a-z]{50,}$" },
     "bucket": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$" },
+    "packageName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9+.-]+$" },
+    "pveKernelRelease": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]+-pve$" },
     "host": {
       "type": "object",
       "additionalProperties": false,
@@ -183,6 +192,81 @@
         "magicdns_name": { "type": "string", "minLength": 1 },
         "ipv4": { "$ref": "#/$defs/cidr" },
         "mac": { "$ref": "#/$defs/mac" }
+      }
+    },
+    "networkOwnership": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["interfaces_file", "snippets_directory", "permitted_active_snippets"],
+      "properties": {
+        "interfaces_file": { "const": "/etc/network/interfaces" },
+        "snippets_directory": { "const": "/etc/network/interfaces.d" },
+        "permitted_active_snippets": { "type": "array", "maxItems": 0 }
+      }
+    },
+    "vfioPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modules", "device_ids", "prohibited_modules"],
+      "properties": {
+        "modules": { "type": "array", "prefixItems": [{ "const": "vfio" }, { "const": "vfio_iommu_type1" }, { "const": "vfio_pci" }], "items": false, "minItems": 3, "maxItems": 3 },
+        "device_ids": { "type": "array", "prefixItems": [{ "const": "1ac1:089a" }, { "const": "1002:744c" }, { "const": "1002:ab30" }], "items": false, "minItems": 3, "maxItems": 3, "uniqueItems": true },
+        "prohibited_modules": { "type": "array", "prefixItems": [{ "const": "apex" }, { "const": "gasket" }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true }
+      }
+    },
+    "aptRepository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "file", "types", "uris", "suites", "components", "signed_by"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "file": { "type": "string", "pattern": "^/etc/apt/sources\\.list\\.d/[a-z0-9-]+\\.sources$" },
+        "types": { "type": "array", "prefixItems": [{ "const": "deb" }], "items": false, "minItems": 1, "maxItems": 1 },
+        "uris": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^https?://" } },
+        "suites": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "components": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "signed_by": { "type": "string", "pattern": "^/usr/share/keyrings/[a-z0-9-]+\\.(gpg|asc)$" }
+      }
+    },
+    "aptPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repositories", "permitted_keyrings"],
+      "properties": {
+        "repositories": { "type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/aptRepository" } },
+        "permitted_keyrings": { "type": "array", "minItems": 3, "uniqueItems": true, "items": { "type": "string", "pattern": "^/usr/share/keyrings/" } }
+      }
+    },
+    "hostPackagePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["required", "prohibited", "permitted_manual"],
+      "properties": {
+        "required": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/packageName" } },
+        "prohibited": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/packageName" } },
+        "permitted_manual": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/packageName" } }
+      }
+    },
+    "kernelPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current", "fallback", "retention_count", "require_boot_history_proof"],
+      "properties": {
+        "current": { "$ref": "#/$defs/pveKernelRelease" },
+        "fallback": { "$ref": "#/$defs/pveKernelRelease" },
+        "retention_count": { "const": 2 },
+        "require_boot_history_proof": { "const": true }
+      }
+    },
+    "rootCleanupPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approved_shell", "preserve_paths", "remove_paths", "inspect_roots"],
+      "properties": {
+        "approved_shell": { "const": "/bin/bash" },
+        "preserve_paths": { "type": "array", "minItems": 2, "uniqueItems": true, "items": { "type": "string", "pattern": "^/" } },
+        "remove_paths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^/" } },
+        "inspect_roots": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^/" } }
       }
     },
     "rootDisk": {
@@ -235,6 +319,16 @@
         "usb3": { "type": "boolean" }
       }
     },
+    "serialUsbDevice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vendor_device", "mapping", "serial_secret_ref"],
+      "properties": {
+        "vendor_device": { "type": "string", "pattern": "^[0-9a-f]{4}:[0-9a-f]{4}$" },
+        "mapping": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]+$" },
+        "serial_secret_ref": { "type": "string", "pattern": "^HOMELAB_[A-Z0-9_]+_USB_SERIAL$" }
+      }
+    },
     "vm": {
       "type": "object",
       "additionalProperties": false,
@@ -254,7 +348,7 @@
         "root_disk": { "$ref": "#/$defs/rootDisk" },
         "games_disk": { "$ref": "#/$defs/gamesDisk" },
         "pci": { "type": "object", "additionalProperties": false, "required": ["coral", "gpu", "gpu_audio", "host_igpu"], "properties": { "coral": { "$ref": "#/$defs/pciDevice" }, "gpu": { "$ref": "#/$defs/pciDevice" }, "gpu_audio": { "$ref": "#/$defs/pciDevice" }, "host_igpu": { "$ref": "#/$defs/pciDevice" } } },
-        "usb": { "type": "object", "additionalProperties": false, "required": ["zigbee", "zwave", "bluetooth"], "properties": { "zigbee": { "$ref": "#/$defs/usbDevice" }, "zwave": { "$ref": "#/$defs/usbDevice" }, "bluetooth": { "$ref": "#/$defs/usbDevice" } } },
+        "usb": { "type": "object", "additionalProperties": false, "required": ["zigbee", "zwave", "bluetooth"], "properties": { "zigbee": { "$ref": "#/$defs/serialUsbDevice" }, "zwave": { "$ref": "#/$defs/serialUsbDevice" }, "bluetooth": { "$ref": "#/$defs/usbDevice" } } },
         "cloud_image": { "type": "object", "additionalProperties": false, "required": ["version", "url", "sha256", "signature_url"], "properties": { "version": { "type": "string" }, "url": { "type": "string", "pattern": "^https://" }, "sha256": { "$ref": "#/$defs/sha256" }, "signature_url": { "type": "string", "pattern": "^https://" } } }
       }
     },
@@ -269,18 +363,67 @@
         "retired": { "const": true }
       }
     },
+    "zfsMember01": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_01_BY_ID" }, "mirror": { "const": 0 } } },
+    "zfsMember02": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_02_BY_ID" }, "mirror": { "const": 0 } } },
+    "zfsMember03": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_03_BY_ID" }, "mirror": { "const": 1 } } },
+    "zfsMember04": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_04_BY_ID" }, "mirror": { "const": 1 } } },
+    "zfsMember05": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_05_BY_ID" }, "mirror": { "const": 2 } } },
+    "zfsMember06": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_06_BY_ID" }, "mirror": { "const": 2 } } },
+    "zfsMember07": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_07_BY_ID" }, "mirror": { "const": 3 } } },
+    "zfsMember08": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_08_BY_ID" }, "mirror": { "const": 3 } } },
+    "zfsMember09": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_09_BY_ID" }, "mirror": { "const": 4 } } },
+    "zfsMember10": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_10_BY_ID" }, "mirror": { "const": 4 } } },
+    "zfsMember11": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_11_BY_ID" }, "mirror": { "const": 5 } } },
+    "zfsMember12": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_12_BY_ID" }, "mirror": { "const": 5 } } },
+    "zfsMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["secret_ref", "mirror"],
+      "properties": {
+        "secret_ref": { "type": "string", "pattern": "^HOMELAB_ZFS_MEMBER_[0-9]{2}_BY_ID$" },
+        "mirror": { "type": "integer", "minimum": 0, "maximum": 5 }
+      }
+    },
     "zfs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["pool", "pool_guid_secret_ref", "expected_health", "corrected_checksum_baseline", "dataset", "mountpoint", "members"],
+      "required": ["pool", "pool_guid_secret_ref", "expected_health", "corrected_checksum_baseline", "arc_max_bytes", "pve_storage", "dataset", "mountpoint", "members"],
       "properties": {
         "pool": { "const": "storage" },
         "pool_guid_secret_ref": { "const": "HOMELAB_ZFS_POOL_GUID" },
         "expected_health": { "const": "ONLINE" },
         "corrected_checksum_baseline": { "type": "integer", "minimum": 0 },
+        "arc_max_bytes": { "const": 68719476736 },
+        "pve_storage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "type", "pool", "mountpoint", "content", "nodes"],
+          "properties": {
+            "id": { "const": "storage" },
+            "type": { "const": "zfspool" },
+            "pool": { "const": "storage" },
+            "mountpoint": { "const": "/storage" },
+            "content": { "type": "array", "prefixItems": [{ "const": "images" }, { "const": "rootdir" }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true },
+            "nodes": { "type": "array", "prefixItems": [{ "const": "proxmox" }], "items": false, "minItems": 1, "maxItems": 1 }
+          }
+        },
         "dataset": { "const": "storage/docker" },
         "mountpoint": { "const": "/storage/docker" },
-        "members": { "type": "array", "minItems": 12, "maxItems": 12, "items": { "type": "object", "additionalProperties": false, "required": ["secret_ref", "mirror"], "properties": { "secret_ref": { "type": "string", "pattern": "^HOMELAB_ZFS_MEMBER_[0-9]{2}_BY_ID$" }, "mirror": { "type": "integer", "minimum": 0, "maximum": 5 } } } }
+        "members": {
+          "type": "array",
+          "minItems": 12,
+          "maxItems": 12,
+          "uniqueItems": true,
+          "prefixItems": [
+            { "$ref": "#/$defs/zfsMember01" }, { "$ref": "#/$defs/zfsMember02" },
+            { "$ref": "#/$defs/zfsMember03" }, { "$ref": "#/$defs/zfsMember04" },
+            { "$ref": "#/$defs/zfsMember05" }, { "$ref": "#/$defs/zfsMember06" },
+            { "$ref": "#/$defs/zfsMember07" }, { "$ref": "#/$defs/zfsMember08" },
+            { "$ref": "#/$defs/zfsMember09" }, { "$ref": "#/$defs/zfsMember10" },
+            { "$ref": "#/$defs/zfsMember11" }, { "$ref": "#/$defs/zfsMember12" }
+          ],
+          "items": false
+        }
       }
     }
   }
