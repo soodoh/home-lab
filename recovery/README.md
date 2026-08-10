@@ -63,7 +63,7 @@ The local controller stores provider capabilities in separate mode-`0600` plan/a
 
 7. **Verify and record evidence.** Recovery applies the active infrastructure plans, reconciles Proxmox, creates or repairs VM 100, bootstraps Arch, stages the exact Compose artifact, and tries valid local archives newest-first across the three ordered filesystems. It downloads the reviewed S3 fallback only when no local candidate is usable. The selected candidate must match the manifest-bound recovery identity. After activation, it verifies services, Coral, maintenance, live Tailscale policy/state equality, every enabled OpenTofu root no-op, Proxmox no-op, Arch audit no-op, and Arch bootstrap no-op.
 
-   Record only secret-free commit, plan/artifact/backup hashes, health outcomes, and elapsed time. Recovery forces managed mappings even while the adopted contract remains `raw`. After recovery succeeds, make and review the durable one-way contract change `hardware_attachment_mode: managed`; subsequent `steady` plans then retain the mapping resources. Never change managed mode back to raw.
+   Record only secret-free commit, plan/artifact/backup hashes, health outcomes, and elapsed time. The adopted contract keeps managed mappings in both recovery and steady phases. Refresh the protected serial-to-port runtime inputs before planning so Zigbee and Z-Wave mappings follow their adapters. Never change managed mode back to raw.
 
 ## Restore safety
 

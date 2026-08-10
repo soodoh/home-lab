@@ -3,15 +3,46 @@ set -euo pipefail
 umask 077
 
 [[ $EUID -eq 0 ]]
-output=${1:-/root/home-lab-hardware.env}
+output=/root/home-lab-hardware.env
+serial_env=
+while (($#)); do
+  case "$1" in
+    --output) output=${2:?}; shift 2 ;;
+    --serial-env) serial_env=${2:?}; shift 2 ;;
+    *)
+      [[ $# == 1 && $1 != --* ]] || exit 64
+      output=$1
+      shift
+      ;;
+  esac
+done
 [[ ! -e $output ]]
-for command in qm zpool udevadm; do
+for command in find qm sort udevadm zpool; do
   command -v "$command" >/dev/null || { echo "missing command: $command" >&2; exit 69; }
 done
+
+if [[ -n $serial_env ]]; then
+  [[ -f $serial_env && ! -L $serial_env ]]
+  [[ $(stat -c %u "$serial_env") == 0 ]]
+  permissions=$(stat -c %a "$serial_env")
+  (( (8#$permissions & 8#077) == 0 ))
+  while IFS='=' read -r key value; do
+    [[ $key =~ ^HOMELAB_(ZIGBEE|ZWAVE)_USB_SERIAL$ ]] || {
+      echo "unexpected key in protected USB serial file: $key" >&2
+      exit 65
+    }
+    [[ -n $value && $value != *[[:space:]]* ]]
+    export "$key=$value"
+  done <"$serial_env"
+fi
+: "${HOMELAB_ZIGBEE_USB_SERIAL:?protected Zigbee USB serial is required}"
+: "${HOMELAB_ZWAVE_USB_SERIAL:?protected Z-Wave USB serial is required}"
+[[ $HOMELAB_ZIGBEE_USB_SERIAL != "$HOMELAB_ZWAVE_USB_SERIAL" ]]
 
 temporary=$(mktemp "${output}.tmp.XXXXXX")
 cleanup() { rm -f "$temporary"; }
 trap cleanup EXIT INT TERM
+
 games_by_id=$(qm config 100 | awk -F '[:,]' '$1 == "scsi1" {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')
 [[ $games_by_id == /dev/disk/by-id/* ]]
 printf 'HOMELAB_GAMES_DISK_BY_ID=%s\n' "$games_by_id" >>"$temporary"
@@ -21,15 +52,35 @@ mapfile -t members < <(zpool status -P storage | awk '$1 ~ "^/dev/disk/by-id/" {
 for index in "${!members[@]}"; do
   printf 'HOMELAB_ZFS_MEMBER_%02d_BY_ID=%s\n' "$((index + 1))" "${members[$index]}" >>"$temporary"
 done
-for mapping in 'HOMELAB_ZIGBEE_USB_SERIAL:1-6' 'HOMELAB_ZWAVE_USB_SERIAL:1-7'; do
-  key=${mapping%%:*}
-  device=${mapping#*:}
-  serial=$(udevadm info --query=property --path="/sys/bus/usb/devices/$device" \
-    | awk -F= '$1 == "ID_SERIAL_SHORT" {print substr($0, index($0,"=")+1); exit}')
-  [[ -n $serial && $serial != *[[:space:]]* ]]
-  printf '%s=%s\n' "$key" "$serial" >>"$temporary"
-done
+
+resolve_usb_port() {
+  local serial=$1 syspath properties observed
+  local -a matches=()
+  while IFS= read -r syspath; do
+    properties=$(udevadm info --query=property --path="$syspath")
+    observed=$(awk -F= '$1 == "ID_SERIAL_SHORT" {print substr($0, index($0,"=")+1); exit}' <<<"$properties")
+    if [[ $observed == "$serial" ]]; then
+      matches+=("${syspath##*/}")
+    fi
+  done < <(find /sys/bus/usb/devices -mindepth 1 -maxdepth 1 -type d \
+    -regextype posix-extended -regex '.*/[0-9]+-[0-9]+(\.[0-9]+)*' | sort)
+  if ((${#matches[@]} != 1)); then
+    printf 'USB serial resolution failed: serial matched %d physical ports\n' "${#matches[@]}" >&2
+    return 1
+  fi
+  printf '%s\n' "${matches[0]}"
+}
+
+zigbee_port=$(resolve_usb_port "$HOMELAB_ZIGBEE_USB_SERIAL")
+zwave_port=$(resolve_usb_port "$HOMELAB_ZWAVE_USB_SERIAL")
+[[ $zigbee_port != "$zwave_port" ]]
+{
+  printf 'HOMELAB_ZIGBEE_USB_SERIAL=%s\n' "$HOMELAB_ZIGBEE_USB_SERIAL"
+  printf 'HOMELAB_ZIGBEE_USB_PORT=%s\n' "$zigbee_port"
+  printf 'HOMELAB_ZWAVE_USB_SERIAL=%s\n' "$HOMELAB_ZWAVE_USB_SERIAL"
+  printf 'HOMELAB_ZWAVE_USB_PORT=%s\n' "$zwave_port"
+} >>"$temporary"
 chmod 0600 "$temporary"
 mv "$temporary" "$output"
 trap - EXIT INT TERM
-printf 'proxmox_protected_inputs=collected keys=16 output=%s\n' "$output"
+printf 'proxmox_protected_inputs=collected keys=18 output=%s\n' "$output"

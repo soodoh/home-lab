@@ -10,7 +10,14 @@ On the Proxmox host, check out the exact reviewed commit:
 git clone https://github.com/soodoh/home-lab.git /root/home-lab
 cd /root/home-lab
 git checkout <reviewed-commit>
-scripts/collect-proxmox-protected-inputs /root/home-lab-hardware.env
+install -m 0600 /dev/null /root/home-lab-usb-serials.env
+printf '%s\n' \
+  'HOMELAB_ZIGBEE_USB_SERIAL=<protected-zigbee-serial>' \
+  'HOMELAB_ZWAVE_USB_SERIAL=<protected-zwave-serial>' \
+  >/root/home-lab-usb-serials.env
+scripts/collect-proxmox-protected-inputs \
+  --serial-env /root/home-lab-usb-serials.env \
+  --output /root/home-lab-hardware.env
 install -m 0600 recovery/proxmox-bootstrap-extra-vars.example.yml \
   /root/proxmox-bootstrap-extra-vars.yml
 ```

@@ -24,7 +24,11 @@ class RecoveryPolicyTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.expectations_path = self.root / "expectations.json"
-        environment = {**os.environ, "TF_VAR_games_disk_by_id": "/dev/disk/by-id/test-games"}
+        environment = {
+            **os.environ,
+            "TF_VAR_games_disk_by_id": "/dev/disk/by-id/test-games",
+            "TF_VAR_serial_usb_paths": '{"zigbee":"2-4.1","zwave":"2-4.2"}',
+        }
         subprocess.run(
             ["node", str(GENERATOR), "--output", str(self.expectations_path)],
             cwd=REPOSITORY,
@@ -76,6 +80,14 @@ class RecoveryPolicyTests(unittest.TestCase):
         self.assertEqual(
             resources['proxmox_hardware_mapping_usb.device["zigbee"]']["expected"]["name"],
             "zigbee-cp210x",
+        )
+        self.assertEqual(
+            resources['proxmox_hardware_mapping_usb.device["zigbee"]']["expected"]["map"][0]["path"],
+            "2-4.1",
+        )
+        self.assertEqual(
+            resources['proxmox_hardware_mapping_usb.device["zwave"]']["expected"]["map"][0]["path"],
+            "2-4.2",
         )
         self.assertIsNone(
             resources['proxmox_hardware_mapping_usb.device["bluetooth"]']["expected"]["map"][0]["path"]

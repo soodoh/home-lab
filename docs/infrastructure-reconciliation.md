@@ -50,7 +50,7 @@ The inspector has two policy modes:
 
 `normal` rejects destructive, replacement, compute creation, protection-disabling, root-disk-size, and network/device changes unless an enduring root allowlist explicitly permits them. `recovery` compares every expected Proxmox resource and protected field with a mode-`0600` expectations projection generated from the validated contract and protected disk identity; it accepts only exact creates/no-ops and rejects unrelated changes or unknown protected values. The projection SHA-256 is manifest-bound. The unresolved disposable Proxmox VM qualification configuration remains isolated in the main Proxmox root and is not enabled by normal steady/recovery input.
 
-The durable `proxmox.vm.hardware_attachment_mode` starts as `raw`, preserving the adopted live VM. Recovery always creates and uses managed hardware mappings. After a successful recovery, change the contract once from `raw` to `managed` before returning to `steady`; managed mode remains the durable steady state. Reversing managed mode to raw would delete protected mapping resources and rewrite protected VM devices, so lifecycle and normal policy fail closed.
+The durable `proxmox.vm.hardware_attachment_mode` is `managed`. Zigbee and Z-Wave serial secrets are resolved on the Proxmox host to unique physical USB paths and passed as protected runtime OpenTofu inputs; the tracked contract never pins those adapters to ports. Reversing managed mode to raw would delete protected mapping resources and rewrite protected VM devices, so lifecycle and normal policy fail closed.
 
 A plan pass proves only that the proposed action shape is authorized. It does not prove that a provider operation works live.
 

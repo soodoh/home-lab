@@ -4,6 +4,7 @@ locals {
     gpu       = local.vm.pci.gpu
     gpu_audio = local.vm.pci.gpu_audio
   } : {}
+  serial_usb_paths = var.serial_usb_paths
   usb_mappings = local.use_hardware_mappings ? {
     zigbee    = local.vm.usb.zigbee
     zwave     = local.vm.usb.zwave
@@ -35,7 +36,7 @@ resource "proxmox_hardware_mapping_usb" "device" {
   map = [{
     id   = each.value.vendor_device
     node = local.node
-    path = can(regex("^[0-9]+-[0-9]+", each.value.host)) ? each.value.host : null
+    path = contains(keys(local.serial_usb_paths), each.key) ? local.serial_usb_paths[each.key] : null
   }]
 
   lifecycle {

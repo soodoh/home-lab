@@ -61,7 +61,7 @@
         "before": null,
         "after": {
           "name": "zigbee-cp210x",
-          "map": [{"id": "10c4:ea60", "node": "proxmox", "path": "1-6"}]
+          "map": [{"id": "10c4:ea60", "node": "proxmox", "path": "2-4.1"}]
         },
         "after_unknown": {}
       }
@@ -74,7 +74,7 @@
         "before": null,
         "after": {
           "name": "zwave-cp210x",
-          "map": [{"id": "10c4:ea60", "node": "proxmox", "path": "1-7"}]
+          "map": [{"id": "10c4:ea60", "node": "proxmox", "path": "2-4.2"}]
         },
         "after_unknown": {}
       }

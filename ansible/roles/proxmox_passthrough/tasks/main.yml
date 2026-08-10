@@ -220,3 +220,120 @@
   when:
     - not ansible_check_mode
     - proxmox_passthrough_post_reboot_validation | bool
+
+- name: Inspect the legacy Home Assistant USB rule
+  ansible.builtin.stat:
+    path: /etc/udev/rules.d/hass-usb.rules
+    get_checksum: false
+  register: proxmox_passthrough_legacy_usb_rule
+
+- name: Inspect completion of serial USB mapping migration
+  ansible.builtin.stat:
+    path: "{{ proxmox_passthrough_usb_mapping_marker }}"
+    get_checksum: false
+  register: proxmox_passthrough_usb_mapping_state
+
+- name: Record whether serial USB mappings must be validated
+  ansible.builtin.set_fact:
+    proxmox_passthrough_validate_usb_mappings: >-
+      {{ proxmox_passthrough_usb_mapping_cleanup_confirmed | bool or
+         proxmox_passthrough_usb_mapping_state.stat.isreg | default(false) }}
+
+- name: Report a pending gated legacy USB-rule migration
+  ansible.builtin.debug:
+    msg: "Legacy hass-usb.rules remains; validate serial-driven OpenTofu mappings before approving its removal."
+  changed_when: true
+  when:
+    - proxmox_passthrough_legacy_usb_rule.stat.exists | default(false)
+    - not (proxmox_passthrough_validate_usb_mappings | bool)
+
+- name: Initialize protected serial USB mapping paths
+  ansible.builtin.set_fact:
+    proxmox_passthrough_serial_usb_mappings: []
+  no_log: true
+  when: proxmox_passthrough_validate_usb_mappings | bool
+
+- name: Resolve protected runtime paths for serial USB mappings
+  ansible.builtin.set_fact:
+    proxmox_passthrough_serial_usb_mappings: >-
+      {{ proxmox_passthrough_serial_usb_mappings + [{
+        'name': item.key,
+        'mapping': item.value.mapping,
+        'path': lookup(
+          'ansible.builtin.env',
+          item.value.serial_secret_ref | regex_replace('_SERIAL$', '_PORT')
+        )
+      }] }}
+  loop: "{{ {'zigbee': proxmox.vm.usb.zigbee, 'zwave': proxmox.vm.usb.zwave} | dict2items }}"
+  no_log: true
+  when: proxmox_passthrough_validate_usb_mappings | bool
+
+- name: Require unique protected physical USB runtime paths
+  ansible.builtin.assert:
+    that:
+      - proxmox_passthrough_serial_usb_mappings | map(attribute='path') | unique | length == 2
+      - >-
+        proxmox_passthrough_serial_usb_mappings |
+        map(attribute='path') |
+        reject('match', '^[0-9]+-[0-9]+(\\.[0-9]+)*$') |
+        list |
+        length == 0
+    fail_msg: "Both unique protected serial-to-port resolutions are required."
+  no_log: true
+  when: proxmox_passthrough_validate_usb_mappings | bool
+
+- name: Read each resulting Proxmox USB mapping
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/pvesh
+      - get
+      - "/cluster/mapping/usb/{{ item.mapping }}"
+      - --output-format
+      - json
+  loop: "{{ proxmox_passthrough_serial_usb_mappings | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: proxmox_passthrough_usb_mapping_results
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  no_log: true
+  when: proxmox_passthrough_validate_usb_mappings | bool
+
+- name: Validate each resulting serial-driven USB mapping
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.item.path in item.stdout
+    fail_msg: "A protected serial-driven USB mapping is absent or points at the wrong physical port."
+  loop: "{{ proxmox_passthrough_usb_mapping_results.results | default([]) }}"
+  no_log: true
+  when: proxmox_passthrough_validate_usb_mappings | bool
+
+- name: Remove the legacy Home Assistant USB rule after mapping validation
+  ansible.builtin.file:
+    path: /etc/udev/rules.d/hass-usb.rules
+    state: absent
+  when: proxmox_passthrough_validate_usb_mappings | bool
+
+- name: Ensure the home-lab state directory exists for USB mapping evidence
+  ansible.builtin.file:
+    path: "{{ proxmox_passthrough_usb_mapping_marker | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  when:
+    - not ansible_check_mode
+    - proxmox_passthrough_usb_mapping_cleanup_confirmed | bool
+
+- name: Record successful serial USB mapping migration
+  ansible.builtin.copy:
+    dest: "{{ proxmox_passthrough_usb_mapping_marker }}"
+    owner: root
+    group: root
+    mode: "0640"
+    content: "serial_driven_usb_mappings=validated\n"
+  when:
+    - not ansible_check_mode
+    - proxmox_passthrough_usb_mapping_cleanup_confirmed | bool

@@ -29,7 +29,7 @@ extra_vars=$(realpath "$extra_vars")
 hardware_env=$(realpath "$hardware_env")
 
 while IFS='=' read -r key value; do
-  [[ $key =~ ^HOMELAB_(GAMES_DISK_BY_ID|ZFS_POOL_GUID|ZFS_MEMBER_[0-9]{2}_BY_ID|ZIGBEE_USB_SERIAL|ZWAVE_USB_SERIAL)$ ]]
+  [[ $key =~ ^HOMELAB_(GAMES_DISK_BY_ID|ZFS_POOL_GUID|ZFS_MEMBER_[0-9]{2}_BY_ID|(ZIGBEE|ZWAVE)_USB_(SERIAL|PORT))$ ]]
   [[ -n $value ]]
   export "$key=$value"
 done <"$hardware_env"
@@ -37,6 +37,8 @@ done <"$hardware_env"
 : "${HOMELAB_ZFS_POOL_GUID:?missing protected ZFS pool identity}"
 : "${HOMELAB_ZIGBEE_USB_SERIAL:?missing protected Zigbee identity}"
 : "${HOMELAB_ZWAVE_USB_SERIAL:?missing protected Z-Wave identity}"
+: "${HOMELAB_ZIGBEE_USB_PORT:?missing resolved Zigbee physical USB port}"
+: "${HOMELAB_ZWAVE_USB_PORT:?missing resolved Z-Wave physical USB port}"
 
 venv=/root/.cache/home-lab-proxmox-bootstrap-venv
 rm -rf "$venv"

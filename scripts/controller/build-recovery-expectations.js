@@ -19,6 +19,20 @@ const gamesDiskById = process.env.TF_VAR_games_disk_by_id || process.env.HOMELAB
 if (typeof gamesDiskById !== "string" || !gamesDiskById.startsWith("/dev/disk/by-id/")) {
   throw new Error("TF_VAR_games_disk_by_id or HOMELAB_GAMES_DISK_BY_ID must be an absolute /dev/disk/by-id path");
 }
+const serialUsbPaths = process.env.TF_VAR_serial_usb_paths
+  ? JSON.parse(process.env.TF_VAR_serial_usb_paths)
+  : {
+      zigbee: process.env.HOMELAB_ZIGBEE_USB_PORT,
+      zwave: process.env.HOMELAB_ZWAVE_USB_PORT,
+    };
+if (
+  !serialUsbPaths ||
+  !/^[0-9]+-[0-9]+(?:\.[0-9]+)*$/.test(serialUsbPaths.zigbee || "") ||
+  !/^[0-9]+-[0-9]+(?:\.[0-9]+)*$/.test(serialUsbPaths.zwave || "") ||
+  serialUsbPaths.zigbee === serialUsbPaths.zwave
+) {
+  throw new Error("TF_VAR_serial_usb_paths must contain unique Zigbee and Z-Wave physical USB paths");
+}
 
 const resources = {};
 for (const [key, device] of Object.entries({ coral: vm.pci.coral, gpu: vm.pci.gpu, gpu_audio: vm.pci.gpu_audio })) {
@@ -38,7 +52,7 @@ for (const [key, device] of Object.entries({ bluetooth: vm.usb.bluetooth, zigbee
       map: [{
         id: device.vendor_device,
         node,
-        path: /^\d+-\d+/.test(device.host) ? device.host : null,
+        path: serialUsbPaths[key] || null,
       }],
     },
   };

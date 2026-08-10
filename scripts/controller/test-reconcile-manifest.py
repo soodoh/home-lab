@@ -51,6 +51,7 @@ class ManifestVerificationTests(unittest.TestCase):
             environment = {
                 **os.environ,
                 "TF_VAR_games_disk_by_id": "/dev/disk/by-id/test-games",
+                "TF_VAR_serial_usb_paths": '{"zigbee":"2-4.1","zwave":"2-4.2"}',
             }
             subprocess.run(
                 ["node", "scripts/controller/build-recovery-expectations.js", "--output", str(expectations)],

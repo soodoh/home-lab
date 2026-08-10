@@ -119,12 +119,12 @@ resource "proxmox_virtual_environment_vm" "arch" {
   }
 
   usb {
-    host    = local.use_hardware_mappings ? null : local.vm.usb.zigbee.host
+    host    = local.use_hardware_mappings ? null : local.serial_usb_paths.zigbee
     mapping = local.use_hardware_mappings ? local.vm.usb.zigbee.mapping : null
   }
 
   usb {
-    host    = local.use_hardware_mappings ? null : local.vm.usb.zwave.host
+    host    = local.use_hardware_mappings ? null : local.serial_usb_paths.zwave
     mapping = local.use_hardware_mappings ? local.vm.usb.zwave.mapping : null
   }
 
