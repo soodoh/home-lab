@@ -12,39 +12,121 @@
     backup: true
   notify: Update Proxmox kernel command line
 
-- name: Keep required VFIO modules in early boot configuration
+- name: Keep only the canonical VFIO modules in early boot configuration
   ansible.builtin.copy:
     dest: /etc/modules-load.d/home-lab-vfio.conf
     owner: root
     group: root
     mode: "0644"
-    content: |
-      vfio
-      vfio_iommu_type1
-      vfio_pci
+    content: "{{ proxmox.vfio.modules | join('\n') }}\n"
   notify: Rebuild Proxmox initramfs
 
-- name: Remove the stale vfio_virqfd module entry
+- name: Remove every duplicate VFIO module line from legacy module files
   ansible.builtin.lineinfile:
     path: "{{ item }}"
-    regexp: '^vfio_virqfd$'
+    regexp: '^\\s*(vfio|vfio_iommu_type1|vfio_pci|vfio_virqfd)(?:\\s*(?:#.*)?)?$'
     state: absent
   loop:
     - /etc/modules
     - /etc/modules-load.d/modules.conf
   notify: Rebuild Proxmox initramfs
 
-- name: Bind only the discrete GPU functions to vfio-pci
+- name: Remove the legacy duplicate VFIO modprobe file
+  ansible.builtin.file:
+    path: /etc/modprobe.d/vfio.conf
+    state: absent
+  notify: Rebuild Proxmox initramfs
+
+- name: Bind only contract passthrough devices to vfio-pci
   ansible.builtin.copy:
     dest: /etc/modprobe.d/home-lab-vfio.conf
     owner: root
     group: root
     mode: "0644"
     content: |
-      options vfio-pci ids={{ proxmox.vm.pci.gpu.vendor_device }},{{ proxmox.vm.pci.gpu_audio.vendor_device }},{{ proxmox.vm.pci.coral.vendor_device }}
+      options vfio-pci ids={{ proxmox.vfio.device_ids | join(',') }}
       softdep amdgpu pre: vfio-pci
       softdep snd_hda_intel pre: vfio-pci
   notify: Rebuild Proxmox initramfs
+
+- name: Record whether legacy Coral cleanup is being evaluated
+  ansible.builtin.set_fact:
+    proxmox_passthrough_cleanup_requested: >-
+      {{ ansible_check_mode or (proxmox_passthrough_legacy_cleanup_confirmed | bool) }}
+
+- name: Inspect VM 100 state before destructive passthrough cleanup
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/qm
+      - status
+      - "{{ proxmox.vm.vmid }}"
+  register: proxmox_passthrough_vm_status
+  changed_when: false
+  check_mode: false
+  when:
+    - not ansible_check_mode
+    - proxmox_passthrough_legacy_cleanup_confirmed | bool
+
+- name: Require the maintenance and console gates before Coral cleanup
+  ansible.builtin.assert:
+    that:
+      - recovery_console_confirmed | default(false) | bool
+      - proxmox_passthrough_apply_confirmed | bool
+      - "'status: stopped' in proxmox_passthrough_vm_status.stdout"
+    fail_msg: "Coral cleanup requires console access, explicit approval, and stopped VM 100."
+  when:
+    - not ansible_check_mode
+    - proxmox_passthrough_legacy_cleanup_confirmed | bool
+
+
+- name: Inspect whether DKMS is available
+  ansible.builtin.stat:
+    path: /usr/bin/dkms
+  register: proxmox_passthrough_dkms_binary
+  when: proxmox_passthrough_cleanup_requested | bool
+
+- name: List stale Gasket DKMS versions across every kernel
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    /usr/bin/dkms status |
+    /usr/bin/awk -F'[,/]' '$1 == "gasket" {print $2}' |
+    /usr/bin/sort -u
+  args:
+    executable: /bin/bash
+  register: proxmox_passthrough_gasket_dkms_versions
+  changed_when: false
+  check_mode: false
+  when:
+    - proxmox_passthrough_cleanup_requested | bool
+    - proxmox_passthrough_dkms_binary.stat.exists | default(false)
+
+- name: Report stale Gasket DKMS builds in check mode
+  ansible.builtin.debug:
+    msg: "Stale Gasket DKMS versions require removal: {{ proxmox_passthrough_gasket_dkms_versions.stdout_lines }}"
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - proxmox_passthrough_gasket_dkms_versions.stdout_lines | default([]) | length > 0
+
+- name: Remove each stale Gasket DKMS build from all kernels
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/dkms
+      - remove
+      - "gasket/{{ item }}"
+      - --all
+  loop: "{{ proxmox_passthrough_gasket_dkms_versions.stdout_lines | default([]) }}"
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - proxmox_passthrough_legacy_cleanup_confirmed | bool
+
+
+- name: Remove the host Coral udev rule
+  ansible.builtin.file:
+    path: /etc/udev/rules.d/coral-tpu.rules
+    state: absent
+  when: proxmox_passthrough_cleanup_requested | bool
 
 - name: Verify the host iGPU remains bound to amdgpu
   ansible.builtin.shell: >-
@@ -55,3 +137,86 @@
     executable: /bin/bash
   changed_when: false
   check_mode: false
+
+- name: Inspect completion of post-reboot passthrough validation
+  ansible.builtin.stat:
+    path: "{{ proxmox_passthrough_validation_marker }}"
+    get_checksum: false
+  register: proxmox_passthrough_validation_state
+
+- name: Record whether post-reboot validation is required
+  ansible.builtin.set_fact:
+    proxmox_passthrough_validate_runtime: >-
+      {{ proxmox_passthrough_post_reboot_validation | bool or
+         proxmox_passthrough_validation_state.stat.isreg | default(false) }}
+
+- name: Inspect post-reboot PCI driver bindings
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/lspci
+      - -Dnnk
+      - -s
+      - "{{ item.value.bdf }}"
+  loop: "{{ proxmox.vm.pci | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: proxmox_passthrough_driver_bindings
+  changed_when: false
+  check_mode: false
+  when: proxmox_passthrough_validate_runtime | bool
+
+- name: Require every post-reboot PCI driver binding
+  ansible.builtin.assert:
+    that:
+      - "'Kernel driver in use: ' ~ item.item.value.required_driver in item.stdout"
+    fail_msg: "PCI device {{ item.item.key }} is not bound to {{ item.item.value.required_driver }}."
+  loop: "{{ proxmox_passthrough_driver_bindings.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+  when: proxmox_passthrough_validate_runtime | bool
+
+- name: Inspect prohibited host Coral modules after reboot
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/grep
+      - --extended-regexp
+      - "^{{ item }} "
+      - /proc/modules
+  loop: "{{ proxmox.vfio.prohibited_modules }}"
+  register: proxmox_passthrough_prohibited_module_state
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  when: proxmox_passthrough_validate_runtime | bool
+
+- name: Require host Coral modules to remain unloaded
+  ansible.builtin.assert:
+    that:
+      - item.rc != 0
+    fail_msg: "Prohibited host Coral module {{ item.item }} is loaded."
+  loop: "{{ proxmox_passthrough_prohibited_module_state.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: proxmox_passthrough_validate_runtime | bool
+
+- name: Ensure the home-lab state directory exists for passthrough evidence
+  ansible.builtin.file:
+    path: "{{ proxmox_passthrough_validation_marker | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  when:
+    - not ansible_check_mode
+    - proxmox_passthrough_post_reboot_validation | bool
+
+- name: Record successful post-reboot passthrough validation
+  ansible.builtin.copy:
+    dest: "{{ proxmox_passthrough_validation_marker }}"
+    owner: root
+    group: root
+    mode: "0640"
+    content: "kernel={{ ansible_facts.kernel }}\n"
+  when:
+    - not ansible_check_mode
+    - proxmox_passthrough_post_reboot_validation | bool
