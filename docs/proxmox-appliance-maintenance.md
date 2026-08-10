@@ -23,6 +23,24 @@ Before any storage or network cutover, retain protected evidence for:
 - resolved Zigbee and Z-Wave serial-to-port paths; and
 - boot history for `proxmox.kernels.fallback`, or a console-backed boot test of that exact release.
 
+## Existing raw attachment transition
+
+Proxmox rejects an API-token update that rewrites existing raw `hostpci` devices, even after the reviewed mappings have been created. On the one-time migration, the exact OpenTofu apply can therefore stop after creating all six mappings with `only root can set ... config for non-mapped devices`. Do not retry that stale saved plan.
+
+After verifying the six mapping definitions and the exact existing raw VM 100 attachments, use the root SSH path to perform only the reviewed transition:
+
+```sh
+qm set 100 \
+  --hostpci0 mapping=coral-tpu,rombar=1 \
+  --hostpci1 mapping=rx-7900-xtx,pcie=1,rombar=1,x-vga=1 \
+  --hostpci2 mapping=rx-7900-xtx-audio,pcie=1,rombar=1 \
+  --usb0 mapping=zigbee-cp210x \
+  --usb1 mapping=zwave-cp210x \
+  --usb2 mapping=realtek-bluetooth,usb3=1
+```
+
+Require VM 100 and its guest agent to remain responsive. `qm pending 100` should show the three PCI mappings as pending until the separately approved reboot; USB mappings can become current immediately. Generate a fresh steady plan and require zero OpenTofu changes before continuing.
+
 ## Gate sequence
 
 All gates default to `false` in `recovery/extra-vars.example.yml`.
