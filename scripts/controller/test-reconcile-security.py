@@ -29,6 +29,16 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertIn('--data-binary @"$token_request"', self.reconciler)
         self.assertIn('rm -f "$token_request"', self.reconciler)
 
+    def test_provider_tls_uses_only_the_strict_ca_bundle(self) -> None:
+        start = self.controller.index("prepare_provider_tls() {")
+        end = self.controller.index("\n}\n", start) + 3
+        setup = self.controller[start:end]
+        self.assertIn("scripts/prepare-provider-ca-bundle", setup)
+        self.assertIn('export SSL_CERT_FILE="$repo_root/.local/provider-ca/bundle.pem"', setup)
+        self.assertNotIn("security ", self.controller)
+        self.assertNotIn("keychain", self.controller)
+        self.assertNotIn("uname", setup)
+
     def test_local_controller_passes_consumed_approval_to_reconciler(self) -> None:
         consume = self.controller.index("consume_approval\n")
         binding = self.controller.index('RECONCILE_APPROVAL_FILE="$approval"')
