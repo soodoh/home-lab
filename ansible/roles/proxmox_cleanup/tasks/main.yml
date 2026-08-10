@@ -356,6 +356,21 @@
   changed_when: false
   check_mode: false
 
+- name: Calculate installed dependency closure for approved package seeds
+  ansible.builtin.shell: |
+    set -o pipefail
+    /usr/bin/apt-cache depends --recurse --installed \
+      {{ (proxmox.packages.required +
+          proxmox.packages.permitted_manual +
+          proxmox_cleanup_retained_kernel_packages) | map('quote') | join(' ') }} |
+      /usr/bin/awk '/^[^ <|]/ {name=$1; sub(/:[^:]+$/, "", name); print name}' |
+      /usr/bin/sort -u
+  args:
+    executable: /bin/bash
+  register: proxmox_cleanup_approved_dependency_packages
+  changed_when: false
+  check_mode: false
+
 - name: Record unknown manually installed packages
   ansible.builtin.set_fact:
     proxmox_cleanup_unknown_manual_packages: >-
@@ -363,7 +378,9 @@
          difference(
            proxmox.packages.required +
            proxmox.packages.permitted_manual +
-           proxmox_cleanup_retained_kernel_packages
+           proxmox.packages.prohibited +
+           proxmox_cleanup_retained_kernel_packages +
+           proxmox_cleanup_approved_dependency_packages.stdout_lines
          ) |
          sort }}
 
