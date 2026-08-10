@@ -16,6 +16,7 @@ proxmox_host_known_stale_repository_files:
   - /etc/apt/sources.list.d/pve-enterprise.list
   - /etc/apt/sources.list.d/pve-enterprise.sources
   - /etc/apt/sources.list.d/pve-install-repo.list
+  - /etc/apt/sources.list.d/proxmox.sources
   - /etc/apt/sources.list.d/pve-no-subscription.list
   - /etc/apt/sources.list.d/tailscale.list
 proxmox_host_known_orphaned_key_files:
