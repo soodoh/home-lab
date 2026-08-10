@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+if (($# != 2)) || [[ $1 != --output ]] || [[ -z $2 ]]; then
+  echo "usage: inventory-proxmox-local-artifacts --output <new-directory>" >&2
+  exit 64
+fi
+
+output=$2
+[[ $EUID -eq 0 ]] || { echo "run this inventory on the Proxmox host as root" >&2; exit 77; }
+[[ ! -e $output ]] || { echo "refusing to overwrite existing evidence: $output" >&2; exit 73; }
+
+for command in awk basename date grep hostname install jq paste pvesm pveversion qm sha256sum sort stat; do
+  command -v "$command" >/dev/null || { echo "missing command: $command" >&2; exit 69; }
+done
+
+install -d -m 0700 -- "$output"
+{
+  printf 'captured_at_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  printf 'hostname=%s\n' "$(hostname)"
+  printf 'pveversion=%s\n' "$(pveversion)"
+} >"$output/metadata.txt"
+
+qm config 100 >"$output/qm-100.conf"
+pvesm list local >"$output/local-media.txt"
+awk 'NR > 1 && ($3 == "iso" || $3 == "vztmpl") { print $1 }' "$output/local-media.txt" |
+  jq -Rsc 'split("\n") | map(select(length > 0)) | map({volid: .})' >"$output/local-media.json"
+printf 'kind\tidentifier\tpath\tstate\tbytes\tsha256\treferences\n' >"$output/artifacts.tsv"
+
+config_references() {
+  local identifier=$1 references
+  references=$(grep -RFl -- "$identifier" /etc/pve/qemu-server /etc/pve/lxc 2>/dev/null | sort | paste -sd, - || true)
+  printf '%s' "${references:-none}"
+}
+
+record_file() {
+  local kind=$1 identifier=$2 path=$3 references state bytes digest
+  references=$(config_references "$identifier")
+  if [[ -f $path ]]; then
+    state=present
+    bytes=$(stat -c '%s' -- "$path")
+    digest=$(sha256sum -- "$path" | awk '{print $1}')
+  else
+    state=missing
+    bytes=-
+    digest=-
+  fi
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$kind" "$identifier" "$path" "$state" "$bytes" "$digest" "$references" >>"$output/artifacts.tsv"
+}
+
+for rom in /usr/share/kvm/vbios_7900xtx.bin /usr/share/kvm/vbios_raphael.bin; do
+  record_file rom "$(basename "$rom")" "$rom"
+done
+
+while IFS= read -r volume; do
+  [[ -n $volume ]] || continue
+  path=$(pvesm path "$volume")
+  record_file media "$volume" "$path"
+done < <(jq -r '.[].volid' "$output/local-media.json" | sort)
+
+(
+  cd "$output"
+  sha256sum artifacts.tsv local-media.json local-media.txt metadata.txt qm-100.conf >evidence.sha256
+)
+
+printf 'proxmox_artifact_inventory=%s\n' "$output"

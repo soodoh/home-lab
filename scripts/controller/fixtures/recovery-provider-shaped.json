@@ -109,7 +109,8 @@
           "name": "arch",
           "machine": "q35",
           "kvm_arguments": "-cpu 'host,-hypervisor,kvm=off'",
-          "boot_order": ["scsi0", "ide2", "net0"],
+          "boot_order": ["scsi0", "net0"],
+          "cdrom": [{"file_id": "none", "interface": "ide2"}],
           "scsi_hardware": "virtio-scsi-single",
           "on_boot": true,
           "started": true,
@@ -143,7 +144,7 @@
           "network_device": [{"bridge": "vmbr0", "firewall": true, "mac_address": "BC:24:11:89:19:5A", "model": "virtio"}],
           "hostpci": [
             {"device": "hostpci0", "id": null, "mapping": "coral-tpu", "rombar": true},
-            {"device": "hostpci1", "id": null, "mapping": "rx-7900-xtx", "pcie": true, "rom_file": "vbios_7900xtx.bin", "xvga": true, "rombar": true},
+            {"device": "hostpci1", "id": null, "mapping": "rx-7900-xtx", "pcie": true, "xvga": true, "rombar": true},
             {"device": "hostpci2", "id": null, "mapping": "rx-7900-xtx-audio", "pcie": true, "rombar": true}
           ],
           "usb": [

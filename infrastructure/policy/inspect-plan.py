@@ -51,6 +51,11 @@ def changed_keys(before: Any, after: Any, prefix: tuple[str, ...] = ()) -> set[t
         for key in before.keys() | after.keys():
             result |= changed_keys(before.get(key), after.get(key), prefix + (str(key),))
         return result
+    if isinstance(before, list) and isinstance(after, list) and len(before) == len(after):
+        result = set()
+        for index, (before_item, after_item) in enumerate(zip(before, after, strict=True)):
+            result |= changed_keys(before_item, after_item, prefix + (str(index),))
+        return result
     if before != after:
         return {prefix}
     return set()
@@ -74,6 +79,15 @@ def safe_protection_enable(before: Any, after: Any, path: tuple[str, ...]) -> bo
         and path[-1] == "protection"
         and value_at_path(before, path) is False
         and value_at_path(after, path) is True
+    )
+
+
+def safe_custom_rom_removal(before: Any, after: Any, path: tuple[str, ...]) -> bool:
+    return (
+        "hostpci" in path
+        and path[-1:] == ("rom_file",)
+        and isinstance(value_at_path(before, path), str)
+        and value_at_path(after, path) in (None, "")
     )
 
 
@@ -224,6 +238,7 @@ def main() -> int:
             for path in changed
             if any(part in SENSITIVE_FIELDS for part in path)
             and not safe_protection_enable(before, after, path)
+            and not safe_custom_rom_removal(before, after, path)
         )
         if sensitive:
             failures.append(f"{address}: protected field change: {', '.join(sensitive)}")

@@ -7,6 +7,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { load } = require("js-yaml");
 const Ajv2020 = require("ajv/dist/2020");
+const { validateVmArtifactReferences } = require("./controller/validate-vm-artifact-references");
 
 const root = path.resolve(__dirname, "..");
 const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
@@ -31,6 +32,13 @@ if (!validate(contract)) {
 }
 
 const failures = [];
+const proxmoxTofuRoot = path.join(root, "infrastructure/tofu/proxmox");
+const proxmoxSource = fs.readdirSync(proxmoxTofuRoot)
+  .filter((name) => name.endsWith(".tf"))
+  .sort()
+  .map((name) => fs.readFileSync(path.join(proxmoxTofuRoot, name), "utf8"))
+  .join("\n");
+failures.push(...validateVmArtifactReferences(contract, proxmoxSource));
 const coralRoot = path.join(root, "recovery/coral");
 const coralFiles = fs.readdirSync(coralRoot, { recursive: true })
   .filter((name) => fs.statSync(path.join(coralRoot, name)).isFile())

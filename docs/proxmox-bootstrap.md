@@ -77,4 +77,6 @@ Only after these checks may the steady Proxmox play set `proxmox_ssh_access_prov
 
 The guarded bootstrap and pinned Proxmox kernel/ZFS migration have been live-qualified with console-backed reboots. The host is enrolled as `tag:proxmox`, the separated service identities are active, the reviewed VFIO/IOMMU configuration is loaded, ZFS is `ONLINE`, and VM 100 is the protected managed workload.
 
+Custom GPU ROM and stale local-media retirement follows the console-backed, evidence-first procedure in [`proxmox-local-artifact-cleanup.md`](proxmox-local-artifact-cleanup.md). It is not part of steady bootstrap convergence.
+
 CT 101 and its routed-gateway role were subsequently retired through separate reviewed operations. The empty `proxmox-legacy` backend remains as a state tombstone and recovery does not recreate that container. Do not use historical CT or gateway instructions as a bootstrap target.

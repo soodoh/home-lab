@@ -14,6 +14,7 @@ expect_rejection() {
 
 python3 "$policy" "$fixtures/noop.json"
 python3 "$policy" "$fixtures/protection-enable.json"
+python3 "$policy" "$fixtures/custom-rom-removal.json"
 for fixture in delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change; do
   expect_rejection "$fixture" normal
 done

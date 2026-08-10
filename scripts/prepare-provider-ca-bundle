@@ -17,6 +17,15 @@ openssl verify -CAfile .local/provider-ca/proxmox.pem .local/provider-ca/proxmox
 if [[ -f /etc/ssl/certs/ca-certificates.crt ]]; then
   cat /etc/ssl/certs/ca-certificates.crt >>.local/provider-ca/bundle.pem
   printf '\n' >>.local/provider-ca/bundle.pem
+elif [[ $(uname -s) == Darwin ]]; then
+  command -v security >/dev/null || { echo "missing command: security" >&2; exit 69; }
+  for keychain in \
+    /System/Library/Keychains/SystemRootCertificates.keychain \
+    /Library/Keychains/System.keychain; do
+    [[ -r $keychain ]] || continue
+    security find-certificate -a -p "$keychain" >>.local/provider-ca/bundle.pem
+  done
+  printf '\n' >>.local/provider-ca/bundle.pem
 fi
 cat .local/provider-ca/proxmox.pem >>.local/provider-ca/bundle.pem
 printf '\n' >>.local/provider-ca/bundle.pem

@@ -25,7 +25,7 @@ resource "proxmox_virtual_environment_vm" "arch" {
 
   machine       = local.vm.machine
   kvm_arguments = local.vm.cpu.kvm_arguments
-  boot_order    = ["scsi0", "ide2", "net0"]
+  boot_order    = local.vm.boot_order
   scsi_hardware = "virtio-scsi-single"
   on_boot       = local.vm.on_boot
   started       = local.vm.started
@@ -43,6 +43,11 @@ resource "proxmox_virtual_environment_vm" "arch" {
     wait_for_ip {
       disabled = true
     }
+  }
+
+  cdrom {
+    file_id   = "none"
+    interface = "ide2"
   }
 
   cpu {
@@ -97,13 +102,12 @@ resource "proxmox_virtual_environment_vm" "arch" {
   }
 
   hostpci {
-    device   = "hostpci1"
-    id       = local.use_hardware_mappings ? null : local.vm.pci.gpu.bdf
-    mapping  = local.use_hardware_mappings ? local.vm.pci.gpu.mapping : null
-    pcie     = local.vm.pci.gpu.pcie
-    rom_file = local.vm.pci.gpu.rom_file
-    xvga     = local.vm.pci.gpu.xvga
-    rombar   = true
+    device  = "hostpci1"
+    id      = local.use_hardware_mappings ? null : local.vm.pci.gpu.bdf
+    mapping = local.use_hardware_mappings ? local.vm.pci.gpu.mapping : null
+    pcie    = local.vm.pci.gpu.pcie
+    xvga    = local.vm.pci.gpu.xvga
+    rombar  = true
   }
 
   hostpci {

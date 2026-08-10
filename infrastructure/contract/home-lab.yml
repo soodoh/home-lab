@@ -33,6 +33,9 @@ proxmox:
     desired_protection: true
     on_boot: true
     started: true
+    boot_order:
+      - scsi0
+      - net0
     cpu:
       cores: 24
       sockets: 1
@@ -64,7 +67,6 @@ proxmox:
         vendor_device: 1002:744c
         mapping: rx-7900-xtx
         pcie: true
-        rom_file: vbios_7900xtx.bin
         xvga: true
       gpu_audio:
         bdf: "0000:03:00.1"

@@ -19,6 +19,30 @@
     - uinput
     - uhid
 
+- name: Disable runtime power-down for the dedicated Wolf GPU
+  ansible.builtin.copy:
+    dest: /etc/modprobe.d/home-lab-amdgpu.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      options amdgpu runpm=0
+  register: arch_hardware_amdgpu_runtime_pm
+  notify: Rebuild Arch initramfs
+
+- name: Rebuild the initramfs before activating a new GPU power policy
+  ansible.builtin.meta: flush_handlers
+  when:
+    - arch_hardware_amdgpu_runtime_pm.changed
+    - not ansible_check_mode
+
+- name: Reboot the guest to activate a new GPU power policy
+  ansible.builtin.reboot:
+    reboot_timeout: 300
+  when:
+    - arch_hardware_amdgpu_runtime_pm.changed
+    - not ansible_check_mode
+
 - name: Create required hardware groups
   ansible.builtin.group:
     name: "{{ item }}"
@@ -133,6 +157,23 @@
 
 - name: Apply hardware handlers before runtime verification
   ansible.builtin.meta: flush_handlers
+
+- name: Inspect the active AMD GPU runtime power policy
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/cat
+      - /sys/module/amdgpu/parameters/runpm
+  register: arch_hardware_amdgpu_runpm_active
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode or not arch_hardware_amdgpu_runtime_pm.changed
+
+- name: Require the dedicated Wolf GPU to remain active
+  ansible.builtin.assert:
+    that:
+      - arch_hardware_amdgpu_runpm_active.stdout == '0'
+    fail_msg: "The dedicated Wolf GPU must boot with amdgpu.runpm=0."
+  when: not ansible_check_mode or not arch_hardware_amdgpu_runtime_pm.changed
 
 - name: Verify required device paths
   ansible.builtin.stat:

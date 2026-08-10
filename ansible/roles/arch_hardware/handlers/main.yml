@@ -23,3 +23,12 @@
       - --system
   changed_when: true
   listen: Apply Wolf sysctls
+
+
+- name: Rebuild Arch initramfs
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/mkinitcpio
+      - -P
+  changed_when: true
+  listen: Rebuild Arch initramfs

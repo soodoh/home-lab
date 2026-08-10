@@ -219,7 +219,6 @@
         "vendor_device": { "type": "string", "pattern": "^[0-9a-f]{4}:[0-9a-f]{4}$" },
         "mapping": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]+$" },
         "pcie": { "type": "boolean" },
-        "rom_file": { "type": "string" },
         "xvga": { "type": "boolean" },
         "required_driver": { "type": "string", "minLength": 1 }
       }
@@ -239,7 +238,7 @@
     "vm": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["vmid", "name", "hardware_attachment_mode", "desired_protection", "on_boot", "started", "cpu", "memory_mb", "machine", "smbios_uuid", "root_disk", "games_disk", "pci", "usb", "cloud_image"],
+      "required": ["vmid", "name", "hardware_attachment_mode", "desired_protection", "on_boot", "started", "boot_order", "cpu", "memory_mb", "machine", "smbios_uuid", "root_disk", "games_disk", "pci", "usb", "cloud_image"],
       "properties": {
         "vmid": { "const": 100 },
         "name": { "const": "arch" },
@@ -247,6 +246,7 @@
         "desired_protection": { "const": true },
         "on_boot": { "const": true },
         "started": { "type": "boolean" },
+        "boot_order": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^(scsi|sata|virtio|ide|net)[0-9]+$" } },
         "cpu": { "type": "object", "additionalProperties": false, "required": ["cores", "sockets", "type", "kvm_arguments"], "properties": { "cores": { "const": 24 }, "sockets": { "const": 1 }, "type": { "const": "host" }, "kvm_arguments": { "type": "string" } } },
         "memory_mb": { "const": 65536 },
         "machine": { "const": "q35" },
