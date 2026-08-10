@@ -54,12 +54,12 @@
     - role: arch_hardware
       tags:
         - hardware
-    - role: hardware
-      tags:
-        - hardware
     - role: coral
       tags:
         - coral
+    - role: hardware
+      tags:
+        - hardware
     - role: ssh
       vars:
         ssh_service_name: sshd.service

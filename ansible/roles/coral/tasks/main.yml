@@ -11,6 +11,125 @@
       - arch.coral.package_sha256 is match('^[0-9a-f]{64}$')
     fail_msg: "Coral local build identity is incomplete or invalid."
 
+- name: Calculate the tracked Coral source-tree checksum
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - |
+        import hashlib
+        import pathlib
+        import sys
+
+        root = pathlib.Path(sys.argv[1])
+        files = sorted(path for path in root.rglob("*") if path.is_file())
+        digest = hashlib.sha256()
+        for path in files:
+            name = path.relative_to(root).as_posix()
+            digest.update(name.encode())
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+        print(digest.hexdigest())
+      - "{{ role_path }}/../../../recovery/coral"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: coral_source_tree_checksum
+  changed_when: false
+  check_mode: false
+
+- name: Require the exact tracked Coral source tree
+  ansible.builtin.assert:
+    that:
+      - coral_source_tree_checksum.stdout == arch.coral.source_tree_sha256
+    fail_msg: "Tracked Coral sources differ from arch.coral.source_tree_sha256."
+
+- name: Inspect headers for the running kernel
+  ansible.builtin.stat:
+    path: "/usr/lib/modules/{{ ansible_facts.kernel }}/build"
+    follow: true
+  register: coral_kernel_headers
+
+- name: Verify Coral build packages are installed
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/pacman
+      - -Q
+      - dkms
+      - linux-headers
+      - pciutils
+  register: coral_build_prerequisites
+  failed_when: false
+  changed_when: false
+  check_mode: false
+
+- name: Verify Docker is ready for the reproducible Coral build
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - info
+  register: coral_docker_info
+  failed_when: false
+  changed_when: false
+  check_mode: false
+
+- name: Inspect the attached Coral PCI device
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/lspci
+      - -Dnn
+      - -d
+      - "{{ proxmox.vm.pci.coral.vendor_device }}"
+  register: coral_pci_device
+  failed_when: false
+  changed_when: false
+  check_mode: false
+
+- name: Require Coral build and hardware prerequisites
+  ansible.builtin.assert:
+    that:
+      - coral_kernel_headers.stat.isdir | default(false)
+      - coral_build_prerequisites.rc == 0
+      - coral_docker_info.rc == 0
+      - coral_pci_device.stdout | length > 0
+    fail_msg: "Running-kernel headers, build packages, Docker, or the Coral PCI device are unavailable."
+
+- name: Create the Coral device group
+  ansible.builtin.group:
+    name: apex
+    state: present
+
+- name: Grant the workload user Coral device access
+  ansible.builtin.user:
+    name: "{{ arch.user }}"
+    append: true
+    groups:
+      - apex
+
+- name: Keep Coral modules persistent
+  ansible.builtin.copy:
+    dest: /etc/modules-load.d/home-lab-coral.conf
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      gasket
+      apex
+
+- name: Install Coral device permissions
+  ansible.builtin.copy:
+    dest: /etc/udev/rules.d/70-home-lab-coral.rules
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      SUBSYSTEM=="apex", KERNEL=="apex_0", GROUP="apex", MODE="0660"
+  register: coral_udev_rule
+  notify: Reload Coral rules
+
+- name: Apply Coral device rules before runtime reconciliation
+  ansible.builtin.meta: flush_handlers
+
 - name: Derive the exact Coral build marker
   ansible.builtin.set_fact:
     coral_build_marker_content: >-
@@ -137,26 +256,96 @@
           - "{{ coral_build_workspace.path }}/output/gasket-dkms-git.pkg.tar.zst"
       changed_when: true
 
-    - name: Create protected local build marker directory
-      ansible.builtin.file:
-        path: /var/lib/home-lab
-        state: directory
-        owner: root
-        group: root
-        mode: "0700"
-
-    - name: Record the installed Coral build identity
-      ansible.builtin.copy:
-        content: "{{ coral_build_marker_content | trim }}\n"
-        dest: /var/lib/home-lab/coral-build.json
-        owner: root
-        group: root
-        mode: "0600"
   always:
     - name: Remove Coral build workspace
       ansible.builtin.file:
         path: "{{ coral_build_workspace.path | default('/var/tmp/home-lab-coral-build-absent') }}"
         state: absent
+
+- name: Inspect Frigate state before activating rebuilt Coral modules
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - inspect
+      - --format
+      - "{% raw %}{{.State.Running}}{% endraw %}"
+      - frigate
+  register: coral_frigate_running_before_reload
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  when:
+    - coral_build_required | bool
+    - not ansible_check_mode
+
+- name: Inspect loaded Coral modules before activation
+  ansible.builtin.stat:
+    path: "/sys/module/{{ item }}"
+  loop:
+    - apex
+    - gasket
+  register: coral_loaded_modules_before_reload
+  when:
+    - coral_build_required | bool
+    - not ansible_check_mode
+
+- name: Activate the rebuilt Coral modules safely
+  when:
+    - coral_build_required | bool
+    - not ansible_check_mode
+  block:
+    - name: Stop Frigate before replacing loaded Coral modules
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - stop
+          - frigate
+      changed_when: true
+      when: coral_frigate_running_before_reload.stdout | default('false') == 'true'
+
+    - name: Unload the previously active Coral modules
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/modprobe
+          - --remove
+          - "{{ item }}"
+      loop:
+        - apex
+        - gasket
+      loop_control:
+        index_var: coral_module_index
+      changed_when: true
+      when: coral_loaded_modules_before_reload.results[coral_module_index].stat.exists
+
+    - name: Load the rebuilt Coral modules
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/modprobe
+          - "{{ item }}"
+      loop:
+        - gasket
+        - apex
+      changed_when: true
+  always:
+    - name: Ensure Coral modules are loaded after activation
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/modprobe
+          - "{{ item }}"
+      loop:
+        - gasket
+        - apex
+      changed_when: false
+
+    - name: Restore Frigate after Coral module activation
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - start
+          - frigate
+      changed_when: true
+      when: coral_frigate_running_before_reload.stdout | default('false') == 'true'
+
 - name: Load the exact installed Coral modules
   ansible.builtin.command:
     argv:
@@ -165,6 +354,15 @@
   loop:
     - gasket
     - apex
+  changed_when: false
+  when:
+    - not ansible_check_mode or coral_installed_package.stdout == 'gasket-dkms-git ' ~ arch.coral.package_version
+
+- name: Wait for Coral device events to settle
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/udevadm
+      - settle
   changed_when: false
   when:
     - not ansible_check_mode or coral_installed_package.stdout == 'gasket-dkms-git ' ~ arch.coral.package_version
@@ -207,6 +405,36 @@
   when:
     - not ansible_check_mode or coral_installed_package_after.stdout == 'gasket-dkms-git ' ~ arch.coral.package_version
 
+- name: Read installed Coral module source versions
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/modinfo
+      - -F
+      - srcversion
+      - "{{ item }}"
+  loop:
+    - gasket
+    - apex
+  register: coral_installed_module_srcversions
+  changed_when: false
+  check_mode: false
+  when:
+    - not ansible_check_mode or coral_installed_package_after.stdout == 'gasket-dkms-git ' ~ arch.coral.package_version
+
+- name: Read active Coral module source versions
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/cat
+      - "/sys/module/{{ item }}/srcversion"
+  loop:
+    - gasket
+    - apex
+  register: coral_active_module_srcversions
+  changed_when: false
+  check_mode: false
+  when:
+    - not ansible_check_mode or coral_installed_package_after.stdout == 'gasket-dkms-git ' ~ arch.coral.package_version
+
 - name: Read Coral PCI binding
   ansible.builtin.command:
     argv:
@@ -231,13 +459,23 @@
   ansible.builtin.assert:
     that:
       - coral_installed_package_after.stdout == 'gasket-dkms-git ' ~ arch.coral.package_version
-      - "'installed' in coral_dkms_status.stdout"
+      - >-
+        ('gasket/' ~ arch.coral.dkms_version ~ ', ' ~ ansible_facts.kernel ~ ', ' ~
+        ansible_facts.architecture ~ ': installed') in coral_dkms_status.stdout_lines
       - ansible_facts.kernel in coral_apex_vermagic.stdout
+      - coral_installed_module_srcversions.results[0].stdout | length > 0
+      - coral_installed_module_srcversions.results[1].stdout | length > 0
+      - coral_installed_module_srcversions.results[0].stdout == coral_active_module_srcversions.results[0].stdout
+      - coral_installed_module_srcversions.results[1].stdout == coral_active_module_srcversions.results[1].stdout
       - "'Kernel driver in use: apex' in coral_pci_binding.stdout"
-      - coral_device.stat.exists
-      - coral_device.stat.gr_name == 'apex'
-      - coral_device.stat.mode == '0660'
-    fail_msg: "Coral package, DKMS build, binding, vermagic, or permissions differ."
+      - >-
+        (ansible_check_mode and coral_udev_rule.changed) or
+        (
+          coral_device.stat.exists and
+          coral_device.stat.gr_name == 'apex' and
+          coral_device.stat.mode == '0660'
+        )
+    fail_msg: "Coral package, exact DKMS state, loaded modules, binding, vermagic, or permissions differ."
   when:
     - not ansible_check_mode or coral_installed_package_after.stdout == 'gasket-dkms-git ' ~ arch.coral.package_version
 
@@ -252,6 +490,9 @@
   register: coral_frigate_health
   changed_when: false
   check_mode: false
+  retries: 12
+  delay: 5
+  until: coral_frigate_health.stdout == 'healthy'
   when: coral_verify_frigate | bool
 
 - name: Assert Frigate health
@@ -259,3 +500,25 @@
     that:
       - coral_frigate_health.stdout == 'healthy'
   when: coral_verify_frigate | bool
+
+- name: Create protected local build marker directory
+  ansible.builtin.file:
+    path: /var/lib/home-lab
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when:
+    - coral_build_required | bool
+    - not ansible_check_mode
+
+- name: Record the activated Coral build identity
+  ansible.builtin.copy:
+    content: "{{ coral_build_marker_content | trim }}\n"
+    dest: /var/lib/home-lab/coral-build.json
+    owner: root
+    group: root
+    mode: "0600"
+  when:
+    - coral_build_required | bool
+    - not ansible_check_mode

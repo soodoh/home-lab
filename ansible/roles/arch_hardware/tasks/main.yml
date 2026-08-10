@@ -6,8 +6,6 @@
     group: root
     mode: "0644"
     content: |
-      apex
-      gasket
       uhid
       uinput
 
@@ -18,8 +16,6 @@
       - "{{ item }}"
   changed_when: false
   loop:
-    - gasket
-    - apex
     - uinput
     - uhid
 
@@ -28,7 +24,6 @@
     name: "{{ item }}"
     state: present
   loop:
-    - apex
     - input
     - render
     - uucp
@@ -46,7 +41,6 @@
     name: "{{ arch.user }}"
     append: true
     groups:
-      - apex
       - docker
       - input
       - render
@@ -114,7 +108,6 @@
     group: root
     mode: "0644"
     content: |
-      SUBSYSTEM=="apex", KERNEL=="apex_0", GROUP="apex", MODE="0660"
       KERNEL=="uinput", GROUP="input", MODE="0660"
       KERNEL=="uhid", GROUP="input", MODE="0660"
       SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", GROUP="uucp", MODE="0660"
@@ -145,7 +138,6 @@
   ansible.builtin.stat:
     path: "{{ item }}"
   loop:
-    - /dev/apex_0
     - /dev/dri/renderD128
     - /dev/zigbee
     - /dev/zwave
@@ -157,13 +149,12 @@
   ansible.builtin.assert:
     that:
       - arch_hardware_devices.results[0].stat.exists
-      - arch_hardware_devices.results[1].stat.exists
+      - arch_hardware_devices.results[3].stat.exists
       - arch_hardware_devices.results[4].stat.exists
-      - arch_hardware_devices.results[5].stat.exists
       - >-
         (ansible_check_mode and arch_hardware_usb_rules.changed) or
         (
-          arch_hardware_devices.results[2].stat.exists and
-          arch_hardware_devices.results[3].stat.exists
+          arch_hardware_devices.results[1].stat.exists and
+          arch_hardware_devices.results[2].stat.exists
         )
-    fail_msg: "A required Coral/GPU/USB/Wolf device is absent."
+    fail_msg: "A required GPU, USB, or Wolf device is absent."

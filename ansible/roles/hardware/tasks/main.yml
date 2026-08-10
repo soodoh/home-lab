@@ -64,4 +64,4 @@
       - audit_expected_dkms_kernel in hardware_dkms_status.stdout
       - "'installed' in hardware_dkms_status.stdout"
     fail_msg: >-
-      The approved Gasket DKMS build is missing. The patched AUR package is deliberately not automated.
+      The Coral role did not converge the approved Gasket DKMS build for the running kernel.

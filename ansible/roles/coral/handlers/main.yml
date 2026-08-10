@@ -1,0 +1,18 @@
+---
+- name: Reload Coral rules
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/udevadm
+      - control
+      - --reload-rules
+  changed_when: true
+  listen: Reload Coral rules
+
+- name: Trigger Coral rules
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/udevadm
+      - trigger
+      - --subsystem-match=apex
+  changed_when: true
+  listen: Reload Coral rules

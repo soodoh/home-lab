@@ -29,6 +29,7 @@
       - linux-headers
       - nfs-utils
       - openssh
+      - pciutils
       - qemu-guest-agent
       - smartmontools
       - sudo
