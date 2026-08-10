@@ -33,19 +33,22 @@ class RootLocalAuditTests(unittest.TestCase):
                 "preserve_paths": [str(preserved)],
                 "remove_paths": [str(removable)],
             }
-            self.assertEqual(MODULE.audit(policy), [str(root / "local/bin")])
+            self.assertEqual(MODULE.audit(policy), [str(unknown)])
 
-    def test_reports_unknown_top_level_directory(self) -> None:
+    def test_reports_unknown_leaf_paths_and_ignores_empty_directories(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             application = root / "local/application"
-            application.mkdir(parents=True)
+            unknown = application / "bin/custom-tool"
+            unknown.parent.mkdir(parents=True)
+            unknown.write_text("unknown")
+            (root / "local/empty").mkdir()
             policy = {
                 "inspect_roots": [str(root / "local")],
                 "preserve_paths": [],
                 "remove_paths": [],
             }
-            self.assertEqual(MODULE.audit(policy), [str(application)])
+            self.assertEqual(MODULE.audit(policy), [str(unknown)])
 
 
 if __name__ == "__main__":

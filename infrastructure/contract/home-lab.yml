@@ -249,23 +249,56 @@ proxmox:
     preserve_paths:
       - /root/.ssh
       - /root/.config/home-lab
+      - /usr/local/man
     remove_paths:
       - /root/.bun
       - /root/.cargo
-      - /root/.rustup
-      - /root/.pyenv
-      - /root/.nvm
-      - /root/.fnm
-      - /root/go
-      - /root/snap
+      - /root/.config/.gitignore_global
+      - /root/.config/atuin
+      - /root/.config/efm-langserver
       - /root/.config/fish
-      - /root/.local/share/fish
+      - /root/.config/ghostty
+      - /root/.config/github-copilot
+      - /root/.config/go
+      - /root/.config/lazygit
+      - /root/.config/mcphub
+      - /root/.config/nvim
+      - /root/.config/sesh
+      - /root/.config/starship.toml
+      - /root/.config/tmux
+      - /root/.config/yazi
+      - /root/.config/z
+      - /root/.config/zsh
+      - /root/.config/zsh-plugins
+      - /root/.fnm
       - /root/.local/bin/bun
       - /root/.local/bin/bunx
+      - /root/.local/bin/claude
+      - /root/.local/share/Trash
+      - /root/.local/share/antidote
+      - /root/.local/share/atuin
       - /root/.local/share/bun
+      - /root/.local/share/claude
+      - /root/.local/share/fish
+      - /root/.local/share/fnm
+      - /root/.local/share/nvim
+      - /root/.local/share/pnpm
       - /root/.local/share/pyenv
+      - /root/.local/share/zoxide
+      - /root/.local/state
+      - /root/.nvm
+      - /root/.pyenv
+      - /root/.rustup
+      - /root/go
+      - /root/snap
       - /usr/local/bin/bun
       - /usr/local/bin/bunx
+      - /usr/local/bin/nvim
+      - /usr/local/bin/starship
+      - /usr/local/share/applications/nvim.desktop
+      - /usr/local/share/icons/hicolor/128x128/apps/nvim.png
+      - /usr/local/share/man/man1/nvim.1
+      - /usr/local/share/nvim
     inspect_roots:
       - /root/.config
       - /root/.local

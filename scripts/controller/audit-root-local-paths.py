@@ -20,9 +20,6 @@ def covered(path: Path, policies: list[Path]) -> bool:
     return any(path == policy or policy in path.parents for policy in policies)
 
 
-def contains_policy(path: Path, policies: list[Path]) -> bool:
-    return any(path == policy or path in policy.parents for policy in policies)
-
 
 def audit(policy: dict[str, object]) -> list[str]:
     inspect_roots = load_paths(policy, "inspect_roots")
@@ -34,7 +31,7 @@ def audit(policy: dict[str, object]) -> list[str]:
     def inspect(path: Path) -> None:
         if covered(path, covered_paths):
             return
-        if path.is_dir() and not path.is_symlink() and contains_policy(path, covered_paths):
+        if path.is_dir() and not path.is_symlink():
             for entry in sorted(path.iterdir(), key=lambda item: item.name):
                 inspect(entry)
             return
