@@ -96,25 +96,108 @@ proxmox:
     prohibited:
       - build-essential
       - cargo
+      - cmake
+      - debian-faq
+      - devscripts
       - dh-dkms
       - dkms
+      - doc-debian
+      - fd-find
       - fish
+      - fzf
+      - gasket-dkms
       - golang
       - htop
-      - gasket-dkms
+      - imagemagick
+      - inetutils-telnet
+      - lazygit
+      - libbz2-dev
       - libedgetpu1-std
+      - libffi-dev
+      - libgdbm-dev
+      - liblzma-dev
+      - libreadline-dev
+      - libsqlite3-dev
+      - libssl-dev
+      - libxml2-dev
+      - libxmlsec1-dev
       - linux-headers-amd64
       - linux-image-amd64
+      - llvm
+      - lsof
+      - lua-lpeg
+      - luajit
+      - lzma-dev
+      - memtest86+
+      - nano
       - neovim
+      - netcat-traditional
+      - ninja-build
+      - nmap
+      - nmap-common
       - nodejs
       - npm
+      - python3-neovim
       - python3-pip
+      - reportbug
+      - ripgrep
       - rustc
+      - rustup
       - snapd
+      - software-properties-common
+      - stow
+      - strace
+      - tcl-dev
+      - tcpdump
+      - time
+      - tk-dev
       - tmux
+      - traceroute
+      - tree-sitter-cli
+      - usbutils
+      - wamerican
+      - zlib1g-dev
+      - zoxide
+      - zsh
     permitted_manual:
+      - acl
       - amd64-microcode
+      - apt-listchanges
+      - attr
+      - bash
+      - bc
+      - bind9-dnsutils
+      - bsdutils
+      - btrfs-progs
+      - console-setup
+      - dash
+      - diffutils
+      - dmidecode
+      - efibootmgr
+      - eject
+      - fdisk
+      - findutils
+      - gcc-12-base
+      - glusterfs-client
+      - grep
+      - grub-efi-amd64
+      - gzip
+      - hostname
+      - init
+      - iputils-ping
+      - kbd
+      - ksm-control-daemon
+      - mawk
+      - mokutil
+      - ncurses-bin
       - proxmox-default-kernel
+      - proxmox-headers-6.14
+      - pve-headers
+      - shim-signed
+      - spl
+      - tasksel
+      - util-linux
+      - xfsprogs
   kernels:
     current: 7.0.14-8-pve
     fallback: 6.14.11-4-pve
