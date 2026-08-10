@@ -6,20 +6,6 @@
       - ansible_facts.virtualization_role != 'guest'
     fail_msg: "This role may run only on the Proxmox host."
 
-- name: Install the PVE no-subscription repository definition
-  ansible.builtin.copy:
-    dest: /etc/apt/sources.list.d/pve-no-subscription.sources
-    owner: root
-    group: root
-    mode: "0644"
-    content: |
-      Types: deb
-      URIs: http://download.proxmox.com/debian/pve
-      Suites: trixie
-      Components: pve-no-subscription
-      Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
-  register: proxmox_host_repository
-
 - name: Install the pinned Tailscale repository signing key
   ansible.builtin.get_url:
     url: https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg
@@ -30,24 +16,91 @@
     checksum: sha256:3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39
   register: proxmox_host_tailscale_key
 
-- name: Install the pinned Tailscale repository definition
-  ansible.builtin.get_url:
-    url: https://pkgs.tailscale.com/stable/debian/trixie.tailscale-keyring.list
-    dest: /etc/apt/sources.list.d/tailscale.list
+- name: Install each canonical Deb822 repository definition
+  ansible.builtin.copy:
+    dest: "{{ item.file }}"
     owner: root
     group: root
     mode: "0644"
-    checksum: sha256:5a1b21b30892bf22fb5d7c4f52fefe9b65efda2100e82abba2e0849da2a2264b
-  register: proxmox_host_tailscale_repository
+    content: |
+      Types: {{ item.types | join(' ') }}
+      URIs: {{ item.uris | join(' ') }}
+      Suites: {{ item.suites | join(' ') }}
+      Components: {{ item.components | join(' ') }}
+      Signed-By: {{ item.signed_by }}
+  loop: "{{ proxmox.apt.repositories }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: proxmox_host_repository_results
+
+- name: Keep the legacy aggregate source file inactive
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list
+    owner: root
+    group: root
+    mode: "0644"
+    content: "# Repository definitions are managed in /etc/apt/sources.list.d/*.sources.\n"
+  register: proxmox_host_legacy_source_list
+
+- name: Remove only known stale or duplicate repository definitions
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ proxmox_host_known_stale_repository_files }}"
+  register: proxmox_host_stale_repository_cleanup
+
+- name: Remove only known orphaned third-party signing keys
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ proxmox_host_known_orphaned_key_files }}"
+  register: proxmox_host_orphaned_key_cleanup
+
+- name: Inventory active APT source definition files
+  ansible.builtin.shell: |
+    set -euo pipefail
+    shopt -s nullglob
+    for file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+      [[ -f $file ]] || continue
+      if /usr/bin/awk '!/^[[:space:]]*(#|$)/ {found=1; exit} END {exit !found}' "$file"; then
+        printf '%s\n' "$file"
+      fi
+    done
+  args:
+    executable: /bin/bash
+  register: proxmox_host_active_repository_files
+  changed_when: false
+  check_mode: false
+
+- name: Reject future unapproved APT source definitions
+  ansible.builtin.assert:
+    that:
+      - >-
+        proxmox_host_active_repository_files.stdout_lines |
+        difference((proxmox.apt.repositories | map(attribute='file') | list) +
+                   proxmox_host_known_stale_repository_files) |
+        length == 0
+    fail_msg: "Unapproved APT source URI, suite, component, signing key, or definition file detected."
+
+- name: Validate the final active APT source file set after apply
+  ansible.builtin.assert:
+    that:
+      - >-
+        proxmox_host_active_repository_files.stdout_lines | sort ==
+        proxmox.apt.repositories | map(attribute='file') | list | sort
+    fail_msg: "Canonical APT repository files did not converge."
+  when: not ansible_check_mode
 
 - name: Install required host packages without upgrading the distribution
   ansible.builtin.apt:
     name: "{{ proxmox_packages }}"
     state: present
     update_cache: >-
-      {{ proxmox_host_repository.changed or
+      {{ proxmox_host_repository_results.changed or
          proxmox_host_tailscale_key.changed or
-         proxmox_host_tailscale_repository.changed }}
+         proxmox_host_legacy_source_list.changed or
+         proxmox_host_stale_repository_cleanup.changed or
+         proxmox_host_orphaned_key_cleanup.changed }}
   when: not ansible_check_mode
 
 - name: Keep required host services enabled and started

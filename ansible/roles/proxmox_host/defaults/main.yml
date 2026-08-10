@@ -1,0 +1,27 @@
+---
+proxmox_host_known_stale_repository_files:
+  - /etc/apt/sources.list.d/ceph.list
+  - /etc/apt/sources.list.d/ceph.sources
+  - /etc/apt/sources.list.d/coral-edgetpu.list
+  - /etc/apt/sources.list.d/coral-edgetpu.sources
+  - /etc/apt/sources.list.d/griffo.list
+  - /etc/apt/sources.list.d/griffo.sources
+  - /etc/apt/sources.list.d/home:Griffo.list
+  - /etc/apt/sources.list.d/home:griffo.list
+  - /etc/apt/sources.list.d/neovim.list
+  - /etc/apt/sources.list.d/neovim.sources
+  - /etc/apt/sources.list.d/ppa_neovim-ppa_stable.list
+  - /etc/apt/sources.list.d/pve-enterprise.list
+  - /etc/apt/sources.list.d/pve-enterprise.sources
+  - /etc/apt/sources.list.d/pve-install-repo.list
+  - /etc/apt/sources.list.d/pve-no-subscription.list
+  - /etc/apt/sources.list.d/tailscale.list
+proxmox_host_known_orphaned_key_files:
+  - /etc/apt/trusted.gpg.d/coral-edgetpu.gpg
+  - /etc/apt/trusted.gpg.d/griffo.gpg
+  - /etc/apt/trusted.gpg.d/neovim.gpg
+  - /etc/apt/trusted.gpg.d/home_griffo.gpg
+  - /etc/apt/trusted.gpg.d/launchpad_ppa_neovim-ppa_stable.gpg
+  - /usr/share/keyrings/coral-edgetpu-keyring.gpg
+  - /usr/share/keyrings/griffo-archive-keyring.gpg
+  - /usr/share/keyrings/neovim-archive-keyring.gpg

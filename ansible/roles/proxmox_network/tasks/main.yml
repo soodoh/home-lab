@@ -1,4 +1,56 @@
 ---
+- name: Inspect completion of single-file network ownership migration
+  ansible.builtin.stat:
+    path: "{{ proxmox_network_single_file_marker }}"
+    get_checksum: false
+  register: proxmox_network_single_file_state
+
+- name: Inventory active network snippets without changing them
+  ansible.builtin.shell: |
+    set -euo pipefail
+    shopt -s nullglob
+    for file in "{{ network.ownership.snippets_directory }}"/*; do
+      [[ -f $file && ! -L $file ]] || continue
+      if /usr/bin/awk '!/^[[:space:]]*(#|$)/ {found=1; exit} END {exit !found}' "$file"; then
+        /usr/bin/sha256sum -- "$file"
+      fi
+    done
+  args:
+    executable: /bin/bash
+  register: proxmox_network_active_snippets
+  changed_when: false
+  check_mode: false
+
+- name: Report active snippets before the gated migration
+  ansible.builtin.debug:
+    msg: "Active interfaces.d snippets require checksum review before single-file migration."
+  changed_when: true
+  when:
+    - proxmox_network_active_snippets.stdout_lines | length > 0
+    - not (proxmox_network_single_file_state.stat.isreg | default(false))
+    - not (proxmox_network_snippet_migration_confirmed | bool)
+
+- name: Reject active snippets after single-file ownership is established
+  ansible.builtin.assert:
+    that:
+      - proxmox_network_active_snippets.stdout_lines | length == 0
+    fail_msg: "Unexpected active interfaces.d snippet detected; report it instead of deleting it."
+  when: proxmox_network_single_file_state.stat.isreg | default(false)
+
+- name: Validate each explicitly reviewed migration snippet record
+  ansible.builtin.assert:
+    that:
+      - item is match('^[0-9a-f]{64}  /etc/network/interfaces\\.d/[^/\\s]+$')
+    fail_msg: "Reviewed network snippets must use exact 'SHA256  /etc/network/interfaces.d/name' records."
+  loop: "{{ proxmox_network_reviewed_active_snippets }}"
+  when: proxmox_network_snippet_migration_confirmed | bool
+
+- name: Require the active snippet inventory to match the reviewed migration set
+  ansible.builtin.assert:
+    that:
+      - proxmox_network_active_snippets.stdout_lines | sort == proxmox_network_reviewed_active_snippets | sort
+    fail_msg: "Active interfaces.d content differs from the exact reviewed migration inventory."
+  when: proxmox_network_snippet_migration_confirmed | bool
 - name: Inspect the active Proxmox management address
   ansible.builtin.command:
     argv:
@@ -37,6 +89,16 @@
   register: proxmox_network_config
   when: proxmox_network_apply_confirmed | bool
 
+- name: Remove only exact reviewed snippets after rendering the main file
+  ansible.builtin.file:
+    path: "{{ item.split()[1] }}"
+    state: absent
+  loop: "{{ proxmox_network_reviewed_active_snippets }}"
+  register: proxmox_network_snippet_cleanup
+  when:
+    - proxmox_network_apply_confirmed | bool
+    - proxmox_network_snippet_migration_confirmed | bool
+
 - name: Validate and reload changed network configuration
   ansible.builtin.command:
     argv:
@@ -45,7 +107,7 @@
   changed_when: true
   when:
     - proxmox_network_apply_confirmed | bool
-    - proxmox_network_config.changed
+    - proxmox_network_config.changed or (proxmox_network_snippet_cleanup.changed | default(false))
 
 - name: Verify management address after network convergence
   ansible.builtin.command:
@@ -66,3 +128,27 @@
       - network.proxmox.ipv4.split('/')[0] in proxmox_network_management_address_after.stdout
     fail_msg: "Management address verification failed; use console rollback."
   when: proxmox_network_apply_confirmed | bool
+
+- name: Ensure the home-lab state directory exists for network ownership
+  ansible.builtin.file:
+    path: "{{ proxmox_network_single_file_marker | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+  when:
+    - not ansible_check_mode
+    - proxmox_network_apply_confirmed | bool
+    - proxmox_network_snippet_migration_confirmed | bool
+
+- name: Record successful single-file network ownership migration
+  ansible.builtin.copy:
+    dest: "{{ proxmox_network_single_file_marker }}"
+    owner: root
+    group: root
+    mode: "0640"
+    content: "owner={{ network.ownership.interfaces_file }}\n"
+  when:
+    - not ansible_check_mode
+    - proxmox_network_apply_confirmed | bool
+    - proxmox_network_snippet_migration_confirmed | bool
