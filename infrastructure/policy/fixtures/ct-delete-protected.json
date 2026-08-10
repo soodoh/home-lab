@@ -1,1 +1,0 @@
-{"format_version":"1.2","resource_changes":[{"address":"proxmox_virtual_environment_container.tailscale_gateway[0]","type":"proxmox_virtual_environment_container","change":{"actions":["delete"],"before":{"vm_id":101,"protection":true},"after":null}}]}

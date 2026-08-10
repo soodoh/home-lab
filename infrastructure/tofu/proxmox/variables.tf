@@ -15,23 +15,12 @@ variable "games_disk_by_id" {
 
 variable "phase" {
   type    = string
-  default = "adoption"
+  default = "steady"
 
   validation {
-    condition     = contains(["adoption", "steady", "recovery"], var.phase)
-    error_message = "phase must be adoption, steady, or recovery."
+    condition     = contains(["steady", "recovery"], var.phase)
+    error_message = "phase must be steady or recovery."
   }
-}
-
-variable "use_hardware_mappings" {
-  type    = bool
-  default = false
-}
-
-variable "manage_hardware_mappings" {
-  type        = bool
-  default     = false
-  description = "Root-PAM-only migration gate. Never enable during adoption."
 }
 
 variable "enable_qualification" {

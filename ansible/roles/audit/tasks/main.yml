@@ -5,8 +5,7 @@
       - ansible_facts.distribution == audit_expected_distribution
       - ansible_facts.kernel == audit_expected_running_kernel
     fail_msg: >-
-      Phase 0 stop gate: observed OS or running kernel differs from the approved baseline recorded at
-      {{ audit_baseline_observed_at }}.
+      Phase 0 stop gate: observed OS or running kernel differs from the authoritative infrastructure contract.
 
 - name: Gather installed package facts
   ansible.builtin.package_facts:

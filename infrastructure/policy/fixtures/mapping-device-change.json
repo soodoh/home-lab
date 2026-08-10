@@ -1,1 +1,0 @@
-{"format_version":"1.2","resource_changes":[{"address":"proxmox_hardware_mapping_pci.device[\"gpu\"]","type":"proxmox_hardware_mapping_pci","change":{"actions":["create"],"before":null,"after":{"name":"unrelated","map":[{"id":"ffff:ffff","node":"other"}]}}}]}

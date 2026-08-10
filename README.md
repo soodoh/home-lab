@@ -2,13 +2,13 @@
 
 ## Infrastructure reconciliation and recovery
 
-The authoritative desired-state contract is [`infrastructure/contract/home-lab.yml`](infrastructure/contract/home-lab.yml). Independent OpenTofu roots keep AWS foundation, Proxmox VM 100, protected legacy CT 101, Omada, Tailscale, and GitHub state isolated. [`scripts/reconcile-infrastructure`](scripts/reconcile-infrastructure) creates policy-inspected saved plans, applies only those exact plans, serializes each root with native OpenTofu S3 locks plus GitHub/host concurrency controls, runs reproducible Ansible checks, deploys the exact Compose artifact, and requires post-apply no-op/audit results.
+The authoritative desired-state contract is [`infrastructure/contract/home-lab.yml`](infrastructure/contract/home-lab.yml). OpenTofu owns isolated infrastructure roots, Ansible owns Proxmox and Arch host configuration, and Compose owns applications. The only controller operations are `steady` and `recovery`; use the guarded workflow documented in [`docs/local-controller.md`](docs/local-controller.md).
 
-No apply is implicit. Storage imports, network/firewall changes, passthrough mapping migrations, critical-data restore, and CT decommission each retain dedicated confirmation gates. See [`recovery/README.md`](recovery/README.md) for the fresh-Proxmox recovery order and unresolved operational inputs.
+[`scripts/local-controller`](scripts/local-controller) requires a clean committed revision, separate protected plan/apply credentials, policy-inspected saved plans, manifest-bound single-use approval, and a controller-wide apply lock. Apply consumes the exact saved plans without replanning, preserves native S3 lockfiles and Tailscale ETag/SHA concurrency checks, deploys the exact Compose artifact, and finishes with OpenTofu and Ansible no-op verification.
+
+Steady reconciliation covers AWS foundation, the empty legacy-CT tombstone, Proxmox VM 100, Omada, and Tailscale. Recovery deliberately omits the legacy tombstone and uses the active AWS, Proxmox, Omada, and Tailscale roots plus guarded host and Compose restoration. See [`docs/infrastructure-reconciliation.md`](docs/infrastructure-reconciliation.md), [`recovery/README.md`](recovery/README.md), and [`docs/qualification-status.md`](docs/qualification-status.md).
 
 The PostgreSQL 18 image and storage-layout change for Authentik requires the guarded [`docs/authentik-postgres-18-migration.md`](docs/authentik-postgres-18-migration.md) dump-and-restore procedure before Compose convergence.
-
-Hardware mapping conversion is a dedicated migration: run the reconciler with `--phase steady --network-migration`, require every non-Proxmox root and all Ansible/Compose checks to be no-ops, then retain `PROXMOX_HARDWARE_MAPPINGS_ENABLED=true` for subsequent steady plans.
 
 ## Coral Edge TPU driver on Linux 7.1+
 

@@ -1,36 +1,15 @@
 # Trusted local controller
 
-Paul's MacBook is the interactive infrastructure controller. GitHub is only a Git remote; branch names, pull requests, `main`, and remote refs are not authorization boundaries. Any clean committed revision may be planned and applied.
+Paul's MacBook is the interactive infrastructure controller. GitHub is only the Git remote; branches, pull requests, `main`, and remote refs are not authorization boundaries. Any clean committed revision may be planned and applied.
 
-## Safety boundary
+## Supported operations
 
-- The complete working tree, including untracked files, must be clean.
-- The saved manifest records the exact commit, operation, Compose artifact hash, and every plan hash.
-- Plan and apply use separate mode-`0600` JSON credential files.
-- Apply verifies the exact saved plans without replanning and atomically consumes the approval before its first apply attempt.
-- Native OpenTofu S3 lockfiles and host-side mutation locks serialize changes.
-- Each apply requires a local manifest-bound approval; CT unprotection and deletion remain separate approvals.
-- Plans remain under the ignored `.reconcile/` directory on the FileVault-protected controller.
+The public controller supports only two operations:
 
-## Protected controller configuration
+- `steady`: reconcile the existing home lab.
+- `recovery`: rebuild the active infrastructure and restore workloads through the guarded recovery path.
 
-Create `~/.config/home-lab/controller` with mode `0700`. The controller reads:
-
-- `plan-credentials.json`
-- `apply-credentials.json`
-- `roles-anywhere-plan.pem` and its private key
-- `roles-anywhere-apply.pem` and its private key
-- the local Roles Anywhere CA material
-- `bin/aws_signing_helper`
-
-Credential JSON is an object of environment variable names and string values. It contains protected provider values such as the backend identity, provider CA PEMs, provider endpoints, and separate provider credentials. Never commit, print, pass, or copy these values into command arguments or logs.
-
-AWS uses separate, independently verified IAM Roles Anywhere certificates and profiles. The former hosted OIDC provider and DynamoDB lease are retired, and the foundation is converged under native S3 lockfiles.
-Tailscale uses distinct local OAuth clients for plan and apply; the apply client intentionally lacks device-deletion authority. Omada uses distinct local viewer and administrator accounts. Their values live only in the corresponding protected JSON files.
-
-Create the Tailscale plan client with `policy_file:read`, `federated_keys:read`, `devices:core:read`, and `devices:posture_attributes:read`. Create the apply client with `policy_file`, `federated_keys`, `devices:core:read`, and `devices:posture_attributes`; do not grant device deletion. In Omada, create a viewer for plans and a distinct administrator for applies. Run `scripts/configure-local-provider-credentials` locally to enter all four credentials through hidden terminal prompts; it writes only to the existing protected JSON files.
-
-## Manual workflow
+Both use the same actions:
 
 ```sh
 scripts/local-controller validate
@@ -40,73 +19,97 @@ scripts/local-controller approve steady --confirmation apply-reviewed-steady
 scripts/local-controller apply steady
 ```
 
-Special operations use their own directories and confirmation phrases.
+For recovery, replace `steady` with `recovery` and use `apply-reviewed-recovery`. Recovery also requires the ignored mode-`0600` Ansible extra-vars file described in [`../recovery/README.md`](../recovery/README.md).
 
-The one-time Omada controller access bootstrap adds only owner/admin TCP 8043 access to the Docker host. Plan and review the Tailscale-only change, stop for separate approval, apply its exact saved plan, then configure and verify the marked local hostname alias before returning to steady reconciliation:
+Planning is read-only. Review prints each provider-redacted human-readable saved plan, including protected infrastructure values needed for informed approval. Approval is a separate local action and does not apply anything. Apply is never implicit.
+
+## Protected controller configuration
+
+Create `~/.config/home-lab/controller` with mode `0700`. It contains:
+
+- mode-`0600` `plan-credentials.json` and `apply-credentials.json`;
+- separate IAM Roles Anywhere plan/apply certificates and private keys;
+- the local Roles Anywhere CA material; and
+- `bin/aws_signing_helper`.
+
+Credential JSON is an object of environment-variable names and string values. It holds backend coordinates, provider endpoints and CA PEMs, hardware identities, and capability-specific provider credentials. Never commit, print, pass in command arguments, or copy these values into logs.
+
+Plan and apply capabilities stay separate:
+
+- AWS uses independent Roles Anywhere certificates, roles, and policies.
+- Proxmox uses read-only planning and mutation-capable apply API tokens.
+- Tailscale uses separate OAuth clients; the apply client intentionally lacks device-deletion authority.
+- Omada uses a viewer for planning and a distinct administrator for apply.
+
+Run `scripts/configure-local-controller-aws` to create the separate `credential_process` profiles and verify both assumed-role identities without printing their ARNs. Run `scripts/configure-local-provider-credentials` locally to enter provider credentials through hidden prompts. These commands write only to existing protected controller files. The AWS foundation deliberately has no hosted OIDC provider or DynamoDB mutation lease; Roles Anywhere and native S3 lockfiles are the current boundaries.
+
+## Saved-plan and approval boundary
+
+Every non-validation action requires a clean working tree, including no untracked files. Plans are stored under:
+
+```text
+.reconcile/plans/<commit>/<operation>/
+```
+
+The version-3 manifest binds:
+
+- the exact 40-character commit and phase;
+- the backend bucket;
+- the exact enabled root set and each saved-plan filename and SHA-256;
+- the exact Compose artifact SHA-256;
+- the complete protected Ansible extra-vars file SHA-256 when present;
+- the recovery backup identity and exact contract/runtime expectations projection when applicable; and
+- Tailscale's canonical before/after policy SHA-256 values and live plan-time ETag.
+
+Apply checks the manifest and plan hashes, reinitializes each provider backend, reinspects every saved plan under the current `normal` or `recovery` policy, and never generates a replacement apply plan. Post-apply plans are mandatory no-op verification only. The approval binds the commit, operation, and manifest SHA-256, is atomically consumed by `local-controller`, and is then validated and single-use claimed again at the reconciler apply boundary before the first infrastructure mutation. Direct reconciler apply without that exact consumed artifact fails closed. A failed apply requires a new approval.
+
+The reconciler itself exclusively acquires and owns an atomic mode-`0700` `.reconcile/controller-apply.lock` that serializes the complete apply; callers cannot bypass it by claiming the lock is already held. Per-root OpenTofu operations also use native S3 lockfiles with a five-minute lock timeout. Tailscale policy mutation verifies the live canonical SHA and ETag immediately before an `If-Match` update and proves the resulting live policy equals OpenTofu state.
+
+## Omada input and strict TLS
+
+Omada management remains strict-TLS-only at `https://Omada:8043`. The protected credentials provide the exact export JSON and controller CA PEM. Steady plan and apply write them only to ignored mode-`0600` files under `.local/omada`, verify the CA, and verify the local hostname alias without mutating `/etc/hosts`.
+
+Configure the alias explicitly once, or rerun it after the Docker host's Tailscale identity changes:
 
 ```sh
-scripts/local-controller plan omada-controller-access
-scripts/local-controller review omada-controller-access
-# After separate approval only:
-scripts/local-controller approve omada-controller-access \
-  --confirmation enable-reviewed-omada-controller-access
-scripts/local-controller apply omada-controller-access
 scripts/prepare-omada-plan-input configure-alias
 scripts/prepare-omada-plan-input verify-alias
-scripts/local-controller plan steady
 ```
 
-`configure-alias` resolves `docker-host` through MagicDNS, requires its Tailscale CGNAT address, and atomically manages only the marked `Omada` entry in `/etc/hosts` through explicit sudo. Canonical `steady` plan and apply runs refresh the protected Omada inputs and verify the alias without mutating `/etc/hosts`; the Tailscale-only bootstrap is exempt until the grant and alias exist. Use `scripts/prepare-omada-plan-input remove-alias` to remove only the marked entry.
+`configure-alias` resolves `docker-host` through MagicDNS, requires a Tailscale CGNAT IPv4 address, and uses explicit local sudo to atomically manage only:
+
+```text
+<tailscale-ip> Omada # home-lab-omada
+```
+
+Remove only that marked line with:
 
 ```sh
-scripts/local-controller plan backup-deployment
-scripts/local-controller review backup-deployment
-scripts/local-controller approve backup-deployment \
-  --confirmation deploy-reviewed-three-path-backups
-scripts/local-controller apply backup-deployment
-
-# Disk growth remains a different approval boundary.
-scripts/local-controller plan disk-growth
-scripts/local-controller review disk-growth
-scripts/local-controller approve disk-growth \
-  --confirmation grow-reviewed-docker-root-disk
-scripts/local-controller apply disk-growth
+scripts/prepare-omada-plan-input remove-alias
 ```
 
-The Proxmox provider cannot update a VM containing an arbitrary host-path passthrough disk with a non-root API token. Disk-growth mode therefore uses the policy-inspected saved OpenTofu plan as the exact authorization record, applies every unchanged saved root plan, and realizes only the approved VM 100 `scsi0` resize through the guarded `tofu-apply` SSH identity. The host helper requires the protected `scsi1` identity, a running protected VM, the exact 400 GiB source geometry, the exact confirmation, and an exclusive lock before issuing `qm resize`; OpenTofu and guest checks must then prove 550 GiB convergence.
-
-The one-time Tailscale hosted-identity cleanup is also separately bound:
+To refresh intentional Omada LAN or reservation desired state, load `OMADA_URL`, the read-only viewer credentials, and optional `OMADA_SITE` only through protected local environment handling, then run:
 
 ```sh
-scripts/local-controller plan tailscale-controller-retirement
-scripts/local-controller review tailscale-controller-retirement
-scripts/local-controller approve tailscale-controller-retirement \
-  --confirmation retire-reviewed-tailscale-ci-identities
-scripts/local-controller apply tailscale-controller-retirement
+scripts/export-omada-state.py \
+  --connect-host docker-host \
+  --ca-file .local/omada/controller-ca.pem \
+  --gateway-subnet 192.168.0.1/24 \
+  --output .local/omada/export.json
 ```
 
-Planning a CT operation does not authorize it. Stop after review and obtain explicit approval before running the matching `approve` command. CT unprotection and deletion must never share one plan or approval.
+Review the ignored mode-`0600` JSON and put its exact contents in the capability-appropriate protected `OMADA_EXPORT_JSON` values. This is a read-only desired-state refresh, not an import or qualification operation. Never place Omada credentials in command arguments, replace strict CA verification with `--insecure`, use an IP-based Omada URL, or add a second unmanaged alias.
 
-Retired Omada reservation cleanup is another independent exact operation:
+## Apply and convergence
 
-```sh
-scripts/local-controller plan omada-retire
-scripts/local-controller review omada-retire
-scripts/local-controller approve omada-retire \
-  --confirmation retire-reviewed-omada-gateway-reservation
-scripts/local-controller apply omada-retire
-```
+Steady applies the exact enabled plans for AWS foundation, the empty `proxmox-legacy` tombstone, Proxmox, Omada, and Tailscale. It then runs reproducible Ansible check plans, converges only approved host tags, stages and deploys the exact Compose artifact, and performs maintenance.
 
-It may delete only the reservation matching the retired CT contract identity. The Omada LAN, all other reservations, and all other OpenTofu roots must remain unchanged.
+Recovery uses AWS foundation, Proxmox, Omada, and Tailscale; it deliberately excludes the legacy tombstone. It verifies Proxmox access, creates/reconciles VM 100 with hardware mappings exactly bound to the recovery expectations hash, bootstraps Arch, restores only the reviewed backup into inventoried fresh targets, activates the hash-bound Compose artifact, and completes the Coral and maintenance checks. The adopted environment keeps contract mode `raw`; recovery forces `managed`. After successful recovery, make the one-way reviewed contract change to `managed` before using `steady`. Protected mappings and normal policy reject reversing that mode.
 
-The obsolete GitHub OpenTofu state was detached through an exact 26-address, single-transaction operation. The remote state is empty and all live repository protections remain unchanged.
+Success always requires a fresh no-op OpenTofu plan for every enabled root, live Tailscale policy/state equality, a no-op Proxmox Ansible plan, and a zero-change Arch audit. Recovery also requires a no-op Arch bootstrap check. Compose deployment keeps the current and previous exact artifacts and environments for separately reviewed rollback; see [`compose-deployment.md`](compose-deployment.md).
 
-## Repository hosting
+## Repository and artifact rules
 
-The existing repository rules remain, except required Actions status checks are removed. Force-push prevention, deletion prevention, and pull-request rules remain active. No GitHub environment, OIDC, workflow, or deployment state is used by the controller.
+Repository rules remain source-review controls, not runtime authorization. No hosted workflow, environment, OIDC identity, or deployment state is part of the controller boundary.
 
-## Containers and Coral
-
-All Compose images retain an upstream tag and exact digest. Renovate updates the tag and matching digest, and local validation rejects any rendered service without both. Wolf is an ordinary Compose service and has no private child-image publication path.
-
-Coral is built twice on the Docker host by Ansible from the exact tracked recipe inside a digest-pinned Arch build environment. The role requires byte-identical outputs and the contract checksum before local installation, then verifies DKMS and runtime state and removes the temporary build.
+All Compose images retain a readable upstream tag and immutable digest. Renovate updates the matching pair, and local validation rejects incomplete pins. Coral is built twice on the Docker host from the exact tracked recipe in a digest-pinned Arch environment; Ansible requires byte identity and the contract checksum before installation, verifies DKMS/runtime health, and removes temporary build output.

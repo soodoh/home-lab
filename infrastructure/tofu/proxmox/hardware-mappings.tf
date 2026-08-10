@@ -1,10 +1,10 @@
 locals {
-  pci_mappings = var.manage_hardware_mappings ? {
+  pci_mappings = local.use_hardware_mappings ? {
     coral     = local.vm.pci.coral
     gpu       = local.vm.pci.gpu
     gpu_audio = local.vm.pci.gpu_audio
   } : {}
-  usb_mappings = var.manage_hardware_mappings ? {
+  usb_mappings = local.use_hardware_mappings ? {
     zigbee    = local.vm.usb.zigbee
     zwave     = local.vm.usb.zwave
     bluetooth = local.vm.usb.bluetooth

@@ -25,7 +25,154 @@ def write_executable(path: Path, content: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+def write_consumed_approval(plan_dir: Path, commit: str, operation: str) -> Path:
+    manifest = plan_dir / "manifest.json"
+    approval = plan_dir / "approval.json"
+    approval.write_text(json.dumps({
+        "version": 1,
+        "commit": commit,
+        "operation": operation,
+        "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        "approved_at": "2026-08-10T00:00:00+00:00",
+        "consumed": True,
+        "consumed_at": "2026-08-10T00:00:01+00:00",
+    }))
+    approval.chmod(0o600)
+    return approval
+
+
 class ManifestVerificationTests(unittest.TestCase):
+    def test_recovery_expectations_hash_tampering_is_rejected_before_plan_decode(self) -> None:
+        reconcile_root = REPOSITORY / ".reconcile"
+        reconcile_root.mkdir(exist_ok=True)
+        real_git = shutil.which("git")
+        self.assertIsNotNone(real_git)
+        commit = subprocess.run(
+            [real_git, "rev-parse", "HEAD"], cwd=REPOSITORY, check=True, text=True,
+            stdout=subprocess.PIPE,
+        ).stdout.strip()
+        compose_hash = subprocess.run(
+            [sys.executable, "scripts/compose-artifact.py", "hash"], cwd=REPOSITORY,
+            check=True, text=True, stdout=subprocess.PIPE,
+        ).stdout.strip()
+        with tempfile.TemporaryDirectory(dir=reconcile_root) as directory:
+            temporary = Path(directory)
+            plan_dir = temporary / "plans"
+            binaries = temporary / "bin"
+            plan_dir.mkdir()
+            binaries.mkdir()
+            expectations = plan_dir / "recovery-expectations.json"
+            environment = {
+                **os.environ,
+                "TF_VAR_games_disk_by_id": "/dev/disk/by-id/test-games",
+            }
+            subprocess.run(
+                ["node", "scripts/controller/build-recovery-expectations.js", "--output", str(expectations)],
+                cwd=REPOSITORY, env=environment, check=True,
+            )
+            expectation_hash = hashlib.sha256(expectations.read_bytes()).hexdigest()
+            plans = []
+            for root in ("aws-foundation", "proxmox", "tailscale"):
+                plan = plan_dir / f"{root}.tfplan"
+                plan.write_text(f"saved recovery plan for {root}\n")
+                plans.append({
+                    "root": root,
+                    "file": plan.name,
+                    "sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
+                    "changed": False,
+                    "tailscale_policy_before_sha256": "" if root != "tailscale" else "0" * 64,
+                    "tailscale_policy_after_sha256": "" if root != "tailscale" else "0" * 64,
+                    "tailscale_policy_etag": "" if root != "tailscale" else '"test-etag"',
+                })
+            extra_vars = temporary / "recovery.yml"
+            extra_vars_content = f'recovery_expected_backup_identity_sha256: "{"a" * 64}"\n'
+            extra_vars.write_text(extra_vars_content)
+            extra_vars.chmod(0o600)
+            manifest = {
+                "version": 3,
+                "commit": commit,
+                "phase": "recovery",
+                "backend_bucket": "test-state-bucket",
+                "ansible_extra_vars_file_sha256": hashlib.sha256(extra_vars.read_bytes()).hexdigest(),
+                "recovery_backup_identity_sha256": "a" * 64,
+                "recovery_expectations_sha256": expectation_hash,
+                "compose_artifact_sha256": compose_hash,
+                "plans": plans,
+            }
+            (plan_dir / "manifest.json").write_text(json.dumps(manifest))
+            log = temporary / "tofu.log"
+            write_executable(
+                binaries / "tofu",
+                "#!/usr/bin/env bash\nprintf 'unexpected tofu decode\\n' >>\"$TOFU_TEST_LOG\"\nexit 90\n",
+            )
+            write_executable(
+                binaries / "git",
+                f"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${{1:-}} == rev-parse && ${{2:-}} == HEAD ]]; then
+  printf '%s\\n' "$MOCK_GIT_COMMIT"
+elif [[ ${{1:-}} == status ]]; then
+  exit 0
+else
+  exec {real_git} "$@"
+fi
+""",
+            )
+            for command in ("ansible", "ansible-playbook", "curl"):
+                write_executable(binaries / command, "#!/usr/bin/env bash\nexit 0\n")
+            approval = write_consumed_approval(plan_dir, commit, "recovery")
+            extra_vars.write_text(extra_vars_content + "# tampered\n")
+            extra_vars.chmod(0o600)
+            extra_vars_result = subprocess.run(
+                [str(RECONCILER), "apply", "--phase", "recovery", "--plan-dir", str(plan_dir)],
+                cwd=REPOSITORY,
+                env={
+                    **environment,
+                    "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}",
+                    "TF_BACKEND_BUCKET": "test-state-bucket",
+                    "AWS_REGION": "us-east-1",
+                    "TF_VAR_tailscale_enable_management": "true",
+                    "TF_VAR_omada_enable_management": "false",
+                    "RECONCILE_ANSIBLE_EXTRA_VARS_FILE": str(extra_vars),
+                    "TOFU_TEST_LOG": str(log),
+                    "MOCK_GIT_COMMIT": commit,
+                    "RECONCILE_APPROVAL_FILE": str(approval),
+                },
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(extra_vars_result.returncode, 66, extra_vars_result.stderr)
+            self.assertIn("Ansible extra-vars file", extra_vars_result.stderr)
+            self.assertFalse(log.exists(), "tampered extra-vars reached provider plan decoding")
+
+            extra_vars.write_text(extra_vars_content)
+            extra_vars.chmod(0o600)
+            expectations.write_text(expectations.read_text() + "\n")
+            approval = write_consumed_approval(plan_dir, commit, "recovery")
+            result = subprocess.run(
+                [str(RECONCILER), "apply", "--phase", "recovery", "--plan-dir", str(plan_dir)],
+                cwd=REPOSITORY,
+                env={
+                    **environment,
+                    "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}",
+                    "TF_BACKEND_BUCKET": "test-state-bucket",
+                    "AWS_REGION": "us-east-1",
+                    "TF_VAR_tailscale_enable_management": "true",
+                    "TF_VAR_omada_enable_management": "false",
+                    "RECONCILE_ANSIBLE_EXTRA_VARS_FILE": str(extra_vars),
+                    "TOFU_TEST_LOG": str(log),
+                    "MOCK_GIT_COMMIT": commit,
+                    "RECONCILE_APPROVAL_FILE": str(approval),
+                },
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(result.returncode, 66, result.stderr)
+            self.assertIn("saved recovery expectations", result.stderr)
+            self.assertFalse(log.exists(), "tampered expectations reached provider plan decoding")
+
     def test_tailscale_plan_is_decoded_only_after_backend_init(self) -> None:
         reconcile_root = REPOSITORY / ".reconcile"
         reconcile_root.mkdir(exist_ok=True)
@@ -46,27 +193,6 @@ class ManifestVerificationTests(unittest.TestCase):
             stdout=subprocess.PIPE,
         ).stdout.strip()
         policy_hash = hashlib.sha256(POLICY.encode()).hexdigest()
-        gateway_stage = next(
-            line.split(":", 1)[1].strip()
-            for line in (REPOSITORY / "infrastructure/contract/home-lab.yml").read_text().splitlines()
-            if line.strip().startswith("gateway_policy_stage:")
-        )
-        self.assertIn(gateway_stage, {"active", "detached", "retired"})
-        human_ssh_stage = next(
-            line.split(":", 1)[1].strip()
-            for line in (REPOSITORY / "infrastructure/contract/home-lab.yml").read_text().splitlines()
-            if line.strip().startswith("human_ssh_policy_stage:")
-        )
-        self.assertIn(human_ssh_stage, {"transition", "final"})
-        retirement_stage = next(
-            line.split(":", 1)[1].strip()
-            for line in (REPOSITORY / "infrastructure/contract/home-lab.yml").read_text().splitlines()
-            if line.strip().startswith("retirement_stage:")
-        )
-        self.assertIn(retirement_stage, {"protected", "unprotected", "retired"})
-        if retirement_stage != "protected" and not os.environ.get("PROXMOX_CT_DECOMMISSION_CONFIRMATION"):
-            self.skipTest("retired-stage manifest verification requires the protected local confirmation")
-
         with tempfile.TemporaryDirectory(dir=reconcile_root) as directory:
             temporary = Path(directory)
             plan_dir = temporary / "plans"
@@ -99,24 +225,13 @@ class ManifestVerificationTests(unittest.TestCase):
                 plans.append(record)
 
             manifest = {
-                "version": 2,
+                "version": 3,
                 "commit": commit,
                 "phase": "steady",
-                "ct_retirement_operation": "none",
-                "retirement_stage": retirement_stage,
-                "tailscale_gateway_operation": "none",
-                "tailscale_gateway_policy_stage": gateway_stage,
-                "tailscale_human_ssh_policy_stage": human_ssh_stage,
-                "tailscale_human_ssh_operation": "none",
-                "network_migration": False,
-                "disk_growth": False,
-                "tailscale_controller_retirement": False,
-                "tailscale_controller_access": False,
-                "omada_controller_access": False,
-                "backup_deployment": False,
-                "omada_gateway_reservation_retirement": False,
                 "backend_bucket": "test-state-bucket",
+                "ansible_extra_vars_file_sha256": "",
                 "recovery_backup_identity_sha256": "",
+                "recovery_expectations_sha256": "",
                 "compose_artifact_sha256": compose_hash,
                 "plans": plans,
             }
@@ -193,17 +308,47 @@ exit 86
                 "TOFU_TEST_LOG": str(log),
                 "MOCK_GIT_COMMIT": commit,
             }
-            result = subprocess.run(
-                [
-                    str(RECONCILER),
-                    "apply",
-                    "--phase",
-                    "steady",
-                    "--plan-dir",
-                    str(plan_dir),
-                ],
+            command = [
+                str(RECONCILER),
+                "apply",
+                "--phase",
+                "steady",
+                "--plan-dir",
+                str(plan_dir),
+            ]
+            missing_approval = subprocess.run(
+                command,
                 cwd=REPOSITORY,
                 env=environment,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(missing_approval.returncode, 66, missing_approval.stderr)
+            self.assertIn("requires the consumed manifest-bound approval", missing_approval.stderr)
+            self.assertFalse(log.exists(), "missing approval reached provider plan decoding")
+
+            invalid_manifest = manifest.copy()
+            invalid_manifest["recovery_expectations_sha256"] = "0" * 64
+            (plan_dir / "manifest.json").write_text(json.dumps(invalid_manifest))
+            approval = write_consumed_approval(plan_dir, commit, "steady")
+            rejected = subprocess.run(
+                command,
+                cwd=REPOSITORY,
+                env={**environment, "RECONCILE_APPROVAL_FILE": str(approval)},
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertEqual(rejected.returncode, 66, rejected.stderr)
+            self.assertIn("manifest metadata is invalid", rejected.stderr)
+
+            (plan_dir / "manifest.json").write_text(json.dumps(manifest))
+            approval = write_consumed_approval(plan_dir, commit, "steady")
+            result = subprocess.run(
+                command,
+                cwd=REPOSITORY,
+                env={**environment, "RECONCILE_APPROVAL_FILE": str(approval)},
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -219,6 +364,7 @@ exit 86
             ]
             self.assertGreaterEqual(len(tailscale_shows), 3)
             self.assertTrue(all(tailscale_init < index for index in tailscale_shows))
+            self.assertFalse((reconcile_root / "controller-apply.lock").exists())
 
 
 if __name__ == "__main__":

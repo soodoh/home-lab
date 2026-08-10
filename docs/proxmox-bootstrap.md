@@ -1,18 +1,21 @@
 # Proxmox local bootstrap
 
-This is the only host bootstrap that must be launched locally. Keep physical console access and a tested LAN root session open throughout it. Do not run the playbook remotely.
+This is the only host bootstrap that must be launched locally. Keep physical console access and a tested LAN root session open throughout it. Do not run the playbook from the remote controller.
 
-On the Proxmox host, after the reviewed commit is merged:
+## Prepare protected inputs
+
+On the Proxmox host, check out the exact reviewed commit:
 
 ```sh
 git clone https://github.com/soodoh/home-lab.git /root/home-lab
 cd /root/home-lab
 git checkout <reviewed-commit>
 scripts/collect-proxmox-protected-inputs /root/home-lab-hardware.env
-install -m 0600 recovery/proxmox-bootstrap-extra-vars.example.yml /root/proxmox-bootstrap-extra-vars.yml
+install -m 0600 recovery/proxmox-bootstrap-extra-vars.example.yml \
+  /root/proxmox-bootstrap-extra-vars.yml
 ```
 
-Edit only `/root/proxmox-bootstrap-extra-vars.yml`. Confirm the console and LAN rollback gates, leave all mutation gates false, and run the check-only phase:
+Edit only the root-owned extra-vars file. Confirm the console and LAN rollback gates, leave mutation gates false, and run the check phase:
 
 ```sh
 scripts/bootstrap-proxmox-host --mode check \
@@ -20,7 +23,7 @@ scripts/bootstrap-proxmox-host --mode check \
   --hardware-env /root/home-lab-hardware.env
 ```
 
-If check mode reports a ZFS userspace/kernel mismatch, align only the reviewed signed Proxmox kernel and ZFS packages before bootstrap:
+If check mode reports a ZFS userspace/kernel mismatch, align only the reviewed signed Proxmox kernel and ZFS packages:
 
 ```sh
 scripts/migrate-proxmox-zfs-stack --check
@@ -30,9 +33,11 @@ scripts/migrate-proxmox-zfs-stack --apply
 systemctl reboot
 ```
 
-After reconnecting through the console or trusted LAN, run `scripts/migrate-proxmox-zfs-stack --verify`, then rerun bootstrap check mode. The migration script pins the reviewed package versions and refuses degraded storage or stopped protected guests.
+After reconnecting through the console or trusted LAN, run `scripts/migrate-proxmox-zfs-stack --verify`, then rerun bootstrap check mode. The migration refuses degraded storage or stopped protected guests.
 
-Review the complete result. Set only the reviewed mutation gates true, then supply a short-lived, preauthorized, one-use Tailscale key tagged for `tag:proxmox` and two distinct SSH public keys:
+## Apply the reviewed bootstrap
+
+Review the complete check result. Set only the reviewed mutation gates true, then provide a short-lived, preauthorized, single-use Tailscale key tagged `tag:proxmox` and distinct SSH public keys for the plan and apply identities:
 
 ```sh
 export TAILSCALE_AUTH_KEY='<protected one-use key>'
@@ -44,16 +49,32 @@ scripts/bootstrap-proxmox-host --mode apply \
   --hardware-env /root/home-lab-hardware.env
 ```
 
-The apply mode reruns check mode before mutation. The wrapper requires a clean checkout and root-owned protected inputs, installs the hash-locked Ansible controller in a temporary root-only executable cache, and removes it on exit. The play creates separated API tokens and leaves them only in root-readable files under `/root/.config/home-lab/`.
+Apply reruns check mode before mutation. The wrapper requires a clean checkout and root-owned protected inputs, installs its hash-locked Ansible controller in a temporary root-only executable cache, and removes it on exit. It creates separated `tofu-plan` and `tofu-apply` API/SSH identities and leaves token escrow only in root-readable files under `/root/.config/home-lab/`.
 
-A failed apply intentionally retains `/var/lib/iac-ansible-production.lock`. Inspect its root-owned owner record before retrying. The wrapper will clear only a structurally valid lock whose owner records `operation=proxmox-bootstrap`, and only when the operator sets `PROXMOX_BOOTSTRAP_RESUME_CONFIRMED=resume-matching-failed-proxmox-bootstrap`. Never remove an unknown or mismatched lock manually.
+A failed apply intentionally retains `/var/lib/iac-ansible-production.lock`. Inspect its root-owned owner record before retrying. The wrapper clears only a structurally valid lock whose owner records `operation=proxmox-bootstrap`, and only with:
 
-After success, copy each token through a protected channel into its matching GitHub environment secret. Do not print it, paste it into shell history, or reuse the apply token for plans. Prove `tofu-plan` audit access and `tofu-apply` mutation access over Tailscale before allowing the later steady play to disable password authentication.
+```sh
+export PROXMOX_BOOTSTRAP_RESUME_CONFIRMED=resume-matching-failed-proxmox-bootstrap
+```
 
-## Qualification record
+Never remove an unknown or mismatched lock manually.
 
-The guarded bootstrap completed on the reviewed feature branch after the pinned Proxmox kernel/ZFS migration and a console-backed reboot. The apply created the separated SSH users and root-only API-token escrow, enrolled the host with `tag:proxmox`, preserved no-DNS/no-route Tailscale preferences, and installed the reviewed VFIO boot configuration. A second reboot verified the active IOMMU/VFIO modules, aligned ZFS userspace and kernel-module versions, an `ONLINE` pool, VM 100 running, and protected CT 101 running.
+## Transfer controller capabilities
 
-Both escrowed tokens authenticated to the local Proxmox API, both account-specific SSH keys authenticated only as their intended service users, the production lock was absent, and the final bootstrap check reported `ok=57 changed=0 unreachable=0 failed=0 skipped=37`. Network, firewall, storage/NFS migration, and CT decommission gates remained false.
+Transfer each token through a protected channel into the matching mode-`0600` local-controller credential JSON. Do not print it, paste it into shell history, store it in GitHub, or reuse the apply token for planning. `scripts/configure-local-provider-credentials` updates the protected controller files through hidden prompts.
 
-Tailscale enrollment and the expected device tag are proven, but peer visibility from the existing Docker tailnet node remains absent under the current ACL grants. Do not treat direct Proxmox Tailscale SSH as a recovery path or enable the later password-authentication restriction until a separately reviewed tailnet grant makes that path visible and the SSH proof succeeds.
+From the trusted local controller, prove:
+
+- `tofu-plan` can perform only the expected audit/read operations;
+- `tofu-apply` has only the required mutation capability;
+- the two SSH keys authenticate only as their intended service users;
+- Tailscale reaches `proxmox` on the required SSH/API endpoints; and
+- host fingerprints match the protected inventory.
+
+Only after these checks may the steady Proxmox play set `proxmox_ssh_access_proven=true` and tighten password authentication.
+
+## Current status
+
+The guarded bootstrap and pinned Proxmox kernel/ZFS migration have been live-qualified with console-backed reboots. The host is enrolled as `tag:proxmox`, the separated service identities are active, the reviewed VFIO/IOMMU configuration is loaded, ZFS is `ONLINE`, and VM 100 is the protected managed workload.
+
+CT 101 and its routed-gateway role were subsequently retired through separate reviewed operations. The empty `proxmox-legacy` backend remains as a state tombstone and recovery does not recreate that container. Do not use historical CT or gateway instructions as a bootstrap target.

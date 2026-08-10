@@ -1,34 +1,53 @@
 # Qualification status
 
+This file separates implemented safeguards, completed historical evidence, protected operational inputs, and unresolved live gates. Static validation is not production readiness.
+
 ## Statically implemented
 
-- contract and JSON-schema validation
-- provider lock validation and policy-inspected saved plans
-- isolated OpenTofu roots and serial apply orchestration
-- Proxmox/Arch bootstrap and steady Ansible gates
-- exact backup-ID, version, checksum, archive, and fresh-target recovery controls
-- current/previous Compose locks with uniform readable-tag plus digest image pins
-- trusted local-controller plan/apply credential separation and protected confirmation gates
-- static recovery fixtures and playbook syntax rehearsal
-- isolated saved-plan Proxmox LXC lifecycle qualification, exact policy modes, protected-delete classification, identity proofs, and empty-state tombstone controls
+- authoritative contract and JSON Schema validation
+- provider lock validation for supported controller platforms
+- isolated OpenTofu roots with policy-inspected, commit-bound saved plans
+- separate protected plan/apply credentials and manifest-bound single-use approval
+- controller-wide local apply lock plus native S3 state lockfiles
+- Tailscale canonical policy SHA/ETag concurrency checks
+- Proxmox and Arch bootstrap, steady convergence, and no-op audit gates
+- strict Omada TLS, protected desired-state export, and marked hostname-alias verification
+- exact backup ID/version/checksum/archive/fresh-target recovery controls
+- current/previous Compose artifacts and image locks with readable tag plus digest pins
+- deterministic Compose staging, private plan identity, health checks, and rollback inputs
+- static recovery fixtures, hostile archive tests, and playbook syntax rehearsal
+- schema validation for the completed disposable-LXC qualification evidence
+- empty backend tombstones for retired CT 101 and completed LXC qualification
 
-## Live qualified
+## Completed live evidence
 
-- Omada strict-TLS export and import-only adoption of the existing LAN and 17 DHCP reservations
-- Omada disposable reservation create/read/delete behavior with separated plan/apply identities
-- three consecutive protected no-op Omada plans after cleanup
-- schema-valid six-operation disposable Proxmox LXC lifecycle evidence and the enabled provider gate
-- separately staged CT 101 unprotection, full no-op proof, and deletion
-- exact retired-CT Omada reservation deletion with every other reservation and root unchanged
-- reproducible local Coral double-build, exact package checksum, installed marker, runtime, and Frigate health
-- three-path local backup deployment with distinct filesystems and matching newest archive metadata
+- Omada strict-TLS adoption of the existing LAN and reservations, disposable reservation create/read/delete qualification, cleanup, and repeated protected no-op plans
+- disposable Proxmox LXC create/protection/unprotect/delete/absence/empty-state qualification recorded in `infrastructure/evidence/proxmox-lxc-qualification.json`
+- separately reviewed CT 101 unprotection, no-op proof, deletion, and empty `proxmox-legacy` state
+- deletion of the retired CT's Omada reservation while preserving the LAN and every other reservation
+- removal of stale Tailscale gateway/controller transition policy and convergence of the terminal policy with a full no-op proof
+- direct local-controller reachability to Omada over Tailscale TCP 8043 with strict hostname and CA verification
+- reproducible local Coral double-build, exact package checksum, installation marker, runtime checks, and Frigate health
+- three-path encrypted local backup deployment with distinct filesystems and matching newest-archive metadata
 
-## Requires protected inputs
+These records justify removal of completed transition executables. They do not authorize state/backend deletion or recreation of retired resources.
 
-Backend coordinates, provider credentials, SSH fingerprints/keys, hardware identities, Omada export, backup object/version/checksum, GPG material, SOPS recipients, Coral artifact hashes, and recovery evidence are intentionally absent from Git.
+## Protected operational invariants
 
-## Requires live qualification
+The undeclared Compose volumes `docker-compose_happier-data`, `docker-compose_nzbget-data`, and `docker-compose_nzbhydra2-data` remain protected legacy data. Steady audit requires them to exist, and routine deployment must never prune, rename, recreate, or delete them. Current/previous artifacts and environments remain the only rollback inputs; rollback is separately reviewed and never automatic.
 
-CT 101 retirement is complete: the container and adopted Omada reservation are absent, read-only Tailscale verification found no stale gateway device, and the exact `detached -> retired` gateway-policy plan converged with a full no-op proof. Scheduled daily/weekly backup evidence, disposable-VM Proxmox behavior, cold boot, and recovery-time objective remain operational observations rather than static claims.
+## Protected inputs
 
-Static validation must not be represented as production readiness. Update this document only with evidence from the protected qualification process; never paste secrets or protected identifiers.
+Backend coordinates, provider credentials, SSH fingerprints and keys, hardware identities, Omada export and CA, backup object/version/checksum, GPG material, SOPS recipients, Coral hashes, and recovery evidence are intentionally absent from Git. Controller credential and extra-vars files remain mode `0600` under protected local storage.
+
+## Unresolved live qualification
+
+The following remain operational gates rather than static claims:
+
+- disposable Proxmox **VM** behavior across create, update, protection, delete, raw disk, hardware mappings, PCI/USB, ACL, and cloud-image paths;
+- a complete cold boot with storage, passthrough devices, networking, host configuration, and workloads healthy; and
+- a timed recovery proving the eight-hour recovery-time objective.
+
+Scheduled daily/weekly backup execution evidence also remains an ongoing operational observation. A static rehearsal or successful steady no-op must not be represented as proof of these live outcomes.
+
+Update this document only from protected, reviewed evidence. Record secret-free hashes and outcomes; never paste credentials or protected identifiers.

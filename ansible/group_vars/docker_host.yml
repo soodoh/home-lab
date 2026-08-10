@@ -1,15 +1,14 @@
 ---
-audit_baseline_observed_at: "2026-07-31T14:45:10-07:00"
 audit_home_dir: /home/docker
 
 audit_expected_distribution: Archlinux
-audit_expected_running_kernel: 7.1.5-arch1-2
+audit_expected_running_kernel: "{{ arch.packages.kernel | replace('.arch', '-arch') }}"
 audit_expected_packages:
-  linux: 7.1.5.arch1-2
-  linux-headers: 7.1.5.arch1-2
-  docker: "1:29.6.2-1"
-  docker-compose: 5.3.1-1
-  tailscale: 1.98.10-1
+  linux: "{{ arch.packages.kernel }}"
+  linux-headers: "{{ arch.packages.kernel }}"
+  docker: "{{ arch.packages.docker }}"
+  docker-compose: "{{ arch.packages.docker_compose }}"
+  tailscale: "{{ arch.packages.tailscale }}"
 # OpenTofu remains deferred; Ansible and Tailscale are now approved management dependencies.
 audit_expected_absent_packages:
   - opentofu
@@ -28,9 +27,9 @@ audit_expected_services:
     state: running
     status: enabled
 
-audit_expected_docker_client_version: 29.6.2
-audit_expected_docker_server_version: 29.6.2
-audit_expected_compose_version: 5.3.1
+audit_expected_docker_client_version: "{{ arch.packages.docker.split(':')[-1].rsplit('-', 1)[0] }}"
+audit_expected_docker_server_version: "{{ audit_expected_docker_client_version }}"
+audit_expected_compose_version: "{{ arch.packages.docker_compose.rsplit('-', 1)[0] }}"
 audit_expected_compose_service_count: 41
 
 # Pinned standalone SOPS and age tooling. No package transaction is used.
@@ -88,14 +87,15 @@ audit_expected_health:
   gluetun: healthy
   seerr: healthy
 
+audit_nfs_source: "{{ network.proxmox.ipv4.split('/')[0] }}:{{ storage.nfs.export }}"
 audit_expected_fstab_entries:
-  - "192.168.0.123:/storage/docker /mnt/storage nfs defaults 0 0"
-  - "UUID=31602ce7-0054-498a-9f24-f51ca491e7b3 /mnt/games ext4 defaults,noatime 0 2"
+  - "{{ audit_nfs_source }} {{ storage.nfs.mountpoint }} nfs defaults 0 0"
+  - "UUID={{ proxmox.vm.games_disk.filesystem_uuid }} {{ arch.games_mountpoint }} ext4 defaults,noatime 0 2"
 audit_expected_mounts:
-  - path: /mnt/storage
-    source: "192.168.0.123:/storage/docker"
+  - path: "{{ storage.nfs.mountpoint }}"
+    source: "{{ audit_nfs_source }}"
     fstype: nfs4
-  - path: /mnt/games
+  - path: "{{ arch.games_mountpoint }}"
     source: /dev/sdb1
     fstype: ext4
 
@@ -131,7 +131,7 @@ audit_wolf_file_pairs:
   - tracked: "{{ compose_current_dir }}/services/data/wolf/es-de/dolphin-config.sh"
     host: "/mnt/games/roms/dolphin-config/Configure Dolphin.sh"
 
-audit_expected_dkms_kernel: 7.1.5-arch1-2
+audit_expected_dkms_kernel: "{{ audit_expected_running_kernel }}"
 audit_root_cron_path: /var/spool/cron/root
 
 # Phase 3 routine desired state. Management-plane changes use bootstrap.yml only.
@@ -164,12 +164,12 @@ docker_services:
 
 maintenance_manage_root_cron: true
 
-# Phase 4 management-plane plan. The auth key is controller environment only and
-# must be a short-lived, preauthorized, one-use key with tag:docker-host.
+# The auth key is controller environment only and must be short-lived,
+# preauthorized, one-use, and scoped to the contract's Docker-host tag.
 tailscale_package: tailscale
 tailscale_service: tailscaled.service
-tailscale_hostname: docker-host
-tailscale_advertise_tags: tag:docker-host
+tailscale_hostname: "{{ network.arch.magicdns_name }}"
+tailscale_advertise_tags: "{{ tailscale.tags.arch }}"
 tailscale_advertise_routes: []
 tailscale_accept_dns: false
 tailscale_accept_routes: false

@@ -1,14 +1,13 @@
 locals {
-  vm                = local.contract.proxmox.vm
-  node              = local.contract.proxmox.node
-  adoption          = var.phase == "adoption"
-  steady            = var.phase == "steady"
-  recovery          = var.phase == "recovery"
-  mapping_migration = (local.steady || local.recovery) && var.use_hardware_mappings
+  vm                        = local.contract.proxmox.vm
+  node                      = local.contract.proxmox.node
+  recovery                  = var.phase == "recovery"
+  retain_recovery_resources = local.recovery || local.vm.hardware_attachment_mode == "managed"
+  use_hardware_mappings     = local.retain_recovery_resources
 }
 
 resource "proxmox_download_file" "arch_recovery_image" {
-  count = local.recovery ? 1 : 0
+  count = local.retain_recovery_resources ? 1 : 0
 
   content_type       = "import"
   datastore_id       = "local"
@@ -30,22 +29,19 @@ resource "proxmox_virtual_environment_vm" "arch" {
   scsi_hardware = "virtio-scsi-single"
   on_boot       = local.vm.on_boot
   started       = local.vm.started
-  protection    = local.steady || local.recovery ? local.vm.desired_protection : local.vm.observed_protection
+  protection    = local.vm.desired_protection
 
   reboot_after_update                  = true
   stop_on_destroy                      = false
-  purge_on_destroy                     = local.adoption
-  delete_unreferenced_disks_on_destroy = local.adoption
+  purge_on_destroy                     = false
+  delete_unreferenced_disks_on_destroy = false
 
-  dynamic "agent" {
-    for_each = local.adoption ? [] : [1]
-    content {
-      enabled = true
-      trim    = false
+  agent {
+    enabled = true
+    trim    = false
 
-      wait_for_ip {
-        disabled = true
-      }
+    wait_for_ip {
+      disabled = true
     }
   }
 
@@ -62,7 +58,7 @@ resource "proxmox_virtual_environment_vm" "arch" {
 
   disk {
     datastore_id = local.vm.root_disk.datastore
-    import_from  = local.recovery ? proxmox_download_file.arch_recovery_image[0].id : ""
+    import_from  = local.retain_recovery_resources ? proxmox_download_file.arch_recovery_image[0].id : ""
     interface    = local.vm.root_disk.interface
     size         = local.vm.root_disk.size_gb
     iothread     = local.vm.root_disk.iothread
@@ -95,15 +91,15 @@ resource "proxmox_virtual_environment_vm" "arch" {
 
   hostpci {
     device  = "hostpci0"
-    id      = local.mapping_migration ? null : local.vm.pci.coral.bdf
-    mapping = local.mapping_migration ? local.vm.pci.coral.mapping : null
+    id      = local.use_hardware_mappings ? null : local.vm.pci.coral.bdf
+    mapping = local.use_hardware_mappings ? local.vm.pci.coral.mapping : null
     rombar  = true
   }
 
   hostpci {
     device   = "hostpci1"
-    id       = local.mapping_migration ? null : local.vm.pci.gpu.bdf
-    mapping  = local.mapping_migration ? local.vm.pci.gpu.mapping : null
+    id       = local.use_hardware_mappings ? null : local.vm.pci.gpu.bdf
+    mapping  = local.use_hardware_mappings ? local.vm.pci.gpu.mapping : null
     pcie     = local.vm.pci.gpu.pcie
     rom_file = local.vm.pci.gpu.rom_file
     xvga     = local.vm.pci.gpu.xvga
@@ -112,25 +108,25 @@ resource "proxmox_virtual_environment_vm" "arch" {
 
   hostpci {
     device  = "hostpci2"
-    id      = local.mapping_migration ? null : local.vm.pci.gpu_audio.bdf
-    mapping = local.mapping_migration ? local.vm.pci.gpu_audio.mapping : null
+    id      = local.use_hardware_mappings ? null : local.vm.pci.gpu_audio.bdf
+    mapping = local.use_hardware_mappings ? local.vm.pci.gpu_audio.mapping : null
     pcie    = local.vm.pci.gpu_audio.pcie
     rombar  = true
   }
 
   usb {
-    host    = local.mapping_migration ? null : local.vm.usb.zigbee.host
-    mapping = local.mapping_migration ? local.vm.usb.zigbee.mapping : null
+    host    = local.use_hardware_mappings ? null : local.vm.usb.zigbee.host
+    mapping = local.use_hardware_mappings ? local.vm.usb.zigbee.mapping : null
   }
 
   usb {
-    host    = local.mapping_migration ? null : local.vm.usb.zwave.host
-    mapping = local.mapping_migration ? local.vm.usb.zwave.mapping : null
+    host    = local.use_hardware_mappings ? null : local.vm.usb.zwave.host
+    mapping = local.use_hardware_mappings ? local.vm.usb.zwave.mapping : null
   }
 
   usb {
-    host    = local.mapping_migration ? null : local.vm.usb.bluetooth.host
-    mapping = local.mapping_migration ? local.vm.usb.bluetooth.mapping : null
+    host    = local.use_hardware_mappings ? null : local.vm.usb.bluetooth.host
+    mapping = local.use_hardware_mappings ? local.vm.usb.bluetooth.mapping : null
     usb3    = local.vm.usb.bluetooth.usb3
   }
 
@@ -138,11 +134,8 @@ resource "proxmox_virtual_environment_vm" "arch" {
     device = "socket"
   }
 
-  dynamic "smbios" {
-    for_each = local.adoption ? [] : [1]
-    content {
-      uuid = local.vm.smbios_uuid
-    }
+  smbios {
+    uuid = local.vm.smbios_uuid
   }
 
   operating_system {
@@ -177,13 +170,10 @@ resource "proxmox_virtual_environment_vm" "arch" {
     }
   }
 
-  dynamic "startup" {
-    for_each = local.steady || local.recovery ? [1] : []
-    content {
-      order      = "2"
-      up_delay   = "30"
-      down_delay = "60"
-    }
+  startup {
+    order      = "2"
+    up_delay   = "30"
+    down_delay = "60"
   }
 
   depends_on = [
@@ -196,24 +186,13 @@ resource "proxmox_virtual_environment_vm" "arch" {
     ignore_changes  = [disk[1].file_format]
 
     precondition {
-      condition     = !var.use_hardware_mappings || var.phase != "adoption"
-      error_message = "Hardware mappings are a post-adoption migration only."
-    }
-
-    precondition {
       condition     = !local.recovery || var.recovery_ssh_public_key != ""
       error_message = "Fresh recovery requires a bootstrap SSH public key."
     }
 
     precondition {
-      condition     = !local.recovery || var.use_hardware_mappings
-      error_message = "Fresh recovery requires pre-created or explicitly managed hardware mappings; raw host-device IDs cannot use API-token auth."
+      condition     = !local.recovery || local.use_hardware_mappings
+      error_message = "Fresh recovery requires managed hardware mappings; raw host-device IDs cannot use API-token auth."
     }
   }
-}
-
-import {
-  for_each = var.phase == "adoption" ? toset(["${local.contract.proxmox.node}/${local.contract.proxmox.vm.vmid}"]) : toset([])
-  to       = proxmox_virtual_environment_vm.arch
-  id       = each.value
 }

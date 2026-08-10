@@ -68,8 +68,8 @@ proxmox_api_additional_roles:
     privileges:
       - VM.Config.Disk
       - VM.Audit
-proxmox_tailscale_hostname: proxmox
-proxmox_tailscale_tag: tag:proxmox
+proxmox_tailscale_hostname: "{{ network.proxmox.magicdns_name }}"
+proxmox_tailscale_tag: "{{ tailscale.tags.proxmox }}"
 proxmox_tailscale_auth_key: "{{ lookup('ansible.builtin.env', 'TAILSCALE_AUTH_KEY') }}"
 proxmox_plan_ssh_public_keys: "{{ lookup('ansible.builtin.env', 'PROXMOX_PLAN_SSH_PUBLIC_KEYS').splitlines() }}"
 proxmox_apply_ssh_public_keys: "{{ lookup('ansible.builtin.env', 'PROXMOX_APPLY_SSH_PUBLIC_KEYS').splitlines() }}"

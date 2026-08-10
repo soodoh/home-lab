@@ -4,6 +4,7 @@
   gather_facts: false
   any_errors_fatal: true
   vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
     - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   vars:
     compose_stage_review_path: "/run/docker-compose-stage-review-{{ compose_artifact_hash }}.json"

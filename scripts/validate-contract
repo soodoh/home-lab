@@ -13,7 +13,7 @@ const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
 const schemaPath = path.join(root, "infrastructure/contract/schema.json");
 const qualificationEvidencePath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.json");
 const qualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.schema.json");
-const qualificationValidatorPath = path.join(root, "scripts/controller/proxmox-lxc-qualification.py");
+const qualificationValidatorPath = path.join(root, "scripts/controller/validate-lxc-qualification-evidence.py");
 const operational = process.argv.includes("--operational");
 
 const contract = load(fs.readFileSync(contractPath, "utf8"));
@@ -56,28 +56,18 @@ for (let mirror = 0; mirror < 6; mirror += 1) {
 }
 if (contract.network.proxmox.ipv4 === contract.network.arch.ipv4) failures.push("host addresses must differ");
 if (contract.network.proxmox.mac === contract.network.arch.mac) failures.push("host MAC addresses must differ");
-if (contract.tailscale.gateway_policy_stage === "retired" && contract.proxmox.legacy_container.retirement_stage !== "retired") {
-  failures.push("retired Tailscale gateway policy requires retired CT 101");
-}
-if (contract.tailscale.gateway_policy_stage === "active" && contract.proxmox.legacy_container.retirement_stage === "retired") {
-  failures.push("active Tailscale gateway policy is forbidden after CT 101 retirement");
-}
 
-if (contract.proxmox.legacy_container.lxc_provider_qualified) {
-  if (!fs.existsSync(qualificationEvidencePath)) {
-    failures.push("qualified LXC provider requires infrastructure/evidence/proxmox-lxc-qualification.json");
-  } else {
-    const evidence = JSON.parse(fs.readFileSync(qualificationEvidencePath, "utf8"));
-    if (!validateQualificationEvidence(evidence)) failures.push("LXC qualification evidence does not match its schema");
-    const result = spawnSync(
-      "python3",
-      [qualificationValidatorPath, "validate-run-evidence", "--evidence-json", qualificationEvidencePath],
-      { cwd: root, encoding: "utf8" },
-    );
-    if (result.status !== 0) failures.push("LXC qualification evidence validator rejected the tracked evidence");
-  }
-} else if (fs.existsSync(qualificationEvidencePath)) {
-  failures.push("LXC qualification evidence must remain absent while lxc_provider_qualified is false");
+if (!fs.existsSync(qualificationEvidencePath)) {
+  failures.push("retired CT 101 requires infrastructure/evidence/proxmox-lxc-qualification.json");
+} else {
+  const evidence = JSON.parse(fs.readFileSync(qualificationEvidencePath, "utf8"));
+  if (!validateQualificationEvidence(evidence)) failures.push("LXC qualification evidence does not match its schema");
+  const result = spawnSync(
+    "python3",
+    [qualificationValidatorPath, "--evidence-json", qualificationEvidencePath],
+    { cwd: root, encoding: "utf8" },
+  );
+  if (result.status !== 0) failures.push("LXC qualification evidence validator rejected the tracked evidence");
 }
 
 if (operational) {
@@ -88,7 +78,6 @@ if (operational) {
     [contract.arch.coral.package_sha256, "arch.coral.package_sha256"],
   ];
   for (const [value, name] of required) if (!value) failures.push(`${name} is required for operational recovery`);
-  if (!contract.omada.provider_qualified) failures.push("omada.provider_qualified must be true after live qualification");
 }
 
 if (failures.length) {

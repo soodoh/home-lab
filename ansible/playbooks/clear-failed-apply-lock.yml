@@ -4,6 +4,7 @@
   gather_facts: false
   any_errors_fatal: true
   vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
     - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   tasks:
     - name: Require exact failed-lock clearance inputs

@@ -1,8 +1,8 @@
 # Infrastructure reconciliation
 
-The desired-state boundary is `infrastructure/contract/home-lab.yml`. OpenTofu roots under `infrastructure/tofu/` own separate failure domains; Ansible owns host configuration; Compose owns application convergence.
+The desired-state boundary is [`../infrastructure/contract/home-lab.yml`](../infrastructure/contract/home-lab.yml). OpenTofu owns infrastructure, Ansible owns hosts, and Compose owns applications. Completed one-time transition operations are not supported controller modes.
 
-Use only the canonical entry point:
+Use only the trusted local controller:
 
 ```sh
 scripts/local-controller validate
@@ -12,63 +12,78 @@ scripts/local-controller approve steady --confirmation apply-reviewed-steady
 scripts/local-controller apply steady
 ```
 
-`bootstrap` and `adopt` remain plan-only compatibility commands. The trusted local controller accepts any clean committed revision, stores commit-bound plans locally, loads separate plan/apply credentials, and consumes exact saved plans without replanning. Native OpenTofu S3 locks and host apply locks serialize mutation; post-apply no-op checks remain mandatory.
+Recovery uses the same actions with operation `recovery` and confirmation `apply-reviewed-recovery`. Direct `scripts/reconcile-infrastructure` use is an implementation and recovery-debugging interface, not a replacement for manifest-bound approval: its apply boundary requires and single-use claims the exact consumed approval artifact.
 
-Plan credentials must be read-only. Apply credentials are loaded only after a manifest-bound local approval. Provider secrets remain in mode-`0600` controller JSON, never command arguments, plans, manifests, or logs. The protected CT confirmation is loaded only into the local process and is independently validated by OpenTofu; it never authorizes either CT stage without the separate exact operation approval.
+## Failure domains and roots
 
-Special modes (`recovery`, network migration, VM 100 root-disk growth, CT retirement, Tailscale controller retirement, Tailscale human SSH migration, gateway-policy lifecycle, and Omada qualification) have narrower policy allowlists and dedicated gates. They cannot be combined. Disk-growth mode permits only `scsi0` growth from 400 to 550 GiB, spans the Proxmox and guest operations with exclusive mutation locks, and requires exact disk, partition, filesystem, and no-op proofs. Because the provider cannot update a VM with an arbitrary host-path passthrough disk under a non-root API token, the policy-inspected saved plan authorizes a guarded `qm resize` through the separate SSH apply identity; the helper verifies VM protection, runtime state, source geometry, and the protected `scsi1` identity before mutation. A successful static plan is not proof that a provider can perform a live operation.
+Steady plans the following roots, subject to the Omada and Tailscale management enable flags:
 
-## Tailscale gateway-policy lifecycle
+1. `aws-foundation`
+2. `proxmox-legacy`
+3. `proxmox`
+4. `omada`
+5. `tailscale`
 
-The durable `tailscale.gateway_policy_stage` is `active`, `detached`, or `retired`. `active` enables only owner/admin recovery routing; `detached` removes route auto-approvers and the two routed LAN grants while retaining direct owner/admin access and the infra-router recovery node. No stage contains a hosted-controller tag. `retired` additionally removes the final infra-router owner and grant, and is allowed only after CT retirement and separate device-absence approval.
+Recovery plans `aws-foundation`, `proxmox`, `omada`, and `tailscale`. It excludes `proxmox-legacy` because retired CT 101 is not a recovery resource.
 
-Contract comparison permits steady states, `active -> detached`, pre-CT-retirement rollback, and `detached -> retired` only with an already retired CT. It rejects skips, transitions out of retired, and simultaneous CT/gateway transitions.
+Two empty roots remain deliberately:
 
-Use the exact local-controller operation for a reviewed stage transition:
+- `proxmox-legacy` preserves the retired CT 101 backend/state boundary as a steady tombstone.
+- `proxmox-lxc-qualification` preserves the completed disposable-LXC qualification backend and provider lock as an out-of-band tombstone; it is not a steady or recovery root. Its tracked evidence remains schema-validated.
 
-```sh
-scripts/local-controller plan tailscale-detach
-scripts/local-controller review tailscale-detach
-```
+Do not delete either backend or run `state rm`, import, or backend migration merely because its configuration is empty.
 
-The saved-plan manifest binds operation, stage, canonical before/after policy SHA-256 values, and the live plan-time ETag. Apply revalidates the exact plan and live ETag before an `If-Match` update, proves live policy equals state, and finishes with a no-op. Unrelated drift is never overwritten.
+## State-address invariants
 
-Retirement additionally fails closed unless `TAILSCALE_GATEWAY_DEVICE_ABSENCE_APPROVED` is exactly `true` in the protected local plan and apply credentials. Set it only after separate device-deletion approval and read-only absence verification; it does not authorize deletion.
+The simplification deliberately preserves active resource addresses:
 
-## Tailscale human SSH lifecycle
+- `proxmox_virtual_environment_vm.arch`
+- `omada_network.lan[0]`
+- `omada_dhcp_reservation.reservation[<mac>]`
+- `terraform_data.tailscale_policy[0]`
 
-The independent `tailscale.human_ssh_policy_stage` is `transition` or `final`. `transition` adds the named `proxmox` human login for verification but retains the prior owner/admin and tagged-host root paths. `final` preserves owner-only `docker` and `proxmox` human logins and owner/admin service accounts while removing every Tailscale SSH rule for Proxmox root. It also removes tagged Docker-host TCP/22 access to Proxmox while preserving TCP/8006.
+VM 100, the Omada LAN, and the Tailscale policy anchor retain destruction protection. Address changes require an explicit state-migration design and a separately reviewed live plan; source refactoring alone must not rename, recount, forget, or recreate these resources.
 
-Normal policy inspection rejects either mutation. Use only `tailscale-human-ssh-transition` or `tailscale-human-ssh-final`; each operation permits one exact Tailscale policy update, binds the human SSH contract stage and canonical policy identities into the saved-plan manifest, and requires its operation-specific approval. Local account convergence is a separate first phase through `ansible/playbooks/human-access.yml`, so a policy update never creates or repairs Linux users.
+## Plan policy
 
-After the CT is durably `retired`, `scripts/local-controller ... omada-retire` permits exactly one deletion: the adopted DHCP reservation whose MAC matches the retired contract identity. The LAN remains protected from destruction, every other reservation remains desired, and every non-Omada OpenTofu root must be a no-op. The saved plan, manifest flag, separated credentials, and post-apply full no-op verification remain mandatory.
+The inspector has two policy modes:
 
-## Proxmox LXC provider qualification gate
+- `normal` for every steady root and non-Proxmox recovery root;
+- `recovery` only for the Proxmox recovery plan.
 
-Before CT 101 unprotection, complete the isolated saved-plan lifecycle in [`proxmox-lxc-qualification.md`](./proxmox-lxc-qualification.md) from the trusted controller. The dedicated root has its own backend and may own only the fixed-marker disposable LXC.
+`normal` rejects destructive, replacement, compute creation, protection-disabling, root-disk-size, and network/device changes unless an enduring root allowlist explicitly permits them. `recovery` compares every expected Proxmox resource and protected field with a mode-`0600` expectations projection generated from the validated contract and protected disk identity; it accepts only exact creates/no-ops and rejects unrelated changes or unknown protected values. The projection SHA-256 is manifest-bound. The unresolved disposable Proxmox VM qualification configuration remains isolated in the main Proxmox root and is not enabled by normal steady/recovery input.
 
-The durable `proxmox.legacy_container.lxc_provider_qualified` gate remains `false` until a separate evidence-only PR records the completed create, rejected protected-delete probe, independent protected no-op, unprotect, delete, volume/API absence, empty state, no-lock, and verify-empty sequence. While false, the real evidence path stays absent and only `infrastructure/evidence/proxmox-lxc-qualification.example.json` is tracked. A `false -> true` PR must add the exact schema-valid `infrastructure/evidence/proxmox-lxc-qualification.json`; universal transition validation binds its six run IDs, tooling commit, provider lock, and final proof. CT `unprotect` and `delete` are rejected while the gate is false.
+The durable `proxmox.vm.hardware_attachment_mode` starts as `raw`, preserving the adopted live VM. Recovery always creates and uses managed hardware mappings. After a successful recovery, change the contract once from `raw` to `managed` before returning to `steady`; managed mode remains the durable steady state. Reversing managed mode to raw would delete protected mapping resources and rewrite protected VM devices, so lifecycle and normal policy fail closed.
 
-## CT 101 retirement lifecycle
+A plan pass proves only that the proposed action shape is authorized. It does not prove that a provider operation works live.
 
-The durable desired state is `proxmox.legacy_container.retirement_stage`:
+## Exact saved plans
 
-- `protected`: the resource exists with protection enabled.
-- `unprotected`: the resource exists with protection disabled.
-- `retired`: resource count and import are disabled; the empty `proxmox-legacy` root and state remain as a tombstone.
+Planning initializes each isolated S3 backend, uses native lockfiles and `-lock-timeout=5m`, creates one binary saved plan per enabled root, checks that provider credentials do not appear in it, and runs the policy inspector. The version-3 manifest binds the commit, phase, backend bucket, exact root set, plan paths and SHA-256 values, Compose artifact SHA-256, the complete protected Ansible extra-vars file when present, recovery backup identity and expectations projection, and Tailscale policy identities.
 
-Change the contract stage in a clean committed revision before planning an operation. Validation permits only `protected -> unprotected`, `unprotected -> retired`, and `unprotected -> protected`; skips and transitions out of `retired` are rejected. Unprotection and deletion additionally require `lxc_provider_qualified: true` from completed evidence.
+Apply requires the exact manifest commit and a clean checkout. It reinitializes each backend, verifies every saved-plan hash and policy result, and calls `tofu apply` with the saved binary file. It never generates a new plan as an apply source; mandatory post-apply `tofu plan` runs are convergence verification only.
 
-Plan and review each operation locally, then stop for its separate explicit approval:
+Plan credentials are read-only. Mutation credentials are loaded only after a manifest-bound single-use local approval. Provider credential values remain in mode-`0600` controller files or environment variables and never enter the manifest; the Tailscale OAuth client secret is URL-encoded through a protected temporary request file rather than a process argument.
 
-```sh
-scripts/local-controller plan ct-unprotect
-scripts/local-controller review ct-unprotect
-# After explicit approval only:
-scripts/local-controller approve ct-unprotect --confirmation unprotect-reviewed-ct-101
-scripts/local-controller apply ct-unprotect
+## Locks and Tailscale concurrency
 
-# Deletion is planned and approved separately after the unprotected no-op proof.
-```
+`reconcile-infrastructure apply` itself exclusively acquires and owns the controller-wide `.reconcile/controller-apply.lock`; callers cannot claim that the lock is already held. The lock spans OpenTofu, Ansible, Compose, and final verification. Every root also uses the native S3 state lock.
 
-The operation selects only the gate and plan policy; it never controls resource count or protection. Saved-plan manifests bind the exact operation and contract stage alongside commit, Compose artifact identity, and plan hashes. A special operation requires every non-legacy OpenTofu root and all Ansible checks to be no-op. Immediately before applying the legacy root last, a read-only Ansible playbook recomputes the active artifact at `/srv/docker-compose/current` with its own `scripts/compose-artifact.py --no-git hash` and requires exact equality with the already repository-verified manifest hash. A missing, unreadable, or mismatched active artifact stops retirement; this prerequisite never stages or deploys Compose. Post-apply no-op verification remains mandatory. Repeating the special operation is rejected because its policy requires exactly one target action. Use normal operation `none` for subsequent reconciliation.
+For the Tailscale root, planning records the canonical live policy SHA-256 and HTTP ETag as well as the planned before/after SHA-256 values. Apply refuses unrelated live drift, uses `If-Match`, verifies the resulting policy hash, and proves that live policy equals the state-held policy. The terminal policy retains direct owner/admin access required for Proxmox and Omada, including TCP 8043 to the Docker host.
+
+## Host and Compose convergence
+
+Ansible check plans are run twice and normalized; differing plans fail closed. The protected extra-vars file is SHA-256-bound to the manifest, and controller-fixed Compose artifact and recovery values are passed last so file values cannot override them. Steady converges Proxmox and bounded Arch tags, then stages the exact manifest-bound Compose artifact. Compose deployment reproduces a private action-plan hash immediately before activation, uses no builds or orphan removal, preserves current/previous artifact and environment generations, and requires an idempotent post-check. Failures retain the host production lock for inspected recovery.
+
+Recovery first proves Proxmox connectivity, reconciles the host and VM 100, bootstraps Arch through the recovery inventory, restores only the exact reviewed backup into fresh targets, and activates Compose through the recovery-specific plan hash. Critical ZFS/storage restoration remains assertion-oriented and cannot format or overwrite existing storage.
+
+## Required final verification
+
+Every successful apply ends by replanning every enabled OpenTofu root and requiring exit code zero. It also requires:
+
+- live Tailscale policy/state equality;
+- a no-op Proxmox steady play;
+- a zero-change Arch audit; and
+- for recovery, a no-op Arch bootstrap check.
+
+A changed or failed final check means reconciliation is incomplete even if earlier apply steps succeeded. See [`local-controller.md`](local-controller.md), [`compose-deployment.md`](compose-deployment.md), and [`../recovery/README.md`](../recovery/README.md).

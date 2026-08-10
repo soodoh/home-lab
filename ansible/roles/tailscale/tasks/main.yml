@@ -61,7 +61,7 @@
     that:
       - tailscale_auth_key | length > 0
     fail_msg: >-
-      TAILSCALE_AUTH_KEY must contain a short-lived, preauthorized, one-use key tagged for tag:docker-host.
+      TAILSCALE_AUTH_KEY must contain a short-lived, preauthorized, one-use key for {{ tailscale_advertise_tags }}.
   no_log: true
   when:
     - not ansible_check_mode

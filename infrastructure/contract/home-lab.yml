@@ -29,7 +29,7 @@ proxmox:
   vm:
     vmid: 100
     name: arch
-    observed_protection: false
+    hardware_attachment_mode: raw
     desired_protection: true
     on_boot: true
     started: true
@@ -101,16 +101,7 @@ proxmox:
     vmid: 101
     name: tailscale-gateway
     mac: BC:24:11:FD:4C:5C
-    retirement_stage: retired
-    lxc_provider_qualified: true
-    recreate_after_decommission: false
-    root_datastore: local-lvm
-    root_size_gb: 4
-    memory_mb: 512
-    swap_mb: 256
-    cores: 1
-    on_boot: true
-    unprivileged: true
+    retired: true
 storage:
   zfs:
     pool: storage
@@ -171,16 +162,11 @@ omada:
   controller_version: 6.2.14.11
   endpoint: https://Omada:8043
   export_path: .local/omada/export.json
-  provider_qualified: true
-  required_consecutive_noop_plans: 3
 tailscale:
-  gateway_policy_stage: retired
-  human_ssh_policy_stage: final
   owner_identity: soodoh@github
   tags:
     arch: tag:docker-host
     proxmox: tag:proxmox
-    infra_router: tag:infra-router
   required_endpoints:
     - docker-host:22
     - proxmox:22

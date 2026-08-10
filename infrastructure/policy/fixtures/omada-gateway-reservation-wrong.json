@@ -1,1 +1,0 @@
-{"format_version":"1.2","resource_changes":[{"address":"omada_dhcp_reservation.reservation[\"00:00:00:00:00:01\"]","type":"omada_dhcp_reservation","change":{"actions":["delete"],"before":{"mac":"00-00-00-00-00-01"},"after":null}}]}
