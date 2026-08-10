@@ -1,4 +1,6 @@
 ---
+proxmox_host_known_transitional_repository_files:
+  - /etc/apt/sources.list
 proxmox_host_known_stale_repository_files:
   - /etc/apt/sources.list.d/ceph.list
   - /etc/apt/sources.list.d/ceph.sources

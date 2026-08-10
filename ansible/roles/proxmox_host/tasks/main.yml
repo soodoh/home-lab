@@ -78,7 +78,8 @@
       - >-
         proxmox_host_active_repository_files.stdout_lines |
         difference((proxmox.apt.repositories | map(attribute='file') | list) +
-                   proxmox_host_known_stale_repository_files) |
+                   proxmox_host_known_stale_repository_files +
+                   proxmox_host_known_transitional_repository_files) |
         length == 0
     fail_msg: "Unapproved APT source URI, suite, component, signing key, or definition file detected."
 
