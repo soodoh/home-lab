@@ -16,12 +16,14 @@ Then run `ansible/playbooks/proxmox-site.yml` in check mode from the protected c
 
 Before any storage or network cutover, retain protected evidence for:
 
-- current `zpool status -P storage`, scrub completion, SMART results, pool GUID, and checksum count;
+- current `zpool status -P storage`, scrub state, SMART results, pool GUID, and checksum count;
 - local console access and the tested LAN rollback path;
 - the exact active `interfaces.d` snippet inventory as `SHA256  /etc/network/interfaces.d/name` records;
 - VM 100 guest-agent ownership of `192.168.0.100` and its existing NFS mount;
 - resolved Zigbee and Z-Wave serial-to-port paths; and
 - when a distinct fallback is configured, boot history for `proxmox.kernels.fallback` or a console-backed boot test of that exact release.
+
+A long-running scrub may be checkpoint-paused with `zpool scrub -p storage` when the pool is ONLINE, all protected members pass SMART health, there is no resilver/replacement/removal, and `zpool status` reports no known data errors. Record the paused state as reviewed evidence, complete only the gated maintenance window, then resume from the checkpoint with `zpool scrub storage`. Stopping the scrub with `-s` is not an acceptable substitute because it discards progress.
 
 ## Existing raw attachment transition
 
@@ -51,6 +53,6 @@ All gates default to `false` in `recovery/extra-vars.example.yml`.
 4. When a distinct fallback is configured, boot it manually if boot history does not prove it. Set `proxmox_cleanup_fallback_verification_confirmed` only while either the running kernel is the fallback or journal evidence proves a prior boot. A single-retained-kernel policy skips this gate. No role performs the reboot.
 5. Boot `proxmox.kernels.current` manually. Set both `proxmox_storage_post_reboot_validation` and `proxmox_passthrough_post_reboot_validation`; these gates validate effective ARC, complete ZFS topology, PCI drivers, and unloaded Coral modules before recording evidence.
 6. With VM 100 still stopped, set `proxmox_cleanup_migration_confirmed`. The cleanup role requires all prior evidence, removes only contract-listed packages and root paths, retains only exact retained-kernel package owners and headers, refreshes Proxmox boot entries, and fails on unknown manual packages or root-local paths.
-7. Restart VM 100, run full postflight checks, and rerun Ansible check mode. Managed drift should be zero; unknown drift remains a failure requiring review.
+7. Restart VM 100, resume any checkpoint-paused scrub with `zpool scrub storage`, verify it is progressing from the saved checkpoint, run full postflight checks, and rerun Ansible check mode. Managed drift should be zero; unknown drift remains a failure requiring review.
 
 Never set multiple destructive gates merely to make a check pass. Preserve `/root/.ssh`, `/root/.config/home-lab`, and both Proxmox token files throughout the migration.
