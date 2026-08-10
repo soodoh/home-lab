@@ -63,7 +63,7 @@ resource "proxmox_virtual_environment_vm" "arch" {
 
   disk {
     datastore_id = local.vm.root_disk.datastore
-    import_from  = local.retain_recovery_resources ? proxmox_download_file.arch_recovery_image[0].id : ""
+    import_from  = local.recovery ? proxmox_download_file.arch_recovery_image[0].id : ""
     interface    = local.vm.root_disk.interface
     size         = local.vm.root_disk.size_gb
     iothread     = local.vm.root_disk.iothread

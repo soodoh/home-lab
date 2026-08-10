@@ -91,6 +91,50 @@ def safe_custom_rom_removal(before: Any, after: Any, path: tuple[str, ...]) -> b
     )
 
 
+def safe_hardware_mapping_transition(
+    before: Any,
+    after: Any,
+    path: tuple[str, ...],
+    mapping_resources: dict[str, list[dict[str, Any]]],
+) -> bool:
+    if len(path) != 3 or path[0] not in {"hostpci", "usb"} or not path[1].isdigit():
+        return False
+    raw_field = "id" if path[0] == "hostpci" else "host"
+    if path[2] not in {raw_field, "mapping"}:
+        return False
+    devices_before = before.get(path[0]) if isinstance(before, dict) else None
+    devices_after = after.get(path[0]) if isinstance(after, dict) else None
+    index = int(path[1])
+    if (
+        not isinstance(devices_before, list)
+        or not isinstance(devices_after, list)
+        or index >= len(devices_before)
+        or index >= len(devices_after)
+    ):
+        return False
+    device_before = devices_before[index]
+    device_after = devices_after[index]
+    if not isinstance(device_before, dict) or not isinstance(device_after, dict):
+        return False
+    raw_value = device_before.get(raw_field)
+    mapping_name = device_after.get("mapping")
+    mapping_entries = mapping_resources.get(mapping_name, []) if isinstance(mapping_name, str) else []
+    mapping_matches_raw_device = any(
+        entry.get("path") == raw_value or entry.get("id") == raw_value
+        for entry in mapping_entries
+    )
+    return (
+        changed_keys(device_before, device_after) == {(raw_field,), ("mapping",)}
+        and isinstance(raw_value, str)
+        and bool(raw_value)
+        and device_before.get("mapping") in (None, "")
+        and device_after.get(raw_field) in (None, "")
+        and isinstance(mapping_name, str)
+        and bool(mapping_name)
+        and mapping_matches_raw_device
+    )
+
+
 def expected_subset(actual: Any, expected: Any) -> bool:
     if isinstance(expected, dict):
         return isinstance(actual, dict) and all(
@@ -176,6 +220,16 @@ def main() -> int:
     plan = json.loads(args.plan_json.read_text())
     allow = set()
     recovery_expectations = load_recovery_expectations(args.recovery_expectations) if args.mode == "recovery" else {}
+    mapping_resources: dict[str, list[dict[str, Any]]] = {}
+    for resource in plan.get("resource_changes", []):
+        if resource.get("type") not in {"proxmox_hardware_mapping_pci", "proxmox_hardware_mapping_usb"}:
+            continue
+        after = resource.get("change", {}).get("after")
+        if not isinstance(after, dict) or not isinstance(after.get("name"), str) or not isinstance(after.get("map"), list):
+            continue
+        entries = after["map"]
+        if all(isinstance(entry, dict) for entry in entries):
+            mapping_resources[after["name"]] = entries
     if args.mode != "recovery" and args.recovery_expectations is not None:
         raise SystemExit("--recovery-expectations is valid only in recovery mode")
     if args.allow_change_file:
@@ -239,6 +293,7 @@ def main() -> int:
             if any(part in SENSITIVE_FIELDS for part in path)
             and not safe_protection_enable(before, after, path)
             and not safe_custom_rom_removal(before, after, path)
+            and not safe_hardware_mapping_transition(before, after, path, mapping_resources)
         )
         if sensitive:
             failures.append(f"{address}: protected field change: {', '.join(sensitive)}")
