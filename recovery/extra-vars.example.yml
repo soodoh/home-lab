@@ -5,7 +5,12 @@ lan_rollback_confirmed: false
 proxmox_bootstrap_apply_confirmed: false
 proxmox_steady_apply_confirmed: false
 proxmox_network_apply_confirmed: false
+proxmox_network_snippet_migration_confirmed: false
+proxmox_network_reviewed_active_snippets: []
 proxmox_passthrough_apply_confirmed: false
+proxmox_passthrough_legacy_cleanup_confirmed: false
+proxmox_passthrough_post_reboot_validation: false
+proxmox_passthrough_usb_mapping_cleanup_confirmed: false
 proxmox_firewall_apply_confirmed: false
 tailscale_connectivity_confirmed: false
 
@@ -14,6 +19,10 @@ proxmox_storage_recovery_mode: false
 proxmox_storage_recovery_import_confirmed: false
 proxmox_storage_version_migration_reviewed: false
 proxmox_storage_migration_confirmed: false
+proxmox_storage_post_reboot_validation: false
+# Verify fallback evidence separately before enabling destructive cleanup.
+proxmox_cleanup_fallback_verification_confirmed: false
+proxmox_cleanup_migration_confirmed: false
 
 # Permit removing cloud-image DHCP only while console/LAN rollback remains available.
 arch_network_restart_confirmed: false

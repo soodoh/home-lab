@@ -1,23 +1,21 @@
 ---
-proxmox_packages:
-  - chrony
-  - curl
-  - git
-  - jq
-  - nfs-kernel-server
-  - nvme-cli
-  - smartmontools
-  - sudo
-  - tailscale
-  - zfsutils-linux
+proxmox_packages: "{{ proxmox.packages.required }}"
 proxmox_services:
   - chrony.service
   - nfs-server.service
   - ssh.service
   - tailscaled.service
 proxmox_network_apply_confirmed: false
+proxmox_network_snippet_migration_confirmed: false
+proxmox_network_reviewed_active_snippets: []
 proxmox_firewall_apply_confirmed: false
 proxmox_storage_migration_confirmed: false
+proxmox_storage_post_reboot_validation: false
+proxmox_passthrough_legacy_cleanup_confirmed: false
+proxmox_passthrough_post_reboot_validation: false
+proxmox_passthrough_usb_mapping_cleanup_confirmed: false
+proxmox_cleanup_fallback_verification_confirmed: false
+proxmox_cleanup_migration_confirmed: false
 proxmox_storage_recovery_mode: false
 proxmox_storage_recovery_import_confirmed: false
 proxmox_storage_review_evidence_path: /var/lib/home-lab/storage-review.json

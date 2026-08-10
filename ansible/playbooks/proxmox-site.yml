@@ -55,6 +55,7 @@
           - tofu-plan
           - tofu-apply
     - role: proxmox_health
+    - role: proxmox_cleanup
   post_tasks:
     - name: Release the shared host-side mutation lock after success
       ansible.builtin.import_role:
