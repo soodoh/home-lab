@@ -176,6 +176,7 @@ omada:
 tailscale:
   gateway_policy_stage: retired
   human_ssh_policy_stage: transition
+  owner_identity: soodoh@github
   tags:
     arch: tag:docker-host
     proxmox: tag:proxmox

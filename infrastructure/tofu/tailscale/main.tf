@@ -9,6 +9,7 @@ locals {
 
   gateway_policy_stage   = local.contract.tailscale.gateway_policy_stage
   human_ssh_policy_stage = local.contract.tailscale.human_ssh_policy_stage
+  owner_identity         = local.contract.tailscale.owner_identity
 
   direct_proxmox_grants_by_stage = {
     transition = [
@@ -135,28 +136,16 @@ locals {
   ssh_tests_by_human_stage = {
     transition = [
       {
-        src    = "autogroup:owner"
+        src    = local.owner_identity
         dst    = [local.tags.arch]
         accept = ["docker", "ansible-deploy"]
         deny   = ["proxmox", "root"]
       },
       {
-        src    = "autogroup:owner"
+        src    = local.owner_identity
         dst    = [local.tags.proxmox]
         accept = ["proxmox", "root", "tofu-plan", "tofu-apply"]
         deny   = ["docker"]
-      },
-      {
-        src    = "autogroup:admin"
-        dst    = [local.tags.arch]
-        accept = ["ansible-deploy"]
-        deny   = ["docker", "proxmox", "root"]
-      },
-      {
-        src    = "autogroup:admin"
-        dst    = [local.tags.proxmox]
-        accept = ["root", "tofu-plan", "tofu-apply"]
-        deny   = ["docker", "proxmox"]
       },
       {
         src    = local.tags.arch
@@ -167,28 +156,16 @@ locals {
     ]
     final = [
       {
-        src    = "autogroup:owner"
+        src    = local.owner_identity
         dst    = [local.tags.arch]
         accept = ["docker", "ansible-deploy"]
         deny   = ["proxmox", "root"]
       },
       {
-        src    = "autogroup:owner"
+        src    = local.owner_identity
         dst    = [local.tags.proxmox]
         accept = ["proxmox", "tofu-plan", "tofu-apply"]
         deny   = ["docker", "root"]
-      },
-      {
-        src    = "autogroup:admin"
-        dst    = [local.tags.arch]
-        accept = ["ansible-deploy"]
-        deny   = ["docker", "proxmox", "root"]
-      },
-      {
-        src    = "autogroup:admin"
-        dst    = [local.tags.proxmox]
-        accept = ["tofu-plan", "tofu-apply"]
-        deny   = ["docker", "proxmox", "root"]
       },
     ]
   }

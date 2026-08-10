@@ -23,6 +23,7 @@ SENSITIVE_FIELDS = {
 }
 STORAGE_RESOURCE_MARKERS = ("zfs", "filesystem", "disk", "mount", "storage")
 NETWORK_RESOURCE_MARKERS = ("firewall", "network", "acl", "ruleset", "federated_identity")
+TAILSCALE_OWNER_IDENTITY = "soodoh@github"
 RECOVERY_ADDRESSES = {
     "proxmox_download_file.arch_recovery_image[0]",
     'proxmox_hardware_mapping_pci.device["coral"]',
@@ -337,20 +338,16 @@ def human_ssh_final_policy(transition: Any) -> Any:
     if policy.get("sshTests") != expected_transition_ssh_tests:
         raise ValueError("transitional SSH tests are malformed")
     policy["sshTests"] = [
-        {"src": "autogroup:owner", "dst": ["tag:docker-host"], "accept": ["docker", "ansible-deploy"], "deny": ["proxmox", "root"]},
-        {"src": "autogroup:owner", "dst": ["tag:proxmox"], "accept": ["proxmox", "tofu-plan", "tofu-apply"], "deny": ["docker", "root"]},
-        {"src": "autogroup:admin", "dst": ["tag:docker-host"], "accept": ["ansible-deploy"], "deny": ["docker", "proxmox", "root"]},
-        {"src": "autogroup:admin", "dst": ["tag:proxmox"], "accept": ["tofu-plan", "tofu-apply"], "deny": ["docker", "proxmox", "root"]},
+        {"src": TAILSCALE_OWNER_IDENTITY, "dst": ["tag:docker-host"], "accept": ["docker", "ansible-deploy"], "deny": ["proxmox", "root"]},
+        {"src": TAILSCALE_OWNER_IDENTITY, "dst": ["tag:proxmox"], "accept": ["proxmox", "tofu-plan", "tofu-apply"], "deny": ["docker", "root"]},
     ]
     return policy
 
 
 def human_ssh_transition_tests() -> list[dict[str, Any]]:
     return [
-        {"src": "autogroup:owner", "dst": ["tag:docker-host"], "accept": ["docker", "ansible-deploy"], "deny": ["proxmox", "root"]},
-        {"src": "autogroup:owner", "dst": ["tag:proxmox"], "accept": ["proxmox", "root", "tofu-plan", "tofu-apply"], "deny": ["docker"]},
-        {"src": "autogroup:admin", "dst": ["tag:docker-host"], "accept": ["ansible-deploy"], "deny": ["docker", "proxmox", "root"]},
-        {"src": "autogroup:admin", "dst": ["tag:proxmox"], "accept": ["root", "tofu-plan", "tofu-apply"], "deny": ["docker", "proxmox"]},
+        {"src": TAILSCALE_OWNER_IDENTITY, "dst": ["tag:docker-host"], "accept": ["docker", "ansible-deploy"], "deny": ["proxmox", "root"]},
+        {"src": TAILSCALE_OWNER_IDENTITY, "dst": ["tag:proxmox"], "accept": ["proxmox", "root", "tofu-plan", "tofu-apply"], "deny": ["docker"]},
         {"src": "tag:docker-host", "dst": ["tag:proxmox"], "accept": ["root"], "deny": ["docker", "proxmox", "tofu-plan", "tofu-apply"]},
     ]
 

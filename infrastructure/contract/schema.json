@@ -104,10 +104,11 @@
     "tailscale": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["gateway_policy_stage", "human_ssh_policy_stage", "tags", "required_endpoints"],
+      "required": ["gateway_policy_stage", "human_ssh_policy_stage", "owner_identity", "tags", "required_endpoints"],
       "properties": {
         "gateway_policy_stage": { "type": "string", "enum": ["active", "detached", "retired"] },
         "human_ssh_policy_stage": { "type": "string", "enum": ["transition", "final"] },
+        "owner_identity": { "const": "soodoh@github" },
         "tags": {
           "type": "object",
           "additionalProperties": false,
