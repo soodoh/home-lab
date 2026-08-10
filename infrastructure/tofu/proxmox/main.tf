@@ -1,13 +1,12 @@
 locals {
-  vm                        = local.contract.proxmox.vm
-  node                      = local.contract.proxmox.node
-  recovery                  = var.phase == "recovery"
-  retain_recovery_resources = local.recovery || local.vm.hardware_attachment_mode == "managed"
-  use_hardware_mappings     = local.retain_recovery_resources
+  vm                    = local.contract.proxmox.vm
+  node                  = local.contract.proxmox.node
+  recovery              = var.phase == "recovery"
+  use_hardware_mappings = local.recovery || local.vm.hardware_attachment_mode == "managed"
 }
 
 resource "proxmox_download_file" "arch_recovery_image" {
-  count = local.retain_recovery_resources ? 1 : 0
+  count = local.recovery ? 1 : 0
 
   content_type       = "import"
   datastore_id       = "local"
