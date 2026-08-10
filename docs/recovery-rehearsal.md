@@ -14,8 +14,6 @@ A live qualification must use an isolated Proxmox host and disposable recovery t
 
 ```sh
 scripts/local-controller plan recovery
-scripts/local-controller review recovery
-scripts/local-controller approve recovery --confirmation apply-reviewed-recovery
 scripts/local-controller apply recovery
 ```
 

@@ -29,7 +29,7 @@ The canonical artifact hash is SHA-256 over a version marker followed by each so
 
 ## Staging workflow
 
-The trusted local controller stages only the exact committed Compose artifact after manifest review and local approval. Host-side apply locks serialize it with other production work.
+The trusted local controller stages only the exact committed Compose artifact after manifest review and interactive apply confirmation. Host-side apply locks serialize it with other production work.
 
 1. checks out the exact `main` commit;
 2. computes and copies the deterministic artifact on the controller;

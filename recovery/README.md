@@ -44,25 +44,22 @@ The local controller stores provider capabilities in separate mode-`0600` plan/a
    scripts/prepare-omada-plan-input verify-alias
    ```
 
-5. **Plan and review recovery.** Export only the protected extra-vars filename, then use the public controller:
+5. **Plan and review recovery.** Export only the protected extra-vars filename, then run the public plan command. It performs validation, creates the exact saved plans, and displays all provider-redacted plan details:
 
    ```sh
    export RECONCILE_ANSIBLE_EXTRA_VARS_FILE=<ignored-mode-0600-yaml>
-   scripts/local-controller validate
    scripts/local-controller plan recovery
-   scripts/local-controller review recovery
    ```
 
    Recovery plans `aws-foundation`, `proxmox`, `omada`, and `tailscale` when the latter providers are enabled. The Proxmox plan uses the exact `recovery` policy, forces token-compatible hardware mappings, and binds a mode-`0600` contract/runtime expectations projection into the manifest. Every other root uses `normal` policy. Planning does not download, decrypt, or activate a backup.
 
-6. **Approve and apply the exact plan.** After review and confirmation that no other protected mutation is active:
+6. **Apply the exact plan.** After reviewing the displayed plans and confirming that no other protected mutation is active:
 
    ```sh
-   scripts/local-controller approve recovery --confirmation apply-reviewed-recovery
    scripts/local-controller apply recovery
    ```
 
-   Approval binds the commit, manifest hash, exact root plans, Compose artifact, recovery expectations, and backup identity, and is single-use. The controller-wide lock spans all OpenTofu, Ansible, Compose, and verification work. Apply never generates a replacement apply plan; later plan commands are mandatory no-op verification.
+   Apply reruns static validation, verifies the commit-bound manifest and saved-plan hashes, then prompts for `apply-reviewed-recovery` before loading mutation credentials. The reconciler revalidates the exact root plans, Compose artifact, recovery expectations, and backup identity before mutation. The controller-wide lock spans all OpenTofu, Ansible, Compose, and verification work. Apply never generates a replacement apply plan; later plan commands are mandatory no-op verification.
 
 7. **Verify and record evidence.** Recovery applies the active infrastructure plans, reconciles Proxmox, creates or repairs VM 100, bootstraps Arch, stages the exact Compose artifact, and tries valid local archives newest-first across the three ordered filesystems. It downloads the reviewed S3 fallback only when no local candidate is usable. The selected candidate must match the manifest-bound recovery identity. After activation, it verifies services, Coral, maintenance, live Tailscale policy/state equality, every enabled OpenTofu root no-op, Proxmox no-op, Arch audit no-op, and Arch bootstrap no-op.
 

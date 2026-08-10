@@ -39,27 +39,37 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertNotIn("keychain", self.controller)
         self.assertNotIn("uname", setup)
 
-    def test_local_controller_passes_consumed_approval_to_reconciler(self) -> None:
-        consume = self.controller.index("consume_approval\n")
-        binding = self.controller.index('RECONCILE_APPROVAL_FILE="$approval"')
-        reconcile = self.controller.index("scripts/reconcile-infrastructure apply", binding)
-        self.assertLess(consume, binding)
-        self.assertLess(binding, reconcile)
+    def test_local_controller_exposes_only_plan_and_apply(self) -> None:
+        self.assertIn('case "$action" in plan|apply)', self.controller)
+        self.assertNotIn("  review)", self.controller)
+        self.assertNotIn("  approve)", self.controller)
+        self.assertNotIn("  validate)", self.controller)
 
-    def test_reconciler_claims_approval_before_any_infrastructure_apply(self) -> None:
-        dispatch = self.reconciler.index('case "$action" in')
-        lock = self.reconciler.index("acquire_apply_lock", dispatch)
-        claim = self.reconciler.index("verify_and_claim_approval", lock)
-        verify = self.reconciler.index("verify_manifest", claim)
-        apply_root = self.reconciler.index("apply_root aws-foundation", verify)
-        self.assertLess(lock, claim)
-        self.assertLess(claim, verify)
-        self.assertLess(verify, apply_root)
+    def test_plan_renders_saved_plans_after_reconciliation(self) -> None:
+        dispatch = self.controller.index('case "$action" in', self.controller.index("confirm_apply()"))
+        reconcile = self.controller.index("scripts/reconcile-infrastructure plan", dispatch)
+        show = self.controller.index("show_saved_plans", reconcile)
+        complete = self.controller.index("local_controller=planned", show)
+        self.assertLess(reconcile, show)
+        self.assertLess(show, complete)
+
+    def test_apply_confirms_before_loading_mutation_credentials(self) -> None:
+        dispatch = self.controller.index('case "$action" in', self.controller.index("confirm_apply()"))
+        confirm = self.controller.index("confirm_apply", dispatch)
+        credentials = self.controller.index("load_credentials apply", confirm)
+        reconcile = self.controller.index("scripts/reconcile-infrastructure apply", credentials)
+        self.assertLess(confirm, credentials)
+        self.assertLess(credentials, reconcile)
+        self.assertIn("interactive_confirmation_required", self.controller)
+        apply_section = self.controller[confirm:]
+        self.assertNotIn("load_credentials plan", apply_section)
 
     def test_reconciler_always_owns_the_apply_lock(self) -> None:
         self.assertNotIn("RECONCILE_APPLY_LOCK_HELD", self.reconciler)
         self.assertNotIn("RECONCILE_APPLY_LOCK_HELD", self.controller)
         self.assertNotIn("acquire_apply_lock", self.controller)
+        self.assertNotIn("RECONCILE_APPROVAL_FILE", self.reconciler)
+        self.assertNotIn("RECONCILE_APPROVAL_FILE", self.controller)
 
     def test_extra_vars_precede_fixed_compose_values(self) -> None:
         for playbook in (

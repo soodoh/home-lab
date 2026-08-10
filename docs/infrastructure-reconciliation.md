@@ -5,14 +5,11 @@ The desired-state boundary is [`../infrastructure/contract/home-lab.yml`](../inf
 Use only the trusted local controller:
 
 ```sh
-scripts/local-controller validate
 scripts/local-controller plan steady
-scripts/local-controller review steady
-scripts/local-controller approve steady --confirmation apply-reviewed-steady
 scripts/local-controller apply steady
 ```
 
-Recovery uses the same actions with operation `recovery` and confirmation `apply-reviewed-recovery`. Direct `scripts/reconcile-infrastructure` use is an implementation and recovery-debugging interface, not a replacement for manifest-bound approval: its apply boundary requires and single-use claims the exact consumed approval artifact.
+Recovery uses the same commands with operation `recovery`. Both commands run validation internally, `plan` displays every validated saved plan, and `apply` requires an interactive operation-specific confirmation before loading mutation credentials. Direct `scripts/reconcile-infrastructure` use is an implementation and recovery-debugging interface.
 
 ## Failure domains and roots
 
@@ -63,7 +60,7 @@ Planning initializes each isolated S3 backend, uses native lockfiles and `-lock-
 
 Apply requires the exact manifest commit and a clean checkout. It reinitializes each backend, verifies every saved-plan hash and policy result, and calls `tofu apply` with the saved binary file. It never generates a new plan as an apply source; mandatory post-apply `tofu plan` runs are convergence verification only.
 
-Plan credentials are read-only. Mutation credentials are loaded only after a manifest-bound single-use local approval. Provider credential values remain in mode-`0600` controller files or environment variables and never enter the manifest; the Tailscale OAuth client secret is URL-encoded through a protected temporary request file rather than a process argument.
+Plan credentials are read-only. Apply verifies the saved-plan identity and requires interactive confirmation before mutation credentials are loaded. Provider credential values remain in mode-`0600` controller files or environment variables and never enter the manifest; the Tailscale OAuth client secret is URL-encoded through a protected temporary request file rather than a process argument.
 
 ## Locks and Tailscale concurrency
 

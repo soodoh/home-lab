@@ -88,7 +88,6 @@ if [[ $action == validate ]]; then
   scripts/validate-provider-locks
   infrastructure/policy/test-policy.sh
   node scripts/controller/test-contract-schema.js
-  python3 scripts/controller/test-approval.py
   python3 scripts/controller/test-lxc-qualification-evidence.py
   python3 scripts/controller/test-protected-file.py
   python3 scripts/controller/test-reconcile-manifest.py
@@ -847,22 +846,6 @@ verify_all() {
   popd >/dev/null
 }
 
-verify_and_claim_approval() {
-  local expected_approval="$plan_dir/approval.json"
-  [[ -n ${RECONCILE_APPROVAL_FILE:-} ]] || {
-    echo "apply requires the consumed manifest-bound approval artifact" >&2
-    exit 66
-  }
-  [[ $RECONCILE_APPROVAL_FILE == "$expected_approval" ]] || {
-    echo "apply approval path does not match the saved-plan directory" >&2
-    exit 66
-  }
-  require_protected_regular_file "$RECONCILE_APPROVAL_FILE" "apply approval file"
-  python3 scripts/controller/claim-approval.py "$RECONCILE_APPROVAL_FILE" \
-    --commit "$commit" \
-    --operation "$phase" \
-    --manifest-sha256 "$(sha256_file "$plan_dir/manifest.json")"
-}
 
 apply_lock_dir="$repo_root/.reconcile/controller-apply.lock"
 apply_lock_acquired=false
@@ -898,7 +881,6 @@ case "$action" in
       exit 65
     fi
     acquire_apply_lock
-    verify_and_claim_approval
     verify_manifest
     apply_root aws-foundation
     if [[ $phase == recovery ]]; then

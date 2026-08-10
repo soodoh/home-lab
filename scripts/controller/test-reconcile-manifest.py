@@ -25,20 +25,6 @@ def write_executable(path: Path, content: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
-def write_consumed_approval(plan_dir: Path, commit: str, operation: str) -> Path:
-    manifest = plan_dir / "manifest.json"
-    approval = plan_dir / "approval.json"
-    approval.write_text(json.dumps({
-        "version": 1,
-        "commit": commit,
-        "operation": operation,
-        "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
-        "approved_at": "2026-08-10T00:00:00+00:00",
-        "consumed": True,
-        "consumed_at": "2026-08-10T00:00:01+00:00",
-    }))
-    approval.chmod(0o600)
-    return approval
 
 
 class ManifestVerificationTests(unittest.TestCase):
@@ -120,7 +106,6 @@ fi
             )
             for command in ("ansible", "ansible-playbook", "curl"):
                 write_executable(binaries / command, "#!/usr/bin/env bash\nexit 0\n")
-            approval = write_consumed_approval(plan_dir, commit, "recovery")
             extra_vars.write_text(extra_vars_content + "# tampered\n")
             extra_vars.chmod(0o600)
             extra_vars_result = subprocess.run(
@@ -136,7 +121,6 @@ fi
                     "RECONCILE_ANSIBLE_EXTRA_VARS_FILE": str(extra_vars),
                     "TOFU_TEST_LOG": str(log),
                     "MOCK_GIT_COMMIT": commit,
-                    "RECONCILE_APPROVAL_FILE": str(approval),
                 },
                 text=True,
                 stdout=subprocess.PIPE,
@@ -149,7 +133,6 @@ fi
             extra_vars.write_text(extra_vars_content)
             extra_vars.chmod(0o600)
             expectations.write_text(expectations.read_text() + "\n")
-            approval = write_consumed_approval(plan_dir, commit, "recovery")
             result = subprocess.run(
                 [str(RECONCILER), "apply", "--phase", "recovery", "--plan-dir", str(plan_dir)],
                 cwd=REPOSITORY,
@@ -163,7 +146,6 @@ fi
                     "RECONCILE_ANSIBLE_EXTRA_VARS_FILE": str(extra_vars),
                     "TOFU_TEST_LOG": str(log),
                     "MOCK_GIT_COMMIT": commit,
-                    "RECONCILE_APPROVAL_FILE": str(approval),
                 },
                 text=True,
                 stdout=subprocess.PIPE,
@@ -316,26 +298,14 @@ exit 86
                 "--plan-dir",
                 str(plan_dir),
             ]
-            missing_approval = subprocess.run(
-                command,
-                cwd=REPOSITORY,
-                env=environment,
-                text=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
-            self.assertEqual(missing_approval.returncode, 66, missing_approval.stderr)
-            self.assertIn("requires the consumed manifest-bound approval", missing_approval.stderr)
-            self.assertFalse(log.exists(), "missing approval reached provider plan decoding")
 
             invalid_manifest = manifest.copy()
             invalid_manifest["recovery_expectations_sha256"] = "0" * 64
             (plan_dir / "manifest.json").write_text(json.dumps(invalid_manifest))
-            approval = write_consumed_approval(plan_dir, commit, "steady")
             rejected = subprocess.run(
                 command,
                 cwd=REPOSITORY,
-                env={**environment, "RECONCILE_APPROVAL_FILE": str(approval)},
+                env=environment,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -344,11 +314,10 @@ exit 86
             self.assertIn("manifest metadata is invalid", rejected.stderr)
 
             (plan_dir / "manifest.json").write_text(json.dumps(manifest))
-            approval = write_consumed_approval(plan_dir, commit, "steady")
             result = subprocess.run(
                 command,
                 cwd=REPOSITORY,
-                env={**environment, "RECONCILE_APPROVAL_FILE": str(approval)},
+                env=environment,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

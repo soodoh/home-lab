@@ -7,7 +7,7 @@ This file separates implemented safeguards, completed historical evidence, prote
 - authoritative contract and JSON Schema validation
 - provider lock validation for supported controller platforms
 - isolated OpenTofu roots with policy-inspected, commit-bound saved plans
-- separate protected plan/apply credentials and manifest-bound single-use approval
+- separate protected plan/apply credentials with interactive confirmation before mutation credentials load
 - controller-wide local apply lock plus native S3 state lockfiles
 - Tailscale canonical policy SHA/ETag concurrency checks
 - Proxmox and Arch bootstrap, steady convergence, and no-op audit gates

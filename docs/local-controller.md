@@ -4,24 +4,16 @@ Paul's MacBook is the interactive infrastructure controller. GitHub is only the 
 
 ## Supported operations
 
-The public controller supports only two operations:
-
-- `steady`: reconcile the existing home lab.
-- `recovery`: rebuild the active infrastructure and restore workloads through the guarded recovery path.
-
-Both use the same actions:
+The public controller exposes exactly two commands for both `steady` reconciliation and guarded `recovery`:
 
 ```sh
-scripts/local-controller validate
 scripts/local-controller plan steady
-scripts/local-controller review steady
-scripts/local-controller approve steady --confirmation apply-reviewed-steady
 scripts/local-controller apply steady
 ```
 
-For recovery, replace `steady` with `recovery` and use `apply-reviewed-recovery`. Recovery also requires the ignored mode-`0600` Ansible extra-vars file described in [`../recovery/README.md`](../recovery/README.md).
+For recovery, replace `steady` with `recovery`. Recovery also requires the ignored mode-`0600` Ansible extra-vars file described in [`../recovery/README.md`](../recovery/README.md).
 
-Planning is read-only. Review prints each provider-redacted human-readable saved plan, including protected infrastructure values needed for informed approval. Approval is a separate local action and does not apply anything. Apply is never implicit.
+Both commands run the complete static validation suite. Plan is read-only: it creates the policy-inspected saved plans and manifest, verifies their hashes, and then prints every provider-redacted human-readable plan, including protected infrastructure values needed for informed review. Apply verifies the same commit-bound saved plans, prints their manifest identity, and requires the operator to type `apply-reviewed-steady` or `apply-reviewed-recovery` interactively before mutation credentials are loaded. Apply is never implicit and never replans.
 
 ## Protected controller configuration
 
@@ -43,9 +35,9 @@ Plan and apply capabilities stay separate:
 
 Run `scripts/configure-local-controller-aws` to create the separate `credential_process` profiles and verify both assumed-role identities without printing their ARNs. Run `scripts/configure-local-provider-credentials` locally to enter provider credentials through hidden prompts. These commands write only to existing protected controller files. The AWS foundation deliberately has no hosted OIDC provider or DynamoDB mutation lease; Roles Anywhere and native S3 lockfiles are the current boundaries.
 
-## Saved-plan and approval boundary
+## Saved-plan and confirmation boundary
 
-Every non-validation action requires a clean working tree, including no untracked files. Plans are stored under:
+Every public controller command requires a clean working tree, including no untracked files. Plans are stored under:
 
 ```text
 .reconcile/plans/<commit>/<operation>/
@@ -61,9 +53,9 @@ The version-3 manifest binds:
 - the recovery backup identity and exact contract/runtime expectations projection when applicable; and
 - Tailscale's canonical before/after policy SHA-256 values and live plan-time ETag.
 
-Apply checks the manifest and plan hashes, reinitializes each provider backend, reinspects every saved plan under the current `normal` or `recovery` policy, and never generates a replacement apply plan. Post-apply plans are mandatory no-op verification only. The approval binds the commit, operation, and manifest SHA-256, is atomically consumed by `local-controller`, and is then validated and single-use claimed again at the reconciler apply boundary before the first infrastructure mutation. Direct reconciler apply without that exact consumed artifact fails closed. A failed apply requires a new approval.
+Apply checks the manifest and plan hashes, reinitializes each provider backend, reinspects every saved plan under the current `normal` or `recovery` policy, and never generates a replacement apply plan. Post-apply plans are mandatory no-op verification only. The interactive confirmation names the reviewed operation and occurs before mutation credentials are loaded.
 
-The reconciler itself exclusively acquires and owns an atomic mode-`0700` `.reconcile/controller-apply.lock` that serializes the complete apply; callers cannot bypass it by claiming the lock is already held. Per-root OpenTofu operations also use native S3 lockfiles with a five-minute lock timeout. Tailscale policy mutation verifies the live canonical SHA and ETag immediately before an `If-Match` update and proves the resulting live policy equals OpenTofu state.
+The reconciler itself exclusively acquires and owns an atomic mode-`0700` `.reconcile/controller-apply.lock` that serializes the complete apply. Per-root OpenTofu operations also use native S3 lockfiles with a five-minute lock timeout. Tailscale policy mutation verifies the live canonical SHA and ETag immediately before an `If-Match` update and proves the resulting live policy equals OpenTofu state.
 
 ## Omada input and strict TLS
 
