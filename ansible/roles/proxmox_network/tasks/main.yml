@@ -121,6 +121,7 @@
   register: proxmox_network_management_address_after
   changed_when: false
   when: proxmox_network_apply_confirmed | bool
+  check_mode: false
 
 - name: Assert network canary succeeded
   ansible.builtin.assert:
