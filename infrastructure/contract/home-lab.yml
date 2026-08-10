@@ -175,7 +175,7 @@ omada:
   required_consecutive_noop_plans: 3
 tailscale:
   gateway_policy_stage: retired
-  human_ssh_policy_stage: transition
+  human_ssh_policy_stage: final
   owner_identity: soodoh@github
   tags:
     arch: tag:docker-host

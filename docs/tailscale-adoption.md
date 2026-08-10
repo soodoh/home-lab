@@ -11,7 +11,7 @@ Neither client receives a GitHub subject, enrollment tag, or stale-device deleti
 
 Tailscale's owner selector is singular: `autogroup:owner`. OpenTofu owns the tailnet grants, SSH rules, and positive/negative policy tests; Ansible owns the locked local `docker` and `proxmox` accounts, their account-named primary groups, `/bin/bash` shells, homes, absent conventional authorized keys, and validated per-user `NOPASSWD` sudo policies. Conventional OpenSSH excludes both human accounts; `ansible-deploy`, `tofu-plan`, `tofu-apply`, LAN recovery, and console recovery remain separate paths.
 
-The contract deliberately selects `tailscale.human_ssh_policy_stage: transition` first. Converge the accounts independently before changing tailnet policy:
+The transition stage was applied only after converging both local accounts independently:
 
 ```sh
 cd ansible
@@ -33,7 +33,7 @@ scripts/local-controller apply tailscale-human-ssh-transition
 
 Before finalization, verify `tailscale ssh docker@docker-host`, `tailscale ssh proxmox@proxmox`, and `sudo -n true` in both sessions. Record the successful checks outside the repository without tailnet addresses or identity data.
 
-Only after those checks may a separately reviewed commit change `human_ssh_policy_stage` to `final`. Finalization uses `tailscale-human-ssh-final` with confirmation `finalize-reviewed-tailscale-human-ssh`. The exact policy update preserves owner/admin automation accounts, denies owner/admin `root@proxmox`, denies `tag:docker-host` TCP/22 and Tailscale SSH to Proxmox, preserves the unrelated tagged-host TCP/8006 path, and proves the positive and negative access matrix through policy tests. Verify the two named logins still succeed and both human and tagged-machine root attempts fail after apply.
+After both named logins and passwordless sudo succeeded, the contract advanced to `human_ssh_policy_stage: final`. Finalization uses `tailscale-human-ssh-final` with confirmation `finalize-reviewed-tailscale-human-ssh`. The exact policy update preserves owner/admin automation accounts, denies owner/admin `root@proxmox`, denies `tag:docker-host` TCP/22 and Tailscale SSH to Proxmox, preserves the unrelated tagged-host TCP/8006 path, and proves the positive and negative access matrix through policy tests. Verify the two named logins still succeed and both human and tagged-machine root attempts fail after apply.
 
 ## CI identity retirement
 
