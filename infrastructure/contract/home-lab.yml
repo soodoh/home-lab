@@ -241,9 +241,9 @@ proxmox:
       - usrmerge
   kernels:
     current: 7.0.14-8-pve
-    fallback: 6.14.11-4-pve
-    retention_count: 2
-    require_boot_history_proof: true
+    fallback: 7.0.14-8-pve
+    retention_count: 1
+    require_boot_history_proof: false
   root_cleanup:
     approved_shell: /bin/bash
     preserve_paths:

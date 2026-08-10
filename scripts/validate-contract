@@ -95,10 +95,14 @@ for (const packageName of requiredPackages) {
 for (const packageName of permittedManualPackages) {
   if (prohibitedPackages.has(packageName)) failures.push(`permitted manual package ${packageName} is also prohibited`);
 }
-if (contract.proxmox.kernels.current === contract.proxmox.kernels.fallback) {
-  failures.push("current and fallback Proxmox kernels must differ");
+const distinctFallback = contract.proxmox.kernels.current !== contract.proxmox.kernels.fallback;
+const expectedRetentionCount = distinctFallback ? 2 : 1;
+if (contract.proxmox.kernels.retention_count !== expectedRetentionCount) {
+  failures.push(`kernel retention count must be ${expectedRetentionCount} for the selected current/fallback policy`);
 }
-if (contract.proxmox.kernels.retention_count !== 2) failures.push("kernel retention count must be exactly two");
+if (contract.proxmox.kernels.require_boot_history_proof !== distinctFallback) {
+  failures.push("boot-history proof must be enabled exactly when a distinct fallback kernel is retained");
+}
 const archHostAddress = contract.network.arch.ipv4.split("/")[0];
 if (contract.storage.nfs.client !== `${archHostAddress}/32`) failures.push("NFS client must be the Arch VM /32 address");
 if (contract.storage.nfs.client_vmid !== contract.proxmox.vm.vmid) failures.push("NFS client VMID must identify VM 100");

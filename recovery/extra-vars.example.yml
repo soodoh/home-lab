@@ -20,7 +20,7 @@ proxmox_storage_recovery_import_confirmed: false
 proxmox_storage_version_migration_reviewed: false
 proxmox_storage_migration_confirmed: false
 proxmox_storage_post_reboot_validation: false
-# Verify fallback evidence separately before enabling destructive cleanup.
+# Verify fallback evidence separately before cleanup when a distinct fallback is retained.
 proxmox_cleanup_fallback_verification_confirmed: false
 proxmox_cleanup_migration_confirmed: false
 

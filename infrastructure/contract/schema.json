@@ -254,8 +254,8 @@
       "properties": {
         "current": { "$ref": "#/$defs/pveKernelRelease" },
         "fallback": { "$ref": "#/$defs/pveKernelRelease" },
-        "retention_count": { "const": 2 },
-        "require_boot_history_proof": { "const": true }
+        "retention_count": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "require_boot_history_proof": { "type": "boolean" }
       }
     },
     "rootCleanupPolicy": {

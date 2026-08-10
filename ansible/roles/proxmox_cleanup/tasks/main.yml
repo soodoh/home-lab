@@ -1,8 +1,14 @@
 ---
-- name: Record whether destructive cleanup is being evaluated
+- name: Record destructive cleanup and exact kernel retention policy
   ansible.builtin.set_fact:
     proxmox_cleanup_requested: >-
       {{ ansible_check_mode or (proxmox_cleanup_migration_confirmed | bool) }}
+    proxmox_cleanup_retained_kernel_releases: >-
+      {{ [proxmox.kernels.current, proxmox.kernels.fallback] | unique | list }}
+    proxmox_cleanup_distinct_fallback: >-
+      {{ proxmox.kernels.current != proxmox.kernels.fallback }}
+    proxmox_cleanup_fallback_evidence:
+      rc: 0
 
 - name: Search boot history for the exact fallback kernel
   ansible.builtin.shell: |
@@ -18,6 +24,7 @@
   failed_when: false
   changed_when: false
   check_mode: false
+  when: proxmox_cleanup_distinct_fallback | bool
 
 - name: Inspect the verified fallback marker
   ansible.builtin.stat:
@@ -34,9 +41,10 @@
 - name: Validate the fallback marker against the exact contract release
   ansible.builtin.set_fact:
     proxmox_cleanup_fallback_marker_valid: >-
-      {{ proxmox_cleanup_fallback_state.stat.isreg | default(false) and
-         (proxmox_cleanup_fallback_marker_content.content | default('') | b64decode | trim) ==
-         'fallback=' ~ proxmox.kernels.fallback }}
+      {{ not (proxmox_cleanup_distinct_fallback | bool) or
+         (proxmox_cleanup_fallback_state.stat.isreg | default(false) and
+          (proxmox_cleanup_fallback_marker_content.content | default('') | b64decode | trim) ==
+          'fallback=' ~ proxmox.kernels.fallback) }}
 
 - name: Require evidence before accepting the exact fallback kernel
   ansible.builtin.assert:
@@ -49,6 +57,7 @@
   when:
     - not ansible_check_mode
     - proxmox_cleanup_fallback_verification_confirmed | bool
+    - proxmox_cleanup_distinct_fallback | bool
 
 - name: Ensure the home-lab state directory exists for fallback evidence
   ansible.builtin.file:
@@ -60,6 +69,7 @@
   when:
     - not ansible_check_mode
     - proxmox_cleanup_fallback_verification_confirmed | bool
+    - proxmox_cleanup_distinct_fallback | bool
 
 - name: Record the exact verified fallback kernel
   ansible.builtin.copy:
@@ -71,6 +81,7 @@
   when:
     - not ansible_check_mode
     - proxmox_cleanup_fallback_verification_confirmed | bool
+    - proxmox_cleanup_distinct_fallback | bool
     - >-
       proxmox_cleanup_fallback_evidence.rc == 0 or
       ansible_facts.kernel == proxmox.kernels.fallback
@@ -82,6 +93,7 @@
   when:
     - ansible_check_mode
     - not (proxmox_cleanup_fallback_marker_valid | bool)
+    - proxmox_cleanup_distinct_fallback | bool
 
 - name: Inspect VM 100 before destructive cleanup
   ansible.builtin.command:
@@ -115,6 +127,7 @@
       - "'status: stopped' in proxmox_cleanup_vm_state.stdout"
       - ansible_facts.kernel == proxmox.kernels.current
       - >-
+        not (proxmox_cleanup_distinct_fallback | bool) or
         proxmox_cleanup_fallback_marker_valid | bool or
         (proxmox_cleanup_fallback_verification_confirmed | bool and
          (proxmox_cleanup_fallback_evidence.rc == 0 or
@@ -181,12 +194,11 @@
     shell: "{{ proxmox.root_cleanup.approved_shell }}"
   when: proxmox_cleanup_requested | bool
 
-- name: Install matching headers for both retained kernels
+- name: Install matching headers for every retained kernel
   ansible.builtin.apt:
-    name:
-      - "proxmox-headers-{{ proxmox.kernels.current }}"
-      - "proxmox-headers-{{ proxmox.kernels.fallback }}"
+    name: "proxmox-headers-{{ item }}"
     state: present
+  loop: "{{ proxmox_cleanup_retained_kernel_releases }}"
   when:
     - not ansible_check_mode
     - proxmox_cleanup_migration_confirmed | bool
@@ -194,7 +206,7 @@
 - name: Identify package owners for exact retained kernels and headers
   ansible.builtin.shell: |
     set -euo pipefail
-    for release in {{ proxmox.kernels.current | quote }} {{ proxmox.kernels.fallback | quote }}; do
+    for release in {{ proxmox_cleanup_retained_kernel_releases | map('quote') | join(' ') }}; do
       image="/boot/vmlinuz-$release"
       [[ -e $image ]]
       image_owner=$(/usr/bin/dpkg-query -S "$image" | /usr/bin/sed 's/: \/.*//')
@@ -213,7 +225,7 @@
 
 - name: Report missing exact kernel or matching header ownership
   ansible.builtin.debug:
-    msg: "Both exact retained kernel images and matching headers must be installed before pruning."
+    msg: "Every exact retained kernel image and matching header must be installed before pruning."
   changed_when: true
   when:
     - ansible_check_mode
@@ -223,8 +235,10 @@
   ansible.builtin.assert:
     that:
       - proxmox_cleanup_retained_kernel_owners.rc == 0
-      - proxmox_cleanup_retained_kernel_owners.stdout_lines | length == 4
-    fail_msg: "Current/fallback kernel images or matching headers are missing; refusing kernel pruning."
+      - >-
+        proxmox_cleanup_retained_kernel_owners.stdout_lines | length ==
+        (proxmox_cleanup_retained_kernel_releases | length * 2)
+    fail_msg: "Exact retained kernel images or matching headers are missing; refusing kernel pruning."
   when:
     - not ansible_check_mode
     - proxmox_cleanup_migration_confirmed | bool
@@ -325,13 +339,13 @@
   changed_when: false
   check_mode: false
 
-- name: Require only current and verified fallback Proxmox boot images
+- name: Require only exact retained Proxmox boot images
   ansible.builtin.assert:
     that:
       - >-
         proxmox_cleanup_boot_images.stdout_lines | sort ==
-        [proxmox.kernels.current, proxmox.kernels.fallback] | sort
-    fail_msg: "Proxmox boot images differ from the exact current/fallback retention policy."
+        proxmox_cleanup_retained_kernel_releases | sort
+    fail_msg: "Proxmox boot images differ from the exact kernel retention policy."
   when:
     - not ansible_check_mode
     - proxmox_cleanup_migration_confirmed | bool
