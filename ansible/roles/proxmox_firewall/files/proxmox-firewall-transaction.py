@@ -789,8 +789,10 @@ def begin(request: dict[str, Any], runner: Runner) -> dict[str, Any]:
                 raise RuntimeError("staged policy differs")
             write_state(journal, "staged")
             current = set_options(runner, current, enable=True, policy_in="DROP", policy_out="ACCEPT")
-            if not desired_matches(current, policy, True, live["options"]) or not backend_matches(runner, True):
-                raise RuntimeError("activated policy differs")
+            if not desired_matches(current, policy, True, live["options"]):
+                raise RuntimeError("activated API policy differs")
+            if not backend_matches(runner, True):
+                raise RuntimeError("activated backend policy differs")
             write_state(journal, "activated")
             return {"deadline": journal["deadline"], "format": FORMAT_RESULT, "planSha256": plan["planSha256"],
                     "sessionId": session, "status": "activated"}
