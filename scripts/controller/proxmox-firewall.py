@@ -416,6 +416,22 @@ def controller_lock() -> int:
         raise
 
 
+def release_controller_lock(fd: int) -> None:
+    try:
+        path_info = LOCK.lstat()
+        file_info = os.fstat(fd)
+        if not stat.S_ISREG(path_info.st_mode) or (path_info.st_dev, path_info.st_ino) != (file_info.st_dev, file_info.st_ino):
+            raise ValueError("controller lock identity differs")
+        LOCK.unlink()
+        directory = os.open(LOCK.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        os.close(fd)
+
+
 def apply(plan_sha: str, approved: str) -> str:
     if plan_sha != approved:
         raise ValueError("explicit plan approval differs")
@@ -453,7 +469,7 @@ def apply(plan_sha: str, approved: str) -> str:
             raise
         return f"status=committed planSha256={plan_sha}"
     finally:
-        os.close(lock)
+        release_controller_lock(lock)
 
 
 def rollback_session(session: str) -> str:

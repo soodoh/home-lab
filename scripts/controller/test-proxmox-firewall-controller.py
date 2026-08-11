@@ -37,6 +37,8 @@ class ControllerTests(unittest.TestCase):
   with mock.patch.object(self.m,"git_identity",return_value=("a"*40,"b"*40)),mock.patch.object(self.m,"host",return_value=self.inspection),mock.patch.object(self.m,"canaries",return_value=matched):
    result=self.m.make_plan()
   sha=result.rsplit("=",1)[1]; return sha
+ def test_controller_lock_is_removed_while_still_owned(self):
+  descriptor=self.m.controller_lock(); self.assertTrue(self.m.LOCK.is_file()); self.m.release_controller_lock(descriptor); self.assertFalse(self.m.LOCK.exists())
  def test_plan_is_exact_private_and_no_protected_values_public(self):
   sha=self.create(); plan=json.loads((self.m.PLAN_DIR/f"{sha}.json").read_bytes()); private=json.loads((self.m.PLAN_DIR/f"{sha}.private.json").read_bytes())
   text=(self.m.PLAN_DIR/f"{sha}.json").read_text()

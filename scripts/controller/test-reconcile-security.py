@@ -22,6 +22,7 @@ class ReconcileSecurityTests(unittest.TestCase):
         cls.credential_configurator = (
             REPOSITORY / "scripts/configure-local-provider-credentials"
         ).read_text()
+        cls.provider_bundle = (REPOSITORY / "scripts/prepare-provider-ca-bundle").read_text()
 
     def test_oauth_secret_is_supplied_through_protected_request_file(self) -> None:
         self.assertNotIn('-d "client_secret=$TAILSCALE_OAUTH_CLIENT_SECRET"', self.reconciler)
@@ -38,6 +39,7 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertNotIn("security ", self.controller)
         self.assertNotIn("keychain", self.controller)
         self.assertNotIn("uname", setup)
+        self.assertIn('"$HOME/Library/Keychains/login.keychain-db"', self.provider_bundle)
 
     def test_local_controller_exposes_only_plan_and_apply(self) -> None:
         self.assertIn('case "$action" in plan|apply)', self.controller)
