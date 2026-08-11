@@ -165,8 +165,16 @@ case "$action" in
     prepare_steady_omada_input
     scripts/reconcile-infrastructure plan --plan-dir "$plan_dir" "${operation_args[@]}"
     show_saved_plans
-    printf '\nlocal_controller=planned operation=%s commit=%s manifest_sha256=%s\n' \
-      "$operation" "$commit" "$(manifest_sha256)"
+    shadow_result=$(python3 scripts/controller/proxmox-nix-shadow.py capture --phase "$operation")
+    [[ $shadow_result =~ ^shadow_state=(pre-bootstrap|shadow-required)\ status=(disabled|ready|blocked)\ evidence_sha256=(none|[0-9a-f]{64})\ evidence_path=([^[:space:]]+)$ ]] || {
+      echo "local_controller=failed reason=proxmox_shadow_result_invalid" >&2
+      exit 66
+    }
+    printf '\n%s\n' "$shadow_result"
+    shadow_state=${BASH_REMATCH[1]}
+    shadow_evidence_sha256=${BASH_REMATCH[3]}
+    printf 'local_controller=planned operation=%s commit=%s manifest_sha256=%s shadow_state=%s shadow_evidence_sha256=%s\n' \
+      "$operation" "$commit" "$(manifest_sha256)" "$shadow_state" "$shadow_evidence_sha256"
     ;;
   apply)
     run_validation

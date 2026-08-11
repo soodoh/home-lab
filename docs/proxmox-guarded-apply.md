@@ -1,6 +1,6 @@
 # Proxmox guarded apply
 
-Protocol v4 adds protected preparation and retains the guarded apply surface in the controller-only app. It is not the fresh-host bootstrap authority and is not yet routed into production.
+Protocol v4 adds protected preparation and retains the guarded apply surface in the controller-only app. It is not the fresh-host bootstrap authority and is not yet routed into production. The local-controller shadow lane is currently dormant under `pre-bootstrap`; any later shadow evidence is one-way audit evidence and cannot authorize this apply surface. Controller-manifest binding, freshness/lock integration, private approval, recovery sequencing, and production routing remain cutover work.
 
 ```sh
 nix run --no-update-lock-file --no-write-lock-file 'path:./nix#proxmox-host' -- apply \
