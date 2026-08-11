@@ -240,18 +240,32 @@ class ShadowTests(unittest.TestCase):
         path.symlink_to(target)
         with self.assertRaises(ValueError): shadow.secure_read(path, root, "item")
 
-    def test_manifest_requires_canonical_v3_fixed_identity(self) -> None:
+    def test_manifest_requires_fixed_production_v3_format_and_identity(self) -> None:
         root = self.temporary / ".reconcile"
         commit = "a" * 40
         path = root / "plans" / commit / "steady"
         path.mkdir(parents=True, mode=0o700)
         for parent in (root, root / "plans", root / "plans" / commit): parent.chmod(0o700)
         manifest = path / "manifest.json"
-        value = {"commit": commit, "phase": "steady", "version": 3}
-        manifest.write_bytes(shadow.canonical(value)); manifest.chmod(0o600)
+        value = {
+            "version": 3, "commit": commit, "phase": "steady", "backend_bucket": "test-bucket",
+            "ansible_extra_vars_file_sha256": "", "recovery_backup_identity_sha256": "b" * 64,
+            "recovery_expectations_sha256": "", "compose_artifact_sha256": "c" * 64,
+            "plans": [{"root": "proxmox", "file": "proxmox.tfplan", "sha256": "d" * 64,
+                       "changed": False, "tailscale_policy_before_sha256": "",
+                       "tailscale_policy_after_sha256": "", "tailscale_policy_etag": ""}],
+        }
+        manifest.write_bytes(shadow.controller_manifest_json(value)); manifest.chmod(0o600)
         loaded, raw, relative = shadow.load_controller_manifest(self.temporary, commit, "steady")
         self.assertEqual(loaded, value); self.assertEqual(relative, f".reconcile/plans/{commit}/steady/manifest.json")
-        manifest.write_bytes(json.dumps(value, indent=2).encode()); manifest.chmod(0o600)
+        manifest.write_bytes(shadow.canonical(value)); manifest.chmod(0o600)
+        with self.assertRaises(ValueError): shadow.load_controller_manifest(self.temporary, commit, "steady")
+        value["plans"][0]["extra"] = True
+        manifest.write_bytes(shadow.controller_manifest_json(value)); manifest.chmod(0o600)
+        with self.assertRaises(ValueError): shadow.load_controller_manifest(self.temporary, commit, "steady")
+        value["plans"][0].pop("extra")
+        value["plans"][0]["sha256"] = None
+        manifest.write_bytes(shadow.controller_manifest_json(value)); manifest.chmod(0o600)
         with self.assertRaises(ValueError): shadow.load_controller_manifest(self.temporary, commit, "steady")
 
     def test_atomic_evidence_identity_conflict_mode_link_and_symlink(self) -> None:

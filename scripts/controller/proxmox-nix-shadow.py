@@ -44,6 +44,10 @@ def canonical(value: Any) -> bytes:
     return (json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
 
+def controller_manifest_json(value: Any) -> bytes:
+    return (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode()
+
+
 def digest(value: bytes | Any) -> str:
     return hashlib.sha256(value if isinstance(value, bytes) else canonical(value)).hexdigest()
 
@@ -350,9 +354,41 @@ def load_controller_manifest(repo: Path, commit: str, phase: str) -> tuple[dict[
         value = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValueError("controller manifest is not valid JSON") from error
-    if raw != canonical(value) or not isinstance(value, dict) or value.get("version") != 3 or \
-            value.get("commit") != commit or value.get("phase") != phase:
+    expected_keys = {"ansible_extra_vars_file_sha256", "backend_bucket", "commit", "compose_artifact_sha256",
+                     "phase", "plans", "recovery_backup_identity_sha256", "recovery_expectations_sha256", "version"}
+    if raw != controller_manifest_json(value) or not isinstance(value, dict) or set(value) != expected_keys or \
+            value.get("version") != 3 or value.get("commit") != commit or value.get("phase") != phase or \
+            not isinstance(value.get("backend_bucket"), str) or \
+            not isinstance(value.get("compose_artifact_sha256"), str) or \
+            not HEX64.fullmatch(value["compose_artifact_sha256"]) or \
+            any(not isinstance(value.get(name), str) for name in ("ansible_extra_vars_file_sha256",
+                "recovery_backup_identity_sha256", "recovery_expectations_sha256")) or \
+            not isinstance(value.get("plans"), list) or not value["plans"]:
         raise ValueError("controller manifest identity is invalid or noncanonical")
+    if phase == "recovery":
+        if not HEX64.fullmatch(value["ansible_extra_vars_file_sha256"]) or \
+                not HEX64.fullmatch(value["recovery_expectations_sha256"]):
+            raise ValueError("controller recovery manifest binding is invalid")
+    else:
+        if value["ansible_extra_vars_file_sha256"] and \
+                not HEX64.fullmatch(value["ansible_extra_vars_file_sha256"]):
+            raise ValueError("controller steady Ansible binding is invalid")
+        if value["recovery_expectations_sha256"]:
+            raise ValueError("controller steady recovery binding is invalid")
+    record_keys = {"changed", "file", "root", "sha256", "tailscale_policy_after_sha256",
+                   "tailscale_policy_before_sha256", "tailscale_policy_etag"}
+    roots = []
+    for record in value["plans"]:
+        if not isinstance(record, dict) or set(record) != record_keys or not isinstance(record["changed"], bool) or \
+                not isinstance(record["root"], str) or re.fullmatch(r"[a-z0-9-]+", record["root"]) is None or \
+                not isinstance(record["file"], str) or re.fullmatch(r"[a-z0-9-]+\.tfplan", record["file"]) is None or \
+                not isinstance(record["sha256"], str) or not HEX64.fullmatch(record["sha256"]) or \
+                any(not isinstance(record[name], str) for name in (
+                    "tailscale_policy_after_sha256", "tailscale_policy_before_sha256", "tailscale_policy_etag")):
+            raise ValueError("controller manifest plan record is invalid")
+        roots.append(record["root"])
+    if len(roots) != len(set(roots)):
+        raise ValueError("controller manifest plan roots are not unique")
     return value, raw, relative.as_posix()
 
 
