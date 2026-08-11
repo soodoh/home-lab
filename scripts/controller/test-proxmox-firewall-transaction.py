@@ -93,6 +93,11 @@ class HostTests(unittest.TestCase):
         for changed in ({**base,"enable":0},{**base,"comment":"unexpected"},{**base,"digest":"d"*64},{**base,"ipversion":6},{**base,"dport":"bad"},{**base,"type":"OUT"}): self.assertIsNone(self.m.normalize_rule(changed))
         self.runner.rules=[self.m.normalize_rule(base),self.m.normalize_rule(base)]
         with self.assertRaises(ValueError): self.m.observe(self.runner)
+    def test_backend_readiness_is_bounded_and_retries_lag(self):
+        with mock.patch.object(self.m,"backend_matches",side_effect=[False,False,True]) as check, mock.patch.object(self.m.time,"sleep") as sleep:
+            self.assertTrue(self.m.wait_backend(self.runner,True)); self.assertEqual(check.call_count,3); self.assertEqual(sleep.call_count,2)
+        with mock.patch.object(self.m,"backend_matches",return_value=False) as check, mock.patch.object(self.m.time,"sleep") as sleep:
+            self.assertFalse(self.m.wait_backend(self.runner,True,attempts=3)); self.assertEqual(check.call_count,3); self.assertEqual(sleep.call_count,2)
     def test_local_single_use_authorization_rejects_replay_and_recovers_consumed_crash(self):
         plan=self.plan(); self.m.AUTHORIZATION.unlink()
         request={"approvePlanSha":plan["planSha256"],"format":self.m.FORMAT_AUTHORIZE,"gate":self.m.AUTHORIZE_GATE,"plan":plan}

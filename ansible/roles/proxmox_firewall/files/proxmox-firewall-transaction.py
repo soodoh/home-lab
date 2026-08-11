@@ -433,6 +433,21 @@ def backend_matches(runner: Runner, enabled: bool) -> bool:
     return states == ["active", "active"] and status_line == ("Status: enabled/running" if enabled else "Status: disabled/running")
 
 
+def wait_backend(runner: Runner, enabled: bool, attempts: int = 15) -> bool:
+    for attempt in range(attempts):
+        try:
+            if backend_matches(runner, enabled):
+                return True
+        except RuntimeError:
+            pass
+        if attempt + 1 < attempts:
+            deadline = getattr(runner, "deadline", None)
+            if deadline is not None and deadline - time.monotonic() <= 1:
+                return False
+            time.sleep(1)
+    return False
+
+
 def rule_set(rules: list[dict[str, Any]]) -> set[bytes]:
     return {canonical(rule) for rule in rules}
 
@@ -736,7 +751,7 @@ def finish_rollback(journal: dict[str, Any], runner: Runner, verify_backend: boo
     restored = public_state(observe(runner)); snapshot = journal["snapshot"]
     if full_options(restored) != full_options(snapshot) or rule_set(restored["rules"]) != rule_set(snapshot["rules"]) or len(restored["rules"]) != len(snapshot["rules"]):
         write_state(journal, "rollback-retry-pending"); raise RuntimeError("rollback release state differs")
-    if verify_backend and not backend_matches(runner, snapshot["options"]["enable"]):
+    if verify_backend and not wait_backend(runner, snapshot["options"]["enable"]):
         write_state(journal, "rollback-retry-pending")
         raise RuntimeError("rollback backend differs")
     write_state(journal, "rollback-release-pending")
@@ -791,7 +806,7 @@ def begin(request: dict[str, Any], runner: Runner) -> dict[str, Any]:
             current = set_options(runner, current, enable=True, policy_in="DROP", policy_out="ACCEPT")
             if not desired_matches(current, policy, True, live["options"]):
                 raise RuntimeError("activated API policy differs")
-            if not backend_matches(runner, True):
+            if not wait_backend(runner, True):
                 raise RuntimeError("activated backend policy differs")
             write_state(journal, "activated")
             return {"deadline": journal["deadline"], "format": FORMAT_RESULT, "planSha256": plan["planSha256"],
