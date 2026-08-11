@@ -190,7 +190,7 @@
           }
         },
         "managed_file_policies": {
-          "type": "array", "minItems": 13, "maxItems": 13,
+          "type": "array", "minItems": 14, "maxItems": 14,
           "items": {
             "type": "object", "additionalProperties": false,
             "required": ["path", "safety_class", "automatic", "requires_approval", "requires_reboot", "requires_watchdog"],
@@ -494,6 +494,7 @@
         "secret_ref": { "$ref": "#/$defs/secretReference" },
         "forced_command": { "oneOf": [
           { "const": "restrict,command=\"sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe\"" },
+          { "const": "restrict,command=\"/usr/local/libexec/home-lab/proxmox-firewall-transport\"" },
           { "type": "null" }
         ] }
       }
@@ -595,7 +596,7 @@
       "required": ["sudo_validation", "service_accounts", "human_accounts", "pve"],
       "properties": {
         "sudo_validation": { "$ref": "#/$defs/sudoValidationPolicy" },
-        "service_accounts": { "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": { "$ref": "#/$defs/unixServiceAccount" } },
+        "service_accounts": { "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": { "$ref": "#/$defs/unixServiceAccount" } },
         "human_accounts": { "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/humanAccessAccount" } },
         "pve": {
           "type": "object",

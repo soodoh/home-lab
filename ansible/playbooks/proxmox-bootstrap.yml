@@ -37,6 +37,7 @@
         apply_lock_action: acquire
         apply_lock_operation: proxmox-bootstrap
   roles:
+    - role: proxmox_firewall
     - role: proxmox_host
     - role: human_access
     - role: proxmox_network

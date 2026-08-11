@@ -1,9 +1,0 @@
-[OPTIONS]
-enable: {{ proxmox.firewall.options.enable | ternary('1', '0') }}
-policy_in: {{ proxmox.firewall.options.policy_in }}
-policy_out: {{ proxmox.firewall.options.policy_out }}
-
-[RULES]
-{% for rule in proxmox.firewall.rules %}
-{{ rule.direction }} {{ rule.action }} -source {{ rule.source }} -p {{ rule.protocol }} -dport {{ rule.destination_port }} -log {{ rule.log }}
-{% endfor %}

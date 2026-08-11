@@ -479,7 +479,12 @@ const healthAssertion = parsedTask("ansible/roles/proxmox_health/tasks/main.yml"
 if (!healthAssertion["ansible.builtin.assert"].that.some((condition) => condition.includes("proxmox_health_vm_status"))) {
   throw new Error("VM health assertion must consume the expected contract status");
 }
-requireTaskArgument("ansible/roles/proxmox_firewall/tasks/main.yml", "Install the reviewed Proxmox firewall policy", "ansible.builtin.template", "dest", "{{ proxmox.firewall.compatibility_config_path }}");
+requireTaskArgument("ansible/roles/proxmox_firewall/tasks/main.yml", "Install the fixed pvesh-only firewall transaction helper", "ansible.builtin.copy", "dest", "/usr/local/libexec/home-lab/proxmox-firewall-transaction");
+requireTaskArgument("ansible/roles/proxmox_firewall/tasks/main.yml", "Install the canonical API-owned firewall policy", "ansible.builtin.template", "dest", "/usr/local/share/home-lab/proxmox-firewall-policy.json");
+const firewallTasks = fs.readFileSync(path.join(root, "ansible/roles/proxmox_firewall/tasks/main.yml"), "utf8");
+if (firewallTasks.includes(contract.proxmox.firewall.compatibility_config_path) || firewallTasks.includes("proxmox_firewall_apply_confirmed")) {
+  throw new Error("steady Proxmox firewall role must not activate or write compatibility state");
+}
 requireTaskArgument("ansible/roles/ssh/tasks/main.yml", "Keep the SSH host-key sentinel metadata protected", "ansible.builtin.file", "mode", "{{ ssh_host_key_sentinel_mode }}");
 requireTaskArgument("ansible/roles/ssh/tasks/main.yml", "Converge managed OpenSSH policy", "ansible.builtin.copy", "dest", "{{ ssh_config_path }}");
 requireTaskArgument("ansible/roles/ssh/tasks/main.yml", "Converge managed OpenSSH policy", "ansible.builtin.copy", "owner", "{{ ssh_config_owner }}");

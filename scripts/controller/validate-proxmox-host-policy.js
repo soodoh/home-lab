@@ -79,8 +79,9 @@ function validateProxmoxHostPolicy(contract) {
   const expectedServiceAccounts = new Map([
     ["tofu-plan", "PROXMOX_PLAN_SSH_PUBLIC_KEYS"],
     ["tofu-apply", "PROXMOX_APPLY_SSH_PUBLIC_KEYS"],
+    ["firewall-apply", "PROXMOX_FIREWALL_SSH_PUBLIC_KEYS"],
   ]);
-  if (serviceAccounts.length !== expectedServiceAccounts.size) failures.push("exactly two Proxmox service accounts are required");
+  if (serviceAccounts.length !== expectedServiceAccounts.size) failures.push("exactly three Proxmox service accounts are required");
   for (const account of serviceAccounts) {
     if (expectedServiceAccounts.get(account.name) !== account.authorized_keys.secret_ref) {
       failures.push(`service account ${account.name} uses an unexpected authorized-key reference`);
@@ -96,12 +97,13 @@ function validateProxmoxHostPolicy(contract) {
         account.authorized_keys.file.projectable || account.authorized_keys.file.materialization !== "metadata-only") {
       failures.push(`service account ${account.name} authorized-keys path must stay under its home`);
     }
-    if (account.shell !== "/bin/bash" || !account.create_home || !account.password_lock) {
+    if (account.shell !== (account.name === "firewall-apply" ? "/usr/local/libexec/home-lab/proxmox-firewall-transport" : "/bin/bash") || !account.create_home || !account.password_lock) {
       failures.push(`service account ${account.name} must retain its locked login identity`);
     }
   }
   const planAccount = serviceAccounts.find((account) => account.name === "tofu-plan");
   const applyAccount = serviceAccounts.find((account) => account.name === "tofu-apply");
+  const firewallAccount = serviceAccounts.find((account) => account.name === "firewall-apply");
   const observerCommand = "/usr/local/libexec/home-lab/proxmox-observer observe";
   const forcedPlanCommand = `restrict,command="sudo -n -- ${observerCommand}"`;
   if (planAccount && (planAccount.groups.length || planAccount.sudo?.state !== "present" ||
@@ -116,6 +118,13 @@ function validateProxmoxHostPolicy(contract) {
       applyAccount.sudo?.rule !== `${applyAccount.name} ALL=(root) NOPASSWD: ALL` ||
       applyAccount.authorized_keys?.forced_command !== null)) {
     failures.push("tofu-apply current sudo policy must remain explicit during parity");
+  }
+  const firewallHelper = "/usr/local/libexec/home-lab/proxmox-firewall-transaction";
+  const firewallSudo = `firewall-apply ALL=(root) NOPASSWD: ${["inspect","begin","status","commit","rollback"].map((command) => `${firewallHelper} ${command}`).join(", ")}`;
+  if (firewallAccount && (firewallAccount.groups.length || firewallAccount.sudo?.state !== "present" ||
+      firewallAccount.sudo?.file?.path !== "/etc/sudoers.d/firewall-apply" || firewallAccount.sudo?.rule !== firewallSudo ||
+      firewallAccount.authorized_keys?.forced_command !== 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport"')) {
+    failures.push("firewall-apply must have only the fixed firewall transport capability");
   }
 
   const humanNames = proxmox.access.human_accounts.map((account) => account.name);
@@ -263,7 +272,7 @@ function validateProxmoxHostPolicy(contract) {
     ["IN", "ACCEPT", contract.network.cidr, "tcp", 22, "nolog"],
     ["IN", "ACCEPT", contract.network.cidr, "tcp", 8006, "nolog"],
     ["IN", "ACCEPT", `${archAddress}/32`, "tcp", 2049, "nolog"],
-    ["IN", "ACCEPT", "100.64.0.0/10", "udp", 41641, "nolog"],
+    ["IN", "ACCEPT", "0.0.0.0/0", "udp", 41641, "nolog"],
     ["IN", "ACCEPT", "100.64.0.0/10", "tcp", 22, "nolog"],
     ["IN", "ACCEPT", "100.64.0.0/10", "tcp", 8006, "nolog"],
   ];

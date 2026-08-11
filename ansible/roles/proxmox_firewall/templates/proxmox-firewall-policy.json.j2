@@ -1,0 +1,1 @@
+{{ {'activation': proxmox.firewall.activation, 'options': proxmox.firewall.options, 'ownership': proxmox.firewall.ownership, 'rules': proxmox.firewall.rules} | to_json(sort_keys=true, separators=(',', ':')) }}

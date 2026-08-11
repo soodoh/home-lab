@@ -50,6 +50,8 @@ Review the complete check result. Set only the reviewed mutation gates true, the
 export TAILSCALE_AUTH_KEY='<protected one-use key>'
 export PROXMOX_PLAN_SSH_PUBLIC_KEYS='<plan public key>'
 export PROXMOX_APPLY_SSH_PUBLIC_KEYS='<apply public key>'
+export PROXMOX_FIREWALL_SSH_PUBLIC_KEYS='<firewall-only forced-command public key>'
+# Each variable may contain multiple lines; bootstrap compares algorithm+base64 identity (ignoring comments) and rejects overlap within or across all three sets.
 export PROXMOX_BOOTSTRAP_EXECUTION_CONFIRMED=run-reviewed-proxmox-bootstrap-with-console
 scripts/bootstrap-proxmox-host --mode apply \
   --extra-vars /root/proxmox-bootstrap-extra-vars.yml \
@@ -74,7 +76,7 @@ From the trusted local controller, prove:
 
 - `tofu-plan` can perform only the expected audit/read operations;
 - `tofu-apply` has only the required mutation capability;
-- the two SSH keys authenticate only as their intended service users;
+- the three distinct plan, apply, and firewall-only SSH keys authenticate only as their intended service users;
 - Tailscale reaches `proxmox` on the required SSH/API endpoints; and
 - host fingerprints match the protected inventory.
 
@@ -82,7 +84,7 @@ Only after these checks may the steady Proxmox play set `proxmox_ssh_access_prov
 
 ## Layer the Nix transport bootstrap
 
-The existing local Ansible bootstrap remains the fresh-host authority until cutover. After it succeeds, build the sanitized bundle on the trusted controller and transfer only `bundle` and `bundle.sha256` to the fixed mode-`0700` `/var/lib/home-lab/bootstrap/incoming/` directory. Put the reviewed plan/apply public keys in the fixed mode-`0600` `/root/.config/home-lab/proxmox-{plan,apply}-authorized-keys` files; the token escrows and `/root/home-lab-hardware.env` already use fixed root-only paths. Create the canonical protected input without manual JSON assembly, then use the exact pushed checkout locally on the host:
+The existing local Ansible bootstrap remains the fresh-host authority until cutover. After it succeeds, build the sanitized bundle on the trusted controller and transfer only `bundle` and `bundle.sha256` to the fixed mode-`0700` `/var/lib/home-lab/bootstrap/incoming/` directory. Put the three distinct reviewed plan/apply/firewall public keys in the fixed mode-`0600` `/root/.config/home-lab/proxmox-{plan,apply,firewall}-authorized-keys` files; the token escrows and `/root/home-lab-hardware.env` already use fixed root-only paths. Create the canonical protected input without manual JSON assembly, then use the exact pushed checkout locally on the host:
 
 ```sh
 export PROXMOX_NIX_PROTECTED_CREATE_CONFIRMED=create-reviewed-protected-runtime-input

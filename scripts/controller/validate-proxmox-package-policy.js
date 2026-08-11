@@ -96,7 +96,7 @@ function validateProxmoxPackagePolicy(contract, manifest) {
     /BEGIN (?:RSA |OPENSSH |AGE )?PRIVATE KEY/u,
     /(?:PASSWORD|TOKEN|SECRET|AUTH_KEY)/u,
     /HOMELAB_/u,
-    /PROXMOX_(?:PLAN|APPLY)_SSH_PUBLIC_KEYS/u,
+    /PROXMOX_(?:PLAN|APPLY|FIREWALL)_SSH_PUBLIC_KEYS/u,
     /\/dev\/(?:disk|serial)\//u,
   ];
   if (protectedPatterns.some((pattern) => pattern.test(serializedManifest))) {

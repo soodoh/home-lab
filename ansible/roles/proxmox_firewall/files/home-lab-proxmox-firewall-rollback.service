@@ -1,0 +1,11 @@
+[Unit]
+Description=Home Lab Proxmox firewall rollback
+After=home-lab-proxmox-firewall-post-recovery.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/home-lab/proxmox-firewall-transaction rollback-if-pending
+Restart=on-failure
+RestartSec=2s
+TimeoutStartSec=75s

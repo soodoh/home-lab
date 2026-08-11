@@ -68,9 +68,7 @@ if [[ $mode == check ]]; then
 fi
 [[ ${PROXMOX_BOOTSTRAP_EXECUTION_CONFIRMED:-} == run-reviewed-proxmox-bootstrap-with-console ]]
 export TAILSCALE_AUTH_KEY=${TAILSCALE_AUTH_KEY:-}
-: "${PROXMOX_PLAN_SSH_PUBLIC_KEYS:?missing plan-account public key}"
-: "${PROXMOX_APPLY_SSH_PUBLIC_KEYS:?missing apply-account public key}"
-[[ $PROXMOX_PLAN_SSH_PUBLIC_KEYS != "$PROXMOX_APPLY_SSH_PUBLIC_KEYS" ]]
+scripts/validate-proxmox-bootstrap-keys >/dev/null
 lock_path=/var/lib/iac-ansible-production.lock
 if [[ -e $lock_path ]]; then
   [[ ${PROXMOX_BOOTSTRAP_RESUME_CONFIRMED:-} == resume-matching-failed-proxmox-bootstrap ]]

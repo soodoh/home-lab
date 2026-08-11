@@ -1,0 +1,17 @@
+---
+- name: Create fixed firewall NFS canary helper directory
+  ansible.builtin.file:
+    path: /usr/local/libexec/home-lab
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Install the fixed firewall NFS canary helper
+  ansible.builtin.copy:
+    src: proxmox-firewall-nfs-canary.py
+    dest: /usr/local/libexec/home-lab/proxmox-firewall-nfs-canary
+    owner: root
+    group: root
+    mode: "0755"
+    validate: /usr/bin/python -m py_compile %s

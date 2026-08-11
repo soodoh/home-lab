@@ -1,0 +1,11 @@
+[Unit]
+Description=Continuous Home Lab Proxmox firewall rollback watchdog
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+AccuracySec=1s
+Persistent=true
+Unit=home-lab-proxmox-firewall-rollback.service
+
+[Install]
+WantedBy=timers.target

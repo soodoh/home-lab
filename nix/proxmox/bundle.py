@@ -39,7 +39,7 @@ FORBIDDEN_STRING_PATTERNS = (
     re.compile(re.escape(PVE_COMPATIBILITY_ROOT) + r"(?:/|$)"),
     re.compile(r"(?:^|/)(?:authorized_keys2?|ssh_host_(?:ed25519|ecdsa|rsa)_key)(?:$|/)", re.IGNORECASE),
     re.compile(r"/(?:dev/(?:disk|serial)|root/\.config/home-lab)(?:/|$)"),
-    re.compile(r"(?:" + "HOMELAB" + r"_|" + "TAILSCALE" + r"_AUTH_KEY|PROXMOX_(?:PLAN|APPLY)_SSH_PUBLIC_KEYS)"),
+    re.compile(r"(?:" + "HOMELAB" + r"_|" + "TAILSCALE" + r"_AUTH_KEY|PROXMOX_(?:PLAN|APPLY|FIREWALL)_SSH_PUBLIC_KEYS)"),
     re.compile(r"\b[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b", re.IGNORECASE),
     re.compile(r"\b[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]\b", re.IGNORECASE),
     re.compile(r"\b[0-9a-f]{4}:[0-9a-f]{4}\b", re.IGNORECASE),

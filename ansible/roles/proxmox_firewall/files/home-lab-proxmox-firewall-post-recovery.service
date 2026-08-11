@@ -1,0 +1,17 @@
+[Unit]
+Description=Verify Home Lab Proxmox firewall backends after boot recovery
+After=home-lab-proxmox-firewall-config-recovery.service pve-firewall.service proxmox-firewall.service
+Requires=home-lab-proxmox-firewall-config-recovery.service pve-firewall.service proxmox-firewall.service
+OnFailure=home-lab-proxmox-firewall-backend-stop.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/home-lab/proxmox-firewall-transaction boot-post-recover
+Restart=on-failure
+RestartSec=5s
+TimeoutStartSec=75s
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

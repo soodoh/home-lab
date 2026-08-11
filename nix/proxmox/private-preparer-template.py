@@ -300,6 +300,11 @@ def valid_key(value):
     return len(decoded) >= 32
 
 
+def key_identity(value):
+    match = SSH_KEY.fullmatch(value) if isinstance(value, str) else None
+    return None if match is None else match.group(1) + " " + match.group(2)
+
+
 def token_identity(value):
     match = TOKEN.fullmatch(value) if isinstance(value, str) else None
     return match.group(1) if match is not None else None
@@ -314,15 +319,14 @@ def runtime_state():
     exact(value, {"access", "format", "hardware"}, "protected state")
     if value["format"] != "home-lab-proxmox-protected-inputs-v1":
         raise ValueError("protected state format differs")
-    access = exact(value["access"], {"applyKeys", "applyToken", "applyTokenIdentity", "planKeys", "planToken", "planTokenIdentity"}, "protected access")
+    access = exact(value["access"], {"applyKeys", "applyToken", "applyTokenIdentity", "firewallKeys", "planKeys", "planToken", "planTokenIdentity"}, "protected access")
     hardware = exact(value["hardware"], {"gamesDiskIdentity", "poolGuid", "poolMembers", "usbMappings"}, "protected hardware")
-    all_keys = []
-    for key in ("applyKeys", "planKeys"):
-        if not isinstance(access[key], list) or not access[key] or any(not valid_key(x) for x in access[key]) or \
-                len(access[key]) != len(set(access[key])):
+    key_identities = []
+    for key in ("applyKeys", "firewallKeys", "planKeys"):
+        if not isinstance(access[key], list) or not access[key] or any(not valid_key(x) for x in access[key]):
             raise ValueError("protected key input differs")
-        all_keys.extend(access[key])
-    if len(all_keys) != len(set(all_keys)) or token_identity(access["applyToken"]) is None or \
+        key_identities.extend(key_identity(x) for x in access[key])
+    if None in key_identities or len(key_identities) != len(set(key_identities)) or token_identity(access["applyToken"]) is None or \
             token_identity(access["planToken"]) is None or token_identity(access["applyToken"]) == token_identity(access["planToken"]) or \
             token_identity(access["applyToken"]) != access["applyTokenIdentity"] or token_identity(access["planToken"]) != access["planTokenIdentity"] or \
             any(not isinstance(access[name], str) or re.fullmatch(r"[^\s!=]+![^\s!=]+", access[name]) is None
@@ -452,8 +456,11 @@ def summaries():
         forced = 'restrict,command="sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe" '
         plan_text = read_fixed(home / "tofu-plan" / ".ssh" / "authorized_keys", owner_name="tofu-plan")
         apply_text = read_fixed(home / "tofu-apply" / ".ssh" / "authorized_keys", owner_name="tofu-apply")
+        firewall_text = read_fixed(home / "firewall-apply" / ".ssh" / "authorized_keys", owner_name="firewall-apply")
+        firewall_forced = 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport" '
         plan_ok = plan_text == "".join(forced + key + "\n" for key in access["planKeys"])
         apply_ok = apply_text == "".join(key + "\n" for key in access["applyKeys"])
+        firewall_ok = firewall_text == "".join(firewall_forced + key + "\n" for key in access["firewallKeys"])
         escrow = Path("/root") / ".config" / "home-lab"
         plan_escrow = read_fixed(escrow / "proxmox-plan-token.env")
         apply_escrow = read_fixed(escrow / "proxmox-apply-token.env")
@@ -467,7 +474,7 @@ def summaries():
         apply_token_ok = apply_escrow == "PROXMOX_VE_API_TOKEN=" + access["applyToken"] + "\n" and \
             token_valid(access["applyToken"]) and token_policy_valid(access["applyToken"], "apply", acl_records,
                                                                    access["applyTokenIdentity"])
-        access_summary = summary_record((human_ok, plan_ok, apply_ok, plan_token_ok, apply_token_ok))
+        access_summary = summary_record((human_ok, plan_ok, apply_ok, firewall_ok, plan_token_ok, apply_token_ok))
 
         hardware = state["hardware"]
         vm = run(("/usr/sbin/qm", "config", "100"))
@@ -488,7 +495,7 @@ def summaries():
         hardware_summary = summary_record((games_ok, pool_ok, usb_ok))
         return {"protectedAccess": access_summary, "protectedHardware": hardware_summary}
     except Exception:
-        return {"protectedAccess": {"expectedCount": 5, "matches": None, "observedCount": None, "status": "unavailable"},
+        return {"protectedAccess": {"expectedCount": 6, "matches": None, "observedCount": None, "status": "unavailable"},
                 "protectedHardware": {"expectedCount": 3, "matches": None, "observedCount": None, "status": "unavailable"}}
 
 

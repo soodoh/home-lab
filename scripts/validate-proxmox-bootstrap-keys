@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+set -euo pipefail
+(($# == 0))
+: "${PROXMOX_PLAN_SSH_PUBLIC_KEYS:?missing plan-account public key}"
+: "${PROXMOX_APPLY_SSH_PUBLIC_KEYS:?missing apply-account public key}"
+: "${PROXMOX_FIREWALL_SSH_PUBLIC_KEYS:?missing firewall-account public key}"
+all_credentials=()
+all_count=0
+validate_set() {
+  local owner=$1 raw=$2 key existing key_type key_blob credential count=0
+  while IFS= read -r key || [[ -n $key ]]; do
+    [[ -n $key && $key != *$'\r'* ]]
+    read -r key_type key_blob _ <<<"$key"
+    [[ $key_type == ssh-ed25519 || $key_type == ssh-rsa || $key_type == ecdsa-sha2-nistp256 ]]
+    [[ -n $key_blob ]]
+    credential="$key_type $key_blob"
+    if ((all_count > 0)); then
+      for existing in "${all_credentials[@]}"; do
+        if [[ $credential == "$existing" ]]; then return 1; fi
+      done
+    fi
+    all_credentials+=("$credential"); all_count=$((all_count + 1)); count=$((count + 1))
+  done <<<"$raw"
+  ((count > 0))
+  : "$owner"
+}
+validate_set plan "$PROXMOX_PLAN_SSH_PUBLIC_KEYS"
+validate_set apply "$PROXMOX_APPLY_SSH_PUBLIC_KEYS"
+validate_set firewall "$PROXMOX_FIREWALL_SSH_PUBLIC_KEYS"
+printf 'proxmox_bootstrap_keys=distinct\n'

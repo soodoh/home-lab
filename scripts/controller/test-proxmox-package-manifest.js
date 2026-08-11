@@ -187,6 +187,9 @@ expectFailure(wrongKernelVersion, manifest, "version must match kernel release",
 const secretMarkedManifest = structuredClone(manifest);
 secretMarkedManifest.packages[0].version = "TOKEN";
 expectFailure(contract, secretMarkedManifest, "protected-input marker", "secret-marked manifest");
+const firewallKeyMarkedManifest = structuredClone(manifest);
+firewallKeyMarkedManifest.packages[0].version = "PROXMOX_FIREWALL_SSH_PUBLIC_KEYS";
+expectFailure(contract, firewallKeyMarkedManifest, "protected-input marker", "firewall-key-marked manifest");
 
 const hostTasks = loadAll(fs.readFileSync(path.join(root, "ansible/roles/proxmox_host/tasks/main.yml"), "utf8")).flat();
 if (hostTasks.some((task) => task.name === "Refresh the live canonical APT cache immediately before package mutation"

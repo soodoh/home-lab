@@ -102,6 +102,10 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-proxmox-nix-apply.py
   python3 scripts/controller/test-proxmox-nix-bootstrap.py
   python3 scripts/controller/test-proxmox-nix-shadow.py
+  python3 scripts/controller/test-proxmox-firewall-transaction.py
+  python3 scripts/controller/test-proxmox-firewall-controller.py
+  python3 scripts/controller/test-proxmox-firewall-nfs-canary.py
+  python3 scripts/controller/test-proxmox-firewall-schemas.py
   node scripts/controller/test-proxmox-nix-projection.js --scan-path "$proxmox_nix_source"
   for source_candidate in /nix/store/*-source; do
     if [[ -e $source_candidate/secrets/production.sops.env && \
@@ -139,7 +143,7 @@ if [[ $action == validate ]]; then
   shellcheck scripts/reconcile-infrastructure scripts/local-controller \
     scripts/bootstrap-proxmox-host scripts/build-recovery-bundle scripts/configure-local-controller-aws \
     scripts/configure-local-provider-credentials \
-    scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack \
+    scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack scripts/validate-proxmox-bootstrap-keys \
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
     scripts/restore-critical-backup scripts/test-recovery-tools recovery/coral/build-package
   tofu fmt -check -recursive infrastructure/tofu

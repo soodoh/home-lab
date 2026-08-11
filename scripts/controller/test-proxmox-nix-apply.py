@@ -38,7 +38,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         cls.projection = json.loads((NIX / "proxmox/projection.json").read_bytes())
         cls.manifest = json.loads((NIX / "proxmox/package-manifest.json").read_bytes())
         cls.before_observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
-        cls.before_observation["domains"]["protectedAccess"] = {"expectedCount": 5, "matches": True, "observedCount": 5, "status": "complete"}
+        cls.before_observation["domains"]["protectedAccess"] = {"expectedCount": 6, "matches": True, "observedCount": 6, "status": "complete"}
         cls.before_observation["domains"]["protectedHardware"] = {"expectedCount": 3, "matches": True, "observedCount": 3, "status": "complete"}
         cls.bindings = {
             "activationEnvelopeSchemaSha256": "7" * 64, "activatorSha256": "8" * 64,
@@ -77,7 +77,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         return {
             "actionManifestSha256": planner.digest(self.plan["actions"]),
             "attestations": {
-                "protectedAccess": {"expectedCount": 5, "keyedAttestation": "b" * 64, "matches": True},
+                "protectedAccess": {"expectedCount": 6, "keyedAttestation": "b" * 64, "matches": True},
                 "protectedHardware": {"expectedCount": 3, "keyedAttestation": "c" * 64, "matches": True},
             },
             "bindings": {

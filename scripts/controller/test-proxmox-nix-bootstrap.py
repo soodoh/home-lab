@@ -66,9 +66,10 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
     def test_summary_is_fixed_shape_and_never_emits_protected_values(self):
         key1 = "ssh-ed25519 " + __import__('base64').b64encode(b'A' * 32).decode() + " plan"
         key2 = "ssh-ed25519 " + __import__('base64').b64encode(b'B' * 32).decode() + " apply"
+        key3 = "ssh-ed25519 " + __import__('base64').b64encode(b'C' * 32).decode() + " firewall"
         members = [f"/dev/disk/by-id/opaque-member-{index:02d}" for index in range(12)]
         state = {"access": {"applyKeys": [key2], "applyToken": "root@pam!tofu-apply=opaque-apply-token",
-                  "applyTokenIdentity": "root@pam!tofu-apply", "planKeys": [key1],
+                  "applyTokenIdentity": "root@pam!tofu-apply", "firewallKeys": [key3], "planKeys": [key1],
                   "planToken": "root@pam!tofu-plan=opaque-plan-token", "planTokenIdentity": "root@pam!tofu-plan"},
                  "format": "home-lab-proxmox-protected-inputs-v1",
                  "hardware": {"gamesDiskIdentity": "/dev/disk/by-id/opaque-disk", "poolGuid": "123456789",
@@ -82,6 +83,7 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
             if "proxmox-apply-token.env" in text: return "PROXMOX_VE_API_TOKEN=root@pam!tofu-apply=opaque-apply-token\n"
             if "tofu-plan" in text: return forced
             if "tofu-apply" in text: return key2 + "\n"
+            if "firewall-apply" in text: return 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport" ' + key3 + "\n"
             return None
         def run(args, accepted=(0,)):
             command = " ".join(args)
@@ -103,7 +105,7 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
         with patch.dict(self.preparer, {"runtime_state": lambda: state, "read_fixed": read_fixed, "run": run,
                                         "absent_fixed": lambda path: True, "token_valid": lambda token: True}):
             value = self.preparer["summaries"]()
-        self.assertEqual(value, {"protectedAccess": {"expectedCount": 5, "matches": True, "observedCount": 5, "status": "complete"},
+        self.assertEqual(value, {"protectedAccess": {"expectedCount": 6, "matches": True, "observedCount": 6, "status": "complete"},
                                  "protectedHardware": {"expectedCount": 3, "matches": True, "observedCount": 3, "status": "complete"}})
         encoded = json.dumps(value)
         for protected in ("opaque-plan", "opaque-token", "opaque-disk", "opaque-guid", "opaque-member", "opaque-usb"):
@@ -254,7 +256,7 @@ if(!validate(doc.valid)||validate(doc.invalid)) process.exit(1);
 
     def test_strict_protected_parsers_reject_substrings_duplicates_and_injections(self):
         key = "ssh-ed25519 " + __import__('base64').b64encode(b'A'*32).decode()
-        state={"access":{"applyKeys":[key+"\nssh-ed25519 bad"],"applyToken":"a@pve!x=s","applyTokenIdentity":"a@pve!x",
+        state={"access":{"applyKeys":[key+"\nssh-ed25519 bad"],"applyToken":"a@pve!x=s","applyTokenIdentity":"a@pve!x","firewallKeys":[key],
                "planKeys":[key],"planToken":"p@pve!x=s","planTokenIdentity":"p@pve!x"},
                "format":"home-lab-proxmox-protected-inputs-v1","hardware":{"gamesDiskIdentity":"/dev/disk/by-id/games",
                "poolGuid":"123","poolMembers":[f"/dev/disk/by-id/d{i}" for i in range(12)],
@@ -264,6 +266,11 @@ if(!validate(doc.valid)||validate(doc.invalid)) process.exit(1);
         with patch.dict(self.preparer,{"secure_json":lambda *args:state, "secure_key":lambda:key_bytes,
                                       "read_fixed":lambda *args,**kwargs:state_mac}),self.assertRaises(ValueError):
             self.preparer["runtime_state"]()
+        duplicate=copy.deepcopy(state); other="ssh-ed25519 "+__import__('base64').b64encode(b'B'*32).decode(); duplicate["access"].update(applyKeys=[key+" apply-comment"],firewallKeys=[key+" firewall-comment"],planKeys=[other+" plan-comment"])
+        installer=load_installer()
+        with self.assertRaises(ValueError): installer.validate_protected(installer.canonical(duplicate))
+        duplicate_mac=hmac.new(key_bytes,planner.canonical_json(duplicate),hashlib.sha256).hexdigest()+"\n"
+        with patch.dict(self.preparer,{"secure_json":lambda *args:duplicate,"secure_key":lambda:key_bytes,"read_fixed":lambda *args,**kwargs:duplicate_mac}),self.assertRaises(ValueError): self.preparer["runtime_state"]()
         self.assertNotEqual(self.preparer["parse_qm_disk"](b"description: /dev/disk/by-id/games\n"),"/dev/disk/by-id/games")
         topology="\n".join([f"mirror-{i} ONLINE\n /dev/disk/by-id/d{i*2} ONLINE\n /dev/disk/by-id/d{i*2+1} ONLINE" for i in range(6)])
         self.assertEqual(len(self.preparer["parse_zfs_mirrors"](topology.encode())),6)

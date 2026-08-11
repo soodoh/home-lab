@@ -1,0 +1,14 @@
+[Unit]
+Description=Restore or verify Home Lab Proxmox firewall configuration before backends
+After=local-fs.target pve-cluster.service
+Requires=pve-cluster.service
+Before=pve-firewall.service proxmox-firewall.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/home-lab/proxmox-firewall-boot-recovery
+TimeoutStartSec=infinity
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

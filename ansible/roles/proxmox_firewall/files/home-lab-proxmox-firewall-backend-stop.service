@@ -1,0 +1,6 @@
+[Unit]
+Description=Fail-open stop for unverified Home Lab Proxmox firewall recovery
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl stop pve-firewall.service proxmox-firewall.service

@@ -36,6 +36,9 @@
     - role: arch_mounts
       tags:
         - storage
+    - role: firewall_nfs_canary
+      tags:
+        - storage
     - role: storage
       tags:
         - storage

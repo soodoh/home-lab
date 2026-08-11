@@ -186,6 +186,7 @@ class ProxmoxNixFoundationTests(unittest.TestCase):
             (lambda value: value["managedFiles"][0].update({"path": "/etc/pve/firewall/cluster.fw"}), "PVE-owned"),
             (lambda value: value["hostNetworking"].update({"mac": "AA:BB:CC:DD:EE:FF"}), "forbidden key"),
             (lambda value: value["hostNetworking"].update({"hostname": "HOMELAB_ZFS_MEMBER_01_BY_ID"}), "protected or PVE-owned"),
+            (lambda value: value["hostNetworking"].update({"hostname": "PROXMOX_FIREWALL_SSH_PUBLIC_KEYS"}), "protected or PVE-owned"),
         ]
         for mutation, expected in cases:
             with self.subTest(expected=expected):

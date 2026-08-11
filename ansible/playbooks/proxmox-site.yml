@@ -29,6 +29,7 @@
         apply_lock_action: acquire
         apply_lock_operation: proxmox-site
   roles:
+    - role: proxmox_firewall
     - role: proxmox_host
     - role: human_access
     - role: proxmox_network
@@ -51,7 +52,6 @@
         tailscale_netfilter_mode: "{{ proxmox.tailscale.netfilter_mode }}"
         tailscale_ssh: "{{ proxmox.tailscale.ssh }}"
         tailscale_auth_key: "{{ proxmox_tailscale_auth_key }}"
-    - role: proxmox_firewall
     - role: ssh
       vars:
         ssh_service_name: "{{ proxmox.ssh.service }}"

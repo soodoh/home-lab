@@ -4,7 +4,7 @@
 
 This document defines the required transaction for the one-time Proxmox firewall cutover. It is a reviewed design only. It does not authorize installation or live activation.
 
-Ansible remains the Proxmox production authority until the wider Nix cutover. The firewall transaction is therefore Ansible-owned, but it is isolated from `proxmox-site.yml` so unrelated later tasks cannot leave a newly enabled default-deny firewall active after a failed play.
+Ansible remains the Proxmox production authority until the wider Nix cutover. Trusted human operators and local root remain inside the host trust boundary; a malicious root operator can always bypass PVE, systemd, SSH, and helper controls, and this design does not claim otherwise. The firewall transaction is therefore Ansible-owned, but it is isolated from `proxmox-site.yml` so unrelated later tasks cannot leave a newly enabled default-deny firewall active after a failed play.
 
 The existing ordinary template write to `/etc/pve/firewall/cluster.fw` must be retired before execution. `/etc/pve` remains PVE API/CLI-owned. All firewall reads and mutations use fixed `pvesh` commands; no helper opens, writes, renames, or unlinks a path below `/etc/pve`.
 
@@ -41,13 +41,24 @@ The existing `proxmox_firewall_apply_confirmed` template path is removed. Steady
 The host helper exposes only:
 
 ```text
+authorize
+isolate-tofu-apply
+restore-tofu-apply
 inspect
 begin
 status
 commit
 rollback
 rollback-if-pending
+boot-config-recover
+boot-post-recover
 ```
+
+A distinct `firewall-apply` Unix identity is used only for this transaction. Its login shell itself is `/usr/local/libexec/home-lab/proxmox-firewall-transport`, so ordinary OpenSSH and Tailscale SSH both remain intrinsically closed. The transport accepts only OpenSSH's exact `shell -c` invocation of its own authorized-key forced command and rejects interactive, arbitrary `-c`, or direct Tailscale shell invocations. Its OpenSSH key has the fixed forced command `/usr/local/libexec/home-lab/proxmox-firewall-transport`, and its sudo policy permits only the five remote helper operations `inspect`, `begin`, `status`, `commit`, and `rollback`. It has no unrestricted shell or sudo capability and is not included in Tailscale SSH grants. The controller transport uses only this identity and its fixed SSH key.
+
+Before authorization, the fixed local-console `isolate-tofu-apply` command durably snapshots the exact root-protected authorized-key bytes and login shell, removes the authorized keys, changes the shell to `/usr/sbin/nologin`, terminates the fixed `tofu-apply` login scope and all processes for that UID, and proves no such process remains within a bounded retry cycle. `begin` requires this isolation state. Only the fixed local-console `restore-tofu-apply` command can restore those exact bytes, ownership, mode, and shell, and only after a terminal commit or rollback. Authorized-key restoration writes a fixed temporary file, applies exact ownership and mode, fsyncs it, atomically promotes it, and fsyncs the parent; exact retry repairs any interrupted prior final file. This keeps retained Ansible authority unavailable during the transaction and makes crash recovery explicit.
+
+`authorize` is a separate local-console/root-only preauthorization command. All three local commands require an actual controlling Linux virtual console matching `/dev/ttyN`; they are absent from the forced transport and narrow sudo policy. `authorize` accepts only a canonical ready plan, the same explicit plan SHA, and the exact typed gate `AUTHORIZE EXACT REVIEWED PROXMOX FIREWALL PLAN`; it records one root-only, no-follow, single-use authorization bound to that plan and expiry. `begin` atomically consumes that authorization and rejects replay or substitution. A consumed authorization without a journal can only be replaced by repeating the same local typed authorization ceremony, providing crash-safe recovery without granting the remote apply identity authorization authority. An expired unconsumed authorization may likewise be replaced from the console. The fixed console restore gate may cancel an unused authorization with no journal and atomically restore access, so an abandoned or expired plan cannot strand retained Ansible authority. `boot-config-recover` and `boot-post-recover` are fixed systemd-only phase commands; the ordinary timer never infers boot state from backend activity.
 
 `inspect` and `status` accept no arguments. `inspect` returns the exact normalized non-secret PVE state, the current PVE digest, a fresh challenge, a 300-second expiry, and a host-keyed attestation over those fields plus the installed helper and policy identities. `begin`, `commit`, and `rollback` accept only bounded schema-closed canonical requests on standard input. `begin` carries the complete reviewed public plan and the exact `inspect` attestation; it cannot carry policy, paths, hosts, endpoints, or commands outside that plan schema. `commit` and `rollback` carry only the helper-generated session identifier, plan SHA, and the closed expected result shape. Unknown commands, arguments, environment overrides, oversized input, stale sessions, and malformed requests fail before mutation.
 
@@ -88,11 +99,11 @@ The helper uses the PVE digest as compare-and-swap input wherever the API accept
 
 The journal records only non-secret protocol state and the exact raw PVE values required for host-local rollback. Rollback bytes never leave the host. The helper creates the persistent ownership lock only while holding the shared mutex.
 
-### 2. Armed
+### 2. Watchdog-bound
 
-Before any firewall mutation, the helper resets and starts the fixed 300-second rollback timer. It verifies that the timer is active and bound to the current journal. Failure to prove the timer is armed aborts without mutation.
+The enabled calendar timer is a continuously active watchdog rather than a per-transaction timer. Before creating the initial `prepared` journal, the helper proves the timer is active and reads its stable activation token. The first atomic journal write contains that non-null token, the snapshot, session, and deadline. The transaction never restarts or stops the watchdog, eliminating every pre-arm journal window. Failure to prove the watchdog active and tokenized aborts before journal or firewall mutation.
 
-The timer invokes only `rollback-if-pending`. Its fixed service retries every two seconds with no start-limit when the shared mutex is busy; a busy-lock result is never treated as successful timer delivery. Retries continue until the service acquires the mutex and rolls back or reconciles a durable commit/rollback decision. Controller termination, SSH loss, or host-helper interruption leaves the timer armed. Host staging has a fixed 60-second budget. Post-activation canaries run concurrently, each with exactly three five-second connection attempts and two one-second gaps, under a 30-second aggregate controller deadline. `commit` refuses to start unless at least 120 seconds remain before the host deadline, preserving a fixed rollback margin.
+The enabled persistent calendar timer invokes only `rollback-if-pending`. Early calendar delivery returns temporary failure until the exact journal deadline, while `Persistent=true` queues missed delivery across reboot. Terminal and boot-owned journals are reconciled before comparing the pre-reboot monotonic token, so a queued delivery cannot retry forever solely because the monotonic clock changed. The helper binds delivery to the timer activation token recorded in the current journal. Its fixed service retries every two seconds with no start-limit when the shared mutex is busy; a busy-lock result is never treated as successful timer delivery. Retries continue until the service acquires the mutex and rolls back or reconciles a durable commit/rollback decision. Controller termination, SSH loss, or host-helper interruption leaves the continuous watchdog active. Host staging has a fixed 60-second budget. Post-activation canaries run concurrently, each with exactly three five-second connection attempts and two one-second gaps, under a 30-second aggregate controller deadline. `commit` refuses to start unless at least 120 seconds remain before the host deadline, preserving a fixed rollback margin.
 
 ### 3. Staged
 
@@ -115,11 +126,11 @@ Enable is changed last. The helper then requires all of the following:
 - both `pve-firewall.service` and `proxmox-firewall.service` are active; and
 - `pve-firewall status` is exactly `Status: enabled/running`.
 
-The journal advances to `activated` only after these postconditions pass. Any synchronous failure after arming attempts immediate rollback and leaves the timer as a backstop.
+The journal advances to `activated` only after these postconditions pass. Any synchronous failure after the initial watchdog binding attempts immediate rollback and leaves the continuous watchdog as a backstop.
 
 ### 5. Controller canaries
 
-Before `begin`, the controller uses the immutable private sidecar to record all pre-activation baselines. A direct Tailscale path is mandatory: a DERP-only, unavailable, or ambiguous baseline blocks the plan and cannot be approved. After activation, the controller opens entirely new connections; existing sessions cannot satisfy a canary.
+Before `begin`, the controller uses the immutable private sidecar to record all pre-activation baselines. A direct Tailscale path is mandatory: a DERP-only, unavailable, or ambiguous baseline blocks the plan and cannot be approved. After activation, the controller opens entirely new connections; existing sessions cannot satisfy a canary. TLS probes use an explicit no-proxy opener, so inherited `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` values cannot alter sidecar-bound LAN or tailnet routing.
 
 Required post-activation canaries are:
 
@@ -127,22 +138,22 @@ Required post-activation canaries are:
 2. a TLS-validated PVE API request through the fixed LAN endpoint;
 3. authenticated SSH through the distinct fixed tailnet endpoint;
 4. a TLS-validated PVE API request through the fixed tailnet endpoint;
-5. an Arch-host NFSv4 read-only mount to a fixed empty runtime mountpoint, followed by a read/stat and clean unmount; and
+5. an Arch-host fixed fresh TCP connection to the PVE NFS port followed by an NFSv4 read-only mount to a fixed empty runtime mountpoint, read/stat, and clean unmount; and
 6. a Tailscale direct-path probe that must remain direct; DERP fallback, ambiguity, or timeout fails the canary and prevents commit.
 
 All six canaries launch concurrently under the fixed attempt and aggregate budgets above. The canary result contains only booleans, bounded timing/status categories, the random configuration identifier, the session identifier, and the reviewed plan SHA. It contains no endpoints, addresses, identity values, paths from protected configuration, or stable hashes of protected data.
 
-Any missing, malformed, expired, or failed canary causes the controller to request rollback. If that request cannot be delivered, the host timer remains armed.
+Any missing, malformed, expired, or failed canary causes the controller to request rollback. If that request cannot be delivered, the continuous host watchdog remains active.
 
 ### 6. Committed
 
-`commit` has a fixed 30-second aggregate execution deadline. Every `pvesh`, `systemctl`, and backend-status subprocess has a five-second timeout and at most two attempts separated by one second; exhausting either bound aborts without recording a commit decision and releases the shared mutex so the retrying timer can roll back. `commit` takes the shared mutex, rejects an expired or non-`activated` session, validates the exact session-, plan-, and private-configuration-bound canary result, checks the 120-second margin, and re-observes the complete API/backend state within those bounds. It then durably advances through `commit-release-pending`, `commit-timer-stopped`, and `commit-lock-released` before the terminal `committed` state. Once `commit-release-pending` is durable, exact retries and the timer complete only that release decision. Timer cancellation and ownership-lock removal are idempotent and reconciled against the journal and actual filesystem/systemd state.
+`commit` has a fixed 30-second aggregate execution deadline. Every `pvesh`, `systemctl`, and backend-status subprocess has a five-second timeout and at most two attempts separated by one second; exhausting either bound aborts without recording a commit decision and releases the shared mutex so the retrying timer can roll back. `commit` takes the shared mutex, rejects an expired or non-`activated` session, validates the exact session-, plan-, and private-configuration-bound canary result, checks the 120-second margin, and re-observes the complete API/backend state within those bounds. It then durably advances through `commit-release-pending` and `commit-lock-released` before the terminal `committed` state. Once `commit-release-pending` is durable, exact retries and watchdog delivery complete only that release decision. Ownership-lock removal is idempotent and reconciled against the journal and actual filesystem state; the watchdog remains active.
 
-A crash or exact retry in any release state resumes release; it never rolls back a durable commit decision and never leaves a terminal journal with an unexplained retained timer or ownership lock. `rollback-if-pending`, `status`, and boot recovery complete commit release when they observe `commit-release-pending` or either later release state. A delayed commit cannot commit a later session because every request is bound to the helper-generated session identifier and plan SHA.
+A crash or exact retry in any release state resumes release; it never rolls back a durable commit decision and never leaves a terminal journal with an unexplained retained timer or ownership lock. `rollback-if-pending` and boot recovery complete commit release when they observe `commit-release-pending` or either later release state. Read-only `status` never mutates locks, timers, journals, or API state and therefore safely coexists with the enclosing steady Ansible lock. A delayed commit cannot commit a later session because every request is bound to the helper-generated session identifier and plan SHA.
 
 ### 7. Rollback
 
-Rollback has a fixed 60-second aggregate attempt deadline. Every `pvesh`, `systemctl`, and backend-status subprocess uses the same five-second timeout, at most two attempts, and one-second gap as commit. It takes the shared mutex and transitions through durable per-operation checkpoints, `rollback-started`, `rollback-verified`, `rollback-release-pending`, `rollback-timer-stopped`, and `rollback-lock-released` to terminal `rolled-back`:
+Rollback has a fixed 60-second aggregate attempt deadline. Every `pvesh`, `systemctl`, and backend-status subprocess uses the same five-second timeout, at most two attempts, and one-second gap as commit. It takes the shared mutex and transitions through durable per-operation checkpoints, `rollback-started`, `rollback-verified`, `rollback-release-pending`, and `rollback-lock-released` to terminal `rolled-back`:
 
 1. disable the firewall first;
 2. remove only the candidate rules;
@@ -152,17 +163,17 @@ Rollback has a fixed 60-second aggregate attempt deadline. Every `pvesh`, `syste
 
 Before and after every fixed restore operation, rollback records the exact expected step and observed digest. On a timeout, exhausted subprocess retry, or incomplete postcondition, it records `rollback-retry-pending`, releases the shared mutex within the aggregate deadline, and exits with a temporary-failure result. The timer service retries two seconds later and resumes from the durable checkpoint; no failed attempt claims restoration. Boot recovery uses the same bounded operation attempts inside its readiness/retry cycle, so a hung PVE command cannot retain the mutex indefinitely.
 
-After exact restoration, rollback stops the timer, removes the persistent ownership lock, and durably records each release step. Exact retries resume from the recorded state. Rollback never recursively deletes PVE state. If exact restoration or release cannot be verified, the helper retains its journal and any still-required ownership lock, reports a console-required failure, and does not claim success.
+After exact restoration, rollback removes the persistent ownership lock and durably records each release step without stopping the watchdog. Exact retries resume from the recorded state. Rollback never recursively deletes PVE state. If exact restoration or release cannot be verified, the helper retains its journal and any still-required ownership lock, reports a console-required failure, and does not claim success.
 
 `rollback-if-pending` exits without policy mutation only after reconciling all release steps for a verified commit or rollback decision. Commit/timer races serialize on the shared mutex; whichever valid decision obtains the mutex before expiry is durable and the other path reconciles that decision.
 
-Boot recovery uses two fixed oneshot units. The configuration-recovery unit is `Required` and ordered after `pve-cluster.service` and local filesystems but before both `pve-firewall.service` and `proxmox-firewall.service`; drop-ins on both backends require this unit. It runs with no start timeout. At entry it durably records `boot-recovery-active` and stops the persistent rollback timer before taking further action. It checks pmxcfs and fixed `pvesh` readiness 30 times at two-second intervals, then waits five seconds and repeats that closed cycle indefinitely while the journal requires recovery. It does not exit failed, so the already queued backend start jobs remain blocked rather than entering a failed-dependency state that would require manual requeue.
+Boot recovery uses two fixed oneshot units. The configuration-recovery unit is `Required` and ordered after `pve-cluster.service` and local filesystems but before both `pve-firewall.service` and `proxmox-firewall.service`; drop-ins on both backends require this unit. It runs with no start timeout. At entry it durably records `boot-recovery-active` while leaving the persistent watchdog active; service ordering keeps queued delivery behind boot verification. It checks pmxcfs and fixed `pvesh` readiness 30 times at two-second intervals, then waits five seconds and repeats that closed cycle indefinitely while the journal requires recovery. It does not exit failed, so the already queued backend start jobs remain blocked rather than entering a failed-dependency state that would require manual requeue.
 
 On a valid nonterminal pre-commit journal, configuration recovery restores and API-verifies the exact snapshot while both backends are stopped, then records `boot-config-restored` and exits successfully. For a durable commit decision it API-verifies the candidate and records `boot-commit-config-verified`. Only these configuration-verified states allow the backend units to start. API/config verification at this phase deliberately does not claim a backend postcondition.
 
-A second post-recovery verifier is ordered after and requires the configuration-recovery unit and both firewall backends. It has the same bounded five-second/two-attempt subprocess policy and `Restart=on-failure`, `RestartSec=5`, with no start limit. It requires the exact API snapshot or candidate state plus the corresponding service and `pve-firewall status` postconditions. Only then does it stop any residual timer, remove the ownership lock, and durably record terminal `rolled-back` or `committed`. On verification failure, its fixed failure handler stops both firewall backends before retrying, while the ownership lock and boot-verification journal remain.
+A second post-recovery verifier is ordered after and requires the configuration-recovery unit and both firewall backends. It has the same bounded five-second/two-attempt subprocess policy and `Restart=on-failure`, `RestartSec=5`, with no start limit. It requires the exact API snapshot or candidate state plus the corresponding service and `pve-firewall status` postconditions. Only then does it remove the ownership lock and durably record terminal `rolled-back` or `committed`; the watchdog remains continuously active. On verification failure, its fixed failure handler stops both firewall backends before retrying, while the ownership lock and boot-verification journal remain.
 
-The rollback timer service is explicitly ordered after the post-recovery verifier. A persistent missed firing therefore remains queued until both boot phases finish; it then observes the terminal decision and exits without policy mutation. `rollback-if-pending` also treats `boot-recovery-active`, `boot-config-restored`, and `boot-commit-config-verified` as boot-owned states and returns temporary failure rather than entering ordinary rollback. A boot with no journal makes both recovery units and any missed timer firing deterministic no-ops. Unknown or malformed runtime remnants keep both backends blocked for console inspection.
+The rollback timer service is explicitly ordered after the post-recovery verifier. A persistent missed firing therefore remains queued until both boot phases finish; it then observes the terminal decision and exits without policy mutation. The distinct `boot-config-recover` and `boot-post-recover` commands own boot phases. `rollback-if-pending` also treats `boot-recovery-active`, `boot-config-restored`, and `boot-commit-config-verified` as boot-owned states and returns temporary failure rather than entering ordinary rollback. A boot with no journal makes both recovery units and any missed timer firing deterministic no-ops. Unknown or malformed runtime remnants keep both backends blocked for console inspection.
 
 ## Testing required before approval
 
@@ -175,7 +186,7 @@ Repository and subprocess tests must cover:
 - fixed `pvesh` command catalogues and mutation order;
 - exact plan/inspection-attestation/digest binding at begin and compare-and-swap failure on external drift;
 - immutable protected-sidecar metadata/MAC validation and rejection of configuration substitution;
-- timer arming before mutation, exact timeout budgets/commit margin, and enable-last behavior;
+- continuous watchdog activity and first-journal token binding before mutation, exact timeout budgets/commit margin, and enable-last behavior;
 - crash injection before and after every journal boundary, every rule operation, enable, commit, and rollback;
 - exact rollback order and snapshot verification;
 - timer/commit busy-mutex retries, bounded commit and rollback attempts, rollback checkpoint resume after each subprocess timeout, every release boundary, idempotent release reconciliation, and delayed stale commits;
@@ -188,6 +199,8 @@ Repository and subprocess tests must cover:
 - mandatory direct-path baseline and rejection of DERP before and after activation;
 - boot configuration-recovery/post-verification/timer ordering, persistent missed firings, boot-owned state rejection, indefinite readiness cycles, queued backend starts, failure-stop handling, postcondition retry, and release-state fixtures; and
 - scans proving protected values and stable protected hashes do not enter plans, logs, fixtures, or shareable evidence.
+
+The offline implementation now lives in the `proxmox_firewall` and `firewall_nfs_canary` Ansible roles plus `scripts/controller/proxmox-firewall.py`. The controller reads only the fixed root-owned controller key and canonical protected configuration under `~/.config/home-lab/controller/`; its public plan never contains those values. Its closed commands are `plan`, exact-hash `apply`, `status`, and exact-session `rollback`. This repository state does not authorize running any of them against production.
 
 Independent review must pass after implementation and test evidence. Only then may an operator separately approve helper installation and, later, live activation with a physical console and tested LAN rollback session open.
 

@@ -270,6 +270,41 @@ proxmox:
             group: root
             mode: "0440"
           rule: "tofu-apply ALL=(root) NOPASSWD: ALL"
+      - name: firewall-apply
+        home: /home/firewall-apply
+        shell: /usr/local/libexec/home-lab/proxmox-firewall-transport
+        create_home: true
+        password_lock: true
+        groups: []
+        ssh_directory:
+          kind: runtime-protected-directory
+          projectable: false
+          materialization: metadata-only
+          path: /home/firewall-apply/.ssh
+          owner: firewall-apply
+          group: firewall-apply
+          mode: "0700"
+        authorized_keys:
+          file:
+            kind: runtime-protected-file
+            projectable: false
+            materialization: metadata-only
+            path: /home/firewall-apply/.ssh/authorized_keys
+            owner: firewall-apply
+            group: firewall-apply
+            mode: "0600"
+          secret_ref: PROXMOX_FIREWALL_SSH_PUBLIC_KEYS
+          forced_command: 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport"'
+        sudo:
+          state: present
+          file:
+            kind: managed-file
+            projectable: true
+            path: /etc/sudoers.d/firewall-apply
+            owner: root
+            group: root
+            mode: "0440"
+          rule: "firewall-apply ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-firewall-transaction inspect, /usr/local/libexec/home-lab/proxmox-firewall-transaction begin, /usr/local/libexec/home-lab/proxmox-firewall-transaction status, /usr/local/libexec/home-lab/proxmox-firewall-transaction commit, /usr/local/libexec/home-lab/proxmox-firewall-transaction rollback"
     human_accounts:
       - name: proxmox
         comment: Home Lab Proxmox Administrator
@@ -421,6 +456,7 @@ proxmox:
       - root
       - tofu-plan
       - tofu-apply
+      - firewall-apply
   tailscale:
     package: tailscale
     service: tailscaled.service
@@ -463,6 +499,7 @@ proxmox:
       - { path: /etc/modules-load.d/home-lab-vfio.conf, safety_class: reboot-bound, automatic: true, requires_approval: true, requires_reboot: true, requires_watchdog: false }
       - { path: /etc/network/interfaces, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/ssh/sshd_config.d/60-home-lab.conf, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
+      - { path: /etc/sudoers.d/firewall-apply, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/proxmox, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/tofu-apply, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/tofu-plan, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
@@ -508,7 +545,7 @@ proxmox:
         log: nolog
       - direction: IN
         action: ACCEPT
-        source: 100.64.0.0/10
+        source: 0.0.0.0/0
         protocol: udp
         destination_port: 41641
         log: nolog
@@ -747,6 +784,7 @@ proxmox:
       - /root/.ssh
       - /root/.config/home-lab
       - /usr/local/libexec/home-lab
+      - /usr/local/share/home-lab
       - /usr/local/man
     remove_paths:
       - /root/.bun

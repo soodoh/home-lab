@@ -258,12 +258,12 @@ def validate_protected(raw):
         raise ValueError("protected incoming structure differs")
     access = value["access"]
     hardware = value["hardware"]
-    if not isinstance(access, dict) or set(access) != {"applyKeys", "applyToken", "applyTokenIdentity", "planKeys", "planToken", "planTokenIdentity"} or \
+    if not isinstance(access, dict) or set(access) != {"applyKeys", "applyToken", "applyTokenIdentity", "firewallKeys", "planKeys", "planToken", "planTokenIdentity"} or \
             not isinstance(hardware, dict) or set(hardware) != {"gamesDiskIdentity", "poolGuid", "poolMembers", "usbMappings"}:
         raise ValueError("protected incoming domains differ")
-    all_keys = []
-    for name in ("applyKeys", "planKeys"):
-        if not isinstance(access[name], list) or not access[name] or len(access[name]) != len(set(access[name])):
+    key_identities = []
+    for name in ("applyKeys", "firewallKeys", "planKeys"):
+        if not isinstance(access[name], list) or not access[name]:
             raise ValueError("protected incoming key list differs")
         for item in access[name]:
             match = SSH_KEY.fullmatch(item) if isinstance(item, str) else None
@@ -273,11 +273,11 @@ def validate_protected(raw):
                 decoded = b""
             if len(decoded) < 32:
                 raise ValueError("protected incoming key differs")
-            all_keys.append(item)
+            key_identities.append(match.group(1) + " " + match.group(2))
     identities = [TOKEN.fullmatch(access[name]).group(1) if isinstance(access[name], str) and TOKEN.fullmatch(access[name]) else None
                   for name in ("applyToken", "planToken")]
     expected_identities = [access.get("applyTokenIdentity"), access.get("planTokenIdentity")]
-    if len(all_keys) != len(set(all_keys)) or None in identities or identities[0] == identities[1] or identities != expected_identities or \
+    if len(key_identities) != len(set(key_identities)) or None in identities or identities[0] == identities[1] or identities != expected_identities or \
             any(not isinstance(item, str) or re.fullmatch(r"[^\s!=]+![^\s!=]+", item) is None for item in expected_identities) or \
             not isinstance(hardware["gamesDiskIdentity"], str) or BY_ID.fullmatch(hardware["gamesDiskIdentity"]) is None or \
             not isinstance(hardware["poolGuid"], str) or not hardware["poolGuid"].isdigit() or \

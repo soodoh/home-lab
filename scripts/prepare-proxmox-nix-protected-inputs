@@ -10,6 +10,7 @@ HARDWARE = Path("/root/home-lab-hardware.env")
 ROOT = Path("/root/.config/home-lab")
 PLAN_KEYS = ROOT / "proxmox-plan-authorized-keys"
 APPLY_KEYS = ROOT / "proxmox-apply-authorized-keys"
+FIREWALL_KEYS = ROOT / "proxmox-firewall-authorized-keys"
 PLAN_TOKEN = ROOT / "proxmox-plan-token.env"
 APPLY_TOKEN = ROOT / "proxmox-apply-token.env"
 OUTPUT = Path("/var/lib/home-lab/bootstrap/incoming/protected-inputs.json")
@@ -55,7 +56,7 @@ def main():
     if set(plan_token) != {"PROXMOX_VE_API_TOKEN"} or set(apply_token) != {"PROXMOX_VE_API_TOKEN"}:
         raise ValueError("fixed token escrow keys differ")
     value = {"access": {"applyKeys": keys(APPLY_KEYS), "applyToken": apply_token["PROXMOX_VE_API_TOKEN"],
-                        "applyTokenIdentity": "root@pam!tofu-apply", "planKeys": keys(PLAN_KEYS),
+                        "applyTokenIdentity": "root@pam!tofu-apply", "firewallKeys": keys(FIREWALL_KEYS), "planKeys": keys(PLAN_KEYS),
                         "planToken": plan_token["PROXMOX_VE_API_TOKEN"], "planTokenIdentity": "root@pam!tofu-plan"},
              "format": "home-lab-proxmox-protected-inputs-v1",
              "hardware": {"gamesDiskIdentity": hardware["HOMELAB_GAMES_DISK_BY_ID"],

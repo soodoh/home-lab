@@ -89,7 +89,7 @@ class ProxmoxNixPlanTests(unittest.TestCase):
                 planner.validate_observation(observation)
 
     def test_observation_rejects_sensitive_literals_wrong_types_and_duplicates_before_planning(self) -> None:
-        sensitive = ("HOME" + "LAB_PRIVATE_REF", "PROXMOX_" + "APPLY_SSH_PUBLIC_KEYS",
+        sensitive = ("HOME" + "LAB_PRIVATE_REF", "PROXMOX_" + "APPLY_SSH_PUBLIC_KEYS", "PROXMOX_" + "FIREWALL_SSH_PUBLIC_KEYS",
                      "TAIL" + "SCALE_AUTH_KEY", "12345678-1234-1234-1234-123456789abc", "a" * 64)
         for literal in sensitive:
             observation = copy.deepcopy(self.observation)
@@ -366,7 +366,7 @@ class ProxmoxNixPlanTests(unittest.TestCase):
         for name in ("observation.schema.json", "plan.schema.json"):
             schema = json.loads((NIX / "proxmox" / name).read_bytes())
             self.assertFalse(schema["additionalProperties"])
-        forbidden = (("PROXMOX_" + "PLAN_SSH_PUBLIC_KEYS").encode(), ("TAIL" + "SCALE_AUTH_KEY").encode())
+        forbidden = (("PROXMOX_" + "PLAN_SSH_PUBLIC_KEYS").encode(), ("PROXMOX_" + "FIREWALL_SSH_PUBLIC_KEYS").encode(), ("TAIL" + "SCALE_AUTH_KEY").encode())
         for path in NIX.rglob("*"):
             if path.is_file() and "package-manifest" not in path.name and "__pycache__" not in path.parts:
                 content = path.read_bytes()
