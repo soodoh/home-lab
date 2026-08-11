@@ -1,0 +1,86 @@
+#!/usr/bin/python3
+"""Create the fixed canonical protected bootstrap input without printing protected data."""
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+
+HARDWARE = Path("/root/home-lab-hardware.env")
+ROOT = Path("/root/.config/home-lab")
+PLAN_KEYS = ROOT / "proxmox-plan-authorized-keys"
+APPLY_KEYS = ROOT / "proxmox-apply-authorized-keys"
+PLAN_TOKEN = ROOT / "proxmox-plan-token.env"
+APPLY_TOKEN = ROOT / "proxmox-apply-token.env"
+OUTPUT = Path("/var/lib/home-lab/bootstrap/incoming/protected-inputs.json")
+SOURCE = Path(__file__).with_name("bootstrap-proxmox-nix-host")
+loader = importlib.machinery.SourceFileLoader("proxmox_nix_bootstrap_create", str(SOURCE))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+runtime = importlib.util.module_from_spec(spec); loader.exec_module(runtime)
+
+
+def read(path):
+    return runtime.secure_file(path, 0o600, 256 * 1024).decode("utf-8", "strict")
+
+
+def env(path):
+    result = {}
+    for line in read(path).splitlines():
+        if not line or "=" not in line:
+            raise ValueError("fixed protected environment syntax differs")
+        key, value = line.split("=", 1)
+        if key in result or not key or not value:
+            raise ValueError("fixed protected environment entry differs")
+        result[key] = value
+    return result
+
+
+def keys(path):
+    values = read(path).splitlines()
+    if not values or any(not value or "\r" in value for value in values) or len(values) != len(set(values)):
+        raise ValueError("fixed authorized-key input differs")
+    return values
+
+
+def main():
+    if os.geteuid() != 0 or os.environ.get("PROXMOX_NIX_PROTECTED_CREATE_CONFIRMED") != "create-reviewed-protected-runtime-input":
+        raise ValueError("root and explicit protected-input gate required")
+    hardware = env(HARDWARE)
+    required = {"HOMELAB_GAMES_DISK_BY_ID", "HOMELAB_ZFS_POOL_GUID", *{"HOMELAB_ZFS_MEMBER_%02d_BY_ID" % i for i in range(1, 13)},
+                "HOMELAB_ZIGBEE_USB_SERIAL", "HOMELAB_ZIGBEE_USB_PORT", "HOMELAB_ZWAVE_USB_SERIAL", "HOMELAB_ZWAVE_USB_PORT"}
+    if set(hardware) != required:
+        raise ValueError("fixed hardware inventory keys differ")
+    plan_token = env(PLAN_TOKEN)
+    apply_token = env(APPLY_TOKEN)
+    if set(plan_token) != {"PROXMOX_VE_API_TOKEN"} or set(apply_token) != {"PROXMOX_VE_API_TOKEN"}:
+        raise ValueError("fixed token escrow keys differ")
+    value = {"access": {"applyKeys": keys(APPLY_KEYS), "applyToken": apply_token["PROXMOX_VE_API_TOKEN"],
+                        "applyTokenIdentity": "root@pam!tofu-apply", "planKeys": keys(PLAN_KEYS),
+                        "planToken": plan_token["PROXMOX_VE_API_TOKEN"], "planTokenIdentity": "root@pam!tofu-plan"},
+             "format": "home-lab-proxmox-protected-inputs-v1",
+             "hardware": {"gamesDiskIdentity": hardware["HOMELAB_GAMES_DISK_BY_ID"],
+                          "poolGuid": hardware["HOMELAB_ZFS_POOL_GUID"],
+                          "poolMembers": [hardware["HOMELAB_ZFS_MEMBER_%02d_BY_ID" % i] for i in range(1, 13)],
+                          "usbMappings": [
+                              {"mapping": "zigbee-cp210x", "port": hardware["HOMELAB_ZIGBEE_USB_PORT"], "serial": hardware["HOMELAB_ZIGBEE_USB_SERIAL"]},
+                              {"mapping": "zwave-cp210x", "port": hardware["HOMELAB_ZWAVE_USB_PORT"], "serial": hardware["HOMELAB_ZWAVE_USB_SERIAL"]}]}}
+    raw = runtime.validate_protected((json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n").encode())
+    runtime.ensure_dir(runtime.BOOT, 0o700); runtime.ensure_dir(runtime.INCOMING, 0o700); runtime.ensure_dir(runtime.RUNTIME, 0o700)
+    install_fd = runtime.acquire_lock(runtime.LOCK)
+    operation_fd = None
+    try:
+        operation_fd = runtime.acquire_lock(runtime.OPERATION_LOCK)
+        runtime.reconcile_pending()
+        runtime.reject_locks()
+        runtime.atomic(OUTPUT, raw, 0o600)
+    finally:
+        if operation_fd is not None: os.close(operation_fd)
+        os.close(install_fd)
+    print("proxmox-nix-protected-inputs=created")
+
+
+if __name__ == "__main__":
+    try: main()
+    except Exception:
+        print("prepare-proxmox-nix-protected-inputs: fixed operation failed", file=__import__('sys').stderr)
+        raise SystemExit(1)

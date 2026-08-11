@@ -38,19 +38,24 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         cls.projection = json.loads((NIX / "proxmox/projection.json").read_bytes())
         cls.manifest = json.loads((NIX / "proxmox/package-manifest.json").read_bytes())
         cls.before_observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
+        cls.before_observation["domains"]["protectedAccess"] = {"expectedCount": 5, "matches": True, "observedCount": 5, "status": "complete"}
+        cls.before_observation["domains"]["protectedHardware"] = {"expectedCount": 3, "matches": True, "observedCount": 3, "status": "complete"}
         cls.bindings = {
             "activationEnvelopeSchemaSha256": "7" * 64, "activatorSha256": "8" * 64,
             "bundleContentSha256": "1" * 64, "bundleFormat": planner.BUNDLE_FORMAT,
             "flakeLockSha256": "2" * 64, "gitCommit": "3" * 40, "gitTree": "4" * 40,
-            "observerProtocol": 3, "observerSha256": cls.before_observation["observerSha256"],
+            "observerProtocol": 4, "observerSha256": cls.before_observation["observerSha256"],
             "packageManifestSha256": "6" * 64, "planSchemaSha256": "9" * 64,
-            "privatePreconditionsSchemaSha256": "a" * 64, "projectionSha256": "5" * 64,
+            "privatePreconditionsSchemaSha256": "a" * 64, "privatePreparationRequestSchemaSha256": "b" * 64,
+            "privatePreparerSha256": "c" * 64, "projectionSha256": "5" * 64,
         }
         cls.metadata = {
             "activationEnvelopeSchemaSha256": cls.bindings["activationEnvelopeSchemaSha256"],
             "helperSha256": {"proxmox-activator": cls.bindings["activatorSha256"],
-                             "proxmox-observer": cls.bindings["observerSha256"]},
+                             "proxmox-observer": cls.bindings["observerSha256"],
+                             "proxmox-private-preparer": cls.bindings["privatePreparerSha256"]},
             "privatePreconditionsSchemaSha256": cls.bindings["privatePreconditionsSchemaSha256"],
+            "privatePreparationRequestSchemaSha256": cls.bindings["privatePreparationRequestSchemaSha256"],
         }
         plan_start = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
         cls.plan = planner.build_plan(cls.bindings, cls.projection, cls.manifest, cls.before_observation,
@@ -85,6 +90,8 @@ class ProxmoxNixApplyTests(unittest.TestCase):
                 "packageManifestSha256": self.bindings["packageManifestSha256"],
                 "planSchemaSha256": self.bindings["planSchemaSha256"],
                 "privatePreconditionsSchemaSha256": self.bindings["privatePreconditionsSchemaSha256"],
+                "privatePreparationRequestSchemaSha256": self.bindings["privatePreparationRequestSchemaSha256"],
+                "privatePreparerSha256": self.bindings["privatePreparerSha256"],
                 "projectionSha256": self.bindings["projectionSha256"],
             },
             "challenge": "challenge_0123456789", "createdAt": planner.format_time(now),
@@ -223,7 +230,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
                                   "gitCommit": "3" * 40, "gitTree": "4" * 40},
                     "hostSessionId": private["hostSession"]["id"], "operation": "begin",
                     "planSha256": self.plan["planSha256"], "privatePreconditions": private,
-                    "protocol": 3, "startedAt": private["createdAt"]}
+                    "protocol": 4, "startedAt": private["createdAt"]}
         namespace = self.activator
         substitutions = {"validate_private": lambda *args: private, "self_sha256": lambda: "8" * 64,
                          "read_journal": lambda plan: (_ for _ in ()).throw(FileNotFoundError()),
@@ -349,7 +356,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
     def test_ambiguous_transport_uses_status_and_never_starts_concurrent_rollback(self) -> None:
         action = self.plan["actions"][0]
         envelope = {"action": action, "hostSessionId": "session_01234567890", "operation": "action",
-                    "planSha256": self.plan["planSha256"], "protocol": 3}
+                    "planSha256": self.plan["planSha256"], "protocol": 4}
         expected = {"actionId": action["id"], "hostSessionId": "session_01234567890",
                     "sequence": 1, "status": "applied"}
         proved = {"actionManifestSha256": planner.digest(self.plan["actions"]), "capturedActionIds": [action["id"]],
@@ -358,7 +365,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         with patch.object(guarded_apply, "send_session", side_effect=[guarded_apply.AmbiguousTransportError("lost"), proved]):
             self.assertEqual(guarded_apply.send_transition(envelope, expected, planner.digest(self.plan["actions"])), expected)
         commit_envelope = {"hostSessionId": "session_01234567890", "operation": "commit",
-                           "planSha256": self.plan["planSha256"], "protocol": 3,
+                           "planSha256": self.plan["planSha256"], "protocol": 4,
                            "verifiedActionIds": [action["id"]]}
         committed = dict(proved, state="released-committed")
         expected_commit = {"hostSessionId": "session_01234567890", "planSha256": self.plan["planSha256"], "status": "committed"}
@@ -446,7 +453,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
                                                                "actionManifestSha256": planner.digest([original])}
             self.activator["require_lock"] = lambda envelope: {}
             envelope = {"action": second, "hostSessionId": "session_01234567890", "operation": "action",
-                        "planSha256": self.plan["planSha256"], "protocol": 3}
+                        "planSha256": self.plan["planSha256"], "protocol": 4}
             with self.assertRaisesRegex(ValueError, "exact retained plan manifest"):
                 self.activator["action_session"](envelope)
         finally:
@@ -506,7 +513,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
                    "nextSequence": 3, "ownership": ownership, "pendingTransition": None,
                    "planSha256": ownership["planSha256"], "state": "failed", "terminalResult": None}
         envelope = {"hostSessionId": ownership["hostSessionId"], "operation": "rollback",
-                    "planSha256": ownership["planSha256"], "protocol": 3}
+                    "planSha256": ownership["planSha256"], "protocol": 4}
         restored, released = [], []
         substitutions = {"require_lock": lambda value: ownership, "read_manifest": lambda plan: manifest,
                          "read_journal": lambda plan: copy.deepcopy(journal),
@@ -618,7 +625,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
                   "capturedActionIds": [], "completedActionIds": [], "nextSequence": 1, "pendingTransition": None,
                   "state": journal["state"]}
         envelope = {"hostSessionId": journal["hostSessionId"], "operation": "commit",
-                    "planSha256": journal["planSha256"], "protocol": 3, "verifiedActionIds": []}
+                    "planSha256": journal["planSha256"], "protocol": 4, "verifiedActionIds": []}
         self.assertFalse(guarded_apply.status_proves(status, envelope, journal["actionManifestSha256"]))
         released = []
         matching_lock = ownership
@@ -656,7 +663,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
                     "bundleContentSha256": "1" * 64, "gitCommit": "3" * 40, "gitTree": "4" * 40},
                     "hostSessionId": sidecar["hostSession"]["id"], "operation": "begin",
                     "planSha256": self.plan["planSha256"], "privatePreconditions": sidecar,
-                    "protocol": 3, "startedAt": sidecar["createdAt"]}
+                    "protocol": 4, "startedAt": sidecar["createdAt"]}
         with tempfile.TemporaryDirectory() as name:
             session = Path(name) / self.plan["planSha256"]
             cleaned = []
@@ -763,7 +770,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
 
     def test_strict_schemas_and_manual_handlers_reject_comprehensive_malformed_documents(self) -> None:
         sidecar = self.sidecar()
-        common = {"hostSessionId": sidecar["hostSession"]["id"], "planSha256": self.plan["planSha256"], "protocol": 3}
+        common = {"hostSessionId": sidecar["hostSession"]["id"], "planSha256": self.plan["planSha256"], "protocol": 4}
         envelopes = [
             {"actions": self.plan["actions"], "bindings": {"activatorSha256": self.bindings["activatorSha256"],
                 "bundleContentSha256": self.bindings["bundleContentSha256"], "gitCommit": self.bindings["gitCommit"],
@@ -861,7 +868,7 @@ console.log('strict schema comprehensive validation passed');
         class Crash(BaseException):
             pass
         envelope = {"action": copy.deepcopy(self.plan["actions"][0]), "hostSessionId": "session_01234567890",
-                    "operation": "action", "planSha256": "a" * 64, "protocol": 3}
+                    "operation": "action", "planSha256": "a" * 64, "protocol": 4}
         for fault in ("pending", "capture", "mutate", "completion"):
             with self.subTest(fault=fault):
                 action = envelope["action"]
@@ -916,7 +923,7 @@ console.log('strict schema comprehensive validation passed');
         manifest = {"actionManifestSha256": "f" * 64, "actions": [{"id": "1" * 64}, {"id": "2" * 64}],
                     "entries": entries}
         envelope = {"hostSessionId": "session_01234567890", "operation": "rollback",
-                    "planSha256": "a" * 64, "protocol": 3}
+                    "planSha256": "a" * 64, "protocol": 4}
         for failed_progress_write in (2, 3):
             with self.subTest(write=failed_progress_write):
                 holder = {"actionManifestSha256": "f" * 64, "completed": [], "hostSessionId": envelope["hostSessionId"],
@@ -948,7 +955,7 @@ console.log('strict schema comprehensive validation passed');
     def test_action_history_is_never_returned_or_proven_after_rollback(self) -> None:
         action = self.plan["actions"][0]
         envelope = {"action": action, "hostSessionId": "session_01234567890", "operation": "action",
-                    "planSha256": "a" * 64, "protocol": 3}
+                    "planSha256": "a" * 64, "protocol": 4}
         result = {"actionId": action["id"], "hostSessionId": envelope["hostSessionId"],
                   "sequence": action["sequence"], "status": "applied"}
         for state in ("rollback-in-progress", "rollback-failed", "recovered-release-pending", "released-recovered",
@@ -965,7 +972,7 @@ console.log('strict schema comprehensive validation passed');
     def test_controller_retries_only_exact_proven_pending_action_or_rollback_once(self) -> None:
         action = self.plan["actions"][0]
         action_envelope = {"action": action, "hostSessionId": "session_01234567890", "operation": "action",
-                           "planSha256": "a" * 64, "protocol": 3}
+                           "planSha256": "a" * 64, "protocol": 4}
         action_expected = {"actionId": action["id"], "hostSessionId": action_envelope["hostSessionId"],
                            "sequence": action["sequence"], "status": "applied"}
         pending = {"actionId": action["id"], "operation": "action", "requestSha256": planner.digest(action_envelope),
@@ -984,7 +991,7 @@ console.log('strict schema comprehensive validation passed');
             self.assertEqual(guarded_apply.send_transition(action_envelope, action_expected, "f" * 64), action_expected)
         self.assertEqual(calls, ["action", "status", "action"])
         rollback_envelope = {"hostSessionId": action_envelope["hostSessionId"], "operation": "rollback",
-                             "planSha256": action_envelope["planSha256"], "protocol": 3}
+                             "planSha256": action_envelope["planSha256"], "protocol": 4}
         rollback_expected = {"hostSessionId": action_envelope["hostSessionId"], "planSha256": action_envelope["planSha256"],
                              "restoredActionIds": [action["id"]], "status": "recovered"}
         rollback_status = dict(action_status, state="rollback-in-progress",
@@ -1144,7 +1151,7 @@ time.sleep(60)
             "gitCommit": self.bindings["gitCommit"], "gitTree": self.bindings["gitTree"]},
             "hostSessionId": sidecar["hostSession"]["id"], "operation": "begin",
             "planSha256": self.plan["planSha256"], "privatePreconditions": sidecar,
-            "protocol": 3, "startedAt": sidecar["createdAt"]}
+            "protocol": 4, "startedAt": sidecar["createdAt"]}
         action_manifest_sha = planner.digest(self.plan["actions"])
         begin_result = {"actionManifestSha256": action_manifest_sha,
                         "hostSessionId": sidecar["hostSession"]["id"],
@@ -1232,7 +1239,7 @@ time.sleep(60)
         source = (NIX / "proxmox/activator-template.py").read_text(encoding="utf-8")
         self.assertIn("bootstrap-required: protected session key is unavailable", source)
         failed = __import__("subprocess").CompletedProcess(guarded_apply.SSH_APPLY_COMMAND, 255, b"", b"redacted")
-        envelope = {"hostSessionId": "session_01234567890", "operation": "begin", "planSha256": "a" * 64, "protocol": 3}
+        envelope = {"hostSessionId": "session_01234567890", "operation": "begin", "planSha256": "a" * 64, "protocol": 4}
         with patch.object(guarded_apply.subprocess, "run", return_value=failed), self.assertRaisesRegex(ValueError, "bootstrap-required"):
             guarded_apply.send_transition(envelope, {}, "b" * 64, bootstrap=True)
 

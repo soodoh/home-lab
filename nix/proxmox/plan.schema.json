@@ -116,7 +116,7 @@
           "$ref": "#/$defs/gitObject"
         },
         "observerProtocol": {
-          "const": 3
+          "const": 4
         },
         "observerSha256": {
           "$ref": "#/$defs/sha256"
@@ -128,6 +128,12 @@
           "$ref": "#/$defs/sha256"
         },
         "privatePreconditionsSchemaSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "privatePreparationRequestSchemaSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "privatePreparerSha256": {
           "$ref": "#/$defs/sha256"
         },
         "projectionSha256": {
@@ -147,7 +153,9 @@
         "activationEnvelopeSchemaSha256",
         "activatorSha256",
         "planSchemaSha256",
-        "privatePreconditionsSchemaSha256"
+        "privatePreconditionsSchemaSha256",
+        "privatePreparerSha256",
+        "privatePreparationRequestSchemaSha256"
       ],
       "type": "object"
     },

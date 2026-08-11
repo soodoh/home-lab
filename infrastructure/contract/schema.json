@@ -190,7 +190,7 @@
           }
         },
         "managed_file_policies": {
-          "type": "array", "minItems": 12, "maxItems": 12,
+          "type": "array", "minItems": 13, "maxItems": 13,
           "items": {
             "type": "object", "additionalProperties": false,
             "required": ["path", "safety_class", "automatic", "requires_approval", "requires_reboot", "requires_watchdog"],
@@ -488,8 +488,15 @@
     "authorizedKeysPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["file", "secret_ref"],
-      "properties": { "file": { "$ref": "#/$defs/runtimeProtectedFilePolicy" }, "secret_ref": { "$ref": "#/$defs/secretReference" } }
+      "required": ["file", "secret_ref", "forced_command"],
+      "properties": {
+        "file": { "$ref": "#/$defs/runtimeProtectedFilePolicy" },
+        "secret_ref": { "$ref": "#/$defs/secretReference" },
+        "forced_command": { "oneOf": [
+          { "const": "restrict,command=\"sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe\"" },
+          { "type": "null" }
+        ] }
+      }
     },
     "presentSudoPolicy": {
       "type": "object",

@@ -293,13 +293,19 @@
 - name: Install account-specific bootstrap-authorized public keys
   ansible.builtin.copy:
     dest: "{{ item.authorized_keys.file.path }}"
-    content: "{{ proxmox_host_service_account_keys | reject('equalto', '') | join('\n') }}\n"
+    content: "{{ proxmox_host_service_account_rendered_keys | reject('equalto', '') | join('\n') }}\n"
     owner: "{{ item.authorized_keys.file.owner }}"
     group: "{{ item.authorized_keys.file.group }}"
     mode: "{{ item.authorized_keys.file.mode }}"
   vars:
     proxmox_host_service_account_keys: >-
       {{ lookup('ansible.builtin.env', item.authorized_keys.secret_ref).splitlines() }}
+    proxmox_host_service_account_key_prefix: >-
+      {{ ((item.authorized_keys.forced_command | default('', true)) ~ ' ')
+         if (item.authorized_keys.forced_command | default('', true) | length > 0) else '' }}
+    proxmox_host_service_account_rendered_keys: >-
+      {{ proxmox_host_service_account_keys |
+         map('regex_replace', '^', proxmox_host_service_account_key_prefix) | list }}
   loop: "{{ proxmox_service_accounts }}"
   loop_control:
     label: "{{ item.name }}"

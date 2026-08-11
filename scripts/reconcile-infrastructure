@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 umask 077
+export PYTHONDONTWRITEBYTECODE=1
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
@@ -99,6 +100,7 @@ if [[ $action == validate ]]; then
     python3 scripts/controller/test-proxmox-nix-foundation.py
   python3 scripts/controller/test-proxmox-nix-plan.py
   python3 scripts/controller/test-proxmox-nix-apply.py
+  python3 scripts/controller/test-proxmox-nix-bootstrap.py
   node scripts/controller/test-proxmox-nix-projection.js --scan-path "$proxmox_nix_source"
   for source_candidate in /nix/store/*-source; do
     if [[ -e $source_candidate/secrets/production.sops.env && \

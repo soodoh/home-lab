@@ -27,7 +27,7 @@
         "operation": {"const": "begin"},
         "planSha256": {"$ref": "#/$defs/sha256"},
         "privatePreconditions": {"$ref": "private-preconditions.schema.json"},
-        "protocol": {"const": 3},
+        "protocol": {"const": 4},
         "startedAt": {"pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", "type": "string"}
       },
       "required": ["operation", "protocol", "planSha256", "hostSessionId", "startedAt", "bindings", "privatePreconditions", "actions"],
@@ -40,7 +40,7 @@
         "hostSessionId": {"$ref": "#/$defs/token"},
         "operation": {"const": "action"},
         "planSha256": {"$ref": "#/$defs/sha256"},
-        "protocol": {"const": 3}
+        "protocol": {"const": 4}
       },
       "required": ["operation", "protocol", "planSha256", "hostSessionId", "action"],
       "type": "object"
@@ -51,7 +51,7 @@
         "hostSessionId": {"$ref": "#/$defs/token"},
         "operation": {"const": "commit"},
         "planSha256": {"$ref": "#/$defs/sha256"},
-        "protocol": {"const": 3},
+        "protocol": {"const": 4},
         "verifiedActionIds": {"items": {"$ref": "#/$defs/sha256"}, "type": "array"}
       },
       "required": ["operation", "protocol", "planSha256", "hostSessionId", "verifiedActionIds"],
@@ -63,7 +63,7 @@
         "hostSessionId": {"$ref": "#/$defs/token"},
         "operation": {"const": "rollback"},
         "planSha256": {"$ref": "#/$defs/sha256"},
-        "protocol": {"const": 3}
+        "protocol": {"const": 4}
       },
       "required": ["operation", "protocol", "planSha256", "hostSessionId"],
       "type": "object"
@@ -74,7 +74,7 @@
         "hostSessionId": {"$ref": "#/$defs/token"},
         "operation": {"const": "status"},
         "planSha256": {"$ref": "#/$defs/sha256"},
-        "protocol": {"const": 3}
+        "protocol": {"const": 4}
       },
       "required": ["operation", "protocol", "planSha256", "hostSessionId"],
       "type": "object"

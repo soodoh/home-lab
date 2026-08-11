@@ -1,5 +1,5 @@
 {
-  description = "Pinned Proxmox controller planning and guarded-apply tooling";
+  description = "Pinned Proxmox controller planning, protected preparation, and guarded-apply tooling";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
 
@@ -41,7 +41,7 @@
         proxmox-host = {
           type = "app";
           program = "${self.packages.${system}.proxmox-host-plan}/bin/proxmox-host";
-          meta.description = "Create and guardedly apply exact deterministic Proxmox host plans";
+          meta.description = "Create, privately prepare, and guardedly apply exact deterministic Proxmox host plans";
         };
       });
 

@@ -1,0 +1,153 @@
+#!/usr/bin/python3
+"""Rotate the fixed host session key only after strict terminal-session validation."""
+import hashlib
+import hmac
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+from pathlib import Path
+
+SOURCE = Path(__file__).with_name("bootstrap-proxmox-nix-host")
+loader = importlib.machinery.SourceFileLoader("proxmox_nix_bootstrap_rotation", str(SOURCE))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+runtime = importlib.util.module_from_spec(spec); loader.exec_module(runtime)
+ROLLBACK = runtime.RUNTIME / "rollback"
+TERMINAL = {"released-committed", "released-recovered"}
+HEX = re.compile(r"^[0-9a-f]{64}$")
+TOKEN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+
+
+def exact(value, keys):
+    if not isinstance(value, dict) or set(value) != set(keys):
+        raise ValueError("retained session shape differs")
+    return value
+
+
+def load_canonical(path, maximum):
+    raw = runtime.secure_file(path, 0o600, maximum)
+    value = json.loads(raw)
+    if raw != runtime.canonical(value):
+        raise ValueError("retained session is not canonical")
+    return value
+
+
+def validate_retained(plan_sha, journal, manifest):
+    exact(manifest, {"actionManifestSha256", "actions", "entries", "format", "planSha256"})
+    actions, entries = manifest["actions"], manifest["entries"]
+    if manifest["format"] != "home-lab-proxmox-rollback-v2" or manifest["planSha256"] != plan_sha or \
+            not isinstance(actions, list) or not isinstance(entries, list) or \
+            manifest["actionManifestSha256"] != hashlib.sha256(runtime.canonical(actions)).hexdigest():
+        raise ValueError("retained manifest binding differs")
+    action_ids = []
+    for sequence, action in enumerate(actions, 1):
+        if not isinstance(action, dict) or not isinstance(action.get("id"), str) or HEX.fullmatch(action["id"]) is None or \
+                action.get("sequence") != sequence:
+            raise ValueError("retained action differs")
+        action_ids.append(action["id"])
+    entry_ids = []
+    for sequence, entry in enumerate(entries, 1):
+        if not isinstance(entry, dict) or entry.get("actionId") != action_ids[sequence - 1] or entry.get("sequence") != sequence or \
+                entry.get("targetType") not in {"path", "service"}:
+            raise ValueError("retained capture differs")
+        required = {"actionId", "capturedFingerprint", "identity", "original", "sequence", "targetType"}
+        if entry["targetType"] == "path": required.add("path")
+        if set(entry) != required:
+            raise ValueError("retained capture shape differs")
+        entry_ids.append(entry["actionId"])
+
+    exact(journal, {"actionManifestSha256", "challenge", "completed", "format", "hostSessionId", "nextSequence",
+                    "ownership", "pendingTransition", "planSha256", "state", "terminalResult"})
+    completed = journal["completed"]
+    if journal["format"] != "home-lab-proxmox-session-journal-v2" or journal["planSha256"] != plan_sha or \
+            journal["actionManifestSha256"] != manifest["actionManifestSha256"] or journal["state"] not in TERMINAL or \
+            journal["pendingTransition"] is not None or not TOKEN.fullmatch(journal.get("hostSessionId", "")) or \
+            not TOKEN.fullmatch(journal.get("challenge", "")) or not isinstance(completed, list):
+        raise ValueError("retained journal binding differs")
+    ownership = exact(journal["ownership"], {"activatorSha256", "bundleContentSha256", "gitCommit", "gitTree",
+                                             "hostSessionId", "operation", "planSha256", "startedAt"})
+    if ownership["hostSessionId"] != journal["hostSessionId"] or ownership["planSha256"] != plan_sha or \
+            ownership["operation"] != "proxmox-guarded-apply":
+        raise ValueError("retained ownership differs")
+    normalized = []
+    for record in completed:
+        exact(record, {"actionId", "operation", "requestSha256", "result"})
+        if record["operation"] not in {"begin", "action", "commit", "rollback"} or \
+                not isinstance(record["requestSha256"], str) or HEX.fullmatch(record["requestSha256"]) is None:
+            raise ValueError("retained completed transition differs")
+        normalized.append((record["operation"], record["actionId"], record["result"]))
+    host = journal["hostSessionId"]
+    begin_result = {"actionManifestSha256": manifest["actionManifestSha256"], "hostSessionId": host,
+                    "planSha256": plan_sha, "status": "begun"}
+    if not normalized or normalized[0] != ("begin", None, begin_result):
+        raise ValueError("retained begin result differs")
+    action_records = [item for item in normalized if item[0] == "action"]
+    completed_ids = [item[1] for item in action_records]
+    if completed_ids != action_ids[:len(completed_ids)] or journal["nextSequence"] != len(completed_ids) + 1:
+        raise ValueError("retained action progress differs")
+    for sequence, (_, action_id, result) in enumerate(action_records, 1):
+        if result != {"actionId": action_id, "hostSessionId": host, "sequence": sequence, "status": "applied"}:
+            raise ValueError("retained action result differs")
+    if journal["state"] == "released-committed":
+        terminal = {"hostSessionId": host, "planSha256": plan_sha, "status": "committed"}
+        if completed_ids != action_ids or entry_ids != action_ids or normalized[-1] != ("commit", None, terminal):
+            raise ValueError("retained committed session is incomplete")
+    else:
+        terminal = {"hostSessionId": host, "planSha256": plan_sha,
+                    "restoredActionIds": list(reversed(entry_ids)), "status": "recovered"}
+        if len(entries) not in {len(completed_ids), len(completed_ids) + 1} or normalized[-1] != ("rollback", None, terminal):
+            raise ValueError("retained recovered session is incomplete")
+    if journal["terminalResult"] != terminal:
+        raise ValueError("retained terminal result differs")
+
+
+def sessions_are_terminal():
+    if not runtime.exists_nofollow(ROLLBACK):
+        return True
+    root = runtime.open_dir(ROLLBACK, 0o700)
+    try:
+        for name in os.listdir(root):
+            if HEX.fullmatch(name) is None:
+                return False
+            session = ROLLBACK / name
+            try:
+                journal = load_canonical(session / "journal.json", 2 * 1024 * 1024)
+                manifest = load_canonical(session / "manifest.json", 48 * 1024 * 1024)
+                validate_retained(name, journal, manifest)
+            except Exception:
+                return False
+        return True
+    finally:
+        os.close(root)
+
+
+def main():
+    if os.geteuid() != 0 or os.environ.get("PROXMOX_NIX_SESSION_KEY_ROTATE_CONFIRMED") != "rotate-reviewed-session-key-with-no-active-plans":
+        raise ValueError("root and explicit key-rotation gate required")
+    runtime.ensure_dir(runtime.BOOT, 0o700); runtime.ensure_dir(runtime.RUNTIME, 0o700)
+    install_fd = runtime.acquire_lock(runtime.LOCK)
+    operation_fd = None
+    try:
+        operation_fd = runtime.acquire_lock(runtime.OPERATION_LOCK)
+        runtime.reconcile_pending()
+        runtime.reject_locks()
+        if runtime.exists_nofollow(runtime.JOURNAL) or not sessions_are_terminal():
+            raise ValueError("nonterminal or corrupt session forbids rotation")
+        protected_raw = runtime.secure_file(runtime.PROTECTED, 0o600, 256 * 1024)
+        runtime.validate_protected(protected_raw)
+        new_key = os.urandom(48)
+        runtime.atomic(runtime.SESSION_KEY, new_key, 0o600)
+        mac = hmac.new(new_key, protected_raw, hashlib.sha256).hexdigest().encode() + b"\n"
+        runtime.atomic(runtime.PROTECTED_MAC, mac, 0o600)
+    finally:
+        if operation_fd is not None: os.close(operation_fd)
+        os.close(install_fd)
+    print("proxmox-nix-session-key=rotated")
+
+
+if __name__ == "__main__":
+    try: main()
+    except Exception:
+        print("rotate-proxmox-nix-session-key: fixed operation failed", file=__import__('sys').stderr)
+        raise SystemExit(1)

@@ -25,7 +25,7 @@ The local controller stores provider capabilities in separate mode-`0600` plan/a
 
 1. **Install Proxmox manually.** Retain physical console and tested LAN root access. Do not create or import ZFS pools in the installer.
 
-2. **Bootstrap Proxmox locally.** Check out the exact reviewed repository commit on the host and follow [`../docs/proxmox-bootstrap.md`](../docs/proxmox-bootstrap.md). Run the local bootstrap check before apply, escrow the separated service tokens, prove the `tofu-apply` path over Tailscale from the recovery controller, and only then allow the later steady host play to tighten SSH.
+2. **Bootstrap Proxmox locally.** Check out the exact reviewed repository commit on the host and follow [`../docs/proxmox-bootstrap.md`](../docs/proxmox-bootstrap.md). Run the retained local Ansible bootstrap first; it remains responsible for fresh-host networking, storage import, Tailscale enrollment, and PVE identities. Then stage the sanitized Nix bundle and protected input file at the fixed root-only incoming location and run `bootstrap-proxmox-nix-host check`, explicitly approved `install`, and `verify`. Prove the fixed plan command and arbitrary-command denial before shadow planning. This layer does not authorize guarded apply or reboot, and the apply identity remains an unrestricted documented cutover blocker.
 
 3. **Prepare protected recovery identity.** Configure the encrypted S3 backend and copy `recovery/extra-vars.example.yml` to an ignored mode-`0600` file. Review every false mutation gate. Inventory the three local backup paths in documented order and record the newest candidate in a protected JSON object containing `source`, `backup_id`, and `ciphertext_sha256`. For a remote fallback, also bind `remote_version_id`.
 

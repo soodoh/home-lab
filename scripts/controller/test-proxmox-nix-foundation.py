@@ -23,7 +23,8 @@ EXPECTED_SOURCE_FILES = {
     "flake.lock", "flake.nix", "proxmox/activation-envelope.schema.json", "proxmox/activator-template.py",
     "proxmox/apply.py", "proxmox/bundle.py", "proxmox/package-manifest.json", "proxmox/fixture-observation.json",
     "proxmox/observation.schema.json", "proxmox/observer-template.py", "proxmox/package-manifest.schema.json",
-    "proxmox/plan.schema.json", "proxmox/planner.py", "proxmox/private-preconditions.schema.json",
+    "proxmox/plan.schema.json", "proxmox/planner.py", "proxmox/prepare.py", "proxmox/private-preconditions.schema.json",
+    "proxmox/private-preparation-request.schema.json", "proxmox/private-preparer-template.py",
     "proxmox/projection.json", "proxmox/projection.schema.json",
 }
 
@@ -168,8 +169,8 @@ class ProxmoxNixFoundationTests(unittest.TestCase):
             (lambda bundle: rewrite_json(bundle, "protocol.json", lambda value: value.update({"extra": False})), "protocol structure is invalid"),
             (lambda bundle: rewrite_json(bundle, "protocol.json", lambda value: value.update({"helpers": {}})), "protocol structure is invalid"),
             (lambda bundle: rewrite_json(bundle, "protocol.json", lambda value: value["helpers"].update({"extra": {"commands": [], "mutating": False}})), "protocol structure is invalid"),
-            (lambda bundle: (bundle / "helpers/proxmox-observer").unlink(), "exactly the fixed helpers"),
-            (lambda bundle: (bundle / "helpers/extra-helper").write_text("inert", encoding="utf-8"), "exactly the fixed helpers"),
+            (lambda bundle: (bundle / "helpers/proxmox-observer").unlink(), "unknown or missing file"),
+            (lambda bundle: (bundle / "helpers/extra-helper").write_text("inert", encoding="utf-8"), "unknown or missing file"),
             (lambda bundle: rewrite_json(bundle, "metadata.json", lambda value: value.update({"helperSha256": {}})), "helper hash key set is invalid"),
             (lambda bundle: rewrite_json(bundle, "metadata.json", lambda value: value["helperSha256"].update({"extra": "0" * 64})), "helper hash key set is invalid"),
             (lambda bundle: rewrite_json(bundle, "metadata.json", lambda value: value["helperSha256"].update({"proxmox-observer": "0" * 64})), "metadata hash differs"),
@@ -276,6 +277,12 @@ if sys.argv[1:] == ["apply"]:
                 projection = json.loads(PROJECTION.read_bytes())
                 self.assertEqual(helper.read_bytes(), bundle_module.expected_helper_content(helper_name, projection))
 
+                if helper_name == "proxmox-private-preparer":
+                    expected_usage = b"usage: proxmox-private-preparer <summary|prepare>\n"
+                    for command in ("version", "self-check", "observe", "session", "unknown"):
+                        result = subprocess.run([sys.executable, helper, command], capture_output=True)
+                        self.assertEqual((result.returncode, result.stdout, result.stderr), (64, b"", expected_usage))
+                    continue
                 version = subprocess.run(
                     [sys.executable, helper, "version"], check=True, capture_output=True,
                 )
@@ -287,7 +294,7 @@ if sys.argv[1:] == ["apply"]:
                 )
                 self.assertEqual(
                     self_check.stdout,
-                    f"{helper_name}=self-check-passed protocol=3 capabilities={'observe' if helper_name == 'proxmox-observer' else 'guarded-session'}\n".encode(),
+                    f"{helper_name}=self-check-passed protocol=4 capabilities={'observe' if helper_name == 'proxmox-observer' else 'guarded-session'}\n".encode(),
                 )
                 self.assertEqual(self_check.stderr, b"")
 

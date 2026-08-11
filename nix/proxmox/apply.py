@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guarded protocol-v3 application of one exact reviewed Proxmox plan."""
+"""Guarded protocol-v4 application of one exact reviewed Proxmox plan."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from typing import Any
 
 import planner
 
-PROTOCOL = 3
+PROTOCOL = 4
 MAX_PRIVATE_BYTES = 256 * 1024
 MAX_RESPONSE_BYTES = 1024 * 1024
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
@@ -78,7 +78,8 @@ def validate_private(sidecar: Any, plan: dict[str, Any], metadata: dict[str, Any
         raise ValueError("private precondition plan or action-manifest binding failed")
     bindings = exact(sidecar["bindings"], {"activationEnvelopeSchemaSha256", "activatorSha256", "bundleContentSha256", "flakeLockSha256",
                                                     "gitCommit", "gitTree", "observerSha256", "packageManifestSha256", "planSchemaSha256",
-                                                    "privatePreconditionsSchemaSha256", "projectionSha256"}, "private bindings")
+                                                    "privatePreconditionsSchemaSha256", "privatePreparationRequestSchemaSha256",
+                                                    "privatePreparerSha256", "projectionSha256"}, "private bindings")
     expected = {
         "activationEnvelopeSchemaSha256": metadata["activationEnvelopeSchemaSha256"],
         "activatorSha256": metadata["helperSha256"]["proxmox-activator"],
@@ -90,6 +91,8 @@ def validate_private(sidecar: Any, plan: dict[str, Any], metadata: dict[str, Any
         "packageManifestSha256": plan["bindings"]["packageManifestSha256"],
         "planSchemaSha256": plan["bindings"]["planSchemaSha256"],
         "privatePreconditionsSchemaSha256": metadata["privatePreconditionsSchemaSha256"],
+        "privatePreparationRequestSchemaSha256": metadata["privatePreparationRequestSchemaSha256"],
+        "privatePreparerSha256": metadata["helperSha256"]["proxmox-private-preparer"],
         "projectionSha256": plan["bindings"]["projectionSha256"],
     }
     if bindings != expected:

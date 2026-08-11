@@ -15,7 +15,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-PROTOCOL = 3
+PROTOCOL = 4
 SPEC = json.loads('@OBSERVATION_SPEC@')
 MAX_COMMAND_BYTES = 4 * 1024 * 1024
 ENV = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
@@ -200,6 +200,38 @@ def accounts():
 
 def summary(status="unavailable", expected=1, observed=None, matches=None):
     return {"expectedCount": expected, "matches": matches, "observedCount": observed, "status": status}
+
+
+def protected_summaries():
+    helper = Path("/usr/local/libexec/home-lab/proxmox-private-preparer")
+    unavailable = {"protectedAccess": summary(expected=SPEC["protectedAccessExpectedCount"]),
+                   "protectedHardware": summary(expected=SPEC["protectedExpectedCount"])}
+    try:
+        info = helper.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or \
+                stat.S_IMODE(info.st_mode) != 0o755 or info.st_nlink != 1 or \
+                hashlib.sha256(helper.read_bytes()).hexdigest() != SPEC["privatePreparerSha256"]:
+            return unavailable
+        raw = run((str(helper), "summary"))
+        if raw is None:
+            return unavailable
+        value = json.loads(raw)
+        if raw != canonical(value) or not isinstance(value, dict) or set(value) != {"protectedAccess", "protectedHardware"}:
+            return unavailable
+        for name, expected in (("protectedAccess", SPEC["protectedAccessExpectedCount"]),
+                               ("protectedHardware", SPEC["protectedExpectedCount"])):
+            record = value[name]
+            if not isinstance(record, dict) or set(record) != {"expectedCount", "matches", "observedCount", "status"} or \
+                    record["expectedCount"] != expected or record["status"] not in {"complete", "unavailable"}:
+                return unavailable
+            if record["status"] == "unavailable" and (record["matches"] is not None or record["observedCount"] is not None):
+                return unavailable
+            if record["status"] == "complete" and (not isinstance(record["matches"], bool) or
+                    not isinstance(record["observedCount"], int) or isinstance(record["observedCount"], bool)):
+                return unavailable
+        return value
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return unavailable
 
 
 def json_command(arguments):
@@ -486,10 +518,11 @@ def observe():
     audit = records_domain(sorted((item for item, _ in audited if item is not None), key=lambda item: item["target"])) \
         if all(available for _, available in audited) else records_domain(None)
     tailscale, access, firewall, registration, storage, vm, health = public_summaries()
+    protected = protected_summaries()
     value = {"domains": {"accounts": accounts(), "auditAbsence": audit, "health": health,
         "managedArtifacts": artifacts, "managedFiles": managed, "managedFragments": fragments,
-        "packages": packages(), "protectedAccess": summary(expected=SPEC["protectedAccessExpectedCount"]),
-        "protectedHardware": summary(expected=SPEC["protectedExpectedCount"]), "pveAccess": access,
+        "packages": packages(), "protectedAccess": protected["protectedAccess"],
+        "protectedHardware": protected["protectedHardware"], "pveAccess": access,
         "pveFirewall": firewall, "pveStorage": registration, "services": services(), "storage": storage,
         "tailscale": tailscale, "vm": vm}, "format": "home-lab-proxmox-observation-v1", "host": host(),
         "observerSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "protocol": PROTOCOL}
@@ -506,7 +539,7 @@ def main():
     if sys.argv[1] == "version":
         os.write(1, canonical({"capabilities": ["observe"], "helper": "proxmox-observer", "protocol": PROTOCOL, "version": 1}))
     elif sys.argv[1] == "self-check":
-        os.write(1, b"proxmox-observer=self-check-passed protocol=3 capabilities=observe\n")
+        os.write(1, b"proxmox-observer=self-check-passed protocol=4 capabilities=observe\n")
     else:
         observe()
     return 0

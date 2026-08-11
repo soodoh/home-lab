@@ -94,6 +94,12 @@
         "privatePreconditionsSchemaSha256": {
           "$ref": "#/$defs/sha256"
         },
+        "privatePreparationRequestSchemaSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "privatePreparerSha256": {
+          "$ref": "#/$defs/sha256"
+        },
         "projectionSha256": {
           "$ref": "#/$defs/sha256"
         }
@@ -109,7 +115,9 @@
         "packageManifestSha256",
         "planSchemaSha256",
         "projectionSha256",
-        "gitTree"
+        "gitTree",
+        "privatePreparerSha256",
+        "privatePreparationRequestSchemaSha256"
       ],
       "type": "object"
     },

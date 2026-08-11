@@ -42,9 +42,10 @@ class ProxmoxNixPlanTests(unittest.TestCase):
             "activationEnvelopeSchemaSha256": "7" * 64, "activatorSha256": "8" * 64,
             "bundleContentSha256": "1" * 64, "bundleFormat": planner.BUNDLE_FORMAT,
             "flakeLockSha256": "2" * 64, "gitCommit": "3" * 40, "gitTree": "4" * 40,
-            "observerProtocol": 3, "observerSha256": cls.observation["observerSha256"],
+            "observerProtocol": 4, "observerSha256": cls.observation["observerSha256"],
             "packageManifestSha256": "6" * 64, "planSchemaSha256": "9" * 64,
-            "privatePreconditionsSchemaSha256": "a" * 64, "projectionSha256": "5" * 64,
+            "privatePreconditionsSchemaSha256": "a" * 64, "privatePreparationRequestSchemaSha256": "b" * 64,
+            "privatePreparerSha256": "c" * 64, "projectionSha256": "5" * 64,
         }
 
     def make_plan(self, observation=None, start="2026-08-11T00:00:00Z", end="2026-08-11T00:00:01Z"):

@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 """Fixed, bundle-specific Proxmox activator (template input).
 
-The generated helper accepts only closed protocol-v3 session envelopes.  Desired
+The generated helper accepts only closed protocol-v4 session envelopes.  Desired
 bytes, target paths, identities, and native commands come from the embedded
 catalog; none can be supplied by the caller.
 """
@@ -23,7 +23,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-PROTOCOL = 3
+PROTOCOL = 4
 SPEC = json.loads('@ACTIVATION_SPEC@')
 MAX_STDIN_BYTES = 256 * 1024
 MAX_COMMAND_BYTES = 1024 * 1024
@@ -36,6 +36,7 @@ SESSION_ROOT = Path("/var/lib/home-lab/reconciliation")
 ROLLBACK_ROOT = SESSION_ROOT / "rollback"
 LOCK_PATH = SESSION_ROOT / "apply.lock"
 OPERATION_LOCK_PATH = SESSION_ROOT / "operation.lock"
+ANSIBLE_LOCK_PATH = Path("/var/lib/iac-ansible-production.lock")
 KEY_PATH = SESSION_ROOT / "session.key"
 ENV = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
 TOKEN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
@@ -789,7 +790,8 @@ def validate_private(value, plan_sha, activator_sha, action_manifest_sha):
         raise ValueError("private plan or action-manifest binding failed")
     binding_keys = {"activationEnvelopeSchemaSha256", "activatorSha256", "bundleContentSha256", "flakeLockSha256",
                     "gitCommit", "gitTree", "observerSha256", "packageManifestSha256", "planSchemaSha256",
-                    "privatePreconditionsSchemaSha256", "projectionSha256"}
+                    "privatePreconditionsSchemaSha256", "privatePreparationRequestSchemaSha256",
+                    "privatePreparerSha256", "projectionSha256"}
     bindings = exact(value["bindings"], binding_keys, "private bindings")
     if bindings["activatorSha256"] != activator_sha:
         raise ValueError("private activator binding failed")
@@ -893,6 +895,14 @@ def release_fixed_lock(path):
         os.fsync(parent)
     finally:
         os.close(parent)
+
+
+def persistent_exists(path):
+    try:
+        os.stat(path, follow_symlinks=False)
+        return True
+    except FileNotFoundError:
+        return False
 
 
 def acquire_operation():
@@ -1420,6 +1430,10 @@ def session():
                               "planSha256": envelope["planSha256"], "status": "busy"}))
         return
     try:
+        # Lock order is always the live operation flock followed by persistent
+        # ownership inspection/creation.  Ansible uses the same order.
+        if persistent_exists(ANSIBLE_LOCK_PATH):
+            raise ValueError("Ansible host ownership is active")
         operation = envelope.get("operation")
         handler = {"begin": begin, "action": action_session, "rollback": rollback, "commit": commit, "status": status}.get(operation)
         if handler is None:
@@ -1441,7 +1455,7 @@ def main():
     if sys.argv[1] == "version":
         os.write(1, canonical({"capabilities": ["guarded-session"], "helper": "proxmox-activator", "protocol": PROTOCOL, "version": 1}))
     elif sys.argv[1] == "self-check":
-        os.write(1, b"proxmox-activator=self-check-passed protocol=3 capabilities=guarded-session\n")
+        os.write(1, b"proxmox-activator=self-check-passed protocol=4 capabilities=guarded-session\n")
     else:
         session()
     return 0

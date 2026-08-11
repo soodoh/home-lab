@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build and verify the deterministic protocol-v3 Proxmox host bundle."""
+"""Build and verify the deterministic protocol-v4 Proxmox host bundle."""
 
 from __future__ import annotations
 
@@ -18,10 +18,11 @@ from typing import Any
 
 BUNDLE_FORMAT = "home-lab-proxmox-host-bundle-v1"
 HASH_ALGORITHM = "sha256-canonical-file-tree-v1"
-PROTOCOL_VERSION = 3
-EXPECTED_HELPERS = ("proxmox-activator", "proxmox-observer")
+PROTOCOL_VERSION = 4
+EXPECTED_HELPERS = ("proxmox-activator", "proxmox-observer", "proxmox-private-preparer")
 ACTIVATOR_TEMPLATE_PATH = Path(__file__).with_name("activator-template.py")
 OBSERVER_TEMPLATE_PATH = Path(__file__).with_name("observer-template.py")
+PREPARER_TEMPLATE_PATH = Path(__file__).with_name("private-preparer-template.py")
 EXPECTED_PROJECTION_KEYS = {
     "accounts", "apiIntent", "architecture", "auditAbsence", "healthExpectations", "hostNetworking",
     "kernelPolicy", "managedArtifacts", "managedFileFragments", "managedFileMetadata", "managedFiles",
@@ -339,7 +340,7 @@ def observation_specification(projection: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def activation_specification(projection: dict[str, Any], flake_lock_sha256: str) -> dict[str, Any]:
+def activation_specification(projection: dict[str, Any], flake_lock_sha256: str, include_bindings: bool = True) -> dict[str, Any]:
     policies = {item["domain"]: item for item in projection["planningPolicy"]["domains"]}
     file_policies = {item["path"]: item for item in projection["planningPolicy"]["managedFilePolicies"]}
     service_policies = {item["name"]: item for item in projection["planningPolicy"]["servicePolicies"]}
@@ -384,12 +385,17 @@ def activation_specification(projection: dict[str, Any], flake_lock_sha256: str)
             {"active": item["state"] == "started", "enabled": item["enabled"]},
             {"active": item["state"] == "started", "enabled": item["enabled"], "name": item["name"]},
             service_policies[item["name"]])
-    observer = expected_helper_content("proxmox-observer", projection)
     ordered_catalog = dict(sorted(catalog.items()))
+    if not include_bindings:
+        return {"catalog": ordered_catalog, "catalogOrder": list(ordered_catalog)}
+    preparer = expected_helper_content("proxmox-private-preparer", projection, flake_lock_sha256)
+    observer = expected_helper_content("proxmox-observer", projection, flake_lock_sha256)
     expected_bindings = {
         "activationEnvelopeSchemaSha256": sha256_file(ACTIVATOR_TEMPLATE_PATH.with_name("activation-envelope.schema.json")),
         "flakeLockSha256": flake_lock_sha256,
         "observerSha256": sha256_bytes(observer),
+        "privatePreparerSha256": sha256_bytes(preparer),
+        "privatePreparationRequestSchemaSha256": sha256_file(PREPARER_TEMPLATE_PATH.with_name("private-preparation-request.schema.json")),
         "packageManifestSha256": projection["packagePolicy"]["manifestSha256"],
         "planSchemaSha256": sha256_file(ACTIVATOR_TEMPLATE_PATH.with_name("plan.schema.json")),
         "privatePreconditionsSchemaSha256": sha256_file(ACTIVATOR_TEMPLATE_PATH.with_name("private-preconditions.schema.json")),
@@ -400,38 +406,55 @@ def activation_specification(projection: dict[str, Any], flake_lock_sha256: str)
             "protectedHardwareExpectedCount": observation_specification(projection)["protectedExpectedCount"]}
 
 
+def preparation_specification(projection: dict[str, Any], flake_lock_sha256: str) -> dict[str, Any]:
+    catalog = activation_specification(projection, flake_lock_sha256, False)
+    pve_manager = next(item for item in projection["packagePolicy"]["critical"] if item["role"] == "pve-manager")
+    return {**catalog, "hostname": projection["hostNetworking"]["hostname"],
+            "node": projection["apiIntent"]["pveStorage"]["nodes"][0],
+            "pool": projection["apiIntent"]["pveStorage"]["pool"],
+            "pveAccessBindings": projection["apiIntent"]["pveAccess"]["bindings"],
+            "pveVersion": "pve-manager/" + pve_manager["version"]}
+
+
 def expected_helper_content(name: str, projection: dict[str, Any], flake_lock_sha256: str | None = None) -> bytes:
     if name not in EXPECTED_HELPERS:
         raise ValueError(f"unsupported fixed helper name: {name}")
+    if flake_lock_sha256 is None:
+        local_lock = ACTIVATOR_TEMPLATE_PATH.parents[1] / "flake.lock"
+        if not local_lock.is_file():
+            raise ValueError("fixed flake-lock binding is unavailable")
+        flake_lock_sha256 = sha256_file(local_lock)
+    if name == "proxmox-private-preparer":
+        template = PREPARER_TEMPLATE_PATH.read_text(encoding="utf-8")
+        encoded_spec = json.dumps(canonical_json(preparation_specification(projection, flake_lock_sha256)).decode().strip())
+        return template.replace("'@PREPARATION_SPEC@'", encoded_spec).encode()
     if name == "proxmox-activator":
         template = ACTIVATOR_TEMPLATE_PATH.read_text(encoding="utf-8")
-        if flake_lock_sha256 is None:
-            local_lock = ACTIVATOR_TEMPLATE_PATH.parents[1] / "flake.lock"
-            if not local_lock.is_file():
-                raise ValueError("fixed flake-lock binding is unavailable")
-            flake_lock_sha256 = sha256_file(local_lock)
         encoded_spec = json.dumps(canonical_json(activation_specification(projection, flake_lock_sha256)).decode().strip())
         return template.replace("'@ACTIVATION_SPEC@'", encoded_spec).encode()
     template = OBSERVER_TEMPLATE_PATH.read_text(encoding="utf-8")
-    encoded_spec = json.dumps(canonical_json(observation_specification(projection)).decode().strip())
+    observer_spec = observation_specification(projection)
+    observer_spec["privatePreparerSha256"] = sha256_bytes(expected_helper_content("proxmox-private-preparer", projection, flake_lock_sha256))
+    encoded_spec = json.dumps(canonical_json(observer_spec).decode().strip())
     return template.replace("'@OBSERVATION_SPEC@'", encoded_spec).encode()
 
 
 def expected_helper_version(name: str) -> bytes:
-    return canonical_json({
-        "capabilities": ["observe"] if name == "proxmox-observer" else ["guarded-session"], "helper": name,
-        "protocol": PROTOCOL_VERSION, "version": 1,
-    })
+    capabilities = {"proxmox-observer": ["observe"], "proxmox-activator": ["guarded-session"],
+                    "proxmox-private-preparer": ["summary", "prepare"]}
+    return canonical_json({"capabilities": capabilities[name], "helper": name,
+                           "protocol": PROTOCOL_VERSION, "version": 1})
 
 
 def expected_protocol() -> dict[str, Any]:
     return {
         "version": PROTOCOL_VERSION,
-        "milestone": "guarded-apply",
-        "capabilities": ["observe", "plan", "guarded-apply", "rollback"],
+        "milestone": "bootstrap-recovery",
+        "capabilities": ["observe", "plan", "prepare", "guarded-apply", "rollback", "bootstrap-recovery"],
         "helpers": {
             "proxmox-activator": {"commands": ["version", "self-check", "session"], "mutating": True},
             "proxmox-observer": {"commands": ["version", "self-check", "observe"], "mutating": False},
+            "proxmox-private-preparer": {"commands": ["summary", "prepare"], "mutating": False},
         },
         "uploadedCodeExecution": False,
     }
@@ -489,6 +512,7 @@ def build_bundle(args: argparse.Namespace) -> None:
     plan_schema = OBSERVER_TEMPLATE_PATH.with_name("plan.schema.json").read_bytes()
     private_schema = OBSERVER_TEMPLATE_PATH.with_name("private-preconditions.schema.json").read_bytes()
     activation_schema = OBSERVER_TEMPLATE_PATH.with_name("activation-envelope.schema.json").read_bytes()
+    preparation_schema = PREPARER_TEMPLATE_PATH.with_name("private-preparation-request.schema.json").read_bytes()
     metadata = {
         "bundleFormat": BUNDLE_FORMAT,
         "contentHashAlgorithm": HASH_ALGORITHM,
@@ -501,6 +525,7 @@ def build_bundle(args: argparse.Namespace) -> None:
         "planSchemaSha256": sha256_bytes(plan_schema),
         "privatePreconditionsSchemaSha256": sha256_bytes(private_schema),
         "activationEnvelopeSchemaSha256": sha256_bytes(activation_schema),
+        "privatePreparationRequestSchemaSha256": sha256_bytes(preparation_schema),
         "flakeLockSha256": flake_lock_sha256,
         "helperSha256": helper_hashes,
         "helperInstall": {
@@ -513,6 +538,7 @@ def build_bundle(args: argparse.Namespace) -> None:
     write_file(output / "policy/plan.schema.json", plan_schema)
     write_file(output / "policy/private-preconditions.schema.json", private_schema)
     write_file(output / "policy/activation-envelope.schema.json", activation_schema)
+    write_file(output / "policy/private-preparation-request.schema.json", preparation_schema)
     write_file(output / "packages/proxmox-package-manifest.json", package_raw)
     write_file(output / "metadata.json", canonical_json(metadata))
     write_file(output / "protocol.json", canonical_json(expected_protocol()))
@@ -574,7 +600,8 @@ def verify_bundle(args: argparse.Namespace) -> None:
 
     expected_metadata_keys = {
         "activationEnvelopeSchemaSha256", "bundleFormat", "contentHashAlgorithm", "flakeLockSha256", "helperInstall", "helperSha256", "packageCount",
-        "observationSchemaSha256", "packageManifestSha256", "planSchemaSha256", "privatePreconditionsSchemaSha256", "projectionSha256", "protocolVersion", "target",
+        "observationSchemaSha256", "packageManifestSha256", "planSchemaSha256", "privatePreconditionsSchemaSha256",
+        "privatePreparationRequestSchemaSha256", "projectionSha256", "protocolVersion", "target",
     }
     if not isinstance(metadata, dict) or set(metadata) != expected_metadata_keys or \
             metadata.get("bundleFormat") != BUNDLE_FORMAT or metadata.get("contentHashAlgorithm") != HASH_ALGORITHM or \
@@ -591,14 +618,17 @@ def verify_bundle(args: argparse.Namespace) -> None:
     plan_schema_path = bundle / "policy/plan.schema.json"
     private_schema_path = bundle / "policy/private-preconditions.schema.json"
     activation_schema_path = bundle / "policy/activation-envelope.schema.json"
+    preparation_schema_path = bundle / "policy/private-preparation-request.schema.json"
     if metadata.get("observationSchemaSha256") != sha256_file(observation_schema_path) or \
             metadata.get("planSchemaSha256") != sha256_file(plan_schema_path) or \
             metadata.get("privatePreconditionsSchemaSha256") != sha256_file(private_schema_path) or \
             metadata.get("activationEnvelopeSchemaSha256") != sha256_file(activation_schema_path) or \
+            metadata.get("privatePreparationRequestSchemaSha256") != sha256_file(preparation_schema_path) or \
             observation_schema_path.read_bytes() != OBSERVER_TEMPLATE_PATH.with_name("observation.schema.json").read_bytes() or \
             plan_schema_path.read_bytes() != OBSERVER_TEMPLATE_PATH.with_name("plan.schema.json").read_bytes() or \
             private_schema_path.read_bytes() != OBSERVER_TEMPLATE_PATH.with_name("private-preconditions.schema.json").read_bytes() or \
-            activation_schema_path.read_bytes() != OBSERVER_TEMPLATE_PATH.with_name("activation-envelope.schema.json").read_bytes():
+            activation_schema_path.read_bytes() != OBSERVER_TEMPLATE_PATH.with_name("activation-envelope.schema.json").read_bytes() or \
+            preparation_schema_path.read_bytes() != PREPARER_TEMPLATE_PATH.with_name("private-preparation-request.schema.json").read_bytes():
         raise ValueError("bundle metadata schema binding failed")
     if metadata.get("target") != {"architecture": "amd64", "os": "linux", "requiresNix": False}:
         raise ValueError("bundle target metadata is invalid")
@@ -614,6 +644,26 @@ def verify_bundle(args: argparse.Namespace) -> None:
     protocol = json.loads(protocol_raw)
     if protocol != expected_protocol() or protocol_raw != canonical_json(protocol):
         raise ValueError("foundation protocol structure is invalid")
+    expected_files = {
+        "metadata.json", "protocol.json", "packages/proxmox-package-manifest.json",
+        "policy/projection.json", "policy/observation.schema.json", "policy/plan.schema.json",
+        "policy/private-preconditions.schema.json", "policy/activation-envelope.schema.json",
+        "policy/private-preparation-request.schema.json", "rendered/managed-files.json",
+        "rendered/managed-file-fragments.json", "rendered/managed-artifacts.json",
+        "rendered/managed-file-metadata.json", "rendered/audit-absence.json",
+        *("helpers/" + name for name in EXPECTED_HELPERS),
+        *("rendered/files/" + safe_target_path(item["path"]).as_posix() for item in projection["managedFiles"]),
+    }
+    actual_files = {path.relative_to(bundle).as_posix() for path in canonical_tree_files(bundle)}
+    if actual_files != expected_files:
+        raise ValueError("bundle contains an unknown or missing file")
+    for relative in actual_files:
+        mode = stat.S_IMODE((bundle / relative).lstat().st_mode)
+        expected_mode = 0o755 if relative.startswith("helpers/") else 0o644
+        # Nix store materialization strips write bits and may hard-link identical files; the console installer
+        # separately requires single-link root-owned 0644/0755 staging inputs before copying out of store.
+        if mode not in {expected_mode, expected_mode & ~0o222}:
+            raise ValueError("bundle file mode differs")
     helper_directory = bundle / "helpers"
     if directory_regular_names(helper_directory, "helper") != set(EXPECTED_HELPERS):
         raise ValueError("bundle helper directory must contain exactly the fixed helpers")
@@ -625,6 +675,12 @@ def verify_bundle(args: argparse.Namespace) -> None:
         if helper_hashes[helper] != sha256_bytes(expected_content):
             raise ValueError(f"helper {helper} metadata hash differs from the fixed builder template")
 
+        if helper == "proxmox-private-preparer":
+            for rejected in ("version", "self-check", "observe", "session", "unknown"):
+                result = subprocess.run([sys.executable, helper_path, rejected], capture_output=True, timeout=5)
+                if result.returncode != 64 or result.stdout or result.stderr != b"usage: proxmox-private-preparer <summary|prepare>\n":
+                    raise ValueError("private preparer command surface differs")
+            continue
         version = subprocess.run(
             [sys.executable, helper_path, "version"], capture_output=True, timeout=5,
         )

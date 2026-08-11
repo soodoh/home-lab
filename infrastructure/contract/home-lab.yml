@@ -223,11 +223,17 @@ proxmox:
             group: tofu-plan
             mode: "0600"
           secret_ref: PROXMOX_PLAN_SSH_PUBLIC_KEYS
+          forced_command: 'restrict,command="sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe"'
         sudo:
-          kind: audit-absence
-          projectable: true
-          absence: file
-          path: /etc/sudoers.d/tofu-plan
+          state: present
+          file:
+            kind: managed-file
+            projectable: true
+            path: /etc/sudoers.d/tofu-plan
+            owner: root
+            group: root
+            mode: "0440"
+          rule: "tofu-plan ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-observer observe"
       - name: tofu-apply
         home: /home/tofu-apply
         shell: /bin/bash
@@ -253,6 +259,7 @@ proxmox:
             group: tofu-apply
             mode: "0600"
           secret_ref: PROXMOX_APPLY_SSH_PUBLIC_KEYS
+          forced_command: null
         sudo:
           state: present
           file:
@@ -458,6 +465,7 @@ proxmox:
       - { path: /etc/ssh/sshd_config.d/60-home-lab.conf, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/proxmox, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/tofu-apply, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
+      - { path: /etc/sudoers.d/tofu-plan, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
     domains:
       - { domain: managed-files, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { domain: managed-fragments, safety_class: reboot-bound, automatic: true, requires_approval: true, requires_reboot: true, requires_watchdog: false }

@@ -1,2 +1,3 @@
 ---
 apply_lock_path: /var/lib/iac-ansible-production.lock
+apply_lock_guard_path: ""

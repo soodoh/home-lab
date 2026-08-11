@@ -1,0 +1,776 @@
+#!/usr/bin/python3
+"""Console-only protocol-v4 transaction for exact Proxmox helper installation."""
+
+import base64
+import fcntl
+import hashlib
+import hmac
+import json
+import os
+import platform
+import re
+import shutil
+import stat
+import subprocess
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+NIX = REPO / "nix"
+sys.path.insert(0, str(NIX / "proxmox"))
+import bundle as bundle_lib
+
+BOOT = Path("/var/lib/home-lab/bootstrap")
+INCOMING = BOOT / "incoming"
+BUNDLE = INCOMING / "bundle"
+BUNDLE_HASH = INCOMING / "bundle.sha256"
+PROTECTED_INCOMING = INCOMING / "protected-inputs.json"
+RUNTIME = Path("/var/lib/home-lab/reconciliation")
+PROTECTED = RUNTIME / "protected-inputs.json"
+PROTECTED_MAC = RUNTIME / "protected-inputs.mac"
+SESSION_KEY = RUNTIME / "session.key"
+INSTALL_MANIFEST = RUNTIME / "install-manifest.json"
+OPERATION_LOCK = RUNTIME / "operation.lock"
+APPLY_LOCK = RUNTIME / "apply.lock"
+ANSIBLE_LOCK = Path("/var/lib/iac-ansible-production.lock")
+LOCK = BOOT / "install.lock"
+JOURNAL = BOOT / "install-journal.json"
+PREVIOUS = BOOT / "previous-generation.json"
+SNAPSHOT = BOOT / ".verified-snapshot.pending"
+HELPER_ROOT = Path("/usr/local/libexec/home-lab")
+HELPERS = ("proxmox-activator", "proxmox-observer", "proxmox-private-preparer")
+MAX_FILE = 2 * 1024 * 1024
+MAX_JOURNAL = 12 * 1024 * 1024
+MIN_FREE = 32 * 1024 * 1024
+ENV = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+SSH_KEY = re.compile(r"^(ssh-ed25519|ecdsa-sha2-nistp(?:256|384|521)|sk-ssh-ed25519@openssh.com|sk-ecdsa-sha2-nistp256@openssh.com) ([A-Za-z0-9+/]+={0,2})(?: ([^\r\n]+))?$")
+TOKEN = re.compile(r"^([^\s!=]+![^\s!=]+)=([^\s]+)$")
+BY_ID = re.compile(r"^/dev/disk/by-id/[^\s/]+$")
+USB_PORT = re.compile(r"^[0-9]+-[0-9]+(?:\.[0-9]+)*$")
+
+
+def canonical(value):
+    return (json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n").encode()
+
+
+def fingerprint(info):
+    return (info.st_dev, info.st_ino, info.st_size, info.st_mode, info.st_uid, info.st_gid,
+            info.st_nlink, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def run(args):
+    return subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, env=ENV, timeout=30)
+
+
+def open_dir(path, mode=None, create=False):
+    if not path.is_absolute() or ".." in path.parts:
+        raise ValueError("fixed directory path differs")
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for index, component in enumerate(path.parts[1:]):
+            final = index == len(path.parts[1:]) - 1
+            if create:
+                try:
+                    os.mkdir(component, mode if final and mode is not None else 0o755, dir_fd=fd)
+                    os.fsync(fd)
+                except FileExistsError:
+                    pass
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            info = os.fstat(child)
+            permissions = stat.S_IMODE(info.st_mode)
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or \
+                    (final and mode is not None and permissions != mode) or ((not final or mode is None) and permissions & 0o022):
+                os.close(child)
+                raise ValueError("fixed directory metadata differs")
+            os.close(fd)
+            fd = child
+        return fd
+    except Exception:
+        os.close(fd)
+        raise
+
+
+def ensure_dir(path, mode):
+    fd = open_dir(path, mode, True)
+    os.close(fd)
+
+
+def secure_file(path, mode, maximum=MAX_FILE):
+    parent = open_dir(path.parent)
+    try:
+        fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent)
+        try:
+            before = os.fstat(fd)
+            if not stat.S_ISREG(before.st_mode) or before.st_uid != 0 or before.st_gid != 0 or \
+                    stat.S_IMODE(before.st_mode) != mode or before.st_nlink != 1 or before.st_size > maximum:
+                raise ValueError("fixed bootstrap input metadata differs")
+            chunks, remaining = [], before.st_size
+            while remaining:
+                block = os.read(fd, min(65536, remaining))
+                if not block:
+                    raise ValueError("fixed bootstrap input was truncated")
+                chunks.append(block)
+                remaining -= len(block)
+            after = os.fstat(fd)
+            if fingerprint(before) != fingerprint(after):
+                raise ValueError("fixed bootstrap input changed while read")
+            return b"".join(chunks)
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent)
+
+
+def durable_unlink(path, missing_ok=True):
+    parent = open_dir(path.parent)
+    try:
+        try:
+            info = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+            if stat.S_ISDIR(info.st_mode):
+                raise ValueError("refusing directory unlink")
+            os.unlink(path.name, dir_fd=parent)
+            os.fsync(parent)
+        except FileNotFoundError:
+            if not missing_ok:
+                raise
+    finally:
+        os.close(parent)
+
+
+def pending_path(path):
+    return path.parent / ("." + path.name + ".bootstrap-pending")
+
+
+def pending_targets():
+    targets = (JOURNAL, PREVIOUS, PROTECTED_INCOMING, PROTECTED, PROTECTED_MAC, SESSION_KEY, INSTALL_MANIFEST,
+               *(HELPER_ROOT / name for name in HELPERS))
+    return {pending_path(path): path for path in targets}
+
+
+def atomic(path, content, mode):
+    ensure_dir(path.parent, 0o755 if path.parent == HELPER_ROOT else 0o700)
+    parent = open_dir(path.parent, 0o755 if path.parent == HELPER_ROOT else 0o700)
+    temporary = pending_path(path).name
+    try:
+        try:
+            existing = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+            if not stat.S_ISREG(existing.st_mode) or existing.st_uid != 0 or existing.st_gid != 0 or existing.st_nlink != 1:
+                raise ValueError("atomic target metadata differs")
+        except FileNotFoundError:
+            pass
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        try:
+            offset = 0
+            while offset < len(content):
+                written = os.write(fd, content[offset:])
+                if written < 1:
+                    raise OSError("bootstrap write made no progress")
+                offset += written
+            os.fchmod(fd, mode)
+            os.fchown(fd, 0, 0)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.fsync(parent)
+        os.rename(temporary, path.name, src_dir_fd=parent, dst_dir_fd=parent)
+        os.fsync(parent)
+    finally:
+        try:
+            os.unlink(temporary, dir_fd=parent)
+        except FileNotFoundError:
+            pass
+        os.close(parent)
+
+
+def remove_snapshot():
+    try:
+        root = SNAPSHOT.lstat()
+    except FileNotFoundError:
+        return
+    if not stat.S_ISDIR(root.st_mode) or root.st_uid != 0 or root.st_gid != 0 or stat.S_IMODE(root.st_mode) != 0o700:
+        raise ValueError("verified snapshot metadata differs")
+    for directory, names, files in os.walk(SNAPSHOT, topdown=False, followlinks=False):
+        for name in names:
+            info = (Path(directory) / name).lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_gid != 0:
+                raise ValueError("verified snapshot contains an unsafe directory")
+        for name in files:
+            info = (Path(directory) / name).lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or info.st_nlink != 1:
+                raise ValueError("verified snapshot contains an unsafe file")
+    shutil.rmtree(SNAPSHOT)
+    parent = open_dir(BOOT, 0o700)
+    try:
+        os.fsync(parent)
+    finally:
+        os.close(parent)
+
+
+def reconcile_pending():
+    """Resolve only fixed transaction remnants while both authority locks are held."""
+    allowed = pending_targets()
+    present = []
+    for directory in ({path.parent for path in allowed} | {INCOMING}):
+        try:
+            directory_fd = open_dir(directory, 0o755 if directory == HELPER_ROOT else 0o700)
+        except FileNotFoundError:
+            continue
+        try:
+            names = set(os.listdir(directory_fd))
+        finally:
+            os.close(directory_fd)
+        expected_names = {path.name for path in allowed if path.parent == directory}
+        if directory == BOOT:
+            expected_names.add(SNAPSHOT.name)
+        suspicious = {name for name in names if name.startswith(".bootstrap-") or name.endswith(".bootstrap-pending") or
+                      name.startswith("verified-") or name.startswith(".verified-")}
+        unknown = suspicious - expected_names
+        if unknown:
+            raise ValueError("fixed bootstrap directory contains an unknown pending entry")
+        present.extend(path for path in allowed if path.parent == directory and path.name in names)
+    remove_snapshot()
+    journal_pending = pending_path(JOURNAL)
+    if journal_pending in present:
+        raw = secure_file(journal_pending, 0o600, MAX_JOURNAL)
+        value = json.loads(raw)
+        if raw != canonical(value):
+            raise ValueError("pending bootstrap journal is noncanonical")
+        validate_journal(value)
+        parent = open_dir(BOOT, 0o700)
+        try:
+            if exists_nofollow(JOURNAL):
+                os.unlink(journal_pending.name, dir_fd=parent)
+            else:
+                os.rename(journal_pending.name, JOURNAL.name, src_dir_fd=parent, dst_dir_fd=parent)
+            os.fsync(parent)
+        finally:
+            os.close(parent)
+        present.remove(journal_pending)
+    for pending in present:
+        durable_unlink(pending, False)
+    return bool(present) or exists_nofollow(JOURNAL)
+
+
+def validate_protected(raw):
+    value = json.loads(raw)
+    if raw != canonical(value) or not isinstance(value, dict) or set(value) != {"access", "format", "hardware"} or \
+            value.get("format") != "home-lab-proxmox-protected-inputs-v1":
+        raise ValueError("protected incoming structure differs")
+    access = value["access"]
+    hardware = value["hardware"]
+    if not isinstance(access, dict) or set(access) != {"applyKeys", "applyToken", "applyTokenIdentity", "planKeys", "planToken", "planTokenIdentity"} or \
+            not isinstance(hardware, dict) or set(hardware) != {"gamesDiskIdentity", "poolGuid", "poolMembers", "usbMappings"}:
+        raise ValueError("protected incoming domains differ")
+    all_keys = []
+    for name in ("applyKeys", "planKeys"):
+        if not isinstance(access[name], list) or not access[name] or len(access[name]) != len(set(access[name])):
+            raise ValueError("protected incoming key list differs")
+        for item in access[name]:
+            match = SSH_KEY.fullmatch(item) if isinstance(item, str) else None
+            try:
+                decoded = base64.b64decode(match.group(2), validate=True) if match is not None else b""
+            except Exception:
+                decoded = b""
+            if len(decoded) < 32:
+                raise ValueError("protected incoming key differs")
+            all_keys.append(item)
+    identities = [TOKEN.fullmatch(access[name]).group(1) if isinstance(access[name], str) and TOKEN.fullmatch(access[name]) else None
+                  for name in ("applyToken", "planToken")]
+    expected_identities = [access.get("applyTokenIdentity"), access.get("planTokenIdentity")]
+    if len(all_keys) != len(set(all_keys)) or None in identities or identities[0] == identities[1] or identities != expected_identities or \
+            any(not isinstance(item, str) or re.fullmatch(r"[^\s!=]+![^\s!=]+", item) is None for item in expected_identities) or \
+            not isinstance(hardware["gamesDiskIdentity"], str) or BY_ID.fullmatch(hardware["gamesDiskIdentity"]) is None or \
+            not isinstance(hardware["poolGuid"], str) or not hardware["poolGuid"].isdigit() or \
+            not isinstance(hardware["poolMembers"], list) or len(hardware["poolMembers"]) != 12 or \
+            len(set(hardware["poolMembers"])) != 12 or any(not isinstance(item, str) or BY_ID.fullmatch(item) is None for item in hardware["poolMembers"]) or \
+            not isinstance(hardware["usbMappings"], list) or len(hardware["usbMappings"]) != 2:
+        raise ValueError("protected incoming values differ")
+    names, ports, serials = [], [], []
+    for mapping in hardware["usbMappings"]:
+        if not isinstance(mapping, dict) or set(mapping) != {"mapping", "port", "serial"} or \
+                any(not isinstance(mapping[name], str) or not mapping[name] for name in mapping):
+            raise ValueError("protected incoming USB mapping differs")
+        if re.fullmatch(r"[a-z][a-z0-9_-]*", mapping["mapping"]) is None or USB_PORT.fullmatch(mapping["port"]) is None or \
+                any(character.isspace() for character in mapping["serial"]):
+            raise ValueError("protected incoming USB syntax differs")
+        names.append(mapping["mapping"]); ports.append(mapping["port"]); serials.append(mapping["serial"])
+    if any(len(items) != len(set(items)) for items in (names, ports, serials)):
+        raise ValueError("protected incoming USB identities differ")
+    return raw
+
+
+def host_preflight(require_gates=False):
+    if os.geteuid() != 0:
+        raise ValueError("bootstrap requires root at the physical console")
+    if require_gates and (os.environ.get("PROXMOX_NIX_BOOTSTRAP_CONSOLE_CONFIRMED") != "install-reviewed-helper-bundle" or
+            os.environ.get("PROXMOX_NIX_BOOTSTRAP_LAN_CONFIRMED") != "tested-lan-root-session-open"):
+        raise ValueError("explicit console and LAN gates are required")
+    if platform.system() != "Linux" or platform.machine() not in {"x86_64", "amd64"}:
+        raise ValueError("bootstrap requires amd64 Linux")
+    virtual = run(("/usr/bin/systemd-detect-virt", "--quiet"))
+    if virtual.returncode != 1:
+        raise ValueError("bootstrap requires bare metal")
+    os_release = secure_file(Path("/usr/lib/os-release"), 0o644, 64 * 1024).decode()
+    projection = json.loads(secure_file(NIX / "proxmox/projection.json", 0o644, MAX_FILE))
+    expected_hostname = projection["hostNetworking"]["hostname"]
+    nodes = projection["apiIntent"]["pveStorage"]["nodes"]
+    manager = next(item for item in projection["packagePolicy"]["critical"] if item["role"] == "pve-manager")
+    hostname = run(("/usr/bin/hostname",))
+    pve = run(("/usr/bin/pveversion",))
+    if "ID=debian" not in os_release or nodes != [expected_hostname] or hostname.returncode or \
+            hostname.stdout.decode().strip() != expected_hostname or pve.returncode or \
+            pve.stdout.decode().strip() != "pve-manager/" + manager["version"]:
+        raise ValueError("bootstrap target identity differs")
+    git = run(("/usr/bin/git", "-C", str(REPO), "status", "--porcelain=v1", "--untracked-files=all"))
+    head = run(("/usr/bin/git", "-C", str(REPO), "rev-parse", "HEAD"))
+    remote = run(("/usr/bin/git", "-C", str(REPO), "rev-parse", "origin/main"))
+    tree = run(("/usr/bin/git", "-C", str(REPO), "rev-parse", "HEAD^{tree}"))
+    if git.returncode or git.stdout or any(item.returncode for item in (head, remote, tree)) or head.stdout != remote.stdout:
+        raise ValueError("bootstrap checkout is not the pushed reviewed revision")
+    return head.stdout.decode().strip(), tree.stdout.decode().strip()
+
+
+def acquire_lock(path):
+    ensure_dir(path.parent, 0o700)
+    parent = open_dir(path.parent, 0o700)
+    try:
+        fd = os.open(path.name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1:
+            os.close(fd)
+            raise ValueError("bootstrap lock metadata differs")
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return fd
+    finally:
+        os.close(parent)
+
+
+def exists_nofollow(path):
+    try:
+        parent = open_dir(path.parent)
+        try:
+            os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+            return True
+        finally:
+            os.close(parent)
+    except FileNotFoundError:
+        return False
+
+
+def reject_locks():
+    if exists_nofollow(ANSIBLE_LOCK) or exists_nofollow(APPLY_LOCK):
+        raise ValueError("another host ownership lock is active")
+
+
+def snapshot_bundle():
+    # The staging root is root-only; copy once to a fixed recoverable private snapshot.
+    incoming_fd = open_dir(INCOMING, 0o700)
+    try:
+        incoming_names = set(os.listdir(incoming_fd))
+    finally:
+        os.close(incoming_fd)
+    if incoming_names != {"bundle", "bundle.sha256", "protected-inputs.json"}:
+        raise ValueError("incoming directory contains an unknown entry")
+    hash_raw = secure_file(BUNDLE_HASH, 0o600, 128)
+    protected_raw = validate_protected(secure_file(PROTECTED_INCOMING, 0o600, 256 * 1024))
+    root_info = BUNDLE.lstat()
+    if not stat.S_ISDIR(root_info.st_mode) or root_info.st_uid != 0 or root_info.st_gid != 0 or stat.S_IMODE(root_info.st_mode) != 0o755:
+        raise ValueError("bundle root metadata differs")
+    if exists_nofollow(SNAPSHOT):
+        raise ValueError("verified snapshot requires pending reconciliation")
+    SNAPSHOT.mkdir(mode=0o700)
+    boot_fd = open_dir(BOOT, 0o700)
+    try:
+        os.fsync(boot_fd)
+    finally:
+        os.close(boot_fd)
+    try:
+        copy = SNAPSHOT / "bundle"
+        copy.mkdir(mode=0o700)
+        actual_dirs = {"."}
+        for directory, names, files in os.walk(BUNDLE, followlinks=False):
+            relative_dir = Path(directory).relative_to(BUNDLE)
+            actual_dirs.add(relative_dir.as_posix() if relative_dir.parts else ".")
+            for name in names:
+                path = Path(directory) / name
+                info = path.lstat()
+                if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o755:
+                    raise ValueError("bundle directory metadata differs")
+            for name in files:
+                source = Path(directory) / name
+                relative = source.relative_to(BUNDLE)
+                mode = 0o755 if relative.parts[0] == "helpers" else 0o644
+                content = secure_file(source, mode, MAX_FILE)
+                target = copy / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+                target.chmod(mode)
+        hash_copy = SNAPSHOT / "bundle.sha256"
+        hash_copy.write_bytes(hash_raw); hash_copy.chmod(0o600)
+        args = type("Args", (), {"bundle": str(copy), "hash_file": str(hash_copy)})()
+        bundle_lib.verify_bundle(args)
+        expected_dirs = {"."}
+        for candidate in bundle_lib.canonical_tree_files(copy):
+            parent = candidate.relative_to(copy).parent
+            while parent != Path("."):
+                expected_dirs.add(parent.as_posix())
+                parent = parent.parent
+        if actual_dirs != expected_dirs:
+            raise ValueError("bundle directory layout differs")
+        metadata = json.loads((copy / "metadata.json").read_bytes())
+        source_pairs = (("projection.json", "projectionSha256"), ("observation.schema.json", "observationSchemaSha256"),
+                        ("plan.schema.json", "planSchemaSha256"), ("private-preconditions.schema.json", "privatePreconditionsSchemaSha256"),
+                        ("activation-envelope.schema.json", "activationEnvelopeSchemaSha256"),
+                        ("private-preparation-request.schema.json", "privatePreparationRequestSchemaSha256"))
+        for relative, key in source_pairs:
+            source = (NIX / "proxmox" / relative).read_bytes()
+            incoming = (copy / "policy" / relative).read_bytes()
+            if source != incoming or hashlib.sha256(source).hexdigest() != metadata[key]:
+                raise ValueError("incoming bundle differs from exact checkout")
+        if hashlib.sha256((NIX / "flake.lock").read_bytes()).hexdigest() != metadata["flakeLockSha256"] or \
+                (NIX / "proxmox/package-manifest.json").read_bytes() != (copy / "packages/proxmox-package-manifest.json").read_bytes():
+            raise ValueError("incoming bundle source binding differs")
+        helpers = {name: (copy / "helpers" / name).read_bytes() for name in HELPERS}
+        return metadata, hash_raw.decode().strip(), protected_raw, helpers
+    finally:
+        remove_snapshot()
+
+
+def expected_manifest(head, tree, metadata, bundle_hash):
+    bindings = {"activationEnvelopeSchemaSha256": metadata["activationEnvelopeSchemaSha256"],
+                "activatorSha256": metadata["helperSha256"]["proxmox-activator"],
+                "bundleContentSha256": bundle_hash, "bundleFormat": metadata["bundleFormat"],
+                "flakeLockSha256": metadata["flakeLockSha256"], "gitCommit": head, "gitTree": tree,
+                "observerProtocol": metadata["protocolVersion"], "observerSha256": metadata["helperSha256"]["proxmox-observer"],
+                "packageManifestSha256": metadata["packageManifestSha256"], "planSchemaSha256": metadata["planSchemaSha256"],
+                "privatePreconditionsSchemaSha256": metadata["privatePreconditionsSchemaSha256"],
+                "privatePreparationRequestSchemaSha256": metadata["privatePreparationRequestSchemaSha256"],
+                "privatePreparerSha256": metadata["helperSha256"]["proxmox-private-preparer"],
+                "projectionSha256": metadata["projectionSha256"]}
+    return {"bindings": bindings, "bundleContentSha256": bundle_hash, "format": "home-lab-proxmox-install-v1",
+            "gitCommit": head, "gitTree": tree, "helpers": metadata["helperSha256"]}
+
+
+def capture():
+    records, total = [], 0
+    for name in HELPERS:
+        try:
+            content = secure_file(HELPER_ROOT / name, 0o755)
+            total += len(content)
+            if total > 6 * 1024 * 1024:
+                raise ValueError("previous helper generation exceeds capacity")
+            records.append({"contentBase64": base64.b64encode(content).decode(), "name": name,
+                            "present": True, "sha256": hashlib.sha256(content).hexdigest()})
+        except FileNotFoundError:
+            records.append({"contentBase64": None, "name": name, "present": False, "sha256": None})
+    return records
+
+
+def capture_manifest():
+    try:
+        raw = secure_file(INSTALL_MANIFEST, 0o600, 128 * 1024)
+        return {"contentBase64": base64.b64encode(raw).decode(), "present": True,
+                "sha256": hashlib.sha256(raw).hexdigest()}
+    except FileNotFoundError:
+        return {"contentBase64": None, "present": False, "sha256": None}
+
+
+def validate_generation(value):
+    if not isinstance(value, dict) or set(value) != {"format", "helpers", "manifest"} or value["format"] != "home-lab-proxmox-previous-v1" or \
+            not isinstance(value["helpers"], list) or [item.get("name") for item in value["helpers"]] != list(HELPERS):
+        raise ValueError("previous generation differs")
+    for item in value["helpers"]:
+        if set(item) != {"contentBase64", "name", "present", "sha256"} or not isinstance(item["present"], bool) or \
+                item["present"] != isinstance(item["contentBase64"], str):
+            raise ValueError("previous helper record differs")
+        if item["present"]:
+            raw = base64.b64decode(item["contentBase64"], validate=True)
+            if len(raw) > MAX_FILE or item["sha256"] != hashlib.sha256(raw).hexdigest():
+                raise ValueError("previous helper binding differs")
+        elif item["sha256"] is not None:
+            raise ValueError("absent previous helper has a hash")
+    manifest = value["manifest"]
+    if not isinstance(manifest, dict) or set(manifest) != {"contentBase64", "present", "sha256"} or \
+            manifest["present"] != isinstance(manifest["contentBase64"], str):
+        raise ValueError("previous manifest record differs")
+    if manifest["present"]:
+        raw = base64.b64decode(manifest["contentBase64"], validate=True)
+        if len(raw) > 128 * 1024 or manifest["sha256"] != hashlib.sha256(raw).hexdigest():
+            raise ValueError("previous manifest binding differs")
+    elif manifest["sha256"] is not None:
+        raise ValueError("absent previous manifest has a hash")
+    return value
+
+
+def validate_journal(value):
+    keys = {"bundleContentSha256", "createdKey", "createdProtected", "createdProtectedMac", "format", "installed",
+            "previous", "rollbackCompleted", "state"}
+    states = {"installing", "rolling-back", "rolled-back", "installed"}
+    if not isinstance(value, dict) or set(value) != keys or value["format"] != "home-lab-proxmox-bootstrap-journal-v2" or \
+            value["state"] not in states or not isinstance(value["createdKey"], bool) or not isinstance(value["createdProtected"], bool) or \
+            not isinstance(value["createdProtectedMac"], bool) or \
+            not isinstance(value["bundleContentSha256"], str) or len(value["bundleContentSha256"]) != 64 or \
+            not isinstance(value["installed"], list) or any(name not in HELPERS for name in value["installed"]) or \
+            len(value["installed"]) != len(set(value["installed"])) or not isinstance(value["rollbackCompleted"], list) or \
+            len(value["rollbackCompleted"]) != len(set(value["rollbackCompleted"])) or any(item not in
+                ({"helper:" + name for name in HELPERS} | {"manifest", "protected", "protected-mac", "key"}) for item in value["rollbackCompleted"]):
+        raise ValueError("bootstrap journal structure differs")
+    validate_generation(value["previous"])
+    if len(canonical(value)) > MAX_JOURNAL:
+        raise ValueError("bootstrap journal exceeds capacity")
+    return value
+
+
+def write_journal(value):
+    validate_journal(value)
+    atomic(JOURNAL, canonical(value), 0o600)
+
+
+def restore_generation(generation):
+    validate_generation(generation)
+    for record in reversed(generation["helpers"]):
+        path = HELPER_ROOT / record["name"]
+        if record["present"]:
+            atomic(path, base64.b64decode(record["contentBase64"], validate=True), 0o755)
+        else:
+            durable_unlink(path)
+    manifest = generation["manifest"]
+    if manifest["present"]:
+        atomic(INSTALL_MANIFEST, base64.b64decode(manifest["contentBase64"], validate=True), 0o600)
+    else:
+        durable_unlink(INSTALL_MANIFEST)
+
+
+def rollback(journal):
+    validate_journal(journal)
+    if journal["state"] == "installed":
+        raise ValueError("durably installed generation must be finalized, not rolled back")
+    journal["state"] = "rolling-back"
+    write_journal(journal)
+    generation = journal["previous"]
+    for record in reversed(generation["helpers"]):
+        step = "helper:" + record["name"]
+        if step in journal["rollbackCompleted"]:
+            continue
+        path = HELPER_ROOT / record["name"]
+        if record["present"]:
+            atomic(path, base64.b64decode(record["contentBase64"], validate=True), 0o755)
+        else:
+            durable_unlink(path)
+        journal["rollbackCompleted"].append(step)
+        write_journal(journal)
+    if "manifest" not in journal["rollbackCompleted"]:
+        manifest = generation["manifest"]
+        if manifest["present"]:
+            atomic(INSTALL_MANIFEST, base64.b64decode(manifest["contentBase64"], validate=True), 0o600)
+        else:
+            durable_unlink(INSTALL_MANIFEST)
+        journal["rollbackCompleted"].append("manifest"); write_journal(journal)
+    if journal["createdProtectedMac"] and "protected-mac" not in journal["rollbackCompleted"]:
+        durable_unlink(PROTECTED_MAC); journal["rollbackCompleted"].append("protected-mac"); write_journal(journal)
+    if journal["createdProtected"] and "protected" not in journal["rollbackCompleted"]:
+        durable_unlink(PROTECTED); journal["rollbackCompleted"].append("protected"); write_journal(journal)
+    if journal["createdKey"] and "key" not in journal["rollbackCompleted"]:
+        durable_unlink(SESSION_KEY); journal["rollbackCompleted"].append("key"); write_journal(journal)
+    journal["state"] = "rolled-back"
+    write_journal(journal)
+    durable_unlink(JOURNAL, False)
+
+
+def filesystem_probe(path):
+    candidate = path
+    while True:
+        try:
+            info = os.stat(candidate, follow_symlinks=False)
+            if stat.S_ISLNK(info.st_mode):
+                raise ValueError("destination filesystem probe encountered a symlink")
+            return candidate, info.st_dev
+        except FileNotFoundError:
+            if candidate == candidate.parent:
+                raise
+            candidate = candidate.parent
+
+
+def gate_destination_space(journal, protected_raw, helpers):
+    requirements = {
+        BOOT: len(canonical(journal)) * 3 + len(canonical(journal["previous"])) * 2,
+        RUNTIME: len(protected_raw) * 2 + 48 + 128 * 1024,
+        HELPER_ROOT: sum(len(content) * 2 for content in helpers.values()),
+    }
+    by_device = {}
+    for path, needed in requirements.items():
+        probe, device = filesystem_probe(path)
+        record = by_device.setdefault(device, {"path": probe, "needed": MIN_FREE})
+        record["needed"] += needed
+    for record in by_device.values():
+        if shutil.disk_usage(record["path"]).free < record["needed"]:
+            raise ValueError("bootstrap destination free-space gate failed")
+
+
+def install(head, tree, metadata, bundle_hash, protected_raw, helpers):
+    reject_locks()
+    previous = {"format": "home-lab-proxmox-previous-v1", "helpers": capture(), "manifest": capture_manifest()}
+    journal = {"bundleContentSha256": bundle_hash, "createdKey": False, "createdProtected": False,
+               "createdProtectedMac": False, "format": "home-lab-proxmox-bootstrap-journal-v2", "installed": [], "previous": previous,
+               "rollbackCompleted": [], "state": "installing"}
+    gate_destination_space(journal, protected_raw, helpers)
+    write_journal(journal)
+    try:
+        ensure_dir(RUNTIME, 0o700)
+        if not exists_nofollow(SESSION_KEY):
+            journal["createdKey"] = True
+            write_journal(journal)
+            key = os.urandom(48)
+            atomic(SESSION_KEY, key, 0o600)
+        else:
+            key = secure_file(SESSION_KEY, 0o600, 64)
+            if len(key) < 32:
+                raise ValueError("existing session key differs")
+        if exists_nofollow(PROTECTED):
+            if secure_file(PROTECTED, 0o600, 256 * 1024) != protected_raw:
+                raise ValueError("protected runtime replacement requires the fixed refresh operation")
+        else:
+            journal["createdProtected"] = True
+            write_journal(journal)
+            atomic(PROTECTED, protected_raw, 0o600)
+        expected_protected_mac = hmac.new(key, protected_raw, hashlib.sha256).hexdigest().encode() + b"\n"
+        if exists_nofollow(PROTECTED_MAC):
+            if not hmac.compare_digest(secure_file(PROTECTED_MAC, 0o600, 128), expected_protected_mac):
+                raise ValueError("protected runtime keyed attestation differs")
+        else:
+            journal["createdProtectedMac"] = True
+            write_journal(journal)
+            atomic(PROTECTED_MAC, expected_protected_mac, 0o600)
+        for name in HELPERS:
+            atomic(HELPER_ROOT / name, helpers[name], 0o755)
+            journal["installed"].append(name)
+            write_journal(journal)
+        manifest = expected_manifest(head, tree, metadata, bundle_hash)
+        atomic(INSTALL_MANIFEST, canonical(manifest), 0o600)
+        atomic(PREVIOUS, canonical(previous), 0o600)
+        journal["state"] = "installed"
+        write_journal(journal)
+        finalize_installed(journal)
+    except Exception:
+        if journal["state"] != "installed":
+            rollback(journal)
+        raise
+
+
+def verify_installed(head, tree, metadata, bundle_hash):
+    expected = canonical(expected_manifest(head, tree, metadata, bundle_hash))
+    if secure_file(INSTALL_MANIFEST, 0o600, 128 * 1024) != expected:
+        raise ValueError("installed manifest differs")
+    key = secure_file(SESSION_KEY, 0o600, 64)
+    if len(key) < 32:
+        raise ValueError("installed session key differs")
+    protected_raw = secure_file(PROTECTED, 0o600, 256 * 1024)
+    validate_protected(protected_raw)
+    expected_mac = hmac.new(key, protected_raw, hashlib.sha256).hexdigest().encode() + b"\n"
+    if not hmac.compare_digest(secure_file(PROTECTED_MAC, 0o600, 128), expected_mac):
+        raise ValueError("installed protected keyed attestation differs")
+    for name in HELPERS:
+        if hashlib.sha256(secure_file(HELPER_ROOT / name, 0o755)).hexdigest() != metadata["helperSha256"][name]:
+            raise ValueError("installed helper differs")
+
+
+def finalize_installed(journal):
+    validate_journal(journal)
+    if journal["state"] != "installed" or journal["installed"] != list(HELPERS) or journal["rollbackCompleted"]:
+        raise ValueError("terminal bootstrap journal differs")
+    manifest_raw = secure_file(INSTALL_MANIFEST, 0o600, 128 * 1024)
+    manifest = json.loads(manifest_raw)
+    if manifest_raw != canonical(manifest) or not isinstance(manifest, dict) or \
+            set(manifest) != {"bindings", "bundleContentSha256", "format", "gitCommit", "gitTree", "helpers"} or \
+            manifest["format"] != "home-lab-proxmox-install-v1" or \
+            manifest["bundleContentSha256"] != journal["bundleContentSha256"] or \
+            not isinstance(manifest["helpers"], dict) or set(manifest["helpers"]) != set(HELPERS):
+        raise ValueError("terminal installed manifest differs")
+    for name in HELPERS:
+        if manifest["helpers"][name] != hashlib.sha256(secure_file(HELPER_ROOT / name, 0o755)).hexdigest():
+            raise ValueError("terminal installed helper differs")
+    key = secure_file(SESSION_KEY, 0o600, 64)
+    protected_raw = secure_file(PROTECTED, 0o600, 256 * 1024)
+    validate_protected(protected_raw)
+    expected_mac = hmac.new(key, protected_raw, hashlib.sha256).hexdigest().encode() + b"\n"
+    if len(key) < 32 or not hmac.compare_digest(secure_file(PROTECTED_MAC, 0o600, 128), expected_mac):
+        raise ValueError("terminal protected runtime differs")
+    previous_raw = secure_file(PREVIOUS, 0o600, MAX_JOURNAL)
+    if previous_raw != canonical(journal["previous"]):
+        raise ValueError("terminal previous generation differs")
+    durable_unlink(JOURNAL, False)
+
+
+def recover_previous_active():
+    generation = validate_generation(json.loads(secure_file(PREVIOUS, 0o600, MAX_JOURNAL)))
+    lock_raw = secure_file(APPLY_LOCK, 0o600, 64 * 1024)
+    lock = json.loads(lock_raw)
+    if lock_raw != canonical(lock) or not isinstance(lock, dict) or set(lock) != {"activatorSha256", "bundleContentSha256",
+            "gitCommit", "gitTree", "hostSessionId", "operation", "planSha256", "startedAt"} or \
+            lock.get("operation") != "proxmox-guarded-apply":
+        raise ValueError("active apply ownership record differs")
+    expected = next(item for item in generation["helpers"] if item["name"] == "proxmox-activator")
+    if not expected["present"] or lock.get("activatorSha256") != expected["sha256"]:
+        raise ValueError("previous generation does not own the active session")
+    try:
+        current = hashlib.sha256(secure_file(HELPER_ROOT / "proxmox-activator", 0o755)).hexdigest()
+    except FileNotFoundError:
+        current = None
+    if current == expected["sha256"]:
+        raise ValueError("active session already has its exact helper generation")
+    restore_generation(generation)
+
+
+def main():
+    if len(sys.argv) != 2 or sys.argv[1] not in {"check", "install", "verify", "recover"}:
+        print("usage: bootstrap-proxmox-nix-host <check|install|verify|recover>", file=sys.stderr)
+        return 64
+    if os.geteuid() != 0:
+        raise ValueError("bootstrap requires root at the physical console")
+    operation = sys.argv[1]
+    ensure_dir(BOOT, 0o700); ensure_dir(INCOMING, 0o700); ensure_dir(RUNTIME, 0o700)
+    install_fd = acquire_lock(LOCK)
+    operation_fd = None
+    try:
+        operation_fd = acquire_lock(OPERATION_LOCK)
+        reconcile_pending()
+        if operation == "recover":
+            if os.environ.get("PROXMOX_NIX_BOOTSTRAP_RECOVER_CONFIRMED") != "recover-reviewed-helper-transaction":
+                raise ValueError("explicit recovery gate required")
+            if exists_nofollow(JOURNAL):
+                journal = validate_journal(json.loads(secure_file(JOURNAL, 0o600, MAX_JOURNAL)))
+                if journal["state"] == "installed":
+                    finalize_installed(journal)
+                else:
+                    rollback(journal)
+            elif exists_nofollow(APPLY_LOCK):
+                recover_previous_active()
+            else:
+                raise ValueError("no interrupted or active exact recovery target")
+            print("proxmox-nix-bootstrap=recovered")
+            return 0
+        reject_locks()
+        if exists_nofollow(JOURNAL):
+            raise ValueError("interrupted install requires recover")
+        head, tree = host_preflight(operation == "install")
+        metadata, bundle_hash, protected_raw, helpers = snapshot_bundle()
+        if operation == "install":
+            install(head, tree, metadata, bundle_hash, protected_raw, helpers)
+        elif operation == "verify":
+            verify_installed(head, tree, metadata, bundle_hash)
+        print("proxmox-nix-bootstrap=" + ("checked" if operation == "check" else operation + "ed"))
+        return 0
+    except BlockingIOError:
+        raise ValueError("bootstrap transaction is active")
+    finally:
+        if operation_fd is not None:
+            os.close(operation_fd)
+        os.close(install_fd)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception:
+        print("bootstrap-proxmox-nix-host: fixed operation failed", file=sys.stderr)
+        raise SystemExit(1)

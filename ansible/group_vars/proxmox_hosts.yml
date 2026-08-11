@@ -26,6 +26,7 @@ proxmox_storage_recovery_import_confirmed: false
 proxmox_storage_review_evidence_path: /var/lib/home-lab/storage-review.json
 proxmox_storage_pool_guid: "{{ lookup('ansible.builtin.env', storage.zfs.pool_guid_secret_ref) }}"
 proxmox_service_accounts: "{{ proxmox.access.service_accounts }}"
+apply_lock_guard_path: /var/lib/home-lab/reconciliation/operation.lock
 proxmox_api_accounts: "{{ proxmox.access.pve.accounts }}"
 proxmox_api_additional_roles: "{{ proxmox.access.pve.additional_roles }}"
 proxmox_tailscale_auth_key: >-

@@ -107,7 +107,7 @@ if (!managedFiles.length || !protectedRecords.length) throw new Error("contract 
 const knownPolicyKinds = new Set(["managed-file", "managed-file-metadata", "managed-directory", "runtime-protected-file", "runtime-protected-directory", "audit-absence", "api-owned"]);
 if (policyRecords.some((record) => !knownPolicyKinds.has(record.kind))) throw new Error("contract contains an unknown projector-dispatch kind");
 if (contract.proxmox.apt.repository_file_metadata.kind !== "managed-file-metadata" ||
-    contract.proxmox.access.service_accounts[0].sudo.kind !== "audit-absence" ||
+    contract.proxmox.access.service_accounts[0].sudo.file.kind !== "managed-file" ||
     contract.proxmox.vfio.absence_policy.some((record) => record.kind !== "audit-absence")) {
   throw new Error("metadata and absence expectations must use structurally truthful projector kinds");
 }
@@ -349,7 +349,7 @@ checkSemantic(unrelatedService, "native service set", "missing required native s
 
 const privilegedPlanAccount = structuredClone(contract);
 privilegedPlanAccount.proxmox.access.service_accounts[0].groups.push("sudo");
-checkSemantic(privilegedPlanAccount, "tofu-plan must remain unprivileged", "privileged plan account");
+checkSemantic(privilegedPlanAccount, "tofu-plan must have only the fixed observer capability", "privileged plan account");
 
 const extraApplyGroup = structuredClone(contract);
 extraApplyGroup.proxmox.access.service_accounts[1].groups.push("docker");

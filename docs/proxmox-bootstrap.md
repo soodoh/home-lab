@@ -80,6 +80,26 @@ From the trusted local controller, prove:
 
 Only after these checks may the steady Proxmox play set `proxmox_ssh_access_proven=true` and tighten password authentication.
 
+## Layer the Nix transport bootstrap
+
+The existing local Ansible bootstrap remains the fresh-host authority until cutover. After it succeeds, build the sanitized bundle on the trusted controller and transfer only `bundle` and `bundle.sha256` to the fixed mode-`0700` `/var/lib/home-lab/bootstrap/incoming/` directory. Put the reviewed plan/apply public keys in the fixed mode-`0600` `/root/.config/home-lab/proxmox-{plan,apply}-authorized-keys` files; the token escrows and `/root/home-lab-hardware.env` already use fixed root-only paths. Create the canonical protected input without manual JSON assembly, then use the exact pushed checkout locally on the host:
+
+```sh
+export PROXMOX_NIX_PROTECTED_CREATE_CONFIRMED=create-reviewed-protected-runtime-input
+scripts/prepare-proxmox-nix-protected-inputs
+scripts/bootstrap-proxmox-nix-host check
+export PROXMOX_NIX_BOOTSTRAP_CONSOLE_CONFIRMED=install-reviewed-helper-bundle
+export PROXMOX_NIX_BOOTSTRAP_LAN_CONFIRMED=tested-lan-root-session-open
+scripts/bootstrap-proxmox-nix-host install
+scripts/bootstrap-proxmox-nix-host verify
+```
+
+The command accepts only `check`, `install`, `verify`, or explicitly gated `recover`; it accepts no paths, hosts, or caller commands. Install takes the shared operation mutex, then rejects both persistent Ansible and Nix ownership before mutation. Proxmox Ansible uses the identical mutex-first ordering and refuses a retained Nix `apply.lock`; the activator and private preparer refuse retained Ansible ownership. Install copies the three immutable verified helpers outside the Nix store, creates the root-only session key only when absent, copies protected inputs plus a root-only keyed runtime attestation only to fixed host-local paths, and writes only non-secret Git/tree/bundle/schema/helper hashes to the install manifest. It retains one bounded exact prior helper/manifest generation and refuses active Ansible/Nix ownership locks. Every atomic target uses one deterministic target-specific `.bootstrap-pending` name; startup inventories only that closed set, promotes a validated initial journal when needed, durably removes recognized uncommitted remnants (including session-key and protected-input bytes), and refuses unknown temporary entries. The fixed verified-bundle snapshot is likewise removed under both locks. Interrupted transactions—or exact prior-helper recovery for a matching retained active session—require `PROXMOX_NIX_BOOTSTRAP_RECOVER_CONFIRMED=recover-reviewed-helper-transaction` and `recover`.
+
+Protected inputs and session keys have separate fixed no-argument lifecycle commands. `refresh-proxmox-nix-protected-inputs` requires `PROXMOX_NIX_PROTECTED_REFRESH_CONFIRMED=refresh-reviewed-protected-runtime-input`; `rotate-proxmox-nix-session-key` requires `PROXMOX_NIX_SESSION_KEY_ROTATE_CONFIRMED=rotate-reviewed-session-key-with-no-active-plans`. Both take the shared locks and refuse active or nonterminal state. Rotation atomically replaces the key and never retains its prior bytes; all uncommitted sidecars must be discarded before rotation.
+
+After verify, prove the fixed plan identity command and denial of arbitrary SSH commands, then create a shadow plan. Helper installation, protected-state creation, key creation, the `tofu-plan` sudo rule, and its forced-key change are production mutations requiring explicit approval, physical console access, and a tested LAN root session. This milestone does not authorize apply, package/API/OpenTofu mutations, watchdog changes, or reboot. `tofu-apply` intentionally retains `NOPASSWD: ALL` for Ansible compatibility and remains a cutover blocker.
+
 ## Current status
 
 The guarded bootstrap and pinned Proxmox kernel/ZFS migration have been live-qualified with console-backed reboots. The host is enrolled as `tag:proxmox`, the separated service identities are active, the reviewed VFIO/IOMMU configuration is loaded, ZFS is `ONLINE`, and VM 100 is the protected managed workload.

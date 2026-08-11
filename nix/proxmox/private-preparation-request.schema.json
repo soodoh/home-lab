@@ -1,0 +1,24 @@
+{
+  "$id": "private-preparation-request.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "format": { "const": "home-lab-proxmox-private-preparation-request-v1" },
+    "operatorGates": {
+      "additionalProperties": false,
+      "properties": {
+        "backupsConfirmed": { "type": "boolean" },
+        "consoleConfirmed": { "type": "boolean" },
+        "lanRollbackConfirmed": { "type": "boolean" },
+        "noConcurrentMutationConfirmed": { "const": true }
+      },
+      "required": ["backupsConfirmed", "consoleConfirmed", "lanRollbackConfirmed", "noConcurrentMutationConfirmed"],
+      "type": "object"
+    },
+    "plan": { "$ref": "plan.schema.json" },
+    "protocol": { "const": 4 },
+    "requestedAt": { "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$", "type": "string" }
+  },
+  "required": ["format", "protocol", "requestedAt", "plan", "operatorGates"],
+  "type": "object"
+}

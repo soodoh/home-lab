@@ -19,7 +19,7 @@ from typing import Any
 PLAN_FORMAT = "home-lab-proxmox-plan-v1"
 OBSERVATION_FORMAT = "home-lab-proxmox-observation-v1"
 BUNDLE_FORMAT = "home-lab-proxmox-host-bundle-v1"
-PROTOCOL = 3
+PROTOCOL = 4
 MAX_OBSERVATION_BYTES = 1024 * 1024
 _OBSERVER_REMOTE = "/" + "usr" + "/" + "local" + "/libexec/home-lab/proxmox-observer"
 SSH_COMMAND = (
@@ -49,7 +49,8 @@ APPROVED_SOURCE_FILES = {
     "flake.lock", "flake.nix", "proxmox/activation-envelope.schema.json", "proxmox/activator-template.py",
     "proxmox/apply.py", "proxmox/bundle.py", "proxmox/fixture-observation.json", "proxmox/observation.schema.json",
     "proxmox/observer-template.py", "proxmox/package-manifest.json", "proxmox/package-manifest.schema.json",
-    "proxmox/plan.schema.json", "proxmox/planner.py", "proxmox/private-preconditions.schema.json",
+    "proxmox/plan.schema.json", "proxmox/planner.py", "proxmox/prepare.py", "proxmox/private-preconditions.schema.json",
+    "proxmox/private-preparation-request.schema.json", "proxmox/private-preparer-template.py",
     "proxmox/projection.json", "proxmox/projection.schema.json",
 }
 _PVE_ROOT = "/" + "etc" + "/" + "pve"
@@ -365,11 +366,17 @@ def build_plan(bindings: dict[str, Any], projection: dict[str, Any], manifest: d
         findings.append(make_issue("opentofu", "opentofu", "opentofu-drift", "vm-100", "OpenTofu-owned state is incomplete or differs"))
         blockers.append(make_issue("blocker", "opentofu", "opentofu-owner-required", "vm-100", "OpenTofu drift is never mutated here"))
     access = observation["domains"]["protectedAccess"]
-    if access["status"] == "complete" and not access["matches"]:
+    if access["status"] != "complete":
+        blockers.append(make_issue("blocker", "protected-access", "observation-unavailable", "protected-access",
+                                   "protected access attestation is unavailable"))
+    elif not access["matches"]:
         blockers.append(make_issue("blocker", "protected-access", "private-observation-mismatch", "protected-access",
                                    "protected access attestation reports a mismatch"))
     protected = observation["domains"]["protectedHardware"]
-    if protected["status"] == "complete" and not protected["matches"]:
+    if protected["status"] != "complete":
+        blockers.append(make_issue("blocker", "protected-hardware", "observation-unavailable", "protected-hardware",
+                                   "protected hardware attestation is unavailable"))
+    elif not protected["matches"]:
         blockers.append(make_issue("blocker", "protected-hardware", "private-observation-mismatch", "protected-hardware",
                                    "protected hardware attestation reports a mismatch"))
     if not identity_matches:
@@ -418,6 +425,7 @@ def validate_plan(plan: Any, projection: dict[str, Any], manifest: dict[str, Any
     exact_object(plan["bindings"], {"activationEnvelopeSchemaSha256", "activatorSha256", "bundleContentSha256", "bundleFormat",
                                     "flakeLockSha256", "gitCommit", "gitTree", "observerProtocol", "observerSha256",
                                     "packageManifestSha256", "planSchemaSha256", "privatePreconditionsSchemaSha256",
+                                    "privatePreparationRequestSchemaSha256", "privatePreparerSha256",
                                     "projectionSha256"}, "bindings")
     if plan["bindings"]["bundleFormat"] != BUNDLE_FORMAT or plan["bindings"]["observerProtocol"] != PROTOCOL:
         raise ValueError("plan bundle binding is invalid")
@@ -499,8 +507,12 @@ def validate_plan(plan: Any, projection: dict[str, Any], manifest: dict[str, Any
         for issue in collection:
             exact_object(issue, {"code", "detail", "domain", "id", "kind", "target"}, "issue")
             allowed_kinds = {"blocker"} if collection_name == "blockers" else {"audit", "drift", "opentofu"}
-            if issue["kind"] not in allowed_kinds or issue["domain"] not in DOMAIN_ORDER or issue["id"] != digest({
-                    "code": issue["code"], "domain": issue["domain"], "target": issue["target"]}):
+            string_fields = ("code", "detail", "domain", "id", "kind", "target")
+            if any(not isinstance(issue[name], str) for name in string_fields) or \
+                    re.fullmatch(r"[a-z0-9-]+", issue["code"]) is None or \
+                    issue["kind"] not in allowed_kinds or issue["domain"] not in DOMAIN_ORDER or \
+                    HEX64.fullmatch(issue["id"]) is None or issue["id"] != digest({
+                        "code": issue["code"], "domain": issue["domain"], "target": issue["target"]}):
                 raise ValueError("issue binding is invalid")
             current_sort = (DOMAIN_ORDER[issue["domain"]], issue["target"], issue["code"], issue["id"])
             if last_sort is not None and current_sort < last_sort:
@@ -565,6 +577,7 @@ def bundle_inputs(bundle: Path, bundle_hash_file: Path, repo: Path, source_root:
     for schema_name, metadata_key in (("observation.schema.json", "observationSchemaSha256"),
                                       ("plan.schema.json", "planSchemaSha256"),
                                       ("private-preconditions.schema.json", "privatePreconditionsSchemaSha256"),
+                                      ("private-preparation-request.schema.json", "privatePreparationRequestSchemaSha256"),
                                       ("activation-envelope.schema.json", "activationEnvelopeSchemaSha256")):
         schema_raw = (bundle / "policy" / schema_name).read_bytes()
         if schema_raw != (source_root / "proxmox" / schema_name).read_bytes() or \
@@ -580,9 +593,13 @@ def bundle_inputs(bundle: Path, bundle_hash_file: Path, repo: Path, source_root:
             raise ValueError(f"repository projection binding failed: {relative}")
     observer = bundle / "helpers/proxmox-observer"
     activator = bundle / "helpers/proxmox-activator"
+    preparer = bundle / "helpers/proxmox-private-preparer"
     observer_hash = digest(observer.read_bytes())
     activator_hash = digest(activator.read_bytes())
-    if metadata["helperSha256"]["proxmox-observer"] != observer_hash or metadata["helperSha256"]["proxmox-activator"] != activator_hash:
+    preparer_hash = digest(preparer.read_bytes())
+    if metadata["helperSha256"]["proxmox-observer"] != observer_hash or \
+            metadata["helperSha256"]["proxmox-activator"] != activator_hash or \
+            metadata["helperSha256"]["proxmox-private-preparer"] != preparer_hash:
         raise ValueError("bundle helper binding failed")
     commit, tree = git_bindings(repo)
     bindings = {"activationEnvelopeSchemaSha256": metadata["activationEnvelopeSchemaSha256"],
@@ -591,7 +608,8 @@ def bundle_inputs(bundle: Path, bundle_hash_file: Path, repo: Path, source_root:
                 "observerProtocol": PROTOCOL, "observerSha256": observer_hash,
                 "packageManifestSha256": metadata["packageManifestSha256"], "planSchemaSha256": metadata["planSchemaSha256"],
                 "privatePreconditionsSchemaSha256": metadata["privatePreconditionsSchemaSha256"],
-                "projectionSha256": metadata["projectionSha256"]}
+                "privatePreparationRequestSchemaSha256": metadata["privatePreparationRequestSchemaSha256"],
+                "privatePreparerSha256": preparer_hash, "projectionSha256": metadata["projectionSha256"]}
     return bindings, projection, manifest, metadata
 
 
@@ -732,17 +750,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir")
     parser.add_argument("--plan-sha")
     parser.add_argument("--approve-plan-sha")
+    parser.add_argument("--confirm-no-concurrent-mutation", action="store_true")
+    parser.add_argument("--confirm-console", action="store_true")
+    parser.add_argument("--confirm-lan-rollback", action="store_true")
+    parser.add_argument("--confirm-backups", action="store_true")
     args, unknown = parser.parse_known_args()
     plan_usage = "proxmox-host plan --repo-root ABSOLUTE_PATH [--fixture-only --observation-file FILE --observed-at TIME --completed-at TIME --output-dir DIR]"
     apply_usage = "proxmox-host apply --repo-root ABSOLUTE_PATH --plan-sha SHA256 --approve-plan-sha SAME_SHA256"
-    if unknown or args.command not in {"plan", "apply"} or not args.repo_root:
-        fail(f"usage: {plan_usage}\n       {apply_usage}", 64)
+    prepare_usage = "proxmox-host prepare --repo-root ABSOLUTE_PATH --plan-sha SHA256 --approve-plan-sha SAME_SHA256 --confirm-no-concurrent-mutation [conditional watchdog confirmations]"
+    if unknown or args.command not in {"plan", "prepare", "apply"} or not args.repo_root:
+        fail(f"usage: {plan_usage}\n       {prepare_usage}\n       {apply_usage}", 64)
     fixture_fields = (args.observation_file, args.observed_at, args.completed_at, args.output_dir)
+    confirmations = (args.confirm_no_concurrent_mutation, args.confirm_console, args.confirm_lan_rollback, args.confirm_backups)
     if args.command == "plan":
-        if args.plan_sha or args.approve_plan_sha or args.fixture_only != all(fixture_fields) or (not args.fixture_only and any(fixture_fields)):
+        if args.plan_sha or args.approve_plan_sha or any(confirmations) or args.fixture_only != all(fixture_fields) or (not args.fixture_only and any(fixture_fields)):
             fail(f"usage: {plan_usage}", 64)
     elif args.fixture_only or any(fixture_fields) or not args.plan_sha or not args.approve_plan_sha:
+        fail(f"usage: {prepare_usage if args.command == 'prepare' else apply_usage}", 64)
+    elif args.command == "apply" and any(confirmations):
         fail(f"usage: {apply_usage}", 64)
+    elif args.command == "prepare" and not args.confirm_no_concurrent_mutation:
+        fail(f"usage: {prepare_usage}", 64)
     return args
 
 
@@ -760,6 +788,10 @@ def main() -> int:
         if args.command == "apply":
             import apply as guarded_apply
             print(guarded_apply.apply(args, bundle_path, bundle_hash_path, source_root))
+            return 0
+        if args.command == "prepare":
+            import prepare as private_prepare
+            print(private_prepare.prepare(args, bundle_path, bundle_hash_path, source_root))
             return 0
         bindings, projection, manifest, _ = bundle_inputs(bundle_path, bundle_hash_path, repo, source_root)
         if args.fixture_only:

@@ -1,0 +1,43 @@
+#!/usr/bin/python3
+"""Atomically refresh fixed protected runtime state without retaining its prior bytes."""
+import importlib.machinery
+import importlib.util
+import hashlib
+import hmac
+import os
+from pathlib import Path
+
+SOURCE = Path(__file__).with_name("bootstrap-proxmox-nix-host")
+loader = importlib.machinery.SourceFileLoader("proxmox_nix_bootstrap_runtime", str(SOURCE))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+runtime = importlib.util.module_from_spec(spec); loader.exec_module(runtime)
+
+
+def main():
+    if os.geteuid() != 0 or os.environ.get("PROXMOX_NIX_PROTECTED_REFRESH_CONFIRMED") != "refresh-reviewed-protected-runtime-input":
+        raise ValueError("root and explicit protected-refresh gate required")
+    runtime.ensure_dir(runtime.BOOT, 0o700); runtime.ensure_dir(runtime.RUNTIME, 0o700)
+    install_fd = runtime.acquire_lock(runtime.LOCK)
+    operation_fd = None
+    try:
+        operation_fd = runtime.acquire_lock(runtime.OPERATION_LOCK)
+        runtime.reconcile_pending()
+        runtime.reject_locks()
+        raw = runtime.validate_protected(runtime.secure_file(runtime.PROTECTED_INCOMING, 0o600, 256 * 1024))
+        key = runtime.secure_file(runtime.SESSION_KEY, 0o600, 64)
+        if len(key) < 32:
+            raise ValueError("session key unavailable")
+        runtime.atomic(runtime.PROTECTED, raw, 0o600)
+        mac = hmac.new(key, raw, hashlib.sha256).hexdigest().encode() + b"\n"
+        runtime.atomic(runtime.PROTECTED_MAC, mac, 0o600)
+    finally:
+        if operation_fd is not None: os.close(operation_fd)
+        os.close(install_fd)
+    print("proxmox-nix-protected-inputs=refreshed")
+
+
+if __name__ == "__main__":
+    try: main()
+    except Exception:
+        print("refresh-proxmox-nix-protected-inputs: fixed operation failed", file=__import__('sys').stderr)
+        raise SystemExit(1)

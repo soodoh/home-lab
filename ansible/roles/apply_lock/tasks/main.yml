@@ -5,7 +5,37 @@
       - apply_lock_action in ['acquire', 'release']
     fail_msg: "apply_lock_action must be acquire or release."
 
-- name: Acquire the production apply lock
+- name: Ensure the Proxmox shared operation-lock directory exists
+  ansible.builtin.file:
+    path: "{{ apply_lock_guard_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - apply_lock_action == 'acquire'
+    - apply_lock_guard_path | length > 0
+
+- name: Ensure the Proxmox shared operation-lock file has fixed metadata
+  ansible.builtin.file:
+    path: "{{ apply_lock_guard_path }}"
+    state: touch
+    owner: root
+    group: root
+    mode: "0600"
+    modification_time: preserve
+    access_time: preserve
+  become: true
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - apply_lock_action == 'acquire'
+    - apply_lock_guard_path | length > 0
+
+- name: Acquire the production apply lock without a host guard
   ansible.builtin.command:
     argv:
       - /usr/bin/mkdir
@@ -18,6 +48,32 @@
   when:
     - not ansible_check_mode
     - apply_lock_action == 'acquire'
+    - apply_lock_guard_path | length == 0
+
+- name: Acquire the Proxmox production lock under the shared operation mutex
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/flock
+      - --exclusive
+      - --nonblock
+      - --
+      - "{{ apply_lock_guard_path }}"
+      - /usr/bin/bash
+      - -c
+      - >-
+        set -euo pipefail;
+        test ! -e /var/lib/home-lab/reconciliation/apply.lock;
+        test ! -L /var/lib/home-lab/reconciliation/apply.lock;
+        exec /usr/bin/mkdir --mode=0700 -- "$1"
+      - proxmox-ansible-lock
+      - "{{ apply_lock_path }}"
+  become: true
+  register: apply_lock_acquire_guarded
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - apply_lock_action == 'acquire'
+    - apply_lock_guard_path | length > 0
 
 - name: Record the production apply-lock owner
   ansible.builtin.copy:

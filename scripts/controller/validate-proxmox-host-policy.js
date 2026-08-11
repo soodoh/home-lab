@@ -102,15 +102,19 @@ function validateProxmoxHostPolicy(contract) {
   }
   const planAccount = serviceAccounts.find((account) => account.name === "tofu-plan");
   const applyAccount = serviceAccounts.find((account) => account.name === "tofu-apply");
-  if (planAccount && (planAccount.groups.length || planAccount.sudo.kind !== "audit-absence" ||
-      planAccount.sudo.absence !== "file" || !planAccount.sudo.projectable ||
-      planAccount.sudo.path !== `/etc/sudoers.d/${planAccount.name}`)) {
-    failures.push("tofu-plan must remain unprivileged during parity");
+  const observerCommand = "/usr/local/libexec/home-lab/proxmox-observer observe";
+  const forcedPlanCommand = `restrict,command="sudo -n -- ${observerCommand}"`;
+  if (planAccount && (planAccount.groups.length || planAccount.sudo?.state !== "present" ||
+      planAccount.sudo?.file?.path !== `/etc/sudoers.d/${planAccount.name}` ||
+      planAccount.sudo?.rule !== `${planAccount.name} ALL=(root) NOPASSWD: ${observerCommand}` ||
+      planAccount.authorized_keys?.forced_command !== forcedPlanCommand)) {
+    failures.push("tofu-plan must have only the fixed observer capability during parity");
   }
   if (applyAccount && (!sameMembers(applyAccount.groups, ["sudo"]) ||
       applyAccount.sudo?.state !== "present" ||
       applyAccount.sudo?.file?.path !== `/etc/sudoers.d/${applyAccount.name}` ||
-      applyAccount.sudo?.rule !== `${applyAccount.name} ALL=(root) NOPASSWD: ALL`)) {
+      applyAccount.sudo?.rule !== `${applyAccount.name} ALL=(root) NOPASSWD: ALL` ||
+      applyAccount.authorized_keys?.forced_command !== null)) {
     failures.push("tofu-apply current sudo policy must remain explicit during parity");
   }
 
