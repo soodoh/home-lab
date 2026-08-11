@@ -269,6 +269,13 @@ if(!validate(doc.valid)||validate(doc.invalid)) process.exit(1);
         self.assertEqual(len(self.preparer["parse_zfs_mirrors"](topology.encode())),6)
         with self.assertRaises(ValueError): self.preparer["parse_zfs_mirrors"]((topology+"\n /dev/disk/by-id/extra ONLINE").encode())
         self.assertFalse(self.preparer["pve_mapping_matches"]('{"map":[{"node":"proxmox","path":"1-2"},{"node":"proxmox","path":"1-2"}]}',"1-2"))
+        device_id="a"*4+":"+"b"*4
+        self.assertTrue(self.preparer["pve_mapping_matches"](
+            json.dumps({"map":[f"id={device_id},node=proxmox,path=1-2"]}),"1-2"))
+        self.assertFalse(self.preparer["pve_mapping_matches"](
+            json.dumps({"map":[f"id={device_id},node=proxmox,path=1-2,extra=value"]}),"1-2"))
+        self.assertFalse(self.preparer["pve_mapping_matches"](
+            json.dumps({"map":["node=proxmox,path=1-2"]}),"1-2"))
 
     def test_udev_parser_accepts_only_unique_physical_usb_device_records(self):
         realistic = b"\n\n".join((

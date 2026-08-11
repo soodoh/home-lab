@@ -344,6 +344,25 @@ if sys.argv[1:] == ["apply"]:
             self.assertEqual(namespace["tailscale_summary"](), {
                 "expectedCount": 2, "matches": False, "observedCount": 2, "status": "complete",
             })
+            expected_export = [{
+                "client": "client.example", "export": "/export", "options": ["rw", "sync"],
+            }]
+            self.assertEqual(namespace["parse_nfs_exports"](
+                b"/export client.example(rw,sync)\n"), expected_export)
+            self.assertEqual(namespace["parse_nfs_exports"](
+                b"/export\n  client.example(rw,sync)\n"), expected_export)
+            self.assertIsNone(namespace["parse_nfs_exports"](
+                b"/export\nclient.example(rw,sync)\n"))
+            policy = {"client": "client.example", "export": "/export", "options": ["rw", "sync"]}
+            expanded = [{
+                "client": "client.example", "export": "/export",
+                "options": ["hide", "no_all_squash", "rw", "sec=sys", "secure", "sync", "wdelay"],
+            }]
+            self.assertTrue(namespace["nfs_export_matches"](expanded, policy))
+            self.assertFalse(namespace["nfs_export_matches"](
+                [{**expanded[0], "options": expanded[0]["options"] + ["unreviewed"]}], policy))
+            self.assertFalse(namespace["nfs_export_matches"](
+                [{**expanded[0], "options": [option for option in expanded[0]["options"] if option != "rw"]}], policy))
 
 
 if __name__ == "__main__":

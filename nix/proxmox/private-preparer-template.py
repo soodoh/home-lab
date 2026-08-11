@@ -425,11 +425,22 @@ def pve_mapping_matches(raw, expected):
     candidates = value.get("map") if isinstance(value, dict) else None
     if candidates is None and isinstance(value, list):
         candidates = value
-    if not isinstance(candidates, list) or len(candidates) != 1 or not isinstance(candidates[0], dict):
+    if not isinstance(candidates, list) or len(candidates) != 1:
         return False
     item = candidates[0]
+    if isinstance(item, str):
+        parts = item.split(",")
+        if len(parts) != 3 or any("=" not in part for part in parts):
+            return False
+        fields = dict(part.split("=", 1) for part in parts)
+        return set(fields) == {"id", "node", "path"} and \
+            re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{4}", fields["id"]) is not None and \
+            fields["node"] == SPEC["node"] and fields["path"] == expected
+    if not isinstance(item, dict) or not set(item).issubset({"id", "node", "path"}):
+        return False
     return item.get("node") == SPEC["node"] and item.get("path") == expected and \
-        set(item).issubset({"id", "node", "path"})
+        ("id" not in item or isinstance(item["id"], str) and
+         re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{4}", item["id"]) is not None)
 
 
 def summaries():

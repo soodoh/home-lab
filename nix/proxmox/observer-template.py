@@ -326,15 +326,37 @@ def parse_nfs_exports(raw):
     except UnicodeError:
         return None
     entries = []
-    for line in lines:
-        match = re.fullmatch(r"\s*(\S+)\s+(\S+)\(([^()]*)\)\s*", line)
-        if not match:
-            return None
-        options = match.group(3).split(",") if match.group(3) else []
+    index = 0
+    while index < len(lines):
+        match = re.fullmatch(r"\s*(\S+)\s+(\S+)\(([^()]*)\)\s*", lines[index])
+        if match:
+            export, client, option_text = match.groups()
+            index += 1
+        else:
+            export_match = re.fullmatch(r"(\S+)", lines[index])
+            if export_match is None or index + 1 >= len(lines):
+                return None
+            client_match = re.fullmatch(r"\s+(\S+)\(([^()]*)\)\s*", lines[index + 1])
+            if client_match is None:
+                return None
+            export = export_match.group(1)
+            client, option_text = client_match.groups()
+            index += 2
+        options = option_text.split(",") if option_text else []
         if any(not option for option in options):
             return None
-        entries.append({"client": match.group(2), "export": match.group(1), "options": sorted(options)})
+        entries.append({"client": client, "export": export, "options": sorted(options)})
     return sorted(entries, key=lambda item: (item["export"], item["client"], item["options"]))
+
+
+def nfs_export_matches(entries, expected):
+    if not isinstance(entries, list) or len(entries) != 1 or entries[0].get("client") != expected["client"] or \
+            entries[0].get("export") != expected["export"] or not isinstance(entries[0].get("options"), list):
+        return False
+    expanded_defaults = {"hide", "no_all_squash", "sec=sys", "secure", "wdelay"}
+    observed_options = set(entries[0]["options"])
+    expected_options = set(expected["options"])
+    return expected_options.issubset(observed_options) and observed_options - expanded_defaults == expected_options
 
 
 def tailscale_summary():
@@ -422,7 +444,7 @@ def storage_summary():
         export_entries = parse_nfs_exports(exports)
         expected_export = {"client": policy["nfs"]["client"], "export": policy["nfs"]["export"],
                            "options": sorted(policy["nfs"]["options"] + [policy["nfs"]["squashPolicy"]])}
-        export_matches = export_entries == [expected_export]
+        export_matches = nfs_export_matches(export_entries, expected_export)
         matches = health.strip().decode("ascii") == policy["expectedHealth"] and int(arc.strip()) == policy["arcMaxBytes"] and \
             properties == {"mounted": "yes", "mountpoint": policy["mountpoint"],
                            "sharenfs": policy["datasetProperties"]["sharenfs"]} and \
