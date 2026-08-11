@@ -338,11 +338,15 @@ proxmox:
       coral:
         bdf: "0000:0b:00.0"
         vendor_device: 1ac1:089a
+        iommu_group: 22
+        subsystem_id: 1ac1:089a
         required_driver: vfio-pci
         mapping: coral-tpu
       gpu:
         bdf: "0000:03:00.0"
         vendor_device: 1002:744c
+        iommu_group: 14
+        subsystem_id: 1043:0506
         mapping: rx-7900-xtx
         required_driver: vfio-pci
         pcie: true
@@ -350,6 +354,8 @@ proxmox:
       gpu_audio:
         bdf: "0000:03:00.1"
         vendor_device: 1002:ab30
+        iommu_group: 15
+        subsystem_id: 1002:ab30
         mapping: rx-7900-xtx-audio
         required_driver: vfio-pci
         pcie: true

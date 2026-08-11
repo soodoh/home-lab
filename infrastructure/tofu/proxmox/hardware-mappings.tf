@@ -18,9 +18,11 @@ resource "proxmox_hardware_mapping_pci" "device" {
   name    = each.value.mapping
   comment = "home-lab ${each.key}; managed by OpenTofu"
   map = [{
-    id   = each.value.vendor_device
-    node = local.node
-    path = each.value.bdf
+    id           = each.value.vendor_device
+    iommu_group  = each.value.iommu_group
+    node         = local.node
+    path         = each.value.bdf
+    subsystem_id = each.value.subsystem_id
   }]
 
   lifecycle {
