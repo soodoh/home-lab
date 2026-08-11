@@ -30,6 +30,13 @@ proxmox_api_accounts: "{{ proxmox.access.pve.accounts }}"
 proxmox_api_additional_roles: "{{ proxmox.access.pve.additional_roles }}"
 proxmox_tailscale_auth_key: >-
   {{ lookup('ansible.builtin.env', proxmox.tailscale.auth_key_secret_ref) }}
+proxmox_health_local_api_url: "{{ proxmox.health.local_api_url }}"
+proxmox_health_local_api_validate_certs: "{{ proxmox.health.local_api_validate_certs }}"
+proxmox_health_local_api_status_codes: "{{ proxmox.health.local_api_status_codes }}"
+proxmox_health_tailscale_backend_state: "{{ proxmox.health.tailscale_backend_state }}"
+proxmox_health_vm_status: "{{ proxmox.health.vm_status }}"
+proxmox_health_require_vm: "{{ proxmox.health.require_vm }}"
 
-human_access_visudo_path: /usr/sbin/visudo
+human_access_visudo_executable: "{{ proxmox.access.sudo_validation.executable }}"
+human_access_visudo_arguments: "{{ proxmox.access.sudo_validation.arguments }}"
 human_access_accounts: "{{ proxmox.access.human_accounts }}"

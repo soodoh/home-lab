@@ -55,10 +55,13 @@ def verified_keyring(keyring: dict[str, object], root: Path) -> Path:
     name = keyring.get("name")
     if not isinstance(expected, str) or not isinstance(name, str):
         fail("keyring_shape")
+    file_policy = keyring.get("file")
+    if not isinstance(file_policy, dict) or sorted(file_policy) != ["group", "kind", "mode", "owner", "path", "projectable"]:
+        fail(f"keyring_file_policy name={name}")
+    path_value = file_policy.get("path")
+    if not isinstance(path_value, str):
+        fail(f"keyring_path name={name}")
     if source_url is None:
-        path_value = keyring.get("path")
-        if not isinstance(path_value, str):
-            fail(f"keyring_path name={name}")
         path = Path(path_value)
     else:
         if not isinstance(source_url, str) or not source_url.startswith("https://"):
@@ -422,7 +425,7 @@ def main() -> None:
         (cache / "archives" / "partial").mkdir(parents=True, mode=0o700)
         log.mkdir(mode=0o700)
 
-        keyrings = {str(item["path"]): verified_keyring(item, root) for item in policy["keyrings"]}
+        keyrings = {str(item["file"]["path"]): verified_keyring(item, root) for item in policy["keyrings"]}
         for repository in policy["repositories"]:
             if not isinstance(repository, dict):
                 fail("repository_shape")

@@ -12,8 +12,8 @@
       - item.group | length > 0
       - item.home is match('^/home/[a-z_][a-z0-9_-]*$')
       - item.shell.startswith('/')
-      - item.sudoers_path is match('^/etc/sudoers\.d/[a-z_][a-z0-9_-]*$')
-      - "(item.sudo_rule | default(item.name ~ ' ALL=(root) NOPASSWD: ALL')) | length > 0"
+      - (item.sudo.file.path | default(item.sudoers_path)) is match('^/etc/sudoers\.d/[a-z_][a-z0-9_-]*$')
+      - "(item.sudo.rule | default(item.sudo_rule | default(item.name ~ ' ALL=(root) NOPASSWD: ALL'))) | length > 0"
     fail_msg: "Every human-access account requires a name, primary group, /home path, shell, and sudoers path."
   loop: "{{ human_access_accounts }}"
   loop_control:
@@ -68,12 +68,24 @@
   loop_control:
     label: "{{ item.name }}"
 
-- name: Remove conventional OpenSSH authorized-key files for human accounts
+- name: Remove contract-declared conventional OpenSSH authorized-key files for human accounts
+  ansible.builtin.file:
+    path: "{{ item.1.path }}"
+    state: absent
+  become: true
+  loop: "{{ query('ansible.builtin.subelements', human_access_accounts, 'authorized_keys.files', {'skip_missing': true}) }}"
+  loop_control:
+    label: "{{ item.0.name }}:{{ item.1.path }}"
+  when:
+    - item.0.authorized_keys.state == 'absent'
+    - not ansible_check_mode or item.0.name in human_access_existing_accounts
+
+- name: Preserve legacy Arch authorized-key removal behavior
   ansible.builtin.file:
     path: "{{ item.0.home }}/.ssh/{{ item.1 }}"
     state: absent
   become: true
-  loop: "{{ human_access_accounts | product(['authorized_keys', 'authorized_keys2']) | list }}"
+  loop: "{{ human_access_accounts | selectattr('authorized_keys', 'undefined') | product(['authorized_keys', 'authorized_keys2']) | list }}"
   loop_control:
     label: "{{ item.0.name }}:{{ item.1 }}"
   when:
@@ -82,13 +94,13 @@
 
 - name: Install validated passwordless sudo policies for human accounts
   ansible.builtin.copy:
-    content: "{{ item.sudo_rule | default(item.name ~ ' ALL=(root) NOPASSWD: ALL') }}\n"
-    dest: "{{ item.sudoers_path }}"
-    owner: root
-    group: root
-    mode: "0440"
+    content: "{{ item.sudo.rule | default(item.sudo_rule | default(item.name ~ ' ALL=(root) NOPASSWD: ALL')) }}\n"
+    dest: "{{ item.sudo.file.path | default(item.sudoers_path) }}"
+    owner: "{{ item.sudo.file.owner | default('root') }}"
+    group: "{{ item.sudo.file.group | default('root') }}"
+    mode: "{{ item.sudo.file.mode | default('0440') }}"
     backup: false
-    validate: "{{ human_access_visudo_path }} --check --file=%s"
+    validate: "{{ human_access_visudo_executable }} {{ human_access_visudo_arguments | join(' ') }}"
   become: true
   loop: "{{ human_access_accounts }}"
   loop_control:

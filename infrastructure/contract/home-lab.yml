@@ -14,9 +14,18 @@ network:
   bridge: vmbr0
   bridge_port: eno1
   ownership:
-    interfaces_file: /etc/network/interfaces
+    interfaces_file:
+      kind: managed-file
+      projectable: true
+      path: /etc/network/interfaces
+      owner: root
+      group: root
+      mode: "0644"
     snippets_directory: /etc/network/interfaces.d
     permitted_active_snippets: []
+    managed_header: "# Managed by Ansible. Keep console/LAN rollback available during changes."
+    bridge_stp: false
+    bridge_forward_delay: 0
   proxmox:
     hostname: proxmox
     magicdns_name: proxmox
@@ -30,6 +39,19 @@ network:
 proxmox:
   node: proxmox
   api_endpoint: https://proxmox:8006/api2/json
+  grub:
+    file:
+      kind: managed-file
+      projectable: true
+      path: /etc/default/grub
+      owner: root
+      group: root
+      mode: "0644"
+    variable: GRUB_CMDLINE_LINUX_DEFAULT
+    default_tokens:
+      - quiet
+      - amd_iommu=on
+      - iommu=pt
   vfio:
     modules:
       - vfio
@@ -42,7 +64,58 @@ proxmox:
     prohibited_modules:
       - apex
       - gasket
+    absence_policy:
+      - kind: audit-absence
+        projectable: true
+        absence: matching-lines
+        path: /etc/modules
+        pattern: '^\s*(vfio|vfio_iommu_type1|vfio_pci|vfio_virqfd)(?:\s*(?:#.*)?)?$'
+      - kind: audit-absence
+        projectable: true
+        absence: matching-lines
+        path: /etc/modules-load.d/modules.conf
+        pattern: '^\s*(vfio|vfio_iommu_type1|vfio_pci|vfio_virqfd)(?:\s*(?:#.*)?)?$'
+      - kind: audit-absence
+        projectable: true
+        absence: file
+        path: /etc/modprobe.d/vfio.conf
+    modules_load_file:
+      kind: managed-file
+      projectable: true
+      path: /etc/modules-load.d/home-lab-vfio.conf
+      owner: root
+      group: root
+      mode: "0644"
+    modprobe_file:
+      kind: managed-file
+      projectable: true
+      path: /etc/modprobe.d/home-lab-vfio.conf
+      owner: root
+      group: root
+      mode: "0644"
+    soft_dependencies:
+      - module: amdgpu
+        pre:
+          - vfio-pci
+      - module: snd_hda_intel
+        pre:
+          - vfio-pci
   apt:
+    repository_file_metadata:
+      kind: managed-file-metadata
+      projectable: true
+      owner: root
+      group: root
+      mode: "0644"
+    inactive_sources_list:
+      file:
+        kind: managed-file
+        projectable: true
+        path: /etc/apt/sources.list
+        owner: root
+        group: root
+        mode: "0644"
+      notice: "# Repository definitions are managed in /etc/apt/sources.list.d/*.sources."
     repositories:
       - name: debian
         file: /etc/apt/sources.list.d/debian.sources
@@ -74,26 +147,57 @@ proxmox:
         signed_by: /usr/share/keyrings/tailscale-archive-keyring.gpg
     permitted_keyrings:
       - name: debian
-        path: /usr/share/keyrings/debian-archive-keyring.gpg
+        file:
+          kind: managed-file
+          projectable: true
+          path: /usr/share/keyrings/debian-archive-keyring.gpg
+          owner: root
+          group: root
+          mode: "0644"
         sha256: 506b815cbb32d9b6066b4a2aa524071e071761e7e7f68c3ac74f3061ba852017
         source_url: null
         symlink_target: debian-archive-keyring.pgp
       - name: proxmox
-        path: /usr/share/keyrings/proxmox-archive-keyring.gpg
+        file:
+          kind: managed-file
+          projectable: true
+          path: /usr/share/keyrings/proxmox-archive-keyring.gpg
+          owner: root
+          group: root
+          mode: "0644"
         sha256: 136673be77aba35dcce385b28737689ad64fd785a797e57897589aed08db6e45
         source_url: null
         symlink_target: null
       - name: tailscale
-        path: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        file:
+          kind: managed-file
+          projectable: true
+          path: /usr/share/keyrings/tailscale-archive-keyring.gpg
+          owner: root
+          group: root
+          mode: "0644"
         sha256: 3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39
         source_url: https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg
         symlink_target: null
   services:
-    - chrony.service
-    - nfs-server.service
-    - ssh.service
-    - tailscaled.service
+    - name: chrony.service
+      enabled: true
+      state: started
+    - name: nfs-server.service
+      enabled: true
+      state: started
+    - name: ssh.service
+      enabled: true
+      state: started
+    - name: tailscaled.service
+      enabled: true
+      state: started
   access:
+    sudo_validation:
+      executable: /usr/sbin/visudo
+      arguments:
+        - --check
+        - --file=%s
     service_accounts:
       - name: tofu-plan
         home: /home/tofu-plan
@@ -101,10 +205,29 @@ proxmox:
         create_home: true
         password_lock: true
         groups: []
-        authorized_keys_secret_ref: PROXMOX_PLAN_SSH_PUBLIC_KEYS
-        authorized_keys_path: /home/tofu-plan/.ssh/authorized_keys
-        sudoers_path: null
-        sudo_rule: null
+        ssh_directory:
+          kind: runtime-protected-directory
+          projectable: false
+          materialization: metadata-only
+          path: /home/tofu-plan/.ssh
+          owner: tofu-plan
+          group: tofu-plan
+          mode: "0700"
+        authorized_keys:
+          file:
+            kind: runtime-protected-file
+            projectable: false
+            materialization: metadata-only
+            path: /home/tofu-plan/.ssh/authorized_keys
+            owner: tofu-plan
+            group: tofu-plan
+            mode: "0600"
+          secret_ref: PROXMOX_PLAN_SSH_PUBLIC_KEYS
+        sudo:
+          kind: audit-absence
+          projectable: true
+          absence: file
+          path: /etc/sudoers.d/tofu-plan
       - name: tofu-apply
         home: /home/tofu-apply
         shell: /bin/bash
@@ -112,10 +235,34 @@ proxmox:
         password_lock: true
         groups:
           - sudo
-        authorized_keys_secret_ref: PROXMOX_APPLY_SSH_PUBLIC_KEYS
-        authorized_keys_path: /home/tofu-apply/.ssh/authorized_keys
-        sudoers_path: /etc/sudoers.d/tofu-apply
-        sudo_rule: "tofu-apply ALL=(root) NOPASSWD: ALL"
+        ssh_directory:
+          kind: runtime-protected-directory
+          projectable: false
+          materialization: metadata-only
+          path: /home/tofu-apply/.ssh
+          owner: tofu-apply
+          group: tofu-apply
+          mode: "0700"
+        authorized_keys:
+          file:
+            kind: runtime-protected-file
+            projectable: false
+            materialization: metadata-only
+            path: /home/tofu-apply/.ssh/authorized_keys
+            owner: tofu-apply
+            group: tofu-apply
+            mode: "0600"
+          secret_ref: PROXMOX_APPLY_SSH_PUBLIC_KEYS
+        sudo:
+          state: present
+          file:
+            kind: managed-file
+            projectable: true
+            path: /etc/sudoers.d/tofu-apply
+            owner: root
+            group: root
+            mode: "0440"
+          rule: "tofu-apply ALL=(root) NOPASSWD: ALL"
     human_accounts:
       - name: proxmox
         comment: Home Lab Proxmox Administrator
@@ -124,14 +271,62 @@ proxmox:
         shell: /bin/bash
         password_lock: true
         supplementary_groups: []
-        remove_authorized_keys: true
-        sudoers_path: /etc/sudoers.d/proxmox
-        sudo_rule: "proxmox ALL=(root) NOPASSWD: ALL"
+        ssh_directory:
+          kind: runtime-protected-directory
+          projectable: false
+          materialization: metadata-only
+          path: /home/proxmox/.ssh
+          owner: proxmox
+          group: proxmox
+          mode: "0700"
+        authorized_keys:
+          state: absent
+          files:
+            - kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /home/proxmox/.ssh/authorized_keys
+              owner: proxmox
+              group: proxmox
+              mode: "0600"
+            - kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /home/proxmox/.ssh/authorized_keys2
+              owner: proxmox
+              group: proxmox
+              mode: "0600"
+        sudo:
+          state: present
+          file:
+            kind: managed-file
+            projectable: true
+            path: /etc/sudoers.d/proxmox
+            owner: root
+            group: root
+            mode: "0440"
+          rule: "proxmox ALL=(root) NOPASSWD: ALL"
     pve:
       accounts:
         - user: root@pam
           token_name: tofu-plan
-          token_path: /root/.config/home-lab/proxmox-plan-token.env
+          token_escrow:
+            directory:
+              kind: runtime-protected-directory
+              projectable: false
+              materialization: metadata-only
+              path: /root/.config/home-lab
+              owner: root
+              group: root
+              mode: "0700"
+            file:
+              kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /root/.config/home-lab/proxmox-plan-token.env
+              owner: root
+              group: root
+              mode: "0600"
           privilege_separation: true
           primary_acl_path: /
           role: HomeLabTofuPlan
@@ -146,7 +341,23 @@ proxmox:
               role: HomeLabTofuPlanDiskInspect
         - user: root@pam
           token_name: tofu-apply
-          token_path: /root/.config/home-lab/proxmox-apply-token.env
+          token_escrow:
+            directory:
+              kind: runtime-protected-directory
+              projectable: false
+              materialization: metadata-only
+              path: /root/.config/home-lab
+              owner: root
+              group: root
+              mode: "0700"
+            file:
+              kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /root/.config/home-lab/proxmox-apply-token.env
+              owner: root
+              group: root
+              mode: "0600"
           privilege_separation: true
           primary_acl_path: /
           role: HomeLabTofuApply
@@ -180,7 +391,21 @@ proxmox:
             - VM.Audit
   ssh:
     service: ssh.service
-    config_path: /etc/ssh/sshd_config.d/60-home-lab.conf
+    host_key_sentinel:
+      kind: runtime-protected-file
+      projectable: false
+      materialization: metadata-only
+      path: /etc/ssh/ssh_host_ed25519_key
+      owner: root
+      group: root
+      mode: "0600"
+    config_file:
+      kind: managed-file
+      projectable: true
+      path: /etc/ssh/sshd_config.d/60-home-lab.conf
+      owner: root
+      group: root
+      mode: "0644"
     pubkey_authentication: true
     password_authentication: false
     kbd_interactive_authentication: false
@@ -192,6 +417,10 @@ proxmox:
   tailscale:
     package: tailscale
     service: tailscaled.service
+    service_enabled: true
+    service_state: started
+    enrollment_timeout_seconds: 30
+    enrollment_ssh: false
     hostname: proxmox
     advertise_tag: tag:proxmox
     advertise_routes: []
@@ -200,8 +429,21 @@ proxmox:
     netfilter_mode: "on"
     ssh: true
     auth_key_secret_ref: TAILSCALE_AUTH_KEY
+  health:
+    local_api_url: https://127.0.0.1:8006/api2/json/version
+    local_api_validate_certs: false
+    local_api_status_codes:
+      - 200
+      - 401
+    tailscale_backend_state: Running
+    require_vm: true
+    vm_status: running
   firewall:
-    config_path: /etc/pve/firewall/cluster.fw
+    kind: api-owned
+    ownership: pve-api
+    activation: pve-api
+    projectable: false
+    compatibility_config_path: /etc/pve/firewall/cluster.fw
     options:
       enable: true
       policy_in: DROP
@@ -585,10 +827,12 @@ proxmox:
         vendor_device: 10c4:ea60
         mapping: zigbee-cp210x
         serial_secret_ref: HOMELAB_ZIGBEE_USB_SERIAL
+        port_secret_ref: HOMELAB_ZIGBEE_USB_PORT
       zwave:
         vendor_device: 10c4:ea60
         mapping: zwave-cp210x
         serial_secret_ref: HOMELAB_ZWAVE_USB_SERIAL
+        port_secret_ref: HOMELAB_ZWAVE_USB_PORT
       bluetooth:
         host: 0bda:a729
         vendor_device: 0bda:a729
@@ -611,6 +855,19 @@ storage:
     expected_health: ONLINE
     corrected_checksum_baseline: 4
     arc_max_bytes: 68719476736
+    arc_config:
+      file:
+        kind: managed-file
+        projectable: true
+        path: /etc/modprobe.d/zfs.conf
+        owner: root
+        group: root
+        mode: "0644"
+      module: zfs
+      option: zfs_arc_max
+    mirror_topology:
+      count: 6
+      width: 2
     pve_storage:
       id: storage
       type: zfspool
@@ -622,6 +879,8 @@ storage:
       nodes:
         - proxmox
     dataset: storage/docker
+    dataset_properties:
+      sharenfs: "off"
     mountpoint: /storage/docker
     members:
       - secret_ref: HOMELAB_ZFS_MEMBER_01_BY_ID
@@ -653,7 +912,18 @@ storage:
     client: 192.168.0.100/32
     client_vmid: 100
     mountpoint: /mnt/storage
-    retain_no_root_squash: true
+    exports_file:
+      kind: managed-file
+      projectable: true
+      path: /etc/exports.d/home-lab.exports
+      owner: root
+      group: root
+      mode: "0644"
+    options:
+      - rw
+      - sync
+      - no_subtree_check
+    squash_policy: no_root_squash
 arch:
   repository_snapshot: "2026/08/01"
   network_interface: ens18

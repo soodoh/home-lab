@@ -9,10 +9,10 @@
 - name: Install the pinned Tailscale repository signing key
   ansible.builtin.get_url:
     url: "{{ proxmox_host_tailscale_keyring.source_url }}"
-    dest: "{{ proxmox_host_tailscale_keyring.path }}"
-    owner: root
-    group: root
-    mode: "0644"
+    dest: "{{ proxmox_host_tailscale_keyring.file.path }}"
+    owner: "{{ proxmox_host_tailscale_keyring.file.owner }}"
+    group: "{{ proxmox_host_tailscale_keyring.file.group }}"
+    mode: "{{ proxmox_host_tailscale_keyring.file.mode }}"
     checksum: "sha256:{{ proxmox_host_tailscale_keyring.sha256 }}"
   vars:
     proxmox_host_tailscale_keyring: >-
@@ -22,7 +22,7 @@
 
 - name: Inspect every declared APT signing-key path without following links
   ansible.builtin.stat:
-    path: "{{ item.path }}"
+    path: "{{ item.file.path }}"
     follow: false
     get_checksum: false
   register: proxmox_host_keyring_metadata_inspection
@@ -34,7 +34,7 @@
 
 - name: Inspect every declared APT signing-key target checksum
   ansible.builtin.stat:
-    path: "{{ item.path }}"
+    path: "{{ item.file.path }}"
     follow: true
     get_checksum: true
     checksum_algorithm: sha256
@@ -52,6 +52,9 @@
     proxmox_host_keyring_content: "{{ proxmox_host_keyring_content_inspection.results[keyring_index] }}"
   changed_when: >-
     not (proxmox_host_keyring_content.stat.isreg | default(false)) or
+    (proxmox_host_keyring_content.stat.pw_name | default('')) != item.item.file.owner or
+    (proxmox_host_keyring_content.stat.gr_name | default('')) != item.item.file.group or
+    (proxmox_host_keyring_content.stat.mode | default('')) != item.item.file.mode or
     (proxmox_host_keyring_content.stat.checksum | default('')) != item.item.sha256 or
     (
       item.item.symlink_target is none and
@@ -72,6 +75,9 @@
   ansible.builtin.assert:
     that:
       - proxmox_host_keyring_content.stat.isreg | default(false)
+      - (proxmox_host_keyring_content.stat.pw_name | default('')) == item.item.file.owner
+      - (proxmox_host_keyring_content.stat.gr_name | default('')) == item.item.file.group
+      - (proxmox_host_keyring_content.stat.mode | default('')) == item.item.file.mode
       - (proxmox_host_keyring_content.stat.checksum | default('')) == item.item.sha256
       - >-
         (item.item.symlink_target is none and
@@ -94,9 +100,9 @@
 - name: Install each canonical Deb822 repository definition
   ansible.builtin.copy:
     dest: "{{ item.file }}"
-    owner: root
-    group: root
-    mode: "0644"
+    owner: "{{ proxmox.apt.repository_file_metadata.owner }}"
+    group: "{{ proxmox.apt.repository_file_metadata.group }}"
+    mode: "{{ proxmox.apt.repository_file_metadata.mode }}"
     content: |
       Types: {{ item.types | join(' ') }}
       URIs: {{ item.uris | join(' ') }}
@@ -110,11 +116,11 @@
 
 - name: Keep the legacy aggregate source file inactive
   ansible.builtin.copy:
-    dest: /etc/apt/sources.list
-    owner: root
-    group: root
-    mode: "0644"
-    content: "# Repository definitions are managed in /etc/apt/sources.list.d/*.sources.\n"
+    dest: "{{ proxmox.apt.inactive_sources_list.file.path }}"
+    owner: "{{ proxmox.apt.inactive_sources_list.file.owner }}"
+    group: "{{ proxmox.apt.inactive_sources_list.file.group }}"
+    mode: "{{ proxmox.apt.inactive_sources_list.file.mode }}"
+    content: "{{ proxmox.apt.inactive_sources_list.notice }}\n"
   register: proxmox_host_legacy_source_list
 
 - name: Remove only known stale or duplicate repository definitions
@@ -154,7 +160,7 @@
         proxmox_host_active_repository_files.stdout_lines |
         difference((proxmox.apt.repositories | map(attribute='file') | list) +
                    proxmox_host_known_stale_repository_files +
-                   proxmox_host_known_transitional_repository_files) |
+                   [proxmox.apt.inactive_sources_list.file.path]) |
         length == 0
     fail_msg: "Unapproved APT source URI, suite, component, signing key, or definition file detected."
 
@@ -172,9 +178,9 @@
 
 - name: Keep required host services enabled and started
   ansible.builtin.systemd_service:
-    name: "{{ item }}"
-    enabled: true
-    state: started
+    name: "{{ item.name }}"
+    enabled: "{{ item.enabled }}"
+    state: "{{ item.state }}"
   loop: "{{ proxmox_services }}"
   when: not ansible_check_mode
 
@@ -210,7 +216,7 @@
       - /bin/systemctl
       - is-enabled
       - --quiet
-      - "{{ item }}"
+      - "{{ item.name }}"
   register: proxmox_host_service_enablement
   failed_when: false
   changed_when: false
@@ -224,7 +230,7 @@
       - /bin/systemctl
       - is-active
       - --quiet
-      - "{{ item }}"
+      - "{{ item.name }}"
   register: proxmox_host_service_state
   failed_when: false
   changed_when: false
@@ -274,11 +280,11 @@
 
 - name: Create service-user SSH directories
   ansible.builtin.file:
-    path: "{{ item.home }}/.ssh"
+    path: "{{ item.ssh_directory.path }}"
     state: directory
-    owner: "{{ item.name }}"
-    group: "{{ item.name }}"
-    mode: "0700"
+    owner: "{{ item.ssh_directory.owner }}"
+    group: "{{ item.ssh_directory.group }}"
+    mode: "{{ item.ssh_directory.mode }}"
   loop: "{{ proxmox_service_accounts }}"
   loop_control:
     label: "{{ item.name }}"
@@ -286,14 +292,14 @@
 
 - name: Install account-specific bootstrap-authorized public keys
   ansible.builtin.copy:
-    dest: "{{ item.authorized_keys_path }}"
+    dest: "{{ item.authorized_keys.file.path }}"
     content: "{{ proxmox_host_service_account_keys | reject('equalto', '') | join('\n') }}\n"
-    owner: "{{ item.name }}"
-    group: "{{ item.name }}"
-    mode: "0600"
+    owner: "{{ item.authorized_keys.file.owner }}"
+    group: "{{ item.authorized_keys.file.group }}"
+    mode: "{{ item.authorized_keys.file.mode }}"
   vars:
     proxmox_host_service_account_keys: >-
-      {{ lookup('ansible.builtin.env', item.authorized_keys_secret_ref).splitlines() }}
+      {{ lookup('ansible.builtin.env', item.authorized_keys.secret_ref).splitlines() }}
   loop: "{{ proxmox_service_accounts }}"
   loop_control:
     label: "{{ item.name }}"
@@ -304,27 +310,31 @@
 
 - name: Install audited service-account sudo policies
   ansible.builtin.copy:
-    dest: "{{ item.sudoers_path }}"
-    owner: root
-    group: root
-    mode: "0440"
-    validate: /usr/sbin/visudo -cf %s
-    content: "{{ item.sudo_rule }}\n"
+    dest: "{{ item.sudo.file.path }}"
+    owner: "{{ item.sudo.file.owner }}"
+    group: "{{ item.sudo.file.group }}"
+    mode: "{{ item.sudo.file.mode }}"
+    validate: >-
+      {{ proxmox.access.sudo_validation.executable }}
+      {{ proxmox.access.sudo_validation.arguments | join(' ') }}
+    content: "{{ item.sudo.rule }}\n"
   loop: "{{ proxmox_service_accounts }}"
   loop_control:
     label: "{{ item.name }}"
   when:
-    - item.sudoers_path is not none
+    - (item.sudo.state | default('')) == 'present'
     - not ansible_check_mode or item.name in proxmox_host_existing_ssh_users
 
 - name: Remove undeclared service-account sudo policies
   ansible.builtin.file:
-    path: "/etc/sudoers.d/{{ item.name }}"
+    path: "{{ item.sudo.path }}"
     state: absent
   loop: "{{ proxmox_service_accounts }}"
   loop_control:
     label: "{{ item.name }}"
-  when: item.sudoers_path is none
+  when:
+    - (item.sudo.kind | default('')) == 'audit-absence'
+    - (item.sudo.absence | default('')) == 'file'
 
 - name: Inspect effective service-account groups
   ansible.builtin.command:

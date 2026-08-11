@@ -81,10 +81,10 @@
 - name: Converge the permanent Proxmox network
   ansible.builtin.template:
     src: interfaces.j2
-    dest: /etc/network/interfaces
-    owner: root
-    group: root
-    mode: "0644"
+    dest: "{{ network.ownership.interfaces_file.path }}"
+    owner: "{{ network.ownership.interfaces_file.owner }}"
+    group: "{{ network.ownership.interfaces_file.group }}"
+    mode: "{{ network.ownership.interfaces_file.mode }}"
     backup: true
   register: proxmox_network_config
   when: proxmox_network_apply_confirmed | bool
@@ -148,7 +148,7 @@
     owner: root
     group: root
     mode: "0640"
-    content: "owner={{ network.ownership.interfaces_file }}\n"
+    content: "owner={{ network.ownership.interfaces_file.path }}\n"
   when:
     - not ansible_check_mode
     - proxmox_network_apply_confirmed | bool

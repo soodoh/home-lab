@@ -37,16 +37,18 @@
     "proxmox": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["node", "api_endpoint", "vfio", "apt", "services", "access", "ssh", "tailscale", "firewall", "packages", "kernels", "root_cleanup", "vm", "legacy_container"],
+      "required": ["node", "api_endpoint", "grub", "vfio", "apt", "services", "access", "ssh", "tailscale", "health", "firewall", "packages", "kernels", "root_cleanup", "vm", "legacy_container"],
       "properties": {
         "node": { "type": "string", "minLength": 1 },
         "api_endpoint": { "type": "string", "pattern": "^https://" },
+        "grub": { "$ref": "#/$defs/grubPolicy" },
         "vfio": { "$ref": "#/$defs/vfioPolicy" },
         "apt": { "$ref": "#/$defs/aptPolicy" },
-        "services": { "type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/systemdService" } },
+        "services": { "type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/systemdServicePolicy" } },
         "access": { "$ref": "#/$defs/proxmoxAccessPolicy" },
         "ssh": { "$ref": "#/$defs/proxmoxSshPolicy" },
         "tailscale": { "$ref": "#/$defs/proxmoxTailscalePolicy" },
+        "health": { "$ref": "#/$defs/proxmoxHealthPolicy" },
         "firewall": { "$ref": "#/$defs/proxmoxFirewallPolicy" },
         "packages": { "$ref": "#/$defs/hostPackagePolicy" },
         "kernels": { "$ref": "#/$defs/kernelPolicy" },
@@ -61,18 +63,7 @@
       "required": ["zfs", "nfs"],
       "properties": {
         "zfs": { "$ref": "#/$defs/zfs" },
-        "nfs": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["export", "client", "client_vmid", "mountpoint", "retain_no_root_squash"],
-          "properties": {
-            "export": { "type": "string", "pattern": "^/" },
-            "client": { "$ref": "#/$defs/cidr" },
-            "client_vmid": { "const": 100 },
-            "mountpoint": { "type": "string", "pattern": "^/" },
-            "retain_no_root_squash": { "type": "boolean" }
-          }
-        }
+        "nfs": { "$ref": "#/$defs/nfsPolicy" }
       }
     },
     "arch": {
@@ -234,6 +225,99 @@
       }
     },
     "pveKernelRelease": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]+-pve$" },
+    "absolutePath": { "type": "string", "pattern": "^/(?!.*(?:^|/)\\.\\.?(?:/|$))(?:[A-Za-z0-9._+:-]+/)*[A-Za-z0-9._+:-]+$" },
+    "unixIdentity": { "type": "string", "pattern": "^[a-z_][a-z0-9_-]*$" },
+    "safeMode": { "type": "string", "pattern": "^0[0-7][0145][0145]$" },
+    "managedFileMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "projectable", "owner", "group", "mode"],
+      "properties": {
+        "kind": { "const": "managed-file-metadata" },
+        "projectable": { "const": true },
+        "owner": { "$ref": "#/$defs/unixIdentity" },
+        "group": { "$ref": "#/$defs/unixIdentity" },
+        "mode": { "$ref": "#/$defs/safeMode" }
+      }
+    },
+    "managedFilePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "projectable", "path", "owner", "group", "mode"],
+      "properties": {
+        "kind": { "const": "managed-file" },
+        "projectable": { "const": true },
+        "path": { "$ref": "#/$defs/absolutePath" },
+        "owner": { "$ref": "#/$defs/unixIdentity" },
+        "group": { "$ref": "#/$defs/unixIdentity" },
+        "mode": { "$ref": "#/$defs/safeMode" }
+      }
+    },
+    "managedDirectoryPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "projectable", "path", "owner", "group", "mode"],
+      "properties": {
+        "kind": { "const": "managed-directory" },
+        "projectable": { "const": true },
+        "path": { "$ref": "#/$defs/absolutePath" },
+        "owner": { "$ref": "#/$defs/unixIdentity" },
+        "group": { "$ref": "#/$defs/unixIdentity" },
+        "mode": { "$ref": "#/$defs/safeMode" }
+      }
+    },
+    "auditAbsentFilePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "projectable", "absence", "path"],
+      "properties": {
+        "kind": { "const": "audit-absence" },
+        "projectable": { "const": true },
+        "absence": { "const": "file" },
+        "path": { "$ref": "#/$defs/absolutePath" }
+      }
+    },
+    "auditAbsentLinesPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "projectable", "absence", "path", "pattern"],
+      "properties": {
+        "kind": { "const": "audit-absence" },
+        "projectable": { "const": true },
+        "absence": { "const": "matching-lines" },
+        "path": { "$ref": "#/$defs/absolutePath" },
+        "pattern": { "type": "string", "minLength": 1 }
+      }
+    },
+    "auditAbsencePolicy": { "oneOf": [{ "$ref": "#/$defs/auditAbsentFilePolicy" }, { "$ref": "#/$defs/auditAbsentLinesPolicy" }] },
+    "runtimeProtectedFilePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "projectable", "materialization", "path", "owner", "group", "mode"],
+      "properties": {
+        "kind": { "const": "runtime-protected-file" },
+        "projectable": { "const": false },
+        "materialization": { "const": "metadata-only" },
+        "path": { "$ref": "#/$defs/absolutePath" },
+        "owner": { "$ref": "#/$defs/unixIdentity" },
+        "group": { "$ref": "#/$defs/unixIdentity" },
+        "mode": { "$ref": "#/$defs/safeMode" }
+      }
+    },
+    "runtimeProtectedDirectoryPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "projectable", "materialization", "path", "owner", "group", "mode"],
+      "properties": {
+        "kind": { "const": "runtime-protected-directory" },
+        "projectable": { "const": false },
+        "materialization": { "const": "metadata-only" },
+        "path": { "$ref": "#/$defs/absolutePath" },
+        "owner": { "$ref": "#/$defs/unixIdentity" },
+        "group": { "$ref": "#/$defs/unixIdentity" },
+        "mode": { "$ref": "#/$defs/safeMode" }
+      }
+    },
     "host": {
       "type": "object",
       "additionalProperties": false,
@@ -248,21 +332,47 @@
     "networkOwnership": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["interfaces_file", "snippets_directory", "permitted_active_snippets"],
+      "required": ["interfaces_file", "snippets_directory", "permitted_active_snippets", "managed_header", "bridge_stp", "bridge_forward_delay"],
       "properties": {
-        "interfaces_file": { "const": "/etc/network/interfaces" },
+        "interfaces_file": { "$ref": "#/$defs/managedFilePolicy" },
         "snippets_directory": { "const": "/etc/network/interfaces.d" },
-        "permitted_active_snippets": { "type": "array", "maxItems": 0 }
+        "permitted_active_snippets": { "type": "array", "maxItems": 0 },
+        "managed_header": { "type": "string", "pattern": "^# Managed by ", "minLength": 20 },
+        "bridge_stp": { "const": false },
+        "bridge_forward_delay": { "const": 0 }
+      }
+    },
+    "grubPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "variable", "default_tokens"],
+      "properties": {
+        "file": { "$ref": "#/$defs/managedFilePolicy" },
+        "variable": { "const": "GRUB_CMDLINE_LINUX_DEFAULT" },
+        "default_tokens": { "type": "array", "prefixItems": [{ "const": "quiet" }, { "const": "amd_iommu=on" }, { "const": "iommu=pt" }], "items": false, "minItems": 3, "maxItems": 3, "uniqueItems": true }
+      }
+    },
+    "softDependency": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["module", "pre"],
+      "properties": {
+        "module": { "enum": ["amdgpu", "snd_hda_intel"] },
+        "pre": { "type": "array", "prefixItems": [{ "const": "vfio-pci" }], "items": false, "minItems": 1, "maxItems": 1 }
       }
     },
     "vfioPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["modules", "device_ids", "prohibited_modules"],
+      "required": ["modules", "device_ids", "prohibited_modules", "absence_policy", "modules_load_file", "modprobe_file", "soft_dependencies"],
       "properties": {
         "modules": { "type": "array", "prefixItems": [{ "const": "vfio" }, { "const": "vfio_iommu_type1" }, { "const": "vfio_pci" }], "items": false, "minItems": 3, "maxItems": 3 },
         "device_ids": { "type": "array", "prefixItems": [{ "const": "1ac1:089a" }, { "const": "1002:744c" }, { "const": "1002:ab30" }], "items": false, "minItems": 3, "maxItems": 3, "uniqueItems": true },
-        "prohibited_modules": { "type": "array", "prefixItems": [{ "const": "apex" }, { "const": "gasket" }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true }
+        "prohibited_modules": { "type": "array", "prefixItems": [{ "const": "apex" }, { "const": "gasket" }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true },
+        "absence_policy": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/auditAbsentLinesPolicy" }, { "$ref": "#/$defs/auditAbsentLinesPolicy" }, { "$ref": "#/$defs/auditAbsentFilePolicy" }], "items": false, "minItems": 3, "maxItems": 3, "uniqueItems": true },
+        "modules_load_file": { "$ref": "#/$defs/managedFilePolicy" },
+        "modprobe_file": { "$ref": "#/$defs/managedFilePolicy" },
+        "soft_dependencies": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/softDependency" }, { "$ref": "#/$defs/softDependency" }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true }
       }
     },
     "aptRepository": {
@@ -282,10 +392,10 @@
     "aptKeyring": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "path", "sha256", "source_url", "symlink_target"],
+      "required": ["name", "file", "sha256", "source_url", "symlink_target"],
       "properties": {
         "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]+$" },
-        "path": { "type": "string", "pattern": "^/usr/share/keyrings/[a-z0-9-]+\\.(gpg|asc)$" },
+        "file": { "$ref": "#/$defs/managedFilePolicy" },
         "sha256": { "$ref": "#/$defs/sha256" },
         "source_url": { "anyOf": [{ "type": "string", "pattern": "^https://" }, { "type": "null" }] },
         "symlink_target": {
@@ -296,49 +406,88 @@
         }
       }
     },
+    "inactiveAptSourcesList": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "notice"],
+      "properties": {
+        "file": { "$ref": "#/$defs/managedFilePolicy" },
+        "notice": { "const": "# Repository definitions are managed in /etc/apt/sources.list.d/*.sources." }
+      }
+    },
     "aptPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repositories", "permitted_keyrings"],
+      "required": ["repository_file_metadata", "inactive_sources_list", "repositories", "permitted_keyrings"],
       "properties": {
+        "repository_file_metadata": { "$ref": "#/$defs/managedFileMetadata" },
+        "inactive_sources_list": { "$ref": "#/$defs/inactiveAptSourcesList" },
         "repositories": { "type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/aptRepository" } },
         "permitted_keyrings": { "type": "array", "minItems": 3, "uniqueItems": true, "items": { "$ref": "#/$defs/aptKeyring" } }
       }
     },
     "systemdService": { "type": "string", "pattern": "^[a-zA-Z0-9@_.:-]+\\.service$" },
+    "systemdServicePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "enabled", "state"],
+      "properties": {
+        "name": { "$ref": "#/$defs/systemdService" },
+        "enabled": { "type": "boolean" },
+        "state": { "enum": ["started", "stopped"] }
+      }
+    },
     "secretReference": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+$" },
+    "authorizedKeysPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["file", "secret_ref"],
+      "properties": { "file": { "$ref": "#/$defs/runtimeProtectedFilePolicy" }, "secret_ref": { "$ref": "#/$defs/secretReference" } }
+    },
+    "presentSudoPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "file", "rule"],
+      "properties": { "state": { "const": "present" }, "file": { "$ref": "#/$defs/managedFilePolicy" }, "rule": { "type": "string", "minLength": 1 } }
+    },
+    "sudoPolicy": { "oneOf": [{ "$ref": "#/$defs/presentSudoPolicy" }, { "$ref": "#/$defs/auditAbsentFilePolicy" }] },
+    "absentAuthorizedKeysPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "files"],
+      "properties": { "state": { "const": "absent" }, "files": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/runtimeProtectedFilePolicy" }, { "$ref": "#/$defs/runtimeProtectedFilePolicy" }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true } }
+    },
     "unixServiceAccount": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "home", "shell", "create_home", "password_lock", "groups", "authorized_keys_secret_ref", "authorized_keys_path", "sudoers_path", "sudo_rule"],
+      "required": ["name", "home", "shell", "create_home", "password_lock", "groups", "ssh_directory", "authorized_keys", "sudo"],
       "properties": {
-        "name": { "type": "string", "pattern": "^[a-z_][a-z0-9_-]*$" },
+        "name": { "$ref": "#/$defs/unixIdentity" },
         "home": { "type": "string", "pattern": "^/home/[a-z_][a-z0-9_-]*$" },
-        "shell": { "type": "string", "pattern": "^/" },
+        "shell": { "$ref": "#/$defs/absolutePath" },
         "create_home": { "type": "boolean" },
         "password_lock": { "type": "boolean" },
-        "groups": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z_][a-z0-9_-]*$" } },
-        "authorized_keys_secret_ref": { "$ref": "#/$defs/secretReference" },
-        "authorized_keys_path": { "type": "string", "pattern": "^/home/[a-z_][a-z0-9_-]*/\\.ssh/authorized_keys$" },
-        "sudoers_path": { "anyOf": [{ "type": "string", "pattern": "^/etc/sudoers\\.d/[a-z_][a-z0-9_-]*$" }, { "type": "null" }] },
-        "sudo_rule": { "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }] }
+        "groups": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/unixIdentity" } },
+        "ssh_directory": { "$ref": "#/$defs/runtimeProtectedDirectoryPolicy" },
+        "authorized_keys": { "$ref": "#/$defs/authorizedKeysPolicy" },
+        "sudo": { "$ref": "#/$defs/sudoPolicy" }
       }
     },
     "humanAccessAccount": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "comment", "group", "home", "shell", "password_lock", "supplementary_groups", "remove_authorized_keys", "sudoers_path", "sudo_rule"],
+      "required": ["name", "comment", "group", "home", "shell", "password_lock", "supplementary_groups", "ssh_directory", "authorized_keys", "sudo"],
       "properties": {
-        "name": { "type": "string", "pattern": "^[a-z_][a-z0-9_-]*$" },
+        "name": { "$ref": "#/$defs/unixIdentity" },
         "comment": { "type": "string", "minLength": 1 },
-        "group": { "type": "string", "pattern": "^[a-z_][a-z0-9_-]*$" },
+        "group": { "$ref": "#/$defs/unixIdentity" },
         "home": { "type": "string", "pattern": "^/home/[a-z_][a-z0-9_-]*$" },
-        "shell": { "type": "string", "pattern": "^/" },
+        "shell": { "$ref": "#/$defs/absolutePath" },
         "password_lock": { "type": "boolean" },
-        "supplementary_groups": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z_][a-z0-9_-]*$" } },
-        "remove_authorized_keys": { "type": "boolean" },
-        "sudoers_path": { "type": "string", "pattern": "^/etc/sudoers\\.d/[a-z_][a-z0-9_-]*$" },
-        "sudo_rule": { "type": "string", "minLength": 1 }
+        "supplementary_groups": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/unixIdentity" } },
+        "ssh_directory": { "$ref": "#/$defs/runtimeProtectedDirectoryPolicy" },
+        "authorized_keys": { "$ref": "#/$defs/absentAuthorizedKeysPolicy" },
+        "sudo": { "$ref": "#/$defs/presentSudoPolicy" }
       }
     },
     "pveAcl": {
@@ -359,14 +508,20 @@
         "privileges": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Za-z]+(\\.[A-Za-z]+)+$" } }
       }
     },
+    "tokenEscrowPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["directory", "file"],
+      "properties": { "directory": { "$ref": "#/$defs/runtimeProtectedDirectoryPolicy" }, "file": { "$ref": "#/$defs/runtimeProtectedFilePolicy" } }
+    },
     "pveApiAccount": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["user", "token_name", "token_path", "privilege_separation", "primary_acl_path", "role", "privileges", "additional_acls"],
+      "required": ["user", "token_name", "token_escrow", "privilege_separation", "primary_acl_path", "role", "privileges", "additional_acls"],
       "properties": {
         "user": { "type": "string", "pattern": "^[a-z_][a-z0-9_-]*@(pam|pve)$" },
         "token_name": { "type": "string", "pattern": "^[a-z][a-z0-9-]+$" },
-        "token_path": { "type": "string", "pattern": "^/root/\\.config/home-lab/[a-z0-9-]+\\.env$" },
+        "token_escrow": { "$ref": "#/$defs/tokenEscrowPolicy" },
         "privilege_separation": { "type": "boolean" },
         "primary_acl_path": { "type": "string", "pattern": "^/" },
         "role": { "type": "string", "pattern": "^[A-Za-z][A-Za-z0-9]+$" },
@@ -374,11 +529,18 @@
         "additional_acls": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/pveAcl" } }
       }
     },
+    "sudoValidationPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable", "arguments"],
+      "properties": { "executable": { "const": "/usr/sbin/visudo" }, "arguments": { "type": "array", "prefixItems": [{ "const": "--check" }, { "const": "--file=%s" }], "items": false, "minItems": 2, "maxItems": 2 } }
+    },
     "proxmoxAccessPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["service_accounts", "human_accounts", "pve"],
+      "required": ["sudo_validation", "service_accounts", "human_accounts", "pve"],
       "properties": {
+        "sudo_validation": { "$ref": "#/$defs/sudoValidationPolicy" },
         "service_accounts": { "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true, "items": { "$ref": "#/$defs/unixServiceAccount" } },
         "human_accounts": { "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/humanAccessAccount" } },
         "pve": {
@@ -395,10 +557,11 @@
     "proxmoxSshPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["service", "config_path", "pubkey_authentication", "password_authentication", "kbd_interactive_authentication", "permit_root_login", "allow_users"],
+      "required": ["service", "host_key_sentinel", "config_file", "pubkey_authentication", "password_authentication", "kbd_interactive_authentication", "permit_root_login", "allow_users"],
       "properties": {
         "service": { "$ref": "#/$defs/systemdService" },
-        "config_path": { "const": "/etc/ssh/sshd_config.d/60-home-lab.conf" },
+        "host_key_sentinel": { "$ref": "#/$defs/runtimeProtectedFilePolicy" },
+        "config_file": { "$ref": "#/$defs/managedFilePolicy" },
         "pubkey_authentication": { "type": "boolean" },
         "password_authentication": { "type": "boolean" },
         "kbd_interactive_authentication": { "type": "boolean" },
@@ -409,10 +572,14 @@
     "proxmoxTailscalePolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["package", "service", "hostname", "advertise_tag", "advertise_routes", "accept_dns", "accept_routes", "netfilter_mode", "ssh", "auth_key_secret_ref"],
+      "required": ["package", "service", "service_enabled", "service_state", "enrollment_timeout_seconds", "enrollment_ssh", "hostname", "advertise_tag", "advertise_routes", "accept_dns", "accept_routes", "netfilter_mode", "ssh", "auth_key_secret_ref"],
       "properties": {
         "package": { "$ref": "#/$defs/packageName" },
         "service": { "$ref": "#/$defs/systemdService" },
+        "service_enabled": { "const": true },
+        "service_state": { "const": "started" },
+        "enrollment_timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+        "enrollment_ssh": { "const": false },
         "hostname": { "type": "string", "minLength": 1 },
         "advertise_tag": { "type": "string", "pattern": "^tag:[a-z0-9-]+$" },
         "advertise_routes": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/cidr" } },
@@ -436,12 +603,29 @@
         "log": { "enum": ["nolog", "info", "warning", "err", "crit", "alert", "emerg"] }
       }
     },
+    "proxmoxHealthPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["local_api_url", "local_api_validate_certs", "local_api_status_codes", "tailscale_backend_state", "require_vm", "vm_status"],
+      "properties": {
+        "local_api_url": { "const": "https://127.0.0.1:8006/api2/json/version" },
+        "local_api_validate_certs": { "const": false },
+        "local_api_status_codes": { "type": "array", "prefixItems": [{ "const": 200 }, { "const": 401 }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true },
+        "tailscale_backend_state": { "const": "Running" },
+        "require_vm": { "type": "boolean" },
+        "vm_status": { "enum": ["running", "stopped"] }
+      }
+    },
     "proxmoxFirewallPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["config_path", "options", "rules"],
+      "required": ["kind", "ownership", "activation", "projectable", "compatibility_config_path", "options", "rules"],
       "properties": {
-        "config_path": { "const": "/etc/pve/firewall/cluster.fw" },
+        "kind": { "const": "api-owned" },
+        "ownership": { "const": "pve-api" },
+        "activation": { "const": "pve-api" },
+        "projectable": { "const": false },
+        "compatibility_config_path": { "const": "/etc/pve/firewall/cluster.fw" },
         "options": {
           "type": "object",
           "additionalProperties": false,
@@ -545,11 +729,12 @@
     "serialUsbDevice": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["vendor_device", "mapping", "serial_secret_ref"],
+      "required": ["vendor_device", "mapping", "serial_secret_ref", "port_secret_ref"],
       "properties": {
         "vendor_device": { "type": "string", "pattern": "^[0-9a-f]{4}:[0-9a-f]{4}$" },
         "mapping": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]+$" },
-        "serial_secret_ref": { "type": "string", "pattern": "^HOMELAB_[A-Z0-9_]+_USB_SERIAL$" }
+        "serial_secret_ref": { "type": "string", "pattern": "^HOMELAB_[A-Z0-9_]+_USB_SERIAL$" },
+        "port_secret_ref": { "type": "string", "pattern": "^HOMELAB_[A-Z0-9_]+_USB_PORT$" }
       }
     },
     "vm": {
@@ -607,16 +792,42 @@
         "mirror": { "type": "integer", "minimum": 0, "maximum": 5 }
       }
     },
+    "nfsPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["export", "client", "client_vmid", "mountpoint", "exports_file", "options", "squash_policy"],
+      "properties": {
+        "export": { "$ref": "#/$defs/absolutePath" },
+        "client": { "$ref": "#/$defs/cidr" },
+        "client_vmid": { "const": 100 },
+        "mountpoint": { "$ref": "#/$defs/absolutePath" },
+        "exports_file": { "$ref": "#/$defs/managedFilePolicy" },
+        "options": { "type": "array", "prefixItems": [{ "const": "rw" }, { "const": "sync" }, { "const": "no_subtree_check" }], "items": false, "minItems": 3, "maxItems": 3, "uniqueItems": true },
+        "squash_policy": { "enum": ["root_squash", "no_root_squash"] }
+      }
+    },
     "zfs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["pool", "pool_guid_secret_ref", "expected_health", "corrected_checksum_baseline", "arc_max_bytes", "pve_storage", "dataset", "mountpoint", "members"],
+      "required": ["pool", "pool_guid_secret_ref", "expected_health", "corrected_checksum_baseline", "arc_max_bytes", "arc_config", "mirror_topology", "pve_storage", "dataset", "dataset_properties", "mountpoint", "members"],
       "properties": {
         "pool": { "const": "storage" },
         "pool_guid_secret_ref": { "const": "HOMELAB_ZFS_POOL_GUID" },
         "expected_health": { "const": "ONLINE" },
         "corrected_checksum_baseline": { "type": "integer", "minimum": 0 },
         "arc_max_bytes": { "const": 68719476736 },
+        "arc_config": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file", "module", "option"],
+          "properties": { "file": { "$ref": "#/$defs/managedFilePolicy" }, "module": { "const": "zfs" }, "option": { "const": "zfs_arc_max" } }
+        },
+        "mirror_topology": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["count", "width"],
+          "properties": { "count": { "const": 6 }, "width": { "const": 2 } }
+        },
         "pve_storage": {
           "type": "object",
           "additionalProperties": false,
@@ -631,6 +842,12 @@
           }
         },
         "dataset": { "const": "storage/docker" },
+        "dataset_properties": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sharenfs"],
+          "properties": { "sharenfs": { "const": "off" } }
+        },
         "mountpoint": { "const": "/storage/docker" },
         "members": {
           "type": "array",

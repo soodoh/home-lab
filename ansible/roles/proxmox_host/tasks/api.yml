@@ -197,24 +197,24 @@
 
 - name: Verify escrow files exist for every active API token
   ansible.builtin.stat:
-    path: "{{ item.token_path }}"
+    path: "{{ item.token_escrow.file.path }}"
     follow: false
     get_checksum: false
   register: proxmox_host_token_escrow_files
   loop: "{{ proxmox_api_accounts }}"
   loop_control:
-    label: "{{ item.token_path }}"
+    label: "{{ item.token_escrow.file.path }}"
   no_log: true
 
 - name: Verify escrow directories for every active API token
   ansible.builtin.stat:
-    path: "{{ item.token_path | dirname }}"
+    path: "{{ item.token_escrow.directory.path }}"
     follow: false
     get_checksum: false
   register: proxmox_host_token_escrow_directories
   loop: "{{ proxmox_api_accounts }}"
   loop_control:
-    label: "{{ item.token_path | dirname }}"
+    label: "{{ item.token_escrow.directory.path }}"
   no_log: true
 
 - name: Require manual rotation when one-time token escrow is unavailable
@@ -224,13 +224,17 @@
       - not (item.0.stat.islnk | default(false))
       - (item.0.stat.uid | default(-1) | int) == 0
       - (item.0.stat.gid | default(-1) | int) == 0
-      - item.0.stat.mode == '0600'
+      - item.0.stat.pw_name == item.0.item.token_escrow.file.owner
+      - item.0.stat.gr_name == item.0.item.token_escrow.file.group
+      - item.0.stat.mode == item.0.item.token_escrow.file.mode
       - item.1.stat.isdir | default(false)
       - not (item.1.stat.islnk | default(false))
       - (item.1.stat.uid | default(-1) | int) == 0
       - (item.1.stat.gid | default(-1) | int) == 0
-      - item.1.stat.mode == '0700'
-      - (item.0.item.token_path | dirname) == '/root/.config/home-lab'
+      - item.1.stat.pw_name == item.0.item.token_escrow.directory.owner
+      - item.1.stat.gr_name == item.0.item.token_escrow.directory.group
+      - item.1.stat.mode == item.0.item.token_escrow.directory.mode
+      - item.0.item.token_escrow.file.path | dirname == item.0.item.token_escrow.directory.path
     fail_msg: >-
       An active Proxmox API token lacks its root-owned, non-symlink mode-0600 escrow file
       beneath the root-owned mode-0700 credential directory; rotate it deliberately.

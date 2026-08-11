@@ -38,6 +38,11 @@
       vars:
         tailscale_package: "{{ proxmox.tailscale.package }}"
         tailscale_service: "{{ proxmox.tailscale.service }}"
+        tailscale_service_enabled: "{{ proxmox.tailscale.service_enabled }}"
+        tailscale_service_state: "{{ proxmox.tailscale.service_state }}"
+        tailscale_enrollment_timeout_seconds: "{{ proxmox.tailscale.enrollment_timeout_seconds }}"
+        tailscale_enrollment_ssh: "{{ proxmox.tailscale.enrollment_ssh }}"
+        tailscale_expected_backend_state: "{{ proxmox.health.tailscale_backend_state }}"
         tailscale_hostname: "{{ proxmox.tailscale.hostname }}"
         tailscale_advertise_tags: "{{ proxmox.tailscale.advertise_tag }}"
         tailscale_advertise_routes: "{{ proxmox.tailscale.advertise_routes }}"
@@ -50,7 +55,14 @@
     - role: ssh
       vars:
         ssh_service_name: "{{ proxmox.ssh.service }}"
-        ssh_config_path: "{{ proxmox.ssh.config_path }}"
+        ssh_host_key_sentinel_path: "{{ proxmox.ssh.host_key_sentinel.path }}"
+        ssh_host_key_sentinel_owner: "{{ proxmox.ssh.host_key_sentinel.owner }}"
+        ssh_host_key_sentinel_group: "{{ proxmox.ssh.host_key_sentinel.group }}"
+        ssh_host_key_sentinel_mode: "{{ proxmox.ssh.host_key_sentinel.mode }}"
+        ssh_config_path: "{{ proxmox.ssh.config_file.path }}"
+        ssh_config_owner: "{{ proxmox.ssh.config_file.owner }}"
+        ssh_config_group: "{{ proxmox.ssh.config_file.group }}"
+        ssh_config_mode: "{{ proxmox.ssh.config_file.mode }}"
         ssh_pubkey_authentication: "{{ proxmox.ssh.pubkey_authentication }}"
         ssh_password_authentication: "{{ proxmox.ssh.password_authentication }}"
         ssh_kbd_interactive_authentication: "{{ proxmox.ssh.kbd_interactive_authentication }}"

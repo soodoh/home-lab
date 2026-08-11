@@ -1,1 +1,1 @@
-{{ storage.nfs.export }} {{ storage.nfs.client }}(rw,sync,no_subtree_check,{{ storage.nfs.retain_no_root_squash | ternary('no_root_squash', 'root_squash') }})
+{{ storage.nfs.export }} {{ storage.nfs.client }}({{ (storage.nfs.options + [storage.nfs.squash_policy]) | join(',') }})

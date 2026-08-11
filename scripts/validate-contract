@@ -68,9 +68,9 @@ if (!coralPkgbuild.includes(`pkgver=${contract.arch.coral.dkms_version}`)) failu
 if (!coralPkgbuild.includes(`_commit=${contract.arch.coral.source_commit}`)) failures.push("Coral PKGBUILD source commit differs from contract");
 const refs = contract.storage.zfs.members.map((member) => member.secret_ref);
 if (new Set(refs).size !== refs.length) failures.push("ZFS member secret references must be unique");
-for (let mirror = 0; mirror < 6; mirror += 1) {
-  if (contract.storage.zfs.members.filter((member) => member.mirror === mirror).length !== 2) {
-    failures.push(`ZFS mirror ${mirror} must contain exactly two members`);
+for (let mirror = 0; mirror < contract.storage.zfs.mirror_topology.count; mirror += 1) {
+  if (contract.storage.zfs.members.filter((member) => member.mirror === mirror).length !== contract.storage.zfs.mirror_topology.width) {
+    failures.push(`ZFS mirror ${mirror} must contain exactly ${contract.storage.zfs.mirror_topology.width} members`);
   }
 }
 const expectedVfioIds = [

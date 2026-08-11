@@ -1,3 +1,8 @@
 ---
 tailscale_netfilter_mode: "on"
 tailscale_ssh: true
+tailscale_service_enabled: true
+tailscale_service_state: started
+tailscale_enrollment_timeout_seconds: 30
+tailscale_enrollment_ssh: false
+tailscale_expected_backend_state: Running

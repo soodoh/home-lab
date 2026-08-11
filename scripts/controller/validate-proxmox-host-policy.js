@@ -25,7 +25,7 @@ function validateProxmoxHostPolicy(contract) {
   const repositoryNames = proxmox.apt.repositories.map((repository) => repository.name);
   const repositoryFiles = proxmox.apt.repositories.map((repository) => repository.file);
   const keyringNames = proxmox.apt.permitted_keyrings.map((keyring) => keyring.name);
-  const keyringPaths = proxmox.apt.permitted_keyrings.map((keyring) => keyring.path);
+  const keyringPaths = proxmox.apt.permitted_keyrings.map((keyring) => keyring.file.path);
   const keyringHashes = proxmox.apt.permitted_keyrings.map((keyring) => keyring.sha256);
   if (duplicates(repositoryNames).length) failures.push("APT repository names must be unique");
   if (duplicates(repositoryFiles).length) failures.push("APT repository files must be unique");
@@ -38,13 +38,13 @@ function validateProxmoxHostPolicy(contract) {
     }
   }
   for (const keyring of proxmox.apt.permitted_keyrings) {
-    if (!proxmox.apt.repositories.some((repository) => repository.signed_by === keyring.path)) {
+    if (!proxmox.apt.repositories.some((repository) => repository.signed_by === keyring.file.path)) {
       failures.push(`APT keyring ${keyring.name} is not referenced by a repository`);
     }
     if (keyring.source_url !== null && keyring.symlink_target !== null) {
       failures.push(`downloaded APT keyring ${keyring.name} must be a regular file`);
     }
-    if (keyring.symlink_target === keyring.path.split("/").at(-1)) {
+    if (keyring.symlink_target === keyring.file.path.split("/").at(-1)) {
       failures.push(`APT keyring ${keyring.name} must not link to itself`);
     }
   }
@@ -53,7 +53,7 @@ function validateProxmoxHostPolicy(contract) {
   const expectedTailscaleKeyUrl = tailscaleRepository && tailscaleRepository.uris.length === 1 && tailscaleRepository.suites.length === 1
     ? `${tailscaleRepository.uris[0]}/${tailscaleRepository.suites[0]}.noarmor.gpg`
     : null;
-  if (!tailscaleKeyring || tailscaleRepository?.signed_by !== tailscaleKeyring.path ||
+  if (!tailscaleKeyring || tailscaleRepository?.signed_by !== tailscaleKeyring.file.path ||
       tailscaleKeyring.source_url !== expectedTailscaleKeyUrl) {
     failures.push("Tailscale repository must use its suite-derived checksum-bound downloadable keyring");
   }
@@ -62,15 +62,16 @@ function validateProxmoxHostPolicy(contract) {
   }
 
   const requiredServices = ["chrony.service", "nfs-server.service", proxmox.ssh.service, proxmox.tailscale.service];
-  if (!sameMembers(proxmox.services, requiredServices)) {
+  if (!sameMembers(proxmox.services.map((service) => service.name), requiredServices) ||
+      proxmox.services.some((service) => !service.enabled || service.state !== "started")) {
     failures.push("native service set must contain exactly the required time, NFS, SSH, and Tailscale services");
   }
 
   const serviceAccounts = proxmox.access.service_accounts;
   const serviceAccountNames = serviceAccounts.map((account) => account.name);
   const serviceAccountHomes = serviceAccounts.map((account) => account.home);
-  const serviceAccountKeyRefs = serviceAccounts.map((account) => account.authorized_keys_secret_ref);
-  const sudoersPaths = serviceAccounts.map((account) => account.sudoers_path).filter((value) => value !== null);
+  const serviceAccountKeyRefs = serviceAccounts.map((account) => account.authorized_keys.secret_ref);
+  const sudoersPaths = serviceAccounts.map((account) => account.sudo?.file?.path).filter((value) => value !== undefined);
   if (duplicates(serviceAccountNames).length) failures.push("Proxmox service-account names must be unique");
   if (duplicates(serviceAccountHomes).length) failures.push("Proxmox service-account homes must be unique");
   if (duplicates(serviceAccountKeyRefs).length) failures.push("Proxmox service-account key references must be unique");
@@ -81,14 +82,18 @@ function validateProxmoxHostPolicy(contract) {
   ]);
   if (serviceAccounts.length !== expectedServiceAccounts.size) failures.push("exactly two Proxmox service accounts are required");
   for (const account of serviceAccounts) {
-    if (expectedServiceAccounts.get(account.name) !== account.authorized_keys_secret_ref) {
+    if (expectedServiceAccounts.get(account.name) !== account.authorized_keys.secret_ref) {
       failures.push(`service account ${account.name} uses an unexpected authorized-key reference`);
     }
-    if ((account.sudoers_path === null) !== (account.sudo_rule === null)) {
-      failures.push(`service account ${account.name} must declare both or neither sudo policy fields`);
-    }
     if (account.home !== `/home/${account.name}`) failures.push(`service account ${account.name} home must match its name`);
-    if (account.authorized_keys_path !== `${account.home}/.ssh/authorized_keys`) {
+    if (account.ssh_directory.path !== `${account.home}/.ssh` ||
+        account.ssh_directory.owner !== account.name || account.ssh_directory.group !== account.name ||
+        account.ssh_directory.mode !== "0700" || account.ssh_directory.kind !== "runtime-protected-directory" ||
+        account.ssh_directory.projectable || account.ssh_directory.materialization !== "metadata-only" ||
+        account.authorized_keys.file.path !== `${account.home}/.ssh/authorized_keys` ||
+        account.authorized_keys.file.owner !== account.name || account.authorized_keys.file.group !== account.name ||
+        account.authorized_keys.file.mode !== "0600" || account.authorized_keys.file.kind !== "runtime-protected-file" ||
+        account.authorized_keys.file.projectable || account.authorized_keys.file.materialization !== "metadata-only") {
       failures.push(`service account ${account.name} authorized-keys path must stay under its home`);
     }
     if (account.shell !== "/bin/bash" || !account.create_home || !account.password_lock) {
@@ -97,12 +102,15 @@ function validateProxmoxHostPolicy(contract) {
   }
   const planAccount = serviceAccounts.find((account) => account.name === "tofu-plan");
   const applyAccount = serviceAccounts.find((account) => account.name === "tofu-apply");
-  if (planAccount && (planAccount.groups.length || planAccount.sudoers_path !== null || planAccount.sudo_rule !== null)) {
+  if (planAccount && (planAccount.groups.length || planAccount.sudo.kind !== "audit-absence" ||
+      planAccount.sudo.absence !== "file" || !planAccount.sudo.projectable ||
+      planAccount.sudo.path !== `/etc/sudoers.d/${planAccount.name}`)) {
     failures.push("tofu-plan must remain unprivileged during parity");
   }
   if (applyAccount && (!sameMembers(applyAccount.groups, ["sudo"]) ||
-      applyAccount.sudoers_path !== `/etc/sudoers.d/${applyAccount.name}` ||
-      applyAccount.sudo_rule !== `${applyAccount.name} ALL=(root) NOPASSWD: ALL`)) {
+      applyAccount.sudo?.state !== "present" ||
+      applyAccount.sudo?.file?.path !== `/etc/sudoers.d/${applyAccount.name}` ||
+      applyAccount.sudo?.rule !== `${applyAccount.name} ALL=(root) NOPASSWD: ALL`)) {
     failures.push("tofu-apply current sudo policy must remain explicit during parity");
   }
 
@@ -116,11 +124,19 @@ function validateProxmoxHostPolicy(contract) {
     if (account.home !== `/home/${account.name}` || account.group !== account.name) {
       failures.push(`human account ${account.name} home and primary group must match its name`);
     }
-    if (!account.password_lock || account.supplementary_groups.length || !account.remove_authorized_keys) {
+    const expectedHumanKeyPaths = [`${account.home}/.ssh/authorized_keys`, `${account.home}/.ssh/authorized_keys2`];
+    const humanKeyFilesValid = account.authorized_keys.files.length === expectedHumanKeyPaths.length &&
+      account.authorized_keys.files.every((file, index) => file.path === expectedHumanKeyPaths[index] &&
+        file.owner === account.name && file.group === account.group && file.mode === "0600" &&
+        file.kind === "runtime-protected-file" && !file.projectable && file.materialization === "metadata-only");
+    if (!account.password_lock || account.supplementary_groups.length || account.authorized_keys.state !== "absent" ||
+        !humanKeyFilesValid || account.ssh_directory.path !== `${account.home}/.ssh` || account.ssh_directory.owner !== account.name ||
+        account.ssh_directory.group !== account.group || account.ssh_directory.mode !== "0700" ||
+        account.ssh_directory.kind !== "runtime-protected-directory" || account.ssh_directory.projectable) {
       failures.push(`human account ${account.name} must retain the locked Tailscale-SSH-only policy`);
     }
-    if (account.sudoers_path !== `/etc/sudoers.d/${account.name}` ||
-        account.sudo_rule !== `${account.name} ALL=(root) NOPASSWD: ALL`) {
+    if (account.sudo.state !== "present" || account.sudo.file.path !== `/etc/sudoers.d/${account.name}` ||
+        account.sudo.rule !== `${account.name} ALL=(root) NOPASSWD: ALL`) {
       failures.push(`human account ${account.name} sudo policy must remain explicit and name-derived`);
     }
   }
@@ -129,7 +145,7 @@ function validateProxmoxHostPolicy(contract) {
   const additionalRoles = proxmox.access.pve.additional_roles;
   const roleNames = [...pveAccounts.map((account) => account.role), ...additionalRoles.map((role) => role.role)];
   const tokenIds = pveAccounts.map((account) => `${account.user}!${account.token_name}`);
-  const tokenPaths = pveAccounts.map((account) => account.token_path);
+  const tokenPaths = pveAccounts.map((account) => account.token_escrow.file.path);
   if (duplicates(roleNames).length) failures.push("PVE custom role names must be unique");
   if (duplicates(tokenIds).length) failures.push("PVE API token identities must be unique");
   if (duplicates(tokenPaths).length) failures.push("PVE API token escrow paths must be unique");
@@ -151,7 +167,14 @@ function validateProxmoxHostPolicy(contract) {
   if (pveAccounts.length !== expectedPveAccounts.size) failures.push("exactly two PVE API accounts are required");
   for (const account of pveAccounts) {
     if (!account.privilege_separation) failures.push(`PVE token ${account.user}!${account.token_name} must remain privilege-separated`);
-    if (account.token_path !== `/root/.config/home-lab/proxmox-${account.token_name.replace(/^tofu-/, "")}-token.env`) {
+    if (account.token_escrow.directory.path !== "/root/.config/home-lab" ||
+        account.token_escrow.directory.owner !== "root" || account.token_escrow.directory.group !== "root" ||
+        account.token_escrow.directory.mode !== "0700" || account.token_escrow.directory.kind !== "runtime-protected-directory" ||
+        account.token_escrow.directory.projectable || account.token_escrow.directory.materialization !== "metadata-only" ||
+        account.token_escrow.file.path !== `/root/.config/home-lab/proxmox-${account.token_name.replace(/^tofu-/, "")}-token.env` ||
+        account.token_escrow.file.owner !== "root" || account.token_escrow.file.group !== "root" ||
+        account.token_escrow.file.mode !== "0600" || account.token_escrow.file.kind !== "runtime-protected-file" ||
+        account.token_escrow.file.projectable || account.token_escrow.file.materialization !== "metadata-only") {
       failures.push(`PVE token ${account.user}!${account.token_name} escrow path must remain in the protected credential directory`);
     }
     if (account.primary_acl_path !== "/") failures.push(`PVE token ${account.user}!${account.token_name} primary ACL must remain at root`);
@@ -196,6 +219,12 @@ function validateProxmoxHostPolicy(contract) {
     failures.push("Proxmox SSH authentication policy must remain key-only");
   }
   if (proxmox.ssh.permit_root_login !== "prohibit-password") failures.push("Proxmox root SSH must remain key-only");
+  const hostKey = proxmox.ssh.host_key_sentinel;
+  if (hostKey.path !== "/etc/ssh/ssh_host_ed25519_key" || hostKey.owner !== "root" || hostKey.group !== "root" ||
+      hostKey.mode !== "0600" || hostKey.kind !== "runtime-protected-file" || hostKey.projectable ||
+      hostKey.materialization !== "metadata-only") {
+    failures.push("SSH host-key sentinel must remain root-only runtime-protected metadata");
+  }
 
   if (proxmox.tailscale.hostname !== contract.network.proxmox.magicdns_name) failures.push("Proxmox Tailscale hostname must match MagicDNS");
   if (proxmox.tailscale.advertise_tag !== contract.tailscale.tags.proxmox) failures.push("Proxmox Tailscale tag must match tailnet policy");
@@ -205,6 +234,25 @@ function validateProxmoxHostPolicy(contract) {
   if (proxmox.tailscale.advertise_routes.length) failures.push("Proxmox must not advertise subnet routes");
   if (proxmox.tailscale.accept_dns || proxmox.tailscale.accept_routes) failures.push("Proxmox must not accept tailnet DNS or routes");
   if (proxmox.tailscale.netfilter_mode !== "on" || !proxmox.tailscale.ssh) failures.push("Proxmox Tailscale netfilter and SSH policy must remain enabled");
+
+  const expectedVfioAbsence = [
+    ["matching-lines", "/etc/modules", "^\\s*(vfio|vfio_iommu_type1|vfio_pci|vfio_virqfd)(?:\\s*(?:#.*)?)?$"],
+    ["matching-lines", "/etc/modules-load.d/modules.conf", "^\\s*(vfio|vfio_iommu_type1|vfio_pci|vfio_virqfd)(?:\\s*(?:#.*)?)?$"],
+    ["file", "/etc/modprobe.d/vfio.conf", null],
+  ];
+  const vfioAbsence = proxmox.vfio.absence_policy.map((entry) => [entry.absence, entry.path, entry.pattern ?? null]);
+  if (JSON.stringify(vfioAbsence) !== JSON.stringify(expectedVfioAbsence) ||
+      proxmox.vfio.absence_policy.some((entry) => entry.kind !== "audit-absence" || !entry.projectable)) {
+    failures.push("VFIO audit-absence policy must retain the exact legacy file and matching-line expectations");
+  }
+
+  const expectedVmStatus = proxmox.vm.started ? "running" : "stopped";
+  if (proxmox.health.vm_status !== expectedVmStatus) {
+    failures.push("health VM status must match the OpenTofu-owned VM started intent");
+  }
+  if (contract.storage.nfs.export !== contract.storage.zfs.mountpoint) {
+    failures.push("NFS export must equal the protected ZFS dataset mountpoint");
+  }
 
   const archAddress = contract.network.arch.ipv4.split("/")[0];
   const expectedFirewallRules = [
@@ -229,6 +277,36 @@ function validateProxmoxHostPolicy(contract) {
   if (!proxmox.firewall.options.enable || proxmox.firewall.options.policy_in !== "DROP" || proxmox.firewall.options.policy_out !== "ACCEPT") {
     failures.push("Proxmox firewall must remain enabled with default-deny ingress");
   }
+  if (proxmox.firewall.kind !== "api-owned" || proxmox.firewall.ownership !== "pve-api" ||
+      proxmox.firewall.activation !== "pve-api" || proxmox.firewall.projectable) {
+    failures.push("PVE firewall must remain non-projectable API-owned state");
+  }
+
+  const expectedUsbPortRefs = new Map([
+    ["zigbee", "HOMELAB_ZIGBEE_USB_PORT"],
+    ["zwave", "HOMELAB_ZWAVE_USB_PORT"],
+  ]);
+  const usbPortRefs = [];
+  for (const [deviceName, expectedReference] of expectedUsbPortRefs) {
+    const device = proxmox.vm.usb[deviceName];
+    usbPortRefs.push(device.port_secret_ref);
+    if (device.port_secret_ref !== expectedReference ||
+        device.port_secret_ref !== device.serial_secret_ref.replace(/_SERIAL$/, "_PORT")) {
+      failures.push(`${deviceName} USB port reference must be explicit and paired with its serial reference`);
+    }
+  }
+  if (duplicates(usbPortRefs).length) failures.push("USB port secret references must be unique");
+
+  function inspectPolicyRecords(value) {
+    if (Array.isArray(value)) return value.forEach(inspectPolicyRecords);
+    if (!value || typeof value !== "object") return;
+    if (["managed-file", "managed-directory", "audit-absence"].includes(value.kind) && typeof value.path === "string" &&
+        (value.path === "/etc/pve" || value.path.startsWith("/etc/pve/"))) {
+      failures.push(`ordinary managed path ${value.path} must not enter PVE API-owned state`);
+    }
+    for (const nested of Object.values(value)) inspectPolicyRecords(nested);
+  }
+  inspectPolicyRecords(contract);
 
   return failures;
 }

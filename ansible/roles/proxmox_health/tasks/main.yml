@@ -1,11 +1,9 @@
 ---
 - name: Verify the Proxmox API responds locally
   ansible.builtin.uri:
-    url: https://127.0.0.1:8006/api2/json/version
-    validate_certs: false
-    status_code:
-      - 200
-      - 401
+    url: "{{ proxmox_health_local_api_url }}"
+    validate_certs: "{{ proxmox_health_local_api_validate_certs }}"
+    status_code: "{{ proxmox_health_local_api_status_codes }}"
   register: proxmox_health_api
 
 - name: Verify direct Tailscale is running
@@ -24,7 +22,7 @@
     argv:
       - /usr/sbin/qm
       - status
-      - "100"
+      - "{{ proxmox.vm.vmid }}"
   register: proxmox_health_vm
   changed_when: false
   check_mode: false
@@ -34,7 +32,7 @@
   ansible.builtin.command:
     argv: "{{ item }}"
   loop:
-    - [/usr/sbin/zpool, list, -H, storage]
+    - [/usr/sbin/zpool, list, -H, "{{ storage.zfs.pool }}"]
     - [/usr/sbin/exportfs, -s]
   register: proxmox_health_storage_commands
   changed_when: false
@@ -43,8 +41,8 @@
 - name: Assert Proxmox health gates
   ansible.builtin.assert:
     that:
-      - (proxmox_health_tailscale_status.stdout | from_json).BackendState == 'Running'
-      - "not (proxmox_health_require_vm | bool) or 'status: running' in proxmox_health_vm.stdout"
+      - (proxmox_health_tailscale_status.stdout | from_json).BackendState == proxmox_health_tailscale_backend_state
+      - "not (proxmox_health_require_vm | bool) or 'status: ' ~ proxmox_health_vm_status in proxmox_health_vm.stdout"
       - proxmox_health_storage_commands.results | map(attribute='rc') | max == 0
     fail_msg: "Proxmox API, Tailscale, VM startup, ZFS, or NFS health failed."
   no_log: true

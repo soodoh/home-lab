@@ -23,8 +23,8 @@
 - name: Keep tailscaled enabled and started without restarting it
   ansible.builtin.systemd_service:
     name: "{{ tailscale_service }}"
-    enabled: true
-    state: started
+    enabled: "{{ tailscale_service_enabled }}"
+    state: "{{ tailscale_service_state }}"
     daemon_reload: false
   become: "{{ not ansible_check_mode }}"
   when: not ansible_check_mode or tailscale_package in ansible_facts.packages
@@ -102,8 +102,8 @@
           - "--accept-dns={{ tailscale_accept_dns | ternary('true', 'false') }}"
           - "--accept-routes={{ tailscale_accept_routes | ternary('true', 'false') }}"
           - "--netfilter-mode={{ tailscale_netfilter_mode }}"
-          - --ssh=false
-          - --timeout=30s
+          - "--ssh={{ tailscale_enrollment_ssh | ternary('true', 'false') }}"
+          - "--timeout={{ tailscale_enrollment_timeout_seconds }}s"
       changed_when: true
   always:
     - name: Remove the temporary Tailscale auth-key file
@@ -177,7 +177,7 @@
 - name: Assert local Tailscale verification passed
   ansible.builtin.assert:
     that:
-      - (tailscale_status_after.stdout | from_json).BackendState == 'Running'
+      - (tailscale_status_after.stdout | from_json).BackendState == tailscale_expected_backend_state
       - tailscale_ipv4.stdout | length > 0
       - tailscale_advertise_tags in ((tailscale_status_after.stdout | from_json).Self.Tags | default([]))
     fail_msg: >-

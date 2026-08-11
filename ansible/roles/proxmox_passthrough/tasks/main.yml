@@ -6,47 +6,49 @@
     fail_msg: "VFIO, bootloader, and initramfs changes require explicit approval and a separately approved reboot."
 - name: Enable IOMMU passthrough without globally blacklisting amdgpu
   ansible.builtin.lineinfile:
-    path: /etc/default/grub
-    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
-    line: 'GRUB_CMDLINE_LINUX_DEFAULT="quiet amd_iommu=on iommu=pt"'
+    path: "{{ proxmox.grub.file.path }}"
+    regexp: "^{{ proxmox.grub.variable }}="
+    line: "{{ proxmox.grub.variable }}=\"{{ proxmox.grub.default_tokens | join(' ') }}\""
+    owner: "{{ proxmox.grub.file.owner }}"
+    group: "{{ proxmox.grub.file.group }}"
+    mode: "{{ proxmox.grub.file.mode }}"
     backup: true
   notify: Update Proxmox kernel command line
 
 - name: Keep only the canonical VFIO modules in early boot configuration
   ansible.builtin.copy:
-    dest: /etc/modules-load.d/home-lab-vfio.conf
-    owner: root
-    group: root
-    mode: "0644"
+    dest: "{{ proxmox.vfio.modules_load_file.path }}"
+    owner: "{{ proxmox.vfio.modules_load_file.owner }}"
+    group: "{{ proxmox.vfio.modules_load_file.group }}"
+    mode: "{{ proxmox.vfio.modules_load_file.mode }}"
     content: "{{ proxmox.vfio.modules | join('\n') }}\n"
   notify: Rebuild Proxmox initramfs
 
 - name: Remove every duplicate VFIO module line from legacy module files
   ansible.builtin.lineinfile:
-    path: "{{ item }}"
-    regexp: '^\\s*(vfio|vfio_iommu_type1|vfio_pci|vfio_virqfd)(?:\\s*(?:#.*)?)?$'
+    path: "{{ item.path }}"
+    regexp: "{{ item.pattern }}"
     state: absent
-  loop:
-    - /etc/modules
-    - /etc/modules-load.d/modules.conf
+  loop: "{{ proxmox.vfio.absence_policy | selectattr('absence', 'equalto', 'matching-lines') }}"
   notify: Rebuild Proxmox initramfs
 
 - name: Remove the legacy duplicate VFIO modprobe file
   ansible.builtin.file:
-    path: /etc/modprobe.d/vfio.conf
+    path: "{{ item.path }}"
     state: absent
+  loop: "{{ proxmox.vfio.absence_policy | selectattr('absence', 'equalto', 'file') }}"
   notify: Rebuild Proxmox initramfs
 
 - name: Bind only contract passthrough devices to vfio-pci
   ansible.builtin.copy:
-    dest: /etc/modprobe.d/home-lab-vfio.conf
-    owner: root
-    group: root
-    mode: "0644"
+    dest: "{{ proxmox.vfio.modprobe_file.path }}"
+    owner: "{{ proxmox.vfio.modprobe_file.owner }}"
+    group: "{{ proxmox.vfio.modprobe_file.group }}"
+    mode: "{{ proxmox.vfio.modprobe_file.mode }}"
     content: |
       options vfio-pci ids={{ proxmox.vfio.device_ids | join(',') }}
-      softdep amdgpu pre: vfio-pci
-      softdep snd_hda_intel pre: vfio-pci
+      softdep {{ proxmox.vfio.soft_dependencies[0].module }} pre: {{ proxmox.vfio.soft_dependencies[0].pre | join(' ') }}
+      softdep {{ proxmox.vfio.soft_dependencies[1].module }} pre: {{ proxmox.vfio.soft_dependencies[1].pre | join(' ') }}
   notify: Rebuild Proxmox initramfs
 
 - name: Record whether legacy Coral cleanup is being evaluated
@@ -267,10 +269,7 @@
       {{ proxmox_passthrough_serial_usb_mappings + [{
         'name': item.key,
         'mapping': item.value.mapping,
-        'path': lookup(
-          'ansible.builtin.env',
-          item.value.serial_secret_ref | regex_replace('_SERIAL$', '_PORT')
-        )
+        'path': lookup('ansible.builtin.env', item.value.port_secret_ref)
       }] }}
   loop: "{{ {'zigbee': proxmox.vm.usb.zigbee, 'zwave': proxmox.vm.usb.zwave} | dict2items }}"
   no_log: true

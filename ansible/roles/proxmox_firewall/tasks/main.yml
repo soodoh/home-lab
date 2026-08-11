@@ -11,7 +11,7 @@
 - name: Install the reviewed Proxmox firewall policy
   ansible.builtin.template:
     src: cluster.fw.j2
-    dest: "{{ proxmox.firewall.config_path }}"
+    dest: "{{ proxmox.firewall.compatibility_config_path }}"
     owner: root
     group: www-data
     mode: "0640"

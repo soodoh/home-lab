@@ -1,3 +1,7 @@
 ---
 human_access_accounts: []
 human_access_visudo_path: /usr/sbin/visudo
+human_access_visudo_executable: "{{ human_access_visudo_path }}"
+human_access_visudo_arguments:
+  - --check
+  - --file=%s

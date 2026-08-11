@@ -58,24 +58,24 @@
 
 - name: Inspect root-only token escrow files in check mode
   ansible.builtin.stat:
-    path: "{{ item.token_path }}"
+    path: "{{ item.token_escrow.file.path }}"
     follow: false
     get_checksum: false
   register: proxmox_host_check_escrow
   loop: "{{ proxmox_api_accounts }}"
   loop_control:
-    label: "{{ item.token_path }}"
+    label: "{{ item.token_escrow.file.path }}"
   no_log: true
 
 - name: Inspect root-only token escrow directories in check mode
   ansible.builtin.stat:
-    path: "{{ item.token_path | dirname }}"
+    path: "{{ item.token_escrow.directory.path }}"
     follow: false
     get_checksum: false
   register: proxmox_host_check_escrow_directories
   loop: "{{ proxmox_api_accounts }}"
   loop_control:
-    label: "{{ item.token_path | dirname }}"
+    label: "{{ item.token_escrow.directory.path }}"
   no_log: true
 
 - name: Report drift in VM-scoped inspection roles
@@ -145,12 +145,16 @@
     (proxmox_host_check_escrow_result.stat.islnk | default(false)) or
     (proxmox_host_check_escrow_result.stat.uid | default(-1) | int) != 0 or
     (proxmox_host_check_escrow_result.stat.gid | default(-1) | int) != 0 or
-    (proxmox_host_check_escrow_result.stat.mode | default('')) != '0600' or
+    (proxmox_host_check_escrow_result.stat.pw_name | default('')) != item.token_escrow.file.owner or
+    (proxmox_host_check_escrow_result.stat.gr_name | default('')) != item.token_escrow.file.group or
+    (proxmox_host_check_escrow_result.stat.mode | default('')) != item.token_escrow.file.mode or
     not (proxmox_host_check_escrow_directory_result.stat.isdir | default(false)) or
     (proxmox_host_check_escrow_directory_result.stat.islnk | default(false)) or
     (proxmox_host_check_escrow_directory_result.stat.uid | default(-1) | int) != 0 or
     (proxmox_host_check_escrow_directory_result.stat.gid | default(-1) | int) != 0 or
-    (proxmox_host_check_escrow_directory_result.stat.mode | default('')) != '0700'
+    (proxmox_host_check_escrow_directory_result.stat.pw_name | default('')) != item.token_escrow.directory.owner or
+    (proxmox_host_check_escrow_directory_result.stat.gr_name | default('')) != item.token_escrow.directory.group or
+    (proxmox_host_check_escrow_directory_result.stat.mode | default('')) != item.token_escrow.directory.mode
   loop: "{{ proxmox_api_accounts }}"
   loop_control:
     label: "{{ item.user }}!{{ item.token_name }}"

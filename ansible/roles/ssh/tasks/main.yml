@@ -1,11 +1,30 @@
 ---
+- name: Inspect the SSH host-key sentinel before generation
+  ansible.builtin.stat:
+    path: "{{ ssh_host_key_sentinel_path }}"
+    follow: false
+    get_checksum: false
+  register: ssh_host_key_sentinel_before
+  changed_when: false
+  check_mode: false
+
 - name: Ensure host SSH keys exist
   ansible.builtin.command:
     argv:
       - /usr/bin/ssh-keygen
       - -A
   args:
-    creates: /etc/ssh/ssh_host_ed25519_key
+    creates: "{{ ssh_host_key_sentinel_path }}"
+
+- name: Keep the SSH host-key sentinel metadata protected
+  ansible.builtin.file:
+    path: "{{ ssh_host_key_sentinel_path }}"
+    state: file
+    owner: "{{ ssh_host_key_sentinel_owner }}"
+    group: "{{ ssh_host_key_sentinel_group }}"
+    mode: "{{ ssh_host_key_sentinel_mode }}"
+  when:
+    - not ansible_check_mode or (ssh_host_key_sentinel_before.stat.exists | default(false))
 
 - name: Require proven key and Tailscale access before disabling passwords
   ansible.builtin.assert:
@@ -17,9 +36,9 @@
 - name: Converge managed OpenSSH policy
   ansible.builtin.copy:
     dest: "{{ ssh_config_path }}"
-    owner: root
-    group: root
-    mode: "0644"
+    owner: "{{ ssh_config_owner }}"
+    group: "{{ ssh_config_group }}"
+    mode: "{{ ssh_config_mode }}"
     validate: /usr/sbin/sshd -t -f %s
     content: |
       PubkeyAuthentication {{ ssh_pubkey_authentication | ternary('yes', 'no') }}

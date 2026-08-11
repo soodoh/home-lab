@@ -13,8 +13,8 @@
 - name: Require all stable storage identities
   ansible.builtin.assert:
     that:
-      - proxmox_storage_zfs_member_paths | length == 12
-      - proxmox_storage_zfs_member_paths | unique | length == 12
+      - proxmox_storage_zfs_member_paths | length == storage.zfs.mirror_topology.count * storage.zfs.mirror_topology.width
+      - proxmox_storage_zfs_member_paths | unique | length == storage.zfs.mirror_topology.count * storage.zfs.mirror_topology.width
       - proxmox_storage_zfs_member_paths | reject('match', '^/dev/disk/by-id/[A-Za-z0-9._:+-]+$') | list | length == 0
     fail_msg: "All twelve unique SOPS-protected ZFS by-id identities are required."
   no_log: true
@@ -28,8 +28,11 @@
   ansible.builtin.set_fact:
     proxmox_storage_expected_mirrors: >-
       {{ proxmox_storage_expected_mirrors +
-         [proxmox_storage_zfs_member_paths[(item * 2):(item * 2 + 2)]] }}
-  loop: "{{ range(0, 6) | list }}"
+         [proxmox_storage_zfs_member_paths[
+           (item * storage.zfs.mirror_topology.width):
+           (item * storage.zfs.mirror_topology.width + storage.zfs.mirror_topology.width)
+         ]] }}
+  loop: "{{ range(0, storage.zfs.mirror_topology.count) | list }}"
   no_log: true
 
 - name: Inspect whether the exact ZFS pool is imported
@@ -156,7 +159,7 @@
   ansible.builtin.assert:
     that:
       - proxmox_storage_zpool_topology.pool.state == storage.zfs.expected_health
-      - proxmox_storage_zpool_topology.mirrors | length == 6
+      - proxmox_storage_zpool_topology.mirrors | length == storage.zfs.mirror_topology.count
       - proxmox_storage_zpool_topology.unexpected_data | length == 0
       - proxmox_storage_zpool_topology.extras | dict2items | map(attribute='value') | map('length') | sum == 0
       - "'resilver in progress' not in (proxmox_storage_zpool_topology.scan | lower)"
@@ -171,11 +174,11 @@
     that:
       - proxmox_storage_zpool_topology.mirrors[item].name == 'mirror-' ~ (item | string)
       - proxmox_storage_zpool_topology.mirrors[item].state == storage.zfs.expected_health
-      - proxmox_storage_zpool_topology.mirrors[item].leaves | length == 2
+      - proxmox_storage_zpool_topology.mirrors[item].leaves | length == storage.zfs.mirror_topology.width
       - proxmox_storage_zpool_topology.mirrors[item].leaves | map(attribute='state') | unique == [storage.zfs.expected_health]
       - proxmox_storage_zpool_topology.mirrors[item].leaves | map(attribute='name') | sort == proxmox_storage_expected_mirrors[item] | sort
-    fail_msg: "ZFS mirror {{ item }} differs from its exact protected two-disk ONLINE grouping."
-  loop: "{{ range(0, 6) | list }}"
+    fail_msg: "ZFS mirror {{ item }} differs from its exact protected mirror-width ONLINE grouping."
+  loop: "{{ range(0, storage.zfs.mirror_topology.count) | list }}"
   no_log: true
   when: proxmox_storage_pool_runtime_available | bool
 
@@ -370,11 +373,11 @@
 
 - name: Stage the contract ZFS ARC maximum for the next boot
   ansible.builtin.copy:
-    dest: /etc/modprobe.d/zfs.conf
-    owner: root
-    group: root
-    mode: "0644"
-    content: "options zfs zfs_arc_max={{ storage.zfs.arc_max_bytes }}\n"
+    dest: "{{ storage.zfs.arc_config.file.path }}"
+    owner: "{{ storage.zfs.arc_config.file.owner }}"
+    group: "{{ storage.zfs.arc_config.file.group }}"
+    mode: "{{ storage.zfs.arc_config.file.mode }}"
+    content: "options {{ storage.zfs.arc_config.module }} {{ storage.zfs.arc_config.option }}={{ storage.zfs.arc_max_bytes }}\n"
   notify: Rebuild Proxmox initramfs
 
 - name: Inspect completion of ZFS post-reboot validation
@@ -535,30 +538,30 @@
   when:
     - ansible_check_mode
     - proxmox_storage_nfs_convergence_authorized | bool
-    - proxmox_storage_zfs_sharenfs.stdout != 'off'
+    - proxmox_storage_zfs_sharenfs.stdout != storage.zfs.dataset_properties.sharenfs
 
 - name: Disable the ZFS-generated world export
   ansible.builtin.command:
     argv:
       - /usr/sbin/zfs
       - set
-      - sharenfs=off
+      - "sharenfs={{ storage.zfs.dataset_properties.sharenfs }}"
       - "{{ storage.zfs.dataset }}"
   changed_when: true
   when:
     - not ansible_check_mode
     - proxmox_storage_nfs_convergence_authorized | bool
-    - proxmox_storage_zfs_sharenfs.stdout != 'off'
+    - proxmox_storage_zfs_sharenfs.stdout != storage.zfs.dataset_properties.sharenfs
     - proxmox_storage_pool_runtime_available | bool
   notify: Reload NFS exports
 
 - name: Export the Docker dataset only to the Arch VM
   ansible.builtin.template:
     src: home-lab.exports.j2
-    dest: /etc/exports.d/home-lab.exports
-    owner: root
-    group: root
-    mode: "0644"
+    dest: "{{ storage.nfs.exports_file.path }}"
+    owner: "{{ storage.nfs.exports_file.owner }}"
+    group: "{{ storage.nfs.exports_file.group }}"
+    mode: "{{ storage.nfs.exports_file.mode }}"
   when: proxmox_storage_nfs_convergence_authorized | bool
   notify: Reload NFS exports
 

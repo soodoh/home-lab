@@ -1,6 +1,13 @@
 ---
 ssh_service_name: sshd.service
+ssh_host_key_sentinel_path: /etc/ssh/ssh_host_ed25519_key
+ssh_host_key_sentinel_owner: root
+ssh_host_key_sentinel_group: root
+ssh_host_key_sentinel_mode: "0600"
 ssh_config_path: /etc/ssh/sshd_config.d/60-home-lab.conf
+ssh_config_owner: root
+ssh_config_group: root
+ssh_config_mode: "0644"
 ssh_pubkey_authentication: true
 ssh_password_authentication: false
 ssh_kbd_interactive_authentication: false

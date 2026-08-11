@@ -52,6 +52,31 @@ class AptTransactionHelperTest(unittest.TestCase):
         for isolated_path in ["/tmp/sources", "/tmp/config", "/tmp/lists", "/tmp/cache", "/tmp/log"]:
             self.assertIn(isolated_path, " ".join(apply_options))
 
+    def test_verified_packaged_keyring_uses_nested_file_policy_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "archive.gpg"
+            content = b"public signing key"
+            path.write_bytes(content)
+            keyring = {
+                "name": "archive",
+                "file": {
+                    "kind": "managed-file",
+                    "projectable": True,
+                    "path": str(path),
+                    "owner": "root",
+                    "group": "root",
+                    "mode": "0644",
+                },
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "source_url": None,
+            }
+            self.assertEqual(HELPER.verified_keyring(keyring, Path(temporary)), path.resolve())
+            flattened = dict(keyring)
+            flattened.pop("file")
+            flattened["path"] = str(path)
+            with self.assertRaisesRegex(SystemExit, "keyring_file_policy"):
+                HELPER.verified_keyring(flattened, Path(temporary))
+
     def test_simulation_and_apply_use_the_same_exact_transaction(self) -> None:
         options = ["-o", "Dir::State::lists=/tmp/lists"]
         specs = ["apt=3.0.3", "curl=8.0-2"]

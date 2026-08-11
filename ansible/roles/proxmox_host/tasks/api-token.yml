@@ -61,18 +61,18 @@
 
     - name: Create the root-only credential directory
       ansible.builtin.file:
-        path: "{{ proxmox_host_api_account.token_path | dirname }}"
+        path: "{{ proxmox_host_api_account.token_escrow.directory.path }}"
         state: directory
-        owner: root
-        group: root
-        mode: "0700"
+        owner: "{{ proxmox_host_api_account.token_escrow.directory.owner }}"
+        group: "{{ proxmox_host_api_account.token_escrow.directory.group }}"
+        mode: "{{ proxmox_host_api_account.token_escrow.directory.mode }}"
 
     - name: Store the one-time API token for manual escrow
       ansible.builtin.copy:
-        dest: "{{ proxmox_host_api_account.token_path }}"
-        owner: root
-        group: root
-        mode: "0600"
+        dest: "{{ proxmox_host_api_account.token_escrow.file.path }}"
+        owner: "{{ proxmox_host_api_account.token_escrow.file.owner }}"
+        group: "{{ proxmox_host_api_account.token_escrow.file.group }}"
+        mode: "{{ proxmox_host_api_account.token_escrow.file.mode }}"
         content: >-
           PROXMOX_VE_API_TOKEN={{ (proxmox_host_new_api_token.stdout |
           from_json)['full-tokenid'] }}={{ (proxmox_host_new_api_token.stdout |
