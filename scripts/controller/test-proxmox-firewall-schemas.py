@@ -32,6 +32,11 @@ class SchemaTests(unittest.TestCase):
   self.assertEqual(subprocess.run((validator,),env=base,capture_output=True).returncode,0)
   overlap=dict(base); overlap["PROXMOX_FIREWALL_SSH_PUBLIC_KEYS"]="ssh-ed25519 AAAB different-firewall-comment"
   self.assertNotEqual(subprocess.run((validator,),env=overlap,capture_output=True).returncode,0)
+ def test_dedicated_install_playbooks_keep_closed_approval_and_scope(self):
+  transaction=(ROOT/"ansible/playbooks/install-proxmox-firewall-transaction.yml").read_text(); nfs=(ROOT/"ansible/playbooks/install-proxmox-firewall-nfs-canary.yml").read_text(); accounts=(ROOT/"ansible/roles/proxmox_host/tasks/service-accounts.yml").read_text()
+  self.assertIn("proxmox_firewall_install_confirmed | default(false)",transaction); self.assertIn("proxmox_ssh_access_proven | default(false)",transaction); self.assertIn("PROXMOX_FIREWALL_SSH_PUBLIC_KEYS",transaction)
+  self.assertIn("selectattr('name', 'equalto', 'firewall-apply')",transaction); self.assertIn("role: proxmox_firewall",transaction); self.assertLess(transaction.index("role: proxmox_firewall"),transaction.index("tasks_from: service-accounts")); self.assertIn("apply_lock_action: release",transaction)
+  self.assertIn("proxmox_firewall_nfs_canary_install_confirmed | default(false)",nfs); self.assertIn("role: firewall_nfs_canary",nfs); self.assertIn("apply_lock_action: release",nfs); self.assertIn("proxmox_host_selected_service_accounts | default(proxmox_service_accounts)",accounts)
  def test_boot_and_timer_units_have_fixed_two_phase_order(self):
   files=ROOT/"ansible/roles/proxmox_firewall/files"
   config=(files/"home-lab-proxmox-firewall-config-recovery.service").read_text(); post=(files/"home-lab-proxmox-firewall-post-recovery.service").read_text(); timer=(files/"home-lab-proxmox-firewall-rollback.service").read_text(); loop=(files/"proxmox-firewall-boot-recovery").read_text()

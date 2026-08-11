@@ -392,7 +392,9 @@ const downloadedPackagedKey = structuredClone(contract);
 downloadedPackagedKey.proxmox.apt.permitted_keyrings[0].source_url = "https://example.invalid/debian.gpg";
 checkSemantic(downloadedPackagedKey, "must not declare a download URL", "downloaded packaged keyring");
 
-const proxmoxHostTasks = fs.readFileSync(path.join(root, "ansible/roles/proxmox_host/tasks/main.yml"), "utf8");
+const proxmoxHostTasks = ["main.yml", "service-accounts.yml"]
+  .map((name) => fs.readFileSync(path.join(root, "ansible/roles/proxmox_host/tasks", name), "utf8"))
+  .join("\n");
 for (const snippet of [
   "follow: false",
   "follow: true",
@@ -508,7 +510,7 @@ requireTaskArgument("ansible/roles/proxmox_host/tasks/main.yml", "Install each c
 requireTaskArgument("ansible/roles/proxmox_storage/tasks/main.yml", "Export the Docker dataset only to the Arch VM", "ansible.builtin.template", "owner", "{{ storage.nfs.exports_file.owner }}");
 requireTaskArgument("ansible/roles/human_access/tasks/main.yml", "Remove contract-declared conventional OpenSSH authorized-key files for human accounts", "ansible.builtin.file", "path", "{{ item.1.path }}");
 requireTaskArgument("ansible/roles/human_access/tasks/main.yml", "Install validated passwordless sudo policies for human accounts", "ansible.builtin.copy", "dest", "{{ item.sudo.file.path | default(item.sudoers_path) }}");
-const removeServiceSudoTask = parsedTask("ansible/roles/proxmox_host/tasks/main.yml", "Remove undeclared service-account sudo policies");
+const removeServiceSudoTask = parsedTask("ansible/roles/proxmox_host/tasks/service-accounts.yml", "Remove undeclared service-account sudo policies");
 for (const condition of ["(item.sudo.kind | default('')) == 'audit-absence'", "(item.sudo.absence | default('')) == 'file'"]) {
   if (!removeServiceSudoTask.when.includes(condition)) throw new Error(`service-account sudo absence guard must safely classify mixed records: ${condition}`);
 }

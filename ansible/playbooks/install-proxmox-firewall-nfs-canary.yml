@@ -1,0 +1,33 @@
+---
+- name: Install the inert Proxmox firewall NFS canary on Arch
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  pre_tasks:
+    - name: Require the exact Arch host and explicit NFS canary install approval
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Archlinux'
+          - ansible_facts.hostname == arch.hostname
+          - ansible_check_mode or (proxmox_firewall_nfs_canary_install_confirmed | default(false) | bool)
+        fail_msg: "Firewall NFS canary installation requires the intended Arch host and explicit approval."
+
+    - name: Acquire the host-side production apply lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: proxmox-firewall-nfs-canary-install
+
+  roles:
+    - role: firewall_nfs_canary
+
+  post_tasks:
+    - name: Release the host-side production apply lock after success
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
