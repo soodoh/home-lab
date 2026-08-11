@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -109,11 +110,11 @@ class ControllerTests(unittest.TestCase):
    with mock.patch.object(self.m,"git_identity",return_value=("a"*40,"b"*40)),mock.patch.object(self.m,"host",side_effect=host),mock.patch.object(self.m,"canaries",side_effect=effects):
     with self.assertRaises(RuntimeError): self.m.apply(sha,sha)
    self.assertEqual(calls,["begin","rollback"])
- def test_tls_canary_uses_explicit_no_proxy_opener(self):
-  response=mock.MagicMock(); response.__enter__.return_value.status=200; response.__enter__.return_value.read.return_value=b"ok"; opener=mock.Mock(); opener.open.return_value=response
+ def test_tls_canary_uses_explicit_no_proxy_opener_and_accepts_pve_auth_challenge(self):
+  url="https://fixed-sidecar-endpoint:8006/api2/json/version"; opener=mock.Mock(); opener.open.side_effect=self.m.urllib.error.HTTPError(url,401,"authentication required",{},io.BytesIO(b"auth"))
   with mock.patch.dict(os.environ,{"HTTPS_PROXY":"https://untrusted-proxy.invalid:8443","NO_PROXY":""}),mock.patch.object(self.m.ssl,"create_default_context",return_value=mock.Mock()),mock.patch.object(self.m.urllib.request,"build_opener",return_value=opener) as build:
-   self.assertTrue(self.m.check_tls("https://fixed-sidecar-endpoint:8006/api2/json/version","certificate"))
-  handlers=build.call_args.args; self.assertEqual(handlers[0].proxies,{}); opener.open.assert_called_once_with("https://fixed-sidecar-endpoint:8006/api2/json/version",timeout=5)
+   self.assertTrue(self.m.check_tls(url,"certificate"))
+  handlers=build.call_args.args; self.assertEqual(handlers[0].proxies,{}); opener.open.assert_called_once_with(url,timeout=5)
  def test_direct_parser_is_unambiguous(self):
   good=b"pong from pve (100.64.0.1) via 192.0.2.1:41641 in 12ms\n"
   for output,expected in ((good,True),(b"not direct\n",False),(b"pong via DERP(foo)\n",False),(good+b"extra\n",False)):

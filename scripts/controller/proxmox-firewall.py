@@ -19,6 +19,7 @@ import subprocess
 import sys
 import time
 from typing import Any
+import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -262,6 +263,9 @@ def check_tls(url: str, ca: str, deadline: float | None = None) -> bool:
             with opener.open(url, timeout=min(5, remaining)) as response:
                 if response.status == 200 and len(response.read(4097)) <= 4096:
                     return True
+        except urllib.error.HTTPError as error:
+            if error.code == 401 and len(error.read(4097)) <= 4096:
+                return True
         except Exception:
             pass
         if attempt < 2 and (deadline is None or deadline - time.monotonic() > 1):
