@@ -26,6 +26,7 @@ class FakeRunner:
     def __init__(self):
         self.options={"enable":0,"policy_in":"ACCEPT","policy_out":"ACCEPT"}; self.rules=[]; self.serial=0; self.commands=[]; self.timer=True; self.services=True
     def _digest(self): return f"{self.serial:040x}"
+    def _rules_digest(self): return f"{1000000+self.serial:040x}"
     def run(self,argv,attempts=2,timeout=5,accepted=(0,),allow_stderr=False):
         self.commands.append(tuple(argv))
         if argv[:4]==("/usr/bin/pvesh","get","/cluster/firewall/options","--output-format"):
@@ -33,18 +34,18 @@ class FakeRunner:
         if argv[:4]==("/usr/bin/pvesh","get","/cluster/firewall/rules","--output-format"):
             values=[]
             for pos,rule in enumerate(self.rules):
-                values.append({"action":rule["action"],"dport":rule["destination_port"],"enable":1,"log":rule["log"],"pos":pos,
+                values.append({"action":rule["action"],"digest":self._rules_digest(),"dport":rule["destination_port"],"enable":1,"ipversion":4,"log":rule["log"],"pos":pos,
                                "proto":rule["protocol"],"source":rule["source"],"type":rule["direction"]})
             return json.dumps(values).encode()
         if argv[:3]==("/usr/bin/pvesh","set","/cluster/firewall/options"):
             fields=dict(zip(argv[3::2],argv[4::2])); assert fields["--digest"]==self._digest()
             self.options={**self.options,"enable":int(fields["--enable"]),"policy_in":fields["--policy_in"],"policy_out":fields["--policy_out"]}; self.serial+=1; return b""
         if argv[:3]==("/usr/bin/pvesh","create","/cluster/firewall/rules"):
-            fields=dict(zip(argv[3::2],argv[4::2])); assert fields["--digest"]==self._digest()
+            fields=dict(zip(argv[3::2],argv[4::2])); assert fields["--digest"]==(self._rules_digest() if self.rules else self._digest())
             self.rules.append({"action":fields["--action"],"destination_port":int(fields["--dport"]),"direction":fields["--type"],
                                "log":fields["--log"],"protocol":fields["--proto"],"source":fields["--source"]}); self.serial+=1; return b""
         if argv[:2]==("/usr/bin/pvesh","delete"):
-            fields=dict(zip(argv[3::2],argv[4::2])); assert fields["--digest"]==self._digest(); self.rules.pop(int(argv[2].rsplit("/",1)[1])); self.serial+=1; return b""
+            fields=dict(zip(argv[3::2],argv[4::2])); assert fields["--digest"]==self._rules_digest(); self.rules.pop(int(argv[2].rsplit("/",1)[1])); self.serial+=1; return b""
         if argv[:2] in (("/usr/bin/loginctl","terminate-user"),("/usr/bin/pkill","--signal")): return b""
         if argv[:2]==("/usr/bin/pgrep","--uid"): return b""
         if argv[:2]==("/usr/bin/systemctl","restart"):
@@ -88,7 +89,8 @@ class HostTests(unittest.TestCase):
     def test_normalization_rejects_missing_duplicate_disabled_extra(self):
         base={"action":"ACCEPT","dport":"22","enable":1,"log":"nolog","pos":0,"proto":"tcp","source":"192.0.2.0/24","type":"IN"}
         self.assertIsNotNone(self.m.normalize_rule(base)); self.assertEqual(self.m.normalize_rule({**base,"type":"in"})["direction"],"IN")
-        for changed in ({**base,"enable":0},{**base,"comment":"unexpected"},{**base,"dport":"bad"},{**base,"type":"OUT"}): self.assertIsNone(self.m.normalize_rule(changed))
+        self.assertIsNotNone(self.m.normalize_rule({**base,"digest":"d"*40,"ipversion":4}))
+        for changed in ({**base,"enable":0},{**base,"comment":"unexpected"},{**base,"digest":"d"*64},{**base,"ipversion":6},{**base,"dport":"bad"},{**base,"type":"OUT"}): self.assertIsNone(self.m.normalize_rule(changed))
         self.runner.rules=[self.m.normalize_rule(base),self.m.normalize_rule(base)]
         with self.assertRaises(ValueError): self.m.observe(self.runner)
     def test_local_single_use_authorization_rejects_replay_and_recovers_consumed_crash(self):

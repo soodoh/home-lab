@@ -232,7 +232,7 @@ def normalize_bool(value: Any, default: bool = False) -> bool | None:
 
 
 def normalize_rule(value: Any) -> dict[str, Any] | None:
-    allowed = RULE_KEYS | {"dport", "enable", "pos", "proto", "type"}
+    allowed = RULE_KEYS | {"comment", "dest", "digest", "dport", "enable", "iface", "ipversion", "macro", "pos", "proto", "type"}
     if not isinstance(value, dict) or not set(value).issubset(allowed):
         return None
     enabled = normalize_bool(value.get("enable"), True)
@@ -249,6 +249,8 @@ def normalize_rule(value: Any) -> dict[str, Any] | None:
         return None
     if enabled is not True or direction != "IN" or action != "ACCEPT" or protocol not in {"tcp", "udp"} or \
             value.get("source") is None or value.get("log", "nolog") != "nolog" or \
+            ("digest" in value and (not isinstance(value["digest"], str) or HEX40.fullmatch(value["digest"]) is None)) or \
+            value.get("ipversion") not in (None, 0, "0", 4, "4") or \
             any(value.get(name) not in (None, "") for name in ("comment", "iface", "macro", "dest")):
         return None
     return {"action": "ACCEPT", "destination_port": port, "direction": "IN", "log": "nolog",
@@ -288,14 +290,19 @@ def observe(runner: Runner) -> dict[str, Any]:
         raise ValueError("PVE firewall response differs")
     state_rules = []
     positions = []
+    rule_digests: set[str | None] = set()
     for value in rules:
         normalized = normalize_rule(value)
         if normalized is None or not isinstance(value.get("pos"), int):
             raise ValueError("PVE firewall rule differs")
         state_rules.append(normalized)
         positions.append(value["pos"])
+        rule_digests.add(value.get("digest"))
     if len(state_rules) != len({canonical(rule) for rule in state_rules}):
         raise ValueError("duplicate PVE firewall rule")
+    if len(rule_digests) > 1:
+        raise ValueError("PVE firewall rule digests differ")
+    rules_digest = next(iter(rule_digests), None)
     pve_digest = options.get("digest")
     if not isinstance(pve_digest, str) or HEX40.fullmatch(pve_digest) is None:
         raise ValueError("PVE digest differs")
@@ -306,7 +313,7 @@ def observe(runner: Runner) -> dict[str, Any]:
             normalized_options["policy_out"] not in {"ACCEPT", "DROP", "REJECT"} or any(not isinstance(name, str) or not name or
             not isinstance(value, (str, int, bool)) or isinstance(value, float) for name, value in normalized_options.items()):
         raise ValueError("PVE options differ")
-    return {"digest": pve_digest, "options": normalized_options, "positions": positions, "rules": state_rules}
+    return {"digest": pve_digest, "options": normalized_options, "positions": positions, "rules": state_rules, "rulesDigest": rules_digest}
 
 
 def public_state(value: dict[str, Any]) -> dict[str, Any]:
@@ -646,7 +653,7 @@ def delete_rules(runner: Runner, state: dict[str, Any]) -> dict[str, Any]:
     current = state
     for position in sorted(current["positions"], reverse=True):
         index = current["positions"].index(position); removed = current["rules"][index]
-        pvesh(runner, "delete", f"/cluster/firewall/rules/{position}", "--digest", current["digest"])
+        pvesh(runner, "delete", f"/cluster/firewall/rules/{position}", "--digest", current["rulesDigest"] or current["digest"])
         observed = observe(runner); expected = {"options": current["options"], "rules": [rule for offset, rule in enumerate(current["rules"]) if offset != index]}
         if not same_content(observed, expected): raise RuntimeError("delete intermediate state differs")
         current = observed
@@ -656,7 +663,7 @@ def delete_rules(runner: Runner, state: dict[str, Any]) -> dict[str, Any]:
 def create_rules(runner: Runner, state: dict[str, Any], rules: list[dict[str, Any]]) -> dict[str, Any]:
     current = state
     for rule in rules:
-        pvesh(runner, "create", "/cluster/firewall/rules", "--digest", current["digest"], "--type", rule["direction"].lower(),
+        pvesh(runner, "create", "/cluster/firewall/rules", "--digest", current["rulesDigest"] or current["digest"], "--type", rule["direction"].lower(),
                "--action", rule["action"], "--source", rule["source"], "--proto", rule["protocol"],
                "--dport", str(rule["destination_port"]), "--log", rule["log"], "--enable", "1")
         observed = observe(runner); expected = {"options": current["options"], "rules": current["rules"] + [rule]}
@@ -704,7 +711,7 @@ def rollback_config(journal: dict[str, Any], runner: Runner) -> None:
             index, rule = match; position = current["positions"][index]
             expected = {"options": current["options"], "rules": [item for offset,item in enumerate(current["rules"]) if offset != index]}
             def remove(position: int = position, state: dict[str, Any] = current) -> dict[str, Any]:
-                pvesh(runner,"delete",f"/cluster/firewall/rules/{position}","--digest",state["digest"]); return observe(runner)
+                pvesh(runner,"delete",f"/cluster/firewall/rules/{position}","--digest",state["rulesDigest"] or state["digest"]); return observe(runner)
             current = checkpointed(journal, "remove-candidate", current, expected, remove)
         expected_options = {**current["options"], **snapshot_options, "enable": False}
         if current["options"] != expected_options:
