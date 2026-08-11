@@ -371,7 +371,16 @@
     - not ansible_check_mode
     - proxmox_cleanup_migration_confirmed | bool
 
-- name: Validate refreshed Proxmox boot synchronization status
+- name: Inspect Proxmox boot synchronization mode
+  ansible.builtin.stat:
+    path: /etc/kernel/proxmox-boot-uuids
+    get_checksum: false
+  register: proxmox_cleanup_boot_uuids
+  when:
+    - not ansible_check_mode
+    - proxmox_cleanup_migration_confirmed | bool
+
+- name: Validate refreshed proxmox-boot-tool synchronization status
   ansible.builtin.command:
     argv:
       - /usr/sbin/proxmox-boot-tool
@@ -381,6 +390,22 @@
   when:
     - not ansible_check_mode
     - proxmox_cleanup_migration_confirmed | bool
+    - proxmox_cleanup_boot_uuids.stat.isreg | default(false)
+
+- name: Validate the retained kernel in refreshed GRUB configuration
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/grep
+      - --fixed-strings
+      - --quiet
+      - "{{ proxmox.kernels.current }}"
+      - /boot/grub/grub.cfg
+  changed_when: false
+  check_mode: false
+  when:
+    - not ansible_check_mode
+    - proxmox_cleanup_migration_confirmed | bool
+    - not (proxmox_cleanup_boot_uuids.stat.isreg | default(false))
 
 - name: Inventory manually installed packages
   ansible.builtin.command:
