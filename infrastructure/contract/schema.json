@@ -173,9 +173,22 @@
   "$defs": {
     "proxmoxPlanningPolicy": {
       "type": "object", "additionalProperties": false,
-      "required": ["max_observation_age_seconds", "managed_file_policies", "domains"],
+      "required": ["max_observation_age_seconds", "service_policies", "managed_file_policies", "domains"],
       "properties": {
         "max_observation_age_seconds": { "const": 300 },
+        "service_policies": {
+          "type": "array", "minItems": 4, "maxItems": 4,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["name", "safety_class", "automatic", "requires_approval", "requires_reboot", "requires_watchdog"],
+            "properties": {
+              "name": { "$ref": "#/$defs/systemdService" },
+              "safety_class": { "enum": ["guarded", "reboot-bound", "protected-session", "access-critical", "data-critical"] },
+              "automatic": { "type": "boolean" }, "requires_approval": { "type": "boolean" },
+              "requires_reboot": { "type": "boolean" }, "requires_watchdog": { "type": "boolean" }
+            }
+          }
+        },
         "managed_file_policies": {
           "type": "array", "minItems": 12, "maxItems": 12,
           "items": {

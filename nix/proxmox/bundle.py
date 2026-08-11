@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Build and verify the deterministic, inert Proxmox host foundation bundle."""
+"""Build and verify the deterministic protocol-v3 Proxmox host bundle."""
 
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import json
 import os
@@ -17,33 +18,9 @@ from typing import Any
 
 BUNDLE_FORMAT = "home-lab-proxmox-host-bundle-v1"
 HASH_ALGORITHM = "sha256-canonical-file-tree-v1"
-PROTOCOL_VERSION = 2
+PROTOCOL_VERSION = 3
 EXPECTED_HELPERS = ("proxmox-activator", "proxmox-observer")
-HELPER_NAME_TOKEN = "@HELPER_NAME@"
-ACTIVATOR_TEMPLATE = '''#!/usr/bin/python3
-"""Intentionally inert Proxmox activator."""
-
-import json
-import sys
-
-NAME = "@HELPER_NAME@"
-PROTOCOL = 2
-
-
-def main() -> int:
-    if len(sys.argv) != 2 or sys.argv[1] not in {"version", "self-check"}:
-        print(f"usage: {NAME} <version|self-check>", file=sys.stderr)
-        return 64
-    if sys.argv[1] == "version":
-        print(json.dumps({"capabilities": [], "helper": NAME, "protocol": PROTOCOL, "version": 1}, separators=(",", ":"), sort_keys=True))
-    else:
-        print(f"{NAME}=self-check-passed protocol={PROTOCOL} capabilities=none")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-'''
+ACTIVATOR_TEMPLATE_PATH = Path(__file__).with_name("activator-template.py")
 OBSERVER_TEMPLATE_PATH = Path(__file__).with_name("observer-template.py")
 EXPECTED_PROJECTION_KEYS = {
     "accounts", "apiIntent", "architecture", "auditAbsence", "healthExpectations", "hostNetworking",
@@ -263,7 +240,7 @@ def validate_projection(projection: Any, package_count: int, package_manifest_sh
         "managed-files", "managed-fragments", "managed-artifacts", "packages", "services", "accounts",
         "tailscale", "pve-access", "pve-firewall", "pve-storage",
     }
-    if not isinstance(planning, dict) or set(planning) != {"domains", "managedFilePolicies", "maxAgeSeconds"} or \
+    if not isinstance(planning, dict) or set(planning) != {"domains", "managedFilePolicies", "maxAgeSeconds", "servicePolicies"} or \
             planning["maxAgeSeconds"] != 300 or not isinstance(planning["domains"], list) or \
             {item.get("domain") for item in planning["domains"] if isinstance(item, dict)} != expected_domains:
         raise ValueError("planning policy is malformed")
@@ -273,6 +250,28 @@ def validate_projection(projection: Any, package_count: int, package_manifest_sh
         if set(item) != policy_keys or item["safetyClass"] not in safety_classes or \
                 any(not isinstance(item[key], bool) for key in ("automatic", "requiresApproval", "requiresReboot", "requiresWatchdog")):
             raise ValueError("planning policy domain classification is malformed")
+        if item["domain"] == "packages" and (item["automatic"] or item["safetyClass"] != "protected-session"):
+            raise ValueError("package policy must remain a nonautomatic protected session")
+    service_policy_keys = {"automatic", "name", "requiresApproval", "requiresReboot", "requiresWatchdog", "safetyClass"}
+    service_names = {item["name"] for item in projection["nativeServices"]}
+    service_policies = planning["servicePolicies"]
+    if not isinstance(service_policies, list) or len(service_policies) != len(service_names) or \
+            {item.get("name") for item in service_policies if isinstance(item, dict)} != service_names:
+        raise ValueError("every native service must have exactly one service policy")
+    expected_service_policy = {
+        "chrony.service": ("guarded", True, False),
+        "nfs-server.service": ("data-critical", False, False),
+        "ssh.service": ("access-critical", False, True),
+        "tailscaled.service": ("access-critical", False, True),
+    }
+    for item in service_policies:
+        if set(item) != service_policy_keys or item["name"] not in expected_service_policy or \
+                any(not isinstance(item[key], bool) for key in ("automatic", "requiresApproval", "requiresReboot", "requiresWatchdog")):
+            raise ValueError("service policy is malformed or incomplete")
+        expected_class, expected_automatic, expected_watchdog = expected_service_policy[item["name"]]
+        if (item["safetyClass"], item["automatic"], item["requiresWatchdog"]) != \
+                (expected_class, expected_automatic, expected_watchdog) or not item["requiresApproval"] or item["requiresReboot"]:
+            raise ValueError("service policy weakens the authoritative safety classification")
     target_keys = {"automatic", "path", "requiresApproval", "requiresReboot", "requiresWatchdog", "safetyClass"}
     managed_file_paths = {item["path"] for item in projection["managedFiles"]}
     target_policies = planning["managedFilePolicies"]
@@ -340,11 +339,79 @@ def observation_specification(projection: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def expected_helper_content(name: str, projection: dict[str, Any]) -> bytes:
+def activation_specification(projection: dict[str, Any], flake_lock_sha256: str) -> dict[str, Any]:
+    policies = {item["domain"]: item for item in projection["planningPolicy"]["domains"]}
+    file_policies = {item["path"]: item for item in projection["planningPolicy"]["managedFilePolicies"]}
+    service_policies = {item["name"]: item for item in projection["planningPolicy"]["servicePolicies"]}
+    catalog: dict[str, Any] = {}
+
+    def add(domain: str, name: str, kind: str, target_type: str, desired: dict[str, Any], material: dict[str, Any], policy: dict[str, Any]) -> None:
+        if not policy["automatic"] or policy["requiresWatchdog"] or policy["safetyClass"] in {"access-critical", "data-critical", "protected-session"}:
+            return
+        target_key = "name" if domain == "services" else "path"
+        target = {target_key: name, "type": target_type}
+        after = {"state": "present", **desired}
+        catalog[domain + "\0" + name] = {
+            "action": {"after": after, "approvalRequired": policy["requiresApproval"], "domain": domain,
+                       "kind": kind, "rebootRequired": policy["requiresReboot"], "safetyClass": policy["safetyClass"],
+                       "target": target, "watchdogRequired": policy["requiresWatchdog"]},
+            "domain": domain, **material, "after": after,
+        }
+
+    for item in projection["managedFiles"]:
+        add("managed-files", item["path"], "replace-file", "file",
+            {"contentMatches": True, "groupMatches": True, "mode": item["mode"], "ownerMatches": True, "type": "file"},
+            {"contentBase64": base64.b64encode(item["content"].encode()).decode(), "group": item["group"],
+             "mode": item["mode"], "nativeOperation": "update-initramfs" if item["path"] in {
+                 "/etc/modprobe.d/zfs.conf", "/etc/modules-load.d/home-lab-vfio.conf"} else None,
+             "owner": item["owner"], "path": item["path"], "sha256": sha256_bytes(item["content"].encode())},
+            file_policies[item["path"]])
+    for item in projection["managedFileFragments"]:
+        add("managed-fragments", item["path"], "ensure-fragment", "file-fragment",
+            {"groupMatches": True, "matchCount": 1, "mode": item["mode"], "ownerMatches": True, "type": "file"},
+            {"group": item["group"], "line": item["content"], "mode": item["mode"], "nativeOperation": "update-grub",
+             "owner": item["owner"], "path": item["path"], "sha256": sha256_bytes(item["content"].encode())},
+            policies["managed-fragments"])
+    for item in projection["managedArtifacts"]:
+        add("managed-artifacts", item["path"], "install-artifact", "artifact",
+            {"contentMatches": True, "groupMatches": True, "mode": item["mode"], "ownerMatches": True,
+             "symlinkTargetMatches": True, "type": "symlink" if item["symlinkTarget"] else "file"},
+            {"group": item["group"], "mode": item["mode"], "owner": item["owner"], "path": item["path"],
+             "sha256": item["sha256"], "sourceUrl": item["sourceUrl"], "symlinkTarget": item["symlinkTarget"]},
+            policies["managed-artifacts"])
+    for item in projection["nativeServices"]:
+        add("services", item["name"], "reconcile-service", "service",
+            {"active": item["state"] == "started", "enabled": item["enabled"]},
+            {"active": item["state"] == "started", "enabled": item["enabled"], "name": item["name"]},
+            service_policies[item["name"]])
+    observer = expected_helper_content("proxmox-observer", projection)
+    ordered_catalog = dict(sorted(catalog.items()))
+    expected_bindings = {
+        "activationEnvelopeSchemaSha256": sha256_file(ACTIVATOR_TEMPLATE_PATH.with_name("activation-envelope.schema.json")),
+        "flakeLockSha256": flake_lock_sha256,
+        "observerSha256": sha256_bytes(observer),
+        "packageManifestSha256": projection["packagePolicy"]["manifestSha256"],
+        "planSchemaSha256": sha256_file(ACTIVATOR_TEMPLATE_PATH.with_name("plan.schema.json")),
+        "privatePreconditionsSchemaSha256": sha256_file(ACTIVATOR_TEMPLATE_PATH.with_name("private-preconditions.schema.json")),
+        "projectionSha256": sha256_bytes(canonical_json(projection)),
+    }
+    return {"catalog": ordered_catalog, "catalogOrder": list(ordered_catalog), "expectedBindings": expected_bindings,
+            "protectedAccessExpectedCount": observation_specification(projection)["protectedAccessExpectedCount"],
+            "protectedHardwareExpectedCount": observation_specification(projection)["protectedExpectedCount"]}
+
+
+def expected_helper_content(name: str, projection: dict[str, Any], flake_lock_sha256: str | None = None) -> bytes:
     if name not in EXPECTED_HELPERS:
         raise ValueError(f"unsupported fixed helper name: {name}")
     if name == "proxmox-activator":
-        return ACTIVATOR_TEMPLATE.replace(HELPER_NAME_TOKEN, name).encode()
+        template = ACTIVATOR_TEMPLATE_PATH.read_text(encoding="utf-8")
+        if flake_lock_sha256 is None:
+            local_lock = ACTIVATOR_TEMPLATE_PATH.parents[1] / "flake.lock"
+            if not local_lock.is_file():
+                raise ValueError("fixed flake-lock binding is unavailable")
+            flake_lock_sha256 = sha256_file(local_lock)
+        encoded_spec = json.dumps(canonical_json(activation_specification(projection, flake_lock_sha256)).decode().strip())
+        return template.replace("'@ACTIVATION_SPEC@'", encoded_spec).encode()
     template = OBSERVER_TEMPLATE_PATH.read_text(encoding="utf-8")
     encoded_spec = json.dumps(canonical_json(observation_specification(projection)).decode().strip())
     return template.replace("'@OBSERVATION_SPEC@'", encoded_spec).encode()
@@ -352,7 +419,7 @@ def expected_helper_content(name: str, projection: dict[str, Any]) -> bytes:
 
 def expected_helper_version(name: str) -> bytes:
     return canonical_json({
-        "capabilities": ["observe"] if name == "proxmox-observer" else [], "helper": name,
+        "capabilities": ["observe"] if name == "proxmox-observer" else ["guarded-session"], "helper": name,
         "protocol": PROTOCOL_VERSION, "version": 1,
     })
 
@@ -360,10 +427,10 @@ def expected_helper_version(name: str) -> bytes:
 def expected_protocol() -> dict[str, Any]:
     return {
         "version": PROTOCOL_VERSION,
-        "milestone": "plan-only",
-        "capabilities": ["observe", "plan"],
+        "milestone": "guarded-apply",
+        "capabilities": ["observe", "plan", "guarded-apply", "rollback"],
         "helpers": {
-            "proxmox-activator": {"commands": ["version", "self-check"], "mutating": False},
+            "proxmox-activator": {"commands": ["version", "self-check", "session"], "mutating": True},
             "proxmox-observer": {"commands": ["version", "self-check", "observe"], "mutating": False},
         },
         "uploadedCodeExecution": False,
@@ -415,10 +482,13 @@ def build_bundle(args: argparse.Namespace) -> None:
     validate_projection(projection, package_count, package_manifest_sha256)
 
     projection_sha256 = sha256_bytes(projection_raw)
-    helper_contents = {name: expected_helper_content(name, projection) for name in EXPECTED_HELPERS}
+    flake_lock_sha256 = sha256_file(flake_lock_path)
+    helper_contents = {name: expected_helper_content(name, projection, flake_lock_sha256) for name in EXPECTED_HELPERS}
     helper_hashes = {name: sha256_bytes(content) for name, content in helper_contents.items()}
     observation_schema = OBSERVER_TEMPLATE_PATH.with_name("observation.schema.json").read_bytes()
     plan_schema = OBSERVER_TEMPLATE_PATH.with_name("plan.schema.json").read_bytes()
+    private_schema = OBSERVER_TEMPLATE_PATH.with_name("private-preconditions.schema.json").read_bytes()
+    activation_schema = OBSERVER_TEMPLATE_PATH.with_name("activation-envelope.schema.json").read_bytes()
     metadata = {
         "bundleFormat": BUNDLE_FORMAT,
         "contentHashAlgorithm": HASH_ALGORITHM,
@@ -429,7 +499,9 @@ def build_bundle(args: argparse.Namespace) -> None:
         "packageManifestSha256": package_manifest_sha256,
         "observationSchemaSha256": sha256_bytes(observation_schema),
         "planSchemaSha256": sha256_bytes(plan_schema),
-        "flakeLockSha256": sha256_file(flake_lock_path),
+        "privatePreconditionsSchemaSha256": sha256_bytes(private_schema),
+        "activationEnvelopeSchemaSha256": sha256_bytes(activation_schema),
+        "flakeLockSha256": flake_lock_sha256,
         "helperSha256": helper_hashes,
         "helperInstall": {
             "deployment": "copy-out-of-store", "owner": "root", "group": "root", "mode": "0755",
@@ -439,6 +511,8 @@ def build_bundle(args: argparse.Namespace) -> None:
     write_file(output / "policy/projection.json", projection_raw)
     write_file(output / "policy/observation.schema.json", observation_schema)
     write_file(output / "policy/plan.schema.json", plan_schema)
+    write_file(output / "policy/private-preconditions.schema.json", private_schema)
+    write_file(output / "policy/activation-envelope.schema.json", activation_schema)
     write_file(output / "packages/proxmox-package-manifest.json", package_raw)
     write_file(output / "metadata.json", canonical_json(metadata))
     write_file(output / "protocol.json", canonical_json(expected_protocol()))
@@ -499,8 +573,8 @@ def verify_bundle(args: argparse.Namespace) -> None:
     validate_projection(projection, package_count, sha256_file(package_manifest_path))
 
     expected_metadata_keys = {
-        "bundleFormat", "contentHashAlgorithm", "flakeLockSha256", "helperInstall", "helperSha256", "packageCount",
-        "observationSchemaSha256", "packageManifestSha256", "planSchemaSha256", "projectionSha256", "protocolVersion", "target",
+        "activationEnvelopeSchemaSha256", "bundleFormat", "contentHashAlgorithm", "flakeLockSha256", "helperInstall", "helperSha256", "packageCount",
+        "observationSchemaSha256", "packageManifestSha256", "planSchemaSha256", "privatePreconditionsSchemaSha256", "projectionSha256", "protocolVersion", "target",
     }
     if not isinstance(metadata, dict) or set(metadata) != expected_metadata_keys or \
             metadata.get("bundleFormat") != BUNDLE_FORMAT or metadata.get("contentHashAlgorithm") != HASH_ALGORITHM or \
@@ -515,10 +589,16 @@ def verify_bundle(args: argparse.Namespace) -> None:
         raise ValueError("bundle metadata package-manifest binding failed")
     observation_schema_path = bundle / "policy/observation.schema.json"
     plan_schema_path = bundle / "policy/plan.schema.json"
+    private_schema_path = bundle / "policy/private-preconditions.schema.json"
+    activation_schema_path = bundle / "policy/activation-envelope.schema.json"
     if metadata.get("observationSchemaSha256") != sha256_file(observation_schema_path) or \
             metadata.get("planSchemaSha256") != sha256_file(plan_schema_path) or \
+            metadata.get("privatePreconditionsSchemaSha256") != sha256_file(private_schema_path) or \
+            metadata.get("activationEnvelopeSchemaSha256") != sha256_file(activation_schema_path) or \
             observation_schema_path.read_bytes() != OBSERVER_TEMPLATE_PATH.with_name("observation.schema.json").read_bytes() or \
-            plan_schema_path.read_bytes() != OBSERVER_TEMPLATE_PATH.with_name("plan.schema.json").read_bytes():
+            plan_schema_path.read_bytes() != OBSERVER_TEMPLATE_PATH.with_name("plan.schema.json").read_bytes() or \
+            private_schema_path.read_bytes() != OBSERVER_TEMPLATE_PATH.with_name("private-preconditions.schema.json").read_bytes() or \
+            activation_schema_path.read_bytes() != OBSERVER_TEMPLATE_PATH.with_name("activation-envelope.schema.json").read_bytes():
         raise ValueError("bundle metadata schema binding failed")
     if metadata.get("target") != {"architecture": "amd64", "os": "linux", "requiresNix": False}:
         raise ValueError("bundle target metadata is invalid")
@@ -539,7 +619,7 @@ def verify_bundle(args: argparse.Namespace) -> None:
         raise ValueError("bundle helper directory must contain exactly the fixed helpers")
     for helper in EXPECTED_HELPERS:
         helper_path = helper_directory / helper
-        expected_content = expected_helper_content(helper, projection)
+        expected_content = expected_helper_content(helper, projection, metadata["flakeLockSha256"])
         if helper_path.read_bytes() != expected_content:
             raise ValueError(f"helper {helper} content differs from the fixed builder template")
         if helper_hashes[helper] != sha256_bytes(expected_content):
@@ -554,7 +634,7 @@ def verify_bundle(args: argparse.Namespace) -> None:
         self_check = subprocess.run(
             [sys.executable, helper_path, "self-check"], capture_output=True, timeout=5,
         )
-        capability = "observe" if helper == "proxmox-observer" else "none"
+        capability = "observe" if helper == "proxmox-observer" else "guarded-session"
         expected_self_check = (
             f"{helper}=self-check-passed protocol={PROTOCOL_VERSION} capabilities={capability}\n".encode()
         )
@@ -575,7 +655,7 @@ def verify_bundle(args: argparse.Namespace) -> None:
                     observation.get("observerSha256") != sha256_bytes(expected_content):
                 raise ValueError("observer canonical redacted observation is unexpected")
 
-        commands = "version|self-check|observe" if helper == "proxmox-observer" else "version|self-check"
+        commands = "version|self-check|observe" if helper == "proxmox-observer" else "version|self-check|session"
         expected_usage = f"usage: {helper} <{commands}>\n".encode()
         for rejected_command in ("plan", "apply", "verify", "bootstrap", "unknown"):
             rejected = subprocess.run(

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic, plan-only Proxmox host controller."""
+"""Deterministic Proxmox host plan and exact guarded-apply controller."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from typing import Any
 PLAN_FORMAT = "home-lab-proxmox-plan-v1"
 OBSERVATION_FORMAT = "home-lab-proxmox-observation-v1"
 BUNDLE_FORMAT = "home-lab-proxmox-host-bundle-v1"
-PROTOCOL = 2
+PROTOCOL = 3
 MAX_OBSERVATION_BYTES = 1024 * 1024
 _OBSERVER_REMOTE = "/" + "usr" + "/" + "local" + "/libexec/home-lab/proxmox-observer"
 SSH_COMMAND = (
@@ -38,20 +38,18 @@ DOMAIN_ORDER = {
 }
 ACTION_KINDS = {
     "managed-files": "replace-file", "managed-fragments": "ensure-fragment", "managed-artifacts": "install-artifact",
-    "packages": "reconcile-package", "services": "reconcile-service", "accounts": "reconcile-account",
-    "tailscale": "reconcile-tailscale", "pve-access": "reconcile-pve-role", "pve-firewall": "reconcile-pve-firewall",
-    "pve-storage": "reconcile-pve-storage",
+    "packages": "reconcile-package-set", "services": "reconcile-service",
 }
 TARGET_TYPES = {
     "managed-files": "file", "managed-fragments": "file-fragment", "managed-artifacts": "artifact",
-    "packages": "package", "services": "service", "accounts": "account", "tailscale": "tailscale-preferences",
-    "pve-access": "pve-role", "pve-firewall": "pve-firewall", "pve-storage": "pve-storage",
+    "packages": "package-set", "services": "service",
 }
 FORBIDDEN_KEYS = {"argv", "command", "executable", "payload", "script"}
 APPROVED_SOURCE_FILES = {
-    "flake.lock", "flake.nix", "proxmox/bundle.py", "proxmox/fixture-observation.json",
-    "proxmox/observation.schema.json", "proxmox/observer-template.py", "proxmox/package-manifest.json",
-    "proxmox/package-manifest.schema.json", "proxmox/plan.schema.json", "proxmox/planner.py",
+    "flake.lock", "flake.nix", "proxmox/activation-envelope.schema.json", "proxmox/activator-template.py",
+    "proxmox/apply.py", "proxmox/bundle.py", "proxmox/fixture-observation.json", "proxmox/observation.schema.json",
+    "proxmox/observer-template.py", "proxmox/package-manifest.json", "proxmox/package-manifest.schema.json",
+    "proxmox/plan.schema.json", "proxmox/planner.py", "proxmox/private-preconditions.schema.json",
     "proxmox/projection.json", "proxmox/projection.schema.json",
 }
 _PVE_ROOT = "/" + "etc" + "/" + "pve"
@@ -286,6 +284,7 @@ def build_plan(bindings: dict[str, Any], projection: dict[str, Any], manifest: d
         raise ValueError("observation expired before planning completed")
     policy = {item["domain"]: item for item in projection["planningPolicy"]["domains"]}
     file_policy = {item["path"]: item for item in projection["planningPolicy"]["managedFilePolicies"]}
+    service_policy = {item["name"]: item for item in projection["planningPolicy"]["servicePolicies"]}
     expected_file_targets = {item["path"] for item in projection["managedFiles"]}
     if set(file_policy) != expected_file_targets:
         raise ValueError("every managed-file target must have exactly one safety policy")
@@ -318,14 +317,23 @@ def build_plan(bindings: dict[str, Any], projection: dict[str, Any], manifest: d
         if observed_domain["status"] != "complete":
             blockers.append(make_issue("blocker", domain, "observation-unavailable", domain, "required safe domain is unavailable"))
             continue
+        if domain == "packages":
+            observed_map = {item["name"]: item["version"] for item in observed_domain["records"]}
+            desired_map = {item["name"]: item["version"] for item in domain_desired}
+            if observed_map != desired_map or observed_domain["unexpectedCount"]:
+                findings.append(make_issue("drift", domain, "complete-package-set-drift", "complete-installed-map",
+                                           "complete installed package map differs from the reviewed manifest"))
+                blockers.append(make_issue("blocker", domain, "sealed-package-session-required", "complete-installed-map",
+                                           "one joint package transaction remains closed until protected bootstrap"))
+            continue
         by_target = {record_target(item): item for item in observed_domain["records"]}
         for expected in domain_desired:
             name = record_target(expected)
             current = by_target.get(name)
             if current != expected:
                 findings.append(make_issue("drift", domain, "desired-state-drift", name, "observed safe state differs"))
-                action_policy = file_policy[name] if domain == "managed-files" else policy[domain]
-                if action_policy["automatic"]:
+                action_policy = file_policy[name] if domain == "managed-files" else service_policy[name] if domain == "services" else policy[domain]
+                if action_policy["automatic"] and domain in ACTION_KINDS:
                     actions.append(plan_action(domain, current, expected, action_policy))
                 else:
                     blockers.append(make_issue("blocker", domain, "review-required", name, "policy forbids automatic mutation"))
@@ -357,13 +365,13 @@ def build_plan(bindings: dict[str, Any], projection: dict[str, Any], manifest: d
         findings.append(make_issue("opentofu", "opentofu", "opentofu-drift", "vm-100", "OpenTofu-owned state is incomplete or differs"))
         blockers.append(make_issue("blocker", "opentofu", "opentofu-owner-required", "vm-100", "OpenTofu drift is never mutated here"))
     access = observation["domains"]["protectedAccess"]
-    if access["status"] != "complete" or not access["matches"]:
-        blockers.append(make_issue("blocker", "protected-access", "private-observation-required", "protected-access",
-                                   "authorized access verification remains unavailable until protected bootstrap"))
+    if access["status"] == "complete" and not access["matches"]:
+        blockers.append(make_issue("blocker", "protected-access", "private-observation-mismatch", "protected-access",
+                                   "protected access attestation reports a mismatch"))
     protected = observation["domains"]["protectedHardware"]
-    if protected["status"] != "complete" or not protected["matches"]:
-        blockers.append(make_issue("blocker", "protected-hardware", "private-observation-required", "protected-hardware",
-                                   "protected runtime attestations are unavailable"))
+    if protected["status"] == "complete" and not protected["matches"]:
+        blockers.append(make_issue("blocker", "protected-hardware", "private-observation-mismatch", "protected-hardware",
+                                   "protected hardware attestation reports a mismatch"))
     if not identity_matches:
         actions = []
     actions.sort(key=lambda item: (DOMAIN_ORDER[item["domain"]], json.dumps(item["target"], sort_keys=True), item["kind"], item["id"]))
@@ -407,8 +415,9 @@ def validate_plan(plan: Any, projection: dict[str, Any], manifest: dict[str, Any
     expected_hash = digest({key: value for key, value in plan.items() if key != "planSha256"})
     if plan["planSha256"] != expected_hash:
         raise ValueError("plan hash binding is invalid")
-    exact_object(plan["bindings"], {"bundleContentSha256", "bundleFormat", "flakeLockSha256", "gitCommit", "gitTree",
-                                    "observerProtocol", "observerSha256", "packageManifestSha256",
+    exact_object(plan["bindings"], {"activationEnvelopeSchemaSha256", "activatorSha256", "bundleContentSha256", "bundleFormat",
+                                    "flakeLockSha256", "gitCommit", "gitTree", "observerProtocol", "observerSha256",
+                                    "packageManifestSha256", "planSchemaSha256", "privatePreconditionsSchemaSha256",
                                     "projectionSha256"}, "bindings")
     if plan["bindings"]["bundleFormat"] != BUNDLE_FORMAT or plan["bindings"]["observerProtocol"] != PROTOCOL:
         raise ValueError("plan bundle binding is invalid")
@@ -434,6 +443,7 @@ def validate_plan(plan: Any, projection: dict[str, Any], manifest: dict[str, Any
         raise ValueError("observed-state summary is invalid")
     policies = {item["domain"]: item for item in projection["planningPolicy"]["domains"]}
     file_policies = {item["path"]: item for item in projection["planningPolicy"]["managedFilePolicies"]}
+    service_policies = {item["name"]: item for item in projection["planningPolicy"]["servicePolicies"]}
     expected_by_domain = {domain: {record_target(item): item for item in records}
                           for domain, records in desired_records(projection, manifest).items()}
     previous = None
@@ -442,6 +452,8 @@ def validate_plan(plan: Any, projection: dict[str, Any], manifest: dict[str, Any
         exact_object(action, {"after", "approvalRequired", "before", "dependsOn", "domain", "id", "kind", "postconditions",
                               "preconditionSha256", "rebootRequired", "safetyClass", "sequence", "target", "watchdogRequired"}, "action")
         domain = action["domain"]
+        if domain == "packages":
+            raise ValueError("aggregate package actions remain closed until protected bootstrap")
         if action["sequence"] != index or domain not in ACTION_KINDS or action["kind"] != ACTION_KINDS[domain]:
             raise ValueError("action domain-kind or sequence is invalid")
         expected_type = TARGET_TYPES[domain]
@@ -450,7 +462,7 @@ def validate_plan(plan: Any, projection: dict[str, Any], manifest: dict[str, Any
         if action["target"]["type"] != expected_type or not isinstance(action["target"][target_key], str):
             raise ValueError("action target does not pair with its domain")
         target_name = action["target"][target_key]
-        selected_policy = file_policies.get(target_name) if domain == "managed-files" else policies.get(domain)
+        selected_policy = file_policies.get(target_name) if domain == "managed-files" else service_policies.get(target_name) if domain == "services" else policies.get(domain)
         if selected_policy is None:
             raise ValueError("action target lacks a policy")
         if not selected_policy["automatic"]:
@@ -551,7 +563,9 @@ def bundle_inputs(bundle: Path, bundle_hash_file: Path, repo: Path, source_root:
             manifest_raw != (source_root / "proxmox/package-manifest.json").read_bytes():
         raise ValueError("bundle package manifest bytes differ from metadata or fixed source")
     for schema_name, metadata_key in (("observation.schema.json", "observationSchemaSha256"),
-                                      ("plan.schema.json", "planSchemaSha256")):
+                                      ("plan.schema.json", "planSchemaSha256"),
+                                      ("private-preconditions.schema.json", "privatePreconditionsSchemaSha256"),
+                                      ("activation-envelope.schema.json", "activationEnvelopeSchemaSha256")):
         schema_raw = (bundle / "policy" / schema_name).read_bytes()
         if schema_raw != (source_root / "proxmox" / schema_name).read_bytes() or \
                 digest(schema_raw) != metadata.get(metadata_key):
@@ -565,14 +579,18 @@ def bundle_inputs(bundle: Path, bundle_hash_file: Path, repo: Path, source_root:
         if not path.is_file() or digest(path.read_bytes()) != expected:
             raise ValueError(f"repository projection binding failed: {relative}")
     observer = bundle / "helpers/proxmox-observer"
+    activator = bundle / "helpers/proxmox-activator"
     observer_hash = digest(observer.read_bytes())
-    if metadata["helperSha256"]["proxmox-observer"] != observer_hash:
-        raise ValueError("bundle observer binding failed")
+    activator_hash = digest(activator.read_bytes())
+    if metadata["helperSha256"]["proxmox-observer"] != observer_hash or metadata["helperSha256"]["proxmox-activator"] != activator_hash:
+        raise ValueError("bundle helper binding failed")
     commit, tree = git_bindings(repo)
-    bindings = {"bundleContentSha256": content_hash, "bundleFormat": metadata["bundleFormat"],
+    bindings = {"activationEnvelopeSchemaSha256": metadata["activationEnvelopeSchemaSha256"],
+                "activatorSha256": activator_hash, "bundleContentSha256": content_hash, "bundleFormat": metadata["bundleFormat"],
                 "flakeLockSha256": metadata["flakeLockSha256"], "gitCommit": commit, "gitTree": tree,
                 "observerProtocol": PROTOCOL, "observerSha256": observer_hash,
-                "packageManifestSha256": metadata["packageManifestSha256"],
+                "packageManifestSha256": metadata["packageManifestSha256"], "planSchemaSha256": metadata["planSchemaSha256"],
+                "privatePreconditionsSchemaSha256": metadata["privatePreconditionsSchemaSha256"],
                 "projectionSha256": metadata["projectionSha256"]}
     return bindings, projection, manifest, metadata
 
@@ -704,7 +722,7 @@ def secure_output(plan: dict[str, Any], directory: Path) -> Path:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(prog="proxmox-host", add_help=False)
+    parser = argparse.ArgumentParser(prog="proxmox-host", add_help=False, allow_abbrev=False)
     parser.add_argument("command", nargs="?")
     parser.add_argument("--repo-root")
     parser.add_argument("--fixture-only", action="store_true")
@@ -712,12 +730,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--observed-at")
     parser.add_argument("--completed-at")
     parser.add_argument("--output-dir")
+    parser.add_argument("--plan-sha")
+    parser.add_argument("--approve-plan-sha")
     args, unknown = parser.parse_known_args()
-    if unknown or args.command != "plan" or not args.repo_root:
-        fail("usage: proxmox-host plan --repo-root ABSOLUTE_PATH [--fixture-only --observation-file FILE --observed-at TIME --completed-at TIME --output-dir DIR]", 64)
+    plan_usage = "proxmox-host plan --repo-root ABSOLUTE_PATH [--fixture-only --observation-file FILE --observed-at TIME --completed-at TIME --output-dir DIR]"
+    apply_usage = "proxmox-host apply --repo-root ABSOLUTE_PATH --plan-sha SHA256 --approve-plan-sha SAME_SHA256"
+    if unknown or args.command not in {"plan", "apply"} or not args.repo_root:
+        fail(f"usage: {plan_usage}\n       {apply_usage}", 64)
     fixture_fields = (args.observation_file, args.observed_at, args.completed_at, args.output_dir)
-    if args.fixture_only != all(fixture_fields) or (not args.fixture_only and any(fixture_fields)):
-        fail("fixture arguments are accepted only as one complete --fixture-only set", 64)
+    if args.command == "plan":
+        if args.plan_sha or args.approve_plan_sha or args.fixture_only != all(fixture_fields) or (not args.fixture_only and any(fixture_fields)):
+            fail(f"usage: {plan_usage}", 64)
+    elif args.fixture_only or any(fixture_fields) or not args.plan_sha or not args.approve_plan_sha:
+        fail(f"usage: {apply_usage}", 64)
     return args
 
 
@@ -729,10 +754,14 @@ def main() -> int:
             "PROXMOX_HOST_FIXED_BUNDLE", "PROXMOX_HOST_FIXED_BUNDLE_HASH", "PROXMOX_HOST_FIXED_SOURCE_ROOT")}
         if any(not value for value in trusted.values()):
             raise ValueError("fixed application bundle environment is unavailable")
-        bindings, projection, manifest, _ = bundle_inputs(
-            Path(trusted["PROXMOX_HOST_FIXED_BUNDLE"]), Path(trusted["PROXMOX_HOST_FIXED_BUNDLE_HASH"]),
-            repo, Path(trusted["PROXMOX_HOST_FIXED_SOURCE_ROOT"])
-        )
+        bundle_path = Path(trusted["PROXMOX_HOST_FIXED_BUNDLE"])
+        bundle_hash_path = Path(trusted["PROXMOX_HOST_FIXED_BUNDLE_HASH"])
+        source_root = Path(trusted["PROXMOX_HOST_FIXED_SOURCE_ROOT"])
+        if args.command == "apply":
+            import apply as guarded_apply
+            print(guarded_apply.apply(args, bundle_path, bundle_hash_path, source_root))
+            return 0
+        bindings, projection, manifest, _ = bundle_inputs(bundle_path, bundle_hash_path, repo, source_root)
         if args.fixture_only:
             observation = load_canonical(Path(args.observation_file))
             observed_at, completed_at = args.observed_at, args.completed_at

@@ -59,9 +59,22 @@
       }
     },
     "planningPolicy": {
-      "type": "object", "additionalProperties": false, "required": ["maxAgeSeconds", "managedFilePolicies", "domains"],
+      "type": "object", "additionalProperties": false, "required": ["maxAgeSeconds", "servicePolicies", "managedFilePolicies", "domains"],
       "properties": {
         "maxAgeSeconds": { "const": 300 },
+        "servicePolicies": {
+          "type": "array", "minItems": 4, "maxItems": 4,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["name", "safetyClass", "automatic", "requiresApproval", "requiresReboot", "requiresWatchdog"],
+            "properties": {
+              "name": { "type": "string" },
+              "safetyClass": { "enum": ["guarded", "reboot-bound", "protected-session", "access-critical", "data-critical"] },
+              "automatic": { "type": "boolean" }, "requiresApproval": { "type": "boolean" },
+              "requiresReboot": { "type": "boolean" }, "requiresWatchdog": { "type": "boolean" }
+            }
+          }
+        },
         "managedFilePolicies": {
           "type": "array", "minItems": 12, "maxItems": 12,
           "items": {

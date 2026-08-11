@@ -39,10 +39,12 @@ class ProxmoxNixPlanTests(unittest.TestCase):
         cls.manifest = json.loads((NIX / "proxmox/package-manifest.json").read_bytes())
         cls.observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
         cls.bindings = {
+            "activationEnvelopeSchemaSha256": "7" * 64, "activatorSha256": "8" * 64,
             "bundleContentSha256": "1" * 64, "bundleFormat": planner.BUNDLE_FORMAT,
             "flakeLockSha256": "2" * 64, "gitCommit": "3" * 40, "gitTree": "4" * 40,
-            "observerProtocol": 2, "observerSha256": cls.observation["observerSha256"],
-            "packageManifestSha256": "6" * 64, "projectionSha256": "5" * 64,
+            "observerProtocol": 3, "observerSha256": cls.observation["observerSha256"],
+            "packageManifestSha256": "6" * 64, "planSchemaSha256": "9" * 64,
+            "privatePreconditionsSchemaSha256": "a" * 64, "projectionSha256": "5" * 64,
         }
 
     def make_plan(self, observation=None, start="2026-08-11T00:00:00Z", end="2026-08-11T00:00:01Z"):
@@ -55,7 +57,7 @@ class ProxmoxNixPlanTests(unittest.TestCase):
         plan = self.make_plan()
         self.assertEqual(plan["status"], "fixture")
         self.assertFalse(plan["applyEligible"])
-        self.assertTrue(any(item["code"] == "private-observation-required" for item in plan["blockers"]))
+        self.assertEqual(plan["privatePreconditionsRequired"], bool(plan["blockers"] or plan["actions"]))
         self.assertNotIn("contractSha256", plan["bindings"])
         planner.validate_plan(plan, self.projection, self.manifest)
 
@@ -63,7 +65,7 @@ class ProxmoxNixPlanTests(unittest.TestCase):
         first = self.make_plan()
         second = self.make_plan()
         self.assertEqual(planner.canonical_json(first), planner.canonical_json(second))
-        for key in ("bundleContentSha256", "flakeLockSha256", "gitCommit", "gitTree", "observerSha256", "packageManifestSha256", "projectionSha256"):
+        for key in ("activationEnvelopeSchemaSha256", "activatorSha256", "bundleContentSha256", "flakeLockSha256", "gitCommit", "gitTree", "observerSha256", "packageManifestSha256", "planSchemaSha256", "privatePreconditionsSchemaSha256", "projectionSha256"):
             bindings = dict(self.bindings)
             bindings[key] = ("b" * len(bindings[key]))
             changed = planner.build_plan(bindings, self.projection, self.manifest, self.observation,
@@ -137,6 +139,29 @@ class ProxmoxNixPlanTests(unittest.TestCase):
             self.assertEqual(action["dependsOn"], [] if action["sequence"] == 1 else [first["actions"][action["sequence"] - 2]["id"]])
             self.assertFalse(set(action) & planner.FORBIDDEN_KEYS)
 
+    def test_service_overrides_allow_only_chrony_and_block_access_or_data_critical_services(self) -> None:
+        expected = {
+            "chrony.service": ("guarded", True, False),
+            "nfs-server.service": ("data-critical", False, False),
+            "ssh.service": ("access-critical", False, True),
+            "tailscaled.service": ("access-critical", False, True),
+        }
+        policies = {item["name"]: item for item in self.projection["planningPolicy"]["servicePolicies"]}
+        self.assertEqual(set(policies), set(expected))
+        for name, flags in expected.items():
+            self.assertEqual((policies[name]["safetyClass"], policies[name]["automatic"], policies[name]["requiresWatchdog"]), flags)
+        for name in expected:
+            observation = copy.deepcopy(self.observation)
+            record = next(item for item in observation["domains"]["services"]["records"] if item["name"] == name)
+            record["active"] = False
+            plan = self.make_plan(observation)
+            service_actions = [action for action in plan["actions"] if action["domain"] == "services"]
+            if name == "chrony.service":
+                self.assertEqual([action["target"]["name"] for action in service_actions], [name])
+            else:
+                self.assertEqual(service_actions, [])
+                self.assertTrue(any(blocker["domain"] == "services" and blocker["target"] == name for blocker in plan["blockers"]))
+
     def test_audit_and_opentofu_drift_are_findings_and_blockers_never_actions(self) -> None:
         observation = copy.deepcopy(self.observation)
         observation["domains"]["auditAbsence"]["records"][0]["count"] = 1
@@ -185,11 +210,10 @@ class ProxmoxNixPlanTests(unittest.TestCase):
         package_policy["automatic"] = True
         action_plan = planner.build_plan(self.bindings, policy_projection, self.manifest, observation,
                                          "2026-08-11T00:00:00Z", "2026-08-11T00:00:01Z", True)
-        self.assertTrue(any(action["domain"] == "packages" for action in action_plan["actions"]))
-        package_policy["automatic"] = False
-        action_plan["planSha256"] = planner.digest({key: value for key, value in action_plan.items() if key != "planSha256"})
-        with self.assertRaisesRegex(ValueError, "forbids"):
-            planner.validate_plan(action_plan, policy_projection, self.manifest)
+        self.assertFalse(any(action["domain"] == "packages" for action in action_plan["actions"]))
+        package_blockers = [item for item in action_plan["blockers"] if item["domain"] == "packages"]
+        self.assertEqual(len(package_blockers), 1)
+        self.assertEqual(package_blockers[0]["code"], "sealed-package-session-required")
 
     def test_realistic_dpkg_parser_handles_rc_all_held_and_multiarch(self) -> None:
         rendered = bundle.expected_helper_content("proxmox-observer", self.projection)

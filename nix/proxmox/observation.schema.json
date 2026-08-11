@@ -555,7 +555,7 @@
       "$ref": "#/$defs/sha256"
     },
     "protocol": {
-      "const": 2
+      "const": 3
     }
   },
   "required": [

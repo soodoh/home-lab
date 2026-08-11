@@ -20,9 +20,10 @@ PROJECTION = NIX_ROOT / "proxmox/projection.json"
 MANIFEST = NIX_ROOT / "proxmox/package-manifest.json"
 LOCK = NIX_ROOT / "flake.lock"
 EXPECTED_SOURCE_FILES = {
-    "flake.lock", "flake.nix", "proxmox/bundle.py", "proxmox/package-manifest.json",
-    "proxmox/fixture-observation.json", "proxmox/observation.schema.json", "proxmox/observer-template.py",
-    "proxmox/package-manifest.schema.json", "proxmox/plan.schema.json", "proxmox/planner.py",
+    "flake.lock", "flake.nix", "proxmox/activation-envelope.schema.json", "proxmox/activator-template.py",
+    "proxmox/apply.py", "proxmox/bundle.py", "proxmox/package-manifest.json", "proxmox/fixture-observation.json",
+    "proxmox/observation.schema.json", "proxmox/observer-template.py", "proxmox/package-manifest.schema.json",
+    "proxmox/plan.schema.json", "proxmox/planner.py", "proxmox/private-preconditions.schema.json",
     "proxmox/projection.json", "proxmox/projection.schema.json",
 }
 
@@ -266,7 +267,7 @@ if sys.argv[1:] == ["apply"]:
                 self.assertEqual(result.returncode, 2)
                 self.assertIn(f"unrecognized arguments: {argument}", result.stderr)
 
-    def test_helpers_expose_only_exact_inert_fixed_commands(self) -> None:
+    def test_helpers_expose_only_exact_fixed_protocol_commands(self) -> None:
         with tempfile.TemporaryDirectory() as name:
             bundle, content_hash = self.build(Path(name))
             self.verify(bundle, content_hash)
@@ -286,11 +287,11 @@ if sys.argv[1:] == ["apply"]:
                 )
                 self.assertEqual(
                     self_check.stdout,
-                    f"{helper_name}=self-check-passed protocol=2 capabilities={'observe' if helper_name == 'proxmox-observer' else 'none'}\n".encode(),
+                    f"{helper_name}=self-check-passed protocol=3 capabilities={'observe' if helper_name == 'proxmox-observer' else 'guarded-session'}\n".encode(),
                 )
                 self.assertEqual(self_check.stderr, b"")
 
-                commands = "version|self-check|observe" if helper_name == "proxmox-observer" else "version|self-check"
+                commands = "version|self-check|observe" if helper_name == "proxmox-observer" else "version|self-check|session"
                 expected_usage = f"usage: {helper_name} <{commands}>\n".encode()
                 for command in ("plan", "apply", "verify", "bootstrap", "unknown"):
                     result = subprocess.run([sys.executable, helper, command], capture_output=True)

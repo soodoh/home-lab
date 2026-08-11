@@ -98,6 +98,7 @@ if [[ $action == validate ]]; then
   PROXMOX_NIX_SOURCE_STORE_PATH=$proxmox_nix_source \
     python3 scripts/controller/test-proxmox-nix-foundation.py
   python3 scripts/controller/test-proxmox-nix-plan.py
+  python3 scripts/controller/test-proxmox-nix-apply.py
   node scripts/controller/test-proxmox-nix-projection.js --scan-path "$proxmox_nix_source"
   for source_candidate in /nix/store/*-source; do
     if [[ -e $source_candidate/secrets/production.sops.env && \

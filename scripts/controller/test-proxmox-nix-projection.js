@@ -89,6 +89,29 @@ reorderedPveAccounts.proxmox.access.pve.accounts.reverse();
 if (canonicalJson(projectProxmoxPolicy(reorderedPveAccounts, structuredClone(packageManifest))) !== rendered) {
   throw new Error("PVE principal bindings depend on account array position");
 }
+const expectedServicePolicies = {
+  "chrony.service": { safetyClass: "guarded", automatic: true, requiresWatchdog: false },
+  "nfs-server.service": { safetyClass: "data-critical", automatic: false, requiresWatchdog: false },
+  "ssh.service": { safetyClass: "access-critical", automatic: false, requiresWatchdog: true },
+  "tailscaled.service": { safetyClass: "access-critical", automatic: false, requiresWatchdog: true },
+};
+if (projected.planningPolicy.servicePolicies.length !== 4) throw new Error("service policy coverage differs");
+for (const policy of projected.planningPolicy.servicePolicies) {
+  const expected = expectedServicePolicies[policy.name];
+  if (!expected || policy.safetyClass !== expected.safetyClass || policy.automatic !== expected.automatic ||
+      policy.requiresWatchdog !== expected.requiresWatchdog) throw new Error(`unsafe projected service policy: ${policy.name}`);
+}
+for (const mutation of [
+  (value) => value.proxmox.planning_policy.service_policies.pop(),
+  (value) => { value.proxmox.planning_policy.service_policies[1].name = "chrony.service"; },
+  (value) => { value.proxmox.planning_policy.service_policies.find((item) => item.name === "ssh.service").automatic = true; },
+]) {
+  const invalid = structuredClone(contract); mutation(invalid);
+  let rejected = false;
+  try { projectProxmoxPolicy(invalid, structuredClone(packageManifest)); } catch { rejected = true; }
+  if (!rejected) throw new Error("invalid service policy coverage/classification was accepted");
+}
+
 const installedDelta = packageManifest.provenance.solverResult.changes.reduce(
   (count, change) => count + (change.action === "install" ? 1 : change.action === "remove" ? -1 : 0),
   packageManifest.provenance.installedInventory.installedRecords,

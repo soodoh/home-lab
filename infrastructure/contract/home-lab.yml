@@ -440,6 +440,11 @@ proxmox:
     vm_status: running
   planning_policy:
     max_observation_age_seconds: 300
+    service_policies:
+      - { name: chrony.service, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { name: nfs-server.service, safety_class: data-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { name: ssh.service, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
+      - { name: tailscaled.service, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
     managed_file_policies:
       - { path: /etc/apt/sources.list, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { path: /etc/apt/sources.list.d/debian-security.sources, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
@@ -458,7 +463,7 @@ proxmox:
       - { domain: managed-fragments, safety_class: reboot-bound, automatic: true, requires_approval: true, requires_reboot: true, requires_watchdog: false }
       - { domain: managed-artifacts, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { domain: packages, safety_class: protected-session, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
-      - { domain: services, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { domain: services, safety_class: guarded, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { domain: accounts, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { domain: tailscale, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { domain: pve-access, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }

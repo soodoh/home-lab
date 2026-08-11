@@ -48,6 +48,25 @@ function projectProxmoxPolicy(contract, packageManifest) {
   if (provenanceCount !== packageManifest.packages.length) {
     throw new Error("package manifest count differs from provenance");
   }
+  const serviceNames = proxmox.services.map((service) => service.name);
+  const servicePolicyNames = proxmox.planning_policy.service_policies.map((policy) => policy.name);
+  if (new Set(serviceNames).size !== serviceNames.length || new Set(servicePolicyNames).size !== servicePolicyNames.length ||
+      serviceNames.length !== servicePolicyNames.length || serviceNames.some((name) => !servicePolicyNames.includes(name))) {
+    throw new Error("native service policies must uniquely cover every native service")
+  }
+  const requiredServicePolicies = new Map([
+    ["chrony.service", ["guarded", true, false]],
+    ["nfs-server.service", ["data-critical", false, false]],
+    ["ssh.service", ["access-critical", false, true]],
+    ["tailscaled.service", ["access-critical", false, true]],
+  ]);
+  for (const policy of proxmox.planning_policy.service_policies) {
+    const expected = requiredServicePolicies.get(policy.name);
+    if (!expected || policy.safety_class !== expected[0] || policy.automatic !== expected[1] ||
+        policy.requires_watchdog !== expected[2] || !policy.requires_approval || policy.requires_reboot) {
+      throw new Error(`unsafe authoritative service policy: ${policy.name}`);
+    }
+  }
   const repositoryMetadata = proxmox.apt.repository_file_metadata;
   const booleanWord = (value) => (value ? "yes" : "no");
   const networkContent = `${network.ownership.managed_header}\n` +
@@ -222,6 +241,14 @@ function projectProxmoxPolicy(contract, packageManifest) {
     },
     planningPolicy: {
       maxAgeSeconds: proxmox.planning_policy.max_observation_age_seconds,
+      servicePolicies: proxmox.planning_policy.service_policies.map((entry) => ({
+        name: entry.name,
+        safetyClass: entry.safety_class,
+        automatic: entry.automatic,
+        requiresApproval: entry.requires_approval,
+        requiresReboot: entry.requires_reboot,
+        requiresWatchdog: entry.requires_watchdog,
+      })).sort((left, right) => compareText(left.name, right.name)),
       managedFilePolicies: proxmox.planning_policy.managed_file_policies.map((entry) => ({
         path: entry.path,
         safetyClass: entry.safety_class,

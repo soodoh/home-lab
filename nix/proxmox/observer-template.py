@@ -15,7 +15,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-PROTOCOL = 2
+PROTOCOL = 3
 SPEC = json.loads('@OBSERVATION_SPEC@')
 MAX_COMMAND_BYTES = 4 * 1024 * 1024
 ENV = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
@@ -506,7 +506,7 @@ def main():
     if sys.argv[1] == "version":
         os.write(1, canonical({"capabilities": ["observe"], "helper": "proxmox-observer", "protocol": PROTOCOL, "version": 1}))
     elif sys.argv[1] == "self-check":
-        os.write(1, b"proxmox-observer=self-check-passed protocol=2 capabilities=observe\n")
+        os.write(1, b"proxmox-observer=self-check-passed protocol=3 capabilities=observe\n")
     else:
         observe()
     return 0

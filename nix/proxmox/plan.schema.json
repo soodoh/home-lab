@@ -25,12 +25,7 @@
             "managed-fragments",
             "managed-artifacts",
             "packages",
-            "services",
-            "accounts",
-            "tailscale",
-            "pve-access",
-            "pve-firewall",
-            "pve-storage"
+            "services"
           ]
         },
         "id": {
@@ -41,13 +36,8 @@
             "replace-file",
             "ensure-fragment",
             "install-artifact",
-            "reconcile-package",
-            "reconcile-service",
-            "reconcile-account",
-            "reconcile-tailscale",
-            "reconcile-pve-role",
-            "reconcile-pve-firewall",
-            "reconcile-pve-storage"
+            "reconcile-package-set",
+            "reconcile-service"
           ]
         },
         "postconditions": {
@@ -104,6 +94,12 @@
     "bindings": {
       "additionalProperties": false,
       "properties": {
+        "activationEnvelopeSchemaSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "activatorSha256": {
+          "$ref": "#/$defs/sha256"
+        },
         "bundleContentSha256": {
           "$ref": "#/$defs/sha256"
         },
@@ -120,12 +116,18 @@
           "$ref": "#/$defs/gitObject"
         },
         "observerProtocol": {
-          "const": 2
+          "const": 3
         },
         "observerSha256": {
           "$ref": "#/$defs/sha256"
         },
         "packageManifestSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "planSchemaSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "privatePreconditionsSchemaSha256": {
           "$ref": "#/$defs/sha256"
         },
         "projectionSha256": {
@@ -141,7 +143,11 @@
         "bundleFormat",
         "observerProtocol",
         "observerSha256",
-        "packageManifestSha256"
+        "packageManifestSha256",
+        "activationEnvelopeSchemaSha256",
+        "activatorSha256",
+        "planSchemaSha256",
+        "privatePreconditionsSchemaSha256"
       ],
       "type": "object"
     },
@@ -441,13 +447,8 @@
             },
             "type": {
               "enum": [
-                "package",
-                "service",
-                "account",
-                "tailscale-preferences",
-                "pve-role",
-                "pve-firewall",
-                "pve-storage"
+                "package-set",
+                "service"
               ]
             }
           },
@@ -464,6 +465,7 @@
       "type": "string"
     }
   },
+  "$id": "plan.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
