@@ -173,9 +173,13 @@
   loop_control:
     label: "{{ item.item }}"
 
+- name: Inventory installed packages before contract cleanup
+  ansible.builtin.package_facts:
+    manager: apt
+  when: proxmox_cleanup_requested | bool
 - name: Remove only contract-listed prohibited packages
   ansible.builtin.apt:
-    name: "{{ proxmox.packages.prohibited }}"
+    name: "{{ proxmox.packages.prohibited | intersect(ansible_facts.packages.keys()) }}"
     state: absent
     purge: true
     autoremove: false
@@ -213,8 +217,8 @@
       header_path=$(/usr/bin/find /usr/src -maxdepth 1 -type d -name "*${release}*" -print -quit)
       [[ -n $header_path ]]
       header_owner=$(/usr/bin/dpkg-query -S "$header_path" | /usr/bin/sed 's/: \/.*//')
-      printf '%s\t%s\n' "$release" "$image_owner"
-      printf '%s\t%s\n' "$release" "$header_owner"
+      printf '%s\n' "$image_owner"
+      printf '%s\n' "$header_owner"
     done
   args:
     executable: /bin/bash
@@ -243,6 +247,21 @@
     - not ansible_check_mode
     - proxmox_cleanup_migration_confirmed | bool
 
+- name: Calculate installed dependency closure for approved package seeds
+  ansible.builtin.shell: |
+    set -o pipefail
+    /usr/bin/apt-cache depends --recurse --installed \
+      {{ (proxmox.packages.required +
+          proxmox.packages.permitted_manual +
+          proxmox_cleanup_retained_kernel_owners.stdout_lines) | map('quote') | join(' ') }} |
+      /usr/bin/awk '/^[^ <|]/ {name=$1; sub(/:[^:]+$/, "", name); print name}' |
+      /usr/bin/sort -u
+  args:
+    executable: /bin/bash
+  register: proxmox_cleanup_approved_dependency_packages
+  changed_when: false
+  check_mode: false
+
 - name: Inventory all installed Proxmox and generic kernel packages
   ansible.builtin.shell: |
     set -euo pipefail
@@ -259,22 +278,24 @@
 - name: Record exact kernel package retention and pruning sets
   ansible.builtin.set_fact:
     proxmox_cleanup_retained_kernel_packages: >-
-      {{ proxmox_cleanup_retained_kernel_owners.stdout_lines |
-         default([]) |
-         map('split', '\t') |
-         map('last') |
-         unique |
-         list }}
+      {{ proxmox_cleanup_installed_kernel_packages.stdout_lines |
+         intersect(
+           proxmox_cleanup_retained_kernel_owners.stdout_lines |
+           default([]) |
+           union(proxmox_cleanup_approved_dependency_packages.stdout_lines)
+         ) |
+         sort }}
     proxmox_cleanup_kernel_packages_to_remove: >-
       {{ proxmox_cleanup_installed_kernel_packages.stdout_lines |
          difference(
-           proxmox_cleanup_retained_kernel_owners.stdout_lines |
-           default([]) |
-           map('split', '\t') |
-           map('last') |
-           unique |
-           list
-         ) }}
+           proxmox_cleanup_installed_kernel_packages.stdout_lines |
+           intersect(
+             proxmox_cleanup_retained_kernel_owners.stdout_lines |
+             default([]) |
+             union(proxmox_cleanup_approved_dependency_packages.stdout_lines)
+           )
+         ) |
+         sort }}
 
 - name: Report old Proxmox and generic kernel packages in check mode
   ansible.builtin.debug:
@@ -370,20 +391,6 @@
   changed_when: false
   check_mode: false
 
-- name: Calculate installed dependency closure for approved package seeds
-  ansible.builtin.shell: |
-    set -o pipefail
-    /usr/bin/apt-cache depends --recurse --installed \
-      {{ (proxmox.packages.required +
-          proxmox.packages.permitted_manual +
-          proxmox_cleanup_retained_kernel_packages) | map('quote') | join(' ') }} |
-      /usr/bin/awk '/^[^ <|]/ {name=$1; sub(/:[^:]+$/, "", name); print name}' |
-      /usr/bin/sort -u
-  args:
-    executable: /bin/bash
-  register: proxmox_cleanup_approved_dependency_packages
-  changed_when: false
-  check_mode: false
 
 - name: Record unknown manually installed packages
   ansible.builtin.set_fact:
