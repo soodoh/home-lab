@@ -129,7 +129,7 @@ class ControllerTests(unittest.TestCase):
   with self.assertRaises(ValueError): self.m.secure_read(private,0o600)
  def test_cli_and_fixed_canary_catalogue(self):
   self.assertEqual(set(self.m.CHECKS),{"archNfs","lanSsh","lanTls","tailscaleDirect","tailnetSsh","tailnetTls"})
-  source=SOURCE.read_text(); self.assertNotIn("shell=True",source); self.assertNotIn("--host",source); self.assertNotIn("--path",source); self.assertEqual(self.m.PVE_SSH_TARGET,"firewall-apply@192.168.0.123"); self.assertNotIn("tofu-apply@proxmox",source)
+  source=SOURCE.read_text(); self.assertNotIn("shell=True",source); self.assertNotIn("--host",source); self.assertNotIn("--path",source); self.assertEqual(self.m.PVE_SSH_TARGET,"firewall-apply@192.168.0.123"); self.assertEqual(self.m.KNOWN_HOSTS, str(Path.home()/".ssh/known_hosts")); self.assertNotIn("tofu-apply@proxmox",source)
   for arguments in (("plan","--host","other"),("apply","--plan-sha","a"*64),("rollback","--session-id","bad","extra")):
    result=subprocess.run((sys.executable,SOURCE,*arguments),capture_output=True); self.assertEqual(result.returncode,2)
 

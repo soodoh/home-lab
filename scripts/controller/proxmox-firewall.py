@@ -35,6 +35,7 @@ REQUEST_SCHEMA = ROOT / "infrastructure/policy/proxmox-firewall-request.schema.j
 HOST_HELPER = "/usr/local/libexec/home-lab/proxmox-firewall-transaction"
 SSH = "/usr/bin/ssh"
 SSH_CONFIG = "/dev/null"
+KNOWN_HOSTS = str(Path.home() / ".ssh/known_hosts")
 PVE_IDENTITY = str(Path.home() / ".ssh/home-lab-proxmox-firewall")
 PVE_SSH_TARGET = "firewall-apply@192.168.0.123"
 LAN_CANARY_IDENTITY = str(Path.home() / ".ssh/home-lab-proxmox-lan-canary")
@@ -211,7 +212,7 @@ def host(command: str, request: dict[str, Any] | None = None) -> dict[str, Any]:
     if command not in {"inspect", "begin", "status", "commit", "rollback"}:
         raise ValueError("host command differs")
     argv = (SSH, "-F", SSH_CONFIG, "-T", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no",
-            "-o", "RequestTTY=no", "-o", "IdentitiesOnly=yes", "-i", PVE_IDENTITY,
+            "-o", "RequestTTY=no", "-o", "IdentitiesOnly=yes", "-o", f"UserKnownHostsFile={KNOWN_HOSTS}", "-i", PVE_IDENTITY,
             PVE_SSH_TARGET, command)
     result = run(argv, stdin=None if request is None else canonical(request), timeout=75)
     value = json.loads(result.stdout)
@@ -242,7 +243,7 @@ def check_ssh(target: str, identity: str, arch: bool = False, deadline: float | 
             if remaining <= 0: return False
             budget = 8 if arch else 5
             result = run((SSH, "-F", SSH_CONFIG, "-T", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no",
-                          "-o", "RequestTTY=no", "-o", "IdentitiesOnly=yes", "-i", identity,
+                          "-o", "RequestTTY=no", "-o", "IdentitiesOnly=yes", "-o", f"UserKnownHostsFile={KNOWN_HOSTS}", "-i", identity,
                           "-o", "ConnectTimeout=5", target, remote), timeout=min(budget, remaining))
             if (arch and result.stdout == b"proxmox-firewall-nfs-canary=passed\n") or (not arch and not result.stdout):
                 return True
