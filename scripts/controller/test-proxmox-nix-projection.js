@@ -104,7 +104,7 @@ function inspectProjectionKeys(value) {
   if (!value || typeof value !== "object") return;
   for (const [key, nested] of Object.entries(value)) {
     if (forbiddenKeyPattern.test(key) || key.endsWith("_secret_ref") || key.includes("compatibility") ||
-        /(?:approval|cleanup|confirmed|marker|migration)/iu.test(key)) {
+        (key !== "requiresApproval" && /(?:approval|cleanup|confirmed|marker|migration)/iu.test(key))) {
       throw new Error(`forbidden source key leaked into projection: ${key}`);
     }
     inspectProjectionKeys(nested);

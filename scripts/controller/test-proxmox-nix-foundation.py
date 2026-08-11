@@ -21,7 +21,9 @@ MANIFEST = NIX_ROOT / "proxmox/package-manifest.json"
 LOCK = NIX_ROOT / "flake.lock"
 EXPECTED_SOURCE_FILES = {
     "flake.lock", "flake.nix", "proxmox/bundle.py", "proxmox/package-manifest.json",
-    "proxmox/package-manifest.schema.json", "proxmox/projection.json", "proxmox/projection.schema.json",
+    "proxmox/fixture-observation.json", "proxmox/observation.schema.json", "proxmox/observer-template.py",
+    "proxmox/package-manifest.schema.json", "proxmox/plan.schema.json", "proxmox/planner.py",
+    "proxmox/projection.json", "proxmox/projection.schema.json",
 }
 
 sys.dont_write_bytecode = True
@@ -151,6 +153,14 @@ class ProxmoxNixFoundationTests(unittest.TestCase):
             mutation(value)
             path.write_bytes(bundle_module.canonical_json(value))
 
+        def replace_schema_and_self_hash(bundle: Path) -> None:
+            schema_path = bundle / "policy/observation.schema.json"
+            schema_path.write_bytes(b"{}\n")
+            metadata_path = bundle / "metadata.json"
+            metadata = json.loads(metadata_path.read_bytes())
+            metadata["observationSchemaSha256"] = bundle_module.sha256_file(schema_path)
+            metadata_path.write_bytes(bundle_module.canonical_json(metadata))
+
         cases = [
             (lambda bundle: (bundle / "protocol.json").write_bytes(b"{}\n"), "protocol structure is invalid"),
             (lambda bundle: rewrite_json(bundle, "protocol.json", lambda value: value.pop("uploadedCodeExecution")), "protocol structure is invalid"),
@@ -162,6 +172,7 @@ class ProxmoxNixFoundationTests(unittest.TestCase):
             (lambda bundle: rewrite_json(bundle, "metadata.json", lambda value: value.update({"helperSha256": {}})), "helper hash key set is invalid"),
             (lambda bundle: rewrite_json(bundle, "metadata.json", lambda value: value["helperSha256"].update({"extra": "0" * 64})), "helper hash key set is invalid"),
             (lambda bundle: rewrite_json(bundle, "metadata.json", lambda value: value["helperSha256"].update({"proxmox-observer": "0" * 64})), "metadata hash differs"),
+            (replace_schema_and_self_hash, "schema binding failed"),
         ]
         for mutation, expected in cases:
             with self.subTest(expected=expected, mutation=repr(mutation)):
@@ -261,7 +272,8 @@ if sys.argv[1:] == ["apply"]:
             self.verify(bundle, content_hash)
             for helper_name in bundle_module.EXPECTED_HELPERS:
                 helper = bundle / "helpers" / helper_name
-                self.assertEqual(helper.read_bytes(), bundle_module.expected_helper_content(helper_name))
+                projection = json.loads(PROJECTION.read_bytes())
+                self.assertEqual(helper.read_bytes(), bundle_module.expected_helper_content(helper_name, projection))
 
                 version = subprocess.run(
                     [sys.executable, helper, "version"], check=True, capture_output=True,
@@ -274,12 +286,13 @@ if sys.argv[1:] == ["apply"]:
                 )
                 self.assertEqual(
                     self_check.stdout,
-                    f"{helper_name}=self-check-passed protocol=1 capabilities=none\n".encode(),
+                    f"{helper_name}=self-check-passed protocol=2 capabilities={'observe' if helper_name == 'proxmox-observer' else 'none'}\n".encode(),
                 )
                 self.assertEqual(self_check.stderr, b"")
 
-                expected_usage = f"usage: {helper_name} <version|self-check>\n".encode()
-                for command in ("plan", "apply", "verify", "unknown"):
+                commands = "version|self-check|observe" if helper_name == "proxmox-observer" else "version|self-check"
+                expected_usage = f"usage: {helper_name} <{commands}>\n".encode()
+                for command in ("plan", "apply", "verify", "bootstrap", "unknown"):
                     result = subprocess.run([sys.executable, helper, command], capture_output=True)
                     self.assertEqual(result.returncode, 64)
                     self.assertEqual(result.stdout, b"")

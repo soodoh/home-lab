@@ -438,6 +438,32 @@ proxmox:
     tailscale_backend_state: Running
     require_vm: true
     vm_status: running
+  planning_policy:
+    max_observation_age_seconds: 300
+    managed_file_policies:
+      - { path: /etc/apt/sources.list, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { path: /etc/apt/sources.list.d/debian-security.sources, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { path: /etc/apt/sources.list.d/debian.sources, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { path: /etc/apt/sources.list.d/pve-no-subscription.sources, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { path: /etc/apt/sources.list.d/tailscale.sources, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { path: /etc/exports.d/home-lab.exports, safety_class: data-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { path: /etc/modprobe.d/zfs.conf, safety_class: reboot-bound, automatic: true, requires_approval: true, requires_reboot: true, requires_watchdog: false }
+      - { path: /etc/modules-load.d/home-lab-vfio.conf, safety_class: reboot-bound, automatic: true, requires_approval: true, requires_reboot: true, requires_watchdog: false }
+      - { path: /etc/network/interfaces, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
+      - { path: /etc/ssh/sshd_config.d/60-home-lab.conf, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
+      - { path: /etc/sudoers.d/proxmox, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
+      - { path: /etc/sudoers.d/tofu-apply, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
+    domains:
+      - { domain: managed-files, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { domain: managed-fragments, safety_class: reboot-bound, automatic: true, requires_approval: true, requires_reboot: true, requires_watchdog: false }
+      - { domain: managed-artifacts, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { domain: packages, safety_class: protected-session, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { domain: services, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { domain: accounts, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
+      - { domain: tailscale, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
+      - { domain: pve-access, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { domain: pve-firewall, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
+      - { domain: pve-storage, safety_class: data-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
   firewall:
     kind: api-owned
     ownership: pve-api

@@ -220,6 +220,25 @@ function projectProxmoxPolicy(contract, packageManifest) {
       requireVm: proxmox.health.require_vm,
       vmStatus: proxmox.health.vm_status,
     },
+    planningPolicy: {
+      maxAgeSeconds: proxmox.planning_policy.max_observation_age_seconds,
+      managedFilePolicies: proxmox.planning_policy.managed_file_policies.map((entry) => ({
+        path: entry.path,
+        safetyClass: entry.safety_class,
+        automatic: entry.automatic,
+        requiresApproval: entry.requires_approval,
+        requiresReboot: entry.requires_reboot,
+        requiresWatchdog: entry.requires_watchdog,
+      })).sort((left, right) => compareText(left.path, right.path)),
+      domains: proxmox.planning_policy.domains.map((entry) => ({
+        domain: entry.domain,
+        safetyClass: entry.safety_class,
+        automatic: entry.automatic,
+        requiresApproval: entry.requires_approval,
+        requiresReboot: entry.requires_reboot,
+        requiresWatchdog: entry.requires_watchdog,
+      })),
+    },
     packagePolicy: {
       direct: proxmox.packages.direct.map((entry) => ({ ...entry })),
       critical: proxmox.packages.critical.map((entry) => ({ ...entry })),

@@ -17,17 +17,17 @@ from typing import Any
 
 BUNDLE_FORMAT = "home-lab-proxmox-host-bundle-v1"
 HASH_ALGORITHM = "sha256-canonical-file-tree-v1"
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 EXPECTED_HELPERS = ("proxmox-activator", "proxmox-observer")
 HELPER_NAME_TOKEN = "@HELPER_NAME@"
-HELPER_TEMPLATE = '''#!/usr/bin/python3
-"""Inert Proxmox helper for the controller-foundation milestone."""
+ACTIVATOR_TEMPLATE = '''#!/usr/bin/python3
+"""Intentionally inert Proxmox activator."""
 
 import json
 import sys
 
 NAME = "@HELPER_NAME@"
-PROTOCOL = 1
+PROTOCOL = 2
 
 
 def main() -> int:
@@ -44,10 +44,11 @@ def main() -> int:
 if __name__ == "__main__":
     raise SystemExit(main())
 '''
+OBSERVER_TEMPLATE_PATH = Path(__file__).with_name("observer-template.py")
 EXPECTED_PROJECTION_KEYS = {
     "accounts", "apiIntent", "architecture", "auditAbsence", "healthExpectations", "hostNetworking",
     "kernelPolicy", "managedArtifacts", "managedFileFragments", "managedFileMetadata", "managedFiles",
-    "nativeServices", "packagePolicy", "ssh", "storagePolicy", "tailscale", "version",
+    "nativeServices", "packagePolicy", "planningPolicy", "ssh", "storagePolicy", "tailscale", "version",
 }
 FORBIDDEN_PROJECTION_KEYS = {
     "api_endpoint", "auth_key_secret_ref", "bdf", "by_id_secret_ref", "compatibility_config_path",
@@ -158,7 +159,9 @@ def validate_no_protected_data(value: Any, label: str, key: str = "") -> None:
         for nested_key, nested in value.items():
             if nested_key in FORBIDDEN_PROJECTION_KEYS or nested_key.endswith("_secret_ref") or \
                     "compatibility" in nested_key.lower() or \
-                    re.search(r"(?:approval|cleanup|confirmed|marker|migration)", nested_key, re.IGNORECASE):
+                    (nested_key != "requiresApproval" and re.search(
+                        r"(?:approval|cleanup|confirmed|marker|migration)", nested_key, re.IGNORECASE
+                    )):
                 raise ValueError(f"{label} contains forbidden key: {nested_key}")
             validate_no_protected_data(nested, label, nested_key)
         return
@@ -255,27 +258,114 @@ def validate_projection(projection: Any, package_count: int, package_manifest_sh
     api_intent = projection.get("apiIntent")
     if not isinstance(api_intent, dict) or set(api_intent) != {"pveAccess", "pveFirewall", "pveStorage"}:
         raise ValueError("PVE semantic API intent is malformed")
+    planning = projection.get("planningPolicy")
+    expected_domains = {
+        "managed-files", "managed-fragments", "managed-artifacts", "packages", "services", "accounts",
+        "tailscale", "pve-access", "pve-firewall", "pve-storage",
+    }
+    if not isinstance(planning, dict) or set(planning) != {"domains", "managedFilePolicies", "maxAgeSeconds"} or \
+            planning["maxAgeSeconds"] != 300 or not isinstance(planning["domains"], list) or \
+            {item.get("domain") for item in planning["domains"] if isinstance(item, dict)} != expected_domains:
+        raise ValueError("planning policy is malformed")
+    policy_keys = {"automatic", "domain", "requiresApproval", "requiresReboot", "requiresWatchdog", "safetyClass"}
+    safety_classes = {"guarded", "reboot-bound", "protected-session", "access-critical", "data-critical"}
+    for item in planning["domains"]:
+        if set(item) != policy_keys or item["safetyClass"] not in safety_classes or \
+                any(not isinstance(item[key], bool) for key in ("automatic", "requiresApproval", "requiresReboot", "requiresWatchdog")):
+            raise ValueError("planning policy domain classification is malformed")
+    target_keys = {"automatic", "path", "requiresApproval", "requiresReboot", "requiresWatchdog", "safetyClass"}
+    managed_file_paths = {item["path"] for item in projection["managedFiles"]}
+    target_policies = planning["managedFilePolicies"]
+    if not isinstance(target_policies, list) or {item.get("path") for item in target_policies if isinstance(item, dict)} != managed_file_paths:
+        raise ValueError("every managed file must have exactly one target policy")
+    for item in target_policies:
+        if set(item) != target_keys or item["safetyClass"] not in safety_classes or \
+                any(not isinstance(item[key], bool) for key in ("automatic", "requiresApproval", "requiresReboot", "requiresWatchdog")):
+            raise ValueError("managed-file target policy is malformed")
+        access_critical = item["path"] == "/etc/network/interfaces" or "/ssh/" in item["path"] or "/sudoers.d/" in item["path"]
+        if access_critical != (item["safetyClass"] == "access-critical") or \
+                (access_critical and (not item["requiresApproval"] or not item["requiresWatchdog"])):
+            raise ValueError("access-critical managed-file target policy is unsafe")
 
 
-def expected_helper_content(name: str) -> bytes:
+def observation_specification(projection: dict[str, Any]) -> dict[str, Any]:
+    accounts = []
+    for collection in (projection["accounts"]["service"], projection["accounts"]["human"]):
+        for account in collection:
+            accounts.append({
+                "comment": account.get("comment", ""),
+                "groups": sorted(account.get("groups", account.get("supplementaryGroups", []))),
+                "home": account["home"], "name": account["name"],
+                "primaryGroup": account.get("group", account["name"]), "shell": account["shell"],
+            })
+    pve_manager = next((item for item in projection["packagePolicy"]["critical"]
+                        if item["role"] == "pve-manager"), None)
+    if pve_manager is None:
+        raise ValueError("projection lacks the required PVE manager identity policy")
+    return {
+        "accounts": sorted(accounts, key=lambda item: item["name"]),
+        "auditAbsence": [{"absence": item["absence"], "target": item["path"], **(
+            {"pattern": item["pattern"]} if "pattern" in item else {})} for item in projection["auditAbsence"]],
+        "aptSourceNames": sorted(Path(item["path"]).name for item in projection["managedFiles"]
+                                 if item["path"].startswith("/etc/apt/sources.list.d/")),
+        "managedArtifacts": [{"expectedSha256": item["sha256"], "group": item["group"], "owner": item["owner"],
+                              "symlinkTarget": item["symlinkTarget"], "target": item["path"]}
+                             for item in projection["managedArtifacts"]],
+        "managedFiles": [{"expectedSha256": sha256_bytes(item["content"].encode()), "group": item["group"],
+                          "owner": item["owner"], "target": item["path"]} for item in projection["managedFiles"]],
+        "managedFragments": [{"content": item["content"], "expectedSha256": sha256_bytes(item["content"].encode()),
+                              "group": item["group"], "owner": item["owner"], "target": item["path"]}
+                             for item in projection["managedFileFragments"]],
+        "health": projection["healthExpectations"],
+        "networkSnippetNames": sorted(projection["hostNetworking"]["permittedActiveSnippets"]),
+        "expectedIdentity": {"architecture": projection["architecture"], "hostname": projection["hostNetworking"]["hostname"],
+                             "os": "debian", "pveVersion": "pve-manager/" + pve_manager["version"]},
+        "protectedAccessExpectedCount": len(accounts) + len(projection["apiIntent"]["pveAccess"]["bindings"]),
+        "protectedExpectedCount": 3,
+        "pveAccessRoles": projection["apiIntent"]["pveAccess"]["roles"],
+        "pveFirewall": projection["apiIntent"]["pveFirewall"],
+        "pveStorage": projection["apiIntent"]["pveStorage"],
+        "services": sorted(item["name"] for item in projection["nativeServices"]),
+        "storage": projection["storagePolicy"],
+        "tailscale": {
+            "acceptDns": projection["tailscale"]["acceptDns"],
+            "acceptRoutes": projection["tailscale"]["acceptRoutes"],
+            "advertiseRoutes": projection["tailscale"]["advertiseRoutes"],
+            "advertiseTags": [projection["tailscale"]["advertiseTag"]],
+            "backendState": projection["healthExpectations"]["tailscaleBackendState"],
+            "hostname": projection["tailscale"]["hostname"],
+            "netfilterMode": projection["tailscale"]["netfilterMode"],
+            "ssh": projection["tailscale"]["ssh"],
+        },
+    }
+
+
+def expected_helper_content(name: str, projection: dict[str, Any]) -> bytes:
     if name not in EXPECTED_HELPERS:
         raise ValueError(f"unsupported fixed helper name: {name}")
-    return HELPER_TEMPLATE.replace(HELPER_NAME_TOKEN, name).encode()
+    if name == "proxmox-activator":
+        return ACTIVATOR_TEMPLATE.replace(HELPER_NAME_TOKEN, name).encode()
+    template = OBSERVER_TEMPLATE_PATH.read_text(encoding="utf-8")
+    encoded_spec = json.dumps(canonical_json(observation_specification(projection)).decode().strip())
+    return template.replace("'@OBSERVATION_SPEC@'", encoded_spec).encode()
 
 
 def expected_helper_version(name: str) -> bytes:
     return canonical_json({
-        "capabilities": [], "helper": name, "protocol": PROTOCOL_VERSION, "version": 1,
+        "capabilities": ["observe"] if name == "proxmox-observer" else [], "helper": name,
+        "protocol": PROTOCOL_VERSION, "version": 1,
     })
 
 
 def expected_protocol() -> dict[str, Any]:
-    helper_specification = {"commands": ["version", "self-check"], "mutating": False}
     return {
         "version": PROTOCOL_VERSION,
-        "milestone": "controller-foundation",
-        "capabilities": [],
-        "helpers": {name: dict(helper_specification) for name in EXPECTED_HELPERS},
+        "milestone": "plan-only",
+        "capabilities": ["observe", "plan"],
+        "helpers": {
+            "proxmox-activator": {"commands": ["version", "self-check"], "mutating": False},
+            "proxmox-observer": {"commands": ["version", "self-check", "observe"], "mutating": False},
+        },
         "uploadedCodeExecution": False,
     }
 
@@ -325,8 +415,10 @@ def build_bundle(args: argparse.Namespace) -> None:
     validate_projection(projection, package_count, package_manifest_sha256)
 
     projection_sha256 = sha256_bytes(projection_raw)
-    helper_contents = {name: expected_helper_content(name) for name in EXPECTED_HELPERS}
+    helper_contents = {name: expected_helper_content(name, projection) for name in EXPECTED_HELPERS}
     helper_hashes = {name: sha256_bytes(content) for name, content in helper_contents.items()}
+    observation_schema = OBSERVER_TEMPLATE_PATH.with_name("observation.schema.json").read_bytes()
+    plan_schema = OBSERVER_TEMPLATE_PATH.with_name("plan.schema.json").read_bytes()
     metadata = {
         "bundleFormat": BUNDLE_FORMAT,
         "contentHashAlgorithm": HASH_ALGORITHM,
@@ -335,6 +427,8 @@ def build_bundle(args: argparse.Namespace) -> None:
         "packageCount": package_count,
         "projectionSha256": projection_sha256,
         "packageManifestSha256": package_manifest_sha256,
+        "observationSchemaSha256": sha256_bytes(observation_schema),
+        "planSchemaSha256": sha256_bytes(plan_schema),
         "flakeLockSha256": sha256_file(flake_lock_path),
         "helperSha256": helper_hashes,
         "helperInstall": {
@@ -343,6 +437,8 @@ def build_bundle(args: argparse.Namespace) -> None:
     }
 
     write_file(output / "policy/projection.json", projection_raw)
+    write_file(output / "policy/observation.schema.json", observation_schema)
+    write_file(output / "policy/plan.schema.json", plan_schema)
     write_file(output / "packages/proxmox-package-manifest.json", package_raw)
     write_file(output / "metadata.json", canonical_json(metadata))
     write_file(output / "protocol.json", canonical_json(expected_protocol()))
@@ -391,15 +487,20 @@ def verify_bundle(args: argparse.Namespace) -> None:
         "package manifest": package_manifest_path,
     }.items():
         require_regular_file(path, label)
-    metadata = json.loads(metadata_path.read_bytes())
-    package_manifest = json.loads(package_manifest_path.read_bytes())
+    metadata_raw = metadata_path.read_bytes()
+    metadata = json.loads(metadata_raw)
+    package_raw = package_manifest_path.read_bytes()
+    package_manifest = json.loads(package_raw)
     package_count = validate_package_manifest(package_manifest)
-    projection = json.loads(projection_path.read_bytes())
+    projection_raw = projection_path.read_bytes()
+    projection = json.loads(projection_raw)
+    if metadata_raw != canonical_json(metadata) or projection_raw != canonical_json(projection):
+        raise ValueError("bundle JSON policy or metadata is not canonical")
     validate_projection(projection, package_count, sha256_file(package_manifest_path))
 
     expected_metadata_keys = {
         "bundleFormat", "contentHashAlgorithm", "flakeLockSha256", "helperInstall", "helperSha256", "packageCount",
-        "packageManifestSha256", "projectionSha256", "protocolVersion", "target",
+        "observationSchemaSha256", "packageManifestSha256", "planSchemaSha256", "projectionSha256", "protocolVersion", "target",
     }
     if not isinstance(metadata, dict) or set(metadata) != expected_metadata_keys or \
             metadata.get("bundleFormat") != BUNDLE_FORMAT or metadata.get("contentHashAlgorithm") != HASH_ALGORITHM or \
@@ -412,6 +513,13 @@ def verify_bundle(args: argparse.Namespace) -> None:
     if metadata.get("packageManifestSha256") != sha256_file(package_manifest_path) or \
             metadata.get("packageCount") != package_count:
         raise ValueError("bundle metadata package-manifest binding failed")
+    observation_schema_path = bundle / "policy/observation.schema.json"
+    plan_schema_path = bundle / "policy/plan.schema.json"
+    if metadata.get("observationSchemaSha256") != sha256_file(observation_schema_path) or \
+            metadata.get("planSchemaSha256") != sha256_file(plan_schema_path) or \
+            observation_schema_path.read_bytes() != OBSERVER_TEMPLATE_PATH.with_name("observation.schema.json").read_bytes() or \
+            plan_schema_path.read_bytes() != OBSERVER_TEMPLATE_PATH.with_name("plan.schema.json").read_bytes():
+        raise ValueError("bundle metadata schema binding failed")
     if metadata.get("target") != {"architecture": "amd64", "os": "linux", "requiresNix": False}:
         raise ValueError("bundle target metadata is invalid")
     if metadata.get("helperInstall") != {
@@ -431,7 +539,7 @@ def verify_bundle(args: argparse.Namespace) -> None:
         raise ValueError("bundle helper directory must contain exactly the fixed helpers")
     for helper in EXPECTED_HELPERS:
         helper_path = helper_directory / helper
-        expected_content = expected_helper_content(helper)
+        expected_content = expected_helper_content(helper, projection)
         if helper_path.read_bytes() != expected_content:
             raise ValueError(f"helper {helper} content differs from the fixed builder template")
         if helper_hashes[helper] != sha256_bytes(expected_content):
@@ -446,14 +554,30 @@ def verify_bundle(args: argparse.Namespace) -> None:
         self_check = subprocess.run(
             [sys.executable, helper_path, "self-check"], capture_output=True, timeout=5,
         )
+        capability = "observe" if helper == "proxmox-observer" else "none"
         expected_self_check = (
-            f"{helper}=self-check-passed protocol={PROTOCOL_VERSION} capabilities=none\n".encode()
+            f"{helper}=self-check-passed protocol={PROTOCOL_VERSION} capabilities={capability}\n".encode()
         )
         if self_check.returncode != 0 or self_check.stdout != expected_self_check or self_check.stderr != b"":
             raise ValueError(f"helper {helper} self-check output is unexpected")
+        if helper == "proxmox-observer":
+            observed = subprocess.run(
+                [sys.executable, helper_path, "observe"], capture_output=True, timeout=30,
+            )
+            try:
+                observation = json.loads(observed.stdout)
+            except json.JSONDecodeError as error:
+                raise ValueError("observer emitted malformed observation JSON") from error
+            expected_observation_keys = {"domains", "format", "host", "observerSha256", "protocol"}
+            if observed.returncode != 0 or observed.stderr != b"" or observed.stdout != canonical_json(observation) or \
+                    set(observation) != expected_observation_keys or observation.get("protocol") != PROTOCOL_VERSION or \
+                    observation.get("format") != "home-lab-proxmox-observation-v1" or \
+                    observation.get("observerSha256") != sha256_bytes(expected_content):
+                raise ValueError("observer canonical redacted observation is unexpected")
 
-        expected_usage = f"usage: {helper} <version|self-check>\n".encode()
-        for rejected_command in ("plan", "apply", "verify", "unknown"):
+        commands = "version|self-check|observe" if helper == "proxmox-observer" else "version|self-check"
+        expected_usage = f"usage: {helper} <{commands}>\n".encode()
+        for rejected_command in ("plan", "apply", "verify", "bootstrap", "unknown"):
             rejected = subprocess.run(
                 [sys.executable, helper_path, rejected_command], capture_output=True, timeout=5,
             )

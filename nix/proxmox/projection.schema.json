@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "architecture", "hostNetworking", "managedFiles", "managedFileFragments", "managedArtifacts", "managedFileMetadata", "auditAbsence", "nativeServices", "accounts", "ssh", "tailscale", "healthExpectations", "packagePolicy", "kernelPolicy", "storagePolicy", "apiIntent"],
+  "required": ["version", "architecture", "hostNetworking", "managedFiles", "managedFileFragments", "managedArtifacts", "managedFileMetadata", "auditAbsence", "nativeServices", "accounts", "ssh", "tailscale", "healthExpectations", "planningPolicy", "packagePolicy", "kernelPolicy", "storagePolicy", "apiIntent"],
   "properties": {
     "version": { "const": 1 },
     "architecture": { "const": "amd64" },
@@ -56,6 +56,38 @@
       "properties": {
         "pveApiStatusCodes": { "type": "array", "items": { "type": "integer" }, "minItems": 1 },
         "tailscaleBackendState": { "type": "string" }, "requireVm": { "type": "boolean" }, "vmStatus": { "type": "string" }
+      }
+    },
+    "planningPolicy": {
+      "type": "object", "additionalProperties": false, "required": ["maxAgeSeconds", "managedFilePolicies", "domains"],
+      "properties": {
+        "maxAgeSeconds": { "const": 300 },
+        "managedFilePolicies": {
+          "type": "array", "minItems": 12, "maxItems": 12,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["path", "safetyClass", "automatic", "requiresApproval", "requiresReboot", "requiresWatchdog"],
+            "properties": {
+              "path": { "$ref": "#/$defs/absolutePath" },
+              "safetyClass": { "enum": ["guarded", "reboot-bound", "protected-session", "access-critical", "data-critical"] },
+              "automatic": { "type": "boolean" }, "requiresApproval": { "type": "boolean" },
+              "requiresReboot": { "type": "boolean" }, "requiresWatchdog": { "type": "boolean" }
+            }
+          }
+        },
+        "domains": {
+          "type": "array", "minItems": 10, "maxItems": 10,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["domain", "safetyClass", "automatic", "requiresApproval", "requiresReboot", "requiresWatchdog"],
+            "properties": {
+              "domain": { "enum": ["managed-files", "managed-fragments", "managed-artifacts", "packages", "services", "accounts", "tailscale", "pve-access", "pve-firewall", "pve-storage"] },
+              "safetyClass": { "enum": ["guarded", "reboot-bound", "protected-session", "access-critical", "data-critical"] },
+              "automatic": { "type": "boolean" }, "requiresApproval": { "type": "boolean" },
+              "requiresReboot": { "type": "boolean" }, "requiresWatchdog": { "type": "boolean" }
+            }
+          }
+        }
       }
     },
     "packagePolicy": {
