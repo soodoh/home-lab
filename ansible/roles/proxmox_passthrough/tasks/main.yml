@@ -121,6 +121,14 @@
     - not ansible_check_mode
     - proxmox_passthrough_legacy_cleanup_confirmed | bool
 
+- name: Remove contract-prohibited Coral host packages before reboot
+  ansible.builtin.apt:
+    name: "{{ ['gasket-dkms', 'libedgetpu1-std'] | intersect(proxmox.packages.prohibited) }}"
+    state: absent
+    purge: true
+    autoremove: false
+  when: proxmox_passthrough_cleanup_requested | bool
+  notify: Rebuild Proxmox initramfs
 
 - name: Remove the host Coral udev rule
   ansible.builtin.file:
