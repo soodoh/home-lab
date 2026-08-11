@@ -1,5 +1,14 @@
 ---
-proxmox_packages: "{{ proxmox.packages.required }}"
+proxmox_package_entries: "{{ proxmox.packages.direct + proxmox.packages.critical }}"
+proxmox_package_names: "{{ proxmox_package_entries | map(attribute='name') | list }}"
+proxmox_apt_sanitized_environment:
+  APT_CONFIG: /dev/null
+  http_proxy: ""
+  https_proxy: ""
+  no_proxy: ""
+  HTTP_PROXY: ""
+  HTTPS_PROXY: ""
+  NO_PROXY: ""
 proxmox_services: "{{ proxmox.services }}"
 proxmox_network_apply_confirmed: false
 proxmox_network_snippet_migration_confirmed: false

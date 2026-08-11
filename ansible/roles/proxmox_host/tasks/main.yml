@@ -167,17 +167,8 @@
     fail_msg: "Canonical APT repository files did not converge."
   when: not ansible_check_mode
 
-- name: Install required host packages without upgrading the distribution
-  ansible.builtin.apt:
-    name: "{{ proxmox_packages }}"
-    state: present
-    update_cache: >-
-      {{ proxmox_host_repository_results.changed or
-         proxmox_host_tailscale_key.changed or
-         proxmox_host_legacy_source_list.changed or
-         proxmox_host_stale_repository_cleanup.changed or
-         proxmox_host_orphaned_key_cleanup.changed }}
-  when: not ansible_check_mode
+- name: Verify the complete exact package transaction with isolated APT metadata
+  ansible.builtin.include_tasks: verify-exact-packages.yml
 
 - name: Keep required host services enabled and started
   ansible.builtin.systemd_service:
@@ -187,18 +178,30 @@
   loop: "{{ proxmox_services }}"
   when: not ansible_check_mode
 
-- name: Inspect required host packages during check mode
+- name: Inspect exact host package versions during check mode
   ansible.builtin.command:
     argv:
       - /usr/bin/dpkg-query
       - --show
-      - "--showformat=${db:Status-Status}"
-      - "{{ item }}"
+      - "--showformat=${db:Status-Status}\\t${Version}"
+      - "{{ item.name }}"
   register: proxmox_host_package_inspection
   failed_when: false
   changed_when: false
   check_mode: false
-  loop: "{{ proxmox_packages }}"
+  loop: "{{ proxmox_package_entries }}"
+  loop_control:
+    label: "{{ item.name }}={{ item.version }}"
+  when: ansible_check_mode
+
+- name: Report exact package-version drift during check mode
+  ansible.builtin.debug:
+    msg: "Package {{ item.item.name }} must be exactly {{ item.item.version }}."
+  changed_when: >-
+    item.rc != 0 or item.stdout.split() != ['installed', item.item.version]
+  loop: "{{ proxmox_host_package_inspection.results }}"
+  loop_control:
+    label: "{{ item.item.name }}={{ item.item.version }}"
   when: ansible_check_mode
 
 - name: Inspect required service enablement during check mode
@@ -229,16 +232,15 @@
   loop: "{{ proxmox_services }}"
   when: ansible_check_mode
 
-- name: Report package and service drift during check mode
+- name: Report service drift during check mode
   ansible.builtin.debug:
     msg:
-      packages: "{{ proxmox_packages }}"
       services: "{{ proxmox_services }}"
   changed_when: >-
-    proxmox_host_package_inspection.results | rejectattr('stdout', 'equalto', 'installed') | list | length > 0 or
     proxmox_host_service_enablement.results | rejectattr('rc', 'equalto', 0) | list | length > 0 or
     proxmox_host_service_state.results | rejectattr('rc', 'equalto', 0) | list | length > 0
   when: ansible_check_mode
+
 - name: Inspect infrastructure SSH service users before convergence
   ansible.builtin.command:
     argv:

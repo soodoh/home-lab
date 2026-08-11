@@ -199,7 +199,8 @@ function validateProxmoxHostPolicy(contract) {
 
   if (proxmox.tailscale.hostname !== contract.network.proxmox.magicdns_name) failures.push("Proxmox Tailscale hostname must match MagicDNS");
   if (proxmox.tailscale.advertise_tag !== contract.tailscale.tags.proxmox) failures.push("Proxmox Tailscale tag must match tailnet policy");
-  if (!proxmox.packages.required.includes(proxmox.tailscale.package)) failures.push("Tailscale package must be required on Proxmox");
+  const selectedPackageNames = [...proxmox.packages.direct, ...proxmox.packages.critical].map((entry) => entry.name);
+  if (!selectedPackageNames.includes(proxmox.tailscale.package)) failures.push("Tailscale package must be selected on Proxmox");
   if (proxmox.tailscale.auth_key_secret_ref !== "TAILSCALE_AUTH_KEY") failures.push("Proxmox Tailscale auth-key reference is invalid");
   if (proxmox.tailscale.advertise_routes.length) failures.push("Proxmox must not advertise subnet routes");
   if (proxmox.tailscale.accept_dns || proxmox.tailscale.accept_routes) failures.push("Proxmox must not accept tailnet DNS or routes");

@@ -1,0 +1,40 @@
+#!/usr/bin/env node
+"use strict";
+
+const fs = require("node:fs");
+const path = require("node:path");
+const {
+  manifestFromObservedTransition,
+  renderManifest,
+} = require("./controller/proxmox-package-manifest");
+
+function usage() {
+  console.error("usage: scripts/render-proxmox-package-manifest --inventory <dpkg-status-tsv> --simulation <apt-simulation> --architecture <arch> --output <json>");
+  process.exit(64);
+}
+
+let inventoryPath;
+let simulationPath;
+let architecture;
+let outputPath;
+for (let index = 2; index < process.argv.length; index += 1) {
+  const option = process.argv[index];
+  const value = process.argv[index + 1];
+  if (!["--inventory", "--simulation", "--architecture", "--output"].includes(option) || value === undefined) usage();
+  if (option === "--inventory") inventoryPath = value;
+  if (option === "--simulation") simulationPath = value;
+  if (option === "--architecture") architecture = value;
+  if (option === "--output") outputPath = value;
+  index += 1;
+}
+if (!outputPath || !inventoryPath || !simulationPath || !architecture) usage();
+
+const manifest = manifestFromObservedTransition(
+  fs.readFileSync(inventoryPath, "utf8"),
+  fs.readFileSync(simulationPath, "utf8"),
+  architecture,
+);
+const rendered = renderManifest(manifest);
+const target = path.resolve(outputPath);
+fs.mkdirSync(path.dirname(target), { recursive: true });
+fs.writeFileSync(target, rendered, { mode: 0o644 });

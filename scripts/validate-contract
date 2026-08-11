@@ -9,10 +9,16 @@ const { load } = require("js-yaml");
 const Ajv2020 = require("ajv/dist/2020");
 const { validateVmArtifactReferences } = require("./controller/validate-vm-artifact-references");
 const { validateProxmoxHostPolicy } = require("./controller/validate-proxmox-host-policy");
+const {
+  validateProxmoxPackageArtifactBinding,
+  validateProxmoxPackagePolicy,
+} = require("./controller/validate-proxmox-package-policy");
 
 const root = path.resolve(__dirname, "..");
 const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
 const schemaPath = path.join(root, "infrastructure/contract/schema.json");
+const packageManifestPath = path.join(root, "infrastructure/contract/proxmox-package-manifest.json");
+const packageManifestSchemaPath = path.join(root, "infrastructure/contract/proxmox-package-manifest.schema.json");
 const qualificationEvidencePath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.json");
 const qualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.schema.json");
 const qualificationValidatorPath = path.join(root, "scripts/controller/validate-lxc-qualification-evidence.py");
@@ -20,9 +26,13 @@ const operational = process.argv.includes("--operational");
 
 const contract = load(fs.readFileSync(contractPath, "utf8"));
 const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+const packageManifestRaw = fs.readFileSync(packageManifestPath, "utf8");
+const packageManifest = JSON.parse(packageManifestRaw);
+const packageManifestSchema = JSON.parse(fs.readFileSync(packageManifestSchemaPath, "utf8"));
 const qualificationEvidenceSchema = JSON.parse(fs.readFileSync(qualificationEvidenceSchemaPath, "utf8"));
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validate = ajv.compile(schema);
+const validatePackageManifest = ajv.compile(packageManifestSchema);
 const validateQualificationEvidence = ajv.compile(qualificationEvidenceSchema);
 
 if (!validate(contract)) {
@@ -79,14 +89,16 @@ for (const key of ["coral", "gpu", "gpu_audio"]) {
 const usbSerialRefs = ["zigbee", "zwave"].map((key) => contract.proxmox.vm.usb[key].serial_secret_ref);
 if (new Set(usbSerialRefs).size !== usbSerialRefs.length) failures.push("USB serial secret references must be unique");
 failures.push(...validateProxmoxHostPolicy(contract));
-const requiredPackages = new Set(contract.proxmox.packages.required);
-const prohibitedPackages = new Set(contract.proxmox.packages.prohibited);
-const permittedManualPackages = new Set(contract.proxmox.packages.permitted_manual);
-for (const packageName of requiredPackages) {
-  if (prohibitedPackages.has(packageName)) failures.push(`required package ${packageName} is also prohibited`);
-}
-for (const packageName of permittedManualPackages) {
-  if (prohibitedPackages.has(packageName)) failures.push(`permitted manual package ${packageName} is also prohibited`);
+if (!validatePackageManifest(packageManifest)) {
+  failures.push(`Proxmox package manifest schema failed: ${JSON.stringify(validatePackageManifest.errors)}`);
+} else {
+  failures.push(...validateProxmoxPackagePolicy(contract, packageManifest));
+  failures.push(...validateProxmoxPackageArtifactBinding(
+    contract,
+    packageManifest,
+    packageManifestRaw,
+    path.relative(root, packageManifestPath),
+  ));
 }
 const distinctFallback = contract.proxmox.kernels.current !== contract.proxmox.kernels.fallback;
 const expectedRetentionCount = distinctFallback ? 2 : 1;

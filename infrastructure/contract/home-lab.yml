@@ -244,22 +244,73 @@ proxmox:
         destination_port: 8006
         log: nolog
   packages:
-    required:
-      - chrony
-      - curl
-      - git
-      - ifupdown2
-      - jq
-      - nfs-kernel-server
-      - nvme-cli
-      - openssh-server
-      - proxmox-ve
-      - python3
-      - python3-apt
-      - smartmontools
-      - sudo
-      - tailscale
-      - zfsutils-linux
+    architecture: amd64
+    direct:
+      - name: chrony
+        version: 4.6.1-3+deb13u2
+      - name: curl
+        version: 8.14.1-2+deb13u4
+      - name: git
+        version: 1:2.47.3-0+deb13u1
+      - name: ifupdown2
+        version: 3.3.0-1+pmx12
+      - name: jq
+        version: 1.7.1-6+deb13u2
+      - name: nfs-kernel-server
+        version: 1:2.8.3-1
+      - name: nvme-cli
+        version: 2.13-2
+      - name: openssh-server
+        version: 1:10.0p1-7+deb13u4
+      - name: proxmox-ve
+        version: 9.2.0
+      - name: python3
+        version: 3.13.5-1
+      - name: python3-apt
+        version: 3.0.0
+      - name: smartmontools
+        version: 7.5-pve2
+      - name: sudo
+        version: 1.9.16p2-3+deb13u2
+      - name: tailscale
+        version: 1.102.2
+    critical:
+      - role: debian-archive-keyring
+        name: debian-archive-keyring
+        version: "2025.1"
+      - role: proxmox-archive-keyring
+        name: proxmox-archive-keyring
+        version: "4.0"
+      - role: pve-manager
+        name: pve-manager
+        version: 9.2.3
+      - role: default-kernel
+        name: proxmox-default-kernel
+        version: 2.1.0
+      - role: retained-kernel
+        name: proxmox-kernel-7.0.14-8-pve-signed
+        version: 7.0.14-8
+      - role: retained-kernel-headers
+        name: proxmox-headers-7.0.14-8-pve
+        version: 7.0.14-8
+      - role: default-headers
+        name: pve-headers
+        version: 9.2.0
+      - role: zfs-daemon
+        name: zfs-zed
+        version: 2.4.3-pve1
+      - role: zfs-tools
+        name: zfsutils-linux
+        version: 2.4.3-pve1
+      - role: legacy-firewall
+        name: pve-firewall
+        version: 6.0.4
+      - role: firewall
+        name: proxmox-firewall
+        version: 1.2.3
+    manifest:
+      path: infrastructure/contract/proxmox-package-manifest.json
+      sha256: 3c01cffe3446433ca419390d75180d7c4c6cb08b73e6ca7a04eeaa832d0e36fb
     prohibited:
       - build-essential
       - cargo
@@ -357,9 +408,7 @@ proxmox:
       - mawk
       - mokutil
       - ncurses-bin
-      - proxmox-default-kernel
       - proxmox-headers-6.14
-      - pve-headers
       - shim-signed
       - spl
       - tasksel

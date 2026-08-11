@@ -177,13 +177,31 @@
   ansible.builtin.package_facts:
     manager: apt
   when: proxmox_cleanup_requested | bool
+
+- name: Record installed prohibited packages requested for removal
+  ansible.builtin.set_fact:
+    proxmox_cleanup_prohibited_packages_to_remove: >-
+      {{ proxmox.packages.prohibited | intersect(ansible_facts.packages.keys()) | sort }}
+  when: proxmox_cleanup_requested | bool
+
+- name: Preflight prohibited package removal
+  ansible.builtin.include_tasks: preflight-package-removal.yml
+  vars:
+    proxmox_cleanup_preflight_label: prohibited-package
+    proxmox_cleanup_preflight_requested_packages: "{{ proxmox_cleanup_prohibited_packages_to_remove }}"
+  when:
+    - proxmox_cleanup_requested | bool
+    - proxmox_cleanup_prohibited_packages_to_remove | length > 0
+
 - name: Remove only contract-listed prohibited packages
   ansible.builtin.apt:
-    name: "{{ proxmox.packages.prohibited | intersect(ansible_facts.packages.keys()) }}"
+    name: "{{ proxmox_cleanup_prohibited_packages_to_remove }}"
     state: absent
     purge: true
     autoremove: false
-  when: proxmox_cleanup_requested | bool
+  when:
+    - proxmox_cleanup_requested | bool
+    - proxmox_cleanup_prohibited_packages_to_remove | length > 0
 
 - name: Remove only known root-local legacy paths
   ansible.builtin.file:
@@ -251,7 +269,7 @@
   ansible.builtin.shell: |
     set -o pipefail
     /usr/bin/apt-cache depends --recurse --installed \
-      {{ (proxmox.packages.required +
+      {{ (proxmox_package_names +
           proxmox.packages.permitted_manual +
           proxmox_cleanup_retained_kernel_owners.stdout_lines) | map('quote') | join(' ') }} |
       /usr/bin/awk '/^[^ <|]/ {name=$1; sub(/:[^:]+$/, "", name); print name}' |
@@ -303,6 +321,16 @@
   changed_when: true
   when:
     - ansible_check_mode
+    - proxmox_cleanup_kernel_packages_to_remove | length > 0
+
+- name: Preflight removal of kernels outside the exact retained owner set
+  ansible.builtin.include_tasks: preflight-package-removal.yml
+  vars:
+    proxmox_cleanup_preflight_label: obsolete-kernel
+    proxmox_cleanup_preflight_requested_packages: "{{ proxmox_cleanup_kernel_packages_to_remove }}"
+  when:
+    - not ansible_check_mode
+    - proxmox_cleanup_migration_confirmed | bool
     - proxmox_cleanup_kernel_packages_to_remove | length > 0
 
 - name: Remove only kernel packages outside the exact retained owner set
@@ -407,6 +435,20 @@
     - proxmox_cleanup_migration_confirmed | bool
     - not (proxmox_cleanup_boot_uuids.stat.isreg | default(false))
 
+- name: Verify the Proxmox VE metapackage remains installed after cleanup
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/dpkg-query
+      - --show
+      - "--showformat=${db:Status-Status}"
+      - proxmox-ve
+  register: proxmox_cleanup_proxmox_ve_status
+  changed_when: false
+  check_mode: false
+  failed_when: >-
+    proxmox_cleanup_proxmox_ve_status.rc != 0 or
+    proxmox_cleanup_proxmox_ve_status.stdout != 'installed'
+
 - name: Inventory manually installed packages
   ansible.builtin.command:
     argv:
@@ -422,7 +464,7 @@
     proxmox_cleanup_unknown_manual_packages: >-
       {{ proxmox_cleanup_manual_packages.stdout_lines |
          difference(
-           proxmox.packages.required +
+           proxmox_package_names +
            proxmox.packages.permitted_manual +
            proxmox.packages.prohibited +
            proxmox_cleanup_retained_kernel_packages +

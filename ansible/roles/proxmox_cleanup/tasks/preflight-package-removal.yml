@@ -1,0 +1,44 @@
+---
+- name: "Simulate package removal with the APT solver | {{ proxmox_cleanup_preflight_label }}"
+  ansible.builtin.command:
+    argv: >-
+      {{ ['/usr/bin/apt-get', '--simulate', '--no-install-recommends', 'purge'] +
+         proxmox_cleanup_preflight_requested_packages }}
+  environment: "{{ proxmox_apt_sanitized_environment }}"
+  register: proxmox_cleanup_removal_simulation
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: "Parse package removal transitions | {{ proxmox_cleanup_preflight_label }}"
+  ansible.builtin.set_fact:
+    proxmox_cleanup_removal_transition_lines: >-
+      {{ proxmox_cleanup_removal_simulation.stdout_lines |
+         select('match', '^(Remv|Purg)') | list }}
+    proxmox_cleanup_recognized_removal_transition_lines: >-
+      {{ proxmox_cleanup_removal_simulation.stdout_lines |
+         select('match', '^(Remv|Purg) [a-z0-9][a-z0-9+.-]+(:[a-z0-9][a-z0-9-]*)?( .*)?$') | list }}
+    proxmox_cleanup_simulated_removals: >-
+      {{ proxmox_cleanup_removal_simulation.stdout_lines |
+         select('match', '^(Remv|Purg) [a-z0-9][a-z0-9+.-]+(:[a-z0-9][a-z0-9-]*)?( .*)?$') |
+         map('regex_replace', '^(Remv|Purg) ([^ ]+).*$', '\2') | list | unique | sort }}
+
+- name: "Require removal to remain exact and Proxmox-safe | {{ proxmox_cleanup_preflight_label }}"
+  ansible.builtin.assert:
+    that:
+      - proxmox_cleanup_removal_simulation.rc == 0
+      - >-
+        proxmox_cleanup_removal_transition_lines | length ==
+        proxmox_cleanup_recognized_removal_transition_lines | length
+      - >-
+        proxmox_cleanup_simulated_removals |
+        difference(proxmox_cleanup_preflight_requested_packages) | length == 0
+      - >-
+        proxmox_cleanup_preflight_requested_packages |
+        difference(proxmox_cleanup_simulated_removals) | length == 0
+      - >-
+        proxmox_cleanup_simulated_removals |
+        select('match', '^proxmox-ve(:|$)') | list | length == 0
+    fail_msg: >-
+      APT {{ proxmox_cleanup_preflight_label }} removal simulation was malformed or would remove
+      packages outside the exact request: {{ proxmox_cleanup_simulated_removals | default([]) }}.

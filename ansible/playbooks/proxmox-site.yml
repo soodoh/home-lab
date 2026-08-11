@@ -60,6 +60,14 @@
     - role: proxmox_health
     - role: proxmox_cleanup
   post_tasks:
+    - name: Verify the final complete installed package map after cleanup
+      ansible.builtin.include_role:
+        name: proxmox_host
+        tasks_from: verify-exact-packages
+      vars:
+        proxmox_host_verify_installed_only: true
+      when: not ansible_check_mode
+
     - name: Release the shared host-side mutation lock after success
       ansible.builtin.import_role:
         name: apply_lock

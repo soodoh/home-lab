@@ -53,6 +53,30 @@ const unknownHostPolicy = structuredClone(contract);
 unknownHostPolicy.proxmox.packages.optional = [];
 check(unknownHostPolicy, false, "unknown host package policy");
 
+for (const version of ["latest", "unstable1", "latest!", "1.0-"]) {
+  const malformedDebianVersion = structuredClone(contract);
+  malformedDebianVersion.proxmox.packages.direct[0].version = version;
+  check(malformedDebianVersion, false, `malformed Debian package version ${version}`);
+}
+
+const epochAndColonVersion = structuredClone(contract);
+epochAndColonVersion.proxmox.packages.direct[0].version = "1:2:3-1";
+check(epochAndColonVersion, true, "valid epoch and upstream colon Debian package version");
+
+for (const [field, value] of [["name", 42], ["version", 42], ["version", null]]) {
+  const malformedPackageType = structuredClone(contract);
+  malformedPackageType.proxmox.packages.direct[0][field] = value;
+  check(malformedPackageType, false, `malformed package ${field} type`);
+}
+
+const duplicateDirectPackage = structuredClone(contract);
+duplicateDirectPackage.proxmox.packages.direct.push(structuredClone(duplicateDirectPackage.proxmox.packages.direct[0]));
+check(duplicateDirectPackage, false, "duplicate direct package entry");
+
+const missingPackageManifestReference = structuredClone(contract);
+delete missingPackageManifestReference.proxmox.packages.manifest;
+check(missingPackageManifestReference, false, "missing package manifest reference");
+
 const missing = structuredClone(contract);
 delete missing.arch.packages.kernel;
 check(missing, false, "missing required package");
