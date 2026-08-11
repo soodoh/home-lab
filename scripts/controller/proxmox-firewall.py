@@ -35,6 +35,7 @@ HOST_HELPER = "/usr/local/libexec/home-lab/proxmox-firewall-transaction"
 SSH = "/usr/bin/ssh"
 SSH_CONFIG = "/dev/null"
 PVE_IDENTITY = str(Path.home() / ".ssh/home-lab-proxmox-firewall")
+PVE_SSH_TARGET = "firewall-apply@192.168.0.123"
 LAN_CANARY_IDENTITY = str(Path.home() / ".ssh/home-lab-proxmox-lan-canary")
 TAILNET_CANARY_IDENTITY = str(Path.home() / ".ssh/home-lab-proxmox-tailnet-canary")
 ARCH_IDENTITY = str(Path.home() / ".ssh/home-lab-arch-ansible")
@@ -210,7 +211,7 @@ def host(command: str, request: dict[str, Any] | None = None) -> dict[str, Any]:
         raise ValueError("host command differs")
     argv = (SSH, "-F", SSH_CONFIG, "-T", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no",
             "-o", "RequestTTY=no", "-o", "IdentitiesOnly=yes", "-i", PVE_IDENTITY,
-            "firewall-apply@proxmox", command)
+            PVE_SSH_TARGET, command)
     result = run(argv, stdin=None if request is None else canonical(request), timeout=75)
     value = json.loads(result.stdout)
     if result.stdout != canonical(value) or not isinstance(value, dict):
