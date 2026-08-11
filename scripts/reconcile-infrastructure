@@ -78,7 +78,7 @@ esac
 [[ $plan_dir != *"/../"* && $plan_dir != */.. ]] || exit 64
 
 if [[ $action == validate ]]; then
-  for command in tofu python3 shellcheck ansible-lint ansible-playbook docker; do
+  for command in tofu node jq python3 shellcheck ansible-lint ansible-playbook docker nix nix-store; do
     command -v "$command" >/dev/null || {
       echo "required validation command is unavailable: $command" >&2
       exit 69
@@ -89,6 +89,39 @@ if [[ $action == validate ]]; then
   infrastructure/policy/test-policy.sh
   node scripts/controller/test-contract-schema.js
   node scripts/controller/test-proxmox-package-manifest.js
+  node scripts/controller/test-proxmox-nix-projection.js
+  [[ ! -e flake.nix && ! -e flake.lock ]] || {
+    echo "the Nix flake must remain isolated under the sanitized nix/ source root" >&2
+    exit 1
+  }
+  proxmox_nix_source=$(nix flake archive 'path:./nix' --json | jq -er .path)
+  PROXMOX_NIX_SOURCE_STORE_PATH=$proxmox_nix_source \
+    python3 scripts/controller/test-proxmox-nix-foundation.py
+  node scripts/controller/test-proxmox-nix-projection.js --scan-path "$proxmox_nix_source"
+  for source_candidate in /nix/store/*-source; do
+    if [[ -e $source_candidate/secrets/production.sops.env && \
+          -e $source_candidate/infrastructure/contract/home-lab.yml ]]; then
+      echo "repository-root Nix source leak exists: $source_candidate" >&2
+      exit 1
+    fi
+  done
+  nix flake check 'path:./nix' --print-build-logs
+  proxmox_bundle_output=$(nix build 'path:./nix#proxmox-host-bundle' --no-link --print-out-paths)
+  python3 nix/proxmox/bundle.py verify \
+    --bundle "$proxmox_bundle_output/bundle" \
+    --hash-file "$proxmox_bundle_output/bundle.sha256"
+  proxmox_bundle_derivation=$(nix path-info --derivation 'path:./nix#proxmox-host-bundle')
+  while IFS= read -r input_source; do
+    node scripts/controller/test-proxmox-nix-projection.js --scan-path "$input_source"
+  done < <(nix derivation show "$proxmox_bundle_derivation" | jq -r '
+    (.derivations // .)[] |
+    ((.inputs.srcs // .inputSrcs) // [])[] |
+    if startswith("/") then . else "/nix/store/" + . end
+  ')
+  while IFS= read -r closure_path; do
+    node scripts/controller/test-proxmox-nix-projection.js --scan-path "$closure_path"
+  done < <(nix-store --query --requisites "$proxmox_bundle_output")
+  echo "proxmox_nix_sanitized_source=$proxmox_nix_source"
   python3 ansible/roles/proxmox_host/files/test-check-apt-availability.py
   python3 scripts/controller/test-zpool-status-parser.py
   python3 scripts/controller/test-root-local-audit.py

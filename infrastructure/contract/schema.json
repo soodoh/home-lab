@@ -220,7 +220,7 @@
       "additionalProperties": false,
       "required": ["path", "sha256"],
       "properties": {
-        "path": { "const": "infrastructure/contract/proxmox-package-manifest.json" },
+        "path": { "const": "nix/proxmox/package-manifest.json" },
         "sha256": { "$ref": "#/$defs/sha256" }
       }
     },

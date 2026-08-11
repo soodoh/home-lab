@@ -551,7 +551,7 @@ proxmox:
         name: proxmox-firewall
         version: 1.2.3
     manifest:
-      path: infrastructure/contract/proxmox-package-manifest.json
+      path: nix/proxmox/package-manifest.json
       sha256: 3c01cffe3446433ca419390d75180d7c4c6cb08b73e6ca7a04eeaa832d0e36fb
     prohibited:
       - build-essential

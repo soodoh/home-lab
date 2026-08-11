@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "architecture", "hostNetworking", "managedFiles", "managedFileFragments", "managedArtifacts", "managedFileMetadata", "auditAbsence", "nativeServices", "accounts", "ssh", "tailscale", "healthExpectations", "packagePolicy", "kernelPolicy", "storagePolicy", "apiIntent"],
+  "properties": {
+    "version": { "const": 1 },
+    "architecture": { "const": "amd64" },
+    "hostNetworking": {
+      "type": "object", "additionalProperties": false,
+      "required": ["cidr", "gateway", "dns", "bridge", "bridgePort", "hostname", "magicDnsName", "ipv4", "permittedActiveSnippets"],
+      "properties": {
+        "cidr": { "type": "string" }, "gateway": { "type": "string" },
+        "dns": { "$ref": "#/$defs/stringArray" }, "bridge": { "type": "string" },
+        "bridgePort": { "type": "string" }, "hostname": { "type": "string" },
+        "magicDnsName": { "type": "string" }, "ipv4": { "type": "string" },
+        "permittedActiveSnippets": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "managedFiles": { "type": "array", "items": { "$ref": "#/$defs/managedFile" }, "minItems": 1 },
+    "managedFileFragments": { "type": "array", "items": { "$ref": "#/$defs/managedFileFragment" }, "minItems": 1 },
+    "managedArtifacts": { "type": "array", "items": { "$ref": "#/$defs/managedArtifact" }, "minItems": 1 },
+    "managedFileMetadata": { "type": "array", "items": { "$ref": "#/$defs/fileMetadata" }, "minItems": 1 },
+    "auditAbsence": { "type": "array", "items": { "$ref": "#/$defs/auditAbsence" }, "minItems": 1 },
+    "nativeServices": { "type": "array", "items": { "$ref": "#/$defs/service" }, "minItems": 1 },
+    "accounts": {
+      "type": "object", "additionalProperties": false, "required": ["service", "human"],
+      "properties": {
+        "service": { "type": "array", "items": { "$ref": "#/$defs/serviceAccount" }, "minItems": 1 },
+        "human": { "type": "array", "items": { "$ref": "#/$defs/humanAccount" }, "minItems": 1 }
+      }
+    },
+    "ssh": {
+      "type": "object", "additionalProperties": false,
+      "required": ["service", "pubkeyAuthentication", "passwordAuthentication", "kbdInteractiveAuthentication", "permitRootLogin", "allowUsers"],
+      "properties": {
+        "service": { "type": "string" }, "pubkeyAuthentication": { "type": "boolean" },
+        "passwordAuthentication": { "type": "boolean" }, "kbdInteractiveAuthentication": { "type": "boolean" },
+        "permitRootLogin": { "type": "string" }, "allowUsers": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "tailscale": {
+      "type": "object", "additionalProperties": false,
+      "required": ["package", "service", "serviceEnabled", "serviceState", "enrollmentTimeoutSeconds", "enrollmentSsh", "hostname", "advertiseTag", "advertiseRoutes", "acceptDns", "acceptRoutes", "netfilterMode", "ssh"],
+      "properties": {
+        "package": { "type": "string" }, "service": { "type": "string" }, "serviceEnabled": { "type": "boolean" },
+        "serviceState": { "type": "string" }, "enrollmentTimeoutSeconds": { "type": "integer", "minimum": 1 },
+        "enrollmentSsh": { "type": "boolean" }, "hostname": { "type": "string" }, "advertiseTag": { "type": "string" },
+        "advertiseRoutes": { "$ref": "#/$defs/stringArray" }, "acceptDns": { "type": "boolean" },
+        "acceptRoutes": { "type": "boolean" }, "netfilterMode": { "type": "string" }, "ssh": { "type": "boolean" }
+      }
+    },
+    "healthExpectations": {
+      "type": "object", "additionalProperties": false,
+      "required": ["pveApiStatusCodes", "tailscaleBackendState", "requireVm", "vmStatus"],
+      "properties": {
+        "pveApiStatusCodes": { "type": "array", "items": { "type": "integer" }, "minItems": 1 },
+        "tailscaleBackendState": { "type": "string" }, "requireVm": { "type": "boolean" }, "vmStatus": { "type": "string" }
+      }
+    },
+    "packagePolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["direct", "critical", "prohibited", "permittedManual", "manifestSha256", "manifestPackageCount"],
+      "properties": {
+        "direct": { "type": "array", "items": { "$ref": "#/$defs/package" }, "minItems": 1 },
+        "critical": { "type": "array", "items": { "$ref": "#/$defs/criticalPackage" }, "minItems": 1 },
+        "prohibited": { "$ref": "#/$defs/stringArray" }, "permittedManual": { "$ref": "#/$defs/stringArray" },
+        "manifestSha256": { "$ref": "#/$defs/sha256" }, "manifestPackageCount": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "kernelPolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["current", "fallback", "retentionCount", "requireBootHistoryProof"],
+      "properties": {
+        "current": { "type": "string" }, "fallback": { "type": "string" },
+        "retentionCount": { "type": "integer", "minimum": 1 }, "requireBootHistoryProof": { "type": "boolean" }
+      }
+    },
+    "storagePolicy": {
+      "type": "object", "additionalProperties": false,
+      "required": ["expectedHealth", "arcMaxBytes", "mirrorTopology", "dataset", "datasetProperties", "mountpoint", "nfs"],
+      "properties": {
+        "expectedHealth": { "type": "string" }, "arcMaxBytes": { "type": "integer", "minimum": 1 },
+        "mirrorTopology": {
+          "type": "object", "additionalProperties": false, "required": ["count", "width"],
+          "properties": { "count": { "type": "integer", "minimum": 1 }, "width": { "type": "integer", "minimum": 1 } }
+        },
+        "dataset": { "type": "string" },
+        "datasetProperties": {
+          "type": "object", "additionalProperties": false, "required": ["sharenfs"],
+          "properties": { "sharenfs": { "type": "string" } }
+        },
+        "mountpoint": { "$ref": "#/$defs/absolutePath" },
+        "nfs": {
+          "type": "object", "additionalProperties": false,
+          "required": ["export", "client", "clientVmid", "mountpoint", "options", "squashPolicy"],
+          "properties": {
+            "export": { "$ref": "#/$defs/absolutePath" }, "client": { "type": "string" },
+            "clientVmid": { "type": "integer", "minimum": 1 }, "mountpoint": { "$ref": "#/$defs/absolutePath" },
+            "options": { "$ref": "#/$defs/stringArray" }, "squashPolicy": { "type": "string" }
+          }
+        }
+      }
+    },
+    "apiIntent": {
+      "type": "object", "additionalProperties": false, "required": ["pveAccess", "pveFirewall", "pveStorage"],
+      "properties": {
+        "pveAccess": {
+          "type": "object", "additionalProperties": false, "required": ["roles", "bindings"],
+          "properties": {
+            "roles": { "type": "array", "items": { "$ref": "#/$defs/pveRole" }, "minItems": 1 },
+            "bindings": { "type": "array", "items": { "$ref": "#/$defs/pveBinding" }, "minItems": 1 }
+          }
+        },
+        "pveFirewall": {
+          "type": "object", "additionalProperties": false, "required": ["ownership", "activation", "options", "rules"],
+          "properties": {
+            "ownership": { "const": "pve-api" }, "activation": { "const": "pve-api" },
+            "options": {
+              "type": "object", "additionalProperties": false, "required": ["enable", "policy_in", "policy_out"],
+              "properties": { "enable": { "type": "boolean" }, "policy_in": { "type": "string" }, "policy_out": { "type": "string" } }
+            },
+            "rules": { "type": "array", "items": { "$ref": "#/$defs/firewallRule" }, "minItems": 1 }
+          }
+        },
+        "pveStorage": {
+          "type": "object", "additionalProperties": false, "required": ["id", "type", "pool", "mountpoint", "content", "nodes"],
+          "properties": {
+            "id": { "type": "string" }, "type": { "type": "string" }, "pool": { "type": "string" },
+            "mountpoint": { "$ref": "#/$defs/absolutePath" }, "content": { "$ref": "#/$defs/stringArray" },
+            "nodes": { "$ref": "#/$defs/stringArray" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "absolutePath": { "type": "string", "pattern": "^/(?!.*(?:^|/)\\.\\.(?:/|$))[^\\u0000]*$" },
+    "stringArray": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "fileBaseProperties": {
+      "path": { "$ref": "#/$defs/absolutePath" }, "owner": { "type": "string" },
+      "group": { "type": "string" }, "mode": { "type": "string", "pattern": "^0[0-7]{3}$" }
+    },
+    "managedFile": {
+      "type": "object", "additionalProperties": false, "required": ["path", "owner", "group", "mode", "content"],
+      "properties": {
+        "path": { "$ref": "#/$defs/absolutePath" }, "owner": { "type": "string" }, "group": { "type": "string" },
+        "mode": { "type": "string", "pattern": "^0[0-7]{3}$" }, "content": { "type": "string" }
+      }
+    },
+    "managedFileFragment": {
+      "type": "object", "additionalProperties": false, "required": ["path", "owner", "group", "mode", "strategy", "content"],
+      "properties": {
+        "path": { "$ref": "#/$defs/absolutePath" }, "owner": { "type": "string" }, "group": { "type": "string" },
+        "mode": { "type": "string", "pattern": "^0[0-7]{3}$" }, "strategy": { "const": "required-line" },
+        "content": { "type": "string" }
+      }
+    },
+    "managedArtifact": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "path", "owner", "group", "mode", "sha256", "sourceUrl", "symlinkTarget"],
+      "properties": {
+        "name": { "type": "string" }, "path": { "$ref": "#/$defs/absolutePath" }, "owner": { "type": "string" },
+        "group": { "type": "string" }, "mode": { "type": "string", "pattern": "^0[0-7]{3}$" },
+        "sha256": { "$ref": "#/$defs/sha256" }, "sourceUrl": { "type": ["string", "null"] },
+        "symlinkTarget": { "type": ["string", "null"] }
+      }
+    },
+    "fileMetadata": {
+      "type": "object", "additionalProperties": false, "required": ["domain", "owner", "group", "mode"],
+      "properties": {
+        "domain": { "type": "string" }, "owner": { "type": "string" }, "group": { "type": "string" },
+        "mode": { "type": "string", "pattern": "^0[0-7]{3}$" }
+      }
+    },
+    "auditAbsence": {
+      "type": "object", "additionalProperties": false, "required": ["absence", "path"],
+      "properties": {
+        "absence": { "enum": ["file", "matching-lines"] }, "path": { "$ref": "#/$defs/absolutePath" },
+        "pattern": { "type": "string" }
+      }
+    },
+    "service": {
+      "type": "object", "additionalProperties": false, "required": ["name", "enabled", "state"],
+      "properties": { "name": { "type": "string" }, "enabled": { "type": "boolean" }, "state": { "type": "string" } }
+    },
+    "serviceAccount": {
+      "type": "object", "additionalProperties": false, "required": ["name", "home", "shell", "createHome", "passwordLock", "groups"],
+      "properties": {
+        "name": { "type": "string" }, "home": { "$ref": "#/$defs/absolutePath" }, "shell": { "$ref": "#/$defs/absolutePath" },
+        "createHome": { "type": "boolean" }, "passwordLock": { "type": "boolean" }, "groups": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "humanAccount": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "comment", "group", "home", "shell", "passwordLock", "supplementaryGroups", "localAuthorizedKeys"],
+      "properties": {
+        "name": { "type": "string" }, "comment": { "type": "string" }, "group": { "type": "string" },
+        "home": { "$ref": "#/$defs/absolutePath" }, "shell": { "$ref": "#/$defs/absolutePath" },
+        "passwordLock": { "type": "boolean" }, "supplementaryGroups": { "$ref": "#/$defs/stringArray" },
+        "localAuthorizedKeys": { "const": "absent" }
+      }
+    },
+    "package": {
+      "type": "object", "additionalProperties": false, "required": ["name", "version"],
+      "properties": { "name": { "type": "string" }, "version": { "type": "string" } }
+    },
+    "criticalPackage": {
+      "type": "object", "additionalProperties": false, "required": ["role", "name", "version"],
+      "properties": { "role": { "type": "string" }, "name": { "type": "string" }, "version": { "type": "string" } }
+    },
+    "pveRole": {
+      "type": "object", "additionalProperties": false, "required": ["role", "privileges"],
+      "properties": { "role": { "type": "string" }, "privileges": { "$ref": "#/$defs/stringArray" } }
+    },
+    "pveBinding": {
+      "type": "object", "additionalProperties": false, "required": ["principal", "role", "privilegeSeparation", "primaryAcl", "additionalAcls"],
+      "properties": {
+        "principal": { "enum": ["plan", "apply"] }, "role": { "type": "string" },
+        "privilegeSeparation": { "type": "boolean" }, "primaryAcl": { "type": "string" },
+        "additionalAcls": { "type": "array", "items": { "$ref": "#/$defs/pveAcl" } }
+      }
+    },
+    "pveAcl": {
+      "type": "object", "additionalProperties": false, "required": ["path", "role"],
+      "properties": { "path": { "type": "string" }, "role": { "type": "string" } }
+    },
+    "firewallRule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["direction", "action", "source", "protocol", "destination_port", "log"],
+      "properties": {
+        "direction": { "type": "string" }, "action": { "type": "string" }, "source": { "type": "string" },
+        "protocol": { "type": "string" }, "destination_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "log": { "type": "string" }
+      }
+    }
+  }
+}

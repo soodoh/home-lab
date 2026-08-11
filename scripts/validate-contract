@@ -17,8 +17,8 @@ const {
 const root = path.resolve(__dirname, "..");
 const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
 const schemaPath = path.join(root, "infrastructure/contract/schema.json");
-const packageManifestPath = path.join(root, "infrastructure/contract/proxmox-package-manifest.json");
-const packageManifestSchemaPath = path.join(root, "infrastructure/contract/proxmox-package-manifest.schema.json");
+const packageManifestPath = path.join(root, "nix/proxmox/package-manifest.json");
+const packageManifestSchemaPath = path.join(root, "nix/proxmox/package-manifest.schema.json");
 const qualificationEvidencePath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.json");
 const qualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.schema.json");
 const qualificationValidatorPath = path.join(root, "scripts/controller/validate-lxc-qualification-evidence.py");

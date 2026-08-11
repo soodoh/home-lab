@@ -25,7 +25,7 @@ const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/h
 const manifestPath = path.join(root, contract.proxmox.packages.manifest.path);
 const manifestRaw = fs.readFileSync(manifestPath, "utf8");
 const manifest = JSON.parse(manifestRaw);
-const schema = JSON.parse(fs.readFileSync(path.join(root, "infrastructure/contract/proxmox-package-manifest.schema.json"), "utf8"));
+const schema = JSON.parse(fs.readFileSync(path.join(root, "nix/proxmox/package-manifest.schema.json"), "utf8"));
 const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
 
 function expectFailure(contractValue, manifestValue, expected, label) {
@@ -68,7 +68,7 @@ const bindingFailures = validateProxmoxPackageArtifactBinding(
 if (bindingFailures.length) throw new Error(`current package artifact binding failed: ${JSON.stringify(bindingFailures)}`);
 for (const [mutation, expected] of [
   [(value) => { value.proxmox.packages.manifest.sha256 = "0".repeat(64); }, "SHA-256 differs"],
-  [(value) => { value.proxmox.packages.manifest.path = "infrastructure/contract/other.json"; }, "path differs"],
+  [(value) => { value.proxmox.packages.manifest.path = "nix/proxmox/other.json"; }, "path differs"],
 ]) {
   const changed = structuredClone(contract);
   mutation(changed);
