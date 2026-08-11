@@ -346,7 +346,11 @@ def tailscale_summary():
     netfilter = prefs.get("NetfilterMode")
     if isinstance(netfilter, int) and not isinstance(netfilter, bool):
         netfilter = {0: "off", 1: "nodivert", 2: "on"}.get(netfilter)
-    routes, tags = prefs.get("AdvertiseRoutes"), prefs.get("AdvertiseTags")
+    if "AdvertiseRoutes" not in prefs or "AdvertiseTags" not in prefs:
+        return summary(expected=2)
+    routes, tags = prefs["AdvertiseRoutes"], prefs["AdvertiseTags"]
+    routes = [] if routes is None else routes
+    tags = [] if tags is None else tags
     if not isinstance(routes, list) or not isinstance(tags, list) or \
             any(not isinstance(item, str) for item in routes + tags) or \
             not all(isinstance(prefs.get(key), bool) for key in ("CorpDNS", "RouteAll", "RunSSH")) or \

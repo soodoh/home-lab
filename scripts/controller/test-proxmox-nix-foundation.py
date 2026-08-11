@@ -306,6 +306,45 @@ if sys.argv[1:] == ["apply"]:
                     self.assertEqual(result.stdout, b"")
                     self.assertEqual(result.stderr, expected_usage)
 
+    def test_observer_treats_null_advertised_routes_as_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            bundle, _ = self.build(Path(name))
+            helper = bundle / "helpers/proxmox-observer"
+            namespace = {"__file__": str(helper), "__name__": "proxmox_observer_test"}
+            exec(compile(helper.read_bytes(), str(helper), "exec"), namespace)
+            expected = namespace["SPEC"]["tailscale"]
+            self.assertEqual(expected["advertiseRoutes"], [])
+            prefs = {
+                "AdvertiseRoutes": None,
+                "AdvertiseTags": expected["advertiseTags"],
+                "CorpDNS": expected["acceptDns"],
+                "RouteAll": expected["acceptRoutes"],
+                "RunSSH": expected["ssh"],
+                "Hostname": expected["hostname"],
+                "NetfilterMode": expected["netfilterMode"],
+            }
+            namespace["json_command"] = lambda command: (
+                {"BackendState": expected["backendState"]} if command[1] == "status" else prefs
+            )
+            self.assertEqual(namespace["tailscale_summary"](), {
+                "expectedCount": 2, "matches": True, "observedCount": 2, "status": "complete",
+            })
+            missing_routes = dict(prefs)
+            missing_routes.pop("AdvertiseRoutes")
+            namespace["json_command"] = lambda command: (
+                {"BackendState": expected["backendState"]} if command[1] == "status" else missing_routes
+            )
+            self.assertEqual(namespace["tailscale_summary"](), {
+                "expectedCount": 2, "matches": None, "observedCount": None, "status": "unavailable",
+            })
+            expected["advertiseRoutes"] = ["opaque-route"]
+            namespace["json_command"] = lambda command: (
+                {"BackendState": expected["backendState"]} if command[1] == "status" else prefs
+            )
+            self.assertEqual(namespace["tailscale_summary"](), {
+                "expectedCount": 2, "matches": False, "observedCount": 2, "status": "complete",
+            })
+
 
 if __name__ == "__main__":
     unittest.main()
