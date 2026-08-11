@@ -600,6 +600,7 @@ m.atomic(target,payload,0o755 if sys.argv[3]=="helper" else 0o600)
         self.assertIn('tofu-apply ALL=(root) NOPASSWD: ALL',contract)
         self.assertIn('tofu-plan ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-observer observe',contract)
         self.assertIn('restrict,command="sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe"',contract)
+        self.assertIn('      - /usr/local/libexec/home-lab',contract)
         task=(ROOT/"ansible/roles/proxmox_host/tasks/main.yml").read_text()
         self.assertIn("proxmox_host_service_account_key_prefix",task)
 

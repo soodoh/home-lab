@@ -158,8 +158,8 @@ collectForbidden(contract);
 for (const value of contract.proxmox.vfio.device_ids) forbiddenValues.add(value);
 for (const value of Object.values(contract.proxmox.root_cleanup)) {
   if (Array.isArray(value)) value.forEach((item) => {
-    // A broad historical inspection root is not itself protected and may contain fixed helper paths.
-    if (item !== "/usr/local") forbiddenValues.add(item);
+    // Historical inspection roots and the fixed reviewed helper directory are not protected values.
+    if (!["/usr/local", "/usr/local/libexec/home-lab"].includes(item)) forbiddenValues.add(item);
   });
 }
 forbiddenValues.add(contract.proxmox.packages.manifest.path);

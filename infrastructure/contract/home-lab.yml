@@ -746,6 +746,7 @@ proxmox:
     preserve_paths:
       - /root/.ssh
       - /root/.config/home-lab
+      - /usr/local/libexec/home-lab
       - /usr/local/man
     remove_paths:
       - /root/.bun
