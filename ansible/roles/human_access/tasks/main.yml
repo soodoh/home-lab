@@ -13,6 +13,7 @@
       - item.home is match('^/home/[a-z_][a-z0-9_-]*$')
       - item.shell.startswith('/')
       - item.sudoers_path is match('^/etc/sudoers\.d/[a-z_][a-z0-9_-]*$')
+      - "(item.sudo_rule | default(item.name ~ ' ALL=(root) NOPASSWD: ALL')) | length > 0"
     fail_msg: "Every human-access account requires a name, primary group, /home path, shell, and sudoers path."
   loop: "{{ human_access_accounts }}"
   loop_control:
@@ -54,13 +55,13 @@
     name: "{{ item.name }}"
     comment: "{{ item.comment }}"
     group: "{{ item.group }}"
-    groups: ""
+    groups: "{{ item.supplementary_groups | default([]) | join(',') }}"
     append: false
     home: "{{ item.home }}"
     shell: "{{ item.shell }}"
     create_home: true
     move_home: true
-    password_lock: true
+    password_lock: "{{ item.password_lock | default(true) }}"
     state: present
   become: true
   loop: "{{ human_access_accounts }}"
@@ -75,11 +76,13 @@
   loop: "{{ human_access_accounts | product(['authorized_keys', 'authorized_keys2']) | list }}"
   loop_control:
     label: "{{ item.0.name }}:{{ item.1 }}"
-  when: not ansible_check_mode or item.0.name in human_access_existing_accounts
+  when:
+    - item.0.remove_authorized_keys | default(true)
+    - not ansible_check_mode or item.0.name in human_access_existing_accounts
 
 - name: Install validated passwordless sudo policies for human accounts
   ansible.builtin.copy:
-    content: "{{ item.name }} ALL=(root) NOPASSWD: ALL\n"
+    content: "{{ item.sudo_rule | default(item.name ~ ' ALL=(root) NOPASSWD: ALL') }}\n"
     dest: "{{ item.sudoers_path }}"
     owner: root
     group: root
@@ -162,7 +165,9 @@
       - human_access_identity_result.results[account_index].stdout.split(':')[5] == item.home
       - human_access_identity_result.results[account_index].stdout.split(':')[6] == item.shell
       - human_access_password_result.results[account_index].stdout.split()[1] == 'L'
-      - human_access_groups_result.results[account_index].stdout.split() == [item.group]
+      - >-
+        human_access_groups_result.results[account_index].stdout.split() ==
+        [item.group] + (item.supplementary_groups | default([]))
     fail_msg: "The human-access identity, password lock, home, shell, or group boundary differs from the declared state."
   loop: "{{ human_access_accounts }}"
   loop_control:

@@ -17,5 +17,6 @@
     - item.ugid == proxmox_host_api_account.user ~ '!' ~ proxmox_host_api_account.token_name
     - >-
       {'path': item.path, 'role': item.roleid} not in
-      ([{'path': '/', 'role': proxmox_host_api_account.role}] + proxmox_host_api_account.additional_acls)
+      ([{'path': proxmox_host_api_account.primary_acl_path,
+         'role': proxmox_host_api_account.role}] + proxmox_host_api_account.additional_acls)
   changed_when: true

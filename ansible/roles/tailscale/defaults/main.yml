@@ -1,0 +1,3 @@
+---
+tailscale_netfilter_mode: "on"
+tailscale_ssh: true

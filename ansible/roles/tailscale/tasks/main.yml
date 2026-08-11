@@ -101,7 +101,7 @@
           - "--advertise-routes={{ tailscale_advertise_routes | join(',') }}"
           - "--accept-dns={{ tailscale_accept_dns | ternary('true', 'false') }}"
           - "--accept-routes={{ tailscale_accept_routes | ternary('true', 'false') }}"
-          - --netfilter-mode=on
+          - "--netfilter-mode={{ tailscale_netfilter_mode }}"
           - --ssh=false
           - --timeout=30s
       changed_when: true
@@ -133,19 +133,22 @@
       - "--advertise-routes={{ tailscale_advertise_routes | join(',') }}"
       - "--accept-dns={{ tailscale_accept_dns | ternary('true', 'false') }}"
       - "--accept-routes={{ tailscale_accept_routes | ternary('true', 'false') }}"
-      - --netfilter-mode=on
-      - --ssh=true
+      - "--netfilter-mode={{ tailscale_netfilter_mode }}"
+      - "--ssh={{ tailscale_ssh | ternary('true', 'false') }}"
   become: true
   changed_when: true
+  vars:
+    tailscale_expected_netfilter_mode: >-
+      {{ {'off': 0, 'nodivert': 1, 'on': 2}[tailscale_netfilter_mode] }}
   when:
     - not ansible_check_mode
     - >-
-      not ((tailscale_preferences_before.stdout | from_json).RunSSH | default(false) | bool) or
+      ((tailscale_preferences_before.stdout | from_json).RunSSH | default(false) | bool) != (tailscale_ssh | bool) or
       ((tailscale_preferences_before.stdout | from_json).CorpDNS | default(false) | bool) != (tailscale_accept_dns | bool) or
       ((tailscale_preferences_before.stdout | from_json).RouteAll | default(false) | bool) != (tailscale_accept_routes | bool) or
       ((tailscale_preferences_before.stdout | from_json).Hostname | default('')) != tailscale_hostname or
       (((tailscale_preferences_before.stdout | from_json).AdvertiseRoutes | default([], true)) | sort) != (tailscale_advertise_routes | sort) or
-      ((tailscale_preferences_before.stdout | from_json).NetfilterMode | default(0) | int) != 2
+      ((tailscale_preferences_before.stdout | from_json).NetfilterMode | default(0) | int) != (tailscale_expected_netfilter_mode | int)
 
 - name: Verify Tailscale reaches the running backend state
   ansible.builtin.command:

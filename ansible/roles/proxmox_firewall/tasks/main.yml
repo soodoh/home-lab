@@ -11,7 +11,7 @@
 - name: Install the reviewed Proxmox firewall policy
   ansible.builtin.template:
     src: cluster.fw.j2
-    dest: /etc/pve/firewall/cluster.fw
+    dest: "{{ proxmox.firewall.config_path }}"
     owner: root
     group: www-data
     mode: "0640"
@@ -25,7 +25,7 @@
       - set
       - /cluster/firewall/options
       - --enable
-      - "1"
+      - "{{ proxmox.firewall.options.enable | ternary('1', '0') }}"
   changed_when: false
   when: proxmox_firewall_apply_confirmed | bool
 
@@ -43,5 +43,7 @@
 - name: Require enabled firewall after approved migration
   ansible.builtin.assert:
     that:
-      - (proxmox_firewall_state.stdout | from_json).enable | default(0) | int == 1
+      - >-
+        (proxmox_firewall_state.stdout | from_json).enable | default(0) | int ==
+        (proxmox.firewall.options.enable | ternary(1, 0))
   when: proxmox_firewall_apply_confirmed | bool

@@ -1,0 +1,235 @@
+"use strict";
+
+function duplicates(values) {
+  const seen = new Set();
+  const repeated = new Set();
+  for (const value of values) {
+    if (seen.has(value)) repeated.add(value);
+    seen.add(value);
+  }
+  return [...repeated].sort();
+}
+
+function sameMembers(actual, expected) {
+  return actual.length === expected.length && actual.every((value) => expected.includes(value));
+}
+
+function outsideCapabilityCeiling(privileges, allowed) {
+  return privileges.filter((privilege) => !allowed.has(privilege)).sort();
+}
+
+function validateProxmoxHostPolicy(contract) {
+  const failures = [];
+  const { proxmox } = contract;
+
+  const repositoryNames = proxmox.apt.repositories.map((repository) => repository.name);
+  const repositoryFiles = proxmox.apt.repositories.map((repository) => repository.file);
+  const keyringNames = proxmox.apt.permitted_keyrings.map((keyring) => keyring.name);
+  const keyringPaths = proxmox.apt.permitted_keyrings.map((keyring) => keyring.path);
+  const keyringHashes = proxmox.apt.permitted_keyrings.map((keyring) => keyring.sha256);
+  if (duplicates(repositoryNames).length) failures.push("APT repository names must be unique");
+  if (duplicates(repositoryFiles).length) failures.push("APT repository files must be unique");
+  if (duplicates(keyringNames).length) failures.push("APT keyring names must be unique");
+  if (duplicates(keyringPaths).length) failures.push("APT keyring paths must be unique");
+  if (duplicates(keyringHashes).length) failures.push("APT keyring checksums must be unique");
+  for (const repository of proxmox.apt.repositories) {
+    if (!keyringPaths.includes(repository.signed_by)) {
+      failures.push(`APT repository ${repository.name} uses an unapproved signing key`);
+    }
+  }
+  for (const keyring of proxmox.apt.permitted_keyrings) {
+    if (!proxmox.apt.repositories.some((repository) => repository.signed_by === keyring.path)) {
+      failures.push(`APT keyring ${keyring.name} is not referenced by a repository`);
+    }
+    if (keyring.source_url !== null && keyring.symlink_target !== null) {
+      failures.push(`downloaded APT keyring ${keyring.name} must be a regular file`);
+    }
+    if (keyring.symlink_target === keyring.path.split("/").at(-1)) {
+      failures.push(`APT keyring ${keyring.name} must not link to itself`);
+    }
+  }
+  const tailscaleKeyring = proxmox.apt.permitted_keyrings.find((keyring) => keyring.name === "tailscale");
+  const tailscaleRepository = proxmox.apt.repositories.find((repository) => repository.name === "tailscale");
+  const expectedTailscaleKeyUrl = tailscaleRepository && tailscaleRepository.uris.length === 1 && tailscaleRepository.suites.length === 1
+    ? `${tailscaleRepository.uris[0]}/${tailscaleRepository.suites[0]}.noarmor.gpg`
+    : null;
+  if (!tailscaleKeyring || tailscaleRepository?.signed_by !== tailscaleKeyring.path ||
+      tailscaleKeyring.source_url !== expectedTailscaleKeyUrl) {
+    failures.push("Tailscale repository must use its suite-derived checksum-bound downloadable keyring");
+  }
+  for (const keyring of proxmox.apt.permitted_keyrings.filter((entry) => entry.name !== "tailscale")) {
+    if (keyring.source_url !== null) failures.push(`packaged APT keyring ${keyring.name} must not declare a download URL`);
+  }
+
+  const requiredServices = ["chrony.service", "nfs-server.service", proxmox.ssh.service, proxmox.tailscale.service];
+  if (!sameMembers(proxmox.services, requiredServices)) {
+    failures.push("native service set must contain exactly the required time, NFS, SSH, and Tailscale services");
+  }
+
+  const serviceAccounts = proxmox.access.service_accounts;
+  const serviceAccountNames = serviceAccounts.map((account) => account.name);
+  const serviceAccountHomes = serviceAccounts.map((account) => account.home);
+  const serviceAccountKeyRefs = serviceAccounts.map((account) => account.authorized_keys_secret_ref);
+  const sudoersPaths = serviceAccounts.map((account) => account.sudoers_path).filter((value) => value !== null);
+  if (duplicates(serviceAccountNames).length) failures.push("Proxmox service-account names must be unique");
+  if (duplicates(serviceAccountHomes).length) failures.push("Proxmox service-account homes must be unique");
+  if (duplicates(serviceAccountKeyRefs).length) failures.push("Proxmox service-account key references must be unique");
+  if (duplicates(sudoersPaths).length) failures.push("Proxmox service-account sudoers paths must be unique");
+  const expectedServiceAccounts = new Map([
+    ["tofu-plan", "PROXMOX_PLAN_SSH_PUBLIC_KEYS"],
+    ["tofu-apply", "PROXMOX_APPLY_SSH_PUBLIC_KEYS"],
+  ]);
+  if (serviceAccounts.length !== expectedServiceAccounts.size) failures.push("exactly two Proxmox service accounts are required");
+  for (const account of serviceAccounts) {
+    if (expectedServiceAccounts.get(account.name) !== account.authorized_keys_secret_ref) {
+      failures.push(`service account ${account.name} uses an unexpected authorized-key reference`);
+    }
+    if ((account.sudoers_path === null) !== (account.sudo_rule === null)) {
+      failures.push(`service account ${account.name} must declare both or neither sudo policy fields`);
+    }
+    if (account.home !== `/home/${account.name}`) failures.push(`service account ${account.name} home must match its name`);
+    if (account.authorized_keys_path !== `${account.home}/.ssh/authorized_keys`) {
+      failures.push(`service account ${account.name} authorized-keys path must stay under its home`);
+    }
+    if (account.shell !== "/bin/bash" || !account.create_home || !account.password_lock) {
+      failures.push(`service account ${account.name} must retain its locked login identity`);
+    }
+  }
+  const planAccount = serviceAccounts.find((account) => account.name === "tofu-plan");
+  const applyAccount = serviceAccounts.find((account) => account.name === "tofu-apply");
+  if (planAccount && (planAccount.groups.length || planAccount.sudoers_path !== null || planAccount.sudo_rule !== null)) {
+    failures.push("tofu-plan must remain unprivileged during parity");
+  }
+  if (applyAccount && (!sameMembers(applyAccount.groups, ["sudo"]) ||
+      applyAccount.sudoers_path !== `/etc/sudoers.d/${applyAccount.name}` ||
+      applyAccount.sudo_rule !== `${applyAccount.name} ALL=(root) NOPASSWD: ALL`)) {
+    failures.push("tofu-apply current sudo policy must remain explicit during parity");
+  }
+
+  const humanNames = proxmox.access.human_accounts.map((account) => account.name);
+  if (duplicates(humanNames).length) failures.push("Proxmox human-account names must be unique");
+  if (proxmox.access.human_accounts.length !== 1 || proxmox.access.human_accounts[0].name !== "proxmox") {
+    failures.push("exactly the current Proxmox human administrator is required during parity");
+  }
+  for (const account of proxmox.access.human_accounts) {
+    if (serviceAccountNames.includes(account.name)) failures.push(`human account ${account.name} conflicts with a service account`);
+    if (account.home !== `/home/${account.name}` || account.group !== account.name) {
+      failures.push(`human account ${account.name} home and primary group must match its name`);
+    }
+    if (!account.password_lock || account.supplementary_groups.length || !account.remove_authorized_keys) {
+      failures.push(`human account ${account.name} must retain the locked Tailscale-SSH-only policy`);
+    }
+    if (account.sudoers_path !== `/etc/sudoers.d/${account.name}` ||
+        account.sudo_rule !== `${account.name} ALL=(root) NOPASSWD: ALL`) {
+      failures.push(`human account ${account.name} sudo policy must remain explicit and name-derived`);
+    }
+  }
+
+  const pveAccounts = proxmox.access.pve.accounts;
+  const additionalRoles = proxmox.access.pve.additional_roles;
+  const roleNames = [...pveAccounts.map((account) => account.role), ...additionalRoles.map((role) => role.role)];
+  const tokenIds = pveAccounts.map((account) => `${account.user}!${account.token_name}`);
+  const tokenPaths = pveAccounts.map((account) => account.token_path);
+  if (duplicates(roleNames).length) failures.push("PVE custom role names must be unique");
+  if (duplicates(tokenIds).length) failures.push("PVE API token identities must be unique");
+  if (duplicates(tokenPaths).length) failures.push("PVE API token escrow paths must be unique");
+  const knownRoles = new Set(roleNames);
+  const expectedPveAccounts = new Map([
+    ["tofu-plan", { user: "root@pam", role: "HomeLabTofuPlan", additionalAcls: [`/vms/${proxmox.vm.vmid}\0HomeLabTofuPlanDiskInspect`] }],
+    ["tofu-apply", { user: "root@pam", role: "HomeLabTofuApply", additionalAcls: [] }],
+  ]);
+  const planPrivilegeCeiling = new Set([
+    "Datastore.Audit", "Mapping.Audit", "SDN.Audit", "Sys.Audit", "VM.Audit",
+  ]);
+  const applyPrivilegeCeiling = new Set([
+    ...planPrivilegeCeiling,
+    "Datastore.AllocateSpace", "Datastore.AllocateTemplate", "Mapping.Modify", "Mapping.Use", "Sys.Modify",
+    "VM.Allocate", "VM.Config.CDROM", "VM.Config.CPU", "VM.Config.Cloudinit", "VM.Config.Disk",
+    "VM.Config.HWType", "VM.Config.Memory", "VM.Config.Network", "VM.Config.Options", "VM.Migrate", "VM.PowerMgmt",
+  ]);
+  const inspectionPrivilegeCeiling = new Set(["VM.Audit", "VM.Config.Disk"]);
+  if (pveAccounts.length !== expectedPveAccounts.size) failures.push("exactly two PVE API accounts are required");
+  for (const account of pveAccounts) {
+    if (!account.privilege_separation) failures.push(`PVE token ${account.user}!${account.token_name} must remain privilege-separated`);
+    if (account.token_path !== `/root/.config/home-lab/proxmox-${account.token_name.replace(/^tofu-/, "")}-token.env`) {
+      failures.push(`PVE token ${account.user}!${account.token_name} escrow path must remain in the protected credential directory`);
+    }
+    if (account.primary_acl_path !== "/") failures.push(`PVE token ${account.user}!${account.token_name} primary ACL must remain at root`);
+    const privilegeCeiling = account.token_name === "tofu-plan" ? planPrivilegeCeiling : applyPrivilegeCeiling;
+    const excessivePrivileges = outsideCapabilityCeiling(account.privileges, privilegeCeiling);
+    if (excessivePrivileges.length) {
+      failures.push(`PVE token role ${account.role} exceeds its privilege ceiling: ${excessivePrivileges.join(", ")}`);
+    }
+    const aclTuples = account.additional_acls.map((acl) => `${acl.path}\0${acl.role}`);
+    const expectedAccount = expectedPveAccounts.get(account.token_name);
+    if (!expectedAccount || expectedAccount.user !== account.user || expectedAccount.role !== account.role ||
+        JSON.stringify(aclTuples) !== JSON.stringify(expectedAccount.additionalAcls)) {
+      failures.push(`PVE token ${account.user}!${account.token_name} has an invalid role or ACL assignment`);
+    }
+    const aclPaths = account.additional_acls.map((acl) => acl.path);
+    if (duplicates(aclTuples).length || duplicates(aclPaths).length) {
+      failures.push(`PVE token ${account.user}!${account.token_name} contains duplicate ACLs`);
+    }
+    if (aclPaths.includes(account.primary_acl_path)) {
+      failures.push(`PVE token ${account.user}!${account.token_name} repeats its primary ACL path`);
+    }
+    for (const acl of account.additional_acls) {
+      if (!knownRoles.has(acl.role)) failures.push(`PVE ACL ${acl.path} references unknown role ${acl.role}`);
+    }
+  }
+  const inspectionRoleNames = new Set(pveAccounts.flatMap((account) => account.additional_acls.map((acl) => acl.role)));
+  if (additionalRoles.length !== 1 || !inspectionRoleNames.has(additionalRoles[0].role)) {
+    failures.push("exactly the ACL-referenced VM inspection role is required");
+  }
+  for (const role of additionalRoles) {
+    const excessivePrivileges = outsideCapabilityCeiling(role.privileges, inspectionPrivilegeCeiling);
+    if (excessivePrivileges.length) {
+      failures.push(`PVE inspection role ${role.role} exceeds its privilege ceiling: ${excessivePrivileges.join(", ")}`);
+    }
+  }
+
+  const expectedAllowUsers = ["root", ...serviceAccountNames];
+  if (JSON.stringify(proxmox.ssh.allow_users) !== JSON.stringify(expectedAllowUsers)) {
+    failures.push("SSH allow-users must be root followed by the declared service accounts");
+  }
+  if (!proxmox.ssh.pubkey_authentication || proxmox.ssh.password_authentication || proxmox.ssh.kbd_interactive_authentication) {
+    failures.push("Proxmox SSH authentication policy must remain key-only");
+  }
+  if (proxmox.ssh.permit_root_login !== "prohibit-password") failures.push("Proxmox root SSH must remain key-only");
+
+  if (proxmox.tailscale.hostname !== contract.network.proxmox.magicdns_name) failures.push("Proxmox Tailscale hostname must match MagicDNS");
+  if (proxmox.tailscale.advertise_tag !== contract.tailscale.tags.proxmox) failures.push("Proxmox Tailscale tag must match tailnet policy");
+  if (!proxmox.packages.required.includes(proxmox.tailscale.package)) failures.push("Tailscale package must be required on Proxmox");
+  if (proxmox.tailscale.auth_key_secret_ref !== "TAILSCALE_AUTH_KEY") failures.push("Proxmox Tailscale auth-key reference is invalid");
+  if (proxmox.tailscale.advertise_routes.length) failures.push("Proxmox must not advertise subnet routes");
+  if (proxmox.tailscale.accept_dns || proxmox.tailscale.accept_routes) failures.push("Proxmox must not accept tailnet DNS or routes");
+  if (proxmox.tailscale.netfilter_mode !== "on" || !proxmox.tailscale.ssh) failures.push("Proxmox Tailscale netfilter and SSH policy must remain enabled");
+
+  const archAddress = contract.network.arch.ipv4.split("/")[0];
+  const expectedFirewallRules = [
+    ["IN", "ACCEPT", contract.network.cidr, "tcp", 22, "nolog"],
+    ["IN", "ACCEPT", contract.network.cidr, "tcp", 8006, "nolog"],
+    ["IN", "ACCEPT", `${archAddress}/32`, "tcp", 2049, "nolog"],
+    ["IN", "ACCEPT", "100.64.0.0/10", "udp", 41641, "nolog"],
+    ["IN", "ACCEPT", "100.64.0.0/10", "tcp", 22, "nolog"],
+    ["IN", "ACCEPT", "100.64.0.0/10", "tcp", 8006, "nolog"],
+  ];
+  const firewallRules = proxmox.firewall.rules.map((rule) => [
+    rule.direction,
+    rule.action,
+    rule.source,
+    rule.protocol,
+    rule.destination_port,
+    rule.log,
+  ]);
+  if (JSON.stringify(firewallRules) !== JSON.stringify(expectedFirewallRules)) {
+    failures.push("Proxmox firewall rules must match the reviewed management and NFS policy");
+  }
+  if (!proxmox.firewall.options.enable || proxmox.firewall.options.policy_in !== "DROP" || proxmox.firewall.options.policy_out !== "ACCEPT") {
+    failures.push("Proxmox firewall must remain enabled with default-deny ingress");
+  }
+
+  return failures;
+}
+
+module.exports = { validateProxmoxHostPolicy };

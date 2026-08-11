@@ -1,10 +1,6 @@
 ---
 proxmox_packages: "{{ proxmox.packages.required }}"
-proxmox_services:
-  - chrony.service
-  - nfs-server.service
-  - ssh.service
-  - tailscaled.service
+proxmox_services: "{{ proxmox.services }}"
 proxmox_network_apply_confirmed: false
 proxmox_network_snippet_migration_confirmed: false
 proxmox_network_reviewed_active_snippets: []
@@ -20,63 +16,11 @@ proxmox_storage_recovery_mode: false
 proxmox_storage_recovery_import_confirmed: false
 proxmox_storage_review_evidence_path: /var/lib/home-lab/storage-review.json
 proxmox_storage_pool_guid: "{{ lookup('ansible.builtin.env', storage.zfs.pool_guid_secret_ref) }}"
-proxmox_api_accounts:
-  - user: root@pam
-    token_name: tofu-plan
-    token_path: /root/.config/home-lab/proxmox-plan-token.env
-    role: HomeLabTofuPlan
-    privileges:
-      - Datastore.Audit
-      - Mapping.Audit
-      - SDN.Audit
-      - Sys.Audit
-      - VM.Audit
-    additional_acls:
-      - path: /vms/100
-        role: HomeLabTofuPlanDiskInspect
-  - user: root@pam
-    token_name: tofu-apply
-    token_path: /root/.config/home-lab/proxmox-apply-token.env
-    role: HomeLabTofuApply
-    privileges:
-      - Datastore.AllocateSpace
-      - Datastore.AllocateTemplate
-      - Datastore.Audit
-      - Mapping.Audit
-      - Mapping.Modify
-      - Mapping.Use
-      - SDN.Audit
-      - Sys.Audit
-      - Sys.Modify
-      - VM.Allocate
-      - VM.Audit
-      - VM.Config.CDROM
-      - VM.Config.CPU
-      - VM.Config.Cloudinit
-      - VM.Config.Disk
-      - VM.Config.HWType
-      - VM.Config.Memory
-      - VM.Config.Network
-      - VM.Config.Options
-      - VM.Migrate
-      - VM.PowerMgmt
-    additional_acls: []
-proxmox_api_additional_roles:
-  - role: HomeLabTofuPlanDiskInspect
-    privileges:
-      - VM.Config.Disk
-      - VM.Audit
-proxmox_tailscale_hostname: "{{ network.proxmox.magicdns_name }}"
-proxmox_tailscale_tag: "{{ tailscale.tags.proxmox }}"
-proxmox_tailscale_auth_key: "{{ lookup('ansible.builtin.env', 'TAILSCALE_AUTH_KEY') }}"
-proxmox_plan_ssh_public_keys: "{{ lookup('ansible.builtin.env', 'PROXMOX_PLAN_SSH_PUBLIC_KEYS').splitlines() }}"
-proxmox_apply_ssh_public_keys: "{{ lookup('ansible.builtin.env', 'PROXMOX_APPLY_SSH_PUBLIC_KEYS').splitlines() }}"
+proxmox_service_accounts: "{{ proxmox.access.service_accounts }}"
+proxmox_api_accounts: "{{ proxmox.access.pve.accounts }}"
+proxmox_api_additional_roles: "{{ proxmox.access.pve.additional_roles }}"
+proxmox_tailscale_auth_key: >-
+  {{ lookup('ansible.builtin.env', proxmox.tailscale.auth_key_secret_ref) }}
 
 human_access_visudo_path: /usr/sbin/visudo
-human_access_accounts:
-  - name: proxmox
-    comment: Home Lab Proxmox Administrator
-    group: proxmox
-    home: /home/proxmox
-    shell: /bin/bash
-    sudoers_path: /etc/sudoers.d/proxmox
+human_access_accounts: "{{ proxmox.access.human_accounts }}"

@@ -8,13 +8,88 @@
 
 - name: Install the pinned Tailscale repository signing key
   ansible.builtin.get_url:
-    url: https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg
-    dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+    url: "{{ proxmox_host_tailscale_keyring.source_url }}"
+    dest: "{{ proxmox_host_tailscale_keyring.path }}"
     owner: root
     group: root
     mode: "0644"
-    checksum: sha256:3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39
+    checksum: "sha256:{{ proxmox_host_tailscale_keyring.sha256 }}"
+  vars:
+    proxmox_host_tailscale_keyring: >-
+      {{ proxmox.apt.permitted_keyrings |
+         selectattr('name', 'equalto', 'tailscale') | first }}
   register: proxmox_host_tailscale_key
+
+- name: Inspect every declared APT signing-key path without following links
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    get_checksum: false
+  register: proxmox_host_keyring_metadata_inspection
+  changed_when: false
+  check_mode: false
+  loop: "{{ proxmox.apt.permitted_keyrings }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Inspect every declared APT signing-key target checksum
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: true
+    get_checksum: true
+    checksum_algorithm: sha256
+  register: proxmox_host_keyring_content_inspection
+  changed_when: false
+  check_mode: false
+  loop: "{{ proxmox.apt.permitted_keyrings }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Report APT signing-key metadata or checksum drift in check mode
+  ansible.builtin.debug:
+    msg: "APT signing keyring {{ item.item.name }} requires metadata or checksum reconciliation."
+  vars:
+    proxmox_host_keyring_content: "{{ proxmox_host_keyring_content_inspection.results[keyring_index] }}"
+  changed_when: >-
+    not (proxmox_host_keyring_content.stat.isreg | default(false)) or
+    (proxmox_host_keyring_content.stat.checksum | default('')) != item.item.sha256 or
+    (
+      item.item.symlink_target is none and
+      (not (item.stat.isreg | default(false)) or (item.stat.islnk | default(false)))
+    ) or
+    (
+      item.item.symlink_target is not none and
+      (not (item.stat.islnk | default(false)) or
+       (item.stat.lnk_target | default('')) != item.item.symlink_target)
+    )
+  when: ansible_check_mode
+  loop: "{{ proxmox_host_keyring_metadata_inspection.results }}"
+  loop_control:
+    index_var: keyring_index
+    label: "{{ item.item.name }}"
+
+- name: Require exact APT signing-key metadata and checksums before package operations
+  ansible.builtin.assert:
+    that:
+      - proxmox_host_keyring_content.stat.isreg | default(false)
+      - (proxmox_host_keyring_content.stat.checksum | default('')) == item.item.sha256
+      - >-
+        (item.item.symlink_target is none and
+         item.stat.isreg | default(false) and
+         not (item.stat.islnk | default(false))) or
+        (item.item.symlink_target is not none and
+         item.stat.islnk | default(false) and
+         (item.stat.lnk_target | default('')) == item.item.symlink_target)
+    fail_msg: >-
+      APT signing keyring {{ item.item.name }} has an unreviewed file type, link target, or SHA-256;
+      reinstall its reviewed upstream package or checksum-bound artifact before continuing.
+  vars:
+    proxmox_host_keyring_content: "{{ proxmox_host_keyring_content_inspection.results[keyring_index] }}"
+  when: not ansible_check_mode
+  loop: "{{ proxmox_host_keyring_metadata_inspection.results }}"
+  loop_control:
+    index_var: keyring_index
+    label: "{{ item.item.name }}"
 
 - name: Install each canonical Deb822 repository definition
   ansible.builtin.copy:
@@ -174,9 +249,7 @@
   failed_when: false
   changed_when: false
   check_mode: false
-  loop:
-    - tofu-plan
-    - tofu-apply
+  loop: "{{ proxmox_service_accounts | map(attribute='name') | list }}"
 
 - name: Retain existing infrastructure SSH user identities
   ansible.builtin.set_fact:
@@ -186,55 +259,106 @@
 - name: Create locked infrastructure SSH service users
   ansible.builtin.user:
     name: "{{ item.name }}"
-    shell: /bin/bash
-    create_home: true
-    password_lock: true
-    groups: "{{ item.groups | default(omit) }}"
+    home: "{{ item.home }}"
+    shell: "{{ item.shell }}"
+    create_home: "{{ item.create_home }}"
+    password_lock: "{{ item.password_lock }}"
+    groups: "{{ item.groups | join(',') }}"
+    append: false
     state: present
-  loop:
-    - name: tofu-plan
-    - name: tofu-apply
-      groups: sudo
+  loop: "{{ proxmox_service_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
 
 - name: Create service-user SSH directories
   ansible.builtin.file:
-    path: "/home/{{ item.name }}/.ssh"
+    path: "{{ item.home }}/.ssh"
     state: directory
     owner: "{{ item.name }}"
     group: "{{ item.name }}"
     mode: "0700"
-  loop:
-    - name: tofu-plan
-    - name: tofu-apply
+  loop: "{{ proxmox_service_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
   when: not ansible_check_mode or item.name in proxmox_host_existing_ssh_users
 
 - name: Install account-specific bootstrap-authorized public keys
   ansible.builtin.copy:
-    dest: "/home/{{ item.name }}/.ssh/authorized_keys"
-    content: "{{ item['keys'] | reject('equalto', '') | join('\n') }}\n"
+    dest: "{{ item.authorized_keys_path }}"
+    content: "{{ proxmox_host_service_account_keys | reject('equalto', '') | join('\n') }}\n"
     owner: "{{ item.name }}"
     group: "{{ item.name }}"
     mode: "0600"
-  loop:
-    - name: tofu-plan
-      keys: "{{ proxmox_plan_ssh_public_keys }}"
-    - name: tofu-apply
-      keys: "{{ proxmox_apply_ssh_public_keys }}"
+  vars:
+    proxmox_host_service_account_keys: >-
+      {{ lookup('ansible.builtin.env', item.authorized_keys_secret_ref).splitlines() }}
+  loop: "{{ proxmox_service_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
   when:
-    - item['keys'] | reject('equalto', '') | list | length > 0
+    - proxmox_host_service_account_keys | reject('equalto', '') | list | length > 0
     - not ansible_check_mode or item.name in proxmox_host_existing_ssh_users
   no_log: true
 
-- name: Install the audited apply-account sudo policy
+- name: Install audited service-account sudo policies
   ansible.builtin.copy:
-    dest: /etc/sudoers.d/tofu-apply
+    dest: "{{ item.sudoers_path }}"
     owner: root
     group: root
     mode: "0440"
     validate: /usr/sbin/visudo -cf %s
-    content: |
-      tofu-apply ALL=(root) NOPASSWD: ALL
-  when: not ansible_check_mode or 'tofu-apply' in proxmox_host_existing_ssh_users
+    content: "{{ item.sudo_rule }}\n"
+  loop: "{{ proxmox_service_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - item.sudoers_path is not none
+    - not ansible_check_mode or item.name in proxmox_host_existing_ssh_users
+
+- name: Remove undeclared service-account sudo policies
+  ansible.builtin.file:
+    path: "/etc/sudoers.d/{{ item.name }}"
+    state: absent
+  loop: "{{ proxmox_service_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.sudoers_path is none
+
+- name: Inspect effective service-account groups
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/id
+      - --name
+      - --groups
+      - "{{ item.name }}"
+  register: proxmox_host_service_account_groups
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  loop: "{{ proxmox_service_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Report effective service-account group drift
+  ansible.builtin.debug:
+    msg: "Service account {{ item.item.name }} has unexpected supplementary groups."
+  changed_when: >-
+    item.rc != 0 or
+    item.stdout.split() != ([item.item.name] + item.item.groups)
+  loop: "{{ proxmox_host_service_account_groups.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Require exact effective service-account groups after apply
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.stdout.split() == [item.item.name] + item.item.groups
+    fail_msg: "Service-account primary or supplementary groups did not converge."
+  when: not ansible_check_mode
+  loop: "{{ proxmox_host_service_account_groups.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
 
 - name: Inspect the API control plane in check mode
   ansible.builtin.include_tasks: api-check.yml

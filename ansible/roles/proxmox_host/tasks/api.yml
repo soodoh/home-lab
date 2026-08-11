@@ -115,14 +115,14 @@
       - /usr/sbin/pveum
       - acl
       - modify
-      - /
+      - "{{ item.primary_acl_path }}"
       - --tokens
       - "{{ item.user }}!{{ item.token_name }}"
       - --roles
       - "{{ item.role }}"
   when: >-
     proxmox_host_token_acls.stdout | from_json |
-    selectattr('path', 'equalto', '/') |
+    selectattr('path', 'equalto', item.primary_acl_path) |
     selectattr('ugid', 'equalto', item.user ~ '!' ~ item.token_name) |
     selectattr('roleid', 'equalto', item.role) |
     list | length == 0
@@ -173,7 +173,7 @@
         list | length == 1 + (item.additional_acls | length)
       - >-
         proxmox_host_final_token_acls.stdout | from_json |
-        selectattr('path', 'equalto', '/') |
+        selectattr('path', 'equalto', item.primary_acl_path) |
         selectattr('ugid', 'equalto', item.user ~ '!' ~ item.token_name) |
         selectattr('roleid', 'equalto', item.role) |
         list | length == 1
@@ -198,6 +198,7 @@
 - name: Verify escrow files exist for every active API token
   ansible.builtin.stat:
     path: "{{ item.token_path }}"
+    follow: false
     get_checksum: false
   register: proxmox_host_token_escrow_files
   loop: "{{ proxmox_api_accounts }}"
@@ -205,13 +206,37 @@
     label: "{{ item.token_path }}"
   no_log: true
 
+- name: Verify escrow directories for every active API token
+  ansible.builtin.stat:
+    path: "{{ item.token_path | dirname }}"
+    follow: false
+    get_checksum: false
+  register: proxmox_host_token_escrow_directories
+  loop: "{{ proxmox_api_accounts }}"
+  loop_control:
+    label: "{{ item.token_path | dirname }}"
+  no_log: true
+
 - name: Require manual rotation when one-time token escrow is unavailable
   ansible.builtin.assert:
     that:
-      - item.stat.isreg | default(false)
-      - item.stat.mode == '0600'
-    fail_msg: "An active Proxmox API token lacks its root-only escrow file; rotate it deliberately."
-  loop: "{{ proxmox_host_token_escrow_files.results }}"
+      - item.0.stat.isreg | default(false)
+      - not (item.0.stat.islnk | default(false))
+      - (item.0.stat.uid | default(-1) | int) == 0
+      - (item.0.stat.gid | default(-1) | int) == 0
+      - item.0.stat.mode == '0600'
+      - item.1.stat.isdir | default(false)
+      - not (item.1.stat.islnk | default(false))
+      - (item.1.stat.uid | default(-1) | int) == 0
+      - (item.1.stat.gid | default(-1) | int) == 0
+      - item.1.stat.mode == '0700'
+      - (item.0.item.token_path | dirname) == '/root/.config/home-lab'
+    fail_msg: >-
+      An active Proxmox API token lacks its root-owned, non-symlink mode-0600 escrow file
+      beneath the root-owned mode-0700 credential directory; rotate it deliberately.
+  loop: >-
+    {{ proxmox_host_token_escrow_files.results |
+       zip(proxmox_host_token_escrow_directories.results) | list }}
   loop_control:
-    label: "{{ item.item.user }}"
+    label: "{{ item.0.item.user }}"
   no_log: true

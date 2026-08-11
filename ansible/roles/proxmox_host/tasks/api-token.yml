@@ -13,6 +13,30 @@
   changed_when: false
   no_log: true
 
+- name: Converge privilege separation on an existing API token
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/pveum
+      - user
+      - token
+      - modify
+      - "{{ proxmox_host_api_account.user }}"
+      - "{{ proxmox_host_api_account.token_name }}"
+      - --privsep
+      - "{{ proxmox_host_api_account.privilege_separation | ternary('1', '0') }}"
+  vars:
+    proxmox_host_existing_api_token: >-
+      {{ proxmox_host_api_tokens.stdout | from_json |
+         selectattr('tokenid', 'equalto', proxmox_host_api_account.token_name) |
+         first | default({}) }}
+  when:
+    - proxmox_host_api_account.token_name in (proxmox_host_api_tokens.stdout | from_json | map(attribute='tokenid') | list)
+    - >-
+      (proxmox_host_existing_api_token.privsep | default(-1) | int) !=
+      (proxmox_host_api_account.privilege_separation | ternary(1, 0))
+  changed_when: true
+  no_log: true
+
 - name: Create the provider API token once
   when: >-
     proxmox_host_api_account.token_name not in
@@ -29,7 +53,7 @@
           - "{{ proxmox_host_api_account.user }}"
           - "{{ proxmox_host_api_account.token_name }}"
           - --privsep
-          - "1"
+          - "{{ proxmox_host_api_account.privilege_separation | ternary('1', '0') }}"
           - --output-format
           - json
       register: proxmox_host_new_api_token
@@ -53,3 +77,28 @@
           PROXMOX_VE_API_TOKEN={{ (proxmox_host_new_api_token.stdout |
           from_json)['full-tokenid'] }}={{ (proxmox_host_new_api_token.stdout |
           from_json).value }}
+
+- name: Re-read API token metadata after convergence
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/pveum
+      - user
+      - token
+      - list
+      - "{{ proxmox_host_api_account.user }}"
+      - --output-format
+      - json
+  register: proxmox_host_api_tokens_after
+  changed_when: false
+  no_log: true
+
+- name: Require exact API token privilege separation
+  ansible.builtin.assert:
+    that:
+      - >-
+        (proxmox_host_api_tokens_after.stdout | from_json |
+         selectattr('tokenid', 'equalto', proxmox_host_api_account.token_name) |
+         map(attribute='privsep') | first | int) ==
+        (proxmox_host_api_account.privilege_separation | ternary(1, 0))
+    fail_msg: "The Proxmox API token privilege-separation setting did not converge."
+  no_log: true

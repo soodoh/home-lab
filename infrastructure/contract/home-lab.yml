@@ -73,9 +73,176 @@ proxmox:
         components: [main]
         signed_by: /usr/share/keyrings/tailscale-archive-keyring.gpg
     permitted_keyrings:
-      - /usr/share/keyrings/debian-archive-keyring.gpg
-      - /usr/share/keyrings/proxmox-archive-keyring.gpg
-      - /usr/share/keyrings/tailscale-archive-keyring.gpg
+      - name: debian
+        path: /usr/share/keyrings/debian-archive-keyring.gpg
+        sha256: 506b815cbb32d9b6066b4a2aa524071e071761e7e7f68c3ac74f3061ba852017
+        source_url: null
+        symlink_target: debian-archive-keyring.pgp
+      - name: proxmox
+        path: /usr/share/keyrings/proxmox-archive-keyring.gpg
+        sha256: 136673be77aba35dcce385b28737689ad64fd785a797e57897589aed08db6e45
+        source_url: null
+        symlink_target: null
+      - name: tailscale
+        path: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        sha256: 3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39
+        source_url: https://pkgs.tailscale.com/stable/debian/trixie.noarmor.gpg
+        symlink_target: null
+  services:
+    - chrony.service
+    - nfs-server.service
+    - ssh.service
+    - tailscaled.service
+  access:
+    service_accounts:
+      - name: tofu-plan
+        home: /home/tofu-plan
+        shell: /bin/bash
+        create_home: true
+        password_lock: true
+        groups: []
+        authorized_keys_secret_ref: PROXMOX_PLAN_SSH_PUBLIC_KEYS
+        authorized_keys_path: /home/tofu-plan/.ssh/authorized_keys
+        sudoers_path: null
+        sudo_rule: null
+      - name: tofu-apply
+        home: /home/tofu-apply
+        shell: /bin/bash
+        create_home: true
+        password_lock: true
+        groups:
+          - sudo
+        authorized_keys_secret_ref: PROXMOX_APPLY_SSH_PUBLIC_KEYS
+        authorized_keys_path: /home/tofu-apply/.ssh/authorized_keys
+        sudoers_path: /etc/sudoers.d/tofu-apply
+        sudo_rule: "tofu-apply ALL=(root) NOPASSWD: ALL"
+    human_accounts:
+      - name: proxmox
+        comment: Home Lab Proxmox Administrator
+        group: proxmox
+        home: /home/proxmox
+        shell: /bin/bash
+        password_lock: true
+        supplementary_groups: []
+        remove_authorized_keys: true
+        sudoers_path: /etc/sudoers.d/proxmox
+        sudo_rule: "proxmox ALL=(root) NOPASSWD: ALL"
+    pve:
+      accounts:
+        - user: root@pam
+          token_name: tofu-plan
+          token_path: /root/.config/home-lab/proxmox-plan-token.env
+          privilege_separation: true
+          primary_acl_path: /
+          role: HomeLabTofuPlan
+          privileges:
+            - Datastore.Audit
+            - Mapping.Audit
+            - SDN.Audit
+            - Sys.Audit
+            - VM.Audit
+          additional_acls:
+            - path: /vms/100
+              role: HomeLabTofuPlanDiskInspect
+        - user: root@pam
+          token_name: tofu-apply
+          token_path: /root/.config/home-lab/proxmox-apply-token.env
+          privilege_separation: true
+          primary_acl_path: /
+          role: HomeLabTofuApply
+          privileges:
+            - Datastore.AllocateSpace
+            - Datastore.AllocateTemplate
+            - Datastore.Audit
+            - Mapping.Audit
+            - Mapping.Modify
+            - Mapping.Use
+            - SDN.Audit
+            - Sys.Audit
+            - Sys.Modify
+            - VM.Allocate
+            - VM.Audit
+            - VM.Config.CDROM
+            - VM.Config.CPU
+            - VM.Config.Cloudinit
+            - VM.Config.Disk
+            - VM.Config.HWType
+            - VM.Config.Memory
+            - VM.Config.Network
+            - VM.Config.Options
+            - VM.Migrate
+            - VM.PowerMgmt
+          additional_acls: []
+      additional_roles:
+        - role: HomeLabTofuPlanDiskInspect
+          privileges:
+            - VM.Config.Disk
+            - VM.Audit
+  ssh:
+    service: ssh.service
+    config_path: /etc/ssh/sshd_config.d/60-home-lab.conf
+    pubkey_authentication: true
+    password_authentication: false
+    kbd_interactive_authentication: false
+    permit_root_login: prohibit-password
+    allow_users:
+      - root
+      - tofu-plan
+      - tofu-apply
+  tailscale:
+    package: tailscale
+    service: tailscaled.service
+    hostname: proxmox
+    advertise_tag: tag:proxmox
+    advertise_routes: []
+    accept_dns: false
+    accept_routes: false
+    netfilter_mode: "on"
+    ssh: true
+    auth_key_secret_ref: TAILSCALE_AUTH_KEY
+  firewall:
+    config_path: /etc/pve/firewall/cluster.fw
+    options:
+      enable: true
+      policy_in: DROP
+      policy_out: ACCEPT
+    rules:
+      - direction: IN
+        action: ACCEPT
+        source: 192.168.0.0/24
+        protocol: tcp
+        destination_port: 22
+        log: nolog
+      - direction: IN
+        action: ACCEPT
+        source: 192.168.0.0/24
+        protocol: tcp
+        destination_port: 8006
+        log: nolog
+      - direction: IN
+        action: ACCEPT
+        source: 192.168.0.100/32
+        protocol: tcp
+        destination_port: 2049
+        log: nolog
+      - direction: IN
+        action: ACCEPT
+        source: 100.64.0.0/10
+        protocol: udp
+        destination_port: 41641
+        log: nolog
+      - direction: IN
+        action: ACCEPT
+        source: 100.64.0.0/10
+        protocol: tcp
+        destination_port: 22
+        log: nolog
+      - direction: IN
+        action: ACCEPT
+        source: 100.64.0.0/10
+        protocol: tcp
+        destination_port: 8006
+        log: nolog
   packages:
     required:
       - chrony

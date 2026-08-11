@@ -1,5 +1,9 @@
 ---
 ssh_service_name: sshd.service
+ssh_config_path: /etc/ssh/sshd_config.d/60-home-lab.conf
+ssh_pubkey_authentication: true
 ssh_password_authentication: false
+ssh_kbd_interactive_authentication: false
+ssh_permit_root_login: prohibit-password
 ssh_access_proven: false
 ssh_allow_users: []

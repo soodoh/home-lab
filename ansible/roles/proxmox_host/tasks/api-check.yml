@@ -59,11 +59,23 @@
 - name: Inspect root-only token escrow files in check mode
   ansible.builtin.stat:
     path: "{{ item.token_path }}"
+    follow: false
     get_checksum: false
   register: proxmox_host_check_escrow
   loop: "{{ proxmox_api_accounts }}"
   loop_control:
     label: "{{ item.token_path }}"
+  no_log: true
+
+- name: Inspect root-only token escrow directories in check mode
+  ansible.builtin.stat:
+    path: "{{ item.token_path | dirname }}"
+    follow: false
+    get_checksum: false
+  register: proxmox_host_check_escrow_directories
+  loop: "{{ proxmox_api_accounts }}"
+  loop_control:
+    label: "{{ item.token_path | dirname }}"
   no_log: true
 
 - name: Report drift in VM-scoped inspection roles
@@ -100,11 +112,19 @@
       {{ proxmox_host_check_tokens.results |
          selectattr('item.user', 'equalto', item.user) |
          selectattr('item.token_name', 'equalto', item.token_name) | first | default({}) }}
+    proxmox_host_check_token_records: >-
+      {{ (proxmox_host_check_token_result.stdout | default('[]')) | from_json }}
     proxmox_host_check_token_ids: >-
-      {{ (proxmox_host_check_token_result.stdout | default('[]')) |
-         from_json | map(attribute='tokenid') | list }}
+      {{ proxmox_host_check_token_records | map(attribute='tokenid') | list }}
+    proxmox_host_check_token_record: >-
+      {{ proxmox_host_check_token_records |
+         selectattr('tokenid', 'equalto', item.token_name) | first | default({}) }}
     proxmox_host_check_escrow_result: >-
       {{ proxmox_host_check_escrow.results |
+         selectattr('item.user', 'equalto', item.user) |
+         selectattr('item.token_name', 'equalto', item.token_name) | first }}
+    proxmox_host_check_escrow_directory_result: >-
+      {{ proxmox_host_check_escrow_directories.results |
          selectattr('item.user', 'equalto', item.user) |
          selectattr('item.token_name', 'equalto', item.token_name) | first }}
   changed_when: >-
@@ -112,15 +132,25 @@
     item.role not in (proxmox_host_check_roles.stdout | from_json | map(attribute='roleid') | list) or
     proxmox_host_check_current_privileges != (item.privileges | sort) or
     item.token_name not in proxmox_host_check_token_ids or
+    (proxmox_host_check_token_record.privsep | default(-1) | int) !=
+      (item.privilege_separation | ternary(1, 0)) or
     (proxmox_host_check_acl_records |
-      selectattr('path', 'equalto', '/') |
+      selectattr('path', 'equalto', item.primary_acl_path) |
       selectattr('ugid', 'equalto', item.user ~ '!' ~ item.token_name) |
       selectattr('roleid', 'equalto', item.role) | list | length == 0) or
     (proxmox_host_check_acl_records |
       selectattr('ugid', 'equalto', item.user ~ '!' ~ item.token_name) |
       list | length != 1 + (item.additional_acls | length)) or
     not (proxmox_host_check_escrow_result.stat.isreg | default(false)) or
-    (proxmox_host_check_escrow_result.stat.mode | default('')) != '0600'
+    (proxmox_host_check_escrow_result.stat.islnk | default(false)) or
+    (proxmox_host_check_escrow_result.stat.uid | default(-1) | int) != 0 or
+    (proxmox_host_check_escrow_result.stat.gid | default(-1) | int) != 0 or
+    (proxmox_host_check_escrow_result.stat.mode | default('')) != '0600' or
+    not (proxmox_host_check_escrow_directory_result.stat.isdir | default(false)) or
+    (proxmox_host_check_escrow_directory_result.stat.islnk | default(false)) or
+    (proxmox_host_check_escrow_directory_result.stat.uid | default(-1) | int) != 0 or
+    (proxmox_host_check_escrow_directory_result.stat.gid | default(-1) | int) != 0 or
+    (proxmox_host_check_escrow_directory_result.stat.mode | default('')) != '0700'
   loop: "{{ proxmox_api_accounts }}"
   loop_control:
     label: "{{ item.user }}!{{ item.token_name }}"

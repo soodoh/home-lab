@@ -1,12 +1,9 @@
 [OPTIONS]
-enable: 1
-policy_in: DROP
-policy_out: ACCEPT
+enable: {{ proxmox.firewall.options.enable | ternary('1', '0') }}
+policy_in: {{ proxmox.firewall.options.policy_in }}
+policy_out: {{ proxmox.firewall.options.policy_out }}
 
 [RULES]
-IN ACCEPT -source {{ network.cidr }} -p tcp -dport 22 -log nolog
-IN ACCEPT -source {{ network.cidr }} -p tcp -dport 8006 -log nolog
-IN ACCEPT -source {{ network.arch.ipv4.split('/')[0] }}/32 -p tcp -dport 2049 -log nolog
-IN ACCEPT -source 100.64.0.0/10 -p udp -dport 41641 -log nolog
-IN ACCEPT -source 100.64.0.0/10 -p tcp -dport 22 -log nolog
-IN ACCEPT -source 100.64.0.0/10 -p tcp -dport 8006 -log nolog
+{% for rule in proxmox.firewall.rules %}
+{{ rule.direction }} {{ rule.action }} -source {{ rule.source }} -p {{ rule.protocol }} -dport {{ rule.destination_port }} -log {{ rule.log }}
+{% endfor %}
