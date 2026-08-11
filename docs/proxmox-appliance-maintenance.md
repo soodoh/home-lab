@@ -12,6 +12,8 @@ scripts/reconcile-infrastructure validate
 
 Then run `ansible/playbooks/proxmox-site.yml` in check mode from the protected controller. Review all changed tasks and every reported unknown package, APT source, network snippet, and root-local path. Add an item to the contract or a reviewed migration inventory only when it is intentional; do not broaden deletion patterns.
 
+A failed steady apply intentionally retains the production ownership lock. After separately confirming that the controller process ended, use `ansible/playbooks/clear-failed-proxmox-apply-lock.yml` in check mode. It accepts no target, owner, operation, or path overrides and validates the fixed `tofu-apply`/`proxmox-site` owner record. Apply that playbook only with `proxmox_failed_lock_clear_confirmed=true`, then rerun the complete steady check before retrying convergence.
+
 ## Required evidence
 
 Before any storage or network cutover, retain protected evidence for:

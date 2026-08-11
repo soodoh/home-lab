@@ -1,0 +1,91 @@
+---
+- name: Clear one separately inspected failed Proxmox steady apply lock
+  hosts: proxmox_hosts
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: Require explicit failed Proxmox lock clearance approval
+      ansible.builtin.assert:
+        that:
+          - ansible_check_mode or (proxmox_failed_lock_clear_confirmed | default(false) | ansible.builtin.bool)
+        fail_msg: "Failed Proxmox steady lock clearance requires explicit confirmation."
+
+    - name: Inspect the fixed failed Proxmox production apply lock
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        get_checksum: false
+        get_mime: false
+      become: true
+      register: proxmox_failed_lock_paths
+      loop:
+        - /var/lib/iac-ansible-production.lock
+        - /var/lib/iac-ansible-production.lock/owner
+
+    - name: Inspect fixed failed Proxmox lock contents
+      ansible.builtin.find:
+        paths: /var/lib/iac-ansible-production.lock
+        hidden: true
+        recurse: false
+        file_type: any
+      become: true
+      register: proxmox_failed_lock_entries
+      when: proxmox_failed_lock_paths.results[0].stat.isdir | default(false)
+
+    - name: Read the exact failed Proxmox lock owner record
+      ansible.builtin.slurp:
+        src: /var/lib/iac-ansible-production.lock/owner
+      become: true
+      register: proxmox_failed_lock_owner
+      no_log: true
+      when: proxmox_failed_lock_paths.results[1].stat.isreg | default(false)
+
+    - name: Decode the failed Proxmox lock owner record
+      ansible.builtin.set_fact:
+        proxmox_failed_lock_owner_lines: "{{ (proxmox_failed_lock_owner.content | b64decode).splitlines() }}"
+      no_log: true
+
+    - name: Require the exact inspected failed Proxmox lock and owner
+      ansible.builtin.assert:
+        that:
+          - proxmox_failed_lock_paths.results[0].stat.isdir | default(false)
+          - proxmox_failed_lock_paths.results[0].stat.pw_name == 'root'
+          - proxmox_failed_lock_paths.results[0].stat.gr_name == 'root'
+          - proxmox_failed_lock_paths.results[0].stat.mode == '0700'
+          - proxmox_failed_lock_paths.results[1].stat.isreg | default(false)
+          - proxmox_failed_lock_paths.results[1].stat.pw_name == 'root'
+          - proxmox_failed_lock_paths.results[1].stat.gr_name == 'root'
+          - proxmox_failed_lock_paths.results[1].stat.mode == '0600'
+          - proxmox_failed_lock_entries.matched == 1
+          - proxmox_failed_lock_owner_lines | length == 3
+          - proxmox_failed_lock_owner_lines[0] == 'controller=tofu-apply'
+          - proxmox_failed_lock_owner_lines[1] == 'operation=proxmox-site'
+          - proxmox_failed_lock_owner_lines[2] is match('^started=[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')
+        fail_msg: "Proxmox production lock identity or contents differ from the fixed failed steady operation."
+      no_log: true
+
+    - name: Report the exact failed Proxmox lock clearance plan
+      ansible.builtin.debug:
+        msg:
+          lock_path: /var/lib/iac-ansible-production.lock
+          controller: tofu-apply
+          operation: proxmox-site
+          entry_count: 1
+      changed_when: true
+      when: ansible_check_mode
+
+    - name: Remove only the inspected Proxmox owner record
+      ansible.builtin.file:
+        path: /var/lib/iac-ansible-production.lock/owner
+        state: absent
+      become: true
+      when: not ansible_check_mode
+
+    - name: Remove only the inspected failed Proxmox lock
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/rmdir
+          - --
+          - /var/lib/iac-ansible-production.lock
+      become: true
+      changed_when: true
+      when: not ansible_check_mode

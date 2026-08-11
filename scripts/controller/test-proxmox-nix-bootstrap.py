@@ -604,5 +604,17 @@ m.atomic(target,payload,0o755 if sys.argv[3]=="helper" else 0o600)
         task=(ROOT/"ansible/roles/proxmox_host/tasks/main.yml").read_text()
         self.assertIn("proxmox_host_service_account_key_prefix",task)
 
+    def test_failed_proxmox_lock_clearance_has_fixed_identity(self):
+        playbook=(ROOT/"ansible/playbooks/clear-failed-proxmox-apply-lock.yml").read_text()
+        self.assertIn("hosts: proxmox_hosts",playbook)
+        self.assertIn("== 'controller=tofu-apply'",playbook)
+        self.assertIn("== 'operation=proxmox-site'",playbook)
+        self.assertIn("proxmox_failed_lock_owner_lines | length == 3",playbook)
+        self.assertIn("stat.gr_name == 'root'",playbook)
+        self.assertEqual(playbook.count("/var/lib/iac-ansible-production.lock"),7)
+        self.assertNotIn("apply_lock_path",playbook)
+        self.assertNotIn("expected_operation",playbook)
+        self.assertNotIn("expected_controller",playbook)
+
 
 if __name__ == "__main__": unittest.main()
