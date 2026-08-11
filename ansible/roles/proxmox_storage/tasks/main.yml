@@ -565,7 +565,7 @@
 - name: Remove only the known legacy subnet-wide export
   ansible.builtin.lineinfile:
     path: /etc/exports
-    regexp: '^\\s*{{ storage.nfs.export | regex_escape }}\\s+{{ network.cidr | regex_escape }}(?:\\s|\\(|$)'
+    regexp: '^\s*{{ storage.nfs.export | regex_escape }}\s+{{ network.cidr | regex_escape }}(?:\s|\(|$)'
     state: absent
     backup: true
   when: proxmox_storage_nfs_convergence_authorized | bool
