@@ -25,7 +25,7 @@ def load():
 class FakeRunner:
     def __init__(self):
         self.options={"enable":0,"policy_in":"ACCEPT","policy_out":"ACCEPT"}; self.rules=[]; self.serial=0; self.commands=[]; self.timer=True; self.services=True
-    def _digest(self): return f"{self.serial:064x}"
+    def _digest(self): return f"{self.serial:040x}"
     def run(self,argv,attempts=2,timeout=5,accepted=(0,),allow_stderr=False):
         self.commands.append(tuple(argv))
         if argv[:4]==("/usr/bin/pvesh","get","/cluster/firewall/options","--output-format"):
@@ -335,7 +335,7 @@ m.EXPECTED_UID=m.POLICY.stat().st_uid;m.EXPECTED_GID=m.POLICY.stat().st_gid;m.re
 class R:
  deadline=None
  def run(self,a,attempts=2,timeout=5,accepted=(0,),allow_stderr=False):
-  if a[:4]==('/usr/bin/pvesh','get','/cluster/firewall/options','--output-format'):return json.dumps({{'enable':0,'policy_in':'ACCEPT','policy_out':'ACCEPT','digest':'0'*64}}).encode()
+  if a[:4]==('/usr/bin/pvesh','get','/cluster/firewall/options','--output-format'):return json.dumps({{'enable':0,'policy_in':'ACCEPT','policy_out':'ACCEPT','digest':'0'*40}}).encode()
   if a[:4]==('/usr/bin/pvesh','get','/cluster/firewall/rules','--output-format'):return b'[]'
   if a[:2]==('/usr/bin/systemctl','is-active'):return b'active\\n'
   if a[:2]==('/usr/bin/systemctl','show'):return b'123456\\n'
@@ -362,7 +362,7 @@ class R:
  deadline=None
  def __init__(self):self.serial=0
  def run(self,a,attempts=2,timeout=5,accepted=(0,),allow_stderr=False):
-  if a[:4]==('/usr/bin/pvesh','get','/cluster/firewall/options','--output-format'):return json.dumps({{'enable':0,'policy_in':'DROP' if self.serial else 'ACCEPT','policy_out':'ACCEPT','digest':f'{{self.serial:064x}}'}}).encode()
+  if a[:4]==('/usr/bin/pvesh','get','/cluster/firewall/options','--output-format'):return json.dumps({{'enable':0,'policy_in':'DROP' if self.serial else 'ACCEPT','policy_out':'ACCEPT','digest':f'{{self.serial:040x}}'}}).encode()
   if a[:4]==('/usr/bin/pvesh','get','/cluster/firewall/rules','--output-format'):return b'[]'
   if a[:3]==('/usr/bin/pvesh','set','/cluster/firewall/options'):self.serial+=1;return b''
   if a[:2]==('/usr/bin/systemctl','is-active'):return b'active\\n'

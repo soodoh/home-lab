@@ -50,6 +50,7 @@ MAX_INPUT = 1024 * 1024
 EXPECTED_UID = 0
 EXPECTED_GID = 0
 TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 RULE_KEYS = {"action", "destination_port", "direction", "log", "protocol", "source"}
 FIXED_MUTATIONS = (
@@ -296,7 +297,7 @@ def observe(runner: Runner) -> dict[str, Any]:
     if len(state_rules) != len({canonical(rule) for rule in state_rules}):
         raise ValueError("duplicate PVE firewall rule")
     pve_digest = options.get("digest")
-    if not isinstance(pve_digest, str) or HEX64.fullmatch(pve_digest) is None:
+    if not isinstance(pve_digest, str) or HEX40.fullmatch(pve_digest) is None:
         raise ValueError("PVE digest differs")
     enabled = normalize_bool(options.get("enable"), False)
     normalized_options = {name: value for name, value in options.items() if name != "digest"}
@@ -322,7 +323,7 @@ def validate_public_state(value: Any) -> dict[str, Any]:
     state = exact(value, {"digest", "options", "optionState", "rules"}, "public state")
     options = state["options"]
     if not isinstance(options, dict) or not {"enable","policy_in","policy_out"}.issubset(options) or \
-            not isinstance(state["digest"], str) or HEX64.fullmatch(state["digest"]) is None or \
+            not isinstance(state["digest"], str) or HEX40.fullmatch(state["digest"]) is None or \
             not isinstance(options["enable"], bool) or options["policy_in"] not in {"ACCEPT", "DROP", "REJECT"} or \
             options["policy_out"] not in {"ACCEPT", "DROP", "REJECT"} or set(options) != {"enable","policy_in","policy_out"} or \
             not isinstance(state["optionState"],list) or any(not isinstance(item,dict) or set(item)!={"name","value"} or not isinstance(item["name"],str) or item["name"] in options or not isinstance(item["value"],(str,int,bool)) for item in state["optionState"]) or len({item["name"] for item in state["optionState"]}) != len(state["optionState"]) or not isinstance(state["rules"], list) or \
@@ -672,7 +673,7 @@ def timer_token(runner: Runner) -> str:
 
 
 def checkpointed(journal: dict[str, Any], label: str, current: dict[str, Any], expected: dict[str, Any], operation: Any) -> dict[str, Any]:
-    expected_public=public_state({"digest":"0"*64,"options":expected["options"],"rules":expected["rules"]})
+    expected_public=public_state({"digest":"0"*40,"options":expected["options"],"rules":expected["rules"]})
     journal["checkpoint"] = {"after": None, "before": public_state(current), "expected":expected_public, "label": label, "phase": "before"}; write_state(journal, "rollback-started")
     observed = operation()
     if not same_content(observed, expected): raise RuntimeError("rollback intermediate state differs")

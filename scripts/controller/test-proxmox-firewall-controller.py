@@ -29,7 +29,7 @@ class ControllerTests(unittest.TestCase):
   self.inspection={"attestation":"a"*64,"challenge":"challenge_0123456789","expiresAt":self.m.format_time(self.m.utcnow()+self.m.dt.timedelta(seconds=300)),
    "format":"home-lab-proxmox-firewall-inspection-v1","helperSha256":self.m.digest(self.m.HELPER_SOURCE.read_bytes()),
    "observedAt":self.m.format_time(self.m.utcnow()),"policySha256":self.m.digest(self.m.load_projection_policy()),
-   "state":{"digest":"d"*64,"options":{"enable":False,"policy_in":"ACCEPT","policy_out":"ACCEPT"},"optionState":[],"rules":[]},
+   "state":{"digest":"d"*40,"options":{"enable":False,"policy_in":"ACCEPT","policy_out":"ACCEPT"},"optionState":[],"rules":[]},
    "unitsSha256":self.m.unit_binding()}
  def tearDown(self): self.temp.cleanup()
  def create(self,baseline=None):

@@ -315,7 +315,7 @@ def validate_inspection(value: Any) -> dict[str, Any]:
         raise ValueError("inspection options differ")
     if record["format"] != "home-lab-proxmox-firewall-inspection-v1" or \
             any(not isinstance(record[name], str) or HEX64.fullmatch(record[name]) is None for name in ("attestation", "helperSha256", "policySha256", "unitsSha256")) or \
-            not isinstance(state["digest"], str) or HEX64.fullmatch(state["digest"]) is None or not isinstance(state["rules"], list):
+            not isinstance(state["digest"], str) or HEX40.fullmatch(state["digest"]) is None or not isinstance(state["rules"], list):
         raise ValueError("inspection value differs")
     parse_time(record["observedAt"]); parse_time(record["expiresAt"])
     return record
