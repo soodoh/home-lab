@@ -194,6 +194,19 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
                     installer.durable_unlink(target)
                 self.assertFalse(target.exists())
 
+    def test_pve_manager_version_accepts_real_output_shape_and_rejects_mismatch(self):
+        installer=load_installer()
+        self.assertEqual(installer.pve_manager_version(
+            "pve-manager/9.2.3/d0fde103346cf89a (running kernel: 7.0.14-8-pve)\n"), "9.2.3")
+        self.assertNotEqual(installer.pve_manager_version(
+            "pve-manager/9.2.4/deadbeef (running kernel: 7.0.14-8-pve)"), "9.2.3")
+        for value in ("pve-manager/9.2.3", "prefix pve-manager/9.2.3/deadbeef (running kernel: kernel)",
+                      "pve-manager/9.2.3/deadbeef (running kernel: kernel\nforged)",
+                      "pve-manager/9.2.3/deadbeef (running kernel: kernel\x00forged)",
+                      "pve-manager/9.2.3/deadbeef (running kernel: kernel forged)"):
+            with self.assertRaises(ValueError):
+                installer.pve_manager_version(value)
+
     def test_preparation_schema_cli_and_unavailable_summary_fail_closed(self):
         schema=json.loads((NIX/"proxmox/private-preparation-request.schema.json").read_bytes())
         self.assertFalse(schema["additionalProperties"]); self.assertEqual(schema["properties"]["protocol"]["const"],4)

@@ -299,6 +299,13 @@ def validate_protected(raw):
     return raw
 
 
+def pve_manager_version(output):
+    match = re.fullmatch(r"pve-manager/([^/\s]+)/[0-9a-f]+ \(running kernel: [A-Za-z0-9][A-Za-z0-9._+~-]*\)", output.strip())
+    if match is None:
+        raise ValueError("bootstrap PVE version output differs")
+    return match.group(1)
+
+
 def host_preflight(require_gates=False):
     if os.geteuid() != 0:
         raise ValueError("bootstrap requires root at the physical console")
@@ -317,9 +324,12 @@ def host_preflight(require_gates=False):
     manager = next(item for item in projection["packagePolicy"]["critical"] if item["role"] == "pve-manager")
     hostname = run(("/usr/bin/hostname",))
     pve = run(("/usr/bin/pveversion",))
+    try:
+        pve_version = pve_manager_version(pve.stdout.decode()) if not pve.returncode else None
+    except (UnicodeDecodeError, ValueError):
+        pve_version = None
     if "ID=debian" not in os_release or nodes != [expected_hostname] or hostname.returncode or \
-            hostname.stdout.decode().strip() != expected_hostname or pve.returncode or \
-            pve.stdout.decode().strip() != "pve-manager/" + manager["version"]:
+            hostname.stdout.decode().strip() != expected_hostname or pve_version != manager["version"]:
         raise ValueError("bootstrap target identity differs")
     git = run(("/usr/bin/git", "-C", str(REPO), "status", "--porcelain=v1", "--untracked-files=all"))
     head = run(("/usr/bin/git", "-C", str(REPO), "rev-parse", "HEAD"))
