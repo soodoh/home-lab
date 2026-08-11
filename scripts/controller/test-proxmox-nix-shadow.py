@@ -102,25 +102,22 @@ class ShadowTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.temporary, ignore_errors=True)
 
-    def test_tracked_policy_is_canonical_prebootstrap(self) -> None:
-        self.assertEqual(shadow.load_policy(), "pre-bootstrap")
+    def test_tracked_policy_is_canonical_shadow_required(self) -> None:
+        self.assertEqual(shadow.load_policy(), "shadow-required")
         self.assertEqual(shadow.POLICY.read_bytes(), shadow.canonical(json.loads(shadow.POLICY.read_bytes())))
 
-    def test_prebootstrap_full_capture_has_no_transport(self) -> None:
-        binaries = self.temporary / "bin"
-        binaries.mkdir()
-        marker = self.temporary / "transport"
-        for command in ("ansible-playbook", "nix", "git", "ssh"):
-            executable = binaries / command
-            executable.write_text(f"#!/bin/sh\necho {command} >>'{marker}'\nexit 91\n")
-            executable.chmod(0o700)
-        result = subprocess.run(
-            [sys.executable, MODULE_PATH, "capture", "--phase", "steady"],
-            cwd=REPO, env={**os.environ, "PATH": str(binaries)}, text=True, capture_output=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, "shadow_state=pre-bootstrap status=disabled evidence_sha256=none evidence_path=none\n")
-        self.assertFalse(marker.exists())
+    def test_prebootstrap_capture_has_no_transport(self) -> None:
+        original = shadow.POLICY
+        shadow.POLICY = self.temporary / "policy.json"
+        shadow.POLICY.write_bytes(shadow.canonical({"format": shadow.POLICY_FORMAT, "state": "pre-bootstrap"}))
+        try:
+            with mock.patch.object(shadow, "repository_identity", side_effect=AssertionError("transport invoked")):
+                self.assertEqual(
+                    shadow.capture("steady"),
+                    "shadow_state=pre-bootstrap status=disabled evidence_sha256=none evidence_path=none",
+                )
+        finally:
+            shadow.POLICY = original
 
     def test_cli_is_closed(self) -> None:
         for arguments in (("capture",), ("capture", "--phase", "bad"),
