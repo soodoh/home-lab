@@ -316,6 +316,28 @@ function projectProxmoxPolicy(contract, packageManifest) {
   };
 }
 
+function projectVm100Scaffold(contract) {
+  const vm = contract.vm_100;
+  if (vm.vmid !== contract.proxmox.vm.vmid || vm.vmid !== contract.storage.nfs.client_vmid ||
+      vm.host_name !== contract.network.arch.hostname || vm.network_identity !== contract.network.arch.magicdns_name) {
+    throw new Error("VM 100 scaffold identity differs from existing contract authority");
+  }
+  const expectedActivation = vm.deployment_authority === "nixos";
+  if (vm.nixos_activation_enabled !== expectedActivation) {
+    throw new Error("VM 100 authority and NixOS activation selection differ");
+  }
+  return {
+    version: 1,
+    vmid: vm.vmid,
+    hostName: vm.host_name,
+    networkIdentity: vm.network_identity,
+    system: vm.system,
+    stateVersion: vm.state_version,
+    deploymentAuthority: vm.deployment_authority,
+    nixosActivationEnabled: vm.nixos_activation_enabled,
+  };
+}
+
 function validateProjection(projection, schema) {
   const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
   if (!validate(projection)) {
@@ -326,25 +348,42 @@ function validateProjection(projection, schema) {
 function main() {
   const args = process.argv.slice(2);
   let check = false;
-  let output = path.join(root, "nix/proxmox/projection.json");
+  let target = "proxmox";
+  let output;
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === "--check") check = true;
+    else if (args[index] === "--target" && args[index + 1]) target = args[++index];
     else if (args[index] === "--output" && args[index + 1]) output = path.resolve(args[++index]);
-    else throw new Error("usage: proxmox-nix-projection.js [--check] [--output PATH]");
+    else throw new Error("usage: proxmox-nix-projection.js [--check] [--target proxmox|vm-100] [--output PATH]");
   }
+  const targets = {
+    proxmox: {
+      output: "nix/proxmox/projection.json",
+      schema: "nix/proxmox/projection.schema.json",
+      project: (contract) => projectProxmoxPolicy(contract, JSON.parse(fs.readFileSync(path.join(root, contract.proxmox.packages.manifest.path), "utf8"))),
+    },
+    "vm-100": {
+      output: "nix/vm-100/projection.json",
+      schema: "nix/vm-100/projection.schema.json",
+      project: projectVm100Scaffold,
+    },
+  };
+  const selected = targets[target];
+  if (!selected) throw new Error(`unknown projection target: ${target}`);
+  output ??= path.join(root, selected.output);
   const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/home-lab.yml"), "utf8"));
-  const packageManifest = JSON.parse(fs.readFileSync(path.join(root, contract.proxmox.packages.manifest.path), "utf8"));
-  const schema = JSON.parse(fs.readFileSync(path.join(root, "nix/proxmox/projection.schema.json"), "utf8"));
-  const rendered = canonicalJson(projectProxmoxPolicy(contract, packageManifest));
+  const schema = JSON.parse(fs.readFileSync(path.join(root, selected.schema), "utf8"));
+  const rendered = canonicalJson(selected.project(contract));
   validateProjection(JSON.parse(rendered), schema);
   if (check) {
     if (!fs.existsSync(output) || fs.readFileSync(output, "utf8") !== rendered) {
-      throw new Error(`${path.relative(root, output)} is stale; regenerate it with scripts/controller/proxmox-nix-projection.js`);
+      throw new Error(`${path.relative(root, output)} is stale; regenerate it with scripts/controller/proxmox-nix-projection.js --target ${target}`);
     }
   } else {
+    fs.mkdirSync(path.dirname(output), { recursive: true });
     fs.writeFileSync(output, rendered);
   }
 }
 
 if (require.main === module) main();
-module.exports = { canonicalJson, projectProxmoxPolicy, validateProjection };
+module.exports = { canonicalJson, projectProxmoxPolicy, projectVm100Scaffold, validateProjection };

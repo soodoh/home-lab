@@ -6,6 +6,14 @@ recovery:
   critical_rpo_hours: 24
   critical_rto_hours: 8
   recovery_age_recipient: age1vvzm5pczjum52v5alall8euucjen9q4v9xa5g0xmswhna5vare9qwv9rq6
+vm_100:
+  vmid: 100
+  host_name: archlinux
+  network_identity: docker-host
+  system: x86_64-linux
+  state_version: "26.05"
+  deployment_authority: arch
+  nixos_activation_enabled: false
 network:
   cidr: 192.168.0.0/24
   gateway: 192.168.0.1

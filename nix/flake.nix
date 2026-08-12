@@ -1,13 +1,34 @@
 {
-  description = "Pinned Proxmox controller planning, protected preparation, and guarded-apply tooling";
+  description = "Pinned Proxmox controller tooling and inert VM 100 NixOS scaffold";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    sops-nix = {
+      url = "github:Mic92/sops-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, disko, sops-nix }:
     let
       systems = [ "aarch64-darwin" "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
     in {
+      nixosConfigurations.vm-100 = nixpkgs.lib.nixosSystem {
+        system = "x86_64-linux";
+        modules = [
+          disko.nixosModules.disko
+          sops-nix.nixosModules.sops
+          ./hosts/vm-100
+        ];
+      };
+
+      lib.vm-100-scaffold =
+        builtins.fromJSON (builtins.readFile ./vm-100/projection.json);
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };

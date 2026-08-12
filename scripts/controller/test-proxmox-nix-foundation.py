@@ -21,13 +21,13 @@ PROJECTION = NIX_ROOT / "proxmox/projection.json"
 MANIFEST = NIX_ROOT / "proxmox/package-manifest.json"
 LOCK = NIX_ROOT / "flake.lock"
 EXPECTED_SOURCE_FILES = {
-    "flake.lock", "flake.nix", "proxmox/activation-envelope.schema.json", "proxmox/activator-template.py",
-    "proxmox/apply.py", "proxmox/bundle.py", "proxmox/controller_lock.py", "proxmox/package-manifest.json",
-    "proxmox/fixture-observation.json", "proxmox/observation.schema.json", "proxmox/observer-template.py",
-    "proxmox/package-manifest.schema.json",
+    "flake.lock", "flake.nix", "hosts/vm-100/default.nix", "hosts/vm-100/disko.nix", "hosts/vm-100/secrets.nix",
+    "proxmox/activation-envelope.schema.json", "proxmox/activator-template.py", "proxmox/apply.py", "proxmox/bundle.py",
+    "proxmox/controller_lock.py", "proxmox/fixture-observation.json", "proxmox/observation.schema.json",
+    "proxmox/observer-template.py", "proxmox/package-manifest.json", "proxmox/package-manifest.schema.json",
     "proxmox/plan.schema.json", "proxmox/planner.py", "proxmox/prepare.py", "proxmox/private-preconditions.schema.json",
-    "proxmox/private-preparation-request.schema.json", "proxmox/private-preparer-template.py",
-    "proxmox/projection.json", "proxmox/projection.schema.json",
+    "proxmox/private-preparation-request.schema.json", "proxmox/private-preparer-template.py", "proxmox/projection.json",
+    "proxmox/projection.schema.json", "vm-100/projection.json", "vm-100/projection.schema.json",
 }
 
 sys.dont_write_bytecode = True

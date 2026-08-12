@@ -33,11 +33,19 @@ if (validateProxmoxHostPolicy(contract).length) {
   throw new Error(`current Proxmox host policy failed semantics: ${JSON.stringify(validateProxmoxHostPolicy(contract))}`);
 }
 
+for (const [authority, activationEnabled] of [["arch", true], ["migration-in-progress", false], ["migration-in-progress", true], ["nixos", false], ["nixos", true]]) {
+  const nonScaffoldVmAuthority = structuredClone(contract);
+  nonScaffoldVmAuthority.vm_100.deployment_authority = authority;
+  nonScaffoldVmAuthority.vm_100.nixos_activation_enabled = activationEnabled;
+  check(nonScaffoldVmAuthority, false, `inert VM 100 scaffold rejects ${authority} authority with activation=${activationEnabled}`);
+}
+
 function valueAt(document, dottedPath) {
   return dottedPath.split(".").reduce((value, segment) => value[segment], document);
 }
 
 const closedRequiredPolicyObjects = [
+  "vm_100",
   "network.ownership",
   "network.ownership.interfaces_file",
   "proxmox.grub",

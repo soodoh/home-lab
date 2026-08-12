@@ -86,6 +86,9 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-contract-schema.js
   node scripts/controller/test-proxmox-package-manifest.js
   node scripts/controller/test-proxmox-nix-projection.js
+  node scripts/controller/test-vm-100-nix-projection.js
+  node scripts/controller/proxmox-nix-projection.js --check --target proxmox
+  node scripts/controller/proxmox-nix-projection.js --check --target vm-100
   [[ ! -e flake.nix && ! -e flake.lock ]] || {
     echo "the Nix flake must remain isolated under the sanitized nix/ source root" >&2
     exit 1
@@ -93,6 +96,7 @@ if [[ $action == validate ]]; then
   proxmox_nix_source=$(nix flake archive 'path:./nix' --json | jq -er .path)
   PROXMOX_NIX_SOURCE_STORE_PATH=$proxmox_nix_source \
     python3 scripts/controller/test-proxmox-nix-foundation.py
+  python3 scripts/controller/test-vm-100-nix-foundation.py
   python3 scripts/controller/test-controller-apply-lock.py
   python3 scripts/controller/test-proxmox-nix-plan.py
   python3 scripts/controller/test-proxmox-nix-apply.py

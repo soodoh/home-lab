@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://diloreto.com/schemas/home-lab-vm-100-scaffold-v1.json",
+  "title": "Secret-free VM 100 NixOS scaffold projection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "vmid",
+    "hostName",
+    "networkIdentity",
+    "system",
+    "stateVersion",
+    "deploymentAuthority",
+    "nixosActivationEnabled"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "vmid": { "const": 100 },
+    "hostName": { "const": "archlinux" },
+    "networkIdentity": { "const": "docker-host" },
+    "system": { "const": "x86_64-linux" },
+    "stateVersion": { "const": "26.05" },
+    "deploymentAuthority": { "const": "arch" },
+    "nixosActivationEnabled": { "const": false }
+  }
+}
