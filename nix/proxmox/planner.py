@@ -549,15 +549,19 @@ def git_bindings(repo: Path) -> tuple[str, str]:
     return head, run_git(repo, "rev-parse", "HEAD^{tree}")
 
 
+def is_python_cache_path(relative: Path) -> bool:
+    return "__pycache__" in relative.parts and relative.suffix in {".pyc", ".pyo"}
+
 def sanitized_source_binding(source: Path, repository_source: Path) -> None:
     def files(root: Path) -> dict[str, Path]:
         result = {}
         for candidate in root.rglob("*"):
-            relative = candidate.relative_to(root).as_posix()
+            relative_path = candidate.relative_to(root)
+            relative = relative_path.as_posix()
             mode = candidate.lstat().st_mode
             if stat.S_ISLNK(mode) or (not stat.S_ISDIR(mode) and not stat.S_ISREG(mode)):
                 raise ValueError("sanitized source contains an unsupported entry")
-            if stat.S_ISREG(mode):
+            if stat.S_ISREG(mode) and not is_python_cache_path(relative_path):
                 result[relative] = candidate
         return result
     source_files, repository_files = files(source), files(repository_source)

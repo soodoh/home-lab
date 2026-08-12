@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -86,6 +87,7 @@ class ProxmoxNixFoundationTests(unittest.TestCase):
         local_files = {
             path.relative_to(NIX_ROOT).as_posix()
             for path in bundle_module.canonical_tree_files(NIX_ROOT)
+            if not planner.is_python_cache_path(path.relative_to(NIX_ROOT))
         }
         self.assertEqual(local_files, EXPECTED_SOURCE_FILES)
         source_store_path = os.environ.get("PROXMOX_NIX_SOURCE_STORE_PATH")
@@ -98,6 +100,24 @@ class ProxmoxNixFoundationTests(unittest.TestCase):
             self.assertEqual(source_files, EXPECTED_SOURCE_FILES)
             for relative in EXPECTED_SOURCE_FILES:
                 self.assertEqual((source_root / relative).read_bytes(), (NIX_ROOT / relative).read_bytes())
+
+    def test_runtime_source_binding_ignores_only_python_cache_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as source_name, tempfile.TemporaryDirectory() as repository_name:
+            source_root = Path(source_name)
+            repository_root = Path(repository_name)
+            for relative in EXPECTED_SOURCE_FILES:
+                for root in (source_root, repository_root):
+                    target = root / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(NIX_ROOT / relative, target)
+            cache = repository_root / "proxmox/__pycache__/planner.cpython-314.pyc"
+            cache.parent.mkdir(parents=True)
+            cache.write_bytes(b"ignored local bytecode")
+            planner.sanitized_source_binding(source_root, repository_root)
+            unknown = repository_root / "proxmox/unapproved.py"
+            unknown.write_text("unexpected\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "exact allowlist"):
+                planner.sanitized_source_binding(source_root, repository_root)
 
     def test_bundle_is_reproducible_and_bound(self) -> None:
         with tempfile.TemporaryDirectory() as first_name, tempfile.TemporaryDirectory() as second_name:
