@@ -931,7 +931,7 @@ storage:
     pool: storage
     pool_guid_secret_ref: HOMELAB_ZFS_POOL_GUID
     expected_health: ONLINE
-    corrected_checksum_baseline: 4
+    corrected_checksum_baseline: 37
     arc_max_bytes: 68719476736
     arc_config:
       file:
