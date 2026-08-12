@@ -182,6 +182,20 @@ for (const candidate of ["/scan/proxmox/planner.pyc", "/scan/proxmox/__pycache__
   if (isPythonCachePath("/scan", candidate)) throw new Error(`Python cache predicate accepted ${candidate}`);
 }
 
+const independentProjectionFiles = new Set([
+  "vm-100/projection.json",
+  "vm-100/projection.schema.json",
+]);
+
+function isIndependentProjectionPath(scanRoot, current) {
+  return independentProjectionFiles.has(path.relative(scanRoot, current).split(path.sep).join("/"));
+}
+
+for (const candidate of ["/scan/vm-100/projection.json", "/scan/vm-100/projection.schema.json"]) {
+  if (!isIndependentProjectionPath("/scan", candidate)) throw new Error(`independent projection predicate rejected ${candidate}`);
+}
+if (isIndependentProjectionPath("/scan", "/scan/proxmox/projection.json")) throw new Error("independent projection predicate accepted Proxmox projection");
+
 function scanTree(scanPath) {
   const files = [];
   function visit(current) {
@@ -195,7 +209,11 @@ function scanTree(scanPath) {
     for (const entry of fs.readdirSync(current, { withFileTypes: true })) visit(path.join(current, entry.name));
   }
   visit(scanPath);
-  for (const file of files) assertForbiddenValuesAbsent(fs.readFileSync(file).toString("latin1"), `scanned file ${file}`);
+  for (const file of files) {
+    if (!isIndependentProjectionPath(scanPath, file)) {
+      assertForbiddenValuesAbsent(fs.readFileSync(file).toString("latin1"), `scanned file ${file}`);
+    }
+  }
 }
 
 const scanArgument = process.argv.findIndex((argument) => argument === "--scan-path" || argument === "--bundle");
