@@ -93,6 +93,7 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertLess(steady_nix, steady_tofu)
         self.assertIn("--mode vm-start-prerequisite", self.reconciler)
         self.assertIn('prerequisite == "vm-start"', self.reconciler)
+        self.assertIn("roots=(aws-foundation proxmox-legacy proxmox)", self.reconciler)
         self.assertIn("verify_fresh_proxmox_host_noop", self.reconciler)
         self.assertIn("RECONCILE_PROXMOX_NO_CONCURRENT_MUTATION_CONFIRMED", self.reconciler)
         self.assertIn("any(.actions[]; .watchdogRequired == true)", self.reconciler)

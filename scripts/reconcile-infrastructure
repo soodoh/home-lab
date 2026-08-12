@@ -558,6 +558,9 @@ plan_all() {
   local root plan plan_log exit_code tailscale_live_policy_sha256 tailscale_policy_before_sha256 tailscale_policy_after_sha256 tailscale_policy_etag tailscale_policy_changed
   local planned_before_policy planned_after_policy compose_hash recovery_backup_identity_sha256 recovery_expectations_sha256 ansible_extra_vars_file_sha256 proxmox_host_plan
   proxmox_host_plan=$(plan_proxmox_host true)
+  if [[ $(jq -r .prerequisite <<<"$proxmox_host_plan") == vm-start ]]; then
+    roots=(aws-foundation proxmox-legacy proxmox)
+  fi
   for root in "${roots[@]}"; do
     echo "Planning OpenTofu root: $root"
     backend_init "$root"
