@@ -94,7 +94,7 @@ class ManifestVerificationTests(unittest.TestCase):
                 "recovery_backup_identity_sha256": "a" * 64,
                 "recovery_expectations_sha256": expectation_hash,
                 "compose_artifact_sha256": compose_hash,
-                "proxmox_host_plan": {"actions": 0, "external_owner_only": False, "status": "ready", "file": ".reconcile/plans/" + "f" * 64 + ".json", "file_sha256": "e" * 64, "plan_sha256": "f" * 64},
+                "proxmox_host_plan": {"actions": 0, "external_owner_only": False, "prerequisite": "none", "status": "ready", "file": ".reconcile/plans/" + "f" * 64 + ".json", "file_sha256": "e" * 64, "plan_sha256": "f" * 64},
                 "plans": plans,
             }
             write_proxmox_host_plan(plan_dir, manifest)
@@ -229,7 +229,7 @@ fi
                 "recovery_backup_identity_sha256": "",
                 "recovery_expectations_sha256": "",
                 "compose_artifact_sha256": compose_hash,
-                "proxmox_host_plan": {"actions": 0, "external_owner_only": False, "status": "ready", "file": ".reconcile/plans/" + "f" * 64 + ".json", "file_sha256": "e" * 64, "plan_sha256": "f" * 64},
+                "proxmox_host_plan": {"actions": 0, "external_owner_only": False, "prerequisite": "none", "status": "ready", "file": ".reconcile/plans/" + "f" * 64 + ".json", "file_sha256": "e" * 64, "plan_sha256": "f" * 64},
                 "plans": plans,
             }
             write_proxmox_host_plan(plan_dir, manifest)

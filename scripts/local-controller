@@ -173,11 +173,20 @@ required = {"actions", "applyEligible", "bindings", "blockers", "findings", "for
             "observedState", "planSha256", "privatePreconditionsRequired", "status"}
 stage = sys.argv[4]
 ready = value.get("status") == "ready" and value.get("applyEligible") is True and value.get("blockers") == []
+blockers = value.get("blockers")
+findings = value.get("findings")
 external = value.get("status") == "blocked" and value.get("applyEligible") is False and value.get("actions") == [] and \
-    isinstance(value.get("blockers"), list) and len(value["blockers"]) > 0 and all(
-        item.get("domain") == "opentofu" and item.get("code") == "opentofu-owner-required" for item in value["blockers"])
+    isinstance(blockers, list) and len(blockers) > 0 and all(
+        item.get("domain") == "opentofu" and item.get("code") == "opentofu-owner-required" for item in blockers)
+vm_start = value.get("status") == "blocked" and value.get("applyEligible") is False and value.get("actions") == [] and \
+    isinstance(blockers, list) and isinstance(findings, list) and len(blockers) == 2 and len(findings) == 2 and \
+    sum(item.get("domain") == "opentofu" and item.get("code") == "opentofu-owner-required" and item.get("target") == "vm-100" for item in blockers) == 1 and \
+    sum(item.get("domain") == "health" and item.get("code") == "review-required" and item.get("target") == "health" for item in blockers) == 1 and \
+    sum(item.get("domain") == "opentofu" and item.get("code") == "opentofu-drift" and item.get("target") == "vm-100" for item in findings) == 1 and \
+    sum(item.get("domain") == "health" and item.get("code") == "desired-state-drift" and item.get("target") == "health" for item in findings) == 1
+stage_valid = ready if stage == "converge" else vm_start if stage == "vm-start-prerequisite" else external
 if set(value) != required or value.get("format") != "home-lab-proxmox-plan-v1" or value.get("mode") != "steady" or \
-        not (ready if stage == "converge" else external) or value.get("planSha256") != sys.argv[2] or \
+        not stage_valid or value.get("planSha256") != sys.argv[2] or \
         not isinstance(value.get("actions"), list) or len(value["actions"]) != int(sys.argv[3]):
     raise SystemExit("Proxmox Nix plan structure or manifest binding differs")
 projection = {key: item for key, item in value.items() if key != "planSha256"}
@@ -198,7 +207,7 @@ verify_saved_plans() {
   }
   jq -e --arg commit "$commit" --arg phase "$operation" '
     .version == 5 and .commit == $commit and .phase == $phase and
-    (.stage == "converge" or ($phase == "recovery" and .stage == "external-owner-prerequisite"))
+    (.stage == "converge" or ($phase == "recovery" and .stage == "external-owner-prerequisite") or ($phase == "steady" and .stage == "vm-start-prerequisite"))
   ' "$manifest" >/dev/null || {
     echo "local_controller=failed reason=manifest_mismatch" >&2
     exit 66

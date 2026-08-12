@@ -66,7 +66,7 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertLess(show, complete)
 
     def test_manifest_binds_and_reviews_exact_proxmox_nix_plan(self) -> None:
-        self.assertIn('proxmox_host_plan=$(plan_proxmox_host "$([[ $phase == recovery ]]', self.reconciler)
+        self.assertIn("proxmox_host_plan=$(plan_proxmox_host true)", self.reconciler)
         self.assertIn("--argjson proxmox_host_plan", self.reconciler)
         self.assertIn(".version == 5", self.reconciler)
         self.assertIn("saved Proxmox Nix host plan is missing or changed", self.reconciler)
@@ -76,20 +76,23 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertIn("raw != canonical", self.controller)
         self.assertNotIn("proxmox-nix-shadow", self.controller)
 
-    def test_guarded_nix_apply_precedes_proxmox_tofu_in_both_phases(self) -> None:
+    def test_guarded_nix_order_and_vm_start_prerequisite_are_closed(self) -> None:
         dispatch = self.reconciler.index('case "$action" in', self.reconciler.index("acquire_apply_lock()"))
         recovery = self.reconciler.index("if [[ $phase == recovery ]]", dispatch)
         recovery_tofu = self.reconciler.index("apply_root proxmox", recovery)
         recovery_nix = self.reconciler.index("prepare_apply_proxmox_host", recovery_tofu)
         steady = self.reconciler.index("else", recovery_nix)
-        steady_nix = self.reconciler.index("prepare_apply_proxmox_host", steady)
+        steady_prerequisite = self.reconciler.index('== vm-start-prerequisite', steady)
+        steady_prerequisite_tofu = self.reconciler.index("apply_root proxmox", steady_prerequisite)
+        steady_exit = self.reconciler.index("requires_new_reviewed_plan=true", steady_prerequisite_tofu)
+        steady_nix = self.reconciler.index("prepare_apply_proxmox_host", steady_exit)
         steady_tofu = self.reconciler.index("apply_root proxmox", steady_nix)
         self.assertLess(recovery_tofu, recovery_nix)
-        self.assertIn("external-owner-prerequisite", self.reconciler)
-        self.assertIn("requires_new_reviewed_plan=true", self.reconciler)
+        self.assertLess(steady_prerequisite_tofu, steady_exit)
+        self.assertLess(steady_exit, steady_nix)
         self.assertLess(steady_nix, steady_tofu)
-        recovery_arch = self.reconciler.index("ansible_checked_apply", recovery_nix)
-        self.assertLess(recovery_nix, recovery_arch)
+        self.assertIn("--mode vm-start-prerequisite", self.reconciler)
+        self.assertIn('prerequisite == "vm-start"', self.reconciler)
         self.assertIn("verify_fresh_proxmox_host_noop", self.reconciler)
         self.assertIn("RECONCILE_PROXMOX_NO_CONCURRENT_MUTATION_CONFIRMED", self.reconciler)
         self.assertIn("any(.actions[]; .watchdogRequired == true)", self.reconciler)

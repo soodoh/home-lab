@@ -16,6 +16,10 @@ python3 "$policy" "$fixtures/noop.json"
 python3 "$policy" "$fixtures/protection-enable.json"
 python3 "$policy" "$fixtures/custom-rom-removal.json"
 python3 "$policy" "$fixtures/hardware-mapping-transition.json"
+python3 "$policy" "$fixtures/vm-start-prerequisite.json" --mode vm-start-prerequisite
+for fixture in noop protection-enable custom-rom-removal hardware-mapping-transition delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial; do
+  expect_rejection "$fixture" vm-start-prerequisite
+done
 for fixture in delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial; do
   expect_rejection "$fixture" normal
 done

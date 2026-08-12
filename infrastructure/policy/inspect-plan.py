@@ -39,7 +39,7 @@ RECOVERY_RESOURCE_TYPES = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("plan_json", type=Path)
-    parser.add_argument("--mode", choices=("normal", "recovery"), default="normal")
+    parser.add_argument("--mode", choices=("normal", "recovery", "vm-start-prerequisite"), default="normal")
     parser.add_argument("--allow-change-file", type=Path)
     parser.add_argument("--recovery-expectations", type=Path)
     return parser.parse_args()
@@ -215,9 +215,50 @@ def recovery_failure(
     return None
 
 
+def vm_start_prerequisite_failure(plan: dict[str, Any]) -> str | None:
+    changes = [
+        resource
+        for resource in plan.get("resource_changes", [])
+        if resource.get("change", {}).get("actions", []) not in ([], ["no-op"], ["read"])
+        or resource.get("change", {}).get("importing") is not None
+    ]
+    if len(changes) != 1:
+        return "VM-start prerequisite requires exactly one changed resource"
+    resource = changes[0]
+    change = resource.get("change", {})
+    if resource.get("address") != "proxmox_virtual_environment_vm.arch" or \
+            resource.get("type") != "proxmox_virtual_environment_vm" or \
+            change.get("actions") != ["update"] or change.get("importing") is not None:
+        return "VM-start prerequisite permits only an update-in-place of VM 100"
+    before, after = change.get("before"), change.get("after")
+    if not isinstance(before, dict) or not isinstance(after, dict) or \
+            before.get("vm_id") != 100 or after.get("vm_id") != 100 or \
+            before.get("protection") is not True or after.get("protection") is not True or \
+            before.get("started") is not False or after.get("started") is not True:
+        return "VM-start prerequisite identity, protection, or power transition differs"
+    computed = {("ipv4_addresses",), ("ipv6_addresses",), ("network_interface_names",)}
+    allowed = {("started",), *computed}
+    changed = changed_keys(before, after)
+    if ("started",) not in changed or not changed <= allowed:
+        return "VM-start prerequisite changes fields other than power state and computed network outputs"
+    unknown = change.get("after_unknown", {})
+    if value_at_path(unknown, ("started",)) is True:
+        return "VM-start prerequisite power result must be known"
+    if any(path in changed and value_at_path(unknown, path) is not True for path in computed):
+        return "VM-start prerequisite changed network outputs must be provider-computed"
+    return None
+
+
 def main() -> int:
     args = parse_args()
     plan = json.loads(args.plan_json.read_text())
+    if args.mode == "vm-start-prerequisite":
+        failure = vm_start_prerequisite_failure(plan)
+        if failure:
+            print(f"DENY: {failure}", file=sys.stderr)
+            return 1
+        print("plan policy passed: mode=vm-start-prerequisite actions=1")
+        return 0
     allow = set()
     recovery_expectations = load_recovery_expectations(args.recovery_expectations) if args.mode == "recovery" else {}
     mapping_resources: dict[str, list[dict[str, Any]]] = {}

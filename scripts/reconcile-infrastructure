@@ -258,7 +258,7 @@ proxmox_host_command() {
 }
 
 plan_proxmox_host() {
-  local allow_external=${1:-false} result status actions blockers plan_sha path expected_path file_sha external_only=false
+  local allow_external=${1:-false} result status actions blockers plan_sha path expected_path file_sha external_only=false prerequisite=none
   result=$(proxmox_host_command plan)
   [[ $result =~ ^status=(ready|blocked)[[:space:]]actions=([0-9]+)[[:space:]]blockers=([0-9]+)[[:space:]]planSha256=([0-9a-f]{64})[[:space:]]path=([^[:space:]]+)$ ]] || {
     echo "Proxmox Nix host planner returned an invalid result." >&2
@@ -269,10 +269,24 @@ plan_proxmox_host() {
   expected_path="$repo_root/.reconcile/plans/$plan_sha.json"
   [[ $path == "$expected_path" && -f $path && ! -L $path ]] || { echo "Proxmox Nix host saved plan path differs." >&2; exit 66; }
   if [[ $status == blocked && $allow_external == true && $actions == 0 ]]; then
-    jq -e '(.blockers | length) > 0 and all(.blockers[]; .domain == "opentofu" and .code == "opentofu-owner-required")' "$path" >/dev/null && external_only=true
+    if jq -e '(.blockers | length) > 0 and all(.blockers[]; .domain == "opentofu" and .code == "opentofu-owner-required")' "$path" >/dev/null; then
+      external_only=true
+      prerequisite=recovery-opentofu
+    elif [[ $phase == steady ]] && jq -e '
+      . as $plan |
+      ([ $plan.blockers[] | select(.domain == "opentofu" and .code == "opentofu-owner-required" and .target == "vm-100") ] | length) == 1 and
+      ([ $plan.blockers[] | select(.domain == "health" and .code == "review-required" and .target == "health") ] | length) == 1 and
+      ($plan.blockers | length) == 2 and
+      ([ $plan.findings[] | select(.domain == "opentofu" and .code == "opentofu-drift" and .target == "vm-100") ] | length) == 1 and
+      ([ $plan.findings[] | select(.domain == "health" and .code == "desired-state-drift" and .target == "health") ] | length) == 1 and
+      ($plan.findings | length) == 2
+    ' "$path" >/dev/null; then
+      external_only=true
+      prerequisite=vm-start
+    fi
   fi
   [[ ($status == ready && $blockers == 0) || $external_only == true ]] || {
-    echo "Proxmox Nix host plan is neither ready nor an external-owner-only recovery prerequisite." >&2; exit 66;
+    echo "Proxmox Nix host plan is neither ready nor an approved external-owner prerequisite." >&2; exit 66;
   }
   jq -e --arg sha "$plan_sha" --argjson actions "$actions" --arg status "$status" '
     .format == "home-lab-proxmox-plan-v1" and .mode == "steady" and .status == $status and
@@ -283,8 +297,8 @@ plan_proxmox_host() {
   }
   file_sha=$(sha256_file "$path")
   jq -cn --arg file ".reconcile/plans/$plan_sha.json" --arg plan_sha "$plan_sha" \
-    --arg file_sha "$file_sha" --argjson actions "$actions" --arg status "$status" --argjson external "$external_only" \
-    '{file: $file, file_sha256: $file_sha, plan_sha256: $plan_sha, actions: $actions, status: $status, external_owner_only: $external}'
+    --arg file_sha "$file_sha" --argjson actions "$actions" --arg status "$status" --argjson external "$external_only" --arg prerequisite "$prerequisite" \
+    '{file: $file, file_sha256: $file_sha, plan_sha256: $plan_sha, actions: $actions, status: $status, external_owner_only: $external, prerequisite: $prerequisite}'
 }
 
 verify_fresh_proxmox_host_noop() {
@@ -543,7 +557,7 @@ plan_all() {
 
   local root plan plan_log exit_code tailscale_live_policy_sha256 tailscale_policy_before_sha256 tailscale_policy_after_sha256 tailscale_policy_etag tailscale_policy_changed
   local planned_before_policy planned_after_policy compose_hash recovery_backup_identity_sha256 recovery_expectations_sha256 ansible_extra_vars_file_sha256 proxmox_host_plan
-  proxmox_host_plan=$(plan_proxmox_host "$([[ $phase == recovery ]] && echo true || echo false)")
+  proxmox_host_plan=$(plan_proxmox_host true)
   for root in "${roots[@]}"; do
     echo "Planning OpenTofu root: $root"
     backend_init "$root"
@@ -584,8 +598,11 @@ plan_all() {
         --live-before-sha "$tailscale_live_policy_sha256"
       [[ $tailscale_policy_after_sha256 == "$tailscale_policy_before_sha256" ]] || tailscale_policy_changed=true
     fi
-
-    mapfile -d '' -t inspect_args < <(policy_args "$root")
+    if [[ $root == proxmox && $(jq -r .prerequisite <<<"$proxmox_host_plan") == vm-start ]]; then
+      inspect_args=(--mode vm-start-prerequisite)
+    else
+      mapfile -d '' -t inspect_args < <(policy_args "$root")
+    fi
     TOFU_PLAN_CHDIR="infrastructure/tofu/$root" ./scripts/inspect-tofu-plan "$plan" "${inspect_args[@]}"
     jq -cn \
       --arg root "$root" \
@@ -617,7 +634,7 @@ plan_all() {
     --arg recovery_expectations_sha256 "$recovery_expectations_sha256" \
     --arg ansible_extra_vars_file_sha256 "$ansible_extra_vars_file_sha256" \
     --argjson proxmox_host_plan "$proxmox_host_plan" \
-    --arg stage "$(jq -r 'if .external_owner_only then "external-owner-prerequisite" else "converge" end' <<<"$proxmox_host_plan")" \
+    --arg stage "$(jq -r 'if .prerequisite == "vm-start" then "vm-start-prerequisite" elif .external_owner_only then "external-owner-prerequisite" else "converge" end' <<<"$proxmox_host_plan")" \
     '{version: 5, commit: $commit, phase: $phase, stage: $stage,
       backend_bucket: $backend_bucket,
       ansible_extra_vars_file_sha256: $ansible_extra_vars_file_sha256,
@@ -640,7 +657,7 @@ verify_manifest() {
     .version == 5 and
     (.commit | test("^[0-9a-f]{40}$")) and
     (.phase == "steady" or .phase == "recovery") and
-    (.stage == "converge" or (.phase == "recovery" and .stage == "external-owner-prerequisite")) and
+    (.stage == "converge" or (.phase == "recovery" and .stage == "external-owner-prerequisite") or (.phase == "steady" and .stage == "vm-start-prerequisite")) and
     (.backend_bucket | type) == "string" and
     (.compose_artifact_sha256 | test("^[0-9a-f]{64}$")) and
     (.ansible_extra_vars_file_sha256 | type) == "string" and
@@ -654,12 +671,13 @@ verify_manifest() {
       .recovery_expectations_sha256 == ""
     end) and
     (.proxmox_host_plan | type) == "object" and
-    ((.proxmox_host_plan | keys | sort) == (["actions", "external_owner_only", "file", "file_sha256", "plan_sha256", "status"] | sort)) and
+    ((.proxmox_host_plan | keys | sort) == (["actions", "external_owner_only", "file", "file_sha256", "plan_sha256", "prerequisite", "status"] | sort)) and
     (.proxmox_host_plan.file == (".reconcile/plans/" + .proxmox_host_plan.plan_sha256 + ".json")) and
     (.proxmox_host_plan.file_sha256 | test("^[0-9a-f]{64}$")) and
     (.proxmox_host_plan.plan_sha256 | test("^[0-9a-f]{64}$")) and
     (.proxmox_host_plan.actions | type) == "number" and .proxmox_host_plan.actions >= 0 and
-    (.proxmox_host_plan.external_owner_only == (.stage == "external-owner-prerequisite")) and
+    (.proxmox_host_plan.external_owner_only == (.stage != "converge")) and
+    (.proxmox_host_plan.prerequisite == (if .stage == "converge" then "none" elif .stage == "vm-start-prerequisite" then "vm-start" else "recovery-opentofu" end)) and
     (.proxmox_host_plan.status == (if .stage == "converge" then "ready" else "blocked" end)) and
     ((keys | sort) == (["ansible_extra_vars_file_sha256", "backend_bucket", "commit", "compose_artifact_sha256", "phase", "plans", "proxmox_host_plan", "recovery_backup_identity_sha256", "recovery_expectations_sha256", "stage", "version"] | sort))
   ' "$manifest" >/dev/null || {
@@ -679,10 +697,18 @@ verify_manifest() {
     exit 66
   }
   jq -e --arg sha "$proxmox_host_sha" --argjson actions "$(jq -r .proxmox_host_plan.actions "$manifest")" --arg stage "$(jq -r .stage "$manifest")" '
+    . as $plan |
     .format == "home-lab-proxmox-plan-v1" and .mode == "steady" and .planSha256 == $sha and (.actions | length) == $actions and
     (if $stage == "converge" then .status == "ready" and .applyEligible == true and .blockers == []
-     else .status == "blocked" and .applyEligible == false and .actions == [] and (.blockers | length) > 0 and
-       all(.blockers[]; .domain == "opentofu" and .code == "opentofu-owner-required") end)
+     elif $stage == "external-owner-prerequisite" then .status == "blocked" and .applyEligible == false and .actions == [] and (.blockers | length) > 0 and
+       all(.blockers[]; .domain == "opentofu" and .code == "opentofu-owner-required")
+     else .status == "blocked" and .applyEligible == false and .actions == [] and
+       ([ $plan.blockers[] | select(.domain == "opentofu" and .code == "opentofu-owner-required" and .target == "vm-100") ] | length) == 1 and
+       ([ $plan.blockers[] | select(.domain == "health" and .code == "review-required" and .target == "health") ] | length) == 1 and
+       ($plan.blockers | length) == 2 and
+       ([ $plan.findings[] | select(.domain == "opentofu" and .code == "opentofu-drift" and .target == "vm-100") ] | length) == 1 and
+       ([ $plan.findings[] | select(.domain == "health" and .code == "desired-state-drift" and .target == "health") ] | length) == 1 and
+       ($plan.findings | length) == 2 end)
   ' "$proxmox_host_path" >/dev/null || {
     echo "saved Proxmox Nix host plan binding is invalid" >&2
     exit 66
@@ -728,6 +754,16 @@ verify_manifest() {
     echo "saved-plan manifest root set, paths, or hashes are invalid" >&2
     exit 66
   }
+  if [[ $(jq -r .stage "$manifest") == vm-start-prerequisite ]]; then
+    jq -e '
+      (.plans[] | select(.root == "aws-foundation") | .changed) == false and
+      (.plans[] | select(.root == "proxmox-legacy") | .changed) == false and
+      (.plans[] | select(.root == "proxmox") | .changed) == true
+    ' "$manifest" >/dev/null || {
+      echo "VM-start prerequisite requires AWS and legacy Proxmox no-ops plus one Proxmox change." >&2
+      exit 66
+    }
+  fi
 
   local root file expected expected_policy_before_sha256 expected_policy_after_sha256
   while IFS=$'\t' read -r root file expected; do
@@ -740,7 +776,11 @@ verify_manifest() {
       tailscale_verify_planned_policy_hashes "$plan_dir/$file" \
         "$expected_policy_before_sha256" "$expected_policy_after_sha256"
     fi
-    mapfile -d '' -t inspect_args < <(policy_args "$root")
+    if [[ $root == proxmox && $(jq -r .stage "$manifest") == vm-start-prerequisite ]]; then
+      inspect_args=(--mode vm-start-prerequisite)
+    else
+      mapfile -d '' -t inspect_args < <(policy_args "$root")
+    fi
     TOFU_PLAN_CHDIR="infrastructure/tofu/$root" ./scripts/inspect-tofu-plan "$plan_dir/$file" "${inspect_args[@]}"
   done < <(jq -r '.plans[] | [.root, .file, .sha256] | @tsv' "$manifest")
 }
@@ -1024,6 +1064,11 @@ case "$action" in
       popd >/dev/null
     else
       apply_root proxmox-legacy
+      if [[ $(jq -r .stage "$plan_dir/manifest.json") == vm-start-prerequisite ]]; then
+        apply_root proxmox
+        echo "steady_stage=vm-start-prerequisite status=applied requires_new_reviewed_plan=true"
+        exit 0
+      fi
       prepare_apply_proxmox_host
       apply_root proxmox
       pushd ansible >/dev/null
