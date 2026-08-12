@@ -349,7 +349,7 @@ exit 86
             ]
             self.assertGreaterEqual(len(tailscale_shows), 3)
             self.assertTrue(all(tailscale_init < index for index in tailscale_shows))
-            self.assertFalse((reconcile_root / "controller-apply.lock").exists())
+            self.assertTrue((reconcile_root / "controller-apply.lock").is_file())
 
 
 if __name__ == "__main__":

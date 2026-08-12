@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import fcntl
 import json
 import os
 import re
@@ -13,6 +12,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+import controller_lock as controller_lock_protocol
 import planner
 
 PROTOCOL = 4
@@ -306,41 +306,13 @@ def verify_final_observation(observation: dict[str, Any], projection: dict[str, 
         raise ValueError("final full audit observation differs")
 
 
-def controller_lock(repo: Path, owner: dict[str, Any]) -> tuple[int, int]:
-    """Hold a descriptor flock; the fixed metadata file is inert after process death."""
-    reconcile_fd = os.open(repo / ".reconcile", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    try:
-        info = os.fstat(reconcile_fd)
-        if not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o700 or info.st_uid != os.geteuid():
-            raise ValueError("controller reconciliation root must be a user-owned real mode-0700 directory")
-        fd = os.open("controller-apply.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600, dir_fd=reconcile_fd)
-        try:
-            lock_info = os.fstat(fd)
-            if not stat.S_ISREG(lock_info.st_mode) or stat.S_IMODE(lock_info.st_mode) != 0o600 or \
-                    lock_info.st_uid != os.geteuid() or lock_info.st_nlink != 1:
-                raise ValueError("controller mutex must be a user-owned mode-0600 single-link regular file")
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as error:
-                raise ValueError("controller apply mutex is already held") from error
-            content = planner.canonical_json(owner)
-            os.ftruncate(fd, 0)
-            os.lseek(fd, 0, os.SEEK_SET)
-            os.write(fd, content)
-            os.fsync(fd)
-            os.fsync(reconcile_fd)
-        except Exception:
-            os.close(fd)
-            raise
-        return reconcile_fd, fd
-    except Exception:
-        os.close(reconcile_fd)
-        raise
+def controller_lock(repo: Path, owner: dict[str, Any]) -> controller_lock_protocol.LockHandle:
+    """Acquire the mutex directly or validate the reconciler's inherited ownership."""
+    return controller_lock_protocol.acquire_or_borrow(repo, owner)
 
 
-def release_controller_lock(reconcile_fd: int, lock_fd: int) -> None:
-    os.close(lock_fd)
-    os.close(reconcile_fd)
+def release_controller_lock(handle: controller_lock_protocol.LockHandle) -> None:
+    controller_lock_protocol.release(handle)
 
 
 def validate_host_status(response: Any, plan: dict[str, Any], session_id: str) -> dict[str, Any] | None:
@@ -405,9 +377,9 @@ def apply(args: Any, bundle_path: Path, hash_path: Path, source_root: Path) -> s
     sidecar_fresh = validate_private(sidecar, plan, metadata, now, require_fresh=False)
     session_id = sidecar["hostSession"]["id"]
     started_at = sidecar["createdAt"]
-    owner = {"hostSessionId": session_id, "operation": "proxmox-guarded-apply", "planSha256": args.plan_sha,
-             "startedAt": started_at}
-    reconcile_fd, lock_fd = controller_lock(repo, owner)
+    owner = {"gitCommit": bindings["gitCommit"], "hostSessionId": session_id,
+             "operation": "proxmox-guarded-apply", "planSha256": args.plan_sha, "startedAt": started_at}
+    lock_handle = controller_lock(repo, owner)
     begun = False
     action_manifest_sha = planner.digest(plan["actions"])
     try:
@@ -485,4 +457,4 @@ def apply(args: Any, bundle_path: Path, hash_path: Path, source_root: Path) -> s
                 raise ValueError(f"apply failed ({primary_error}); rollback failed or remained ambiguous ({rollback_error})") from rollback_error
         raise
     finally:
-        release_controller_lock(reconcile_fd, lock_fd)
+        release_controller_lock(lock_handle)

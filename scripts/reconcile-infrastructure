@@ -30,6 +30,7 @@ EOF
 }
 
 (($# >= 1)) || usage
+reconcile_original_args=("$@")
 action=$1
 shift
 case "$action" in validate|plan|apply|verify) ;; *) usage ;; esac
@@ -92,6 +93,7 @@ if [[ $action == validate ]]; then
   proxmox_nix_source=$(nix flake archive 'path:./nix' --json | jq -er .path)
   PROXMOX_NIX_SOURCE_STORE_PATH=$proxmox_nix_source \
     python3 scripts/controller/test-proxmox-nix-foundation.py
+  python3 scripts/controller/test-controller-apply-lock.py
   python3 scripts/controller/test-proxmox-nix-plan.py
   python3 scripts/controller/test-proxmox-nix-apply.py
   python3 scripts/controller/test-proxmox-nix-bootstrap.py
@@ -980,30 +982,19 @@ verify_all() {
 }
 
 
-apply_lock_dir="$repo_root/.reconcile/controller-apply.lock"
-apply_lock_acquired=false
-
-cleanup_apply_lock() {
-  if [[ $apply_lock_acquired == true ]]; then
-    rm -f "$apply_lock_dir/owner"
-    rmdir "$apply_lock_dir" 2>/dev/null || true
-    apply_lock_acquired=false
-  fi
-}
-
 acquire_apply_lock() {
-  mkdir -p "$repo_root/.reconcile"
-  if ! mkdir "$apply_lock_dir" 2>/dev/null; then
-    echo "another controller apply holds $apply_lock_dir" >&2
-    exit 75
+  if [[ -z ${RECONCILE_CONTROLLER_LOCK_TOKEN:-} && -z ${RECONCILE_CONTROLLER_LOCK_FD:-} ]]; then
+    exec python3 scripts/controller/controller-apply-lock.py run \
+      --repo-root "$repo_root" --commit "$commit" --phase "$phase" -- \
+      "$repo_root/scripts/reconcile-infrastructure" "${reconcile_original_args[@]}"
   fi
-  chmod 0700 "$apply_lock_dir"
-  printf 'pid=%s commit=%s phase=%s\n' "$$" "$commit" "$phase" >"$apply_lock_dir/owner"
-  chmod 0600 "$apply_lock_dir/owner"
-  apply_lock_acquired=true
+  [[ -n ${RECONCILE_CONTROLLER_LOCK_TOKEN:-} && -n ${RECONCILE_CONTROLLER_LOCK_FD:-} ]] || {
+    echo "controller apply lock inheritance is incomplete" >&2
+    exit 66
+  }
+  python3 scripts/controller/controller-apply-lock.py verify \
+    --repo-root "$repo_root" --commit "$commit" --phase "$phase"
 }
-
-trap cleanup_apply_lock EXIT
 case "$action" in
   plan)
     plan_all

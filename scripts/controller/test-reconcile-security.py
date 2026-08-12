@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 from pathlib import Path
 import shutil
@@ -105,7 +106,12 @@ class ReconcileSecurityTests(unittest.TestCase):
         apply_section = self.controller[confirm:]
         self.assertNotIn("load_credentials plan", apply_section)
 
-    def test_reconciler_always_owns_the_apply_lock(self) -> None:
+    def test_reconciler_owns_and_verifies_one_inherited_apply_lock(self) -> None:
+        self.assertIn("controller-apply-lock.py run", self.reconciler)
+        self.assertIn("controller-apply-lock.py verify", self.reconciler)
+        self.assertIn("RECONCILE_CONTROLLER_LOCK_TOKEN", self.reconciler)
+        self.assertIn("RECONCILE_CONTROLLER_LOCK_FD", self.reconciler)
+        self.assertNotIn('mkdir "$apply_lock_dir"', self.reconciler)
         self.assertNotIn("RECONCILE_APPLY_LOCK_HELD", self.reconciler)
         self.assertNotIn("RECONCILE_APPLY_LOCK_HELD", self.controller)
         self.assertNotIn("acquire_apply_lock", self.controller)
@@ -138,19 +144,25 @@ class ReconcileSecurityTests(unittest.TestCase):
 
     def test_caller_flag_cannot_bypass_existing_apply_lock(self) -> None:
         reconcile_root = REPOSITORY / ".reconcile"
-        reconcile_root.mkdir(exist_ok=True)
-        lock_dir = reconcile_root / "controller-apply.lock"
-        if lock_dir.exists():
-            self.skipTest("a real controller apply lock already exists")
-        real_git = shutil.which("git")
-        self.assertIsNotNone(real_git)
-        with tempfile.TemporaryDirectory(dir=reconcile_root) as directory:
-            temporary = Path(directory)
-            binaries = temporary / "bin"
-            binaries.mkdir()
-            git = binaries / "git"
-            git.write_text(
-                f'''#!/usr/bin/env bash
+        reconcile_root.mkdir(exist_ok=True, mode=0o700)
+        lock_path = reconcile_root / "controller-apply.lock"
+        self.assertFalse(lock_path.is_dir(), "legacy directory lock must not exist")
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        os.fchmod(lock_fd, 0o600)
+        try:
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                self.skipTest("a real controller apply lock is already held")
+            real_git = shutil.which("git")
+            self.assertIsNotNone(real_git)
+            with tempfile.TemporaryDirectory(dir=reconcile_root) as directory:
+                temporary = Path(directory)
+                binaries = temporary / "bin"
+                binaries.mkdir()
+                git = binaries / "git"
+                git.write_text(
+                    f'''#!/usr/bin/env bash
 set -euo pipefail
 if [[ ${{1:-}} == rev-parse && ${{2:-}} == HEAD ]]; then
   printf '%040d\\n' 0
@@ -160,12 +172,12 @@ else
   exec {real_git} "$@"
 fi
 '''
-            )
-            git.chmod(git.stat().st_mode | stat.S_IXUSR)
-            lock_dir.mkdir(mode=0o700)
-            (lock_dir / "owner").write_text("pid=1 commit=other phase=steady\n")
-            (lock_dir / "owner").chmod(0o600)
-            try:
+                )
+                git.chmod(git.stat().st_mode | stat.S_IXUSR)
+                for name in ("tofu", "ansible", "ansible-playbook"):
+                    stub = binaries / name
+                    stub.write_text("#!/usr/bin/env bash\nexit 0\n")
+                    stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
                 result = subprocess.run(
                     [
                         str(REPOSITORY / "scripts/reconcile-infrastructure"),
@@ -189,11 +201,11 @@ fi
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
-            finally:
-                (lock_dir / "owner").unlink(missing_ok=True)
-                lock_dir.rmdir()
             self.assertEqual(result.returncode, 75, result.stderr)
             self.assertIn("another controller apply holds", result.stderr)
+        finally:
+            os.close(lock_fd)
+        self.assertTrue(lock_path.is_file())
 
 
 if __name__ == "__main__":

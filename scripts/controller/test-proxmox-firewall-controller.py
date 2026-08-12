@@ -19,7 +19,7 @@ def load():
 class ControllerTests(unittest.TestCase):
  def setUp(self):
   self.m=load(); self.temp=tempfile.TemporaryDirectory(); root=Path(self.temp.name)
-  self.m.PLAN_DIR=root/"plans"; self.m.LOCK=root/"controller.lock"; self.m.CONFIG=root/"config.json"; self.m.KEY=root/"key"; self.m.PROTECTED_UID=os.getuid(); self.m.PROTECTED_GID=os.getgid()
+  self.m.LOCK_ROOT=root; self.m.PLAN_DIR=root/"plans"; self.m.CONFIG=root/"config.json"; self.m.KEY=root/"key"; self.m.PROTECTED_UID=os.getuid(); self.m.PROTECTED_GID=os.getgid()
   self.m.KEY.write_bytes(b"c"*32); self.m.KEY.chmod(0o600)
   self.config={"archNfsSshTarget":"ansible-deploy@arch-canary","lanSshTarget":"tofu-apply@lan-canary",
    "lanTlsUrl":"https://lan-canary:8006/api2/json/version","pveCaPem":"-----BEGIN CERTIFICATE-----\nopaque\n-----END CERTIFICATE-----",
@@ -37,8 +37,8 @@ class ControllerTests(unittest.TestCase):
   with mock.patch.object(self.m,"git_identity",return_value=("a"*40,"b"*40)),mock.patch.object(self.m,"host",return_value=self.inspection),mock.patch.object(self.m,"canaries",return_value=matched):
    result=self.m.make_plan()
   sha=result.rsplit("=",1)[1]; return sha
- def test_controller_lock_is_removed_while_still_owned(self):
-  descriptor=self.m.controller_lock(); self.assertTrue(self.m.LOCK.is_file()); self.m.release_controller_lock(descriptor); self.assertFalse(self.m.LOCK.exists())
+ def test_controller_lock_is_persistent_and_released_by_descriptor_close(self):
+  handle=self.m.controller_lock("a"*40); lock=self.m.LOCK_ROOT/".reconcile/controller-apply.lock"; self.assertTrue(lock.is_file()); self.m.release_controller_lock(handle); self.assertTrue(lock.is_file()); self.assertEqual(json.loads(lock.read_bytes()),{"gitCommit":"a"*40,"operation":"proxmox-firewall-apply"})
  def test_plan_is_exact_private_and_no_protected_values_public(self):
   sha=self.create(); plan=json.loads((self.m.PLAN_DIR/f"{sha}.json").read_bytes()); private=json.loads((self.m.PLAN_DIR/f"{sha}.private.json").read_bytes())
   text=(self.m.PLAN_DIR/f"{sha}.json").read_text()

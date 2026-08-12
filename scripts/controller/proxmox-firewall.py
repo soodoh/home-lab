@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import datetime as dt
-import fcntl
 import hashlib
 import hmac
 import json
@@ -23,11 +22,15 @@ import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(ROOT / "nix/proxmox"))
+import controller_lock as controller_lock_protocol
+
 PLAN_DIR = ROOT / ".reconcile/proxmox-firewall"
 CONFIG = Path.home() / ".config/home-lab/controller/proxmox-firewall-canaries.json"
 KEY = Path.home() / ".config/home-lab/controller/proxmox-firewall-controller.key"
-LOCK = ROOT / ".reconcile/controller-apply.lock"
 HELPER_SOURCE = ROOT / "infrastructure/proxmox-firewall/host/proxmox-firewall-transaction.py"
+LOCK_ROOT = ROOT
 POLICY_SOURCE = ROOT / "nix/proxmox/projection.json"
 PLAN_SCHEMA = ROOT / "infrastructure/policy/proxmox-firewall-plan.schema.json"
 PRIVATE_SCHEMA = ROOT / "infrastructure/policy/proxmox-firewall-private.schema.json"
@@ -398,45 +401,20 @@ def load_plan(plan_sha: str) -> tuple[dict[str, Any], dict[str, Any]]:
     return plan, sidecar
 
 
-def controller_lock() -> int:
-    LOCK.parent.mkdir(exist_ok=True, mode=0o700)
-    parent = LOCK.parent.lstat()
-    if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.getuid() or stat.S_IMODE(parent.st_mode) != 0o700:
-        raise ValueError("controller lock directory differs")
-    fd = os.open(LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-    try:
-        os.fchmod(fd, 0o600)
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1:
-            raise ValueError("controller lock metadata differs")
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return fd
-    except Exception:
-        os.close(fd)
-        raise
+def controller_lock(commit: str) -> controller_lock_protocol.LockHandle:
+    owner = {"gitCommit": commit, "operation": "proxmox-firewall-apply"}
+    return controller_lock_protocol.acquire_or_borrow(LOCK_ROOT, owner)
 
 
-def release_controller_lock(fd: int) -> None:
-    try:
-        path_info = LOCK.lstat()
-        file_info = os.fstat(fd)
-        if not stat.S_ISREG(path_info.st_mode) or (path_info.st_dev, path_info.st_ino) != (file_info.st_dev, file_info.st_ino):
-            raise ValueError("controller lock identity differs")
-        LOCK.unlink()
-        directory = os.open(LOCK.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
-    finally:
-        os.close(fd)
+def release_controller_lock(handle: controller_lock_protocol.LockHandle) -> None:
+    controller_lock_protocol.release(handle)
 
 
 def apply(plan_sha: str, approved: str) -> str:
     if plan_sha != approved:
         raise ValueError("explicit plan approval differs")
     plan, sidecar = load_plan(plan_sha)
-    lock = controller_lock()
+    lock = controller_lock(plan["git"]["commit"])
     try:
         fresh_baseline = canaries(sidecar["configuration"])
         if set(fresh_baseline) != set(CHECKS) or any(value is not True for value in fresh_baseline.values()):
@@ -508,6 +486,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (BlockingIOError, OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
+    except (BlockingIOError, controller_lock_protocol.LockContentionError, OSError, RuntimeError, ValueError, json.JSONDecodeError, subprocess.TimeoutExpired):
         print("proxmox-firewall: fixed operation failed", file=sys.stderr)
         raise SystemExit(1)

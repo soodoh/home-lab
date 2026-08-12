@@ -64,7 +64,7 @@ Plan credentials are read-only. Apply verifies the saved-plan identity and requi
 
 ## Locks and Tailscale concurrency
 
-`reconcile-infrastructure apply` itself exclusively acquires and owns the controller-wide `.reconcile/controller-apply.lock`; callers cannot claim that the lock is already held. The lock spans OpenTofu, Ansible, Compose, and final verification. Every root also uses the native S3 state lock.
+`reconcile-infrastructure apply` itself exclusively acquires and owns one nonblocking descriptor `flock` on the persistent regular file `.reconcile/controller-apply.lock`; callers cannot claim that the lock is already held. A fixed supervisor writes canonical ownership metadata, re-executes the reconciler with an inherited descriptor and ephemeral token, and the reconciler validates both before continuing. Nested Proxmox host/firewall apply paths validate and borrow that same ownership rather than reacquiring or unlinking the mutex. The lock spans OpenTofu, Ansible, Compose, and final verification; process exit releases it while the inert metadata file remains. Every root also uses the native S3 state lock.
 
 For the Tailscale root, planning records the canonical live policy SHA-256 and HTTP ETag as well as the planned before/after SHA-256 values. Apply refuses unrelated live drift, uses `If-Match`, verifies the resulting policy hash, and proves that live policy equals the state-held policy. The terminal policy retains direct owner/admin access required for Proxmox and Omada, including TCP 8043 to the Docker host.
 

@@ -225,8 +225,52 @@ class ProxmoxNixApplyTests(unittest.TestCase):
                     guarded_apply.controller_lock(root, {"operation": "second"})
                 transport.assert_not_called()
             finally:
-                guarded_apply.release_controller_lock(*first)
+                guarded_apply.release_controller_lock(first)
             self.assertTrue((root / ".reconcile/controller-apply.lock").is_file())
+
+    def test_nested_controller_lock_validates_inherited_descriptor_or_token(self) -> None:
+        protocol = guarded_apply.controller_lock_protocol
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            token = "e" * 64
+            commit = "a" * 40
+            outer = protocol.acquire(root, protocol.outer_owner(commit, "steady", token, os.getpid()))
+            environment = {protocol.TOKEN_ENV: token, protocol.FD_ENV: str(outer.lock_fd)}
+            try:
+                with patch.dict(os.environ, environment, clear=False):
+                    nested = guarded_apply.controller_lock(
+                        root, {"gitCommit": commit, "operation": "nested-test"}
+                    )
+                    self.assertFalse(nested.owned)
+                    guarded_apply.release_controller_lock(nested)
+                with patch.dict(
+                    os.environ,
+                    {protocol.TOKEN_ENV: token, protocol.FD_ENV: "999999"},
+                    clear=False,
+                ):
+                    nested = guarded_apply.controller_lock(
+                        root, {"gitCommit": commit, "operation": "token-fallback-test"}
+                    )
+                    self.assertFalse(nested.owned)
+                    guarded_apply.release_controller_lock(nested)
+                with patch.dict(
+                    os.environ,
+                    {protocol.TOKEN_ENV: "f" * 64, protocol.FD_ENV: str(outer.lock_fd)},
+                    clear=False,
+                ), self.assertRaisesRegex(ValueError, "ownership metadata"):
+                    guarded_apply.controller_lock(
+                        root, {"gitCommit": commit, "operation": "forged-test"}
+                    )
+            finally:
+                protocol.release(outer)
+            with patch.dict(
+                os.environ,
+                {protocol.TOKEN_ENV: token, protocol.FD_ENV: "999999"},
+                clear=False,
+            ), self.assertRaisesRegex(ValueError, "not held"):
+                guarded_apply.controller_lock(
+                    root, {"gitCommit": commit, "operation": "stale-test"}
+                )
 
     def test_host_lock_contention_retention_and_free_space_fail_before_session_mutation(self) -> None:
         private = self.sidecar()
@@ -1050,7 +1094,7 @@ time.sleep(60)
                     guarded_apply.controller_lock(root, {"operation": "contender"})
                 child.kill(); child.wait(timeout=5)
                 recovered = guarded_apply.controller_lock(root, {"operation": "recovered"})
-                guarded_apply.release_controller_lock(*recovered)
+                guarded_apply.release_controller_lock(recovered)
                 lock = root / ".reconcile/controller-apply.lock"
                 self.assertTrue(lock.is_file())
                 self.assertEqual(json.loads(lock.read_bytes()), {"operation": "recovered"})
