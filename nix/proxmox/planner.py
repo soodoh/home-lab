@@ -47,8 +47,9 @@ TARGET_TYPES = {
 FORBIDDEN_KEYS = {"argv", "command", "executable", "payload", "script"}
 APPROVED_SOURCE_FILES = {
     "flake.lock", "flake.nix", "proxmox/activation-envelope.schema.json", "proxmox/activator-template.py",
-    "proxmox/apply.py", "proxmox/bundle.py", "proxmox/fixture-observation.json", "proxmox/observation.schema.json",
-    "proxmox/observer-template.py", "proxmox/package-manifest.json", "proxmox/package-manifest.schema.json",
+    "proxmox/apply.py", "proxmox/bundle.py", "proxmox/controller_lock.py", "proxmox/fixture-observation.json",
+    "proxmox/observation.schema.json", "proxmox/observer-template.py", "proxmox/package-manifest.json",
+    "proxmox/package-manifest.schema.json",
     "proxmox/plan.schema.json", "proxmox/planner.py", "proxmox/prepare.py", "proxmox/private-preconditions.schema.json",
     "proxmox/private-preparation-request.schema.json", "proxmox/private-preparer-template.py",
     "proxmox/projection.json", "proxmox/projection.schema.json",

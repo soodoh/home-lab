@@ -30,6 +30,8 @@ EXPECTED_SOURCE_FILES = {
 }
 
 sys.dont_write_bytecode = True
+sys.path.insert(0, str(NIX_ROOT / "proxmox"))
+import planner
 specification = importlib.util.spec_from_file_location("proxmox_bundle", BUILDER)
 if specification is None or specification.loader is None:
     raise RuntimeError("unable to load Proxmox bundle module")
@@ -74,6 +76,9 @@ class ProxmoxNixFoundationTests(unittest.TestCase):
             result = self.verify(bundle, content_hash, check=False)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(expected, result.stderr)
+
+    def test_runtime_planner_and_foundation_source_allowlists_match(self) -> None:
+        self.assertEqual(planner.APPROVED_SOURCE_FILES, EXPECTED_SOURCE_FILES)
 
     def test_sanitized_flake_source_contains_only_approved_inputs(self) -> None:
         self.assertFalse((ROOT / "flake.nix").exists())
