@@ -39,6 +39,7 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertNotIn("security ", self.controller)
         self.assertNotIn("keychain", self.controller)
         self.assertNotIn("uname", setup)
+        self.assertIn('[[ -n ${NIX_SSL_CERT_FILE:-} && -r $NIX_SSL_CERT_FILE ]]', self.provider_bundle)
         self.assertIn('"$HOME/Library/Keychains/login.keychain-db"', self.provider_bundle)
 
     def test_local_controller_exposes_only_plan_and_apply(self) -> None:

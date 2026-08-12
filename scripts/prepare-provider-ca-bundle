@@ -14,7 +14,10 @@ printf '%s' "$PROXMOX_CA_PEM" >.local/provider-ca/proxmox.pem
 openssl verify -CAfile .local/provider-ca/proxmox.pem .local/provider-ca/proxmox.pem >/dev/null
 
 : >.local/provider-ca/bundle.pem
-if [[ -f /etc/ssl/certs/ca-certificates.crt ]]; then
+if [[ -n ${NIX_SSL_CERT_FILE:-} && -r $NIX_SSL_CERT_FILE ]]; then
+  cat "$NIX_SSL_CERT_FILE" >>.local/provider-ca/bundle.pem
+  printf '\n' >>.local/provider-ca/bundle.pem
+elif [[ -f /etc/ssl/certs/ca-certificates.crt ]]; then
   cat /etc/ssl/certs/ca-certificates.crt >>.local/provider-ca/bundle.pem
   printf '\n' >>.local/provider-ca/bundle.pem
 elif [[ $(uname -s) == Darwin ]]; then
