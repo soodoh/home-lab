@@ -98,6 +98,25 @@ prepare_provider_tls() {
   export SSL_CERT_FILE="$repo_root/.local/provider-ca/bundle.pem"
 }
 
+use_prepared_provider_tls() {
+  local bundle="$repo_root/.local/provider-ca/bundle.pem"
+  PROVIDER_CA_BUNDLE="$bundle" python3 - <<'PY'
+import os
+from pathlib import Path
+import stat
+
+path = Path(os.environ["PROVIDER_CA_BUNDLE"])
+if not path.is_file() or path.is_symlink():
+    raise SystemExit("prepared provider CA bundle must be a regular file")
+metadata = path.stat()
+if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o600:
+    raise SystemExit("prepared provider CA bundle must be owned by the controller user with mode 0600")
+if metadata.st_size == 0:
+    raise SystemExit("prepared provider CA bundle must not be empty")
+PY
+  export SSL_CERT_FILE="$bundle"
+}
+
 run_validation() {
   scripts/reconcile-infrastructure validate
 }
@@ -238,6 +257,7 @@ case "$action" in
       "$operation" "$(jq -r .stage "$manifest")" "$commit" "$(manifest_sha256)"
     ;;
   apply)
+    use_prepared_provider_tls
     run_validation
     confirm_apply
     load_credentials apply

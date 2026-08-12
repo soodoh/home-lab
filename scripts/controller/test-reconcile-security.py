@@ -35,8 +35,16 @@ class ReconcileSecurityTests(unittest.TestCase):
         start = self.controller.index("prepare_provider_tls() {")
         end = self.controller.index("\n}\n", start) + 3
         setup = self.controller[start:end]
+        prepared_start = self.controller.index("use_prepared_provider_tls() {")
+        prepared_end = self.controller.index("\n}\n", prepared_start) + 3
+        prepared = self.controller[prepared_start:prepared_end]
         self.assertIn("scripts/prepare-provider-ca-bundle", setup)
         self.assertIn('export SSL_CERT_FILE="$repo_root/.local/provider-ca/bundle.pem"', setup)
+        self.assertIn("not path.is_file() or path.is_symlink()", prepared)
+        self.assertIn("metadata.st_uid != os.getuid()", prepared)
+        self.assertIn("stat.S_IMODE(metadata.st_mode) != 0o600", prepared)
+        self.assertIn("metadata.st_size == 0", prepared)
+        self.assertIn('export SSL_CERT_FILE="$bundle"', prepared)
         self.assertNotIn("security ", self.controller)
         self.assertNotIn("keychain", self.controller)
         self.assertNotIn("uname", setup)
@@ -97,11 +105,17 @@ class ReconcileSecurityTests(unittest.TestCase):
 
     def test_apply_confirms_before_loading_mutation_credentials(self) -> None:
         dispatch = self.controller.index('case "$action" in', self.controller.index("confirm_apply()"))
-        confirm = self.controller.index("confirm_apply", dispatch)
+        prepared = self.controller.index("use_prepared_provider_tls", dispatch)
+        validation = self.controller.index("run_validation", prepared)
+        confirm = self.controller.index("confirm_apply", validation)
         credentials = self.controller.index("load_credentials apply", confirm)
-        reconcile = self.controller.index("scripts/reconcile-infrastructure apply", credentials)
+        regenerated = self.controller.index("prepare_provider_tls", credentials)
+        reconcile = self.controller.index("scripts/reconcile-infrastructure apply", regenerated)
+        self.assertLess(prepared, validation)
+        self.assertLess(validation, confirm)
         self.assertLess(confirm, credentials)
-        self.assertLess(credentials, reconcile)
+        self.assertLess(credentials, regenerated)
+        self.assertLess(regenerated, reconcile)
         self.assertIn("interactive_confirmation_required", self.controller)
         apply_section = self.controller[confirm:]
         self.assertNotIn("load_credentials plan", apply_section)
