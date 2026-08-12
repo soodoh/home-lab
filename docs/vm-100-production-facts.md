@@ -33,8 +33,8 @@ node scripts/controller/validate-vm-100-facts.js \
 
 The collector invokes only read operations: `getent`, `id`, `docker info/volume ls/volume inspect`, `findmnt`, `statvfs`, `du`, `find`, `tune2fs -l`, and `age-keygen -y`.
 
-## Preliminary observation
+## Qualified observation
 
-A preliminary read-only run established the expected UID/GID, 30+3 volume set, mount families, and pending SOPS/application decisions. It was collected while this tooling was still uncommitted, so it is diagnostic only and is **not** qualified gate evidence.
+A read-only collection from pushed commit `2ee8690cc66440a3272913f9efd870756cfeac4e` passed the closed schema and semantic validator. The ignored canonical fact document had SHA-256 `17b651121b33a42408a13d6c6f4e59bb9f498fb5860a61af8c1a9319c999c263`.
 
-After this collector/validator revision is pushed, recollect against that exact pushed commit before consuming these facts in the NixOS base or storage configuration. Application import identifiers remain uncollected and block application OpenTofu authoring.
+It confirms UID/GID `1000:1000`, the exact 30 declared plus 3 protected legacy volume set, zero multiply-linked files in both copied roots, and expected ext4/NFS mount families. Application import identifiers, an independent recovery recipient, and a NixOS runtime recipient remain explicit blockers.
