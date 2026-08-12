@@ -172,13 +172,23 @@ function assertForbiddenValuesAbsent(content, label) {
 }
 assertForbiddenValuesAbsent(tracked, "tracked projection");
 
+function isPythonCachePath(scanRoot, current) {
+  const relative = path.relative(scanRoot, current);
+  return relative.split(path.sep).includes("__pycache__") && [".pyc", ".pyo"].includes(path.extname(relative));
+}
+if (!isPythonCachePath("/scan", "/scan/proxmox/__pycache__/planner.pyc")) throw new Error("Python cache predicate rejected pyc");
+if (!isPythonCachePath("/scan", "/scan/proxmox/__pycache__/planner.pyo")) throw new Error("Python cache predicate rejected pyo");
+for (const candidate of ["/scan/proxmox/planner.pyc", "/scan/proxmox/__pycache__/planner.py", "/scan/proxmox/unknown.txt"]) {
+  if (isPythonCachePath("/scan", candidate)) throw new Error(`Python cache predicate accepted ${candidate}`);
+}
+
 function scanTree(scanPath) {
   const files = [];
   function visit(current) {
     const currentStat = fs.lstatSync(current);
     if (currentStat.isSymbolicLink()) throw new Error(`scan path contains a symlink: ${current}`);
     if (currentStat.isFile()) {
-      files.push(current);
+      if (!isPythonCachePath(scanPath, current)) files.push(current);
       return;
     }
     if (!currentStat.isDirectory()) throw new Error(`scan path contains unsupported entry: ${current}`);
