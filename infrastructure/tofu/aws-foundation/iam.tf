@@ -4,6 +4,7 @@ locals {
     "home-lab/proxmox/tofu.tfstate",
     "home-lab/proxmox-legacy/tofu.tfstate",
     "home-lab/proxmox-lxc-qualification/tofu.tfstate",
+    "home-lab/proxmox-vm-qualification/tofu.tfstate",
     "home-lab/omada/tofu.tfstate",
     "home-lab/tailscale/tofu.tfstate",
   ]
