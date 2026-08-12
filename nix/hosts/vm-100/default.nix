@@ -8,6 +8,7 @@ in
     ./access.nix
     ./networking.nix
     ./storage.nix
+    ./hardware.nix
     ./disko.nix
     ./secrets.nix
   ];

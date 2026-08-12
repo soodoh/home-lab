@@ -16,7 +16,8 @@
     "workloadIdentity",
     "access",
     "networking",
-    "storage"
+    "storage",
+    "hardware"
   ],
   "properties": {
     "version": {
@@ -242,6 +243,154 @@
               "items": false,
               "minItems": 1,
               "maxItems": 1
+            }
+          }
+        }
+      }
+    },
+    "hardware": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kernelModules",
+        "gpu",
+        "bluetooth",
+        "input",
+        "serial",
+        "tun",
+        "qemuGuestAgent",
+        "sysctls"
+      ],
+      "properties": {
+        "kernelModules": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "uhid"
+            },
+            {
+              "const": "uinput"
+            }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "gpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "vendorDevice",
+            "renderNode",
+            "runtimePowerManagement"
+          ],
+          "properties": {
+            "vendorDevice": {
+              "const": "1002:744c"
+            },
+            "renderNode": {
+              "const": "/dev/dri/renderD128"
+            },
+            "runtimePowerManagement": {
+              "const": false
+            }
+          }
+        },
+        "bluetooth": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "vendorDevice"
+          ],
+          "properties": {
+            "vendorDevice": {
+              "const": "0bda:a729"
+            }
+          }
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "group",
+            "mode"
+          ],
+          "properties": {
+            "group": {
+              "const": "input"
+            },
+            "mode": {
+              "const": "0660"
+            }
+          }
+        },
+        "serial": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "vendor_device",
+            "group",
+            "mode",
+            "protected_symlinks"
+          ],
+          "properties": {
+            "vendor_device": {
+              "const": "10c4:ea60"
+            },
+            "group": {
+              "const": "uucp"
+            },
+            "mode": {
+              "const": "0660"
+            },
+            "protected_symlinks": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "const": "/dev/zigbee"
+                },
+                {
+                  "const": "/dev/zwave"
+                }
+              ],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        "tun": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path"
+          ],
+          "properties": {
+            "path": {
+              "const": "/dev/net/tun"
+            }
+          }
+        },
+        "qemuGuestAgent": {
+          "const": true
+        },
+        "sysctls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "fs.inotify.max_user_instances",
+            "fs.inotify.max_user_watches",
+            "user.max_user_namespaces"
+          ],
+          "properties": {
+            "fs.inotify.max_user_instances": {
+              "const": 1024
+            },
+            "fs.inotify.max_user_watches": {
+              "const": 1048576
+            },
+            "user.max_user_namespaces": {
+              "const": 28633
             }
           }
         }

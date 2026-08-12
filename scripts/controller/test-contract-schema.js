@@ -47,6 +47,10 @@ for (const mutate of [
   (value) => { value.vm_100.networking.ipv4 = "192.0.2.100/24"; },
   (value) => { value.vm_100.storage.games.filesystem_uuid = "00000000-0000-0000-0000-000000000000"; },
   (value) => { value.vm_100.storage.shared.source = "192.0.2.1:/wrong"; },
+  (value) => { value.vm_100.hardware.gpu.vendor_device = "0000:0000"; },
+  (value) => { value.vm_100.hardware.serial.protected_symlinks = ["/dev/zigbee"]; },
+  (value) => { value.vm_100.hardware.sysctls["user.max_user_namespaces"] = 0; },
+  (value) => { value.vm_100.hardware.tun.path = "/dev/wrong"; },
 ]) {
   const invalidBaseAccess = structuredClone(contract);
   mutate(invalidBaseAccess);
@@ -65,6 +69,13 @@ const closedRequiredPolicyObjects = [
   "vm_100.storage",
   "vm_100.storage.games",
   "vm_100.storage.shared",
+  "vm_100.hardware",
+  "vm_100.hardware.gpu",
+  "vm_100.hardware.bluetooth",
+  "vm_100.hardware.input",
+  "vm_100.hardware.serial",
+  "vm_100.hardware.tun",
+  "vm_100.hardware.sysctls",
   "network.ownership",
   "network.ownership.interfaces_file",
   "proxmox.grub",

@@ -55,6 +55,33 @@ vm_100:
       source: 192.168.0.123:/storage/docker
       options:
         - defaults
+  hardware:
+    kernel_modules:
+      - uhid
+      - uinput
+    gpu:
+      vendor_device: 1002:744c
+      render_node: /dev/dri/renderD128
+      runtime_power_management: false
+    bluetooth:
+      vendor_device: 0bda:a729
+    input:
+      group: input
+      mode: "0660"
+    serial:
+      vendor_device: 10c4:ea60
+      group: uucp
+      mode: "0660"
+      protected_symlinks:
+        - /dev/zigbee
+        - /dev/zwave
+    tun:
+      path: /dev/net/tun
+    qemu_guest_agent: true
+    sysctls:
+      fs.inotify.max_user_instances: 1024
+      fs.inotify.max_user_watches: 1048576
+      user.max_user_namespaces: 28633
 network:
   cidr: 192.168.0.0/24
   gateway: 192.168.0.1

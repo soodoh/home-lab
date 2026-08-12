@@ -174,7 +174,7 @@
   "$defs": {
     "vm100Scaffold": {
       "type": "object", "additionalProperties": false,
-      "required": ["vmid", "host_name", "network_identity", "system", "state_version", "deployment_authority", "nixos_activation_enabled", "workload_identity", "access", "networking", "storage"],
+      "required": ["vmid", "host_name", "network_identity", "system", "state_version", "deployment_authority", "nixos_activation_enabled", "workload_identity", "access", "networking", "storage", "hardware"],
       "properties": {
         "vmid": { "const": 100 },
         "host_name": { "const": "archlinux" },
@@ -253,8 +253,155 @@
               }
             }
           }
-        }
-      }
+        },
+        "hardware": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kernel_modules",
+            "gpu",
+            "bluetooth",
+            "input",
+            "serial",
+            "tun",
+            "qemu_guest_agent",
+            "sysctls"
+          ],
+          "properties": {
+            "kernel_modules": {
+              "type": "array",
+              "prefixItems": [
+                {
+                  "const": "uhid"
+                },
+                {
+                  "const": "uinput"
+                }
+              ],
+              "items": false,
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "gpu": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "vendor_device",
+                "render_node",
+                "runtime_power_management"
+              ],
+              "properties": {
+                "vendor_device": {
+                  "const": "1002:744c"
+                },
+                "render_node": {
+                  "const": "/dev/dri/renderD128"
+                },
+                "runtime_power_management": {
+                  "const": false
+                }
+              }
+            },
+            "bluetooth": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "vendor_device"
+              ],
+              "properties": {
+                "vendor_device": {
+                  "const": "0bda:a729"
+                }
+              }
+            },
+            "input": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "group",
+                "mode"
+              ],
+              "properties": {
+                "group": {
+                  "const": "input"
+                },
+                "mode": {
+                  "const": "0660"
+                }
+              }
+            },
+            "serial": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "vendor_device",
+                "group",
+                "mode",
+                "protected_symlinks"
+              ],
+              "properties": {
+                "vendor_device": {
+                  "const": "10c4:ea60"
+                },
+                "group": {
+                  "const": "uucp"
+                },
+                "mode": {
+                  "const": "0660"
+                },
+                "protected_symlinks": {
+                  "type": "array",
+                  "prefixItems": [
+                    {
+                      "const": "/dev/zigbee"
+                    },
+                    {
+                      "const": "/dev/zwave"
+                    }
+                  ],
+                  "items": false,
+                  "minItems": 2,
+                  "maxItems": 2
+                }
+              }
+            },
+            "tun": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "const": "/dev/net/tun"
+                }
+              }
+            },
+            "qemu_guest_agent": {
+              "const": true
+            },
+            "sysctls": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "fs.inotify.max_user_instances",
+                "fs.inotify.max_user_watches",
+                "user.max_user_namespaces"
+              ],
+              "properties": {
+                "fs.inotify.max_user_instances": {
+                  "const": 1024
+                },
+                "fs.inotify.max_user_watches": {
+                  "const": 1048576
+                },
+                "user.max_user_namespaces": {
+                  "const": 28633
+                }
+              }
+            }
+          }
+        }      }
     },
     "proxmoxPlanningPolicy": {
       "type": "object", "additionalProperties": false,

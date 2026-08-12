@@ -37,6 +37,8 @@ for (const mutation of [
   (value) => { value.vm_100.networking.match_mac = "AA:BB:CC:DD:EE:FF"; },
   (value) => { value.vm_100.storage.games.filesystem_uuid = "00000000-0000-0000-0000-000000000000"; },
   (value) => { value.vm_100.storage.shared.source = "192.0.2.1:/wrong"; },
+  (value) => { value.vm_100.hardware.gpu.vendor_device = "0000:0000"; },
+  (value) => { value.vm_100.hardware.bluetooth.vendor_device = "0000:0000"; },
 ]) {
   const invalid = structuredClone(contract);
   mutation(invalid);
@@ -47,8 +49,9 @@ for (const mutation of [
 
 const excluded = structuredClone(contract);
 excluded.proxmox.vm.smbios_uuid = "00000000-0000-0000-0000-000000000000";
-excluded.proxmox.vm.pci = {};
-excluded.proxmox.vm.usb = {};
+excluded.proxmox.vm.pci.coral = {};
+excluded.proxmox.vm.usb.zigbee = {};
+excluded.proxmox.vm.usb.zwave = {};
 if (canonicalJson(projectVm100Scaffold(excluded)) !== rendered) {
   throw new Error("unprojected protected hardware values changed VM 100 projection");
 }
@@ -60,7 +63,7 @@ for (const forbidden of [
 ]) {
   if (tracked.includes(forbidden)) throw new Error(`VM 100 projection contains protected value ${JSON.stringify(forbidden)}`);
 }
-if (/secret|recipient|sops|smbios|pci|usb|authorizedKey/iu.test(tracked)) {
+if (/secret|recipient|sops|smbios|authorizedKey/iu.test(tracked)) {
   throw new Error("VM 100 projection contains a forbidden protected-domain key or login key");
 }
 

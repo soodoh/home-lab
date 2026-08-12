@@ -330,6 +330,7 @@ function projectVm100Scaffold(contract) {
   const access = vm.access;
   const networking = vm.networking;
   const storage = vm.storage;
+  const hardware = vm.hardware;
   if (networking.interface !== contract.arch.network_interface || networking.match_mac !== contract.network.arch.mac ||
       networking.ipv4 !== contract.network.arch.ipv4 || networking.gateway !== contract.network.gateway ||
       JSON.stringify(networking.dns) !== JSON.stringify(contract.network.dns) ||
@@ -338,6 +339,10 @@ function projectVm100Scaffold(contract) {
       storage.shared.mountpoint !== contract.storage.nfs.mountpoint ||
       storage.shared.source !== `${contract.network.proxmox.ipv4.split("/")[0]}:${contract.storage.nfs.export}`) {
     throw new Error("VM 100 networking or storage differs from existing contract authority");
+  }
+  if (hardware.gpu.vendor_device !== contract.proxmox.vm.pci.gpu.vendor_device ||
+      hardware.bluetooth.vendor_device !== contract.proxmox.vm.usb.bluetooth.vendor_device) {
+    throw new Error("VM 100 hardware identity differs from existing protected hardware authority");
   }
   if (identity.user !== identity.primary_group || identity.uid !== identity.gid || access.authorized_login_keys !== 0) {
     throw new Error("VM 100 base identity or console-only access selection differs");
@@ -391,6 +396,20 @@ function projectVm100Scaffold(contract) {
         source: storage.shared.source,
         options: storage.shared.options,
       },
+    },
+    hardware: {
+      kernelModules: hardware.kernel_modules,
+      gpu: {
+        vendorDevice: hardware.gpu.vendor_device,
+        renderNode: hardware.gpu.render_node,
+        runtimePowerManagement: hardware.gpu.runtime_power_management,
+      },
+      bluetooth: { vendorDevice: hardware.bluetooth.vendor_device },
+      input: hardware.input,
+      serial: hardware.serial,
+      tun: hardware.tun,
+      qemuGuestAgent: hardware.qemu_guest_agent,
+      sysctls: hardware.sysctls,
     },
   };
 }

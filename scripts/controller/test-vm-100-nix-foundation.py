@@ -67,6 +67,19 @@ class Vm100NixFoundationTests(unittest.TestCase):
         self.assertEqual((games["device"], games["fsType"], games["options"], games["autoFormat"]), ("/dev/disk/by-uuid/31602ce7-0054-498a-9f24-f51ca491e7b3", "ext4", ["noatime"], False))
         shared = json.loads(self.nix_eval('nixosConfigurations.vm-100.config.fileSystems."/mnt/storage"'))
         self.assertEqual((shared["device"], shared["fsType"], shared["options"], shared["autoFormat"]), ("192.168.0.123:/storage/docker", "nfs4", ["defaults"], False))
+        modules = json.loads(self.nix_eval("nixosConfigurations.vm-100.config.boot.kernelModules"))
+        self.assertTrue({"uhid", "uinput", "tun"}.issubset(modules))
+        self.assertIn("options amdgpu runpm=0", json.loads(self.nix_eval("nixosConfigurations.vm-100.config.boot.extraModprobeConfig")))
+        sysctls = json.loads(self.nix_eval("nixosConfigurations.vm-100.config.boot.kernel.sysctl"))
+        self.assertEqual({key: sysctls[key] for key in ("fs.inotify.max_user_instances", "fs.inotify.max_user_watches", "user.max_user_namespaces")}, {"fs.inotify.max_user_instances": 1024, "fs.inotify.max_user_watches": 1048576, "user.max_user_namespaces": 28633})
+        self.assertTrue(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.services.qemuGuest.enable")))
+        self.assertTrue(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.hardware.graphics.enable")))
+        self.assertTrue(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.hardware.bluetooth.enable")))
+        rules = json.loads(self.nix_eval("nixosConfigurations.vm-100.config.services.udev.extraRules"))
+        for expected in ('KERNEL=="uinput", GROUP="input", MODE="0660"', 'KERNEL=="uhid", GROUP="input", MODE="0660"', 'ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", GROUP="uucp", MODE="0660"'):
+            self.assertIn(expected, rules)
+        self.assertNotIn("zigbee", rules)
+        self.assertNotIn("zwave", rules)
 
     def test_inputs_are_locked_and_follow_the_single_nixpkgs(self) -> None:
         lock = json.loads((NIX / "flake.lock").read_text(encoding="utf-8"))
