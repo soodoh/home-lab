@@ -735,8 +735,13 @@ verify_manifest() {
     rm -f "$regenerated_expectations"
   fi
 
-  local expected_roots
-  expected_roots=$(printf '%s\n' "${roots[@]}" | jq -R . | jq -s 'sort')
+  local expected_roots manifest_stage
+  manifest_stage=$(jq -r .stage "$manifest")
+  if [[ $manifest_stage == vm-start-prerequisite ]]; then
+    expected_roots=$(printf '%s\n' aws-foundation proxmox-legacy proxmox | jq -R . | jq -s 'sort')
+  else
+    expected_roots=$(printf '%s\n' "${roots[@]}" | jq -R . | jq -s 'sort')
+  fi
   jq -e --argjson expected "$expected_roots" '
     ([.plans[].root] | sort) == $expected and
     ([.plans[].root] | length) == ([.plans[].root] | unique | length) and
