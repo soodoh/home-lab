@@ -31,6 +31,7 @@ ANSIBLE_LOCK = Path("/var/lib/iac-ansible-production.lock")
 MAX_INPUT = 2 * 1024 * 1024
 MAX_OUTPUT = 256 * 1024
 HEX = re.compile(r"^[0-9a-f]{64}$")
+HEX64 = HEX
 TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 ENV = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
 DOMAIN_ORDER = {name: index for index, name in enumerate(("identity", "managed-artifacts", "managed-files",

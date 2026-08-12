@@ -75,6 +75,23 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
         cls.preparer = {"__name__": "fixed_preparer_test", "__file__": "/tmp/fixed-proxmox-private-preparer"}
         exec(compile(rendered, "fixed-preparer", "exec"), cls.preparer)
 
+    def test_private_preparer_validates_installed_firewall_asset_hashes(self):
+        bindings = copy.deepcopy(self.plan["bindings"])
+        install = {
+            "bindings": bindings,
+            "bundleContentSha256": bindings["bundleContentSha256"],
+            "firewallAssets": {"/usr/local/libexec/home-lab/example": {"mode": 0o755, "sha256": "d" * 64}},
+            "format": "home-lab-proxmox-install-v2",
+            "gitCommit": bindings["gitCommit"],
+            "gitTree": bindings["gitTree"],
+            "helpers": {"proxmox-activator": bindings["activatorSha256"],
+                        "proxmox-observer": bindings["observerSha256"],
+                        "proxmox-private-preparer": bindings["privatePreparerSha256"]},
+        }
+        with patch.dict(self.preparer, {"secure_json": lambda path, maximum: install,
+                                        "self_sha256": lambda: bindings["privatePreparerSha256"]}):
+            self.assertEqual(self.preparer["install_manifest"](), install)
+
     def test_summary_is_fixed_shape_and_never_emits_protected_values(self):
         key1 = "ssh-ed25519 " + __import__('base64').b64encode(b'A' * 32).decode() + " plan"
         key2 = "ssh-ed25519 " + __import__('base64').b64encode(b'B' * 32).decode() + " apply"
