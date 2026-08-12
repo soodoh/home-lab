@@ -26,7 +26,8 @@ stdenv.mkDerivation (finalAttrs: {
 
   buildPhase = ''
     runHook preBuild
-    make "''${makeFlags[@]}" modules
+    make -C "${kernel.dev}/lib/modules/${kernel.modDirVersion}/build" \
+      "M=$PWD/src" modules
     runHook postBuild
   '';
 

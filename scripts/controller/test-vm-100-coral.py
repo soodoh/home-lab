@@ -56,6 +56,10 @@ class Vm100CoralTests(unittest.TestCase):
         self.assertEqual(value["env"]["pname"], "gasket-driver")
         self.assertEqual(value["env"]["version"], "r236.5815ee3")
         self.assertEqual([Path(path).name.split("-", 1)[1] for path in value["env"]["patches"].split()], list(PATCH_NAMES))
+        build = value["env"]["buildPhase"]
+        self.assertIn('make -C "', build)
+        self.assertIn('"M=$PWD/src" modules', build)
+        self.assertNotIn('${makeFlags[@]}', build)
         install = value["env"]["installPhase"]
         for required in ("src/gasket.ko", "src/apex.ko", "modinfo -F vermagic", "modinfo -F srcversion", f"source_commit={COMMIT}"):
             self.assertIn(required, install)
