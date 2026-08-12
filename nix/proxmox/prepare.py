@@ -97,7 +97,8 @@ def prepare(args: Any, bundle_path: Path, hash_path: Path, source_root: Path) ->
                                  "noConcurrentMutationConfirmed": True},
                "plan": plan, "protocol": PROTOCOL, "requestedAt": planner.format_time(now)}
     response = send(request)
-    guarded_apply.validate_private(response, plan, metadata, now)
+    validation_now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    guarded_apply.validate_private(response, plan, metadata, validation_now)
     raw = planner.canonical_json(response)
     write_exclusive(repo, sidecar_name, raw)
     return f"status=prepared planSha256={args.plan_sha} sidecar=created"
