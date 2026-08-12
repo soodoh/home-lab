@@ -136,6 +136,7 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-zpool-status-parser.py
   python3 scripts/controller/test-root-local-audit.py
   python3 scripts/controller/test-lxc-qualification-evidence.py
+  python3 scripts/controller/test-vm-qualification-scaffold.py
   python3 scripts/controller/test-protected-file.py
   python3 scripts/controller/test-reconcile-manifest.py
   python3 scripts/controller/test-reconcile-security.py
@@ -148,7 +149,7 @@ if [[ $action == validate ]]; then
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
     scripts/restore-critical-backup scripts/test-recovery-tools recovery/coral/build-package
   tofu fmt -check -recursive infrastructure/tofu
-  for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
+  for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification proxmox-vm-qualification omada tailscale; do
     (
       validation_data=$(mktemp -d)
       trap 'rm -rf "$validation_data"' EXIT

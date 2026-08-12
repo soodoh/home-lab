@@ -45,7 +45,7 @@ variable "enable_qualification" {
 
 variable "qualification_vm_id" {
   type    = number
-  default = 9900
+  default = 9899
 }
 
 variable "qualification_ssh_public_key" {
