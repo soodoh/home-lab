@@ -11,6 +11,7 @@ in
     ./hardware.nix
     ./disko.nix
     ./secrets.nix
+    ../../modules/coral.nix
   ];
 
   nixpkgs.hostPlatform = projection.system;

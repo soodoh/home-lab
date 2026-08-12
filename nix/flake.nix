@@ -32,6 +32,11 @@
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
+          coralDriver = pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+            vm-100-coral-driver = pkgs.callPackage ./packages/coral-driver {
+              kernel = pkgs.linuxPackages.kernel;
+            };
+          };
           bundle = pkgs.runCommand "home-lab-proxmox-host-bundle-v1" {
             nativeBuildInputs = [ pkgs.python3 ];
           } ''
@@ -58,7 +63,7 @@
           default = bundle;
           proxmox-host-bundle = bundle;
           proxmox-host-plan = hostPlan;
-        });
+        } // coralDriver);
 
       apps = forAllSystems (system: {
         proxmox-host = {

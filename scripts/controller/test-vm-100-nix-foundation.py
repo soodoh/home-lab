@@ -41,7 +41,7 @@ class Vm100NixFoundationTests(unittest.TestCase):
         self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.users.groups.docker.gid")), 1000)
         self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.users.users.docker.uid")), 1000)
         self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.users.users.docker.group")), "docker")
-        self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.users.users.docker.extraGroups")), ["input", "render", "uucp"])
+        self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.users.users.docker.extraGroups")), ["input", "render", "uucp", "apex"])
         self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.users.users.docker.hashedPassword")), "!")
         self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.users.users.docker.openssh.authorizedKeys.keys")), [])
         self.assertTrue(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.services.openssh.enable")))
@@ -68,7 +68,7 @@ class Vm100NixFoundationTests(unittest.TestCase):
         shared = json.loads(self.nix_eval('nixosConfigurations.vm-100.config.fileSystems."/mnt/storage"'))
         self.assertEqual((shared["device"], shared["fsType"], shared["options"], shared["autoFormat"]), ("192.168.0.123:/storage/docker", "nfs4", ["defaults"], False))
         modules = json.loads(self.nix_eval("nixosConfigurations.vm-100.config.boot.kernelModules"))
-        self.assertTrue({"uhid", "uinput", "tun"}.issubset(modules))
+        self.assertTrue({"uhid", "uinput", "tun", "gasket", "apex"}.issubset(modules))
         self.assertIn("options amdgpu runpm=0", json.loads(self.nix_eval("nixosConfigurations.vm-100.config.boot.extraModprobeConfig")))
         sysctls = json.loads(self.nix_eval("nixosConfigurations.vm-100.config.boot.kernel.sysctl"))
         self.assertEqual({key: sysctls[key] for key in ("fs.inotify.max_user_instances", "fs.inotify.max_user_watches", "user.max_user_namespaces")}, {"fs.inotify.max_user_instances": 1024, "fs.inotify.max_user_watches": 1048576, "user.max_user_namespaces": 28633})
@@ -80,6 +80,10 @@ class Vm100NixFoundationTests(unittest.TestCase):
             self.assertIn(expected, rules)
         self.assertNotIn("zigbee", rules)
         self.assertNotIn("zwave", rules)
+        self.assertIn('SUBSYSTEM=="apex", KERNEL=="apex_0", GROUP="apex", MODE="0660"', rules)
+        self.assertIn("apex", json.loads(self.nix_eval("nixosConfigurations.vm-100.config.users.users.docker.extraGroups")))
+        coral_drv = json.loads(self.nix_eval("packages.x86_64-linux.vm-100-coral-driver.drvPath"))
+        self.assertRegex(coral_drv, r"^/nix/store/[a-z0-9]+-gasket-driver-r236\.5815ee3\.drv$")
 
     def test_inputs_are_locked_and_follow_the_single_nixpkgs(self) -> None:
         lock = json.loads((NIX / "flake.lock").read_text(encoding="utf-8"))
