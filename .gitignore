@@ -14,6 +14,7 @@ pnpm-debug.log*
 .env
 *.env
 !secrets/production.sops.env
+!nix/secrets/production.sops.env
 
 # local worktrees
 .worktrees/

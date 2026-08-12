@@ -14,7 +14,7 @@ NIX = ROOT / "nix"
 PROJECTION = NIX / "vm-100/projection.json"
 FORBIDDEN_SOURCE_PATTERNS = (
     re.compile(r"/dev/disk/by-id"),
-    re.compile(r"sops\.(?:defaultSopsFile|age\.keyFile|age\.generateKey\s*=\s*true|secrets\.[A-Za-z0-9_-]+)"),
+    re.compile(r"sops\.age\.generateKey\s*=\s*true"),
     re.compile(r"(?:services\.docker|virtualisation\.docker|docker-compose|compose\.ya?ml)"),
 )
 
@@ -35,8 +35,13 @@ class Vm100NixFoundationTests(unittest.TestCase):
         self.assertEqual(json.loads(self.nix_eval("lib.vm-100-scaffold")), projection)
         self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.networking.hostName")), "archlinux")
         self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.system.stateVersion")), "26.05")
-        self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.sops.secrets")), {})
+        secrets = json.loads(self.nix_eval("nixosConfigurations.vm-100.config.sops.secrets"))
+        self.assertEqual(list(secrets), ["compose-production-env-canonical"])
+        self.assertEqual((secrets["compose-production-env-canonical"]["path"], secrets["compose-production-env-canonical"]["owner"], secrets["compose-production-env-canonical"]["group"], secrets["compose-production-env-canonical"]["mode"]), ("/run/home-lab/compose/production.env.canonical", "root", "root", "0400"))
         self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.sops.templates")), {})
+        self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.sops.age.keyFile")), "/var/lib/sops-nix/age/keys.txt")
+        self.assertFalse(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.sops.age.generateKey")))
+        self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.sops.defaultSopsFormat")), "dotenv")
         self.assertFalse(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.system.switch.enable")))
         self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.users.groups.docker.gid")), 1000)
         self.assertEqual(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.users.users.docker.uid")), 1000)
@@ -93,7 +98,7 @@ class Vm100NixFoundationTests(unittest.TestCase):
             self.assertRegex(node["locked"]["rev"], r"^[0-9a-f]{40}$")
             self.assertRegex(node["locked"]["narHash"], r"^sha256-")
 
-    def test_scaffold_has_no_destructive_secret_or_runtime_declaration(self) -> None:
+    def test_scaffold_has_no_destructive_disk_or_runtime_declaration(self) -> None:
         source = "\n".join(
             path.read_text(encoding="utf-8")
             for path in sorted((NIX / "hosts/vm-100").glob("*.nix"))

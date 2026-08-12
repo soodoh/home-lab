@@ -59,6 +59,8 @@ APPROVED_SOURCE_FILES = {
     "flake.lock", "flake.nix", "hosts/vm-100/access.nix", "hosts/vm-100/base.nix", "hosts/vm-100/default.nix",
     "hosts/vm-100/disko.nix", "hosts/vm-100/hardware.nix", "hosts/vm-100/networking.nix", "hosts/vm-100/secrets.nix",
     "hosts/vm-100/storage.nix",
+    "secrets/production.env.keys", "secrets/production.env.layout.json", "secrets/production.sops.env",
+    "scripts/restore-dotenv-layout.py",
     "modules/coral.nix", "packages/coral-driver/default.nix",
     "packages/coral-driver/0001-linux-6.13-dma-buf-namespace.patch",
     "packages/coral-driver/0002-linux-6.0-remove-no-llseek.patch",
