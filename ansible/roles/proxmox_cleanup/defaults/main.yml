@@ -1,6 +1,0 @@
----
-proxmox_cleanup_migration_confirmed: false
-proxmox_cleanup_fallback_verification_confirmed: false
-proxmox_cleanup_fallback_marker: /var/lib/home-lab/verified-fallback-kernel-v1
-proxmox_cleanup_storage_validation_marker: /var/lib/home-lab/zfs-runtime-validation-v1
-proxmox_cleanup_passthrough_validation_marker: /var/lib/home-lab/passthrough-validation-v1

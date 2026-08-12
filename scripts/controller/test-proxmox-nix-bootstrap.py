@@ -40,6 +40,14 @@ def load_installer():
     return module
 
 
+def load_access():
+    path = ROOT / "scripts/bootstrap-proxmox-nix-access"
+    loader = importlib.machinery.SourceFileLoader("bootstrap_proxmox_nix_access_test", str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec); loader.exec_module(module)
+    return module
+
+
 class ProxmoxNixBootstrapTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -48,6 +56,10 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
         cls.observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
         cls.observation["domains"]["protectedAccess"] = {"expectedCount": 5, "matches": True, "observedCount": 5, "status": "complete"}
         cls.observation["domains"]["protectedHardware"] = {"expectedCount": 3, "matches": True, "observedCount": 3, "status": "complete"}
+        for record in cls.observation["domains"]["accounts"]["records"]:
+            if record["name"] == "tofu-apply":
+                record["shell"] = "/usr/local/libexec/home-lab/proxmox-apply-transport"
+                record["expectedGroupsMatch"] = True
         cls.bindings = {"activationEnvelopeSchemaSha256": "1"*64, "activatorSha256": "2"*64,
             "bundleContentSha256": "3"*64, "bundleFormat": planner.BUNDLE_FORMAT, "flakeLockSha256": "4"*64,
             "gitCommit": "5"*40, "gitTree": "6"*40, "observerProtocol": 4,
@@ -82,7 +94,7 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
             if "proxmox-plan-token.env" in text: return "PROXMOX_VE_API_TOKEN=root@pam!tofu-plan=opaque-plan-token\n"
             if "proxmox-apply-token.env" in text: return "PROXMOX_VE_API_TOKEN=root@pam!tofu-apply=opaque-apply-token\n"
             if "tofu-plan" in text: return forced
-            if "tofu-apply" in text: return key2 + "\n"
+            if "tofu-apply" in text: return 'restrict,command="/usr/local/libexec/home-lab/proxmox-apply-transport" ' + key2 + "\n"
             if "firewall-apply" in text: return 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport" ' + key3 + "\n"
             return None
         def run(args, accepted=(0,)):
@@ -236,10 +248,10 @@ if(!validate(doc.valid)||validate(doc.invalid)) process.exit(1);
     def test_installer_rejects_traversal_unknown_oversize_and_models_crash_recovery(self):
         installer=load_installer()
         absent=lambda name:{"contentBase64":None,"name":name,"present":False,"sha256":None}
-        generation={"format":"home-lab-proxmox-previous-v1","helpers":[absent(name) for name in installer.HELPERS],
+        generation={"format":"home-lab-proxmox-previous-v2","helpers":[absent(name) for name, _, _ in installer.managed_targets()],
                     "manifest":{"contentBase64":None,"present":False,"sha256":None}}
-        base={"bundleContentSha256":"0"*64,"createdKey":False,"createdProtected":False,"createdProtectedMac":False,
-              "format":"home-lab-proxmox-bootstrap-journal-v2","installed":[],"previous":generation,
+        base={"bundleContentSha256":"0"*64,"createdFirewallKey":False,"createdKey":False,"createdProtected":False,"createdProtectedMac":False,"firewallServiceBefore":{"enabled":{"home-lab-proxmox-firewall-config-recovery.service":False,"home-lab-proxmox-firewall-post-recovery.service":False,"home-lab-proxmox-firewall-rollback.timer":False},"timerActive":False},
+              "format":"home-lab-proxmox-bootstrap-journal-v3","installed":[],"previous":generation,
               "rollbackCompleted":[],"state":"installing"}
         self.assertEqual(installer.validate_journal(copy.deepcopy(base)),base)
         for mutate in (
@@ -375,11 +387,12 @@ for(const doc of docs) if(validate(doc)) throw new Error('mutated plan passed sc
                     with self.assertRaises(BlockingIOError): installer.acquire_lock(lock)
                 finally: os.close(first)
         helpers={name:b"new" for name in installer.HELPERS}
-        generation={"format":"home-lab-proxmox-previous-v1",
-                    "helpers":[{"contentBase64":None,"name":name,"present":False,"sha256":None} for name in installer.HELPERS],
+        generation={"format":"home-lab-proxmox-previous-v2",
+                    "helpers":[{"contentBase64":None,"name":name,"present":False,"sha256":None} for name, _, _ in installer.managed_targets()],
                     "manifest":{"contentBase64":None,"present":False,"sha256":None}}
         with patch.object(installer,"reject_locks"),patch.object(installer,"capture",return_value=generation["helpers"]), \
                 patch.object(installer,"capture_manifest",return_value=generation["manifest"]), \
+                patch.object(installer,"firewall_service_state",return_value={"enabled": {unit: False for unit in ("home-lab-proxmox-firewall-config-recovery.service", "home-lab-proxmox-firewall-post-recovery.service", "home-lab-proxmox-firewall-rollback.timer")}, "timerActive": False}), \
                 patch.object(installer.os,"stat",return_value=SimpleNamespace(st_dev=1,st_mode=stat.S_IFDIR|0o700)), \
                 patch.object(installer.shutil,"disk_usage",return_value=SimpleNamespace(free=0)), \
                 patch.object(installer,"write_journal") as write:
@@ -392,6 +405,7 @@ for(const doc of docs) if(validate(doc)) throw new Error('mutated plan passed sc
             raise FileNotFoundError
         with patch.object(installer,"reject_locks"),patch.object(installer,"capture",return_value=generation["helpers"]), \
                 patch.object(installer,"capture_manifest",return_value=generation["manifest"]), \
+                patch.object(installer,"firewall_service_state",return_value={"enabled": {unit: False for unit in ("home-lab-proxmox-firewall-config-recovery.service", "home-lab-proxmox-firewall-post-recovery.service", "home-lab-proxmox-firewall-rollback.timer")}, "timerActive": False}), \
                 patch.object(installer.os,"stat",return_value=SimpleNamespace(st_dev=1,st_mode=stat.S_IFDIR|0o700)), \
                 patch.object(installer.shutil,"disk_usage",return_value=SimpleNamespace(free=installer.MIN_FREE*4)), \
                 patch.object(installer,"write_journal"),patch.object(installer,"ensure_dir"), \
@@ -401,7 +415,7 @@ for(const doc of docs) if(validate(doc)) throw new Error('mutated plan passed sc
             with self.assertRaises(OSError): installer.install("a"*40,"b"*40,{},"c"*64,b'protected',helpers)
         self.assertEqual(len(rolled),1)
         old=b"old-activator"; old_hash=hashlib.sha256(old).hexdigest()
-        generation["helpers"][0]={"contentBase64":__import__('base64').b64encode(old).decode(),"name":"proxmox-activator","present":True,"sha256":old_hash}
+        generation["helpers"][0]={"contentBase64":__import__('base64').b64encode(old).decode(),"name":"helper:proxmox-activator","present":True,"sha256":old_hash}
         raw_generation=planner.canonical_json(generation)
         raw_lock=planner.canonical_json({"activatorSha256":old_hash,"bundleContentSha256":"1"*64,"gitCommit":"2"*40,
             "gitTree":"3"*40,"hostSessionId":"session_01234567890","operation":"proxmox-guarded-apply",
@@ -483,13 +497,13 @@ for(const doc of docs) if(validate(doc)) throw new Error('mutated plan passed sc
     def test_terminal_install_recovery_finalizes_without_rollback_or_secret_deletion(self):
         installer = load_installer()
         absent = lambda name:{"contentBase64":None,"name":name,"present":False,"sha256":None}
-        previous = {"format":"home-lab-proxmox-previous-v1", "helpers":[absent(n) for n in installer.HELPERS],
+        previous = {"format":"home-lab-proxmox-previous-v2", "helpers":[absent(name) for name, _, _ in installer.managed_targets()],
                     "manifest":{"contentBase64":None,"present":False,"sha256":None}}
-        journal = {"bundleContentSha256":"c"*64,"createdKey":True,"createdProtected":True,"createdProtectedMac":True,
-                   "format":"home-lab-proxmox-bootstrap-journal-v2","installed":list(installer.HELPERS),
+        journal = {"bundleContentSha256":"c"*64,"createdFirewallKey":True,"createdKey":True,"createdProtected":True,"createdProtectedMac":True,"firewallServiceBefore":{"enabled":{"home-lab-proxmox-firewall-config-recovery.service":False,"home-lab-proxmox-firewall-post-recovery.service":False,"home-lab-proxmox-firewall-rollback.timer":False},"timerActive":False},
+                   "format":"home-lab-proxmox-bootstrap-journal-v3","installed":[name for name, _, _ in installer.managed_targets()],
                    "previous":previous,"rollbackCompleted":[],"state":"installed"}
         helper_bytes = {name:("helper-"+name).encode() for name in installer.HELPERS}
-        manifest = {"bindings":{},"bundleContentSha256":"c"*64,"format":"home-lab-proxmox-install-v1",
+        manifest = {"bindings":{},"bundleContentSha256":"c"*64,"firewallAssets":{},"format":"home-lab-proxmox-install-v2",
                     "gitCommit":"a"*40,"gitTree":"b"*40,
                     "helpers":{name:hashlib.sha256(raw).hexdigest() for name,raw in helper_bytes.items()}}
         key=b"K"*48; protected=b'{"access":{},"format":"x","hardware":{}}\n'
@@ -500,6 +514,8 @@ for(const doc of docs) if(validate(doc)) throw new Error('mutated plan passed sc
         removed=[]
         with patch.object(installer,"secure_file",side_effect=lambda path,*args,**kwargs:mapping[path]), \
                 patch.object(installer,"validate_protected",return_value=protected), \
+                patch.object(installer,"firewall_assets",return_value={}), \
+                patch.object(installer,"verify_firewall_assets",return_value=None), \
                 patch.object(installer,"durable_unlink",side_effect=lambda path,*args:removed.append(path)):
             installer.finalize_installed(copy.deepcopy(journal))
         self.assertEqual(removed,[installer.JOURNAL])
@@ -508,10 +524,10 @@ for(const doc of docs) if(validate(doc)) throw new Error('mutated plan passed sc
     def test_sigkill_pending_boundaries_are_reconciled_and_rolled_back(self):
         installer = load_installer()
         absent = lambda name: {"contentBase64": None, "name": name, "present": False, "sha256": None}
-        previous = {"format": "home-lab-proxmox-previous-v1", "helpers": [absent(name) for name in installer.HELPERS],
+        previous = {"format": "home-lab-proxmox-previous-v2", "helpers": [absent("helper:" + name) for name in installer.HELPERS],
                     "manifest": {"contentBase64": None, "present": False, "sha256": None}}
-        base_journal = {"bundleContentSha256": "0" * 64, "createdKey": False, "createdProtected": False,
-                        "createdProtectedMac": False, "format": "home-lab-proxmox-bootstrap-journal-v2",
+        base_journal = {"bundleContentSha256": "0" * 64, "createdFirewallKey": False, "createdKey": False, "createdProtected": False,
+                        "createdProtectedMac": False, "firewallServiceBefore": {"enabled": {"home-lab-proxmox-firewall-config-recovery.service": False, "home-lab-proxmox-firewall-post-recovery.service": False, "home-lab-proxmox-firewall-rollback.timer": False}, "timerActive": False}, "format": "home-lab-proxmox-bootstrap-journal-v3",
                         "installed": [], "previous": previous, "rollbackCompleted": [], "state": "installing"}
         child = r'''
 import importlib.machinery,importlib.util,os,signal,sys
@@ -556,7 +572,9 @@ m.atomic(target,payload,0o755 if sys.argv[3]=="helper" else 0o600)
             payload.write_bytes(installer.canonical(base_journal))
             result=subprocess.run((sys.executable,"-c",child,str(ROOT/"scripts/bootstrap-proxmox-nix-host"),str(root),"journal",str(payload)))
             self.assertEqual(result.returncode, -signal.SIGKILL)
-            with patch.object(installer,"open_dir",side_effect=lambda path,mode=None,create=False:os.open(path,os.O_RDONLY|os.O_DIRECTORY)), \
+            initial_targets = [("helper:" + name, installer.HELPER_ROOT / name, 0o755) for name in installer.HELPERS]
+            with patch.object(installer,"managed_targets",return_value=initial_targets), \
+                    patch.object(installer,"open_dir",side_effect=lambda path,mode=None,create=False:os.open(path,os.O_RDONLY|os.O_DIRECTORY)), \
                     patch.object(installer,"ensure_dir",side_effect=lambda path,mode:(path.mkdir(parents=True,exist_ok=True),path.chmod(mode))), \
                     patch.object(installer.os,"fstat",side_effect=lambda fd:root_result(real_fstat(fd))), \
                     patch.object(installer.os,"stat",side_effect=patched_stat), patch.object(installer.os,"fchown",return_value=None):
@@ -576,7 +594,11 @@ m.atomic(target,payload,0o755 if sys.argv[3]=="helper" else 0o600)
                         patch.object(installer.os,"fstat",side_effect=lambda fd:root_result(real_fstat(fd))), \
                         patch.object(installer.os,"stat",side_effect=patched_stat), patch.object(installer.os,"fchown",return_value=None):
                     installer.reconcile_pending()
-                    installer.rollback(copy.deepcopy(journal))
+                    names = {record["name"] for record in journal["previous"]["helpers"]}
+                    filtered = [item for item in installer.managed_targets() if item[0] in names]
+                    with patch.object(installer,"managed_targets",return_value=filtered), \
+                            patch.object(installer,"rollback_firewall_services",return_value=None):
+                        installer.rollback(copy.deepcopy(journal))
                 self.assertFalse(any(path.name.endswith(".bootstrap-pending") for path in root.rglob("*")), boundary)
                 self.assertFalse((root/"boot/install-journal.json").exists(), boundary)
                 for secret_path in (root/"runtime/session.key",root/"runtime/protected-inputs.json",root/"runtime/protected-inputs.mac"):
@@ -591,7 +613,7 @@ m.atomic(target,payload,0o755 if sys.argv[3]=="helper" else 0o600)
 
     def test_destination_space_is_gated_per_distinct_filesystem(self):
         installer=load_installer()
-        previous={"format":"home-lab-proxmox-previous-v1","helpers":[],"manifest":{"contentBase64":None,"present":False,"sha256":None}}
+        previous={"format":"home-lab-proxmox-previous-v2","helpers":[],"manifest":{"contentBase64":None,"present":False,"sha256":None}}
         journal={"previous":previous}
         devices={installer.BOOT:1,installer.RUNTIME:2,installer.HELPER_ROOT:3}
         for failing in devices:
@@ -609,26 +631,131 @@ m.atomic(target,payload,0o755 if sys.argv[3]=="helper" else 0o600)
             installer.gate_destination_space(journal,b"protected",{name:b"helper" for name in installer.HELPERS})
         self.assertEqual(set(queried),set(devices))
 
-    def test_contract_keeps_apply_unrestricted_and_forces_only_plan_identity(self):
+    def test_fresh_access_bootstrap_is_console_bound_closed_and_secret_safe(self):
+        path=ROOT/"scripts/bootstrap-proxmox-nix-access"; source=path.read_text()
+        self.assertTrue(os.access(path,os.X_OK))
+        for control in ('/dev/tty[1-9][0-9]*', 'install-reviewed-access-authority',
+                        'recover-reviewed-access-bootstrap', 'PVE token creation response differs',
+                        'root@pam!tofu-plan', 'root@pam!tofu-apply', 'runtime.atomic(ESCROWS[principal]'):
+            self.assertIn(control,source)
+        for forbidden in ('argparse', '--path', '--host', 'print(result["value"]'):
+            self.assertNotIn(forbidden,source.lower())
+        self.assertIn('<install|converge|recover>',source)
+        self.assertIn('converge-reviewed-legacy-access-authority',source)
+        self.assertIn('legacy apply authority differs',source)
+        self.assertIn('home-lab-proxmox-access-converge-v1',source)
+        self.assertIn('base64.b64decode(previous["keys"]',source)
+        docs=(ROOT/"docs/proxmox-bootstrap.md").read_text()
+        self.assertIn("deterministic manual assertion boundary",docs)
+        self.assertIn("scripts/bootstrap-proxmox-nix-access install",docs)
+
+    def test_user_owned_ssh_helpers_enforce_real_uid_gid_modes_links_and_no_follow(self):
+        access=load_access()
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name); ssh=root/".ssh"; access.user_directory(ssh,os.getuid(),os.getgid(),0o700)
+            target=ssh/"authorized_keys"; access.user_file_write(target,b"key\n",os.getuid(),os.getgid())
+            self.assertEqual(access.user_file_read(target,os.getuid(),os.getgid(),0o600),b"key\n")
+            with self.assertRaises(ValueError): access.user_file_read(target,os.getuid()+1,os.getgid(),0o600)
+            target.chmod(0o644)
+            with self.assertRaises(ValueError): access.user_file_read(target,os.getuid(),os.getgid(),0o600)
+            target.unlink(); target.symlink_to("/dev/null")
+            with self.assertRaises(OSError): access.user_file_read(target,os.getuid(),os.getgid(),0o600)
+            target.unlink()
+            pending=access.runtime.pending_path(target)
+            real_rename=os.rename
+            with patch.object(access.os,"rename",side_effect=OSError("injected crash boundary")), self.assertRaises(OSError):
+                access.user_file_write(target,b"pending\n",os.getuid(),os.getgid())
+            self.assertTrue(pending.exists())
+            access.user_file_unlink(pending,os.getuid(),os.getgid(),False)
+            self.assertFalse(pending.exists())
+            access.user_file_write(target,b"retry\n",os.getuid(),os.getgid())
+            self.assertEqual(access.user_file_read(target,os.getuid(),os.getgid(),0o600),b"retry\n")
+
+    def test_access_pending_reconciliation_promotes_journal_and_removes_every_target_remnant(self):
+        access=load_access()
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name); access.JOURNAL=root/"access-journal.json"; access.ESCROWS={"plan":root/"plan.env","apply":root/"apply.env"}
+            access.runtime.HELPER_ROOT=root/"helpers"; access.runtime.BOOT=root; access.runtime.FIREWALL_TARGETS={}
+            sudo=root/"sudo"; auth=root/"authorized_keys"
+            projection={"accounts":{"service":[],"human":[]}}
+            journal={"accounts":["tofu-plan","tofu-apply","firewall-apply","proxmox"],"completed":[],"format":access.FORMAT,
+                     "roles":[],"state":"applying","tokens":[access.TOKEN_ID["plan"],access.TOKEN_ID["apply"]]}
+            pending_journal=access.runtime.pending_path(access.JOURNAL); pending_journal.write_bytes(access.canonical(journal)); pending_journal.chmod(0o600)
+            pending_sudo=access.runtime.pending_path(sudo); pending_sudo.write_bytes(b"partial"); pending_sudo.chmod(0o600)
+            with patch.object(access,"access_targets",return_value={access.JOURNAL,sudo,auth}), \
+                    patch.object(access,"account_spec",side_effect=StopIteration), \
+                    patch.object(access.runtime,"secure_file",side_effect=lambda path,*args,**kwargs:path.read_bytes()),  \
+                    patch.object(access.runtime,"open_dir",side_effect=lambda path,mode=None,create=False:os.open(path,os.O_RDONLY|os.O_DIRECTORY)), \
+                    patch.object(access.runtime,"exists_nofollow",side_effect=lambda path:path.exists()), \
+                    patch.object(access.runtime,"durable_unlink",side_effect=lambda path,*args:path.unlink()):
+                with patch.object(access,"KEY_INPUTS",{}): access.reconcile_pending(projection)
+            self.assertTrue(access.JOURNAL.exists()); self.assertFalse(pending_journal.exists()); self.assertFalse(pending_sudo.exists())
+
+    def test_access_atomic_sigkill_leaves_only_deterministic_reconcilable_pending_name(self):
+        child=r'''
+import importlib.machinery,importlib.util,os,signal,sys
+from pathlib import Path
+loader=importlib.machinery.SourceFileLoader("access_kill",sys.argv[1]); spec=importlib.util.spec_from_loader(loader.name,loader)
+a=importlib.util.module_from_spec(spec); loader.exec_module(a); target=Path(sys.argv[2]); target.parent.mkdir(parents=True,exist_ok=True)
+a.runtime.open_dir=lambda p,mode=None,create=False:os.open(p,os.O_RDONLY|os.O_DIRECTORY)
+a.runtime.ensure_dir=lambda p,mode:None; a.runtime.os.fchown=lambda *args:None
+a.runtime.os.rename=lambda *args,**kwargs:os.kill(os.getpid(),signal.SIGKILL)
+a.runtime.atomic(target,b"journal",0o600)
+'''
+        with tempfile.TemporaryDirectory() as name:
+            root=Path(name)
+            for relative in ("access-journal.json", "plan-token.env", "sudoers/tofu-apply", "home/.ssh/authorized_keys"):
+                target=root/relative
+                result=subprocess.run((sys.executable,"-c",child,str(ROOT/"scripts/bootstrap-proxmox-nix-access"),str(target)))
+                self.assertEqual(result.returncode,-signal.SIGKILL,relative)
+                self.assertFalse(target.exists(),relative)
+                pending=target.parent/("."+target.name+".bootstrap-pending")
+                self.assertTrue(pending.exists(),relative); pending.unlink()
+
+    def test_apply_transport_rejects_arbitrary_commands_and_accepts_only_exact_fixed_operations(self):
+        transport=ROOT/"infrastructure/proxmox-firewall/host/proxmox-apply-transport"
+        env={**os.environ,"SSH_ORIGINAL_COMMAND":"uname -a"}
+        rejected=subprocess.run((transport,"-c","/usr/local/libexec/home-lab/proxmox-apply-transport"),env=env,capture_output=True)
+        self.assertEqual(rejected.returncode,64)
+        source=transport.read_text()
+        self.assertIn("proxmox-private-preparer prepare",source)
+        self.assertIn("proxmox-activator session",source)
+        self.assertNotIn("bash",source); self.assertNotIn("$@",source)
+
+    def test_absent_firewall_units_allow_bounded_systemctl_stderr_and_key_pending_is_reconciled(self):
+        installer=load_installer(); calls=[]
+        class Result:
+            returncode=1; stderr=b"unit absent"; stdout=b""
+        with patch.object(installer.subprocess,"run",side_effect=lambda *args,**kwargs:(calls.append(args[0]),Result())[1]):
+            result=installer.systemctl("is-enabled","missing.service",allowed=(0,1),permit_stderr=True)
+        self.assertEqual(result.returncode,1); self.assertEqual(len(calls),1)
+        self.assertIn(installer.pending_path(installer.FIREWALL_KEY),installer.pending_targets())
+
+    def test_firewall_assets_are_in_fixed_transactional_bootstrap_surface(self):
+        installer=load_installer()
+        expected={"proxmox-firewall-transaction.py","proxmox-firewall-transport","proxmox-apply-transport","proxmox-firewall-boot-recovery",
+                  "proxmox-firewall-policy.json","50-home-lab-firewall-recovery.conf",
+                  *installer.FIREWALL_UNITS}
+        self.assertEqual({source.name for source, _ in installer.FIREWALL_TARGETS.values()},expected)
+        source=(ROOT/"scripts/bootstrap-proxmox-nix-host").read_text()
+        for control in ("createdFirewallKey", "firewallServiceBefore", "configure_firewall_services",
+                        "rollback_firewall_services", "verify_firewall_assets"):
+            self.assertIn(control,source)
+        self.assertFalse((ROOT/"ansible/roles/proxmox_firewall").exists())
+
+    def test_contract_closes_apply_and_forces_both_service_identities(self):
         contract=(ROOT/"infrastructure/contract/home-lab.yml").read_text()
-        self.assertIn('tofu-apply ALL=(root) NOPASSWD: ALL',contract)
+        self.assertIn('tofu-apply ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-private-preparer prepare, /usr/local/libexec/home-lab/proxmox-activator session',contract)
+        self.assertIn('restrict,command="/usr/local/libexec/home-lab/proxmox-apply-transport"',contract)
+        self.assertNotIn('tofu-apply ALL=(root) NOPASSWD: ALL',contract)
         self.assertIn('tofu-plan ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-observer observe',contract)
         self.assertIn('restrict,command="sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe"',contract)
         self.assertIn('      - /usr/local/libexec/home-lab',contract)
-        task=(ROOT/"ansible/roles/proxmox_host/tasks/service-accounts.yml").read_text()
-        self.assertIn("proxmox_host_service_account_key_prefix",task)
-
-    def test_failed_proxmox_lock_clearance_has_fixed_identity(self):
-        playbook=(ROOT/"ansible/playbooks/clear-failed-proxmox-apply-lock.yml").read_text()
-        self.assertIn("hosts: proxmox_hosts",playbook)
-        self.assertIn("== 'controller=tofu-apply'",playbook)
-        self.assertIn("== 'operation=proxmox-site'",playbook)
-        self.assertIn("proxmox_failed_lock_owner_lines | length == 3",playbook)
-        self.assertIn("stat.gr_name == 'root'",playbook)
-        self.assertEqual(playbook.count("/var/lib/iac-ansible-production.lock"),7)
-        self.assertNotIn("apply_lock_path",playbook)
-        self.assertNotIn("expected_operation",playbook)
-        self.assertNotIn("expected_controller",playbook)
+        transport=(ROOT/"infrastructure/proxmox-firewall/host/proxmox-apply-transport").read_text()
+        self.assertIn("SSH_ORIGINAL_COMMAND",transport); self.assertIn("proxmox-activator session",transport)
+        self.assertNotIn("$@",transport)
+        self.assertFalse((ROOT/"ansible/roles/proxmox_host").exists())
+        self.assertFalse((ROOT/"ansible/playbooks/proxmox-site.yml").exists())
 
 
 if __name__ == "__main__": unittest.main()

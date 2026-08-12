@@ -21,7 +21,7 @@ The qualification must demonstrate:
 
 - exact saved-plan and backup-identity binding;
 - Proxmox host and VM 100 recovery with hardware mappings;
-- retained local Ansible bootstrap followed by fixed-path Nix helper check/install/verify, protected summary readiness, fixed plan command success, and arbitrary-command denial;
+- console-asserted official-PVE baseline, fixed `bootstrap-proxmox-nix-access install`, protected-input creation, Nix host check/install/verify, isolated firewall activation, protected summary readiness, fixed plan command success, and arbitrary-command denial;
 - exact backup selection, version, and checksum verification;
 - hostile-archive rejection and safe extraction;
 - fresh-volume and bind-target inventory before activation;

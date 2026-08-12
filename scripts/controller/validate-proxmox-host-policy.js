@@ -97,7 +97,9 @@ function validateProxmoxHostPolicy(contract) {
         account.authorized_keys.file.projectable || account.authorized_keys.file.materialization !== "metadata-only") {
       failures.push(`service account ${account.name} authorized-keys path must stay under its home`);
     }
-    if (account.shell !== (account.name === "firewall-apply" ? "/usr/local/libexec/home-lab/proxmox-firewall-transport" : "/bin/bash") || !account.create_home || !account.password_lock) {
+    const expectedShell = account.name === "firewall-apply" ? "/usr/local/libexec/home-lab/proxmox-firewall-transport" :
+      account.name === "tofu-apply" ? "/usr/local/libexec/home-lab/proxmox-apply-transport" : "/bin/bash";
+    if (account.shell !== expectedShell || !account.create_home || !account.password_lock) {
       failures.push(`service account ${account.name} must retain its locked login identity`);
     }
   }
@@ -112,12 +114,13 @@ function validateProxmoxHostPolicy(contract) {
       planAccount.authorized_keys?.forced_command !== forcedPlanCommand)) {
     failures.push("tofu-plan must have only the fixed observer capability during parity");
   }
-  if (applyAccount && (!sameMembers(applyAccount.groups, ["sudo"]) ||
-      applyAccount.sudo?.state !== "present" ||
+  const applyTransport = "/usr/local/libexec/home-lab/proxmox-apply-transport";
+  const applySudo = "tofu-apply ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-private-preparer prepare, /usr/local/libexec/home-lab/proxmox-activator session";
+  if (applyAccount && (applyAccount.groups.length || applyAccount.sudo?.state !== "present" ||
       applyAccount.sudo?.file?.path !== `/etc/sudoers.d/${applyAccount.name}` ||
-      applyAccount.sudo?.rule !== `${applyAccount.name} ALL=(root) NOPASSWD: ALL` ||
-      applyAccount.authorized_keys?.forced_command !== null)) {
-    failures.push("tofu-apply current sudo policy must remain explicit during parity");
+      applyAccount.sudo?.rule !== applySudo ||
+      applyAccount.authorized_keys?.forced_command !== `restrict,command="${applyTransport}"`)) {
+    failures.push("tofu-apply must expose only the fixed preparation and activation session capability");
   }
   const firewallHelper = "/usr/local/libexec/home-lab/proxmox-firewall-transaction";
   const firewallSudo = `firewall-apply ALL=(root) NOPASSWD: ${["inspect","begin","status","commit","rollback"].map((command) => `${firewallHelper} ${command}`).join(", ")}`;

@@ -13,9 +13,9 @@ scripts/local-controller apply steady
 
 For recovery, replace `steady` with `recovery`. Recovery also requires the ignored mode-`0600` Ansible extra-vars file described in [`../recovery/README.md`](../recovery/README.md).
 
-Both commands run the complete static validation suite. Plan is read-only: it creates the policy-inspected saved plans and manifest, verifies their hashes, and then prints every provider-redacted human-readable plan, including protected infrastructure values needed for informed review. It also invokes the fixed Proxmox Nix shadow capture. After the reviewed live helper bootstrap, the tracked policy is `shadow-required`, so the plan command writes canonical sanitized comparison evidence under `.reconcile/proxmox-nix-shadow/<commit>/<operation>/`. The evidence is sequential and non-atomic, accepts ready or blocked Nix audit results, and binds one way to the existing version-3 manifest; apply never reads or authorizes from it.
+Both commands run the complete static validation suite. Plan is read-only: it creates the policy-inspected OpenTofu plans and either an exact ready Proxmox Nix host plan or, only for fresh recovery, a canonical blocked plan whose complete blocker set is OpenTofu-owned VM prerequisites, binds their hashes into one version-5 manifest, and displays every saved plan for review. The Nix manifest record contains only its repository-relative path, file SHA-256, internal plan SHA-256, and action count; protected values remain exclusively in host-local protected state and its private sidecar.
 
-Apply verifies the same commit-bound saved plans, prints their manifest identity, and requires the operator to type `apply-reviewed-steady` or `apply-reviewed-recovery` interactively before mutation credentials are loaded. Apply is never implicit and never replans. Ansible remains the Proxmox production authority. Manifest changes, Nix apply routing, freshness/locking changes, private approval, and recovery cutover sequencing are later cutover work.
+Apply verifies the same commit-bound saved plans, prints their manifest identity and stage, and requires the operator to type the exact stage-bound confirmation: `apply-reviewed-steady-converge`, `apply-reviewed-recovery-converge`, or `apply-reviewed-recovery-external-owner-prerequisite`. Mutation credentials are loaded only afterward. Apply never replans. Steady runs guarded Nix `prepare` and `apply` for the exact saved host plan before Proxmox OpenTofu. An ordinary recovery with an existing VM is one `converge` stage. A fresh recovery first produces an `external-owner-prerequisite` manifest; apply consumes only its reviewed AWS/Tailscale/Proxmox plans, prints `requires_new_reviewed_plan=true`, and terminates without Nix, Arch, or Compose. The operator must run a second independent plan/review; only its ready `converge` stage can run guarded Nix before Arch and Compose. Apply never plans. Explicit no-concurrent-mutation confirmation is always required; console, LAN rollback, and backup confirmations are required only when the exact saved action set contains watchdog-required work.
 
 ## Protected controller configuration
 
@@ -45,7 +45,7 @@ Every public controller command requires a clean working tree, including no untr
 .reconcile/plans/<commit>/<operation>/
 ```
 
-The version-3 manifest binds:
+The version-5 manifest binds:
 
 - the exact 40-character commit and phase;
 - the backend bucket;
@@ -53,7 +53,8 @@ The version-3 manifest binds:
 - the exact Compose artifact SHA-256;
 - the complete protected Ansible extra-vars file SHA-256 when present;
 - the recovery backup identity and exact contract/runtime expectations projection when applicable; and
-- Tailscale's canonical before/after policy SHA-256 values and live plan-time ETag.
+- Tailscale's canonical before/after policy SHA-256 values and live plan-time ETag; and
+- the exact ready Proxmox Nix host plan path, file SHA-256, internal plan SHA-256, and action count.
 
 Apply checks the manifest and plan hashes, reinitializes each provider backend, reinspects every saved plan under the current `normal` or `recovery` policy, and never generates a replacement apply plan. Post-apply plans are mandatory no-op verification only. The interactive confirmation names the reviewed operation and occurs before mutation credentials are loaded.
 
@@ -98,9 +99,9 @@ Review the ignored mode-`0600` JSON and put its exact contents in the capability
 
 Steady applies the exact enabled plans for AWS foundation, the empty `proxmox-legacy` tombstone, Proxmox, Omada, and Tailscale. It then runs reproducible Ansible check plans, converges only approved host tags, stages and deploys the exact Compose artifact, and performs maintenance.
 
-Recovery uses AWS foundation, Proxmox, Omada, and Tailscale; it deliberately excludes the legacy tombstone. It verifies Proxmox access, creates/reconciles VM 100 with hardware mappings exactly bound to the recovery expectations hash, bootstraps Arch, restores only the reviewed backup into inventoried fresh targets, activates the hash-bound Compose artifact, and completes the Coral and maintenance checks. The adopted environment keeps contract mode `raw`; recovery forces `managed`. After successful recovery, make the one-way reviewed contract change to `managed` before using `steady`. Protected mappings and normal policy reject reversing that mode.
+Recovery uses AWS foundation, Proxmox, Omada, and Tailscale; it deliberately excludes the legacy tombstone. It verifies Proxmox access, creates/reconciles VM 100 with hardware mappings exactly bound to the recovery expectations hash, bootstraps Arch, restores only the reviewed backup into inventoried fresh targets, activates the hash-bound Compose artifact, and completes the Coral and maintenance checks. The adopted environment keeps contract mode `managed` in both recovery and steady operation. Protected mappings and normal policy reject reversing that mode.
 
-Success always requires a fresh no-op OpenTofu plan for every enabled root, live Tailscale policy/state equality, a no-op Proxmox Ansible plan, and a zero-change Arch audit. Recovery also requires a no-op Arch bootstrap check. Compose deployment keeps the current and previous exact artifacts and environments for separately reviewed rollback; see [`compose-deployment.md`](compose-deployment.md).
+Success always requires a fresh zero-action Proxmox Nix host plan, a fresh no-op OpenTofu plan for every enabled root, live Tailscale policy/state equality, and a zero-change Arch audit. Recovery also requires a no-op Arch bootstrap check. Compose deployment keeps the current and previous exact artifacts and environments for separately reviewed rollback; see [`compose-deployment.md`](compose-deployment.md).
 
 ## Repository and artifact rules
 

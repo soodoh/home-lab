@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+self=/usr/local/libexec/home-lab/proxmox-apply-transport
+if [ "$#" -ne 2 ] || [ "$1" != -c ] || [ "$2" != "$self" ]; then
+  echo "proxmox-apply-transport: fixed invocation rejected" >&2
+  exit 64
+fi
+case "${SSH_ORIGINAL_COMMAND-}" in
+  'sudo -n -- /usr/local/libexec/home-lab/proxmox-private-preparer prepare')
+    exec /usr/bin/sudo -n -- /usr/local/libexec/home-lab/proxmox-private-preparer prepare ;;
+  'sudo -n -- /usr/local/libexec/home-lab/proxmox-activator session')
+    exec /usr/bin/sudo -n -- /usr/local/libexec/home-lab/proxmox-activator session ;;
+  *) echo "proxmox-apply-transport: fixed command rejected" >&2; exit 64 ;;
+esac

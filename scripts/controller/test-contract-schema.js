@@ -353,7 +353,7 @@ checkSemantic(privilegedPlanAccount, "tofu-plan must have only the fixed observe
 
 const extraApplyGroup = structuredClone(contract);
 extraApplyGroup.proxmox.access.service_accounts[1].groups.push("docker");
-checkSemantic(extraApplyGroup, "tofu-apply current sudo policy", "extra apply-account group");
+checkSemantic(extraApplyGroup, "tofu-apply must expose only the fixed preparation and activation session capability", "extra apply-account group");
 
 const unlockedServiceAccount = structuredClone(contract);
 unlockedServiceAccount.proxmox.access.service_accounts[0].password_lock = false;
@@ -361,7 +361,7 @@ checkSemantic(unlockedServiceAccount, "locked login identity", "unlocked service
 
 const movedServiceSudoers = structuredClone(contract);
 movedServiceSudoers.proxmox.access.service_accounts[1].sudo.file.path = "/etc/sudoers.d/other-apply";
-checkSemantic(movedServiceSudoers, "tofu-apply current sudo policy", "moved service-account sudoers path");
+checkSemantic(movedServiceSudoers, "tofu-apply must expose only the fixed preparation and activation session capability", "moved service-account sudoers path");
 
 const unlockedHumanAccount = structuredClone(contract);
 unlockedHumanAccount.proxmox.access.human_accounts[0].password_lock = false;
@@ -392,39 +392,8 @@ const downloadedPackagedKey = structuredClone(contract);
 downloadedPackagedKey.proxmox.apt.permitted_keyrings[0].source_url = "https://example.invalid/debian.gpg";
 checkSemantic(downloadedPackagedKey, "must not declare a download URL", "downloaded packaged keyring");
 
-const proxmoxHostTasks = ["main.yml", "service-accounts.yml"]
-  .map((name) => fs.readFileSync(path.join(root, "ansible/roles/proxmox_host/tasks", name), "utf8"))
-  .join("\n");
-for (const snippet of [
-  "follow: false",
-  "follow: true",
-  "checksum_algorithm: sha256",
-  "proxmox_host_keyring_metadata_inspection",
-  "proxmox_host_keyring_content_inspection",
-  "item.stat.lnk_target",
-  "item.item.symlink_target",
-  "item.file.path",
-  "proxmox.apt.repository_file_metadata.owner",
-  "proxmox.apt.inactive_sources_list.notice",
-  "(proxmox_host_keyring_content.stat.checksum | default('')) == item.item.sha256",
-  "groups: \"{{ item.groups | join(',') }}\"",
-  "Remove undeclared service-account sudo policies",
-]) {
-  if (!proxmoxHostTasks.includes(snippet)) throw new Error(`Proxmox host role lacks required policy use: ${snippet}`);
-}
-
-const apiTokenTasks = fs.readFileSync(path.join(root, "ansible/roles/proxmox_host/tasks/api-token.yml"), "utf8");
-for (const snippet of ["token", "modify", "--privsep", "Require exact API token privilege separation"]) {
-  if (!apiTokenTasks.includes(snippet)) throw new Error(`Proxmox token role lacks privilege-separation handling: ${snippet}`);
-}
-const apiCheckTasks = fs.readFileSync(path.join(root, "ansible/roles/proxmox_host/tasks/api-check.yml"), "utf8");
-for (const snippet of ["proxmox_host_check_token_record.privsep", "proxmox_host_check_escrow_directory_result.stat.uid"]) {
-  if (!apiCheckTasks.includes(snippet)) throw new Error(`Proxmox API check mode lacks drift detection: ${snippet}`);
-}
-
-const apiTasks = fs.readFileSync(path.join(root, "ansible/roles/proxmox_host/tasks/api.yml"), "utf8");
-for (const snippet of ["follow: false", "item.0.stat.uid", "item.0.stat.islnk", "token_escrow.directory.path", "token_escrow.file.mode"]) {
-  if (!apiTasks.includes(snippet)) throw new Error(`Proxmox API escrow validation lacks: ${snippet}`);
+for (const removed of ["proxmox_host", "proxmox_network", "proxmox_passthrough", "proxmox_storage", "proxmox_health", "proxmox_firewall"]) {
+  if (fs.existsSync(path.join(root, "ansible/roles", removed))) throw new Error(`retired Ansible role remains: ${removed}`);
 }
 
 function parsedTask(relativePath, taskName) {
@@ -440,53 +409,6 @@ function requireTaskArgument(relativePath, taskName, moduleName, argument, expec
     throw new Error(`${relativePath} ${taskName} ${moduleName}.${argument}=${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`);
   }
 }
-requireTaskArgument("ansible/roles/proxmox_network/tasks/main.yml", "Converge the permanent Proxmox network", "ansible.builtin.template", "dest", "{{ network.ownership.interfaces_file.path }}");
-requireTaskArgument("ansible/roles/proxmox_network/tasks/main.yml", "Converge the permanent Proxmox network", "ansible.builtin.template", "owner", "{{ network.ownership.interfaces_file.owner }}");
-requireTaskArgument("ansible/roles/proxmox_network/tasks/main.yml", "Converge the permanent Proxmox network", "ansible.builtin.template", "group", "{{ network.ownership.interfaces_file.group }}");
-requireTaskArgument("ansible/roles/proxmox_network/tasks/main.yml", "Converge the permanent Proxmox network", "ansible.builtin.template", "mode", "{{ network.ownership.interfaces_file.mode }}");
-requireTaskArgument("ansible/roles/proxmox_passthrough/tasks/main.yml", "Enable IOMMU passthrough without globally blacklisting amdgpu", "ansible.builtin.lineinfile", "path", "{{ proxmox.grub.file.path }}");
-requireTaskArgument("ansible/roles/proxmox_passthrough/tasks/main.yml", "Enable IOMMU passthrough without globally blacklisting amdgpu", "ansible.builtin.lineinfile", "line", "{{ proxmox.grub.variable }}=\"{{ proxmox.grub.default_tokens | join(' ') }}\"");
-requireTaskArgument("ansible/roles/proxmox_passthrough/tasks/main.yml", "Enable IOMMU passthrough without globally blacklisting amdgpu", "ansible.builtin.lineinfile", "mode", "{{ proxmox.grub.file.mode }}");
-requireTaskArgument("ansible/roles/proxmox_passthrough/tasks/main.yml", "Keep only the canonical VFIO modules in early boot configuration", "ansible.builtin.copy", "dest", "{{ proxmox.vfio.modules_load_file.path }}");
-requireTaskArgument("ansible/roles/proxmox_passthrough/tasks/main.yml", "Keep only the canonical VFIO modules in early boot configuration", "ansible.builtin.copy", "content", "{{ proxmox.vfio.modules | join('\n') }}\n");
-const vfioLineAbsenceTask = parsedTask("ansible/roles/proxmox_passthrough/tasks/main.yml", "Remove every duplicate VFIO module line from legacy module files");
-if (vfioLineAbsenceTask["ansible.builtin.lineinfile"].path !== "{{ item.path }}" ||
-    vfioLineAbsenceTask["ansible.builtin.lineinfile"].regexp !== "{{ item.pattern }}" ||
-    !vfioLineAbsenceTask.loop.includes("proxmox.vfio.absence_policy")) {
-  throw new Error("VFIO matching-line absence task must consume classified contract records");
-}
-const vfioLinePattern = new RegExp(contract.proxmox.vfio.absence_policy[0].pattern);
-for (const line of ["vfio", " vfio_pci # duplicate", "\tvfio_virqfd"]) {
-  if (!vfioLinePattern.test(line)) throw new Error(`VFIO absence regex must match legacy module line: ${JSON.stringify(line)}`);
-}
-for (const line of ["vfio-pci", "options vfio-pci ids=1002:73bf", "xvfio"]) {
-  if (vfioLinePattern.test(line)) throw new Error(`VFIO absence regex must reject non-module line: ${JSON.stringify(line)}`);
-}
-const vfioFileAbsenceTask = parsedTask("ansible/roles/proxmox_passthrough/tasks/main.yml", "Remove the legacy duplicate VFIO modprobe file");
-if (vfioFileAbsenceTask["ansible.builtin.file"].path !== "{{ item.path }}" || !vfioFileAbsenceTask.loop.includes("proxmox.vfio.absence_policy")) {
-  throw new Error("VFIO file absence task must consume classified contract records");
-}
-requireTaskArgument("ansible/roles/proxmox_passthrough/tasks/main.yml", "Bind only contract passthrough devices to vfio-pci", "ansible.builtin.copy", "dest", "{{ proxmox.vfio.modprobe_file.path }}");
-requireTaskArgument("ansible/roles/proxmox_passthrough/tasks/main.yml", "Bind only contract passthrough devices to vfio-pci", "ansible.builtin.copy", "owner", "{{ proxmox.vfio.modprobe_file.owner }}");
-requireTaskArgument("ansible/roles/proxmox_host/tasks/main.yml", "Keep required host services enabled and started", "ansible.builtin.systemd_service", "enabled", "{{ item.enabled }}");
-requireTaskArgument("ansible/roles/proxmox_host/tasks/main.yml", "Keep required host services enabled and started", "ansible.builtin.systemd_service", "state", "{{ item.state }}");
-requireTaskArgument("ansible/roles/proxmox_storage/tasks/main.yml", "Stage the contract ZFS ARC maximum for the next boot", "ansible.builtin.copy", "dest", "{{ storage.zfs.arc_config.file.path }}");
-requireTaskArgument("ansible/roles/proxmox_storage/tasks/main.yml", "Export the Docker dataset only to the Arch VM", "ansible.builtin.template", "dest", "{{ storage.nfs.exports_file.path }}");
-requireTaskArgument("ansible/roles/proxmox_health/tasks/main.yml", "Verify the Proxmox API responds locally", "ansible.builtin.uri", "url", "{{ proxmox_health_local_api_url }}");
-requireTaskArgument("ansible/roles/proxmox_health/tasks/main.yml", "Verify the Proxmox API responds locally", "ansible.builtin.uri", "validate_certs", "{{ proxmox_health_local_api_validate_certs }}");
-requireTaskArgument("ansible/roles/proxmox_health/tasks/main.yml", "Verify the Proxmox API responds locally", "ansible.builtin.uri", "status_code", "{{ proxmox_health_local_api_status_codes }}");
-const vmHealthTask = parsedTask("ansible/roles/proxmox_health/tasks/main.yml", "Verify VM startup state when required");
-if (!vmHealthTask["ansible.builtin.command"].argv.includes("{{ proxmox.vm.vmid }}")) throw new Error("VM health must consume the contract VM identity");
-const healthAssertion = parsedTask("ansible/roles/proxmox_health/tasks/main.yml", "Assert Proxmox health gates");
-if (!healthAssertion["ansible.builtin.assert"].that.some((condition) => condition.includes("proxmox_health_vm_status"))) {
-  throw new Error("VM health assertion must consume the expected contract status");
-}
-requireTaskArgument("ansible/roles/proxmox_firewall/tasks/main.yml", "Install the fixed pvesh-only firewall transaction helper", "ansible.builtin.copy", "dest", "/usr/local/libexec/home-lab/proxmox-firewall-transaction");
-requireTaskArgument("ansible/roles/proxmox_firewall/tasks/main.yml", "Install the canonical API-owned firewall policy", "ansible.builtin.template", "dest", "/usr/local/share/home-lab/proxmox-firewall-policy.json");
-const firewallTasks = fs.readFileSync(path.join(root, "ansible/roles/proxmox_firewall/tasks/main.yml"), "utf8");
-if (firewallTasks.includes(contract.proxmox.firewall.compatibility_config_path) || firewallTasks.includes("proxmox_firewall_apply_confirmed")) {
-  throw new Error("steady Proxmox firewall role must not activate or write compatibility state");
-}
 requireTaskArgument("ansible/roles/ssh/tasks/main.yml", "Keep the SSH host-key sentinel metadata protected", "ansible.builtin.file", "mode", "{{ ssh_host_key_sentinel_mode }}");
 requireTaskArgument("ansible/roles/ssh/tasks/main.yml", "Converge managed OpenSSH policy", "ansible.builtin.copy", "dest", "{{ ssh_config_path }}");
 requireTaskArgument("ansible/roles/ssh/tasks/main.yml", "Converge managed OpenSSH policy", "ansible.builtin.copy", "owner", "{{ ssh_config_owner }}");
@@ -496,36 +418,19 @@ const sshMetadataTask = parsedTask("ansible/roles/ssh/tasks/main.yml", "Keep the
 if (!sshMetadataTask.when.includes("not ansible_check_mode or (ssh_host_key_sentinel_before.stat.exists | default(false))")) {
   throw new Error("SSH host-key metadata enforcement must skip an absent sentinel only in check mode");
 }
-const sharenfsTask = parsedTask("ansible/roles/proxmox_storage/tasks/main.yml", "Disable the ZFS-generated world export");
-if (!sharenfsTask["ansible.builtin.command"].argv.includes("sharenfs={{ storage.zfs.dataset_properties.sharenfs }}")) {
-  throw new Error("ZFS sharenfs mutation must derive the desired dataset property from contract");
-}
 requireTaskArgument("ansible/roles/tailscale/tasks/main.yml", "Keep tailscaled enabled and started without restarting it", "ansible.builtin.systemd_service", "state", "{{ tailscale_service_state }}");
 const tailscaleAssertion = parsedTask("ansible/roles/tailscale/tasks/main.yml", "Assert local Tailscale verification passed");
 if (!tailscaleAssertion["ansible.builtin.assert"].that.some((condition) => condition.includes("tailscale_expected_backend_state"))) {
   throw new Error("Tailscale verification must consume the expected backend state");
 }
-requireTaskArgument("ansible/roles/proxmox_host/tasks/main.yml", "Install the pinned Tailscale repository signing key", "ansible.builtin.get_url", "owner", "{{ proxmox_host_tailscale_keyring.file.owner }}");
-requireTaskArgument("ansible/roles/proxmox_host/tasks/main.yml", "Install each canonical Deb822 repository definition", "ansible.builtin.copy", "mode", "{{ proxmox.apt.repository_file_metadata.mode }}");
-requireTaskArgument("ansible/roles/proxmox_storage/tasks/main.yml", "Export the Docker dataset only to the Arch VM", "ansible.builtin.template", "owner", "{{ storage.nfs.exports_file.owner }}");
 requireTaskArgument("ansible/roles/human_access/tasks/main.yml", "Remove contract-declared conventional OpenSSH authorized-key files for human accounts", "ansible.builtin.file", "path", "{{ item.1.path }}");
 requireTaskArgument("ansible/roles/human_access/tasks/main.yml", "Install validated passwordless sudo policies for human accounts", "ansible.builtin.copy", "dest", "{{ item.sudo.file.path | default(item.sudoers_path) }}");
-const removeServiceSudoTask = parsedTask("ansible/roles/proxmox_host/tasks/service-accounts.yml", "Remove undeclared service-account sudo policies");
-for (const condition of ["(item.sudo.kind | default('')) == 'audit-absence'", "(item.sudo.absence | default('')) == 'file'"]) {
-  if (!removeServiceSudoTask.when.includes(condition)) throw new Error(`service-account sudo absence guard must safely classify mixed records: ${condition}`);
-}
 
-const renderedConsumers = {
-  "ansible/roles/proxmox_network/templates/interfaces.j2": ["network.ownership.managed_header", "network.ownership.bridge_stp", "network.ownership.bridge_forward_delay"],
-  "ansible/roles/proxmox_storage/templates/home-lab.exports.j2": ["storage.nfs.options", "storage.nfs.squash_policy"],
-};
+
+const renderedConsumers = {};
 for (const [relativePath, snippets] of Object.entries(renderedConsumers)) {
   const source = fs.readFileSync(path.join(root, relativePath), "utf8");
   for (const snippet of snippets) if (!source.includes(snippet)) throw new Error(`${relativePath} does not derive ${snippet}`);
-}
-const passthroughTasks = fs.readFileSync(path.join(root, "ansible/roles/proxmox_passthrough/tasks/main.yml"), "utf8");
-if (passthroughTasks.includes("regex_replace('_SERIAL$', '_PORT')")) {
-  throw new Error("protected USB port inputs must use explicit contract references rather than a naming convention");
 }
 const protectedReferenceValues = [];
 (function collectProtectedReferences(value) {

@@ -23,7 +23,7 @@ network:
       mode: "0644"
     snippets_directory: /etc/network/interfaces.d
     permitted_active_snippets: []
-    managed_header: "# Managed by Ansible. Keep console/LAN rollback available during changes."
+    managed_header: "# Managed by the Home Lab Nix host workflow. Keep console/LAN rollback available during changes."
     bridge_stp: false
     bridge_forward_delay: 0
   proxmox:
@@ -236,11 +236,10 @@ proxmox:
           rule: "tofu-plan ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-observer observe"
       - name: tofu-apply
         home: /home/tofu-apply
-        shell: /bin/bash
+        shell: /usr/local/libexec/home-lab/proxmox-apply-transport
         create_home: true
         password_lock: true
-        groups:
-          - sudo
+        groups: []
         ssh_directory:
           kind: runtime-protected-directory
           projectable: false
@@ -259,7 +258,7 @@ proxmox:
             group: tofu-apply
             mode: "0600"
           secret_ref: PROXMOX_APPLY_SSH_PUBLIC_KEYS
-          forced_command: null
+          forced_command: 'restrict,command="/usr/local/libexec/home-lab/proxmox-apply-transport"'
         sudo:
           state: present
           file:
@@ -269,7 +268,7 @@ proxmox:
             owner: root
             group: root
             mode: "0440"
-          rule: "tofu-apply ALL=(root) NOPASSWD: ALL"
+          rule: "tofu-apply ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-private-preparer prepare, /usr/local/libexec/home-lab/proxmox-activator session"
       - name: firewall-apply
         home: /home/firewall-apply
         shell: /usr/local/libexec/home-lab/proxmox-firewall-transport

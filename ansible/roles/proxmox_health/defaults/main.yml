@@ -1,9 +1,0 @@
----
-proxmox_health_local_api_url: https://127.0.0.1:8006/api2/json/version
-proxmox_health_local_api_validate_certs: false
-proxmox_health_local_api_status_codes:
-  - 200
-  - 401
-proxmox_health_tailscale_backend_state: Running
-proxmox_health_vm_status: running
-proxmox_health_require_vm: true

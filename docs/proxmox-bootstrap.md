@@ -1,94 +1,41 @@
-# Proxmox local bootstrap
+# Proxmox local Nix bootstrap
 
-This is the only host bootstrap that must be launched locally. Keep physical console access and a tested LAN root session open throughout it. Do not run the playbook from the remote controller.
+This is the only fresh-host bootstrap and must be launched as root at a physical Proxmox console with a tested LAN root session retained. Nix remains controller-side; no Nix daemon or store is installed on Proxmox.
 
 ## Prepare protected inputs
 
-On the Proxmox host, check out the exact reviewed commit:
+Install official Debian-based Proxmox VE manually, check out the exact reviewed and pushed repository revision on the host, and prepare the protected hardware and access inputs described by the contract. Controller-specific tokens, keys, disk identities, pool identities, and USB serials remain in root-owned mode-`0600` inputs and never enter the Nix store, Git, plans, logs, or evidence.
+
+Build `path:./nix#proxmox-host-bundle` on the trusted controller. Transfer only `bundle` and `bundle.sha256` into `/var/lib/home-lab/bootstrap/incoming/`. Put three distinct reviewed public-key sets in the fixed root-owned mode-`0600` `/root/.config/home-lab/proxmox-{plan,apply,firewall}-authorized-keys` files.
+
+Before automation, establish only the destructive official-PVE baseline that cannot safely be inferred: configure the contract hostname and static bridge with the attached console available; import the already-existing ZFS pool by its independently verified protected GUID without creating or formatting storage; register its existing dataset; install the exact contract package versions from the official repositories; and enroll Tailscale with a protected single-use preauthorized key using the exact contract hostname/tag/DNS/routes/netfilter/SSH preferences. Assert that the pool is `ONLINE`, its exact six-mirror protected topology is present, VM storage is not overwritten, and the contract services/binaries are available. This is a deterministic manual assertion boundary, not permission for the bootstrap to discover, import, create, format, upgrade, or delete infrastructure.
+
+Then run the closed console access bootstrap from `/dev/ttyN`. It installs only the fixed firewall login transport needed as the account shell; the complete firewall transaction is installed later by the host bootstrap:
 
 ```sh
-git clone https://github.com/soodoh/home-lab.git /root/home-lab
-cd /root/home-lab
-git checkout <reviewed-commit>
-install -m 0600 /dev/null /root/home-lab-usb-serials.env
-printf '%s\n' \
-  'HOMELAB_ZIGBEE_USB_SERIAL=<protected-zigbee-serial>' \
-  'HOMELAB_ZWAVE_USB_SERIAL=<protected-zwave-serial>' \
-  >/root/home-lab-usb-serials.env
-scripts/collect-proxmox-protected-inputs \
-  --serial-env /root/home-lab-usb-serials.env \
-  --output /root/home-lab-hardware.env
-install -m 0600 recovery/proxmox-bootstrap-extra-vars.example.yml \
-  /root/proxmox-bootstrap-extra-vars.yml
+export PROXMOX_NIX_ACCESS_INSTALL_CONFIRMED=install-reviewed-access-authority
+scripts/bootstrap-proxmox-nix-access install
 ```
 
-Edit only the root-owned extra-vars file. Confirm the console and LAN rollback gates, leave mutation gates false, and run the check phase:
+It creates exactly `tofu-plan`, `tofu-apply`, `firewall-apply`, and the locked non-SSH `proxmox` audit account, installs exact separated/forced service authorized keys plus contract-derived SSH/sudo files. `tofu-apply` has the fixed apply transport as both login shell and forced key command, no supplementary groups, and sudo access only to `proxmox-private-preparer prepare` and `proxmox-activator session`; creates the exact PVE roles, creates privilege-separated plan/apply tokens once, stores their one-time values only in root-owned mode-`0600` escrows, and installs exact token ACLs. It accepts no paths, identities, roles, commands, or token values from callers. An interruption rolls back created access authority; a retained journal is recovered only with:
 
 ```sh
-scripts/bootstrap-proxmox-host --mode check \
-  --extra-vars /root/proxmox-bootstrap-extra-vars.yml \
-  --hardware-env /root/home-lab-hardware.env
+export PROXMOX_NIX_ACCESS_RECOVER_CONFIRMED=recover-reviewed-access-bootstrap
+scripts/bootstrap-proxmox-nix-access recover
 ```
 
-If check mode reports a ZFS userspace/kernel mismatch, align only the reviewed signed Proxmox kernel and ZFS packages:
-
-```sh
-scripts/migrate-proxmox-zfs-stack --check
-export PROXMOX_CONSOLE_CONFIRMED=true
-export PROXMOX_ZFS_MIGRATION_CONFIRMED=install-reviewed-zfs-and-kernel-packages
-scripts/migrate-proxmox-zfs-stack --apply
-systemctl reboot
-```
-
-After reconnecting through the console or trusted LAN, run `scripts/migrate-proxmox-zfs-stack --verify`, then rerun bootstrap check mode. The migration refuses degraded storage or stopped protected guests.
-
-## Apply the reviewed bootstrap
-
-Review the complete check result. Set only the reviewed mutation gates true, then provide a short-lived, preauthorized, single-use Tailscale key tagged `tag:proxmox` and distinct SSH public keys for the plan and apply identities:
-
-```sh
-export TAILSCALE_AUTH_KEY='<protected one-use key>'
-export PROXMOX_PLAN_SSH_PUBLIC_KEYS='<plan public key>'
-export PROXMOX_APPLY_SSH_PUBLIC_KEYS='<apply public key>'
-export PROXMOX_FIREWALL_SSH_PUBLIC_KEYS='<firewall-only forced-command public key>'
-# Each variable may contain multiple lines; bootstrap compares algorithm+base64 identity (ignoring comments) and rejects overlap within or across all three sets.
-export PROXMOX_BOOTSTRAP_EXECUTION_CONFIRMED=run-reviewed-proxmox-bootstrap-with-console
-scripts/bootstrap-proxmox-host --mode apply \
-  --extra-vars /root/proxmox-bootstrap-extra-vars.yml \
-  --hardware-env /root/home-lab-hardware.env
-```
-
-Apply reruns check mode before mutation. The wrapper requires a clean checkout and root-owned protected inputs, installs its hash-locked Ansible controller in a temporary root-only executable cache, and removes it on exit. It creates separated `tofu-plan` and `tofu-apply` API/SSH identities and leaves token escrow only in root-readable files under `/root/.config/home-lab/`.
-
-A failed apply intentionally retains `/var/lib/iac-ansible-production.lock`. Inspect its root-owned owner record before retrying. The wrapper clears only a structurally valid lock whose owner records `operation=proxmox-bootstrap`, and only with:
-
-```sh
-export PROXMOX_BOOTSTRAP_RESUME_CONFIRMED=resume-matching-failed-proxmox-bootstrap
-```
-
-Never remove an unknown or mismatched lock manually.
-
-## Transfer controller capabilities
-
-Transfer each token through a protected channel into the matching mode-`0600` local-controller credential JSON. Do not print it, paste it into shell history, store it in GitHub, or reuse the apply token for planning. `scripts/configure-local-provider-credentials` updates the protected controller files through hidden prompts.
-
-From the trusted local controller, prove:
-
-- `tofu-plan` can perform only the expected audit/read operations;
-- `tofu-apply` has only the required mutation capability;
-- the three distinct plan, apply, and firewall-only SSH keys authenticate only as their intended service users;
-- Tailscale reaches `proxmox` on the required SSH/API endpoints; and
-- host fingerprints match the protected inventory.
-
-Only after these checks may the steady Proxmox play set `proxmox_ssh_access_proven=true` and tighten password authentication.
-
-## Layer the Nix transport bootstrap
-
-The existing local Ansible bootstrap remains the fresh-host authority until cutover. After it succeeds, build the sanitized bundle on the trusted controller and transfer only `bundle` and `bundle.sha256` to the fixed mode-`0700` `/var/lib/home-lab/bootstrap/incoming/` directory. Put the three distinct reviewed plan/apply/firewall public keys in the fixed mode-`0600` `/root/.config/home-lab/proxmox-{plan,apply,firewall}-authorized-keys` files; the token escrows and `/root/home-lab-hardware.env` already use fixed root-only paths. Create the canonical protected input without manual JSON assembly, then use the exact pushed checkout locally on the host:
+Now create the protected runtime input without printing protected values:
 
 ```sh
 export PROXMOX_NIX_PROTECTED_CREATE_CONFIRMED=create-reviewed-protected-runtime-input
 scripts/prepare-proxmox-nix-protected-inputs
+```
+
+## Install and verify
+
+From the same exact pushed checkout on the Proxmox console:
+
+```sh
 scripts/bootstrap-proxmox-nix-host check
 export PROXMOX_NIX_BOOTSTRAP_CONSOLE_CONFIRMED=install-reviewed-helper-bundle
 export PROXMOX_NIX_BOOTSTRAP_LAN_CONFIRMED=tested-lan-root-session-open
@@ -96,16 +43,26 @@ scripts/bootstrap-proxmox-nix-host install
 scripts/bootstrap-proxmox-nix-host verify
 ```
 
-The command accepts only `check`, `install`, `verify`, or explicitly gated `recover`; it accepts no paths, hosts, or caller commands. Install takes the shared operation mutex, then rejects both persistent Ansible and Nix ownership before mutation. Proxmox Ansible uses the identical mutex-first ordering and refuses a retained Nix `apply.lock`; the activator and private preparer refuse retained Ansible ownership. Install copies the three immutable verified helpers outside the Nix store, creates the root-only session key only when absent, copies protected inputs plus a root-only keyed runtime attestation only to fixed host-local paths, and writes only non-secret Git/tree/bundle/schema/helper hashes to the install manifest. It retains one bounded exact prior helper/manifest generation and refuses active Ansible/Nix ownership locks. Every atomic target uses one deterministic target-specific `.bootstrap-pending` name; startup inventories only that closed set, promotes a validated initial journal when needed, durably removes recognized uncommitted remnants (including session-key and protected-input bytes), and refuses unknown temporary entries. The fixed verified-bundle snapshot is likewise removed under both locks. Interrupted transactions—or exact prior-helper recovery for a matching retained active session—require `PROXMOX_NIX_BOOTSTRAP_RECOVER_CONFIRMED=recover-reviewed-helper-transaction` and `recover`.
+The fixed bootstrap accepts only `check`, `install`, `verify`, or explicitly gated `recover`. It verifies the official bare-metal PVE target, exact Git revision, sanitized bundle, protected input, free space, and authority locks. Install is journaled and rollback-safe. It installs the immutable observer, private preparer, and activator plus every retained firewall host asset from `infrastructure/proxmox-firewall/host`: transaction/transport/boot helpers, canonical policy JSON, systemd units/drop-ins, and the root-only attestation key. It reloads systemd, enables boot recovery and the persistent rollback timer, starts the watchdog, and `verify` proves exact bytes, key metadata, enablement, and active watchdog state.
 
-Protected inputs and session keys have separate fixed no-argument lifecycle commands. `refresh-proxmox-nix-protected-inputs` requires `PROXMOX_NIX_PROTECTED_REFRESH_CONFIRMED=refresh-reviewed-protected-runtime-input`; `rotate-proxmox-nix-session-key` requires `PROXMOX_NIX_SESSION_KEY_ROTATE_CONFIRMED=rotate-reviewed-session-key-with-no-active-plans`. Both take the shared locks and refuse active or nonterminal state. Rotation atomically replaces the key and never retains its prior bytes; all uncommitted sidecars must be discarded before rotation.
+Only after those assets exist, follow [`proxmox-firewall-cutover.md`](proxmox-firewall-cutover.md): generate the exact fixed controller plan, review its SHA-256, perform the `/dev/ttyN` isolate/authorize ceremonies, apply that exact hash, require terminal commit and all canaries, then restore retained access. Fresh bootstrap does not activate firewall policy implicitly.
 
-After verify, prove the fixed plan identity command and denial of arbitrary SSH commands, then create a shadow plan. That console-backed bootstrap is complete and the tracked policy is now `shadow-required`; repository-side capture produces read-only, sequential audit evidence and never apply authority. Helper installation, protected-state creation, key creation, the `tofu-plan` sudo rule, and its forced-key change were explicitly approved production mutations performed with physical console access and a tested LAN root session. This milestone does not authorize apply, package/API/OpenTofu mutations, watchdog changes, or reboot. `tofu-apply` intentionally retains `NOPASSWD: ALL` for Ansible compatibility and remains a cutover blocker.
+Interrupted installation requires:
 
-## Current status
+```sh
+export PROXMOX_NIX_BOOTSTRAP_RECOVER_CONFIRMED=recover-reviewed-helper-transaction
+scripts/bootstrap-proxmox-nix-host recover
+```
 
-The guarded bootstrap and pinned Proxmox kernel/ZFS migration have been live-qualified with console-backed reboots. The host is enrolled as `tag:proxmox`, the separated service identities are active, the reviewed VFIO/IOMMU configuration is loaded, ZFS is `ONLINE`, and VM 100 is the protected managed workload.
+For an already-qualified live host that still has the legacy `/bin/bash`, unforced apply key, sudo group, and `NOPASSWD: ALL`, use the distinct console-only migration after reviewing and testing root/LAN rollback access:
 
-Custom GPU ROM and stale local-media retirement follows the console-backed, evidence-first procedure in [`proxmox-local-artifact-cleanup.md`](proxmox-local-artifact-cleanup.md). It is not part of steady bootstrap convergence.
+```sh
+export PROXMOX_NIX_ACCESS_CONVERGE_CONFIRMED=converge-reviewed-legacy-access-authority
+scripts/bootstrap-proxmox-nix-access converge
+```
 
-CT 101 and its routed-gateway role were subsequently retired through separate reviewed operations. The empty `proxmox-legacy` backend remains as a state tombstone and recovery does not recreate that container. Do not use historical CT or gateway instructions as a bootstrap target.
+It first proves every non-apply account, key, access file, token escrow, and protected input plus the exact legacy apply state. It then atomically installs the tracked apply transport/key/sudo policy and changes the shell/groups; it is not accepted on a fresh or partially divergent host.
+
+Do not remove journals or ownership locks manually. Protected inputs and the session key use their separate fixed refresh/rotation tools and explicit gates.
+
+After bootstrap, prove that the fixed plan identity works and arbitrary SSH commands are denied. The controller then owns Proxmox host convergence through the exact manifest-bound Nix `plan`/guarded `prepare`/`apply`/fresh-zero-action `verify` flow. OpenTofu remains authoritative for VM 100 and PVE hardware mappings. Reboot remains a separate reviewed operation.

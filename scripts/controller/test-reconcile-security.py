@@ -56,6 +56,44 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertLess(reconcile, show)
         self.assertLess(show, complete)
 
+    def test_manifest_binds_and_reviews_exact_proxmox_nix_plan(self) -> None:
+        self.assertIn('proxmox_host_plan=$(plan_proxmox_host "$([[ $phase == recovery ]]', self.reconciler)
+        self.assertIn("--argjson proxmox_host_plan", self.reconciler)
+        self.assertIn(".version == 5", self.reconciler)
+        self.assertIn("saved Proxmox Nix host plan is missing or changed", self.reconciler)
+        self.assertIn("[proxmox-host-nix]", self.controller)
+        self.assertIn("verify_proxmox_host_plan", self.controller)
+        self.assertIn("Proxmox Nix plan internal digest differs", self.controller)
+        self.assertIn("raw != canonical", self.controller)
+        self.assertNotIn("proxmox-nix-shadow", self.controller)
+
+    def test_guarded_nix_apply_precedes_proxmox_tofu_in_both_phases(self) -> None:
+        dispatch = self.reconciler.index('case "$action" in', self.reconciler.index("acquire_apply_lock()"))
+        recovery = self.reconciler.index("if [[ $phase == recovery ]]", dispatch)
+        recovery_tofu = self.reconciler.index("apply_root proxmox", recovery)
+        recovery_nix = self.reconciler.index("prepare_apply_proxmox_host", recovery_tofu)
+        steady = self.reconciler.index("else", recovery_nix)
+        steady_nix = self.reconciler.index("prepare_apply_proxmox_host", steady)
+        steady_tofu = self.reconciler.index("apply_root proxmox", steady_nix)
+        self.assertLess(recovery_tofu, recovery_nix)
+        self.assertIn("external-owner-prerequisite", self.reconciler)
+        self.assertIn("requires_new_reviewed_plan=true", self.reconciler)
+        self.assertLess(steady_nix, steady_tofu)
+        recovery_arch = self.reconciler.index("ansible_checked_apply", recovery_nix)
+        self.assertLess(recovery_nix, recovery_arch)
+        self.assertIn("verify_fresh_proxmox_host_noop", self.reconciler)
+        self.assertIn("RECONCILE_PROXMOX_NO_CONCURRENT_MUTATION_CONFIRMED", self.reconciler)
+        self.assertIn("any(.actions[]; .watchdogRequired == true)", self.reconciler)
+        self.assertNotIn("home-lab-proxmox-plan-v4", self.reconciler)
+        self.assertGreaterEqual(self.reconciler.count("home-lab-proxmox-plan-v1"), 2)
+
+    def test_confirmation_binds_manifest_recovery_stage_and_rejects_cross_stage_replay(self) -> None:
+        self.assertIn('expected_confirmation="apply-reviewed-$operation-$recovery_stage"', self.controller)
+        self.assertIn('Ready to apply operation=%s recovery_stage=%s', self.controller)
+        self.assertIn('[controller-manifest] operation=%s recovery_stage=%s', self.controller)
+        self.assertNotIn('expected_confirmation="apply-reviewed-$operation"', self.controller)
+        self.assertIn('confirmation_invalid', self.controller)
+
     def test_apply_confirms_before_loading_mutation_credentials(self) -> None:
         dispatch = self.controller.index('case "$action" in', self.controller.index("confirm_apply()"))
         confirm = self.controller.index("confirm_apply", dispatch)

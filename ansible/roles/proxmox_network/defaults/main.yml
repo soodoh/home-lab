@@ -1,5 +1,0 @@
----
-proxmox_network_apply_confirmed: false
-proxmox_network_snippet_migration_confirmed: false
-proxmox_network_reviewed_active_snippets: []
-proxmox_network_single_file_marker: /var/lib/home-lab/network-single-file-v1

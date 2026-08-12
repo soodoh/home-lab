@@ -4,7 +4,7 @@
 
 This document defines the required transaction for the one-time Proxmox firewall cutover. It is a reviewed design only. It does not authorize installation or live activation.
 
-Ansible remains the Proxmox production authority until the wider Nix cutover. Trusted human operators and local root remain inside the host trust boundary; a malicious root operator can always bypass PVE, systemd, SSH, and helper controls, and this design does not claim otherwise. The firewall transaction is therefore Ansible-owned, but it is isolated from `proxmox-site.yml` so unrelated later tasks cannot leave a newly enabled default-deny firewall active after a failed play.
+Controller-side Nix is the Proxmox host production authority. Trusted human operators and local root remain inside the host trust boundary; a malicious root operator can always bypass PVE, systemd, SSH, and helper controls, and this design does not claim otherwise. The firewall transaction remains an isolated fixed PVE API/CLI authority so unrelated host actions cannot leave a newly enabled default-deny firewall active after failure.
 
 The existing ordinary template write to `/etc/pve/firewall/cluster.fw` must be retired before execution. `/etc/pve` remains PVE API/CLI-owned. All firewall reads and mutations use fixed `pvesh` commands; no helper opens, writes, renames, or unlinks a path below `/etc/pve`.
 
@@ -22,9 +22,9 @@ The unrestricted IPv4 source applies only to the Tailscale UDP listener. IPv6 un
 
 ## Components
 
-### Ansible ownership
+### Nix bootstrap ownership
 
-Ansible installs and byte-verifies these fixed assets:
+The console Nix host bootstrap installs and byte-verifies these fixed assets from `infrastructure/proxmox-firewall/host`:
 
 - `/usr/local/libexec/home-lab/proxmox-firewall-transaction`;
 - `home-lab-proxmox-firewall-rollback.service`;
@@ -34,7 +34,7 @@ Ansible installs and byte-verifies these fixed assets:
 
 The helper embeds the projected reviewed firewall policy. It accepts no caller-selected host, path, command, rule, endpoint, or policy payload. Installation does not activate the firewall.
 
-The existing `proxmox_firewall_apply_confirmed` template path is removed. Steady Ansible convergence audits the terminal policy but cannot perform the one-time activation transaction.
+Ordinary guarded Nix convergence observes firewall policy but cannot perform the isolated activation transaction.
 
 ### Host helper interface
 
@@ -62,7 +62,7 @@ Before authorization, the fixed local-console `isolate-tofu-apply` command durab
 
 `inspect` and `status` accept no arguments. `inspect` returns the exact normalized non-secret PVE state, the current PVE digest, a fresh challenge, a 300-second expiry, and a host-keyed attestation over those fields plus the installed helper and policy identities. `begin`, `commit`, and `rollback` accept only bounded schema-closed canonical requests on standard input. `begin` carries the complete reviewed public plan and the exact `inspect` attestation; it cannot carry policy, paths, hosts, endpoints, or commands outside that plan schema. `commit` and `rollback` carry only the helper-generated session identifier, plan SHA, and the closed expected result shape. Unknown commands, arguments, environment overrides, oversized input, stale sessions, and malformed requests fail before mutation.
 
-The helper uses fixed runtime locations under `/var/lib/home-lab/firewall-transaction/`, the shared mutex `/var/lib/home-lab/reconciliation/operation.lock`, and the persistent Ansible ownership lock `/var/lib/iac-ansible-production.lock`. It rejects an active or retained Nix ownership lock before beginning. Runtime files are root-owned, no-follow, single-link, mode `0600` or `0700` as appropriate, atomically replaced, and directory-fsynced.
+The helper uses fixed runtime locations under `/var/lib/home-lab/firewall-transaction/`, the shared mutex `/var/lib/home-lab/reconciliation/operation.lock`, and rejects any retained legacy ownership lock `/var/lib/iac-ansible-production.lock`. It rejects an active or retained Nix ownership lock before beginning. Runtime files are root-owned, no-follow, single-link, mode `0600` or `0700` as appropriate, atomically replaced, and directory-fsynced.
 
 ### Controller interface
 
@@ -149,7 +149,7 @@ Any missing, malformed, expired, or failed canary causes the controller to reque
 
 `commit` has a fixed 30-second aggregate execution deadline. Every `pvesh`, `systemctl`, and backend-status subprocess has a five-second timeout and at most two attempts separated by one second; exhausting either bound aborts without recording a commit decision and releases the shared mutex so the retrying timer can roll back. `commit` takes the shared mutex, rejects an expired or non-`activated` session, validates the exact session-, plan-, and private-configuration-bound canary result, checks the 120-second margin, and re-observes the complete API/backend state within those bounds. It then durably advances through `commit-release-pending` and `commit-lock-released` before the terminal `committed` state. Once `commit-release-pending` is durable, exact retries and watchdog delivery complete only that release decision. Ownership-lock removal is idempotent and reconciled against the journal and actual filesystem state; the watchdog remains active.
 
-A crash or exact retry in any release state resumes release; it never rolls back a durable commit decision and never leaves a terminal journal with an unexplained retained timer or ownership lock. `rollback-if-pending` and boot recovery complete commit release when they observe `commit-release-pending` or either later release state. Read-only `status` never mutates locks, timers, journals, or API state and therefore safely coexists with the enclosing steady Ansible lock. A delayed commit cannot commit a later session because every request is bound to the helper-generated session identifier and plan SHA.
+A crash or exact retry in any release state resumes release; it never rolls back a durable commit decision and never leaves a terminal journal with an unexplained retained timer or ownership lock. `rollback-if-pending` and boot recovery complete commit release when they observe `commit-release-pending` or either later release state. Read-only `status` never mutates locks, timers, journals, or API state and therefore safely coexists with the enclosing fixed transaction status checks. A delayed commit cannot commit a later session because every request is bound to the helper-generated session identifier and plan SHA.
 
 ### 7. Rollback
 
@@ -190,7 +190,7 @@ Repository and subprocess tests must cover:
 - crash injection before and after every journal boundary, every rule operation, enable, commit, and rollback;
 - exact rollback order and snapshot verification;
 - timer/commit busy-mutex retries, bounded commit and rollback attempts, rollback checkpoint resume after each subprocess timeout, every release boundary, idempotent release reconciliation, and delayed stale commits;
-- shared Ansible/Nix ownership-lock collisions;
+- shared legacy/Nix ownership-lock collisions;
 - symlink, hard-link, owner, group, mode, and oversized-file attacks;
 - controller plan freshness, exact-hash approval, and no-replan behavior;
 - a new connection for every canary;
@@ -200,10 +200,10 @@ Repository and subprocess tests must cover:
 - boot configuration-recovery/post-verification/timer ordering, persistent missed firings, boot-owned state rejection, indefinite readiness cycles, queued backend starts, failure-stop handling, postcondition retry, and release-state fixtures; and
 - scans proving protected values and stable protected hashes do not enter plans, logs, fixtures, or shareable evidence.
 
-The offline implementation now lives in the `proxmox_firewall` and `firewall_nfs_canary` Ansible roles plus `scripts/controller/proxmox-firewall.py`. The controller reads only the fixed root-owned controller key and canonical protected configuration under `~/.config/home-lab/controller/`; its public plan never contains those values. Its closed commands are `plan`, exact-hash `apply`, `status`, and exact-session `rollback`. This repository state does not authorize running any of them against production.
+The host implementation lives under `infrastructure/proxmox-firewall/host` and is installed transactionally by `scripts/bootstrap-proxmox-nix-host`; the controller is `scripts/controller/proxmox-firewall.py`. The controller reads only the fixed root-owned controller key and canonical protected configuration under `~/.config/home-lab/controller/`; its public plan never contains those values. Its closed commands are `plan`, exact-hash `apply`, `status`, and exact-session `rollback`. Repository changes alone do not authorize production execution.
 
 Independent review must pass after implementation and test evidence. Only then may an operator separately approve helper installation and, later, live activation with a physical console and tested LAN rollback session open.
 
-## Separate APT blocker
+## Historical APT cleanup
 
-The other current shadow blocker is a single exact zero-byte stale APT source file. Its removal is independent of firewall activation. A reviewed closed allowlist entry may remove only that file after rechecking that it is a root-owned regular zero-byte file. Firewall approval does not authorize this cleanup, and APT cleanup approval does not authorize firewall activation.
+The previously observed zero-byte stale APT source was an independent cutover issue and has been removed. Firewall approval never authorized that cleanup, and APT cleanup approval never authorized firewall activation.

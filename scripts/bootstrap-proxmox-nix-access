@@ -1,0 +1,443 @@
+#!/usr/bin/python3
+"""Console-bound, fixed fresh-PVE access and API authority bootstrap."""
+from __future__ import annotations
+import base64
+import fcntl
+import importlib.machinery
+import importlib.util
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+
+REPO = Path(__file__).resolve().parent.parent
+SOURCE = REPO / "scripts/bootstrap-proxmox-nix-host"
+loader = importlib.machinery.SourceFileLoader("proxmox_nix_access_runtime", str(SOURCE))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+runtime = importlib.util.module_from_spec(spec); loader.exec_module(runtime)
+PROJECTION = REPO / "nix/proxmox/projection.json"
+ROOT = Path("/root/.config/home-lab")
+KEY_INPUTS = {"tofu-plan": ROOT / "proxmox-plan-authorized-keys",
+              "tofu-apply": ROOT / "proxmox-apply-authorized-keys",
+              "firewall-apply": ROOT / "proxmox-firewall-authorized-keys"}
+ESCROWS = {"plan": ROOT / "proxmox-plan-token.env", "apply": ROOT / "proxmox-apply-token.env"}
+JOURNAL = runtime.BOOT / "access-journal.json"
+CONVERGE_JOURNAL = runtime.BOOT / "access-converge-journal.json"
+LOCK = runtime.BOOT / "access.lock"
+FORMAT = "home-lab-proxmox-access-bootstrap-v1"
+TOKEN_ID = {"plan": "root@pam!tofu-plan", "apply": "root@pam!tofu-apply"}
+ENV = runtime.ENV
+
+
+def access_targets(projection):
+    targets = {JOURNAL, CONVERGE_JOURNAL, *ESCROWS.values(), *managed_access_files(projection),
+               runtime.HELPER_ROOT / "proxmox-firewall-transport", runtime.HELPER_ROOT / "proxmox-apply-transport"}
+    for name in KEY_INPUTS:
+        targets.add(Path(account_spec(projection, name)["home"]) / ".ssh" / "authorized_keys")
+    return targets
+
+
+def reconcile_pending(projection):
+    mapping = {runtime.pending_path(path): path for path in access_targets(projection)}
+    present = []
+    for directory in {path.parent for path in mapping}:
+        try: names = set(os.listdir(directory))
+        except FileNotFoundError: continue
+        expected = {path.name for path in mapping if path.parent == directory}
+        unknown = {name for name in names if name.endswith(".bootstrap-pending")} - expected
+        if unknown: raise ValueError("access bootstrap contains unknown pending entry")
+        present.extend(path for path in mapping if path.parent == directory and path.name in names)
+    for journal_path, validator in ((JOURNAL, validate_journal), (CONVERGE_JOURNAL, validate_converge_journal)):
+        pending_journal = runtime.pending_path(journal_path)
+        if pending_journal not in present: continue
+        raw = runtime.secure_file(pending_journal, 0o600, 1024 * 1024); value = json.loads(raw)
+        if raw != canonical(value): raise ValueError("pending access journal is noncanonical")
+        validator(value)
+        parent = runtime.open_dir(journal_path.parent, 0o700)
+        try:
+            if runtime.exists_nofollow(journal_path): os.unlink(pending_journal.name, dir_fd=parent)
+            else: os.rename(pending_journal.name, journal_path.name, src_dir_fd=parent, dst_dir_fd=parent)
+            os.fsync(parent)
+        finally: os.close(parent)
+        present.remove(pending_journal)
+    user_paths = {runtime.pending_path(Path(account_spec(projection, name)["home"]) / ".ssh/authorized_keys"):
+                  account_spec(projection, name) for name in KEY_INPUTS}
+    for pending in present:
+        if pending in user_paths:
+            account = __import__("pwd").getpwnam(user_paths[pending]["name"])
+            user_file_unlink(pending, account.pw_uid, account.pw_gid, False)
+        else:
+            runtime.durable_unlink(pending, False)
+
+
+def user_directory(path, uid, gid, mode):
+    path.mkdir(mode=mode)
+    os.chown(path, uid, gid)
+    info = path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) != mode or info.st_uid != uid or info.st_gid != gid:
+        raise ValueError("user directory metadata differs")
+
+
+def user_file_read(path, uid, gid, mode, maximum=128 * 1024):
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        before = os.fstat(fd)
+        if not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) != mode or before.st_uid != uid or \
+                before.st_gid != gid or before.st_nlink != 1 or before.st_size > maximum:
+            raise ValueError("user file metadata differs")
+        raw = os.read(fd, maximum + 1); after = os.fstat(fd)
+        if len(raw) > maximum or runtime.fingerprint(before) != runtime.fingerprint(after):
+            raise ValueError("user file changed while read")
+        return raw
+    finally: os.close(fd)
+
+
+def user_file_unlink(path, uid, gid, missing_ok=True):
+    parent = path.parent; pinfo = parent.lstat()
+    if not stat.S_ISDIR(pinfo.st_mode) or stat.S_IMODE(pinfo.st_mode) != 0o700 or pinfo.st_uid != uid or pinfo.st_gid != gid:
+        raise ValueError("user unlink parent metadata differs")
+    directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        try:
+            info = os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != uid or info.st_gid != gid or info.st_nlink != 1:
+                raise ValueError("user unlink target metadata differs")
+            os.unlink(path.name, dir_fd=directory); os.fsync(directory)
+        except FileNotFoundError:
+            if not missing_ok: raise
+    finally: os.close(directory)
+
+
+def user_file_write(path, content, uid, gid, mode=0o600):
+    parent = path.parent
+    pinfo = parent.lstat()
+    if not stat.S_ISDIR(pinfo.st_mode) or stat.S_IMODE(pinfo.st_mode) != 0o700 or pinfo.st_uid != uid or pinfo.st_gid != gid:
+        raise ValueError("user file parent metadata differs")
+    temporary = runtime.pending_path(path)
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+    try:
+        os.fchown(fd, uid, gid); offset = 0
+        while offset < len(content): offset += os.write(fd, content[offset:])
+        os.fsync(fd)
+    finally: os.close(fd)
+    os.rename(temporary, path); directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try: os.fsync(directory)
+    finally: os.close(directory)
+    user_file_read(path, uid, gid, mode)
+
+
+def run(args, accepted=(0,), secret=False):
+    result = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, env=ENV, timeout=30)
+    if result.returncode not in accepted or (result.stderr and result.returncode == 0):
+        raise ValueError("fixed access bootstrap command failed")
+    return result.stdout
+
+
+def physical_console():
+    if os.geteuid() != 0 or not os.isatty(0):
+        raise ValueError("access bootstrap requires root on a physical Linux virtual console")
+    tty = os.ttyname(0)
+    if re.fullmatch(r"/dev/tty[1-9][0-9]*", tty) is None:
+        raise ValueError("access bootstrap requires /dev/ttyN")
+
+
+def source_identity():
+    runtime.host_preflight(False)
+
+
+def canonical(value):
+    return runtime.canonical(value)
+
+
+def load_projection():
+    raw = PROJECTION.read_bytes(); value = json.loads(raw)
+    if raw != canonical(value):
+        raise ValueError("projection is not canonical")
+    return value
+
+
+def input_keys(path):
+    values = runtime.secure_file(path, 0o600, 128 * 1024).decode("utf-8", "strict").splitlines()
+    identities = []
+    for value in values:
+        match = runtime.SSH_KEY.fullmatch(value)
+        if match is None:
+            raise ValueError("fixed authorized key input differs")
+        decoded = base64.b64decode(match.group(2), validate=True)
+        if len(decoded) < 32:
+            raise ValueError("fixed authorized key input differs")
+        identities.append(match.group(1) + " " + match.group(2))
+    if not identities or len(identities) != len(set(identities)):
+        raise ValueError("fixed authorized key input differs")
+    return values, identities
+
+
+def account_spec(projection, name):
+    return next(item for item in projection["accounts"]["service"] + projection["accounts"]["human"] if item["name"] == name)
+
+
+def rendered_keys(projection):
+    prefixes = {"tofu-plan": 'restrict,command="sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe"',
+                "tofu-apply": 'restrict,command="/usr/local/libexec/home-lab/proxmox-apply-transport"',
+                "firewall-apply": 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport"'}
+    rendered, all_ids = {}, []
+    for name, path in KEY_INPUTS.items():
+        keys, identities = input_keys(path); all_ids.extend(identities)
+        prefix = prefixes[name]
+        rendered[name] = ("\n".join(((prefix + " ") if prefix else "") + key for key in keys) + "\n").encode()
+    if len(all_ids) != len(set(all_ids)):
+        raise ValueError("access bootstrap keys overlap")
+    return rendered
+
+
+def journal_value(projection):
+    return {"completed": [], "format": FORMAT, "state": "applying",
+            "accounts": [item["name"] for item in projection["accounts"]["service"] + projection["accounts"]["human"]],
+            "roles": [item["role"] for item in projection["apiIntent"]["pveAccess"]["roles"]],
+            "tokens": [TOKEN_ID["plan"], TOKEN_ID["apply"]]}
+
+
+def validate_journal(value):
+    if not isinstance(value, dict) or set(value) != {"accounts", "completed", "format", "roles", "state", "tokens"} or \
+            value["format"] != FORMAT or value["state"] not in {"applying", "rolling-back"} or \
+            value["accounts"] != ["tofu-plan", "tofu-apply", "firewall-apply", "proxmox"] or \
+            value["tokens"] != [TOKEN_ID["plan"], TOKEN_ID["apply"]] or not isinstance(value["roles"], list) or \
+            not isinstance(value["completed"], list) or len(value["completed"]) != len(set(value["completed"])):
+        raise ValueError("access bootstrap journal differs")
+    ordered = ["files", *("account:" + item for item in value["accounts"]),
+               *("role:" + item for item in value["roles"]), *("token:" + item for item in value["tokens"]), "acls"]
+    allowed = set(ordered)
+    if any(item not in allowed for item in value["completed"]) or value["completed"] != ordered[:len(value["completed"])]: 
+        raise ValueError("access bootstrap journal step differs")
+    return value
+
+
+def write_journal(value):
+    validate_journal(value); runtime.atomic(JOURNAL, canonical(value), 0o600)
+
+
+def validate_converge_journal(value):
+    if not isinstance(value, dict) or set(value) != {"completed", "format", "previous"} or \
+            value["format"] != "home-lab-proxmox-access-converge-v1" or value["completed"] not in {False, True} or \
+            not isinstance(value["previous"], dict) or set(value["previous"]) != {"gid", "groups", "home", "keys", "locked", "shell", "sudo", "uid"} or \
+            not isinstance(value["previous"]["home"], str) or not isinstance(value["previous"]["shell"], str) or \
+            not isinstance(value["previous"]["locked"], bool) or not isinstance(value["previous"]["uid"], int) or \
+            not isinstance(value["previous"]["gid"], int) or not isinstance(value["previous"]["groups"], list) or \
+            any(not isinstance(item, str) or not item for item in value["previous"]["groups"]) or len(value["previous"]["groups"]) != len(set(value["previous"]["groups"])) or \
+            any(not isinstance(value["previous"][name], str) for name in ("keys", "sudo")):
+        raise ValueError("access convergence journal differs")
+    return value
+
+
+def write_converge_journal(value):
+    validate_converge_journal(value); runtime.atomic(CONVERGE_JOURNAL, canonical(value), 0o600)
+
+
+def json_command(args):
+    raw = run(args)
+    try: return json.loads(raw)
+    except json.JSONDecodeError as error: raise ValueError("fixed PVE JSON differs") from error
+
+
+def managed_access_files(projection):
+    expected = {"/etc/sudoers.d/tofu-plan", "/etc/sudoers.d/tofu-apply", "/etc/sudoers.d/firewall-apply",
+                "/etc/sudoers.d/proxmox", "/etc/ssh/sshd_config.d/60-home-lab.conf"}
+    files = {Path(item["path"]): item["content"].encode() for item in projection["managedFiles"] if item["path"] in expected}
+    if set(map(str, files)) != expected: raise ValueError("projection access file surface differs")
+    return files
+
+
+def account_exists(name):
+    return subprocess.run(("/usr/bin/getent", "passwd", name), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                          stderr=subprocess.DEVNULL, env=ENV).returncode == 0
+
+
+def verify_converged(projection, keys):
+    expected_files = managed_access_files(projection)
+    for path, content in expected_files.items():
+        if path == Path("/etc/sudoers.d/tofu-apply"): continue
+        if runtime.secure_file(path, 0o440 if path.parent == Path("/etc/sudoers.d") else 0o644) != content:
+            raise ValueError("managed access file differs")
+    for name, content in keys.items():
+        if name == "tofu-apply": continue
+        item = account_spec(projection, name); account = __import__("pwd").getpwnam(name)
+        if account.pw_dir != item["home"] or account.pw_shell != item["shell"] or \
+                user_file_read(Path(item["home"]) / ".ssh/authorized_keys", account.pw_uid, account.pw_gid, 0o600) != content:
+            raise ValueError("managed access account differs")
+    apply = __import__("pwd").getpwnam("tofu-apply"); raw_keys, _ = input_keys(KEY_INPUTS["tofu-apply"])
+    if apply.pw_shell != "/bin/bash" or user_file_read(Path(apply.pw_dir) / ".ssh/authorized_keys", apply.pw_uid, apply.pw_gid, 0o600) != ("\n".join(raw_keys) + "\n").encode() or \
+            runtime.secure_file(Path("/etc/sudoers.d/tofu-apply"), 0o440) != b"tofu-apply ALL=(root) NOPASSWD: ALL\n":
+        raise ValueError("legacy apply authority differs")
+    for principal, identity in TOKEN_ID.items():
+        raw = runtime.secure_file(ESCROWS[principal], 0o600, 4096).decode("utf-8", "strict")
+        if not raw.startswith("PROXMOX_VE_API_TOKEN=" + identity + "=") or not raw.endswith("\n"):
+            raise ValueError("managed token escrow differs")
+
+
+def preflight_absent(projection):
+    for name in ("tofu-plan", "tofu-apply", "firewall-apply", "proxmox"):
+        if account_exists(name): raise ValueError("partial or existing access bootstrap requires review")
+    transports = (runtime.HELPER_ROOT / "proxmox-firewall-transport", runtime.HELPER_ROOT / "proxmox-apply-transport")
+    for path in (*managed_access_files(projection), *transports, *(Path(account_spec(projection, n)["home"]) for n in (*KEY_INPUTS, "proxmox")), *ESCROWS.values()):
+        if runtime.exists_nofollow(path): raise ValueError("partial access bootstrap path exists")
+    roles = json_command(("/usr/sbin/pveum", "role", "list", "--output-format", "json"))
+    role_names = {item.get("roleid") for item in roles if isinstance(item, dict)}
+    if role_names.intersection(item["role"] for item in projection["apiIntent"]["pveAccess"]["roles"]):
+        raise ValueError("managed PVE role already exists")
+    for principal, identity in TOKEN_ID.items():
+        token = identity.split("!", 1)[1]
+        existing = json_command(("/usr/sbin/pveum", "user", "token", "list", "root@pam", "--output-format", "json"))
+        if any(item.get("tokenid") == token for item in existing if isinstance(item, dict)):
+            raise ValueError("managed PVE token already exists")
+
+
+def create_accounts(projection, keys, journal):
+    transports = (runtime.HELPER_ROOT / "proxmox-firewall-transport", runtime.HELPER_ROOT / "proxmox-apply-transport")
+    journal["completed"].append("files"); write_journal(journal)
+    for transport in transports:
+        source, mode = runtime.FIREWALL_TARGETS[transport]
+        runtime.atomic(transport, runtime.secure_file(source, mode), mode)
+    for name in ("tofu-plan", "tofu-apply", "firewall-apply", "proxmox"):
+        item = account_spec(projection, name)
+        journal["completed"].append("account:" + name); write_journal(journal)
+        args = ["/usr/sbin/useradd", "--create-home", "--home-dir", item["home"], "--shell", item["shell"], "--user-group"]
+        if item.get("comment"): args += ["--comment", item["comment"]]
+        groups = item.get("groups", item.get("supplementaryGroups", []))
+        if groups: args += ["--groups", ",".join(groups)]
+        args.append(name); run(tuple(args)); run(("/usr/sbin/usermod", "--lock", name))
+        if name in keys:
+            info = __import__("pwd").getpwnam(name)
+            ssh = Path(item["home"]) / ".ssh"; user_directory(ssh, info.pw_uid, info.pw_gid, 0o700)
+            target = ssh / "authorized_keys"; user_file_write(target, keys[name], info.pw_uid, info.pw_gid)
+    for path, content in managed_access_files(projection).items():
+        runtime.atomic(path, content, 0o440 if path.parent == Path("/etc/sudoers.d") else 0o644)
+        if path.parent == Path("/etc/sudoers.d"):
+            run(("/usr/sbin/visudo", "--check", "--file=" + str(path)))
+    run(("/usr/sbin/sshd", "-t")); run(("/usr/bin/systemctl", "reload", "ssh.service"))
+
+
+def create_pve(projection, journal):
+    access = projection["apiIntent"]["pveAccess"]
+    for role in access["roles"]:
+        journal["completed"].append("role:" + role["role"]); write_journal(journal)
+        run(("/usr/sbin/pveum", "role", "add", role["role"], "--privs", " ".join(role["privileges"])))
+    for principal in ("plan", "apply"):
+        identity = TOKEN_ID[principal]; token = identity.split("!", 1)[1]
+        # Persist intent first: recovery removes a token created before its one-time secret was escrowed.
+        journal["completed"].append("token:" + identity); write_journal(journal)
+        result = json_command(("/usr/sbin/pveum", "user", "token", "add", "root@pam", token,
+                               "--privsep", "1", "--output-format", "json"))
+        if set(result) < {"full-tokenid", "value"} or result["full-tokenid"] != identity or not isinstance(result["value"], str):
+            raise ValueError("PVE token creation response differs")
+        runtime.atomic(ESCROWS[principal], ("PROXMOX_VE_API_TOKEN=" + identity + "=" + result["value"] + "\n").encode(), 0o600)
+    journal["completed"].append("acls"); write_journal(journal)
+    for binding in access["bindings"]:
+        identity = TOKEN_ID[binding["principal"]]
+        run(("/usr/sbin/pveum", "acl", "modify", binding["primaryAcl"], "--tokens", identity, "--roles", binding["role"]))
+        for acl in binding["additionalAcls"]:
+            run(("/usr/sbin/pveum", "acl", "modify", acl["path"], "--tokens", identity, "--roles", acl["role"]))
+
+
+def rollback(projection, journal):
+    journal["state"] = "rolling-back"; write_journal(journal)
+    access = projection["apiIntent"]["pveAccess"]
+    if "acls" in journal["completed"]:
+        for binding in reversed(access["bindings"]):
+            identity = TOKEN_ID[binding["principal"]]
+            for acl in reversed(binding["additionalAcls"]):
+                run(("/usr/sbin/pveum", "acl", "delete", acl["path"], "--tokens", identity, "--roles", acl["role"]), accepted=(0, 2, 255))
+            run(("/usr/sbin/pveum", "acl", "delete", binding["primaryAcl"], "--tokens", identity, "--roles", binding["role"]), accepted=(0, 2, 255))
+    for principal, identity in reversed(tuple(TOKEN_ID.items())):
+        if "token:" + identity in journal["completed"]:
+            run(("/usr/sbin/pveum", "user", "token", "remove", "root@pam", identity.split("!", 1)[1]), accepted=(0, 2, 255))
+            runtime.durable_unlink(ESCROWS[principal])
+    for role in reversed(access["roles"]):
+        if "role:" + role["role"] in journal["completed"]:
+            run(("/usr/sbin/pveum", "role", "delete", role["role"]), accepted=(0, 2, 255))
+    if "files" in journal["completed"]:
+        for path in managed_access_files(projection): runtime.durable_unlink(path)
+        run(("/usr/bin/systemctl", "reload", "ssh.service"), accepted=(0, 1, 5))
+    runtime.durable_unlink(runtime.HELPER_ROOT / "proxmox-firewall-transport")
+    runtime.durable_unlink(runtime.HELPER_ROOT / "proxmox-apply-transport")
+    for name in reversed(("tofu-plan", "tofu-apply", "firewall-apply", "proxmox")):
+        if "account:" + name in journal["completed"]:
+            run(("/usr/sbin/userdel", "--remove", name), accepted=(0, 6, 12))
+    runtime.durable_unlink(JOURNAL, False)
+
+
+def main():
+    if len(sys.argv) != 2 or sys.argv[1] not in {"install", "converge", "recover"}:
+        print("usage: bootstrap-proxmox-nix-access <install|converge|recover>", file=sys.stderr); return 64
+    physical_console(); source_identity(); projection = load_projection(); runtime.ensure_dir(runtime.BOOT, 0o700)
+    lock = runtime.acquire_lock(LOCK); operation = runtime.acquire_lock(runtime.OPERATION_LOCK)
+    try:
+        reconcile_pending(projection)
+        if sys.argv[1] == "recover":
+            if os.environ.get("PROXMOX_NIX_ACCESS_RECOVER_CONFIRMED") != "recover-reviewed-access-bootstrap":
+                raise ValueError("explicit access recovery gate required")
+            if runtime.exists_nofollow(CONVERGE_JOURNAL):
+                value = validate_converge_journal(json.loads(runtime.secure_file(CONVERGE_JOURNAL, 0o600, 1024 * 1024)))
+                previous = value["previous"]; apply = __import__("pwd").getpwnam("tofu-apply")
+                if apply.pw_uid != previous["uid"] or apply.pw_gid != previous["gid"]:
+                    raise ValueError("converged account identity differs from captured rollback")
+                home = Path(previous["home"])
+                user_file_write(home / ".ssh/authorized_keys", base64.b64decode(previous["keys"], validate=True), apply.pw_uid, apply.pw_gid)
+                runtime.atomic(Path("/etc/sudoers.d/tofu-apply"), base64.b64decode(previous["sudo"], validate=True), 0o440)
+                run(("/usr/sbin/usermod", "--shell", previous["shell"], "--groups", ",".join(previous["groups"]), "tofu-apply"))
+                if previous["locked"]: run(("/usr/sbin/usermod", "--lock", "tofu-apply"))
+                else: run(("/usr/sbin/usermod", "--unlock", "tofu-apply"))
+                runtime.durable_unlink(CONVERGE_JOURNAL, False)
+            else:
+                value = validate_journal(json.loads(runtime.secure_file(JOURNAL, 0o600, 1024 * 1024)))
+                rollback(projection, value)
+            print("proxmox-nix-access=recovered"); return 0
+        if runtime.exists_nofollow(JOURNAL): raise ValueError("interrupted access bootstrap requires recover")
+        keys = rendered_keys(projection)
+        if sys.argv[1] == "converge":
+            if os.environ.get("PROXMOX_NIX_ACCESS_CONVERGE_CONFIRMED") != "converge-reviewed-legacy-access-authority":
+                raise ValueError("explicit legacy access convergence gate required")
+            verify_converged(projection, keys)
+            # Convergence is deliberately last-mile only: replace legacy apply shell/key/sudo after exact current state proves all other authority.
+            item = account_spec(projection, "tofu-apply"); account = __import__("pwd").getpwnam("tofu-apply")
+            legacy_keys = user_file_read(Path(item["home"]) / ".ssh/authorized_keys", account.pw_uid, account.pw_gid, 0o600)
+            legacy_sudo = runtime.secure_file(Path("/etc/sudoers.d/tofu-apply"), 0o440)
+            status = run(("/usr/bin/passwd", "-S", "tofu-apply")).split()
+            primary = __import__("grp").getgrgid(account.pw_gid).gr_name
+            supplementary = sorted(group.gr_name for group in __import__("grp").getgrall() if "tofu-apply" in group.gr_mem)
+            if account.pw_dir != item["home"] or account.pw_shell != "/bin/bash" or status[1] not in {b"L", b"LK"} or \
+                    primary != "tofu-apply" or supplementary != ["sudo"]:
+                raise ValueError("legacy tofu-apply account state differs")
+            convergence = {"completed": False, "format": "home-lab-proxmox-access-converge-v1",
+                           "previous": {"gid": account.pw_gid, "groups": supplementary, "home": account.pw_dir,
+                                        "keys": base64.b64encode(legacy_keys).decode(), "locked": True, "shell": account.pw_shell,
+                                        "sudo": base64.b64encode(legacy_sudo).decode(), "uid": account.pw_uid}}
+            write_converge_journal(convergence)
+            transport = runtime.HELPER_ROOT / "proxmox-apply-transport"; source, mode = runtime.FIREWALL_TARGETS[transport]
+            runtime.atomic(transport, runtime.secure_file(source, mode), mode)
+            user_file_write(Path(item["home"]) / ".ssh/authorized_keys", keys["tofu-apply"], account.pw_uid, account.pw_gid)
+            sudo = Path("/etc/sudoers.d/tofu-apply"); runtime.atomic(sudo, managed_access_files(projection)[sudo], 0o440)
+            run(("/usr/sbin/visudo", "--check", "--file=" + str(sudo)))
+            run(("/usr/sbin/usermod", "--shell", item["shell"], "--groups", "", "tofu-apply"))
+            convergence["completed"] = True; write_converge_journal(convergence)
+            runtime.durable_unlink(CONVERGE_JOURNAL, False)
+            print("proxmox-nix-access=converged"); return 0
+        if os.environ.get("PROXMOX_NIX_ACCESS_INSTALL_CONFIRMED") != "install-reviewed-access-authority":
+            raise ValueError("explicit access install gate required")
+        preflight_absent(projection); journal = journal_value(projection); write_journal(journal)
+        try:
+            create_accounts(projection, keys, journal); create_pve(projection, journal)
+            runtime.durable_unlink(JOURNAL, False)
+        except Exception:
+            rollback(projection, journal); raise
+        print("proxmox-nix-access=installed")
+    finally:
+        os.close(operation); os.close(lock)
+    return 0
+
+if __name__ == "__main__":
+    try: raise SystemExit(main())
+    except Exception:
+        print("bootstrap-proxmox-nix-access: fixed operation failed", file=sys.stderr); raise SystemExit(1)

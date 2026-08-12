@@ -13,7 +13,6 @@ usage: scripts/reconcile-infrastructure <validate|plan|apply|verify> [options]
 Options:
   --phase <steady|recovery>           Desired reconciliation phase (default: steady)
   --plan-dir <path>                   Protected saved-plan directory
-  --proxmox-inventory <path>          Proxmox Ansible inventory
   --arch-inventory <path>             Arch Ansible inventory
   --arch-bootstrap-inventory <path>   Temporary Arch recovery inventory
 
@@ -24,8 +23,8 @@ Required environment:
 Apply requires a clean checkout at the exact manifest commit. Per-root OpenTofu S3 locks and
 an atomic controller-wide local lock serialize mutation. Recovery gates are supplied only through
 RECONCILE_ANSIBLE_EXTRA_VARS_FILE (an ignored mode-0600 YAML file); they are never accepted as
-shell text. Proxmox host bootstrap must already have been run locally with console/LAN fallback
-before recovery apply.
+shell text. The Proxmox Nix host bootstrap must already be installed and verified locally with
+physical-console and tested-LAN fallback before any steady or recovery apply.
 EOF
   exit 64
 }
@@ -36,7 +35,6 @@ shift
 case "$action" in validate|plan|apply|verify) ;; *) usage ;; esac
 phase=steady
 plan_dir="$repo_root/.reconcile/plans"
-proxmox_inventory=inventory/infrastructure.yml
 arch_inventory=inventory/production.yml
 arch_bootstrap_inventory=inventory/arch-recovery.yml
 
@@ -52,11 +50,7 @@ while (($#)); do
       plan_dir=$2
       shift 2
       ;;
-    --proxmox-inventory)
-      (($# >= 2)) || usage
-      proxmox_inventory=$2
-      shift 2
-      ;;
+
     --arch-inventory)
       (($# >= 2)) || usage
       arch_inventory=$2
@@ -101,7 +95,6 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-proxmox-nix-plan.py
   python3 scripts/controller/test-proxmox-nix-apply.py
   python3 scripts/controller/test-proxmox-nix-bootstrap.py
-  python3 scripts/controller/test-proxmox-nix-shadow.py
   python3 scripts/controller/test-proxmox-firewall-transaction.py
   python3 scripts/controller/test-proxmox-firewall-controller.py
   python3 scripts/controller/test-proxmox-firewall-nfs-canary.py
@@ -131,7 +124,6 @@ if [[ $action == validate ]]; then
     node scripts/controller/test-proxmox-nix-projection.js --scan-path "$closure_path"
   done < <(nix-store --query --requisites "$proxmox_bundle_output")
   echo "proxmox_nix_sanitized_source=$proxmox_nix_source"
-  python3 ansible/roles/proxmox_host/files/test-check-apt-availability.py
   python3 scripts/controller/test-zpool-status-parser.py
   python3 scripts/controller/test-root-local-audit.py
   python3 scripts/controller/test-lxc-qualification-evidence.py
@@ -141,7 +133,7 @@ if [[ $action == validate ]]; then
   scripts/test-recovery-tools
   python3 -m py_compile scripts/*.py scripts/controller/*.py
   shellcheck scripts/reconcile-infrastructure scripts/local-controller \
-    scripts/bootstrap-proxmox-host scripts/build-recovery-bundle scripts/configure-local-controller-aws \
+    scripts/build-recovery-bundle scripts/configure-local-controller-aws \
     scripts/configure-local-provider-credentials \
     scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack scripts/validate-proxmox-bootstrap-keys \
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
@@ -257,6 +249,73 @@ sha256_file() {
   else
     shasum -a 256 "$1" | awk '{print $1}'
   fi
+}
+
+proxmox_host_command() {
+  nix run --no-update-lock-file --no-write-lock-file 'path:./nix#proxmox-host' -- "$@" --repo-root "$repo_root"
+}
+
+plan_proxmox_host() {
+  local allow_external=${1:-false} result status actions blockers plan_sha path expected_path file_sha external_only=false
+  result=$(proxmox_host_command plan)
+  [[ $result =~ ^status=(ready|blocked)[[:space:]]actions=([0-9]+)[[:space:]]blockers=([0-9]+)[[:space:]]planSha256=([0-9a-f]{64})[[:space:]]path=([^[:space:]]+)$ ]] || {
+    echo "Proxmox Nix host planner returned an invalid result." >&2
+    exit 66
+  }
+  status=${BASH_REMATCH[1]}; actions=${BASH_REMATCH[2]}; blockers=${BASH_REMATCH[3]}
+  plan_sha=${BASH_REMATCH[4]}; path=${BASH_REMATCH[5]}
+  expected_path="$repo_root/.reconcile/plans/$plan_sha.json"
+  [[ $path == "$expected_path" && -f $path && ! -L $path ]] || { echo "Proxmox Nix host saved plan path differs." >&2; exit 66; }
+  if [[ $status == blocked && $allow_external == true && $actions == 0 ]]; then
+    jq -e '(.blockers | length) > 0 and all(.blockers[]; .domain == "opentofu" and .code == "opentofu-owner-required")' "$path" >/dev/null && external_only=true
+  fi
+  [[ ($status == ready && $blockers == 0) || $external_only == true ]] || {
+    echo "Proxmox Nix host plan is neither ready nor an external-owner-only recovery prerequisite." >&2; exit 66;
+  }
+  jq -e --arg sha "$plan_sha" --argjson actions "$actions" --arg status "$status" '
+    .format == "home-lab-proxmox-plan-v1" and .mode == "steady" and .status == $status and
+    .applyEligible == ($status == "ready") and .planSha256 == $sha and (.actions | length) == $actions
+  ' "$path" >/dev/null || {
+    echo "Proxmox Nix host saved plan metadata differs." >&2
+    exit 66
+  }
+  file_sha=$(sha256_file "$path")
+  jq -cn --arg file ".reconcile/plans/$plan_sha.json" --arg plan_sha "$plan_sha" \
+    --arg file_sha "$file_sha" --argjson actions "$actions" --arg status "$status" --argjson external "$external_only" \
+    '{file: $file, file_sha256: $file_sha, plan_sha256: $plan_sha, actions: $actions, status: $status, external_owner_only: $external}'
+}
+
+verify_fresh_proxmox_host_noop() {
+  local record
+  record=$(plan_proxmox_host)
+  [[ $(jq -r .actions <<<"$record") == 0 ]] || {
+    echo "Proxmox Nix host verification is not a fresh zero-action plan." >&2
+    exit 1
+  }
+  echo "proxmox_nix_host_verify=passed plan_sha256=$(jq -r .plan_sha256 <<<"$record")"
+}
+
+prepare_apply_proxmox_host() {
+  local manifest="$plan_dir/manifest.json" plan_sha relative plan_path watchdog_args=()
+  plan_sha=$(jq -r '.proxmox_host_plan.plan_sha256' "$manifest")
+  relative=$(jq -r '.proxmox_host_plan.file' "$manifest")
+  plan_path="$repo_root/$relative"
+  [[ ${RECONCILE_PROXMOX_NO_CONCURRENT_MUTATION_CONFIRMED:-} == confirm-no-concurrent-proxmox-mutation ]] || {
+    echo "Guarded Proxmox Nix apply requires explicit no-concurrent-mutation confirmation." >&2
+    exit 66
+  }
+  if jq -e 'any(.actions[]; .watchdogRequired == true)' "$plan_path" >/dev/null; then
+    [[ ${RECONCILE_PROXMOX_CONSOLE_CONFIRMED:-} == physical-console-ready &&
+       ${RECONCILE_PROXMOX_LAN_ROLLBACK_CONFIRMED:-} == tested-lan-rollback-ready &&
+       ${RECONCILE_PROXMOX_BACKUPS_CONFIRMED:-} == reviewed-backups-ready ]] || {
+      echo "Watchdog-required Proxmox Nix actions require explicit console, LAN rollback, and backup confirmations." >&2
+      exit 66
+    }
+    watchdog_args=(--confirm-console --confirm-lan-rollback --confirm-backups)
+  fi
+  proxmox_host_command prepare --plan-sha "$plan_sha" --approve-plan-sha "$plan_sha" \
+    --confirm-no-concurrent-mutation "${watchdog_args[@]}"
+  proxmox_host_command apply --plan-sha "$plan_sha" --approve-plan-sha "$plan_sha"
 }
 
 
@@ -481,7 +540,8 @@ plan_all() {
   ./scripts/validate-provider-locks
 
   local root plan plan_log exit_code tailscale_live_policy_sha256 tailscale_policy_before_sha256 tailscale_policy_after_sha256 tailscale_policy_etag tailscale_policy_changed
-  local planned_before_policy planned_after_policy compose_hash recovery_backup_identity_sha256 recovery_expectations_sha256 ansible_extra_vars_file_sha256
+  local planned_before_policy planned_after_policy compose_hash recovery_backup_identity_sha256 recovery_expectations_sha256 ansible_extra_vars_file_sha256 proxmox_host_plan
+  proxmox_host_plan=$(plan_proxmox_host "$([[ $phase == recovery ]] && echo true || echo false)")
   for root in "${roots[@]}"; do
     echo "Planning OpenTofu root: $root"
     backend_init "$root"
@@ -554,12 +614,14 @@ plan_all() {
     --arg recovery_backup_identity_sha256 "$recovery_backup_identity_sha256" \
     --arg recovery_expectations_sha256 "$recovery_expectations_sha256" \
     --arg ansible_extra_vars_file_sha256 "$ansible_extra_vars_file_sha256" \
-    '{version: 3, commit: $commit, phase: $phase,
+    --argjson proxmox_host_plan "$proxmox_host_plan" \
+    --arg stage "$(jq -r 'if .external_owner_only then "external-owner-prerequisite" else "converge" end' <<<"$proxmox_host_plan")" \
+    '{version: 5, commit: $commit, phase: $phase, stage: $stage,
       backend_bucket: $backend_bucket,
       ansible_extra_vars_file_sha256: $ansible_extra_vars_file_sha256,
       recovery_backup_identity_sha256: $recovery_backup_identity_sha256,
       recovery_expectations_sha256: $recovery_expectations_sha256,
-      compose_artifact_sha256: $compose_hash, plans: .}' \
+      compose_artifact_sha256: $compose_hash, proxmox_host_plan: $proxmox_host_plan, plans: .}' \
     "$records" >"$plan_dir/manifest.json"
   rm -f "$records"
   chmod 0600 "$plan_dir"/*
@@ -573,9 +635,10 @@ verify_manifest() {
   local manifest="$plan_dir/manifest.json"
   [[ -f $manifest ]] || { echo "saved-plan manifest is missing" >&2; exit 66; }
   jq -e '
-    .version == 3 and
+    .version == 5 and
     (.commit | test("^[0-9a-f]{40}$")) and
     (.phase == "steady" or .phase == "recovery") and
+    (.stage == "converge" or (.phase == "recovery" and .stage == "external-owner-prerequisite")) and
     (.backend_bucket | type) == "string" and
     (.compose_artifact_sha256 | test("^[0-9a-f]{64}$")) and
     (.ansible_extra_vars_file_sha256 | type) == "string" and
@@ -588,7 +651,15 @@ verify_manifest() {
       ((.ansible_extra_vars_file_sha256 == "") or (.ansible_extra_vars_file_sha256 | test("^[0-9a-f]{64}$"))) and
       .recovery_expectations_sha256 == ""
     end) and
-    ((keys | sort) == (["ansible_extra_vars_file_sha256", "backend_bucket", "commit", "compose_artifact_sha256", "phase", "plans", "recovery_backup_identity_sha256", "recovery_expectations_sha256", "version"] | sort))
+    (.proxmox_host_plan | type) == "object" and
+    ((.proxmox_host_plan | keys | sort) == (["actions", "external_owner_only", "file", "file_sha256", "plan_sha256", "status"] | sort)) and
+    (.proxmox_host_plan.file == (".reconcile/plans/" + .proxmox_host_plan.plan_sha256 + ".json")) and
+    (.proxmox_host_plan.file_sha256 | test("^[0-9a-f]{64}$")) and
+    (.proxmox_host_plan.plan_sha256 | test("^[0-9a-f]{64}$")) and
+    (.proxmox_host_plan.actions | type) == "number" and .proxmox_host_plan.actions >= 0 and
+    (.proxmox_host_plan.external_owner_only == (.stage == "external-owner-prerequisite")) and
+    (.proxmox_host_plan.status == (if .stage == "converge" then "ready" else "blocked" end)) and
+    ((keys | sort) == (["ansible_extra_vars_file_sha256", "backend_bucket", "commit", "compose_artifact_sha256", "phase", "plans", "proxmox_host_plan", "recovery_backup_identity_sha256", "recovery_expectations_sha256", "stage", "version"] | sort))
   ' "$manifest" >/dev/null || {
     echo "saved-plan manifest metadata is invalid" >&2
     exit 66
@@ -597,6 +668,23 @@ verify_manifest() {
   [[ $(jq -r .phase "$manifest") == "$phase" ]]
   [[ $(jq -r .backend_bucket "$manifest") == "$backend_bucket" ]]
   [[ $(jq -r .compose_artifact_sha256 "$manifest") == "$(python3 scripts/compose-artifact.py hash)" ]]
+  local proxmox_host_relative proxmox_host_path proxmox_host_sha
+  proxmox_host_relative=$(jq -r .proxmox_host_plan.file "$manifest")
+  proxmox_host_sha=$(jq -r .proxmox_host_plan.plan_sha256 "$manifest")
+  proxmox_host_path="$repo_root/$proxmox_host_relative"
+  [[ -f $proxmox_host_path && ! -L $proxmox_host_path && $(sha256_file "$proxmox_host_path") == "$(jq -r .proxmox_host_plan.file_sha256 "$manifest")" ]] || {
+    echo "saved Proxmox Nix host plan is missing or changed" >&2
+    exit 66
+  }
+  jq -e --arg sha "$proxmox_host_sha" --argjson actions "$(jq -r .proxmox_host_plan.actions "$manifest")" --arg stage "$(jq -r .stage "$manifest")" '
+    .format == "home-lab-proxmox-plan-v1" and .mode == "steady" and .planSha256 == $sha and (.actions | length) == $actions and
+    (if $stage == "converge" then .status == "ready" and .applyEligible == true and .blockers == []
+     else .status == "blocked" and .applyEligible == false and .actions == [] and (.blockers | length) > 0 and
+       all(.blockers[]; .domain == "opentofu" and .code == "opentofu-owner-required") end)
+  ' "$proxmox_host_path" >/dev/null || {
+    echo "saved Proxmox Nix host plan binding is invalid" >&2
+    exit 66
+  }
   if [[ $(jq -r .ansible_extra_vars_file_sha256 "$manifest") != "$(ansible_extra_vars_sha256)" ]]; then
     echo "protected Ansible extra-vars file is missing or changed since planning" >&2
     exit 66
@@ -863,6 +951,7 @@ compose_recovery_apply() {
 
 verify_all() {
   local root exit_code verify_log
+  verify_fresh_proxmox_host_noop
   for root in "${roots[@]}"; do
     backend_init "$root"
     mapfile -d '' -t plan_args < <(root_plan_args "$root")
@@ -883,8 +972,6 @@ verify_all() {
     fi
   done
   pushd ansible >/dev/null
-  ansible_require_noop "$proxmox_inventory" playbooks/proxmox-site.yml proxmox \
-    -e proxmox_ssh_access_proven=true
   ansible_require_noop "$arch_inventory" playbooks/audit.yml docker-host-production
   if [[ $phase == recovery ]]; then
     ansible_require_noop "$arch_inventory" playbooks/arch-bootstrap.yml docker-host-production
@@ -931,13 +1018,12 @@ case "$action" in
     apply_root aws-foundation
     if [[ $phase == recovery ]]; then
       apply_root tailscale
-      pushd ansible >/dev/null
-      ansible -i "$proxmox_inventory" proxmox_hosts -m ansible.builtin.ping
-      ansible_checked_apply "$proxmox_inventory" playbooks/proxmox-site.yml Proxmox proxmox \
-        -e proxmox_ssh_access_proven=true \
-        -e proxmox_health_require_vm=false
-      popd >/dev/null
       apply_root proxmox
+      if [[ $(jq -r .stage "$plan_dir/manifest.json") == external-owner-prerequisite ]]; then
+        echo "recovery_stage=external-owner-prerequisite status=applied requires_new_reviewed_plan=true"
+        exit 0
+      fi
+      prepare_apply_proxmox_host
       pushd ansible >/dev/null
       ansible_checked_apply "$arch_bootstrap_inventory" playbooks/arch-bootstrap.yml Arch-bootstrap docker-host-recovery
       ansible -i "$arch_inventory" docker_host -m ansible.builtin.ping
@@ -947,9 +1033,9 @@ case "$action" in
       popd >/dev/null
     else
       apply_root proxmox-legacy
+      prepare_apply_proxmox_host
       apply_root proxmox
       pushd ansible >/dev/null
-      ansible_checked_apply "$proxmox_inventory" playbooks/proxmox-site.yml Proxmox proxmox -e proxmox_ssh_access_proven=true
       apply_arch_steady
       popd >/dev/null
     fi

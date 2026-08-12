@@ -1,6 +1,0 @@
----
-proxmox_storage_version_migration_reviewed: false
-proxmox_storage_post_reboot_validation: false
-proxmox_storage_validation_marker: /var/lib/home-lab/zfs-runtime-validation-v1
-proxmox_storage_nfs_migration_marker: /var/lib/home-lab/nfs-restricted-migration-v1
-proxmox_storage_nfs_client_inventory_host: docker-host-production

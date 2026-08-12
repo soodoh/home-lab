@@ -1,8 +1,0 @@
----
-all:
-  children:
-    proxmox_hosts:
-      hosts:
-        proxmox:
-          ansible_connection: local
-          ansible_python_interpreter: /usr/bin/python3

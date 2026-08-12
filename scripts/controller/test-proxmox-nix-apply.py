@@ -40,6 +40,10 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         cls.before_observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
         cls.before_observation["domains"]["protectedAccess"] = {"expectedCount": 6, "matches": True, "observedCount": 6, "status": "complete"}
         cls.before_observation["domains"]["protectedHardware"] = {"expectedCount": 3, "matches": True, "observedCount": 3, "status": "complete"}
+        for record in cls.before_observation["domains"]["accounts"]["records"]:
+            if record["name"] == "tofu-apply":
+                record["shell"] = "/usr/local/libexec/home-lab/proxmox-apply-transport"
+                record["expectedGroupsMatch"] = True
         cls.bindings = {
             "activationEnvelopeSchemaSha256": "7" * 64, "activatorSha256": "8" * 64,
             "bundleContentSha256": "1" * 64, "bundleFormat": planner.BUNDLE_FORMAT,

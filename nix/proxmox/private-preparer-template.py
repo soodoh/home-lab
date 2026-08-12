@@ -458,8 +458,9 @@ def summaries():
         apply_text = read_fixed(home / "tofu-apply" / ".ssh" / "authorized_keys", owner_name="tofu-apply")
         firewall_text = read_fixed(home / "firewall-apply" / ".ssh" / "authorized_keys", owner_name="firewall-apply")
         firewall_forced = 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport" '
+        apply_forced = 'restrict,command="/usr/local/libexec/home-lab/proxmox-apply-transport" '
         plan_ok = plan_text == "".join(forced + key + "\n" for key in access["planKeys"])
-        apply_ok = apply_text == "".join(key + "\n" for key in access["applyKeys"])
+        apply_ok = apply_text == "".join(apply_forced + key + "\n" for key in access["applyKeys"])
         firewall_ok = firewall_text == "".join(firewall_forced + key + "\n" for key in access["firewallKeys"])
         escrow = Path("/root") / ".config" / "home-lab"
         plan_escrow = read_fixed(escrow / "proxmox-plan-token.env")
@@ -613,7 +614,15 @@ def validate_plan(plan, install):
 
 def install_manifest():
     value = secure_json(INSTALL, 128 * 1024)
-    exact(value, {"bindings", "bundleContentSha256", "format", "gitCommit", "gitTree", "helpers"}, "install manifest")
+    exact(value, {"bindings", "bundleContentSha256", "firewallAssets", "format", "gitCommit", "gitTree", "helpers"}, "install manifest")
+    firewall_assets = value["firewallAssets"]
+    if not isinstance(firewall_assets, dict) or not firewall_assets:
+        raise ValueError("installed firewall assets differ")
+    for path, record in firewall_assets.items():
+        if not isinstance(path, str) or not path.startswith("/") or not isinstance(record, dict) or \
+                set(record) != {"mode", "sha256"} or record["mode"] not in {0o644, 0o755} or \
+                not isinstance(record["sha256"], str) or HEX64.fullmatch(record["sha256"]) is None:
+            raise ValueError("installed firewall asset binding differs")
     helpers = exact(value["helpers"], {"proxmox-activator", "proxmox-observer", "proxmox-private-preparer"}, "installed helpers")
     bindings = value["bindings"]
     expected_binding_keys = {"activationEnvelopeSchemaSha256", "activatorSha256", "bundleContentSha256", "bundleFormat",
@@ -621,7 +630,7 @@ def install_manifest():
         "planSchemaSha256", "privatePreconditionsSchemaSha256", "privatePreparationRequestSchemaSha256",
         "privatePreparerSha256", "projectionSha256"}
     exact(bindings, expected_binding_keys, "installed bindings")
-    if value["format"] != "home-lab-proxmox-install-v1" or bindings["gitCommit"] != value["gitCommit"] or \
+    if value["format"] != "home-lab-proxmox-install-v2" or bindings["gitCommit"] != value["gitCommit"] or \
             bindings["gitTree"] != value["gitTree"] or bindings["bundleContentSha256"] != value["bundleContentSha256"] or \
             bindings["activatorSha256"] != helpers["proxmox-activator"] or bindings["observerSha256"] != helpers["proxmox-observer"] or \
             bindings["privatePreparerSha256"] != helpers["proxmox-private-preparer"] or helpers["proxmox-private-preparer"] != self_sha256():

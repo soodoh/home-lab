@@ -27,7 +27,7 @@ PLAN_DIR = ROOT / ".reconcile/proxmox-firewall"
 CONFIG = Path.home() / ".config/home-lab/controller/proxmox-firewall-canaries.json"
 KEY = Path.home() / ".config/home-lab/controller/proxmox-firewall-controller.key"
 LOCK = ROOT / ".reconcile/controller-apply.lock"
-HELPER_SOURCE = ROOT / "ansible/roles/proxmox_firewall/files/proxmox-firewall-transaction.py"
+HELPER_SOURCE = ROOT / "infrastructure/proxmox-firewall/host/proxmox-firewall-transaction.py"
 POLICY_SOURCE = ROOT / "nix/proxmox/projection.json"
 PLAN_SCHEMA = ROOT / "infrastructure/policy/proxmox-firewall-plan.schema.json"
 PRIVATE_SCHEMA = ROOT / "infrastructure/policy/proxmox-firewall-private.schema.json"
@@ -222,7 +222,7 @@ def host(command: str, request: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def unit_binding() -> str:
-    directory = ROOT / "ansible/roles/proxmox_firewall/files"
+    directory = ROOT / "infrastructure/proxmox-firewall/host"
     names = sorted(path.name for path in directory.iterdir() if path.name.endswith((".service", ".timer", ".conf")) or
                    path.name in {"proxmox-firewall-boot-recovery","proxmox-firewall-transport"})
     return digest({name: digest((directory / name).read_bytes()) for name in names})

@@ -30,6 +30,16 @@ PROTECTED = RUNTIME / "protected-inputs.json"
 PROTECTED_MAC = RUNTIME / "protected-inputs.mac"
 SESSION_KEY = RUNTIME / "session.key"
 INSTALL_MANIFEST = RUNTIME / "install-manifest.json"
+FIREWALL_SOURCE = REPO / "infrastructure/proxmox-firewall/host"
+FIREWALL_LIBEXEC = ("proxmox-firewall-transaction", "proxmox-firewall-transport", "proxmox-apply-transport", "proxmox-firewall-boot-recovery")
+FIREWALL_UNITS = ("home-lab-proxmox-firewall-rollback.service", "home-lab-proxmox-firewall-rollback.timer",
+                  "home-lab-proxmox-firewall-config-recovery.service", "home-lab-proxmox-firewall-post-recovery.service",
+                  "home-lab-proxmox-firewall-backend-stop.service")
+FIREWALL_POLICY = "proxmox-firewall-policy.json"
+FIREWALL_DROPIN = "50-home-lab-firewall-recovery.conf"
+FIREWALL_KEY = Path("/var/lib/home-lab/firewall-transaction/attestation.key")
+SHARE_ROOT = Path("/usr/local/share/home-lab")
+SYSTEMD_ROOT = Path("/etc/systemd/system")
 OPERATION_LOCK = RUNTIME / "operation.lock"
 APPLY_LOCK = RUNTIME / "apply.lock"
 ANSIBLE_LOCK = Path("/var/lib/iac-ansible-production.lock")
@@ -39,6 +49,16 @@ PREVIOUS = BOOT / "previous-generation.json"
 SNAPSHOT = BOOT / ".verified-snapshot.pending"
 HELPER_ROOT = Path("/usr/local/libexec/home-lab")
 HELPERS = ("proxmox-activator", "proxmox-observer", "proxmox-private-preparer")
+FIREWALL_TARGETS = {
+    HELPER_ROOT / "proxmox-firewall-transaction": (FIREWALL_SOURCE / "proxmox-firewall-transaction.py", 0o755),
+    HELPER_ROOT / "proxmox-firewall-transport": (FIREWALL_SOURCE / "proxmox-firewall-transport", 0o755),
+    HELPER_ROOT / "proxmox-apply-transport": (FIREWALL_SOURCE / "proxmox-apply-transport", 0o755),
+    HELPER_ROOT / "proxmox-firewall-boot-recovery": (FIREWALL_SOURCE / "proxmox-firewall-boot-recovery", 0o755),
+    **{SYSTEMD_ROOT / name: (FIREWALL_SOURCE / name, 0o644) for name in FIREWALL_UNITS},
+    SHARE_ROOT / FIREWALL_POLICY: (FIREWALL_SOURCE / FIREWALL_POLICY, 0o644),
+    SYSTEMD_ROOT / "pve-firewall.service.d" / FIREWALL_DROPIN: (FIREWALL_SOURCE / FIREWALL_DROPIN, 0o644),
+    SYSTEMD_ROOT / "proxmox-firewall.service.d" / FIREWALL_DROPIN: (FIREWALL_SOURCE / FIREWALL_DROPIN, 0o644),
+}
 MAX_FILE = 2 * 1024 * 1024
 MAX_JOURNAL = 12 * 1024 * 1024
 MIN_FREE = 32 * 1024 * 1024
@@ -58,8 +78,11 @@ def fingerprint(info):
             info.st_nlink, info.st_mtime_ns, info.st_ctime_ns)
 
 
-def run(args):
-    return subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, env=ENV, timeout=30)
+def run(args, allowed=None, permit_stderr=False):
+    result = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, env=ENV, timeout=30)
+    if allowed is not None and (result.returncode not in allowed or (result.stderr and not permit_stderr)):
+        raise ValueError("fixed bootstrap command failed")
+    return result
 
 
 def open_dir(path, mode=None, create=False):
@@ -142,14 +165,19 @@ def pending_path(path):
 
 
 def pending_targets():
-    targets = (JOURNAL, PREVIOUS, PROTECTED_INCOMING, PROTECTED, PROTECTED_MAC, SESSION_KEY, INSTALL_MANIFEST,
-               *(HELPER_ROOT / name for name in HELPERS))
+    targets = (JOURNAL, PREVIOUS, PROTECTED_INCOMING, PROTECTED, PROTECTED_MAC, SESSION_KEY, INSTALL_MANIFEST, FIREWALL_KEY,
+               *(HELPER_ROOT / name for name in HELPERS), *FIREWALL_TARGETS)
     return {pending_path(path): path for path in targets}
 
 
+def managed_parent_mode(path):
+    return 0o700 if path.parent in {BOOT, INCOMING, RUNTIME, FIREWALL_KEY.parent} else 0o755
+
+
 def atomic(path, content, mode):
-    ensure_dir(path.parent, 0o755 if path.parent == HELPER_ROOT else 0o700)
-    parent = open_dir(path.parent, 0o755 if path.parent == HELPER_ROOT else 0o700)
+    parent_mode = managed_parent_mode(path)
+    ensure_dir(path.parent, parent_mode)
+    parent = open_dir(path.parent, parent_mode)
     temporary = pending_path(path).name
     try:
         try:
@@ -212,7 +240,8 @@ def reconcile_pending():
     present = []
     for directory in ({path.parent for path in allowed} | {INCOMING}):
         try:
-            directory_fd = open_dir(directory, 0o755 if directory == HELPER_ROOT else 0o700)
+            sample = next(path for path in allowed if path.parent == directory)
+            directory_fd = open_dir(directory, managed_parent_mode(sample))
         except FileNotFoundError:
             continue
         try:
@@ -306,9 +335,16 @@ def pve_manager_version(output):
     return match.group(1)
 
 
+def physical_console():
+    if not os.isatty(0) or re.fullmatch(r"/dev/tty[1-9][0-9]*", os.ttyname(0)) is None:
+        raise ValueError("bootstrap mutation requires /dev/ttyN")
+
+
 def host_preflight(require_gates=False):
     if os.geteuid() != 0:
-        raise ValueError("bootstrap requires root at the physical console")
+        raise ValueError("bootstrap requires root")
+    if require_gates:
+        physical_console()
     if require_gates and (os.environ.get("PROXMOX_NIX_BOOTSTRAP_CONSOLE_CONFIRMED") != "install-reviewed-helper-bundle" or
             os.environ.get("PROXMOX_NIX_BOOTSTRAP_LAN_CONFIRMED") != "tested-lan-root-session-open"):
         raise ValueError("explicit console and LAN gates are required")
@@ -446,6 +482,14 @@ def snapshot_bundle():
         remove_snapshot()
 
 
+def firewall_assets():
+    assets = {}
+    for target, (source, mode) in FIREWALL_TARGETS.items():
+        raw = secure_file(source, mode)
+        assets[str(target)] = {"mode": mode, "sha256": hashlib.sha256(raw).hexdigest()}
+    return assets
+
+
 def expected_manifest(head, tree, metadata, bundle_hash):
     bindings = {"activationEnvelopeSchemaSha256": metadata["activationEnvelopeSchemaSha256"],
                 "activatorSha256": metadata["helperSha256"]["proxmox-activator"],
@@ -457,15 +501,21 @@ def expected_manifest(head, tree, metadata, bundle_hash):
                 "privatePreparationRequestSchemaSha256": metadata["privatePreparationRequestSchemaSha256"],
                 "privatePreparerSha256": metadata["helperSha256"]["proxmox-private-preparer"],
                 "projectionSha256": metadata["projectionSha256"]}
-    return {"bindings": bindings, "bundleContentSha256": bundle_hash, "format": "home-lab-proxmox-install-v1",
-            "gitCommit": head, "gitTree": tree, "helpers": metadata["helperSha256"]}
+    return {"bindings": bindings, "bundleContentSha256": bundle_hash, "firewallAssets": firewall_assets(),
+            "format": "home-lab-proxmox-install-v2", "gitCommit": head, "gitTree": tree,
+            "helpers": metadata["helperSha256"]}
+
+
+def managed_targets():
+    return [("helper:" + name, HELPER_ROOT / name, 0o755) for name in HELPERS] + [
+        ("firewall:" + str(path), path, mode) for path, (_, mode) in sorted(FIREWALL_TARGETS.items(), key=lambda item: str(item[0]))]
 
 
 def capture():
     records, total = [], 0
-    for name in HELPERS:
+    for name, path, mode in managed_targets():
         try:
-            content = secure_file(HELPER_ROOT / name, 0o755)
+            content = secure_file(path, mode)
             total += len(content)
             if total > 6 * 1024 * 1024:
                 raise ValueError("previous helper generation exceeds capacity")
@@ -486,8 +536,8 @@ def capture_manifest():
 
 
 def validate_generation(value):
-    if not isinstance(value, dict) or set(value) != {"format", "helpers", "manifest"} or value["format"] != "home-lab-proxmox-previous-v1" or \
-            not isinstance(value["helpers"], list) or [item.get("name") for item in value["helpers"]] != list(HELPERS):
+    if not isinstance(value, dict) or set(value) != {"format", "helpers", "manifest"} or value["format"] != "home-lab-proxmox-previous-v2" or \
+            not isinstance(value["helpers"], list) or [item.get("name") for item in value["helpers"]] != [item[0] for item in managed_targets()]:
         raise ValueError("previous generation differs")
     for item in value["helpers"]:
         if set(item) != {"contentBase64", "name", "present", "sha256"} or not isinstance(item["present"], bool) or \
@@ -513,17 +563,23 @@ def validate_generation(value):
 
 
 def validate_journal(value):
-    keys = {"bundleContentSha256", "createdKey", "createdProtected", "createdProtectedMac", "format", "installed",
-            "previous", "rollbackCompleted", "state"}
+    keys = {"bundleContentSha256", "createdFirewallKey", "createdKey", "createdProtected", "createdProtectedMac",
+            "firewallServiceBefore", "format", "installed", "previous", "rollbackCompleted", "state"}
     states = {"installing", "rolling-back", "rolled-back", "installed"}
-    if not isinstance(value, dict) or set(value) != keys or value["format"] != "home-lab-proxmox-bootstrap-journal-v2" or \
-            value["state"] not in states or not isinstance(value["createdKey"], bool) or not isinstance(value["createdProtected"], bool) or \
-            not isinstance(value["createdProtectedMac"], bool) or \
+    service_units = {"home-lab-proxmox-firewall-config-recovery.service", "home-lab-proxmox-firewall-post-recovery.service",
+                     "home-lab-proxmox-firewall-rollback.timer"}
+    if not isinstance(value, dict) or set(value) != keys or value["format"] != "home-lab-proxmox-bootstrap-journal-v3" or \
+            value["state"] not in states or not isinstance(value["createdFirewallKey"], bool) or not isinstance(value["createdKey"], bool) or \
+            not isinstance(value["createdProtected"], bool) or not isinstance(value["createdProtectedMac"], bool) or \
+            not isinstance(value["firewallServiceBefore"], dict) or set(value["firewallServiceBefore"]) != {"enabled", "timerActive"} or \
+            not isinstance(value["firewallServiceBefore"]["enabled"], dict) or set(value["firewallServiceBefore"]["enabled"]) != service_units or \
+            any(not isinstance(item, bool) for item in value["firewallServiceBefore"]["enabled"].values()) or \
+            not isinstance(value["firewallServiceBefore"]["timerActive"], bool) or \
             not isinstance(value["bundleContentSha256"], str) or len(value["bundleContentSha256"]) != 64 or \
-            not isinstance(value["installed"], list) or any(name not in HELPERS for name in value["installed"]) or \
+            not isinstance(value["installed"], list) or any(name not in {item[0] for item in managed_targets()} for name in value["installed"]) or \
             len(value["installed"]) != len(set(value["installed"])) or not isinstance(value["rollbackCompleted"], list) or \
             len(value["rollbackCompleted"]) != len(set(value["rollbackCompleted"])) or any(item not in
-                ({"helper:" + name for name in HELPERS} | {"manifest", "protected", "protected-mac", "key"}) for item in value["rollbackCompleted"]):
+                ({name for name, _, _ in managed_targets()} | {"manifest", "protected", "protected-mac", "key", "firewall-key", "firewall-services"}) for item in value["rollbackCompleted"]):
         raise ValueError("bootstrap journal structure differs")
     validate_generation(value["previous"])
     if len(canonical(value)) > MAX_JOURNAL:
@@ -538,10 +594,11 @@ def write_journal(value):
 
 def restore_generation(generation):
     validate_generation(generation)
+    targets = {name: (path, mode) for name, path, mode in managed_targets()}
     for record in reversed(generation["helpers"]):
-        path = HELPER_ROOT / record["name"]
+        path, mode = targets[record["name"]]
         if record["present"]:
-            atomic(path, base64.b64decode(record["contentBase64"], validate=True), 0o755)
+            atomic(path, base64.b64decode(record["contentBase64"], validate=True), mode)
         else:
             durable_unlink(path)
     manifest = generation["manifest"]
@@ -558,13 +615,16 @@ def rollback(journal):
     journal["state"] = "rolling-back"
     write_journal(journal)
     generation = journal["previous"]
+    if "firewall-services" not in journal["rollbackCompleted"]:
+        rollback_firewall_services(journal["firewallServiceBefore"])
+    targets = {name: (path, mode) for name, path, mode in managed_targets()}
     for record in reversed(generation["helpers"]):
-        step = "helper:" + record["name"]
+        step = record["name"]
         if step in journal["rollbackCompleted"]:
             continue
-        path = HELPER_ROOT / record["name"]
+        path, mode = targets[record["name"]]
         if record["present"]:
-            atomic(path, base64.b64decode(record["contentBase64"], validate=True), 0o755)
+            atomic(path, base64.b64decode(record["contentBase64"], validate=True), mode)
         else:
             durable_unlink(path)
         journal["rollbackCompleted"].append(step)
@@ -582,6 +642,11 @@ def rollback(journal):
         durable_unlink(PROTECTED); journal["rollbackCompleted"].append("protected"); write_journal(journal)
     if journal["createdKey"] and "key" not in journal["rollbackCompleted"]:
         durable_unlink(SESSION_KEY); journal["rollbackCompleted"].append("key"); write_journal(journal)
+    if journal["createdFirewallKey"] and "firewall-key" not in journal["rollbackCompleted"]:
+        durable_unlink(FIREWALL_KEY); journal["rollbackCompleted"].append("firewall-key"); write_journal(journal)
+    if "firewall-services" not in journal["rollbackCompleted"]:
+        rollback_firewall_services(journal["firewallServiceBefore"], finalize=True)
+        journal["rollbackCompleted"].append("firewall-services"); write_journal(journal)
     journal["state"] = "rolled-back"
     write_journal(journal)
     durable_unlink(JOURNAL, False)
@@ -605,7 +670,7 @@ def gate_destination_space(journal, protected_raw, helpers):
     requirements = {
         BOOT: len(canonical(journal)) * 3 + len(canonical(journal["previous"])) * 2,
         RUNTIME: len(protected_raw) * 2 + 48 + 128 * 1024,
-        HELPER_ROOT: sum(len(content) * 2 for content in helpers.values()),
+        HELPER_ROOT: sum(len(content) * 2 for content in helpers.values()) + sum(len(source.read_bytes()) * 2 for source, _ in FIREWALL_TARGETS.values()),
     }
     by_device = {}
     for path, needed in requirements.items():
@@ -617,11 +682,58 @@ def gate_destination_space(journal, protected_raw, helpers):
             raise ValueError("bootstrap destination free-space gate failed")
 
 
+def systemctl(*arguments, allowed=(0,), permit_stderr=False):
+    return run(("/usr/bin/systemctl", *arguments), allowed=allowed, permit_stderr=permit_stderr)
+
+
+def firewall_service_state():
+    enabled = {}
+    for unit in ("home-lab-proxmox-firewall-config-recovery.service",
+                 "home-lab-proxmox-firewall-post-recovery.service",
+                 "home-lab-proxmox-firewall-rollback.timer"):
+        enabled[unit] = systemctl("is-enabled", unit, allowed=(0, 1), permit_stderr=True).returncode == 0
+    timer_active = systemctl("is-active", "home-lab-proxmox-firewall-rollback.timer", allowed=(0, 3), permit_stderr=True).returncode == 0
+    return {"enabled": enabled, "timerActive": timer_active}
+
+
+def configure_firewall_services():
+    systemctl("daemon-reload")
+    systemctl("enable", "home-lab-proxmox-firewall-config-recovery.service",
+              "home-lab-proxmox-firewall-post-recovery.service", "home-lab-proxmox-firewall-rollback.timer")
+    systemctl("start", "home-lab-proxmox-firewall-rollback.timer")
+
+
+def rollback_firewall_services(state, finalize=False):
+    if not finalize:
+        systemctl("stop", "home-lab-proxmox-firewall-rollback.timer")
+        for unit, was_enabled in state["enabled"].items():
+            if was_enabled:
+                systemctl("enable", unit)
+            else:
+                systemctl("disable", unit, allowed=(0, 1))
+        return
+    systemctl("daemon-reload")
+    if state["timerActive"]:
+        systemctl("start", "home-lab-proxmox-firewall-rollback.timer")
+
+
+def verify_firewall_assets():
+    for target, (source, mode) in FIREWALL_TARGETS.items():
+        if secure_file(target, mode) != secure_file(source, mode):
+            raise ValueError("installed firewall asset differs")
+    if len(secure_file(FIREWALL_KEY, 0o600, 64)) != 32:
+        raise ValueError("installed firewall attestation key differs")
+    state = firewall_service_state()
+    if not all(state["enabled"].values()) or not state["timerActive"]:
+        raise ValueError("installed firewall recovery services differ")
+
+
 def install(head, tree, metadata, bundle_hash, protected_raw, helpers):
     reject_locks()
-    previous = {"format": "home-lab-proxmox-previous-v1", "helpers": capture(), "manifest": capture_manifest()}
-    journal = {"bundleContentSha256": bundle_hash, "createdKey": False, "createdProtected": False,
-               "createdProtectedMac": False, "format": "home-lab-proxmox-bootstrap-journal-v2", "installed": [], "previous": previous,
+    previous = {"format": "home-lab-proxmox-previous-v2", "helpers": capture(), "manifest": capture_manifest()}
+    journal = {"bundleContentSha256": bundle_hash, "createdFirewallKey": False, "createdKey": False, "createdProtected": False,
+               "createdProtectedMac": False, "firewallServiceBefore": firewall_service_state(),
+               "format": "home-lab-proxmox-bootstrap-journal-v3", "installed": [], "previous": previous,
                "rollbackCompleted": [], "state": "installing"}
     gate_destination_space(journal, protected_raw, helpers)
     write_journal(journal)
@@ -652,9 +764,21 @@ def install(head, tree, metadata, bundle_hash, protected_raw, helpers):
             write_journal(journal)
             atomic(PROTECTED_MAC, expected_protected_mac, 0o600)
         for name in HELPERS:
+            step = "helper:" + name
             atomic(HELPER_ROOT / name, helpers[name], 0o755)
-            journal["installed"].append(name)
+            journal["installed"].append(step)
             write_journal(journal)
+        for target, (source, mode) in sorted(FIREWALL_TARGETS.items(), key=lambda item: str(item[0])):
+            atomic(target, secure_file(source, mode), mode)
+            journal["installed"].append("firewall:" + str(target))
+            write_journal(journal)
+        if not exists_nofollow(FIREWALL_KEY):
+            journal["createdFirewallKey"] = True
+            write_journal(journal)
+            atomic(FIREWALL_KEY, os.urandom(32), 0o600)
+        elif len(secure_file(FIREWALL_KEY, 0o600, 64)) != 32:
+            raise ValueError("existing firewall attestation key differs")
+        configure_firewall_services()
         manifest = expected_manifest(head, tree, metadata, bundle_hash)
         atomic(INSTALL_MANIFEST, canonical(manifest), 0o600)
         atomic(PREVIOUS, canonical(previous), 0o600)
@@ -682,23 +806,27 @@ def verify_installed(head, tree, metadata, bundle_hash):
     for name in HELPERS:
         if hashlib.sha256(secure_file(HELPER_ROOT / name, 0o755)).hexdigest() != metadata["helperSha256"][name]:
             raise ValueError("installed helper differs")
+    verify_firewall_assets()
 
 
 def finalize_installed(journal):
     validate_journal(journal)
-    if journal["state"] != "installed" or journal["installed"] != list(HELPERS) or journal["rollbackCompleted"]:
+    if journal["state"] != "installed" or journal["installed"] != [item[0] for item in managed_targets()] or journal["rollbackCompleted"]:
         raise ValueError("terminal bootstrap journal differs")
     manifest_raw = secure_file(INSTALL_MANIFEST, 0o600, 128 * 1024)
     manifest = json.loads(manifest_raw)
     if manifest_raw != canonical(manifest) or not isinstance(manifest, dict) or \
-            set(manifest) != {"bindings", "bundleContentSha256", "format", "gitCommit", "gitTree", "helpers"} or \
-            manifest["format"] != "home-lab-proxmox-install-v1" or \
+            set(manifest) != {"bindings", "bundleContentSha256", "firewallAssets", "format", "gitCommit", "gitTree", "helpers"} or \
+            manifest["format"] != "home-lab-proxmox-install-v2" or \
             manifest["bundleContentSha256"] != journal["bundleContentSha256"] or \
             not isinstance(manifest["helpers"], dict) or set(manifest["helpers"]) != set(HELPERS):
         raise ValueError("terminal installed manifest differs")
     for name in HELPERS:
         if manifest["helpers"][name] != hashlib.sha256(secure_file(HELPER_ROOT / name, 0o755)).hexdigest():
             raise ValueError("terminal installed helper differs")
+    if manifest["firewallAssets"] != firewall_assets():
+        raise ValueError("terminal installed firewall assets differ")
+    verify_firewall_assets()
     key = secure_file(SESSION_KEY, 0o600, 64)
     protected_raw = secure_file(PROTECTED, 0o600, 256 * 1024)
     validate_protected(protected_raw)
@@ -719,7 +847,7 @@ def recover_previous_active():
             "gitCommit", "gitTree", "hostSessionId", "operation", "planSha256", "startedAt"} or \
             lock.get("operation") != "proxmox-guarded-apply":
         raise ValueError("active apply ownership record differs")
-    expected = next(item for item in generation["helpers"] if item["name"] == "proxmox-activator")
+    expected = next(item for item in generation["helpers"] if item["name"] == "helper:proxmox-activator")
     if not expected["present"] or lock.get("activatorSha256") != expected["sha256"]:
         raise ValueError("previous generation does not own the active session")
     try:
@@ -745,6 +873,7 @@ def main():
         operation_fd = acquire_lock(OPERATION_LOCK)
         reconcile_pending()
         if operation == "recover":
+            physical_console()
             if os.environ.get("PROXMOX_NIX_BOOTSTRAP_RECOVER_CONFIRMED") != "recover-reviewed-helper-transaction":
                 raise ValueError("explicit recovery gate required")
             if exists_nofollow(JOURNAL):

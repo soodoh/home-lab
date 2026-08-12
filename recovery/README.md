@@ -1,6 +1,6 @@
 # Home lab disaster recovery
 
-The recovery boundary is deliberately split: OpenTofu recreates active control-plane resources and VM 100, Ansible reconciles Proxmox and Arch, and the protected Compose pipeline restores workloads. ZFS import and critical-data restoration are assertion-oriented; they never create, format, or overwrite storage.
+The recovery boundary is deliberately split: OpenTofu recreates active control-plane resources and VM 100, controller-side Nix reconciles the Proxmox host, Ansible reconciles Arch, and the protected Compose pipeline restores workloads. ZFS import and critical-data restoration are assertion-oriented; they never create, format, or overwrite storage.
 
 Recovery does not recreate retired CT 101. The empty `proxmox-legacy` and completed `proxmox-lxc-qualification` backends remain tombstones outside the recovery root set.
 
@@ -25,7 +25,7 @@ The local controller stores provider capabilities in separate mode-`0600` plan/a
 
 1. **Install Proxmox manually.** Retain physical console and tested LAN root access. Do not create or import ZFS pools in the installer.
 
-2. **Bootstrap Proxmox locally.** Check out the exact reviewed repository commit on the host and follow [`../docs/proxmox-bootstrap.md`](../docs/proxmox-bootstrap.md). Run the retained local Ansible bootstrap first; it remains responsible for fresh-host networking, storage import, Tailscale enrollment, and PVE identities. Then stage the sanitized Nix bundle and protected input file at the fixed root-only incoming location and run `bootstrap-proxmox-nix-host check`, explicitly approved `install`, and `verify`. Prove the fixed plan command and arbitrary-command denial before shadow planning. This layer does not authorize guarded apply or reboot, and the apply identity remains an unrestricted documented cutover blocker.
+2. **Bootstrap Proxmox locally.** Check out the exact reviewed pushed commit and follow [`../docs/proxmox-bootstrap.md`](../docs/proxmox-bootstrap.md) in order: establish only the console-asserted network/storage/package/Tailscale baseline; run `bootstrap-proxmox-nix-access install`; create protected inputs; run `bootstrap-proxmox-nix-host check`, explicitly approved `install`, and `verify`; then perform the separately reviewed isolated firewall activation from [`../docs/proxmox-firewall-cutover.md`](../docs/proxmox-firewall-cutover.md). Prove fixed plan/apply/firewall identities and arbitrary-command denial before controller recovery.
 
 3. **Prepare protected recovery identity.** Configure the encrypted S3 backend and copy `recovery/extra-vars.example.yml` to an ignored mode-`0600` file. Review every false mutation gate. Inventory the three local backup paths in documented order and record the newest candidate in a protected JSON object containing `source`, `backup_id`, and `ciphertext_sha256`. For a remote fallback, also bind `remote_version_id`.
 
@@ -51,7 +51,7 @@ The local controller stores provider capabilities in separate mode-`0600` plan/a
    scripts/local-controller plan recovery
    ```
 
-   Recovery plans `aws-foundation`, `proxmox`, `omada`, and `tailscale` when the latter providers are enabled. The Proxmox plan uses the exact `recovery` policy, forces token-compatible hardware mappings, and binds a mode-`0600` contract/runtime expectations projection into the manifest. Every other root uses `normal` policy. Planning does not download, decrypt, or activate a backup.
+   Recovery plans the Proxmox Nix host plus `aws-foundation`, `proxmox`, `omada`, and `tailscale` when the latter providers are enabled. The Proxmox plan uses the exact `recovery` policy, forces token-compatible hardware mappings, and binds a mode-`0600` contract/runtime expectations projection into the manifest. Every other root uses `normal` policy. Planning does not download, decrypt, or activate a backup.
 
 6. **Apply the exact plan.** After reviewing the displayed plans and confirming that no other protected mutation is active:
 
@@ -59,9 +59,11 @@ The local controller stores provider capabilities in separate mode-`0600` plan/a
    scripts/local-controller apply recovery
    ```
 
-   Apply reruns static validation, verifies the commit-bound manifest and saved-plan hashes, then prompts for `apply-reviewed-recovery` before loading mutation credentials. The reconciler revalidates the exact root plans, Compose artifact, recovery expectations, and backup identity before mutation. The controller-wide lock spans all OpenTofu, Ansible, Compose, and verification work. Apply never generates a replacement apply plan; later plan commands are mandatory no-op verification.
+   Apply reruns static validation, verifies the commit-bound manifest and saved-plan hashes, then prompts for the exact manifest stage: `apply-reviewed-recovery-converge` or `apply-reviewed-recovery-external-owner-prerequisite`. Mutation credentials are loaded only afterward. The reconciler revalidates the exact root plans, Compose artifact, recovery expectations, and backup identity before mutation. The controller-wide lock spans all OpenTofu, Ansible, Compose, and verification work. Apply never generates a replacement apply plan; later plan commands are mandatory no-op verification.
 
-7. **Verify and record evidence.** Recovery applies the active infrastructure plans, reconciles Proxmox, creates or repairs VM 100, bootstraps Arch, stages the exact Compose artifact, and tries valid local archives newest-first across the three ordered filesystems. It downloads the reviewed S3 fallback only when no local candidate is usable. The selected candidate must match the manifest-bound recovery identity. After activation, it verifies services, Coral, maintenance, live Tailscale policy/state equality, every enabled OpenTofu root no-op, Proxmox no-op, Arch audit no-op, and Arch bootstrap no-op.
+7. **Verify and record evidence.** An ordinary recovery whose VM already exists is a single `converge` stage: Tailscale/Proxmox owner plans run, then exact guarded Nix runs before Arch/Compose. On fresh PVE, the first reviewed manifest may instead be `external-owner-prerequisite`, containing a canonical blocked Nix plan whose only blockers are OpenTofu-owned VM prerequisites. Apply consumes only the exact saved AWS/Tailscale/Proxmox plans, stops successfully with `requires_new_reviewed_plan=true`, and performs no Nix, Arch, or Compose work. Run `scripts/local-controller plan recovery` again and independently review the new ready `converge` manifest before the second apply. Apply never replans.
+
+   The second `converge` apply stages the exact Compose artifact and tries valid local archives newest-first across the three ordered filesystems. It downloads the reviewed S3 fallback only when no local candidate is usable. The selected candidate must match the manifest-bound recovery identity. After activation, it verifies services, Coral, maintenance, live Tailscale policy/state equality, every enabled OpenTofu root no-op, a fresh zero-action Proxmox Nix plan, Arch audit no-op, and Arch bootstrap no-op.
 
    Record only secret-free commit, plan/artifact/backup hashes, health outcomes, and elapsed time. The adopted contract keeps managed mappings in both recovery and steady phases. Refresh the protected serial-to-port runtime inputs before planning so Zigbee and Z-Wave mappings follow their adapters. Never change managed mode back to raw.
 

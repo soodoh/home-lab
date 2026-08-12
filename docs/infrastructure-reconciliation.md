@@ -1,6 +1,6 @@
 # Infrastructure reconciliation
 
-The desired-state boundary is [`../infrastructure/contract/home-lab.yml`](../infrastructure/contract/home-lab.yml). OpenTofu owns infrastructure, Ansible owns hosts, and Compose owns applications. Completed one-time transition operations are not supported controller modes.
+The desired-state boundary is [`../infrastructure/contract/home-lab.yml`](../infrastructure/contract/home-lab.yml). OpenTofu owns infrastructure, controller-side Nix owns the Proxmox host, Ansible owns the Arch host, and Compose owns applications. Completed one-time transition operations are not supported controller modes.
 
 Use only the trusted local controller:
 
@@ -56,7 +56,7 @@ A plan pass proves only that the proposed action shape is authorized. It does no
 
 ## Exact saved plans
 
-Planning initializes each isolated S3 backend, uses native lockfiles and `-lock-timeout=5m`, creates one binary saved plan per enabled root, checks that provider credentials do not appear in it, and runs the policy inspector. The version-3 manifest binds the commit, phase, backend bucket, exact root set, plan paths and SHA-256 values, Compose artifact SHA-256, the complete protected Ansible extra-vars file when present, recovery backup identity and expectations projection, and Tailscale policy identities.
+Planning initializes each isolated S3 backend, uses native lockfiles and `-lock-timeout=5m`, creates one binary saved plan per enabled root, checks that provider credentials do not appear in it, and runs the policy inspector. The version-5 manifest binds the commit, phase, backend bucket, exact OpenTofu root set, plan paths and SHA-256 values, the exact Proxmox Nix host plan path/internal/file hashes and action count, Compose artifact SHA-256, the protected Arch/Compose recovery extra-vars file when present, recovery backup identity and expectations projection, and Tailscale policy identities.
 
 Apply requires the exact manifest commit and a clean checkout. It reinitializes each backend, verifies every saved-plan hash and policy result, and calls `tofu apply` with the saved binary file. It never generates a new plan as an apply source; mandatory post-apply `tofu plan` runs are convergence verification only.
 
@@ -70,20 +70,20 @@ For the Tailscale root, planning records the canonical live policy SHA-256 and H
 
 ## Host and Compose convergence
 
-The Proxmox Ansible-to-Nix migration now includes its controller-side foundation. The authoritative contract is projected through an explicit allowlist into tracked canonical, schema-closed JSON under `nix/proxmox/`; repository validation proves exact regeneration and exclusion of protected values, reference names, paths, controller/API locations, hardware identities, and migration/cleanup gates. The dedicated sanitized flake root is `nix/`, pinned to `nixos-26.05`; use `nix flake check 'path:./nix'` and `nix build 'path:./nix#proxmox-host-bundle'`. The explicit `path:` prefix prevents nested-flake Git resolution from archiving the repository root. No repository-root flake exists. Validation archives and scans the exact sanitized flake source, direct derivation source inputs, output, and closure. The flake builds a canonical content-hashed bundle containing the projection, current exact 1,353-package manifest with its count derived from hash-bound provenance, rendered safe ordinary files and audit expectations, and bound protocol-v4 observer, activator, and private-preparer helpers. Nix remains controller-side; ordinary fixed helpers run on Proxmox only after the separately approved console bootstrap.
+The Proxmox host is managed by the controller-side Nix workflow. The authoritative contract is projected through an explicit allowlist into tracked canonical, schema-closed JSON under `nix/proxmox/`; repository validation proves exact regeneration and exclusion of protected values, reference names, paths, controller/API locations, hardware identities, and migration/cleanup gates. The dedicated sanitized flake root is `nix/`, pinned to `nixos-26.05`; use `nix flake check 'path:./nix'` and `nix build 'path:./nix#proxmox-host-bundle'`. The explicit `path:` prefix prevents nested-flake Git resolution from archiving the repository root. No repository-root flake exists. Validation archives and scans the exact sanitized flake source, direct derivation source inputs, output, and closure. The flake builds a canonical content-hashed bundle containing the projection, current exact 1,353-package manifest with its count derived from hash-bound provenance, rendered safe ordinary files and audit expectations, and bound protocol-v4 observer, activator, and private-preparer helpers. Nix remains controller-side; ordinary fixed helpers run on Proxmox only after the separately approved console bootstrap.
 
-The local controller has a separate read-only shadow lane. After the reviewed live helper bootstrap, its tracked policy is `shadow-required`; normal plans capture sequential Ansible-check and Nix-plan summaries under `.reconcile/proxmox-nix-shadow/`. Those canonical artifacts bind one way to the existing version-3 controller manifest and exact Git/bundle/plan identities. They are audit evidence only: blocked plans remain valid audit records, observations are explicitly non-atomic, and neither the controller manifest nor apply consumes the evidence. Temporary Ansible remains production authority. Apply-manifest binding, lock/freshness design, recovery sequencing, private approval, and authority cutover are deferred to the cutover milestone.
+The local controller binds the exact ready Proxmox Nix host plan into the version-5 saved manifest and displays it with the OpenTofu plans. Guarded apply consumes only that saved plan through protected preparation and exact approval. Steady runs Nix before Proxmox OpenTofu; recovery runs Tailscale and Proxmox OpenTofu owner steps first, then Nix before Arch/Compose; final verification requires a fresh zero-action Nix host plan. Ansible retains only Arch and application recovery authority.
 
-Ansible check plans are run twice and normalized; differing plans fail closed. The protected extra-vars file is SHA-256-bound to the manifest, and controller-fixed Compose artifact and recovery values are passed last so file values cannot override them. Steady converges Proxmox and bounded Arch tags, then stages the exact manifest-bound Compose artifact. Compose deployment reproduces a private action-plan hash immediately before activation, uses no builds or orphan removal, preserves current/previous artifact and environment generations, and requires an idempotent post-check. Failures retain the host production lock for inspected recovery.
+Ansible check plans are run twice and normalized; differing plans fail closed. The protected extra-vars file is SHA-256-bound to the manifest, and controller-fixed Compose artifact and recovery values are passed last so file values cannot override them. Steady converges the Proxmox host through Nix and bounded Arch tags through Ansible, then stages the exact manifest-bound Compose artifact. Compose deployment reproduces a private action-plan hash immediately before activation, uses no builds or orphan removal, preserves current/previous artifact and environment generations, and requires an idempotent post-check. Failures retain the host production lock for inspected recovery.
 
-Recovery first proves Proxmox connectivity, reconciles the host and VM 100, bootstraps Arch through the recovery inventory, restores only the exact reviewed backup into fresh targets, and activates Compose through the recovery-specific plan hash. Critical ZFS/storage restoration remains assertion-oriented and cannot format or overwrite existing storage.
+Recovery first applies Tailscale and Proxmox OpenTofu owner state, then reconciles the host through Nix and bootstraps Arch through the recovery inventory, restores only the exact reviewed backup into fresh targets, and activates Compose through the recovery-specific plan hash. Critical ZFS/storage restoration remains assertion-oriented and cannot format or overwrite existing storage.
 
 ## Required final verification
 
 Every successful apply ends by replanning every enabled OpenTofu root and requiring exit code zero. It also requires:
 
 - live Tailscale policy/state equality;
-- a no-op Proxmox steady play;
+- a fresh zero-action Proxmox Nix host plan;
 - a zero-change Arch audit; and
 - for recovery, a no-op Arch bootstrap check.
 

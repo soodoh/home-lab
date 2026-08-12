@@ -1,17 +1,6 @@
 ---
 all:
   children:
-    proxmox_hosts:
-      hosts:
-        proxmox:
-          ansible_host: proxmox
-          ansible_user: tofu-apply
-          ansible_python_interpreter: /usr/bin/python3
-          ansible_become: true
-          ansible_ssh_common_args: >-
-            -o ConnectTimeout=10
-            -o ServerAliveInterval=15
-            -o ServerAliveCountMax=2
     docker_host:
       hosts:
         docker-host-production:

@@ -26,23 +26,21 @@ class SchemaTests(unittest.TestCase):
   for field in ("lanSshTarget","lanTlsUrl","tailnetSshTarget","tailnetTlsUrl","pveCaPem","tailscalePingTarget","archNfsSshTarget"):
    self.assertNotIn(field,text)
  def test_bootstrap_and_protected_preparer_require_distinct_firewall_key(self):
-  bootstrap=(ROOT/"scripts/bootstrap-proxmox-host").read_text(); prepare=(ROOT/"scripts/prepare-proxmox-nix-protected-inputs").read_text(); docs=(ROOT/"docs/proxmox-bootstrap.md").read_text()
-  self.assertIn("validate-proxmox-bootstrap-keys",bootstrap); self.assertIn('proxmox-firewall-authorized-keys',prepare); self.assertIn('proxmox-{plan,apply,firewall}-authorized-keys',docs)
+  prepare=(ROOT/"scripts/prepare-proxmox-nix-protected-inputs").read_text(); docs=(ROOT/"docs/proxmox-bootstrap.md").read_text()
+  self.assertIn('proxmox-firewall-authorized-keys',prepare); self.assertIn('proxmox-{plan,apply,firewall}-authorized-keys',docs)
   validator=ROOT/"scripts/validate-proxmox-bootstrap-keys"; base={**os.environ,"PROXMOX_PLAN_SSH_PUBLIC_KEYS":"ssh-ed25519 AAAA plan-a\nssh-ed25519 AAAB plan-b","PROXMOX_APPLY_SSH_PUBLIC_KEYS":"ssh-ed25519 AAAC apply","PROXMOX_FIREWALL_SSH_PUBLIC_KEYS":"ssh-ed25519 AAAD firewall"}
   self.assertEqual(subprocess.run((validator,),env=base,capture_output=True).returncode,0)
   overlap=dict(base); overlap["PROXMOX_FIREWALL_SSH_PUBLIC_KEYS"]="ssh-ed25519 AAAB different-firewall-comment"
   self.assertNotEqual(subprocess.run((validator,),env=overlap,capture_output=True).returncode,0)
- def test_dedicated_install_playbooks_keep_closed_approval_and_scope(self):
-  transaction=(ROOT/"ansible/playbooks/install-proxmox-firewall-transaction.yml").read_text(); nfs=(ROOT/"ansible/playbooks/install-proxmox-firewall-nfs-canary.yml").read_text(); accounts=(ROOT/"ansible/roles/proxmox_host/tasks/service-accounts.yml").read_text()
-  self.assertIn("proxmox_firewall_install_confirmed | default(false)",transaction); self.assertIn("proxmox_ssh_access_proven | default(false)",transaction); self.assertIn("PROXMOX_FIREWALL_SSH_PUBLIC_KEYS",transaction)
-  self.assertIn("selectattr('name', 'equalto', 'firewall-apply')",transaction); self.assertIn("role: proxmox_firewall",transaction); self.assertLess(transaction.index("role: proxmox_firewall"),transaction.index("tasks_from: service-accounts")); self.assertIn("apply_lock_action: release",transaction)
-  self.assertIn("proxmox_firewall_nfs_canary_install_confirmed | default(false)",nfs); self.assertIn("role: firewall_nfs_canary",nfs); self.assertIn("apply_lock_action: release",nfs); self.assertIn("proxmox_host_selected_service_accounts | default(proxmox_service_accounts)",accounts)
+ def test_ansible_proxmox_authority_is_removed(self):
+  self.assertFalse((ROOT/"ansible/playbooks/proxmox-site.yml").exists()); self.assertFalse((ROOT/"ansible/roles/proxmox_firewall").exists()); self.assertFalse((ROOT/"ansible/roles/proxmox_host").exists())
+  inventory=(ROOT/"ansible/inventory/infrastructure.yml").read_text(); self.assertNotIn("proxmox_hosts:",inventory)
  def test_boot_and_timer_units_have_fixed_two_phase_order(self):
-  files=ROOT/"ansible/roles/proxmox_firewall/files"
+  files=ROOT/"infrastructure/proxmox-firewall/host"
   config=(files/"home-lab-proxmox-firewall-config-recovery.service").read_text(); post=(files/"home-lab-proxmox-firewall-post-recovery.service").read_text(); timer=(files/"home-lab-proxmox-firewall-rollback.service").read_text(); loop=(files/"proxmox-firewall-boot-recovery").read_text()
   self.assertIn("Before=pve-firewall.service proxmox-firewall.service",config); self.assertIn("ExecStart=/usr/local/libexec/home-lab/proxmox-firewall-boot-recovery",config)
   self.assertIn("After=home-lab-proxmox-firewall-config-recovery.service pve-firewall.service proxmox-firewall.service",post)
-  timer_unit=(files/"home-lab-proxmox-firewall-rollback.timer").read_text(); tasks=(ROOT/"ansible/roles/proxmox_firewall/tasks/main.yml").read_text()
-  self.assertIn("After=home-lab-proxmox-firewall-post-recovery.service",timer); self.assertIn("OnCalendar=",timer_unit); self.assertIn("Persistent=true",timer_unit); self.assertIn("- home-lab-proxmox-firewall-rollback.timer",tasks); self.assertIn("Keep the persistent firewall rollback watchdog continuously active",tasks); self.assertIn("state: started",tasks); self.assertNotIn("$1",loop); self.assertNotIn("$@",loop)
+  timer_unit=(files/"home-lab-proxmox-firewall-rollback.timer").read_text()
+  self.assertIn("After=home-lab-proxmox-firewall-post-recovery.service",timer); self.assertIn("OnCalendar=",timer_unit); self.assertIn("Persistent=true",timer_unit); self.assertNotIn("$1",loop); self.assertNotIn("$@",loop)
 
 if __name__=="__main__": unittest.main()

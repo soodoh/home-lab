@@ -14,7 +14,7 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "ansible/roles/proxmox_firewall/files/proxmox-firewall-transaction.py"
+SOURCE = ROOT / "infrastructure/proxmox-firewall/host/proxmox-firewall-transaction.py"
 
 
 def load():
@@ -425,7 +425,7 @@ plan=json.load(open({str(plan_file)!r}));m.begin({{'format':m.FORMAT_BEGIN,'plan
         with mock.patch.object(self.m.os,"open",return_value=9),mock.patch.object(self.m.Path,"read_text",return_value=record),mock.patch.object(self.m.os,"major",return_value=136),mock.patch.object(self.m.os,"minor",return_value=1),mock.patch.object(self.m.os,"close"):
             with self.assertRaises(ValueError): self.m.local_console()
         with mock.patch.object(self.m.os,"open",return_value=9),mock.patch.object(self.m.Path,"read_text",return_value=record),mock.patch.object(self.m.os,"major",return_value=4),mock.patch.object(self.m.os,"minor",return_value=2),mock.patch.object(self.m.os,"close"): self.m.local_console()
-        transport_path=ROOT/"ansible/roles/proxmox_firewall/files/proxmox-firewall-transport"; transport=transport_path.read_text()
+        transport_path=ROOT/"infrastructure/proxmox-firewall/host/proxmox-firewall-transport"; transport=transport_path.read_text()
         for forbidden in ("authorize","isolate-tofu-apply","restore-tofu-apply","boot-config-recover","boot-post-recover"): self.assertNotIn(forbidden,transport)
         for arguments in ((),("-c","inspect"),("-c","/bin/sh")):
             self.assertEqual(subprocess.run((transport_path,*arguments),capture_output=True,env={**os.environ,"SSH_ORIGINAL_COMMAND":"inspect"}).returncode,64)

@@ -25,6 +25,15 @@ def write_executable(path: Path, content: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+def write_proxmox_host_plan(plan_dir: Path, manifest: dict) -> None:
+    record = manifest["proxmox_host_plan"]
+    source = {"actions": [], "applyEligible": True, "blockers": [], "findings": [],
+              "format": "home-lab-proxmox-plan-v1", "mode": "steady", "planSha256": record["plan_sha256"],
+              "privatePreconditionsRequired": False, "status": "ready"}
+    destination = REPOSITORY / record["file"]
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(source))
+    record["file_sha256"] = hashlib.sha256(destination.read_bytes()).hexdigest()
 
 
 class ManifestVerificationTests(unittest.TestCase):
@@ -76,16 +85,19 @@ class ManifestVerificationTests(unittest.TestCase):
             extra_vars.write_text(extra_vars_content)
             extra_vars.chmod(0o600)
             manifest = {
-                "version": 3,
+                "version": 5,
                 "commit": commit,
                 "phase": "recovery",
+                "stage": "converge",
                 "backend_bucket": "test-state-bucket",
                 "ansible_extra_vars_file_sha256": hashlib.sha256(extra_vars.read_bytes()).hexdigest(),
                 "recovery_backup_identity_sha256": "a" * 64,
                 "recovery_expectations_sha256": expectation_hash,
                 "compose_artifact_sha256": compose_hash,
+                "proxmox_host_plan": {"actions": 0, "external_owner_only": False, "status": "ready", "file": ".reconcile/plans/" + "f" * 64 + ".json", "file_sha256": "e" * 64, "plan_sha256": "f" * 64},
                 "plans": plans,
             }
+            write_proxmox_host_plan(plan_dir, manifest)
             (plan_dir / "manifest.json").write_text(json.dumps(manifest))
             log = temporary / "tofu.log"
             write_executable(
@@ -208,16 +220,19 @@ fi
                 plans.append(record)
 
             manifest = {
-                "version": 3,
+                "version": 5,
                 "commit": commit,
                 "phase": "steady",
+                "stage": "converge",
                 "backend_bucket": "test-state-bucket",
                 "ansible_extra_vars_file_sha256": "",
                 "recovery_backup_identity_sha256": "",
                 "recovery_expectations_sha256": "",
                 "compose_artifact_sha256": compose_hash,
+                "proxmox_host_plan": {"actions": 0, "external_owner_only": False, "status": "ready", "file": ".reconcile/plans/" + "f" * 64 + ".json", "file_sha256": "e" * 64, "plan_sha256": "f" * 64},
                 "plans": plans,
             }
+            write_proxmox_host_plan(plan_dir, manifest)
             (plan_dir / "manifest.json").write_text(json.dumps(manifest))
 
             log = temporary / "tofu.log"

@@ -1,7 +1,0 @@
----
-proxmox_passthrough_apply_confirmed: false
-proxmox_passthrough_legacy_cleanup_confirmed: false
-proxmox_passthrough_post_reboot_validation: false
-proxmox_passthrough_validation_marker: /var/lib/home-lab/passthrough-validation-v1
-proxmox_passthrough_usb_mapping_cleanup_confirmed: false
-proxmox_passthrough_usb_mapping_marker: /var/lib/home-lab/serial-usb-mapping-v1
