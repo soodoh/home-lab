@@ -481,7 +481,7 @@ proxmox:
     require_vm: true
     vm_status: running
   planning_policy:
-    max_observation_age_seconds: 300
+    max_observation_age_seconds: 1800
     service_policies:
       - { name: chrony.service, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { name: nfs-server.service, safety_class: data-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }

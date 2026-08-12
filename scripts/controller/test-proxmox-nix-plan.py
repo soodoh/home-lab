@@ -274,13 +274,13 @@ class ProxmoxNixPlanTests(unittest.TestCase):
         self.assertIsNone(namespace["normalized_privileges"](["VM.Audit", "VM.Audit"]))
 
     def test_freshness_boundary_and_expiry(self) -> None:
-        boundary = self.make_plan(end="2026-08-11T00:05:00Z")
+        boundary = self.make_plan(end="2026-08-11T00:30:00Z")
         with self.assertRaisesRegex(ValueError, "expired"):
-            self.make_plan(end="2026-08-11T00:05:01Z")
+            self.make_plan(end="2026-08-11T00:30:01Z")
         with self.assertRaises(ValueError):
             self.make_plan(start="2026-08-11T00:00:01Z", end="2026-08-11T00:00:00Z")
         expired = copy.deepcopy(boundary)
-        expired["freshness"]["completedAt"] = "2026-08-11T00:05:01Z"
+        expired["freshness"]["completedAt"] = "2026-08-11T00:30:01Z"
         expired["planSha256"] = planner.digest({key: value for key, value in expired.items() if key != "planSha256"})
         with self.assertRaisesRegex(ValueError, "freshness"):
             planner.validate_plan(expired, self.projection, self.manifest)

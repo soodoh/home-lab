@@ -242,7 +242,7 @@ def validate_projection(projection: Any, package_count: int, package_manifest_sh
         "tailscale", "pve-access", "pve-firewall", "pve-storage",
     }
     if not isinstance(planning, dict) or set(planning) != {"domains", "managedFilePolicies", "maxAgeSeconds", "servicePolicies"} or \
-            planning["maxAgeSeconds"] != 300 or not isinstance(planning["domains"], list) or \
+            planning["maxAgeSeconds"] != 1800 or not isinstance(planning["domains"], list) or \
             {item.get("domain") for item in planning["domains"] if isinstance(item, dict)} != expected_domains:
         raise ValueError("planning policy is malformed")
     policy_keys = {"automatic", "domain", "requiresApproval", "requiresReboot", "requiresWatchdog", "safetyClass"}

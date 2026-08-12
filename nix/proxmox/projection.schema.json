@@ -61,7 +61,7 @@
     "planningPolicy": {
       "type": "object", "additionalProperties": false, "required": ["maxAgeSeconds", "servicePolicies", "managedFilePolicies", "domains"],
       "properties": {
-        "maxAgeSeconds": { "const": 300 },
+        "maxAgeSeconds": { "const": 1800 },
         "servicePolicies": {
           "type": "array", "minItems": 4, "maxItems": 4,
           "items": {

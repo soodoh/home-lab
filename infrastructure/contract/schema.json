@@ -175,7 +175,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["max_observation_age_seconds", "service_policies", "managed_file_policies", "domains"],
       "properties": {
-        "max_observation_age_seconds": { "const": 300 },
+        "max_observation_age_seconds": { "const": 1800 },
         "service_policies": {
           "type": "array", "minItems": 4, "maxItems": 4,
           "items": {

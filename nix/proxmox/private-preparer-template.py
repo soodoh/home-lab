@@ -571,7 +571,7 @@ def validate_plan(plan, install):
     observed = parse_time(freshness["observedAt"]); completed = parse_time(freshness["completedAt"])
     valid_until = parse_time(freshness["validUntil"])
     if not isinstance(freshness["maxAgeSeconds"], int) or isinstance(freshness["maxAgeSeconds"], bool) or \
-            freshness["maxAgeSeconds"] != 300 or valid_until != observed + dt.timedelta(seconds=300) or \
+            freshness["maxAgeSeconds"] != 1800 or valid_until != observed + dt.timedelta(seconds=1800) or \
             completed < observed or completed > valid_until or dt.datetime.now(dt.timezone.utc) > valid_until:
         raise ValueError("plan freshness differs or expired")
     observed_state = exact(plan["observedState"], {"domainStatuses", "sha256"}, "observed state")
