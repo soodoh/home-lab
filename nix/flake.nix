@@ -23,8 +23,10 @@
           '';
           hostPlan = pkgs.writeShellApplication {
             name = "proxmox-host";
-            runtimeInputs = [ pkgs.git pkgs.openssh pkgs.python3 ];
+            runtimeInputs = [ pkgs.git pkgs.openssh pkgs.python3 ]
+              ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.netcat-openbsd ];
             text = ''
+              # Linux gets pinned netcat above; the trusted Darwin controller uses /usr/bin/nc.
               PROXMOX_HOST_FIXED_BUNDLE=${bundle}/bundle \
               PROXMOX_HOST_FIXED_BUNDLE_HASH=${bundle}/bundle.sha256 \
               PROXMOX_HOST_FIXED_SOURCE_ROOT=${./.} \

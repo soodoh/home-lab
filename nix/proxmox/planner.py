@@ -22,11 +22,21 @@ BUNDLE_FORMAT = "home-lab-proxmox-host-bundle-v1"
 PROTOCOL = 4
 MAX_OBSERVATION_BYTES = 1024 * 1024
 _OBSERVER_REMOTE = "/" + "usr" + "/" + "local" + "/libexec/home-lab/proxmox-observer"
-SSH_COMMAND = (
-    "ssh", "-T", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no",
-    "-o", "RequestTTY=no", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
-    "tofu-plan@proxmox", "sudo -n -- " + _OBSERVER_REMOTE + " observe",
-)
+
+
+def fixed_ssh_command(capability: str, remote_command: str) -> tuple[str, ...]:
+    if capability not in {"plan", "apply"}:
+        raise ValueError("fixed Proxmox SSH capability differs")
+    identity = Path.home() / ".ssh" / f"home-lab-proxmox-{capability}"
+    return (
+        "ssh", "-F", "/dev/null", "-T", "-i", str(identity), "-o", "IdentitiesOnly=yes",
+        "-o", "ProxyCommand=nc %h %p", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes",
+        "-o", "PermitLocalCommand=no", "-o", "RequestTTY=no", "-o", "StrictHostKeyChecking=yes",
+        "-o", "UpdateHostKeys=no", f"tofu-{capability}@192.168.0.123", remote_command,
+    )
+
+
+SSH_COMMAND = fixed_ssh_command("plan", "sudo -n -- " + _OBSERVER_REMOTE + " observe")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 DOMAIN_ORDER = {

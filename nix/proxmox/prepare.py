@@ -17,11 +17,7 @@ PROTOCOL = 4
 MAX_RESPONSE = 256 * 1024
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 REMOTE = "/usr/local/libexec/home-lab/proxmox-private-preparer"
-SSH_PREPARE_COMMAND = (
-    "ssh", "-T", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no",
-    "-o", "RequestTTY=no", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
-    "tofu-apply@proxmox", "sudo -n -- " + REMOTE + " prepare",
-)
+SSH_PREPARE_COMMAND = planner.fixed_ssh_command("apply", "sudo -n -- " + REMOTE + " prepare")
 
 
 def send(request: dict[str, Any]) -> dict[str, Any]:

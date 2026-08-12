@@ -21,11 +21,7 @@ MAX_RESPONSE_BYTES = 1024 * 1024
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 TOKEN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
 _ACTIVATOR_REMOTE = "/" + "usr" + "/" + "local" + "/libexec/home-lab/proxmox-activator"
-SSH_APPLY_COMMAND = (
-    "ssh", "-T", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no",
-    "-o", "RequestTTY=no", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no",
-    "tofu-apply@proxmox", "sudo -n -- " + _ACTIVATOR_REMOTE + " session",
-)
+SSH_APPLY_COMMAND = planner.fixed_ssh_command("apply", "sudo -n -- " + _ACTIVATOR_REMOTE + " session")
 
 
 def exact(value: Any, keys: set[str], label: str) -> dict[str, Any]:

@@ -304,8 +304,11 @@ class ProxmoxNixApplyTests(unittest.TestCase):
 
     def test_fixed_transport_has_no_path_target_command_or_forwarding_inputs(self) -> None:
         self.assertEqual(guarded_apply.SSH_APPLY_COMMAND[-2:], (
-            "tofu-apply@proxmox", "sudo -n -- /usr/local/libexec/home-lab/proxmox-activator session"))
-        for option in ("BatchMode=yes", "ClearAllForwardings=yes", "PermitLocalCommand=no", "RequestTTY=no",
+            "tofu-apply@192.168.0.123", "sudo -n -- /usr/local/libexec/home-lab/proxmox-activator session"))
+        self.assertEqual(guarded_apply.SSH_APPLY_COMMAND[1:3], ("-F", "/dev/null"))
+        self.assertIn(str(Path.home() / ".ssh/home-lab-proxmox-apply"), guarded_apply.SSH_APPLY_COMMAND)
+        for option in ("IdentitiesOnly=yes", "ProxyCommand=nc %h %p", "BatchMode=yes",
+                       "ClearAllForwardings=yes", "PermitLocalCommand=no", "RequestTTY=no",
                        "StrictHostKeyChecking=yes", "UpdateHostKeys=no"):
             self.assertIn(option, guarded_apply.SSH_APPLY_COMMAND)
         old = list(sys.argv)

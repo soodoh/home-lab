@@ -345,12 +345,19 @@ class ProxmoxNixPlanTests(unittest.TestCase):
 
     def test_cli_surface_and_transport_are_fully_fixed(self) -> None:
         self.assertEqual(planner.SSH_COMMAND[-2:], (
-            "tofu-plan@proxmox", "sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe"))
-        for option in ("BatchMode=yes", "ClearAllForwardings=yes", "PermitLocalCommand=no", "RequestTTY=no",
+            "tofu-plan@192.168.0.123", "sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe"))
+        self.assertEqual(planner.SSH_COMMAND[1:3], ("-F", "/dev/null"))
+        self.assertIn(str(Path.home() / ".ssh/home-lab-proxmox-plan"), planner.SSH_COMMAND)
+        for option in ("IdentitiesOnly=yes", "ProxyCommand=nc %h %p", "BatchMode=yes",
+                       "ClearAllForwardings=yes", "PermitLocalCommand=no", "RequestTTY=no",
                        "StrictHostKeyChecking=yes", "UpdateHostKeys=no"):
             self.assertIn(option, planner.SSH_COMMAND)
+        with self.assertRaisesRegex(ValueError, "capability"):
+            planner.fixed_ssh_command("admin", "id")
         source = (NIX / "flake.nix").read_text(encoding="utf-8")
         self.assertIn("proxmox-host =", source)
+        self.assertIn("++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.netcat-openbsd ];", source)
+        self.assertNotIn("runtimeInputs = [ pkgs.git pkgs.netcat-openbsd", source)
         self.assertNotIn("proxmox-bootstrap =", source)
         self.assertNotIn("proxmox-host-apply", source)
         with self.assertRaises(SystemExit) as rejected:

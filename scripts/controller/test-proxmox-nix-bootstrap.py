@@ -152,7 +152,9 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.preparer["catalog_action"](unsafe)
 
     def test_controller_prepare_uses_fixed_transport_and_exclusive_private_output(self):
-        self.assertEqual(prepare.SSH_PREPARE_COMMAND[-2:], ("tofu-apply@proxmox", "sudo -n -- /usr/local/libexec/home-lab/proxmox-private-preparer prepare"))
+        self.assertEqual(prepare.SSH_PREPARE_COMMAND[-2:], ("tofu-apply@192.168.0.123", "sudo -n -- /usr/local/libexec/home-lab/proxmox-private-preparer prepare"))
+        self.assertEqual(prepare.SSH_PREPARE_COMMAND[1:3], ("-F", "/dev/null"))
+        self.assertIn(str(Path.home() / ".ssh/home-lab-proxmox-apply"), prepare.SSH_PREPARE_COMMAND)
         with tempfile.TemporaryDirectory() as name:
             repo=Path(name); reconcile=repo/".reconcile"; reconcile.mkdir(mode=0o700); plans=reconcile/"plans"; plans.mkdir(mode=0o700)
             plan=copy.deepcopy(self.plan); now=dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
