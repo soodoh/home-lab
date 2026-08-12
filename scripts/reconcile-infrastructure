@@ -87,6 +87,7 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-proxmox-package-manifest.js
   node scripts/controller/test-proxmox-nix-projection.js
   node scripts/controller/test-vm-100-nix-projection.js
+  node scripts/controller/test-vm-100-facts.js
   node scripts/controller/proxmox-nix-projection.js --check --target proxmox
   node scripts/controller/proxmox-nix-projection.js --check --target vm-100
   [[ ! -e flake.nix && ! -e flake.lock ]] || {

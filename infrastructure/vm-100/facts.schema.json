@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://diloreto.com/schemas/home-lab-vm-100-facts-v1.json",
+  "title": "Secret-free read-only VM 100 production facts",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "capturedAt", "controllerCommit", "authority", "identity", "docker", "mutableRoots", "sops", "applications", "findings"],
+  "properties": {
+    "format": { "const": "home-lab-vm-100-facts-v1" },
+    "capturedAt": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "controllerCommit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vmid", "hostName", "networkIdentity", "deploymentAuthority"],
+      "properties": {
+        "vmid": { "const": 100 },
+        "hostName": { "const": "archlinux" },
+        "networkIdentity": { "const": "docker-host" },
+        "deploymentAuthority": { "const": "arch" }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "uid", "primaryGroup", "gid", "home", "shell", "supplementaryGroups"],
+      "properties": {
+        "user": { "const": "docker" },
+        "uid": { "const": 1000 },
+        "primaryGroup": { "const": "docker" },
+        "gid": { "const": 1000 },
+        "home": { "const": "/home/docker" },
+        "shell": { "const": "/bin/bash" },
+        "supplementaryGroups": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      }
+    },
+    "docker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectName", "rootDir", "storageDriver", "backingFilesystem", "declaredVolumeCount", "legacyVolumeCount", "observedProjectVolumeCount", "volumes"],
+      "properties": {
+        "projectName": { "const": "docker-compose" },
+        "rootDir": { "const": "/var/lib/docker" },
+        "storageDriver": { "const": "overlay2" },
+        "backingFilesystem": { "type": "string", "minLength": 1 },
+        "declaredVolumeCount": { "const": 30 },
+        "legacyVolumeCount": { "const": 3 },
+        "observedProjectVolumeCount": { "const": 33 },
+        "volumes": {
+          "type": "array",
+          "minItems": 33,
+          "maxItems": 33,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["logicalName", "engineName", "driver", "mountpoint", "legacy"],
+            "properties": {
+              "logicalName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*$" },
+              "engineName": { "type": "string", "pattern": "^docker-compose_[a-z0-9][a-z0-9-]*$" },
+              "driver": { "const": "local" },
+              "mountpoint": { "type": "string", "pattern": "^/var/lib/docker/volumes/docker-compose_[a-z0-9][a-z0-9-]*/_data$" },
+              "legacy": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "mutableRoots": {
+      "type": "array",
+      "minItems": 11,
+      "maxItems": 11,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["class", "path", "disposition", "exists", "uid", "gid", "mode", "mountId", "source", "filesystem", "mountOptions", "filesystemFeatures", "bytesTotal", "bytesAvailable", "sizeBytes", "multiplyLinkedFileCount"],
+        "properties": {
+          "class": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "path": { "type": "string", "pattern": "^/" },
+          "disposition": { "enum": ["copy", "reuse", "regenerate", "pending"] },
+          "exists": { "const": true },
+          "uid": { "type": "integer", "minimum": 0 },
+          "gid": { "type": "integer", "minimum": 0 },
+          "mode": { "type": "string", "pattern": "^[0-7]{4}$" },
+          "mountId": { "type": "integer", "minimum": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "filesystem": { "type": "string", "minLength": 1 },
+          "mountOptions": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "filesystemFeatures": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "bytesTotal": { "type": "integer", "minimum": 1 },
+          "bytesAvailable": { "type": "integer", "minimum": 0 },
+          "sizeBytes": { "type": ["integer", "null"], "minimum": 0 },
+          "multiplyLinkedFileCount": { "type": ["integer", "null"], "minimum": 0 }
+        }
+      }
+    },
+    "sops": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["recipient", "identityPath", "identityOwner", "identityGroup", "identityMode", "roles", "independentRecoveryRecipient", "nixosRecipientStatus"],
+      "properties": {
+        "recipient": { "type": "string", "pattern": "^age1[0-9a-z]+$" },
+        "identityPath": { "const": "/etc/sops/age/keys.txt" },
+        "identityOwner": { "const": "root" },
+        "identityGroup": { "const": "root" },
+        "identityMode": { "const": "0600" },
+        "roles": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "arch-runtime-decrypt" },
+            { "const": "externally-escrowed-recovery" }
+          ],
+          "items": false,
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "independentRecoveryRecipient": { "const": false },
+        "nixosRecipientStatus": { "const": "pending" }
+      }
+    },
+    "applications": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "inventoryStatus", "importIdentifiers"],
+        "properties": {
+          "name": { "enum": ["authentik", "sonarr", "radarr", "radarr-4k", "prowlarr"] },
+          "inventoryStatus": { "const": "pending" },
+          "importIdentifiers": { "type": "array", "maxItems": 0 }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "severity", "message"],
+        "properties": {
+          "code": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "severity": { "enum": ["blocker", "warning", "info"] },
+          "message": { "type": "string", "minLength": 1, "maxLength": 300 }
+        }
+      }
+    }
+  }
+}
