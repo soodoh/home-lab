@@ -4,6 +4,8 @@ let
 in
 {
   imports = [
+    ./base.nix
+    ./access.nix
     ./disko.nix
     ./secrets.nix
   ];

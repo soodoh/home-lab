@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://diloreto.com/schemas/home-lab-vm-100-scaffold-v1.json",
-  "title": "Secret-free VM 100 NixOS scaffold projection",
+  "title": "Secret-free VM 100 NixOS base projection",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -12,7 +12,9 @@
     "system",
     "stateVersion",
     "deploymentAuthority",
-    "nixosActivationEnabled"
+    "nixosActivationEnabled",
+    "workloadIdentity",
+    "access"
   ],
   "properties": {
     "version": { "const": 1 },
@@ -22,6 +24,40 @@
     "system": { "const": "x86_64-linux" },
     "stateVersion": { "const": "26.05" },
     "deploymentAuthority": { "const": "arch" },
-    "nixosActivationEnabled": { "const": false }
+    "nixosActivationEnabled": { "const": false },
+    "workloadIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["user", "uid", "primaryGroup", "gid", "home", "shell", "supplementaryGroups"],
+      "properties": {
+        "user": { "const": "docker" },
+        "uid": { "const": 1000 },
+        "primaryGroup": { "const": "docker" },
+        "gid": { "const": 1000 },
+        "home": { "const": "/home/docker" },
+        "shell": { "const": "/bin/bash" },
+        "supplementaryGroups": {
+          "type": "array",
+          "prefixItems": [{ "const": "input" }, { "const": "render" }, { "const": "uucp" }],
+          "items": false,
+          "minItems": 3,
+          "maxItems": 3
+        }
+      }
+    },
+    "access": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["opensshEnabled", "authorizedLoginKeys", "passwordAuthentication", "keyboardInteractiveAuthentication", "permitRootLogin", "allowTcpForwarding", "x11Forwarding"],
+      "properties": {
+        "opensshEnabled": { "const": true },
+        "authorizedLoginKeys": { "const": 0 },
+        "passwordAuthentication": { "const": false },
+        "keyboardInteractiveAuthentication": { "const": false },
+        "permitRootLogin": { "const": false },
+        "allowTcpForwarding": { "const": false },
+        "x11Forwarding": { "const": false }
+      }
+    }
   }
 }

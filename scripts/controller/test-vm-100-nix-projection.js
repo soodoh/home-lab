@@ -32,6 +32,8 @@ for (const mutation of [
   (value) => { value.vm_100.host_name = "other"; },
   (value) => { value.vm_100.network_identity = "other"; },
   (value) => { value.vm_100.deployment_authority = "nixos"; value.vm_100.nixos_activation_enabled = false; },
+  (value) => { value.vm_100.workload_identity.uid = 1001; },
+  (value) => { value.vm_100.access.authorized_login_keys = 1; },
 ]) {
   const invalid = structuredClone(contract);
   mutation(invalid);
@@ -61,8 +63,8 @@ for (const forbidden of [
 ]) {
   if (tracked.includes(forbidden)) throw new Error(`VM 100 projection contains protected value ${JSON.stringify(forbidden)}`);
 }
-if (/secret|recipient|sops|filesystemUuid|smbios|mac|pci|usb|disk/iu.test(tracked)) {
-  throw new Error("VM 100 scaffold projection contains a forbidden protected-domain key");
+if (/secret|recipient|sops|filesystemUuid|smbios|mac|pci|usb|disk|authorizedKey/iu.test(tracked)) {
+  throw new Error("VM 100 base projection contains a forbidden protected-domain key or login key");
 }
 
 console.log("vm_100_nix_projection=verified");

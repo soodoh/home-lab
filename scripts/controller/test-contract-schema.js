@@ -39,6 +39,16 @@ for (const [authority, activationEnabled] of [["arch", true], ["migration-in-pro
   nonScaffoldVmAuthority.vm_100.nixos_activation_enabled = activationEnabled;
   check(nonScaffoldVmAuthority, false, `inert VM 100 scaffold rejects ${authority} authority with activation=${activationEnabled}`);
 }
+for (const mutate of [
+  (value) => { value.vm_100.workload_identity.uid = 1001; },
+  (value) => { value.vm_100.workload_identity.supplementary_groups = ["docker"]; },
+  (value) => { value.vm_100.access.authorized_login_keys = 1; },
+  (value) => { value.vm_100.access.password_authentication = true; },
+]) {
+  const invalidBaseAccess = structuredClone(contract);
+  mutate(invalidBaseAccess);
+  check(invalidBaseAccess, false, "VM 100 base identity and console-only access are closed");
+}
 
 function valueAt(document, dottedPath) {
   return dottedPath.split(".").reduce((value, segment) => value[segment], document);
@@ -46,6 +56,8 @@ function valueAt(document, dottedPath) {
 
 const closedRequiredPolicyObjects = [
   "vm_100",
+  "vm_100.workload_identity",
+  "vm_100.access",
   "network.ownership",
   "network.ownership.interfaces_file",
   "proxmox.grub",

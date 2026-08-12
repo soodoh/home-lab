@@ -14,6 +14,25 @@ vm_100:
   state_version: "26.05"
   deployment_authority: arch
   nixos_activation_enabled: false
+  workload_identity:
+    user: docker
+    uid: 1000
+    primary_group: docker
+    gid: 1000
+    home: /home/docker
+    shell: /bin/bash
+    supplementary_groups:
+      - input
+      - render
+      - uucp
+  access:
+    openssh_enabled: true
+    authorized_login_keys: 0
+    password_authentication: false
+    keyboard_interactive_authentication: false
+    permit_root_login: false
+    allow_tcp_forwarding: false
+    x11_forwarding: false
 network:
   cidr: 192.168.0.0/24
   gateway: 192.168.0.1

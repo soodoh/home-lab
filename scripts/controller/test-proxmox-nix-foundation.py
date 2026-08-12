@@ -21,7 +21,8 @@ PROJECTION = NIX_ROOT / "proxmox/projection.json"
 MANIFEST = NIX_ROOT / "proxmox/package-manifest.json"
 LOCK = NIX_ROOT / "flake.lock"
 EXPECTED_SOURCE_FILES = {
-    "flake.lock", "flake.nix", "hosts/vm-100/default.nix", "hosts/vm-100/disko.nix", "hosts/vm-100/secrets.nix",
+    "flake.lock", "flake.nix", "hosts/vm-100/access.nix", "hosts/vm-100/base.nix", "hosts/vm-100/default.nix",
+    "hosts/vm-100/disko.nix", "hosts/vm-100/secrets.nix",
     "proxmox/activation-envelope.schema.json", "proxmox/activator-template.py", "proxmox/apply.py", "proxmox/bundle.py",
     "proxmox/controller_lock.py", "proxmox/fixture-observation.json", "proxmox/observation.schema.json",
     "proxmox/observer-template.py", "proxmox/package-manifest.json", "proxmox/package-manifest.schema.json",

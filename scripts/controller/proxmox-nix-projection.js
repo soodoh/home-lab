@@ -326,6 +326,11 @@ function projectVm100Scaffold(contract) {
   if (vm.nixos_activation_enabled !== expectedActivation) {
     throw new Error("VM 100 authority and NixOS activation selection differ");
   }
+  const identity = vm.workload_identity;
+  const access = vm.access;
+  if (identity.user !== identity.primary_group || identity.uid !== identity.gid || access.authorized_login_keys !== 0) {
+    throw new Error("VM 100 base identity or console-only access selection differs");
+  }
   return {
     version: 1,
     vmid: vm.vmid,
@@ -335,6 +340,24 @@ function projectVm100Scaffold(contract) {
     stateVersion: vm.state_version,
     deploymentAuthority: vm.deployment_authority,
     nixosActivationEnabled: vm.nixos_activation_enabled,
+    workloadIdentity: {
+      user: identity.user,
+      uid: identity.uid,
+      primaryGroup: identity.primary_group,
+      gid: identity.gid,
+      home: identity.home,
+      shell: identity.shell,
+      supplementaryGroups: identity.supplementary_groups,
+    },
+    access: {
+      opensshEnabled: access.openssh_enabled,
+      authorizedLoginKeys: access.authorized_login_keys,
+      passwordAuthentication: access.password_authentication,
+      keyboardInteractiveAuthentication: access.keyboard_interactive_authentication,
+      permitRootLogin: access.permit_root_login,
+      allowTcpForwarding: access.allow_tcp_forwarding,
+      x11Forwarding: access.x11_forwarding,
+    },
   };
 }
 
