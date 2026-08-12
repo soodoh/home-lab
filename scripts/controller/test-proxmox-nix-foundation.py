@@ -96,6 +96,7 @@ class ProxmoxNixFoundationTests(unittest.TestCase):
             source_files = {
                 path.relative_to(source_root).as_posix()
                 for path in bundle_module.canonical_tree_files(source_root)
+                if not planner.is_python_cache_path(path.relative_to(source_root))
             }
             self.assertEqual(source_files, EXPECTED_SOURCE_FILES)
             for relative in EXPECTED_SOURCE_FILES:
