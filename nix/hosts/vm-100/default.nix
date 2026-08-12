@@ -6,6 +6,8 @@ in
   imports = [
     ./base.nix
     ./access.nix
+    ./networking.nix
+    ./storage.nix
     ./disko.nix
     ./secrets.nix
   ];

@@ -44,6 +44,9 @@ for (const mutate of [
   (value) => { value.vm_100.workload_identity.supplementary_groups = ["docker"]; },
   (value) => { value.vm_100.access.authorized_login_keys = 1; },
   (value) => { value.vm_100.access.password_authentication = true; },
+  (value) => { value.vm_100.networking.ipv4 = "192.0.2.100/24"; },
+  (value) => { value.vm_100.storage.games.filesystem_uuid = "00000000-0000-0000-0000-000000000000"; },
+  (value) => { value.vm_100.storage.shared.source = "192.0.2.1:/wrong"; },
 ]) {
   const invalidBaseAccess = structuredClone(contract);
   mutate(invalidBaseAccess);
@@ -58,6 +61,10 @@ const closedRequiredPolicyObjects = [
   "vm_100",
   "vm_100.workload_identity",
   "vm_100.access",
+  "vm_100.networking",
+  "vm_100.storage",
+  "vm_100.storage.games",
+  "vm_100.storage.shared",
   "network.ownership",
   "network.ownership.interfaces_file",
   "proxmox.grub",

@@ -328,6 +328,17 @@ function projectVm100Scaffold(contract) {
   }
   const identity = vm.workload_identity;
   const access = vm.access;
+  const networking = vm.networking;
+  const storage = vm.storage;
+  if (networking.interface !== contract.arch.network_interface || networking.match_mac !== contract.network.arch.mac ||
+      networking.ipv4 !== contract.network.arch.ipv4 || networking.gateway !== contract.network.gateway ||
+      JSON.stringify(networking.dns) !== JSON.stringify(contract.network.dns) ||
+      storage.games.mountpoint !== contract.arch.games_mountpoint ||
+      storage.games.filesystem_uuid !== contract.proxmox.vm.games_disk.filesystem_uuid ||
+      storage.shared.mountpoint !== contract.storage.nfs.mountpoint ||
+      storage.shared.source !== `${contract.network.proxmox.ipv4.split("/")[0]}:${contract.storage.nfs.export}`) {
+    throw new Error("VM 100 networking or storage differs from existing contract authority");
+  }
   if (identity.user !== identity.primary_group || identity.uid !== identity.gid || access.authorized_login_keys !== 0) {
     throw new Error("VM 100 base identity or console-only access selection differs");
   }
@@ -357,6 +368,29 @@ function projectVm100Scaffold(contract) {
       permitRootLogin: access.permit_root_login,
       allowTcpForwarding: access.allow_tcp_forwarding,
       x11Forwarding: access.x11_forwarding,
+    },
+    networking: {
+      interface: networking.interface,
+      matchMac: networking.match_mac,
+      ipv4: networking.ipv4,
+      gateway: networking.gateway,
+      dns: networking.dns,
+      dhcp: networking.dhcp,
+    },
+    storage: {
+      games: {
+        mountpoint: storage.games.mountpoint,
+        filesystem: storage.games.filesystem,
+        filesystemUuid: storage.games.filesystem_uuid,
+        label: storage.games.label,
+        options: storage.games.options,
+      },
+      shared: {
+        mountpoint: storage.shared.mountpoint,
+        filesystem: storage.shared.filesystem,
+        source: storage.shared.source,
+        options: storage.shared.options,
+      },
     },
   };
 }

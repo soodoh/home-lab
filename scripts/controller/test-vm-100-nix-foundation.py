@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 NIX = ROOT / "nix"
 PROJECTION = NIX / "vm-100/projection.json"
 FORBIDDEN_SOURCE_PATTERNS = (
-    re.compile(r"/dev/disk"),
+    re.compile(r"/dev/disk/by-id"),
     re.compile(r"sops\.(?:defaultSopsFile|age\.keyFile|age\.generateKey\s*=\s*true|secrets\.[A-Za-z0-9_-]+)"),
     re.compile(r"(?:services\.docker|virtualisation\.docker|docker-compose|compose\.ya?ml)"),
 )
@@ -58,6 +58,15 @@ class Vm100NixFoundationTests(unittest.TestCase):
         self.assertNotIn("nix-plan", users)
         self.assertNotIn("nix-copy", users)
         self.assertNotIn("nix-apply", users)
+        network = json.loads(self.nix_eval('nixosConfigurations.vm-100.config.systemd.network.networks."20-vm-100".networkConfig'))
+        self.assertEqual(network, {"DHCP": False, "DNS": ["1.1.1.1"], "IPv6AcceptRA": False, "LinkLocalAddressing": "no"})
+        self.assertEqual(json.loads(self.nix_eval('nixosConfigurations.vm-100.config.systemd.network.networks."20-vm-100".matchConfig')), {"MACAddress": "BC:24:11:89:19:5A", "Name": "ens18"})
+        self.assertEqual(json.loads(self.nix_eval('nixosConfigurations.vm-100.config.systemd.network.networks."20-vm-100".address')), ["192.168.0.100/24"])
+        self.assertEqual(json.loads(self.nix_eval('nixosConfigurations.vm-100.config.systemd.network.networks."20-vm-100".routes')), [{"Destination": "0.0.0.0/0", "Gateway": "192.168.0.1"}])
+        games = json.loads(self.nix_eval('nixosConfigurations.vm-100.config.fileSystems."/mnt/games"'))
+        self.assertEqual((games["device"], games["fsType"], games["options"], games["autoFormat"]), ("/dev/disk/by-uuid/31602ce7-0054-498a-9f24-f51ca491e7b3", "ext4", ["noatime"], False))
+        shared = json.loads(self.nix_eval('nixosConfigurations.vm-100.config.fileSystems."/mnt/storage"'))
+        self.assertEqual((shared["device"], shared["fsType"], shared["options"], shared["autoFormat"]), ("192.168.0.123:/storage/docker", "nfs4", ["defaults"], False))
 
     def test_inputs_are_locked_and_follow_the_single_nixpkgs(self) -> None:
         lock = json.loads((NIX / "flake.lock").read_text(encoding="utf-8"))

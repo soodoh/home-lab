@@ -174,7 +174,7 @@
   "$defs": {
     "vm100Scaffold": {
       "type": "object", "additionalProperties": false,
-      "required": ["vmid", "host_name", "network_identity", "system", "state_version", "deployment_authority", "nixos_activation_enabled", "workload_identity", "access"],
+      "required": ["vmid", "host_name", "network_identity", "system", "state_version", "deployment_authority", "nixos_activation_enabled", "workload_identity", "access", "networking", "storage"],
       "properties": {
         "vmid": { "const": 100 },
         "host_name": { "const": "archlinux" },
@@ -213,6 +213,45 @@
             "permit_root_login": { "const": false },
             "allow_tcp_forwarding": { "const": false },
             "x11_forwarding": { "const": false }
+          }
+        },
+        "networking": {
+          "type": "object", "additionalProperties": false,
+          "required": ["interface", "match_mac", "ipv4", "gateway", "dns", "dhcp"],
+          "properties": {
+            "interface": { "const": "ens18" },
+            "match_mac": { "const": "BC:24:11:89:19:5A" },
+            "ipv4": { "const": "192.168.0.100/24" },
+            "gateway": { "const": "192.168.0.1" },
+            "dns": { "type": "array", "prefixItems": [{ "const": "1.1.1.1" }], "items": false, "minItems": 1, "maxItems": 1 },
+            "dhcp": { "const": false }
+          }
+        },
+        "storage": {
+          "type": "object", "additionalProperties": false,
+          "required": ["games", "shared"],
+          "properties": {
+            "games": {
+              "type": "object", "additionalProperties": false,
+              "required": ["mountpoint", "filesystem", "filesystem_uuid", "label", "options"],
+              "properties": {
+                "mountpoint": { "const": "/mnt/games" },
+                "filesystem": { "const": "ext4" },
+                "filesystem_uuid": { "const": "31602ce7-0054-498a-9f24-f51ca491e7b3" },
+                "label": { "const": "games" },
+                "options": { "type": "array", "prefixItems": [{ "const": "noatime" }], "items": false, "minItems": 1, "maxItems": 1 }
+              }
+            },
+            "shared": {
+              "type": "object", "additionalProperties": false,
+              "required": ["mountpoint", "filesystem", "source", "options"],
+              "properties": {
+                "mountpoint": { "const": "/mnt/storage" },
+                "filesystem": { "const": "nfs4" },
+                "source": { "const": "192.168.0.123:/storage/docker" },
+                "options": { "type": "array", "prefixItems": [{ "const": "defaults" }], "items": false, "minItems": 1, "maxItems": 1 }
+              }
+            }
           }
         }
       }

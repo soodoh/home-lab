@@ -33,6 +33,28 @@ vm_100:
     permit_root_login: false
     allow_tcp_forwarding: false
     x11_forwarding: false
+  networking:
+    interface: ens18
+    match_mac: BC:24:11:89:19:5A
+    ipv4: 192.168.0.100/24
+    gateway: 192.168.0.1
+    dns:
+      - 1.1.1.1
+    dhcp: false
+  storage:
+    games:
+      mountpoint: /mnt/games
+      filesystem: ext4
+      filesystem_uuid: 31602ce7-0054-498a-9f24-f51ca491e7b3
+      label: games
+      options:
+        - noatime
+    shared:
+      mountpoint: /mnt/storage
+      filesystem: nfs4
+      source: 192.168.0.123:/storage/docker
+      options:
+        - defaults
 network:
   cidr: 192.168.0.0/24
   gateway: 192.168.0.1
