@@ -58,7 +58,7 @@ The version-5 manifest binds:
 
 Apply checks the manifest and plan hashes, reinitializes each provider backend, reinspects every saved plan under the current `normal` or `recovery` policy, and never generates a replacement apply plan. Post-apply plans are mandatory no-op verification only. The interactive confirmation names the reviewed operation and occurs before mutation credentials are loaded.
 
-The reconciler itself exclusively acquires and owns an atomic mode-`0700` `.reconcile/controller-apply.lock` that serializes the complete apply. Per-root OpenTofu operations also use native S3 lockfiles with a five-minute lock timeout. Tailscale policy mutation verifies the live canonical SHA and ETag immediately before an `If-Match` update and proves the resulting live policy equals OpenTofu state.
+The reconciler itself exclusively acquires and owns one nonblocking descriptor `flock` on the persistent user-owned mode-`0600` regular file `.reconcile/controller-apply.lock`. A fixed supervisor writes canonical ownership metadata, re-executes the reconciler with an inherited descriptor and ephemeral token, and nested host/firewall paths validate and borrow that ownership without reacquiring or unlinking it. The lock serializes the complete apply and becomes inert when the owner exits. Per-root OpenTofu operations also use native S3 lockfiles with a five-minute lock timeout. Tailscale policy mutation verifies the live canonical SHA and ETag immediately before an `If-Match` update and proves the resulting live policy equals OpenTofu state.
 
 ## Omada input and strict TLS
 

@@ -10,7 +10,7 @@ Status: Phase 1 architecture approved. Implementation and every production actio
 - Ansible owns all Arch guest state, guest identities, host hardware setup, Coral DKMS, Compose transaction orchestration, audit, image-prune scheduling and recovery. The controller invokes it in both steady and recovery paths.
 - There are no Authentik or Servarr OpenTofu roots.
 - The only tracked SOPS rule has one age recipient. Repository evidence does not prove whether that recipient is the Arch host, the recovery identity, or both.
-- Existing prerequisite defect: `scripts/reconcile-infrastructure` creates `.reconcile/controller-apply.lock` as a directory, while `nix/proxmox/apply.py` opens that same pathname as a regular flock file. The real nested guarded apply should fail. This must be fixed and live-no-op-qualified before extending the controller.
+- Prerequisite defect found during architecture review: `scripts/reconcile-infrastructure` created `.reconcile/controller-apply.lock` as a directory while `nix/proxmox/apply.py` opened the same pathname as a regular flock file. Commit `8d4fa48` replaced both plus the firewall path with one inherited descriptor/token protocol; live steady no-op qualification remains required before extending the controller.
 
 ## 1. Ansible ownership migration matrix
 
@@ -185,7 +185,7 @@ Because saved application plans do not refresh APIs at delayed apply, each plan 
 
 Preparation:
 
-- Fix and live-no-op-qualify the controller lock defect first.
+- Live-no-op-qualify the controller lock fix before any later implementation milestone.
 - Land an explicit host-authority state machine: `arch`, `migration-in-progress`, `nixos`. Existing steady behavior remains `arch`; while migration is active ordinary steady/recovery guest mutation refuses to run; only the exact migration app is permitted; after cutover a pushed authority-flip commit enables NixOS steady paths. Dual/ambiguous authority is invalid. Preserve OpenTofu state address `proxmox_virtual_environment_vm.arch` unless a separately reviewed `moved` block proves no VM create/delete/replace or identity change.
 - Capture read-only production inventory: all containers, volumes/engine paths, binds, Docker data root, UID/GID/modes, filesystem/capacity/features, writers/timers, mappings, backups, current/previous artifacts and images.
 - Generate a reviewed manifest from canonical Compose plus live Docker. Include all 30 declared project volumes (including `openfit-data`), explicitly allowlist/create/transfer the 3 retained undeclared legacy engine volumes without attaching or pruning them, and include required host paths and persistent non-Compose/Wolf state. Mark NFS/games as reused, not copied. Exclude images/overlay/build cache, sockets/PIDs, runtime SOPS, regenerated identities and `/var/lib/docker` wholesale. Gate C rejects any hardlink spanning transfer roots; preservation requires a separately reviewed grouped-transfer design and inode/link-count verification.
@@ -285,7 +285,7 @@ Each gate has a schema-validated secret-free evidence manifest listing exact com
 
 ### Blockers before implementation beyond docs
 
-1. Existing controller lock pathname/type conflict must be replaced by the single-owner inherited-FD/token protocol and live-no-op-qualified.
+1. The controller lock protocol landed in `8d4fa48`; exact live steady no-op qualification remains the blocker before NixOS scaffolding.
 2. The approved VM100 `scsi2` NixOS root + retained `scsi0` Arch topology remains blocked on provider qualification. A saved live plan must prove update, not replacement/destruction.
 3. Current single SOPS recipient role is unknown; independent recovery and new guest recipient design needs live/public identity evidence.
 4. Numeric UID/GID and complete mutable root-path inventory need read-only production evidence.
