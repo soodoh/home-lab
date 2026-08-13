@@ -7,6 +7,26 @@ variable "enable_qualification" {
   default = false
 }
 
+variable "qualification_started" {
+  type    = bool
+  default = false
+}
+
+variable "qualification_protection" {
+  type    = bool
+  default = false
+}
+
+variable "qualification_lifecycle_marker" {
+  type    = string
+  default = "baseline"
+
+  validation {
+    condition     = contains(["baseline", "update-qualified"], var.qualification_lifecycle_marker)
+    error_message = "Qualification lifecycle marker must remain within the reviewed test states."
+  }
+}
+
 variable "qualification_ssh_public_key" {
   type      = string
   sensitive = true
@@ -42,15 +62,15 @@ resource "proxmox_virtual_environment_vm" "qualification" {
   node_name   = local.node
   vm_id       = 9900
   name        = "vm-100-nixos-qualification"
-  description = "Disposable provider, Disko, and isolated-dockerd qualification; never production VM 100"
+  description = "Disposable provider, Disko, and isolated-dockerd qualification; never production VM 100; lifecycle=${var.qualification_lifecycle_marker}"
   tags        = ["qualification", "disposable", "nixos-migration"]
 
   machine       = "q35"
   scsi_hardware = "virtio-scsi-single"
   boot_order    = ["scsi0"]
   on_boot       = false
-  started       = false
-  protection    = false
+  started       = var.qualification_started
+  protection    = var.qualification_protection
 
   reboot_after_update                  = true
   stop_on_destroy                      = true

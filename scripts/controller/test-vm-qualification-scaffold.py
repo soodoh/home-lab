@@ -42,8 +42,11 @@ class VmQualificationScaffoldTests(unittest.TestCase):
         self.assertIn('default = 9899', legacy_variables)
         self.assertNotIn('default = 9900', legacy_variables)
         self.assertIn('on_boot       = false', self.main)
-        self.assertIn('started       = false', self.main)
-        self.assertIn('protection    = false', self.main)
+        self.assertRegex(self.main, r'variable "qualification_started"\s*\{[^}]*default\s*=\s*false')
+        self.assertRegex(self.main, r'variable "qualification_protection"\s*\{[^}]*default\s*=\s*false')
+        self.assertIn('started       = var.qualification_started', self.main)
+        self.assertIn('protection    = var.qualification_protection', self.main)
+        self.assertIn('["baseline", "update-qualified"]', self.main)
         self.assertIn('address = "dhcp"', self.main)
         self.assertNotIn('192.168.0.100', self.main)
 
