@@ -19,6 +19,15 @@ in
   system.stateVersion = projection.stateVersion;
   system.switch.enable = false;
 
+  boot.loader.grub = {
+    enable = true;
+    device = "nodev";
+    efiSupport = true;
+    efiInstallAsRemovable = true;
+  };
+  boot.loader.systemd-boot.enable = false;
+  boot.loader.efi.canTouchEfiVariables = false;
+
   assertions = [
     {
       assertion = projection.vmid == 100;
@@ -30,9 +39,7 @@ in
     }
   ];
 
-  boot.loader.grub.enable = false;
-  boot.loader.systemd-boot.enable = false;
-  fileSystems."/" = {
+  fileSystems."/" = lib.mkDefault {
     device = "none";
     fsType = "tmpfs";
     options = [ "size=1G" "mode=0755" ];

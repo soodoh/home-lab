@@ -25,7 +25,7 @@ EXPECTED_SOURCE_FILES = {
     "hosts/vm-100/disko.nix", "hosts/vm-100/hardware.nix", "hosts/vm-100/networking.nix", "hosts/vm-100/secrets.nix",
     "hosts/vm-100/storage.nix",
     "secrets/production.env.keys", "secrets/production.env.layout.json", "secrets/production.sops.env",
-    "scripts/restore-dotenv-layout.py",
+    "scripts/restore-dotenv-layout.py", "scripts/vm-100-candidate-install-guard.py",
     "modules/coral.nix", "packages/coral-driver/default.nix",
     "packages/coral-driver/0001-linux-6.13-dma-buf-namespace.patch",
     "packages/coral-driver/0002-linux-6.0-remove-no-llseek.patch",
