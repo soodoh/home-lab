@@ -34,7 +34,7 @@
           sops-nix.nixosModules.sops
           ./hosts/vm-100
           {
-            homeLab.vm100.rootDiskDevice = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_QUAL-NIXOS-128G";
+            homeLab.vm100.rootDiskDevice = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2";
             disko.rootMountPoint = "/mnt/vm-100-candidate";
           }
         ];
@@ -154,7 +154,7 @@
             let
               config = self.nixosConfigurations.vm-100-candidate.config;
             in pkgs.runCommand "check-vm-100-candidate-disko" { } ''
-              test "${config.homeLab.vm100.rootDiskDevice}" = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_QUAL-NIXOS-128G"
+              test "${config.homeLab.vm100.rootDiskDevice}" = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2"
               test "${config.disko.rootMountPoint}" = "/mnt/vm-100-candidate"
               test -x ${config.system.build.diskoScript}/bin/disko
               test -x ${self.packages.x86_64-linux.vm-100-candidate-install}/bin/vm-100-candidate-install

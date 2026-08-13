@@ -30,7 +30,7 @@ class CandidateInstallTests(unittest.TestCase):
     def request(self, root, **updates):
         value = {
             "approvedSerial": self.guard.EXPECTED_SERIAL,
-            "device": "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_QUAL-NIXOS-128G",
+            "device": "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2",
             "format": self.guard.FORMAT,
             "mode": "inspect",
             "observedSizeBytes": self.guard.EXPECTED_SIZE,
@@ -59,12 +59,12 @@ class CandidateInstallTests(unittest.TestCase):
         observed = {"type": "disk", "size": self.guard.EXPECTED_SIZE, "serial": "drive-scsi2", "mountpoints": [None], "fstype": None}
         result = type("Result", (), {"stdout": json.dumps({"blockdevices": [observed]}).encode(), "stderr": b""})()
         with patch.object(Path, "is_symlink", return_value=True), patch.object(self.guard.subprocess, "run", return_value=result):
-            self.assertEqual(self.guard.observe("/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_QUAL-NIXOS-128G")["size"], self.guard.EXPECTED_SIZE)
+            self.assertEqual(self.guard.observe("/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2")["size"], self.guard.EXPECTED_SIZE)
         for mutation in ({"size": 1}, {"serial": "drive-scsi0"}, {"children": [{}]}, {"fstype": "ext4"}, {"mountpoints": ["/"]}):
             changed = {**observed, **mutation}
             result = type("Result", (), {"stdout": json.dumps({"blockdevices": [changed]}).encode(), "stderr": b""})()
             with patch.object(Path, "is_symlink", return_value=True), patch.object(self.guard.subprocess, "run", return_value=result), self.assertRaises(ValueError):
-                self.guard.observe("/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_QUAL-NIXOS-128G")
+                self.guard.observe("/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2")
 
     def test_installer_source_keeps_destructive_gate_and_exact_closure(self):
         source = (ROOT / "nix/flake.nix").read_text()

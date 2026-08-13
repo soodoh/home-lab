@@ -14,7 +14,7 @@ EXPECTED_SERIAL = "QUAL-NIXOS-128G"
 EXPECTED_SIZE = 137438953472
 MINIMUM_SIZE = 120 * 1024 * 1024 * 1024
 MAXIMUM_SIZE = 136 * 1024 * 1024 * 1024
-BY_ID = re.compile(r"^/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_QUAL-NIXOS-128G$")
+BY_ID = re.compile(r"^/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2$")
 ENV = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
 
 
