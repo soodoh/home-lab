@@ -335,14 +335,14 @@ def write_import_storage_journal(value):
 
 
 def storage_content():
-    value = json_command(("/usr/sbin/pvesh", "get", "/storage/" + IMPORT_STORAGE_ID, "--output-format", "json"))
+    value = json_command(("/usr/bin/pvesh", "get", "/storage/" + IMPORT_STORAGE_ID, "--output-format", "json"))
     content = value.get("content", "").split(",") if isinstance(value, dict) else []
     if not content or any(not item for item in content): raise ValueError("local storage content differs")
     return sorted(content)
 
 
 def set_storage_content(content):
-    run(("/usr/sbin/pvesh", "set", "/storage/" + IMPORT_STORAGE_ID, "--content", ",".join(content)))
+    run(("/usr/bin/pvesh", "set", "/storage/" + IMPORT_STORAGE_ID, "--content", ",".join(content)))
 
 
 def json_command(args):
