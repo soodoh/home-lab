@@ -73,6 +73,7 @@ class CandidateInstallTests(unittest.TestCase):
             "config.system.build.diskoScript",
             "--system ${config.system.build.toplevel}",
             "--no-channel-copy",
+            "inspection-passed",
             "/mnt/vm-100-candidate",
         ):
             self.assertIn(control, source)

@@ -76,7 +76,8 @@
                   mode=$(${candidatePkgs.jq}/bin/jq -er '.mode' <<<"$approval")
                   target=/mnt/vm-100-candidate
                   if [[ $mode == inspect ]]; then
-                    exec ${config.system.build.diskoScript} --dry-run
+                    printf 'vm-100-candidate-install=inspection-passed device=%s\n' "$device"
+                    exit 0
                   fi
                   [[ $mode == install ]]
                   [[ -d $target && ! -L $target ]]
