@@ -27,7 +27,7 @@ provider "proxmox" {
 resource "proxmox_download_file" "arch_cloud_image" {
   count = var.enable_qualification ? 1 : 0
 
-  content_type       = "import"
+  content_type       = "iso"
   datastore_id       = "local"
   node_name          = local.node
   url                = local.vm.cloud_image.url
