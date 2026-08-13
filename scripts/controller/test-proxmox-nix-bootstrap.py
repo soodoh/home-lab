@@ -677,21 +677,32 @@ m.atomic(target,payload,0o755 if sys.argv[3]=="helper" else 0o600)
 
     def test_fresh_access_bootstrap_is_console_bound_closed_and_secret_safe(self):
         path=ROOT/"scripts/bootstrap-proxmox-nix-access"; source=path.read_text()
+        access=load_access()
         self.assertTrue(os.access(path,os.X_OK))
         for control in ('/dev/tty[1-9][0-9]*', 'install-reviewed-access-authority',
                         'recover-reviewed-access-bootstrap', 'PVE token creation response differs',
-                        'root@pam!tofu-plan', 'root@pam!tofu-apply', 'runtime.atomic(ESCROWS[principal]'):
+                        'root@pam!tofu-plan', 'root@pam!tofu-apply', 'runtime.atomic(ESCROWS[principal]',
+                        'refresh-reviewed-apply-role', 'recover-reviewed-role-refresh',
+                        'role refresh permits only SDN.Use addition', 'role refresh exact before state differs'):
             self.assertIn(control,source)
         for forbidden in ('argparse', '--path', '--host', 'print(result["value"]'):
             self.assertNotIn(forbidden,source.lower())
-        self.assertIn('<install|converge|recover>',source)
+        self.assertIn('<install|converge|refresh-role|recover>',source)
         self.assertIn('converge-reviewed-legacy-access-authority',source)
         self.assertIn('legacy apply authority differs',source)
         self.assertIn('home-lab-proxmox-access-converge-v1',source)
+        self.assertIn('home-lab-proxmox-access-role-refresh-v1',source)
         self.assertIn('base64.b64decode(previous["keys"]',source)
         docs=(ROOT/"docs/proxmox-bootstrap.md").read_text()
         self.assertIn("deterministic manual assertion boundary",docs)
         self.assertIn("scripts/bootstrap-proxmox-nix-access install",docs)
+        desired=["SDN.Audit", "SDN.Use", "VM.Audit"]
+        self.assertEqual(access.role_refresh_previous(desired), ["SDN.Audit", "VM.Audit"])
+        with self.assertRaises(ValueError): access.role_refresh_previous(["SDN.Audit", "VM.Audit"])
+        journal={"completed":False,"format":access.ROLE_REFRESH_FORMAT,
+                 "previousPrivileges":["SDN.Audit","VM.Audit"],"role":access.APPLY_ROLE}
+        self.assertEqual(access.validate_role_refresh_journal(journal),journal)
+        with self.assertRaises(ValueError): access.validate_role_refresh_journal({**journal,"role":"evil"})
 
     def test_user_owned_ssh_helpers_enforce_real_uid_gid_modes_links_and_no_follow(self):
         access=load_access()

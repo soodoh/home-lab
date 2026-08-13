@@ -63,6 +63,15 @@ scripts/bootstrap-proxmox-nix-access converge
 
 It first proves every non-apply account, key, access file, token escrow, and protected input plus the exact legacy apply state. It then atomically installs the tracked apply transport/key/sudo policy and changes the shell/groups; it is not accepted on a fresh or partially divergent host.
 
+For a reviewed additive privilege correction to the existing apply role, use the separate console-only role refresh. It proves the exact current `HomeLabTofuApply` privilege set and permits only adding contract-required `SDN.Use`; it does not recreate accounts, tokens, ACLs, keys, or sudo authority:
+
+```sh
+export PROXMOX_NIX_ACCESS_ROLE_REFRESH_CONFIRMED=refresh-reviewed-apply-role
+scripts/bootstrap-proxmox-nix-access refresh-role
+```
+
+If interrupted, retain the journal and recover only from the physical console with `PROXMOX_NIX_ACCESS_ROLE_REFRESH_RECOVER_CONFIRMED=recover-reviewed-role-refresh scripts/bootstrap-proxmox-nix-access recover`.
+
 Do not remove journals or ownership locks manually. Protected inputs and the session key use their separate fixed refresh/rotation tools and explicit gates.
 
 After bootstrap, prove that the fixed plan identity works and arbitrary SSH commands are denied. The controller then owns Proxmox host convergence through the exact manifest-bound Nix `plan`/guarded `prepare`/`apply`/fresh-zero-action `verify` flow. OpenTofu remains authoritative for VM 100 and PVE hardware mappings. Reboot remains a separate reviewed operation.

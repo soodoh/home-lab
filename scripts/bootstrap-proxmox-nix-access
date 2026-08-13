@@ -26,14 +26,17 @@ KEY_INPUTS = {"tofu-plan": ROOT / "proxmox-plan-authorized-keys",
 ESCROWS = {"plan": ROOT / "proxmox-plan-token.env", "apply": ROOT / "proxmox-apply-token.env"}
 JOURNAL = runtime.BOOT / "access-journal.json"
 CONVERGE_JOURNAL = runtime.BOOT / "access-converge-journal.json"
+ROLE_REFRESH_JOURNAL = runtime.BOOT / "access-role-refresh-journal.json"
 LOCK = runtime.BOOT / "access.lock"
 FORMAT = "home-lab-proxmox-access-bootstrap-v1"
 TOKEN_ID = {"plan": "root@pam!tofu-plan", "apply": "root@pam!tofu-apply"}
+APPLY_ROLE = "HomeLabTofuApply"
+ROLE_REFRESH_FORMAT = "home-lab-proxmox-access-role-refresh-v1"
 ENV = runtime.ENV
 
 
 def access_targets(projection):
-    targets = {JOURNAL, CONVERGE_JOURNAL, *ESCROWS.values(), *managed_access_files(projection),
+    targets = {JOURNAL, CONVERGE_JOURNAL, ROLE_REFRESH_JOURNAL, *ESCROWS.values(), *managed_access_files(projection),
                runtime.HELPER_ROOT / "proxmox-firewall-transport", runtime.HELPER_ROOT / "proxmox-apply-transport"}
     for name in KEY_INPUTS:
         targets.add(Path(account_spec(projection, name)["home"]) / ".ssh" / "authorized_keys")
@@ -50,7 +53,7 @@ def reconcile_pending(projection):
         unknown = {name for name in names if name.endswith(".bootstrap-pending")} - expected
         if unknown: raise ValueError("access bootstrap contains unknown pending entry")
         present.extend(path for path in mapping if path.parent == directory and path.name in names)
-    for journal_path, validator in ((JOURNAL, validate_journal), (CONVERGE_JOURNAL, validate_converge_journal)):
+    for journal_path, validator in ((JOURNAL, validate_journal), (CONVERGE_JOURNAL, validate_converge_journal), (ROLE_REFRESH_JOURNAL, validate_role_refresh_journal)):
         pending_journal = runtime.pending_path(journal_path)
         if pending_journal not in present: continue
         raw = runtime.secure_file(pending_journal, 0o600, 1024 * 1024); value = json.loads(raw)
@@ -236,6 +239,46 @@ def write_converge_journal(value):
     validate_converge_journal(value); runtime.atomic(CONVERGE_JOURNAL, canonical(value), 0o600)
 
 
+def validate_role_refresh_journal(value):
+    if not isinstance(value, dict) or set(value) != {"completed", "format", "previousPrivileges", "role"} or \
+            value["format"] != ROLE_REFRESH_FORMAT or value["role"] != APPLY_ROLE or value["completed"] not in {False, True} or \
+            not isinstance(value["previousPrivileges"], list) or not value["previousPrivileges"] or \
+            any(not isinstance(item, str) or not item for item in value["previousPrivileges"]) or \
+            value["previousPrivileges"] != sorted(set(value["previousPrivileges"])):
+        raise ValueError("access role refresh journal differs")
+    return value
+
+
+def write_role_refresh_journal(value):
+    validate_role_refresh_journal(value); runtime.atomic(ROLE_REFRESH_JOURNAL, canonical(value), 0o600)
+
+
+def pve_roles():
+    values = json_command(("/usr/sbin/pveum", "role", "list", "--output-format", "json"))
+    if not isinstance(values, list): raise ValueError("fixed PVE roles differ")
+    return values
+
+
+def role_privileges(role):
+    value = next((item for item in pve_roles() if item.get("roleid") == role), None)
+    privileges = value.get("privs", "").split(",") if isinstance(value, dict) else []
+    if not privileges or any(not item for item in privileges): raise ValueError("managed PVE role differs")
+    return sorted(privileges)
+
+
+def desired_role_privileges(projection, role):
+    value = next((item for item in projection["apiIntent"]["pveAccess"]["roles"] if item["role"] == role), None)
+    if value is None: raise ValueError("managed PVE role is absent from projection")
+    return sorted(value["privileges"])
+
+
+def role_refresh_previous(desired):
+    previous = sorted(item for item in desired if item != "SDN.Use")
+    if previous == desired or sorted(previous + ["SDN.Use"]) != desired:
+        raise ValueError("role refresh permits only SDN.Use addition")
+    return previous
+
+
 def json_command(args):
     raw = run(args)
     try: return json.loads(raw)
@@ -283,7 +326,7 @@ def preflight_absent(projection):
     transports = (runtime.HELPER_ROOT / "proxmox-firewall-transport", runtime.HELPER_ROOT / "proxmox-apply-transport")
     for path in (*managed_access_files(projection), *transports, *(Path(account_spec(projection, n)["home"]) for n in (*KEY_INPUTS, "proxmox")), *ESCROWS.values()):
         if runtime.exists_nofollow(path): raise ValueError("partial access bootstrap path exists")
-    roles = json_command(("/usr/sbin/pveum", "role", "list", "--output-format", "json"))
+    roles = pve_roles()
     role_names = {item.get("roleid") for item in roles if isinstance(item, dict)}
     if role_names.intersection(item["role"] for item in projection["apiIntent"]["pveAccess"]["roles"]):
         raise ValueError("managed PVE role already exists")
@@ -369,32 +412,53 @@ def rollback(projection, journal):
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in {"install", "converge", "recover"}:
-        print("usage: bootstrap-proxmox-nix-access <install|converge|recover>", file=sys.stderr); return 64
+    if len(sys.argv) != 2 or sys.argv[1] not in {"install", "converge", "refresh-role", "recover"}:
+        print("usage: bootstrap-proxmox-nix-access <install|converge|refresh-role|recover>", file=sys.stderr); return 64
     physical_console(); source_identity(); projection = load_projection(); runtime.ensure_dir(runtime.BOOT, 0o700)
     lock = runtime.acquire_lock(LOCK); operation = runtime.acquire_lock(runtime.OPERATION_LOCK)
     try:
         reconcile_pending(projection)
         if sys.argv[1] == "recover":
-            if os.environ.get("PROXMOX_NIX_ACCESS_RECOVER_CONFIRMED") != "recover-reviewed-access-bootstrap":
-                raise ValueError("explicit access recovery gate required")
-            if runtime.exists_nofollow(CONVERGE_JOURNAL):
-                value = validate_converge_journal(json.loads(runtime.secure_file(CONVERGE_JOURNAL, 0o600, 1024 * 1024)))
-                previous = value["previous"]; apply = __import__("pwd").getpwnam("tofu-apply")
-                if apply.pw_uid != previous["uid"] or apply.pw_gid != previous["gid"]:
-                    raise ValueError("converged account identity differs from captured rollback")
-                home = Path(previous["home"])
-                user_file_write(home / ".ssh/authorized_keys", base64.b64decode(previous["keys"], validate=True), apply.pw_uid, apply.pw_gid)
-                runtime.atomic(Path("/etc/sudoers.d/tofu-apply"), base64.b64decode(previous["sudo"], validate=True), 0o440)
-                run(("/usr/sbin/usermod", "--shell", previous["shell"], "--groups", ",".join(previous["groups"]), "tofu-apply"))
-                if previous["locked"]: run(("/usr/sbin/usermod", "--lock", "tofu-apply"))
-                else: run(("/usr/sbin/usermod", "--unlock", "tofu-apply"))
-                runtime.durable_unlink(CONVERGE_JOURNAL, False)
+            if runtime.exists_nofollow(ROLE_REFRESH_JOURNAL):
+                if os.environ.get("PROXMOX_NIX_ACCESS_ROLE_REFRESH_RECOVER_CONFIRMED") != "recover-reviewed-role-refresh":
+                    raise ValueError("explicit role refresh recovery gate required")
+                value = validate_role_refresh_journal(json.loads(runtime.secure_file(ROLE_REFRESH_JOURNAL, 0o600, 1024 * 1024)))
+                run(("/usr/sbin/pveum", "role", "modify", APPLY_ROLE, "--privs", " ".join(value["previousPrivileges"])))
+                if role_privileges(APPLY_ROLE) != value["previousPrivileges"]: raise ValueError("role refresh rollback differs")
+                runtime.durable_unlink(ROLE_REFRESH_JOURNAL, False)
             else:
-                value = validate_journal(json.loads(runtime.secure_file(JOURNAL, 0o600, 1024 * 1024)))
-                rollback(projection, value)
+                if os.environ.get("PROXMOX_NIX_ACCESS_RECOVER_CONFIRMED") != "recover-reviewed-access-bootstrap":
+                    raise ValueError("explicit access recovery gate required")
+                if runtime.exists_nofollow(CONVERGE_JOURNAL):
+                    value = validate_converge_journal(json.loads(runtime.secure_file(CONVERGE_JOURNAL, 0o600, 1024 * 1024)))
+                    previous = value["previous"]; apply = __import__("pwd").getpwnam("tofu-apply")
+                    if apply.pw_uid != previous["uid"] or apply.pw_gid != previous["gid"]:
+                        raise ValueError("converged account identity differs from captured rollback")
+                    home = Path(previous["home"])
+                    user_file_write(home / ".ssh/authorized_keys", base64.b64decode(previous["keys"], validate=True), apply.pw_uid, apply.pw_gid)
+                    runtime.atomic(Path("/etc/sudoers.d/tofu-apply"), base64.b64decode(previous["sudo"], validate=True), 0o440)
+                    run(("/usr/sbin/usermod", "--shell", previous["shell"], "--groups", ",".join(previous["groups"]), "tofu-apply"))
+                    if previous["locked"]: run(("/usr/sbin/usermod", "--lock", "tofu-apply"))
+                    else: run(("/usr/sbin/usermod", "--unlock", "tofu-apply"))
+                    runtime.durable_unlink(CONVERGE_JOURNAL, False)
+                else:
+                    value = validate_journal(json.loads(runtime.secure_file(JOURNAL, 0o600, 1024 * 1024)))
+                    rollback(projection, value)
             print("proxmox-nix-access=recovered"); return 0
-        if runtime.exists_nofollow(JOURNAL): raise ValueError("interrupted access bootstrap requires recover")
+        if runtime.exists_nofollow(JOURNAL) or runtime.exists_nofollow(CONVERGE_JOURNAL) or runtime.exists_nofollow(ROLE_REFRESH_JOURNAL):
+            raise ValueError("interrupted access operation requires recover")
+        if sys.argv[1] == "refresh-role":
+            if os.environ.get("PROXMOX_NIX_ACCESS_ROLE_REFRESH_CONFIRMED") != "refresh-reviewed-apply-role":
+                raise ValueError("explicit role refresh gate required")
+            desired = desired_role_privileges(projection, APPLY_ROLE); previous = role_refresh_previous(desired)
+            if role_privileges(APPLY_ROLE) != previous: raise ValueError("role refresh exact before state differs")
+            value = {"completed": False, "format": ROLE_REFRESH_FORMAT, "previousPrivileges": previous, "role": APPLY_ROLE}
+            write_role_refresh_journal(value)
+            run(("/usr/sbin/pveum", "role", "modify", APPLY_ROLE, "--privs", " ".join(desired)))
+            value["completed"] = True; write_role_refresh_journal(value)
+            if role_privileges(APPLY_ROLE) != desired: raise ValueError("role refresh verification differs")
+            runtime.durable_unlink(ROLE_REFRESH_JOURNAL, False)
+            print("proxmox-nix-access=role-refreshed"); return 0
         keys = rendered_keys(projection)
         if sys.argv[1] == "converge":
             if os.environ.get("PROXMOX_NIX_ACCESS_CONVERGE_CONFIRMED") != "converge-reviewed-legacy-access-authority":
