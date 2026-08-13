@@ -76,7 +76,7 @@ resource "proxmox_virtual_environment_vm" "qualification" {
 
   disk {
     datastore_id = "local-lvm"
-    import_from  = proxmox_download_file.arch_cloud_image[0].id
+    file_id      = proxmox_download_file.arch_cloud_image[0].id
     interface    = "scsi0"
     serial       = "QUAL-SOURCE-32G"
     size         = 32

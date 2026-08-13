@@ -22,6 +22,10 @@ class VmQualificationScaffoldTests(unittest.TestCase):
         self.assertIn('key          = "home-lab/proxmox-vm-qualification/tofu.tfstate"', self.versions)
         self.assertNotIn('home-lab/proxmox/tofu.tfstate', self.versions)
         self.assertIn('VM100-NixOS-Qualification-Arch-', self.main)
+        self.assertIn('content_type       = "iso"', self.main)
+        self.assertIn('.qcow2.img"', self.main)
+        self.assertIn('file_id      = proxmox_download_file.arch_cloud_image[0].id', self.main)
+        self.assertNotIn('import_from  = proxmox_download_file.arch_cloud_image[0].id', self.main)
         existing = (ROOT / "infrastructure/tofu/proxmox/qualification.tf").read_text(encoding="utf-8")
         self.assertNotIn('VM100-NixOS-Qualification-Arch-', existing)
 
