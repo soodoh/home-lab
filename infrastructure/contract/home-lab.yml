@@ -481,6 +481,7 @@ proxmox:
           primary_acl_path: /
           role: HomeLabTofuApply
           privileges:
+            - Datastore.Allocate
             - Datastore.AllocateSpace
             - Datastore.AllocateTemplate
             - Datastore.Audit

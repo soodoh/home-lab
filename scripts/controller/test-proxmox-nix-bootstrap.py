@@ -684,7 +684,7 @@ m.atomic(target,payload,0o755 if sys.argv[3]=="helper" else 0o600)
                         'recover-reviewed-access-bootstrap', 'PVE token creation response differs',
                         'root@pam!tofu-plan', 'root@pam!tofu-apply', 'runtime.atomic(ESCROWS[principal]',
                         'refresh-reviewed-apply-role', 'recover-reviewed-role-refresh',
-                        'role refresh permits only SDN.Use addition', 'role refresh exact before state differs',
+                        'role refresh permits only one reviewed privilege addition', 'role refresh exact before state differs',
                         'refresh-reviewed-qualification-acl', 'recover-reviewed-qualification-acl',
                         'qualification ACL exact before state differs', 'qualification ACL verification differs',
                         'refresh-reviewed-import-storage', 'recover-reviewed-import-storage',
@@ -702,11 +702,11 @@ m.atomic(target,payload,0o755 if sys.argv[3]=="helper" else 0o600)
         docs=(ROOT/"docs/proxmox-bootstrap.md").read_text()
         self.assertIn("deterministic manual assertion boundary",docs)
         self.assertIn("scripts/bootstrap-proxmox-nix-access install",docs)
-        desired=["SDN.Audit", "SDN.Use", "VM.Audit"]
-        self.assertEqual(access.role_refresh_previous(desired), ["SDN.Audit", "VM.Audit"])
+        desired=["Datastore.Allocate", "SDN.Audit", "SDN.Use", "VM.Audit"]
+        self.assertEqual(access.role_refresh_previous(desired), ["SDN.Audit", "SDN.Use", "VM.Audit"])
         with self.assertRaises(ValueError): access.role_refresh_previous(["SDN.Audit", "VM.Audit"])
         journal={"completed":False,"format":access.ROLE_REFRESH_FORMAT,
-                 "previousPrivileges":["SDN.Audit","VM.Audit"],"role":access.APPLY_ROLE}
+                 "previousPrivileges":["SDN.Audit","SDN.Use","VM.Audit"],"role":access.APPLY_ROLE}
         self.assertEqual(access.validate_role_refresh_journal(journal),journal)
         with self.assertRaises(ValueError): access.validate_role_refresh_journal({**journal,"role":"evil"})
 

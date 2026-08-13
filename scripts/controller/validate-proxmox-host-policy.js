@@ -175,7 +175,7 @@ function validateProxmoxHostPolicy(contract) {
   ]);
   const applyPrivilegeCeiling = new Set([
     ...planPrivilegeCeiling,
-    "Datastore.AllocateSpace", "Datastore.AllocateTemplate", "Mapping.Modify", "Mapping.Use", "SDN.Use", "Sys.Modify",
+    "Datastore.Allocate", "Datastore.AllocateSpace", "Datastore.AllocateTemplate", "Mapping.Modify", "Mapping.Use", "SDN.Use", "Sys.Modify",
     "VM.Allocate", "VM.Config.CDROM", "VM.Config.CPU", "VM.Config.Cloudinit", "VM.Config.Disk",
     "VM.Config.HWType", "VM.Config.Memory", "VM.Config.Network", "VM.Config.Options", "VM.Migrate", "VM.PowerMgmt",
   ]);

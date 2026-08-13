@@ -283,9 +283,13 @@ def desired_role_privileges(projection, role):
 
 
 def role_refresh_previous(desired):
-    previous = sorted(item for item in desired if item != "SDN.Use")
-    if previous == desired or sorted(previous + ["SDN.Use"]) != desired:
-        raise ValueError("role refresh permits only SDN.Use addition")
+    additions = [item for item in ("Datastore.Allocate", "SDN.Use") if item in desired]
+    if not additions:
+        raise ValueError("role refresh permits only one reviewed privilege addition")
+    addition = additions[0]
+    previous = sorted(item for item in desired if item != addition)
+    if previous == desired or sorted(previous + [addition]) != desired:
+        raise ValueError("role refresh permits only one reviewed privilege addition")
     return previous
 
 
