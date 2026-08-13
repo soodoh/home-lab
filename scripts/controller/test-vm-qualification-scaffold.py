@@ -26,6 +26,11 @@ class VmQualificationScaffoldTests(unittest.TestCase):
         self.assertIn('.qcow2.img"', self.main)
         self.assertIn('file_id      = proxmox_download_file.arch_cloud_image[0].id', self.main)
         self.assertNotIn('import_from  = proxmox_download_file.arch_cloud_image[0].id', self.main)
+        self.assertIn('agent    = true', self.main)
+        self.assertIn('username = "root"', self.main)
+        self.assertIn('name    = local.node', self.main)
+        self.assertIn('address = "proxmox"', self.main)
+        self.assertNotIn('address = "192.168.0.123"', self.main)
         existing = (ROOT / "infrastructure/tofu/proxmox/qualification.tf").read_text(encoding="utf-8")
         self.assertNotIn('VM100-NixOS-Qualification-Arch-', existing)
 

@@ -22,6 +22,16 @@ locals {
 provider "proxmox" {
   endpoint = var.proxmox_endpoint
   insecure = false
+
+  ssh {
+    agent    = true
+    username = "root"
+
+    node {
+      name    = local.node
+      address = "proxmox"
+    }
+  }
 }
 
 resource "proxmox_download_file" "arch_cloud_image" {
