@@ -896,15 +896,14 @@ def main():
     if os.geteuid() != 0:
         raise ValueError("bootstrap requires root at the physical console")
     operation = sys.argv[1]
+    if operation == "diagnose-recovery":
+        print("proxmox-nix-bootstrap-recovery=" + diagnose_recovery())
+        return 0
     ensure_dir(BOOT, 0o700); ensure_dir(INCOMING, 0o700); ensure_dir(RUNTIME, 0o700)
     install_fd = acquire_lock(LOCK)
     operation_fd = None
     try:
         operation_fd = acquire_lock(OPERATION_LOCK)
-        if operation == "diagnose-recovery":
-            physical_console()
-            print("proxmox-nix-bootstrap-recovery=" + diagnose_recovery())
-            return 0
         reconcile_pending()
         if operation == "recover":
             physical_console()

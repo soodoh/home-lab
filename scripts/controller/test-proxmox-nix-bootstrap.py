@@ -459,6 +459,11 @@ for(const doc of docs) if(validate(doc)) throw new Error('mutated plan passed sc
         diagnostic=source[source.index("def diagnose_recovery():"):source.index("\ndef main():")]
         for forbidden in ("durable_unlink", "restore_generation", "atomic(", "os.unlink", "os.rename"):
             self.assertNotIn(forbidden,diagnostic)
+        main=source[source.index("def main():"):]
+        diagnostic_branch=main.index('if operation == "diagnose-recovery":')
+        self.assertLess(diagnostic_branch,main.index("ensure_dir(BOOT"))
+        self.assertLess(diagnostic_branch,main.index("acquire_lock(LOCK)"))
+        self.assertNotIn("physical_console()",main[diagnostic_branch:main.index("ensure_dir(BOOT")])
 
     def test_fixed_lifecycle_tools_are_no_argument_gated_and_do_not_retain_old_keys(self):
         for name,gate in (("prepare-proxmox-nix-protected-inputs","PROXMOX_NIX_PROTECTED_CREATE_CONFIRMED"),
