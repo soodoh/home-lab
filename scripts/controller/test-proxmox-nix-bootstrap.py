@@ -188,7 +188,7 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
     def test_installer_surface_atomic_rollback_and_key_policy_are_closed(self):
         installer=load_installer()
         source=(ROOT/"scripts/bootstrap-proxmox-nix-host").read_text()
-        self.assertIn("<check|install|verify|recover>",source)
+        self.assertIn("<check|install|verify|recover|diagnose-recovery>",source)
         self.assertNotIn("argparse",source); self.assertNotIn("--path",source); self.assertNotIn("--host",source)
         for control in ("O_NOFOLLOW", "fingerprint(before)", "MIN_FREE", "operation_fd = acquire_lock(OPERATION_LOCK)",
                         "recover_previous_active", "expected_manifest", "durable_unlink", '"rolling-back"'):
@@ -448,6 +448,17 @@ for(const doc of docs) if(validate(doc)) throw new Error('mutated plan passed sc
         with patch.object(installer,"secure_file",side_effect=secure),patch.object(installer,"restore_generation",side_effect=lambda value:restored.append(value)):
             installer.recover_previous_active()
         self.assertEqual(restored,[generation])
+
+    def test_recovery_diagnostic_is_closed_and_read_only(self):
+        installer=load_installer()
+        with patch.object(installer,"exists_nofollow",return_value=False):
+            self.assertEqual(installer.diagnose_recovery(),"clear")
+        with patch.object(installer,"exists_nofollow",side_effect=lambda path:path==installer.ANSIBLE_LOCK):
+            self.assertEqual(installer.diagnose_recovery(),"ansible-ownership-active")
+        source=(ROOT/"scripts/bootstrap-proxmox-nix-host").read_text()
+        diagnostic=source[source.index("def diagnose_recovery():"):source.index("\ndef main():")]
+        for forbidden in ("durable_unlink", "restore_generation", "atomic(", "os.unlink", "os.rename"):
+            self.assertNotIn(forbidden,diagnostic)
 
     def test_fixed_lifecycle_tools_are_no_argument_gated_and_do_not_retain_old_keys(self):
         for name,gate in (("prepare-proxmox-nix-protected-inputs","PROXMOX_NIX_PROTECTED_CREATE_CONFIRMED"),

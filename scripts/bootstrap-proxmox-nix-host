@@ -859,9 +859,39 @@ def recover_previous_active():
     restore_generation(generation)
 
 
+def diagnose_recovery():
+    if exists_nofollow(ANSIBLE_LOCK):
+        return "ansible-ownership-active"
+    if exists_nofollow(JOURNAL):
+        try:
+            journal = validate_journal(json.loads(secure_file(JOURNAL, 0o600, MAX_JOURNAL)))
+        except Exception:
+            return "bootstrap-journal-invalid"
+        return "bootstrap-journal-" + journal["state"]
+    if not exists_nofollow(APPLY_LOCK):
+        return "clear"
+    try:
+        lock_raw = secure_file(APPLY_LOCK, 0o600, 64 * 1024)
+        lock = json.loads(lock_raw)
+        if lock_raw != canonical(lock) or not isinstance(lock, dict) or set(lock) != {"activatorSha256", "bundleContentSha256",
+                "gitCommit", "gitTree", "hostSessionId", "operation", "planSha256", "startedAt"} or \
+                lock.get("operation") != "proxmox-guarded-apply":
+            return "apply-ownership-invalid"
+        current = hashlib.sha256(secure_file(HELPER_ROOT / "proxmox-activator", 0o755)).hexdigest()
+        if lock["activatorSha256"] == current:
+            return "apply-ownership-current-generation"
+        generation = validate_generation(json.loads(secure_file(PREVIOUS, 0o600, MAX_JOURNAL)))
+        previous = next(item for item in generation["helpers"] if item["name"] == "helper:proxmox-activator")
+        if previous["present"] and lock["activatorSha256"] == previous["sha256"]:
+            return "apply-ownership-previous-generation"
+        return "apply-ownership-unmatched"
+    except Exception:
+        return "apply-ownership-invalid"
+
+
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in {"check", "install", "verify", "recover"}:
-        print("usage: bootstrap-proxmox-nix-host <check|install|verify|recover>", file=sys.stderr)
+    if len(sys.argv) != 2 or sys.argv[1] not in {"check", "install", "verify", "recover", "diagnose-recovery"}:
+        print("usage: bootstrap-proxmox-nix-host <check|install|verify|recover|diagnose-recovery>", file=sys.stderr)
         return 64
     if os.geteuid() != 0:
         raise ValueError("bootstrap requires root at the physical console")
@@ -871,6 +901,10 @@ def main():
     operation_fd = None
     try:
         operation_fd = acquire_lock(OPERATION_LOCK)
+        if operation == "diagnose-recovery":
+            physical_console()
+            print("proxmox-nix-bootstrap-recovery=" + diagnose_recovery())
+            return 0
         reconcile_pending()
         if operation == "recover":
             physical_console()
