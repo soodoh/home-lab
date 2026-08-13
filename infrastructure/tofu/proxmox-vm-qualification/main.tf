@@ -33,7 +33,7 @@ resource "proxmox_download_file" "arch_cloud_image" {
   url                = local.vm.cloud_image.url
   checksum           = local.vm.cloud_image.sha256
   checksum_algorithm = "sha256"
-  file_name          = "VM100-NixOS-Qualification-Arch-${local.vm.cloud_image.version}.qcow2"
+  file_name          = "VM100-NixOS-Qualification-Arch-${local.vm.cloud_image.version}.qcow2.img"
 }
 
 resource "proxmox_virtual_environment_vm" "qualification" {
