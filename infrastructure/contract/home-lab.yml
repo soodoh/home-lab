@@ -486,6 +486,7 @@ proxmox:
             - Mapping.Modify
             - Mapping.Use
             - SDN.Audit
+            - SDN.Use
             - Sys.Audit
             - Sys.Modify
             - VM.Allocate
