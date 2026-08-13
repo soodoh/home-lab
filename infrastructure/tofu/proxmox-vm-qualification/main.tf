@@ -22,28 +22,18 @@ locals {
 provider "proxmox" {
   endpoint = var.proxmox_endpoint
   insecure = false
-
-  ssh {
-    agent    = true
-    username = "root"
-
-    node {
-      name    = local.node
-      address = "192.168.0.123"
-    }
-  }
 }
 
 resource "proxmox_download_file" "arch_cloud_image" {
   count = var.enable_qualification ? 1 : 0
 
-  content_type       = "iso"
+  content_type       = "import"
   datastore_id       = "local"
   node_name          = local.node
   url                = local.vm.cloud_image.url
   checksum           = local.vm.cloud_image.sha256
   checksum_algorithm = "sha256"
-  file_name          = "VM100-NixOS-Qualification-Arch-${local.vm.cloud_image.version}.qcow2.img"
+  file_name          = "VM100-NixOS-Qualification-Arch-${local.vm.cloud_image.version}.qcow2"
 }
 
 resource "proxmox_virtual_environment_vm" "qualification" {
@@ -86,7 +76,7 @@ resource "proxmox_virtual_environment_vm" "qualification" {
 
   disk {
     datastore_id = "local-lvm"
-    file_id      = proxmox_download_file.arch_cloud_image[0].id
+    import_from  = proxmox_download_file.arch_cloud_image[0].id
     interface    = "scsi0"
     serial       = "QUAL-SOURCE-32G"
     size         = 32

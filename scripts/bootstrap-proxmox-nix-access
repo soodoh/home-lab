@@ -28,6 +28,7 @@ JOURNAL = runtime.BOOT / "access-journal.json"
 CONVERGE_JOURNAL = runtime.BOOT / "access-converge-journal.json"
 ROLE_REFRESH_JOURNAL = runtime.BOOT / "access-role-refresh-journal.json"
 QUALIFICATION_ACL_JOURNAL = runtime.BOOT / "access-qualification-acl-journal.json"
+IMPORT_STORAGE_JOURNAL = runtime.BOOT / "import-storage-journal.json"
 LOCK = runtime.BOOT / "access.lock"
 FORMAT = "home-lab-proxmox-access-bootstrap-v1"
 TOKEN_ID = {"plan": "root@pam!tofu-plan", "apply": "root@pam!tofu-apply"}
@@ -37,11 +38,15 @@ QUALIFICATION_ACL_ROLE = "HomeLabTofuPlanDiskInspect"
 PLAN_TOKEN = TOKEN_ID["plan"]
 ROLE_REFRESH_FORMAT = "home-lab-proxmox-access-role-refresh-v1"
 QUALIFICATION_ACL_FORMAT = "home-lab-proxmox-access-qualification-acl-v1"
+IMPORT_STORAGE_FORMAT = "home-lab-proxmox-import-storage-refresh-v1"
+IMPORT_STORAGE_ID = "local"
+IMPORT_STORAGE_BEFORE = ["backup", "iso", "vztmpl"]
+IMPORT_STORAGE_AFTER = ["backup", "import", "iso", "vztmpl"]
 ENV = runtime.ENV
 
 
 def access_targets(projection):
-    targets = {JOURNAL, CONVERGE_JOURNAL, ROLE_REFRESH_JOURNAL, QUALIFICATION_ACL_JOURNAL, *ESCROWS.values(), *managed_access_files(projection),
+    targets = {JOURNAL, CONVERGE_JOURNAL, ROLE_REFRESH_JOURNAL, QUALIFICATION_ACL_JOURNAL, IMPORT_STORAGE_JOURNAL, *ESCROWS.values(), *managed_access_files(projection),
                runtime.HELPER_ROOT / "proxmox-firewall-transport", runtime.HELPER_ROOT / "proxmox-apply-transport"}
     for name in KEY_INPUTS:
         targets.add(Path(account_spec(projection, name)["home"]) / ".ssh" / "authorized_keys")
@@ -58,7 +63,7 @@ def reconcile_pending(projection):
         unknown = {name for name in names if name.endswith(".bootstrap-pending")} - expected
         if unknown: raise ValueError("access bootstrap contains unknown pending entry")
         present.extend(path for path in mapping if path.parent == directory and path.name in names)
-    for journal_path, validator in ((JOURNAL, validate_journal), (CONVERGE_JOURNAL, validate_converge_journal), (ROLE_REFRESH_JOURNAL, validate_role_refresh_journal), (QUALIFICATION_ACL_JOURNAL, validate_qualification_acl_journal)):
+    for journal_path, validator in ((JOURNAL, validate_journal), (CONVERGE_JOURNAL, validate_converge_journal), (ROLE_REFRESH_JOURNAL, validate_role_refresh_journal), (QUALIFICATION_ACL_JOURNAL, validate_qualification_acl_journal), (IMPORT_STORAGE_JOURNAL, validate_import_storage_journal)):
         pending_journal = runtime.pending_path(journal_path)
         if pending_journal not in present: continue
         raw = runtime.secure_file(pending_journal, 0o600, 1024 * 1024); value = json.loads(raw)
@@ -317,6 +322,29 @@ def qualification_acl_exact_before(projection):
         raise ValueError("qualification ACL exact before state differs")
 
 
+def validate_import_storage_journal(value):
+    expected = {"completed": value.get("completed"), "format": IMPORT_STORAGE_FORMAT,
+                "previousContent": IMPORT_STORAGE_BEFORE, "storage": IMPORT_STORAGE_ID}
+    if value != expected or value["completed"] not in {False, True}:
+        raise ValueError("import storage refresh journal differs")
+    return value
+
+
+def write_import_storage_journal(value):
+    validate_import_storage_journal(value); runtime.atomic(IMPORT_STORAGE_JOURNAL, canonical(value), 0o600)
+
+
+def storage_content():
+    value = json_command(("/usr/sbin/pvesh", "get", "/storage/" + IMPORT_STORAGE_ID, "--output-format", "json"))
+    content = value.get("content", "").split(",") if isinstance(value, dict) else []
+    if not content or any(not item for item in content): raise ValueError("local storage content differs")
+    return sorted(content)
+
+
+def set_storage_content(content):
+    run(("/usr/sbin/pvesh", "set", "/storage/" + IMPORT_STORAGE_ID, "--content", ",".join(content)))
+
+
 def json_command(args):
     raw = run(args)
     try: return json.loads(raw)
@@ -450,14 +478,21 @@ def rollback(projection, journal):
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in {"install", "converge", "refresh-role", "refresh-qualification-acl", "recover"}:
-        print("usage: bootstrap-proxmox-nix-access <install|converge|refresh-role|refresh-qualification-acl|recover>", file=sys.stderr); return 64
+    if len(sys.argv) != 2 or sys.argv[1] not in {"install", "converge", "refresh-role", "refresh-qualification-acl", "refresh-import-storage", "recover"}:
+        print("usage: bootstrap-proxmox-nix-access <install|converge|refresh-role|refresh-qualification-acl|refresh-import-storage|recover>", file=sys.stderr); return 64
     physical_console(); source_identity(); projection = load_projection(); runtime.ensure_dir(runtime.BOOT, 0o700)
     lock = runtime.acquire_lock(LOCK); operation = runtime.acquire_lock(runtime.OPERATION_LOCK)
     try:
         reconcile_pending(projection)
         if sys.argv[1] == "recover":
-            if runtime.exists_nofollow(QUALIFICATION_ACL_JOURNAL):
+            if runtime.exists_nofollow(IMPORT_STORAGE_JOURNAL):
+                if os.environ.get("PROXMOX_NIX_IMPORT_STORAGE_RECOVER_CONFIRMED") != "recover-reviewed-import-storage":
+                    raise ValueError("explicit import storage recovery gate required")
+                value = validate_import_storage_journal(json.loads(runtime.secure_file(IMPORT_STORAGE_JOURNAL, 0o600, 1024 * 1024)))
+                set_storage_content(value["previousContent"])
+                if storage_content() != value["previousContent"]: raise ValueError("import storage rollback differs")
+                runtime.durable_unlink(IMPORT_STORAGE_JOURNAL, False)
+            elif runtime.exists_nofollow(QUALIFICATION_ACL_JOURNAL):
                 if os.environ.get("PROXMOX_NIX_ACCESS_QUALIFICATION_ACL_RECOVER_CONFIRMED") != "recover-reviewed-qualification-acl":
                     raise ValueError("explicit qualification ACL recovery gate required")
                 value = validate_qualification_acl_journal(json.loads(runtime.secure_file(QUALIFICATION_ACL_JOURNAL, 0o600, 1024 * 1024)))
@@ -490,7 +525,7 @@ def main():
                     value = validate_journal(json.loads(runtime.secure_file(JOURNAL, 0o600, 1024 * 1024)))
                     rollback(projection, value)
             print("proxmox-nix-access=recovered"); return 0
-        if any(runtime.exists_nofollow(path) for path in (JOURNAL, CONVERGE_JOURNAL, ROLE_REFRESH_JOURNAL, QUALIFICATION_ACL_JOURNAL)):
+        if any(runtime.exists_nofollow(path) for path in (JOURNAL, CONVERGE_JOURNAL, ROLE_REFRESH_JOURNAL, QUALIFICATION_ACL_JOURNAL, IMPORT_STORAGE_JOURNAL)):
             raise ValueError("interrupted access operation requires recover")
         if sys.argv[1] == "refresh-role":
             if os.environ.get("PROXMOX_NIX_ACCESS_ROLE_REFRESH_CONFIRMED") != "refresh-reviewed-apply-role":
@@ -516,6 +551,18 @@ def main():
             if qualification_acl_tuple() not in pve_acls(): raise ValueError("qualification ACL verification differs")
             runtime.durable_unlink(QUALIFICATION_ACL_JOURNAL, False)
             print("proxmox-nix-access=qualification-acl-refreshed"); return 0
+        if sys.argv[1] == "refresh-import-storage":
+            if os.environ.get("PROXMOX_NIX_IMPORT_STORAGE_CONFIRMED") != "refresh-reviewed-import-storage":
+                raise ValueError("explicit import storage gate required")
+            if storage_content() != IMPORT_STORAGE_BEFORE: raise ValueError("import storage exact before state differs")
+            value = {"completed": False, "format": IMPORT_STORAGE_FORMAT,
+                     "previousContent": IMPORT_STORAGE_BEFORE, "storage": IMPORT_STORAGE_ID}
+            write_import_storage_journal(value)
+            set_storage_content(IMPORT_STORAGE_AFTER)
+            value["completed"] = True; write_import_storage_journal(value)
+            if storage_content() != IMPORT_STORAGE_AFTER: raise ValueError("import storage verification differs")
+            runtime.durable_unlink(IMPORT_STORAGE_JOURNAL, False)
+            print("proxmox-nix-access=import-storage-refreshed"); return 0
         keys = rendered_keys(projection)
         if sys.argv[1] == "converge":
             if os.environ.get("PROXMOX_NIX_ACCESS_CONVERGE_CONFIRMED") != "converge-reviewed-legacy-access-authority":

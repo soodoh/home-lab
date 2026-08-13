@@ -81,6 +81,15 @@ scripts/bootstrap-proxmox-nix-access refresh-qualification-acl
 
 If interrupted, recover with `PROXMOX_NIX_ACCESS_QUALIFICATION_ACL_RECOVER_CONFIRMED=recover-reviewed-qualification-acl scripts/bootstrap-proxmox-nix-access recover`. This operation does not change either role, token, production VM ACL, key, account, or sudo authority.
 
+The VM cloud-image import uses the PVE API only after the existing `local` directory storage is explicitly enabled for `import` content. Apply the exact additive storage prerequisite at the physical console:
+
+```sh
+export PROXMOX_NIX_IMPORT_STORAGE_CONFIRMED=refresh-reviewed-import-storage
+scripts/bootstrap-proxmox-nix-access refresh-import-storage
+```
+
+It accepts only the exact current `backup,iso,vztmpl` content set and only adds `import`. An interrupted operation is reversed with `PROXMOX_NIX_IMPORT_STORAGE_RECOVER_CONFIRMED=recover-reviewed-import-storage scripts/bootstrap-proxmox-nix-access recover`; no storage path, type, image, volume, or VM is created or deleted.
+
 Do not remove journals or ownership locks manually. Protected inputs and the session key use their separate fixed refresh/rotation tools and explicit gates.
 
 After bootstrap, prove that the fixed plan identity works and arbitrary SSH commands are denied. The controller then owns Proxmox host convergence through the exact manifest-bound Nix `plan`/guarded `prepare`/`apply`/fresh-zero-action `verify` flow. OpenTofu remains authoritative for VM 100 and PVE hardware mappings. Reboot remains a separate reviewed operation.

@@ -686,11 +686,13 @@ m.atomic(target,payload,0o755 if sys.argv[3]=="helper" else 0o600)
                         'refresh-reviewed-apply-role', 'recover-reviewed-role-refresh',
                         'role refresh permits only SDN.Use addition', 'role refresh exact before state differs',
                         'refresh-reviewed-qualification-acl', 'recover-reviewed-qualification-acl',
-                        'qualification ACL exact before state differs', 'qualification ACL verification differs'):
+                        'qualification ACL exact before state differs', 'qualification ACL verification differs',
+                        'refresh-reviewed-import-storage', 'recover-reviewed-import-storage',
+                        'import storage exact before state differs', 'import storage verification differs'):
             self.assertIn(control,source)
         for forbidden in ('argparse', '--path', '--host', 'print(result["value"]'):
             self.assertNotIn(forbidden,source.lower())
-        self.assertIn('<install|converge|refresh-role|refresh-qualification-acl|recover>',source)
+        self.assertIn('<install|converge|refresh-role|refresh-qualification-acl|refresh-import-storage|recover>',source)
         self.assertIn('converge-reviewed-legacy-access-authority',source)
         self.assertIn('legacy apply authority differs',source)
         self.assertIn('home-lab-proxmox-access-converge-v1',source)
