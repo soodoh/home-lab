@@ -76,13 +76,13 @@
                   mode=$(${candidatePkgs.jq}/bin/jq -er '.mode' <<<"$approval")
                   target=/mnt/vm-100-candidate
                   if [[ $mode == inspect ]]; then
-                    exec ${config.system.build.diskoScript}/bin/disko --dry-run
+                    exec ${config.system.build.diskoScript} --dry-run
                   fi
                   [[ $mode == install ]]
                   [[ -d $target && ! -L $target ]]
                   [[ -z $(${candidatePkgs.findutils}/bin/find "$target" -mindepth 1 -maxdepth 1 -print -quit) ]]
                   [[ ''${VM100_CANDIDATE_INSTALL_CONFIRMED:-} == install-reviewed-qualification-candidate ]]
-                  ${config.system.build.diskoScript}/bin/disko
+                  ${config.system.build.diskoScript}
                   ${config.system.build.nixos-install}/bin/nixos-install \
                     --root "$target" \
                     --system ${config.system.build.toplevel} \
@@ -156,7 +156,7 @@
             in pkgs.runCommand "check-vm-100-candidate-disko" { } ''
               test "${config.homeLab.vm100.rootDiskDevice}" = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2"
               test "${config.disko.rootMountPoint}" = "/mnt/vm-100-candidate"
-              test -x ${config.system.build.diskoScript}/bin/disko
+              test -x ${config.system.build.diskoScript}
               test -x ${self.packages.x86_64-linux.vm-100-candidate-install}/bin/vm-100-candidate-install
               touch "$out"
             '';
