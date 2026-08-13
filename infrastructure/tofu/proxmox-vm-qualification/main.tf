@@ -29,7 +29,7 @@ provider "proxmox" {
 
     node {
       name    = local.node
-      address = "proxmox"
+      address = "192.168.0.123"
     }
   }
 }

@@ -29,8 +29,8 @@ class VmQualificationScaffoldTests(unittest.TestCase):
         self.assertIn('agent    = true', self.main)
         self.assertIn('username = "root"', self.main)
         self.assertIn('name    = local.node', self.main)
-        self.assertIn('address = "proxmox"', self.main)
-        self.assertNotIn('address = "192.168.0.123"', self.main)
+        self.assertIn('address = "192.168.0.123"', self.main)
+        self.assertNotIn('address = "proxmox"', self.main)
         existing = (ROOT / "infrastructure/tofu/proxmox/qualification.tf").read_text(encoding="utf-8")
         self.assertNotIn('VM100-NixOS-Qualification-Arch-', existing)
 
