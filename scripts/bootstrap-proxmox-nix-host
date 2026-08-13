@@ -910,6 +910,9 @@ def failure_label(error):
         return "firewall-install-failed"
     return "unclassified"
 
+
+FAILURE_PHASE = "entry"
+
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in {"check", "install", "verify", "recover", "diagnose-recovery"}:
         print("usage: bootstrap-proxmox-nix-host <check|install|verify|recover|diagnose-recovery>", file=sys.stderr)
@@ -920,13 +923,19 @@ def main():
     if operation == "diagnose-recovery":
         print("proxmox-nix-bootstrap-recovery=" + diagnose_recovery())
         return 0
+    global FAILURE_PHASE
+    FAILURE_PHASE = "bootstrap-directories"
     ensure_dir(BOOT, 0o700); ensure_dir(INCOMING, 0o700); ensure_dir(RUNTIME, 0o700)
+    FAILURE_PHASE = "bootstrap-lock"
     install_fd = acquire_lock(LOCK)
     operation_fd = None
     try:
+        FAILURE_PHASE = "operation-lock"
         operation_fd = acquire_lock(OPERATION_LOCK)
+        FAILURE_PHASE = "pending-reconciliation"
         reconcile_pending()
         if operation == "recover":
+            FAILURE_PHASE = "recovery"
             physical_console()
             if os.environ.get("PROXMOX_NIX_BOOTSTRAP_RECOVER_CONFIRMED") != "recover-reviewed-helper-transaction":
                 raise ValueError("explicit recovery gate required")
@@ -942,12 +951,16 @@ def main():
                 raise ValueError("no interrupted or active exact recovery target")
             print("proxmox-nix-bootstrap=recovered")
             return 0
+        FAILURE_PHASE = "ownership-preflight"
         reject_locks()
         if exists_nofollow(JOURNAL):
             raise ValueError("interrupted install requires recover")
+        FAILURE_PHASE = "host-preflight"
         head, tree = host_preflight(operation == "install")
+        FAILURE_PHASE = "bundle-snapshot"
         metadata, bundle_hash, protected_raw, helpers = snapshot_bundle()
         if operation == "install":
+            FAILURE_PHASE = "install-transaction"
             install(head, tree, metadata, bundle_hash, protected_raw, helpers)
         elif operation == "verify":
             verify_installed(head, tree, metadata, bundle_hash)
@@ -965,5 +978,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as error:
-        print("proxmox-nix-bootstrap-failure=" + failure_label(error), file=sys.stderr)
+        print("proxmox-nix-bootstrap-failure=" + FAILURE_PHASE, file=sys.stderr)
         raise SystemExit(1)
