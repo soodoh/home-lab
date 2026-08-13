@@ -27,16 +27,21 @@ ESCROWS = {"plan": ROOT / "proxmox-plan-token.env", "apply": ROOT / "proxmox-app
 JOURNAL = runtime.BOOT / "access-journal.json"
 CONVERGE_JOURNAL = runtime.BOOT / "access-converge-journal.json"
 ROLE_REFRESH_JOURNAL = runtime.BOOT / "access-role-refresh-journal.json"
+QUALIFICATION_ACL_JOURNAL = runtime.BOOT / "access-qualification-acl-journal.json"
 LOCK = runtime.BOOT / "access.lock"
 FORMAT = "home-lab-proxmox-access-bootstrap-v1"
 TOKEN_ID = {"plan": "root@pam!tofu-plan", "apply": "root@pam!tofu-apply"}
 APPLY_ROLE = "HomeLabTofuApply"
+QUALIFICATION_ACL_PATH = "/vms/9900"
+QUALIFICATION_ACL_ROLE = "HomeLabTofuPlanDiskInspect"
+PLAN_TOKEN = TOKEN_ID["plan"]
 ROLE_REFRESH_FORMAT = "home-lab-proxmox-access-role-refresh-v1"
+QUALIFICATION_ACL_FORMAT = "home-lab-proxmox-access-qualification-acl-v1"
 ENV = runtime.ENV
 
 
 def access_targets(projection):
-    targets = {JOURNAL, CONVERGE_JOURNAL, ROLE_REFRESH_JOURNAL, *ESCROWS.values(), *managed_access_files(projection),
+    targets = {JOURNAL, CONVERGE_JOURNAL, ROLE_REFRESH_JOURNAL, QUALIFICATION_ACL_JOURNAL, *ESCROWS.values(), *managed_access_files(projection),
                runtime.HELPER_ROOT / "proxmox-firewall-transport", runtime.HELPER_ROOT / "proxmox-apply-transport"}
     for name in KEY_INPUTS:
         targets.add(Path(account_spec(projection, name)["home"]) / ".ssh" / "authorized_keys")
@@ -53,7 +58,7 @@ def reconcile_pending(projection):
         unknown = {name for name in names if name.endswith(".bootstrap-pending")} - expected
         if unknown: raise ValueError("access bootstrap contains unknown pending entry")
         present.extend(path for path in mapping if path.parent == directory and path.name in names)
-    for journal_path, validator in ((JOURNAL, validate_journal), (CONVERGE_JOURNAL, validate_converge_journal), (ROLE_REFRESH_JOURNAL, validate_role_refresh_journal)):
+    for journal_path, validator in ((JOURNAL, validate_journal), (CONVERGE_JOURNAL, validate_converge_journal), (ROLE_REFRESH_JOURNAL, validate_role_refresh_journal), (QUALIFICATION_ACL_JOURNAL, validate_qualification_acl_journal)):
         pending_journal = runtime.pending_path(journal_path)
         if pending_journal not in present: continue
         raw = runtime.secure_file(pending_journal, 0o600, 1024 * 1024); value = json.loads(raw)
@@ -279,6 +284,39 @@ def role_refresh_previous(desired):
     return previous
 
 
+def validate_qualification_acl_journal(value):
+    expected = {"completed": value.get("completed"), "format": QUALIFICATION_ACL_FORMAT,
+                "path": QUALIFICATION_ACL_PATH, "role": QUALIFICATION_ACL_ROLE, "token": PLAN_TOKEN}
+    if value != expected or value["completed"] not in {False, True}:
+        raise ValueError("qualification ACL refresh journal differs")
+    return value
+
+
+def write_qualification_acl_journal(value):
+    validate_qualification_acl_journal(value); runtime.atomic(QUALIFICATION_ACL_JOURNAL, canonical(value), 0o600)
+
+
+def pve_acls():
+    values = json_command(("/usr/sbin/pveum", "acl", "list", "--output-format", "json"))
+    if not isinstance(values, list): raise ValueError("fixed PVE ACLs differ")
+    return sorted((item.get("path"), item.get("roleid"), item.get("ugid"), item.get("propagate"))
+                  for item in values if isinstance(item, dict))
+
+
+def qualification_acl_tuple():
+    return (QUALIFICATION_ACL_PATH, QUALIFICATION_ACL_ROLE, PLAN_TOKEN, 1)
+
+
+def qualification_acl_exact_before(projection):
+    desired = next(item for item in projection["apiIntent"]["pveAccess"]["bindings"] if item["principal"] == "plan")
+    expected = {(desired["primaryAcl"], desired["role"], PLAN_TOKEN, 1)}
+    expected.update((item["path"], item["role"], PLAN_TOKEN, 1) for item in desired["additionalAcls"]
+                    if item["path"] != QUALIFICATION_ACL_PATH)
+    actual = {item for item in pve_acls() if item[2] == PLAN_TOKEN}
+    if actual != expected or qualification_acl_tuple() in actual:
+        raise ValueError("qualification ACL exact before state differs")
+
+
 def json_command(args):
     raw = run(args)
     try: return json.loads(raw)
@@ -412,14 +450,21 @@ def rollback(projection, journal):
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in {"install", "converge", "refresh-role", "recover"}:
-        print("usage: bootstrap-proxmox-nix-access <install|converge|refresh-role|recover>", file=sys.stderr); return 64
+    if len(sys.argv) != 2 or sys.argv[1] not in {"install", "converge", "refresh-role", "refresh-qualification-acl", "recover"}:
+        print("usage: bootstrap-proxmox-nix-access <install|converge|refresh-role|refresh-qualification-acl|recover>", file=sys.stderr); return 64
     physical_console(); source_identity(); projection = load_projection(); runtime.ensure_dir(runtime.BOOT, 0o700)
     lock = runtime.acquire_lock(LOCK); operation = runtime.acquire_lock(runtime.OPERATION_LOCK)
     try:
         reconcile_pending(projection)
         if sys.argv[1] == "recover":
-            if runtime.exists_nofollow(ROLE_REFRESH_JOURNAL):
+            if runtime.exists_nofollow(QUALIFICATION_ACL_JOURNAL):
+                if os.environ.get("PROXMOX_NIX_ACCESS_QUALIFICATION_ACL_RECOVER_CONFIRMED") != "recover-reviewed-qualification-acl":
+                    raise ValueError("explicit qualification ACL recovery gate required")
+                value = validate_qualification_acl_journal(json.loads(runtime.secure_file(QUALIFICATION_ACL_JOURNAL, 0o600, 1024 * 1024)))
+                run(("/usr/sbin/pveum", "acl", "delete", value["path"], "--tokens", value["token"], "--roles", value["role"]), accepted=(0, 2, 255))
+                if qualification_acl_tuple() in pve_acls(): raise ValueError("qualification ACL rollback differs")
+                runtime.durable_unlink(QUALIFICATION_ACL_JOURNAL, False)
+            elif runtime.exists_nofollow(ROLE_REFRESH_JOURNAL):
                 if os.environ.get("PROXMOX_NIX_ACCESS_ROLE_REFRESH_RECOVER_CONFIRMED") != "recover-reviewed-role-refresh":
                     raise ValueError("explicit role refresh recovery gate required")
                 value = validate_role_refresh_journal(json.loads(runtime.secure_file(ROLE_REFRESH_JOURNAL, 0o600, 1024 * 1024)))
@@ -445,7 +490,7 @@ def main():
                     value = validate_journal(json.loads(runtime.secure_file(JOURNAL, 0o600, 1024 * 1024)))
                     rollback(projection, value)
             print("proxmox-nix-access=recovered"); return 0
-        if runtime.exists_nofollow(JOURNAL) or runtime.exists_nofollow(CONVERGE_JOURNAL) or runtime.exists_nofollow(ROLE_REFRESH_JOURNAL):
+        if any(runtime.exists_nofollow(path) for path in (JOURNAL, CONVERGE_JOURNAL, ROLE_REFRESH_JOURNAL, QUALIFICATION_ACL_JOURNAL)):
             raise ValueError("interrupted access operation requires recover")
         if sys.argv[1] == "refresh-role":
             if os.environ.get("PROXMOX_NIX_ACCESS_ROLE_REFRESH_CONFIRMED") != "refresh-reviewed-apply-role":
@@ -459,6 +504,18 @@ def main():
             if role_privileges(APPLY_ROLE) != desired: raise ValueError("role refresh verification differs")
             runtime.durable_unlink(ROLE_REFRESH_JOURNAL, False)
             print("proxmox-nix-access=role-refreshed"); return 0
+        if sys.argv[1] == "refresh-qualification-acl":
+            if os.environ.get("PROXMOX_NIX_ACCESS_QUALIFICATION_ACL_CONFIRMED") != "refresh-reviewed-qualification-acl":
+                raise ValueError("explicit qualification ACL gate required")
+            qualification_acl_exact_before(projection)
+            value = {"completed": False, "format": QUALIFICATION_ACL_FORMAT, "path": QUALIFICATION_ACL_PATH,
+                     "role": QUALIFICATION_ACL_ROLE, "token": PLAN_TOKEN}
+            write_qualification_acl_journal(value)
+            run(("/usr/sbin/pveum", "acl", "modify", QUALIFICATION_ACL_PATH, "--tokens", PLAN_TOKEN, "--roles", QUALIFICATION_ACL_ROLE))
+            value["completed"] = True; write_qualification_acl_journal(value)
+            if qualification_acl_tuple() not in pve_acls(): raise ValueError("qualification ACL verification differs")
+            runtime.durable_unlink(QUALIFICATION_ACL_JOURNAL, False)
+            print("proxmox-nix-access=qualification-acl-refreshed"); return 0
         keys = rendered_keys(projection)
         if sys.argv[1] == "converge":
             if os.environ.get("PROXMOX_NIX_ACCESS_CONVERGE_CONFIRMED") != "converge-reviewed-legacy-access-authority":

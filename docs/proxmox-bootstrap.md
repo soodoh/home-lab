@@ -72,6 +72,15 @@ scripts/bootstrap-proxmox-nix-access refresh-role
 
 If interrupted, retain the journal and recover only from the physical console with `PROXMOX_NIX_ACCESS_ROLE_REFRESH_RECOVER_CONFIRMED=recover-reviewed-role-refresh scripts/bootstrap-proxmox-nix-access recover`.
 
+The disposable VMID 9900 root additionally needs the plan token's existing disk-inspection role at `/vms/9900` after the VM exists. Add only that ACL through its separate exact-before-state console operation:
+
+```sh
+export PROXMOX_NIX_ACCESS_QUALIFICATION_ACL_CONFIRMED=refresh-reviewed-qualification-acl
+scripts/bootstrap-proxmox-nix-access refresh-qualification-acl
+```
+
+If interrupted, recover with `PROXMOX_NIX_ACCESS_QUALIFICATION_ACL_RECOVER_CONFIRMED=recover-reviewed-qualification-acl scripts/bootstrap-proxmox-nix-access recover`. This operation does not change either role, token, production VM ACL, key, account, or sudo authority.
+
 Do not remove journals or ownership locks manually. Protected inputs and the session key use their separate fixed refresh/rotation tools and explicit gates.
 
 After bootstrap, prove that the fixed plan identity works and arbitrary SSH commands are denied. The controller then owns Proxmox host convergence through the exact manifest-bound Nix `plan`/guarded `prepare`/`apply`/fresh-zero-action `verify` flow. OpenTofu remains authoritative for VM 100 and PVE hardware mappings. Reboot remains a separate reviewed operation.

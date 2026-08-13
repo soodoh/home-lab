@@ -121,7 +121,8 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
                 return json.dumps([
                     {"path":"/","propagate":1,"roleid":"HomeLabTofuApply","ugid":"root@pam!tofu-apply"},
                     {"path":"/","propagate":1,"roleid":"HomeLabTofuPlan","ugid":"root@pam!tofu-plan"},
-                    {"path":"/vms/100","propagate":1,"roleid":"HomeLabTofuPlanDiskInspect","ugid":"root@pam!tofu-plan"}]).encode()
+                    {"path":"/vms/100","propagate":1,"roleid":"HomeLabTofuPlanDiskInspect","ugid":"root@pam!tofu-plan"},
+                    {"path":"/vms/9900","propagate":1,"roleid":"HomeLabTofuPlanDiskInspect","ugid":"root@pam!tofu-plan"}]).encode()
             if "/cluster/mapping/usb/zigbee-cp210x" in command: return b'{"map":[{"node":"proxmox","path":"1-2"}]}\n'
             if "/cluster/mapping/usb/zwave-cp210x" in command: return b'{"map":[{"node":"proxmox","path":"1-3"}]}\n'
             if "qm config" in command: return b"scsi1: /dev/disk/by-id/opaque-disk,backup=0\n"
@@ -683,15 +684,18 @@ m.atomic(target,payload,0o755 if sys.argv[3]=="helper" else 0o600)
                         'recover-reviewed-access-bootstrap', 'PVE token creation response differs',
                         'root@pam!tofu-plan', 'root@pam!tofu-apply', 'runtime.atomic(ESCROWS[principal]',
                         'refresh-reviewed-apply-role', 'recover-reviewed-role-refresh',
-                        'role refresh permits only SDN.Use addition', 'role refresh exact before state differs'):
+                        'role refresh permits only SDN.Use addition', 'role refresh exact before state differs',
+                        'refresh-reviewed-qualification-acl', 'recover-reviewed-qualification-acl',
+                        'qualification ACL exact before state differs', 'qualification ACL verification differs'):
             self.assertIn(control,source)
         for forbidden in ('argparse', '--path', '--host', 'print(result["value"]'):
             self.assertNotIn(forbidden,source.lower())
-        self.assertIn('<install|converge|refresh-role|recover>',source)
+        self.assertIn('<install|converge|refresh-role|refresh-qualification-acl|recover>',source)
         self.assertIn('converge-reviewed-legacy-access-authority',source)
         self.assertIn('legacy apply authority differs',source)
         self.assertIn('home-lab-proxmox-access-converge-v1',source)
         self.assertIn('home-lab-proxmox-access-role-refresh-v1',source)
+        self.assertIn('home-lab-proxmox-access-qualification-acl-v1',source)
         self.assertIn('base64.b64decode(previous["keys"]',source)
         docs=(ROOT/"docs/proxmox-bootstrap.md").read_text()
         self.assertIn("deterministic manual assertion boundary",docs)
