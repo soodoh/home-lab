@@ -888,6 +888,27 @@ def diagnose_recovery():
     except Exception:
         return "apply-ownership-invalid"
 
+FAILURE_LABELS = {
+    "another host ownership lock is active": "host-ownership-active",
+    "bootstrap mutation requires /dev/ttyN": "physical-console-required",
+    "explicit console and LAN gates are required": "console-lan-gates-required",
+    "existing firewall attestation key differs": "firewall-key-invalid",
+    "existing session key differs": "session-key-invalid",
+    "protected runtime keyed attestation differs": "protected-input-attestation-mismatch",
+    "protected runtime replacement requires the fixed refresh operation": "protected-input-refresh-required",
+    "bootstrap transaction is active": "bootstrap-transaction-active",
+}
+
+
+def failure_label(error):
+    message = str(error)
+    if message in FAILURE_LABELS:
+        return FAILURE_LABELS[message]
+    if "space" in message.lower() or "capacity" in message.lower():
+        return "capacity-check-failed"
+    if "firewall" in message.lower():
+        return "firewall-install-failed"
+    return "unclassified"
 
 def main():
     if len(sys.argv) != 2 or sys.argv[1] not in {"check", "install", "verify", "recover", "diagnose-recovery"}:
@@ -943,6 +964,6 @@ def main():
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except Exception:
-        print("bootstrap-proxmox-nix-host: fixed operation failed", file=sys.stderr)
+    except Exception as error:
+        print("proxmox-nix-bootstrap-failure=" + failure_label(error), file=sys.stderr)
         raise SystemExit(1)

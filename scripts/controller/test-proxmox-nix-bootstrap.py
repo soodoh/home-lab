@@ -465,6 +465,14 @@ for(const doc of docs) if(validate(doc)) throw new Error('mutated plan passed sc
         self.assertLess(diagnostic_branch,main.index("acquire_lock(LOCK)"))
         self.assertNotIn("physical_console()",main[diagnostic_branch:main.index("ensure_dir(BOOT")])
 
+    def test_bootstrap_failure_labels_are_closed(self):
+        installer=load_installer()
+        self.assertEqual(installer.failure_label(ValueError("protected runtime replacement requires the fixed refresh operation")),"protected-input-refresh-required")
+        self.assertEqual(installer.failure_label(ValueError("secret protected detail")),"unclassified")
+        source=(ROOT/"scripts/bootstrap-proxmox-nix-host").read_text()
+        self.assertIn('print("proxmox-nix-bootstrap-failure=" + failure_label(error)',source)
+        self.assertNotIn("fixed operation failed",source)
+
     def test_fixed_lifecycle_tools_are_no_argument_gated_and_do_not_retain_old_keys(self):
         for name,gate in (("prepare-proxmox-nix-protected-inputs","PROXMOX_NIX_PROTECTED_CREATE_CONFIRMED"),
                           ("refresh-proxmox-nix-protected-inputs","PROXMOX_NIX_PROTECTED_REFRESH_CONFIRMED"),
