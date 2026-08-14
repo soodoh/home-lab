@@ -34,9 +34,21 @@
           sops-nix.nixosModules.sops
           ./hosts/vm-100
           ({ lib, ... }: {
+            disabledModules = [
+              ./hosts/vm-100/networking.nix
+              ./hosts/vm-100/storage.nix
+              ./hosts/vm-100/secrets.nix
+            ];
             homeLab.vm100.rootDiskDevice = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2";
             disko.rootMountPoint = "/mnt/vm-100-candidate";
             system.switch.enable = lib.mkForce true;
+            networking.useDHCP = false;
+            networking.useNetworkd = true;
+            systemd.network.enable = true;
+            systemd.network.networks."20-vm-100-qualification" = {
+              matchConfig.Name = "ens18";
+              networkConfig.DHCP = "ipv4";
+            };
           })
         ];
       };
@@ -160,6 +172,10 @@
               test "${config.disko.rootMountPoint}" = "/mnt/vm-100-candidate"
               test -x ${config.system.build.diskoScript}
               test -x ${config.system.build.toplevel}/bin/switch-to-configuration
+              test "${if config.fileSystems ? "/mnt/games" then "present" else "absent"}" = absent
+              test "${if config.fileSystems ? "/mnt/storage" then "present" else "absent"}" = absent
+              test "${if config.sops.secrets == { } then "empty" else "configured"}" = empty
+              test "${config.systemd.network.networks."20-vm-100-qualification".networkConfig.DHCP}" = ipv4
               test -x ${self.packages.x86_64-linux.vm-100-candidate-install}/bin/vm-100-candidate-install
               touch "$out"
             '';
