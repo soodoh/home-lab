@@ -123,6 +123,54 @@
                 '';
               };
 
+            vm-100-candidate-update =
+              let
+                candidatePkgs = self.nixosConfigurations.vm-100-candidate.pkgs;
+                config = self.nixosConfigurations.vm-100-candidate.config;
+                guard = candidatePkgs.writeShellApplication {
+                  name = "vm-100-candidate-update-guard";
+                  runtimeInputs = [ candidatePkgs.util-linux ];
+                  text = ''
+                    exec ${candidatePkgs.python3}/bin/python3 ${./scripts/vm-100-candidate-update-guard.py} "$@"
+                  '';
+                };
+              in candidatePkgs.writeShellApplication {
+                name = "vm-100-candidate-update";
+                runtimeInputs = [ guard candidatePkgs.coreutils candidatePkgs.findutils candidatePkgs.jq candidatePkgs.util-linux ];
+                text = ''
+                  if [[ $# -ne 2 || $1 != --request ]]; then
+                    echo "usage: vm-100-candidate-update --request REQUEST" >&2
+                    exit 64
+                  fi
+                  approval=$(vm-100-candidate-update-guard "$2")
+                  expected=$(${candidatePkgs.jq}/bin/jq -er '.expectedCurrentSystem' <<<"$approval")
+                  targetSystem=$(${candidatePkgs.jq}/bin/jq -er '.targetSystem' <<<"$approval")
+                  [[ $targetSystem == ${config.system.build.toplevel} ]]
+                  target=/mnt/vm-100-candidate
+                  [[ -d $target && ! -L $target ]]
+                  [[ -z $(${candidatePkgs.findutils}/bin/find "$target" -mindepth 1 -maxdepth 1 -print -quit) ]]
+                  ${candidatePkgs.util-linux}/bin/mount /dev/disk/by-partlabel/disk-vm100-root-root "$target"
+                  ${candidatePkgs.coreutils}/bin/mkdir -p "$target/boot"
+                  ${candidatePkgs.util-linux}/bin/mount /dev/disk/by-partlabel/disk-vm100-root-ESP "$target/boot"
+                  cleanup() {
+                    ${candidatePkgs.util-linux}/bin/umount "$target/boot" || true
+                    ${candidatePkgs.util-linux}/bin/umount "$target" || true
+                  }
+                  trap cleanup EXIT
+                  [[ $(${candidatePkgs.coreutils}/bin/readlink -f "$target/nix/var/nix/profiles/system") == "$expected" ]]
+                  ${config.system.build.nixos-install}/bin/nixos-install \
+                    --root "$target" \
+                    --system ${config.system.build.toplevel} \
+                    --no-channel-copy \
+                    --no-root-password
+                  [[ $(${candidatePkgs.coreutils}/bin/readlink -f "$target/nix/var/nix/profiles/system") == "$targetSystem" ]]
+                  ${candidatePkgs.coreutils}/bin/sync
+                  cleanup
+                  trap - EXIT
+                  printf 'vm-100-candidate-update=completed previous=%s target=%s\n' "$expected" "$targetSystem"
+                '';
+              };
+
             vm-100-candidate-install =
               let
                 candidatePkgs = self.nixosConfigurations.vm-100-candidate.pkgs;
@@ -207,6 +255,11 @@
           program = "${self.packages.x86_64-linux.vm-100-candidate-install}/bin/vm-100-candidate-install";
           meta.description = "Guard and install the exact VM 100 candidate NixOS generation";
         };
+        vm-100-candidate-update = {
+          type = "app";
+          program = "${self.packages.x86_64-linux.vm-100-candidate-update}/bin/vm-100-candidate-update";
+          meta.description = "Guard and update the exact installed VM 100 qualification generation";
+        };
         vm-100-compose-qualification = {
           type = "app";
           program = "${self.packages.x86_64-linux.vm-100-compose-qualification}/bin/vm-100-compose-qualification";
@@ -244,6 +297,7 @@
               test "$(cat ${config.homeLab.vm100.composeArtifact}/.artifact-sha256)" = "$(cat ${./compose-artifact.sha256})"
               test -x ${self.packages.x86_64-linux.vm-100-compose-qualification}/bin/vm-100-compose-qualification
               test -x ${self.packages.x86_64-linux.vm-100-candidate-install}/bin/vm-100-candidate-install
+              test -x ${self.packages.x86_64-linux.vm-100-candidate-update}/bin/vm-100-candidate-update
               touch "$out"
             '';
         });

@@ -13,11 +13,12 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
-GUARD = ROOT / "nix/scripts/vm-100-candidate-install-guard.py"
+INSTALL_GUARD = ROOT / "nix/scripts/vm-100-candidate-install-guard.py"
+UPDATE_GUARD = ROOT / "nix/scripts/vm-100-candidate-update-guard.py"
 
 
-def load_guard():
-    loader = importlib.machinery.SourceFileLoader("vm100_candidate_guard", str(GUARD))
+def load_guard(path, name):
+    loader = importlib.machinery.SourceFileLoader(name, str(path))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
@@ -26,7 +27,8 @@ def load_guard():
 
 class CandidateInstallTests(unittest.TestCase):
     def setUp(self):
-        self.guard = load_guard()
+        self.guard = load_guard(INSTALL_GUARD, "vm100_candidate_install_guard")
+        self.update_guard = load_guard(UPDATE_GUARD, "vm100_candidate_update_guard")
 
     def request(self, root, **updates):
         value = {
@@ -67,10 +69,29 @@ class CandidateInstallTests(unittest.TestCase):
             with patch.object(Path, "is_symlink", return_value=True), patch.object(self.guard.subprocess, "run", return_value=result), self.assertRaises(ValueError):
                 self.guard.observe("/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2")
 
+    def test_update_guard_requires_exact_unmounted_disko_layout(self):
+        observed = {
+            "type": "disk", "size": self.update_guard.SIZE, "serial": self.update_guard.SERIAL, "mountpoints": [], "fstype": None,
+            "children": [
+                {"type": "part", "partlabel": "disk-vm100-root-bios", "fstype": None, "mountpoints": []},
+                {"type": "part", "partlabel": "disk-vm100-root-ESP", "fstype": "vfat", "mountpoints": []},
+                {"type": "part", "partlabel": "disk-vm100-root-root", "fstype": "ext4", "mountpoints": []},
+            ],
+        }
+        result = type("Result", (), {"stdout": json.dumps({"blockdevices": [observed]}).encode(), "stderr": b""})()
+        with patch.object(Path, "is_symlink", return_value=True), patch.object(self.update_guard.subprocess, "run", return_value=result):
+            self.assertEqual(self.update_guard.observe()["serial"], self.update_guard.SERIAL)
+        observed["children"][2]["mountpoints"] = ["/"]
+        result = type("Result", (), {"stdout": json.dumps({"blockdevices": [observed]}).encode(), "stderr": b""})()
+        with patch.object(Path, "is_symlink", return_value=True), patch.object(self.update_guard.subprocess, "run", return_value=result), self.assertRaises(ValueError):
+            self.update_guard.observe()
+
     def test_installer_source_keeps_destructive_gate_and_exact_closure(self):
         source = (ROOT / "nix/flake.nix").read_text()
         for control in (
             "install-reviewed-qualification-candidate",
+            "vm-100-candidate-update",
+            "vm-100-candidate-update-guard.py",
             "config.system.build.diskoScript",
             "system.switch.enable = lib.mkForce true",
             "./hosts/vm-100/storage.nix",
@@ -83,6 +104,7 @@ class CandidateInstallTests(unittest.TestCase):
         ):
             self.assertIn(control, source)
         self.assertNotIn("nixos-install --flake", source)
+        self.assertIn("update-reviewed-qualification-candidate", UPDATE_GUARD.read_text())
 
     def test_disko_layout_is_closed(self):
         source = (ROOT / "nix/hosts/vm-100/disko.nix").read_text()
