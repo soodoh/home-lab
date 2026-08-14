@@ -139,6 +139,18 @@
               "iothread": true,
               "replicate": true,
               "ssd": true
+            },
+            {
+              "datastore_id": "local-lvm",
+              "interface": "scsi2",
+              "serial": "QUAL-NIXOS-128G",
+              "size": 128,
+              "iothread": true,
+              "backup": true,
+              "cache": "none",
+              "discard": "ignore",
+              "replicate": true,
+              "ssd": false
             }
           ],
           "network_device": [{"bridge": "vmbr0", "firewall": true, "mac_address": "BC:24:11:89:19:5A", "model": "virtio"}],

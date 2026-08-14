@@ -939,6 +939,15 @@ proxmox:
       interface: scsi0
       size_gb: 550
       iothread: true
+    candidate_disk:
+      datastore: local-lvm
+      interface: scsi2
+      serial: QUAL-NIXOS-128G
+      size_gb: 128
+      iothread: true
+      backup: true
+      discard: ignore
+      ssd: false
     games_disk:
       interface: scsi1
       by_id_secret_ref: HOMELAB_GAMES_DISK_BY_ID

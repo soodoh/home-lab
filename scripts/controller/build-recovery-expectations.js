@@ -108,6 +108,18 @@ resources["proxmox_virtual_environment_vm.arch"] = {
         replicate: true,
         ssd: vm.games_disk.ssd,
       },
+      {
+        datastore_id: vm.candidate_disk.datastore,
+        interface: vm.candidate_disk.interface,
+        serial: vm.candidate_disk.serial,
+        size: vm.candidate_disk.size_gb,
+        iothread: vm.candidate_disk.iothread,
+        backup: vm.candidate_disk.backup,
+        cache: "none",
+        discard: vm.candidate_disk.discard,
+        replicate: true,
+        ssd: vm.candidate_disk.ssd,
+      },
     ],
     network_device: [{
       bridge: contract.network.bridge,
