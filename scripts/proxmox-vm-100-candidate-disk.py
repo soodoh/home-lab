@@ -115,14 +115,24 @@ def main() -> int:
         if not isinstance(candidate, str) or not candidate_is_exact(candidate):
             raise SystemExit("VM 100 candidate disk identity differs before boot normalization")
         changed = False
-        if before_config["boot"] != "order=scsi0;net0":
-            remote("/usr/sbin/qm", "set", str(VMID), "--boot", "order=scsi0;net0")
-            changed = True
+        temporarily_unprotected = False
+        try:
+            if "ide2" in before_config:
+                remote("/usr/sbin/qm", "set", str(VMID), "--protection", "0")
+                temporarily_unprotected = True
+                remote("/usr/sbin/qm", "set", str(VMID), "--delete", "ide2")
+                changed = True
+            if before_config["boot"] != "order=scsi0;net0":
+                remote("/usr/sbin/qm", "set", str(VMID), "--boot", "order=scsi0;net0")
+                changed = True
+        finally:
+            if temporarily_unprotected:
+                remote("/usr/sbin/qm", "set", str(VMID), "--protection", "1")
         after = inspect()
         after_config = after["config"]
         assert isinstance(after_config, dict)
-        if before_config.get("ide2") != after_config.get("ide2"):
-            raise SystemExit("VM 100 empty CD-ROM changed during boot normalization")
+        if "ide2" in after_config:
+            raise SystemExit("VM 100 empty CD-ROM remained after boot normalization")
         if before["pid"] != after["pid"] or before["startTicks"] != after["startTicks"]:
             raise SystemExit("VM 100 restarted during boot normalization")
         for key in ("scsi0", "scsi1", "scsi2", "protection", "onboot"):
