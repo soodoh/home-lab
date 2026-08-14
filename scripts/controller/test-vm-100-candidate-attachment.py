@@ -41,7 +41,7 @@ class CandidateAttachmentTests(unittest.TestCase):
         self.assertNotIn("ignore_changes = [disk]", vm)
         self.assertIn("disk[1].file_format,", vm)
         self.assertIn("boot_order,", vm)
-        self.assertIn('remote("/usr/sbin/qm", "set", str(VMID), "--delete", "ide2")', source)
+        self.assertNotIn('"--delete", "ide2"', source)
         self.assertIn('remote("/usr/sbin/qm", "set", str(VMID), "--boot", "order=scsi0;net0")', source)
 
 
