@@ -199,7 +199,8 @@ resource "proxmox_virtual_environment_vm" "arch" {
 
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [disk[1].file_format]
+    # Temporary bootstrap boundary: the reviewed terraform_data action attaches scsi2 first.
+    ignore_changes = [disk]
 
     precondition {
       condition     = !local.recovery || var.recovery_ssh_public_key != ""

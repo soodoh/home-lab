@@ -100,6 +100,7 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-vm-100-nix-foundation.py
   python3 scripts/controller/test-vm-100-sops.py
   python3 scripts/controller/test-vm-100-coral.py
+  python3 scripts/controller/test-vm-100-candidate-attachment.py
   python3 scripts/controller/test-authentik-tofu-foundation.py
   python3 scripts/controller/test-media-apps-tofu-foundation.py
   python3 scripts/controller/test-controller-apply-lock.py
