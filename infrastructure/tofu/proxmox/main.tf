@@ -17,7 +17,7 @@ resource "proxmox_download_file" "arch_recovery_image" {
   file_name          = "Arch-Linux-x86_64-cloudimg-${local.vm.cloud_image.version}.qcow2"
 }
 
-resource "proxmox_virtual_environment_vm" "arch_readopted" {
+resource "proxmox_virtual_environment_vm" "arch" {
   node_name = local.node
   vm_id     = local.vm.vmid
   name      = local.vm.name
