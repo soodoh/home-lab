@@ -3,6 +3,7 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 policy="$root/inspect-plan.py"
 fixtures="$root/fixtures"
+export TF_VAR_games_disk_by_id=/dev/disk/by-id/PROTECTED-GAMES-DISK
 
 expect_rejection() {
   local fixture=$1 mode=$2
@@ -18,19 +19,34 @@ python3 "$policy" "$fixtures/custom-rom-removal.json"
 python3 "$policy" "$fixtures/hardware-mapping-transition.json"
 python3 "$policy" "$fixtures/vm-start-prerequisite.json" --mode vm-start-prerequisite
 python3 "$policy" "$fixtures/candidate-disk-attach.json"
+python3 "$policy" "$fixtures/vm-cutover-forward-safe.json" --mode vm-cutover-forward
+python3 "$policy" "$fixtures/vm-cutover-reverse-safe.json" --mode vm-cutover-reverse
 expect_rejection import normal
 import_allow=$(mktemp)
 trap 'rm -f "$import_allow"' EXIT
 printf 'example.imported\n' >"$import_allow"
 python3 "$policy" "$fixtures/import.json" --allow-change-file "$import_allow"
+if python3 "$policy" "$fixtures/vm-cutover-forward-safe.json" --mode vm-cutover-forward --allow-change-file "$import_allow" >/dev/null 2>&1; then
+  echo "expected VM cutover mode to reject an allowlist" >&2
+  exit 1
+fi
 rm -f "$import_allow"
 trap - EXIT
 for fixture in noop protection-enable custom-rom-removal hardware-mapping-transition delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial; do
   expect_rejection "$fixture" vm-start-prerequisite
 done
-for fixture in delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial candidate-disk-unsafe; do
+for fixture in delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial candidate-disk-unsafe boot-order-change vm-lifecycle-change; do
   expect_rejection "$fixture" normal
 done
+for direction in forward reverse; do
+  mode="vm-cutover-$direction"
+  for fixture in delete replace import ct-create; do
+    expect_rejection "$fixture" "$mode"
+  done
+done
+expect_rejection vm-cutover-forward-safe vm-cutover-reverse
+expect_rejection vm-cutover-reverse-safe vm-cutover-forward
+python3 "$root/../../scripts/controller/test-vm-cutover-policy.py"
 python3 "$root/../../scripts/controller/test-recovery-policy.py"
 python3 "$root/../../scripts/controller/test-tailscale-gateway-policy.py"
 python3 "$root/../../scripts/controller/test-omada-host-alias.py"

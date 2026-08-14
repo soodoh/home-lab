@@ -1,0 +1,35 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "proxmox_virtual_environment_vm.arch",
+      "type": "proxmox_virtual_environment_vm",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "before": {
+          "vm_id": 100,
+          "protection": true,
+          "reboot_after_update": true,
+          "agent": [
+            {
+              "enabled": true
+            }
+          ]
+        },
+        "after": {
+          "vm_id": 100,
+          "protection": true,
+          "reboot_after_update": false,
+          "agent": [
+            {
+              "enabled": false
+            }
+          ]
+        },
+        "after_unknown": {}
+      }
+    }
+  ]
+}

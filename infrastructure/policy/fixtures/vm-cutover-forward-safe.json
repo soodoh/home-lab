@@ -1,0 +1,473 @@
+{
+  "action_invocations": [],
+  "deferred_changes": [],
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "proxmox_virtual_environment_vm.arch",
+      "change": {
+        "actions": [
+          "update"
+        ],
+        "after": {
+          "acpi": true,
+          "agent": [
+            {
+              "enabled": true,
+              "timeout": "15m",
+              "trim": false,
+              "type": "virtio",
+              "wait_for_ip": [
+                {
+                  "disabled": true,
+                  "ipv4": false,
+                  "ipv6": false
+                }
+              ]
+            }
+          ],
+          "bios": "seabios",
+          "boot_order": [
+            "scsi2",
+            "scsi0",
+            "net0"
+          ],
+          "cpu": [
+            {
+              "architecture": "x86_64",
+              "cores": 24,
+              "flags": [],
+              "hotplugged": 0,
+              "limit": 0,
+              "numa": false,
+              "sockets": 1,
+              "type": "host",
+              "units": 1024
+            }
+          ],
+          "delete_unreferenced_disks_on_destroy": false,
+          "disk": [
+            {
+              "aio": "io_uring",
+              "backup": true,
+              "cache": "none",
+              "datastore_id": "local-lvm",
+              "discard": "ignore",
+              "file_format": "raw",
+              "file_id": "local-lvm:vm-100-disk-0",
+              "import_from": null,
+              "interface": "scsi0",
+              "iothread": true,
+              "path_in_datastore": null,
+              "queues": 0,
+              "replicate": true,
+              "serial": null,
+              "size": 550,
+              "speed": [],
+              "ssd": false
+            },
+            {
+              "aio": "io_uring",
+              "backup": false,
+              "cache": "none",
+              "datastore_id": "",
+              "discard": "on",
+              "file_format": "raw",
+              "file_id": null,
+              "import_from": null,
+              "interface": "scsi1",
+              "iothread": true,
+              "path_in_datastore": "/dev/disk/by-id/PROTECTED-GAMES-DISK",
+              "queues": 0,
+              "replicate": true,
+              "serial": null,
+              "size": 3726,
+              "speed": [],
+              "ssd": true
+            },
+            {
+              "aio": "io_uring",
+              "backup": true,
+              "cache": "none",
+              "datastore_id": "local-lvm",
+              "discard": "ignore",
+              "file_format": "raw",
+              "file_id": "local-lvm:vm-100-disk-1",
+              "import_from": null,
+              "interface": "scsi2",
+              "iothread": true,
+              "path_in_datastore": null,
+              "queues": 0,
+              "replicate": true,
+              "serial": "QUAL-NIXOS-128G",
+              "size": 128,
+              "speed": [],
+              "ssd": false
+            }
+          ],
+          "hostpci": [
+            {
+              "device": "hostpci0",
+              "id": null,
+              "mapping": "coral-tpu",
+              "mdev": null,
+              "pcie": false,
+              "rom_file": null,
+              "rombar": true,
+              "xvga": false
+            },
+            {
+              "device": "hostpci1",
+              "id": null,
+              "mapping": "rx-7900-xtx",
+              "mdev": null,
+              "pcie": true,
+              "rom_file": null,
+              "rombar": true,
+              "xvga": true
+            },
+            {
+              "device": "hostpci2",
+              "id": null,
+              "mapping": "rx-7900-xtx-audio",
+              "mdev": null,
+              "pcie": true,
+              "rom_file": null,
+              "rombar": true,
+              "xvga": false
+            }
+          ],
+          "kvm_arguments": "-cpu 'host,-hypervisor,kvm=off'",
+          "machine": "q35",
+          "memory": [
+            {
+              "dedicated": 65536,
+              "floating": 0,
+              "hugepages": null,
+              "keep_hugepages": false,
+              "shared": 0
+            }
+          ],
+          "migrate": false,
+          "name": "arch",
+          "network_device": [
+            {
+              "bridge": "vmbr0",
+              "enabled": true,
+              "firewall": true,
+              "mac_address": "BC:24:11:89:19:5A",
+              "model": "virtio",
+              "mtu": 0,
+              "queues": 0,
+              "rate_limit": 0,
+              "trunks": null,
+              "vlan_id": 0
+            }
+          ],
+          "node_name": "proxmox",
+          "numa": false,
+          "on_boot": true,
+          "operating_system": [
+            {
+              "type": "l26"
+            }
+          ],
+          "protection": true,
+          "purge_on_destroy": false,
+          "reboot_after_update": true,
+          "scsi_hardware": "virtio-scsi-single",
+          "serial_device": [
+            {
+              "device": "socket"
+            }
+          ],
+          "smbios": [
+            {
+              "family": null,
+              "manufacturer": null,
+              "product": null,
+              "serial": null,
+              "sku": null,
+              "uuid": "03061602-d590-4d23-be5c-97f9954b3053",
+              "version": null
+            }
+          ],
+          "started": true,
+          "startup": [
+            {
+              "down_delay": "60",
+              "order": "2",
+              "up_delay": "30"
+            }
+          ],
+          "stop_on_destroy": false,
+          "tags": [],
+          "template": false,
+          "usb": [
+            {
+              "host": null,
+              "mapping": "zigbee-cp210x",
+              "usb3": false
+            },
+            {
+              "host": null,
+              "mapping": "zwave-cp210x",
+              "usb3": false
+            },
+            {
+              "host": null,
+              "mapping": "realtek-bluetooth",
+              "usb3": true
+            }
+          ],
+          "vga": [
+            {
+              "clipboard": null,
+              "memory": 0,
+              "type": "none"
+            }
+          ],
+          "vm_id": 100
+        },
+        "after_unknown": {},
+        "before": {
+          "acpi": true,
+          "agent": [
+            {
+              "enabled": true,
+              "timeout": "15m",
+              "trim": false,
+              "type": "virtio",
+              "wait_for_ip": [
+                {
+                  "disabled": true,
+                  "ipv4": false,
+                  "ipv6": false
+                }
+              ]
+            }
+          ],
+          "bios": "seabios",
+          "boot_order": [
+            "scsi0",
+            "net0"
+          ],
+          "cpu": [
+            {
+              "architecture": "x86_64",
+              "cores": 24,
+              "flags": [],
+              "hotplugged": 0,
+              "limit": 0,
+              "numa": false,
+              "sockets": 1,
+              "type": "host",
+              "units": 1024
+            }
+          ],
+          "delete_unreferenced_disks_on_destroy": false,
+          "disk": [
+            {
+              "aio": "io_uring",
+              "backup": true,
+              "cache": "none",
+              "datastore_id": "local-lvm",
+              "discard": "ignore",
+              "file_format": "raw",
+              "file_id": "local-lvm:vm-100-disk-0",
+              "import_from": null,
+              "interface": "scsi0",
+              "iothread": true,
+              "path_in_datastore": null,
+              "queues": 0,
+              "replicate": true,
+              "serial": null,
+              "size": 550,
+              "speed": [],
+              "ssd": false
+            },
+            {
+              "aio": "io_uring",
+              "backup": false,
+              "cache": "none",
+              "datastore_id": "",
+              "discard": "on",
+              "file_format": "raw",
+              "file_id": null,
+              "import_from": null,
+              "interface": "scsi1",
+              "iothread": true,
+              "path_in_datastore": "/dev/disk/by-id/PROTECTED-GAMES-DISK",
+              "queues": 0,
+              "replicate": true,
+              "serial": null,
+              "size": 3726,
+              "speed": [],
+              "ssd": true
+            },
+            {
+              "aio": "io_uring",
+              "backup": true,
+              "cache": "none",
+              "datastore_id": "local-lvm",
+              "discard": "ignore",
+              "file_format": "raw",
+              "file_id": "local-lvm:vm-100-disk-1",
+              "import_from": null,
+              "interface": "scsi2",
+              "iothread": true,
+              "path_in_datastore": null,
+              "queues": 0,
+              "replicate": true,
+              "serial": "QUAL-NIXOS-128G",
+              "size": 128,
+              "speed": [],
+              "ssd": false
+            }
+          ],
+          "hostpci": [
+            {
+              "device": "hostpci0",
+              "id": null,
+              "mapping": "coral-tpu",
+              "mdev": null,
+              "pcie": false,
+              "rom_file": null,
+              "rombar": true,
+              "xvga": false
+            },
+            {
+              "device": "hostpci1",
+              "id": null,
+              "mapping": "rx-7900-xtx",
+              "mdev": null,
+              "pcie": true,
+              "rom_file": null,
+              "rombar": true,
+              "xvga": true
+            },
+            {
+              "device": "hostpci2",
+              "id": null,
+              "mapping": "rx-7900-xtx-audio",
+              "mdev": null,
+              "pcie": true,
+              "rom_file": null,
+              "rombar": true,
+              "xvga": false
+            }
+          ],
+          "kvm_arguments": "-cpu 'host,-hypervisor,kvm=off'",
+          "machine": "q35",
+          "memory": [
+            {
+              "dedicated": 65536,
+              "floating": 0,
+              "hugepages": null,
+              "keep_hugepages": false,
+              "shared": 0
+            }
+          ],
+          "migrate": false,
+          "name": "arch",
+          "network_device": [
+            {
+              "bridge": "vmbr0",
+              "enabled": true,
+              "firewall": true,
+              "mac_address": "BC:24:11:89:19:5A",
+              "model": "virtio",
+              "mtu": 0,
+              "queues": 0,
+              "rate_limit": 0,
+              "trunks": null,
+              "vlan_id": 0
+            }
+          ],
+          "node_name": "proxmox",
+          "numa": false,
+          "on_boot": true,
+          "operating_system": [
+            {
+              "type": "l26"
+            }
+          ],
+          "protection": true,
+          "purge_on_destroy": false,
+          "reboot_after_update": true,
+          "scsi_hardware": "virtio-scsi-single",
+          "serial_device": [
+            {
+              "device": "socket"
+            }
+          ],
+          "smbios": [
+            {
+              "family": null,
+              "manufacturer": null,
+              "product": null,
+              "serial": null,
+              "sku": null,
+              "uuid": "03061602-d590-4d23-be5c-97f9954b3053",
+              "version": null
+            }
+          ],
+          "started": true,
+          "startup": [
+            {
+              "down_delay": "60",
+              "order": "2",
+              "up_delay": "30"
+            }
+          ],
+          "stop_on_destroy": false,
+          "tags": [],
+          "template": false,
+          "usb": [
+            {
+              "host": null,
+              "mapping": "zigbee-cp210x",
+              "usb3": false
+            },
+            {
+              "host": null,
+              "mapping": "zwave-cp210x",
+              "usb3": false
+            },
+            {
+              "host": null,
+              "mapping": "realtek-bluetooth",
+              "usb3": true
+            }
+          ],
+          "vga": [
+            {
+              "clipboard": null,
+              "memory": 0,
+              "type": "none"
+            }
+          ],
+          "vm_id": 100
+        }
+      },
+      "type": "proxmox_virtual_environment_vm"
+    },
+    {
+      "address": "terraform_data.current",
+      "change": {
+        "actions": [
+          "no-op"
+        ],
+        "after": {
+          "input": "preserved"
+        },
+        "after_unknown": {},
+        "before": {
+          "input": "preserved"
+        }
+      },
+      "type": "terraform_data"
+    }
+  ],
+  "resource_drift": []
+}
