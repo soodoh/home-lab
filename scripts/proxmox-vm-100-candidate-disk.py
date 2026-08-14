@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import subprocess
 import sys
 
@@ -34,7 +35,7 @@ def run(argv: list[str] | tuple[str, ...], cwd: Path | None = None) -> str:
 
 
 def remote(*argv: str) -> str:
-    return run((*SSH, "--", *argv))
+    return run((*SSH, "--", shlex.join(argv)))
 
 
 def parse_config(raw: str) -> dict[str, str]:

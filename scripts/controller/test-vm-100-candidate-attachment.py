@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/proxmox-vm-100-candidate-disk.py"
@@ -25,6 +26,13 @@ class CandidateAttachmentTests(unittest.TestCase):
         self.assertFalse(MODULE.candidate_is_exact(value.replace("QUAL-NIXOS-128G", "WRONG")))
         self.assertFalse(MODULE.candidate_is_exact(value.replace("size=128G", "size=129G")))
         self.assertFalse(MODULE.candidate_is_exact(value.replace("backup=1", "backup=0")))
+
+    def test_remote_command_quotes_semicolon_arguments(self) -> None:
+        with patch.object(MODULE, "run", return_value="") as run:
+            MODULE.remote("/usr/sbin/qm", "set", "100", "--boot", "order=scsi0;net0")
+        run.assert_called_once_with(
+            (*MODULE.SSH, "--", "/usr/sbin/qm set 100 --boot 'order=scsi0;net0'")
+        )
 
     def test_attachment_is_an_exact_guarded_opentofu_action(self) -> None:
         source = SCRIPT.read_text()
