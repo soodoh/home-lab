@@ -56,14 +56,14 @@ def observe():
     if result.stderr:
         fail("candidate observation emitted diagnostics")
     devices = json.loads(result.stdout).get("blockdevices")
-    if not isinstance(devices, list) or len(devices) != 1:
+    if not isinstance(devices, list) or len(devices) not in {1, 4}:
         fail("candidate observation shape differs")
     disk = devices[0]
     if disk.get("type") != "disk" or disk.get("serial") not in {SERIAL, "drive-scsi2"} or disk.get("size") != SIZE:
         fail("candidate disk identity differs")
     if disk.get("mountpoints") not in (None, [], [None]):
         fail("candidate disk is mounted")
-    children = disk.get("children")
+    children = disk.get("children") if len(devices) == 1 else devices[1:]
     if not isinstance(children, list) or len(children) != 3:
         fail("candidate partition count differs")
     expected = {

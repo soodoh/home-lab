@@ -81,6 +81,10 @@ class CandidateInstallTests(unittest.TestCase):
         result = type("Result", (), {"stdout": json.dumps({"blockdevices": [observed]}).encode(), "stderr": b""})()
         with patch.object(Path, "is_symlink", return_value=True), patch.object(self.update_guard.subprocess, "run", return_value=result):
             self.assertEqual(self.update_guard.observe()["serial"], self.update_guard.SERIAL)
+        flat = [{key: value for key, value in observed.items() if key != "children"}, *observed["children"]]
+        result = type("Result", (), {"stdout": json.dumps({"blockdevices": flat}).encode(), "stderr": b""})()
+        with patch.object(Path, "is_symlink", return_value=True), patch.object(self.update_guard.subprocess, "run", return_value=result):
+            self.assertEqual(self.update_guard.observe()["serial"], self.update_guard.SERIAL)
         observed["children"][2]["mountpoints"] = ["/"]
         result = type("Result", (), {"stdout": json.dumps({"blockdevices": [observed]}).encode(), "stderr": b""})()
         with patch.object(Path, "is_symlink", return_value=True), patch.object(self.update_guard.subprocess, "run", return_value=result), self.assertRaises(ValueError):
