@@ -1,0 +1,462 @@
+{
+  "$schema": "./vm-100-application-imports.schema.json",
+  "capturedAt": "2026-08-14T09:35:22Z",
+  "evidence": {
+    "arrInventorySha256": "49c1eb71eae20fc62a5fe1886a14cc6f0127db6c8caf1efe1f2ea37d76f2d151",
+    "authentikApplicationInventorySha256": "252e5d9d4d8049810529b08d6aa7da2cc6a2dbd0e100d7bafdb9534fd172cd5c",
+    "authentikProxyInventorySha256": "581638cc12a9b41d70f1445b99863d50972c10550689612bd3549d7fb990ef13",
+    "recyclarrOverlapSha256": "04757a26d50022226dcb9dc0657b3a6c87abc26e621a229c93a4459116d5af47"
+  },
+  "excludedSurface": [
+    {
+      "application": "authentik",
+      "class": "oauth2-provider",
+      "count": 6,
+      "reason": "client_secret is sensitive and would persist in state"
+    },
+    {
+      "application": "sonarr",
+      "class": "quality-profile-and-custom-format",
+      "count": 70,
+      "reason": "Recyclarr mutates custom formats and quality-profile scoring"
+    },
+    {
+      "application": "radarr",
+      "class": "quality-profile-and-custom-format",
+      "count": 60,
+      "reason": "Recyclarr owns quality profiles and custom formats"
+    },
+    {
+      "application": "radarr-4k",
+      "class": "quality-profile-and-custom-format",
+      "count": 67,
+      "reason": "Recyclarr owns quality profiles and custom formats"
+    },
+    {
+      "application": "sonarr",
+      "class": "download-client-and-indexer",
+      "count": 6,
+      "reason": "schemas persist passwords, API keys, or passkeys; Prowlarr also owns synced indexers"
+    },
+    {
+      "application": "radarr",
+      "class": "download-client-and-indexer",
+      "count": 5,
+      "reason": "schemas persist passwords, API keys, or passkeys; Prowlarr also owns synced indexers"
+    },
+    {
+      "application": "radarr-4k",
+      "class": "download-client-indexer-and-import-list",
+      "count": 6,
+      "reason": "schemas persist passwords or API keys; Prowlarr owns synced indexers"
+    },
+    {
+      "application": "prowlarr",
+      "class": "application-download-client-and-indexer",
+      "count": 11,
+      "reason": "schemas persist downstream API keys, passwords, or indexer credentials"
+    },
+    {
+      "application": "all-media",
+      "class": "host-and-global-settings",
+      "count": 4,
+      "reason": "broad singleton settings remain restored database state for initial adoption"
+    }
+  ],
+  "imports": [
+    {
+      "class": "application",
+      "importId": "audiobookshelf",
+      "providerId": 16,
+      "providerType": "oauth2",
+      "resourceAddress": "authentik_application.applications[\"audiobookshelf\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "calibre",
+      "providerId": 14,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"calibre\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "calibre-web-automated",
+      "providerId": 37,
+      "providerType": "oauth2",
+      "resourceAddress": "authentik_application.applications[\"calibre-web-automated\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "caro-tachidesk",
+      "providerId": 39,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"caro-tachidesk\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "ddns-updater",
+      "providerId": 25,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"ddns-updater\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "frigate",
+      "providerId": 2,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"frigate\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "hass-oidc",
+      "providerId": 21,
+      "providerType": "oauth2",
+      "resourceAddress": "authentik_application.applications[\"hass-oidc\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "jellyfin",
+      "providerId": 15,
+      "providerType": "oauth2",
+      "resourceAddress": "authentik_application.applications[\"jellyfin\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "karaoke-eternal",
+      "providerId": 29,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"karaoke-eternal\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "omada",
+      "providerId": 23,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"omada\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "openfit",
+      "providerId": 41,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"openfit\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "pihole",
+      "providerId": 31,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"pihole\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "prowlarr",
+      "providerId": 11,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"prowlarr\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "proxmox",
+      "providerId": 18,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"proxmox\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "qbittorrent",
+      "providerId": 13,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"qbittorrent\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "radarr",
+      "providerId": 19,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"radarr\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "radarr-4k",
+      "providerId": 8,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"radarr-4k\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "readarr",
+      "providerId": 3,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"readarr\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "sabnzbd",
+      "providerId": 43,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"sabnzbd\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "seerr",
+      "providerId": 17,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"seerr\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "sonarr",
+      "providerId": 7,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"sonarr\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "tachidesk",
+      "providerId": 5,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"tachidesk\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "vaultwarden",
+      "providerId": 47,
+      "providerType": "oauth2",
+      "resourceAddress": "authentik_application.applications[\"vaultwarden\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "vikunja",
+      "providerId": 49,
+      "providerType": "oauth2",
+      "resourceAddress": "authentik_application.applications[\"vikunja\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "application",
+      "importId": "zwave",
+      "providerId": 20,
+      "providerType": "proxy",
+      "resourceAddress": "authentik_application.applications[\"zwave\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "2",
+      "resourceAddress": "authentik_provider_proxy.providers[\"2\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "3",
+      "resourceAddress": "authentik_provider_proxy.providers[\"3\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "5",
+      "resourceAddress": "authentik_provider_proxy.providers[\"5\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "7",
+      "resourceAddress": "authentik_provider_proxy.providers[\"7\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "8",
+      "resourceAddress": "authentik_provider_proxy.providers[\"8\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "11",
+      "resourceAddress": "authentik_provider_proxy.providers[\"11\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "13",
+      "resourceAddress": "authentik_provider_proxy.providers[\"13\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "14",
+      "resourceAddress": "authentik_provider_proxy.providers[\"14\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "17",
+      "resourceAddress": "authentik_provider_proxy.providers[\"17\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "18",
+      "resourceAddress": "authentik_provider_proxy.providers[\"18\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "19",
+      "resourceAddress": "authentik_provider_proxy.providers[\"19\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "20",
+      "resourceAddress": "authentik_provider_proxy.providers[\"20\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "23",
+      "resourceAddress": "authentik_provider_proxy.providers[\"23\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "25",
+      "resourceAddress": "authentik_provider_proxy.providers[\"25\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "29",
+      "resourceAddress": "authentik_provider_proxy.providers[\"29\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "31",
+      "resourceAddress": "authentik_provider_proxy.providers[\"31\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "39",
+      "resourceAddress": "authentik_provider_proxy.providers[\"39\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "41",
+      "resourceAddress": "authentik_provider_proxy.providers[\"41\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "proxy-provider",
+      "importId": "43",
+      "resourceAddress": "authentik_provider_proxy.providers[\"43\"]",
+      "root": "authentik"
+    },
+    {
+      "class": "root-folder",
+      "importId": "7",
+      "path": "/data/tv_shows/1080p",
+      "provider": "sonarr",
+      "resourceAddress": "sonarr_root_folder.root_folders[\"tv-1080p\"]",
+      "root": "media-apps"
+    },
+    {
+      "class": "root-folder",
+      "importId": "8",
+      "path": "/data/anime/1080p",
+      "provider": "sonarr",
+      "resourceAddress": "sonarr_root_folder.root_folders[\"anime-1080p\"]",
+      "root": "media-apps"
+    },
+    {
+      "class": "root-folder",
+      "importId": "1",
+      "path": "/data/movies/1080p",
+      "provider": "radarr",
+      "resourceAddress": "radarr_root_folder.root_folders[\"movies-1080p\"]",
+      "root": "media-apps"
+    },
+    {
+      "class": "root-folder",
+      "importId": "5",
+      "path": "/data/movies/4k",
+      "provider": "radarr.radarr_4k",
+      "resourceAddress": "radarr_root_folder.root_folders[\"movies-4k\"]",
+      "root": "media-apps"
+    },
+    {
+      "class": "tag",
+      "importId": "2",
+      "label": "lidarr",
+      "provider": "prowlarr",
+      "resourceAddress": "prowlarr_tag.tags[\"lidarr\"]",
+      "root": "media-apps"
+    },
+    {
+      "class": "tag",
+      "importId": "3",
+      "label": "radarr",
+      "provider": "prowlarr",
+      "resourceAddress": "prowlarr_tag.tags[\"radarr\"]",
+      "root": "media-apps"
+    },
+    {
+      "class": "tag",
+      "importId": "5",
+      "label": "readarr",
+      "provider": "prowlarr",
+      "resourceAddress": "prowlarr_tag.tags[\"readarr\"]",
+      "root": "media-apps"
+    },
+    {
+      "class": "tag",
+      "importId": "4",
+      "label": "sonarr",
+      "provider": "prowlarr",
+      "resourceAddress": "prowlarr_tag.tags[\"sonarr\"]",
+      "root": "media-apps"
+    },
+    {
+      "class": "sync-profile",
+      "importId": "1",
+      "name": "Standard",
+      "provider": "prowlarr",
+      "resourceAddress": "prowlarr_sync_profile.sync_profiles[\"standard\"]",
+      "root": "media-apps"
+    }
+  ],
+  "providerPins": {
+    "authentik": "2026.5.1",
+    "prowlarr": "3.2.1",
+    "radarr": "2.4.0",
+    "sonarr": "3.4.2"
+  },
+  "schemaVersion": 1,
+  "sourceRevision": "020760a2c9fce9a66bc4f67296f6f2255c86312a"
+}
