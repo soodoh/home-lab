@@ -303,13 +303,16 @@ def main() -> int:
                 failures.append(f"{address}: extra recovery change is forbidden")
             continue
 
-        if actions in ([], ["no-op"], ["read"]) and not importing:
+        if importing:
+            observed_actions += 1
+            if address not in allow:
+                failures.append(f"{address}: import is not explicitly allowlisted")
+            elif actions != ["no-op"]:
+                failures.append(f"{address}: allowlisted import must be read-only")
+            continue
+        if actions in ([], ["no-op"], ["read"]):
             continue
         observed_actions += 1
-
-        if importing:
-            failures.append(f"{address}: imports are forbidden in steady state")
-            continue
         if address == "terraform_data.tailscale_policy[0]":
             failures.append(f"{address}: Tailscale policy mutation is forbidden in steady state")
             continue

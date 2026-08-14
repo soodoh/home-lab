@@ -50,6 +50,7 @@ commit=$(git rev-parse HEAD)
 }
 plan_dir="$repo_root/.reconcile/plans/$commit/$operation"
 manifest="$plan_dir/manifest.json"
+application_tunnel_socket=
 
 load_credentials() {
   local capability=$1 file="$config_dir/$1-credentials.json" key value encoded
@@ -128,6 +129,21 @@ manifest_sha256() {
 prepare_steady_omada_input() {
   if [[ $operation == steady ]]; then
     scripts/prepare-omada-plan-input prepare
+  fi
+}
+
+stop_application_tunnels() {
+  if [[ -n $application_tunnel_socket ]]; then
+    scripts/controller/application-api-tunnels stop "$application_tunnel_socket" >/dev/null 2>&1 || true
+    application_tunnel_socket=
+  fi
+}
+
+start_application_tunnels() {
+  if [[ ${TF_VAR_media_apps_enable_management:-false} == true ]]; then
+    application_tunnel_socket="$repo_root/.reconcile/application-api-tunnels.$$.sock"
+    scripts/controller/application-api-tunnels start "$application_tunnel_socket"
+    trap stop_application_tunnels EXIT
   fi
 }
 
@@ -257,6 +273,7 @@ confirm_apply() {
 case "$action" in
   plan)
     load_credentials plan
+    start_application_tunnels
     prepare_provider_tls
     run_validation
     prepare_steady_omada_input
@@ -270,6 +287,7 @@ case "$action" in
     run_validation
     confirm_apply
     load_credentials apply
+    start_application_tunnels
     prepare_provider_tls
     prepare_steady_omada_input
     scripts/reconcile-infrastructure apply --plan-dir "$plan_dir" "${operation_args[@]}"

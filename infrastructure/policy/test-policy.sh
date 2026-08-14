@@ -17,6 +17,13 @@ python3 "$policy" "$fixtures/protection-enable.json"
 python3 "$policy" "$fixtures/custom-rom-removal.json"
 python3 "$policy" "$fixtures/hardware-mapping-transition.json"
 python3 "$policy" "$fixtures/vm-start-prerequisite.json" --mode vm-start-prerequisite
+expect_rejection import normal
+import_allow=$(mktemp)
+trap 'rm -f "$import_allow"' EXIT
+printf 'example.imported\n' >"$import_allow"
+python3 "$policy" "$fixtures/import.json" --allow-change-file "$import_allow"
+rm -f "$import_allow"
+trap - EXIT
 for fixture in noop protection-enable custom-rom-removal hardware-mapping-transition delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial; do
   expect_rejection "$fixture" vm-start-prerequisite
 done

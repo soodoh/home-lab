@@ -32,6 +32,8 @@ class MediaAppsTofuFoundationTests(unittest.TestCase):
 
         self.assertEqual(set(actual), set(expected))
         self.assertEqual(len(actual), 9)
+        allow = set((REPO / "infrastructure" / "policy" / "allow" / "media-apps.txt").read_text().splitlines())
+        self.assertEqual(allow, set(expected))
         for address, (import_id, resource_class) in actual.items():
             self.assertEqual(expected[address]["importId"], import_id)
             self.assertEqual(expected[address]["class"], resource_class)

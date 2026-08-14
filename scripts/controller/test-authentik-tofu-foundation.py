@@ -27,6 +27,8 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(set(DESIRED["proxyProviders"]), set(proxy_imports))
         self.assertEqual(len(application_imports), 25)
         self.assertEqual(len(proxy_imports), 19)
+        allow = set((REPO / "infrastructure" / "policy" / "allow" / "authentik.txt").read_text().splitlines())
+        self.assertEqual(allow, {item["resourceAddress"] for item in authentik_imports})
 
         for slug, desired in DESIRED["applications"].items():
             self.assertEqual(desired["slug"], slug)
