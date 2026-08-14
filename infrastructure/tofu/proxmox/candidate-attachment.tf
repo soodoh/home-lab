@@ -36,3 +36,23 @@ resource "terraform_data" "vm_100_boot_normalization" {
     }
   }
 }
+
+
+# The first reviewed normalization retained its failed provisioner record after
+# Proxmox rejected empty-CD-ROM deletion. This retry only changes boot order.
+resource "terraform_data" "vm_100_boot_normalization_retry" {
+  input = {
+    vm_id               = local.vm.vmid
+    source_boot_order   = "scsi0;net0"
+    candidate_interface = local.vm.candidate_disk.interface
+    retry_of            = terraform_data.vm_100_boot_normalization.id
+  }
+
+  provisioner "local-exec" {
+    command = "${path.module}/../../../scripts/proxmox-vm-100-candidate-disk.py normalize-boot"
+
+    environment = {
+      HOMELAB_VM100_CANDIDATE_ATTACHMENT = "reviewed-opentofu-action"
+    }
+  }
+}
