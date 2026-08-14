@@ -35,10 +35,14 @@ class CandidateAttachmentTests(unittest.TestCase):
         self.assertIn('before["pid"] != after["pid"]', source)
         self.assertNotIn("shell=True", source)
         self.assertIn('resource "terraform_data" "vm_100_candidate_disk_attachment"', tofu)
+        self.assertIn('resource "terraform_data" "vm_100_boot_normalization"', tofu)
         self.assertIn('HOMELAB_VM100_CANDIDATE_ATTACHMENT = "reviewed-opentofu-action"', tofu)
         self.assertIn("prevent_destroy = true", tofu)
         self.assertNotIn("ignore_changes = [disk]", vm)
-        self.assertIn("ignore_changes  = [disk[1].file_format]", vm)
+        self.assertIn("disk[1].file_format,", vm)
+        self.assertIn("boot_order,", vm)
+        self.assertIn('remote("/usr/sbin/qm", "set", str(VMID), "--delete", "ide2")', source)
+        self.assertIn('remote("/usr/sbin/qm", "set", str(VMID), "--boot", "order=scsi0;net0")', source)
 
 
 if __name__ == "__main__":
