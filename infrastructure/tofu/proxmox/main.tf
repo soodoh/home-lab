@@ -17,7 +17,7 @@ resource "proxmox_download_file" "arch_recovery_image" {
   file_name          = "Arch-Linux-x86_64-cloudimg-${local.vm.cloud_image.version}.qcow2"
 }
 
-resource "proxmox_virtual_environment_vm" "arch" {
+resource "proxmox_virtual_environment_vm" "arch_readopted" {
   node_name = local.node
   vm_id     = local.vm.vmid
   name      = local.vm.name
@@ -30,7 +30,7 @@ resource "proxmox_virtual_environment_vm" "arch" {
   started       = local.vm.started
   protection    = local.vm.desired_protection
 
-  reboot_after_update                  = false
+  reboot_after_update                  = true
   stop_on_destroy                      = false
   purge_on_destroy                     = false
   delete_unreferenced_disks_on_destroy = false
@@ -206,14 +206,7 @@ resource "proxmox_virtual_environment_vm" "arch" {
 
   lifecycle {
     prevent_destroy = true
-    ignore_changes = [
-      agent,
-      boot_order,
-      cdrom,
-      disk[1].file_format,
-      reboot_after_update,
-      smbios,
-    ]
+    ignore_changes  = [disk[1].file_format]
 
     precondition {
       condition     = !local.recovery || var.recovery_ssh_public_key != ""
