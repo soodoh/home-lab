@@ -328,6 +328,21 @@ prepare_apply_proxmox_host() {
   plan_sha=$(jq -r '.proxmox_host_plan.plan_sha256' "$manifest")
   relative=$(jq -r '.proxmox_host_plan.file' "$manifest")
   plan_path="$repo_root/$relative"
+  if jq -e '.actions == [] and .status == "ready" and .applyEligible == true' "$plan_path" >/dev/null; then
+    python3 - "$plan_path" <<'PY'
+import datetime as dt
+import json
+import sys
+from pathlib import Path
+
+plan = json.loads(Path(sys.argv[1]).read_text())
+valid_until = dt.datetime.fromisoformat(plan["freshness"]["validUntil"].replace("Z", "+00:00"))
+if dt.datetime.now(dt.timezone.utc) > valid_until:
+    raise SystemExit("Proxmox Nix host no-op plan has expired")
+PY
+    echo "Skipping Proxmox Nix host apply: exact saved plan is fresh and zero-action."
+    return
+  fi
   [[ ${RECONCILE_PROXMOX_NO_CONCURRENT_MUTATION_CONFIRMED:-} == confirm-no-concurrent-proxmox-mutation ]] || {
     echo "Guarded Proxmox Nix apply requires explicit no-concurrent-mutation confirmation." >&2
     exit 66

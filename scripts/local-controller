@@ -171,6 +171,7 @@ verify_proxmox_host_plan() {
   python3 - "$path" "$expected_plan_sha" "$expected_actions" "$(jq -r .stage "$manifest")" <<'PY'
 import hashlib
 import json
+import datetime as dt
 import sys
 from pathlib import Path
 path = Path(sys.argv[1])
@@ -213,6 +214,8 @@ try:
                           json.loads((repo / "nix/proxmox/package-manifest.json").read_bytes()))
 except (KeyError, TypeError, ValueError) as error:
     raise SystemExit("Proxmox Nix plan semantic validation failed") from error
+if dt.datetime.now(dt.timezone.utc) > dt.datetime.fromisoformat(value["freshness"]["validUntil"].replace("Z", "+00:00")):
+    raise SystemExit("Proxmox Nix plan has expired")
 PY
 }
 
