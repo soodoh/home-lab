@@ -32,21 +32,12 @@ resource "proxmox_virtual_environment_vm" "arch_readopted" {
 
   reboot_after_update                  = true
   stop_on_destroy                      = false
-  purge_on_destroy                     = false
-  delete_unreferenced_disks_on_destroy = false
+  purge_on_destroy                     = true
+  delete_unreferenced_disks_on_destroy = true
 
   agent {
     enabled = true
     trim    = false
-
-    wait_for_ip {
-      disabled = true
-    }
-  }
-
-  cdrom {
-    file_id   = "none"
-    interface = "ide2"
   }
 
   cpu {
@@ -150,9 +141,6 @@ resource "proxmox_virtual_environment_vm" "arch_readopted" {
     device = "socket"
   }
 
-  smbios {
-    uuid = local.vm.smbios_uuid
-  }
 
   operating_system {
     type = "l26"
