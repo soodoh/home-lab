@@ -100,6 +100,7 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-vm-100-nix-foundation.py
   python3 scripts/controller/test-vm-100-sops.py
   python3 scripts/controller/test-vm-100-coral.py
+  python3 scripts/controller/test-authentik-tofu-foundation.py
   python3 scripts/controller/test-controller-apply-lock.py
   python3 scripts/controller/test-proxmox-nix-plan.py
   python3 scripts/controller/test-proxmox-nix-apply.py
@@ -149,7 +150,7 @@ if [[ $action == validate ]]; then
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
     scripts/restore-critical-backup scripts/test-recovery-tools recovery/coral/build-package
   tofu fmt -check -recursive infrastructure/tofu
-  for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification proxmox-vm-qualification omada tailscale; do
+  for root in aws-foundation authentik proxmox-legacy proxmox proxmox-lxc-qualification proxmox-vm-qualification omada tailscale; do
     (
       validation_data=$(mktemp -d)
       trap 'rm -rf "$validation_data"' EXIT

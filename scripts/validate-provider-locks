@@ -9,7 +9,7 @@ if [[ $actual != "$required_tofu_version" ]]; then
   exit 1
 fi
 
-roots=(aws-foundation proxmox proxmox-legacy proxmox-lxc-qualification omada tailscale)
+roots=(aws-foundation authentik proxmox proxmox-legacy proxmox-lxc-qualification omada tailscale)
 for name in "${roots[@]}"; do
   root="$repo_root/infrastructure/tofu/$name"
   test -s "$root/.terraform.lock.hcl"

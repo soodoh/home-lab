@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/schemas/authentik-desired.schema.json",
+  "title": "Import-first Authentik desired state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "schemaVersion", "sourceInventory", "applications", "proxyProviders"],
+  "properties": {
+    "$schema": { "const": "./desired.schema.json" },
+    "schemaVersion": { "const": 1 },
+    "sourceInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capturedAt", "applicationsSha256", "proxyProvidersSha256"],
+      "properties": {
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "applicationsSha256": { "$ref": "#/$defs/sha256" },
+        "proxyProvidersSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "applications": {
+      "type": "object",
+      "minProperties": 25,
+      "maxProperties": 25,
+      "additionalProperties": { "$ref": "#/$defs/application" }
+    },
+    "proxyProviders": {
+      "type": "object",
+      "minProperties": 19,
+      "maxProperties": 19,
+      "propertyNames": { "pattern": "^[1-9][0-9]*$" },
+      "additionalProperties": { "$ref": "#/$defs/proxyProvider" }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "uuidArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/uuid" }
+    },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "slug",
+        "uuid",
+        "group",
+        "provider_id",
+        "provider_type",
+        "backchannel_provider_ids",
+        "meta_launch_url",
+        "meta_icon",
+        "meta_description",
+        "meta_publisher",
+        "policy_engine_mode",
+        "open_in_new_tab",
+        "meta_hide"
+      ],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "slug": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+        "uuid": { "$ref": "#/$defs/uuid" },
+        "group": { "type": "string" },
+        "provider_id": { "type": "integer", "minimum": 1 },
+        "provider_type": { "enum": ["oauth2", "proxy"] },
+        "backchannel_provider_ids": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "meta_launch_url": { "type": "string" },
+        "meta_icon": { "type": "string" },
+        "meta_description": { "type": "string" },
+        "meta_publisher": { "type": "string" },
+        "policy_engine_mode": { "enum": ["all", "any"] },
+        "open_in_new_tab": { "type": "boolean" },
+        "meta_hide": { "type": "boolean" }
+      }
+    },
+    "proxyProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pk",
+        "name",
+        "authentication_flow",
+        "authorization_flow",
+        "invalidation_flow",
+        "internal_host",
+        "external_host",
+        "internal_host_ssl_validation",
+        "skip_path_regex",
+        "basic_auth_enabled",
+        "basic_auth_user_attribute",
+        "basic_auth_password_attribute",
+        "intercept_header_auth",
+        "mode",
+        "cookie_domain",
+        "access_token_validity",
+        "refresh_token_validity",
+        "property_mappings",
+        "jwt_federation_sources",
+        "jwt_federation_providers"
+      ],
+      "properties": {
+        "pk": { "type": "integer", "minimum": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "authentication_flow": { "oneOf": [{ "$ref": "#/$defs/uuid" }, { "type": "null" }] },
+        "authorization_flow": { "$ref": "#/$defs/uuid" },
+        "invalidation_flow": { "$ref": "#/$defs/uuid" },
+        "internal_host": { "type": "string", "pattern": "^https?://" },
+        "external_host": { "type": "string", "pattern": "^https://" },
+        "internal_host_ssl_validation": { "type": "boolean" },
+        "skip_path_regex": { "type": "string" },
+        "basic_auth_enabled": { "type": "boolean" },
+        "basic_auth_user_attribute": { "type": "string" },
+        "basic_auth_password_attribute": { "type": "string" },
+        "intercept_header_auth": { "type": "boolean" },
+        "mode": { "enum": ["proxy", "forward_single", "forward_domain"] },
+        "cookie_domain": { "type": "string" },
+        "access_token_validity": { "type": "string", "minLength": 1 },
+        "refresh_token_validity": { "type": "string", "minLength": 1 },
+        "property_mappings": {
+          "allOf": [
+            { "$ref": "#/$defs/uuidArray" },
+            { "minItems": 1 }
+          ]
+        },
+        "jwt_federation_sources": { "$ref": "#/$defs/uuidArray" },
+        "jwt_federation_providers": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 1 }
+        }
+      }
+    }
+  }
+}
