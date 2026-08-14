@@ -30,7 +30,7 @@ resource "proxmox_virtual_environment_vm" "arch" {
   started       = local.vm.started
   protection    = local.vm.desired_protection
 
-  reboot_after_update                  = true
+  reboot_after_update                  = false
   stop_on_destroy                      = false
   purge_on_destroy                     = false
   delete_unreferenced_disks_on_destroy = false
@@ -38,15 +38,14 @@ resource "proxmox_virtual_environment_vm" "arch" {
   agent {
     enabled = true
     trim    = false
-
-    wait_for_ip {
-      disabled = true
-    }
   }
 
-  cdrom {
-    file_id   = "none"
-    interface = "ide2"
+  dynamic "cdrom" {
+    for_each = local.recovery ? [1] : []
+    content {
+      file_id   = "none"
+      interface = "ide2"
+    }
   }
 
   cpu {
@@ -150,8 +149,11 @@ resource "proxmox_virtual_environment_vm" "arch" {
     device = "socket"
   }
 
-  smbios {
-    uuid = local.vm.smbios_uuid
+  dynamic "smbios" {
+    for_each = local.recovery ? [1] : []
+    content {
+      uuid = local.vm.smbios_uuid
+    }
   }
 
 
