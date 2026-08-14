@@ -71,6 +71,7 @@ class CandidateInstallTests(unittest.TestCase):
         for control in (
             "install-reviewed-qualification-candidate",
             "config.system.build.diskoScript",
+            "system.switch.enable = lib.mkForce true",
             "--system ${config.system.build.toplevel}",
             "--no-channel-copy",
             "inspection-passed",
