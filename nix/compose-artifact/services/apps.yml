@@ -1,0 +1,220 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: 3
+
+services:
+  jellyfin:
+    image: ghcr.io/jellyfin/jellyfin:10.11.11@sha256:45f648c382a0c8b552582fcea40e95cb17c5d475473a891cba0eb7523fb92112
+    container_name: jellyfin
+    restart: unless-stopped
+    logging: *default-logging
+    labels:
+      docker-volume-backup.stop-during-backup: true
+    ports:
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:8096:8096
+    volumes:
+      - type: volume
+        source: jellyfin-data
+        target: /config
+        volume:
+          subpath: config
+      - type: volume
+        source: jellyfin-data
+        target: /cache
+        volume:
+          subpath: cache
+      - ${MEDIA_PATH}/tv_shows:/tv_shows
+      - ${MEDIA_PATH}/movies:/movies
+      - ${MEDIA_PATH}/anime:/anime
+      - ${MEDIA_PATH}/books:/books
+      - type: tmpfs
+        target: /cache/transcodes
+        tmpfs:
+          size: 17179869184
+    devices:
+      - /dev/dri/renderD128:/dev/dri/renderD128
+    environment:
+      TZ: $TZ
+      PUID: 1000
+      PGID: 1000
+      LIBVA_DRIVER_NAME: radeonsi
+      JELLYFIN_SERVERS: $INTERNAL_HOST_IP
+      JELLYFIN_PublishedServerUrl: $JELLYFIN_PublishedServerUrl
+    networks:
+      - proxy
+
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf:2.36.0@sha256:180acad33d69c99ed208676465d8edcb268fa46967735579a7810859885b1a8e
+    container_name: audiobookshelf
+    restart: unless-stopped
+    logging: *default-logging
+    labels:
+      docker-volume-backup.stop-during-backup: true
+    environment:
+      TZ: $TZ
+    volumes:
+      - ${MEDIA_PATH}/books:/books
+      - type: volume
+        source: audiobookshelf-data
+        target: /config
+        volume:
+          subpath: config
+      - type: volume
+        source: audiobookshelf-data
+        target: /metadata
+        volume:
+          subpath: metadata
+    networks:
+      - proxy
+
+  calibre:
+    image: ghcr.io/linuxserver/calibre:9.11.0@sha256:a65e85852ae4dfec58ff6b65ffa0717fd5d2c21dddf0f5683e778365d87c588d
+    container_name: calibre
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      TZ: $TZ
+      PUID: 1000
+      PGID: 1000
+    labels:
+      docker-volume-backup.stop-during-backup: true
+    volumes:
+      - type: volume
+        source: calibre-data
+        target: /config
+        volume:
+          subpath: config
+      - type: volume
+        source: calibre-data
+        target: /plugins
+        volume:
+          subpath: plugins
+      - type: volume
+        source: calibre-data
+        target: /books
+        volume:
+          subpath: books
+      - ${MEDIA_PATH}/downloads:/downloads
+    networks:
+      proxy:
+        ipv4_address: 172.23.0.99
+
+  calibre-web-automated:
+    image: ghcr.io/crocodilestick/calibre-web-automated:v4.0.6@sha256:c31a738b6d5ec6982c050063dd3f063b6943eb1051fc81144789f840d9093a8d
+    container_name: calibre-web-automated
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      TZ: $TZ
+      PUID: 1000
+      PGID: 1000
+      HARDCOVER_TOKEN: $HARDCOVER_TOKEN
+      # If your library is on a network share (e.g., NFS/SMB), disable WAL to reduce locking issues
+      # Accepts: true/false (default: false)
+      NETWORK_SHARE_MODE: false
+      CWA_PORT_OVERRIDE: 8083
+    volumes:
+      - calibre-web-data:/config
+      - type: volume
+        source: calibre-data
+        target: /calibre-library
+        volume:
+          subpath: books
+    networks:
+      - proxy
+
+  karaoke-eternal:
+    image: radrootllc/karaoke-eternal:latest@sha256:96a4ff5f14657aaa0e7308f1455fedab7065756e1e3e163522619ee3aa9f5c5f
+    container_name: karaoke-eternal
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      TZ: $TZ
+    volumes:
+      - karaoke-eternal-data:/config
+      - ${MEDIA_PATH}/karaoke:/mnt/karaoke
+    networks:
+      - proxy
+
+  vaultwarden:
+    image: ghcr.io/dani-garcia/vaultwarden:1.37.1@sha256:ebdfe70701c60ac0c28c697e787cea767d7972940b786037b29fe0d507f821e8
+    container_name: vaultwarden
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      TZ: $TZ
+      DOMAIN: $DOMAIN
+      SSO_AUTHORITY: $SSO_AUTHORITY
+      SSO_CLIENT_ID: $SSO_CLIENT_ID
+      SSO_CLIENT_SECRET: $SSO_CLIENT_SECRET
+      SSO_ENABLED: true
+      SSO_SCOPES: email profile offline_access
+      SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION: false
+      SSO_CLIENT_CACHE_EXPIRATION: 0
+      SSO_ONLY: true
+      SSO_SIGNUPS_MATCH_EMAIL: true
+    extra_hosts:
+      - auth.diloreto.com:${INTERNAL_HOST_IP}
+    volumes:
+      - vaultwarden-data:/data
+    networks:
+      - proxy
+
+  vikunja:
+    image: ghcr.io/go-vikunja/vikunja:2.4.0@sha256:1a5dd2d410b5359f689c77bbd1c66742cde1993f82d4adfe9aefa400ff1dd833
+    container_name: vikunja
+    restart: unless-stopped
+    logging: *default-logging
+    user: "0:0"
+    environment:
+      TZ: $TZ
+      VIKUNJA_SERVICE_PUBLICURL: https://todo.diloreto.com
+      VIKUNJA_SERVICE_JWTSECRET: $VIK_SERVICE_JWT_SECRET
+      VIKUNJA_DATABASE_TYPE: sqlite
+      VIKUNJA_DATABASE_PATH: /app/vikunja/files/vikunja.db
+      VIKUNJA_SERVICE_ENABLEREGISTRATION: false
+      VIKUNJA_SERVICE_ENABLELINKSHARING: false
+      VIKUNJA_AUTH_OPENID_ENABLED: true
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_NAME: Authentik
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_AUTHURL: $VIK_AUTHENTIK_URL
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_CLIENTID: $VIK_OIDC_CLIENT_ID
+      VIKUNJA_AUTH_OPENID_PROVIDERS_AUTHENTIK_CLIENTSECRET: $VIK_OIDC_CLIENT_SECRET
+    volumes:
+      - vikunja-data:/app/vikunja/files
+    networks:
+      - proxy
+
+  litellm:
+    image: ghcr.io/berriai/litellm:1.94.0@sha256:65d84a2282137b4dc73bbe184650a7c807177c533e4223b3bfbc87963fe3fabe
+    container_name: litellm
+    restart: unless-stopped
+    logging: *default-logging
+    command:
+      ["--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000"]
+    labels:
+      docker-volume-backup.stop-during-backup: true
+    environment:
+      TZ: $TZ
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?Set OPENROUTER_API_KEY in .env}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?Set LITELLM_MASTER_KEY in .env}
+      CHATGPT_TOKEN_DIR: /data/chatgpt
+    ports:
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:4000:4000
+    volumes:
+      - ./data/litellm/config.yaml:/app/config.yaml:ro
+      - ./data/litellm/custom_callbacks.py:/app/custom_callbacks.py:ro
+      - litellm-data:/data
+    networks:
+      - proxy
+
+volumes:
+  audiobookshelf-data:
+  calibre-data:
+  calibre-web-data:
+  jellyfin-data:
+  karaoke-eternal-data:
+  litellm-data:
+  vaultwarden-data:
+  vikunja-data:

@@ -1,0 +1,357 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: 3
+
+services:
+  seerr:
+    image: ghcr.io/seerr-team/seerr:v3.4.0@sha256:d206d9e4056bb90178297df58047791196e7721e6dc19384579b0530702fe086
+    init: true
+    container_name: seerr
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    environment:
+      TZ: $TZ
+      LOG_LEVEL: debug
+      PORT: 5055 # Optional
+    volumes:
+      - seerr-data:/app/config
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:5055/api/v1/status || exit 1
+      start_period: 20s
+      timeout: 3s
+      interval: 15s
+      retries: 3
+    labels:
+      docker-volume-backup.stop-during-backup: true
+
+  gluetun:
+    image: qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027
+    container_name: gluetun
+    hostname: gluetun
+    restart: always
+    logging: *default-logging
+    ports:
+      # Suwayomi for local OPDS. qBittorrent WebUI is reachable through Authentik/Caddy over the proxy network.
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:4567:4567
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - gluetun-data:/gluetun
+      - ./data/gluetun:/scripts:ro
+    environment:
+      TZ: $TZ
+      VPN_PORT_FORWARDING_UP_COMMAND: /bin/sh /scripts/gluetun_up.sh
+      VPN_TYPE: openvpn
+      OPENVPN_USER: $OPENVPN_USER
+      OPENVPN_PASSWORD: $OPENVPN_PASSWORD
+      VPN_SERVICE_PROVIDER: $VPN_PROVIDER
+      VPN_PORT_FORWARDING_PROVIDER: $VPN_PROVIDER
+      VPN_PORT_FORWARDING: on
+      # Use DoH instead of DoT — port 853 gets reset by ProtonVPN (gluetun#3121)
+      DNS_UPSTREAM_RESOLVER_TYPE: doh
+      # Needed to maintain consistent ASN for MAM session
+      SERVER_COUNTRIES: $SERVER_COUNTRIES
+    networks:
+      - proxy
+      - arr_network
+
+  tachidesk:
+    # Same image on Dockerhub is outdated
+    image: ghcr.io/suwayomi/tachidesk:v2.3.2284@sha256:6f1fcbf31714137ec3d1c48d4aa57a8d158e3f88afd34a3d6999338cd1bd189a
+    container_name: tachidesk
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    labels:
+      docker-volume-backup.stop-during-backup: true
+    environment:
+      TZ: $TZ
+      DOWNLOAD_AS_CBZ: true
+      WEB_UI_ENABLED: true
+      WEB_UI_FLAVOR: WebUI
+      WEB_UI_CHANNEL: preview
+      WEB_UI_UPDATE_INTERVAL: 12
+      AUTO_DOWNLOAD_CHAPTERS: true
+      AUTO_DOWNLOAD_EXCLUDE_UNREAD: false
+      AUTO_DOWNLOAD_AHEAD_LIMIT: 20
+      UPDATE_EXCLUDE_UNREAD: false
+      UPDATE_EXCLUDE_STARTED: false
+      UPDATE_EXCLUDE_COMPLETED: true
+      UPDATE_INTERVAL: 12
+      UPDATE_MANGA_INFO: true
+      FLARESOLVERR_ENABLED: true
+      FLARESOLVERR_URL: http://gluetun:8191
+      BIND_PORT: 4567
+    volumes:
+      - tachidesk-data:/home/suwayomi/.local/share/Tachidesk
+      - ${MEDIA_PATH}/tachidesk:/home/suwayomi/.local/share/Tachidesk/downloads
+
+  caro-tachidesk:
+    # Same image on Dockerhub is outdated
+    image: ghcr.io/suwayomi/tachidesk:v2.3.2284@sha256:6f1fcbf31714137ec3d1c48d4aa57a8d158e3f88afd34a3d6999338cd1bd189a
+    container_name: caro-tachidesk
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    labels:
+      docker-volume-backup.stop-during-backup: true
+    environment:
+      TZ: $TZ
+      DOWNLOAD_AS_CBZ: true
+      WEB_UI_ENABLED: true
+      WEB_UI_FLAVOR: WebUI
+      WEB_UI_CHANNEL: preview
+      WEB_UI_UPDATE_INTERVAL: 12
+      AUTO_DOWNLOAD_CHAPTERS: true
+      AUTO_DOWNLOAD_EXCLUDE_UNREAD: false
+      AUTO_DOWNLOAD_AHEAD_LIMIT: 20
+      UPDATE_EXCLUDE_UNREAD: false
+      UPDATE_EXCLUDE_STARTED: false
+      UPDATE_EXCLUDE_COMPLETED: true
+      UPDATE_INTERVAL: 12
+      UPDATE_MANGA_INFO: true
+      FLARESOLVERR_ENABLED: true
+      FLARESOLVERR_URL: http://gluetun:8191
+      BIND_PORT: 4568
+    volumes:
+      - caro-tachidesk-data:/home/suwayomi/.local/share/Tachidesk
+
+  flaresolverr:
+    image: ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47
+    container_name: flaresolverr
+    restart: always
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      TZ: $TZ
+
+  prowlarr:
+    image: ghcr.io/linuxserver/prowlarr:2.6.0-develop@sha256:2df9ae57c475bf4341abd833e56a9268bb02167cc5f3f828a8347d2d8628f652
+    container_name: prowlarr
+    restart: unless-stopped
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    logging: *default-logging
+    environment:
+      TZ: $TZ
+      PUID: 1000
+      PGID: 1000
+      PROWLARR__AUTH__APIKEY: $PROWLARR_API_KEY
+      PROWLARR__SERVER__PORT: 9696
+    volumes:
+      - prowlarr-data:/config
+    labels:
+      docker-volume-backup.stop-during-backup: true
+
+  recyclarr:
+    image: ghcr.io/recyclarr/recyclarr:8.7.0@sha256:2d6107f758d882a59fe9d646aa54fa8a5a4fb7a40995125fade575652a3f7871
+    container_name: recyclarr
+    restart: unless-stopped
+    user: 1000:1000
+    networks:
+      - arr_network
+    volumes:
+      - recyclarr-data:/config
+    environment:
+      TZ: $TZ
+      SONARR_URL: $SONARR_URL
+      SONARR_API_KEY: $SONARR_API_KEY
+      RADARR_URL: $RADARR_URL
+      RADARR_API_KEY: $RADARR_API_KEY
+      RADARR_4K_URL: $RADARR_4K_URL
+      RADARR_4K_API_KEY: $RADARR_4K_API_KEY
+    labels:
+      docker-volume-backup.stop-during-backup: true
+
+  sonarr:
+    image: ghcr.io/linuxserver/sonarr:4.0.19@sha256:24acea2956a0ccb11f103877d9f4f8576600fb34bff34820ed749c2256dab89f
+    container_name: sonarr
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    environment:
+      TZ: $TZ
+      PUID: 1000
+      PGID: 1000
+      SONARR__AUTH__APIKEY: $SONARR_API_KEY
+      SONARR__SERVER__PORT: 8989
+    volumes:
+      - sonarr-data:/config
+      - ${MEDIA_PATH}:/data
+    labels:
+      docker-volume-backup.stop-during-backup: true
+
+  radarr:
+    image: ghcr.io/linuxserver/radarr:6.3.0@sha256:a45b5ab0f850f39edb4cc9c95bbd967b52ddc3d4574a4dfb45561177db6c88f4
+    container_name: radarr
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    environment:
+      TZ: $TZ
+      PUID: 1000
+      PGID: 1000
+      RADARR__AUTH__APIKEY: $RADARR_API_KEY
+      RADARR__SERVER__PORT: 7878
+    volumes:
+      - radarr-data:/config
+      - ${MEDIA_PATH}:/data
+    labels:
+      docker-volume-backup.stop-during-backup: true
+
+  radarr-4k:
+    image: ghcr.io/linuxserver/radarr:6.3.0@sha256:a45b5ab0f850f39edb4cc9c95bbd967b52ddc3d4574a4dfb45561177db6c88f4
+    container_name: radarr-4k
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    environment:
+      TZ: $TZ
+      PUID: 1000
+      PGID: 1000
+      RADARR__AUTH__APIKEY: $RADARR_4K_API_KEY
+      RADARR__SERVER__PORT: 7879
+    volumes:
+      - radarr-4k-data:/config
+      - ${MEDIA_PATH}:/data
+    labels:
+      docker-volume-backup.stop-during-backup: true
+
+  # Readarr replacement
+  bookshelf:
+    image: ghcr.io/pennydreadful/bookshelf:hardcover-v0.4.20@sha256:388eecc94362580eae31ee0a454be6af516f8a311f8432a521c202fb475f4359
+    container_name: bookshelf
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    environment:
+      TZ: $TZ
+      PUID: 1000
+      PGID: 1000
+      READARR__AUTH__APIKEY: $READARR_API_KEY
+      READARR__SERVER__PORT: 8787
+    volumes:
+      - bookshelf-data:/config
+      - ${MEDIA_PATH}:/data
+      - type: volume
+        source: calibre-data
+        target: /books
+        volume:
+          subpath: books
+    labels:
+      docker-volume-backup.stop-during-backup: true
+
+  unpackerr:
+    image: golift/unpackerr:0.15.2@sha256:057e34740d26c34d81ec8e2faf8ec11f8dbfc77489b7a42826f52b37e5ee1b6c
+    container_name: unpackerr
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      TZ: $TZ
+      UN_SONARR_0_URL: $SONARR_URL
+      UN_SONARR_0_API_KEY: $SONARR_API_KEY
+      UN_SONARR_0_PATHS_0: /data/downloads/complete
+      UN_RADARR_0_URL: $RADARR_URL
+      UN_RADARR_0_API_KEY: $RADARR_API_KEY
+      UN_RADARR_0_PATHS_0: /data/downloads/complete
+      UN_RADARR_1_URL: $RADARR_4K_URL
+      UN_RADARR_1_API_KEY: $RADARR_4K_API_KEY
+      UN_RADARR_1_PATHS_0: /data/downloads/complete
+      UN_READARR_0_URL: $READARR_URL
+      UN_READARR_0_API_KEY: $READARR_API_KEY
+      UN_READARR_0_PATHS_0: /data/downloads/complete
+    volumes:
+      - ${MEDIA_PATH}/downloads:/data/downloads
+    networks:
+      - arr_network
+
+  qbittorrent:
+    image: ghcr.io/linuxserver/qbittorrent:5.2.3@sha256:b024436f8ca665d16d9a997d26fd27fdf867ee5566ba09f32764e7b2976d3e02
+    container_name: qbittorrent
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    environment:
+      TZ: $TZ
+      PUID: 1000
+      PGID: 1000
+      WEBUI_PORT: 8081
+    volumes:
+      - qbittorrent-data:/config
+      - ${VUETORRENT_PATH}:/vuetorrent
+      - ${MEDIA_PATH}/downloads:/data/downloads
+    labels:
+      docker-volume-backup.stop-during-backup: true
+
+  sabnzbd:
+    image: ghcr.io/linuxserver/sabnzbd:5.0.4@sha256:4307a4ef4a1687c6f7dfa36fc745c1fc10b78db9916b64970b9ff682539dd03b
+    container_name: sabnzbd
+    restart: unless-stopped
+    logging: *default-logging
+    network_mode: service:gluetun
+    depends_on:
+      gluetun:
+        condition: service_healthy
+    environment:
+      TZ: $TZ
+      PUID: 1000
+      PGID: 1000
+    volumes:
+      - sabnzbd-data:/config
+      - ${MEDIA_PATH}:/data
+    labels:
+      docker-volume-backup.stop-during-backup: true
+
+volumes:
+  bookshelf-data:
+  caro-tachidesk-data:
+  gluetun-data:
+  prowlarr-data:
+  qbittorrent-data:
+  radarr-4k-data:
+  radarr-data:
+  recyclarr-data:
+  sabnzbd-data:
+  seerr-data:
+  sonarr-data:
+  tachidesk-data:
+
+networks:
+  arr_network:
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.21.0.0/16"

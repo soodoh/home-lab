@@ -1,0 +1,202 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: 3
+
+x-backup-env: &backup-env
+  TZ: $TZ
+  GPG_PUBLIC_KEY_RING_FILE: /etc/docker-volume-backup/gpg-public.asc
+  BACKUP_EXCLUDE_REGEXP: '^/backup/wolf/profile-data/paul/WolfES-DE/(\.cache/|ES-DE/logs/|\.config/retroarch/(assets|downloads|logs|thumbnails)/)'
+x-backup-volumes: &backup-volumes
+  - audiobookshelf-data:/backup/audiobookshelf-data:ro
+  - authentik-data:/backup/authentik-data:ro
+  - bookshelf-data:/backup/bookshelf-data:ro
+  - caddy-data:/backup/caddy-data:ro
+  - calibre-data:/backup/calibre-data:ro
+  - calibre-web-data:/backup/calibre-web-data:ro
+  - caro-tachidesk-data:/backup/caro-tachidesk-data:ro
+  - ddns-updater-data:/backup/ddns-updater-data:ro
+  - frigate-data:/backup/frigate-data:ro
+  - gluetun-data:/backup/gluetun-data:ro
+  - jellyfin-data:/backup/jellyfin-data:ro
+  - seerr-data:/backup/seerr-data:ro
+  - karaoke-eternal-data:/backup/karaoke-eternal-data:ro
+  - litellm-data:/backup/litellm-data:ro
+  - mosquitto-data:/backup/mosquitto-data:ro
+  - nextcloud-db-data:/backup/nextcloud-db-data:ro
+  - omada-data:/backup/omada-data:ro
+  - pihole-data:/backup/pihole-data:ro
+  - prowlarr-data:/backup/prowlarr-data:ro
+  - qbittorrent-data:/backup/qbittorrent-data:ro
+  - radarr-4k-data:/backup/radarr-4k-data:ro
+  - radarr-data:/backup/radarr-data:ro
+  - recyclarr-data:/backup/recyclarr-data:ro
+  - sabnzbd-data:/backup/sabnzbd-data:ro
+  - sonarr-data:/backup/sonarr-data:ro
+  - tachidesk-data:/backup/tachidesk-data:ro
+  - vaultwarden-data:/backup/vaultwarden-data:ro
+  - vikunja-data:/backup/vikunja-data:ro
+  - zwave-data:/backup/zwave-data:ro
+  # Non-volumes
+  - ${HASS_PATH}:/backup/hass-data:ro
+  # Wolf identity, pairings, profiles, and application configuration
+  - ${GAMES_PATH}/wolf/cfg:/backup/wolf/cfg:ro
+  # Steam game data, ROMs, BIOS files, and regenerable scraped media are intentionally excluded
+  # See the use of BACKUP_EXCLUDE_REGEXP
+  - ${GAMES_PATH}/wolf/profile-data/paul/WolfES-DE:/backup/wolf/profile-data/paul/WolfES-DE:ro
+  # Sensitive host files remain safe in S3 because backups are GPG-encrypted.
+  - /etc/docker-compose/production.env:/backup/.env:ro
+  - ${HOME}/.ssh:/backup/.ssh:ro
+  # Required for GPG public-key encryption
+  - ./data/backup-gpg-public.asc:/etc/docker-volume-backup/gpg-public.asc:ro
+  # Required for docker-volume-backup stop/start labels
+  - /var/run/docker.sock:/var/run/docker.sock:ro
+  # Needed so that the container reflects the $TZ timezone
+  - /etc/localtime:/etc/localtime:ro
+  - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
+  # Preserve the existing storage archive as the write target during rollout,
+  # then synchronously replicate to the host root filesystem and games disk.
+  # Recovery independently prefers home, games, then storage. Weekly S3 backups disable it.
+  - ./data/replicate-local-backup:/usr/local/bin/replicate-local-backup:ro
+  - /mnt/storage/backups:/archive
+  - /home/docker/backups:/replica-home
+  - /mnt/games/backups:/replica-games
+
+services:
+  omada:
+    image: mbentley/omada-controller:6.2@sha256:d281c115461bd5969e6e1864483e7bf57ca966bddde69d6a3b9a770f3289e273
+    container_name: omada
+    restart: always
+    logging: *default-logging
+    # Recommended for easier device discovery
+    network_mode: host
+    environment:
+      TZ: $TZ
+    volumes:
+      - type: volume
+        source: omada-data
+        target: /opt/tplink/EAPController/data
+        volume:
+          subpath: data
+      - type: volume
+        source: omada-data
+        target: /opt/tplink/EAPController/logs
+        volume:
+          subpath: logs
+    labels:
+      docker-volume-backup.stop-during-backup: true
+
+  ddns-updater:
+    image: ghcr.io/qdm12/ddns-updater:v2.10.0@sha256:3e2aa558946b5a293def4d73008fa4651c072b2c12932cecd02126fb23979831
+    container_name: ddns-updater
+    restart: always
+    logging: *default-logging
+    volumes:
+      - ddns-updater-data:/updater/data
+    environment:
+      TZ: $TZ
+      RESOLVER_ADDRESS: $RESOLVER_ADDRESS
+      # See: https://pkg.go.dev/time#ParseDuration
+      PERIOD: 5m
+    networks:
+      - proxy
+
+  caddy:
+    image: caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
+    container_name: caddy
+    restart: always
+    logging: *default-logging
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - 80:80
+      - 443:443/tcp
+      - 443:443/udp
+    environment:
+      TZ: $TZ
+      ROUTE_53_ACCESS_KEY: $ROUTE_53_ACCESS_KEY
+      ROUTE_53_SECRET: $ROUTE_53_SECRET
+      ROUTE_53_ZONE_ID: $ROUTE_53_ZONE_ID
+    volumes:
+      - caddy-data:/data/caddy
+      - ./data/Caddyfile:/etc/caddy/Caddyfile
+    networks:
+      proxy:
+        # Must match Home Assistant's trusted_proxies entry.
+        ipv4_address: 172.23.0.250
+
+  pihole:
+    image: pihole/pihole:2026.07.2@sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b
+    container_name: pihole
+    restart: always
+    logging: *default-logging
+    ports:
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:53:53/tcp
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:53:53/udp
+      # - 81:80
+    environment:
+      TZ: $TZ
+      DNSMASQ_USER: $DNSMASQ_USER
+      PIHOLE_PRIMARY_URL: $PIHOLE_PRIMARY_URL
+      PIHOLE_PRIMARY_PW: $PIHOLE_PRIMARY_PW
+      PIHOLE_SECONDARY_URL: $PIHOLE_SECONDARY_URL
+      PIHOLE_SECONDARY_PW: $PIHOLE_SECONDARY_PW
+    volumes:
+      - pihole-data:/etc/pihole
+    networks:
+      - proxy
+
+  daily-local-backup:
+    image: ghcr.io/offen/docker-volume-backup:v2.48.2@sha256:19102d8e59eb1d598cf8c647c2b21100abaadc5a1c808ac643fa612e323c3013
+    container_name: daily-local-backup
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *backup-env
+      BACKUP_FILENAME: daily-local-backup-%Y-%m-%dT%H-%M-%S.tar.gz
+      BACKUP_PRUNING_PREFIX: daily-local-backup-
+      BACKUP_CRON_EXPRESSION: "0 5 * * *"
+      BACKUP_RETENTION_DAYS: 7
+    labels:
+      docker-volume-backup.copy-post: /bin/sh -c /usr/local/bin/replicate-local-backup
+    volumes: *backup-volumes
+    networks:
+      - infra
+
+  weekly-remote-backup:
+    image: ghcr.io/offen/docker-volume-backup:v2.48.2@sha256:19102d8e59eb1d598cf8c647c2b21100abaadc5a1c808ac643fa612e323c3013
+    container_name: weekly-remote-backup
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      <<: *backup-env
+      BACKUP_FILENAME: weekly-backup-%Y-%m-%dT%H-%M-%S.tar.gz
+      BACKUP_PRUNING_PREFIX: weekly-backup-
+      BACKUP_ARCHIVE: /archive-disabled
+      AWS_S3_BUCKET_NAME: $AWS_S3_BUCKET_NAME
+      AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID
+      AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY
+      BACKUP_CRON_EXPRESSION: "0 6 * * 0"
+      BACKUP_RETENTION_DAYS: 14
+    volumes: *backup-volumes
+    networks:
+      - infra
+
+volumes:
+  pihole-data:
+  omada-data:
+  caddy-data:
+  ddns-updater-data:
+
+networks:
+  infra:
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.22.0.0/16"
+  proxy:
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.23.0.0/16"

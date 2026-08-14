@@ -55,10 +55,29 @@ TARGET_TYPES = {
     "packages": "package-set", "services": "service",
 }
 FORBIDDEN_KEYS = {"argv", "command", "executable", "payload", "script"}
+APPROVED_COMPOSE_ARTIFACT_FILES = {
+    "compose-artifact/.sops.yaml", "compose-artifact/docker-compose.yml",
+    "compose-artifact/scripts/check-sops-env.py", "compose-artifact/scripts/compose-artifact.py",
+    "compose-artifact/scripts/compose-image-lock.py", "compose-artifact/scripts/compose-model-inventory.py",
+    "compose-artifact/scripts/restore-dotenv-layout.py", "compose-artifact/secrets/production.env.keys",
+    "compose-artifact/secrets/production.env.layout.json", "compose-artifact/secrets/production.sops.env",
+    "compose-artifact/services/apps.yml", "compose-artifact/services/authentik.yml",
+    "compose-artifact/services/data/Caddyfile", "compose-artifact/services/data/backup-gpg-public.asc",
+    "compose-artifact/services/data/gluetun/gluetun_up.sh", "compose-artifact/services/data/gluetun/mam_seedbox.sh",
+    "compose-artifact/services/data/gluetun/qbittorrent_port.sh", "compose-artifact/services/data/litellm/config.yaml",
+    "compose-artifact/services/data/litellm/custom_callbacks.py", "compose-artifact/services/data/replicate-local-backup",
+    "compose-artifact/services/data/wolf/85-wolf-virtual-inputs.rules", "compose-artifact/services/data/wolf/es-de/dolphin-config.sh",
+    "compose-artifact/services/data/wolf/es-de/es_systems.xml", "compose-artifact/services/data/wolf/es-de/wolf-xbox-one.cfg",
+    "compose-artifact/services/data/wolf/sway-borderless-frontends.conf", "compose-artifact/services/data/wolf/waybar-disabled",
+    "compose-artifact/services/data/wolf/wolf-input.conf", "compose-artifact/services/gaming.yml",
+    "compose-artifact/services/hass.yml", "compose-artifact/services/infra.yml",
+    "compose-artifact/services/nextcloud.yml", "compose-artifact/services/openfit.yml",
+    "compose-artifact/services/servarr.yml",
+}
 APPROVED_SOURCE_FILES = {
-    "flake.lock", "flake.nix", "hosts/vm-100/access.nix", "hosts/vm-100/base.nix", "hosts/vm-100/default.nix",
-    "hosts/vm-100/disko.nix", "hosts/vm-100/hardware.nix", "hosts/vm-100/networking.nix", "hosts/vm-100/secrets.nix",
-    "hosts/vm-100/storage.nix",
+    "compose-artifact.sha256", "flake.lock", "flake.nix", "hosts/vm-100/access.nix", "hosts/vm-100/base.nix",
+    "hosts/vm-100/compose.nix", "hosts/vm-100/default.nix", "hosts/vm-100/disko.nix", "hosts/vm-100/hardware.nix",
+    "hosts/vm-100/networking.nix", "hosts/vm-100/secrets.nix", "hosts/vm-100/storage.nix",
     "secrets/production.env.keys", "secrets/production.env.layout.json", "secrets/production.sops.env",
     "scripts/restore-dotenv-layout.py", "scripts/vm-100-candidate-install-guard.py",
     "modules/coral.nix", "packages/coral-driver/default.nix",
@@ -71,7 +90,7 @@ APPROVED_SOURCE_FILES = {
     "proxmox/plan.schema.json", "proxmox/planner.py", "proxmox/prepare.py", "proxmox/private-preconditions.schema.json",
     "proxmox/private-preparation-request.schema.json", "proxmox/private-preparer-template.py", "proxmox/projection.json",
     "proxmox/projection.schema.json", "vm-100/projection.json", "vm-100/projection.schema.json",
-}
+} | APPROVED_COMPOSE_ARTIFACT_FILES
 _PVE_ROOT = "/" + "etc" + "/" + "pve"
 _PROTECTED_KEY_NAME = "authorized" + "_keys"
 PROTECTED_VALUE = re.compile(

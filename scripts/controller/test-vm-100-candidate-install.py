@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -88,6 +89,26 @@ class CandidateInstallTests(unittest.TestCase):
         for control in ('type = "gpt"', 'type = "EF02"', 'type = "EF00"', 'format = "vfat"', 'format = "ext4"'):
             self.assertIn(control, source)
         self.assertNotIn("/dev/sd", source)
+
+    def test_compose_artifact_mirror_and_docker_qualification_are_closed(self):
+        expected = (ROOT / "nix/compose-artifact.sha256").read_text().strip()
+        source_hash = subprocess.run(
+            ["python3", "scripts/compose-artifact.py", "hash"], cwd=ROOT,
+            check=True, text=True, stdout=subprocess.PIPE,
+        ).stdout.strip()
+        mirror_hash = subprocess.run(
+            ["python3", "scripts/compose-artifact.py", "--root", "nix/compose-artifact", "--no-git", "hash"], cwd=ROOT,
+            check=True, text=True, stdout=subprocess.PIPE,
+        ).stdout.strip()
+        self.assertEqual(source_hash, expected)
+        self.assertEqual(mirror_hash, expected)
+        module = (ROOT / "nix/hosts/vm-100/compose.nix").read_text()
+        self.assertIn("virtualisation.docker", module)
+        self.assertIn("autoPrune.enable = false", module)
+        flake = (ROOT / "nix/flake.nix").read_text()
+        self.assertIn("vm-100-compose-qualification", flake)
+        self.assertIn("len(services) != 41", flake)
+        self.assertIn('"@sha256:" not in image', flake)
 
 
 if __name__ == "__main__":

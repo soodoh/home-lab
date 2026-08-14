@@ -100,13 +100,19 @@ class Vm100NixFoundationTests(unittest.TestCase):
             self.assertRegex(node["locked"]["rev"], r"^[0-9a-f]{40}$")
             self.assertRegex(node["locked"]["narHash"], r"^sha256-")
 
-    def test_scaffold_has_no_destructive_disk_or_runtime_declaration(self) -> None:
+    def test_scaffold_keeps_disk_and_compose_activation_inert(self) -> None:
         source = "\n".join(
             path.read_text(encoding="utf-8")
             for path in sorted((NIX / "hosts/vm-100").glob("*.nix"))
+            if path.name != "compose.nix"
         )
         for pattern in FORBIDDEN_SOURCE_PATTERNS:
             self.assertIsNone(pattern.search(source), pattern.pattern)
+        compose = (NIX / "hosts/vm-100/compose.nix").read_text(encoding="utf-8")
+        self.assertIn("virtualisation.docker", compose)
+        self.assertNotIn("docker compose up", compose)
+        self.assertNotIn("wantedBy", compose)
+        self.assertFalse(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.system.switch.enable")))
         self.assertNotIn("vm-plan", (NIX / "flake.nix").read_text(encoding="utf-8"))
         self.assertNotIn("vm-apply", (NIX / "flake.nix").read_text(encoding="utf-8"))
         self.assertNotIn("vm-install", (NIX / "flake.nix").read_text(encoding="utf-8"))

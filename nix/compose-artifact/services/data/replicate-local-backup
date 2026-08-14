@@ -1,0 +1,74 @@
+#!/bin/sh
+set -eu
+
+archive=${COMMAND_RUNTIME_ARCHIVE_FILEPATH:?COMMAND_RUNTIME_ARCHIVE_FILEPATH is required}
+basename=${archive##*/}
+printf '%s\n' "$basename" | grep -Eq \
+  '^daily-local-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}\.tar\.gz\.gpg$' || {
+  echo "local_backup_replication=failed reason=archive_name_invalid" >&2
+  exit 1
+}
+
+expected_sha256=$(sha256sum "$archive" | awk '{print $1}')
+case "$expected_sha256" in
+  [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+  *) echo "local_backup_replication=failed reason=checksum_invalid" >&2; exit 1 ;;
+esac
+[ "${#expected_sha256}" -eq 64 ]
+
+for destination in /archive /replica-home /replica-games; do
+  [ -d "$destination" ] && [ ! -L "$destination" ] || {
+    echo "local_backup_replication=failed reason=destination_invalid" >&2
+    exit 1
+  }
+  target="$destination/$basename"
+  if [ "$target" != "$archive" ]; then
+    temporary="$destination/.$basename.partial.$$"
+    rm -f -- "$temporary"
+    cp -- "$archive" "$temporary"
+    actual_sha256=$(sha256sum "$temporary" | awk '{print $1}')
+    [ "$actual_sha256" = "$expected_sha256" ] || {
+      rm -f -- "$temporary"
+      echo "local_backup_replication=failed reason=replica_checksum_mismatch" >&2
+      exit 1
+    }
+    chmod 0600 "$temporary"
+    mv -f -- "$temporary" "$target"
+  else
+    actual_sha256=$(sha256sum "$target" | awk '{print $1}')
+    [ "$actual_sha256" = "$expected_sha256" ] || {
+      echo "local_backup_replication=failed reason=primary_checksum_mismatch" >&2
+      exit 1
+    }
+    chmod 0600 "$target"
+  fi
+
+  checksum_temporary="$destination/.$basename.sha256.partial.$$"
+  printf '%s  %s\n' "$expected_sha256" "$basename" >"$checksum_temporary"
+  chmod 0600 "$checksum_temporary"
+  mv -f -- "$checksum_temporary" "$target.sha256"
+done
+
+prune_destination() {
+  destination=$1
+  retention_days=$2
+  retention_minutes=$((retention_days * 24 * 60))
+  for pattern in \
+    'daily-local-backup-????-??-??T??-??-??.tar.gz.gpg' \
+    'daily-backup-????-??-??T??-??-??.tar.gz.gpg'; do
+    find "$destination" -maxdepth 1 -type f -name "$pattern" \
+      -mmin "+$retention_minutes" \
+      -exec sh -c 'for archive do rm -f -- "$archive" "$archive.sha256"; done' sh {} +
+  done
+  for checksum in \
+    "$destination"/daily-local-backup-*.tar.gz.gpg.sha256 \
+    "$destination"/daily-backup-*.tar.gz.gpg.sha256; do
+    [ -e "$checksum" ] || continue
+    [ -f "${checksum%.sha256}" ] || rm -f -- "$checksum"
+  done
+}
+prune_destination /replica-home 2
+prune_destination /replica-games 7
+prune_destination /archive 7
+
+printf 'local_backup_replication=verified destinations=3\n'

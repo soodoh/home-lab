@@ -1,0 +1,71 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: 3
+
+services:
+  nextcloud:
+    image: nextcloud:34.0.2-apache@sha256:d7666d54d87c58d52869ddda36d1acbd4a7f53faf8ab6b91293daf204f3434e8
+    container_name: nextcloud
+    restart: always
+    logging: *default-logging
+    volumes:
+      - ${MEDIA_PATH}/nextcloud:/var/www/html
+    environment:
+      TZ: $TZ
+      REDIS_HOST: nextcloud-redis
+      REDIS_HOST_PORT: 6379
+      MYSQL_HOST: nextcloud-db
+      MYSQL_ROOT_PASSWORD: $MYSQL_ROOT_PASSWORD
+      MYSQL_PASSWORD: $MYSQL_PASSWORD
+      MYSQL_DATABASE: $MYSQL_DATABASE
+      MYSQL_USER: $MYSQL_USER
+    labels:
+      docker-volume-backup.stop-during-backup: true
+    depends_on:
+      - nextcloud-db
+      - nextcloud-redis
+    networks:
+      - proxy
+      - nextcloud
+
+  nextcloud-db:
+    image: mariadb:lts-ubi9@sha256:29dd37f5df222f7c2668b51d412536ffeff0efc4d4b68d849e9bcead913bffe0
+    container_name: nextcloud-db
+    restart: always
+    logging: *default-logging
+    command: --transaction-isolation=READ-COMMITTED --log-bin=binlog --binlog-format=ROW
+    volumes:
+      - nextcloud-db-data:/var/lib/mysql
+    environment:
+      TZ: $TZ
+      MARIADB_AUTO_UPGRADE: "1"
+      MYSQL_ROOT_PASSWORD: $MYSQL_ROOT_PASSWORD
+      MYSQL_PASSWORD: $MYSQL_PASSWORD
+      MYSQL_DATABASE: $MYSQL_DATABASE
+      MYSQL_USER: $MYSQL_USER
+    labels:
+      docker-volume-backup.stop-during-backup: true
+    networks:
+      - nextcloud
+
+  nextcloud-redis:
+    image: redis:8.2-m01-alpine@sha256:73785dd3f61435fbea1a14bafd2c6509f9df112f50953e09eb31c94717c77e76
+    container_name: nextcloud-redis
+    restart: always
+    logging: *default-logging
+    environment:
+      TZ: $TZ
+    networks:
+      - nextcloud
+
+volumes:
+  nextcloud-db-data:
+
+networks:
+  nextcloud:
+    ipam:
+      driver: default
+      config:
+        - subnet: "172.24.0.0/16"

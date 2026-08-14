@@ -1,0 +1,9 @@
+include:
+  - ./services/openfit.yml
+  - ./services/apps.yml
+  - ./services/hass.yml
+  - ./services/gaming.yml
+  - ./services/nextcloud.yml
+  - ./services/servarr.yml
+  - ./services/authentik.yml
+  - ./services/infra.yml

@@ -11,6 +11,7 @@ in
     ./hardware.nix
     ./disko.nix
     ./secrets.nix
+    ./compose.nix
     ../../modules/coral.nix
   ];
 

@@ -8,7 +8,7 @@ let
   }.${identity.shell};
 in
 {
-  users.groups.${identity.primaryGroup}.gid = identity.gid;
+  users.groups.${identity.primaryGroup}.gid = lib.mkForce identity.gid;
   # This acknowledges NixOS's lockout assertion while all accounts remain explicitly locked.
   users.allowNoPasswordLogin = true;
   users.users.root.hashedPassword = "!";

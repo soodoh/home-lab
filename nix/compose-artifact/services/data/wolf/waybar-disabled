@@ -1,0 +1,4 @@
+#!/bin/sh
+
+# Wolf applications are fullscreen; replace Waybar with a no-op process.
+exit 0

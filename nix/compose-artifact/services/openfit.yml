@@ -1,0 +1,31 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: 3
+
+services:
+  openfit:
+    image: ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778
+    container_name: openfit
+    restart: unless-stopped
+    logging: *default-logging
+    volumes:
+      - openfit-data:/app/data
+    environment:
+      TZ: $TZ
+      BETTER_AUTH_BASE_URL: $BETTER_AUTH_BASE_URL
+      BETTER_AUTH_SECRET: $BETTER_AUTH_SECRET
+      ADMIN_USER: $ADMIN_USER
+      ADMIN_PASSWORD: $ADMIN_PASSWORD
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    networks:
+      - proxy
+
+volumes:
+  openfit-data:
