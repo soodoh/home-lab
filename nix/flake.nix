@@ -66,62 +66,7 @@
           candidatePackages = pkgs.lib.optionalAttrs (system == "x86_64-linux") {
             vm-100-compose-artifact = self.nixosConfigurations.vm-100-candidate.config.homeLab.vm100.composeArtifact;
 
-            vm-100-compose-qualification =
-              let
-                candidatePkgs = self.nixosConfigurations.vm-100-candidate.pkgs;
-                config = self.nixosConfigurations.vm-100-candidate.config;
-                artifact = config.homeLab.vm100.composeArtifact;
-                probeImage = "redis:8.2-m01-alpine@sha256:73785dd3f61435fbea1a14bafd2c6509f9df112f50953e09eb31c94717c77e76";
-              in candidatePkgs.writeShellApplication {
-                name = "vm-100-compose-qualification";
-                runtimeInputs = [ candidatePkgs.coreutils candidatePkgs.docker candidatePkgs.docker-compose candidatePkgs.python3 ];
-                text = ''
-                  work=$(${candidatePkgs.coreutils}/bin/mktemp -d)
-                  trap '${candidatePkgs.coreutils}/bin/rm -rf "$work"' EXIT
-                  ${candidatePkgs.python3}/bin/python3 - ${artifact}/secrets/production.env.keys "$work/qualification.env" <<'PY'
-                  import pathlib, sys
-                  keys = pathlib.Path(sys.argv[1]).read_text().splitlines()
-                  path = pathlib.Path(sys.argv[2])
-                  values = {}
-                  for key in keys:
-                      value = "qualification"
-                      if key == "INTERNAL_HOST_IP": value = "127.0.0.1"
-                      elif key == "TZ": value = "UTC"
-                      elif key == "DOMAIN": value = "example.invalid"
-                      elif key.endswith(("__PORT", "__TIMEOUT")): value = "25"
-                      elif key.endswith(("__USE_SSL", "__USE_TLS")): value = "false"
-                      elif key.endswith(("_URL", "_BASE_URL", "_AUTHORITY")): value = "http://127.0.0.1"
-                      elif key.endswith("_PATH") or key in {"GAMES_PATH", "HASS_PATH", "MEDIA_PATH", "VUETORRENT_PATH"}: value = f"/tmp/vm-100-compose-qualification/{key.lower()}"
-                      elif key == "RESOLVER_ADDRESS": value = "127.0.0.1"
-                      elif key == "SERVER_COUNTRIES": value = "US"
-                      values[key] = value
-                  path.write_text("".join(f"{key}={values[key]}\\n" for key in keys))
-                  path.chmod(0o600)
-                  PY
-                  ${candidatePkgs.docker}/bin/docker version --format '{{.Server.Version}}' > "$work/docker-version"
-                  ${candidatePkgs.docker-compose}/bin/docker-compose \
-                    --project-directory ${artifact} \
-                    --env-file "$work/qualification.env" \
-                    config --format json > "$work/model.json"
-                  ${candidatePkgs.python3}/bin/python3 - "$work/model.json" ${candidatePkgs.lib.escapeShellArg probeImage} <<'PY'
-                  import json, pathlib, sys
-                  model = json.loads(pathlib.Path(sys.argv[1]).read_text())
-                  services = model.get("services")
-                  if not isinstance(services, dict) or len(services) != 41:
-                      raise SystemExit("Compose service inventory differs")
-                  images = [service.get("image") for service in services.values()]
-                  if any(not isinstance(image, str) or "@sha256:" not in image for image in images):
-                      raise SystemExit("Compose image pinning differs")
-                  if sys.argv[2] not in images:
-                      raise SystemExit("Compose probe image differs")
-                  PY
-                  ${candidatePkgs.docker}/bin/docker pull ${candidatePkgs.lib.escapeShellArg probeImage} >/dev/null
-                  ${candidatePkgs.docker}/bin/docker run --rm --network none --read-only --cap-drop ALL \
-                    ${candidatePkgs.lib.escapeShellArg probeImage} redis-server --version > "$work/probe"
-                  printf 'vm-100-compose-qualification=passed services=41 artifact=%s\n' \
-                    "$(${candidatePkgs.coreutils}/bin/cat ${artifact}/.artifact-sha256)"
-                '';
-              };
+            vm-100-compose-qualification = self.nixosConfigurations.vm-100-candidate.config.homeLab.vm100.composeQualification;
 
             vm-100-candidate-update =
               let

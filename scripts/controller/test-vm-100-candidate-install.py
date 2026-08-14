@@ -133,8 +133,8 @@ class CandidateInstallTests(unittest.TestCase):
         self.assertIn("autoPrune.enable = false", module)
         flake = (ROOT / "nix/flake.nix").read_text()
         self.assertIn("vm-100-compose-qualification", flake)
-        self.assertIn("len(services) != 41", flake)
-        self.assertIn('"@sha256:" not in image', flake)
+        self.assertIn("len(services) != 41", module)
+        self.assertIn('\"@sha256:\" not in image', module)
 
 
 if __name__ == "__main__":
