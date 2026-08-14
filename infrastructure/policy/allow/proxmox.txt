@@ -1,2 +1,0 @@
-# Temporary state-only readoption target; remove with candidate-readoption.tf.
-proxmox_virtual_environment_vm.arch_readopted

@@ -17,7 +17,7 @@ resource "proxmox_download_file" "arch_recovery_image" {
   file_name          = "Arch-Linux-x86_64-cloudimg-${local.vm.cloud_image.version}.qcow2"
 }
 
-resource "proxmox_virtual_environment_vm" "arch_readopted" {
+resource "proxmox_virtual_environment_vm" "arch" {
   node_name = local.node
   vm_id     = local.vm.vmid
   name      = local.vm.name
@@ -32,12 +32,21 @@ resource "proxmox_virtual_environment_vm" "arch_readopted" {
 
   reboot_after_update                  = true
   stop_on_destroy                      = false
-  purge_on_destroy                     = true
-  delete_unreferenced_disks_on_destroy = true
+  purge_on_destroy                     = false
+  delete_unreferenced_disks_on_destroy = false
 
   agent {
     enabled = true
     trim    = false
+
+    wait_for_ip {
+      disabled = true
+    }
+  }
+
+  cdrom {
+    file_id   = "none"
+    interface = "ide2"
   }
 
   cpu {
@@ -139,6 +148,10 @@ resource "proxmox_virtual_environment_vm" "arch_readopted" {
 
   serial_device {
     device = "socket"
+  }
+
+  smbios {
+    uuid = local.vm.smbios_uuid
   }
 
 
