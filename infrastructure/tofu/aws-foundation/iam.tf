@@ -1,6 +1,8 @@
 locals {
   state_keys = [
     "home-lab/aws-foundation/tofu.tfstate",
+    "home-lab/authentik/tofu.tfstate",
+    "home-lab/media-apps/tofu.tfstate",
     "home-lab/proxmox/tofu.tfstate",
     "home-lab/proxmox-legacy/tofu.tfstate",
     "home-lab/proxmox-lxc-qualification/tofu.tfstate",
