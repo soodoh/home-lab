@@ -1,0 +1,58 @@
+{
+  "$schema": "./desired.schema.json",
+  "prowlarrSyncProfiles": {
+    "standard": {
+      "enableAutomaticSearch": true,
+      "enableInteractiveSearch": true,
+      "enableRss": true,
+      "importId": 1,
+      "minimumSeeders": 1,
+      "name": "Standard"
+    }
+  },
+  "prowlarrTags": {
+    "lidarr": {
+      "importId": 2,
+      "label": "lidarr"
+    },
+    "radarr": {
+      "importId": 3,
+      "label": "radarr"
+    },
+    "readarr": {
+      "importId": 5,
+      "label": "readarr"
+    },
+    "sonarr": {
+      "importId": 4,
+      "label": "sonarr"
+    }
+  },
+  "radarr4kRootFolders": {
+    "movies-4k": {
+      "importId": 5,
+      "path": "/data/movies/4k"
+    }
+  },
+  "radarrRootFolders": {
+    "movies-1080p": {
+      "importId": 1,
+      "path": "/data/movies/1080p"
+    }
+  },
+  "schemaVersion": 1,
+  "sonarrRootFolders": {
+    "anime-1080p": {
+      "importId": 8,
+      "path": "/data/anime/1080p"
+    },
+    "tv-1080p": {
+      "importId": 7,
+      "path": "/data/tv_shows/1080p"
+    }
+  },
+  "sourceInventory": {
+    "capturedAt": "2026-08-14T09:35:22Z",
+    "sha256": "49c1eb71eae20fc62a5fe1886a14cc6f0127db6c8caf1efe1f2ea37d76f2d151"
+  }
+}

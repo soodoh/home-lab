@@ -407,7 +407,7 @@
       "importId": "5",
       "path": "/data/movies/4k",
       "provider": "radarr.radarr_4k",
-      "resourceAddress": "radarr_root_folder.root_folders[\"movies-4k\"]",
+      "resourceAddress": "radarr_root_folder.root_folders_4k[\"movies-4k\"]",
       "root": "media-apps"
     },
     {
