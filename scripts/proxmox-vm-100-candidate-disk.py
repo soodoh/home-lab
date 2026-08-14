@@ -114,29 +114,33 @@ def main() -> int:
         candidate = before_config.get("scsi2")
         if not isinstance(candidate, str) or not candidate_is_exact(candidate):
             raise SystemExit("VM 100 candidate disk identity differs before boot normalization")
+        effective_before = parse_config(remote("/usr/sbin/qm", "config", str(VMID)))
+        already_pending = effective_before.get("boot") == "order=scsi0;net0" and "ide2" not in effective_before
         changed = False
         temporarily_unprotected = False
-        try:
-            if "ide2" in before_config:
-                remote("/usr/sbin/qm", "set", str(VMID), "--protection", "0")
-                temporarily_unprotected = True
-                remote("/usr/sbin/qm", "set", str(VMID), "--delete", "ide2")
-                changed = True
-            if before_config["boot"] != "order=scsi0;net0":
-                remote("/usr/sbin/qm", "set", str(VMID), "--boot", "order=scsi0;net0")
-                changed = True
-        finally:
-            if temporarily_unprotected:
-                remote("/usr/sbin/qm", "set", str(VMID), "--protection", "1")
-        after = inspect()
+        if not already_pending:
+            try:
+                if "ide2" in before_config:
+                    remote("/usr/sbin/qm", "set", str(VMID), "--protection", "0")
+                    temporarily_unprotected = True
+                    remote("/usr/sbin/qm", "set", str(VMID), "--delete", "ide2")
+                    changed = True
+                if before_config["boot"] != "order=scsi0;net0":
+                    remote("/usr/sbin/qm", "set", str(VMID), "--boot", "order=scsi0;net0")
+                    changed = True
+            finally:
+                if temporarily_unprotected:
+                    remote("/usr/sbin/qm", "set", str(VMID), "--protection", "1")
+        after = inspect({"order=scsi0;net0", "order=scsi0;net0;ide2"})
         after_config = after["config"]
         assert isinstance(after_config, dict)
-        if "ide2" in after_config:
-            raise SystemExit("VM 100 empty CD-ROM remained after boot normalization")
+        effective_after = parse_config(remote("/usr/sbin/qm", "config", str(VMID)))
+        if effective_after.get("boot") != "order=scsi0;net0" or "ide2" in effective_after:
+            raise SystemExit("VM 100 effective boot configuration was not normalized")
         if before["pid"] != after["pid"] or before["startTicks"] != after["startTicks"]:
             raise SystemExit("VM 100 restarted during boot normalization")
         for key in ("scsi0", "scsi1", "scsi2", "protection", "onboot"):
-            if before_config[key] != after_config[key]:
+            if before_config[key] != after_config[key] or after_config[key] != effective_after[key]:
                 raise SystemExit(f"VM 100 protected configuration changed during boot normalization: {key}")
         evidence = {
             "format": "home-lab-vm-100-boot-normalization-v1",
@@ -147,7 +151,8 @@ def main() -> int:
             "status": "running",
             "pidStable": True,
             "bootOrder": "scsi0;net0",
-            "candidateConfigSha256": sha256(after_config["scsi2"]),
+            "pendingActivation": after_config.get("boot") != effective_after["boot"] or "ide2" in after_config,
+            "candidateConfigSha256": sha256(effective_after["scsi2"]),
             "result": "passed",
         }
         output = repo / ".reconcile/vm-100/boot-normalization.json"

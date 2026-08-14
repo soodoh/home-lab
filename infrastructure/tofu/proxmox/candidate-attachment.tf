@@ -96,3 +96,23 @@ resource "terraform_data" "vm_100_boot_normalization_transaction" {
     }
   }
 }
+
+
+# Running VMs expose pending boot changes separately from current QEMU state.
+# This idempotent pass verifies the effective next-boot configuration.
+resource "terraform_data" "vm_100_boot_normalization_verification" {
+  input = {
+    vm_id               = local.vm.vmid
+    source_boot_order   = "scsi0;net0"
+    candidate_interface = local.vm.candidate_disk.interface
+    verifies            = terraform_data.vm_100_boot_normalization_transaction.id
+  }
+
+  provisioner "local-exec" {
+    command = "${path.module}/../../../scripts/proxmox-vm-100-candidate-disk.py normalize-boot"
+
+    environment = {
+      HOMELAB_VM100_CANDIDATE_ATTACHMENT = "reviewed-opentofu-action"
+    }
+  }
+}
