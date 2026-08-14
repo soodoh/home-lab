@@ -40,7 +40,6 @@ resource "authentik_provider_proxy" "providers" {
   cookie_domain                 = each.value.cookie_domain
   access_token_validity         = each.value.access_token_validity
   refresh_token_validity        = each.value.refresh_token_validity
-  property_mappings             = each.value.property_mappings
   jwt_federation_sources        = each.value.jwt_federation_sources
   jwt_federation_providers      = each.value.jwt_federation_providers
 

@@ -101,6 +101,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertIn("var.authentik_enable_management ? local.desired.proxyProviders : {}", main)
         self.assertNotIn("client_secret", main)
         self.assertNotIn("cookie_secret", main)
+        self.assertNotIn("property_mappings", main)
         self.assertIn("token    = var.authentik_token", main)
         self.assertEqual(variables.count("ephemeral = true"), 1)
         self.assertEqual(variables.count("sensitive = true"), 1)
