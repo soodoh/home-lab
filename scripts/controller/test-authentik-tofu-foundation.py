@@ -101,6 +101,24 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertNotIn("cookie_secret", main)
         self.assertNotIn("AUTHENTIK_TOKEN", main)
 
+    def test_bootstrap_is_guarded_and_least_privilege(self) -> None:
+        bootstrap = (REPO / "scripts" / "controller" / "authentik-bootstrap-service-account.py").read_text()
+        for permission in (
+            "view_application",
+            "change_application",
+            "view_provider",
+            "change_provider",
+            "view_proxyprovider",
+            "change_proxyprovider",
+        ):
+            self.assertIn(f'"{permission}"', bootstrap)
+        for forbidden in ("add_application", "delete_application", "add_proxyprovider", "delete_proxyprovider"):
+            self.assertNotIn(forbidden, bootstrap)
+        self.assertIn("with transaction.atomic():", bootstrap)
+        self.assertIn("HOME_LAB_AUTHENTIK_BOOTSTRAP_REQUEST_SHA256", bootstrap)
+        self.assertIn("2026-11-12T00:00:00Z", bootstrap)
+        self.assertNotIn("objects.delete", bootstrap)
+
 
 if __name__ == "__main__":
     unittest.main()
