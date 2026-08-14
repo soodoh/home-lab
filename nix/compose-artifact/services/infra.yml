@@ -26,6 +26,7 @@ x-backup-volumes: &backup-volumes
   - mosquitto-data:/backup/mosquitto-data:ro
   - nextcloud-db-data:/backup/nextcloud-db-data:ro
   - omada-data:/backup/omada-data:ro
+  - openfit-data:/backup/openfit-data:ro
   - pihole-data:/backup/pihole-data:ro
   - prowlarr-data:/backup/prowlarr-data:ro
   - qbittorrent-data:/backup/qbittorrent-data:ro
