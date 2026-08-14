@@ -38,6 +38,10 @@ resource "proxmox_virtual_environment_vm" "arch" {
   agent {
     enabled = true
     trim    = false
+
+    wait_for_ip {
+      disabled = true
+    }
   }
 
   dynamic "cdrom" {

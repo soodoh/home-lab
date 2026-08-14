@@ -35,8 +35,4 @@ resource "terraform_data" "vm_100_boot_normalization" {
       HOMELAB_VM100_CANDIDATE_ATTACHMENT = "reviewed-opentofu-action"
     }
   }
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
