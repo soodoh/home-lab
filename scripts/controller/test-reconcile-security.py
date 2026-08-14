@@ -156,7 +156,7 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertLess(compose, authentik)
         self.assertLess(authentik, media)
         self.assertLess(media, verify)
-        for secret in ("AUTHENTIK_TOKEN", "TF_VAR_sonarr_api_key", "TF_VAR_radarr_4k_api_key"):
+        for secret in ("TF_VAR_authentik_token", "TF_VAR_sonarr_api_key", "TF_VAR_radarr_4k_api_key"):
             self.assertIn(secret, self.reconciler)
 
     def test_reconciler_owns_and_verifies_one_inherited_apply_lock(self) -> None:

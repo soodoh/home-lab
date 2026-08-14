@@ -5,8 +5,8 @@ locals {
 }
 
 provider "authentik" {
-  url      = var.authentik_enable_management ? null : "https://authentik.invalid"
-  token    = var.authentik_enable_management ? null : "disabled-not-a-credential"
+  url      = var.authentik_url
+  token    = var.authentik_token
   insecure = false
 }
 

@@ -101,7 +101,9 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertIn("var.authentik_enable_management ? local.desired.proxyProviders : {}", main)
         self.assertNotIn("client_secret", main)
         self.assertNotIn("cookie_secret", main)
-        self.assertNotIn("AUTHENTIK_TOKEN", main)
+        self.assertIn("token    = var.authentik_token", main)
+        self.assertEqual(variables.count("ephemeral = true"), 1)
+        self.assertEqual(variables.count("sensitive = true"), 1)
 
     def test_bootstrap_is_guarded_and_least_privilege(self) -> None:
         bootstrap = (REPO / "scripts" / "controller" / "authentik-bootstrap-service-account.py").read_text()

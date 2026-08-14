@@ -507,7 +507,7 @@ tailscale_verify_state_policy() {
 assert_plan_excludes_credentials() {
   local plan=$1 variable value
   for variable in AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN PROXMOX_VE_API_TOKEN \
-    OMADA_PASSWORD TAILSCALE_OAUTH_CLIENT_SECRET AUTHENTIK_TOKEN \
+    OMADA_PASSWORD TAILSCALE_OAUTH_CLIENT_SECRET TF_VAR_authentik_token \
     TF_VAR_sonarr_api_key TF_VAR_radarr_api_key TF_VAR_radarr_4k_api_key TF_VAR_prowlarr_api_key; do
     value=${!variable:-}
     [[ -z $value ]] && continue
