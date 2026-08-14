@@ -37,7 +37,8 @@ class CandidateAttachmentTests(unittest.TestCase):
         self.assertIn('resource "terraform_data" "vm_100_candidate_disk_attachment"', tofu)
         self.assertIn('HOMELAB_VM100_CANDIDATE_ATTACHMENT = "reviewed-opentofu-action"', tofu)
         self.assertIn("prevent_destroy = true", tofu)
-        self.assertIn("ignore_changes = [disk]", vm)
+        self.assertNotIn("ignore_changes = [disk]", vm)
+        self.assertIn("ignore_changes  = [disk[1].file_format]", vm)
 
 
 if __name__ == "__main__":
