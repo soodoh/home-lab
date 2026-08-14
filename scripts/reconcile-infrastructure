@@ -73,6 +73,10 @@ case "$plan_dir" in
 esac
 [[ $plan_dir != *"/../"* && $plan_dir != */.. ]] || exit 64
 
+if [[ $action == apply ]]; then
+  node scripts/controller/check-vm-100-authority.js --require-ordinary-mutation
+fi
+
 if [[ $action == validate ]]; then
   for command in tofu node jq python3 shellcheck ansible-lint ansible-playbook docker nix nix-store; do
     command -v "$command" >/dev/null || {
@@ -87,6 +91,7 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-proxmox-package-manifest.js
   node scripts/controller/test-proxmox-nix-projection.js
   node scripts/controller/test-vm-100-nix-projection.js
+  node scripts/controller/test-vm-100-authority.js
   node scripts/controller/test-vm-100-facts.js
   node scripts/controller/proxmox-nix-projection.js --check --target proxmox
   node scripts/controller/proxmox-nix-projection.js --check --target vm-100
@@ -98,6 +103,7 @@ if [[ $action == validate ]]; then
   PROXMOX_NIX_SOURCE_STORE_PATH=$proxmox_nix_source \
     python3 scripts/controller/test-proxmox-nix-foundation.py
   python3 scripts/controller/test-vm-100-nix-foundation.py
+  python3 scripts/controller/test-vm-100-migration-guard.py
   python3 scripts/controller/test-vm-100-sops.py
   python3 scripts/controller/test-vm-100-coral.py
   python3 scripts/controller/test-vm-100-candidate-attachment.py

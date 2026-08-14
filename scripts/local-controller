@@ -122,6 +122,10 @@ run_validation() {
   scripts/reconcile-infrastructure validate
 }
 
+require_ordinary_mutation_authority() {
+  node scripts/controller/check-vm-100-authority.js --require-ordinary-mutation
+}
+
 manifest_sha256() {
   shasum -a 256 "$manifest" | awk '{print $1}'
 }
@@ -286,6 +290,7 @@ case "$action" in
       "$operation" "$(jq -r .stage "$manifest")" "$commit" "$(manifest_sha256)"
     ;;
   apply)
+    require_ordinary_mutation_authority
     use_prepared_provider_tls
     run_validation
     confirm_apply

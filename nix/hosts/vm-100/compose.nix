@@ -1,5 +1,6 @@
-{ config, lib, pkgs, ... }:
+{ config, lib, pkgs, vm100Projection ? builtins.fromJSON (builtins.readFile ../../vm-100/projection.json), ... }:
 let
+  dockerEnabled = vm100Projection.deploymentAuthority != "arch";
   artifactHash = lib.removeSuffix "\n" (builtins.readFile ../../compose-artifact.sha256);
   artifact = pkgs.runCommand "vm-100-compose-artifact-${artifactHash}" {
     nativeBuildInputs = [ pkgs.python3 ];
@@ -81,7 +82,7 @@ in
     homeLab.vm100.composeQualification = qualification;
 
     virtualisation.docker = {
-      enable = true;
+      enable = dockerEnabled;
       autoPrune.enable = false;
       daemon.settings = {
         live-restore = true;

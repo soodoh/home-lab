@@ -318,6 +318,15 @@ function projectProxmoxPolicy(contract, packageManifest) {
 
 function projectVm100Scaffold(contract) {
   const vm = contract.vm_100;
+  const activationByAuthority = {
+    arch: false,
+    "migration-in-progress": false,
+    nixos: true,
+  };
+  if (!Object.hasOwn(activationByAuthority, vm.deployment_authority) ||
+      vm.nixos_activation_enabled !== activationByAuthority[vm.deployment_authority]) {
+    throw new Error("VM 100 deployment authority and NixOS activation relation is invalid");
+  }
   if (vm.vmid !== contract.proxmox.vm.vmid || vm.vmid !== contract.storage.nfs.client_vmid ||
       vm.host_name !== contract.network.arch.hostname || vm.network_identity !== contract.network.arch.magicdns_name) {
     throw new Error("VM 100 scaffold identity differs from existing contract authority");

@@ -23,6 +23,15 @@ if (canonicalJson(projectVm100Scaffold(structuredClone(contract))) !== rendered)
 }
 
 const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
+for (const [authority, activationEnabled] of [["arch", false], ["migration-in-progress", false], ["nixos", true]]) {
+  const authorityContract = structuredClone(contract);
+  authorityContract.vm_100.deployment_authority = authority;
+  authorityContract.vm_100.nixos_activation_enabled = activationEnabled;
+  const authorityProjection = projectVm100Scaffold(authorityContract);
+  if (!validate(authorityProjection)) {
+    throw new Error(`projection rejected valid ${authority} authority relation: ${JSON.stringify(validate.errors)}`);
+  }
+}
 const unknown = structuredClone(projected);
 unknown.unexpectedProjectionField = true;
 if (validate(unknown)) throw new Error("VM 100 projection schema is open");
@@ -31,6 +40,8 @@ for (const mutation of [
   (value) => { value.vm_100.vmid = 101; },
   (value) => { value.vm_100.host_name = "other"; },
   (value) => { value.vm_100.network_identity = "other"; },
+  (value) => { value.vm_100.deployment_authority = "arch"; value.vm_100.nixos_activation_enabled = true; },
+  (value) => { value.vm_100.deployment_authority = "migration-in-progress"; value.vm_100.nixos_activation_enabled = true; },
   (value) => { value.vm_100.deployment_authority = "nixos"; value.vm_100.nixos_activation_enabled = false; },
   (value) => { value.vm_100.workload_identity.uid = 1001; },
   (value) => { value.vm_100.access.authorized_login_keys = 1; },

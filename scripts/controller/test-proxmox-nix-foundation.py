@@ -42,9 +42,10 @@ EXPECTED_COMPOSE_ARTIFACT_FILES = {
 EXPECTED_SOURCE_FILES = {
     "compose-artifact.sha256", "flake.lock", "flake.nix", "hosts/vm-100/access.nix", "hosts/vm-100/base.nix",
     "hosts/vm-100/compose.nix", "hosts/vm-100/default.nix", "hosts/vm-100/disko.nix", "hosts/vm-100/hardware.nix",
-    "hosts/vm-100/networking.nix", "hosts/vm-100/secrets.nix", "hosts/vm-100/storage.nix",
+    "hosts/vm-100/migration.nix", "hosts/vm-100/networking.nix", "hosts/vm-100/secrets.nix", "hosts/vm-100/storage.nix",
     "secrets/production.env.keys", "secrets/production.env.layout.json", "secrets/production.sops.env",
     "scripts/restore-dotenv-layout.py", "scripts/vm-100-candidate-install-guard.py", "scripts/vm-100-candidate-update-guard.py",
+    "scripts/vm-100-migration-guard.py",
     "modules/coral.nix", "packages/coral-driver/default.nix",
     "packages/coral-driver/0001-linux-6.13-dma-buf-namespace.patch",
     "packages/coral-driver/0002-linux-6.0-remove-no-llseek.patch",

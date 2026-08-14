@@ -19,6 +19,26 @@
     "storage",
     "hardware"
   ],
+  "oneOf": [
+    {
+      "properties": {
+        "deploymentAuthority": { "const": "arch" },
+        "nixosActivationEnabled": { "const": false }
+      }
+    },
+    {
+      "properties": {
+        "deploymentAuthority": { "const": "migration-in-progress" },
+        "nixosActivationEnabled": { "const": false }
+      }
+    },
+    {
+      "properties": {
+        "deploymentAuthority": { "const": "nixos" },
+        "nixosActivationEnabled": { "const": true }
+      }
+    }
+  ],
   "properties": {
     "version": {
       "const": 1
@@ -39,10 +59,14 @@
       "const": "26.05"
     },
     "deploymentAuthority": {
-      "const": "arch"
+      "enum": [
+        "arch",
+        "migration-in-progress",
+        "nixos"
+      ]
     },
     "nixosActivationEnabled": {
-      "const": false
+      "type": "boolean"
     },
     "workloadIdentity": {
       "type": "object",

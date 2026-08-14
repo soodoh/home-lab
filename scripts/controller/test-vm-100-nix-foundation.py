@@ -28,6 +28,15 @@ class Vm100NixFoundationTests(unittest.TestCase):
             text=True,
         ).stdout
 
+    def nix_eval_apply(self, attribute: str, expression: str) -> object:
+        output = subprocess.run(
+            ["nix", "eval", f"path:{NIX}#{attribute}", "--apply", expression, "--json"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+        return json.loads(output)
+
     def test_projection_and_evaluated_configuration_are_inert(self) -> None:
         projection = json.loads(PROJECTION.read_text(encoding="utf-8"))
         self.assertEqual(projection["deploymentAuthority"], "arch")
@@ -92,6 +101,69 @@ class Vm100NixFoundationTests(unittest.TestCase):
         coral_drv = json.loads(self.nix_eval("packages.x86_64-linux.vm-100-coral-driver.drvPath"))
         self.assertRegex(coral_drv, r"^/nix/store/[a-z0-9]+-gasket-driver-r236\.5815ee3\.drv$")
 
+    def test_authority_variants_enforce_migration_inhibition_and_nixos_activation(self) -> None:
+        evaluation = json.loads(self.nix_eval("lib.vm-100-authority-evaluation"))
+        self.assertEqual(evaluation["arch"], {"dockerEnabled": False, "switchEnabled": False})
+        marker = "/var/lib/home-lab/vm-100-write-commit.json"
+        self.assertEqual(
+            evaluation["migration"],
+            {
+                "dockerCondition": marker,
+                "dockerEnabled": True,
+                "gamesOptions": ["noatime", "ro"],
+                "sharedOptions": ["defaults", "ro"],
+                "socketCondition": marker,
+                "switchEnabled": False,
+                "writeEnableRequires": ["vm-100-write-commit.service"],
+            },
+        )
+        self.assertEqual(
+            evaluation["nixos"],
+            {
+                "dockerConditioned": False,
+                "dockerEnabled": True,
+                "gamesOptions": ["noatime"],
+                "sharedOptions": ["defaults"],
+                "switchEnabled": True,
+            },
+        )
+        self.assertFalse(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.virtualisation.docker.enable")))
+        self.assertTrue(json.loads(self.nix_eval("nixosConfigurations.vm-100-candidate.config.virtualisation.docker.enable")))
+        flake = (NIX / "flake.nix").read_text(encoding="utf-8")
+        self.assertNotIn("nixosConfigurations.vm-100-migration", flake)
+        self.assertNotIn("nixosConfigurations.vm-100-nixos", flake)
+        self.assertNotIn("self.nixosConfigurations.vm-100-migration", flake)
+        self.assertNotIn("self.nixosConfigurations.vm-100-nixos", flake)
+        package_names = self.nix_eval_apply("packages.x86_64-linux", "builtins.attrNames")
+        app_names = self.nix_eval_apply("apps.x86_64-linux", "builtins.attrNames")
+        for name in ("vm-100-migration-verify", "vm-100-migration-write-commit"):
+            self.assertNotIn(name, package_names)
+            self.assertNotIn(name, app_names)
+
+    def test_migration_write_commit_guard_is_closed_and_persistent(self) -> None:
+        guard = (NIX / "scripts/vm-100-migration-guard.py").read_text(encoding="utf-8")
+        for expected in (
+            'AUTHORITY = "migration-in-progress"',
+            'CONFIRMATION = "commit-reviewed-vm-100-migration-writes"',
+            'STATE_DIRECTORY = Path("/var/lib/home-lab")',
+            'MARKER_NAME = "vm-100-write-commit.json"',
+            'metadata.st_uid != 0',
+            'metadata.st_gid != 0',
+            'stat.S_IMODE(metadata.st_mode) != 0o700',
+            'read_protected_file(directory_fd, REQUEST_NAME, 0o600)',
+            'current_system_identity(BOOTED_SYSTEM)',
+            'current_system_identity(CURRENT_SYSTEM)',
+            'now - created > MAX_REQUEST_AGE',
+            'getattr(os, "O_NOFOLLOW", 0)',
+            'os.replace(temporary, MARKER_NAME',
+            'subprocess.run(["systemctl", "is-active", "--quiet", unit]',
+            '"enable-writes"',
+            '"--mountpoint"',
+        ):
+            self.assertIn(expected, guard)
+        self.assertNotIn("shell=True", guard)
+        self.assertNotIn("os.system", guard)
+
     def test_inputs_are_locked_and_follow_the_single_nixpkgs(self) -> None:
         lock = json.loads((NIX / "flake.lock").read_text(encoding="utf-8"))
         for name in ("disko", "sops-nix"):
@@ -104,14 +176,19 @@ class Vm100NixFoundationTests(unittest.TestCase):
         source = "\n".join(
             path.read_text(encoding="utf-8")
             for path in sorted((NIX / "hosts/vm-100").glob("*.nix"))
-            if path.name != "compose.nix"
+            if path.name not in {"compose.nix", "migration.nix"}
         )
         for pattern in FORBIDDEN_SOURCE_PATTERNS:
             self.assertIsNone(pattern.search(source), pattern.pattern)
         compose = (NIX / "hosts/vm-100/compose.nix").read_text(encoding="utf-8")
+        migration = (NIX / "hosts/vm-100/migration.nix").read_text(encoding="utf-8")
         self.assertIn("virtualisation.docker", compose)
         self.assertNotIn("docker compose up", compose)
         self.assertNotIn("wantedBy", compose)
+        self.assertNotIn("docker compose up", migration)
+        self.assertIn("ConditionPathExists", migration)
+        self.assertIn("vm-100-migration-verify", migration)
+        self.assertIn("vm-100-migration-write-commit", migration)
         self.assertFalse(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.system.switch.enable")))
         self.assertNotIn("vm-plan", (NIX / "flake.nix").read_text(encoding="utf-8"))
         self.assertNotIn("vm-apply", (NIX / "flake.nix").read_text(encoding="utf-8"))

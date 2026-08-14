@@ -116,12 +116,14 @@ class ReconcileSecurityTests(unittest.TestCase):
 
     def test_apply_confirms_before_loading_mutation_credentials(self) -> None:
         dispatch = self.controller.index('case "$action" in', self.controller.index("confirm_apply()"))
-        prepared = self.controller.index("use_prepared_provider_tls", dispatch)
+        authority_gate = self.controller.index("require_ordinary_mutation_authority", dispatch)
+        prepared = self.controller.index("use_prepared_provider_tls", authority_gate)
         validation = self.controller.index("run_validation", prepared)
         confirm = self.controller.index("confirm_apply", validation)
         credentials = self.controller.index("load_credentials apply", confirm)
         regenerated = self.controller.index("prepare_provider_tls", credentials)
         reconcile = self.controller.index("scripts/reconcile-infrastructure apply", regenerated)
+        self.assertLess(authority_gate, prepared)
         self.assertLess(prepared, validation)
         self.assertLess(validation, confirm)
         self.assertLess(confirm, credentials)
@@ -130,6 +132,27 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertIn("interactive_confirmation_required", self.controller)
         apply_section = self.controller[confirm:]
         self.assertNotIn("load_credentials plan", apply_section)
+
+    def test_migration_authority_refuses_all_ordinary_apply_paths_before_mutation(self) -> None:
+        local_dispatch = self.controller.index('case "$action" in', self.controller.index("confirm_apply()"))
+        local_gate = self.controller.index("require_ordinary_mutation_authority", local_dispatch)
+        local_credentials = self.controller.index("load_credentials apply", local_gate)
+        local_apply = self.controller.index("scripts/reconcile-infrastructure apply", local_credentials)
+        self.assertLess(local_gate, local_credentials)
+        self.assertLess(local_gate, local_apply)
+
+        reconcile_gate = self.reconciler.index(
+            "check-vm-100-authority.js --require-ordinary-mutation",
+        )
+        backend_setup = self.reconciler.index("backend_bucket=${TF_BACKEND_BUCKET:-}", reconcile_gate)
+        reconcile_dispatch = self.reconciler.index('case "$action" in', self.reconciler.index("acquire_apply_lock()"))
+        reconcile_lock = self.reconciler.index("acquire_apply_lock", reconcile_dispatch)
+        first_mutation = self.reconciler.index("apply_root aws-foundation", reconcile_lock)
+        self.assertLess(reconcile_gate, backend_setup)
+        self.assertLess(reconcile_gate, reconcile_lock)
+        self.assertLess(reconcile_gate, first_mutation)
+        gate_block = self.reconciler[self.reconciler.rfind("if [[ $action ==", 0, reconcile_gate):backend_setup]
+        self.assertIn("$action == apply", gate_block)
 
     def test_application_tunnels_and_apply_order_are_guarded(self) -> None:
         dispatch = self.controller.index('case "$action" in', self.controller.index("confirm_apply()"))

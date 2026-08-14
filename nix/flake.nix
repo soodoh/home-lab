@@ -17,22 +17,56 @@
     let
       systems = [ "aarch64-darwin" "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
-    in {
-      nixosConfigurations.vm-100 = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [
-          disko.nixosModules.disko
-          sops-nix.nixosModules.sops
-          ./hosts/vm-100
-        ];
+      vm100Projection = builtins.fromJSON (builtins.readFile ./vm-100/projection.json);
+      mkVm100 = { projection ? vm100Projection, extraModules ? [ ] }:
+        nixpkgs.lib.nixosSystem {
+          system = "x86_64-linux";
+          specialArgs.vm100Projection = projection;
+          modules = [
+            disko.nixosModules.disko
+            sops-nix.nixosModules.sops
+            ./hosts/vm-100
+          ] ++ extraModules;
+        };
+      authorityConfig = authority: activation:
+        (mkVm100 {
+          projection = vm100Projection // {
+            deploymentAuthority = authority;
+            nixosActivationEnabled = activation;
+          };
+        }).config;
+      authorityConfigs = {
+        arch = authorityConfig "arch" false;
+        migration = authorityConfig "migration-in-progress" false;
+        nixos = authorityConfig "nixos" true;
       };
+      authorityEvaluation = {
+        arch = {
+          switchEnabled = authorityConfigs.arch.system.switch.enable;
+          dockerEnabled = authorityConfigs.arch.virtualisation.docker.enable;
+        };
+        migration = {
+          switchEnabled = authorityConfigs.migration.system.switch.enable;
+          dockerEnabled = authorityConfigs.migration.virtualisation.docker.enable;
+          gamesOptions = authorityConfigs.migration.fileSystems."/mnt/games".options;
+          sharedOptions = authorityConfigs.migration.fileSystems."/mnt/storage".options;
+          dockerCondition = authorityConfigs.migration.systemd.services.docker.unitConfig.ConditionPathExists;
+          socketCondition = authorityConfigs.migration.systemd.sockets.docker.unitConfig.ConditionPathExists;
+          writeEnableRequires = authorityConfigs.migration.systemd.services.vm-100-migration-write-enable.requires;
+        };
+        nixos = {
+          switchEnabled = authorityConfigs.nixos.system.switch.enable;
+          dockerEnabled = authorityConfigs.nixos.virtualisation.docker.enable;
+          gamesOptions = authorityConfigs.nixos.fileSystems."/mnt/games".options;
+          sharedOptions = authorityConfigs.nixos.fileSystems."/mnt/storage".options;
+          dockerConditioned = authorityConfigs.nixos.systemd.services.docker.unitConfig ? ConditionPathExists;
+        };
+      };
+    in {
+      nixosConfigurations.vm-100 = mkVm100 { };
 
-      nixosConfigurations.vm-100-candidate = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [
-          disko.nixosModules.disko
-          sops-nix.nixosModules.sops
-          ./hosts/vm-100
+      nixosConfigurations.vm-100-candidate = mkVm100 {
+        extraModules = [
           ({ lib, ... }: {
             disabledModules = [
               ./hosts/vm-100/networking.nix
@@ -42,6 +76,7 @@
             homeLab.vm100.rootDiskDevice = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2";
             disko.rootMountPoint = "/mnt/vm-100-candidate";
             system.switch.enable = lib.mkForce true;
+            virtualisation.docker.enable = lib.mkForce true;
             networking.useDHCP = false;
             networking.useNetworkd = true;
             systemd.network.enable = true;
@@ -55,6 +90,7 @@
 
       lib.vm-100-scaffold =
         builtins.fromJSON (builtins.readFile ./vm-100/projection.json);
+      lib.vm-100-authority-evaluation = authorityEvaluation;
       packages = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
@@ -159,6 +195,11 @@
                 '';
               };
           };
+          migrationPackages = pkgs.lib.optionalAttrs
+            (system == "x86_64-linux" && vm100Projection.deploymentAuthority == "migration-in-progress") {
+              vm-100-migration-verify = self.nixosConfigurations.vm-100.config.homeLab.vm100.migrationVerify;
+              vm-100-migration-write-commit = self.nixosConfigurations.vm-100.config.homeLab.vm100.migrationWriteCommit;
+            };
           bundle = pkgs.runCommand "home-lab-proxmox-host-bundle-v1" {
             nativeBuildInputs = [ pkgs.python3 ];
           } ''
@@ -185,7 +226,7 @@
           default = bundle;
           proxmox-host-bundle = bundle;
           proxmox-host-plan = hostPlan;
-        } // coralDriver // candidatePackages);
+        } // coralDriver // candidatePackages // migrationPackages);
 
 
       apps = forAllSystems (system: {
@@ -210,7 +251,19 @@
           program = "${self.packages.x86_64-linux.vm-100-compose-qualification}/bin/vm-100-compose-qualification";
           meta.description = "Qualify isolated dockerd and the exact secret-free Compose artifact";
         };
-      });
+      } // nixpkgs.lib.optionalAttrs
+        (system == "x86_64-linux" && vm100Projection.deploymentAuthority == "migration-in-progress") {
+          vm-100-migration-verify = {
+            type = "app";
+            program = "${self.packages.x86_64-linux.vm-100-migration-verify}/bin/vm-100-migration-verify";
+            meta.description = "Verify VM 100 migration boot and reused storage without mutation";
+          };
+          vm-100-migration-write-commit = {
+            type = "app";
+            program = "${self.packages.x86_64-linux.vm-100-migration-write-commit}/bin/vm-100-migration-write-commit";
+            meta.description = "Enter the guarded persistent VM 100 migration write-commit target";
+          };
+        });
 
       checks = forAllSystems (system:
         let
@@ -243,6 +296,30 @@
               test -x ${self.packages.x86_64-linux.vm-100-compose-qualification}/bin/vm-100-compose-qualification
               test -x ${self.packages.x86_64-linux.vm-100-candidate-install}/bin/vm-100-candidate-install
               test -x ${self.packages.x86_64-linux.vm-100-candidate-update}/bin/vm-100-candidate-update
+              touch "$out"
+            '';
+
+          vm-100-authority-and-migration =
+            let
+              archConfig = authorityConfigs.arch;
+              migrationConfig = authorityConfigs.migration;
+              nixosConfig = authorityConfigs.nixos;
+              marker = "/var/lib/home-lab/vm-100-write-commit.json";
+            in pkgs.runCommand "check-vm-100-authority-and-migration" { } ''
+              test "${if archConfig.system.switch.enable then "true" else "false"}" = false
+              test "${if archConfig.virtualisation.docker.enable then "true" else "false"}" = false
+              test "${if migrationConfig.system.switch.enable then "true" else "false"}" = false
+              test "${if migrationConfig.virtualisation.docker.enable then "true" else "false"}" = true
+              test "${if nixosConfig.system.switch.enable then "true" else "false"}" = true
+              test "${if nixosConfig.virtualisation.docker.enable then "true" else "false"}" = true
+              test "${pkgs.lib.concatStringsSep "," migrationConfig.fileSystems."/mnt/games".options}" = noatime,ro
+              test "${pkgs.lib.concatStringsSep "," migrationConfig.fileSystems."/mnt/storage".options}" = defaults,ro
+              test "${migrationConfig.systemd.services.docker.unitConfig.ConditionPathExists}" = ${marker}
+              test "${migrationConfig.systemd.sockets.docker.unitConfig.ConditionPathExists}" = ${marker}
+              test "${if nixosConfig.systemd.services.docker.unitConfig ? ConditionPathExists then "present" else "absent"}" = absent
+              test "${pkgs.lib.concatStringsSep "," migrationConfig.systemd.services.vm-100-migration-write-enable.requires}" = vm-100-write-commit.service
+              test -x ${migrationConfig.homeLab.vm100.migrationVerify}/bin/vm-100-migration-verify
+              test -x ${migrationConfig.homeLab.vm100.migrationWriteCommit}/bin/vm-100-migration-write-commit
               touch "$out"
             '';
         });
