@@ -202,7 +202,14 @@ resource "proxmox_virtual_environment_vm" "arch" {
 
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [disk[1].file_format]
+    ignore_changes = [
+      agent,
+      boot_order,
+      cdrom,
+      disk[1].file_format,
+      reboot_after_update,
+      smbios,
+    ]
 
     precondition {
       condition     = !local.recovery || var.recovery_ssh_public_key != ""

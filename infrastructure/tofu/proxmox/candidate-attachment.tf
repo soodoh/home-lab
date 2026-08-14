@@ -19,3 +19,24 @@ resource "terraform_data" "vm_100_candidate_disk_attachment" {
     prevent_destroy = true
   }
 }
+
+
+resource "terraform_data" "vm_100_boot_normalization" {
+  input = {
+    vm_id               = local.vm.vmid
+    source_boot_order   = "scsi0;net0"
+    candidate_interface = local.vm.candidate_disk.interface
+  }
+
+  provisioner "local-exec" {
+    command = "${path.module}/../../../scripts/proxmox-vm-100-candidate-disk.py normalize-boot"
+
+    environment = {
+      HOMELAB_VM100_CANDIDATE_ATTACHMENT = "reviewed-opentofu-action"
+    }
+  }
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}

@@ -66,7 +66,7 @@ def candidate_is_exact(raw: str) -> bool:
     )
 
 
-def inspect() -> dict[str, object]:
+def inspect(allowed_boots: set[str] | None = None) -> dict[str, object]:
     status = remote("/usr/sbin/qm", "status", str(VMID))
     pid = remote("/bin/cat", f"/var/run/qemu-server/{VMID}.pid")
     start_ticks = remote("/usr/bin/stat", "-c", "%Y", f"/proc/{pid}")
@@ -76,7 +76,8 @@ def inspect() -> dict[str, object]:
         raise SystemExit("VM 100 required configuration is incomplete")
     if status != "status: running" or config["protection"] != "1" or config["onboot"] != "1":
         raise SystemExit("VM 100 must remain running, protected, and enabled at boot")
-    if config["boot"] != "order=scsi0;net0":
+    accepted = allowed_boots or {"order=scsi0;net0"}
+    if config["boot"] not in accepted:
         raise SystemExit("VM 100 source boot order differs")
     if not config["scsi0"].startswith("local-lvm:vm-100-disk-0,"):
         raise SystemExit("VM 100 Arch root disk differs")
@@ -95,64 +96,103 @@ def sha256(value: str) -> str:
 
 
 def main() -> int:
-    if sys.argv[1:] != ["apply"]:
-        raise SystemExit("usage: proxmox-vm-100-candidate-disk.py apply")
+    if len(sys.argv) != 2 or sys.argv[1] not in {"apply", "normalize-boot"}:
+        raise SystemExit("usage: proxmox-vm-100-candidate-disk.py <apply|normalize-boot>")
     if os.environ.get("HOMELAB_VM100_CANDIDATE_ATTACHMENT") != "reviewed-opentofu-action":
-        raise SystemExit("candidate attachment requires the reviewed OpenTofu execution gate")
+        raise SystemExit("candidate mutation requires the reviewed OpenTofu execution gate")
     repo = Path(__file__).resolve().parents[1]
     head = run(("git", "rev-parse", "HEAD"), repo)
     upstream = run(("git", "rev-parse", "@{upstream}"), repo)
     if head != upstream or run(("git", "status", "--porcelain", "--untracked-files=all"), repo):
-        raise SystemExit("candidate attachment requires a clean pushed revision")
+        raise SystemExit("candidate mutation requires a clean pushed revision")
 
-    before = inspect()
-    before_config = before["config"]
-    assert isinstance(before_config, dict)
-    existing = before_config.get("scsi2")
-    changed = False
-    if existing is None:
-        remote("/usr/sbin/qm", "set", str(VMID), "--scsi2", ATTACH_VALUE)
-        changed = True
-    elif not candidate_is_exact(existing):
-        raise SystemExit("VM 100 scsi2 already exists with a different identity")
+    if sys.argv[1] == "normalize-boot":
+        before = inspect({"order=scsi0;net0", "order=scsi0;net0;ide2"})
+        before_config = before["config"]
+        assert isinstance(before_config, dict)
+        candidate = before_config.get("scsi2")
+        if not isinstance(candidate, str) or not candidate_is_exact(candidate):
+            raise SystemExit("VM 100 candidate disk identity differs before boot normalization")
+        changed = False
+        if "ide2" in before_config:
+            remote("/usr/sbin/qm", "set", str(VMID), "--delete", "ide2")
+            changed = True
+        if before_config["boot"] != "order=scsi0;net0":
+            remote("/usr/sbin/qm", "set", str(VMID), "--boot", "order=scsi0;net0")
+            changed = True
+        after = inspect()
+        after_config = after["config"]
+        assert isinstance(after_config, dict)
+        if "ide2" in after_config:
+            raise SystemExit("VM 100 empty CD-ROM remained after boot normalization")
+        if before["pid"] != after["pid"] or before["startTicks"] != after["startTicks"]:
+            raise SystemExit("VM 100 restarted during boot normalization")
+        for key in ("scsi0", "scsi1", "scsi2", "protection", "onboot"):
+            if before_config[key] != after_config[key]:
+                raise SystemExit(f"VM 100 protected configuration changed during boot normalization: {key}")
+        evidence = {
+            "format": "home-lab-vm-100-boot-normalization-v1",
+            "recordedAt": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "gitCommit": head,
+            "vmid": VMID,
+            "changed": changed,
+            "status": "running",
+            "pidStable": True,
+            "bootOrder": "scsi0;net0",
+            "candidateConfigSha256": sha256(after_config["scsi2"]),
+            "result": "passed",
+        }
+        output = repo / ".reconcile/vm-100/boot-normalization.json"
+    else:
+        before = inspect()
+        before_config = before["config"]
+        assert isinstance(before_config, dict)
+        existing = before_config.get("scsi2")
+        changed = False
+        if existing is None:
+            remote("/usr/sbin/qm", "set", str(VMID), "--scsi2", ATTACH_VALUE)
+            changed = True
+        elif not candidate_is_exact(existing):
+            raise SystemExit("VM 100 scsi2 already exists with a different identity")
 
-    after = inspect()
-    after_config = after["config"]
-    assert isinstance(after_config, dict)
-    candidate = after_config.get("scsi2")
-    if not isinstance(candidate, str) or not candidate_is_exact(candidate):
-        raise SystemExit("VM 100 candidate disk did not attach with the exact reviewed identity")
-    if before["pid"] != after["pid"] or before["startTicks"] != after["startTicks"]:
-        raise SystemExit("VM 100 restarted during candidate disk attachment")
-    for key in ("scsi0", "scsi1", "boot", "protection", "onboot"):
-        if before_config[key] != after_config[key]:
-            raise SystemExit(f"VM 100 protected configuration changed during candidate attachment: {key}")
+        after = inspect()
+        after_config = after["config"]
+        assert isinstance(after_config, dict)
+        candidate = after_config.get("scsi2")
+        if not isinstance(candidate, str) or not candidate_is_exact(candidate):
+            raise SystemExit("VM 100 candidate disk did not attach with the exact reviewed identity")
+        if before["pid"] != after["pid"] or before["startTicks"] != after["startTicks"]:
+            raise SystemExit("VM 100 restarted during candidate disk attachment")
+        for key in ("scsi0", "scsi1", "boot", "protection", "onboot"):
+            if before_config[key] != after_config[key]:
+                raise SystemExit(f"VM 100 protected configuration changed during candidate attachment: {key}")
 
-    evidence = {
-        "format": "home-lab-vm-100-candidate-attachment-v1",
-        "recordedAt": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
-        "gitCommit": head,
-        "vmid": VMID,
-        "changed": changed,
-        "status": "running",
-        "pidStable": True,
-        "bootOrder": "scsi0;net0",
-        "candidate": {
-            "interface": "scsi2",
-            "serial": "QUAL-NIXOS-128G",
-            "sizeGiB": 128,
-            "configSha256": sha256(candidate),
-        },
-        "preserved": {
-            key: sha256(after_config[key]) for key in ("scsi0", "scsi1", "boot", "protection", "onboot")
-        },
-        "result": "passed",
-    }
-    output = repo / ".reconcile/vm-100/candidate-disk-attachment.json"
+        evidence = {
+            "format": "home-lab-vm-100-candidate-attachment-v1",
+            "recordedAt": dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "gitCommit": head,
+            "vmid": VMID,
+            "changed": changed,
+            "status": "running",
+            "pidStable": True,
+            "bootOrder": "scsi0;net0",
+            "candidate": {
+                "interface": "scsi2",
+                "serial": "QUAL-NIXOS-128G",
+                "sizeGiB": 128,
+                "configSha256": sha256(candidate),
+            },
+            "preserved": {
+                key: sha256(after_config[key]) for key in ("scsi0", "scsi1", "boot", "protection", "onboot")
+            },
+            "result": "passed",
+        }
+        output = repo / ".reconcile/vm-100/candidate-disk-attachment.json"
+
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(evidence, indent=2, sort_keys=True) + "\n")
     output.chmod(0o600)
-    print(f"vm_100_candidate_attachment=passed changed={str(changed).lower()} commit={head}")
+    print(f"vm_100_candidate_{sys.argv[1]}=passed changed={str(changed).lower()} commit={head}")
     return 0
 
 
