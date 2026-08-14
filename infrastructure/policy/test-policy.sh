@@ -17,6 +17,7 @@ python3 "$policy" "$fixtures/protection-enable.json"
 python3 "$policy" "$fixtures/custom-rom-removal.json"
 python3 "$policy" "$fixtures/hardware-mapping-transition.json"
 python3 "$policy" "$fixtures/vm-start-prerequisite.json" --mode vm-start-prerequisite
+python3 "$policy" "$fixtures/candidate-disk-attach.json"
 expect_rejection import normal
 import_allow=$(mktemp)
 trap 'rm -f "$import_allow"' EXIT
@@ -27,7 +28,7 @@ trap - EXIT
 for fixture in noop protection-enable custom-rom-removal hardware-mapping-transition delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial; do
   expect_rejection "$fixture" vm-start-prerequisite
 done
-for fixture in delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial; do
+for fixture in delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial candidate-disk-unsafe; do
   expect_rejection "$fixture" normal
 done
 python3 "$root/../../scripts/controller/test-recovery-policy.py"

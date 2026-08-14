@@ -82,6 +82,41 @@ def safe_protection_enable(before: Any, after: Any, path: tuple[str, ...]) -> bo
     )
 
 
+def safe_candidate_disk_attachment(before: Any, after: Any) -> bool:
+    if not isinstance(before, dict) or not isinstance(after, dict):
+        return False
+    if changed_keys(before, after) != {("disk",)}:
+        return False
+    before_disks = before.get("disk")
+    after_disks = after.get("disk")
+    if not isinstance(before_disks, list) or not isinstance(after_disks, list):
+        return False
+    if len(before_disks) != 2 or len(after_disks) != 3 or after_disks[:2] != before_disks:
+        return False
+    if [disk.get("interface") for disk in before_disks if isinstance(disk, dict)] != ["scsi0", "scsi1"]:
+        return False
+    candidate = after_disks[2]
+    return candidate == {
+        "aio": "io_uring",
+        "backup": True,
+        "cache": "none",
+        "datastore_id": "local-lvm",
+        "discard": "ignore",
+        "file_format": None,
+        "file_id": None,
+        "import_from": None,
+        "interface": "scsi2",
+        "iothread": True,
+        "path_in_datastore": None,
+        "queues": 0,
+        "replicate": True,
+        "serial": "QUAL-NIXOS-128G",
+        "size": 128,
+        "speed": [],
+        "ssd": False,
+    }
+
+
 def safe_custom_rom_removal(before: Any, after: Any, path: tuple[str, ...]) -> bool:
     return (
         "hostpci" in path
@@ -331,6 +366,11 @@ def main() -> int:
         before = change.get("before")
         after = change.get("after")
         changed = changed_keys(before, after)
+        candidate_attachment = (
+            address == "proxmox_virtual_environment_vm.arch"
+            and actions == ["update"]
+            and safe_candidate_disk_attachment(before, after)
+        )
         sensitive = sorted(
             ".".join(path)
             for path in changed
@@ -338,6 +378,7 @@ def main() -> int:
             and not safe_protection_enable(before, after, path)
             and not safe_custom_rom_removal(before, after, path)
             and not safe_hardware_mapping_transition(before, after, path, mapping_resources)
+            and not candidate_attachment
         )
         if sensitive:
             failures.append(f"{address}: protected field change: {', '.join(sensitive)}")

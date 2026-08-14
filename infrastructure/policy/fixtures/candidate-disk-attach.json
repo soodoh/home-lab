@@ -1,0 +1,47 @@
+{
+  "resource_changes": [
+    {
+      "address": "proxmox_virtual_environment_vm.arch",
+      "type": "proxmox_virtual_environment_vm",
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "vm_id": 100,
+          "protection": true,
+          "disk": [
+            {"interface": "scsi0", "size": 550},
+            {"interface": "scsi1", "size": 3726}
+          ]
+        },
+        "after": {
+          "vm_id": 100,
+          "protection": true,
+          "disk": [
+            {"interface": "scsi0", "size": 550},
+            {"interface": "scsi1", "size": 3726},
+            {
+              "aio": "io_uring",
+              "backup": true,
+              "cache": "none",
+              "datastore_id": "local-lvm",
+              "discard": "ignore",
+              "file_format": null,
+              "file_id": null,
+              "import_from": null,
+              "interface": "scsi2",
+              "iothread": true,
+              "path_in_datastore": null,
+              "queues": 0,
+              "replicate": true,
+              "serial": "QUAL-NIXOS-128G",
+              "size": 128,
+              "speed": [],
+              "ssd": false
+            }
+          ]
+        },
+        "after_unknown": {}
+      }
+    }
+  ]
+}
