@@ -69,7 +69,9 @@ class VmQualificationScaffoldTests(unittest.TestCase):
                 observed[interface.group(1)] = (serial.group(1), size.group(1))
         self.assertEqual(observed, expected)
         self.assertEqual(len({serial for serial, _ in observed.values()}), 3)
-        self.assertIn('boot_order    = ["scsi0"]', self.main)
+        self.assertRegex(self.main, r'variable "qualification_boot_target"\s*\{[^}]*default\s*=\s*"source"')
+        self.assertIn('["source", "candidate"]', self.main)
+        self.assertIn('var.qualification_boot_target == "candidate" ? ["scsi2", "scsi0"] : ["scsi0"]', self.main)
 
     def test_no_production_hardware_or_mutation_primitive_is_declared(self) -> None:
         for forbidden in (

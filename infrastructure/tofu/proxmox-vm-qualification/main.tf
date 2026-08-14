@@ -27,6 +27,16 @@ variable "qualification_lifecycle_marker" {
   }
 }
 
+variable "qualification_boot_target" {
+  type    = string
+  default = "source"
+
+  validation {
+    condition     = contains(["source", "candidate"], var.qualification_boot_target)
+    error_message = "Qualification boot target must be source or candidate."
+  }
+}
+
 variable "qualification_ssh_public_key" {
   type      = string
   sensitive = true
@@ -67,7 +77,7 @@ resource "proxmox_virtual_environment_vm" "qualification" {
 
   machine       = "q35"
   scsi_hardware = "virtio-scsi-single"
-  boot_order    = ["scsi0"]
+  boot_order    = var.qualification_boot_target == "candidate" ? ["scsi2", "scsi0"] : ["scsi0"]
   on_boot       = false
   started       = var.qualification_started
   protection    = var.qualification_protection
