@@ -74,6 +74,8 @@ class Vm100NixFoundationTests(unittest.TestCase):
         self.assertEqual((shared["device"], shared["fsType"], shared["options"], shared["autoFormat"]), ("192.168.0.123:/storage/docker", "nfs4", ["defaults"], False))
         modules = json.loads(self.nix_eval("nixosConfigurations.vm-100.config.boot.kernelModules"))
         self.assertTrue({"uhid", "uinput", "tun", "gasket", "apex"}.issubset(modules))
+        initrd_modules = set(json.loads(self.nix_eval("nixosConfigurations.vm-100.config.boot.initrd.availableKernelModules")))
+        self.assertTrue({"virtio_pci", "virtio_scsi", "sd_mod"}.issubset(initrd_modules))
         self.assertIn("options amdgpu runpm=0", json.loads(self.nix_eval("nixosConfigurations.vm-100.config.boot.extraModprobeConfig")))
         sysctls = json.loads(self.nix_eval("nixosConfigurations.vm-100.config.boot.kernel.sysctl"))
         self.assertEqual({key: sysctls[key] for key in ("fs.inotify.max_user_instances", "fs.inotify.max_user_watches", "user.max_user_namespaces")}, {"fs.inotify.max_user_instances": 1024, "fs.inotify.max_user_watches": 1048576, "user.max_user_namespaces": 28633})

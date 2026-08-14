@@ -7,6 +7,7 @@ let
 in
 {
   boot.kernelModules = hardware.kernelModules ++ [ "tun" ];
+  boot.initrd.availableKernelModules = [ "ahci" "xhci_pci" "virtio_pci" "virtio_scsi" "sd_mod" "sr_mod" ];
   boot.extraModprobeConfig = ''
     options amdgpu runpm=${if hardware.gpu.runtimePowerManagement then "1" else "0"}
   '';
@@ -33,6 +34,10 @@ in
     {
       assertion = hardware.tun.path == "/dev/net/tun" && builtins.elem "tun" config.boot.kernelModules;
       message = "VM 100 TUN device support must remain kernel-backed at /dev/net/tun";
+    }
+    {
+      assertion = builtins.all (module: builtins.elem module config.boot.initrd.availableKernelModules) [ "virtio_pci" "virtio_scsi" "sd_mod" ];
+      message = "VM 100 initrd must retain the qualified VirtIO SCSI root-disk drivers";
     }
     {
       assertion = !hardware.gpu.runtimePowerManagement && lib.hasInfix "amdgpu runpm=0" config.boot.extraModprobeConfig;
