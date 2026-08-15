@@ -109,6 +109,19 @@ class ProxmoxNixFoundationTests(unittest.TestCase):
     def test_runtime_planner_and_foundation_source_allowlists_match(self) -> None:
         self.assertEqual(planner.APPROVED_SOURCE_FILES, EXPECTED_SOURCE_FILES)
 
+    def test_compose_artifact_mirror_is_fully_tracked(self) -> None:
+        tracked = {
+            Path(path).relative_to("nix").as_posix()
+            for path in subprocess.run(
+                ["git", "ls-files", "-z", "--", "nix/compose-artifact"],
+                cwd=ROOT,
+                check=True,
+                stdout=subprocess.PIPE,
+            ).stdout.decode().split("\0")
+            if path
+        }
+        self.assertEqual(tracked, EXPECTED_COMPOSE_ARTIFACT_FILES)
+
     def test_sanitized_flake_source_contains_only_approved_inputs(self) -> None:
         self.assertFalse((ROOT / "flake.nix").exists())
         self.assertFalse((ROOT / "flake.lock").exists())
