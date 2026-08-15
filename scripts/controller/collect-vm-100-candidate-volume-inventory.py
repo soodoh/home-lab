@@ -79,7 +79,7 @@ def flatten(values: list[object]) -> list[dict[str, Any]]:
 def verify_candidate_device(lsblk: str, resolved_disk: Path, mount_device: str) -> list[str]:
     if not mount_device.startswith("/dev/") or mount_device.startswith("/dev/disk/by-id/"):
         raise SystemExit("candidate mount source must be a concrete descendant block device")
-    tree = run_json(lsblk, ["--json", "--bytes", "--output", "PATH,SERIAL,SIZE,TYPE", str(resolved_disk)])
+    tree = run_json(lsblk, ["--tree", "--json", "--bytes", "--output", "PATH,SERIAL,SIZE,TYPE", str(resolved_disk)])
     roots = tree.get("blockdevices") if isinstance(tree, dict) else None
     if not isinstance(roots, list) or len(roots) != 1: raise SystemExit("candidate disk identity is ambiguous")
     disk = roots[0]
