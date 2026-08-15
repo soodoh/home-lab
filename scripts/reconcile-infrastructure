@@ -108,6 +108,8 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-vm-100-coral.py
   python3 scripts/controller/test-vm-100-candidate-attachment.py
   python3 scripts/controller/test-vm-100-gate-c.py
+  python3 scripts/controller/test-vm-100-execution.py
+  python3 scripts/controller/validate-vm-100-data-transfer-evidence.py --help >/dev/null
   python3 scripts/controller/test-authentik-tofu-foundation.py
   python3 scripts/controller/test-media-apps-tofu-foundation.py
   python3 scripts/controller/test-controller-apply-lock.py

@@ -10,6 +10,10 @@ import subprocess
 from typing import Any
 
 
+LIVE_DOCKER = "/usr/bin/docker"
+SUBPROCESS_ENV: dict[str, str] | None = None
+
+
 def stable_hash(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -124,6 +128,7 @@ def run_json(command: list[str]) -> Any:
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
+        env=SUBPROCESS_ENV,
     )
     return json.loads(result.stdout)
 
@@ -140,7 +145,7 @@ def desired_inventory(args: Namespace) -> dict[str, object]:
     artifact_root = args.artifact_root.resolve()
     model = run_json(
         [
-            "/usr/bin/docker",
+            LIVE_DOCKER,
             "compose",
             "--project-name",
             args.project_name,
@@ -240,7 +245,7 @@ def desired_inventory(args: Namespace) -> dict[str, object]:
 def runtime_inventory(args: Namespace) -> dict[str, object]:
     ids_result = subprocess.run(
         [
-            "/usr/bin/docker",
+            LIVE_DOCKER,
             "ps",
             "--all",
             "--quiet",
@@ -251,9 +256,10 @@ def runtime_inventory(args: Namespace) -> dict[str, object]:
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
+        env=SUBPROCESS_ENV,
     )
     container_ids = [line for line in ids_result.stdout.splitlines() if line]
-    inspected = run_json(["/usr/bin/docker", "inspect", *container_ids]) if container_ids else []
+    inspected = run_json([LIVE_DOCKER, "inspect", *container_ids]) if container_ids else []
 
     container_services = {}
     for container in inspected:
@@ -344,7 +350,7 @@ def runtime_inventory(args: Namespace) -> dict[str, object]:
 
     volume_result = subprocess.run(
         [
-            "/usr/bin/docker",
+            LIVE_DOCKER,
             "volume",
             "ls",
             "--quiet",
@@ -355,6 +361,7 @@ def runtime_inventory(args: Namespace) -> dict[str, object]:
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
+        env=SUBPROCESS_ENV,
     )
     project_volumes = sorted(line for line in volume_result.stdout.splitlines() if line)
     return {

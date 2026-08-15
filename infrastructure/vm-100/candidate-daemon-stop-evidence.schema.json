@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/vm-100/candidate-daemon-stop-evidence.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "completedAt", "result", "failureStage", "failureReason", "candidateInventorySha256", "isolatedDockerArgvSha256", "containerdArgvSha256", "dockerd", "containerd", "socketAbsent", "runtimeFilesRemoved", "logs"],
+  "properties": {
+    "format": {"const": "home-lab-vm-100-candidate-daemon-stop-evidence-v1"},
+    "completedAt": {"$ref": "#/$defs/timestamp"},
+    "result": {"enum": ["passed", "failed"]},
+    "failureStage": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+    "failureReason": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+    "candidateInventorySha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+    "isolatedDockerArgvSha256": {"const": "5f237680e896ce424a88529c8e0df3616d9b4f3cfc647a581a5752a6db602bac"},
+    "containerdArgvSha256": {"const": "22959ff226c38df99d4ecea5af7229b8c70a7649c47725ac66213116f98b3bce"},
+    "dockerd": {"$ref": "#/$defs/stop"},
+    "containerd": {"$ref": "#/$defs/stop"},
+    "socketAbsent": {"type": "boolean"},
+    "runtimeFilesRemoved": {"type": "boolean"},
+    "logs": {
+      "type": "object", "additionalProperties": false,
+      "required": ["containerd", "dockerd", "collector"],
+      "properties": {"containerd": {"$ref": "#/$defs/namedFile"}, "dockerd": {"$ref": "#/$defs/namedFile"}, "collector": {"$ref": "#/$defs/namedFile"}}
+    }
+  },
+  "allOf": [{
+    "if": {"properties": {"result": {"const": "passed"}}, "required": ["result"]},
+    "then": {
+      "properties": {
+        "failureStage": {"type": "null"}, "failureReason": {"type": "null"},
+        "candidateInventorySha256": {"$ref": "#/$defs/sha256"},
+        "socketAbsent": {"const": true}, "runtimeFilesRemoved": {"const": true},
+        "dockerd": {"allOf": [{"$ref": "#/$defs/stop"}, {"type": "object", "properties": {"started": {"const": true}, "pidGone": {"const": true}, "observationError": {"type": "null"}}}]},
+        "containerd": {"allOf": [{"$ref": "#/$defs/stop"}, {"type": "object", "properties": {"started": {"const": true}, "pidGone": {"const": true}, "observationError": {"type": "null"}}}]}
+      }
+    },
+    "else": {"properties": {"failureStage": {"type": "string"}, "failureReason": {"type": "string"}}}
+  }],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "file": {"type": "object", "additionalProperties": false, "required": ["sha256", "bytes", "lines"], "properties": {"sha256": {"$ref": "#/$defs/sha256"}, "bytes": {"type": "integer", "minimum": 0}, "lines": {"type": "integer", "minimum": 0}}},
+    "namedFile": {"type": "object", "additionalProperties": false, "required": ["name", "metrics"], "properties": {"name": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\\.log$"}, "metrics": {"$ref": "#/$defs/file"}}},
+    "stop": {
+      "type": "object", "additionalProperties": false,
+      "required": ["started", "termSent", "killSent", "exitCode", "pidGone", "observationError"],
+      "properties": {"started": {"type": "boolean"}, "termSent": {"type": "boolean"}, "killSent": {"type": "boolean"}, "exitCode": {"type": ["integer", "null"]}, "pidGone": {"type": "boolean"}, "observationError": {"type": ["string", "null"], "minLength": 1, "maxLength": 512}}
+    }
+  }
+}

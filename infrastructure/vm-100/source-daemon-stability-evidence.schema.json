@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/vm-100/source-daemon-stability-evidence.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "completedAt", "result", "failureStage", "failureReason", "desiredInventorySha256", "beforeInventorySha256", "afterInventorySha256", "exactEquality", "containerCount", "runningCount", "sourceDockerRoot", "observationError"],
+  "properties": {
+    "format": {"const": "home-lab-vm-100-source-daemon-stability-evidence-v1"},
+    "completedAt": {"$ref": "#/$defs/timestamp"},
+    "result": {"enum": ["passed", "failed"]},
+    "failureStage": {"type": ["string", "null"], "minLength": 1, "maxLength": 128},
+    "failureReason": {"type": ["string", "null"], "minLength": 1, "maxLength": 512},
+    "desiredInventorySha256": {"$ref": "#/$defs/sha256"},
+    "beforeInventorySha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+    "afterInventorySha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+    "exactEquality": {"type": "boolean"},
+    "containerCount": {"type": ["integer", "null"], "minimum": 0},
+    "runningCount": {"type": ["integer", "null"], "minimum": 0},
+    "sourceDockerRoot": {"type": ["string", "null"], "maxLength": 1024},
+    "observationError": {"type": ["string", "null"], "minLength": 1, "maxLength": 512}
+  },
+  "allOf": [{
+    "if": {"properties": {"result": {"const": "passed"}}, "required": ["result"]},
+    "then": {"properties": {"failureStage": {"type": "null"}, "failureReason": {"type": "null"}, "beforeInventorySha256": {"$ref": "#/$defs/sha256"}, "afterInventorySha256": {"$ref": "#/$defs/sha256"}, "exactEquality": {"const": true}, "containerCount": {"const": 41}, "runningCount": {"const": 41}, "sourceDockerRoot": {"const": "/var/lib/docker"}, "observationError": {"type": "null"}}},
+    "else": {"properties": {"failureStage": {"type": "string"}, "failureReason": {"type": "string"}}}
+  }],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}
+  }
+}
