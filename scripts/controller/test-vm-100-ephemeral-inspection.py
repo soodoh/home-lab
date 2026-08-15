@@ -363,7 +363,8 @@ class EphemeralContractTests(unittest.TestCase):
         self.assertIn("NIX_USER_CONF_FILES", runner)
         self.assertIn('"plugin-files ="', runner)
         self.assertIn("qualification host attestation", runner)
-        self.assertIn('os.listdir(descriptor) != []', runner)
+        self.assertIn('directory_entries(descriptor)', runner)
+        self.assertIn('os.open(".", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)', runner)
         self.assertLess(runner.index('write_evidence(output_descriptor, "inspection-evidence.json"'), runner.index('write_evidence(output_descriptor, "cleanup-evidence.json"'))
         self.assertLess(runner.index('write_evidence(output_descriptor, "cleanup-evidence.json"'), runner.index('write_evidence(output_descriptor, "qualification-evidence.json"'))
 

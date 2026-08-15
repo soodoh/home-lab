@@ -276,6 +276,14 @@ def directory_identity(descriptor: int) -> tuple[int, int, int, int, int]:
     return (value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid)
 
 
+def directory_entries(descriptor: int) -> set[str]:
+    fresh = os.open(".", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
+    try:
+        return set(os.listdir(fresh))
+    finally:
+        os.close(fresh)
+
+
 def open_private_output(root: Path) -> tuple[int, tuple[int, int, int, int, int]]:
     if not root.is_absolute():
         raise ValueError("output root path must be absolute")
@@ -287,7 +295,7 @@ def open_private_output(root: Path) -> tuple[int, tuple[int, int, int, int, int]
             descriptor = next_descriptor
         value = os.fstat(descriptor)
         if (not stat.S_ISDIR(value.st_mode) or value.st_uid != 0 or value.st_gid != 0
-                or stat.S_IMODE(value.st_mode) != 0o700 or value.st_nlink < 1 or os.listdir(descriptor) != []):
+                or stat.S_IMODE(value.st_mode) != 0o700 or value.st_nlink < 1 or directory_entries(descriptor)):
             raise ValueError("output root must be an existing empty root-owned mode-0700 directory")
         return descriptor, directory_identity(descriptor)
     except Exception:
@@ -296,7 +304,7 @@ def open_private_output(root: Path) -> tuple[int, tuple[int, int, int, int, int]
 
 
 def verify_private_output(root: Path, descriptor: int, identity: tuple[int, int, int, int, int], expected_names: set[str]) -> None:
-    if directory_identity(descriptor) != identity or set(os.listdir(descriptor)) != expected_names:
+    if directory_identity(descriptor) != identity or directory_entries(descriptor) != expected_names:
         raise ValueError("pinned output directory identity, metadata, or entries changed")
     reopened = os.open("/", os.O_RDONLY | os.O_DIRECTORY)
     try:
