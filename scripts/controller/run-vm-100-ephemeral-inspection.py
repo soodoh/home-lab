@@ -208,7 +208,7 @@ def observe_disk(by_id: str, games_device: str) -> dict[str, Any]:
         raise ValueError("wipefs observation is malformed")
     holders_path = Path("/sys/class/block") / Path(resolved).name / "holders"
     holders = sorted(item.name for item in holders_path.iterdir())
-    fuser = command("fuser", ["--", resolved], check=False)
+    fuser = command("fuser", [resolved], check=False)
     if fuser.returncode != 1 or fuser.stdout != b"" or fuser.stderr != b"":
         raise ValueError("candidate no-opener observation differs or emitted diagnostics")
     if str(candidate_link.resolve(strict=True)) != resolved or str(games_link.resolve(strict=True)) != games_resolved:
