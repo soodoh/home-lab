@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/schemas/vm-100-ephemeral-qualification-request-v2.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["confirmation", "disposableProductUuid", "disposableVmId", "format", "hostAttestationSha256", "mode"],
+  "properties": {
+    "confirmation": {"const": "qualify-disposable-vmid-9900-inspection-only"},
+    "disposableProductUuid": {"type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+    "disposableVmId": {"const": 9900},
+    "format": {"const": "home-lab-vm-100-ephemeral-qualification-request-v2"},
+    "hostAttestationSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "mode": {"const": "qualification"}
+  }
+}

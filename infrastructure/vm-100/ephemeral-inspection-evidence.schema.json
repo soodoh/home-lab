@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/schemas/vm-100-ephemeral-inspection-evidence-v3.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bootIdStable", "candidate", "candidateIdentityStable", "cleanupEvidence", "commit", "format", "helperSha256", "importVerified", "installerExitCode", "manifestSha256", "mode", "result"],
+  "properties": {
+    "bootIdStable": {"type": "boolean"},
+    "candidate": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/candidate"}]},
+    "candidateIdentityStable": {"type": "boolean"},
+    "cleanupEvidence": {"const": "cleanup-evidence.json"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "format": {"const": "home-lab-vm-100-ephemeral-inspection-evidence-v3"},
+    "helperSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "importVerified": {"type": "boolean"},
+    "installerExitCode": {"type": ["integer", "null"]},
+    "manifestSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "mode": {"enum": ["qualification", "live-inspect"]},
+    "result": {"enum": ["passed", "failed"]}
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blank", "byId", "holdersAbsent", "mountedSourcesDistinct", "openersAbsent", "protectedGamesDistinct", "resolved", "serial", "sizeBytes"],
+      "properties": {
+        "blank": {"const": true},
+        "byId": {"const": "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2"},
+        "holdersAbsent": {"const": true},
+        "mountedSourcesDistinct": {"const": true},
+        "openersAbsent": {"const": true},
+        "protectedGamesDistinct": {"const": true},
+        "resolved": {"type": "string", "pattern": "^/dev/[A-Za-z0-9._/+:-]+$"},
+        "serial": {"const": "QUAL-NIXOS-128G"},
+        "sizeBytes": {"const": 137438953472}
+      }
+    }
+  }
+}

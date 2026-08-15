@@ -111,6 +111,10 @@
             };
           };
           candidatePackages = pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+            # Exact pinned bootstrap closure used only to initialize an empty,
+            # bounded Arch-side tmpfs store for signed inspection imports.
+            vm-100-ephemeral-nix-bootstrap = pkgs.nix;
+
             vm-100-compose-artifact = self.nixosConfigurations.vm-100-candidate.config.homeLab.vm100.composeArtifact;
 
             vm-100-compose-qualification = self.nixosConfigurations.vm-100-candidate.config.homeLab.vm100.composeQualification;
@@ -169,7 +173,7 @@
                 config = self.nixosConfigurations.vm-100-candidate.config;
                 guard = candidatePkgs.writeShellApplication {
                   name = "vm-100-candidate-install-guard";
-                  runtimeInputs = [ candidatePkgs.util-linux ];
+                  runtimeInputs = [ candidatePkgs.psmisc candidatePkgs.util-linux ];
                   text = ''
                     exec ${candidatePkgs.python3}/bin/python3 ${./scripts/vm-100-candidate-install-guard.py} "$@"
                   '';
@@ -178,12 +182,14 @@
                 name = "vm-100-candidate-install";
                 runtimeInputs = [ guard candidatePkgs.coreutils candidatePkgs.findutils candidatePkgs.util-linux ];
                 text = ''
-                  if [[ $# -ne 2 || $1 != --request ]]; then
-                    echo "usage: vm-100-candidate-install --request REQUEST" >&2
+                  if [[ $# -ne 6 || $1 != --request || $3 != --protected-disk-input || $5 != --inspection-handoff ]]; then
+                    echo "usage: vm-100-candidate-install --request REQUEST --protected-disk-input INPUT --inspection-handoff HANDOFF" >&2
                     exit 64
                   fi
                   request=$2
-                  approval=$(vm-100-candidate-install-guard "$request")
+                  protectedDiskInput=$4
+                  inspectionHandoff=$6
+                  approval=$(vm-100-candidate-install-guard --request "$request" --protected-disk-input "$protectedDiskInput" --inspection-handoff "$inspectionHandoff")
                   device=$(${candidatePkgs.jq}/bin/jq -er '.device' <<<"$approval")
                   mode=$(${candidatePkgs.jq}/bin/jq -er '.mode' <<<"$approval")
                   target=/mnt/vm-100-candidate
@@ -290,6 +296,22 @@
             touch "$out"
           '';
         } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          vm-100-ephemeral-nix-cli =
+            let bootstrapNix = self.packages.x86_64-linux.vm-100-ephemeral-nix-bootstrap;
+            in pkgs.runCommand "check-vm-100-ephemeral-nix-cli" { nativeBuildInputs = [ pkgs.gnugrep ]; } ''
+              test "$(${bootstrapNix}/bin/nix --version)" = "nix (Nix) 2.34.8"
+              test -x ${bootstrapNix}/bin/nix
+              test -x ${bootstrapNix}/bin/nix-store
+              ${bootstrapNix}/bin/nix path-info --help | grep -F -- "--json-format"
+              ${bootstrapNix}/bin/nix path-info --help | grep -F -- "--sigs"
+              ${bootstrapNix}/bin/nix store verify --help | grep -F -- "--quiet"
+              ${bootstrapNix}/bin/nix store verify --help | grep -F -- "--sigs-needed"
+              ${bootstrapNix}/bin/nix-store --help | grep -F -- "--import"
+              ! ${bootstrapNix}/bin/nix-store --help | grep -F -- "--require-signature"
+              ! ${bootstrapNix}/bin/nix-store --help | grep -F -- "--signatures"
+              touch "$out"
+            '';
+
           vm-100-candidate-disko =
             let
               config = self.nixosConfigurations.vm-100-candidate.config;
@@ -305,6 +327,8 @@
               test "${if config.virtualisation.docker.enable then "enabled" else "disabled"}" = enabled
               test "$(cat ${config.homeLab.vm100.composeArtifact}/.artifact-sha256)" = "$(cat ${./compose-artifact.sha256})"
               test -x ${self.packages.x86_64-linux.vm-100-compose-qualification}/bin/vm-100-compose-qualification
+              test -x ${self.packages.x86_64-linux.vm-100-ephemeral-nix-bootstrap}/bin/nix
+              test -x ${self.packages.x86_64-linux.vm-100-ephemeral-nix-bootstrap}/bin/nix-store
               test -x ${self.packages.x86_64-linux.vm-100-candidate-install}/bin/vm-100-candidate-install
               test -x ${self.packages.x86_64-linux.vm-100-candidate-update}/bin/vm-100-candidate-update
               touch "$out"

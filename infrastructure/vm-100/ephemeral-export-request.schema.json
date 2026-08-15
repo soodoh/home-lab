@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/schemas/vm-100-ephemeral-export-request-v4.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["bootstrapStorePath", "candidateToplevel", "commit", "composeArtifactSha256", "flakeLockSha256", "format", "helperSha256", "installerAttribute", "installerPath", "mode", "nixVersion", "qualificationEvidenceSha256", "qualificationHostAttestationSha256", "system", "toplevelAttribute", "trustedPublicKey"],
+  "properties": {
+    "bootstrapStorePath": {"$ref": "#/$defs/storePath"},
+    "candidateToplevel": {"$ref": "#/$defs/storePath"},
+    "commit": {"pattern": "^[0-9a-f]{40}$", "type": "string"},
+    "composeArtifactSha256": {"const": "aa550bfd004366bf85f58b661ed26d2a3ba3b72d5f01e4286b6d05117352f086"},
+    "flakeLockSha256": {"$ref": "#/$defs/sha256"},
+    "format": {"const": "home-lab-vm-100-ephemeral-export-request-v4"},
+    "helperSha256": {"$ref": "#/$defs/sha256"},
+    "installerAttribute": {"const": "packages.x86_64-linux.vm-100-candidate-install"},
+    "installerPath": {"$ref": "#/$defs/storePath"},
+    "mode": {"enum": ["qualification", "live-inspect"]},
+    "nixVersion": {"const": "2.34.8"},
+    "qualificationEvidenceSha256": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
+    "qualificationHostAttestationSha256": {"$ref": "#/$defs/sha256"},
+    "system": {"const": "x86_64-linux"},
+    "toplevelAttribute": {"const": "nixosConfigurations.vm-100-candidate.config.system.build.toplevel"},
+    "trustedPublicKey": {"pattern": "^[A-Za-z0-9._-]+:[A-Za-z0-9+/=]+$", "type": "string"}
+  },
+  "$defs": {
+    "sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "storePath": {"pattern": "^/nix/store/[0-9a-df-np-sv-z]{32}-[^/\\u0000]+$", "type": "string"}
+  },
+  "allOf": [
+    {"if": {"properties": {"mode": {"const": "qualification"}}}, "then": {"properties": {"qualificationEvidenceSha256": {"type": "null"}}}},
+    {"if": {"properties": {"mode": {"const": "live-inspect"}}}, "then": {"properties": {"qualificationEvidenceSha256": {"$ref": "#/$defs/sha256"}}}}
+  ]
+}
