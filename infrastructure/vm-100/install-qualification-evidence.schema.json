@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/schemas/vm-100-install-qualification-evidence-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["candidateToplevel", "commit", "device", "format", "hostAttestationSha256", "installLogSha256", "installerPath", "observedAt", "partitionLabels", "result", "serial", "sizeBytes", "vmId"],
+  "properties": {
+    "candidateToplevel": {"type": "string", "pattern": "^/nix/store/[0-9a-df-np-sv-z]{32}-nixos-system-archlinux-26\\.05\\.[^/]+$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "device": {"const": "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2"},
+    "format": {"const": "home-lab-vm-100-install-qualification-evidence-v1"},
+    "hostAttestationSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "installLogSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "installerPath": {"type": "string", "pattern": "^/nix/store/[0-9a-df-np-sv-z]{32}-vm-100-candidate-install-qualified$"},
+    "observedAt": {"type": "string", "format": "date-time"},
+    "partitionLabels": {"const": ["disk-vm100-root-ESP", "disk-vm100-root-bios", "disk-vm100-root-root"]},
+    "result": {"const": "passed"},
+    "serial": {"const": "QUAL-NIXOS-128G"},
+    "sizeBytes": {"const": 137438953472},
+    "vmId": {"const": 9900}
+  }
+}
