@@ -265,6 +265,12 @@ def mem_available() -> int:
     return int(match.group(1)) * 1024
 
 
+def require_tmpfs_inodes(path: Path, required: int) -> None:
+    available = os.statvfs(path).f_favail
+    if available < required:
+        raise ValueError("mounted ephemeral Nix tmpfs has insufficient inodes")
+
+
 def directory_identity(descriptor: int) -> tuple[int, int, int, int, int]:
     value = os.fstat(descriptor)
     return (value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid)
@@ -557,7 +563,11 @@ def main() -> None:
         require_absent_nix(NIX)
         if not daemon_absent():
             raise ValueError("a Nix daemon or socket is present")
-        validate_resources(manifest, mem_available(), os.statvfs("/").f_favail)
+        resources = manifest["resources"]
+        # The persistent root may be an inode-less filesystem such as Btrfs.
+        # Memory is checked before disk observation; tmpfs inode capacity is
+        # checked against the mounted filesystem itself below.
+        validate_resources(manifest, mem_available(), resources["requiredInodes"])
         first_disk = observe_disk(request["device"], protected["gamesDevice"])
         inspection["candidate"] = {
             "blank": True, "byId": first_disk["byId"], "holdersAbsent": True, "mountedSourcesDistinct": True,
@@ -566,14 +576,14 @@ def main() -> None:
         }
         NIX.mkdir(mode=0o755)
         created = True
-        resources = manifest["resources"]
-        option = f"rw,nosuid,nodev,exec,size={resources['tmpfsBytes']},nr_inodes={resources['requiredInodes']},mode=0755"
+        option = f"rw,nosuid,nodev,exec,size={resources['tmpfsBytes']},nr_inodes={resources['requiredInodes'] + 1},mode=0755"
         mount_result = command("mount", ["-t", "tmpfs", "-o", option, "tmpfs", "/nix"], check=False)
         try:
             mounted = validate_mount_result(mount_result)
         except MountObservationError as error:
             mounted = error.mounted
             raise
+        require_tmpfs_inodes(NIX, resources["requiredInodes"])
         transport = NIX / ".transport"
         transport.mkdir(mode=0o700)
         runtime = NIX / ".runtime"

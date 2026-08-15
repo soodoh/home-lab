@@ -263,6 +263,11 @@ class EphemeralContractTests(unittest.TestCase):
         validate_resources(value, value["resources"]["tmpfsBytes"] + value["resources"]["headroomBytes"], value["resources"]["requiredInodes"])
         with self.assertRaises(ValueError): validate_resources(value, value["resources"]["tmpfsBytes"], value["resources"]["requiredInodes"])
         with self.assertRaises(ValueError): validate_resources(value, 10 ** 12, value["resources"]["requiredInodes"] - 1)
+        with patch.object(RUNNER.os, "statvfs", return_value=SimpleNamespace(f_favail=value["resources"]["requiredInodes"])):
+            RUNNER.require_tmpfs_inodes(Path("/nix"), value["resources"]["requiredInodes"])
+        with patch.object(RUNNER.os, "statvfs", return_value=SimpleNamespace(f_favail=value["resources"]["requiredInodes"] - 1)):
+            with self.assertRaises(ValueError):
+                RUNNER.require_tmpfs_inodes(Path("/nix"), value["resources"]["requiredInodes"])
         expected = {BOOTSTRAP, INSTALLER, TOPLEVEL}
         validate_import_observation(expected, expected, expected, True)
         for recursive, physical, verified in ((expected - {TOPLEVEL}, expected, True), (expected | {STORE[:-1] + "3-extra"}, expected, True), (expected, expected - {INSTALLER}, True), (expected, expected, False)):
