@@ -410,7 +410,7 @@ class EphemeralContractTests(unittest.TestCase):
         self.assertNotIn("--query\", \"--signatures", exporter)
         self.assertNotIn("--require-signature", runner)
         flake = (ROOT / "nix/flake.nix").read_text()
-        for control in ("vm-100-ephemeral-nix-cli", 'nix (Nix) 2.34.8', 'path-info --help', 'store verify --help', 'grep -F -- "--sigs"'):
+        for control in ("vm-100-ephemeral-nix-cli", 'nix (Nix) 2.34.8', 'pkgs.gnugrep pkgs.man', 'MANPATH=${bootstrapNix.man}/share/man', 'path-info --help', 'store verify --help', 'grep -F -- "--sigs"'):
             self.assertIn(control, flake)
 
 

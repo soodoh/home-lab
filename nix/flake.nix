@@ -298,7 +298,8 @@
         } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           vm-100-ephemeral-nix-cli =
             let bootstrapNix = self.packages.x86_64-linux.vm-100-ephemeral-nix-bootstrap;
-            in pkgs.runCommand "check-vm-100-ephemeral-nix-cli" { nativeBuildInputs = [ pkgs.gnugrep ]; } ''
+            in pkgs.runCommand "check-vm-100-ephemeral-nix-cli" { nativeBuildInputs = [ pkgs.gnugrep pkgs.man ]; } ''
+              export MANPATH=${bootstrapNix.man}/share/man
               test "$(${bootstrapNix}/bin/nix --version)" = "nix (Nix) 2.34.8"
               test -x ${bootstrapNix}/bin/nix
               test -x ${bootstrapNix}/bin/nix-store
