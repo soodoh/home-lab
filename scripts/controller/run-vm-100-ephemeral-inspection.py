@@ -157,7 +157,7 @@ def json_command(name: str, argv: list[str]) -> dict[str, Any]:
 def base_device(source: str) -> str:
     current = str(Path(source).resolve(strict=True))
     for _ in range(32):
-        value = json_command("lsblk", ["--bytes", "--json", "--output", "PATH,PKNAME", current])
+        value = json_command("lsblk", ["--bytes", "--json", "--nodeps", "--output", "PATH,PKNAME", current])
         devices = value.get("blockdevices")
         if not isinstance(devices, list) or len(devices) != 1 or not isinstance(devices[0], dict):
             raise ValueError("mounted source device ancestry is ambiguous")

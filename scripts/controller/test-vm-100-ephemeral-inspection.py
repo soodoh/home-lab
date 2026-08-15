@@ -416,6 +416,7 @@ class EphemeralContractTests(unittest.TestCase):
         self.assertNotIn("output.chmod(", exporter)
         self.assertIn('command("fuser", [resolved], check=False)', runner)
         self.assertNotIn('command("fuser", ["--", resolved]', runner)
+        self.assertIn('["--bytes", "--json", "--nodeps", "--output", "PATH,PKNAME", current]', runner)
         self.assertNotIn("VM100_CANDIDATE_INSTALL_CONFIRMED", exporter)
         self.assertNotIn("--query\", \"--signatures", exporter)
         self.assertNotIn("--require-signature", runner)
