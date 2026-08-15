@@ -51,9 +51,11 @@ def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("inspection-request", "export-request", "protected-disks", "manifest", "bootstrap", "export", "transport-qualification-evidence", "qualified-install-evidence", "qualified-cold-boot-evidence", "production-inspection-evidence", "production-host-attestation", "authorization", "output-root"):
         parser.add_argument(f"--{name}", required=True, type=Path)
+    parser.add_argument("--retry-cleanup", type=Path)
     parser.add_argument("--confirmation", required=True)
     for name in ("runner-sha256", "common-runner-sha256", "helper-sha256", "manifest-sha256", "bootstrap-sha256", "export-sha256", "authorization-sha256", "host-attestation-sha256", "qualified-install-evidence-sha256", "qualified-cold-boot-evidence-sha256", "production-inspection-evidence-sha256"):
         parser.add_argument(f"--expected-{name}", required=True)
+    parser.add_argument("--expected-retry-cleanup-sha256")
     parser.add_argument("--expected-trusted-public-key", required=True)
     return parser.parse_args()
 
@@ -120,6 +122,18 @@ def write_output(directory_fd: int, name: str, value: dict[str, Any]) -> None:
     common.write_evidence(directory_fd, name, value)
 
 
+def write_diagnostic(root: Path, name: str, data: bytes) -> None:
+    directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        descriptor = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory)
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(data)
+            output.flush()
+            os.fsync(output.fileno())
+    finally:
+        os.close(directory)
+
+
 def run_child(argv: list[str], env: dict[str, str], timeout: int) -> tuple[int, bytes, bytes]:
     child = subprocess.Popen([common.TOOLS["unshare"], "--net", "--", *argv], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, start_new_session=True)
     try:
@@ -168,6 +182,7 @@ def main() -> None:
     manifest: dict[str, Any] | None = None
     installed: dict[str, Any] | None = None
     install_stage = "preflight"
+    input_state = "blank"
     try:
         if os.geteuid() != 0 or platform.system() != "Linux" or platform.machine() != "x86_64":
             raise ValueError("production install runner requires root on x86_64-linux")
@@ -183,8 +198,12 @@ def main() -> None:
         protected_paths = [args.inspection_request, args.export_request, args.protected_disks, args.manifest, args.bootstrap, args.export,
             args.transport_qualification_evidence, args.qualified_install_evidence, args.qualified_cold_boot_evidence,
             args.production_inspection_evidence, args.production_host_attestation, args.authorization]
+        if args.retry_cleanup is not None:
+            protected_paths.append(args.retry_cleanup)
         if any(not path.is_absolute() for path in protected_paths):
             raise ValueError("production install inputs must use absolute paths")
+        if (args.retry_cleanup is None) != (args.expected_retry_cleanup_sha256 is None):
+            raise ValueError("retry cleanup path and independent hash must be supplied together")
         request, request_raw = helper.load_canonical(args.inspection_request, "inspection request", owner=0, maximum=16 * 1024)
         request = helper.validate_inspection_request(request)
         export_request, export_request_raw = helper.load_canonical(args.export_request, "export request", owner=0, maximum=64 * 1024)
@@ -250,7 +269,18 @@ def main() -> None:
         helper.require_absent_nix(common.NIX)
         if not common.daemon_absent():
             raise ValueError("a Nix daemon or socket is present")
-        first_disk = common.observe_disk(DEVICE, protected["gamesDevice"])
+        try:
+            first_disk = common.observe_disk(DEVICE, protected["gamesDevice"])
+        except Exception:
+            if args.retry_cleanup is None or args.expected_retry_cleanup_sha256 is None:
+                raise
+            retry_cleanup, retry_raw = helper.load_canonical(args.retry_cleanup, "prior production install cleanup", owner=0, maximum=16 * 1024)
+            if (hashlib.sha256(retry_raw).hexdigest() != exact_sha(args.expected_retry_cleanup_sha256, "retry cleanup")
+                    or retry_cleanup != {"bootIdStable": True, "dockerInventoryStable": True, "format": CLEANUP_FORMAT,
+                        "nixAbsent": True, "result": "passed", "targetUnmounted": True, "tmpfsUnmounted": True}):
+                raise ValueError("prior failed-attempt cleanup evidence differs")
+            first_disk = installed_observation()
+            input_state = "qualified-partitioned-retry"
         resources = manifest["resources"]
         helper.validate_resources(manifest, common.mem_available(), resources["requiredInodes"])
         common.NIX.mkdir(mode=0o755)
@@ -293,7 +323,8 @@ def main() -> None:
         common.verify_import(nix, manifest, set(imported.stdout.decode().splitlines()), isolated_env)
         os.close(bootstrap_copy); bootstrap_copy = None
         os.close(export_copy); export_copy = None
-        if common.boot_id() != before_boot or common.observe_disk(DEVICE, protected["gamesDevice"]) != first_disk or docker_inventory() != docker_before:
+        current_disk = common.observe_disk(DEVICE, protected["gamesDevice"]) if input_state == "blank" else installed_observation()
+        if common.boot_id() != before_boot or current_disk != first_disk or docker_inventory() != docker_before:
             raise ValueError("production identity changed before destructive install")
         if not TARGET.exists():
             TARGET.mkdir(mode=0o700)
@@ -305,14 +336,18 @@ def main() -> None:
             if not Path(executable).is_file() or not os.access(executable, os.X_OK):
                 raise ValueError("authorized install executable is unavailable")
         install_stage = "disko"
-        rc, _, _ = run_child([authorization["diskoScript"]], isolated_env, 900)
+        rc, stdout, stderr = run_child([authorization["diskoScript"]], isolated_env, 900)
+        write_diagnostic(args.output_root.parent, "retry-disko.stdout", stdout)
+        write_diagnostic(args.output_root.parent, "retry-disko.stderr", stderr)
         if rc != 0:
             raise ValueError("authorized Disko operation failed")
         target_mounted = common.command("findmnt", ["--mountpoint", str(TARGET)], check=False).returncode == 0
         if not target_mounted:
             raise ValueError("Disko target mount is absent")
         install_stage = "nixos-install"
-        rc, _, _ = run_child([authorization["nixosInstall"], "--root", str(TARGET), "--system", authorization["candidateToplevel"], "--no-channel-copy", "--no-root-password"], isolated_env, 1800)
+        rc, stdout, stderr = run_child([authorization["nixosInstall"], "--root", str(TARGET), "--system", authorization["candidateToplevel"], "--no-channel-copy", "--no-root-password"], isolated_env, 1800)
+        write_diagnostic(args.output_root.parent, "retry-nixos-install.stdout", stdout)
+        write_diagnostic(args.output_root.parent, "retry-nixos-install.stderr", stderr)
         if rc != 0:
             raise ValueError("authorized NixOS installation failed")
         profile = subprocess.run(["/usr/bin/readlink", "-f", str(TARGET / "nix/var/nix/profiles/system")], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=CLEAN_ENV)
