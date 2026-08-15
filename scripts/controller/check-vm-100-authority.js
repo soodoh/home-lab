@@ -3,10 +3,8 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { load } = require("js-yaml");
-
 const root = path.resolve(__dirname, "../..");
-const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
+const projectionPath = path.join(root, "nix/vm-100/projection.json");
 
 function validateAuthority(vm100) {
   const activationByAuthority = {
@@ -43,9 +41,13 @@ function main() {
   if (process.argv.length !== 3 || process.argv[2] !== "--require-ordinary-mutation") {
     throw new Error("usage: check-vm-100-authority.js --require-ordinary-mutation");
   }
-  const contract = load(fs.readFileSync(contractPath, "utf8"));
+  const projection = JSON.parse(fs.readFileSync(projectionPath, "utf8"));
+  const vm100 = {
+    deployment_authority: projection.deploymentAuthority,
+    nixos_activation_enabled: projection.nixosActivationEnabled,
+  };
   try {
-    const authority = assertOrdinaryMutationPermitted(contract.vm_100);
+    const authority = assertOrdinaryMutationPermitted(vm100);
     process.stdout.write(`vm_100_mutation_authority=${authority}\n`);
   } catch (error) {
     if (error.code === "VM100_ORDINARY_MUTATION_INHIBITED") {

@@ -2,6 +2,7 @@
 "use strict";
 
 const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
 const {
   assertOrdinaryMutationPermitted,
@@ -38,6 +39,11 @@ for (const [authority, activationEnabled] of [["migration-in-progress", false], 
 }
 if (refusalReason("migration-in-progress") !== "migration_in_progress") throw new Error("migration refusal reason differs");
 if (refusalReason("nixos") !== "nixos_authoritative") throw new Error("NixOS refusal reason differs");
+
+const checkerSource = fs.readFileSync(path.join(root, "scripts/controller/check-vm-100-authority.js"), "utf8");
+if (checkerSource.includes("js-yaml") || !checkerSource.includes("nix/vm-100/projection.json")) {
+  throw new Error("authority checker must remain dependency-free and projection-bound");
+}
 
 const current = spawnSync(
   process.execPath,
