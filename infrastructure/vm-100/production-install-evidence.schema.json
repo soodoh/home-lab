@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/schemas/vm-100-production-install-evidence-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["authorizationSha256", "bootIdStable", "candidate", "candidateToplevel", "commit", "dockerInventoryCount", "dockerInventoryStable", "format", "hostAttestationSha256", "installStage", "qualifiedColdBootEvidenceSha256", "qualifiedInstallEvidenceSha256", "result", "vmId"],
+  "properties": {
+    "authorizationSha256": {"$ref": "#/$defs/sha256"},
+    "bootIdStable": {"const": true},
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["byId", "partitionLabels", "serial", "sizeBytes"],
+      "properties": {
+        "byId": {"const": "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2"},
+        "partitionLabels": {"const": ["disk-vm100-root-ESP", "disk-vm100-root-bios", "disk-vm100-root-root"]},
+        "serial": {"const": "QUAL-NIXOS-128G"},
+        "sizeBytes": {"const": 137438953472}
+      }
+    },
+    "candidateToplevel": {"type": "string", "pattern": "^/nix/store/[0-9a-df-np-sv-z]{32}-nixos-system-archlinux-26\\.05\\.[^/]+$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "dockerInventoryCount": {"const": 41},
+    "dockerInventoryStable": {"const": true},
+    "format": {"const": "home-lab-vm-100-production-install-evidence-v1"},
+    "hostAttestationSha256": {"$ref": "#/$defs/sha256"},
+    "installStage": {"const": "completed"},
+    "qualifiedColdBootEvidenceSha256": {"$ref": "#/$defs/sha256"},
+    "qualifiedInstallEvidenceSha256": {"$ref": "#/$defs/sha256"},
+    "result": {"const": "passed"},
+    "vmId": {"const": 100}
+  },
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}
