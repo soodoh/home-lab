@@ -99,7 +99,7 @@ def verify_candidate_ancestry(lsblk: str, fixture_root: Path | None, expected: d
         resolved = by_id.resolve(strict=True)
     except FileNotFoundError as error:
         raise SystemExit("exact candidate by-id is missing") from error
-    value = run_json(lsblk, ["--json", "--bytes", "--output", "PATH,SERIAL,SIZE,TYPE", str(resolved)])
+    value = run_json(lsblk, ["--tree", "--json", "--bytes", "--output", "PATH,SERIAL,SIZE,TYPE", str(resolved)])
     devices = value.get("blockdevices") if isinstance(value, dict) else None
     if not isinstance(devices, list) or len(devices) != 1:
         raise SystemExit("candidate disk identity is ambiguous")
