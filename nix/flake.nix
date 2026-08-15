@@ -298,18 +298,18 @@
         } // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           vm-100-ephemeral-nix-cli =
             let bootstrapNix = self.packages.x86_64-linux.vm-100-ephemeral-nix-bootstrap;
-            in pkgs.runCommand "check-vm-100-ephemeral-nix-cli" { nativeBuildInputs = [ pkgs.gnugrep pkgs.man ]; } ''
-              export MANPATH=${bootstrapNix.man}/share/man
+            in pkgs.runCommand "check-vm-100-ephemeral-nix-cli" { nativeBuildInputs = [ pkgs.gnugrep pkgs.gzip ]; } ''
               test "$(${bootstrapNix}/bin/nix --version)" = "nix (Nix) 2.34.8"
+              test "$(${bootstrapNix}/bin/nix-store --version)" = "nix-store (Nix) 2.34.8"
               test -x ${bootstrapNix}/bin/nix
               test -x ${bootstrapNix}/bin/nix-store
               ${bootstrapNix}/bin/nix path-info --help | grep -F -- "--json-format"
               ${bootstrapNix}/bin/nix path-info --help | grep -F -- "--sigs"
               ${bootstrapNix}/bin/nix store verify --help | grep -F -- "--quiet"
               ${bootstrapNix}/bin/nix store verify --help | grep -F -- "--sigs-needed"
-              ${bootstrapNix}/bin/nix-store --help | grep -F -- "--import"
-              ! ${bootstrapNix}/bin/nix-store --help | grep -F -- "--require-signature"
-              ! ${bootstrapNix}/bin/nix-store --help | grep -F -- "--signatures"
+              gzip -cd ${bootstrapNix.man}/share/man/man1/nix-store.1.gz | grep -F -- "--import"
+              ! gzip -cd ${bootstrapNix.man}/share/man/man1/nix-store.1.gz | grep -F -- "--require-signature"
+              ! gzip -cd ${bootstrapNix.man}/share/man/man1/nix-store.1.gz | grep -F -- "--signatures"
               touch "$out"
             '';
 
