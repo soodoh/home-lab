@@ -293,7 +293,7 @@ class EphemeralContractTests(unittest.TestCase):
         self.assertEqual(environment["NIX_USER_CONF_FILES"], "/nix/.runtime/config/nix/empty.conf")
         self.assertEqual(environment["XDG_CONFIG_HOME"], "/nix/.runtime/config")
         self.assertEqual(environment["NIX_PATH"], "")
-        for setting in ("plugin-files =\n", "substituters =\n", "builders =\n", "require-sigs = true\n", f"trusted-public-keys = {PUBLIC_KEY_VALUE}\n"):
+        for setting in ("plugin-files =\n", "substituters =\n", "builders =\n", "build-users-group =\n", "require-sigs = true\n", f"trusted-public-keys = {PUBLIC_KEY_VALUE}\n"):
             self.assertIn(setting, environment["NIX_CONFIG"])
         self.assertNotIn("/root", json.dumps(environment, sort_keys=True))
         self.assertNotIn("/etc/nix", json.dumps(environment, sort_keys=True))
@@ -367,6 +367,8 @@ class EphemeralContractTests(unittest.TestCase):
         self.assertIn('os.open(".", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)', runner)
         self.assertLess(runner.index('write_evidence(output_descriptor, "inspection-evidence.json"'), runner.index('write_evidence(output_descriptor, "cleanup-evidence.json"'))
         self.assertLess(runner.index('write_evidence(output_descriptor, "cleanup-evidence.json"'), runner.index('write_evidence(output_descriptor, "qualification-evidence.json"'))
+        self.assertIn("for attempt in range(5):", runner)
+        self.assertIn("time.sleep(0.1)", runner)
 
     def test_exact_captured_helper_bytes_execute_after_path_replacement(self):
         with tempfile.TemporaryDirectory() as directory:

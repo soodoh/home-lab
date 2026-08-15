@@ -15,6 +15,7 @@ import signal
 import stat
 import subprocess
 import sys
+import time
 from types import ModuleType
 from typing import Any
 
@@ -107,7 +108,7 @@ def nix_environment(runtime: Path, trusted_public_key: str) -> dict[str, str]:
     return {
         "HOME": str(runtime / "home"), "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
         "NIX_CONFIG": "\n".join((
-            "builders =", "experimental-features = nix-command", "plugin-files =",
+            "builders =", "build-users-group =", "experimental-features = nix-command", "plugin-files =",
             "require-sigs = true", "substituters =",
             f"trusted-public-keys = {trusted_public_key}", "trusted-substituters =",
         )) + "\n",
@@ -682,9 +683,20 @@ def main() -> None:
                     pass
         child_group_absent = process_group_absent(child)
         if mounted:
-            result = command("umount", ["--", "/nix"], check=False)
-            if result.returncode == 0 and result.stdout == b"" and result.stderr == b"":
-                mounted = False
+            for attempt in range(5):
+                result = command("umount", ["--", "/nix"], check=False)
+                if result.returncode == 0 and result.stdout == b"" and result.stderr == b"":
+                    mounted = False
+                    break
+                try:
+                    still_mounted = tmpfs_mounted()
+                except Exception:
+                    still_mounted = True
+                if not still_mounted:
+                    mounted = False
+                    break
+                if attempt < 4:
+                    time.sleep(0.1)
         tmpfs_unmounted = tmpfs_absent() if created else True
         if created and tmpfs_unmounted:
             try:
