@@ -99,7 +99,7 @@ class ProductionInstallTests(unittest.TestCase):
             self.assertFalse(schema["additionalProperties"])
             self.assertEqual(set(schema["required"]), set(schema["properties"]))
         source = RUNNER.read_text()
-        for required in ("install-production-vm-100-scsi2-reviewed", "docker_inventory() != docker_before", "common.boot_id() != before_boot", '"--net"', '"--recursive"', '"require-sigs"', "validate_live_qualification"):
+        for required in ("install-production-vm-100-scsi2-reviewed", "docker_inventory() != docker_before", "common.boot_id() != before_boot", '"--net"', '"--recursive"', '"require-sigs"', "validate_live_qualification", "bootstrapStorePath']}/bin"):
             self.assertIn(required, source)
         for forbidden in ("qm stop", "qm start", "qm reboot", "docker stop", "systemctl stop docker"):
             self.assertNotIn(forbidden, source)

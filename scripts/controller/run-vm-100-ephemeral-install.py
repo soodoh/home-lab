@@ -312,6 +312,7 @@ def main() -> None:
         if tar.returncode != 0 or tar.stdout or tar.stderr:
             raise ValueError("bootstrap extraction failed")
         nix, nix_store = helper.select_bootstrap_executables(manifest["bootstrapStorePath"], manifest["bootstrapPaths"])
+        isolated_env["PATH"] = f"{manifest['bootstrapStorePath']}/bin:/usr/bin:/bin"
         init = subprocess.run([nix_store, "--init"], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=isolated_env)
         if init.returncode != 0 or init.stdout or init.stderr:
             raise ValueError("ephemeral Nix initialization failed")
