@@ -18,6 +18,13 @@
       systems = [ "aarch64-darwin" "x86_64-linux" "aarch64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
       vm100Projection = builtins.fromJSON (builtins.readFile ./vm-100/projection.json);
+      biosBootModule = { lib, ... }: {
+        # VM 100 firmware is protected as SeaBIOS. Selecting the exact Disko
+        # root device creates one GRUB mirroredBoot entry using its EF02 area.
+        homeLab.vm100.rootDiskDevice = lib.mkDefault "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2";
+        boot.loader.grub.efiSupport = lib.mkForce false;
+        boot.loader.grub.efiInstallAsRemovable = lib.mkForce false;
+      };
       mkVm100 = { projection ? vm100Projection, extraModules ? [ ] }:
         nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
@@ -26,7 +33,10 @@
             disko.nixosModules.disko
             sops-nix.nixosModules.sops
             ./hosts/vm-100
-          ] ++ extraModules;
+          ] ++ nixpkgs.lib.optional
+            (projection.deploymentAuthority != "arch")
+            biosBootModule
+          ++ extraModules;
         };
       authorityConfig = authority: activation:
         (mkVm100 {
@@ -67,6 +77,7 @@
 
       nixosConfigurations.vm-100-candidate = mkVm100 {
         extraModules = [
+          biosBootModule
           ({ lib, ... }: {
             disabledModules = [
               ./hosts/vm-100/networking.nix

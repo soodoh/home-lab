@@ -116,6 +116,25 @@ class CandidateInstallTests(unittest.TestCase):
             self.assertIn(control, source)
         self.assertNotIn("/dev/sd", source)
 
+    def test_candidate_bootloader_matches_protected_seabios_firmware(self):
+        flake = (ROOT / "nix/flake.nix").read_text()
+        exact_disk = "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2"
+        self.assertIn(f'homeLab.vm100.rootDiskDevice = lib.mkDefault "{exact_disk}"', flake)
+        self.assertIn("boot.loader.grub.efiSupport = lib.mkForce false", flake)
+        self.assertIn("biosBootModule", flake)
+        mirrored_boots = subprocess.run(
+            ["nix", "eval", "--json", "path:./nix#nixosConfigurations.vm-100-candidate.config.boot.loader.grub.mirroredBoots"],
+            cwd=ROOT, check=True, text=True, stdout=subprocess.PIPE,
+        ).stdout
+        candidate_efi = subprocess.run(
+            ["nix", "eval", "--json", "path:./nix#nixosConfigurations.vm-100-candidate.config.boot.loader.grub.efiSupport"],
+            cwd=ROOT, check=True, text=True, stdout=subprocess.PIPE,
+        ).stdout
+        boots = json.loads(mirrored_boots)
+        self.assertEqual(len(boots), 1)
+        self.assertEqual(boots[0]["devices"], [exact_disk])
+        self.assertFalse(json.loads(candidate_efi))
+
     def test_compose_artifact_mirror_and_docker_qualification_are_closed(self):
         expected = (ROOT / "nix/compose-artifact.sha256").read_text().strip()
         source_hash = subprocess.run(

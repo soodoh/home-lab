@@ -1,6 +1,7 @@
-{ lib, vm100Projection ? builtins.fromJSON (builtins.readFile ../../vm-100/projection.json), ... }:
+{ config, lib, vm100Projection ? builtins.fromJSON (builtins.readFile ../../vm-100/projection.json), ... }:
 let
   projection = vm100Projection;
+  cfg = config.homeLab.vm100;
   validAuthorityRelation =
     (projection.deploymentAuthority == "arch" && !projection.nixosActivationEnabled) ||
     (projection.deploymentAuthority == "migration-in-progress" && !projection.nixosActivationEnabled) ||
@@ -27,9 +28,9 @@ in
 
   boot.loader.grub = {
     enable = true;
-    device = "nodev";
-    efiSupport = true;
-    efiInstallAsRemovable = true;
+    device = lib.mkIf (cfg.rootDiskDevice == null) "nodev";
+    efiSupport = cfg.rootDiskDevice == null;
+    efiInstallAsRemovable = cfg.rootDiskDevice == null;
   };
   boot.loader.systemd-boot.enable = false;
   boot.loader.efi.canTouchEfiVariables = false;
