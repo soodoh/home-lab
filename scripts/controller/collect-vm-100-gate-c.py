@@ -21,7 +21,7 @@ from vm_100_gate_c import (
     ANONYMOUS_VOLUME, ANONYMOUS_VOLUME_ALLOWLIST, BACKUP_PATHS, CANDIDATE_BY_ID,
     CANDIDATE_SERIAL, CLASSIFICATIONS,
     COLLECTION_FORMAT, DESTINATION_ROOT, DISK_BYTES, DOCKER_ROOT, LEGACY_VOLUMES,
-    PROJECT, SAFE_CONTAINER_ID, SAFE_NAME, SAFE_VOLUME_LABELS, digest,
+    PROJECT, RUNTIME_TMPFS_ALLOWLIST, SAFE_CONTAINER_ID, SAFE_NAME, SAFE_VOLUME_LABELS, digest,
     expected_volume_names, host_destination, project_desired_inventory,
     project_runtime_inventory, validate_candidate_inventory, validate_collection,
     volume_destination, volume_source,
@@ -180,7 +180,7 @@ def safe_container_metadata(containers: list[dict[str, Any]], desired: dict[str,
     policy = desired_mount_policy(desired); expected_services = set(policy)
     if len(expected_services) != 41 or len(containers) != 41:
         raise SystemExit("complete Docker daemon inventory must contain exactly one container for each of 41 desired services")
-    safe_containers = []; mounts = []; seen_services: set[str] = set(); seen_ids: set[str] = set(); seen_names: set[str] = set(); observed_anonymous: set[tuple[str, str, bool]] = set()
+    safe_containers = []; mounts = []; seen_services: set[str] = set(); seen_ids: set[str] = set(); seen_names: set[str] = set(); observed_anonymous: set[tuple[str, str, bool]] = set(); observed_tmpfs: set[tuple[str, str, bool]] = set()
     for container in containers:
         labels = (container.get("Config") or {}).get("Labels") or {}; service = labels.get("com.docker.compose.service")
         if labels.get("com.docker.compose.project") != PROJECT or not isinstance(service, str) or service not in policy: raise SystemExit("complete daemon inventory contains a nonproject or extra service container")
@@ -203,6 +203,12 @@ def safe_container_metadata(containers: list[dict[str, Any]], desired: dict[str,
                 observed_anonymous.add(anonymous_identity)
                 mounts.append({"container": name, "service": service, "kind": "anonymous-volume", "source": source, "destination": destination, "readOnly": read_only, "logicalName": None})
                 continue
+            if mount_type == "tmpfs" and source == "" and isinstance(destination, str) and anonymous_identity in RUNTIME_TMPFS_ALLOWLIST:
+                if anonymous_identity in observed_tmpfs:
+                    raise SystemExit(f"runtime tmpfs identity is duplicated: {name}")
+                observed_tmpfs.add(anonymous_identity)
+                mounts.append({"container": name, "service": service, "kind": "runtime-tmpfs", "source": "", "destination": destination, "readOnly": read_only, "logicalName": None})
+                continue
             if mount_type not in {"bind", "volume"} or not isinstance(source, str) or not isinstance(destination, str) or key not in policy[service]:
                 raise SystemExit(f"unexpected project container mount: {name}")
             if key in observed_mounts: raise SystemExit(f"duplicate project container mount: {name}")
@@ -215,9 +221,11 @@ def safe_container_metadata(containers: list[dict[str, Any]], desired: dict[str,
     if seen_services != expected_services: raise SystemExit("complete daemon inventory has missing or extra desired services")
     if observed_anonymous != ANONYMOUS_VOLUME_ALLOWLIST:
         raise SystemExit("complete daemon inventory has missing or extra allowlisted anonymous volumes")
+    if observed_tmpfs != RUNTIME_TMPFS_ALLOWLIST:
+        raise SystemExit("complete daemon inventory has missing or extra allowlisted runtime tmpfs mounts")
     safe_containers.sort(key=lambda item: (item["service"], item["name"])); mounts.sort(key=lambda item: json.dumps(item, sort_keys=True))
     running = {item["name"] for item in safe_containers if item["running"]}
-    writers = [item for item in mounts if item["container"] in running and not item["readOnly"]]
+    writers = [item for item in mounts if item["kind"] != "runtime-tmpfs" and item["container"] in running and not item["readOnly"]]
     return safe_containers, writers, mounts
 
 

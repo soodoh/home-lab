@@ -21,7 +21,7 @@ from vm_100_gate_c import (
     CANDIDATE_INVENTORY_FORMAT, CANDIDATE_PROFILE, CANDIDATE_SERIAL,
     CLASSIFICATIONS, COLLECTION_FORMAT, DESTINATION_ROOT, DISK_BYTES, DOCKER_ROOT,
     FORMAT, ISOLATED_DOCKER_ARGV, ISOLATED_DOCKER_HOST, ISOLATED_DOCKER_PIDFILE,
-    ISOLATED_DOCKER_ROOT, LEGACY_VOLUMES, PROJECT,
+    ISOLATED_DOCKER_ROOT, LEGACY_VOLUMES, PROJECT, RUNTIME_TMPFS_ALLOWLIST,
     _contained, checksum_argv,
     digest, expected_volume_names, host_destination, project_desired_inventory,
     project_runtime_inventory, validate_collection, validate_freshness,
@@ -61,9 +61,21 @@ def anonymous_mounts(projected: bool = False) -> list[dict[str, object]]:
     return values
 
 
+def runtime_tmpfs_mounts(projected: bool = False) -> list[dict[str, object]]:
+    values = []
+    for service, destination, read_only in sorted(RUNTIME_TMPFS_ALLOWLIST):
+        if projected:
+            values.append({"container": service, "service": service, "kind": "runtime-tmpfs", "source": "", "destination": destination, "readOnly": read_only, "logicalName": None})
+        else:
+            values.append({"Type": "tmpfs", "Name": "", "Source": "", "Destination": destination, "RW": not read_only})
+    return values
+
+
 def containers_for_desired(desired: dict[str, object]) -> list[dict[str, object]]:
     result = [{"Id": format(index + 1, "064x"), "Name": f"/{item['service']}", "Config": {"Labels": {"com.docker.compose.project": PROJECT, "com.docker.compose.service": item["service"]}}, "State": {"Running": True}, "Mounts": []} for index, item in enumerate(desired["serviceMounts"])]
     for mount, identity in zip(anonymous_mounts(), sorted(ANONYMOUS_VOLUME_ALLOWLIST)):
+        next(item for item in result if item["Config"]["Labels"]["com.docker.compose.service"] == identity[0])["Mounts"].append(mount)
+    for mount, identity in zip(runtime_tmpfs_mounts(), sorted(RUNTIME_TMPFS_ALLOWLIST)):
         next(item for item in result if item["Config"]["Labels"]["com.docker.compose.service"] == identity[0])["Mounts"].append(mount)
     return result
 
@@ -97,8 +109,8 @@ def fixture_documents() -> tuple[dict[str, object], dict[str, object], dict[str,
         mount = {"device": f"/dev/backup{index}", "filesystem": "ext4", "filesystemUuid": f"00000000-0000-0000-0000-00000000000{index}", "mountTarget": path, "mountId": 50 + index}
         if index == 2: mount.update({"device": "192.168.0.123:/storage/docker", "filesystem": "nfs4", "filesystemUuid": None})
         replicas.append({"path": path, "archiveName": archive, "sidecarName": f"{archive}.sha256", "sha256": "d" * 64, "sizeBytes": 1234, "mtime": f"2026-08-12T00:00:0{index}Z", "mount": mount})
-    anonymous = anonymous_mounts(projected=True)
-    collection = {"format": COLLECTION_FORMAT, "collectedAt": NOW, "desiredInventorySha256": digest(desired), "runtimeInventorySha256": digest(runtime), "candidateInventorySha256": digest(qualification), "sourceDockerRoot": "/var/lib/docker", "candidateQualification": qualification, "candidate": candidate, "copyEntries": entries, "backupEvidence": {"maxAgeSeconds": 3600, "replicas": replicas}, "operationalMetadata": {"containers": projected_containers(desired), "writers": copy.deepcopy(anonymous), "timers": [], "mounts": anonymous}}
+    anonymous = anonymous_mounts(projected=True); runtime_tmpfs = runtime_tmpfs_mounts(projected=True)
+    collection = {"format": COLLECTION_FORMAT, "collectedAt": NOW, "desiredInventorySha256": digest(desired), "runtimeInventorySha256": digest(runtime), "candidateInventorySha256": digest(qualification), "sourceDockerRoot": "/var/lib/docker", "candidateQualification": qualification, "candidate": candidate, "copyEntries": entries, "backupEvidence": {"maxAgeSeconds": 3600, "replicas": replicas}, "operationalMetadata": {"containers": projected_containers(desired), "writers": copy.deepcopy(anonymous), "timers": [], "mounts": anonymous + runtime_tmpfs}}
     projected = []
     for entry in entries:
         value = copy.deepcopy(entry); value["writeArgv"] = write_argv(entry["source"], entry["destination"]); value["checksumArgv"] = checksum_argv(entry["source"], entry["destination"]); projected.append(value)
@@ -317,7 +329,7 @@ class GateCTests(unittest.TestCase):
         raw = raw_desired(); raw["services"]["openfit"] = {"binds": [{"source": "/mnt/storage/media", "target": "/media", "read_only": True}], "volumes": [{"source": "openfit-data", "target": "/data", "read_only": False}]}
         desired = project_desired_inventory(raw); fleet = containers_for_desired(desired); app = next(item for item in fleet if item["Config"]["Labels"]["com.docker.compose.service"] == "openfit")
         app["Mounts"] = [{"Type": "volume", "Name": f"{PROJECT}_openfit-data", "Source": volume_source(f"{PROJECT}_openfit-data"), "Destination": "/data", "RW": True}, {"Type": "bind", "Source": "/mnt/storage/media", "Destination": "/media", "RW": False}]
-        containers, writers, mounts = COLLECTOR.safe_container_metadata(fleet, desired); self.assertEqual(len(containers), 41); self.assertEqual(len(mounts), 6); self.assertEqual(len(writers), 5)
+        containers, writers, mounts = COLLECTOR.safe_container_metadata(fleet, desired); self.assertEqual(len(containers), 41); self.assertEqual(len(mounts), 8); self.assertEqual(len(writers), 5)
         missing_mount = copy.deepcopy(fleet); next(item for item in missing_mount if item["Config"]["Labels"]["com.docker.compose.service"] == "openfit")["Mounts"].pop()
         with self.assertRaisesRegex(SystemExit, "missing desired mounts"): COLLECTOR.safe_container_metadata(missing_mount, desired)
         for mutation in (lambda m: m.update({"Name": "", "Source": "/var/lib/docker/volumes/anon/_data"}), lambda m: m.update({"Source": volume_source(f"{PROJECT}_openfit-data") + "/nested"}), lambda m: m.update({"Type": "bind", "Source": "/mnt/storage/media/nested"})):

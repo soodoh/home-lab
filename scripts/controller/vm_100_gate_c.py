@@ -77,6 +77,10 @@ ANONYMOUS_VOLUME_ALLOWLIST = frozenset({
     ("nextcloud-redis", "/data", False),
     ("wolf", "/run/user/wolf", False),
 })
+RUNTIME_TMPFS_ALLOWLIST = frozenset({
+    ("frigate", "/tmp/cache", False),
+    ("jellyfin", "/cache/transcodes", False),
+})
 
 CLASSIFICATIONS = (
     ("games", "/mnt/games", "reuse", "Existing games filesystem is reattached and is not copied to the candidate disk."),
@@ -359,18 +363,24 @@ def _validate_operational(metadata: object, desired: dict[str, Any]) -> None:
         if not isinstance(values, list): raise ValueError(f"{key} metadata is invalid")
         for item in values:
             required = {"container", "service", "kind", "source", "destination", "readOnly", "logicalName"}
-            if not isinstance(item, dict) or set(item) != required or not isinstance(item["readOnly"], bool) or item["kind"] not in ("bind", "volume", "anonymous-volume"):
+            if not isinstance(item, dict) or set(item) != required or not isinstance(item["readOnly"], bool) or item["kind"] not in ("bind", "volume", "anonymous-volume", "runtime-tmpfs"):
                 raise ValueError(f"{key} metadata has unknown fields")
             _safe_name(item["container"], "mount container"); _safe_name(item["service"], "mount service")
-            _safe_path(item["source"], "mount source"); _safe_path(item["destination"], "mount destination")
+            _safe_path(item["destination"], "mount destination")
             if (item["container"], item["service"]) not in known: raise ValueError("mount references an unknown container")
             if item["kind"] == "anonymous-volume":
+                _safe_path(item["source"], "mount source")
                 if item["logicalName"] is not None or (item["service"], item["destination"], item["readOnly"]) not in ANONYMOUS_VOLUME_ALLOWLIST or not ANONYMOUS_VOLUME.fullmatch(item["source"]):
                     raise ValueError("anonymous volume mount is not exactly allowlisted")
+            elif item["kind"] == "runtime-tmpfs":
+                if item["source"] != "" or item["logicalName"] is not None or (item["service"], item["destination"], item["readOnly"]) not in RUNTIME_TMPFS_ALLOWLIST:
+                    raise ValueError("runtime tmpfs mount is not exactly allowlisted")
             elif item["kind"] == "volume":
-                _safe_name(item["logicalName"], "mount logical volume")
-            elif item["logicalName"] is not None: raise ValueError("bind mount has a logical volume")
-        if key == "writers" and values != [item for item in metadata["mounts"] if not item["readOnly"] and any(c["name"] == item["container"] and c["running"] for c in containers)]:
+                _safe_path(item["source"], "mount source"); _safe_name(item["logicalName"], "mount logical volume")
+            else:
+                _safe_path(item["source"], "mount source")
+                if item["logicalName"] is not None: raise ValueError("bind mount has a logical volume")
+        if key == "writers" and values != [item for item in metadata["mounts"] if item["kind"] != "runtime-tmpfs" and not item["readOnly"] and any(c["name"] == item["container"] and c["running"] for c in containers)]:
             raise ValueError("writer evidence is incomplete")
     expected_mounts = []
     for service in desired["serviceMounts"]:
@@ -378,11 +388,14 @@ def _validate_operational(metadata: object, desired: dict[str, Any]) -> None:
             expected_mounts.append((service["service"], "bind", item["source"], item["target"], item["readOnly"], None))
         for item in service["volumes"]:
             expected_mounts.append((service["service"], "volume", volume_source(f"{PROJECT}_{item['source']}"), item["target"], item["readOnly"], item["source"]))
-    observed_mounts = [(item["service"], item["kind"], item["source"], item["destination"], item["readOnly"], item["logicalName"]) for item in metadata["mounts"] if item["kind"] != "anonymous-volume"]
+    observed_mounts = [(item["service"], item["kind"], item["source"], item["destination"], item["readOnly"], item["logicalName"]) for item in metadata["mounts"] if item["kind"] not in {"anonymous-volume", "runtime-tmpfs"}]
     if sorted(expected_mounts) != sorted(observed_mounts): raise ValueError("container mount evidence does not exactly match projected desired mounts")
     observed_anonymous = {(item["service"], item["destination"], item["readOnly"]) for item in metadata["mounts"] if item["kind"] == "anonymous-volume"}
     if observed_anonymous != ANONYMOUS_VOLUME_ALLOWLIST or sum(item["kind"] == "anonymous-volume" for item in metadata["mounts"]) != 4:
         raise ValueError("operational metadata must contain the exact four anonymous runtime volumes")
+    observed_tmpfs = {(item["service"], item["destination"], item["readOnly"]) for item in metadata["mounts"] if item["kind"] == "runtime-tmpfs"}
+    if observed_tmpfs != RUNTIME_TMPFS_ALLOWLIST or sum(item["kind"] == "runtime-tmpfs" for item in metadata["mounts"]) != 2:
+        raise ValueError("operational metadata must contain the exact two regenerated runtime tmpfs mounts")
     timers = metadata["timers"]
     if not isinstance(timers, list): raise ValueError("timer metadata is invalid")
     for timer in timers:

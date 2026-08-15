@@ -1205,11 +1205,15 @@
           "enum": [
             "bind",
             "volume",
-            "anonymous-volume"
+            "anonymous-volume",
+            "runtime-tmpfs"
           ]
         },
         "source": {
-          "$ref": "#/$defs/path"
+          "oneOf": [
+            {"$ref": "#/$defs/path"},
+            {"const": ""}
+          ]
         },
         "destination": {
           "$ref": "#/$defs/path"
