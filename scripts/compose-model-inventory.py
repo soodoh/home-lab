@@ -128,6 +128,14 @@ def run_json(command: list[str]) -> Any:
     return json.loads(result.stdout)
 
 
+def normalize_desired_volume_source(source: object, declared: set[str], project_name: str) -> object:
+    if not isinstance(source, str):
+        return source
+    prefix = f"{project_name}_"
+    logical_name = source.removeprefix(prefix)
+    return logical_name if source.startswith(prefix) and logical_name in declared else source
+
+
 def desired_inventory(args: Namespace) -> dict[str, object]:
     artifact_root = args.artifact_root.resolve()
     model = run_json(
@@ -148,10 +156,7 @@ def desired_inventory(args: Namespace) -> dict[str, object]:
         ]
     )
 
-    volume_names = {
-        name: definition.get("name", name)
-        for name, definition in (model.get("volumes") or {}).items()
-    }
+    declared_volume_names = set((model.get("volumes") or {}).keys())
     network_names = {
         name: definition.get("name", name)
         for name, definition in (model.get("networks") or {}).items()
@@ -180,7 +185,9 @@ def desired_inventory(args: Namespace) -> dict[str, object]:
             "volumes": sorted(
                 (
                     {
-                        "source": volume_names.get(mount.get("source"), mount.get("source")),
+                        "source": normalize_desired_volume_source(
+                            mount.get("source"), declared_volume_names, args.project_name
+                        ),
                         "target": mount.get("target"),
                         "read_only": mount.get("read_only", False),
                     }

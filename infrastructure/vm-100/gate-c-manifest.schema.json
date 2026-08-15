@@ -1,0 +1,1450 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://diloreto.com/schemas/home-lab-vm-100-gate-c-manifest-v1.json",
+  "title": "Structurally constrained VM 100 Gate C direct-data manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "version",
+    "bindings",
+    "inventories",
+    "candidate",
+    "sourceDockerRoot",
+    "copyEntries",
+    "classifications",
+    "backupEvidence",
+    "operationalMetadata"
+  ],
+  "properties": {
+    "format": {
+      "const": "home-lab-vm-100-gate-c-manifest-v1"
+    },
+    "version": {
+      "const": 1
+    },
+    "bindings": {
+      "$ref": "#/$defs/bindings"
+    },
+    "inventories": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "desired",
+        "runtime",
+        "collection"
+      ],
+      "properties": {
+        "desired": {
+          "$ref": "#/$defs/desired"
+        },
+        "runtime": {
+          "$ref": "#/$defs/runtime"
+        },
+        "collection": {
+          "$ref": "#/$defs/collection"
+        }
+      }
+    },
+    "candidate": {
+      "$ref": "#/$defs/candidate"
+    },
+    "sourceDockerRoot": {
+      "const": "/var/lib/docker"
+    },
+    "copyEntries": {
+      "type": "array",
+      "minItems": 34,
+      "maxItems": 34,
+      "items": {
+        "$ref": "#/$defs/copyEntry"
+      }
+    },
+    "classifications": {
+      "type": "array",
+      "minItems": 22,
+      "maxItems": 22,
+      "items": {
+        "$ref": "#/$defs/classification"
+      }
+    },
+    "backupEvidence": {
+      "$ref": "#/$defs/backups"
+    },
+    "operationalMetadata": {
+      "$ref": "#/$defs/operational"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.-]{0,127}$"
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^/[A-Za-z0-9_./:@+-]{0,1023}$"
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gitCommit",
+        "composeArtifactSha256",
+        "isolatedRestoreEvidenceSha256",
+        "candidateDaemonStopEvidenceSha256",
+        "sourceDaemonStabilityEvidenceSha256",
+        "canonicalProductionMigrationToplevel",
+        "desiredInventorySha256",
+        "runtimeInventorySha256",
+        "candidateInventorySha256",
+        "collectionSha256",
+        "collectedAt"
+      ],
+      "properties": {
+        "gitCommit": {
+          "$ref": "#/$defs/commit"
+        },
+        "composeArtifactSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "canonicalProductionMigrationToplevel": {
+          "type": "string",
+          "pattern": "^/nix/store/[0-9a-z]{32}-[A-Za-z0-9][A-Za-z0-9+._?-]{0,199}$"
+        },
+        "desiredInventorySha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runtimeInventorySha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "candidateInventorySha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "collectionSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "collectedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "isolatedRestoreEvidenceSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "candidateDaemonStopEvidenceSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceDaemonStabilityEvidenceSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "desiredMount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "target",
+        "readOnly"
+      ],
+      "properties": {
+        "source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "target": {
+          "$ref": "#/$defs/path"
+        },
+        "readOnly": {
+          "type": "boolean"
+        }
+      }
+    },
+    "desiredService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "service",
+        "binds",
+        "volumes"
+      ],
+      "properties": {
+        "service": {
+          "enum": [
+            "audiobookshelf",
+            "authentik-server",
+            "authentik-worker",
+            "bookshelf",
+            "caddy",
+            "calibre",
+            "calibre-web-automated",
+            "caro-tachidesk",
+            "daily-local-backup",
+            "ddns-updater",
+            "flaresolverr",
+            "frigate",
+            "gluetun",
+            "homeassistant",
+            "jellyfin",
+            "karaoke-eternal",
+            "litellm",
+            "mosquitto",
+            "nextcloud",
+            "nextcloud-db",
+            "nextcloud-redis",
+            "omada",
+            "openfit",
+            "pihole",
+            "postgres",
+            "prowlarr",
+            "qbittorrent",
+            "radarr",
+            "radarr-4k",
+            "recyclarr",
+            "redis",
+            "sabnzbd",
+            "seerr",
+            "sonarr",
+            "tachidesk",
+            "unpackerr",
+            "vaultwarden",
+            "vikunja",
+            "weekly-remote-backup",
+            "wolf",
+            "zwave"
+          ]
+        },
+        "binds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/desiredMount"
+          }
+        },
+        "volumes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/desiredMount"
+          }
+        }
+      }
+    },
+    "desired": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "projectName",
+        "volumeCount",
+        "volumes",
+        "serviceMounts"
+      ],
+      "properties": {
+        "kind": {
+          "const": "desired"
+        },
+        "projectName": {
+          "const": "docker-compose"
+        },
+        "volumeCount": {
+          "const": 30
+        },
+        "volumes": {
+          "type": "array",
+          "minItems": 30,
+          "maxItems": 30,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/name"
+          }
+        },
+        "serviceMounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/desiredService"
+          },
+          "minItems": 41,
+          "maxItems": 41,
+          "uniqueItems": true
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "projectName",
+        "projectVolumeCount",
+        "projectVolumes"
+      ],
+      "properties": {
+        "kind": {
+          "const": "runtime"
+        },
+        "projectName": {
+          "const": "docker-compose"
+        },
+        "projectVolumeCount": {
+          "const": 33
+        },
+        "projectVolumes": {
+          "type": "array",
+          "minItems": 33,
+          "maxItems": 33,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^docker-compose_[a-z0-9][a-z0-9-]*$"
+          }
+        }
+      }
+    },
+    "labels": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "com.docker.compose.project": {
+          "const": "docker-compose"
+        },
+        "com.docker.compose.volume": {
+          "$ref": "#/$defs/name"
+        },
+        "com.docker.compose.version": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "com.docker.compose.config-hash": {
+          "type": "string",
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "com.docker.compose.project",
+        "com.docker.compose.volume"
+      ]
+    },
+    "qualifiedVolume": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logicalName",
+        "engineName",
+        "driver",
+        "options",
+        "hostMountpoint",
+        "guestMountpoint",
+        "composeLabels",
+        "createdAt"
+      ],
+      "properties": {
+        "logicalName": {
+          "$ref": "#/$defs/name"
+        },
+        "engineName": {
+          "type": "string",
+          "pattern": "^docker-compose_[a-z0-9][a-z0-9-]*$"
+        },
+        "driver": {
+          "const": "local"
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "hostMountpoint": {
+          "type": "string",
+          "pattern": "^/mnt/vm-100-candidate/var/lib/docker/volumes/docker-compose_[a-z0-9][a-z0-9-]*/_data$"
+        },
+        "guestMountpoint": {
+          "type": "string",
+          "pattern": "^/var/lib/docker/volumes/docker-compose_[a-z0-9][a-z0-9-]*/_data$"
+        },
+        "composeLabels": {
+          "$ref": "#/$defs/labels"
+        },
+        "createdAt": {
+          "$ref": "#/$defs/timestamp"
+        }
+      }
+    },
+    "candidateQualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "collectedAt",
+        "candidateDisk",
+        "candidateMount",
+        "isolatedDockerHost",
+        "isolatedDockerRoot",
+        "isolatedDockerDaemonArgv",
+        "systemProfile",
+        "canonicalProductionMigrationToplevel",
+        "volumes"
+      ],
+      "properties": {
+        "format": {
+          "const": "home-lab-vm-100-candidate-volume-inventory-v1"
+        },
+        "collectedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "candidateDisk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "wholeDiskById",
+            "serial",
+            "sizeBytes"
+          ],
+          "properties": {
+            "wholeDiskById": {
+              "const": "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2"
+            },
+            "serial": {
+              "const": "QUAL-NIXOS-128G"
+            },
+            "sizeBytes": {
+              "const": 137438953472
+            }
+          }
+        },
+        "candidateMount": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "device",
+            "filesystem",
+            "target",
+            "deviceAncestry"
+          ],
+          "properties": {
+            "device": {
+              "type": "string",
+              "pattern": "^/dev/(?!disk/by-id/)"
+            },
+            "filesystem": {
+              "type": "string",
+              "pattern": "^(?!tmpfs$|devtmpfs$|overlay$)[a-z0-9_.+-]+$"
+            },
+            "target": {
+              "const": "/mnt/vm-100-candidate"
+            },
+            "deviceAncestry": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 8,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^/dev/"
+              }
+            }
+          }
+        },
+        "isolatedDockerHost": {
+          "const": "unix:///run/vm-100-candidate-docker/docker.sock"
+        },
+        "isolatedDockerRoot": {
+          "const": "/mnt/vm-100-candidate/var/lib/docker"
+        },
+        "systemProfile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "guestProfilePath",
+            "hostProfilePath",
+            "profileLinkText",
+            "guestGenerationLinkPath",
+            "hostGenerationLinkPath",
+            "generationLinkText",
+            "hostToplevelPath"
+          ],
+          "properties": {
+            "guestProfilePath": {
+              "const": "/nix/var/nix/profiles/system"
+            },
+            "hostProfilePath": {
+              "const": "/mnt/vm-100-candidate/nix/var/nix/profiles/system"
+            },
+            "profileLinkText": {
+              "type": "string",
+              "pattern": "^system-[1-9][0-9]*-link$"
+            },
+            "guestGenerationLinkPath": {
+              "type": "string",
+              "pattern": "^/nix/var/nix/profiles/system-[1-9][0-9]*-link$"
+            },
+            "hostGenerationLinkPath": {
+              "type": "string",
+              "pattern": "^/mnt/vm-100-candidate/nix/var/nix/profiles/system-[1-9][0-9]*-link$"
+            },
+            "generationLinkText": {
+              "type": "string",
+              "pattern": "^/nix/store/[0-9a-z]{32}-[A-Za-z0-9][A-Za-z0-9+._?-]{0,199}$"
+            },
+            "hostToplevelPath": {
+              "type": "string",
+              "pattern": "^/mnt/vm-100-candidate/nix/store/[0-9a-z]{32}-[A-Za-z0-9][A-Za-z0-9+._?-]{0,199}$"
+            }
+          }
+        },
+        "canonicalProductionMigrationToplevel": {
+          "type": "string",
+          "pattern": "^/nix/store/[0-9a-z]{32}-[A-Za-z0-9][A-Za-z0-9+._?-]{0,199}$"
+        },
+        "volumes": {
+          "type": "array",
+          "minItems": 33,
+          "maxItems": 33,
+          "items": {
+            "$ref": "#/$defs/qualifiedVolume"
+          }
+        },
+        "isolatedDockerDaemonArgv": {
+          "type": "array",
+          "prefixItems": [
+            {
+              "const": "/usr/bin/dockerd"
+            },
+            {
+              "const": "--host=unix:///run/vm-100-candidate-docker/docker.sock"
+            },
+            {
+              "const": "--data-root=/mnt/vm-100-candidate/var/lib/docker"
+            },
+            {
+              "const": "--exec-root=/run/vm-100-candidate-docker/exec"
+            },
+            {
+              "const": "--pidfile=/run/vm-100-candidate-docker/docker.pid"
+            },
+            {
+              "const": "--containerd=/run/vm-100-candidate-docker/containerd/containerd.sock"
+            },
+            {
+              "const": "--containerd-namespace=vm100-candidate"
+            },
+            {
+              "const": "--containerd-plugins-namespace=vm100-candidate-plugins"
+            },
+            {
+              "const": "--bridge=none"
+            },
+            {
+              "const": "--iptables=false"
+            },
+            {
+              "const": "--ip6tables=false"
+            },
+            {
+              "const": "--ip-forward=false"
+            },
+            {
+              "const": "--ip-masq=false"
+            },
+            {
+              "const": "--userland-proxy=false"
+            },
+            {
+              "const": "--live-restore=false"
+            }
+          ],
+          "items": false,
+          "minItems": 15,
+          "maxItems": 15
+        }
+      }
+    },
+    "mount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device",
+        "filesystem",
+        "mountTarget",
+        "mountId"
+      ],
+      "properties": {
+        "device": {
+          "type": "string",
+          "pattern": "^/dev/[A-Za-z0-9_./:@+-]{1,1018}$"
+        },
+        "filesystem": {
+          "$ref": "#/$defs/name"
+        },
+        "mountTarget": {
+          "$ref": "#/$defs/path"
+        },
+        "mountId": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "wholeDiskById",
+        "deviceAncestry",
+        "wholeDiskDevice",
+        "serial",
+        "sizeBytes",
+        "destinationRoot",
+        "device",
+        "filesystem",
+        "mountTarget",
+        "mountId",
+        "capacityBytes",
+        "availableBytes",
+        "reserveBytes"
+      ],
+      "properties": {
+        "wholeDiskById": {
+          "const": "/dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2"
+        },
+        "serial": {
+          "const": "QUAL-NIXOS-128G"
+        },
+        "sizeBytes": {
+          "const": 137438953472
+        },
+        "destinationRoot": {
+          "const": "/mnt/vm-100-candidate"
+        },
+        "device": {
+          "type": "string",
+          "pattern": "^/dev/"
+        },
+        "filesystem": {
+          "type": "string",
+          "pattern": "^(?!tmpfs$|devtmpfs$|overlay$)[a-z0-9_.+-]+$"
+        },
+        "mountTarget": {
+          "const": "/mnt/vm-100-candidate"
+        },
+        "mountId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "capacityBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 137438953472
+        },
+        "availableBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reserveBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "wholeDiskDevice": {
+          "type": "string",
+          "pattern": "^/dev/[A-Za-z0-9_.+-]+$"
+        },
+        "deviceAncestry": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^/dev/[A-Za-z0-9_.+-]+$"
+          }
+        }
+      }
+    },
+    "collectedEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "logicalName",
+        "engineName",
+        "legacy",
+        "source",
+        "destination",
+        "sourceMount",
+        "destinationMount",
+        "driver",
+        "options",
+        "composeLabels",
+        "candidateCreatedAt",
+        "uid",
+        "gid",
+        "mode",
+        "allocatedBytes",
+        "apparentBytes",
+        "inodeCount",
+        "permittedDeletionRoot",
+        "disposition"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "docker-volume",
+            "host-path"
+          ]
+        },
+        "logicalName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "engineName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^docker-compose_[a-z0-9][a-z0-9-]*$"
+        },
+        "legacy": {
+          "type": "boolean"
+        },
+        "source": {
+          "$ref": "#/$defs/path"
+        },
+        "destination": {
+          "type": "string",
+          "pattern": "^/mnt/vm-100-candidate/"
+        },
+        "sourceMount": {
+          "$ref": "#/$defs/mount"
+        },
+        "destinationMount": {
+          "$ref": "#/$defs/mount"
+        },
+        "driver": {
+          "enum": [
+            "local",
+            null
+          ]
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "composeLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "propertyNames": {
+            "enum": [
+              "com.docker.compose.project",
+              "com.docker.compose.volume",
+              "com.docker.compose.version",
+              "com.docker.compose.config-hash"
+            ]
+          }
+        },
+        "candidateCreatedAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mode": {
+          "type": "string",
+          "pattern": "^[0-7]{4}$"
+        },
+        "allocatedBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "apparentBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inodeCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "permittedDeletionRoot": {
+          "type": "string",
+          "pattern": "^/mnt/vm-100-candidate/"
+        },
+        "disposition": {
+          "const": "copy"
+        }
+      }
+    },
+    "copyEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "logicalName",
+        "engineName",
+        "legacy",
+        "source",
+        "destination",
+        "sourceMount",
+        "destinationMount",
+        "driver",
+        "options",
+        "composeLabels",
+        "candidateCreatedAt",
+        "uid",
+        "gid",
+        "mode",
+        "allocatedBytes",
+        "apparentBytes",
+        "inodeCount",
+        "permittedDeletionRoot",
+        "disposition",
+        "writeArgv",
+        "checksumArgv"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "docker-volume",
+            "host-path"
+          ]
+        },
+        "logicalName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "engineName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^docker-compose_[a-z0-9][a-z0-9-]*$"
+        },
+        "legacy": {
+          "type": "boolean"
+        },
+        "source": {
+          "$ref": "#/$defs/path"
+        },
+        "destination": {
+          "type": "string",
+          "pattern": "^/mnt/vm-100-candidate/"
+        },
+        "sourceMount": {
+          "$ref": "#/$defs/mount"
+        },
+        "destinationMount": {
+          "$ref": "#/$defs/mount"
+        },
+        "driver": {
+          "enum": [
+            "local",
+            null
+          ]
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": false
+        },
+        "composeLabels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "propertyNames": {
+            "enum": [
+              "com.docker.compose.project",
+              "com.docker.compose.volume",
+              "com.docker.compose.version",
+              "com.docker.compose.config-hash"
+            ]
+          }
+        },
+        "candidateCreatedAt": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "uid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mode": {
+          "type": "string",
+          "pattern": "^[0-7]{4}$"
+        },
+        "allocatedBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "apparentBytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inodeCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "permittedDeletionRoot": {
+          "type": "string",
+          "pattern": "^/mnt/vm-100-candidate/"
+        },
+        "disposition": {
+          "const": "copy"
+        },
+        "writeArgv": {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "prefixItems": [
+            {
+              "const": "rsync"
+            },
+            {
+              "const": "-aHAXSx"
+            },
+            {
+              "const": "--numeric-ids"
+            },
+            {
+              "const": "--delete"
+            },
+            {
+              "const": "--delete-delay"
+            },
+            {
+              "const": "--itemize-changes"
+            },
+            {
+              "const": "--"
+            },
+            {
+              "type": "string",
+              "pattern": "/$"
+            },
+            {
+              "type": "string",
+              "pattern": "/\\.$"
+            }
+          ]
+        },
+        "checksumArgv": {
+          "type": "array",
+          "minItems": 11,
+          "maxItems": 11,
+          "prefixItems": [
+            {
+              "const": "rsync"
+            },
+            {
+              "const": "-aHAXSx"
+            },
+            {
+              "const": "--numeric-ids"
+            },
+            {
+              "const": "--delete"
+            },
+            {
+              "const": "--delete-delay"
+            },
+            {
+              "const": "--dry-run"
+            },
+            {
+              "const": "--checksum"
+            },
+            {
+              "const": "--itemize-changes"
+            },
+            {
+              "const": "--"
+            },
+            {
+              "type": "string",
+              "pattern": "/$"
+            },
+            {
+              "type": "string",
+              "pattern": "/\\.$"
+            }
+          ]
+        }
+      }
+    },
+    "backupReplica": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "archiveName",
+        "sidecarName",
+        "sha256",
+        "sizeBytes",
+        "mtime",
+        "mount"
+      ],
+      "properties": {
+        "path": {
+          "enum": [
+            "/home/docker/backups",
+            "/mnt/games/backups",
+            "/mnt/storage/backups"
+          ]
+        },
+        "archiveName": {
+          "type": "string",
+          "pattern": "^daily-local-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}\\.tar\\.gz\\.gpg$"
+        },
+        "sidecarName": {
+          "type": "string",
+          "pattern": "^daily-local-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}\\.tar\\.gz\\.gpg\\.sha256$"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sizeBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "mtime": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "mount": {
+          "$ref": "#/$defs/backupMount"
+        }
+      }
+    },
+    "backups": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "maxAgeSeconds",
+        "replicas"
+      ],
+      "properties": {
+        "maxAgeSeconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "replicas": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "$ref": "#/$defs/backupReplica"
+          }
+        }
+      }
+    },
+    "container": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "service",
+        "running"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{12}|[0-9a-f]{64})$"
+        },
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "service": {
+          "enum": [
+            "audiobookshelf",
+            "authentik-server",
+            "authentik-worker",
+            "bookshelf",
+            "caddy",
+            "calibre",
+            "calibre-web-automated",
+            "caro-tachidesk",
+            "daily-local-backup",
+            "ddns-updater",
+            "flaresolverr",
+            "frigate",
+            "gluetun",
+            "homeassistant",
+            "jellyfin",
+            "karaoke-eternal",
+            "litellm",
+            "mosquitto",
+            "nextcloud",
+            "nextcloud-db",
+            "nextcloud-redis",
+            "omada",
+            "openfit",
+            "pihole",
+            "postgres",
+            "prowlarr",
+            "qbittorrent",
+            "radarr",
+            "radarr-4k",
+            "recyclarr",
+            "redis",
+            "sabnzbd",
+            "seerr",
+            "sonarr",
+            "tachidesk",
+            "unpackerr",
+            "vaultwarden",
+            "vikunja",
+            "weekly-remote-backup",
+            "wolf",
+            "zwave"
+          ]
+        },
+        "running": {
+          "type": "boolean"
+        }
+      }
+    },
+    "containerMount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "container",
+        "service",
+        "kind",
+        "source",
+        "destination",
+        "readOnly",
+        "logicalName"
+      ],
+      "properties": {
+        "container": {
+          "$ref": "#/$defs/name"
+        },
+        "service": {
+          "enum": [
+            "audiobookshelf",
+            "authentik-server",
+            "authentik-worker",
+            "bookshelf",
+            "caddy",
+            "calibre",
+            "calibre-web-automated",
+            "caro-tachidesk",
+            "daily-local-backup",
+            "ddns-updater",
+            "flaresolverr",
+            "frigate",
+            "gluetun",
+            "homeassistant",
+            "jellyfin",
+            "karaoke-eternal",
+            "litellm",
+            "mosquitto",
+            "nextcloud",
+            "nextcloud-db",
+            "nextcloud-redis",
+            "omada",
+            "openfit",
+            "pihole",
+            "postgres",
+            "prowlarr",
+            "qbittorrent",
+            "radarr",
+            "radarr-4k",
+            "recyclarr",
+            "redis",
+            "sabnzbd",
+            "seerr",
+            "sonarr",
+            "tachidesk",
+            "unpackerr",
+            "vaultwarden",
+            "vikunja",
+            "weekly-remote-backup",
+            "wolf",
+            "zwave"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "bind",
+            "volume",
+            "anonymous-volume"
+          ]
+        },
+        "source": {
+          "$ref": "#/$defs/path"
+        },
+        "destination": {
+          "$ref": "#/$defs/path"
+        },
+        "readOnly": {
+          "type": "boolean"
+        },
+        "logicalName": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        }
+      }
+    },
+    "timer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "unit",
+        "activates"
+      ],
+      "properties": {
+        "unit": {
+          "$ref": "#/$defs/name"
+        },
+        "activates": {
+          "$ref": "#/$defs/name"
+        }
+      }
+    },
+    "operational": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "containers",
+        "writers",
+        "timers",
+        "mounts"
+      ],
+      "properties": {
+        "containers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/container"
+          },
+          "minItems": 41,
+          "maxItems": 41,
+          "uniqueItems": true
+        },
+        "writers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/containerMount"
+          }
+        },
+        "timers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/timer"
+          }
+        },
+        "mounts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/containerMount"
+          }
+        }
+      }
+    },
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "path",
+        "disposition",
+        "reason"
+      ],
+      "properties": {
+        "name": {
+          "$ref": "#/$defs/name"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "disposition": {
+          "enum": [
+            "reuse",
+            "regenerate",
+            "excluded"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        }
+      }
+    },
+    "collection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "format",
+        "collectedAt",
+        "desiredInventorySha256",
+        "runtimeInventorySha256",
+        "candidateInventorySha256",
+        "sourceDockerRoot",
+        "candidateQualification",
+        "candidate",
+        "copyEntries",
+        "backupEvidence",
+        "operationalMetadata"
+      ],
+      "properties": {
+        "format": {
+          "const": "home-lab-vm-100-gate-c-collection-v1"
+        },
+        "collectedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "desiredInventorySha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runtimeInventorySha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "candidateInventorySha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceDockerRoot": {
+          "const": "/var/lib/docker"
+        },
+        "candidateQualification": {
+          "$ref": "#/$defs/candidateQualification"
+        },
+        "candidate": {
+          "$ref": "#/$defs/candidate"
+        },
+        "copyEntries": {
+          "type": "array",
+          "minItems": 34,
+          "maxItems": 34,
+          "items": {
+            "$ref": "#/$defs/collectedEntry"
+          }
+        },
+        "backupEvidence": {
+          "$ref": "#/$defs/backups"
+        },
+        "operationalMetadata": {
+          "$ref": "#/$defs/operational"
+        }
+      }
+    },
+    "backupMount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "device",
+        "filesystem",
+        "filesystemUuid",
+        "mountTarget",
+        "mountId"
+      ],
+      "properties": {
+        "device": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "filesystem": {
+          "$ref": "#/$defs/name"
+        },
+        "mountTarget": {
+          "$ref": "#/$defs/path"
+        },
+        "mountId": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "filesystemUuid": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Fa-f0-9][A-Fa-f0-9-]{0,127}$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "filesystem": {
+                "enum": [
+                  "nfs",
+                  "nfs4"
+                ]
+              }
+            },
+            "required": [
+              "filesystem"
+            ]
+          },
+          "then": {
+            "properties": {
+              "device": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z0-9][A-Za-z0-9.-]{0,252}|[0-9A-Fa-f:]+):/[A-Za-z0-9_./@+-]{0,1023}$"
+              },
+              "filesystemUuid": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[A-Fa-f0-9][A-Fa-f0-9-]{0,127}$"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "device": {
+                "type": "string",
+                "pattern": "^/dev/[A-Za-z0-9_./:@+-]{1,1018}$"
+              },
+              "filesystemUuid": {
+                "type": "string",
+                "pattern": "^[A-Fa-f0-9][A-Fa-f0-9-]{0,127}$"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
