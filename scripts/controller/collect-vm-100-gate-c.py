@@ -113,7 +113,7 @@ def flatten_blockdevices(values: list[object]) -> list[dict[str, Any]]:
 def verify_candidate_device(lsblk_command: str, resolved_disk: Path, mount_device: str) -> tuple[dict[str, Any], list[str]]:
     if not mount_device.startswith("/dev/") or mount_device.startswith("/dev/disk/by-id/"):
         raise SystemExit("candidate mount source must be a concrete descendant block device")
-    value = run_json(lsblk_command, ["--json", "--bytes", "--output", "PATH,SERIAL,SIZE,TYPE", str(resolved_disk)])
+    value = run_json(lsblk_command, ["--tree", "--json", "--bytes", "--output", "PATH,SERIAL,SIZE,TYPE", str(resolved_disk)])
     roots = value.get("blockdevices") if isinstance(value, dict) else None
     if not isinstance(roots, list) or len(roots) != 1: raise SystemExit("candidate whole-disk inspection is ambiguous")
     disk = roots[0]
