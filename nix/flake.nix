@@ -211,6 +211,44 @@
                   printf 'vm-100-candidate-install=completed device=%s\n' "$device"
                 '';
               };
+
+            vm-100-candidate-install-qualified =
+              let
+                candidatePkgs = self.nixosConfigurations.vm-100-candidate.pkgs;
+                config = self.nixosConfigurations.vm-100-candidate.config;
+                guard = candidatePkgs.writeShellApplication {
+                  name = "vm-100-candidate-install-qualified-guard";
+                  runtimeInputs = [ candidatePkgs.psmisc candidatePkgs.util-linux ];
+                  text = ''
+                    exec ${candidatePkgs.python3}/bin/python3 ${./scripts/vm-100-candidate-install-qualified-guard.py} ${./scripts/vm-100-candidate-install-guard.py} "$@"
+                  '';
+                };
+              in candidatePkgs.writeShellApplication {
+                name = "vm-100-candidate-install-qualified";
+                runtimeInputs = [ guard candidatePkgs.coreutils candidatePkgs.findutils candidatePkgs.jq candidatePkgs.util-linux ];
+                text = ''
+                  if [[ $# -ne 8 || $1 != --request || $3 != --protected-disk-input || $5 != --authorization || $7 != --host-attestation ]]; then
+                    echo "usage: vm-100-candidate-install-qualified --request REQUEST --protected-disk-input INPUT --authorization AUTHORIZATION --host-attestation ATTESTATION" >&2
+                    exit 64
+                  fi
+                  approval=$(vm-100-candidate-install-qualified-guard "$@")
+                  device=$(${candidatePkgs.jq}/bin/jq -er '.device' <<<"$approval")
+                  mode=$(${candidatePkgs.jq}/bin/jq -er '.mode' <<<"$approval")
+                  target=/mnt/vm-100-candidate
+                  [[ $device == /dev/disk/by-id/scsi-0QEMU_QEMU_HARDDISK_drive-scsi2 ]]
+                  [[ $mode == install ]]
+                  [[ -d $target && ! -L $target ]]
+                  [[ -z $(${candidatePkgs.findutils}/bin/find "$target" -mindepth 1 -maxdepth 1 -print -quit) ]]
+                  ${config.system.build.diskoScript}
+                  ${config.system.build.nixos-install}/bin/nixos-install \
+                    --root "$target" \
+                    --system ${config.system.build.toplevel} \
+                    --no-channel-copy \
+                    --no-root-password
+                  ${candidatePkgs.util-linux}/bin/findmnt -n --target "$target" >/dev/null
+                  printf 'vm-100-candidate-install-qualified=completed device=%s\n' "$device"
+                '';
+              };
           };
           migrationPackages = pkgs.lib.optionalAttrs
             (system == "x86_64-linux" && vm100Projection.deploymentAuthority == "migration-in-progress") {

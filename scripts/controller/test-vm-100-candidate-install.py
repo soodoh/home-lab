@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 INSTALL_GUARD = ROOT / "nix/scripts/vm-100-candidate-install-guard.py"
+QUALIFIED_INSTALL_GUARD = ROOT / "nix/scripts/vm-100-candidate-install-qualified-guard.py"
 UPDATE_GUARD = ROOT / "nix/scripts/vm-100-candidate-update-guard.py"
 
 
@@ -28,7 +29,23 @@ def load_guard(path, name):
 class CandidateInstallTests(unittest.TestCase):
     def setUp(self):
         self.guard = load_guard(INSTALL_GUARD, "vm100_candidate_install_guard")
+        self.qualified_guard = load_guard(QUALIFIED_INSTALL_GUARD, "vm100_candidate_install_qualified_guard")
         self.update_guard = load_guard(UPDATE_GUARD, "vm100_candidate_update_guard")
+
+    def test_qualified_install_is_a_separate_host_attested_vmid_9900_path(self):
+        source = QUALIFIED_INSTALL_GUARD.read_text()
+        flake = (ROOT / "nix/flake.nix").read_text()
+        schema = json.loads((ROOT / "infrastructure/vm-100/install-qualification-authorization.schema.json").read_text())
+        self.assertFalse(schema["additionalProperties"])
+        for control in (
+            "install-disposable-vmid-9900-scsi2-reviewed", "hostAttestationSha256", 'authorization["vmId"] != 9900',
+            'Path("/sys/class/dmi/id/product_uuid")', "candidate identity changed before destructive approval",
+        ):
+            self.assertIn(control, source)
+        self.assertIn("vm-100-candidate-install-qualified", flake)
+        self.assertIn("${config.system.build.diskoScript}", flake)
+        self.assertIn("${config.system.build.nixos-install}/bin/nixos-install", flake)
+        self.assertNotIn("install-disposable-vmid-9900-scsi2-reviewed", INSTALL_GUARD.read_text())
 
     def request(self, root, **updates):
         value = {
