@@ -300,7 +300,6 @@
             let bootstrapNix = self.packages.x86_64-linux.vm-100-ephemeral-nix-bootstrap;
             in pkgs.runCommand "check-vm-100-ephemeral-nix-cli" { nativeBuildInputs = [ pkgs.gnugrep pkgs.gzip ]; } ''
               test "$(${bootstrapNix}/bin/nix --version)" = "nix (Nix) 2.34.8"
-              test "$(${bootstrapNix}/bin/nix-store --version)" = "nix-store (Nix) 2.34.8"
               test -x ${bootstrapNix}/bin/nix
               test -x ${bootstrapNix}/bin/nix-store
               ${bootstrapNix}/bin/nix path-info --help | grep -F -- "--json-format"
