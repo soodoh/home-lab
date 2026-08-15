@@ -409,7 +409,7 @@ class EphemeralContractTests(unittest.TestCase):
         for forbidden in ("docker ", "/usr/bin/docker", "pvesh", "/usr/bin/ssh", "diskoScript", "nixos-install"):
             self.assertNotIn(forbidden, runner)
             self.assertNotIn(forbidden, exporter)
-        for control in ("--no-substitute", "--offline", "--sigs-needed", "validate_inspection_request", "observe_disk", QUALIFICATION_CONFIRMATION):
+        for control in ("--no-substitute", "--offline", "require-sigs", "validate_inspection_request", "observe_disk", QUALIFICATION_CONFIRMATION):
             self.assertIn(control, runner + exporter + (ROOT / "scripts/controller/vm_100_ephemeral.py").read_text())
         self.assertIn('[NIX, "store", "sign", "--quiet", "--recursive"', exporter)
         self.assertIn("os.fchmod(output.fileno(), 0o600)", exporter)
@@ -417,6 +417,9 @@ class EphemeralContractTests(unittest.TestCase):
         self.assertIn('command("fuser", [resolved], check=False)', runner)
         self.assertNotIn('command("fuser", ["--", resolved]', runner)
         self.assertIn('["--bytes", "--json", "--nodeps", "--output", "PATH,PKNAME", current]', runner)
+        self.assertIn('[nix, "store", "verify", "--quiet", "--no-trust"', runner)
+        self.assertNotIn('[nix, "store", "verify", "--quiet", "--sigs-needed"', runner)
+        self.assertIn('"--option", "require-sigs", "true"', runner)
         self.assertNotIn("VM100_CANDIDATE_INSTALL_CONFIRMED", exporter)
         self.assertNotIn("--query\", \"--signatures", exporter)
         self.assertNotIn("--require-signature", runner)

@@ -102,6 +102,8 @@ class CandidateInstallTests(unittest.TestCase):
             'run_json("wipefs", ["--json", "--output", "DEVICE,OFFSET,TYPE,UUID,LABEL", resolved])',
         ):
             self.assertIn(control, source)
+        self.assertIn('subprocess.run([TOOLS["fuser"], resolved]', source)
+        self.assertNotIn('subprocess.run([TOOLS["fuser"], "--", resolved]', source)
 
     def test_update_guard_requires_exact_unmounted_disko_layout(self):
         observed = {

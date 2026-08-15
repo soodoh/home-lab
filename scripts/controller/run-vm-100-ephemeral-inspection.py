@@ -337,17 +337,18 @@ def verify_import(nix: str, manifest: dict[str, Any], imported_paths: set[str], 
     physical = {str(item) for item in Path("/nix/store").iterdir() if item.name != ".links"}
     validate_import_observation(expected, observed, physical, True)
     by_path = {item["path"]: item for item in manifest["closure"]}
-    signer = manifest["trustedKeyName"]
     if set(recursive_info) != expected:
         raise ValueError("imported recursive path-info set differs")
     for path in sorted(expected):
         entry = by_path[path]
         info = recursive_info[path]
         if (not isinstance(info, dict) or info.get("narHash") != entry["narHash"] or info.get("narSize") != entry["narSize"]
-                or sorted(info.get("references", [])) != entry["references"] or sorted(info.get("signatures", [])) != entry["signatures"]
-                or not any(item.startswith(signer + ":") for item in info.get("signatures", []))):
-            raise ValueError("imported closure path-info hash, references, size, or signature differs")
-    result = subprocess.run([nix, "store", "verify", "--quiet", "--sigs-needed", "1", *sorted(expected)], check=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment)
+                or sorted(info.get("references", [])) != entry["references"] or not isinstance(info.get("signatures", []), list)):
+            raise ValueError("imported closure path-info hash, references, size, or signature shape differs")
+    # Legacy nix-store --import authenticates the stream under require-sigs but
+    # does not persist those signatures in the destination database. Recheck
+    # exact hashes/references above and verify every imported NAR's contents.
+    result = subprocess.run([nix, "store", "verify", "--quiet", "--no-trust", *sorted(expected)], check=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment)
     validate_import_observation(expected, observed, physical, result.returncode == 0 and result.stdout == b"" and result.stderr == b"")
 
 

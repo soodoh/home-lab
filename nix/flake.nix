@@ -306,6 +306,7 @@
               ${bootstrapNix}/bin/nix path-info --help | grep -F -- "--sigs"
               ${bootstrapNix}/bin/nix store verify --help | grep -F -- "--quiet"
               ${bootstrapNix}/bin/nix store verify --help | grep -F -- "--sigs-needed"
+              ${bootstrapNix}/bin/nix store verify --help | grep -F -- "--no-trust"
               gzip -cd ${bootstrapNix.man}/share/man/man1/nix-store.1.gz | grep -F -- "--import"
               ! gzip -cd ${bootstrapNix.man}/share/man/man1/nix-store.1.gz | grep -F -- "--require-signature"
               ! gzip -cd ${bootstrapNix.man}/share/man/man1/nix-store.1.gz | grep -F -- "--signatures"

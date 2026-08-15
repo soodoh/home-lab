@@ -164,7 +164,7 @@ def observe(device, games_device):
     holders = Path("/sys/class/block") / Path(resolved).name / "holders"
     if any(holders.iterdir()):
         fail("candidate has holders")
-    opener = subprocess.run([TOOLS["fuser"], "--", resolved], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ENV, timeout=10, check=False)
+    opener = subprocess.run([TOOLS["fuser"], resolved], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ENV, timeout=10, check=False)
     if opener.returncode != 1 or opener.stdout != b"" or opener.stderr != b"":
         fail("candidate has openers or opener observation failed")
     if str(candidate_link.resolve(strict=True)) != resolved or str(games_link.resolve(strict=True)) != games_resolved:
