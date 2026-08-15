@@ -238,7 +238,7 @@ def main() -> None:
     bootstrap_tar.chmod(0o600)
     export_path = args.output_root / "closure.export"
     with export_path.open("xb") as output:
-        output.chmod(0o600)
+        os.fchmod(output.fileno(), 0o600)
         export_result = subprocess.run([NIX_STORE, "--export", *sorted(paths)], check=False, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.PIPE, env=ENV)
         if export_result.returncode != 0 or export_result.stderr:
             raise ValueError("complete closure export failed or emitted diagnostics")

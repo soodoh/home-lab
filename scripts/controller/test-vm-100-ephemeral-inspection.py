@@ -407,6 +407,8 @@ class EphemeralContractTests(unittest.TestCase):
         for control in ("--no-substitute", "--offline", "--sigs-needed", "validate_inspection_request", "observe_disk", QUALIFICATION_CONFIRMATION):
             self.assertIn(control, runner + exporter + (ROOT / "scripts/controller/vm_100_ephemeral.py").read_text())
         self.assertIn('[NIX, "store", "sign", "--quiet", "--recursive"', exporter)
+        self.assertIn("os.fchmod(output.fileno(), 0o600)", exporter)
+        self.assertNotIn("output.chmod(", exporter)
         self.assertNotIn("VM100_CANDIDATE_INSTALL_CONFIRMED", exporter)
         self.assertNotIn("--query\", \"--signatures", exporter)
         self.assertNotIn("--require-signature", runner)
