@@ -201,6 +201,28 @@ def ensure_candidate_data_roots(fixture_root: Path | None) -> None:
     if docker_resolved == live_resolved or docker_resolved in live_resolved.parents or live_resolved in docker_resolved.parents:
         raise SystemExit("isolated Docker root overlaps the live Docker root")
 
+    expected_uid = os.geteuid() if fixture_root is not None else 1000
+    expected_gid = os.getegid() if fixture_root is not None else 1000
+    data_path = candidate
+    for name, mode, uid, gid in (("home", 0o755, os.geteuid(), os.getegid()), ("docker", 0o700, expected_uid, expected_gid), ("hass", 0o755, expected_uid, expected_gid)):
+        data_path /= name
+        try:
+            value = data_path.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            data_path.mkdir(mode=mode)
+            descriptor = os.open(data_path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                os.fchmod(descriptor, mode)
+                if fixture_root is None:
+                    os.fchown(descriptor, uid, gid)
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            value = data_path.stat(follow_symlinks=False)
+        if (stat.S_ISLNK(value.st_mode) or not stat.S_ISDIR(value.st_mode) or value.st_dev != candidate_value.st_dev
+                or value.st_uid != uid or value.st_gid != gid or stat.S_IMODE(value.st_mode) != mode):
+            raise SystemExit("candidate Home Assistant destination identity, ownership, or mode is unsafe")
+
 
 def create_runtime_root(fixture_root: Path | None) -> Path:
     root = physical(RUNTIME_ROOT, fixture_root)

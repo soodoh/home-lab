@@ -135,7 +135,9 @@ class PreparationTests(unittest.TestCase):
             (library / "containerd").mkdir(mode=0o700); (library / "docker").symlink_to(live, target_is_directory=True)
             with self.assertRaisesRegex(SystemExit, "docker root identity|unsafe"): PREP.ensure_candidate_data_roots(fixture)
             (library / "docker").unlink(); (library / "docker").mkdir(mode=0o700); (library / "docker").chmod(0o710)
+            PREP.ensure_candidate_data_roots(fixture)
             self.assertEqual((library / "docker").stat().st_mode & 0o777, 0o710)
+            self.assertEqual((candidate / "home/docker/hass").stat().st_mode & 0o777, 0o755)
             original = PREP.Path.stat
             def changed_device(path, **kwargs):
                 value = original(path, **kwargs)
