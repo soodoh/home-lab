@@ -217,7 +217,7 @@ def main() -> None:
     # key value is never read by Python, printed, or serialized.
     signing_before = os.fstat(signing_descriptor)
     try:
-        sign = subprocess.run([NIX, "store", "sign", "--recursive", "--key-file", f"/proc/self/fd/{signing_descriptor}", bootstrap, installer, toplevel], check=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ENV, pass_fds=(signing_descriptor,))
+        sign = subprocess.run([NIX, "store", "sign", "--quiet", "--recursive", "--key-file", f"/proc/self/fd/{signing_descriptor}", bootstrap, installer, toplevel], check=False, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ENV, pass_fds=(signing_descriptor,))
         signing_after = os.fstat(signing_descriptor)
     finally:
         os.close(signing_descriptor)
