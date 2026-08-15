@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/schemas/vm-100-stopped-runtime-removal-request-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["confirmation", "containers", "format", "preserveVolumes", "vmId"],
+  "properties": {
+    "confirmation": {"const": "remove-exact-seven-stopped-runtime-containers-preserve-volumes"},
+    "containers": {"type": "array", "minItems": 7, "maxItems": 7, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["id", "name"], "properties": {"id": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "name": {"type": "string", "minLength": 1, "pattern": "^[^/\\u0000]+$"}}}},
+    "format": {"const": "home-lab-vm-100-stopped-runtime-removal-request-v1"},
+    "preserveVolumes": {"const": true},
+    "vmId": {"const": 100}
+  }
+}
