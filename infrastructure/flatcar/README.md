@@ -47,6 +47,8 @@ Qualification uses the existing VM 100 hardware identity so networking, PCI pass
 
 The qualification boot order is `scsi3`, `scsi0`, `net0`. The fallback boot order is the existing `scsi0`, `net0`. Changing boot order or disk attachments is a separate protected execution step and requires an interactive approval after a read-only reconciliation.
 
+[`scripts/import-flatcar-disk`](../../scripts/import-flatcar-disk) performs only the approved replacement-disk import. It requires a physical console, the exact confirmation, the shared Proxmox operation lock, the VFIO lock, verified image and Ignition inputs, VM 100 running and unlocked, protected configuration parity, no existing `scsi3`/`ide2`/unused disk, and at least 64 GiB free on active `local-lvm`. It imports directly to `scsi3`, applies the exact serial and disk options, expands it to 64 GiB, and verifies the running and effective configuration without changing the Arch boot order. It has no stop, start, unlink, delete, or storage-free path; after any partial import it preserves the new disk for explicit reconciliation.
+
 ## Deterministic Ignition rendering
 
 [`scripts/controller/render-flatcar-ignition.js`](../../scripts/controller/render-flatcar-ignition.js) generates a strict Butane config and compiles it with the pinned Butane binary. It rejects:
