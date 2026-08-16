@@ -1112,7 +1112,7 @@ arch:
     tailscale: 1.98.10-1
 flatcar:
   channel: stable
-  qualification_stage: ignition-attached
+  qualification_stage: ready-for-first-boot
   version: 4593.2.5
   build_id: "2026-08-11-2350"
   image:

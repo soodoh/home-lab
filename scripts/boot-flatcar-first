@@ -1,0 +1,149 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly VMID=100
+readonly FLATCAR_IP=192.168.0.100
+readonly ARCH_BOOT='order=scsi0;net0'
+readonly FLATCAR_BOOT='order=scsi3;scsi0;net0'
+readonly EFFECTIVE_SCSI3='local-lvm:vm-100-disk-2,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=HOME-LAB-FLATCAR-64G,size=64G,ssd=0'
+readonly EFFECTIVE_IDE2='local-lvm:vm-100-cloudinit,media=cdrom'
+readonly CICUSTOM='user=local:snippets/vm-100-flatcar.ign'
+readonly CONFIRMATION=boot-reviewed-vm-100-flatcar-inert
+readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
+readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
+readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+fail() {
+  echo "error: $*" >&2
+  return 1
+}
+
+config_value() {
+  local file=$1 key=$2
+  awk -F ': ' -v key="$key" '$1 == key { sub(/^[^:]+: /, ""); print; found=1 } END { if (!found) exit 1 }' "$file"
+}
+
+vm_status() {
+  qm status "$VMID" | awk '{print $2}'
+}
+
+wait_for_status() {
+  local expected=$1 timeout=$2
+  for ((second = 0; second < timeout; second += 2)); do
+    [[ $(vm_status) == "$expected" ]] && return 0
+    sleep 2
+  done
+  return 1
+}
+
+wait_for_agent() {
+  local timeout=$1
+  for ((second = 0; second < timeout; second += 3)); do
+    qm guest cmd "$VMID" ping >/dev/null 2>&1 && return 0
+    sleep 3
+  done
+  return 1
+}
+
+os_id() {
+  qm guest cmd "$VMID" get-osinfo 2>/dev/null | jq -er '.id'
+}
+
+start_with_recovery() {
+  if qm start "$VMID"; then
+    return 0
+  fi
+  [[ $(vm_status) == stopped ]] || return 1
+  /usr/local/sbin/home-lab-vfio-recover recover --confirm "$VFIO_CONFIRMATION"
+  qm start "$VMID"
+}
+
+restore_arch() {
+  local restored=true
+  echo "Restoring the Arch boot path" >&2
+  if [[ $(vm_status) == running ]]; then
+    if ! qm shutdown "$VMID" --timeout 60; then
+      qm stop "$VMID" || restored=false
+    fi
+  fi
+  wait_for_status stopped 30 || restored=false
+  qm set "$VMID" --boot "$ARCH_BOOT" || restored=false
+  if [[ $restored == true ]]; then
+    start_with_recovery || restored=false
+  fi
+  if [[ $restored == true ]]; then
+    wait_for_status running 30 || restored=false
+    wait_for_agent 240 || restored=false
+    [[ $(os_id) == arch ]] || restored=false
+  fi
+  if [[ $restored == true ]]; then
+    echo "Arch production boot path restored" >&2
+    return 0
+  fi
+  echo "critical: automatic Arch restoration did not complete; remain at the physical console" >&2
+  return 1
+}
+
+[[ $# -eq 0 ]] || { fail "usage: scripts/boot-flatcar-first"; exit 1; }
+[[ $(id -u) -eq 0 ]] || { fail "Flatcar first boot requires root"; exit 1; }
+[[ ${HOME_LAB_FLATCAR_FIRST_BOOT_CONFIRMED:-} == "$CONFIRMATION" ]] || { fail "exact Flatcar first-boot confirmation is required"; exit 1; }
+[[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "Flatcar first boot requires a physical Proxmox console"; exit 1; }
+[[ -d $RECONCILIATION_ROOT && ! -L $RECONCILIATION_ROOT ]] || { fail "reconciliation lock root is absent or unsafe"; exit 1; }
+[[ ! -e $RECONCILIATION_ROOT/apply.lock ]] || { fail "a protected Proxmox apply is active"; exit 1; }
+[[ ! -e /var/lib/iac-ansible-production.lock ]] || { fail "Ansible host ownership is active"; exit 1; }
+exec 9>"$RECONCILIATION_ROOT/operation.lock"
+flock -n 9 || { fail "another protected Proxmox operation holds the lock"; exit 1; }
+exec 8>/run/lock/home-lab-flatcar-first-boot.lock
+flock -n 8 || { fail "another Flatcar first boot holds the lock"; exit 1; }
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+[[ $(git branch --show-current) == main ]] || { fail "repository is not on main"; exit 1; }
+[[ -z $(git status --porcelain) ]] || { fail "repository is not clean"; exit 1; }
+scripts/stage-flatcar-image check >/dev/null
+scripts/stage-flatcar-ignition check >/dev/null
+[[ $(vm_status) == running ]] || { fail "VM 100 is not running"; exit 1; }
+wait_for_agent 30 || { fail "Arch QEMU guest agent is unavailable"; exit 1; }
+[[ $(os_id) == arch ]] || { fail "VM 100 is not running Arch"; exit 1; }
+
+before=$(mktemp --tmpdir=/run home-lab-flatcar-first-boot.XXXXXX)
+cleanup() {
+  rm -f -- "$before"
+}
+trap cleanup EXIT
+chmod 0600 "$before"
+qm config "$VMID" > "$before"
+[[ $(config_value "$before" boot) == "$ARCH_BOOT" ]] || { fail "Arch boot order differs"; exit 1; }
+[[ $(config_value "$before" scsi3) == "$EFFECTIVE_SCSI3" ]] || { fail "effective scsi3 differs"; exit 1; }
+[[ $(config_value "$before" ide2) == "$EFFECTIVE_IDE2" ]] || { fail "effective ide2 differs"; exit 1; }
+[[ $(config_value "$before" cicustom) == "$CICUSTOM" ]] || { fail "effective cicustom differs"; exit 1; }
+[[ $(config_value "$before" protection) == 1 ]] || { fail "VM 100 protection differs"; exit 1; }
+! config_value "$before" lock >/dev/null 2>&1 || { fail "VM 100 has an active Proxmox configuration lock"; exit 1; }
+! grep -Eq '^unused[0-9]+:' "$before" || { fail "an unused disk requires reconciliation"; exit 1; }
+
+transition_started=false
+on_error() {
+  result=$?
+  trap - ERR
+  if [[ $transition_started == true || $(vm_status) == stopped ]]; then
+    restore_arch || true
+  fi
+  exit "$result"
+}
+trap on_error ERR
+
+qm shutdown "$VMID" --timeout 180
+transition_started=true
+wait_for_status stopped 30
+qm set "$VMID" --boot "$FLATCAR_BOOT"
+start_with_recovery
+wait_for_status running 30
+wait_for_agent 300
+[[ $(os_id) == flatcar ]]
+ping -c 1 -W 2 "$FLATCAR_IP" >/dev/null
+nc -z -w 3 "$FLATCAR_IP" 22
+[[ $(qm config "$VMID" | awk -F ': ' '$1 == "boot" { print $2 }') == "$FLATCAR_BOOT" ]]
+transition_started=false
+trap - ERR
+
+printf '{"bootOrder":"scsi3;scsi0;net0","candidate":"flatcar","composeActivation":"disabled","mountActivation":"disabled","qemuGuestAgent":"ready","state":"inert-first-boot","vmStatus":"running","vmid":%s}\n' "$VMID"

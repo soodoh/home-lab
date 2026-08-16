@@ -57,6 +57,14 @@ The verified import outcome and zero-action reconciliation are recorded in [`inf
 
 The verified attachment and zero-action reconciliation are recorded in [`infrastructure/evidence/vm-100-flatcar-ignition-attachment.json`](../evidence/vm-100-flatcar-ignition-attachment.json). The OpenTofu initialization block now manages this exact attachment while the externally staged `scsi3` remains contract- and evidence-governed. This evidence does not authorize changing boot order or restarting into Flatcar.
 
+## Inert first boot
+
+[`scripts/boot-flatcar-first`](../../scripts/boot-flatcar-first) is the first operation allowed to stop Arch or change boot order. It requires a physical console, exact confirmation, the protected operation lock, verified image and Ignition inputs, a healthy Arch QEMU guest agent, exact `scsi3`/`ide2`/`cicustom`, VM protection, no Proxmox lock, and no unused disks. It gracefully shuts down Arch, changes boot order to `scsi3`, `scsi0`, `net0`, and starts the candidate. A failed start invokes only the exact guarded VFIO recovery before one retry. Success requires VM running, QEMU guest agent reporting OS ID `flatcar`, the production IP responding, SSH port 22 reachable, and the qualification boot order unchanged.
+
+Any error after Arch stops triggers automatic fallback: stop the inert candidate (gracefully when possible), restore `scsi0`, `net0`, start Arch with guarded VFIO recovery if required, and require its QEMU guest agent to report OS ID `arch`. The forced-stop fallback is restricted to an unqualified candidate for which application mounts and Compose were never activated. Failure to restore is a physical-console stop condition.
+
+Passing this helper proves only an inert first boot. It does not prove mount absence by itself and does not authorize state, games, NFS, or Compose activation; those require controller-side read-only qualification and a later approval.
+
 ## Deterministic Ignition rendering
 
 [`scripts/controller/render-flatcar-ignition.js`](../../scripts/controller/render-flatcar-ignition.js) generates a strict Butane config and compiles it with the pinned Butane binary. It rejects:
