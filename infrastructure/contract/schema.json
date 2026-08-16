@@ -93,7 +93,7 @@
     "flatcar": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["channel", "version", "build_id", "image", "butane", "compose", "tailscale", "network_interface", "os_disk"],
+      "required": ["channel", "version", "build_id", "image", "butane", "compose", "tailscale", "network_interface", "production_ignition", "os_disk"],
       "properties": {
         "channel": { "const": "stable" },
         "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
@@ -143,6 +143,16 @@
           }
         },
         "network_interface": { "const": "ens18" },
+        "production_ignition": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "sha256", "size"],
+          "properties": {
+            "version": { "const": "3.4.0" },
+            "sha256": { "$ref": "#/$defs/sha256" },
+            "size": { "const": 75511 }
+          }
+        },
         "os_disk": {
           "type": "object",
           "additionalProperties": false,

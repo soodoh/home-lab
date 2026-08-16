@@ -27,6 +27,12 @@ scripts/stage-flatcar-image stage
 
 A divergent target or interrupted pending file is a stop condition and is never replaced automatically. Successful staging of the pinned image is recorded in [`infrastructure/evidence/vm-100-flatcar-image-staging.json`](../evidence/vm-100-flatcar-image-staging.json); that evidence authorizes no disk import or VM mutation.
 
+## Ignition staging
+
+The deterministic production render is bound in the contract by exact Ignition version, size, and SHA-256. [`scripts/stage-flatcar-ignition`](../../scripts/stage-flatcar-ignition) accepts the protected render only on standard input, requires root and a physical Proxmox console, limits the input size, validates JSON and Ignition version, and installs `/var/lib/vz/snippets/vm-100-flatcar.ign` as `root:root` mode `0600` only after the exact digest matches. It never prints the input and never invokes a VM or disk command. A divergent target or pending file is a stop condition.
+
+`check` is read-only. `stage` requires the exact `stage-reviewed-vm-100-flatcar-ignition` confirmation in `HOME_LAB_FLATCAR_IGNITION_CONFIRMED`. The protected source must be delivered over an authenticated encrypted transport and piped directly into the helper; it must not be placed in command arguments, shell history, or a world-readable temporary file.
+
 ## Disk and boot topology
 
 Qualification uses the existing VM 100 hardware identity so networking, PCI passthrough, USB passthrough, firmware, CPU, memory, and QEMU machine type remain identical:

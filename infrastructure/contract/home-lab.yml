@@ -1135,6 +1135,10 @@ flatcar:
     url: https://pkgs.tailscale.com/stable/tailscale_1.98.10_amd64.tgz
     sha256: 52490ce0832b245857e2afef7426d6ae5a4b49fb391412833cc95729bd23f7de
   network_interface: ens18
+  production_ignition:
+    version: 3.4.0
+    sha256: 1692e64326aea991fbb2fa4a037c9f70ad5a0fce519d62846afc9638cd8d2786
+    size: 75511
   os_disk:
     datastore: local-lvm
     interface: scsi3
