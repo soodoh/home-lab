@@ -1,7 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-readonly ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+readonly ROOT
 readonly PIN='sha256//tWc/5MjFhlAhnVJdmjdjV8LmrfBh1fGAO4DdOtyz+b8='
 readonly URL=https://192.168.0.200:8766/2e57e299de281e1cf2ce592d2db56bb243b6cc0caea79f65
 readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
