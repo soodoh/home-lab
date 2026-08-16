@@ -23,6 +23,16 @@
   "authentikProviderToken": "revoked",
   "controllerApplicationCredentials": "removed",
   "protectedLocalProviderCredentials": "removed",
+  "backendPermissions": {
+    "sourceCommit": "5d0325c09925155378d95fa2455e08efe6fcb58a",
+    "actions": 2,
+    "savedPlanSha256": "d7711f91022458226912547a063305dd36bc087841ab0e728bc9f19d096d5a91",
+    "savedPlanJsonSha256": "778b0f74105b17cd16bc298a1a57fafaec7d6869befd14bb2f1295ad34dc1940",
+    "apply": "passed",
+    "verification": "no-op",
+    "verificationPlanSha256": "3c1f5383fd11575568c5777eb868ac4198eba1180b68cbbebc65f7de718d92a4",
+    "protectedEvidenceSha256": "e2ee665cd0bb56ef1a35a78f0f27ea3c20dbf624e50597cc7324c66e0295438a"
+  },
   "protectedStateEvidenceSha256": "e1578432562ba0d3e97567d2a8310e037164f7d94824c76caa30d52732038524",
   "protectedCredentialRetirementEvidenceSha256": "78df74c4bd0258f86426b3aacaa45e79b0bee07c90c11c208e4e2a4939cac6a8"
 }
