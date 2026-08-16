@@ -20,6 +20,7 @@ The VM 100 Arch-to-NixOS migration is cancelled by [ADR 0001](decisions/0001-vm-
 - static recovery fixtures, hostile archive tests, and playbook syntax rehearsal
 - schema validation for the completed disposable-LXC qualification evidence
 - empty backend tombstones for retired CT 101 and completed LXC qualification
+- pinned Flatcar Stable image/tool digests, deterministic strict Butane-to-Ignition rendering, and disabled-by-default state/Compose activation
 
 ## Completed live evidence
 
@@ -34,6 +35,7 @@ The VM 100 Arch-to-NixOS migration is cancelled by [ADR 0001](decisions/0001-vm-
 - guarded retirement of the NixOS qualification VM 9900 and downloaded image, empty serial-60 state, temporary ACL absence, and restored Proxmox protected-access `6/6` match recorded in `infrastructure/evidence/vm-100-nixos-qualification-retirement.json`
 - consumer-outward Coral retirement with a protected Frigate configuration backup, CPU inference proof, exact Compose deployment, Arch package/module/device absence, guarded VM shutdown/start, preserved disks and GPU mappings, empty Coral state references, and full no-op verification recorded in `infrastructure/evidence/vm-100-coral-retirement.json`
 - OS-independent application-state migration to the exact `scsi2` ext4 filesystem at `/srv/home-lab-state`, zero active Docker-volume mounts, preserved source volumes, repeated cold-boot health, three verified encrypted replicas, and a cleaned isolated restore of the final bind-backed archive recorded in `infrastructure/evidence/vm-100-state-disk-migration.json`
+- exact-policy VFIO GPU recovery installation and rehearsal with one guarded recovery cycle, a second unassisted VM cold start, unchanged VM configuration, 41 restored containers, preserved state UUID and bind mounts, healthy critical services, Arch audit no-op, and Proxmox Nix zero-action proof recorded in `infrastructure/evidence/vm-100-vfio-recovery.json`
 
 These records justify removal of completed transition executables. They do not authorize state/backend deletion or recreation of retired resources.
 
@@ -52,8 +54,7 @@ The following remain operational gates rather than static claims:
 - disposable Proxmox **VM** behavior across create, update, protection, delete, raw disk, hardware mappings, PCI/USB, ACL, and cloud-image paths;
 - a complete cold boot with storage, passthrough devices, networking, host configuration, and workloads healthy; and
 - a timed recovery proving the eight-hour recovery-time objective.
-- Arch application-state decoupling, fail-closed mount behavior, cold boot, and isolated restore;
-- disposable Flatcar qualification followed by production hardware parity; and
+- replacement-disk Flatcar qualification with production hardware parity; and
 - seven stable days with the Arch root disk retained.
 
 Scheduled daily/weekly backup execution evidence also remains an ongoing operational observation. A static rehearsal or successful steady no-op must not be represented as proof of these live outcomes.

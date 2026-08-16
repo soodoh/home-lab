@@ -106,7 +106,7 @@ sudo /usr/local/sbin/home-lab-vfio-recover recover \
 sudo /usr/local/sbin/home-lab-vfio-recover observe
 ```
 
-VM 100 may be restarted only after the final observation reports `state` as `ready`. Flatcar qualification remains blocked until subsequent repeated cold boots succeed without invoking this recovery.
+VM 100 may be restarted only after the final observation reports `state` as `ready`. This prerequisite passed on 2026-08-16: one guarded recovery/start and a second unassisted stop/start preserved the VM configuration, state disk, 41 containers, and critical health. See [`infrastructure/evidence/vm-100-vfio-recovery.json`](../evidence/vm-100-vfio-recovery.json).
 
 ## Qualification and rollback gates
 
