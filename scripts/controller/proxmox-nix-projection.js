@@ -316,112 +316,6 @@ function projectProxmoxPolicy(contract, packageManifest) {
   };
 }
 
-function projectVm100Scaffold(contract) {
-  const vm = contract.vm_100;
-  const activationByAuthority = {
-    arch: false,
-    "migration-in-progress": false,
-    nixos: true,
-  };
-  if (!Object.hasOwn(activationByAuthority, vm.deployment_authority) ||
-      vm.nixos_activation_enabled !== activationByAuthority[vm.deployment_authority]) {
-    throw new Error("VM 100 deployment authority and NixOS activation relation is invalid");
-  }
-  if (vm.vmid !== contract.proxmox.vm.vmid || vm.vmid !== contract.storage.nfs.client_vmid ||
-      vm.host_name !== contract.network.arch.hostname || vm.network_identity !== contract.network.arch.magicdns_name) {
-    throw new Error("VM 100 scaffold identity differs from existing contract authority");
-  }
-  const expectedActivation = vm.deployment_authority === "nixos";
-  if (vm.nixos_activation_enabled !== expectedActivation) {
-    throw new Error("VM 100 authority and NixOS activation selection differ");
-  }
-  const identity = vm.workload_identity;
-  const access = vm.access;
-  const networking = vm.networking;
-  const storage = vm.storage;
-  const hardware = vm.hardware;
-  if (networking.interface !== contract.arch.network_interface || networking.match_mac !== contract.network.arch.mac ||
-      networking.ipv4 !== contract.network.arch.ipv4 || networking.gateway !== contract.network.gateway ||
-      JSON.stringify(networking.dns) !== JSON.stringify(contract.network.dns) ||
-      storage.games.mountpoint !== contract.arch.games_mountpoint ||
-      storage.games.filesystem_uuid !== contract.proxmox.vm.games_disk.filesystem_uuid ||
-      storage.shared.mountpoint !== contract.storage.nfs.mountpoint ||
-      storage.shared.source !== `${contract.network.proxmox.ipv4.split("/")[0]}:${contract.storage.nfs.export}`) {
-    throw new Error("VM 100 networking or storage differs from existing contract authority");
-  }
-  if (hardware.gpu.vendor_device !== contract.proxmox.vm.pci.gpu.vendor_device ||
-      hardware.bluetooth.vendor_device !== contract.proxmox.vm.usb.bluetooth.vendor_device) {
-    throw new Error("VM 100 hardware identity differs from existing protected hardware authority");
-  }
-  if (identity.user !== identity.primary_group || identity.uid !== identity.gid || access.authorized_login_keys !== 0) {
-    throw new Error("VM 100 base identity or console-only access selection differs");
-  }
-  return {
-    version: 1,
-    vmid: vm.vmid,
-    hostName: vm.host_name,
-    networkIdentity: vm.network_identity,
-    system: vm.system,
-    stateVersion: vm.state_version,
-    deploymentAuthority: vm.deployment_authority,
-    nixosActivationEnabled: vm.nixos_activation_enabled,
-    workloadIdentity: {
-      user: identity.user,
-      uid: identity.uid,
-      primaryGroup: identity.primary_group,
-      gid: identity.gid,
-      home: identity.home,
-      shell: identity.shell,
-      supplementaryGroups: identity.supplementary_groups,
-    },
-    access: {
-      opensshEnabled: access.openssh_enabled,
-      authorizedLoginKeys: access.authorized_login_keys,
-      passwordAuthentication: access.password_authentication,
-      keyboardInteractiveAuthentication: access.keyboard_interactive_authentication,
-      permitRootLogin: access.permit_root_login,
-      allowTcpForwarding: access.allow_tcp_forwarding,
-      x11Forwarding: access.x11_forwarding,
-    },
-    networking: {
-      interface: networking.interface,
-      matchMac: networking.match_mac,
-      ipv4: networking.ipv4,
-      gateway: networking.gateway,
-      dns: networking.dns,
-      dhcp: networking.dhcp,
-    },
-    storage: {
-      games: {
-        mountpoint: storage.games.mountpoint,
-        filesystem: storage.games.filesystem,
-        filesystemUuid: storage.games.filesystem_uuid,
-        label: storage.games.label,
-        options: storage.games.options,
-      },
-      shared: {
-        mountpoint: storage.shared.mountpoint,
-        filesystem: storage.shared.filesystem,
-        source: storage.shared.source,
-        options: storage.shared.options,
-      },
-    },
-    hardware: {
-      kernelModules: hardware.kernel_modules,
-      gpu: {
-        vendorDevice: hardware.gpu.vendor_device,
-        renderNode: hardware.gpu.render_node,
-        runtimePowerManagement: hardware.gpu.runtime_power_management,
-      },
-      bluetooth: { vendorDevice: hardware.bluetooth.vendor_device },
-      input: hardware.input,
-      serial: hardware.serial,
-      tun: hardware.tun,
-      qemuGuestAgent: hardware.qemu_guest_agent,
-      sysctls: hardware.sysctls,
-    },
-  };
-}
 
 function validateProjection(projection, schema) {
   const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
@@ -439,18 +333,13 @@ function main() {
     if (args[index] === "--check") check = true;
     else if (args[index] === "--target" && args[index + 1]) target = args[++index];
     else if (args[index] === "--output" && args[index + 1]) output = path.resolve(args[++index]);
-    else throw new Error("usage: proxmox-nix-projection.js [--check] [--target proxmox|vm-100] [--output PATH]");
+    else throw new Error("usage: proxmox-nix-projection.js [--check] [--target proxmox] [--output PATH]");
   }
   const targets = {
     proxmox: {
       output: "nix/proxmox/projection.json",
       schema: "nix/proxmox/projection.schema.json",
       project: (contract) => projectProxmoxPolicy(contract, JSON.parse(fs.readFileSync(path.join(root, contract.proxmox.packages.manifest.path), "utf8"))),
-    },
-    "vm-100": {
-      output: "nix/vm-100/projection.json",
-      schema: "nix/vm-100/projection.schema.json",
-      project: projectVm100Scaffold,
     },
   };
   const selected = targets[target];
@@ -471,4 +360,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { canonicalJson, projectProxmoxPolicy, projectVm100Scaffold, validateProjection };
+module.exports = { canonicalJson, projectProxmoxPolicy, validateProjection };

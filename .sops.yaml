@@ -1,4 +1,4 @@
 creation_rules:
   - path_regex: ^secrets/production\.sops\.env$
     age: >-
-      age1vvzm5pczjum52v5alall8euucjen9q4v9xa5g0xmswhna5vare9qwv9rq6,age12jcxxrv3hej0rjgyu0rvstaxuxm32uuc46l6pfucaw9sprvetgesjz67nf,age1ddk0qtwjclc2za5afrz5pl4j5kley02rqv2vh0s07c27a8t5u58sph58qm
+      age1vvzm5pczjum52v5alall8euucjen9q4v9xa5g0xmswhna5vare9qwv9rq6,age1ddk0qtwjclc2za5afrz5pl4j5kley02rqv2vh0s07c27a8t5u58sph58qm

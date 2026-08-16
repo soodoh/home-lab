@@ -174,35 +174,12 @@
   "$defs": {
     "vm100Scaffold": {
       "type": "object", "additionalProperties": false,
-      "required": ["vmid", "host_name", "network_identity", "system", "state_version", "deployment_authority", "nixos_activation_enabled", "workload_identity", "access", "networking", "storage", "hardware"],
-      "oneOf": [
-        {
-          "properties": {
-            "deployment_authority": { "const": "arch" },
-            "nixos_activation_enabled": { "const": false }
-          }
-        },
-        {
-          "properties": {
-            "deployment_authority": { "const": "migration-in-progress" },
-            "nixos_activation_enabled": { "const": false }
-          }
-        },
-        {
-          "properties": {
-            "deployment_authority": { "const": "nixos" },
-            "nixos_activation_enabled": { "const": true }
-          }
-        }
-      ],
+      "required": ["vmid", "host_name", "network_identity", "deployment_authority", "workload_identity", "access", "networking", "storage", "hardware"],
       "properties": {
         "vmid": { "const": 100 },
         "host_name": { "const": "archlinux" },
         "network_identity": { "const": "docker-host" },
-        "system": { "const": "x86_64-linux" },
-        "state_version": { "const": "26.05" },
-        "deployment_authority": { "enum": ["arch", "migration-in-progress", "nixos"] },
-        "nixos_activation_enabled": { "type": "boolean" },
+        "deployment_authority": { "enum": ["arch", "flatcar"] },
         "workload_identity": {
           "type": "object", "additionalProperties": false,
           "required": ["user", "uid", "primary_group", "gid", "home", "shell", "supplementary_groups"],

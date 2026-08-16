@@ -90,11 +90,8 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-contract-schema.js
   node scripts/controller/test-proxmox-package-manifest.js
   node scripts/controller/test-proxmox-nix-projection.js
-  node scripts/controller/test-vm-100-nix-projection.js
   node scripts/controller/test-vm-100-authority.js
-  node scripts/controller/test-vm-100-facts.js
   node scripts/controller/proxmox-nix-projection.js --check --target proxmox
-  node scripts/controller/proxmox-nix-projection.js --check --target vm-100
   [[ ! -e flake.nix && ! -e flake.lock ]] || {
     echo "the Nix flake must remain isolated under the sanitized nix/ source root" >&2
     exit 1
@@ -102,16 +99,6 @@ if [[ $action == validate ]]; then
   proxmox_nix_source=$(nix flake archive 'path:./nix' --json | jq -er .path)
   PROXMOX_NIX_SOURCE_STORE_PATH=$proxmox_nix_source \
     python3 scripts/controller/test-proxmox-nix-foundation.py
-  python3 scripts/controller/test-vm-100-nix-foundation.py
-  python3 scripts/controller/test-vm-100-migration-guard.py
-  python3 scripts/controller/test-vm-100-sops.py
-  python3 scripts/controller/test-vm-100-coral.py
-  python3 scripts/controller/test-vm-100-candidate-attachment.py
-  python3 scripts/controller/test-vm-100-candidate-install.py
-  python3 scripts/controller/test-vm-100-ephemeral-inspection.py
-  python3 scripts/controller/test-vm-100-gate-c.py
-  python3 scripts/controller/test-vm-100-execution.py
-  python3 scripts/controller/validate-vm-100-data-transfer-evidence.py --help >/dev/null
   python3 scripts/controller/test-controller-apply-lock.py
   python3 scripts/controller/test-proxmox-nix-plan.py
   python3 scripts/controller/test-proxmox-nix-apply.py
@@ -148,7 +135,6 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-zpool-status-parser.py
   python3 scripts/controller/test-root-local-audit.py
   python3 scripts/controller/test-lxc-qualification-evidence.py
-  python3 scripts/controller/test-vm-qualification-scaffold.py
   python3 scripts/controller/test-protected-file.py
   python3 scripts/controller/test-reconcile-manifest.py
   python3 scripts/controller/test-reconcile-security.py
@@ -161,7 +147,7 @@ if [[ $action == validate ]]; then
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
     scripts/restore-critical-backup scripts/test-recovery-tools recovery/coral/build-package
   tofu fmt -check -recursive infrastructure/tofu
-  for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification proxmox-vm-qualification omada tailscale; do
+  for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
     (
       validation_data=$(mktemp -d)
       trap 'rm -rf "$validation_data"' EXIT

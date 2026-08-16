@@ -10,12 +10,8 @@ vm_100:
   vmid: 100
   host_name: archlinux
   network_identity: docker-host
-  system: x86_64-linux
-  state_version: "26.05"
-  # Guest authority progresses arch -> migration-in-progress -> nixos; rollback selects arch.
-  # Arch and migration inhibit NixOS activation; NixOS authority requires it.
+  # Arch remains authoritative until the decoupled-state Flatcar cutover is qualified.
   deployment_authority: arch
-  nixos_activation_enabled: false
   workload_identity:
     user: docker
     uid: 1000

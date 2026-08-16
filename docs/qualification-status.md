@@ -32,6 +32,7 @@ The VM 100 Arch-to-NixOS migration is cancelled by [ADR 0001](decisions/0001-vm-
 - reproducible local Coral double-build, exact package checksum, installation marker, runtime checks, and Frigate health
 - three-path encrypted local backup deployment with distinct filesystems and matching newest-archive metadata
 - state-only detachment of 44 Authentik and 9 media application instances, empty serial-2 remote-state proof, temporary Authentik provider-token revocation, and controller/local application credential retirement recorded in `infrastructure/evidence/vm-100-application-state-retirement.json`
+- guarded retirement of the NixOS qualification VM 9900 and downloaded image, empty serial-60 state, temporary ACL absence, and restored Proxmox protected-access `6/6` match recorded in `infrastructure/evidence/vm-100-nixos-qualification-retirement.json`
 
 These records justify removal of completed transition executables. They do not authorize state/backend deletion or recreation of retired resources.
 
@@ -50,7 +51,6 @@ The following remain operational gates rather than static claims:
 - disposable Proxmox **VM** behavior across create, update, protection, delete, raw disk, hardware mappings, PCI/USB, ACL, and cloud-image paths;
 - a complete cold boot with storage, passthrough devices, networking, host configuration, and workloads healthy; and
 - a timed recovery proving the eight-hour recovery-time objective.
-- retirement of the NixOS-specific qualification VM and image without affecting future Flatcar qualification;
 - Arch application-state decoupling, fail-closed mount behavior, cold boot, and isolated restore;
 - disposable Flatcar qualification followed by production hardware parity; and
 - seven stable days with the Arch root disk retained.

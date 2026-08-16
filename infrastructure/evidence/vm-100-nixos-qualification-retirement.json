@@ -1,0 +1,46 @@
+{
+  "format": "home-lab-nixos-qualification-retirement-evidence-v1",
+  "sourceCommit": "b6b9e7b7c884f032f6ea94380e65ea78cc70ba69",
+  "qualificationVm": {
+    "vmid": 9900,
+    "name": "vm-100-nixos-qualification",
+    "guardedStop": "passed",
+    "guardedDestroy": "passed",
+    "absence": "passed"
+  },
+  "qualificationImage": {
+    "volume": "local:import/VM100-NixOS-Qualification-Arch-v20260801.566320.qcow2",
+    "guardedDestroy": "passed",
+    "absence": "passed"
+  },
+  "providerPermissionFindings": [
+    "apply token lacked VM.PowerMgmt on /vms/9900",
+    "apply token lacked VM.Allocate on /vms/9900",
+    "apply token lacked Datastore.Allocate on /storage/local"
+  ],
+  "retirementPlans": {
+    "initialPlanSha256": "665bbbb98579e3857d867727ff1fae819707bfaae16fe929219dcc0e76a52eab",
+    "stoppedVmPlanSha256": "6f7ff54cfae6374f40c0c7c6628761ead3804d1fdee895b6ea0bd340505305eb",
+    "absentVmPlanSha256": "a65cbf8cf75ad0e5fda1bc78d63a04e81baf819be659fd782ec2295a6a32a613"
+  },
+  "remoteState": {
+    "serial": 60,
+    "managedInstances": 0,
+    "stateSha256": "3735397fccbedb873a4be1f52e256c4998577a1fcaf36936669aff2b6eeb8a9c"
+  },
+  "candidateExecutionRecords": {
+    "sourceCommit": "cf15cfee264572cbfd246521bba8fca5de2d7e60",
+    "removedCount": 6,
+    "beforeStateSha256": "441bf4cc1a78556069b16576c88ef7af03f7d0ff6d91ad4e7f22ee1d3fcafc6a",
+    "afterStateSha256": "80c3e0ac69adb8ef10427fa4dfc552e72560282b8f57f0aae6ab9f70b514c964",
+    "physicalDiskMutation": false,
+    "vmResourceRetained": true
+  },
+  "temporaryQualificationAcl": "absent",
+  "proxmoxProtectedAccess": {
+    "expectedCount": 6,
+    "observedCount": 6,
+    "matches": true
+  },
+  "productionVm100Mutation": false
+}

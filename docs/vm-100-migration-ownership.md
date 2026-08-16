@@ -18,17 +18,12 @@ The VM-100 candidate attachment records inside the Proxmox root are not safe to 
 - `scripts/controller/validate-protected-file.py` and its tests.
 - Canonical Compose artifact, image-lock, stage, deploy, rollback, and health controls.
 - `scripts/verify-backup-archive.py`, `scripts/restore-critical-archive.py`, `scripts/restore-critical-backup`, backup selection, and recovery validation.
-- No-follow file handling, protected run roots, mount ancestry checks, capacity checks, metadata-preserving transfer, rsync verification, and evidence hashing currently embedded in `vm_100_execution.py` and `vm-100-data-transfer.py`.
+- No-follow file handling, protected run roots, canonical JSON, exclusive output creation, transfer locks, and evidence hashing retained in `scripts/controller/protected_execution.py`.
 - Generic VM cutover policy controls that can be retargeted to Flatcar without retaining a NixOS execution path.
 
-## Guest-NixOS-specific — remove after controller refactoring
+## Guest-NixOS-specific — retired after controller refactoring
 
-- `nix/hosts/vm-100/**`.
-- `nix/vm-100/**`.
-- Guest-only `nixosConfigurations`, candidate, Disko, ephemeral Nix, closure-signing, migration, installation, update, Compose-qualification, Gate-C, and cutover outputs in `nix/flake.nix`.
-- `nix/compose-artifact/**`, `nix/compose-artifact.sha256`, `nix/secrets/**`, and guest-only dotenv reconstruction copies.
-- Guest-NixOS projections, schemas, fixtures, tests, controller runners, and migration documentation.
-- NixOS-only qualification resources after their live VM/image and state are explicitly retired.
+Guest configurations, projections, Compose mirrors, secrets copies, candidate/Disko/ephemeral-Nix/closure-signing/Gate-C executors, schemas, fixtures, tests, and detailed migration documentation were removed. The isolated flake now exports only Proxmox host management. VM 9900, its downloaded image, temporary ACL, backend state, candidate execution records, and backend permission are retired with secret-free evidence.
 
 ## Coral-specific — remove consumer outward
 
@@ -55,20 +50,15 @@ At reconciliation, Authentik state contained 44 imported instances and media sta
 Preserve:
 
 - the active Arch identity at `/etc/sops/age/keys.txt` and its external recovery copy;
-- the independent recovery age identity and escrow, even if its current directory name references migration;
+- the independent recovery age identity and escrow under `~/.config/sops/home-lab-recovery`;
 - current and previous Compose artifacts, environments, image locks, and rollback evidence;
 - backup identities, encrypted archives, restore evidence, provider CAs, and controller lock state; and
 - production facts and evidence required to verify later cleanup.
 
-Retired application provider tokens and credentials are represented only by secret-free cleanup evidence. The NixOS runtime age identity remains pending and may be removed only after SOPS recipient removal and decryption proof.
+Retired application provider tokens and credentials are represented only by secret-free cleanup evidence. The cancelled NixOS runtime recipient was removed from the SOPS policy and ciphertext, retained-recipient decryption passed, and its private identity and escrow were deleted.
 
 Candidate-install, ephemeral-Nix, Gate-C, and migration transfer artifacts under `.reconcile/` may be deleted only after evidence classification. No bulk deletion of `.reconcile` or `.local` is permitted.
 
 ## Current reconciliation blockers
 
-- The NixOS qualification root owns a VM and downloaded image.
-- The Proxmox Nix host plan is blocked by a protected-access observation mismatch.
-- The Arch steady SSH check reports one check-mode change even though the full audit is clean.
-- The supported controller validation path still directly executes guest-NixOS tests.
-
-These blockers prevent Gate A from being claimed until resolved.
+The Phase 0 source/state cleanup blockers are resolved. Gate A still requires the final full repository validation, Proxmox/OpenTofu no-op plan, and complete Arch steady no-op at the cleanup commit.

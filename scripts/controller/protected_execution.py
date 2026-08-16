@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared protected-I/O and observation helpers for VM 100 migration executors."""
+"""Shared protected-I/O and observation helpers for guarded controller operations."""
 
 from __future__ import annotations
 
@@ -15,11 +15,13 @@ import subprocess
 import time
 from typing import BinaryIO
 
-from vm_100_gate_c import canonical_bytes
-
 SAFE_JSON_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.json$")
 SAFE_LOG_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.log$")
-TRANSFER_LOCK_PATH = "/run/lock/vm-100-data-transfer.lock"
+TRANSFER_LOCK_PATH = "/run/lock/home-lab-data-transfer.lock"
+
+
+def canonical_bytes(value: object) -> bytes:
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode()
 
 
 def require_private_root(root: Path, forbidden: tuple[Path, ...]) -> Path:
@@ -157,7 +159,7 @@ def load_canonical_object(path: Path, label: str) -> tuple[dict[str, object], by
     return value, raw
 
 
-def create_run_root(parent: Path, prefix: str = "vm-100-run") -> Path:
+def create_run_root(parent: Path, prefix: str = "home-lab-run") -> Path:
     if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,31}", prefix) is None:
         raise SystemExit("protected run prefix is invalid")
     name = f"{prefix}-{time.time_ns()}-{os.getpid()}-{secrets.token_hex(8)}"

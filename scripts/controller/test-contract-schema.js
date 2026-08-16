@@ -39,17 +39,15 @@ if (candidateDisk.interface !== "scsi2" || candidateDisk.serial !== "QUAL-NIXOS-
   throw new Error("production candidate disk must retain the qualified scsi2 identity and lifecycle");
 }
 
-for (const [authority, activationEnabled] of [["arch", false], ["migration-in-progress", false], ["nixos", true]]) {
+for (const authority of ["arch", "flatcar"]) {
   const validVmAuthority = structuredClone(contract);
   validVmAuthority.vm_100.deployment_authority = authority;
-  validVmAuthority.vm_100.nixos_activation_enabled = activationEnabled;
-  check(validVmAuthority, true, `VM 100 accepts ${authority} authority with activation=${activationEnabled}`);
+  check(validVmAuthority, true, `VM 100 accepts ${authority} authority`);
 }
-for (const [authority, activationEnabled] of [["arch", true], ["migration-in-progress", true], ["nixos", false], ["dual", false]]) {
+for (const authority of ["migration-in-progress", "nixos", "dual"]) {
   const invalidVmAuthority = structuredClone(contract);
   invalidVmAuthority.vm_100.deployment_authority = authority;
-  invalidVmAuthority.vm_100.nixos_activation_enabled = activationEnabled;
-  check(invalidVmAuthority, false, `VM 100 rejects ${authority} authority with activation=${activationEnabled}`);
+  check(invalidVmAuthority, false, `VM 100 rejects retired authority ${authority}`);
 }
 for (const mutate of [
   (value) => { value.vm_100.workload_identity.uid = 1001; },
