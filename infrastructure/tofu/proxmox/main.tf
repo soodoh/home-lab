@@ -103,16 +103,17 @@ resource "proxmox_virtual_environment_vm" "arch" {
   }
 
   disk {
-    datastore_id = local.contract.flatcar.os_disk.datastore
-    interface    = local.contract.flatcar.os_disk.interface
-    serial       = local.contract.flatcar.os_disk.serial
-    size         = local.contract.flatcar.os_disk.size_gb
-    iothread     = true
-    backup       = true
-    cache        = "none"
-    discard      = "ignore"
-    replicate    = true
-    ssd          = false
+    datastore_id      = local.contract.flatcar.os_disk.datastore
+    path_in_datastore = local.contract.flatcar.os_disk.path_in_datastore
+    interface         = local.contract.flatcar.os_disk.interface
+    serial            = local.contract.flatcar.os_disk.serial
+    size              = local.contract.flatcar.os_disk.size_gb
+    iothread          = true
+    backup            = true
+    cache             = "none"
+    discard           = "ignore"
+    replicate         = true
+    ssd               = false
   }
 
   network_device {

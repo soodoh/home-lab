@@ -156,9 +156,10 @@
         "os_disk": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["datastore", "interface", "serial", "size_gb", "ignition_drive_interface", "snippet_storage", "snippet_path", "qualification_boot_order", "rollback_days"],
+          "required": ["datastore", "path_in_datastore", "interface", "serial", "size_gb", "ignition_drive_interface", "snippet_storage", "snippet_path", "qualification_boot_order", "rollback_days"],
           "properties": {
             "datastore": { "const": "local-lvm" },
+            "path_in_datastore": { "const": "vm-100-disk-2" },
             "interface": { "const": "scsi3" },
             "serial": { "const": "HOME-LAB-FLATCAR-64G" },
             "size_gb": { "const": 64 },

@@ -16,6 +16,7 @@ const disk = flatcar.os_disk;
 assert.ok(script.includes(`readonly VMID=${contract.proxmox.vm.vmid}`));
 assert.ok(script.includes(`readonly IMAGE=/var/lib/vz/import/flatcar-${flatcar.version}-proxmoxve.img`));
 assert.ok(script.includes(`readonly STORAGE=${disk.datastore}`));
+assert.ok(script.includes(`readonly EXPECTED_VOLUME=${disk.datastore}:${disk.path_in_datastore}`));
 assert.ok(script.includes(`readonly INTERFACE=${disk.interface}`));
 assert.ok(script.includes(`readonly SERIAL=${disk.serial}`));
 assert.ok(script.includes(`readonly SIZE=${disk.size_gb}G`));

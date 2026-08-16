@@ -1141,6 +1141,7 @@ flatcar:
     size: 75511
   os_disk:
     datastore: local-lvm
+    path_in_datastore: vm-100-disk-2
     interface: scsi3
     serial: HOME-LAB-FLATCAR-64G
     size_gb: 64
