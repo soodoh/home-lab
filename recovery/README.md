@@ -63,7 +63,7 @@ The local controller stores provider capabilities in separate mode-`0600` plan/a
 
 7. **Verify and record evidence.** An ordinary recovery whose VM already exists is a single `converge` stage: Tailscale/Proxmox owner plans run, then exact guarded Nix runs before Arch/Compose. On fresh PVE, the first reviewed manifest may instead be `external-owner-prerequisite`, containing a canonical blocked Nix plan whose only blockers are OpenTofu-owned VM prerequisites. Apply consumes only the exact saved AWS/Tailscale/Proxmox plans, stops successfully with `requires_new_reviewed_plan=true`, and performs no Nix, Arch, or Compose work. Run `scripts/local-controller plan recovery` again and independently review the new ready `converge` manifest before the second apply. Apply never replans.
 
-   The second `converge` apply stages the exact Compose artifact and tries valid local archives newest-first across the three ordered filesystems. It downloads the reviewed S3 fallback only when no local candidate is usable. The selected candidate must match the manifest-bound recovery identity. After activation, it verifies services, Coral, maintenance, live Tailscale policy/state equality, every enabled OpenTofu root no-op, a fresh zero-action Proxmox Nix plan, Arch audit no-op, and Arch bootstrap no-op.
+   The second `converge` apply stages the exact Compose artifact and tries valid local archives newest-first across the three ordered filesystems. It downloads the reviewed S3 fallback only when no local candidate is usable. The selected candidate must match the manifest-bound recovery identity. After activation, it verifies services, maintenance, live Tailscale policy/state equality, every enabled OpenTofu root no-op, a fresh zero-action Proxmox Nix plan, Arch audit no-op, and Arch bootstrap no-op.
 
    Record only secret-free commit, plan/artifact/backup hashes, health outcomes, and elapsed time. The adopted contract keeps managed mappings in both recovery and steady phases. Refresh the protected serial-to-port runtime inputs before planning so Zigbee and Z-Wave mappings follow their adapters. Never change managed mode back to raw.
 
@@ -94,7 +94,7 @@ scripts/build-recovery-bundle \
   --recovery-evidence .local/recovery/recovery-proof.json
 ```
 
-The builder requires a clean commit, fresh commit-bound evidence, the ignored Omada export, both Compose image locks, the protected age recipient, and the exact tracked Coral build identity. It creates a deterministic inner archive and checksum manifest, encrypts the complete bundle, and emits only the encrypted `.age` artifact for upload to the versioned KMS-protected recovery bucket.
+The builder requires a clean commit, fresh commit-bound evidence, the ignored Omada export, both Compose image locks, and the protected age recipient. It creates a deterministic inner archive and checksum manifest, encrypts the complete bundle, and emits only the encrypted `.age` artifact for upload to the versioned KMS-protected recovery bucket.
 
 Every Compose image keeps a readable upstream tag and immutable digest. Renovate updates the matching pair. Wolf's dynamically launched child applications remain upstream-managed and intentionally sit outside the Compose image-lock guarantee.
 

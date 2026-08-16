@@ -90,8 +90,6 @@ services:
     mem_limit: 4096m
     privileged: true
     devices:
-      # Google Coral TPU m.2
-      - /dev/apex_0:/dev/apex_0
       # Radeon RX 7900 XTX
       - /dev/dri/renderD128:/dev/dri/renderD128
     environment:

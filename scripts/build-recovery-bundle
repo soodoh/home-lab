@@ -39,12 +39,7 @@ process.stdout.write(JSON.stringify(load(fs.readFileSync("infrastructure/contrac
 NODE
 )
 recovery_recipient=$(jq -r '.recovery.recovery_age_recipient' <<<"$contract_json")
-coral_build_image=$(jq -r '.arch.coral.build_image // empty' <<<"$contract_json")
-coral_source_tree_sha256=$(jq -r '.arch.coral.source_tree_sha256 // empty' <<<"$contract_json")
-coral_sha256=$(jq -r '.arch.coral.package_sha256 // empty' <<<"$contract_json")
 [[ $recovery_recipient == age1* ]]
-[[ $coral_build_image =~ @sha256:[0-9a-f]{64}$ ]]
-[[ $coral_source_tree_sha256 =~ ^[0-9a-f]{64}$ && $coral_sha256 =~ ^[0-9a-f]{64}$ ]]
 evidence_max_age_days=$(jq -r '.recovery.evidence_max_age_days' <<<"$contract_json")
 EVIDENCE_FILE="$evidence_file" EVIDENCE_MAX_AGE_DAYS="$evidence_max_age_days" python3 - <<'PY'
 import os
@@ -70,13 +65,8 @@ jq -n \
   --arg commit "$commit" \
   --arg arch_image_version "$(jq -r '.proxmox.vm.cloud_image.version' <<<"$contract_json")" \
   --arg arch_image_sha256 "$(jq -r '.proxmox.vm.cloud_image.sha256' <<<"$contract_json")" \
-  --arg coral_build_image "$coral_build_image" \
-  --arg coral_source_tree_sha256 "$coral_source_tree_sha256" \
-  --arg coral_package_sha256 "$coral_sha256" \
   '{schema: 1, commit: $commit, arch_image_version: $arch_image_version,
-    arch_image_sha256: $arch_image_sha256, coral_build_image: $coral_build_image,
-    coral_source_tree_sha256: $coral_source_tree_sha256,
-    coral_package_sha256: $coral_package_sha256}' \
+    arch_image_sha256: $arch_image_sha256}' \
   >"$workspace/bundle/RECOVERY-METADATA.json"
 
 (

@@ -57,9 +57,6 @@
     - role: arch_hardware
       tags:
         - hardware
-    - role: coral
-      tags:
-        - coral
     - role: hardware
       tags:
         - hardware

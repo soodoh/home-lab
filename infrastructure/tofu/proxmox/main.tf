@@ -110,13 +110,6 @@ resource "proxmox_virtual_environment_vm" "arch" {
   }
 
   hostpci {
-    device  = "hostpci0"
-    id      = local.use_hardware_mappings ? null : local.vm.pci.coral.bdf
-    mapping = local.use_hardware_mappings ? local.vm.pci.coral.mapping : null
-    rombar  = true
-  }
-
-  hostpci {
     device  = "hostpci1"
     id      = local.use_hardware_mappings ? null : local.vm.pci.gpu.bdf
     mapping = local.use_hardware_mappings ? local.vm.pci.gpu.mapping : null

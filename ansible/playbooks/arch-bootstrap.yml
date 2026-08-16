@@ -25,9 +25,6 @@
     - role: human_access
     - role: sops_age
     - role: arch_hardware
-    - role: coral
-      vars:
-        coral_verify_frigate: false
   post_tasks:
     - name: Release the shared host-side mutation lock after success
       ansible.builtin.import_role:

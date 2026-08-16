@@ -348,22 +348,6 @@
   loop_control:
     label: "{{ item.item.host }}"
 
-- name: Inspect DKMS status
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/dkms
-      - status
-  register: audit_dkms_status
-  changed_when: false
-  check_mode: false
-
-- name: Assert the deferred-kernel Gasket build is installed
-  ansible.builtin.assert:
-    that:
-      - "'gasket/' in audit_dkms_status.stdout"
-      - audit_expected_dkms_kernel in audit_dkms_status.stdout
-      - "'installed' in audit_dkms_status.stdout"
-    fail_msg: "Phase 0 stop gate: expected Gasket DKMS build is absent. Do not automate the patched AUR package."
 
 - name: Inspect root cron metadata without privilege or content access
   ansible.builtin.stat:

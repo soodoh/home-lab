@@ -26,7 +26,7 @@ The qualification must demonstrate:
 - hostile-archive rejection and safe extraction;
 - fresh-volume and bind-target inventory before activation;
 - exact Compose artifact and recovery-plan identity;
-- service, storage, network, passthrough, and Coral health;
+- service, storage, network, and passthrough health;
 - decrypted-staging cleanup;
 - a complete cold boot; and
 - final OpenTofu and Ansible no-op checks.

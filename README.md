@@ -10,26 +10,6 @@ Steady reconciliation covers AWS foundation, the empty legacy-CT tombstone, Prox
 
 The PostgreSQL 18 image and storage-layout change for Authentik requires the guarded [`docs/authentik-postgres-18-migration.md`](docs/authentik-postgres-18-migration.md) dump-and-restore procedure before Compose convergence.
 
-## Coral Edge TPU driver on Linux 7.1+
-
-Frigate uses a PCIe Coral passed through to the Arch VM. Proxmox binds the PCI function to `vfio-pci`; Arch loads `gasket` and `apex`. The exact upstream source commit and the three reviewed compatibility patches are tracked under [`recovery/coral`](recovery/coral):
-
-- Linux 6.13+ quoted `DMA_BUF` namespace import;
-- Linux 6.0+ removal of `no_llseek`; and
-- Linux 7.1+ replacement of `zap_vma_ptes()` with `zap_special_vma_range()`.
-
-The `coral` Ansible role copies the exact tracked `recovery/coral` recipe to the Docker host, builds it twice in a digest-pinned Arch environment with a fixed source epoch, requires byte identity and the contract package SHA-256, installs the local package, and removes the temporary build. It then verifies DKMS status, running-kernel vermagic, PCI binding, `/dev/apex_0` ownership/mode, and Frigate health. No package registry, GitHub OIDC identity, or persistent Coral artifact is required.
-
-Do not reinstall the mutable AUR package or use `SKIP` checksums. To verify the converged runtime:
-
-```sh
-dkms status gasket/r236.5815ee3 -k "$(uname -r)"
-modinfo -F vermagic apex
-lspci -Dnnk -d 1ac1:089a
-stat -c '%U %G %a' /dev/apex_0
-docker inspect frigate
-```
-
 ## Wolf game streaming
 
 Wolf runs Steam and other graphical apps in on-demand containers and streams them to Moonlight clients. The Radeon RX 7900 XTX is exposed as `/dev/dri/renderD128`; Wolf, Jellyfin, and Frigate share that render node.

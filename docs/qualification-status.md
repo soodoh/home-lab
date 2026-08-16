@@ -29,7 +29,6 @@ The VM 100 Arch-to-NixOS migration is cancelled by [ADR 0001](decisions/0001-vm-
 - deletion of the retired CT's Omada reservation while preserving the LAN and every other reservation
 - removal of stale Tailscale gateway/controller transition policy and convergence of the terminal policy with a full no-op proof
 - direct local-controller reachability to Omada over Tailscale TCP 8043 with strict hostname and CA verification
-- reproducible local Coral double-build, exact package checksum, installation marker, runtime checks, and Frigate health
 - three-path encrypted local backup deployment with distinct filesystems and matching newest-archive metadata
 - state-only detachment of 44 Authentik and 9 media application instances, empty serial-2 remote-state proof, temporary Authentik provider-token revocation, and controller/local application credential retirement recorded in `infrastructure/evidence/vm-100-application-state-retirement.json`
 - guarded retirement of the NixOS qualification VM 9900 and downloaded image, empty serial-60 state, temporary ACL absence, and restored Proxmox protected-access `6/6` match recorded in `infrastructure/evidence/vm-100-nixos-qualification-retirement.json`
@@ -42,7 +41,7 @@ The undeclared Compose volumes `docker-compose_happier-data`, `docker-compose_nz
 
 ## Protected inputs
 
-Backend coordinates, provider credentials, SSH fingerprints and keys, hardware identities, Omada export and CA, backup object/version/checksum, GPG material, SOPS recipients, Coral hashes, and recovery evidence are intentionally absent from Git. Controller credential and extra-vars files remain mode `0600` under protected local storage.
+Backend coordinates, provider credentials, SSH fingerprints and keys, hardware identities, Omada export and CA, backup object/version/checksum, GPG material, SOPS recipients, and recovery evidence are intentionally absent from Git. Controller credential and extra-vars files remain mode `0600` under protected local storage.
 
 ## Unresolved live qualification
 

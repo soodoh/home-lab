@@ -102,11 +102,8 @@ audit_expected_mounts:
 audit_expected_modules:
   - uinput
   - uhid
-  - gasket
-  - apex
 
 audit_expected_devices:
-  - /dev/apex_0
   - /dev/dri
   - /dev/dri/renderD128
   - /dev/net/tun
@@ -131,7 +128,6 @@ audit_wolf_file_pairs:
   - tracked: "{{ compose_current_dir }}/services/data/wolf/es-de/dolphin-config.sh"
     host: "/mnt/games/roms/dolphin-config/Configure Dolphin.sh"
 
-audit_expected_dkms_kernel: "{{ audit_expected_running_kernel }}"
 audit_root_cron_path: /var/spool/cron/root
 
 # Phase 3 routine desired state. Management-plane changes use bootstrap.yml only.
@@ -147,7 +143,6 @@ apply_guard_allowed_tags:
   - sops_age
   - arch_network
   - tailscale
-  - coral
 bootstrap_allowed_apply_tags:
   - management_plane
 

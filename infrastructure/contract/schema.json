@@ -71,7 +71,7 @@
     "arch": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["network_interface", "user", "games_mountpoint", "repository_snapshot", "packages", "coral"],
+      "required": ["network_interface", "user", "games_mountpoint", "repository_snapshot", "packages"],
       "properties": {
         "network_interface": { "type": "string", "minLength": 1 },
         "user": { "type": "string", "minLength": 1 },
@@ -86,20 +86,6 @@
             "docker": { "type": "string", "pattern": "^[1-9][0-9]*:[0-9]+\\.[0-9]+\\.[0-9]+-[1-9][0-9]*$" },
             "docker_compose": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-[1-9][0-9]*$" },
             "tailscale": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-[1-9][0-9]*$" }
-          }
-        },
-        "coral": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["package_version", "dkms_version", "source_commit", "source_tree_sha256", "build_image", "source_date_epoch", "package_sha256"],
-          "properties": {
-            "package_version": { "type": "string", "pattern": "^r[0-9]+\\.[0-9a-f]+-[1-9][0-9]*$" },
-            "dkms_version": { "type": "string", "pattern": "^r[0-9]+\\.[0-9a-f]+$" },
-            "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-            "source_tree_sha256": { "$ref": "#/$defs/sha256" },
-            "build_image": { "type": "string", "pattern": "^[^@]+@sha256:[0-9a-f]{64}$" },
-            "source_date_epoch": { "type": "integer", "minimum": 1 },
-            "package_sha256": { "$ref": "#/$defs/sha256" }
           }
         }
       }
@@ -643,8 +629,8 @@
       "required": ["modules", "device_ids", "prohibited_modules", "absence_policy", "modules_load_file", "modprobe_file", "soft_dependencies"],
       "properties": {
         "modules": { "type": "array", "prefixItems": [{ "const": "vfio" }, { "const": "vfio_iommu_type1" }, { "const": "vfio_pci" }], "items": false, "minItems": 3, "maxItems": 3 },
-        "device_ids": { "type": "array", "prefixItems": [{ "const": "1ac1:089a" }, { "const": "1002:744c" }, { "const": "1002:ab30" }], "items": false, "minItems": 3, "maxItems": 3, "uniqueItems": true },
-        "prohibited_modules": { "type": "array", "prefixItems": [{ "const": "apex" }, { "const": "gasket" }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true },
+        "device_ids": { "type": "array", "prefixItems": [{ "const": "1002:744c" }, { "const": "1002:ab30" }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true },
+        "prohibited_modules": { "type": "array", "maxItems": 0 },
         "absence_policy": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/auditAbsentLinesPolicy" }, { "$ref": "#/$defs/auditAbsentLinesPolicy" }, { "$ref": "#/$defs/auditAbsentFilePolicy" }], "items": false, "minItems": 3, "maxItems": 3, "uniqueItems": true },
         "modules_load_file": { "$ref": "#/$defs/managedFilePolicy" },
         "modprobe_file": { "$ref": "#/$defs/managedFilePolicy" },
@@ -1056,7 +1042,7 @@
         "root_disk": { "$ref": "#/$defs/rootDisk" },
         "candidate_disk": { "$ref": "#/$defs/candidateDisk" },
         "games_disk": { "$ref": "#/$defs/gamesDisk" },
-        "pci": { "type": "object", "additionalProperties": false, "required": ["coral", "gpu", "gpu_audio", "host_igpu"], "properties": { "coral": { "$ref": "#/$defs/pciDevice" }, "gpu": { "$ref": "#/$defs/pciDevice" }, "gpu_audio": { "$ref": "#/$defs/pciDevice" }, "host_igpu": { "$ref": "#/$defs/pciDevice" } } },
+        "pci": { "type": "object", "additionalProperties": false, "required": ["gpu", "gpu_audio", "host_igpu"], "properties": { "gpu": { "$ref": "#/$defs/pciDevice" }, "gpu_audio": { "$ref": "#/$defs/pciDevice" }, "host_igpu": { "$ref": "#/$defs/pciDevice" } } },
         "usb": { "type": "object", "additionalProperties": false, "required": ["zigbee", "zwave", "bluetooth"], "properties": { "zigbee": { "$ref": "#/$defs/serialUsbDevice" }, "zwave": { "$ref": "#/$defs/serialUsbDevice" }, "bluetooth": { "$ref": "#/$defs/usbDevice" } } },
         "cloud_image": { "type": "object", "additionalProperties": false, "required": ["version", "url", "sha256", "signature_url"], "properties": { "version": { "type": "string" }, "url": { "type": "string", "pattern": "^https://" }, "sha256": { "$ref": "#/$defs/sha256" }, "signature_url": { "type": "string", "pattern": "^https://" } } }
       }

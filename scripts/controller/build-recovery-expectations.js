@@ -35,7 +35,7 @@ if (
 }
 
 const resources = {};
-for (const [key, device] of Object.entries({ coral: vm.pci.coral, gpu: vm.pci.gpu, gpu_audio: vm.pci.gpu_audio })) {
+for (const [key, device] of Object.entries({ gpu: vm.pci.gpu, gpu_audio: vm.pci.gpu_audio })) {
   resources[`proxmox_hardware_mapping_pci.device["${key}"]`] = {
     type: "proxmox_hardware_mapping_pci",
     expected: {
@@ -128,7 +128,6 @@ resources["proxmox_virtual_environment_vm.arch"] = {
       model: "virtio",
     }],
     hostpci: [
-      { device: "hostpci0", id: null, mapping: vm.pci.coral.mapping, rombar: true },
       {
         device: "hostpci1",
         id: null,

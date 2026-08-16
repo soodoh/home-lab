@@ -76,7 +76,6 @@ VM_CUTOVER_BOOT_ORDERS = {
 VM_MAC_ADDRESS = "BC:24:11:89:19:5A"
 VM_SMBIOS_UUID = "03061602-d590-4d23-be5c-97f9954b3053"
 VM_HOSTPCI_MAPPINGS = (
-    ("hostpci0", "coral-tpu"),
     ("hostpci1", "rx-7900-xtx"),
     ("hostpci2", "rx-7900-xtx-audio"),
 )
@@ -103,7 +102,6 @@ VM_CANDIDATE_DISK = {
 }
 RECOVERY_RESOURCE_TYPES = {
     "proxmox_download_file.arch_recovery_image[0]": "proxmox_download_file",
-    'proxmox_hardware_mapping_pci.device["coral"]': "proxmox_hardware_mapping_pci",
     'proxmox_hardware_mapping_pci.device["gpu"]': "proxmox_hardware_mapping_pci",
     'proxmox_hardware_mapping_pci.device["gpu_audio"]': "proxmox_hardware_mapping_pci",
     'proxmox_hardware_mapping_usb.device["bluetooth"]': "proxmox_hardware_mapping_usb",
@@ -466,7 +464,6 @@ def vm_cutover_identity_failure(before: Any, after: Any, expected_games_disk: st
         if not exact_object_list(
             values.get("hostpci"),
             [
-                {"device": "hostpci0", "id": None, "mapping": "coral-tpu", "mdev": None, "pcie": False, "rom_file": None, "rombar": True, "xvga": False},
                 {"device": "hostpci1", "id": None, "mapping": "rx-7900-xtx", "mdev": None, "pcie": True, "rom_file": None, "rombar": True, "xvga": True},
                 {"device": "hostpci2", "id": None, "mapping": "rx-7900-xtx-audio", "mdev": None, "pcie": True, "rom_file": None, "rombar": True, "xvga": False},
             ],

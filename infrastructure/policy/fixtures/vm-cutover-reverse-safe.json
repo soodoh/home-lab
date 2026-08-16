@@ -106,16 +106,6 @@
           ],
           "hostpci": [
             {
-              "device": "hostpci0",
-              "id": null,
-              "mapping": "coral-tpu",
-              "mdev": null,
-              "pcie": false,
-              "rom_file": null,
-              "rombar": true,
-              "xvga": false
-            },
-            {
               "device": "hostpci1",
               "id": null,
               "mapping": "rx-7900-xtx",
@@ -326,16 +316,6 @@
             }
           ],
           "hostpci": [
-            {
-              "device": "hostpci0",
-              "id": null,
-              "mapping": "coral-tpu",
-              "mdev": null,
-              "pcie": false,
-              "rom_file": null,
-              "rombar": true,
-              "xvga": false
-            },
             {
               "device": "hostpci1",
               "id": null,

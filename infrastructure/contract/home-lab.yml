@@ -132,12 +132,9 @@ proxmox:
       - vfio_iommu_type1
       - vfio_pci
     device_ids:
-      - 1ac1:089a
       - 1002:744c
       - 1002:ab30
-    prohibited_modules:
-      - apex
-      - gasket
+    prohibited_modules: []
     absence_policy:
       - kind: audit-absence
         projectable: true
@@ -716,14 +713,12 @@ proxmox:
       - fd-find
       - fish
       - fzf
-      - gasket-dkms
       - golang
       - htop
       - imagemagick
       - inetutils-telnet
       - lazygit
       - libbz2-dev
-      - libedgetpu1-std
       - libffi-dev
       - libgdbm-dev
       - liblzma-dev
@@ -955,13 +950,6 @@ proxmox:
       iothread: true
       ssd: true
     pci:
-      coral:
-        bdf: "0000:0b:00.0"
-        vendor_device: 1ac1:089a
-        iommu_group: 22
-        subsystem_id: 1ac1:089a
-        required_driver: vfio-pci
-        mapping: coral-tpu
       gpu:
         bdf: "0000:03:00.0"
         vendor_device: 1002:744c
@@ -1096,14 +1084,6 @@ arch:
     docker: "1:29.6.2-1"
     docker_compose: 5.3.1-1
     tailscale: 1.98.10-1
-  coral:
-    package_version: r236.5815ee3-3
-    dkms_version: r236.5815ee3
-    source_commit: 5815ee3908a46a415aac616ac7b9aedcb98a504c
-    source_tree_sha256: 1222d040b6e8b91f76f049fadfd853ef7c6b012a97f728b7fa264aca74fb9cb9
-    build_image: archlinux:base-devel@sha256:c1829f370be8434135f43fb3acaef1256780804ac3b2d2eec90dfb1232e1ffdf
-    source_date_epoch: 1704067200
-    package_sha256: a08bf28a90071cf3d18b219ed54856681937d792787fd0c5ef77f52106e6a71e
 omada:
   controller_version: 6.2.14.11
   endpoint: https://Omada:8043

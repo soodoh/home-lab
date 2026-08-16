@@ -47,21 +47,3 @@
   loop: "{{ hardware_device_results.results }}"
   loop_control:
     label: "{{ item.item }}"
-
-- name: Inspect Gasket DKMS status without managing the patched AUR package
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/dkms
-      - status
-  register: hardware_dkms_status
-  changed_when: false
-  check_mode: false
-
-- name: Assert the approved Gasket DKMS build remains installed
-  ansible.builtin.assert:
-    that:
-      - "'gasket/' in hardware_dkms_status.stdout"
-      - audit_expected_dkms_kernel in hardware_dkms_status.stdout
-      - "'installed' in hardware_dkms_status.stdout"
-    fail_msg: >-
-      The Coral role did not converge the approved Gasket DKMS build for the running kernel.

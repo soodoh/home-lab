@@ -1,6 +1,5 @@
 locals {
   pci_mappings = local.use_hardware_mappings ? {
-    coral     = local.vm.pci.coral
     gpu       = local.vm.pci.gpu
     gpu_audio = local.vm.pci.gpu_audio
   } : {}

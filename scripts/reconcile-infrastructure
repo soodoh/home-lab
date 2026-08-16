@@ -145,7 +145,7 @@ if [[ $action == validate ]]; then
     scripts/configure-local-provider-credentials \
     scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack scripts/validate-proxmox-bootstrap-keys \
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
-    scripts/restore-critical-backup scripts/test-recovery-tools recovery/coral/build-package
+    scripts/restore-critical-backup scripts/test-recovery-tools
   tofu fmt -check -recursive infrastructure/tofu
   for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
     (
@@ -943,7 +943,7 @@ ansible_require_noop() {
 
 apply_arch_steady() {
   local tag
-  echo "Deferring the separately gated Arch network migration and unpublished Coral artifact during routine steady convergence."
+  echo "Deferring the separately gated Arch network migration during routine steady convergence."
   for tag in base tailscale ssh storage docker sops_age hardware host_files compose; do
     ansible_checked_apply "$arch_inventory" playbooks/site.yml "Arch/$tag" docker-host-production \
       --tags "$tag" -e iac_apply_confirmed=true -e "iac_apply_tag=$tag" \
@@ -1109,10 +1109,6 @@ case "$action" in
     if [[ $phase != recovery ]]; then apply_root tailscale; fi
     if [[ $phase == recovery ]]; then compose_recovery_apply; else compose_apply; fi
     pushd ansible >/dev/null
-    if [[ $phase == recovery ]]; then
-      ansible_checked_apply "$arch_inventory" playbooks/site.yml Arch/coral docker-host-production \
-        --tags coral -e iac_apply_confirmed=true -e iac_apply_tag=coral
-    fi
     ansible_checked_apply "$arch_inventory" playbooks/site.yml Arch/maintenance docker-host-production \
       --tags maintenance -e iac_apply_confirmed=true -e iac_apply_tag=maintenance
     popd >/dev/null

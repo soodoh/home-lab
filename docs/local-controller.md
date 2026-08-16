@@ -99,7 +99,7 @@ Review the ignored mode-`0600` JSON and put its exact contents in the capability
 
 Steady applies the exact enabled plans for AWS foundation, the empty `proxmox-legacy` tombstone, Proxmox, Omada, and Tailscale. It then runs reproducible Ansible check plans, converges only approved host tags, stages and deploys the exact Compose artifact, and performs maintenance.
 
-Recovery uses AWS foundation, Proxmox, Omada, and Tailscale; it deliberately excludes the legacy tombstone. It verifies Proxmox access, creates/reconciles VM 100 with hardware mappings exactly bound to the recovery expectations hash, bootstraps Arch, restores only the reviewed backup into inventoried fresh targets, activates the hash-bound Compose artifact, and completes the Coral and maintenance checks. The adopted environment keeps contract mode `managed` in both recovery and steady operation. Protected mappings and normal policy reject reversing that mode.
+Recovery uses AWS foundation, Proxmox, Omada, and Tailscale; it deliberately excludes the legacy tombstone. It verifies Proxmox access, creates/reconciles VM 100 with hardware mappings exactly bound to the recovery expectations hash, bootstraps Arch, restores only the reviewed backup into inventoried fresh targets, activates the hash-bound Compose artifact, and completes maintenance checks. The adopted environment keeps contract mode `managed` in both recovery and steady operation. Protected mappings and normal policy reject reversing that mode.
 
 Success always requires a fresh zero-action Proxmox Nix host plan, a fresh no-op OpenTofu plan for every enabled root, live Tailscale policy/state equality, and a zero-change Arch audit. Recovery also requires a no-op Arch bootstrap check. Compose deployment keeps the current and previous exact artifacts and environments for separately reviewed rollback; see [`compose-deployment.md`](compose-deployment.md).
 
@@ -107,4 +107,4 @@ Success always requires a fresh zero-action Proxmox Nix host plan, a fresh no-op
 
 Repository rules remain source-review controls, not runtime authorization. No hosted workflow, environment, OIDC identity, or deployment state is part of the controller boundary.
 
-All Compose images retain a readable upstream tag and immutable digest. Renovate updates the matching pair, and local validation rejects incomplete pins. Coral is built twice on the Docker host from the exact tracked recipe in a digest-pinned Arch environment; Ansible requires byte identity and the contract checksum before installation, verifies DKMS/runtime health, and removes temporary build output.
+All Compose images retain a readable upstream tag and immutable digest. Renovate updates the matching pair, and local validation rejects incomplete pins.

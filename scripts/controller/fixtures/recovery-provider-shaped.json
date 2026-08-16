@@ -2,19 +2,6 @@
   "format_version": "1.2",
   "resource_changes": [
     {
-      "address": "proxmox_hardware_mapping_pci.device[\"coral\"]",
-      "type": "proxmox_hardware_mapping_pci",
-      "change": {
-        "actions": ["create"],
-        "before": null,
-        "after": {
-          "name": "coral-tpu",
-          "map": [{"id": "1ac1:089a", "node": "proxmox", "path": "0000:0b:00.0"}]
-        },
-        "after_unknown": {}
-      }
-    },
-    {
       "address": "proxmox_hardware_mapping_pci.device[\"gpu\"]",
       "type": "proxmox_hardware_mapping_pci",
       "change": {
@@ -155,7 +142,6 @@
           ],
           "network_device": [{"bridge": "vmbr0", "firewall": true, "mac_address": "BC:24:11:89:19:5A", "model": "virtio"}],
           "hostpci": [
-            {"device": "hostpci0", "id": null, "mapping": "coral-tpu", "rombar": true},
             {"device": "hostpci1", "id": null, "mapping": "rx-7900-xtx", "pcie": true, "xvga": true, "rombar": true},
             {"device": "hostpci2", "id": null, "mapping": "rx-7900-xtx-audio", "pcie": true, "rombar": true}
           ],
