@@ -1,7 +1,7 @@
 {
   "schema": 1,
-  "status": "blocked-isolated-restore",
-  "observedAt": "2026-08-16T04:06:00Z",
+  "status": "passed",
+  "observedAt": "2026-08-16T07:56:41Z",
   "sourceCommit": "f6cad3cfa5e6ff8e0f1c997a75727a8ad52f3e7b",
   "disk": {
     "proxmoxInterface": "scsi2",
@@ -45,12 +45,28 @@
     ]
   },
   "backup": {
-    "archive": "daily-local-backup-2026-08-15T19-23-51.tar.gz.gpg",
-    "bytes": 47788125563,
-    "sha256": "712391aa758b84b2785dbdc561c66230ea777dcf4d6dd1ea5cb7a6b047a65cc3",
+    "archive": "daily-local-backup-2026-08-15T23-31-34.tar.gz.gpg",
+    "bytes": 47796475102,
+    "sha256": "effe233c5d96ee8a0fac9d360077ebe2659a692cf57509e0b656f07308c050bb",
     "replicas": 3,
     "replicaChecksumsVerified": true,
-    "sourceWasBindBackedState": true
+    "sourceWasFinalBindBackedState": true
+  },
+  "isolatedRestore": {
+    "status": "passed",
+    "hardenedHelperSha256": "9cd86152df86721f7a234ff036d982e45d9f2ee5cf33aeca3000cf1a536c63d4",
+    "files": 119384,
+    "requiredClasses": 6,
+    "additionalBindClassesVerified": [
+      "flaresolverr-data",
+      "calibre-web-ingest",
+      "nextcloud-redis-data"
+    ],
+    "skippedUnsafeSymlinks": 3,
+    "restoredBytes": 56996239256,
+    "productionPathsActivated": false,
+    "cleanupVerified": true,
+    "recoveryMaterialCleanupVerified": true
   },
   "steadyPlan": {
     "awsFoundationActions": 0,
@@ -60,10 +76,5 @@
     "tailscaleActions": 0,
     "proxmoxNixActions": 0,
     "proxmoxNixStatus": "ready"
-  },
-  "blocker": {
-    "gate": "B",
-    "reason": "The fresh encrypted bind-backed backup has not completed an isolated restore because the retained production recovery GPG private key requires an interactive unlock unavailable to the controller session.",
-    "requiredEvidence": "Unlock the retained recovery GPG key, restore the exact archive into an empty isolated target with the hardened restore helper, verify required classes and cleanup, then change this record to passed."
   }
 }
