@@ -102,6 +102,19 @@ resource "proxmox_virtual_environment_vm" "arch" {
     ssd          = local.vm.state_disk.ssd
   }
 
+  disk {
+    datastore_id = local.contract.flatcar.os_disk.datastore
+    interface    = local.contract.flatcar.os_disk.interface
+    serial       = local.contract.flatcar.os_disk.serial
+    size         = local.contract.flatcar.os_disk.size_gb
+    iothread     = true
+    backup       = true
+    cache        = "none"
+    discard      = "ignore"
+    replicate    = true
+    ssd          = false
+  }
+
   network_device {
     bridge      = local.contract.network.bridge
     firewall    = true
