@@ -2,6 +2,7 @@ locals {
   vm                    = local.contract.proxmox.vm
   node                  = local.contract.proxmox.node
   recovery              = var.phase == "recovery"
+  flatcar_qualification = local.contract.flatcar.qualification_stage == "ignition-attached"
   use_hardware_mappings = local.recovery || local.vm.hardware_attachment_mode == "managed"
 }
 
@@ -163,25 +164,40 @@ resource "proxmox_virtual_environment_vm" "arch" {
   }
 
   dynamic "initialization" {
-    for_each = local.recovery ? [1] : []
+    for_each = local.recovery || local.flatcar_qualification ? [1] : []
     content {
-      datastore_id = local.vm.root_disk.datastore
-      upgrade      = false
+      datastore_id = local.recovery ? local.vm.root_disk.datastore : local.contract.flatcar.os_disk.ignition_drive_datastore
+      interface    = local.contract.flatcar.os_disk.ignition_drive_interface
+      upgrade      = !local.recovery
+      user_data_file_id = local.recovery ? null : format(
+        "%s:snippets/%s",
+        local.contract.flatcar.os_disk.snippet_storage,
+        basename(local.contract.flatcar.os_disk.snippet_path),
+      )
 
-      dns {
-        servers = local.contract.network.dns
-      }
-
-      ip_config {
-        ipv4 {
-          address = local.contract.network.arch.ipv4
-          gateway = local.contract.network.gateway
+      dynamic "dns" {
+        for_each = local.recovery ? [1] : []
+        content {
+          servers = local.contract.network.dns
         }
       }
 
-      user_account {
-        username = local.contract.arch.user
-        keys     = [var.recovery_ssh_public_key]
+      dynamic "ip_config" {
+        for_each = local.recovery ? [1] : []
+        content {
+          ipv4 {
+            address = local.contract.network.arch.ipv4
+            gateway = local.contract.network.gateway
+          }
+        }
+      }
+
+      dynamic "user_account" {
+        for_each = local.recovery ? [1] : []
+        content {
+          username = local.contract.arch.user
+          keys     = [var.recovery_ssh_public_key]
+        }
       }
     }
   }
