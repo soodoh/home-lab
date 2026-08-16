@@ -63,6 +63,8 @@ The verified attachment and zero-action reconciliation are recorded in [`infrast
 
 Each attempt captures the VM serial socket to `/var/lib/home-lab/flatcar/first-boot-console.log` as `root:root` mode `0600`. On failure, the helper reports the exact stage, candidate ping and SSH reachability, console-log SHA-256, and only filtered Ignition/failure/error lines before fallback. The protected full log remains local for explicit diagnosis.
 
+Transition lock descriptors are released and closed before every `qm start`, then reacquired by the controller after QEMU starts, so the long-lived VM process cannot inherit them. [`scripts/release-flatcar-inherited-lock`](../../scripts/release-flatcar-inherited-lock) is the one-time recovery for an already affected Arch fallback: it requires the operation and first-boot locks to be held only by the exact live VM 100 QEMU PID, gracefully restarts Arch without changing configuration, and verifies both locks remain unowned after QEMU restarts.
+
 Any error after Arch stops triggers automatic fallback: stop the inert candidate (gracefully when possible), restore `scsi0`, `net0`, start Arch with guarded VFIO recovery if required, and require its QEMU guest agent to report OS ID `arch`. The forced-stop fallback is restricted to an unqualified candidate for which application mounts and Compose were never activated. Failure to restore is a physical-console stop condition.
 
 Passing this helper proves only an inert first boot. It does not prove mount absence by itself and does not authorize state, games, NFS, or Compose activation; those require controller-side read-only qualification and a later approval.

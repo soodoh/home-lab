@@ -1,0 +1,117 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly VMID=100
+readonly OPERATION_LOCK=/var/lib/home-lab/reconciliation/operation.lock
+readonly FIRST_BOOT_LOCK=/run/lock/home-lab-flatcar-first-boot.lock
+readonly ARCH_BOOT='order=scsi0;net0'
+readonly CONFIRMATION=restart-reviewed-vm-100-release-inherited-locks
+readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
+readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+fail() {
+  echo "error: $*" >&2
+  return 1
+}
+
+vm_status() {
+  qm status "$VMID" | awk '{print $2}'
+}
+
+wait_for_status() {
+  local expected=$1 timeout=$2
+  for ((second = 0; second < timeout; second += 2)); do
+    [[ $(vm_status) == "$expected" ]] && return 0
+    sleep 2
+  done
+  return 1
+}
+
+wait_for_agent() {
+  local timeout=$1
+  for ((second = 0; second < timeout; second += 3)); do
+    qm guest cmd "$VMID" ping >/dev/null 2>&1 && return 0
+    sleep 3
+  done
+  return 1
+}
+
+os_id() {
+  qm guest cmd "$VMID" get-osinfo 2>/dev/null | jq -er '.id'
+}
+
+start_arch() {
+  if ! qm start "$VMID"; then
+    [[ $(vm_status) == stopped ]] || return 1
+    /usr/local/sbin/home-lab-vfio-recover recover --confirm "$VFIO_CONFIRMATION"
+    qm start "$VMID"
+  fi
+  wait_for_status running 30
+  wait_for_agent 240
+  [[ $(os_id) == arch ]]
+}
+
+lock_owners() {
+  fuser "$1" 2>/dev/null | xargs
+}
+
+is_vm_process() {
+  local pid=$1 executable id_seen=false value
+  [[ -r /proc/$pid/cmdline && -r /proc/$pid/exe ]] || return 1
+  executable=$(readlink -f "/proc/$pid/exe")
+  [[ $executable == /usr/bin/kvm || $executable == /usr/bin/qemu-system-x86_64 ]] || return 1
+  while IFS= read -r -d '' value; do
+    if [[ $id_seen == true ]]; then
+      [[ $value == "$VMID" ]] && return 0
+      id_seen=false
+    fi
+    [[ $value == -id ]] && id_seen=true
+  done < "/proc/$pid/cmdline"
+  return 1
+}
+
+[[ $# -eq 0 ]] || { fail "usage: scripts/release-flatcar-inherited-lock"; exit 1; }
+[[ $(id -u) -eq 0 ]] || { fail "lock release restart requires root"; exit 1; }
+[[ ${HOME_LAB_FLATCAR_LOCK_RELEASE_CONFIRMED:-} == "$CONFIRMATION" ]] || { fail "exact lock release confirmation is required"; exit 1; }
+[[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "lock release restart requires a physical Proxmox console"; exit 1; }
+[[ ! -e /var/lib/home-lab/reconciliation/apply.lock ]] || { fail "a protected Proxmox apply is active"; exit 1; }
+[[ ! -e /var/lib/iac-ansible-production.lock ]] || { fail "Ansible host ownership is active"; exit 1; }
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+[[ $(git branch --show-current) == main ]] || { fail "repository is not on main"; exit 1; }
+[[ -z $(git status --porcelain) ]] || { fail "repository is not clean"; exit 1; }
+[[ $(vm_status) == running ]] || { fail "VM 100 is not running"; exit 1; }
+wait_for_agent 30 || { fail "Arch QEMU guest agent is unavailable"; exit 1; }
+[[ $(os_id) == arch ]] || { fail "VM 100 is not running Arch"; exit 1; }
+[[ $(qm config "$VMID" | awk -F ': ' '$1 == "boot" { print $2 }') == "$ARCH_BOOT" ]] || { fail "Arch boot order differs"; exit 1; }
+[[ -r /run/qemu-server/100.pid ]] || { fail "VM 100 pid file is unavailable"; exit 1; }
+vm_pid=$(tr -d '[:space:]' < /run/qemu-server/100.pid)
+[[ $vm_pid =~ ^[0-9]+$ ]] || { fail "VM 100 pid is invalid"; exit 1; }
+is_vm_process "$vm_pid" || { fail "VM 100 process identity differs"; exit 1; }
+[[ $(lock_owners "$OPERATION_LOCK") == "$vm_pid" ]] || { fail "operation lock ownership is ambiguous"; exit 1; }
+[[ $(lock_owners "$FIRST_BOOT_LOCK") == "$vm_pid" ]] || { fail "first-boot lock ownership is ambiguous"; exit 1; }
+
+restart_required=false
+on_error() {
+  result=$?
+  trap - ERR
+  if [[ $restart_required == true && $(vm_status) == stopped ]]; then
+    start_arch || echo "critical: Arch restart did not complete; remain at the physical console" >&2
+  fi
+  exit "$result"
+}
+trap on_error ERR
+
+qm shutdown "$VMID" --timeout 180
+restart_required=true
+wait_for_status stopped 30
+flock -n "$OPERATION_LOCK" true
+flock -n "$FIRST_BOOT_LOCK" true
+start_arch
+[[ -z $(lock_owners "$OPERATION_LOCK") ]] || fail "restarted VM inherited the operation lock"
+[[ -z $(lock_owners "$FIRST_BOOT_LOCK") ]] || fail "restarted VM inherited the first-boot lock"
+restart_required=false
+trap - ERR
+
+printf '{"archGuestAgent":"ready","bootOrder":"scsi0;net0","inheritedLocksReleased":true,"state":"verified","vmStatus":"running","vmid":%s}\n' "$VMID"
