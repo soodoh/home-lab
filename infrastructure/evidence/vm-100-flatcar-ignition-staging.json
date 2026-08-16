@@ -1,0 +1,52 @@
+{
+  "capturedAt": "2026-08-16T20:06:34Z",
+  "execution": {
+    "confirmation": "stage-reviewed-vm-100-flatcar-ignition",
+    "helper": "scripts/stage-flatcar-ignition",
+    "physicalConsoleRequired": true,
+    "receiverCommit": "bbaa93cce011b9cb46a0f06b0de43749c7cdea7a",
+    "result": "verified"
+  },
+  "format": "home-lab-flatcar-ignition-staging-evidence-v1",
+  "ignition": {
+    "path": "/var/lib/vz/snippets/vm-100-flatcar.ign",
+    "sha256": "1692e64326aea991fbb2fa4a037c9f70ad5a0fce519d62846afc9638cd8d2786",
+    "size": 75511,
+    "version": "3.4.0"
+  },
+  "postStage": {
+    "bootOrder": [
+      "scsi0",
+      "net0"
+    ],
+    "existingDisksPresent": {
+      "scsi0": true,
+      "scsi1": true,
+      "scsi2": true
+    },
+    "flatcarDiskPresent": false,
+    "ignitionDrivePresent": false,
+    "observer": {
+      "allDomainsComplete": true,
+      "protocol": 4,
+      "sha256": "af96e7a16955a41446440e4efb9a4a7158310763a24af3facc852f96dc552792"
+    },
+    "unusedDisks": 0,
+    "vmStatus": "running"
+  },
+  "qualification": {
+    "diskImportAuthorized": false,
+    "ignitionAttachmentAuthorized": false,
+    "ignitionStaging": "passed",
+    "vmConfigurationChanged": false
+  },
+  "security": {
+    "ephemeralTransferArtifactsRemoved": true,
+    "helperPrintedIgnition": false,
+    "mode": "0600",
+    "owner": "root:root",
+    "controllerProtectedInputRetainedOnlyInIgnoredReconciliationStorage": true,
+    "transport": "ephemeral-pinned-tls"
+  },
+  "vmid": 100
+}
