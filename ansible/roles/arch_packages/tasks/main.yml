@@ -22,7 +22,6 @@
       - bluez
       - cloud-guest-utils
       - curl
-      - dkms
       - e2fsprogs
       - gnupg
       - jq
