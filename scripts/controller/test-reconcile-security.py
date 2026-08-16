@@ -24,7 +24,6 @@ class ReconcileSecurityTests(unittest.TestCase):
             REPOSITORY / "scripts/configure-local-provider-credentials"
         ).read_text()
         cls.provider_bundle = (REPOSITORY / "scripts/prepare-provider-ca-bundle").read_text()
-        cls.application_tunnels = (REPOSITORY / "scripts/controller/application-api-tunnels").read_text()
 
     def test_oauth_secret_is_supplied_through_protected_request_file(self) -> None:
         self.assertNotIn('-d "client_secret=$TAILSCALE_OAUTH_CLIENT_SECRET"', self.reconciler)
@@ -154,38 +153,17 @@ class ReconcileSecurityTests(unittest.TestCase):
         gate_block = self.reconciler[self.reconciler.rfind("if [[ $action ==", 0, reconcile_gate):backend_setup]
         self.assertIn("$action == apply", gate_block)
 
-    def test_application_tunnels_and_apply_order_are_guarded(self) -> None:
-        dispatch = self.controller.index('case "$action" in', self.controller.index("confirm_apply()"))
-        plan_credentials = self.controller.index("load_credentials plan", dispatch)
-        plan_tunnels = self.controller.index("start_application_tunnels", plan_credentials)
-        plan_reconcile = self.controller.index("scripts/reconcile-infrastructure plan", plan_tunnels)
-        apply_credentials = self.controller.index("load_credentials apply", plan_reconcile)
-        apply_tunnels = self.controller.index("start_application_tunnels", apply_credentials)
-        apply_reconcile = self.controller.index("scripts/reconcile-infrastructure apply", apply_tunnels)
-        self.assertLess(plan_credentials, plan_tunnels)
-        self.assertLess(plan_tunnels, plan_reconcile)
-        self.assertLess(apply_credentials, apply_tunnels)
-        self.assertLess(apply_tunnels, apply_reconcile)
-        self.assertIn("trap stop_application_tunnels EXIT", self.controller)
-        self.assertIn("ExitOnForwardFailure=yes", self.application_tunnels)
-        self.assertIn("ClearAllForwardings=yes", self.application_tunnels)
-        self.assertIn("sudo -n docker inspect gluetun", self.application_tunnels)
-        for port in ("18989", "17878", "17879", "19696"):
-            self.assertIn(f"127.0.0.1:{port}", self.application_tunnels)
-        self.assertNotIn("StrictHostKeyChecking=no", self.application_tunnels)
-        self.assertNotIn("UserKnownHostsFile=/dev/null", self.application_tunnels)
-
-        apply_dispatch = self.reconciler.index('case "$action" in', self.reconciler.index("acquire_apply_lock()"))
-        compose = self.reconciler.index("compose_apply", apply_dispatch)
-        authentik = self.reconciler.index("apply_root authentik", compose)
-        media = self.reconciler.index("apply_root media-apps", authentik)
-        verify = self.reconciler.index("verify_all", media)
-        self.assertLess(compose, authentik)
-        self.assertLess(authentik, media)
-        self.assertLess(media, verify)
-        for secret in ("TF_VAR_authentik_token", "TF_VAR_sonarr_api_key", "TF_VAR_radarr_4k_api_key"):
-            self.assertIn(secret, self.reconciler)
-
+    def test_application_adoption_paths_are_absent(self) -> None:
+        for retired in (
+            "application-api-tunnels",
+            "TF_VAR_authentik_token",
+            "TF_VAR_authentik_enable_management",
+            "TF_VAR_media_apps_enable_management",
+            "apply_root authentik",
+            "apply_root media-apps",
+        ):
+            self.assertNotIn(retired, self.controller)
+            self.assertNotIn(retired, self.reconciler)
     def test_reconciler_owns_and_verifies_one_inherited_apply_lock(self) -> None:
         self.assertIn("controller-apply-lock.py run", self.reconciler)
         self.assertIn("controller-apply-lock.py verify", self.reconciler)
@@ -216,11 +194,7 @@ class ReconcileSecurityTests(unittest.TestCase):
 
     def test_retired_inputs_are_removed(self) -> None:
         self.assertNotIn("PROXMOX_CT_DECOMMISSION_CONFIRMATION", self.reconciler)
-        self.assertNotIn('"TF_VAR_adoption_complete": "true"', self.credential_configurator)
-        self.assertIn(
-            'current.pop("TF_VAR_adoption_complete", None)',
-            self.credential_configurator,
-        )
+        self.assertNotIn("TF_VAR_adoption_complete", self.credential_configurator)
 
     def test_caller_flag_cannot_bypass_existing_apply_lock(self) -> None:
         reconcile_root = REPOSITORY / ".reconcile"

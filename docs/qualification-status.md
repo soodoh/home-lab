@@ -31,6 +31,7 @@ The VM 100 Arch-to-NixOS migration is cancelled by [ADR 0001](decisions/0001-vm-
 - direct local-controller reachability to Omada over Tailscale TCP 8043 with strict hostname and CA verification
 - reproducible local Coral double-build, exact package checksum, installation marker, runtime checks, and Frigate health
 - three-path encrypted local backup deployment with distinct filesystems and matching newest-archive metadata
+- state-only detachment of 44 Authentik and 9 media application instances, empty serial-2 remote-state proof, temporary Authentik provider-token revocation, and controller/local application credential retirement recorded in `infrastructure/evidence/vm-100-application-state-retirement.json`
 
 These records justify removal of completed transition executables. They do not authorize state/backend deletion or recreation of retired resources.
 
@@ -49,7 +50,6 @@ The following remain operational gates rather than static claims:
 - disposable Proxmox **VM** behavior across create, update, protection, delete, raw disk, hardware mappings, PCI/USB, ACL, and cloud-image paths;
 - a complete cold boot with storage, passthrough devices, networking, host configuration, and workloads healthy; and
 - a timed recovery proving the eight-hour recovery-time objective.
-- empty-state proof and credential retirement for the abandoned Authentik and media OpenTofu roots;
 - retirement of the NixOS-specific qualification VM and image without affecting future Flatcar qualification;
 - Arch application-state decoupling, fail-closed mount behavior, cold boot, and isolated restore;
 - disposable Flatcar qualification followed by production hardware parity; and

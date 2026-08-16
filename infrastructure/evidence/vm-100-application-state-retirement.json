@@ -1,0 +1,28 @@
+{
+  "format": "home-lab-application-state-retirement-evidence-v1",
+  "sourceCommit": "75346c57dcf4ec5a2bfdf66ccf4f0566074b2100",
+  "observedAt": "2026-08-16T00:38:41Z",
+  "authentik": {
+    "beforeSerial": 1,
+    "beforeManagedInstances": 44,
+    "beforeStateSha256": "5ac56bd11067920cbad36457cca0e751772ece652cb00d7fae81f24a444d8afb",
+    "detachedAddressListSha256": "8496afd5cd7120d070eff894b310d9105078599b6a893860bbd2593d4f55e45c",
+    "afterSerial": 2,
+    "afterManagedInstances": 0,
+    "afterStateSha256": "c367d61081d339f11e05c6e6046ad64d6d2c3d404b6e7fe11d88b1352ed2baee"
+  },
+  "mediaApps": {
+    "beforeSerial": 1,
+    "beforeManagedInstances": 9,
+    "beforeStateSha256": "c4af26bddaec1d756626b78e150e8da7735a6f4c13da61d53f089c5160b44659",
+    "detachedAddressListSha256": "247959c551cfe5e558085b5789c9b4d47974f95c779fa687f898a589bae55dc0",
+    "afterSerial": 2,
+    "afterManagedInstances": 0,
+    "afterStateSha256": "2267ebb881855d8c62a5aa21b11874cfbee0b6489e61850ccbc3e43aa9b02869"
+  },
+  "authentikProviderToken": "revoked",
+  "controllerApplicationCredentials": "removed",
+  "protectedLocalProviderCredentials": "removed",
+  "protectedStateEvidenceSha256": "e1578432562ba0d3e97567d2a8310e037164f7d94824c76caa30d52732038524",
+  "protectedCredentialRetirementEvidenceSha256": "78df74c4bd0258f86426b3aacaa45e79b0bee07c90c11c208e4e2a4939cac6a8"
+}

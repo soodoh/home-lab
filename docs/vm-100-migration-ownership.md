@@ -40,7 +40,7 @@ The VM-100 candidate attachment records inside the Proxmox root are not safe to 
 
 The physical card remains installed but unused.
 
-## Abandoned application OpenTofu adoption — remove only after empty-state proof
+## Abandoned application OpenTofu adoption — retired after empty-state proof
 
 - `infrastructure/tofu/authentik/**`.
 - `infrastructure/tofu/media-apps/**`.
@@ -48,7 +48,7 @@ The physical card remains installed but unused.
 - Application API tunnels, Authentik bootstrap tooling, import inventories, schemas, tests, and adoption documentation.
 - Application backend IAM permissions and provider credentials.
 
-At reconciliation, Authentik state contained 44 imported instances and media state contained 9. Both controller capabilities enabled both roots. Source, permissions, and credentials must remain until reviewed state-only detachment produces empty remote states and evidence.
+At reconciliation, Authentik state contained 44 imported instances and media state contained 9. A state-only transition detached those objects without deleting them, proved both remote states empty at serial 2, revoked the temporary Authentik provider token, and removed controller/local application credentials. Secret-free evidence is recorded in `infrastructure/evidence/vm-100-application-state-retirement.json`; the source, execution paths, and backend permissions are now retired.
 
 ## Protected local credentials and evidence
 
@@ -60,21 +60,15 @@ Preserve:
 - backup identities, encrypted archives, restore evidence, provider CAs, and controller lock state; and
 - production facts and evidence required to verify later cleanup.
 
-Revoke or remove only after their dependency is retired:
-
-- `.reconcile/vm-100/authentik-provider-token`;
-- `.reconcile/vm-100/media-api-credentials.json`;
-- application provider values and enable flags in protected plan/apply credentials; and
-- the NixOS runtime age identity after SOPS recipient removal and decryption proof.
+Retired application provider tokens and credentials are represented only by secret-free cleanup evidence. The NixOS runtime age identity remains pending and may be removed only after SOPS recipient removal and decryption proof.
 
 Candidate-install, ephemeral-Nix, Gate-C, and migration transfer artifacts under `.reconcile/` may be deleted only after evidence classification. No bulk deletion of `.reconcile` or `.local` is permitted.
 
 ## Current reconciliation blockers
 
-- The application states are nonempty.
 - The NixOS qualification root owns a VM and downloaded image.
 - The Proxmox Nix host plan is blocked by a protected-access observation mismatch.
 - The Arch steady SSH check reports one check-mode change even though the full audit is clean.
-- The supported controller validation path directly executes guest-NixOS and application-adoption tests.
+- The supported controller validation path still directly executes guest-NixOS tests.
 
 These blockers prevent Gate A from being claimed until resolved.

@@ -112,8 +112,6 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-vm-100-gate-c.py
   python3 scripts/controller/test-vm-100-execution.py
   python3 scripts/controller/validate-vm-100-data-transfer-evidence.py --help >/dev/null
-  python3 scripts/controller/test-authentik-tofu-foundation.py
-  python3 scripts/controller/test-media-apps-tofu-foundation.py
   python3 scripts/controller/test-controller-apply-lock.py
   python3 scripts/controller/test-proxmox-nix-plan.py
   python3 scripts/controller/test-proxmox-nix-apply.py
@@ -163,7 +161,7 @@ if [[ $action == validate ]]; then
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
     scripts/restore-critical-backup scripts/test-recovery-tools recovery/coral/build-package
   tofu fmt -check -recursive infrastructure/tofu
-  for root in aws-foundation authentik media-apps proxmox-legacy proxmox proxmox-lxc-qualification proxmox-vm-qualification omada tailscale; do
+  for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification proxmox-vm-qualification omada tailscale; do
     (
       validation_data=$(mktemp -d)
       trap 'rm -rf "$validation_data"' EXIT
@@ -254,15 +252,13 @@ commit=$(git rev-parse HEAD)
 
 roots=(aws-foundation proxmox omada tailscale)
 if [[ $phase == steady ]]; then
-  roots=(aws-foundation proxmox-legacy proxmox omada tailscale authentik media-apps)
+  roots=(aws-foundation proxmox-legacy proxmox omada tailscale)
 fi
 enabled_roots=()
 for root in "${roots[@]}"; do
   case "$root" in
     omada) [[ ${TF_VAR_omada_enable_management:-false} == true ]] || continue ;;
     tailscale) [[ ${TF_VAR_tailscale_enable_management:-false} == true ]] || continue ;;
-    authentik) [[ ${TF_VAR_authentik_enable_management:-false} == true ]] || continue ;;
-    media-apps) [[ ${TF_VAR_media_apps_enable_management:-false} == true ]] || continue ;;
   esac
   enabled_roots+=("$root")
 done
@@ -534,8 +530,7 @@ tailscale_verify_state_policy() {
 assert_plan_excludes_credentials() {
   local plan=$1 variable value
   for variable in AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN PROXMOX_VE_API_TOKEN \
-    OMADA_PASSWORD TAILSCALE_OAUTH_CLIENT_SECRET TF_VAR_authentik_token \
-    TF_VAR_sonarr_api_key TF_VAR_radarr_api_key TF_VAR_radarr_4k_api_key TF_VAR_prowlarr_api_key; do
+    OMADA_PASSWORD TAILSCALE_OAUTH_CLIENT_SECRET; do
     value=${!variable:-}
     [[ -z $value ]] && continue
     PLAN_FILE="$plan" SECRET_VALUE="$value" python3 - <<'PY'
@@ -1127,10 +1122,6 @@ case "$action" in
     apply_root omada
     if [[ $phase != recovery ]]; then apply_root tailscale; fi
     if [[ $phase == recovery ]]; then compose_recovery_apply; else compose_apply; fi
-    if [[ $phase != recovery ]]; then
-      apply_root authentik
-      apply_root media-apps
-    fi
     pushd ansible >/dev/null
     if [[ $phase == recovery ]]; then
       ansible_checked_apply "$arch_inventory" playbooks/site.yml Arch/coral docker-host-production \
