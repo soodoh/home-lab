@@ -1,0 +1,31 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+readonly PIN='sha256//tWc/5MjFhlAhnVJdmjdjV8LmrfBh1fGAO4DdOtyz+b8='
+readonly URL=https://192.168.0.200:8766/2e57e299de281e1cf2ce592d2db56bb243b6cc0caea79f65
+readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+cleanup() {
+  unset HOME_LAB_FLATCAR_IGNITION_CONFIRMED
+}
+trap cleanup EXIT
+
+[[ $(id -u) -eq 0 ]] || { echo "error: Ignition receipt requires root" >&2; exit 1; }
+[[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || {
+  echo "error: Ignition receipt requires a physical Proxmox console" >&2
+  exit 1
+}
+cd "$ROOT"
+[[ $(git branch --show-current) == main ]] || { echo "error: repository is not on main" >&2; exit 1; }
+[[ -z $(git status --porcelain) ]] || { echo "error: repository is not clean" >&2; exit 1; }
+[[ $(git rev-parse HEAD) == $(git rev-parse origin/main) ]] || {
+  echo "error: repository does not match fetched origin/main" >&2
+  exit 1
+}
+
+export HOME_LAB_FLATCAR_IGNITION_CONFIRMED=stage-reviewed-vm-100-flatcar-ignition
+curl --fail --silent --show-error --insecure --pinnedpubkey "$PIN" \
+  --connect-timeout 10 --max-time 60 "$URL" |
+  scripts/stage-flatcar-ignition stage
+scripts/stage-flatcar-ignition check
