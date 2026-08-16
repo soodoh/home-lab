@@ -51,6 +51,8 @@ The qualification boot order is `scsi3`, `scsi0`, `net0`. The fallback boot orde
 
 During qualification, the exact staged `scsi3` volume is governed by the contract, guarded import helper, and reviewed evidence rather than a fourth nested OpenTofu `disk` block. The provider does not adopt an externally hot-added nested disk into state during refresh; declaring it would produce a protected VM update and risk allocating or reattaching a disk. The existing provider settings retain unreferenced disks and prohibit destructive cleanup. OpenTofu must remain zero-action while `scsi3` adoption is deferred to a separately reviewed state transition before final authority changes.
 
+The verified import outcome and zero-action reconciliation are recorded in [`infrastructure/evidence/vm-100-flatcar-disk-import.json`](../evidence/vm-100-flatcar-disk-import.json). The effective configuration is complete; disk-option activation remains pending the separately approved controlled reboot. This evidence does not authorize attaching `ide2`, changing boot order, or booting Flatcar.
+
 ## Deterministic Ignition rendering
 
 [`scripts/controller/render-flatcar-ignition.js`](../../scripts/controller/render-flatcar-ignition.js) generates a strict Butane config and compiles it with the pinned Butane binary. It rejects:
