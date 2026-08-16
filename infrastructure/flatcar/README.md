@@ -25,7 +25,7 @@ export HOME_LAB_FLATCAR_STAGE_CONFIRMED=stage-reviewed-flatcar-4593.2.5-image
 scripts/stage-flatcar-image stage
 ```
 
-A divergent target or interrupted pending file is a stop condition and is never replaced automatically.
+A divergent target or interrupted pending file is a stop condition and is never replaced automatically. Successful staging of the pinned image is recorded in [`infrastructure/evidence/vm-100-flatcar-image-staging.json`](../evidence/vm-100-flatcar-image-staging.json); that evidence authorizes no disk import or VM mutation.
 
 ## Disk and boot topology
 
