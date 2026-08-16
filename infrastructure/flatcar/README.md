@@ -91,6 +91,23 @@ The state, games, NFS, and Compose units are deliberately **disabled** in Igniti
 
 Only a separately approved activation may mount the three filesystems, enroll Tailscale, pull digest-pinned images, and start `home-lab-compose.service`.
 
+## Guarded VFIO recovery prerequisite
+
+The Proxmox Nix bundle installs `/usr/local/sbin/home-lab-vfio-recover` and its exact root-owned policy. The helper is inert unless a root operator supplies the exact recovery confirmation. Observation is read-only. Recovery is blocked unless VM 100 is stopped, IOMMU group 14 contains only `0000:03:00.0`, the device identity is `1002:744c`, the driver is `vfio-pci`, `/dev/vfio/14` exists, and no process has that device open.
+
+Recovery holds both its dedicated host lock and Proxmox's VM 100 operation lock. It unbinds only the GPU from `vfio-pci`, immediately binds it back, verifies every postcondition, and attempts a full rebind rollback on failure. It does not write VM configuration, disk configuration, or PVE-owned state.
+
+After a separately approved VM stop, the exact rehearsal is:
+
+```bash
+sudo /usr/local/sbin/home-lab-vfio-recover observe
+sudo /usr/local/sbin/home-lab-vfio-recover recover \
+  --confirm recover-vm-100-vfio-group-14
+sudo /usr/local/sbin/home-lab-vfio-recover observe
+```
+
+VM 100 may be restarted only after the final observation reports `state` as `ready`. Flatcar qualification remains blocked until subsequent repeated cold boots succeed without invoking this recovery.
+
 ## Qualification and rollback gates
 
 Flatcar cannot become authoritative until evidence proves:

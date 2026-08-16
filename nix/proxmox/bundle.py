@@ -35,6 +35,14 @@ FORBIDDEN_PROJECTION_KEYS = {
     "smbios_uuid", "subsystem_id", "token_escrow", "token_name", "usb", "vendor_device",
 }
 PVE_COMPATIBILITY_ROOT = "/" + "etc" + "/" + "pve"
+VFIO_RECOVERY_POLICY_PATH = "/etc/home-lab/vfio-recovery.json"
+VFIO_RECOVERY_POLICY = {
+    "confirmation": "recover-vm-100-vfio-group-14",
+    "devices": [{"bdf": "0000:03:00.0", "device": "744c", "vendor": "1002"}],
+    "iommuGroup": 14,
+    "lockPath": "/run/lock/home-lab-vfio-recovery.lock",
+    "vmid": 100,
+}
 FORBIDDEN_STRING_PATTERNS = (
     re.compile(re.escape(PVE_COMPATIBILITY_ROOT) + r"(?:/|$)"),
     re.compile(r"(?:^|/)(?:authorized_keys2?|ssh_host_(?:ed25519|ecdsa|rsa)_key)(?:$|/)", re.IGNORECASE),
@@ -128,12 +136,29 @@ def safe_target_path(target: str) -> Path:
     return relative
 
 
+def validate_vfio_recovery_policy(content: Any, label: str) -> None:
+    if not isinstance(content, str):
+        raise ValueError(f"{label} VFIO recovery policy content must be text")
+    try:
+        policy = json.loads(content)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{label} VFIO recovery policy is not JSON") from error
+    if policy != VFIO_RECOVERY_POLICY or canonical_json(policy).decode() != content:
+        raise ValueError(f"{label} VFIO recovery policy differs from the exact reviewed device")
+
+
 def validate_no_protected_data(value: Any, label: str, key: str = "") -> None:
     if isinstance(value, list):
         for item in value:
             validate_no_protected_data(item, label, key)
         return
     if isinstance(value, dict):
+        if value.get("path") == VFIO_RECOVERY_POLICY_PATH and "content" in value:
+            for nested_key, nested in value.items():
+                if nested_key != "content":
+                    validate_no_protected_data(nested, label, nested_key)
+            validate_vfio_recovery_policy(value.get("content"), label)
+            return
         for nested_key, nested in value.items():
             if nested_key in FORBIDDEN_PROJECTION_KEYS or nested_key.endswith("_secret_ref") or \
                     "compatibility" in nested_key.lower() or \

@@ -49,7 +49,6 @@ function mutateExcludedInputs(value) {
   value.network.proxmox.mac = "AA:AA:AA:AA:AA:AA";
   value.network.arch.mac = "BB:BB:BB:BB:BB:BB";
   value.proxmox.api_endpoint = "https://protected-controller.invalid/api";
-  value.proxmox.vfio.device_ids = ["ffff:ffff"];
   value.proxmox.vfio.modprobe_file.path = "/protected/hardware-bound-vfio.conf";
   value.proxmox.access.sudo_validation.executable = "/protected/controller/validator";
   for (const account of value.proxmox.access.service_accounts) {
@@ -73,7 +72,8 @@ function mutateExcludedInputs(value) {
   value.proxmox.firewall.compatibility_config_path = "/etc/pve/protected-compatibility-path";
   value.proxmox.packages.manifest.path = "/protected/controller/package-manifest.json";
   value.proxmox.root_cleanup = { mutated_cleanup_marker: "/protected/cleanup-marker" };
-  value.proxmox.vm = { mutated_hardware_identity: "ffff:eeee" };
+  value.proxmox.vm.memory_mb = 1;
+  value.proxmox.vm.root_disk.size_gb = 1;
   value.storage.zfs.pool_guid_secret_ref = "MUTATED_POOL_GUID_REF";
   value.storage.zfs.members = [{ secret_ref: "MUTATED_MEMBER_REF", mirror: 999 }];
   return value;
@@ -82,7 +82,31 @@ const mutatedRendered = canonicalJson(projectProxmoxPolicy(
   mutateExcludedInputs(structuredClone(contract)), structuredClone(packageManifest),
 ));
 if (mutatedRendered !== rendered) {
-  throw new Error("runtime-only secret, hardware, compatibility, cleanup, or controller-location mutation changed projection");
+  throw new Error("runtime-only secret, non-projected hardware, compatibility, cleanup, or controller-location mutation changed projection");
+}
+const vfioRecovery = contract.proxmox.vfio.recovery;
+const vfioPolicyFile = projected.managedFiles.find((file) => file.path === vfioRecovery.policy_file.path);
+const vfioScriptFile = projected.managedFiles.find((file) => file.path === vfioRecovery.executable_file.path);
+if (!vfioPolicyFile || !vfioScriptFile) throw new Error("VFIO recovery files are absent from the projection");
+const vfioPolicy = JSON.parse(vfioPolicyFile.content);
+if (canonicalJson(vfioPolicy) !== vfioPolicyFile.content || vfioPolicy.vmid !== contract.proxmox.vm.vmid ||
+    vfioPolicy.iommuGroup !== contract.proxmox.vm.pci.gpu.iommu_group || vfioPolicy.devices.length !== 1 ||
+    vfioPolicy.devices[0].bdf !== contract.proxmox.vm.pci.gpu.bdf ||
+    `${vfioPolicy.devices[0].vendor}:${vfioPolicy.devices[0].device}` !== contract.proxmox.vm.pci.gpu.vendor_device) {
+  throw new Error("VFIO recovery policy differs from the exact managed GPU identity");
+}
+if (vfioScriptFile.content !== fs.readFileSync(path.join(root, "nix/proxmox/vfio-recover.py"), "utf8")) {
+  throw new Error("VFIO recovery executable differs from its reviewed source");
+}
+const changedVfioBdf = structuredClone(contract);
+changedVfioBdf.proxmox.vm.pci.gpu.bdf = "0000:ff:00.0";
+if (canonicalJson(projectProxmoxPolicy(changedVfioBdf, structuredClone(packageManifest))) === rendered) {
+  throw new Error("VFIO recovery projection ignored a GPU BDF change");
+}
+const invalidVfioIdentity = structuredClone(contract);
+invalidVfioIdentity.proxmox.vm.pci.gpu.vendor_device = "ffff:ffff";
+if (!(() => { try { projectProxmoxPolicy(invalidVfioIdentity, structuredClone(packageManifest)); return false; } catch { return true; } })()) {
+  throw new Error("VFIO recovery projection accepted an unmanaged GPU identity");
 }
 const reorderedPveAccounts = structuredClone(contract);
 reorderedPveAccounts.proxmox.access.pve.accounts.reverse();
@@ -156,6 +180,8 @@ function collectForbidden(value, key = "") {
 }
 collectForbidden(contract);
 for (const value of contract.proxmox.vfio.device_ids) forbiddenValues.add(value);
+// The guarded VFIO recovery policy intentionally projects only the exact GPU BDF.
+forbiddenValues.delete(contract.proxmox.vm.pci.gpu.bdf);
 for (const value of Object.values(contract.proxmox.root_cleanup)) {
   if (Array.isArray(value)) value.forEach((item) => {
     // Historical inspection roots and the fixed reviewed helper directory are not protected values.

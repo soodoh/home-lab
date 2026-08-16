@@ -27,7 +27,7 @@ EXPECTED_SOURCE_FILES = {
     "proxmox/observer-template.py", "proxmox/package-manifest.json", "proxmox/package-manifest.schema.json",
     "proxmox/plan.schema.json", "proxmox/planner.py", "proxmox/prepare.py", "proxmox/private-preconditions.schema.json",
     "proxmox/private-preparation-request.schema.json", "proxmox/private-preparer-template.py", "proxmox/projection.json",
-    "proxmox/projection.schema.json",
+    "proxmox/projection.schema.json", "proxmox/vfio-recover.py",
 }
 
 sys.dont_write_bytecode = True
@@ -215,6 +215,7 @@ class ProxmoxNixFoundationTests(unittest.TestCase):
             (lambda value: value["hostNetworking"].update({"mac": "AA:BB:CC:DD:EE:FF"}), "forbidden key"),
             (lambda value: value["hostNetworking"].update({"hostname": "HOMELAB_ZFS_MEMBER_01_BY_ID"}), "protected or PVE-owned"),
             (lambda value: value["hostNetworking"].update({"hostname": "PROXMOX_FIREWALL_SSH_PUBLIC_KEYS"}), "protected or PVE-owned"),
+            (lambda value: next(file for file in value["managedFiles"] if file["path"] == bundle_module.VFIO_RECOVERY_POLICY_PATH).update({"content": "{}\n"}), "VFIO recovery policy differs"),
         ]
         for mutation, expected in cases:
             with self.subTest(expected=expected):

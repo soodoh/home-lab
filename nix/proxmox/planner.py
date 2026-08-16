@@ -62,7 +62,7 @@ APPROVED_SOURCE_FILES = {
     "proxmox/observer-template.py", "proxmox/package-manifest.json", "proxmox/package-manifest.schema.json",
     "proxmox/plan.schema.json", "proxmox/planner.py", "proxmox/prepare.py", "proxmox/private-preconditions.schema.json",
     "proxmox/private-preparation-request.schema.json", "proxmox/private-preparer-template.py", "proxmox/projection.json",
-    "proxmox/projection.schema.json",
+    "proxmox/projection.schema.json", "proxmox/vfio-recover.py",
 }
 _PVE_ROOT = "/" + "etc" + "/" + "pve"
 _PROTECTED_KEY_NAME = "authorized" + "_keys"

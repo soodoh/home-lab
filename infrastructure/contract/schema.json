@@ -476,7 +476,7 @@
           }
         },
         "managed_file_policies": {
-          "type": "array", "minItems": 14, "maxItems": 14,
+          "type": "array", "minItems": 16, "maxItems": 16,
           "items": {
             "type": "object", "additionalProperties": false,
             "required": ["path", "safety_class", "automatic", "requires_approval", "requires_reboot", "requires_watchdog"],
@@ -694,10 +694,21 @@
         "pre": { "type": "array", "prefixItems": [{ "const": "vfio-pci" }], "items": false, "minItems": 1, "maxItems": 1 }
       }
     },
+    "vfioRecovery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["executable_file", "policy_file", "confirmation", "lock_path"],
+      "properties": {
+        "executable_file": { "$ref": "#/$defs/managedFilePolicy" },
+        "policy_file": { "$ref": "#/$defs/managedFilePolicy" },
+        "confirmation": { "const": "recover-vm-100-vfio-group-14" },
+        "lock_path": { "const": "/run/lock/home-lab-vfio-recovery.lock" }
+      }
+    },
     "vfioPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["modules", "device_ids", "prohibited_modules", "absence_policy", "modules_load_file", "modprobe_file", "soft_dependencies"],
+      "required": ["modules", "device_ids", "prohibited_modules", "absence_policy", "modules_load_file", "modprobe_file", "soft_dependencies", "recovery"],
       "properties": {
         "modules": { "type": "array", "prefixItems": [{ "const": "vfio" }, { "const": "vfio_iommu_type1" }, { "const": "vfio_pci" }], "items": false, "minItems": 3, "maxItems": 3 },
         "device_ids": { "type": "array", "prefixItems": [{ "const": "1002:744c" }, { "const": "1002:ab30" }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true },
@@ -705,7 +716,8 @@
         "absence_policy": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/auditAbsentLinesPolicy" }, { "$ref": "#/$defs/auditAbsentLinesPolicy" }, { "$ref": "#/$defs/auditAbsentFilePolicy" }], "items": false, "minItems": 3, "maxItems": 3, "uniqueItems": true },
         "modules_load_file": { "$ref": "#/$defs/managedFilePolicy" },
         "modprobe_file": { "$ref": "#/$defs/managedFilePolicy" },
-        "soft_dependencies": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/softDependency" }, { "$ref": "#/$defs/softDependency" }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true }
+        "soft_dependencies": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/softDependency" }, { "$ref": "#/$defs/softDependency" }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true },
+        "recovery": { "$ref": "#/$defs/vfioRecovery" }
       }
     },
     "aptRepository": {

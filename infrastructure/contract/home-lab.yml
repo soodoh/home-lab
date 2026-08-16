@@ -171,6 +171,23 @@ proxmox:
       - module: snd_hda_intel
         pre:
           - vfio-pci
+    recovery:
+      executable_file:
+        kind: managed-file
+        projectable: true
+        path: /usr/local/sbin/home-lab-vfio-recover
+        owner: root
+        group: root
+        mode: "0750"
+      policy_file:
+        kind: managed-file
+        projectable: true
+        path: /etc/home-lab/vfio-recovery.json
+        owner: root
+        group: root
+        mode: "0440"
+      confirmation: recover-vm-100-vfio-group-14
+      lock_path: /run/lock/home-lab-vfio-recovery.lock
   apt:
     repository_file_metadata:
       kind: managed-file-metadata
@@ -566,6 +583,7 @@ proxmox:
       - { path: /etc/apt/sources.list.d/debian.sources, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { path: /etc/apt/sources.list.d/pve-no-subscription.sources, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { path: /etc/apt/sources.list.d/tailscale.sources, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { path: /etc/home-lab/vfio-recovery.json, safety_class: protected-session, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { path: /etc/exports.d/home-lab.exports, safety_class: data-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { path: /etc/modprobe.d/zfs.conf, safety_class: reboot-bound, automatic: true, requires_approval: true, requires_reboot: true, requires_watchdog: false }
       - { path: /etc/modules-load.d/home-lab-vfio.conf, safety_class: reboot-bound, automatic: true, requires_approval: true, requires_reboot: true, requires_watchdog: false }
@@ -575,6 +593,7 @@ proxmox:
       - { path: /etc/sudoers.d/proxmox, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/tofu-apply, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/tofu-plan, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
+      - { path: /usr/local/sbin/home-lab-vfio-recover, safety_class: protected-session, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
     domains:
       - { domain: managed-files, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { domain: managed-fragments, safety_class: reboot-bound, automatic: true, requires_approval: true, requires_reboot: true, requires_watchdog: false }

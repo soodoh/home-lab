@@ -94,9 +94,27 @@ function projectProxmoxPolicy(contract, packageManifest) {
     `KbdInteractiveAuthentication ${booleanWord(ssh.kbd_interactive_authentication)}\n` +
     `PermitRootLogin ${ssh.permit_root_login}\n` +
     (ssh.allow_users.length ? `AllowUsers ${ssh.allow_users.join(" ")}\n` : "");
+  const vfioRecovery = proxmox.vfio.recovery;
+  const vfioDevices = [proxmox.vm.pci.gpu];
+  if (!vfioDevices.every((device) => proxmox.vfio.device_ids.includes(device.vendor_device))) {
+    throw new Error("VFIO recovery device must match the managed GPU identity");
+  }
+  const vfioRecoveryPolicy = canonicalJson({
+    confirmation: vfioRecovery.confirmation,
+    devices: vfioDevices.map((device) => {
+      const [vendor, pciDevice] = device.vendor_device.split(":");
+      return { bdf: device.bdf, device: pciDevice, vendor };
+    }),
+    iommuGroup: vfioDevices[0].iommu_group,
+    lockPath: vfioRecovery.lock_path,
+    vmid: proxmox.vm.vmid,
+  });
+  const vfioRecoveryScript = fs.readFileSync(path.join(root, "nix/proxmox/vfio-recover.py"), "utf8");
   const managedFiles = [
     managedFile(network.ownership.interfaces_file, networkContent),
     managedFile(proxmox.vfio.modules_load_file, `${proxmox.vfio.modules.join("\n")}\n`),
+    managedFile(vfioRecovery.executable_file, vfioRecoveryScript),
+    managedFile(vfioRecovery.policy_file, vfioRecoveryPolicy),
     managedFile(proxmox.apt.inactive_sources_list.file, `${proxmox.apt.inactive_sources_list.notice}\n`),
     ...repositoryFiles,
     ...sudoFiles,
