@@ -9,6 +9,7 @@ const { load } = require("js-yaml");
 const root = path.resolve(__dirname, "../..");
 const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/home-lab.yml"), "utf8"));
 const script = fs.readFileSync(path.join(root, "scripts/import-flatcar-disk"), "utf8");
+const runner = fs.readFileSync(path.join(root, "scripts/run-flatcar-disk-import"), "utf8");
 const flatcar = contract.flatcar;
 const disk = flatcar.os_disk;
 
@@ -27,5 +28,7 @@ assert.match(script, /qm disk resize "\$VMID" "\$INTERFACE" "\$SIZE"/);
 assert.match(script, /order=scsi0;net0/);
 assert.match(script, /the new disk is preserved for explicit reconciliation/);
 assert.doesNotMatch(script, /qm (?:stop|start|shutdown|destroy)|qm disk unlink|pvesm free|--delete|--boot|--ide2|--scsi[012]\b/);
+assert.ok(runner.includes("HOME_LAB_FLATCAR_DISK_IMPORT_CONFIRMED=import-reviewed-vm-100-flatcar-scsi3"));
+assert.match(runner, /exec "\$root\/scripts\/import-flatcar-disk"/);
 
 process.stdout.write("flatcar disk import tests passed\n");
