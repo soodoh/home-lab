@@ -56,7 +56,6 @@ cd "$root"
 scripts/stage-flatcar-image check >/dev/null
 scripts/stage-flatcar-ignition check >/dev/null
 [[ $(qm status "$VMID") == "status: running" ]] || fail "VM 100 is not running"
-[[ ! -e /run/lock/qemu-server/lock-100.conf ]] || fail "VM 100 is locked"
 
 before=$(mktemp --tmpdir=/run home-lab-flatcar-before.XXXXXX)
 before_current=$(mktemp --tmpdir=/run home-lab-flatcar-before-current.XXXXXX)
@@ -76,6 +75,7 @@ for key in scsi0 scsi1 scsi2; do
 done
 [[ $(config_value "$before" boot) == "order=scsi0;net0" ]] || fail "Arch boot order differs"
 [[ $(config_value "$before" protection) == 1 ]] || fail "VM 100 protection differs"
+! config_value "$before" lock >/dev/null 2>&1 || fail "VM 100 has an active Proxmox configuration lock"
 ! config_value "$before" "$INTERFACE" >/dev/null 2>&1 || fail "scsi3 already exists but is not qualified"
 ! config_value "$before" ide2 >/dev/null 2>&1 || fail "ide2 already exists"
 ! grep -Eq '^unused[0-9]+:' "$before" || fail "an unused disk requires reconciliation"

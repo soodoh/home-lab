@@ -23,6 +23,8 @@ assert.ok(script.includes("readonly CONFIRMATION=import-reviewed-vm-100-flatcar-
 assert.match(script, /ps -o tty= -p "\$\$"/);
 assert.match(script, /flock -n 9/);
 assert.match(script, /flock -n 7/);
+assert.match(script, /config_value "\$before" lock/);
+assert.doesNotMatch(script, /\[\[ ! -e \/run\/lock\/qemu-server/);
 assert.match(script, /qm disk import "\$VMID" "\$IMAGE" "\$STORAGE" --format raw --target-disk "\$INTERFACE"/);
 assert.match(script, /qm disk resize "\$VMID" "\$INTERFACE" "\$SIZE"/);
 assert.match(script, /order=scsi0;net0/);
