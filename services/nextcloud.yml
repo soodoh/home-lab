@@ -57,6 +57,8 @@ services:
     logging: *default-logging
     environment:
       TZ: $TZ
+    volumes:
+      - /srv/home-lab-state/nextcloud-redis-data:/data
     networks:
       - nextcloud
 

@@ -140,6 +140,8 @@ services:
       - no-new-privileges:true
     environment:
       TZ: $TZ
+    volumes:
+      - /srv/home-lab-state/flaresolverr-data:/config
 
   prowlarr:
     image: ghcr.io/linuxserver/prowlarr:2.6.0-develop@sha256:2df9ae57c475bf4341abd833e56a9268bb02167cc5f3f828a8347d2d8628f652

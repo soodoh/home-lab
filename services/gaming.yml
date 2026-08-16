@@ -32,6 +32,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - /dev:/dev:rw
       - /run/udev:/run/udev:rw
+    tmpfs:
+      - /run/user/wolf
     devices:
       - /dev/dri:/dev/dri
       - /dev/uinput:/dev/uinput

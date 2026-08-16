@@ -106,6 +106,7 @@ services:
       - type: bind
         source: /srv/home-lab-state/calibre-data/books
         target: /calibre-library
+      - /srv/home-lab-state/calibre-web-ingest:/cwa-book-ingest
     networks:
       - proxy
 

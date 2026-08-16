@@ -15,9 +15,11 @@ x-backup-volumes: &backup-volumes
   - /srv/home-lab-state/caddy-data:/backup/caddy-data:ro
   - /srv/home-lab-state/calibre-data:/backup/calibre-data:ro
   - /srv/home-lab-state/calibre-web-data:/backup/calibre-web-data:ro
+  - /srv/home-lab-state/calibre-web-ingest:/backup/calibre-web-ingest:ro
   - /srv/home-lab-state/caro-tachidesk-data:/backup/caro-tachidesk-data:ro
   - /srv/home-lab-state/ddns-updater-data:/backup/ddns-updater-data:ro
   - /srv/home-lab-state/frigate-data:/backup/frigate-data:ro
+  - /srv/home-lab-state/flaresolverr-data:/backup/flaresolverr-data:ro
   - /srv/home-lab-state/gluetun-data:/backup/gluetun-data:ro
   - /srv/home-lab-state/jellyfin-data:/backup/jellyfin-data:ro
   - /srv/home-lab-state/seerr-data:/backup/seerr-data:ro
@@ -25,6 +27,7 @@ x-backup-volumes: &backup-volumes
   - /srv/home-lab-state/litellm-data:/backup/litellm-data:ro
   - /srv/home-lab-state/mosquitto-data:/backup/mosquitto-data:ro
   - /srv/home-lab-state/nextcloud-db-data:/backup/nextcloud-db-data:ro
+  - /srv/home-lab-state/nextcloud-redis-data:/backup/nextcloud-redis-data:ro
   - /srv/home-lab-state/omada-data:/backup/omada-data:ro
   - /srv/home-lab-state/openfit-data:/backup/openfit-data:ro
   - /srv/home-lab-state/pihole-data:/backup/pihole-data:ro
