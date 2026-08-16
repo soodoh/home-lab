@@ -938,6 +938,9 @@ proxmox:
       serial: QUAL-NIXOS-128G
       filesystem_uuid: d4a19647-7879-4079-9fc9-b3e79711b449
       filesystem_label: home-lab-state
+      filesystem: ext4
+      mount_options:
+        - noatime
       mountpoint: /srv/home-lab-state
       minimum_free_bytes: 53687091200
       size_gb: 128
@@ -1088,6 +1091,44 @@ arch:
     docker: "1:29.6.2-1"
     docker_compose: 5.3.1-1
     tailscale: 1.98.10-1
+flatcar:
+  channel: stable
+  version: 4593.2.5
+  build_id: "2026-08-11-2350"
+  image:
+    url: https://stable.release.flatcar-linux.net/amd64-usr/4593.2.5/flatcar_production_proxmoxve_image.img
+    digest_url: https://stable.release.flatcar-linux.net/amd64-usr/4593.2.5/flatcar_production_proxmoxve_image.img.DIGESTS
+    sha512: 21fdba07ffc73aac80aa40f1f99e0460e2d53b1c2815a774d5e2940d2b5cfa78fb2c86391fbf3bb76e28e8ece1ca41333f30ce18d1dd3f0c016e95bed120aba8
+  butane:
+    version: 0.29.0
+    config_variant: flatcar
+    config_version: 1.1.0
+    darwin_aarch64_url: https://github.com/coreos/butane/releases/download/v0.29.0/butane-aarch64-apple-darwin
+    darwin_aarch64_sha256: 9d27a4093e4908d6a66b3996ccf4aaf2ea6123972809c4d47dc1b14ac05d8417
+    linux_x86_64_url: https://github.com/coreos/butane/releases/download/v0.29.0/butane-x86_64-unknown-linux-gnu
+    linux_x86_64_sha256: 53a20d820fbaa7fda4f1afd1814974badc8e448db4c151d3f1ba005dc29bc4c9
+  compose:
+    version: 5.3.1
+    url: https://github.com/docker/compose/releases/download/v5.3.1/docker-compose-linux-x86_64
+    sha256: f9ebc6ebdb19d769b793c245a736caaeb198c62587f13b25c660c13b4987f959
+  tailscale:
+    version: 1.98.10
+    url: https://pkgs.tailscale.com/stable/tailscale_1.98.10_amd64.tgz
+    sha256: 52490ce0832b245857e2afef7426d6ae5a4b49fb391412833cc95729bd23f7de
+  network_interface: ens18
+  os_disk:
+    datastore: local-lvm
+    interface: scsi3
+    serial: HOME-LAB-FLATCAR-64G
+    size_gb: 64
+    ignition_drive_interface: ide2
+    snippet_storage: local
+    snippet_path: /var/lib/vz/snippets/vm-100-flatcar.ign
+    qualification_boot_order:
+      - scsi3
+      - scsi0
+      - net0
+    rollback_days: 7
 omada:
   controller_version: 6.2.14.11
   endpoint: https://Omada:8043

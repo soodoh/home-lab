@@ -4,7 +4,7 @@
   "title": "Home lab infrastructure contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "system_name", "recovery", "vm_100", "network", "proxmox", "storage", "arch", "omada", "tailscale", "aws", "backups"],
+  "required": ["version", "system_name", "recovery", "vm_100", "network", "proxmox", "storage", "arch", "flatcar", "omada", "tailscale", "aws", "backups"],
   "properties": {
     "version": { "const": 1 },
     "system_name": { "const": "home-lab" },
@@ -86,6 +86,77 @@
             "docker": { "type": "string", "pattern": "^[1-9][0-9]*:[0-9]+\\.[0-9]+\\.[0-9]+-[1-9][0-9]*$" },
             "docker_compose": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-[1-9][0-9]*$" },
             "tailscale": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-[1-9][0-9]*$" }
+          }
+        }
+      }
+    },
+    "flatcar": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["channel", "version", "build_id", "image", "butane", "compose", "tailscale", "network_interface", "os_disk"],
+      "properties": {
+        "channel": { "const": "stable" },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "build_id": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}$" },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["url", "digest_url", "sha512"],
+          "properties": {
+            "url": { "type": "string", "pattern": "^https://stable\\.release\\.flatcar-linux\\.net/amd64-usr/[0-9]+\\.[0-9]+\\.[0-9]+/flatcar_production_proxmoxve_image\\.img$" },
+            "digest_url": { "type": "string", "pattern": "^https://stable\\.release\\.flatcar-linux\\.net/amd64-usr/[0-9]+\\.[0-9]+\\.[0-9]+/flatcar_production_proxmoxve_image\\.img\\.DIGESTS$" },
+            "sha512": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
+          }
+        },
+        "butane": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "config_variant", "config_version", "darwin_aarch64_url", "darwin_aarch64_sha256", "linux_x86_64_url", "linux_x86_64_sha256"],
+          "properties": {
+            "version": { "const": "0.29.0" },
+            "config_variant": { "const": "flatcar" },
+            "config_version": { "const": "1.1.0" },
+            "darwin_aarch64_url": { "type": "string", "pattern": "^https://github\\.com/coreos/butane/releases/download/v0\\.29\\.0/butane-aarch64-apple-darwin$" },
+            "darwin_aarch64_sha256": { "$ref": "#/$defs/sha256" },
+            "linux_x86_64_url": { "type": "string", "pattern": "^https://github\\.com/coreos/butane/releases/download/v0\\.29\\.0/butane-x86_64-unknown-linux-gnu$" },
+            "linux_x86_64_sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "compose": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "url", "sha256"],
+          "properties": {
+            "version": { "const": "5.3.1" },
+            "url": { "type": "string", "pattern": "^https://github\\.com/docker/compose/releases/download/v5\\.3\\.1/docker-compose-linux-x86_64$" },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "tailscale": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["version", "url", "sha256"],
+          "properties": {
+            "version": { "const": "1.98.10" },
+            "url": { "type": "string", "pattern": "^https://pkgs\\.tailscale\\.com/stable/tailscale_1\\.98\\.10_amd64\\.tgz$" },
+            "sha256": { "$ref": "#/$defs/sha256" }
+          }
+        },
+        "network_interface": { "const": "ens18" },
+        "os_disk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["datastore", "interface", "serial", "size_gb", "ignition_drive_interface", "snippet_storage", "snippet_path", "qualification_boot_order", "rollback_days"],
+          "properties": {
+            "datastore": { "const": "local-lvm" },
+            "interface": { "const": "scsi3" },
+            "serial": { "const": "HOME-LAB-FLATCAR-64G" },
+            "size_gb": { "const": 64 },
+            "ignition_drive_interface": { "const": "ide2" },
+            "snippet_storage": { "const": "local" },
+            "snippet_path": { "const": "/var/lib/vz/snippets/vm-100-flatcar.ign" },
+            "qualification_boot_order": { "type": "array", "prefixItems": [{ "const": "scsi3" }, { "const": "scsi0" }, { "const": "net0" }], "items": false, "minItems": 3, "maxItems": 3 },
+            "rollback_days": { "const": 7 }
           }
         }
       }
@@ -959,13 +1030,15 @@
     "stateDisk": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["datastore", "interface", "serial", "filesystem_uuid", "filesystem_label", "mountpoint", "minimum_free_bytes", "size_gb", "iothread", "backup", "discard", "ssd"],
+      "required": ["datastore", "interface", "serial", "filesystem_uuid", "filesystem_label", "filesystem", "mount_options", "mountpoint", "minimum_free_bytes", "size_gb", "iothread", "backup", "discard", "ssd"],
       "properties": {
         "datastore": { "const": "local-lvm" },
         "interface": { "const": "scsi2" },
         "serial": { "const": "QUAL-NIXOS-128G" },
         "filesystem_uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
         "filesystem_label": { "const": "home-lab-state" },
+        "filesystem": { "const": "ext4" },
+        "mount_options": { "type": "array", "prefixItems": [{ "const": "noatime" }], "items": false, "minItems": 1, "maxItems": 1 },
         "mountpoint": { "const": "/srv/home-lab-state" },
         "minimum_free_bytes": { "type": "integer", "minimum": 10737418240 },
         "size_gb": { "const": 128 },
