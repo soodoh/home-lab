@@ -1,6 +1,6 @@
-# VM 100 Arch-to-NixOS migration architecture
+# VM 100 Arch-to-NixOS migration architecture (cancelled)
 
-Status: Phase 1 architecture approved. Implementation and every production action remain gated by the milestones and acceptance evidence below.
+Status: Cancelled on 2026-08-15 by [ADR 0001](decisions/0001-vm-100-flatcar.md). This document is retained as historical design evidence only. It does not authorize any guest-NixOS build, installation, activation, transfer, application adoption, or cutover action. Current ownership and cleanup blockers are recorded in [the migration ownership inventory](vm-100-migration-ownership.md).
 
 ## Repository reconciliation
 

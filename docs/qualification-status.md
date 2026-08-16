@@ -2,6 +2,8 @@
 
 This file separates implemented safeguards, completed historical evidence, protected operational inputs, and unresolved live gates. Static validation is not production readiness.
 
+The VM 100 Arch-to-NixOS migration is cancelled by [ADR 0001](decisions/0001-vm-100-flatcar.md). Existing NixOS candidate, installation, transfer, and qualification evidence is historical only and cannot authorize further execution. The replacement Arch-to-decoupled-state-to-Flatcar gates are tracked in the [migration ownership inventory](vm-100-migration-ownership.md).
+
 ## Statically implemented
 
 - authoritative contract and JSON Schema validation
@@ -47,6 +49,11 @@ The following remain operational gates rather than static claims:
 - disposable Proxmox **VM** behavior across create, update, protection, delete, raw disk, hardware mappings, PCI/USB, ACL, and cloud-image paths;
 - a complete cold boot with storage, passthrough devices, networking, host configuration, and workloads healthy; and
 - a timed recovery proving the eight-hour recovery-time objective.
+- empty-state proof and credential retirement for the abandoned Authentik and media OpenTofu roots;
+- retirement of the NixOS-specific qualification VM and image without affecting future Flatcar qualification;
+- Arch application-state decoupling, fail-closed mount behavior, cold boot, and isolated restore;
+- disposable Flatcar qualification followed by production hardware parity; and
+- seven stable days with the Arch root disk retained.
 
 Scheduled daily/weekly backup execution evidence also remains an ongoing operational observation. A static rehearsal or successful steady no-op must not be represented as proof of these live outcomes.
 
