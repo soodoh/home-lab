@@ -5,7 +5,8 @@ readonly VERSION=4593.2.5
 readonly IMAGE_URL=https://stable.release.flatcar-linux.net/amd64-usr/4593.2.5/flatcar_production_proxmoxve_image.img
 readonly IMAGE_SHA512=21fdba07ffc73aac80aa40f1f99e0460e2d53b1c2815a774d5e2940d2b5cfa78fb2c86391fbf3bb76e28e8ece1ca41333f30ce18d1dd3f0c016e95bed120aba8
 readonly IMAGE_NAME=flatcar-4593.2.5-proxmoxve.img
-readonly STORAGE_ROOT=/var/lib/vz/template/import
+readonly STORAGE_PARENT=/var/lib/vz
+readonly STORAGE_ROOT=$STORAGE_PARENT/import
 readonly TARGET=$STORAGE_ROOT/$IMAGE_NAME
 readonly PENDING=$STORAGE_ROOT/.$IMAGE_NAME.pending
 readonly LOCK=/run/lock/home-lab-flatcar-image-stage.lock
@@ -23,10 +24,16 @@ emit() {
     "$TARGET" "$IMAGE_SHA512" "$size" "$state" "$VERSION"
 }
 
+require_parent() {
+  [[ -d $STORAGE_PARENT && ! -L $STORAGE_PARENT ]] || fail "Proxmox local storage root is absent or unsafe"
+  [[ $(stat -c %U:%G "$STORAGE_PARENT") == root:root ]] || fail "Proxmox local storage ownership differs"
+  [[ $(stat -c %a "$STORAGE_PARENT") =~ ^(755|750|700)$ ]] || fail "Proxmox local storage permissions differ"
+}
+
 require_storage() {
-  [[ -d $STORAGE_ROOT && ! -L $STORAGE_ROOT ]] || fail "Flatcar import storage directory is absent or unsafe"
+  [[ -d $STORAGE_ROOT && ! -L $STORAGE_ROOT ]] || fail "Flatcar import storage directory is unsafe"
   [[ $(stat -c %U:%G "$STORAGE_ROOT") == root:root ]] || fail "Flatcar import storage ownership differs"
-  [[ $(stat -c %a "$STORAGE_ROOT") =~ ^(755|750|700)$ ]] || fail "Flatcar import storage permissions differ"
+  [[ $(stat -c %a "$STORAGE_ROOT") == 755 ]] || fail "Flatcar import storage permissions differ"
 }
 
 inspect_target() {
@@ -45,9 +52,14 @@ inspect_target() {
 
 [[ $# -eq 1 && $1 =~ ^(check|stage)$ ]] || fail "usage: scripts/stage-flatcar-image <check|stage>"
 [[ $(id -u) -eq 0 ]] || fail "Flatcar image staging requires root"
-require_storage
+require_parent
 
 if [[ $1 == check ]]; then
+  if [[ ! -e $STORAGE_ROOT && ! -L $STORAGE_ROOT ]]; then
+    emit storage-absent
+    exit 2
+  fi
+  require_storage
   inspect_target
   exit $?
 fi
@@ -56,6 +68,10 @@ fi
 [[ $(tty) =~ ^/dev/tty[0-9]+$ ]] || fail "Flatcar staging requires a physical Proxmox console"
 exec 9>"$LOCK"
 flock -n 9 || fail "another Flatcar image staging operation holds the lock"
+if [[ ! -e $STORAGE_ROOT && ! -L $STORAGE_ROOT ]]; then
+  install -d -o root -g root -m 0755 "$STORAGE_ROOT"
+fi
+require_storage
 [[ ! -e $PENDING && ! -L $PENDING ]] || fail "a pending Flatcar image requires manual reconciliation"
 
 if inspect_target >/dev/null 2>&1; then
