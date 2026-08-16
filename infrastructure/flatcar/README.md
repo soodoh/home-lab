@@ -53,6 +53,8 @@ During qualification, the exact staged `scsi3` volume is governed by the contrac
 
 The verified import outcome and zero-action reconciliation are recorded in [`infrastructure/evidence/vm-100-flatcar-disk-import.json`](../evidence/vm-100-flatcar-disk-import.json). The effective configuration is complete; disk-option activation remains pending the separately approved controlled reboot. This evidence does not authorize attaching `ide2`, changing boot order, or booting Flatcar.
 
+[`scripts/attach-flatcar-ignition`](../../scripts/attach-flatcar-ignition) is the separate `ide2` attachment gate. It requires the verified image and protected snippet, exact effective and running `scsi3` identities, physical-console confirmation, shared Proxmox/VFIO locks, a running protected VM, unchanged Arch boot order, and no unused disks. It allocates only the `local-lvm` cloud-init drive and sets only `cicustom=user=local:snippets/vm-100-flatcar.ign`. It has no boot-order, stop, start, disk-import, resize, unlink, delete, or storage-free path. Any settings Proxmox cannot hot-apply remain explicitly pending the controlled qualification reboot.
+
 ## Deterministic Ignition rendering
 
 [`scripts/controller/render-flatcar-ignition.js`](../../scripts/controller/render-flatcar-ignition.js) generates a strict Butane config and compiles it with the pinned Butane binary. It rejects:

@@ -156,7 +156,7 @@
         "os_disk": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["datastore", "path_in_datastore", "interface", "serial", "size_gb", "ignition_drive_interface", "snippet_storage", "snippet_path", "qualification_boot_order", "rollback_days"],
+          "required": ["datastore", "path_in_datastore", "interface", "serial", "size_gb", "ignition_drive_interface", "ignition_drive_datastore", "snippet_storage", "snippet_path", "qualification_boot_order", "rollback_days"],
           "properties": {
             "datastore": { "const": "local-lvm" },
             "path_in_datastore": { "const": "vm-100-disk-2" },
@@ -164,6 +164,7 @@
             "serial": { "const": "HOME-LAB-FLATCAR-64G" },
             "size_gb": { "const": 64 },
             "ignition_drive_interface": { "const": "ide2" },
+            "ignition_drive_datastore": { "const": "local-lvm" },
             "snippet_storage": { "const": "local" },
             "snippet_path": { "const": "/var/lib/vz/snippets/vm-100-flatcar.ign" },
             "qualification_boot_order": { "type": "array", "prefixItems": [{ "const": "scsi3" }, { "const": "scsi0" }, { "const": "net0" }], "items": false, "minItems": 3, "maxItems": 3 },

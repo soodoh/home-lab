@@ -1146,6 +1146,7 @@ flatcar:
     serial: HOME-LAB-FLATCAR-64G
     size_gb: 64
     ignition_drive_interface: ide2
+    ignition_drive_datastore: local-lvm
     snippet_storage: local
     snippet_path: /var/lib/vz/snippets/vm-100-flatcar.ign
     qualification_boot_order:

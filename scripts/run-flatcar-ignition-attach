@@ -1,0 +1,6 @@
+#!/bin/bash
+set -euo pipefail
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+export HOME_LAB_FLATCAR_IGNITION_ATTACH_CONFIRMED=attach-reviewed-vm-100-flatcar-ignition
+exec "$root/scripts/attach-flatcar-ignition"
