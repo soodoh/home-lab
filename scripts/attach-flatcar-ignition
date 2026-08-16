@@ -39,10 +39,11 @@ verify_effective_ide2() {
 
 verify_running_ide2() {
   if ! config_value "$1" "$INTERFACE" >/dev/null 2>&1; then
-    if config_value "$1" cicustom >/dev/null 2>&1; then
-      return 1
+    if ! config_value "$1" cicustom >/dev/null 2>&1; then
+      return 0
     fi
-    return 0
+    [[ $(config_value "$1" cicustom) == "user=$CICUSTOM" ]]
+    return
   fi
   verify_effective_drive "$1" || return 1
   if config_value "$1" cicustom >/dev/null 2>&1; then
