@@ -37,7 +37,7 @@ services:
     devices:
       - /dev/zwave:/dev/zwave
     volumes:
-      - zwave-data:/usr/src/app/store
+      - /srv/home-lab-state/zwave-data:/usr/src/app/store
     environment:
       TZ: $TZ
       ZWAVE_SECRET: $ZWAVE_SECRET
@@ -59,21 +59,15 @@ services:
     environment:
       TZ: $TZ
     volumes:
-      - type: volume
-        source: mosquitto-data
+      - type: bind
+        source: /srv/home-lab-state/mosquitto-data/config
         target: /mosquitto/config
-        volume:
-          subpath: config
-      - type: volume
-        source: mosquitto-data
+      - type: bind
+        source: /srv/home-lab-state/mosquitto-data/data
         target: /mosquitto/data
-        volume:
-          subpath: data
-      - type: volume
-        source: mosquitto-data
+      - type: bind
+        source: /srv/home-lab-state/mosquitto-data/log
         target: /mosquitto/log
-        volume:
-          subpath: log
     ports:
       # HA uses localhost; LAN IoT devices use the host's LAN IP.
       - 127.0.0.1:1883:1883
@@ -113,7 +107,7 @@ services:
       FRIGATE_BACK_HOUSE: $FRIGATE_BACK_HOUSE
       FRIGATE_BACK_HOUSE_PW: $FRIGATE_BACK_HOUSE_PW
     volumes:
-      - frigate-data:/config
+      - /srv/home-lab-state/frigate-data:/config
       - ${MEDIA_PATH}/frigate:/media/frigate
       - type: tmpfs
         target: /tmp/cache
@@ -127,11 +121,6 @@ services:
     networks:
       - hass
       - proxy
-
-volumes:
-  zwave-data:
-  mosquitto-data:
-  frigate-data:
 
 networks:
   hass:

@@ -90,16 +90,16 @@ resource "proxmox_virtual_environment_vm" "arch" {
   }
 
   disk {
-    datastore_id = local.vm.candidate_disk.datastore
-    interface    = local.vm.candidate_disk.interface
-    serial       = local.vm.candidate_disk.serial
-    size         = local.vm.candidate_disk.size_gb
-    iothread     = local.vm.candidate_disk.iothread
-    backup       = local.vm.candidate_disk.backup
+    datastore_id = local.vm.state_disk.datastore
+    interface    = local.vm.state_disk.interface
+    serial       = local.vm.state_disk.serial
+    size         = local.vm.state_disk.size_gb
+    iothread     = local.vm.state_disk.iothread
+    backup       = local.vm.state_disk.backup
     cache        = "none"
-    discard      = local.vm.candidate_disk.discard
+    discard      = local.vm.state_disk.discard
     replicate    = true
-    ssd          = local.vm.candidate_disk.ssd
+    ssd          = local.vm.state_disk.ssd
   }
 
   network_device {

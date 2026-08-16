@@ -72,7 +72,7 @@ maintenance_compose_previous_image_lock_path: /var/lib/docker-compose/previous-i
 compose_canary_service: flaresolverr
 compose_canary_path: services/servarr.yml
 
-audit_expected_declared_volume_count: 30
+audit_expected_declared_volume_count: 0
 audit_expected_compose_project_volume_count: 33
 
 audit_legacy_volumes:
@@ -91,12 +91,16 @@ audit_nfs_source: "{{ network.proxmox.ipv4.split('/')[0] }}:{{ storage.nfs.expor
 audit_expected_fstab_entries:
   - "{{ audit_nfs_source }} {{ storage.nfs.mountpoint }} nfs defaults 0 0"
   - "UUID={{ proxmox.vm.games_disk.filesystem_uuid }} {{ arch.games_mountpoint }} ext4 defaults,noatime 0 2"
+  - "UUID={{ proxmox.vm.state_disk.filesystem_uuid }} {{ proxmox.vm.state_disk.mountpoint }} ext4 defaults,noatime 0 2"
 audit_expected_mounts:
   - path: "{{ storage.nfs.mountpoint }}"
     source: "{{ audit_nfs_source }}"
     fstype: nfs4
   - path: "{{ arch.games_mountpoint }}"
     source: /dev/sdb1
+    fstype: ext4
+  - path: "{{ proxmox.vm.state_disk.mountpoint }}"
+    source: /dev/sdc1
     fstype: ext4
 
 audit_expected_modules:

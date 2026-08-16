@@ -81,7 +81,7 @@ VM_HOSTPCI_MAPPINGS = (
 )
 VM_USB_MAPPINGS = ("zigbee-cp210x", "zwave-cp210x", "realtek-bluetooth")
 VM_KVM_ARGUMENTS = "-cpu 'host,-hypervisor,kvm=off'"
-VM_CANDIDATE_DISK = {
+VM_STATE_DISK = {
     "aio": "io_uring",
     "backup": True,
     "cache": "none",
@@ -167,7 +167,7 @@ def safe_protection_enable(before: Any, after: Any, path: tuple[str, ...]) -> bo
     )
 
 
-def safe_candidate_disk_attachment(before: Any, after: Any) -> bool:
+def safe_state_disk_attachment(before: Any, after: Any) -> bool:
     if not isinstance(before, dict) or not isinstance(after, dict):
         return False
     if changed_keys(before, after) != {("disk",)}:
@@ -458,8 +458,8 @@ def vm_cutover_identity_failure(before: Any, after: Any, expected_games_disk: st
             },
         ) or disks[1].get("path_in_datastore") != expected_games_disk:
             return "VM cutover requires the exact protected games disk"
-        if not expected_subset(disks[2], VM_CANDIDATE_DISK):
-            return "VM cutover requires the exact protected candidate disk"
+        if not expected_subset(disks[2], VM_STATE_DISK):
+            return "VM cutover requires the exact protected state disk"
 
         if not exact_object_list(
             values.get("hostpci"),
@@ -664,7 +664,7 @@ def main() -> int:
             address == VM_ADDRESS
             and resource_type == VM_RESOURCE_TYPE
             and actions == ["update"]
-            and safe_candidate_disk_attachment(before, after)
+            and safe_state_disk_attachment(before, after)
         )
         sensitive = sorted(
             ".".join(path)

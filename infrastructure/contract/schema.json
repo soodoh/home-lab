@@ -956,14 +956,18 @@
         "iothread": { "type": "boolean" }
       }
     },
-    "candidateDisk": {
+    "stateDisk": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["datastore", "interface", "serial", "size_gb", "iothread", "backup", "discard", "ssd"],
+      "required": ["datastore", "interface", "serial", "filesystem_uuid", "filesystem_label", "mountpoint", "minimum_free_bytes", "size_gb", "iothread", "backup", "discard", "ssd"],
       "properties": {
         "datastore": { "const": "local-lvm" },
         "interface": { "const": "scsi2" },
         "serial": { "const": "QUAL-NIXOS-128G" },
+        "filesystem_uuid": { "type": "string", "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" },
+        "filesystem_label": { "const": "home-lab-state" },
+        "mountpoint": { "const": "/srv/home-lab-state" },
+        "minimum_free_bytes": { "type": "integer", "minimum": 10737418240 },
         "size_gb": { "const": 128 },
         "iothread": { "const": true },
         "backup": { "const": true },
@@ -1026,7 +1030,7 @@
     "vm": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["vmid", "name", "hardware_attachment_mode", "desired_protection", "on_boot", "started", "boot_order", "cpu", "memory_mb", "machine", "smbios_uuid", "root_disk", "candidate_disk", "games_disk", "pci", "usb", "cloud_image"],
+      "required": ["vmid", "name", "hardware_attachment_mode", "desired_protection", "on_boot", "started", "boot_order", "cpu", "memory_mb", "machine", "smbios_uuid", "root_disk", "state_disk", "games_disk", "pci", "usb", "cloud_image"],
       "properties": {
         "vmid": { "const": 100 },
         "name": { "const": "arch" },
@@ -1040,7 +1044,7 @@
         "machine": { "const": "q35" },
         "smbios_uuid": { "type": "string" },
         "root_disk": { "$ref": "#/$defs/rootDisk" },
-        "candidate_disk": { "$ref": "#/$defs/candidateDisk" },
+        "state_disk": { "$ref": "#/$defs/stateDisk" },
         "games_disk": { "$ref": "#/$defs/gamesDisk" },
         "pci": { "type": "object", "additionalProperties": false, "required": ["gpu", "gpu_audio", "host_igpu"], "properties": { "gpu": { "$ref": "#/$defs/pciDevice" }, "gpu_audio": { "$ref": "#/$defs/pciDevice" }, "host_igpu": { "$ref": "#/$defs/pciDevice" } } },
         "usb": { "type": "object", "additionalProperties": false, "required": ["zigbee", "zwave", "bluetooth"], "properties": { "zigbee": { "$ref": "#/$defs/serialUsbDevice" }, "zwave": { "$ref": "#/$defs/serialUsbDevice" }, "bluetooth": { "$ref": "#/$defs/usbDevice" } } },

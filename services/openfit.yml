@@ -11,7 +11,7 @@ services:
     restart: unless-stopped
     logging: *default-logging
     volumes:
-      - openfit-data:/app/data
+      - /srv/home-lab-state/openfit-data:/app/data
     environment:
       TZ: $TZ
       BETTER_AUTH_BASE_URL: $BETTER_AUTH_BASE_URL
@@ -26,6 +26,3 @@ services:
       retries: 3
     networks:
       - proxy
-
-volumes:
-  openfit-data:

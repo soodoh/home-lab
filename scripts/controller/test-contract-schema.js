@@ -32,11 +32,13 @@ check(structuredClone(contract), true, "current contract");
 if (validateProxmoxHostPolicy(contract).length) {
   throw new Error(`current Proxmox host policy failed semantics: ${JSON.stringify(validateProxmoxHostPolicy(contract))}`);
 }
-const candidateDisk = contract.proxmox.vm.candidate_disk;
-if (candidateDisk.interface !== "scsi2" || candidateDisk.serial !== "QUAL-NIXOS-128G" ||
-    candidateDisk.size_gb !== 128 || candidateDisk.backup !== true ||
-    !proxmoxSource.includes("serial       = local.vm.candidate_disk.serial")) {
-  throw new Error("production candidate disk must retain the qualified scsi2 identity and lifecycle");
+const stateDisk = contract.proxmox.vm.state_disk;
+if (stateDisk.interface !== "scsi2" || stateDisk.serial !== "QUAL-NIXOS-128G" ||
+    stateDisk.filesystem_uuid !== "d4a19647-7879-4079-9fc9-b3e79711b449" ||
+    stateDisk.filesystem_label !== "home-lab-state" || stateDisk.mountpoint !== "/srv/home-lab-state" ||
+    stateDisk.size_gb !== 128 || stateDisk.backup !== true ||
+    !proxmoxSource.includes("serial       = local.vm.state_disk.serial")) {
+  throw new Error("production state disk must retain the exact scsi2 filesystem identity and lifecycle");
 }
 
 for (const authority of ["arch", "flatcar"]) {
@@ -90,7 +92,7 @@ const closedRequiredPolicyObjects = [
   "network.ownership.interfaces_file",
   "proxmox.vm",
   "proxmox.vm.root_disk",
-  "proxmox.vm.candidate_disk",
+  "proxmox.vm.state_disk",
   "proxmox.vm.games_disk",
   "proxmox.grub",
   "proxmox.grub.file",

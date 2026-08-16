@@ -9,36 +9,36 @@ x-backup-env: &backup-env
   GPG_PUBLIC_KEY_RING_FILE: /etc/docker-volume-backup/gpg-public.asc
   BACKUP_EXCLUDE_REGEXP: '^/backup/wolf/profile-data/paul/WolfES-DE/(\.cache/|ES-DE/logs/|\.config/retroarch/(assets|downloads|logs|thumbnails)/)'
 x-backup-volumes: &backup-volumes
-  - audiobookshelf-data:/backup/audiobookshelf-data:ro
-  - authentik-data:/backup/authentik-data:ro
-  - bookshelf-data:/backup/bookshelf-data:ro
-  - caddy-data:/backup/caddy-data:ro
-  - calibre-data:/backup/calibre-data:ro
-  - calibre-web-data:/backup/calibre-web-data:ro
-  - caro-tachidesk-data:/backup/caro-tachidesk-data:ro
-  - ddns-updater-data:/backup/ddns-updater-data:ro
-  - frigate-data:/backup/frigate-data:ro
-  - gluetun-data:/backup/gluetun-data:ro
-  - jellyfin-data:/backup/jellyfin-data:ro
-  - seerr-data:/backup/seerr-data:ro
-  - karaoke-eternal-data:/backup/karaoke-eternal-data:ro
-  - litellm-data:/backup/litellm-data:ro
-  - mosquitto-data:/backup/mosquitto-data:ro
-  - nextcloud-db-data:/backup/nextcloud-db-data:ro
-  - omada-data:/backup/omada-data:ro
-  - openfit-data:/backup/openfit-data:ro
-  - pihole-data:/backup/pihole-data:ro
-  - prowlarr-data:/backup/prowlarr-data:ro
-  - qbittorrent-data:/backup/qbittorrent-data:ro
-  - radarr-4k-data:/backup/radarr-4k-data:ro
-  - radarr-data:/backup/radarr-data:ro
-  - recyclarr-data:/backup/recyclarr-data:ro
-  - sabnzbd-data:/backup/sabnzbd-data:ro
-  - sonarr-data:/backup/sonarr-data:ro
-  - tachidesk-data:/backup/tachidesk-data:ro
-  - vaultwarden-data:/backup/vaultwarden-data:ro
-  - vikunja-data:/backup/vikunja-data:ro
-  - zwave-data:/backup/zwave-data:ro
+  - /srv/home-lab-state/audiobookshelf-data:/backup/audiobookshelf-data:ro
+  - /srv/home-lab-state/authentik-data:/backup/authentik-data:ro
+  - /srv/home-lab-state/bookshelf-data:/backup/bookshelf-data:ro
+  - /srv/home-lab-state/caddy-data:/backup/caddy-data:ro
+  - /srv/home-lab-state/calibre-data:/backup/calibre-data:ro
+  - /srv/home-lab-state/calibre-web-data:/backup/calibre-web-data:ro
+  - /srv/home-lab-state/caro-tachidesk-data:/backup/caro-tachidesk-data:ro
+  - /srv/home-lab-state/ddns-updater-data:/backup/ddns-updater-data:ro
+  - /srv/home-lab-state/frigate-data:/backup/frigate-data:ro
+  - /srv/home-lab-state/gluetun-data:/backup/gluetun-data:ro
+  - /srv/home-lab-state/jellyfin-data:/backup/jellyfin-data:ro
+  - /srv/home-lab-state/seerr-data:/backup/seerr-data:ro
+  - /srv/home-lab-state/karaoke-eternal-data:/backup/karaoke-eternal-data:ro
+  - /srv/home-lab-state/litellm-data:/backup/litellm-data:ro
+  - /srv/home-lab-state/mosquitto-data:/backup/mosquitto-data:ro
+  - /srv/home-lab-state/nextcloud-db-data:/backup/nextcloud-db-data:ro
+  - /srv/home-lab-state/omada-data:/backup/omada-data:ro
+  - /srv/home-lab-state/openfit-data:/backup/openfit-data:ro
+  - /srv/home-lab-state/pihole-data:/backup/pihole-data:ro
+  - /srv/home-lab-state/prowlarr-data:/backup/prowlarr-data:ro
+  - /srv/home-lab-state/qbittorrent-data:/backup/qbittorrent-data:ro
+  - /srv/home-lab-state/radarr-4k-data:/backup/radarr-4k-data:ro
+  - /srv/home-lab-state/radarr-data:/backup/radarr-data:ro
+  - /srv/home-lab-state/recyclarr-data:/backup/recyclarr-data:ro
+  - /srv/home-lab-state/sabnzbd-data:/backup/sabnzbd-data:ro
+  - /srv/home-lab-state/sonarr-data:/backup/sonarr-data:ro
+  - /srv/home-lab-state/tachidesk-data:/backup/tachidesk-data:ro
+  - /srv/home-lab-state/vaultwarden-data:/backup/vaultwarden-data:ro
+  - /srv/home-lab-state/vikunja-data:/backup/vikunja-data:ro
+  - /srv/home-lab-state/zwave-data:/backup/zwave-data:ro
   # Non-volumes
   - ${HASS_PATH}:/backup/hass-data:ro
   # Wolf identity, pairings, profiles, and application configuration
@@ -75,16 +75,12 @@ services:
     environment:
       TZ: $TZ
     volumes:
-      - type: volume
-        source: omada-data
+      - type: bind
+        source: /srv/home-lab-state/omada-data/data
         target: /opt/tplink/EAPController/data
-        volume:
-          subpath: data
-      - type: volume
-        source: omada-data
+      - type: bind
+        source: /srv/home-lab-state/omada-data/logs
         target: /opt/tplink/EAPController/logs
-        volume:
-          subpath: logs
     labels:
       docker-volume-backup.stop-during-backup: true
 
@@ -94,7 +90,7 @@ services:
     restart: always
     logging: *default-logging
     volumes:
-      - ddns-updater-data:/updater/data
+      - /srv/home-lab-state/ddns-updater-data:/updater/data
     environment:
       TZ: $TZ
       RESOLVER_ADDRESS: $RESOLVER_ADDRESS
@@ -120,7 +116,7 @@ services:
       ROUTE_53_SECRET: $ROUTE_53_SECRET
       ROUTE_53_ZONE_ID: $ROUTE_53_ZONE_ID
     volumes:
-      - caddy-data:/data/caddy
+      - /srv/home-lab-state/caddy-data:/data/caddy
       - ./data/Caddyfile:/etc/caddy/Caddyfile
     networks:
       proxy:
@@ -144,7 +140,7 @@ services:
       PIHOLE_SECONDARY_URL: $PIHOLE_SECONDARY_URL
       PIHOLE_SECONDARY_PW: $PIHOLE_SECONDARY_PW
     volumes:
-      - pihole-data:/etc/pihole
+      - /srv/home-lab-state/pihole-data:/etc/pihole
     networks:
       - proxy
 
@@ -183,12 +179,6 @@ services:
     volumes: *backup-volumes
     networks:
       - infra
-
-volumes:
-  pihole-data:
-  omada-data:
-  caddy-data:
-  ddns-updater-data:
 
 networks:
   infra:

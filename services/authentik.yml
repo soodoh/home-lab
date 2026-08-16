@@ -17,13 +17,11 @@ services:
       retries: 5
       timeout: 5s
     volumes:
-      - type: volume
-        source: authentik-data
+      - type: bind
+        source: /srv/home-lab-state/authentik-data/postgresql
         # PostgreSQL 18+ stores versioned clusters below this mount.
         # See docs/authentik-postgres-18-migration.md before changing major versions.
         target: /var/lib/postgresql
-        volume:
-          subpath: postgresql
     labels:
       docker-volume-backup.stop-during-backup: true
     environment:
@@ -49,11 +47,9 @@ services:
     environment:
       TZ: $TZ
     volumes:
-      - type: volume
-        source: authentik-data
+      - type: bind
+        source: /srv/home-lab-state/authentik-data/redis
         target: /data
-        volume:
-          subpath: redis
     labels:
       docker-volume-backup.stop-during-backup: true
     networks:
@@ -88,16 +84,12 @@ services:
       AUTHENTIK_EMAIL__USE_SSL: $AUTHENTIK_EMAIL__USE_SSL
       AUTHENTIK_EMAIL__TIMEOUT: $AUTHENTIK_EMAIL__TIMEOUT
     volumes:
-      - type: volume
-        source: authentik-data
+      - type: bind
+        source: /srv/home-lab-state/authentik-data/media
         target: /media
-        volume:
-          subpath: media
-      - type: volume
-        source: authentik-data
+      - type: bind
+        source: /srv/home-lab-state/authentik-data/custom-templates
         target: /templates
-        volume:
-          subpath: custom-templates
     depends_on:
       postgres:
         condition: service_healthy
@@ -134,26 +126,18 @@ services:
     labels:
       docker-volume-backup.stop-during-backup: true
     volumes:
-      - type: volume
-        source: authentik-data
+      - type: bind
+        source: /srv/home-lab-state/authentik-data/media
         target: /media
-        volume:
-          subpath: media
-      - type: volume
-        source: authentik-data
+      - type: bind
+        source: /srv/home-lab-state/authentik-data/certs/live
         target: /certs
-        volume:
-          subpath: certs/live
-      - type: volume
-        source: authentik-data
+      - type: bind
+        source: /srv/home-lab-state/authentik-data/certs/archive
         target: /archive
-        volume:
-          subpath: certs/archive
-      - type: volume
-        source: authentik-data
+      - type: bind
+        source: /srv/home-lab-state/authentik-data/custom-templates
         target: /templates
-        volume:
-          subpath: custom-templates
     depends_on:
       postgres:
         condition: service_healthy
@@ -162,9 +146,6 @@ services:
     networks:
       - authentik
       - proxy
-
-volumes:
-  authentik-data:
 
 networks:
   authentik:

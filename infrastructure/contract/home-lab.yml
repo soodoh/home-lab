@@ -932,10 +932,14 @@ proxmox:
       interface: scsi0
       size_gb: 550
       iothread: true
-    candidate_disk:
+    state_disk:
       datastore: local-lvm
       interface: scsi2
       serial: QUAL-NIXOS-128G
+      filesystem_uuid: d4a19647-7879-4079-9fc9-b3e79711b449
+      filesystem_label: home-lab-state
+      mountpoint: /srv/home-lab-state
+      minimum_free_bytes: 53687091200
       size_gb: 128
       iothread: true
       backup: true

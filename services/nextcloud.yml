@@ -37,7 +37,7 @@ services:
     logging: *default-logging
     command: --transaction-isolation=READ-COMMITTED --log-bin=binlog --binlog-format=ROW
     volumes:
-      - nextcloud-db-data:/var/lib/mysql
+      - /srv/home-lab-state/nextcloud-db-data:/var/lib/mysql
     environment:
       TZ: $TZ
       MARIADB_AUTO_UPGRADE: "1"
@@ -59,9 +59,6 @@ services:
       TZ: $TZ
     networks:
       - nextcloud
-
-volumes:
-  nextcloud-db-data:
 
 networks:
   nextcloud:

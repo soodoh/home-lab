@@ -17,7 +17,7 @@ services:
       LOG_LEVEL: debug
       PORT: 5055 # Optional
     volumes:
-      - seerr-data:/app/config
+      - /srv/home-lab-state/seerr-data:/app/config
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://localhost:5055/api/v1/status || exit 1
       start_period: 20s
@@ -41,7 +41,7 @@ services:
     devices:
       - /dev/net/tun:/dev/net/tun
     volumes:
-      - gluetun-data:/gluetun
+      - /srv/home-lab-state/gluetun-data:/gluetun
       - ./data/gluetun:/scripts:ro
     environment:
       TZ: $TZ
@@ -91,7 +91,7 @@ services:
       FLARESOLVERR_URL: http://gluetun:8191
       BIND_PORT: 4567
     volumes:
-      - tachidesk-data:/home/suwayomi/.local/share/Tachidesk
+      - /srv/home-lab-state/tachidesk-data:/home/suwayomi/.local/share/Tachidesk
       - ${MEDIA_PATH}/tachidesk:/home/suwayomi/.local/share/Tachidesk/downloads
 
   caro-tachidesk:
@@ -125,7 +125,7 @@ services:
       FLARESOLVERR_URL: http://gluetun:8191
       BIND_PORT: 4568
     volumes:
-      - caro-tachidesk-data:/home/suwayomi/.local/share/Tachidesk
+      - /srv/home-lab-state/caro-tachidesk-data:/home/suwayomi/.local/share/Tachidesk
 
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47
@@ -157,7 +157,7 @@ services:
       PROWLARR__AUTH__APIKEY: $PROWLARR_API_KEY
       PROWLARR__SERVER__PORT: 9696
     volumes:
-      - prowlarr-data:/config
+      - /srv/home-lab-state/prowlarr-data:/config
     labels:
       docker-volume-backup.stop-during-backup: true
 
@@ -169,7 +169,7 @@ services:
     networks:
       - arr_network
     volumes:
-      - recyclarr-data:/config
+      - /srv/home-lab-state/recyclarr-data:/config
     environment:
       TZ: $TZ
       SONARR_URL: $SONARR_URL
@@ -197,7 +197,7 @@ services:
       SONARR__AUTH__APIKEY: $SONARR_API_KEY
       SONARR__SERVER__PORT: 8989
     volumes:
-      - sonarr-data:/config
+      - /srv/home-lab-state/sonarr-data:/config
       - ${MEDIA_PATH}:/data
     labels:
       docker-volume-backup.stop-during-backup: true
@@ -218,7 +218,7 @@ services:
       RADARR__AUTH__APIKEY: $RADARR_API_KEY
       RADARR__SERVER__PORT: 7878
     volumes:
-      - radarr-data:/config
+      - /srv/home-lab-state/radarr-data:/config
       - ${MEDIA_PATH}:/data
     labels:
       docker-volume-backup.stop-during-backup: true
@@ -239,7 +239,7 @@ services:
       RADARR__AUTH__APIKEY: $RADARR_4K_API_KEY
       RADARR__SERVER__PORT: 7879
     volumes:
-      - radarr-4k-data:/config
+      - /srv/home-lab-state/radarr-4k-data:/config
       - ${MEDIA_PATH}:/data
     labels:
       docker-volume-backup.stop-during-backup: true
@@ -261,13 +261,11 @@ services:
       READARR__AUTH__APIKEY: $READARR_API_KEY
       READARR__SERVER__PORT: 8787
     volumes:
-      - bookshelf-data:/config
+      - /srv/home-lab-state/bookshelf-data:/config
       - ${MEDIA_PATH}:/data
-      - type: volume
-        source: calibre-data
+      - type: bind
+        source: /srv/home-lab-state/calibre-data/books
         target: /books
-        volume:
-          subpath: books
     labels:
       docker-volume-backup.stop-during-backup: true
 
@@ -310,7 +308,7 @@ services:
       PGID: 1000
       WEBUI_PORT: 8081
     volumes:
-      - qbittorrent-data:/config
+      - /srv/home-lab-state/qbittorrent-data:/config
       - ${VUETORRENT_PATH}:/vuetorrent
       - ${MEDIA_PATH}/downloads:/data/downloads
     labels:
@@ -330,24 +328,10 @@ services:
       PUID: 1000
       PGID: 1000
     volumes:
-      - sabnzbd-data:/config
+      - /srv/home-lab-state/sabnzbd-data:/config
       - ${MEDIA_PATH}:/data
     labels:
       docker-volume-backup.stop-during-backup: true
-
-volumes:
-  bookshelf-data:
-  caro-tachidesk-data:
-  gluetun-data:
-  prowlarr-data:
-  qbittorrent-data:
-  radarr-4k-data:
-  radarr-data:
-  recyclarr-data:
-  sabnzbd-data:
-  seerr-data:
-  sonarr-data:
-  tachidesk-data:
 
 networks:
   arr_network:
