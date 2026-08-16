@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "status": "blocked-isolated-restore",
+  "observedAt": "2026-08-16T04:06:00Z",
+  "sourceCommit": "f6cad3cfa5e6ff8e0f1c997a75727a8ad52f3e7b",
+  "disk": {
+    "proxmoxInterface": "scsi2",
+    "proxmoxVolume": "local-lvm:vm-100-disk-1",
+    "guestDevice": "/dev/sdc1",
+    "filesystem": "ext4",
+    "filesystemUuid": "d4a19647-7879-4079-9fc9-b3e79711b449",
+    "filesystemLabel": "home-lab-state",
+    "mountpoint": "/srv/home-lab-state",
+    "freeBytesAfterMigration": 71449800704,
+    "minimumFreeBytes": 53687091200
+  },
+  "migration": {
+    "sourceDirectories": 33,
+    "stateDirectories": 36,
+    "onlinePreseed": true,
+    "stoppedFinalRsyncChanges": 0,
+    "sourceNamedVolumesPreserved": 33,
+    "activeDockerVolumeMounts": 0,
+    "activeStateBindMounts": 115,
+    "composeArtifactSha256": "08acc4bab440a9f6a05d2d05f045c90697b45e561ae096138774ef37b2844f0e",
+    "composePlanSha256": "78847559dad551e9b6b2a1a12fed3dc9f1886d0aa22ed02bcb6b717b1608593c",
+    "composePostcheck": "no-op"
+  },
+  "coldBoot": {
+    "vmStatus": "running",
+    "runningContainers": 41,
+    "stateMountConfirmed": true,
+    "dockerVolumeMounts": 0,
+    "archAudit": "no-op",
+    "archSteadyTags": "no-op",
+    "gpuResetRequiredVfioUnbindRebind": true,
+    "gpuMappingsPreserved": [
+      "hostpci1",
+      "hostpci2"
+    ],
+    "disksPreserved": [
+      "scsi0",
+      "scsi1",
+      "scsi2"
+    ]
+  },
+  "backup": {
+    "archive": "daily-local-backup-2026-08-15T19-23-51.tar.gz.gpg",
+    "bytes": 47788125563,
+    "sha256": "712391aa758b84b2785dbdc561c66230ea777dcf4d6dd1ea5cb7a6b047a65cc3",
+    "replicas": 3,
+    "replicaChecksumsVerified": true,
+    "sourceWasBindBackedState": true
+  },
+  "steadyPlan": {
+    "awsFoundationActions": 0,
+    "proxmoxLegacyActions": 0,
+    "proxmoxActions": 0,
+    "omadaActions": 0,
+    "tailscaleActions": 0,
+    "proxmoxNixActions": 0,
+    "proxmoxNixStatus": "ready"
+  },
+  "blocker": {
+    "gate": "B",
+    "reason": "The fresh encrypted bind-backed backup has not completed an isolated restore because the retained production recovery GPG private key requires an interactive unlock unavailable to the controller session.",
+    "requiredEvidence": "Unlock the retained recovery GPG key, restore the exact archive into an empty isolated target with the hardened restore helper, verify required classes and cleanup, then change this record to passed."
+  }
+}
