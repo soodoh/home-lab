@@ -180,6 +180,7 @@ human_access_accounts:
   - name: docker
     comment: Home Lab Docker Administrator
     group: docker
+    supplementary_groups: "{{ vm_100.workload_identity.supplementary_groups }}"
     home: /home/docker
     shell: /bin/bash
     sudoers_path: /etc/sudoers.d/docker

@@ -41,6 +41,51 @@
          map(attribute='item.name') |
          list }}
 
+- name: Inspect human-access password locks before convergence
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/passwd
+      - --status
+      - "{{ item.name }}"
+  register: human_access_password_inspection
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  become: true
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Inspect human-access primary groups before convergence
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/id
+      - --group
+      - --name
+      - "{{ item.name }}"
+  register: human_access_primary_group_inspection
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Inspect human-access group sets before convergence
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/id
+      - --name
+      - --groups
+      - "{{ item.name }}"
+  register: human_access_groups_inspection
+  failed_when: false
+  changed_when: false
+  check_mode: false
+  loop: "{{ human_access_accounts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
 - name: Keep human-access primary groups present
   ansible.builtin.group:
     name: "{{ item.group }}"
@@ -66,7 +111,18 @@
   become: true
   loop: "{{ human_access_accounts }}"
   loop_control:
+    index_var: account_index
     label: "{{ item.name }}"
+  when: >-
+    item.name not in human_access_existing_accounts or
+    human_access_account_inspection.results[account_index].stdout.split(':')[4] != item.comment or
+    human_access_account_inspection.results[account_index].stdout.split(':')[5] != item.home or
+    human_access_account_inspection.results[account_index].stdout.split(':')[6] != item.shell or
+    human_access_password_inspection.results[account_index].stdout.split() | length < 2 or
+    human_access_password_inspection.results[account_index].stdout.split()[1] != 'L' or
+    human_access_primary_group_inspection.results[account_index].stdout != item.group or
+    human_access_groups_inspection.results[account_index].stdout.split() !=
+      [item.group] + (item.supplementary_groups | default([]))
 
 - name: Remove contract-declared conventional OpenSSH authorized-key files for human accounts
   ansible.builtin.file:
