@@ -25,15 +25,9 @@ The VM-100 candidate attachment records inside the Proxmox root are not safe to 
 
 Guest configurations, projections, Compose mirrors, secrets copies, candidate/Disko/ephemeral-Nix/closure-signing/Gate-C executors, schemas, fixtures, tests, and detailed migration documentation were removed. The isolated flake now exports only Proxmox host management. VM 9900, its downloaded image, temporary ACL, backend state, candidate execution records, and backend permission are retired with secret-free evidence.
 
-## Coral-specific — remove consumer outward
+## Coral-specific — retired consumer outward
 
-- Frigate EdgeTPU configuration and `/dev/apex_0` Compose device access.
-- `ansible/roles/coral/**`, Coral handlers/tags, package and audit expectations.
-- `nix/modules/coral.nix` and `nix/packages/coral-driver/**`.
-- `recovery/coral/**` and associated build/test paths.
-- Coral VM passthrough, Proxmox mapping, VFIO/initramfs expectations, contract fields, projections, and tests.
-
-The physical card remains installed but unused.
+Frigate was switched to its CPU detector and proven healthy before `/dev/apex_0` access was removed. The Arch package, DKMS dependency, modules, device, Ansible role, recovery recipe, VM passthrough, Proxmox mapping, state address, VFIO identity, contract fields, projections, and tests were then retired. A guarded shutdown/start preserved `scsi0`, `scsi1`, `scsi2`, both GPU mappings, all 41 containers, and storage mounts. The physical card remains installed but unused. Secret-free evidence is recorded in `infrastructure/evidence/vm-100-coral-retirement.json`.
 
 ## Abandoned application OpenTofu adoption — retired after empty-state proof
 

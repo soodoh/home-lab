@@ -32,6 +32,7 @@ The VM 100 Arch-to-NixOS migration is cancelled by [ADR 0001](decisions/0001-vm-
 - three-path encrypted local backup deployment with distinct filesystems and matching newest-archive metadata
 - state-only detachment of 44 Authentik and 9 media application instances, empty serial-2 remote-state proof, temporary Authentik provider-token revocation, and controller/local application credential retirement recorded in `infrastructure/evidence/vm-100-application-state-retirement.json`
 - guarded retirement of the NixOS qualification VM 9900 and downloaded image, empty serial-60 state, temporary ACL absence, and restored Proxmox protected-access `6/6` match recorded in `infrastructure/evidence/vm-100-nixos-qualification-retirement.json`
+- consumer-outward Coral retirement with a protected Frigate configuration backup, CPU inference proof, exact Compose deployment, Arch package/module/device absence, guarded VM shutdown/start, preserved disks and GPU mappings, empty Coral state references, and full no-op verification recorded in `infrastructure/evidence/vm-100-coral-retirement.json`
 
 These records justify removal of completed transition executables. They do not authorize state/backend deletion or recreation of retired resources.
 

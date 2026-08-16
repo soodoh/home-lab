@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "completedAt": "2026-08-16T01:53:00Z",
+  "sourceCommit": "3652ed251c69a6aca2a34ef051eaa4ea6f5ab309",
+  "frigate": {
+    "preRetirementConfigBackup": {
+      "protectedLocalPath": ".reconcile/vm-100/coral-retirement/frigate-config.pre-retirement.tar",
+      "bytes": 34119680,
+      "sha256": "e0c6b264c1751417a7ed01d27f000ae307ec39772dfd7fa85ad87960f82cdcec"
+    },
+    "cpuDetectorConfirmedBeforeOuterRemoval": true,
+    "composeArtifactSha256": "009723762c22bd5191c6ab7b112781e7e403215200bdadbc0b902fd03d50edf1",
+    "composeDeploymentPlanSha256": "3d933ebd600ccb9b9ef913a4e1d734877854067197a226e6aeeed432eb1180dc",
+    "composePostcheck": "no-op",
+    "healthAfterColdBoot": "healthy",
+    "runtimeDetector": "cpu",
+    "inferenceObserved": true,
+    "coralDeviceMounted": false
+  },
+  "arch": {
+    "package": "absent",
+    "dkmsPackage": "absent",
+    "modules": "absent",
+    "device": "absent",
+    "audit": "no-op",
+    "steadyTagChecks": {
+      "base": 0,
+      "tailscale": 0,
+      "ssh": 0,
+      "storage": 0,
+      "docker": 0,
+      "sops_age": 0,
+      "hardware": 0,
+      "host_files": 0,
+      "compose": 0
+    },
+    "runningContainersAfterColdBoot": 41,
+    "storageMountsConfirmed": true
+  },
+  "proxmox": {
+    "vmid": 100,
+    "shutdownObserved": true,
+    "coldStartObserved": true,
+    "statusAfterStart": "running",
+    "hostpci0": "absent",
+    "gpuMappingsPreserved": [
+      "hostpci1",
+      "hostpci2"
+    ],
+    "disksPreserved": [
+      "scsi0",
+      "scsi1",
+      "scsi2"
+    ],
+    "qmConfigBeforeSha256": "f27189677692d35e801296e3529aa08afe84177d40320dbea49e93a16153d0c3",
+    "qmConfigAfterSha256": "4bd8282cba2826eacde0d123978a85ffa212076f028c70a2c10d677511e8bca3",
+    "coralMapping": "absent",
+    "stateAddress": "removed",
+    "remoteStateSerial": 66,
+    "remoteStateCoralAddresses": 0
+  },
+  "steadyPlan": {
+    "commit": "3652ed251c69a6aca2a34ef051eaa4ea6f5ab309",
+    "awsFoundationActions": 0,
+    "proxmoxLegacyActions": 0,
+    "proxmoxActions": 0,
+    "omadaActions": 0,
+    "tailscaleActions": 0,
+    "proxmoxNixActions": 0,
+    "proxmoxNixStatus": "ready"
+  }
+}
