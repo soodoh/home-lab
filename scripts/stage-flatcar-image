@@ -1,0 +1,84 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly VERSION=4593.2.5
+readonly IMAGE_URL=https://stable.release.flatcar-linux.net/amd64-usr/4593.2.5/flatcar_production_proxmoxve_image.img
+readonly IMAGE_SHA512=21fdba07ffc73aac80aa40f1f99e0460e2d53b1c2815a774d5e2940d2b5cfa78fb2c86391fbf3bb76e28e8ece1ca41333f30ce18d1dd3f0c016e95bed120aba8
+readonly IMAGE_NAME=flatcar-4593.2.5-proxmoxve.img
+readonly STORAGE_ROOT=/var/lib/vz/template/import
+readonly TARGET=$STORAGE_ROOT/$IMAGE_NAME
+readonly PENDING=$STORAGE_ROOT/.$IMAGE_NAME.pending
+readonly LOCK=/run/lock/home-lab-flatcar-image-stage.lock
+readonly CONFIRMATION=stage-reviewed-flatcar-4593.2.5-image
+readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+fail() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+emit() {
+  local state=$1 size=${2:-0}
+  printf '{"path":"%s","sha512":"%s","size":%s,"state":"%s","version":"%s"}\n' \
+    "$TARGET" "$IMAGE_SHA512" "$size" "$state" "$VERSION"
+}
+
+require_storage() {
+  [[ -d $STORAGE_ROOT && ! -L $STORAGE_ROOT ]] || fail "Flatcar import storage directory is absent or unsafe"
+  [[ $(stat -c %U:%G "$STORAGE_ROOT") == root:root ]] || fail "Flatcar import storage ownership differs"
+  [[ $(stat -c %a "$STORAGE_ROOT") =~ ^(755|750|700)$ ]] || fail "Flatcar import storage permissions differ"
+}
+
+inspect_target() {
+  if [[ ! -e $TARGET && ! -L $TARGET ]]; then
+    emit absent
+    return 2
+  fi
+  [[ -f $TARGET && ! -L $TARGET ]] || fail "Flatcar image target is not a regular non-symlink file"
+  [[ $(stat -c %U:%G:%a "$TARGET") == root:root:644 ]] || fail "Flatcar image metadata differs"
+  local actual size
+  actual=$(sha512sum "$TARGET" | awk '{print $1}')
+  size=$(stat -c %s "$TARGET")
+  [[ $actual == "$IMAGE_SHA512" ]] || fail "Flatcar image digest differs; refusing replacement"
+  emit verified "$size"
+}
+
+[[ $# -eq 1 && $1 =~ ^(check|stage)$ ]] || fail "usage: scripts/stage-flatcar-image <check|stage>"
+[[ $(id -u) -eq 0 ]] || fail "Flatcar image staging requires root"
+require_storage
+
+if [[ $1 == check ]]; then
+  inspect_target
+  exit $?
+fi
+
+[[ ${HOME_LAB_FLATCAR_STAGE_CONFIRMED:-} == "$CONFIRMATION" ]] || fail "exact Flatcar staging confirmation is required"
+[[ $(tty) =~ ^/dev/tty[0-9]+$ ]] || fail "Flatcar staging requires a physical Proxmox console"
+exec 9>"$LOCK"
+flock -n 9 || fail "another Flatcar image staging operation holds the lock"
+[[ ! -e $PENDING && ! -L $PENDING ]] || fail "a pending Flatcar image requires manual reconciliation"
+
+if inspect_target >/dev/null 2>&1; then
+  inspect_target
+  exit 0
+fi
+[[ ! -e $TARGET && ! -L $TARGET ]] || fail "Flatcar image target is divergent"
+
+cleanup() {
+  rm -f -- "$PENDING"
+}
+trap cleanup EXIT
+
+umask 077
+curl --fail --location --silent --show-error --proto '=https' --tlsv1.2 \
+  --output "$PENDING" "$IMAGE_URL"
+[[ -f $PENDING && ! -L $PENDING ]] || fail "downloaded Flatcar image is unsafe"
+actual=$(sha512sum "$PENDING" | awk '{print $1}')
+[[ $actual == "$IMAGE_SHA512" ]] || fail "downloaded Flatcar image digest differs"
+chown root:root "$PENDING"
+chmod 0644 "$PENDING"
+ln "$PENDING" "$TARGET"
+rm "$PENDING"
+sync -f "$STORAGE_ROOT"
+trap - EXIT
+inspect_target

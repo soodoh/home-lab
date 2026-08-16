@@ -89,6 +89,7 @@ if [[ $action == validate ]]; then
   infrastructure/policy/test-policy.sh
   node scripts/controller/test-contract-schema.js
   node scripts/controller/test-render-flatcar-ignition.js
+  node scripts/controller/test-stage-flatcar-image.js
   node scripts/controller/test-proxmox-package-manifest.js
   node scripts/controller/test-proxmox-nix-projection.js
   python3 scripts/controller/test-vfio-recover.py

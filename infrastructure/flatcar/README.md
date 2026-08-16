@@ -15,6 +15,18 @@ The authoritative pins are in [`infrastructure/contract/home-lab.yml`](../contra
 
 Every fetched executable or image must match its contract digest before it can be staged. A newer Stable release requires a separate reviewed contract change and a fresh qualification cycle.
 
+## Image staging
+
+[`scripts/stage-flatcar-image`](../../scripts/stage-flatcar-image) is the only approved image download path. `check` is read-only and reports `absent` or `verified`. `stage` requires root, a physical Proxmox console, the exact confirmation, an exclusive host lock, an empty target, and the pinned SHA-512. It downloads to a private pending file and publishes by hard link only after verification. It never invokes `qm`, `pvesm`, or `pvesh`, and therefore cannot create, import, attach, resize, or boot a disk.
+
+```bash
+scripts/stage-flatcar-image check
+export HOME_LAB_FLATCAR_STAGE_CONFIRMED=stage-reviewed-flatcar-4593.2.5-image
+scripts/stage-flatcar-image stage
+```
+
+A divergent target or interrupted pending file is a stop condition and is never replaced automatically.
+
 ## Disk and boot topology
 
 Qualification uses the existing VM 100 hardware identity so networking, PCI passthrough, USB passthrough, firmware, CPU, memory, and QEMU machine type remain identical:
