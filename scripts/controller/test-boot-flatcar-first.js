@@ -41,6 +41,8 @@ assert.match(script, /console_sha256/);
 assert.match(script, /first-boot-attempt\.json/);
 assert.match(script, /first-boot-restore\.json/);
 assert.match(script, /wait_for_agent 600/);
+assert.match(script, /wait_for_ping 180/);
+assert.match(script, /wait_for_ssh_port 180/);
 assert.match(script, /force-stop-candidate/);
 assert.match(script, /\[\[ \$\(os_id\) == flatcar \]\]/);
 assert.match(script, /restore_arch \|\| true/);

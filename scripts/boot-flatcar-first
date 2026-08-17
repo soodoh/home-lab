@@ -56,6 +56,24 @@ wait_for_agent() {
   return 1
 }
 
+wait_for_ping() {
+  local timeout=$1
+  for ((second = 0; second < timeout; second += 3)); do
+    ping -c 1 -W 2 "$FLATCAR_IP" >/dev/null 2>&1 && return 0
+    sleep 3
+  done
+  return 1
+}
+
+wait_for_ssh_port() {
+  local timeout=$1
+  for ((second = 0; second < timeout; second += 3)); do
+    nc -z -w 3 "$FLATCAR_IP" 22 >/dev/null 2>&1 && return 0
+    sleep 3
+  done
+  return 1
+}
+
 os_id() {
   qm guest cmd "$VMID" get-osinfo 2>/dev/null | jq -er '.id'
 }
@@ -331,8 +349,8 @@ wait_for_agent 600
 stage=verify-flatcar-identity
 [[ $(os_id) == flatcar ]]
 stage=verify-flatcar-network
-ping -c 1 -W 2 "$FLATCAR_IP" >/dev/null
-nc -z -w 3 "$FLATCAR_IP" 22
+wait_for_ping 180
+wait_for_ssh_port 180
 stage=verify-flatcar-boot-order
 [[ $(qm config "$VMID" | awk -F ': ' '$1 == "boot" { print $2 }') == "$FLATCAR_BOOT" ]]
 stop_console_capture
