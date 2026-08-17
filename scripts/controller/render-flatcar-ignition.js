@@ -157,7 +157,7 @@ function buildButaneConfig(contract, inputs) {
       `SUBSYSTEM==\"tty\", ATTRS{idVendor}==\"10c4\", ATTRS{idProduct}==\"ea60\", ATTRS{serial}==\"${inputs.zwaveSerial}\", SYMLINK+=\"zwave\", GROUP=\"uucp\", MODE=\"0660\"\n`),
     inlineFile("/etc/ssh/sshd_config.d/40-home-lab.conf", 0o600,
       "PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\nAllowTcpForwarding no\nX11Forwarding no\n"),
-    inlineFile("/etc/flatcar/update.conf", 0o644, "GROUP=stable\nREBOOT_STRATEGY=off\n"),
+    inlineFile("/etc/flatcar/update.conf", 0o644, "GROUP=stable\nREBOOT_STRATEGY=off\n", { overwrite: true }),
     inlineFile("/etc/docker-compose/production.env", 0o600, inputs.runtimeEnvironment),
     inlineFile("/usr/local/sbin/home-lab-install-runtime-tools", 0o700, `${installerScript}\n`),
     ...inputs.composeFiles.map((entry) => inlineFile(path.posix.join(composeRoot, entry.relative.split(path.sep).join("/")), entry.mode, entry.content)),

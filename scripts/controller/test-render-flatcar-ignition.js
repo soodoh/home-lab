@@ -39,6 +39,7 @@ assert.match(unitByName.get("home-lab-compose.service").contents, /RequiresMount
 
 const fileByPath = new Map(config.storage.files.map((file) => [file.path, file]));
 assert.equal(fileByPath.get("/etc/hostname").overwrite, true);
+assert.equal(fileByPath.get("/etc/flatcar/update.conf").overwrite, true);
 assert.equal(fileByPath.get("/etc/docker-compose/production.env").mode, 0o600);
 assert.equal(fileByPath.get("/etc/docker-compose/production.env").contents.inline, inputs.runtimeEnvironment);
 const installer = fileByPath.get("/usr/local/sbin/home-lab-install-runtime-tools");
