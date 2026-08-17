@@ -407,6 +407,49 @@
         "unavailable"
       ]
     },
+    "flatcarDiagnostics": {
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "pattern": "^[a-z0-9-]+$",
+                "type": "string"
+              },
+              "value": {
+                "maxLength": 512,
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "unexpectedCount": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "records",
+        "unexpectedCount"
+      ],
+      "type": "object"
+    },
     "summary": {
       "additionalProperties": false,
       "properties": {
@@ -451,6 +494,9 @@
         },
         "auditAbsence": {
           "$ref": "#/$defs/auditAbsence"
+        },
+        "flatcarDiagnostics": {
+          "$ref": "#/$defs/flatcarDiagnostics"
         },
         "health": {
           "$ref": "#/$defs/summary"
@@ -498,6 +544,7 @@
       "required": [
         "accounts",
         "auditAbsence",
+        "flatcarDiagnostics",
         "health",
         "managedArtifacts",
         "managedFiles",

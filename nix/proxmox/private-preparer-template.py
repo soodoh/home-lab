@@ -37,9 +37,9 @@ ENV = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin
 DOMAIN_ORDER = {name: index for index, name in enumerate(("identity", "managed-artifacts", "managed-files",
     "managed-fragments", "packages", "accounts", "services", "tailscale", "pve-access", "pve-storage",
     "storage", "pve-firewall", "health", "audit-absence", "protected-access", "opentofu", "protected-hardware"))}
-OBSERVED_DOMAINS = {"accounts", "auditAbsence", "health", "managedArtifacts", "managedFiles", "managedFragments",
-    "packages", "protectedAccess", "protectedHardware", "pveAccess", "pveFirewall", "pveStorage", "services",
-    "storage", "tailscale", "vm"}
+OBSERVED_DOMAINS = {"accounts", "auditAbsence", "flatcarDiagnostics", "health", "managedArtifacts", "managedFiles",
+    "managedFragments", "packages", "protectedAccess", "protectedHardware", "pveAccess", "pveFirewall", "pveStorage",
+    "services", "storage", "tailscale", "vm"}
 
 
 def canonical(value):
