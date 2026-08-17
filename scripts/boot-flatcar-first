@@ -140,14 +140,13 @@ capture_vga() {
   qmp_output=$(
     printf '%s\n%s\n' \
       '{"execute":"qmp_capabilities"}' \
-      "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$QMP_VGA\",\"format\":\"ppm\"}}" |
+      "{\"execute\":\"human-monitor-command\",\"arguments\":{\"command-line\":\"screendump $QMP_VGA\"}}" |
       timeout 5 socat - "UNIX-CONNECT:/run/qemu-server/$VMID.qmp"
   )
   printf '%s\n' "$qmp_output" > "$QMP_LOG"
   chown root:root "$QMP_LOG"
   chmod 0600 "$QMP_LOG"
-  jq -se '([.[] | select(has("error"))] | length) == 0 and ([.[] | select(.return? == {})] | length) >= 2' \
-    <<< "$qmp_output" >/dev/null
+  jq -se 'length >= 3 and ([.[] | select(has("error"))] | length) == 0' <<< "$qmp_output" >/dev/null
   [[ -f $QMP_VGA && ! -L $QMP_VGA ]] || return 1
   convert "$QMP_VGA" "$VGA_LOG"
   rm -f -- "$QMP_VGA"
@@ -200,17 +199,13 @@ restore_arch() {
   qm set "$VMID" --boot "$ARCH_BOOT" --vga none || restored=false
   if [[ $restored == true ]]; then
     restore_stage=start-arch
-    if ! start_without_lock_inheritance; then
-      if wait_for_status running 60; then
-        acquire_transition_locks || restored=false
-      else
-        restored=false
-      fi
-    fi
-  fi
-  if [[ $restored == true ]]; then
+    start_without_lock_inheritance || true
     restore_stage=wait-arch-running
-    wait_for_status running 30 || restored=false
+    if wait_for_status running 120; then
+      acquire_transition_locks || restored=false
+    else
+      restored=false
+    fi
   fi
   if [[ $restored == true ]]; then
     restore_stage=wait-arch-agent
