@@ -170,11 +170,16 @@ def validate_observation(value: Any) -> None:
     host = exact_object(value["host"], {"architecture", "hostname", "kernel", "os", "pveVersion"}, "host")
     if any(not valid_nonempty_string(item) or PROTECTED_VALUE.search(item) for item in host.values()):
         raise ValueError("host contains invalid or protected data")
-    domains = exact_object(value["domains"], {
+    domain_names = {
         "accounts", "auditAbsence", "flatcarDiagnostics", "health", "managedArtifacts", "managedFiles", "managedFragments",
         "packages", "protectedAccess", "protectedHardware", "pveAccess", "pveFirewall", "pveStorage", "services", "storage",
         "tailscale", "vm",
-    }, "domains")
+    }
+    domains = value["domains"]
+    if isinstance(domains, dict) and set(domains) == domain_names - {"flatcarDiagnostics"}:
+        domains["flatcarDiagnostics"] = {"records": [], "status": "unavailable", "unexpectedCount": None}
+    else:
+        domains = exact_object(domains, domain_names, "domains")
     file_types = {"file", "symlink", "other", "absent"}
     mode = lambda item: isinstance(item, str) and re.fullmatch(r"0[0-7]{3}", item) is not None
     boolean = lambda item: isinstance(item, bool)
