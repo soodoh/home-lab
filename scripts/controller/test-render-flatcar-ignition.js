@@ -38,6 +38,7 @@ assert.match(unitByName.get("mnt-games.mount").contents, new RegExp(contract.vm_
 assert.match(unitByName.get("home-lab-compose.service").contents, /RequiresMountsFor=\/srv\/home-lab-state \/mnt\/games \/mnt\/storage/);
 
 const fileByPath = new Map(config.storage.files.map((file) => [file.path, file]));
+assert.equal(config.storage.files.every((file) => file.overwrite === true), true);
 assert.equal(fileByPath.get("/etc/hostname").overwrite, true);
 assert.equal(fileByPath.get("/etc/flatcar/update.conf").overwrite, true);
 assert.equal(fileByPath.get("/etc/docker-compose/production.env").mode, 0o600);

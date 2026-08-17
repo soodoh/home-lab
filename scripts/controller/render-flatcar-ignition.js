@@ -87,7 +87,7 @@ function inlineFile(filePath, mode, inline, options = {}) {
     mode,
     ...(options.userId === undefined ? {} : { user: { id: options.userId } }),
     ...(options.groupId === undefined ? {} : { group: { id: options.groupId } }),
-    ...(options.overwrite === undefined ? {} : { overwrite: options.overwrite }),
+    overwrite: options.overwrite ?? true,
     contents: { inline },
   };
 }
