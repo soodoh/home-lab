@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euo pipefail
+set -Eeuo pipefail
 
 readonly VMID=100
 readonly FLATCAR_IP=192.168.0.100
@@ -133,8 +133,15 @@ stop_console_capture() {
 }
 
 capture_vga() {
+  local qmp_output
   rm -f -- "$VGA_LOG"
-  printf 'screendump %s -f png\nquit\n' "$VGA_LOG" | qm monitor "$VMID" >/dev/null
+  qmp_output=$(
+    printf '%s\n%s\n' \
+      '{"execute":"qmp_capabilities"}' \
+      "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$VGA_LOG\",\"format\":\"png\"}}" |
+      timeout 5 socat - "UNIX-CONNECT:/run/qemu-server/$VMID.qmp"
+  )
+  jq -se 'length == 3 and .[1].return == {} and .[2].return == {}' <<< "$qmp_output" >/dev/null
   [[ -f $VGA_LOG && ! -L $VGA_LOG ]] || return 1
   chown root:root "$VGA_LOG"
   chmod 0600 "$VGA_LOG"
