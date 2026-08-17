@@ -151,7 +151,7 @@
           "properties": {
             "version": { "const": "3.4.0" },
             "sha256": { "$ref": "#/$defs/sha256" },
-            "size": { "const": 75511 }
+            "size": { "const": 75538 }
           }
         },
         "os_disk": {

@@ -38,6 +38,7 @@ assert.match(unitByName.get("mnt-games.mount").contents, new RegExp(contract.vm_
 assert.match(unitByName.get("home-lab-compose.service").contents, /RequiresMountsFor=\/srv\/home-lab-state \/mnt\/games \/mnt\/storage/);
 
 const fileByPath = new Map(config.storage.files.map((file) => [file.path, file]));
+assert.equal(fileByPath.get("/etc/hostname").overwrite, true);
 assert.equal(fileByPath.get("/etc/docker-compose/production.env").mode, 0o600);
 assert.equal(fileByPath.get("/etc/docker-compose/production.env").contents.inline, inputs.runtimeEnvironment);
 const installer = fileByPath.get("/usr/local/sbin/home-lab-install-runtime-tools");

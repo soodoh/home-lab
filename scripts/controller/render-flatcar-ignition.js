@@ -87,6 +87,7 @@ function inlineFile(filePath, mode, inline, options = {}) {
     mode,
     ...(options.userId === undefined ? {} : { user: { id: options.userId } }),
     ...(options.groupId === undefined ? {} : { group: { id: options.groupId } }),
+    ...(options.overwrite === undefined ? {} : { overwrite: options.overwrite }),
     contents: { inline },
   };
 }
@@ -142,7 +143,7 @@ function buildButaneConfig(contract, inputs) {
     "",
   ].join("\n");
   const files = [
-    inlineFile("/etc/hostname", 0o644, `${vm.network_identity}\n`),
+    inlineFile("/etc/hostname", 0o644, `${vm.network_identity}\n`, { overwrite: true }),
     inlineFile("/etc/systemd/network/10-home-lab.network", 0o644,
       `[Match]\nName=${flatcar.network_interface}\nMACAddress=${vm.networking.match_mac}\n\n[Network]\nAddress=${vm.networking.ipv4}\nGateway=${vm.networking.gateway}\nDNS=${vm.networking.dns.join(" ")}\nDHCP=no\nIPv6AcceptRA=no\n`),
     inlineFile("/etc/modules-load.d/home-lab-hardware.conf", 0o644, `${vm.hardware.kernel_modules.join("\n")}\n`),

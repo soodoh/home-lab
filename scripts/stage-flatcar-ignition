@@ -2,8 +2,10 @@
 set -euo pipefail
 
 readonly IGNITION_VERSION=3.4.0
-readonly EXPECTED_SHA256=1692e64326aea991fbb2fa4a037c9f70ad5a0fce519d62846afc9638cd8d2786
-readonly EXPECTED_SIZE=75511
+readonly EXPECTED_SHA256=28b483e3ecb82e9b16bb0f6cee7c4331fd45e47fd85d3492d5492b13c615a0d4
+readonly EXPECTED_SIZE=75538
+readonly PREVIOUS_SHA256=1692e64326aea991fbb2fa4a037c9f70ad5a0fce519d62846afc9638cd8d2786
+readonly PREVIOUS_SIZE=75511
 readonly STORAGE_PARENT=/var/lib/vz
 readonly STORAGE_ROOT=$STORAGE_PARENT/snippets
 readonly TARGET=$STORAGE_ROOT/vm-100-flatcar.ign
@@ -91,7 +93,15 @@ if inspect_target >/dev/null 2>&1; then
   inspect_target
   exit 0
 fi
-[[ ! -e $TARGET && ! -L $TARGET ]] || fail "Ignition target is divergent"
+
+replacement=false
+if [[ -e $TARGET || -L $TARGET ]]; then
+  [[ -f $TARGET && ! -L $TARGET ]] || fail "Ignition target is not a regular non-symlink file"
+  [[ $(stat -c %U:%G:%a:%s "$TARGET") == root:root:600:$PREVIOUS_SIZE ]] || fail "existing Ignition metadata is not the exact replaceable revision"
+  previous_actual=$(sha256sum "$TARGET" | awk '{print $1}')
+  [[ $previous_actual == "$PREVIOUS_SHA256" ]] || fail "existing Ignition digest is not the exact replaceable revision"
+  replacement=true
+fi
 
 cleanup() {
   rm -f -- "$PENDING"
@@ -106,8 +116,12 @@ actual=$(sha256sum "$PENDING" | awk '{print $1}')
 validate_ignition "$PENDING"
 chown root:root "$PENDING"
 chmod 0600 "$PENDING"
-ln "$PENDING" "$TARGET"
-rm "$PENDING"
+if [[ $replacement == true ]]; then
+  mv -f -- "$PENDING" "$TARGET"
+else
+  ln "$PENDING" "$TARGET"
+  rm "$PENDING"
+fi
 sync -f "$STORAGE_ROOT"
 trap - EXIT
 inspect_target
