@@ -17,6 +17,8 @@ readonly CONSOLE_LOG=$DIAGNOSTIC_ROOT/first-boot-console.log
 readonly ATTEMPT_LOG=$DIAGNOSTIC_ROOT/first-boot-attempt.json
 readonly RESTORE_LOG=$DIAGNOSTIC_ROOT/first-boot-restore.json
 readonly VGA_LOG=$DIAGNOSTIC_ROOT/first-boot-vga.png
+readonly QMP_LOG=$DIAGNOSTIC_ROOT/first-boot-qmp.jsonl
+readonly QMP_VGA=/run/qemu-server/100-flatcar-vga.png
 readonly SERIAL_SOCKET=/var/run/qemu-server/100.serial0
 readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -82,10 +84,10 @@ start_with_recovery() {
   if qm start "$VMID"; then
     return 0
   fi
-  [[ $(vm_status) == running ]] && return 0
+  wait_for_status running 15 && return 0
   [[ $(vm_status) == stopped ]] || return 1
   /usr/local/sbin/home-lab-vfio-recover recover --confirm "$VFIO_CONFIRMATION"
-  qm start "$VMID" || [[ $(vm_status) == running ]]
+  qm start "$VMID" || wait_for_status running 15
 }
 
 start_without_lock_inheritance() {
@@ -134,17 +136,21 @@ stop_console_capture() {
 
 capture_vga() {
   local qmp_output
-  rm -f -- "$VGA_LOG"
+  rm -f -- "$VGA_LOG" "$QMP_LOG" "$QMP_VGA"
   qmp_output=$(
     printf '%s\n%s\n' \
       '{"execute":"qmp_capabilities"}' \
-      "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$VGA_LOG\",\"format\":\"png\"}}" |
+      "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$QMP_VGA\",\"format\":\"png\"}}" |
       timeout 5 socat - "UNIX-CONNECT:/run/qemu-server/$VMID.qmp"
   )
-  jq -se 'length == 3 and .[1].return == {} and .[2].return == {}' <<< "$qmp_output" >/dev/null
-  [[ -f $VGA_LOG && ! -L $VGA_LOG ]] || return 1
-  chown root:root "$VGA_LOG"
-  chmod 0600 "$VGA_LOG"
+  printf '%s\n' "$qmp_output" > "$QMP_LOG"
+  chown root:root "$QMP_LOG"
+  chmod 0600 "$QMP_LOG"
+  jq -se '([.[] | select(has("error"))] | length) == 0 and ([.[] | select(.return? == {})] | length) >= 2' \
+    <<< "$qmp_output" >/dev/null
+  [[ -f $QMP_VGA && ! -L $QMP_VGA ]] || return 1
+  install -o root -g root -m 0600 "$QMP_VGA" "$VGA_LOG"
+  rm -f -- "$QMP_VGA"
 }
 
 write_diagnostic_json() {
@@ -257,7 +263,7 @@ qm config "$VMID" > "$before"
 ! grep -Eq '^unused[0-9]+:' "$before" || { fail "an unused disk requires reconciliation"; exit 1; }
 install -d -o root -g root -m 0700 "$DIAGNOSTIC_ROOT"
 install -o root -g root -m 0600 /dev/null "$CONSOLE_LOG"
-rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG" "$VGA_LOG"
+rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG" "$VGA_LOG" "$QMP_LOG" "$QMP_VGA"
 
 transition_started=false
 console_pid=
