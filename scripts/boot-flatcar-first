@@ -8,6 +8,8 @@ readonly FLATCAR_BOOT='order=scsi3;scsi0;net0'
 readonly EFFECTIVE_SCSI3='local-lvm:vm-100-disk-2,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=HOME-LAB-FLATCAR-64G,size=64G,ssd=0'
 readonly EFFECTIVE_IDE2='local-lvm:vm-100-cloudinit,media=cdrom'
 readonly CICUSTOM='user=local:snippets/vm-100-flatcar.ign'
+readonly IGNITION_SHA256=28b483e3ecb82e9b16bb0f6cee7c4331fd45e47fd85d3492d5492b13c615a0d4
+readonly IGNITION_SIZE=75538
 readonly CONFIRMATION=boot-reviewed-vm-100-flatcar-inert
 readonly VGA_DIAGNOSTIC_CONFIRMATION=diagnose-reviewed-vm-100-flatcar-vga
 readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
@@ -56,6 +58,18 @@ wait_for_agent() {
 
 os_id() {
   qm guest cmd "$VMID" get-osinfo 2>/dev/null | jq -er '.id'
+}
+
+verify_cloudinit_payload() {
+  local payload volume_path valid=true
+  payload=$(mktemp --tmpdir=/run home-lab-flatcar-cloudinit.XXXXXX)
+  chmod 0600 "$payload"
+  volume_path=$(pvesm path local-lvm:vm-100-cloudinit)
+  isoinfo -i "$volume_path" -x '/USER_DATA.;1' > "$payload" || valid=false
+  [[ $(stat -c %s "$payload") -eq $IGNITION_SIZE ]] || valid=false
+  [[ $(sha256sum "$payload" | awk '{print $1}') == "$IGNITION_SHA256" ]] || valid=false
+  rm -f -- "$payload"
+  [[ $valid == true ]]
 }
 
 acquire_transition_locks() {
@@ -291,6 +305,9 @@ stage=shutdown-arch
 qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || true
 wait_for_status stopped 180
 transition_started=true
+stage=update-flatcar-ignition-drive
+qm cloudinit update "$VMID"
+verify_cloudinit_payload
 stage=set-flatcar-boot
 if [[ $diagnostic_mode == true ]]; then
   qm set "$VMID" --boot "$FLATCAR_BOOT" --vga std

@@ -20,6 +20,10 @@ assert.ok(script.includes(`readonly FLATCAR_BOOT='order=${disk.qualification_boo
 assert.ok(script.includes("readonly ARCH_BOOT='order=scsi0;net0'"));
 assert.ok(script.includes("readonly CONFIRMATION=boot-reviewed-vm-100-flatcar-inert"));
 assert.ok(script.includes("readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14"));
+assert.ok(script.includes(`readonly IGNITION_SHA256=${contract.flatcar.production_ignition.sha256}`));
+assert.ok(script.includes(`readonly IGNITION_SIZE=${contract.flatcar.production_ignition.size}`));
+assert.match(script, /qm cloudinit update "\$VMID"/);
+assert.match(script, /isoinfo -i "\$volume_path" -x '\/USER_DATA\.;1'/);
 assert.match(script, /ps -o tty= -p "\$\$"/);
 assert.match(script, /qm guest cmd "\$VMID" shutdown/);
 assert.match(script, /wait_for_status stopped 180\ntransition_started=true/);
