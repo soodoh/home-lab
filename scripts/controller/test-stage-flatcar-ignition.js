@@ -9,6 +9,7 @@ const { load } = require("js-yaml");
 const root = path.resolve(__dirname, "../..");
 const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/home-lab.yml"), "utf8"));
 const script = fs.readFileSync(path.join(root, "scripts/stage-flatcar-ignition"), "utf8");
+const runner = fs.readFileSync(path.join(root, "scripts/run-flatcar-ignition-stage"), "utf8");
 const expected = contract.flatcar.production_ignition;
 const target = contract.flatcar.os_disk.snippet_path;
 
@@ -31,5 +32,7 @@ assert.match(script, /refusing replacement/);
 assert.doesNotMatch(script, /\b(qm|pvesm|pvesh)\b|\/sys\/|\/dev\/disk|scsi[0-9]/);
 assert.doesNotMatch(script, /rm[^\n]*"\$TARGET"/);
 assert.doesNotMatch(script, /cat "?\$PENDING|jq .*\$PENDING|echo .*\$PENDING/);
+assert.ok(runner.includes("HOME_LAB_FLATCAR_IGNITION_CONFIRMED=stage-reviewed-vm-100-flatcar-ignition"));
+assert.match(runner, /exec "\$root\/scripts\/stage-flatcar-ignition" stage/);
 
 process.stdout.write("flatcar Ignition staging tests passed\n");
