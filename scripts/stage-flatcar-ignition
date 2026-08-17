@@ -89,17 +89,17 @@ fi
 require_storage
 [[ ! -e $PENDING && ! -L $PENDING ]] || fail "a pending Ignition file requires manual reconciliation"
 
-if inspect_target >/dev/null 2>&1; then
-  inspect_target
-  exit 0
-fi
-
 replacement=false
 if [[ -e $TARGET || -L $TARGET ]]; then
   [[ -f $TARGET && ! -L $TARGET ]] || fail "Ignition target is not a regular non-symlink file"
-  [[ $(stat -c %U:%G:%a:%s "$TARGET") == root:root:600:$PREVIOUS_SIZE ]] || fail "existing Ignition metadata is not the exact replaceable revision"
-  previous_actual=$(sha256sum "$TARGET" | awk '{print $1}')
-  [[ $previous_actual == "$PREVIOUS_SHA256" ]] || fail "existing Ignition digest is not the exact replaceable revision"
+  existing_metadata=$(stat -c %U:%G:%a:%s "$TARGET")
+  existing_actual=$(sha256sum "$TARGET" | awk '{print $1}')
+  if [[ $existing_metadata == root:root:600:$EXPECTED_SIZE && $existing_actual == "$EXPECTED_SHA256" ]]; then
+    emit verified
+    exit 0
+  fi
+  [[ $existing_metadata == root:root:600:$PREVIOUS_SIZE ]] || fail "existing Ignition metadata is not the exact replaceable revision"
+  [[ $existing_actual == "$PREVIOUS_SHA256" ]] || fail "existing Ignition digest is not the exact replaceable revision"
   replacement=true
 fi
 
