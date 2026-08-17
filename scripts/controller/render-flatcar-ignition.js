@@ -159,7 +159,7 @@ function buildButaneConfig(contract, inputs) {
       "PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\nAllowTcpForwarding no\nX11Forwarding no\n"),
     inlineFile("/etc/flatcar/update.conf", 0o644, "GROUP=stable\nREBOOT_STRATEGY=off\n", { overwrite: true }),
     inlineFile("/etc/docker-compose/production.env", 0o600, inputs.runtimeEnvironment),
-    inlineFile("/usr/local/sbin/home-lab-install-runtime-tools", 0o700, `${installerScript}\n`),
+    inlineFile("/opt/bin/home-lab-install-runtime-tools", 0o700, `${installerScript}\n`),
     ...inputs.composeFiles.map((entry) => inlineFile(path.posix.join(composeRoot, entry.relative.split(path.sep).join("/")), entry.mode, entry.content)),
   ];
 
@@ -196,7 +196,7 @@ function buildButaneConfig(contract, inputs) {
     type: vm.storage.shared.filesystem,
     options: vm.storage.shared.options,
   });
-  const runtimeToolsUnit = `[Unit]\nDescription=Install verified home lab runtime tools\nAfter=network-online.target\nWants=network-online.target\nBefore=tailscaled.service home-lab-compose.service\n\n[Service]\nType=oneshot\nExecStart=/usr/local/sbin/home-lab-install-runtime-tools\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n`;
+  const runtimeToolsUnit = `[Unit]\nDescription=Install verified home lab runtime tools\nAfter=network-online.target\nWants=network-online.target\nBefore=tailscaled.service home-lab-compose.service\n\n[Service]\nType=oneshot\nExecStart=/opt/bin/home-lab-install-runtime-tools\nRemainAfterExit=yes\n\n[Install]\nWantedBy=multi-user.target\n`;
   const composeUnit = `[Unit]\nDescription=Home lab Docker Compose stack\nRequires=docker.service home-lab-runtime-tools.service\nAfter=docker.service home-lab-runtime-tools.service network-online.target srv-home\\x2dlab\\x2dstate.mount mnt-games.mount mnt-storage.mount\nWants=network-online.target\nRequiresMountsFor=${stateDisk.mountpoint} ${vm.storage.games.mountpoint} ${vm.storage.shared.mountpoint}\nConditionPathIsMountPoint=${stateDisk.mountpoint}\nConditionPathIsMountPoint=${vm.storage.games.mountpoint}\nConditionPathIsMountPoint=${vm.storage.shared.mountpoint}\n\n[Service]\nType=oneshot\nRemainAfterExit=yes\nWorkingDirectory=${composeRoot}\nExecStartPre=/opt/bin/docker-compose --project-directory ${composeRoot} --env-file /etc/docker-compose/production.env -f ${composeRoot}/docker-compose.yml config --quiet\nExecStartPre=/opt/bin/docker-compose --project-directory ${composeRoot} --env-file /etc/docker-compose/production.env -f ${composeRoot}/docker-compose.yml pull --quiet\nExecStart=/opt/bin/docker-compose --project-directory ${composeRoot} --env-file /etc/docker-compose/production.env -f ${composeRoot}/docker-compose.yml up --detach --no-build --remove-orphans\nExecStop=/opt/bin/docker-compose --project-directory ${composeRoot} --env-file /etc/docker-compose/production.env -f ${composeRoot}/docker-compose.yml stop --timeout 60\nTimeoutStartSec=0\nTimeoutStopSec=180\n\n[Install]\nWantedBy=multi-user.target\n`;
   const tailscaleUnit = `[Unit]\nDescription=Tailscale node agent\nRequires=home-lab-runtime-tools.service\nAfter=home-lab-runtime-tools.service network-online.target\nWants=network-online.target\n\n[Service]\nType=notify\nExecStartPre=/usr/bin/mkdir -p /var/lib/tailscale\nExecStart=/opt/bin/tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/run/tailscale/tailscaled.sock\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n`;
 

@@ -1138,8 +1138,8 @@ flatcar:
   network_interface: ens18
   production_ignition:
     version: 3.4.0
-    sha256: 55c4f9f09369473790cd39a24ba78111afd4e35f3ff0a70df0c9d82ac4c4583f
-    size: 75565
+    sha256: ee1cef8a8cc5243feeee60242b9c08a68cd565757c83bb76b0ea861c8acbb9d6
+    size: 75551
   os_disk:
     datastore: local-lvm
     path_in_datastore: vm-100-disk-2
