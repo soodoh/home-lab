@@ -9,12 +9,14 @@ readonly EFFECTIVE_SCSI3='local-lvm:vm-100-disk-2,backup=1,cache=none,discard=ig
 readonly EFFECTIVE_IDE2='local-lvm:vm-100-cloudinit,media=cdrom'
 readonly CICUSTOM='user=local:snippets/vm-100-flatcar.ign'
 readonly CONFIRMATION=boot-reviewed-vm-100-flatcar-inert
+readonly VGA_DIAGNOSTIC_CONFIRMATION=diagnose-reviewed-vm-100-flatcar-vga
 readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
 readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
 readonly DIAGNOSTIC_ROOT=/var/lib/home-lab/flatcar
 readonly CONSOLE_LOG=$DIAGNOSTIC_ROOT/first-boot-console.log
 readonly ATTEMPT_LOG=$DIAGNOSTIC_ROOT/first-boot-attempt.json
 readonly RESTORE_LOG=$DIAGNOSTIC_ROOT/first-boot-restore.json
+readonly VGA_LOG=$DIAGNOSTIC_ROOT/first-boot-vga.png
 readonly SERIAL_SOCKET=/var/run/qemu-server/100.serial0
 readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -80,9 +82,10 @@ start_with_recovery() {
   if qm start "$VMID"; then
     return 0
   fi
+  [[ $(vm_status) == running ]] && return 0
   [[ $(vm_status) == stopped ]] || return 1
   /usr/local/sbin/home-lab-vfio-recover recover --confirm "$VFIO_CONFIRMATION"
-  qm start "$VMID"
+  qm start "$VMID" || [[ $(vm_status) == running ]]
 }
 
 start_without_lock_inheritance() {
@@ -129,6 +132,14 @@ stop_console_capture() {
   fi
 }
 
+capture_vga() {
+  rm -f -- "$VGA_LOG"
+  printf 'screendump %s -f png\nquit\n' "$VGA_LOG" | qm monitor "$VMID" >/dev/null
+  [[ -f $VGA_LOG && ! -L $VGA_LOG ]] || return 1
+  chown root:root "$VGA_LOG"
+  chmod 0600 "$VGA_LOG"
+}
+
 write_diagnostic_json() {
   local target=$1 state=$2 detail_stage=$3 ping_state=$4 ssh_state=$5 agent_state=$6 console_sha=$7
   local temporary
@@ -170,7 +181,7 @@ restore_arch() {
   restore_stage=wait-candidate-stopped
   wait_for_status stopped 30 || restored=false
   restore_stage=set-arch-boot
-  qm set "$VMID" --boot "$ARCH_BOOT" || restored=false
+  qm set "$VMID" --boot "$ARCH_BOOT" --vga none || restored=false
   if [[ $restored == true ]]; then
     restore_stage=start-arch
     start_without_lock_inheritance || restored=false
@@ -199,7 +210,12 @@ restore_arch() {
 
 [[ $# -eq 0 ]] || { fail "usage: scripts/boot-flatcar-first"; exit 1; }
 [[ $(id -u) -eq 0 ]] || { fail "Flatcar first boot requires root"; exit 1; }
-[[ ${HOME_LAB_FLATCAR_FIRST_BOOT_CONFIRMED:-} == "$CONFIRMATION" ]] || { fail "exact Flatcar first-boot confirmation is required"; exit 1; }
+diagnostic_mode=false
+case ${HOME_LAB_FLATCAR_FIRST_BOOT_CONFIRMED:-} in
+  "$CONFIRMATION") ;;
+  "$VGA_DIAGNOSTIC_CONFIRMATION") diagnostic_mode=true ;;
+  *) fail "exact Flatcar first-boot confirmation is required"; exit 1 ;;
+esac
 [[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "Flatcar first boot requires a physical Proxmox console"; exit 1; }
 [[ -d $RECONCILIATION_ROOT && ! -L $RECONCILIATION_ROOT ]] || { fail "reconciliation lock root is absent or unsafe"; exit 1; }
 [[ ! -e $RECONCILIATION_ROOT/apply.lock ]] || { fail "a protected Proxmox apply is active"; exit 1; }
@@ -228,12 +244,13 @@ qm config "$VMID" > "$before"
 [[ $(config_value "$before" scsi3) == "$EFFECTIVE_SCSI3" ]] || { fail "effective scsi3 differs"; exit 1; }
 [[ $(config_value "$before" ide2) == "$EFFECTIVE_IDE2" ]] || { fail "effective ide2 differs"; exit 1; }
 [[ $(config_value "$before" cicustom) == "$CICUSTOM" ]] || { fail "effective cicustom differs"; exit 1; }
+[[ $(config_value "$before" vga) == none ]] || { fail "VM 100 VGA configuration differs"; exit 1; }
 [[ $(config_value "$before" protection) == 1 ]] || { fail "VM 100 protection differs"; exit 1; }
 ! config_value "$before" lock >/dev/null 2>&1 || { fail "VM 100 has an active Proxmox configuration lock"; exit 1; }
 ! grep -Eq '^unused[0-9]+:' "$before" || { fail "an unused disk requires reconciliation"; exit 1; }
 install -d -o root -g root -m 0700 "$DIAGNOSTIC_ROOT"
 install -o root -g root -m 0600 /dev/null "$CONSOLE_LOG"
-rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG"
+rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG" "$VGA_LOG"
 
 transition_started=false
 console_pid=
@@ -258,12 +275,23 @@ qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || true
 wait_for_status stopped 180
 transition_started=true
 stage=set-flatcar-boot
-qm set "$VMID" --boot "$FLATCAR_BOOT"
+if [[ $diagnostic_mode == true ]]; then
+  qm set "$VMID" --boot "$FLATCAR_BOOT" --vga std
+else
+  qm set "$VMID" --boot "$FLATCAR_BOOT"
+fi
 stage=start-flatcar
 start_without_lock_inheritance
 wait_for_status running 30
 stage=capture-flatcar-console
 start_console_capture_without_lock_inheritance
+if [[ $diagnostic_mode == true ]]; then
+  stage=wait-vga-diagnostic
+  sleep 120
+  stage=capture-vga-diagnostic
+  capture_vga
+  false
+fi
 stage=wait-flatcar-agent
 wait_for_agent 600
 stage=verify-flatcar-identity
