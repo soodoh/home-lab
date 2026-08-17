@@ -43,6 +43,8 @@ assert.match(script, /first-boot-restore\.json/);
 assert.match(script, /wait_for_agent 600/);
 assert.match(script, /wait_for_ping 180/);
 assert.match(script, /wait_for_ssh_port 180/);
+assert.match(script, /timeout 3 bash -c 'exec 3<>"\/dev\/tcp\/\$1\/22"'/);
+assert.doesNotMatch(script, /\bnc -z\b/);
 assert.match(script, /force-stop-candidate/);
 assert.match(script, /\[\[ \$\(os_id\) == flatcar \]\]/);
 assert.match(script, /restore_arch \|\| true/);

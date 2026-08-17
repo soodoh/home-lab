@@ -65,10 +65,14 @@ wait_for_ping() {
   return 1
 }
 
+ssh_port_reachable() {
+  timeout 3 bash -c 'exec 3<>"/dev/tcp/$1/22"' _ "$FLATCAR_IP" >/dev/null 2>&1
+}
+
 wait_for_ssh_port() {
   local timeout=$1
   for ((second = 0; second < timeout; second += 3)); do
-    nc -z -w 3 "$FLATCAR_IP" 22 >/dev/null 2>&1 && return 0
+    ssh_port_reachable && return 0
     sleep 3
   done
   return 1
@@ -202,7 +206,7 @@ write_diagnostic_json() {
 candidate_diagnostics() {
   local ping_state=unreachable ssh_state=unreachable agent_state=unavailable console_sha=empty
   ping -c 1 -W 2 "$FLATCAR_IP" >/dev/null 2>&1 && ping_state=reachable
-  nc -z -w 3 "$FLATCAR_IP" 22 >/dev/null 2>&1 && ssh_state=reachable
+  ssh_port_reachable && ssh_state=reachable
   qm guest cmd "$VMID" ping >/dev/null 2>&1 && agent_state=ready
   if [[ -s $CONSOLE_LOG ]]; then
     console_sha=$(sha256sum "$CONSOLE_LOG" | awk '{print $1}')
