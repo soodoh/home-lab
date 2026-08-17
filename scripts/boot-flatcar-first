@@ -18,7 +18,7 @@ readonly ATTEMPT_LOG=$DIAGNOSTIC_ROOT/first-boot-attempt.json
 readonly RESTORE_LOG=$DIAGNOSTIC_ROOT/first-boot-restore.json
 readonly VGA_LOG=$DIAGNOSTIC_ROOT/first-boot-vga.png
 readonly QMP_LOG=$DIAGNOSTIC_ROOT/first-boot-qmp.jsonl
-readonly QMP_VGA=/run/qemu-server/100-flatcar-vga.png
+readonly QMP_VGA=/run/qemu-server/100-flatcar-vga.ppm
 readonly SERIAL_SOCKET=/var/run/qemu-server/100.serial0
 readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -140,7 +140,7 @@ capture_vga() {
   qmp_output=$(
     printf '%s\n%s\n' \
       '{"execute":"qmp_capabilities"}' \
-      "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$QMP_VGA\",\"format\":\"png\"}}" |
+      "{\"execute\":\"screendump\",\"arguments\":{\"filename\":\"$QMP_VGA\",\"format\":\"ppm\"}}" |
       timeout 5 socat - "UNIX-CONNECT:/run/qemu-server/$VMID.qmp"
   )
   printf '%s\n' "$qmp_output" > "$QMP_LOG"
@@ -149,8 +149,11 @@ capture_vga() {
   jq -se '([.[] | select(has("error"))] | length) == 0 and ([.[] | select(.return? == {})] | length) >= 2' \
     <<< "$qmp_output" >/dev/null
   [[ -f $QMP_VGA && ! -L $QMP_VGA ]] || return 1
-  install -o root -g root -m 0600 "$QMP_VGA" "$VGA_LOG"
+  convert "$QMP_VGA" "$VGA_LOG"
   rm -f -- "$QMP_VGA"
+  [[ -f $VGA_LOG && ! -L $VGA_LOG ]] || return 1
+  chown root:root "$VGA_LOG"
+  chmod 0600 "$VGA_LOG"
 }
 
 write_diagnostic_json() {
@@ -197,7 +200,13 @@ restore_arch() {
   qm set "$VMID" --boot "$ARCH_BOOT" --vga none || restored=false
   if [[ $restored == true ]]; then
     restore_stage=start-arch
-    start_without_lock_inheritance || restored=false
+    if ! start_without_lock_inheritance; then
+      if wait_for_status running 60; then
+        acquire_transition_locks || restored=false
+      else
+        restored=false
+      fi
+    fi
   fi
   if [[ $restored == true ]]; then
     restore_stage=wait-arch-running
