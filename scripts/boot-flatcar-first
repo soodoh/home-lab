@@ -13,6 +13,8 @@ readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
 readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
 readonly DIAGNOSTIC_ROOT=/var/lib/home-lab/flatcar
 readonly CONSOLE_LOG=$DIAGNOSTIC_ROOT/first-boot-console.log
+readonly ATTEMPT_LOG=$DIAGNOSTIC_ROOT/first-boot-attempt.json
+readonly RESTORE_LOG=$DIAGNOSTIC_ROOT/first-boot-restore.json
 readonly SERIAL_SOCKET=/var/run/qemu-server/100.serial0
 readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -103,7 +105,7 @@ start_console_capture() {
     sleep 1
   done
   [[ -S $SERIAL_SOCKET ]] || return 1
-  timeout 330 socat -u "UNIX-CONNECT:$SERIAL_SOCKET" - > "$CONSOLE_LOG" 2>&1 &
+  timeout 630 socat -u "UNIX-CONNECT:$SERIAL_SOCKET" - > "$CONSOLE_LOG" 2>&1 &
   console_pid=$!
 }
 
@@ -127,43 +129,71 @@ stop_console_capture() {
   fi
 }
 
+write_diagnostic_json() {
+  local target=$1 state=$2 detail_stage=$3 ping_state=$4 ssh_state=$5 agent_state=$6 console_sha=$7
+  local temporary
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .first-boot-diagnostic.XXXXXX)
+  jq -cn --arg agent "$agent_state" --arg consoleSha256 "$console_sha" --arg ping "$ping_state" \
+    --arg ssh "$ssh_state" --arg stage "$detail_stage" --arg state "$state" \
+    '{agent:$agent,consoleSha256:$consoleSha256,ping:$ping,ssh:$ssh,stage:$stage,state:$state,vmid:100}' > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -f -- "$temporary" "$target"
+}
+
 candidate_diagnostics() {
-  local ping_state=unreachable ssh_state=unreachable console_sha=empty
+  local ping_state=unreachable ssh_state=unreachable agent_state=unavailable console_sha=empty
   ping -c 1 -W 2 "$FLATCAR_IP" >/dev/null 2>&1 && ping_state=reachable
   nc -z -w 3 "$FLATCAR_IP" 22 >/dev/null 2>&1 && ssh_state=reachable
+  qm guest cmd "$VMID" ping >/dev/null 2>&1 && agent_state=ready
   if [[ -s $CONSOLE_LOG ]]; then
     console_sha=$(sha256sum "$CONSOLE_LOG" | awk '{print $1}')
   fi
-  printf 'Flatcar diagnostics: stage=%s ping=%s ssh=%s console_log=%s console_sha256=%s\n' \
-    "$stage" "$ping_state" "$ssh_state" "$CONSOLE_LOG" "$console_sha" >&2
+  write_diagnostic_json "$ATTEMPT_LOG" candidate-failed "$stage" "$ping_state" "$ssh_state" "$agent_state" "$console_sha"
+  printf 'Flatcar diagnostics: stage=%s ping=%s ssh=%s agent=%s console_log=%s console_sha256=%s\n' \
+    "$stage" "$ping_state" "$ssh_state" "$agent_state" "$CONSOLE_LOG" "$console_sha" >&2
   if [[ -s $CONSOLE_LOG ]]; then
     grep -Eai 'ignition|failed|failure|error|emergency|dependency' "$CONSOLE_LOG" | tail -40 >&2 || true
   fi
 }
 
 restore_arch() {
-  local restored=true
+  local restored=true restore_stage=shutdown-candidate
   echo "Restoring the Arch boot path" >&2
   if [[ $(vm_status) == running ]]; then
-    if ! qm shutdown "$VMID" --timeout 60; then
+    qm shutdown "$VMID" --timeout 60 || true
+    if ! wait_for_status stopped 90; then
+      restore_stage=force-stop-candidate
       qm stop "$VMID" || restored=false
     fi
   fi
+  restore_stage=wait-candidate-stopped
   wait_for_status stopped 30 || restored=false
+  restore_stage=set-arch-boot
   qm set "$VMID" --boot "$ARCH_BOOT" || restored=false
   if [[ $restored == true ]]; then
+    restore_stage=start-arch
     start_without_lock_inheritance || restored=false
   fi
   if [[ $restored == true ]]; then
+    restore_stage=wait-arch-running
     wait_for_status running 30 || restored=false
-    wait_for_agent 240 || restored=false
+  fi
+  if [[ $restored == true ]]; then
+    restore_stage=wait-arch-agent
+    wait_for_agent 600 || restored=false
+  fi
+  if [[ $restored == true ]]; then
+    restore_stage=verify-arch-identity
     [[ $(os_id) == arch ]] || restored=false
   fi
   if [[ $restored == true ]]; then
+    write_diagnostic_json "$RESTORE_LOG" arch-restored complete reachable reachable ready empty
     echo "Arch production boot path restored" >&2
     return 0
   fi
-  echo "critical: automatic Arch restoration did not complete; remain at the physical console" >&2
+  write_diagnostic_json "$RESTORE_LOG" arch-restore-incomplete "$restore_stage" unknown unknown unknown empty
+  echo "critical: automatic Arch restoration did not complete at stage $restore_stage; remain at the physical console" >&2
   return 1
 }
 
@@ -203,6 +233,7 @@ qm config "$VMID" > "$before"
 ! grep -Eq '^unused[0-9]+:' "$before" || { fail "an unused disk requires reconciliation"; exit 1; }
 install -d -o root -g root -m 0700 "$DIAGNOSTIC_ROOT"
 install -o root -g root -m 0600 /dev/null "$CONSOLE_LOG"
+rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG"
 
 transition_started=false
 console_pid=
@@ -234,7 +265,7 @@ wait_for_status running 30
 stage=capture-flatcar-console
 start_console_capture_without_lock_inheritance
 stage=wait-flatcar-agent
-wait_for_agent 300
+wait_for_agent 600
 stage=verify-flatcar-identity
 [[ $(os_id) == flatcar ]]
 stage=verify-flatcar-network
@@ -245,5 +276,6 @@ stage=verify-flatcar-boot-order
 stop_console_capture
 transition_started=false
 trap - ERR
+write_diagnostic_json "$ATTEMPT_LOG" candidate-ready complete reachable reachable ready "$(sha256sum "$CONSOLE_LOG" | awk '{print $1}')"
 
 printf '{"bootOrder":"scsi3;scsi0;net0","candidate":"flatcar","composeActivation":"disabled","consoleLog":"%s","mountActivation":"disabled","qemuGuestAgent":"ready","state":"inert-first-boot","vmStatus":"running","vmid":%s}\n' "$CONSOLE_LOG" "$VMID"
