@@ -170,16 +170,10 @@ def validate_observation(value: Any) -> None:
     host = exact_object(value["host"], {"architecture", "hostname", "kernel", "os", "pveVersion"}, "host")
     if any(not valid_nonempty_string(item) or PROTECTED_VALUE.search(item) for item in host.values()):
         raise ValueError("host contains invalid or protected data")
-    domain_names = {
-        "accounts", "auditAbsence", "flatcarDiagnostics", "health", "managedArtifacts", "managedFiles", "managedFragments",
-        "packages", "protectedAccess", "protectedHardware", "pveAccess", "pveFirewall", "pveStorage", "services", "storage",
-        "tailscale", "vm",
-    }
-    domains = value["domains"]
-    if isinstance(domains, dict) and set(domains) == domain_names - {"flatcarDiagnostics"}:
-        domains["flatcarDiagnostics"] = {"records": [], "status": "unavailable", "unexpectedCount": None}
-    else:
-        domains = exact_object(domains, domain_names, "domains")
+    domains = exact_object(value["domains"], {
+        "accounts", "auditAbsence", "health", "managedArtifacts", "managedFiles", "managedFragments", "packages",
+        "protectedAccess", "protectedHardware", "pveAccess", "pveFirewall", "pveStorage", "services", "storage", "tailscale", "vm",
+    }, "domains")
     file_types = {"file", "symlink", "other", "absent"}
     mode = lambda item: isinstance(item, str) and re.fullmatch(r"0[0-7]{3}", item) is not None
     boolean = lambda item: isinstance(item, bool)
@@ -197,9 +191,6 @@ def validate_observation(value: Any) -> None:
         lambda r: valid_nonempty_string(r["name"]) and boolean(r["active"]) and boolean(r["enabled"]))
     validate_records_domain(domains["accounts"], {"commentMatches", "exists", "expectedGroupsMatch", "home", "name", "passwordLocked", "primaryGroupMatches", "shell"}, "accounts", "name",
         lambda r: valid_nonempty_string(r["name"]) and valid_safe_path(r["home"]) and valid_safe_path(r["shell"]) and all(boolean(r[k]) for k in ("commentMatches", "exists", "expectedGroupsMatch", "passwordLocked", "primaryGroupMatches")))
-    validate_records_domain(domains["flatcarDiagnostics"], {"name", "value"}, "flatcarDiagnostics", "name",
-        lambda r: valid_nonempty_string(r["name"]) and re.fullmatch(r"[a-z0-9-]+", r["name"]) is not None and
-        valid_nonempty_string(r["value"]) and len(r["value"]) <= 512)
     for name in ("tailscale", "pveAccess", "pveFirewall", "pveStorage", "storage", "health", "vm", "protectedAccess", "protectedHardware"):
         validate_summary(domains[name], name)
 
@@ -462,7 +453,7 @@ def validate_plan(plan: Any, projection: dict[str, Any], manifest: dict[str, Any
             freshness["validUntil"] != format_time(start + dt.timedelta(seconds=freshness["maxAgeSeconds"])):
         raise ValueError("plan freshness binding is invalid")
     observed_state = exact_object(plan["observedState"], {"domainStatuses", "sha256"}, "observedState")
-    expected_status_names = {"accounts", "auditAbsence", "flatcarDiagnostics", "health", "managedArtifacts", "managedFiles",
+    expected_status_names = {"accounts", "auditAbsence", "health", "managedArtifacts", "managedFiles",
                              "managedFragments", "packages", "protectedAccess", "protectedHardware", "pveAccess",
                              "pveFirewall", "pveStorage", "services", "storage", "tailscale", "vm"}
     exact_object(observed_state["domainStatuses"], expected_status_names, "observedState.domainStatuses")

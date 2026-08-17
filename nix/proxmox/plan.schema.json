@@ -258,9 +258,6 @@
             "auditAbsence": {
               "$ref": "#/$defs/status"
             },
-            "flatcarDiagnostics": {
-              "$ref": "#/$defs/status"
-            },
             "health": {
               "$ref": "#/$defs/status"
             },
@@ -307,7 +304,6 @@
           "required": [
             "accounts",
             "auditAbsence",
-            "flatcarDiagnostics",
             "health",
             "managedArtifacts",
             "managedFiles",

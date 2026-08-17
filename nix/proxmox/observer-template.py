@@ -386,52 +386,6 @@ def tailscale_summary():
     return summary("complete", 2, 2, matches)
 
 
-_DIAGNOSTIC_FILTER = re.compile(r"ignition|failed|failure|error|emergency|dependency", re.IGNORECASE)
-_DIAGNOSTIC_REDACTIONS = (
-    (re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", re.IGNORECASE), "<uuid>"),
-    (re.compile(r"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])", re.IGNORECASE), "<digest>"),
-    (re.compile(r"\b[0-9a-f]{2}(?::[0-9a-f]{2}){5}\b", re.IGNORECASE), "<mac>"),
-    (re.compile(r"\b[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7]\b", re.IGNORECASE), "<pci>"),
-    (re.compile(r"\b[0-9a-f]{4}:[0-9a-f]{4}\b", re.IGNORECASE), "<device>"),
-    (re.compile(r"(?:" + "HOME" + r"LAB_[A-Z0-9_]*|PROX" + r"MOX_[A-Z0-9_]*_SSH_PUBLIC_KEYS|TAIL" + r"SCALE_AUTH_KEY)", re.IGNORECASE), "<secret-reference>"),
-)
-
-
-def diagnostic_value(value):
-    text = re.sub(r"[^\x20-\x7e]", "?", str(value))
-    for expression, replacement in _DIAGNOSTIC_REDACTIONS:
-        text = expression.sub(replacement, text)
-    return text[:512] or "empty"
-
-
-def flatcar_diagnostics():
-    path = Path("/var/lib/home-lab/flatcar/first-boot-console.log")
-    try:
-        info = path.lstat()
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or \
-                stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > MAX_COMMAND_BYTES:
-            return records_domain(None)
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    except OSError:
-        return records_domain(None)
-
-    records = [
-        {"name": "console-bytes", "value": str(info.st_size)},
-        {"name": "console-filtered-count", "value": str(sum(1 for line in lines if _DIAGNOSTIC_FILTER.search(line)))},
-    ]
-    filtered = [diagnostic_value(line) for line in lines if _DIAGNOSTIC_FILTER.search(line)][-80:]
-    records.extend({"name": f"console-line-{index:03d}", "value": line} for index, line in enumerate(filtered))
-
-    guest = json_command(("/usr/sbin/qm", "guest", "cmd", "100", "get-osinfo"))
-    for key, name in (("id", "guest-id"), ("pretty-name", "guest-pretty-name"), ("version-id", "guest-version-id")):
-        value = guest.get(key) if isinstance(guest, dict) else None
-        records.append({"name": name, "value": diagnostic_value(value if isinstance(value, (str, int)) else "unavailable")})
-
-    vm_status = run(("/usr/sbin/qm", "status", "100"))
-    records.append({"name": "vm-status", "value": diagnostic_value(vm_status.decode("ascii", "replace").strip() if vm_status else "unavailable")})
-    return records_domain(sorted(records, key=lambda item: item["name"]))
-
-
 def public_summaries():
     options = json_command(("/usr/bin/pvesh", "get", "/cluster/firewall/options", "--output-format", "json"))
     rules = json_command(("/usr/bin/pvesh", "get", "/cluster/firewall/rules", "--output-format", "json"))
@@ -591,8 +545,8 @@ def observe():
         if all(available for _, available in audited) else records_domain(None)
     tailscale, access, firewall, registration, storage, vm, health = public_summaries()
     protected = protected_summaries()
-    value = {"domains": {"accounts": accounts(), "auditAbsence": audit, "flatcarDiagnostics": flatcar_diagnostics(),
-        "health": health, "managedArtifacts": artifacts, "managedFiles": managed, "managedFragments": fragments,
+    value = {"domains": {"accounts": accounts(), "auditAbsence": audit, "health": health,
+        "managedArtifacts": artifacts, "managedFiles": managed, "managedFragments": fragments,
         "packages": packages(), "protectedAccess": protected["protectedAccess"],
         "protectedHardware": protected["protectedHardware"], "pveAccess": access,
         "pveFirewall": firewall, "pveStorage": registration, "services": services(), "storage": storage,
