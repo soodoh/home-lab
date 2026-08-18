@@ -86,6 +86,8 @@ assert.match(script, /modinfo "\$module"/);
 assert.ok(script.includes(`readonly KERNEL_RELEASE=${debian.qualification.kernel_release}`));
 assert.ok(script.includes(debian.qualification.gpu_render_node));
 assert.ok(script.includes(debian.qualification.gpu_vendor_device));
+assert.match(script, /lspci -Dnns 02:00\.0.*\$GPU_VENDOR_DEVICE/);
+assert.match(script, /lspci -Dnns 03:00\.0.*1002:ab30/);
 for (const mount of debian.qualification.protected_mounts) {
   assert.ok(script.includes(mount));
 }

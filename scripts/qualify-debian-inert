@@ -399,7 +399,7 @@ guest_exec_ok 30 /bin/bash -lc "lspci -Dnns 02:00.0 | grep -Fq '$GPU_VENDOR_DEVI
 guest_exec_ok 30 /bin/bash -lc "[[ \$(basename \"\$(readlink -f /sys/bus/pci/devices/0000:02:00.0/driver)\") == amdgpu ]]"
 guest_exec_ok 30 /usr/bin/test -c /dev/dri/renderD128
 guest_exec_ok 60 /bin/bash -lc 'LIBVA_DRIVER_NAME=radeonsi vainfo --display drm --device /dev/dri/renderD128 >/dev/null'
-guest_exec_ok 30 /bin/bash -lc 'lspci -Dnns 02:00.1 | grep -Fq "1002:ab30"'
+guest_exec_ok 30 /bin/bash -lc 'lspci -Dnns 03:00.0 | grep -Fq "1002:ab30"'
 stage=verify-debian-usb
 guest_exec_ok 30 /bin/bash -lc 'lsusb -d 0bda:a729 | grep -q .'
 guest_exec_ok 30 /bin/bash -lc "[[ \$(lsusb -d 10c4:ea60 | wc -l) -eq 2 ]]"
