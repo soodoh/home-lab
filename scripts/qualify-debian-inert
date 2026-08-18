@@ -38,6 +38,7 @@ readonly META_SHA256=e9a68afeaa0e3071a22a01f7b1cd5cf92f88eb9d23b20fd6a9b07a82654
 readonly META_SIZE=75
 readonly CONFIRMATION=qualify-reviewed-vm-100-debian-13-inert
 readonly RESTORE_CONFIRMATION=restore-reviewed-vm-100-arch-after-debian-inert
+readonly PREPARE_CONFIRMATION=prepare-reviewed-vm-100-debian-packages
 readonly PLAN_NOTES_REF=refs/notes/debian-qualification
 readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
 readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
@@ -45,6 +46,7 @@ readonly DIAGNOSTIC_ROOT=/var/lib/home-lab/debian
 readonly CONSOLE_LOG=$DIAGNOSTIC_ROOT/inert-console.log
 readonly ATTEMPT_LOG=$DIAGNOSTIC_ROOT/inert-attempt.json
 readonly RESTORE_LOG=$DIAGNOSTIC_ROOT/inert-restore.json
+readonly PREPARE_LOG=$DIAGNOSTIC_ROOT/packages-prepared.json
 readonly SERIAL_SOCKET=/var/run/qemu-server/100.serial0
 readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -170,11 +172,11 @@ guest_exec_ok() {
 }
 
 verify_arch_post_restore() {
-  guest_exec_ok 60 /bin/bash -lc "[[ \$(docker ps -q | wc -l) -eq 41 ]]"
-  guest_exec_ok 60 /bin/bash -lc "[[ -z \$(docker ps --filter health=unhealthy -q) ]]"
-  guest_exec_ok 60 /bin/bash -lc "docker inspect \$(docker ps -aq) | jq -e '[.[].Mounts[] | select(.Type == \"volume\")] | length == 0' >/dev/null"
-  guest_exec_ok 60 /bin/bash -lc "docker inspect \$(docker ps -aq) | jq -e '[.[].Mounts[] | select(.Type == \"bind\" and (.Source | startswith(\"/srv/home-lab-state/\")))] | length == 115' >/dev/null"
-  guest_exec_ok 30 /bin/bash -lc "source=\$(findmnt -rn -o SOURCE -T /srv/home-lab-state); [[ \$(blkid -s UUID -o value \"\$source\") == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
+  guest_exec_ok 60 /bin/bash -lc "[[ \$(docker ps -q | wc -l) -eq 41 ]]" || return 1
+  guest_exec_ok 60 /bin/bash -lc "[[ -z \$(docker ps --filter health=unhealthy -q) ]]" || return 1
+  guest_exec_ok 60 /bin/bash -lc "docker inspect \$(docker ps -aq) | jq -e '[.[].Mounts[] | select(.Type == \"volume\")] | length == 0' >/dev/null" || return 1
+  guest_exec_ok 60 /bin/bash -lc "docker inspect \$(docker ps -aq) | jq -e '[.[].Mounts[] | select(.Type == \"bind\" and (.Source | startswith(\"/srv/home-lab-state/\")))] | length == 115' >/dev/null" || return 1
+  guest_exec_ok 30 /bin/bash -lc "source=\$(findmnt -rn -o SOURCE -T /srv/home-lab-state); [[ \$(blkid -s UUID -o value \"\$source\") == d4a19647-7879-4079-9fc9-b3e79711b449 ]]" || return 1
 }
 
 wait_for_ping() {
@@ -218,10 +220,12 @@ candidate_diagnostics() {
 [[ $# -eq 0 ]] || { fail "usage: scripts/qualify-debian-inert"; exit 1; }
 [[ $(id -u) -eq 0 ]] || { fail "Debian qualification requires root"; exit 1; }
 restore_mode=false
+prepare_mode=false
 case ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} in
   "$CONFIRMATION") ;;
   "$RESTORE_CONFIRMATION") restore_mode=true ;;
-  *) fail "exact Debian qualification or Arch restore confirmation is required"; exit 1 ;;
+  "$PREPARE_CONFIRMATION") prepare_mode=true ;;
+  *) fail "exact Debian qualification, package preparation, or Arch restore confirmation is required"; exit 1 ;;
 esac
 [[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "Debian qualification requires a physical Proxmox console"; exit 1; }
 [[ -d $RECONCILIATION_ROOT && ! -L $RECONCILIATION_ROOT ]] || { fail "reconciliation lock root is absent or unsafe"; exit 1; }
@@ -274,7 +278,7 @@ before=$(mktemp --tmpdir=/run home-lab-debian-qualification.XXXXXX)
 before_current=$(mktemp --tmpdir=/run home-lab-debian-qualification-current.XXXXXX)
 stopped_config=$(mktemp --tmpdir=/run home-lab-debian-qualification-stopped.XXXXXX)
 cleanup() {
-  rm -f -- "$before" "$before_current" "$stopped_config" "$IMAGE_PATH.pending"
+  rm -f -- "$before" "$before_current" "$stopped_config" "$IMAGE_PATH.pending" "$PREPARE_LOG.pending"
   if [[ -n ${digest_temporary:-} ]]; then
     rm -f -- "$digest_temporary"
   fi
@@ -301,6 +305,12 @@ done
 [[ $(config_value "$before" protection) == 1 ]] || { fail "VM 100 protection differs"; exit 1; }
 ! config_value "$before" lock >/dev/null 2>&1 || { fail "VM 100 has an active Proxmox configuration lock"; exit 1; }
 ! grep -Eq '^unused[0-9]+:' "$before" || { fail "an unused disk requires reconciliation"; exit 1; }
+if [[ $prepare_mode == true ]]; then
+  [[ $(config_value "$before" scsi3) == "$DEBIAN_SCSI3" ]] || { fail "package preparation requires the exact qualified Debian disk"; exit 1; }
+  [[ $(config_value "$before_current" scsi3) == "$DEBIAN_SCSI3" ]] || { fail "current package-preparation disk identity differs"; exit 1; }
+  [[ $(config_value "$before" cicustom) == "$CURRENT_CICUSTOM" ]] || { fail "package preparation requires the Arch cloud-init baseline"; exit 1; }
+  [[ $(config_value "$before_current" cicustom) == "$CURRENT_CICUSTOM" ]] || { fail "current package-preparation cloud-init baseline differs"; exit 1; }
+fi
 
 stage="stage-debian-image"
 echo "Staging and verifying pinned Debian image before Arch shutdown" >&2
@@ -338,31 +348,39 @@ image_virtual_size=$(qemu-img info --output=json "$IMAGE_PATH" | jq -r '."virtua
 
 install -d -o root -g root -m 0700 "$DIAGNOSTIC_ROOT"
 install -o root -g root -m 0600 /dev/null "$CONSOLE_LOG"
-rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG"
+rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG" "$PREPARE_LOG" "$PREPARE_LOG.pending"
 transition_started=false
 console_pid=
 stage=preflight
-on_error() {
-  result=$?
-  trap - ERR
-  echo "error: Debian inert qualification failed at stage: $stage" >&2
+handle_failure() {
+  local result=$1 reason=$2
+  trap - ERR INT TERM HUP
+  set +e
+  echo "error: Debian inert transition $reason at stage: $stage" >&2
   if [[ ${locks_held:-false} != true ]] && ! acquire_transition_locks; then
     echo "critical: transition locks could not be reacquired; remain at the physical console" >&2
-    stop_console_capture
+    stop_console_capture || true
     exit "$result"
   fi
   if [[ $transition_started == true ]]; then
-    candidate_diagnostics
-    stop_console_capture
+    candidate_diagnostics || echo "warning: candidate diagnostics could not be persisted" >&2
+    stop_console_capture || true
   fi
   if [[ $transition_started == true || $(vm_status) == stopped ]]; then
-    restore_arch || true
+    restore_arch || echo "critical: Arch restoration remains incomplete; stay at the physical console" >&2
   fi
   exit "$result"
 }
+on_error() {
+  handle_failure "$?" failed
+}
 trap on_error ERR
+trap 'handle_failure 130 interrupted' INT
+trap 'handle_failure 143 terminated' TERM
+trap 'handle_failure 129 disconnected' HUP
 
 stage=shutdown-arch
+transition_started=true
 qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || true
 wait_for_status stopped 180
 stage=reconcile-stopped-attachments
@@ -370,7 +388,59 @@ qm config "$VMID" > "$stopped_config"
 for key in scsi0 scsi1 scsi2 scsi3 ide2 cicustom; do
   [[ $(config_value "$stopped_config" "$key") == $(config_value "$before_current" "$key") ]] || { fail "stopped VM attachment differs: $key"; false; }
 done
-transition_started=true
+if [[ $prepare_mode == true ]]; then
+  stage=verify-exclusive-debian-target
+  if fuser "$volume_device" >/dev/null 2>&1; then false; fi
+  stage=set-debian-cloud-init
+  qm set "$VMID" --scsi3 "$DEBIAN_SCSI3"
+  qm set "$VMID" --cicustom "$DEBIAN_CICUSTOM"
+  qm cloudinit update "$VMID"
+  cloudinit_path=$(pvesm path local-lvm:vm-100-cloudinit)
+  verify_iso_entry "$cloudinit_path" '/USER_DATA.;1' "$USER_SHA256" "$USER_SIZE"
+  verify_iso_entry "$cloudinit_path" '/NETWORK_CONFIG.;1' "$NETWORK_SHA256" "$NETWORK_SIZE"
+  verify_iso_entry "$cloudinit_path" '/META_DATA.;1' "$META_SHA256" "$META_SIZE"
+  stage=set-debian-boot
+  qm set "$VMID" --boot "$DEBIAN_BOOT" --vga none
+  stage=start-debian-package-preparation
+  start_without_lock_inheritance
+  wait_for_status running 120
+  start_console_capture_without_lock_inheritance
+  stage=wait-debian-package-preparation-agent
+  wait_for_agent 900
+  [[ $(os_id) == debian ]]
+  stage=verify-qualified-debian-package-baseline
+  guest_exec_ok 30 /usr/bin/test "$(guest_exec_json 30 /usr/bin/uname -r | jq -r '."out-data" // ""' | tr -d '\r\n')" = "$KERNEL_RELEASE"
+  guest_exec_ok 30 /usr/bin/test -f /var/lib/home-lab/debian-inert-provisioned
+  guest_exec_ok 30 /usr/bin/test ! -e /etc/home-lab/allow-storage-activation
+  guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done"
+  guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=home-lab-state -s UUID -o value | sort -u) == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
+  guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=games -s UUID -o value | sort -u) == 31602ce7-0054-498a-9f24-f51ca491e7b3 ]]"
+  if ! guest_exec_ok 30 /usr/bin/test -f /var/lib/home-lab/debian-packages-prepared.json; then
+    guest_exec_ok 30 /bin/bash -lc '! command -v docker && ! command -v tailscale'
+  fi
+  stage=prepare-debian-packages
+  prepare_source=infrastructure/debian/prepare-packages.sh
+  prepare_sha=a8cc15f6e58d25b4fed1684e6cfb5d1073c58e74c29987981dc5415f2c581128
+  [[ $(sha256sum "$prepare_source" | awk '{print $1}') == "$prepare_sha" ]]
+  prepare_payload=$(base64 -w 0 "$prepare_source")
+  guest_exec_ok 1800 /bin/bash -lc "set -Eeuo pipefail; umask 077; target=/run/home-lab-debian-prepare-packages; trap 'rm -f -- \"\$target\"' EXIT; printf %s '$prepare_payload' | base64 -d > \"\$target\"; [[ \$(sha256sum \"\$target\" | awk '{print \$1}') == '$prepare_sha' ]]; chmod 0700 \"\$target\"; \"\$target\" > /var/log/home-lab-debian-package-preparation.log 2>&1"
+  stage=verify-debian-packages-prepared
+  prepare_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-packages-prepared.json | jq -er '."out-data"')
+  jq -e '.format == "home-lab-debian-packages-prepared-v1" and .services == "disabled-inactive" and (.dockerPackageVersion | length > 0) and (.composePackageVersion | length > 0) and (.composeVersion | length > 0)' <<< "$prepare_marker" >/dev/null
+  guest_exec_ok 30 /bin/bash -lc "for service in docker.service docker.socket containerd.service; do [[ \$(systemctl is-enabled \"\$service\" 2>/dev/null || true) == disabled ]] && [[ \$(systemctl is-active \"\$service\" 2>/dev/null || true) == inactive ]] || exit 1; done; [[ ! -S /run/docker.sock ]]"
+  guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done; for root in /var/lib/docker/containers /var/lib/docker/image /var/lib/docker/overlay2 /var/lib/docker/volumes; do [[ ! -d \$root || -z \$(find \"\$root\" -mindepth 1 -print -quit) ]] || exit 1; done; [[ ! -e /etc/sops/age && ! -e /etc/docker-compose && ! -e /var/lib/tailscale && ! -e /etc/default/tailscaled ]]; ! command -v tailscale >/dev/null 2>&1; ! command -v tailscaled >/dev/null 2>&1; ! systemctl list-unit-files --no-legend | grep -q '^tailscaled\\.'; ! pgrep -x tailscaled >/dev/null 2>&1"
+  stop_console_capture
+  restore_arch
+  transition_started=false
+  prepare_evidence=$(jq -c --arg commit "$(git rev-parse HEAD)" '. + {archRestore:"verified",sourceCommit:$commit}' <<< "$prepare_marker")
+  printf '%s\n' "$prepare_evidence" > "$PREPARE_LOG.pending"
+  chmod 0600 "$PREPARE_LOG.pending"
+  chown root:root "$PREPARE_LOG.pending"
+  mv -T "$PREPARE_LOG.pending" "$PREPARE_LOG"
+  trap - ERR INT TERM HUP
+  echo "Debian packages prepared; Arch production boot path restored" >&2
+  exit 0
+fi
 stage=verify-exclusive-debian-target
 if fuser "$volume_device" >/dev/null 2>&1; then
   false
@@ -441,7 +511,7 @@ guest_exec_ok 30 /bin/bash -lc 'lsusb -d 0bda:a729 | grep -q .'
 guest_exec_ok 30 /bin/bash -lc "[[ \$(lsusb -d 10c4:ea60 | wc -l) -eq 2 ]]"
 stage=verify-debian-inert
 guest_exec_ok 30 /usr/bin/test ! -e /etc/home-lab/allow-storage-activation
-guest_exec_ok 30 /bin/bash -lc '! findmnt -rn /srv/home-lab-state /mnt/games /mnt/storage | grep -q .'
+guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done"
 guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=home-lab-state -s UUID -o value | sort -u) == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
 guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=games -s UUID -o value | sort -u) == 31602ce7-0054-498a-9f24-f51ca491e7b3 ]]"
 for unit in 'srv-home\x2dlab\x2dstate.mount' mnt-games.mount mnt-storage.mount; do

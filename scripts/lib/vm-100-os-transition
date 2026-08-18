@@ -119,8 +119,8 @@ restore_arch() {
   local restored=true restore_stage=shutdown-candidate
   echo "Restoring the Arch boot path" >&2
   if [[ $(vm_status) == running ]]; then
-    qm shutdown "$VMID" --timeout 60 || true
-    if ! wait_for_status stopped 90; then
+    qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || qm shutdown "$VMID" --timeout 60 || true
+    if ! wait_for_status stopped 180; then
       restore_stage=force-stop-candidate
       qm stop "$VMID" || restored=false
     fi

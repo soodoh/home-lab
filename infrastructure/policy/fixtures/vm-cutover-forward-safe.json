@@ -28,7 +28,7 @@
           ],
           "bios": "seabios",
           "boot_order": [
-            "scsi2",
+            "scsi3",
             "scsi0",
             "net0"
           ],

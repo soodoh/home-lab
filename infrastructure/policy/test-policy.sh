@@ -19,8 +19,8 @@ python3 "$policy" "$fixtures/custom-rom-removal.json"
 python3 "$policy" "$fixtures/hardware-mapping-transition.json"
 python3 "$policy" "$fixtures/vm-start-prerequisite.json" --mode vm-start-prerequisite
 python3 "$policy" "$fixtures/candidate-disk-attach.json"
-python3 "$policy" "$fixtures/vm-cutover-forward-safe.json" --mode vm-cutover-forward
-python3 "$policy" "$fixtures/vm-cutover-reverse-safe.json" --mode vm-cutover-reverse
+expect_rejection vm-cutover-forward-safe vm-cutover-forward
+expect_rejection vm-cutover-reverse-safe vm-cutover-reverse
 expect_rejection import normal
 import_allow=$(mktemp)
 trap 'rm -f "$import_allow"' EXIT

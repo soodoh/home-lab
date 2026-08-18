@@ -177,7 +177,7 @@
     "debian": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["release", "version", "point_release", "build_id", "qualification_stage", "image", "cloud_init", "os_disk", "qualification"],
+      "required": ["release", "version", "point_release", "build_id", "qualification_stage", "image", "cloud_init", "os_disk", "qualification", "cutover"],
       "properties": {
         "release": { "const": "trixie" },
         "version": { "const": "13" },
@@ -270,6 +270,27 @@
             "protected_mounts": { "type": "array", "prefixItems": [{ "const": "/srv/home-lab-state" }, { "const": "/mnt/games" }, { "const": "/mnt/storage" }], "items": false, "minItems": 3, "maxItems": 3 },
             "compose_service": { "const": "home-lab-compose.service" },
             "automatic_reboot": { "const": false }
+          }
+        },
+        "cutover": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stage", "package_source", "docker_package", "compose_package", "expected_service_count", "expected_state_bind_count", "expected_docker_volume_mount_count", "state_mountpoint", "games_mountpoint", "nfs_mountpoint", "credentials", "tailscale_enrollment", "rollback_boot_order", "minimum_observation_days"],
+          "properties": {
+            "stage": { "enum": ["qualified", "packages-prepared", "storage-rehearsed", "credentials-staged", "production-canary", "production", "rollback"] },
+            "package_source": { "const": "debian-stable" },
+            "docker_package": { "const": "docker.io" },
+            "compose_package": { "const": "docker-compose" },
+            "expected_service_count": { "const": 41 },
+            "expected_state_bind_count": { "const": 115 },
+            "expected_docker_volume_mount_count": { "const": 0 },
+            "state_mountpoint": { "const": "/srv/home-lab-state" },
+            "games_mountpoint": { "const": "/mnt/games" },
+            "nfs_mountpoint": { "const": "/mnt/storage" },
+            "credentials": { "enum": ["deferred", "staged"] },
+            "tailscale_enrollment": { "enum": ["deferred", "staged", "enrolled"] },
+            "rollback_boot_order": { "type": "array", "prefixItems": [{ "const": "scsi0" }, { "const": "net0" }], "items": false, "minItems": 2, "maxItems": 2 },
+            "minimum_observation_days": { "const": 7 }
           }
         }
       }

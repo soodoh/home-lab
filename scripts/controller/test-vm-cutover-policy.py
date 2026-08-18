@@ -26,7 +26,7 @@ class VmCutoverPolicyTests(unittest.TestCase):
         self.expected_games = "/dev/disk/by-id/PROTECTED-GAMES-DISK"
 
     def assert_cutover_rejected(self, plan: dict[str, object], message: str | None = None) -> None:
-        failure = POLICY.vm_cutover_failure(plan, "vm-cutover-forward", self.expected_games)
+        failure = POLICY.vm_cutover_failure(plan, "vm-cutover-forward", self.expected_games, True)
         self.assertIsNotNone(failure)
         if message is not None:
             self.assertIn(message, failure)
@@ -38,10 +38,16 @@ class VmCutoverPolicyTests(unittest.TestCase):
         callback(change["after"])
         return plan
 
-    def test_safe_forward_and_reverse(self) -> None:
-        self.assertIsNone(POLICY.vm_cutover_failure(self.forward, "vm-cutover-forward", self.expected_games))
+    def test_safe_forward_and_reverse_with_separate_scsi3_attestation(self) -> None:
+        self.assertIsNone(POLICY.vm_cutover_failure(self.forward, "vm-cutover-forward", self.expected_games, True))
         reverse = json.loads((FIXTURES / "vm-cutover-reverse-safe.json").read_text())
-        self.assertIsNone(POLICY.vm_cutover_failure(reverse, "vm-cutover-reverse", self.expected_games))
+        self.assertIsNone(POLICY.vm_cutover_failure(reverse, "vm-cutover-reverse", self.expected_games, True))
+        self.assertEqual(POLICY.VM_CUTOVER_BOOT_ORDERS["vm-cutover-forward"], (["scsi0", "net0"], ["scsi3", "scsi0", "net0"]))
+        self.assertNotIn("scsi2", POLICY.VM_CUTOVER_BOOT_ORDERS["vm-cutover-forward"][1])
+
+    def test_cutover_is_disabled_without_external_scsi3_attestation(self) -> None:
+        failure = POLICY.vm_cutover_failure(self.forward, "vm-cutover-forward", self.expected_games)
+        self.assertIn("externally managed scsi3", failure)
 
     def test_rejects_state_move_empty_read_import_and_noop_drift(self) -> None:
         for label, mutate in (

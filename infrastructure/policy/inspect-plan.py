@@ -70,8 +70,8 @@ NETWORK_RESOURCE_MARKERS = ("firewall", "network", "acl", "ruleset", "federated_
 VM_ADDRESS = "proxmox_virtual_environment_vm.arch"
 VM_RESOURCE_TYPE = "proxmox_virtual_environment_vm"
 VM_CUTOVER_BOOT_ORDERS = {
-    "vm-cutover-forward": (["scsi0", "net0"], ["scsi2", "scsi0", "net0"]),
-    "vm-cutover-reverse": (["scsi2", "scsi0", "net0"], ["scsi0", "net0"]),
+    "vm-cutover-forward": (["scsi0", "net0"], ["scsi3", "scsi0", "net0"]),
+    "vm-cutover-reverse": (["scsi3", "scsi0", "net0"], ["scsi0", "net0"]),
 }
 VM_MAC_ADDRESS = "BC:24:11:89:19:5A"
 VM_SMBIOS_UUID = "03061602-d590-4d23-be5c-97f9954b3053"
@@ -481,7 +481,9 @@ def vm_cutover_identity_failure(before: Any, after: Any, expected_games_disk: st
     return None
 
 
-def vm_cutover_failure(plan: dict[str, Any], mode: str, expected_games_disk: str | None = None) -> str | None:
+def vm_cutover_failure(plan: dict[str, Any], mode: str, expected_games_disk: str | None = None, external_scsi3_attested: bool = False) -> str | None:
+    if not external_scsi3_attested:
+        return "VM cutover is disabled until externally managed scsi3 has a separate authenticated host attestation"
     expected_games_disk = expected_games_disk or os.environ.get("TF_VAR_games_disk_by_id", "")
     if not canonical_by_id_path(expected_games_disk):
         return "VM cutover requires a protected expected games-disk identity"
