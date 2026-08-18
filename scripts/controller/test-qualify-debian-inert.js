@@ -35,6 +35,7 @@ for (const [name, value] of [
 
 assert.match(script, /ps -o tty= -p "\$\$"/);
 assert.match(script, /source scripts\/lib\/vm-100-os-transition/);
+assert.doesNotMatch(script, /validate-contract|\bnode\b/);
 assert.match(script, /acquire_transition_locks/);
 assert.match(combined, /release_transition_locks/);
 assert.match(combined, /exec 8>&-/);

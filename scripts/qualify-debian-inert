@@ -221,7 +221,6 @@ acquire_transition_locks || { fail "another protected Proxmox operation holds a 
 [[ -z $(git status --porcelain) ]] || { fail "repository is not clean"; exit 1; }
 verify_plan_attestation || { fail "fresh zero-action controller plan attestation is unavailable"; exit 1; }
 [[ $(git rev-parse HEAD) == $(git rev-parse origin/main) ]] || { fail "repository is not at origin/main"; exit 1; }
-scripts/validate-contract >/dev/null
 [[ $(vm_status) == running ]] || { fail "VM 100 is not running"; exit 1; }
 wait_for_agent 30 || { fail "Arch QEMU guest agent is unavailable"; exit 1; }
 [[ $(os_id) == arch ]] || { fail "VM 100 is not running Arch"; exit 1; }
