@@ -257,7 +257,7 @@ prepare_arch_host_reboot_path() {
   local pending current
   if [[ $(vm_status) != stopped ]]; then
     stage=shutdown-debian-for-host-reboot
-    qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || qm shutdown "$VMID" --timeout 60 || true
+    timeout 15 qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || qm shutdown "$VMID" --timeout 60 || true
     if ! wait_for_status stopped 180; then
       stage=force-stop-debian-for-host-reboot
       qm stop "$VMID" || return 1
@@ -586,7 +586,7 @@ if [[ $prepare_mode == true ]]; then
     guest_exec_ok 30 /bin/bash -lc '! command -v docker && ! command -v tailscale'
     stage=prepare-debian-packages
     prepare_source=infrastructure/debian/prepare-packages.sh
-    prepare_sha=bc04cfb6a8cced2c8b0dfef8877ddac7906443ff7c9796097ef833b237cf6449
+    prepare_sha=2952c317479dab0ede386c41378d150e27fedeef46f4f1d92b7afb344bdb4f46
     [[ $(sha256sum "$prepare_source" | awk '{print $1}') == "$prepare_sha" ]]
     prepare_payload=$(base64 -w 0 "$prepare_source")
     guest_exec_ok 1800 /bin/bash -lc "set -Eeuo pipefail; umask 077; target=/run/home-lab-debian-prepare-packages; trap 'rm -f -- \"\$target\"' EXIT; printf %s '$prepare_payload' | base64 -d > \"\$target\"; [[ \$(sha256sum \"\$target\" | awk '{print \$1}') == '$prepare_sha' ]]; chmod 0700 \"\$target\"; /bin/bash \"\$target\" > /var/log/home-lab-debian-package-preparation.log 2>&1 || { result=\$?; cat /var/log/home-lab-debian-package-preparation.log; exit \"\$result\"; }"

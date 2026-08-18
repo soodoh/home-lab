@@ -62,24 +62,27 @@ PY
 }
 
 verify_prepared() {
-  local package service
-  command -v docker >/dev/null || return 1
-  docker compose version --short >/dev/null || return 1
+  local active enabled package service
+  command -v docker >/dev/null || fail "Docker CLI is absent"
+  docker compose version --short >/dev/null || fail "Docker Compose CLI is unavailable"
   for package in "${PACKAGES[@]}"; do
-    dpkg-query -W -f='${db:Status-Status}\n' "$package" | grep -Fxq installed || return 1
+    dpkg-query -W -f='${db:Status-Status}\n' "$package" | grep -Fxq installed || fail "package is not installed: $package"
   done
   for service in "${DOCKER_SERVICES[@]}"; do
-    [[ $(systemctl is-enabled "$service" 2>/dev/null || true) == disabled ]] || return 1
-    [[ $(systemctl is-active "$service" 2>/dev/null || true) == inactive ]] || return 1
+    enabled=$(systemctl is-enabled "$service" 2>/dev/null || true)
+    active=$(systemctl is-active "$service" 2>/dev/null || true)
+    [[ $enabled == disabled ]] || fail "$service enablement is $enabled, expected disabled"
+    [[ $active == inactive ]] || fail "$service activity is $active, expected inactive"
   done
-  [[ $(systemctl is-enabled "$RUNTIME_SERVICE" 2>/dev/null || true) == masked ]] || return 1
-  [[ $(systemctl is-active "$RUNTIME_SERVICE" 2>/dev/null || true) == inactive ]] || return 1
-  [[ ! -S /run/docker.sock ]] || return 1
-  [[ ! -e /etc/home-lab/allow-storage-activation ]] || return 1
-  verify_protected_mounts_inactive || return 1
-  verify_docker_objects_absent || return 1
-  verify_credentials_and_tailscale_absent || return 1
-  return 0
+  enabled=$(systemctl is-enabled "$RUNTIME_SERVICE" 2>/dev/null || true)
+  active=$(systemctl is-active "$RUNTIME_SERVICE" 2>/dev/null || true)
+  [[ $enabled == masked ]] || fail "$RUNTIME_SERVICE enablement is $enabled, expected masked"
+  [[ $active == inactive ]] || fail "$RUNTIME_SERVICE activity is $active, expected inactive"
+  [[ ! -S /run/docker.sock ]] || fail "Docker socket exists"
+  [[ ! -e /etc/home-lab/allow-storage-activation ]] || fail "storage activation marker exists"
+  verify_protected_mounts_inactive || fail "a protected mount is active"
+  verify_docker_objects_absent || fail "Docker object state is not empty"
+  verify_credentials_and_tailscale_absent || fail "credentials or Tailscale state exists"
 }
 
 [[ $# -eq 0 ]] || fail "usage: prepare-packages.sh"

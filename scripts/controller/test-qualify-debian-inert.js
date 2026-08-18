@@ -125,7 +125,7 @@ assert.match(prepareRunner, /exec "\$root\/scripts\/qualify-debian-inert"/);
 assert.match(script, /"\$PREPARE_CONFIRMATION"\) prepare_mode=true/);
 assert.match(script, /package preparation requires the exact qualified Debian disk/);
 assert.match(script, /prepare_source=infrastructure\/debian\/prepare-packages\.sh/);
-assert.match(script, /prepare_sha=bc04cfb6a8cced2c8b0dfef8877ddac7906443ff7c9796097ef833b237cf6449/);
+assert.match(script, /prepare_sha=2952c317479dab0ede386c41378d150e27fedeef46f4f1d92b7afb344bdb4f46/);
 assert.match(script, /guest_exec_ok 1800 \/bin\/bash -lc/);
 assert.match(script, /\/bin\/bash \\"\\\$target\\" > \/var\/log\/home-lab-debian-package-preparation\.log/);
 assert.match(script, /guest-exec-failure\.json/);
@@ -139,6 +139,7 @@ const awaitingIndex = script.indexOf('mark_package_evidence_awaiting_reboot "', 
 assert.ok(packageIndex < pendingIndex && pendingIndex < prepareRebootIndex && prepareRebootIndex < awaitingIndex);
 assert.match(script, /if guest_exec_ok 30 \/usr\/bin\/test -f \/var\/lib\/home-lab\/debian-packages-prepared\.json; then[\s\S]*stage=verify-existing-debian-packages[\s\S]*else[\s\S]*stage=prepare-debian-packages/);
 assert.match(script, /prepare_mode == true && \$transition_started == true[\s\S]*prepare_arch_host_reboot_path/);
+assert.match(script, /timeout 15 qm guest cmd "\$VMID" shutdown/);
 assert.match(script, /state:"package-verified"/);
 assert.match(script, /state:"awaiting-host-reboot"/);
 const cleanupBody = script.match(/cleanup\(\) \{[\s\S]*?\n\}/)[0];
