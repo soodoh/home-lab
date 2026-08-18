@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-08-17",
+  "vmid": 100,
+  "candidate": {
+    "channel": "stable",
+    "version": "4593.2.5",
+    "kernel": "6.12.102-flatcar",
+    "bootDisk": "scsi3",
+    "bootDiskVolume": "local-lvm:vm-100-disk-2",
+    "bootDiskSerial": "HOME-LAB-FLATCAR-64G",
+    "ignitionSha256": "d60808452116247828f749517a66ec29d4656c4978d2997ab22e938d8cb4bc6d",
+    "ignitionSize": 76685
+  },
+  "qualification": {
+    "state": "core-inert-passed-hardware-parity-blocked",
+    "hostname": "docker-host",
+    "qemuGuestAgent": "ready",
+    "ipv4": "192.168.0.100",
+    "ping": "reachable",
+    "ssh": "reachable",
+    "failedSystemdUnits": 0,
+    "dockerContainerCount": 0,
+    "stateMount": "disabled-inactive",
+    "gamesMount": "disabled-inactive",
+    "nfsMount": "disabled-inactive",
+    "composeService": "disabled-inactive",
+    "protectedMountCount": 0
+  },
+  "hardwareParity": {
+    "state": "blocked",
+    "gpu": {
+      "pciAddress": "0000:02:00.0",
+      "device": "1002:744c",
+      "model": "AMD Radeon RX 7900 XTX",
+      "visible": true,
+      "kernelDriver": null,
+      "driDevices": 0,
+      "amdgpuModule": "absent"
+    },
+    "requiredModules": {
+      "uhid": "absent",
+      "uinput": "absent"
+    },
+    "reason": "Flatcar Stable 4593.2.5 does not provide the required amdgpu, uhid, or uinput kernel modules in the qualified image. No module loading or hardware activation was attempted."
+  },
+  "rollback": {
+    "state": "verified",
+    "bootOrder": "scsi0;net0",
+    "osIdentity": "arch",
+    "qemuGuestAgent": "ready",
+    "productionAudit": {
+      "ok": 41,
+      "changed": 0,
+      "failed": 0,
+      "unreachable": 0
+    },
+    "operationLockHolders": 0,
+    "firstBootLockHolders": 0,
+    "openTofuActions": 0
+  },
+  "authorization": {
+    "cutover": false,
+    "mountActivation": false,
+    "composeActivation": false,
+    "hardwareActivation": false
+  }
+}
