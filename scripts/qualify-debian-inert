@@ -26,6 +26,8 @@ readonly USER_SOURCE=infrastructure/debian/cloud-init/user-data
 readonly USER_TARGET=/var/lib/vz/snippets/vm-100-debian-user.yaml
 readonly USER_SHA256=a93c27b74c55f2caf649dc2413070115e459e2bfd3885967b4aa6d376c7d694e
 readonly USER_SIZE=4350
+readonly PREVIOUS_USER_SHA256=e1808e86931397e98bec1a780ee8d80c0293edfb0115314be7e48c433c83ae87
+readonly PREVIOUS_USER_SIZE=4401
 readonly NETWORK_SOURCE=infrastructure/debian/cloud-init/network-data
 readonly NETWORK_TARGET=/var/lib/vz/snippets/vm-100-debian-network.yaml
 readonly NETWORK_SHA256=9fd8205499f8cbb692099c72579b3e15280c7c42c21678cef1c6c43117855d95
@@ -107,7 +109,7 @@ stage_image() {
 }
 
 stage_snippet() {
-  local source=$1 target=$2 expected_sha=$3 expected_size=$4 pending actual
+  local source=$1 target=$2 expected_sha=$3 expected_size=$4 previous_sha=${5:-} previous_size=${6:-} pending actual metadata
   pending=$(dirname "$target")/.$(basename "$target").pending
   [[ -f $source && ! -L $source ]] || fail "cloud-init source is absent or unsafe: $source"
   [[ $(stat -c %s "$source") -eq $expected_size ]] || fail "cloud-init source size differs: $source"
@@ -116,9 +118,14 @@ stage_snippet() {
   [[ ! -e $pending && ! -L $pending ]] || fail "a pending cloud-init snippet requires manual reconciliation: $pending"
   if [[ -e $target || -L $target ]]; then
     [[ -f $target && ! -L $target ]] || fail "cloud-init target is absent or unsafe: $target"
-    [[ $(stat -c %U:%G:%a:%s "$target") == root:root:600:$expected_size ]] || fail "cloud-init target metadata differs: $target"
+    metadata=$(stat -c %U:%G:%a:%s "$target")
     actual=$(sha256sum "$target" | awk '{print $1}')
-    [[ $actual == "$expected_sha" ]] || fail "cloud-init target digest differs: $target"
+    if [[ $metadata == root:root:600:$expected_size && $actual == "$expected_sha" ]]; then
+      return
+    fi
+    [[ -n $previous_sha && $metadata == root:root:600:$previous_size && $actual == "$previous_sha" ]] || fail "cloud-init target differs from the exact current and previous revisions: $target"
+    install -o root -g root -m 0600 "$source" "$pending"
+    mv -T "$pending" "$target"
     return
   fi
   install -d -o root -g root -m 0755 "$(dirname "$target")"
@@ -264,7 +271,7 @@ echo "Staging and verifying pinned Debian image before Arch shutdown" >&2
 stage_image
 stage="stage-debian-cloud-init"
 echo "Staging exact inert Debian cloud-init snippets" >&2
-stage_snippet "$USER_SOURCE" "$USER_TARGET" "$USER_SHA256" "$USER_SIZE"
+stage_snippet "$USER_SOURCE" "$USER_TARGET" "$USER_SHA256" "$USER_SIZE" "$PREVIOUS_USER_SHA256" "$PREVIOUS_USER_SIZE"
 stage_snippet "$NETWORK_SOURCE" "$NETWORK_TARGET" "$NETWORK_SHA256" "$NETWORK_SIZE"
 stage_snippet "$META_SOURCE" "$META_TARGET" "$META_SHA256" "$META_SIZE"
 
