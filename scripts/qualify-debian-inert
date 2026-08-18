@@ -242,6 +242,34 @@ mark_package_evidence_awaiting_reboot() {
   mv -T "$temporary" "$PREPARE_PENDING_LOG"
 }
 
+prepare_arch_host_reboot_path() {
+  local pending current
+  if [[ $(vm_status) != stopped ]]; then
+    stage=shutdown-debian-for-host-reboot
+    qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || qm shutdown "$VMID" --timeout 60 || true
+    if ! wait_for_status stopped 180; then
+      stage=force-stop-debian-for-host-reboot
+      qm stop "$VMID" || return 1
+      wait_for_status stopped 30 || return 1
+    fi
+  fi
+  stage=prepare-arch-host-reboot
+  prepare_arch_restore || return 1
+  qm set "$VMID" --boot "$ARCH_BOOT" --vga none || return 1
+  pending=$(mktemp --tmpdir=/run home-lab-arch-reboot-pending.XXXXXX)
+  current=$(mktemp --tmpdir=/run home-lab-arch-reboot-current.XXXXXX)
+  chmod 0600 "$pending" "$current"
+  qm config "$VMID" > "$pending"
+  qm config "$VMID" --current 1 > "$current"
+  if ! verify_exact_arch_configuration "$pending" "$current"; then
+    rm -f -- "$pending" "$current"
+    return 1
+  fi
+  arch_reboot_config_sha=$(arch_config_sha256 "$pending")
+  rm -f -- "$pending" "$current"
+  return 0
+}
+
 wait_for_ping() {
   local timeout_seconds=$1
   for ((second = 0; second < timeout_seconds; second += 3)); do
@@ -481,6 +509,17 @@ handle_failure() {
     candidate_diagnostics || echo "warning: candidate diagnostics could not be persisted" >&2
     stop_console_capture || true
   fi
+  if [[ $prepare_mode == true && $transition_started == true ]]; then
+    if prepare_arch_host_reboot_path; then
+      if [[ -f $PREPARE_PENDING_LOG ]] && jq -e '.state == "package-verified"' "$PREPARE_PENDING_LOG" >/dev/null 2>&1; then
+        mark_package_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
+      fi
+      echo "Arch boot configuration prepared; a physical Proxmox host reboot is required" >&2
+    else
+      echo "critical: exact Arch host-reboot preparation remains incomplete; stay at the physical console" >&2
+    fi
+    exit "$result"
+  fi
   if [[ $transition_started == true || $(vm_status) == stopped ]]; then
     restore_arch || echo "critical: Arch restoration remains incomplete; stay at the physical console" >&2
   fi
@@ -530,37 +569,28 @@ if [[ $prepare_mode == true ]]; then
   guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=home-lab-state -s UUID -o value | sort -u) == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=games -s UUID -o value | sort -u) == 31602ce7-0054-498a-9f24-f51ca491e7b3 ]]"
-  if ! guest_exec_ok 30 /usr/bin/test -f /var/lib/home-lab/debian-packages-prepared.json; then
+  if guest_exec_ok 30 /usr/bin/test -f /var/lib/home-lab/debian-packages-prepared.json; then
+    stage=verify-existing-debian-packages
+  else
     guest_exec_ok 30 /bin/bash -lc '! command -v docker && ! command -v tailscale'
+    stage=prepare-debian-packages
+    prepare_source=infrastructure/debian/prepare-packages.sh
+    prepare_sha=a8cc15f6e58d25b4fed1684e6cfb5d1073c58e74c29987981dc5415f2c581128
+    [[ $(sha256sum "$prepare_source" | awk '{print $1}') == "$prepare_sha" ]]
+    prepare_payload=$(base64 -w 0 "$prepare_source")
+    guest_exec_ok 1800 /bin/bash -lc "set -Eeuo pipefail; umask 077; target=/run/home-lab-debian-prepare-packages; trap 'rm -f -- \"\$target\"' EXIT; printf %s '$prepare_payload' | base64 -d > \"\$target\"; [[ \$(sha256sum \"\$target\" | awk '{print \$1}') == '$prepare_sha' ]]; chmod 0700 \"\$target\"; \"\$target\" > /var/log/home-lab-debian-package-preparation.log 2>&1"
   fi
-  stage=prepare-debian-packages
-  prepare_source=infrastructure/debian/prepare-packages.sh
-  prepare_sha=a8cc15f6e58d25b4fed1684e6cfb5d1073c58e74c29987981dc5415f2c581128
-  [[ $(sha256sum "$prepare_source" | awk '{print $1}') == "$prepare_sha" ]]
-  prepare_payload=$(base64 -w 0 "$prepare_source")
-  guest_exec_ok 1800 /bin/bash -lc "set -Eeuo pipefail; umask 077; target=/run/home-lab-debian-prepare-packages; trap 'rm -f -- \"\$target\"' EXIT; printf %s '$prepare_payload' | base64 -d > \"\$target\"; [[ \$(sha256sum \"\$target\" | awk '{print \$1}') == '$prepare_sha' ]]; chmod 0700 \"\$target\"; \"\$target\" > /var/log/home-lab-debian-package-preparation.log 2>&1"
   stage=verify-debian-packages-prepared
   prepare_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-packages-prepared.json | jq -er '."out-data"')
   jq -e '.format == "home-lab-debian-packages-prepared-v1" and .services == "disabled-inactive" and (.dockerPackageVersion | length > 0) and (.composePackageVersion | length > 0) and (.composeVersion | length > 0)' <<< "$prepare_marker" >/dev/null
+  guest_exec_ok 30 /bin/bash -lc "marker=/var/lib/home-lab/debian-packages-prepared.json; [[ \$(jq -r .dockerPackageVersion \"\$marker\") == \$(dpkg-query -W -f='\${Version}' docker.io) ]]; [[ \$(jq -r .composePackageVersion \"\$marker\") == \$(dpkg-query -W -f='\${Version}' docker-compose) ]]; [[ \$(jq -r .composeVersion \"\$marker\") == \$(docker compose version --short) ]]"
   guest_exec_ok 30 /bin/bash -lc "for service in docker.service docker.socket containerd.service; do [[ \$(systemctl is-enabled \"\$service\" 2>/dev/null || true) == disabled ]] && [[ \$(systemctl is-active \"\$service\" 2>/dev/null || true) == inactive ]] || exit 1; done; [[ ! -S /run/docker.sock ]]"
   guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done; for root in /var/lib/docker/containers /var/lib/docker/image /var/lib/docker/overlay2 /var/lib/docker/volumes; do [[ ! -d \$root || -z \$(find \"\$root\" -mindepth 1 -print -quit) ]] || exit 1; done; [[ ! -e /etc/sops/age && ! -e /etc/docker-compose && ! -e /var/lib/tailscale && ! -e /etc/default/tailscaled ]]; ! command -v tailscale >/dev/null 2>&1; ! command -v tailscaled >/dev/null 2>&1; ! systemctl list-unit-files --no-legend | grep -q '^tailscaled\\.'; ! pgrep -x tailscaled >/dev/null 2>&1"
   stage=persist-debian-package-evidence
   write_package_pending_evidence "$prepare_marker"
   stop_console_capture
-  stage=shutdown-debian-after-package-preparation
-  qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || qm shutdown "$VMID" --timeout 60 || true
-  if ! wait_for_status stopped 180; then
-    stage=force-stop-debian-after-package-preparation
-    qm stop "$VMID"
-    wait_for_status stopped 30
-  fi
-  stage=prepare-arch-host-reboot
-  prepare_arch_restore
-  qm set "$VMID" --boot "$ARCH_BOOT" --vga none
-  qm config "$VMID" > "$stopped_config"
-  qm config "$VMID" --current 1 > "$before_current"
-  verify_exact_arch_configuration "$stopped_config" "$before_current"
-  mark_package_evidence_awaiting_reboot "$(arch_config_sha256 "$stopped_config")"
+  prepare_arch_host_reboot_path
+  mark_package_evidence_awaiting_reboot "$arch_reboot_config_sha"
   transition_started=false
   trap - ERR INT TERM HUP
   echo "Debian packages verified and exact Arch boot configuration prepared; a physical Proxmox host reboot is required" >&2
