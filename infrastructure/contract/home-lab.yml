@@ -10,7 +10,7 @@ vm_100:
   vmid: 100
   host_name: archlinux
   network_identity: docker-host
-  # Arch remains authoritative until the decoupled-state Flatcar cutover is qualified.
+  # Arch remains authoritative until a decoupled-state replacement OS cutover is fully qualified.
   deployment_authority: arch
   workload_identity:
     user: docker
@@ -1112,7 +1112,7 @@ arch:
     tailscale: 1.98.10-1
 flatcar:
   channel: stable
-  qualification_stage: ready-for-first-boot
+  qualification_stage: hardware-blocked
   version: 4593.2.5
   build_id: "2026-08-11-2350"
   image:
@@ -1155,6 +1155,66 @@ flatcar:
       - scsi0
       - net0
     rollback_days: 7
+debian:
+  release: trixie
+  version: "13"
+  point_release: "13.6"
+  build_id: "20260810-2566"
+  qualification_stage: design
+  image:
+    variant: generic
+    format: qcow2
+    url: https://cloud.debian.org/images/cloud/trixie/20260810-2566/debian-13-generic-amd64-20260810-2566.qcow2
+    digest_url: https://cloud.debian.org/images/cloud/trixie/20260810-2566/SHA512SUMS
+    sha512: f6978100d8031c266d55d7815ceea7fcdeacf28e1e5834fdb9c94ac96880a054a6e6f8681c2d3b0584e0057eaf3ef7353856b85212d04134744faa9b3bb1f24f
+    staged_path: /var/lib/vz/import/debian-13-generic-amd64-20260810-2566.qcow2
+  cloud_init:
+    datastore: local
+    drive_datastore: local-lvm
+    drive_interface: ide2
+    user_data:
+      source_path: infrastructure/debian/cloud-init/user-data
+      snippet_path: /var/lib/vz/snippets/vm-100-debian-user.yaml
+      sha256: 5b0bf2e7add2cd83d0d07c90ee3ceea6011fe9d02b3c56506365495bd43ec1bd
+      size: 3994
+    network_data:
+      source_path: infrastructure/debian/cloud-init/network-data
+      snippet_path: /var/lib/vz/snippets/vm-100-debian-network.yaml
+      sha256: 9fd8205499f8cbb692099c72579b3e15280c7c42c21678cef1c6c43117855d95
+      size: 281
+    meta_data:
+      source_path: infrastructure/debian/cloud-init/meta-data
+      snippet_path: /var/lib/vz/snippets/vm-100-debian-meta.yaml
+      sha256: e9a68afeaa0e3071a22a01f7b1cd5cf92f88eb9d23b20fd6a9b07a826546c8a7
+      size: 75
+    cicustom: meta=local:snippets/vm-100-debian-meta.yaml,network=local:snippets/vm-100-debian-network.yaml,user=local:snippets/vm-100-debian-user.yaml
+  os_disk:
+    datastore: local-lvm
+    path_in_datastore: vm-100-disk-2
+    interface: scsi3
+    serial: HOME-LAB-DEBIAN-64G
+    size_gb: 64
+    qualification_boot_order:
+      - scsi3
+      - scsi0
+      - net0
+    rollback_days: 7
+  qualification:
+    os_id: debian
+    hostname: docker-host
+    network_interface: ens18
+    kernel_modules:
+      - amdgpu
+      - uhid
+      - uinput
+    gpu_vendor_device: 1002:744c
+    gpu_render_node: /dev/dri/renderD128
+    protected_mounts:
+      - /srv/home-lab-state
+      - /mnt/games
+      - /mnt/storage
+    compose_service: home-lab-compose.service
+    automatic_reboot: false
 omada:
   controller_version: 6.2.14.11
   endpoint: https://Omada:8043

@@ -4,7 +4,7 @@
   "title": "Home lab infrastructure contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "system_name", "recovery", "vm_100", "network", "proxmox", "storage", "arch", "flatcar", "omada", "tailscale", "aws", "backups"],
+  "required": ["version", "system_name", "recovery", "vm_100", "network", "proxmox", "storage", "arch", "flatcar", "debian", "omada", "tailscale", "aws", "backups"],
   "properties": {
     "version": { "const": 1 },
     "system_name": { "const": "home-lab" },
@@ -96,7 +96,7 @@
       "required": ["channel", "qualification_stage", "version", "build_id", "image", "butane", "compose", "tailscale", "network_interface", "production_ignition", "os_disk"],
       "properties": {
         "channel": { "const": "stable" },
-        "qualification_stage": { "enum": ["ignition-attached", "ready-for-first-boot", "flatcar-inert"] },
+        "qualification_stage": { "enum": ["ignition-attached", "ready-for-first-boot", "flatcar-inert", "hardware-blocked"] },
         "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
         "build_id": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}$" },
         "image": {
@@ -170,6 +170,105 @@
             "snippet_path": { "const": "/var/lib/vz/snippets/vm-100-flatcar.ign" },
             "qualification_boot_order": { "type": "array", "prefixItems": [{ "const": "scsi3" }, { "const": "scsi0" }, { "const": "net0" }], "items": false, "minItems": 3, "maxItems": 3 },
             "rollback_days": { "const": 7 }
+          }
+        }
+      }
+    },
+    "debian": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release", "version", "point_release", "build_id", "qualification_stage", "image", "cloud_init", "os_disk", "qualification"],
+      "properties": {
+        "release": { "const": "trixie" },
+        "version": { "const": "13" },
+        "point_release": { "const": "13.6" },
+        "build_id": { "const": "20260810-2566" },
+        "qualification_stage": { "enum": ["design", "cloud-init-staged", "ready-for-first-boot", "debian-inert", "hardware-blocked"] },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["variant", "format", "url", "digest_url", "sha512", "staged_path"],
+          "properties": {
+            "variant": { "const": "generic" },
+            "format": { "const": "qcow2" },
+            "url": { "const": "https://cloud.debian.org/images/cloud/trixie/20260810-2566/debian-13-generic-amd64-20260810-2566.qcow2" },
+            "digest_url": { "const": "https://cloud.debian.org/images/cloud/trixie/20260810-2566/SHA512SUMS" },
+            "sha512": { "type": "string", "pattern": "^[0-9a-f]{128}$" },
+            "staged_path": { "const": "/var/lib/vz/import/debian-13-generic-amd64-20260810-2566.qcow2" }
+          }
+        },
+        "cloud_init": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["datastore", "drive_datastore", "drive_interface", "user_data", "network_data", "meta_data", "cicustom"],
+          "properties": {
+            "datastore": { "const": "local" },
+            "drive_datastore": { "const": "local-lvm" },
+            "drive_interface": { "const": "ide2" },
+            "user_data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source_path", "snippet_path", "sha256", "size"],
+              "properties": {
+                "source_path": { "const": "infrastructure/debian/cloud-init/user-data" },
+                "snippet_path": { "const": "/var/lib/vz/snippets/vm-100-debian-user.yaml" },
+                "sha256": { "$ref": "#/$defs/sha256" },
+                "size": { "const": 3994 }
+              }
+            },
+            "network_data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source_path", "snippet_path", "sha256", "size"],
+              "properties": {
+                "source_path": { "const": "infrastructure/debian/cloud-init/network-data" },
+                "snippet_path": { "const": "/var/lib/vz/snippets/vm-100-debian-network.yaml" },
+                "sha256": { "$ref": "#/$defs/sha256" },
+                "size": { "const": 281 }
+              }
+            },
+            "meta_data": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["source_path", "snippet_path", "sha256", "size"],
+              "properties": {
+                "source_path": { "const": "infrastructure/debian/cloud-init/meta-data" },
+                "snippet_path": { "const": "/var/lib/vz/snippets/vm-100-debian-meta.yaml" },
+                "sha256": { "$ref": "#/$defs/sha256" },
+                "size": { "const": 75 }
+              }
+            },
+            "cicustom": { "const": "meta=local:snippets/vm-100-debian-meta.yaml,network=local:snippets/vm-100-debian-network.yaml,user=local:snippets/vm-100-debian-user.yaml" }
+          }
+        },
+        "os_disk": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["datastore", "path_in_datastore", "interface", "serial", "size_gb", "qualification_boot_order", "rollback_days"],
+          "properties": {
+            "datastore": { "const": "local-lvm" },
+            "path_in_datastore": { "const": "vm-100-disk-2" },
+            "interface": { "const": "scsi3" },
+            "serial": { "const": "HOME-LAB-DEBIAN-64G" },
+            "size_gb": { "const": 64 },
+            "qualification_boot_order": { "type": "array", "prefixItems": [{ "const": "scsi3" }, { "const": "scsi0" }, { "const": "net0" }], "items": false, "minItems": 3, "maxItems": 3 },
+            "rollback_days": { "const": 7 }
+          }
+        },
+        "qualification": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["os_id", "hostname", "network_interface", "kernel_modules", "gpu_vendor_device", "gpu_render_node", "protected_mounts", "compose_service", "automatic_reboot"],
+          "properties": {
+            "os_id": { "const": "debian" },
+            "hostname": { "const": "docker-host" },
+            "network_interface": { "const": "ens18" },
+            "kernel_modules": { "type": "array", "prefixItems": [{ "const": "amdgpu" }, { "const": "uhid" }, { "const": "uinput" }], "items": false, "minItems": 3, "maxItems": 3 },
+            "gpu_vendor_device": { "const": "1002:744c" },
+            "gpu_render_node": { "const": "/dev/dri/renderD128" },
+            "protected_mounts": { "type": "array", "prefixItems": [{ "const": "/srv/home-lab-state" }, { "const": "/mnt/games" }, { "const": "/mnt/storage" }], "items": false, "minItems": 3, "maxItems": 3 },
+            "compose_service": { "const": "home-lab-compose.service" },
+            "automatic_reboot": { "const": false }
           }
         }
       }
@@ -249,7 +348,7 @@
         "vmid": { "const": 100 },
         "host_name": { "const": "archlinux" },
         "network_identity": { "const": "docker-host" },
-        "deployment_authority": { "enum": ["arch", "flatcar"] },
+        "deployment_authority": { "enum": ["arch", "flatcar", "debian"] },
         "workload_identity": {
           "type": "object", "additionalProperties": false,
           "required": ["user", "uid", "primary_group", "gid", "home", "shell", "supplementary_groups"],

@@ -1,0 +1,147 @@
+#cloud-config
+hostname: docker-host
+manage_etc_hosts: true
+disable_root: true
+ssh_pwauth: false
+users:
+  - name: docker
+    uid: 1000
+    gecos: Home Lab Workload
+    groups:
+      - adm
+      - sudo
+      - video
+      - render
+      - input
+      - dialout
+    lock_passwd: true
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDDlzFF6z8f3tx7jPWlCMyZv9SqwEPWkotgPHIFPepf8
+apt:
+  preserve_sources_list: true
+  sources:
+    debian-components:
+      source: deb https://deb.debian.org/debian trixie main contrib non-free-firmware
+    debian-updates-components:
+      source: deb https://deb.debian.org/debian trixie-updates main contrib non-free-firmware
+    debian-security-components:
+      source: deb https://security.debian.org/debian-security trixie-security main contrib non-free-firmware
+package_update: true
+package_upgrade: false
+packages:
+  - ca-certificates
+  - curl
+  - firmware-amd-graphics
+  - jq
+  - kmod
+  - libdrm-amdgpu1
+  - mesa-va-drivers
+  - nfs-common
+  - pciutils
+  - qemu-guest-agent
+  - unattended-upgrades
+  - vainfo
+write_files:
+  - path: /etc/modules-load.d/home-lab-hardware.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      amdgpu
+      uhid
+      uinput
+  - path: /etc/sysctl.d/90-home-lab.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      fs.inotify.max_user_instances=1024
+      fs.inotify.max_user_watches=1048576
+      user.max_user_namespaces=28633
+  - path: /etc/ssh/sshd_config.d/40-home-lab.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PermitRootLogin no
+      AllowTcpForwarding no
+      X11Forwarding no
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root:root
+    permissions: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+  - path: /etc/apt/apt.conf.d/52home-lab-unattended-upgrades
+    owner: root:root
+    permissions: "0644"
+    content: |
+      Unattended-Upgrade::Origins-Pattern {
+        "origin=Debian,codename=${distro_codename},label=Debian-Security";
+      };
+      Unattended-Upgrade::Automatic-Reboot "false";
+      Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+  - path: /etc/systemd/system/srv-home\x2dlab\x2dstate.mount
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Home lab application state
+      ConditionPathIsMountPoint=!/srv/home-lab-state
+
+      [Mount]
+      What=/dev/disk/by-uuid/d4a19647-7879-4079-9fc9-b3e79711b449
+      Where=/srv/home-lab-state
+      Type=ext4
+      Options=noatime,nofail
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/mnt-games.mount
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Home lab games storage
+      ConditionPathIsMountPoint=!/mnt/games
+
+      [Mount]
+      What=/dev/disk/by-uuid/31602ce7-0054-498a-9f24-f51ca491e7b3
+      Where=/mnt/games
+      Type=ext4
+      Options=noatime,nofail
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/mnt-storage.mount
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Home lab shared NFS storage
+      After=network-online.target
+      Wants=network-online.target
+      ConditionPathIsMountPoint=!/mnt/storage
+
+      [Mount]
+      What=192.168.0.123:/storage/docker
+      Where=/mnt/storage
+      Type=nfs4
+      Options=defaults
+
+      [Install]
+      WantedBy=multi-user.target
+runcmd:
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, qemu-guest-agent.service]
+  - [sysctl, --system]
+  - [sshd, -t]
+  - [systemctl, restart, ssh.service]
+  - [modprobe, amdgpu]
+  - [modprobe, uhid]
+  - [modprobe, uinput]
+  - [udevadm, settle]
+  - [update-initramfs, -u]
+  - [mkdir, -p, /var/lib/home-lab]
+  - [touch, /var/lib/home-lab/debian-inert-provisioned]

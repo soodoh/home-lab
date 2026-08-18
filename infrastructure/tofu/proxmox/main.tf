@@ -2,7 +2,7 @@ locals {
   vm                    = local.contract.proxmox.vm
   node                  = local.contract.proxmox.node
   recovery              = var.phase == "recovery"
-  flatcar_qualification = contains(["ignition-attached", "ready-for-first-boot", "flatcar-inert"], local.contract.flatcar.qualification_stage)
+  flatcar_qualification = contains(["ignition-attached", "ready-for-first-boot", "flatcar-inert", "hardware-blocked"], local.contract.flatcar.qualification_stage)
   use_hardware_mappings = local.recovery || local.vm.hardware_attachment_mode == "managed"
 }
 
