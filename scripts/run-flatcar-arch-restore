@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly CONFIRMATION=restore-reviewed-vm-100-arch-after-flatcar
+
+[[ $# -eq 0 ]] || { echo "usage: scripts/run-flatcar-arch-restore" >&2; exit 1; }
+[[ -t 0 ]] || { echo "Arch restoration requires confirmation from an interactive physical console" >&2; exit 1; }
+IFS= read -r confirmation
+[[ $confirmation == "$CONFIRMATION" ]] || { echo "exact Arch restoration confirmation is required" >&2; exit 1; }
+export HOME_LAB_FLATCAR_FIRST_BOOT_CONFIRMED=$CONFIRMATION
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+exec "$root/scripts/boot-flatcar-first"

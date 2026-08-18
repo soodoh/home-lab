@@ -11,6 +11,7 @@ const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/h
 const script = fs.readFileSync(path.join(root, "scripts/boot-flatcar-first"), "utf8");
 const runner = fs.readFileSync(path.join(root, "scripts/run-flatcar-first-boot"), "utf8");
 const diagnosticRunner = fs.readFileSync(path.join(root, "scripts/run-flatcar-vga-diagnostic"), "utf8");
+const restoreRunner = fs.readFileSync(path.join(root, "scripts/run-flatcar-arch-restore"), "utf8");
 const disk = contract.flatcar.os_disk;
 
 assert.equal(contract.flatcar.qualification_stage, "ready-for-first-boot");
@@ -62,6 +63,10 @@ assert.match(script, /"mountActivation":"disabled"/);
 assert.doesNotMatch(script, /systemctl (?:enable|start)|docker compose|docker-compose|\bmount\b|mkfs|wipefs|qm disk (?:import|resize|unlink)|pvesm free|--delete/);
 assert.ok(runner.includes("HOME_LAB_FLATCAR_FIRST_BOOT_CONFIRMED=boot-reviewed-vm-100-flatcar-inert"));
 assert.ok(diagnosticRunner.includes("HOME_LAB_FLATCAR_FIRST_BOOT_CONFIRMED=diagnose-reviewed-vm-100-flatcar-vga"));
+assert.ok(restoreRunner.includes("readonly CONFIRMATION=restore-reviewed-vm-100-arch-after-flatcar"));
+assert.match(restoreRunner, /export HOME_LAB_FLATCAR_FIRST_BOOT_CONFIRMED=\$CONFIRMATION/);
+assert.match(script, /restore_mode=true/);
+assert.match(restoreRunner, /exec "\$root\/scripts\/boot-flatcar-first"/);
 assert.match(runner, /exec "\$root\/scripts\/boot-flatcar-first"/);
 
 process.stdout.write("flatcar first-boot tests passed\n");

@@ -12,6 +12,7 @@ readonly IGNITION_SHA256=d60808452116247828f749517a66ec29d4656c4978d2997ab22e938
 readonly IGNITION_SIZE=76685
 readonly CONFIRMATION=boot-reviewed-vm-100-flatcar-inert
 readonly VGA_DIAGNOSTIC_CONFIRMATION=diagnose-reviewed-vm-100-flatcar-vga
+readonly RESTORE_CONFIRMATION=restore-reviewed-vm-100-arch-after-flatcar
 readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
 readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
 readonly DIAGNOSTIC_ROOT=/var/lib/home-lab/flatcar
@@ -264,10 +265,12 @@ restore_arch() {
 [[ $# -eq 0 ]] || { fail "usage: scripts/boot-flatcar-first"; exit 1; }
 [[ $(id -u) -eq 0 ]] || { fail "Flatcar first boot requires root"; exit 1; }
 diagnostic_mode=false
+restore_mode=false
 case ${HOME_LAB_FLATCAR_FIRST_BOOT_CONFIRMED:-} in
   "$CONFIRMATION") ;;
   "$VGA_DIAGNOSTIC_CONFIRMATION") diagnostic_mode=true ;;
-  *) fail "exact Flatcar first-boot confirmation is required"; exit 1 ;;
+  "$RESTORE_CONFIRMATION") restore_mode=true ;;
+  *) fail "exact Flatcar transition confirmation is required"; exit 1 ;;
 esac
 [[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "Flatcar first boot requires a physical Proxmox console"; exit 1; }
 [[ -d $RECONCILIATION_ROOT && ! -L $RECONCILIATION_ROOT ]] || { fail "reconciliation lock root is absent or unsafe"; exit 1; }
@@ -283,6 +286,16 @@ cd "$root"
 scripts/stage-flatcar-image check >/dev/null
 scripts/stage-flatcar-ignition check >/dev/null
 [[ $(vm_status) == running ]] || { fail "VM 100 is not running"; exit 1; }
+if [[ $restore_mode == true ]]; then
+  wait_for_agent 30 || { fail "Flatcar QEMU guest agent is unavailable"; exit 1; }
+  [[ $(os_id) == flatcar ]] || { fail "VM 100 is not running Flatcar"; exit 1; }
+  [[ $(qm config "$VMID" | awk -F ': ' '$1 == "boot" { print $2 }') == "$FLATCAR_BOOT" ]] || { fail "Flatcar boot order differs"; exit 1; }
+  [[ $(qm config "$VMID" | awk -F ': ' '$1 == "scsi3" { print $2 }') == "$EFFECTIVE_SCSI3" ]] || { fail "effective scsi3 differs"; exit 1; }
+  [[ $(qm config "$VMID" | awk -F ': ' '$1 == "vga" { print $2 }') == none ]] || { fail "VM 100 VGA configuration differs"; exit 1; }
+  ! qm config "$VMID" | grep -Eq '^(lock|unused[0-9]+):' || { fail "VM 100 has a lock or unused disk requiring reconciliation"; exit 1; }
+  restore_arch
+  exit 0
+fi
 wait_for_agent 30 || { fail "Arch QEMU guest agent is unavailable"; exit 1; }
 [[ $(os_id) == arch ]] || { fail "VM 100 is not running Arch"; exit 1; }
 
