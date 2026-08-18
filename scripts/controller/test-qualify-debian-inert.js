@@ -127,6 +127,7 @@ assert.match(script, /package preparation requires the exact qualified Debian di
 assert.match(script, /prepare_source=infrastructure\/debian\/prepare-packages\.sh/);
 assert.match(script, /prepare_sha=a8cc15f6e58d25b4fed1684e6cfb5d1073c58e74c29987981dc5415f2c581128/);
 assert.match(script, /guest_exec_ok 1800 \/bin\/bash -lc/);
+assert.match(script, /\/bin\/bash \\"\\\$target\\" > \/var\/log\/home-lab-debian-package-preparation\.log/);
 assert.match(script, /guest-exec-failure\.json/);
 assert.match(script, /jq -r '\(\."out-data" \/\/ ""\) \+ \(\."err-data" \/\/ ""\)'/);
 assert.match(script, /cat \/var\/log\/home-lab-debian-package-preparation\.log/);

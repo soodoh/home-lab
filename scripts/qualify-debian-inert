@@ -589,7 +589,7 @@ if [[ $prepare_mode == true ]]; then
     prepare_sha=a8cc15f6e58d25b4fed1684e6cfb5d1073c58e74c29987981dc5415f2c581128
     [[ $(sha256sum "$prepare_source" | awk '{print $1}') == "$prepare_sha" ]]
     prepare_payload=$(base64 -w 0 "$prepare_source")
-    guest_exec_ok 1800 /bin/bash -lc "set -Eeuo pipefail; umask 077; target=/run/home-lab-debian-prepare-packages; trap 'rm -f -- \"\$target\"' EXIT; printf %s '$prepare_payload' | base64 -d > \"\$target\"; [[ \$(sha256sum \"\$target\" | awk '{print \$1}') == '$prepare_sha' ]]; chmod 0700 \"\$target\"; \"\$target\" > /var/log/home-lab-debian-package-preparation.log 2>&1 || { result=\$?; cat /var/log/home-lab-debian-package-preparation.log; exit \"\$result\"; }"
+    guest_exec_ok 1800 /bin/bash -lc "set -Eeuo pipefail; umask 077; target=/run/home-lab-debian-prepare-packages; trap 'rm -f -- \"\$target\"' EXIT; printf %s '$prepare_payload' | base64 -d > \"\$target\"; [[ \$(sha256sum \"\$target\" | awk '{print \$1}') == '$prepare_sha' ]]; chmod 0700 \"\$target\"; /bin/bash \"\$target\" > /var/log/home-lab-debian-package-preparation.log 2>&1 || { result=\$?; cat /var/log/home-lab-debian-package-preparation.log; exit \"\$result\"; }"
   fi
   stage=verify-debian-packages-prepared
   prepare_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-packages-prepared.json | jq -er '."out-data"')
