@@ -16,6 +16,11 @@ readonly CURRENT_IGNITION_SHA256=d60808452116247828f749517a66ec29d4656c4978d2997
 readonly CURRENT_IGNITION_SIZE=76685
 readonly DEBIAN_CICUSTOM='meta=local:snippets/vm-100-debian-meta.yaml,network=local:snippets/vm-100-debian-network.yaml,user=local:snippets/vm-100-debian-user.yaml'
 readonly GPU_VENDOR_DEVICE=1002:744c
+readonly EFFECTIVE_HOSTPCI1='mapping=rx-7900-xtx,pcie=1,rombar=1,x-vga=1'
+readonly EFFECTIVE_HOSTPCI2='mapping=rx-7900-xtx-audio,pcie=1,rombar=1'
+readonly EFFECTIVE_USB0='mapping=zigbee-cp210x'
+readonly EFFECTIVE_USB1='mapping=zwave-cp210x'
+readonly EFFECTIVE_USB2='mapping=realtek-bluetooth,usb3=1'
 readonly KERNEL_RELEASE=6.12.101+deb13-amd64
 readonly IMAGE_URL=https://cloud.debian.org/images/cloud/trixie/20260810-2566/debian-13-generic-amd64-20260810-2566.qcow2
 readonly IMAGE_DIGEST_URL=https://cloud.debian.org/images/cloud/trixie/20260810-2566/SHA512SUMS
@@ -39,6 +44,7 @@ readonly META_SIZE=75
 readonly CONFIRMATION=qualify-reviewed-vm-100-debian-13-inert
 readonly RESTORE_CONFIRMATION=restore-reviewed-vm-100-arch-after-debian-inert
 readonly PREPARE_CONFIRMATION=prepare-reviewed-vm-100-debian-packages
+readonly FINALIZE_CONFIRMATION=finalize-reviewed-vm-100-debian-packages-after-reboot
 readonly PLAN_NOTES_REF=refs/notes/debian-qualification
 readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
 readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
@@ -47,6 +53,7 @@ readonly CONSOLE_LOG=$DIAGNOSTIC_ROOT/inert-console.log
 readonly ATTEMPT_LOG=$DIAGNOSTIC_ROOT/inert-attempt.json
 readonly RESTORE_LOG=$DIAGNOSTIC_ROOT/inert-restore.json
 readonly PREPARE_LOG=$DIAGNOSTIC_ROOT/packages-prepared.json
+readonly PREPARE_PENDING_LOG=$DIAGNOSTIC_ROOT/packages-prepared.pending.json
 readonly SERIAL_SOCKET=/var/run/qemu-server/100.serial0
 readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -179,6 +186,62 @@ verify_arch_post_restore() {
   guest_exec_ok 30 /bin/bash -lc "source=\$(findmnt -rn -o SOURCE -T /srv/home-lab-state); [[ \$(blkid -s UUID -o value \"\$source\") == d4a19647-7879-4079-9fc9-b3e79711b449 ]]" || return 1
 }
 
+verify_exact_arch_configuration() {
+  local pending=$1 current=$2 config key
+  for config in "$pending" "$current"; do
+    [[ $(config_value "$config" boot) == "$ARCH_BOOT" ]] || return 1
+    [[ $(config_value "$config" scsi0) == "$EFFECTIVE_SCSI0" ]] || return 1
+    [[ $(config_value "$config" scsi1) == "$EFFECTIVE_SCSI1" ]] || return 1
+    [[ $(config_value "$config" scsi2) == "$EFFECTIVE_SCSI2" ]] || return 1
+    [[ $(config_value "$config" scsi3) == "$DEBIAN_SCSI3" ]] || return 1
+    [[ $(config_value "$config" ide2) == "$EFFECTIVE_IDE2" ]] || return 1
+    [[ $(config_value "$config" cicustom) == "$CURRENT_CICUSTOM" ]] || return 1
+    [[ $(config_value "$config" hostpci1) == "$EFFECTIVE_HOSTPCI1" ]] || return 1
+    [[ $(config_value "$config" hostpci2) == "$EFFECTIVE_HOSTPCI2" ]] || return 1
+    [[ $(config_value "$config" usb0) == "$EFFECTIVE_USB0" ]] || return 1
+    [[ $(config_value "$config" usb1) == "$EFFECTIVE_USB1" ]] || return 1
+    [[ $(config_value "$config" usb2) == "$EFFECTIVE_USB2" ]] || return 1
+    [[ $(config_value "$config" onboot) == 1 ]] || return 1
+    [[ $(config_value "$config" protection) == 1 ]] || return 1
+    [[ $(config_value "$config" vga) == none ]] || return 1
+    ! config_value "$config" lock >/dev/null 2>&1 || return 1
+    ! grep -Eq '^unused[0-9]+:' "$config" || return 1
+  done
+  for key in boot scsi0 scsi1 scsi2 scsi3 ide2 cicustom hostpci1 hostpci2 usb0 usb1 usb2 onboot protection vga; do
+    [[ $(config_value "$pending" "$key") == $(config_value "$current" "$key") ]] || return 1
+  done
+  return 0
+}
+
+arch_config_sha256() {
+  grep -E '^(boot|cicustom|hostpci1|hostpci2|ide2|onboot|protection|scsi0|scsi1|scsi2|scsi3|usb0|usb1|usb2|vga): ' "$1" \
+    | LC_ALL=C sort | sha256sum | awk '{print $1}'
+}
+
+write_package_pending_evidence() {
+  local marker=$1 host_boot_id temporary
+  host_boot_id=$(cat /proc/sys/kernel/random/boot_id)
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .packages-prepared-pending.XXXXXX)
+  jq -c --arg archBoot "$ARCH_BOOT" --arg candidateScsi3 "$DEBIAN_SCSI3" \
+    --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdBefore "$host_boot_id" \
+    --arg sourceCommit "$(git rev-parse HEAD)" \
+    '. + {archBoot:$archBoot,candidateScsi3:$candidateScsi3,createdAt:$createdAt,evidenceFormat:"home-lab-debian-package-transition-v1",hostBootIdBefore:$hostBootIdBefore,sourceCommit:$sourceCommit,state:"package-verified",vmid:100}' \
+    <<< "$marker" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$PREPARE_PENDING_LOG"
+}
+
+mark_package_evidence_awaiting_reboot() {
+  local config_sha=$1 temporary
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .packages-prepared-pending.XXXXXX)
+  jq -c --arg archConfigSha256 "$config_sha" '. + {archConfigSha256:$archConfigSha256,state:"awaiting-host-reboot"}' \
+    "$PREPARE_PENDING_LOG" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$PREPARE_PENDING_LOG"
+}
+
 wait_for_ping() {
   local timeout_seconds=$1
   for ((second = 0; second < timeout_seconds; second += 3)); do
@@ -221,11 +284,13 @@ candidate_diagnostics() {
 [[ $(id -u) -eq 0 ]] || { fail "Debian qualification requires root"; exit 1; }
 restore_mode=false
 prepare_mode=false
+finalize_mode=false
 case ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} in
   "$CONFIRMATION") ;;
   "$RESTORE_CONFIRMATION") restore_mode=true ;;
   "$PREPARE_CONFIRMATION") prepare_mode=true ;;
-  *) fail "exact Debian qualification, package preparation, or Arch restore confirmation is required"; exit 1 ;;
+  "$FINALIZE_CONFIRMATION") finalize_mode=true ;;
+  *) fail "exact Debian qualification, package preparation, package finalization, or Arch restore confirmation is required"; exit 1 ;;
 esac
 [[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "Debian qualification requires a physical Proxmox console"; exit 1; }
 [[ -d $RECONCILIATION_ROOT && ! -L $RECONCILIATION_ROOT ]] || { fail "reconciliation lock root is absent or unsafe"; exit 1; }
@@ -243,6 +308,53 @@ else
 fi
 [[ $(git rev-parse HEAD) == $(git rev-parse origin/main) ]] || { fail "repository is not at origin/main"; exit 1; }
 [[ $(vm_status) == running ]] || { fail "VM 100 is not running"; exit 1; }
+if [[ $finalize_mode == true ]]; then
+  [[ -f $PREPARE_PENDING_LOG && ! -L $PREPARE_PENDING_LOG ]] || { fail "pending package evidence is absent or unsafe"; exit 1; }
+  [[ $(stat -c %U:%G:%a "$PREPARE_PENDING_LOG") == root:root:600 ]] || { fail "pending package evidence metadata differs"; exit 1; }
+  [[ ! -e $PREPARE_LOG && ! -L $PREPARE_LOG ]] || { fail "final package evidence already exists or is unsafe"; exit 1; }
+  pending_evidence=$(cat "$PREPARE_PENDING_LOG")
+  jq -e --arg archBoot "$ARCH_BOOT" --arg candidateScsi3 "$DEBIAN_SCSI3" --arg sourceCommit "$(git rev-parse HEAD)" '
+    .evidenceFormat == "home-lab-debian-package-transition-v1" and
+    .format == "home-lab-debian-packages-prepared-v1" and
+    .state == "awaiting-host-reboot" and .services == "disabled-inactive" and .vmid == 100 and
+    .archBoot == $archBoot and .candidateScsi3 == $candidateScsi3 and .sourceCommit == $sourceCommit and
+    (.hostBootIdBefore | test("^[0-9a-f-]{36}$")) and (.archConfigSha256 | test("^[0-9a-f]{64}$")) and
+    (.dockerPackageVersion | length > 0) and (.composePackageVersion | length > 0) and (.composeVersion | length > 0)
+  ' <<< "$pending_evidence" >/dev/null || { fail "pending package evidence differs"; exit 1; }
+  created_epoch=$(date -d "$(jq -er .createdAt <<< "$pending_evidence")" +%s)
+  now_epoch=$(date +%s)
+  evidence_age=$((now_epoch - created_epoch))
+  [[ $evidence_age -ge -300 && $evidence_age -le 86400 ]] || { fail "pending package evidence is stale or future-dated"; exit 1; }
+  host_boot_id_after=$(cat /proc/sys/kernel/random/boot_id)
+  [[ $host_boot_id_after != $(jq -er .hostBootIdBefore <<< "$pending_evidence") ]] || { fail "the required physical host reboot has not occurred"; exit 1; }
+  finalize_pending=$(mktemp --tmpdir=/run home-lab-debian-finalize-pending.XXXXXX)
+  finalize_current=$(mktemp --tmpdir=/run home-lab-debian-finalize-current.XXXXXX)
+  finalize_evidence=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .packages-prepared-final.XXXXXX)
+  trap 'rm -f -- "$finalize_pending" "$finalize_current" "$finalize_evidence"' EXIT
+  chmod 0600 "$finalize_pending" "$finalize_current" "$finalize_evidence"
+  qm config "$VMID" > "$finalize_pending"
+  qm config "$VMID" --current 1 > "$finalize_current"
+  verify_exact_arch_configuration "$finalize_pending" "$finalize_current" || { fail "post-reboot Arch configuration differs"; exit 1; }
+  [[ $(arch_config_sha256 "$finalize_pending") == $(jq -er .archConfigSha256 <<< "$pending_evidence") ]] || { fail "post-reboot Arch configuration digest differs"; exit 1; }
+  wait_for_agent 600 || { fail "post-reboot Arch QEMU guest agent is unavailable"; exit 1; }
+  [[ $(os_id) == arch ]] || { fail "post-reboot VM 100 is not Arch"; exit 1; }
+  verify_arch_post_restore || { fail "post-reboot Arch workload health differs"; exit 1; }
+  [[ $(systemctl --failed --no-legend | wc -l) -eq 0 ]] || { fail "the Proxmox host has failed units"; exit 1; }
+  [[ $(systemctl is-active pve-firewall) == active && $(systemctl is-active proxmox-firewall) == active ]] || { fail "Proxmox firewall services are inactive"; exit 1; }
+  pve-firewall status | grep -Fxq 'Status: enabled/running' || { fail "Proxmox firewall status differs"; exit 1; }
+  jq -c --arg completedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdAfter "$host_boot_id_after" \
+    '. + {archRestore:"verified",completedAt:$completedAt,hostBootIdAfter:$hostBootIdAfter,state:"complete"}' \
+    <<< "$pending_evidence" > "$finalize_evidence"
+  chown root:root "$finalize_evidence"
+  chmod 0600 "$finalize_evidence"
+  mv -T "$finalize_evidence" "$PREPARE_LOG"
+  rm -f -- "$PREPARE_PENDING_LOG"
+  write_diagnostic_json "$RESTORE_LOG" arch-restored complete reachable reachable ready empty
+  trap - EXIT
+  rm -f -- "$finalize_pending" "$finalize_current"
+  echo "Debian package preparation finalized after physical reboot and complete Arch verification" >&2
+  exit 0
+fi
 if [[ $restore_mode == true ]]; then
   wait_for_agent 30 || { fail "Debian QEMU guest agent is unavailable"; exit 1; }
   [[ $(os_id) == debian ]] || { fail "VM 100 is not running inert Debian"; exit 1; }
@@ -278,7 +390,7 @@ before=$(mktemp --tmpdir=/run home-lab-debian-qualification.XXXXXX)
 before_current=$(mktemp --tmpdir=/run home-lab-debian-qualification-current.XXXXXX)
 stopped_config=$(mktemp --tmpdir=/run home-lab-debian-qualification-stopped.XXXXXX)
 cleanup() {
-  rm -f -- "$before" "$before_current" "$stopped_config" "$IMAGE_PATH.pending" "$PREPARE_LOG.pending"
+  rm -f -- "$before" "$before_current" "$stopped_config" "$IMAGE_PATH.pending"
   if [[ -n ${digest_temporary:-} ]]; then
     rm -f -- "$digest_temporary"
   fi
@@ -306,10 +418,13 @@ done
 ! config_value "$before" lock >/dev/null 2>&1 || { fail "VM 100 has an active Proxmox configuration lock"; exit 1; }
 ! grep -Eq '^unused[0-9]+:' "$before" || { fail "an unused disk requires reconciliation"; exit 1; }
 if [[ $prepare_mode == true ]]; then
+  verify_exact_arch_configuration "$before" "$before_current" || { fail "package-preparation Arch configuration differs"; exit 1; }
   [[ $(config_value "$before" scsi3) == "$DEBIAN_SCSI3" ]] || { fail "package preparation requires the exact qualified Debian disk"; exit 1; }
   [[ $(config_value "$before_current" scsi3) == "$DEBIAN_SCSI3" ]] || { fail "current package-preparation disk identity differs"; exit 1; }
   [[ $(config_value "$before" cicustom) == "$CURRENT_CICUSTOM" ]] || { fail "package preparation requires the Arch cloud-init baseline"; exit 1; }
   [[ $(config_value "$before_current" cicustom) == "$CURRENT_CICUSTOM" ]] || { fail "current package-preparation cloud-init baseline differs"; exit 1; }
+  [[ ! -e $PREPARE_PENDING_LOG && ! -L $PREPARE_PENDING_LOG ]] || { fail "pending package evidence requires finalization or reconciliation"; exit 1; }
+  [[ ! -e $PREPARE_LOG && ! -L $PREPARE_LOG ]] || { fail "Debian package preparation is already finalized"; exit 1; }
 fi
 
 stage="stage-debian-image"
@@ -348,7 +463,7 @@ image_virtual_size=$(qemu-img info --output=json "$IMAGE_PATH" | jq -r '."virtua
 
 install -d -o root -g root -m 0700 "$DIAGNOSTIC_ROOT"
 install -o root -g root -m 0600 /dev/null "$CONSOLE_LOG"
-rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG" "$PREPARE_LOG" "$PREPARE_LOG.pending"
+rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG"
 transition_started=false
 console_pid=
 stage=preflight
@@ -429,16 +544,27 @@ if [[ $prepare_mode == true ]]; then
   jq -e '.format == "home-lab-debian-packages-prepared-v1" and .services == "disabled-inactive" and (.dockerPackageVersion | length > 0) and (.composePackageVersion | length > 0) and (.composeVersion | length > 0)' <<< "$prepare_marker" >/dev/null
   guest_exec_ok 30 /bin/bash -lc "for service in docker.service docker.socket containerd.service; do [[ \$(systemctl is-enabled \"\$service\" 2>/dev/null || true) == disabled ]] && [[ \$(systemctl is-active \"\$service\" 2>/dev/null || true) == inactive ]] || exit 1; done; [[ ! -S /run/docker.sock ]]"
   guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done; for root in /var/lib/docker/containers /var/lib/docker/image /var/lib/docker/overlay2 /var/lib/docker/volumes; do [[ ! -d \$root || -z \$(find \"\$root\" -mindepth 1 -print -quit) ]] || exit 1; done; [[ ! -e /etc/sops/age && ! -e /etc/docker-compose && ! -e /var/lib/tailscale && ! -e /etc/default/tailscaled ]]; ! command -v tailscale >/dev/null 2>&1; ! command -v tailscaled >/dev/null 2>&1; ! systemctl list-unit-files --no-legend | grep -q '^tailscaled\\.'; ! pgrep -x tailscaled >/dev/null 2>&1"
+  stage=persist-debian-package-evidence
+  write_package_pending_evidence "$prepare_marker"
   stop_console_capture
-  restore_arch
+  stage=shutdown-debian-after-package-preparation
+  qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || qm shutdown "$VMID" --timeout 60 || true
+  if ! wait_for_status stopped 180; then
+    stage=force-stop-debian-after-package-preparation
+    qm stop "$VMID"
+    wait_for_status stopped 30
+  fi
+  stage=prepare-arch-host-reboot
+  prepare_arch_restore
+  qm set "$VMID" --boot "$ARCH_BOOT" --vga none
+  qm config "$VMID" > "$stopped_config"
+  qm config "$VMID" --current 1 > "$before_current"
+  verify_exact_arch_configuration "$stopped_config" "$before_current"
+  mark_package_evidence_awaiting_reboot "$(arch_config_sha256 "$stopped_config")"
   transition_started=false
-  prepare_evidence=$(jq -c --arg commit "$(git rev-parse HEAD)" '. + {archRestore:"verified",sourceCommit:$commit}' <<< "$prepare_marker")
-  printf '%s\n' "$prepare_evidence" > "$PREPARE_LOG.pending"
-  chmod 0600 "$PREPARE_LOG.pending"
-  chown root:root "$PREPARE_LOG.pending"
-  mv -T "$PREPARE_LOG.pending" "$PREPARE_LOG"
   trap - ERR INT TERM HUP
-  echo "Debian packages prepared; Arch production boot path restored" >&2
+  echo "Debian packages verified and exact Arch boot configuration prepared; a physical Proxmox host reboot is required" >&2
+  echo "After reboot, run /root/home-lab/scripts/finalize-debian-package-preparation at the physical console" >&2
   exit 0
 fi
 stage=verify-exclusive-debian-target

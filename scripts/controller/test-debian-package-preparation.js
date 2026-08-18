@@ -40,5 +40,7 @@ assert.doesNotMatch(script, /docker compose (?:up|create|start)|mount .*home-lab
 assert.equal(contract.debian.cutover.credentials, "deferred");
 assert.equal(contract.debian.cutover.tailscale_enrollment, "deferred");
 assert.deepEqual(contract.debian.cutover.rollback_boot_order, ["scsi0", "net0"]);
+assert.equal(contract.debian.cutover.transition_restore, "physical-host-reboot");
+assert.equal(contract.debian.cutover.package_evidence, "post-reboot-arch-verified");
 
 process.stdout.write("debian package preparation tests passed\n");

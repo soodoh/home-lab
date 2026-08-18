@@ -34,10 +34,11 @@ A physical-console transition boots the existing Debian `scsi3` without reimagin
 5. installs Debian Stable `docker.io` and `docker-compose` with service autostart blocked;
 6. requires Docker, containerd, and their sockets to remain disabled and inactive;
 7. requires zero containers, images, and volumes and no protected mounts;
-8. records package and Compose versions without credentials; and
-9. cleanly restores and verifies Arch production.
+8. records package and Compose versions as durable pending evidence without credentials;
+9. cleanly stops Debian and restores the exact Arch boot configuration with `onboot: 1`; and
+10. requires a physical Proxmox host reboot because the passed-through GPU cannot reliably reset between guests.
 
-Package installation alone does not authorize a Docker daemon start.
+After the reboot, a separate physical-console finalizer requires a changed host boot ID, exact pending/current Arch configuration, Arch QGA identity, 41 running containers, zero unhealthy containers, 115 state bind mounts, zero Docker volume mounts, the exact state UUID, healthy Proxmox firewalls, and zero failed host units. Only then does it atomically promote pending package evidence to complete. Package installation or an unfinalized reboot does not authorize a Docker daemon start.
 
 ### 2. Storage rehearsal
 
@@ -66,5 +67,6 @@ Observe Debian for at least seven days. Keep `scsi0`, Arch Docker volumes, backu
 - After read-write mount but before Docker: unmount cleanly, stop Debian, and restore Arch.
 - After Docker or Compose starts: stop Compose, stop Docker, verify no open protected devices, unmount, stop Debian, then restore and fully audit Arch.
 - If the passed-through GPU cannot reset after a clean guest-agent shutdown, remain at the physical console and use a host reboot only after exact Arch boot configuration and `onboot: 1` are verified.
+- Package preparation treats this GPU limitation as a planned two-command continuation: the first command leaves VM 100 stopped with exact Arch boot authority and durable pending evidence; the post-reboot finalizer promotes that evidence only after full Arch and host verification.
 
 No stage may infer authorization for the next stage from a successful prior stage.

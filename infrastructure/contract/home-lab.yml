@@ -1232,6 +1232,8 @@ debian:
     rollback_boot_order:
       - scsi0
       - net0
+    transition_restore: physical-host-reboot
+    package_evidence: post-reboot-arch-verified
     minimum_observation_days: 7
 omada:
   controller_version: 6.2.14.11

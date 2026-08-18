@@ -275,7 +275,7 @@
         "cutover": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["stage", "package_source", "docker_package", "compose_package", "expected_service_count", "expected_state_bind_count", "expected_docker_volume_mount_count", "state_mountpoint", "games_mountpoint", "nfs_mountpoint", "credentials", "tailscale_enrollment", "rollback_boot_order", "minimum_observation_days"],
+          "required": ["stage", "package_source", "docker_package", "compose_package", "expected_service_count", "expected_state_bind_count", "expected_docker_volume_mount_count", "state_mountpoint", "games_mountpoint", "nfs_mountpoint", "credentials", "tailscale_enrollment", "rollback_boot_order", "transition_restore", "package_evidence", "minimum_observation_days"],
           "properties": {
             "stage": { "enum": ["qualified", "packages-prepared", "storage-rehearsed", "credentials-staged", "production-canary", "production", "rollback"] },
             "package_source": { "const": "debian-stable" },
@@ -290,6 +290,8 @@
             "credentials": { "enum": ["deferred", "staged"] },
             "tailscale_enrollment": { "enum": ["deferred", "staged", "enrolled"] },
             "rollback_boot_order": { "type": "array", "prefixItems": [{ "const": "scsi0" }, { "const": "net0" }], "items": false, "minItems": 2, "maxItems": 2 },
+            "transition_restore": { "const": "physical-host-reboot" },
+            "package_evidence": { "const": "post-reboot-arch-verified" },
             "minimum_observation_days": { "const": 7 }
           }
         }
