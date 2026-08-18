@@ -54,6 +54,7 @@ readonly ATTEMPT_LOG=$DIAGNOSTIC_ROOT/inert-attempt.json
 readonly RESTORE_LOG=$DIAGNOSTIC_ROOT/inert-restore.json
 readonly PREPARE_LOG=$DIAGNOSTIC_ROOT/packages-prepared.json
 readonly PREPARE_PENDING_LOG=$DIAGNOSTIC_ROOT/packages-prepared.pending.json
+readonly GUEST_FAILURE_LOG=$DIAGNOSTIC_ROOT/guest-exec-failure.json
 readonly SERIAL_SOCKET=/var/run/qemu-server/100.serial0
 readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -172,10 +173,20 @@ guest_exec_json() {
 }
 
 guest_exec_ok() {
-  local timeout_seconds=$1 result
+  local timeout_seconds=$1 result temporary
   shift
   result=$(guest_exec_json "$timeout_seconds" "$@")
-  jq -e '.exited == 1 and .exitcode == 0' <<< "$result" >/dev/null
+  if jq -e '.exited == 1 and .exitcode == 0' <<< "$result" >/dev/null; then
+    return 0
+  fi
+  install -d -o root -g root -m 0700 "$DIAGNOSTIC_ROOT"
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .guest-exec-failure.XXXXXX)
+  jq -c --arg stage "${stage:-unknown}" '{stage:$stage,response:.}' <<< "$result" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$GUEST_FAILURE_LOG"
+  jq -r '(."out-data" // "") + (."err-data" // "")' <<< "$result" >&2
+  return 1
 }
 
 verify_arch_post_restore() {
@@ -491,7 +502,7 @@ image_virtual_size=$(qemu-img info --output=json "$IMAGE_PATH" | jq -r '."virtua
 
 install -d -o root -g root -m 0700 "$DIAGNOSTIC_ROOT"
 install -o root -g root -m 0600 /dev/null "$CONSOLE_LOG"
-rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG"
+rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG" "$GUEST_FAILURE_LOG"
 transition_started=false
 console_pid=
 stage=preflight
@@ -578,7 +589,7 @@ if [[ $prepare_mode == true ]]; then
     prepare_sha=a8cc15f6e58d25b4fed1684e6cfb5d1073c58e74c29987981dc5415f2c581128
     [[ $(sha256sum "$prepare_source" | awk '{print $1}') == "$prepare_sha" ]]
     prepare_payload=$(base64 -w 0 "$prepare_source")
-    guest_exec_ok 1800 /bin/bash -lc "set -Eeuo pipefail; umask 077; target=/run/home-lab-debian-prepare-packages; trap 'rm -f -- \"\$target\"' EXIT; printf %s '$prepare_payload' | base64 -d > \"\$target\"; [[ \$(sha256sum \"\$target\" | awk '{print \$1}') == '$prepare_sha' ]]; chmod 0700 \"\$target\"; \"\$target\" > /var/log/home-lab-debian-package-preparation.log 2>&1"
+    guest_exec_ok 1800 /bin/bash -lc "set -Eeuo pipefail; umask 077; target=/run/home-lab-debian-prepare-packages; trap 'rm -f -- \"\$target\"' EXIT; printf %s '$prepare_payload' | base64 -d > \"\$target\"; [[ \$(sha256sum \"\$target\" | awk '{print \$1}') == '$prepare_sha' ]]; chmod 0700 \"\$target\"; \"\$target\" > /var/log/home-lab-debian-package-preparation.log 2>&1 || { result=\$?; cat /var/log/home-lab-debian-package-preparation.log; exit \"\$result\"; }"
   fi
   stage=verify-debian-packages-prepared
   prepare_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-packages-prepared.json | jq -er '."out-data"')
