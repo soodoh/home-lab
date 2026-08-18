@@ -5,7 +5,9 @@ readonly MARKER=/var/lib/home-lab/debian-packages-prepared.json
 readonly POLICY=/usr/sbin/policy-rc.d
 readonly EXPECTED_KERNEL=6.12.101+deb13-amd64
 readonly PACKAGES=(docker.io docker-compose)
-readonly SERVICES=(docker.service docker.socket containerd.service)
+readonly DOCKER_SERVICES=(docker.service docker.socket)
+readonly RUNTIME_SERVICE=containerd.service
+readonly SERVICES=("${DOCKER_SERVICES[@]}" "$RUNTIME_SERVICE")
 
 fail() {
   echo "error: $*" >&2
@@ -53,7 +55,7 @@ result = {
     "composeVersion": output("/usr/bin/docker", "compose", "version", "--short"),
     "dockerPackageVersion": output("/usr/bin/dpkg-query", "-W", "-f=${Version}", "docker.io"),
     "format": "home-lab-debian-packages-prepared-v1",
-    "services": "disabled-inactive",
+    "services": "docker-disabled-containerd-masked-inactive",
 }
 Path(sys.argv[1]).write_text(json.dumps(result, separators=(",", ":"), sort_keys=True) + "\n", encoding="utf-8")
 PY
@@ -66,10 +68,12 @@ verify_prepared() {
   for package in "${PACKAGES[@]}"; do
     dpkg-query -W -f='${db:Status-Status}\n' "$package" | grep -Fxq installed || return 1
   done
-  for service in "${SERVICES[@]}"; do
+  for service in "${DOCKER_SERVICES[@]}"; do
     [[ $(systemctl is-enabled "$service" 2>/dev/null || true) == disabled ]] || return 1
     [[ $(systemctl is-active "$service" 2>/dev/null || true) == inactive ]] || return 1
   done
+  [[ $(systemctl is-enabled "$RUNTIME_SERVICE" 2>/dev/null || true) == masked ]] || return 1
+  [[ $(systemctl is-active "$RUNTIME_SERVICE" 2>/dev/null || true) == inactive ]] || return 1
   [[ ! -S /run/docker.sock ]] || return 1
   [[ ! -e /etc/home-lab/allow-storage-activation ]] || return 1
   verify_protected_mounts_inactive || return 1
@@ -107,7 +111,8 @@ cleanup() {
   local result=$?
   trap - EXIT INT TERM HUP
   if [[ $preparation_complete != true ]]; then
-    systemctl disable --now "${SERVICES[@]}" >/dev/null 2>&1 || true
+    systemctl stop "${SERVICES[@]}" >/dev/null 2>&1 || true
+    systemctl mask "${SERVICES[@]}" >/dev/null 2>&1 || true
   fi
   rm -f -- "$POLICY"
   if [[ -n $temporary ]]; then rm -f -- "$temporary"; fi
@@ -129,9 +134,9 @@ chmod 0755 "$POLICY"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install --no-install-recommends --yes "${PACKAGES[@]}"
-systemctl disable --now "${SERVICES[@]}" >/dev/null
-systemctl unmask "${SERVICES[@]}" >/dev/null
-systemctl disable --now "${SERVICES[@]}" >/dev/null
+systemctl stop "${SERVICES[@]}" >/dev/null 2>&1 || true
+systemctl unmask "${DOCKER_SERVICES[@]}" >/dev/null
+systemctl disable --now "${DOCKER_SERVICES[@]}" >/dev/null
 rm -f -- "$POLICY"
 verify_prepared
 
