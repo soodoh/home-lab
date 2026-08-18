@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly CONFIRMATION=restore-reviewed-vm-100-arch-after-debian-inert
+
+[[ $# -eq 0 ]] || { echo "usage: scripts/run-debian-inert-arch-restore" >&2; exit 1; }
+[[ -t 0 ]] || { echo "Arch restoration requires confirmation from an interactive physical console" >&2; exit 1; }
+printf 'Type the exact confirmation to restore the guarded Arch production boot path:\n%s\n' "$CONFIRMATION" >&2
+IFS= read -r confirmation
+[[ $confirmation == "$CONFIRMATION" ]] || { echo "exact Arch restore confirmation is required" >&2; exit 1; }
+export HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED=$CONFIRMATION
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+exec "$root/scripts/qualify-debian-inert"

@@ -37,6 +37,7 @@ readonly META_TARGET=/var/lib/vz/snippets/vm-100-debian-meta.yaml
 readonly META_SHA256=e9a68afeaa0e3071a22a01f7b1cd5cf92f88eb9d23b20fd6a9b07a826546c8a7
 readonly META_SIZE=75
 readonly CONFIRMATION=qualify-reviewed-vm-100-debian-13-inert
+readonly RESTORE_CONFIRMATION=restore-reviewed-vm-100-arch-after-debian-inert
 readonly PLAN_NOTES_REF=refs/notes/debian-qualification
 readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
 readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
@@ -216,7 +217,12 @@ candidate_diagnostics() {
 
 [[ $# -eq 0 ]] || { fail "usage: scripts/qualify-debian-inert"; exit 1; }
 [[ $(id -u) -eq 0 ]] || { fail "Debian qualification requires root"; exit 1; }
-[[ ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} == "$CONFIRMATION" ]] || { fail "exact Debian qualification confirmation is required"; exit 1; }
+restore_mode=false
+case ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} in
+  "$CONFIRMATION") ;;
+  "$RESTORE_CONFIRMATION") restore_mode=true ;;
+  *) fail "exact Debian qualification or Arch restore confirmation is required"; exit 1 ;;
+esac
 [[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "Debian qualification requires a physical Proxmox console"; exit 1; }
 [[ -d $RECONCILIATION_ROOT && ! -L $RECONCILIATION_ROOT ]] || { fail "reconciliation lock root is absent or unsafe"; exit 1; }
 [[ ! -e $RECONCILIATION_ROOT/apply.lock ]] || { fail "a protected Proxmox apply is active"; exit 1; }
@@ -226,9 +232,39 @@ acquire_transition_locks || { fail "another protected Proxmox operation holds a 
 
 [[ $(git branch --show-current) == main ]] || { fail "repository is not on main"; exit 1; }
 [[ -z $(git status --porcelain) ]] || { fail "repository is not clean"; exit 1; }
-verify_plan_attestation || { fail "fresh zero-action controller plan attestation is unavailable"; exit 1; }
+if [[ $restore_mode == true ]]; then
+  git fetch --quiet origin "+refs/heads/main:refs/remotes/origin/main"
+else
+  verify_plan_attestation || { fail "fresh zero-action controller plan attestation is unavailable"; exit 1; }
+fi
 [[ $(git rev-parse HEAD) == $(git rev-parse origin/main) ]] || { fail "repository is not at origin/main"; exit 1; }
 [[ $(vm_status) == running ]] || { fail "VM 100 is not running"; exit 1; }
+if [[ $restore_mode == true ]]; then
+  wait_for_agent 30 || { fail "Debian QEMU guest agent is unavailable"; exit 1; }
+  [[ $(os_id) == debian ]] || { fail "VM 100 is not running inert Debian"; exit 1; }
+  restore_pending=$(mktemp --tmpdir=/run home-lab-debian-restore-pending.XXXXXX)
+  restore_current=$(mktemp --tmpdir=/run home-lab-debian-restore-current.XXXXXX)
+  trap 'rm -f -- "$restore_pending" "$restore_current"' EXIT
+  chmod 0600 "$restore_pending" "$restore_current"
+  qm config "$VMID" > "$restore_pending"
+  qm config "$VMID" --current 1 > "$restore_current"
+  for config in "$restore_pending" "$restore_current"; do
+    [[ $(config_value "$config" boot) == "$DEBIAN_BOOT" ]] || { fail "Debian boot order differs"; exit 1; }
+    [[ $(config_value "$config" scsi0) == "$EFFECTIVE_SCSI0" ]] || { fail "effective scsi0 differs"; exit 1; }
+    [[ $(config_value "$config" scsi1) == "$EFFECTIVE_SCSI1" ]] || { fail "effective scsi1 differs"; exit 1; }
+    [[ $(config_value "$config" scsi2) == "$EFFECTIVE_SCSI2" ]] || { fail "effective scsi2 differs"; exit 1; }
+    [[ $(config_value "$config" scsi3) == "$DEBIAN_SCSI3" ]] || { fail "effective scsi3 differs"; exit 1; }
+    [[ $(config_value "$config" ide2) == "$EFFECTIVE_IDE2" ]] || { fail "effective ide2 differs"; exit 1; }
+    [[ $(config_value "$config" cicustom) == "$DEBIAN_CICUSTOM" ]] || { fail "effective Debian cicustom differs"; exit 1; }
+    [[ $(config_value "$config" vga) == none ]] || { fail "VM 100 VGA configuration differs"; exit 1; }
+  done
+  [[ $(config_value "$restore_pending" protection) == 1 ]] || { fail "VM 100 protection differs"; exit 1; }
+  ! config_value "$restore_pending" lock >/dev/null 2>&1 || { fail "VM 100 has an active Proxmox configuration lock"; exit 1; }
+  ! grep -Eq '^unused[0-9]+:' "$restore_pending" || { fail "an unused disk requires reconciliation"; exit 1; }
+  install -d -o root -g root -m 0700 "$DIAGNOSTIC_ROOT"
+  restore_arch
+  exit 0
+fi
 wait_for_agent 30 || { fail "Arch QEMU guest agent is unavailable"; exit 1; }
 [[ $(os_id) == arch ]] || { fail "VM 100 is not running Arch"; exit 1; }
 verify_arch_post_restore || { fail "Arch workload health differs"; exit 1; }

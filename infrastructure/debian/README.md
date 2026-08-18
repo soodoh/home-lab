@@ -55,7 +55,10 @@ All rendering, source validation, contract validation, tests, plans, and post-bo
 6. regenerate and verify the cloud-init ISO;
 7. boot Debian with existing guarded VFIO recovery;
 8. require cloud-init, QGA, LAN, SSH, kernel modules, `amdgpu`, `/dev/dri/renderD128`, and inert mount/Compose postconditions; and
-9. restore verified Arch automatically on any failure.
+9. restore verified Arch automatically on any failure; and
+10. leave a fully qualified Debian candidate inert for independent inspection on success.
+
+After evidence is recorded, `scripts/run-debian-inert-arch-restore` provides the separate physical-console boundary that verifies the exact Debian configuration, restores the pinned Arch cloud-init payload and boot order, and requires Arch identity plus full workload health before reporting success.
 
 This physical boundary is retained because disk imaging and boot-path mutation cannot be safely authorized by repository state or remote root access alone. Repository state, plan evidence, and the physical confirmation are cumulative gates; none independently authorizes mutation.
 

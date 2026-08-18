@@ -183,7 +183,7 @@
         "version": { "const": "13" },
         "point_release": { "const": "13.6" },
         "build_id": { "const": "20260810-2566" },
-        "qualification_stage": { "enum": ["design", "cloud-init-staged", "ready-for-first-boot", "debian-inert", "hardware-blocked"] },
+        "qualification_stage": { "enum": ["design", "cloud-init-staged", "ready-for-first-boot", "debian-inert", "debian-qualified", "hardware-blocked"] },
         "image": {
           "type": "object",
           "additionalProperties": false,
