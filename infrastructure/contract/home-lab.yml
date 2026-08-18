@@ -1175,8 +1175,8 @@ debian:
     user_data:
       source_path: infrastructure/debian/cloud-init/user-data
       snippet_path: /var/lib/vz/snippets/vm-100-debian-user.yaml
-      sha256: 5b0bf2e7add2cd83d0d07c90ee3ceea6011fe9d02b3c56506365495bd43ec1bd
-      size: 3994
+      sha256: e1808e86931397e98bec1a780ee8d80c0293edfb0115314be7e48c433c83ae87
+      size: 4401
     network_data:
       source_path: infrastructure/debian/cloud-init/network-data
       snippet_path: /var/lib/vz/snippets/vm-100-debian-network.yaml
@@ -1201,6 +1201,7 @@ debian:
     rollback_days: 7
   qualification:
     os_id: debian
+    kernel_release: 6.12.101+deb13-amd64
     hostname: docker-host
     network_interface: ens18
     kernel_modules:

@@ -3,6 +3,8 @@ locals {
   node                  = local.contract.proxmox.node
   recovery              = var.phase == "recovery"
   flatcar_qualification = contains(["ignition-attached", "ready-for-first-boot", "flatcar-inert", "hardware-blocked"], local.contract.flatcar.qualification_stage)
+  debian_qualification  = contains(["cloud-init-staged", "ready-for-first-boot", "debian-inert", "hardware-blocked"], local.contract.debian.qualification_stage)
+  os_qualification      = local.flatcar_qualification || local.debian_qualification
   use_hardware_mappings = local.recovery || local.vm.hardware_attachment_mode == "managed"
 }
 
@@ -25,7 +27,9 @@ resource "proxmox_virtual_environment_vm" "arch" {
 
   machine       = local.vm.machine
   kvm_arguments = local.vm.cpu.kvm_arguments
-  boot_order    = local.vm.boot_order
+  boot_order = local.debian_qualification && local.contract.debian.qualification_stage == "debian-inert" ? (
+    local.contract.debian.os_disk.qualification_boot_order
+  ) : local.vm.boot_order
   scsi_hardware = "virtio-scsi-single"
   on_boot       = local.vm.on_boot
   started       = local.vm.started
@@ -164,15 +168,27 @@ resource "proxmox_virtual_environment_vm" "arch" {
   }
 
   dynamic "initialization" {
-    for_each = local.recovery || local.flatcar_qualification ? [1] : []
+    for_each = local.recovery || local.os_qualification ? [1] : []
     content {
-      datastore_id = local.recovery ? local.vm.root_disk.datastore : local.contract.flatcar.os_disk.ignition_drive_datastore
-      interface    = local.contract.flatcar.os_disk.ignition_drive_interface
-      upgrade      = !local.recovery
+      datastore_id = local.recovery ? local.vm.root_disk.datastore : (
+        local.debian_qualification ? local.contract.debian.cloud_init.drive_datastore : local.contract.flatcar.os_disk.ignition_drive_datastore
+      )
+      interface = local.debian_qualification ? local.contract.debian.cloud_init.drive_interface : local.contract.flatcar.os_disk.ignition_drive_interface
+      upgrade   = !local.recovery
       user_data_file_id = local.recovery ? null : format(
         "%s:snippets/%s",
-        local.contract.flatcar.os_disk.snippet_storage,
-        basename(local.contract.flatcar.os_disk.snippet_path),
+        local.debian_qualification ? local.contract.debian.cloud_init.datastore : local.contract.flatcar.os_disk.snippet_storage,
+        basename(local.debian_qualification ? local.contract.debian.cloud_init.user_data.snippet_path : local.contract.flatcar.os_disk.snippet_path),
+      )
+      meta_data_file_id = local.recovery || !local.debian_qualification ? null : format(
+        "%s:snippets/%s",
+        local.contract.debian.cloud_init.datastore,
+        basename(local.contract.debian.cloud_init.meta_data.snippet_path),
+      )
+      network_data_file_id = local.recovery || !local.debian_qualification ? null : format(
+        "%s:snippets/%s",
+        local.contract.debian.cloud_init.datastore,
+        basename(local.contract.debian.cloud_init.network_data.snippet_path),
       )
 
       dynamic "dns" {

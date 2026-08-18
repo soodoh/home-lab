@@ -37,6 +37,7 @@ for (const [contractKey, name] of inputs) {
 
 const userData = parsed.get("user-data");
 const dockerUser = userData.users.find((user) => user.name === "docker");
+assert.deepEqual(userData.groups, ["dialout", "input", "render", "video"]);
 assert.equal(dockerUser.uid, 1000);
 assert.equal(dockerUser.lock_passwd, true);
 assert.equal(dockerUser.ssh_authorized_keys.length, 1);
@@ -44,13 +45,16 @@ assert.match(dockerUser.ssh_authorized_keys[0], /^ssh-ed25519 /);
 assert.equal(userData.ssh_pwauth, false);
 assert.equal(userData.disable_root, true);
 assert.equal(userData.package_upgrade, false);
-for (const requiredPackage of ["firmware-amd-graphics", "qemu-guest-agent", "unattended-upgrades", "vainfo"]) {
+for (const requiredPackage of ["firmware-amd-graphics", "qemu-guest-agent", "unattended-upgrades", "usbutils", "vainfo"]) {
   assert.ok(userData.packages.includes(requiredPackage));
 }
 for (const prohibitedPackage of ["docker-ce", "docker.io", "docker-compose", "tailscale"]) {
   assert.equal(userData.packages.includes(prohibitedPackage), false);
 }
 const fileByPath = new Map(userData.write_files.map((file) => [file.path, file]));
+const debianSources = fileByPath.get("/etc/apt/sources.list.d/debian.sources").content;
+assert.match(debianSources, /Components: main contrib non-free-firmware/);
+assert.match(debianSources, /Signed-By: \/usr\/share\/keyrings\/debian-archive-keyring\.gpg/);
 assert.equal(fileByPath.get("/etc/modules-load.d/home-lab-hardware.conf").content, "amdgpu\nuhid\nuinput\n");
 for (const mountPath of [
   "/etc/systemd/system/srv-home\\x2dlab\\x2dstate.mount",
@@ -58,6 +62,7 @@ for (const mountPath of [
   "/etc/systemd/system/mnt-storage.mount",
 ]) {
   assert.ok(fileByPath.has(mountPath));
+  assert.match(fileByPath.get(mountPath).content, /ConditionPathExists=\/etc\/home-lab\/allow-storage-activation/);
 }
 const commands = userData.runcmd.map((command) => command.join(" ")).join("\n");
 assert.match(commands, /modprobe amdgpu/);

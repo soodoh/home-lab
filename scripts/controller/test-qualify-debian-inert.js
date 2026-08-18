@@ -1,0 +1,94 @@
+#!/usr/bin/env node
+"use strict";
+
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { load } = require("js-yaml");
+
+const root = path.resolve(__dirname, "../..");
+const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/home-lab.yml"), "utf8"));
+const script = fs.readFileSync(path.join(root, "scripts/qualify-debian-inert"), "utf8");
+const runner = fs.readFileSync(path.join(root, "scripts/run-debian-inert-qualification"), "utf8");
+const transitionLibrary = fs.readFileSync(path.join(root, "scripts/lib/vm-100-os-transition"), "utf8");
+const combined = `${script}\n${transitionLibrary}`;
+const debian = contract.debian;
+
+assert.ok(script.includes(`readonly IMAGE_URL=${debian.image.url}`));
+assert.ok(script.includes(`readonly IMAGE_DIGEST_URL=${debian.image.digest_url}`));
+assert.ok(script.includes(`readonly IMAGE_SHA512=${debian.image.sha512}`));
+assert.match(script, /grep -Fxq "\$IMAGE_SHA512  \$IMAGE_FILENAME"/);
+assert.ok(script.includes(`readonly IMAGE_PATH=${debian.image.staged_path}`));
+assert.ok(script.includes(`readonly DEBIAN_CICUSTOM='${debian.cloud_init.cicustom}'`));
+assert.ok(script.includes(`readonly DEBIAN_SCSI3='local-lvm:${debian.os_disk.path_in_datastore}`));
+assert.ok(script.includes(`serial=${debian.os_disk.serial}`));
+for (const [name, value] of [
+  ["USER", debian.cloud_init.user_data],
+  ["NETWORK", debian.cloud_init.network_data],
+  ["META", debian.cloud_init.meta_data],
+]) {
+  assert.ok(script.includes(`readonly ${name}_SOURCE=${value.source_path}`));
+  assert.ok(script.includes(`readonly ${name}_TARGET=${value.snippet_path}`));
+  assert.ok(script.includes(`readonly ${name}_SHA256=${value.sha256}`));
+  assert.ok(script.includes(`readonly ${name}_SIZE=${value.size}`));
+}
+
+assert.match(script, /ps -o tty= -p "\$\$"/);
+assert.match(script, /source scripts\/lib\/vm-100-os-transition/);
+assert.match(script, /acquire_transition_locks/);
+assert.match(combined, /release_transition_locks/);
+assert.match(combined, /exec 8>&-/);
+assert.match(combined, /exec 9>&-/);
+assert.match(combined, /exec_without_transition_lock_fds qm start "\$VMID"/);
+assert.match(combined, /exec_without_transition_lock_fds \/usr\/local\/sbin\/home-lab-vfio-recover/);
+assert.match(script, /git rev-parse HEAD.*git rev-parse origin\/main/);
+assert.match(script, /verify_plan_attestation/);
+assert.match(script, /refs\/heads\/main:refs\/remotes\/origin\/main/);
+assert.match(script, /refs\/notes\/debian-qualification/);
+assert.match(script, /allActionsZero == true/);
+assert.match(script, /\$age -ge -300 && \$age -le 86400/);
+const shutdownIndex = script.indexOf("stage=shutdown-arch");
+const imageInvocationIndex = script.indexOf('stage="stage-debian-image"');
+const snippetInvocationIndex = script.indexOf('stage_snippet "$USER_SOURCE"');
+assert.ok(imageInvocationIndex > 0 && imageInvocationIndex < shutdownIndex);
+assert.ok(snippetInvocationIndex > 0 && snippetInvocationIndex < shutdownIndex);
+assert.match(script, /qm config "\$VMID" --current 1/);
+assert.match(script, /stopped VM attachment differs/);
+assert.match(script, /\[\[ \$volume_device != "\$state_volume_device" \]\]/);
+assert.match(script, /\[\[ \$volume_device != "\$arch_volume_device" \]\]/);
+assert.match(script, /blkdiscard "\$volume_device"/);
+assert.ok(script.indexOf('qm set "$VMID" --scsi3 "$DEBIAN_SCSI3"') < script.indexOf('blkdiscard "$volume_device"'));
+assert.match(script, /qemu-img convert .*"\$IMAGE_PATH" "\$volume_device"/);
+assert.match(script, /qemu-img compare .*"\$IMAGE_PATH" "\$volume_device"/);
+assert.doesNotMatch(script, /blkdiscard .*state_volume_(?:path|device)|qemu-img (?:convert|compare).*state_volume_(?:path|device)/);
+assert.doesNotMatch(script, /qm (?:disk )?(?:unlink|detach|remove|destroy)|pvesm free|lvremove|wipefs|mkfs/);
+assert.match(script, /qm cloudinit update "\$VMID"/);
+assert.match(script, /'\/USER_DATA\.;1'/);
+assert.match(script, /'\/NETWORK_CONFIG\.;1'/);
+assert.match(script, /'\/META_DATA\.;1'/);
+assert.match(script, /verify_arch_post_restore/);
+assert.match(combined, /verify-arch-workloads/);
+assert.match(script, /wait_for_agent 900/);
+assert.match(script, /cloud-init status --wait/);
+assert.ok(script.includes(`for module in ${debian.qualification.kernel_modules.join(" ")}`));
+assert.match(script, /modinfo "\$module"/);
+assert.ok(script.includes(`readonly KERNEL_RELEASE=${debian.qualification.kernel_release}`));
+assert.ok(script.includes(debian.qualification.gpu_render_node));
+assert.ok(script.includes(debian.qualification.gpu_vendor_device));
+for (const mount of debian.qualification.protected_mounts) {
+  assert.ok(script.includes(mount));
+}
+assert.ok(script.includes("/etc/home-lab/allow-storage-activation"));
+assert.match(script, /! command -v docker/);
+assert.match(script, /prepare_arch_restore/);
+assert.match(combined, /restore_stage=prepare-arch-restore/);
+assert.match(script, /qm set "\$VMID" --cicustom "\$CURRENT_CICUSTOM"/);
+assert.match(script, /CURRENT_IGNITION_SHA256=d60808452116247828f749517a66ec29d4656c4978d2997ab22e938d8cb4bc6d/);
+assert.match(script, /restore_arch \|\| true/);
+assert.match(combined, /\[\[ \$\(os_id\) == arch \]\]/);
+assert.match(combined, /qm set "\$VMID" --boot "\$ARCH_BOOT" --vga none/);
+assert.ok(runner.includes("readonly CONFIRMATION=qualify-reviewed-vm-100-debian-13-inert"));
+assert.match(runner, /\[\[ -t 0 \]\]/);
+assert.match(runner, /exec "\$root\/scripts\/qualify-debian-inert"/);
+
+process.stdout.write("debian inert qualification tests passed\n");

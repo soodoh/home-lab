@@ -1,0 +1,410 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+readonly VMID=100
+readonly CANDIDATE_IP=192.168.0.100
+readonly ARCH_BOOT='order=scsi0;net0'
+readonly DEBIAN_BOOT='order=scsi3;scsi0;net0'
+readonly CURRENT_SCSI3='local-lvm:vm-100-disk-2,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=HOME-LAB-FLATCAR-64G,size=64G,ssd=0'
+readonly DEBIAN_SCSI3='local-lvm:vm-100-disk-2,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=HOME-LAB-DEBIAN-64G,size=64G,ssd=0'
+readonly EFFECTIVE_SCSI0='local-lvm:vm-100-disk-0,iothread=1,size=550G'
+readonly EFFECTIVE_SCSI1='/dev/disk/by-id/nvme-CT4000P3PSSD8_2412E8A04266,backup=0,discard=on,iothread=1,size=3907018584K,ssd=1'
+readonly EFFECTIVE_SCSI2='local-lvm:vm-100-disk-1,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=QUAL-NIXOS-128G,size=128G,ssd=0'
+readonly EFFECTIVE_IDE2='local-lvm:vm-100-cloudinit,media=cdrom'
+readonly CURRENT_CICUSTOM='user=local:snippets/vm-100-flatcar.ign'
+readonly CURRENT_IGNITION_SHA256=d60808452116247828f749517a66ec29d4656c4978d2997ab22e938d8cb4bc6d
+readonly CURRENT_IGNITION_SIZE=76685
+readonly DEBIAN_CICUSTOM='meta=local:snippets/vm-100-debian-meta.yaml,network=local:snippets/vm-100-debian-network.yaml,user=local:snippets/vm-100-debian-user.yaml'
+readonly GPU_VENDOR_DEVICE=1002:744c
+readonly KERNEL_RELEASE=6.12.101+deb13-amd64
+readonly IMAGE_URL=https://cloud.debian.org/images/cloud/trixie/20260810-2566/debian-13-generic-amd64-20260810-2566.qcow2
+readonly IMAGE_DIGEST_URL=https://cloud.debian.org/images/cloud/trixie/20260810-2566/SHA512SUMS
+readonly IMAGE_FILENAME=debian-13-generic-amd64-20260810-2566.qcow2
+readonly IMAGE_SHA512=f6978100d8031c266d55d7815ceea7fcdeacf28e1e5834fdb9c94ac96880a054a6e6f8681c2d3b0584e0057eaf3ef7353856b85212d04134744faa9b3bb1f24f
+readonly IMAGE_PATH=/var/lib/vz/import/debian-13-generic-amd64-20260810-2566.qcow2
+readonly USER_SOURCE=infrastructure/debian/cloud-init/user-data
+readonly USER_TARGET=/var/lib/vz/snippets/vm-100-debian-user.yaml
+readonly USER_SHA256=e1808e86931397e98bec1a780ee8d80c0293edfb0115314be7e48c433c83ae87
+readonly USER_SIZE=4401
+readonly NETWORK_SOURCE=infrastructure/debian/cloud-init/network-data
+readonly NETWORK_TARGET=/var/lib/vz/snippets/vm-100-debian-network.yaml
+readonly NETWORK_SHA256=9fd8205499f8cbb692099c72579b3e15280c7c42c21678cef1c6c43117855d95
+readonly NETWORK_SIZE=281
+readonly META_SOURCE=infrastructure/debian/cloud-init/meta-data
+readonly META_TARGET=/var/lib/vz/snippets/vm-100-debian-meta.yaml
+readonly META_SHA256=e9a68afeaa0e3071a22a01f7b1cd5cf92f88eb9d23b20fd6a9b07a826546c8a7
+readonly META_SIZE=75
+readonly CONFIRMATION=qualify-reviewed-vm-100-debian-13-inert
+readonly PLAN_NOTES_REF=refs/notes/debian-qualification
+readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
+readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
+readonly DIAGNOSTIC_ROOT=/var/lib/home-lab/debian
+readonly CONSOLE_LOG=$DIAGNOSTIC_ROOT/inert-console.log
+readonly ATTEMPT_LOG=$DIAGNOSTIC_ROOT/inert-attempt.json
+readonly RESTORE_LOG=$DIAGNOSTIC_ROOT/inert-restore.json
+readonly SERIAL_SOCKET=/var/run/qemu-server/100.serial0
+readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+source scripts/lib/vm-100-os-transition
+
+config_value() {
+  local file=$1 key=$2
+  awk -F ': ' -v key="$key" '$1 == key { sub(/^[^:]+: /, ""); print; found=1 } END { if (!found) exit 1 }' "$file"
+}
+
+verify_plan_attestation() {
+  local attestation commit created_at created_epoch now_epoch age
+  git fetch --quiet origin "+refs/heads/main:refs/remotes/origin/main" "+$PLAN_NOTES_REF:$PLAN_NOTES_REF"
+  commit=$(git rev-parse HEAD)
+  attestation=$(git notes --ref="$PLAN_NOTES_REF" show "$commit")
+  jq -e --arg commit "$commit" '
+    .schemaVersion == 1 and
+    .commit == $commit and
+    .phase == "steady" and
+    .stage == "converge" and
+    .proxmoxHostActions == 0 and
+    .allActionsZero == true and
+    (.manifestSha256 | test("^[0-9a-f]{64}$")) and
+    (.roots | length) == 5 and
+    all(.roots[]; .changed == false and (.sha256 | test("^[0-9a-f]{64}$"))) and
+    ([.roots[].root] | sort) == ["aws-foundation", "omada", "proxmox", "proxmox-legacy", "tailscale"]
+  ' <<< "$attestation" >/dev/null
+  created_at=$(jq -er .createdAt <<< "$attestation")
+  created_epoch=$(date -d "$created_at" +%s)
+  now_epoch=$(date +%s)
+  age=$((now_epoch - created_epoch))
+  [[ $age -ge -300 && $age -le 86400 ]]
+}
+
+stage_image() {
+  local pending=$IMAGE_PATH.pending actual digest_valid=true
+  digest_temporary=$(mktemp --tmpdir=/run home-lab-debian-digests.XXXXXX)
+  chmod 0600 "$digest_temporary"
+  curl --fail --location --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 120 --retry 3 --retry-all-errors --silent --show-error "$IMAGE_DIGEST_URL" --output "$digest_temporary" || digest_valid=false
+  grep -Fxq "$IMAGE_SHA512  $IMAGE_FILENAME" "$digest_temporary" || digest_valid=false
+  rm -f -- "$digest_temporary"
+  digest_temporary=
+  [[ $digest_valid == true ]] || fail "official Debian image digest metadata differs"
+  install -d -o root -g root -m 0755 "$(dirname "$IMAGE_PATH")"
+  [[ ! -e $pending && ! -L $pending ]] || fail "a pending Debian image requires manual reconciliation"
+  if [[ -e $IMAGE_PATH || -L $IMAGE_PATH ]]; then
+    [[ -f $IMAGE_PATH && ! -L $IMAGE_PATH ]] || fail "Debian image target is not a regular non-symlink file"
+    actual=$(sha512sum "$IMAGE_PATH" | awk '{print $1}')
+    [[ $actual == "$IMAGE_SHA512" ]] || fail "staged Debian image digest differs"
+    [[ $(stat -c %U:%G:%a "$IMAGE_PATH") == root:root:600 ]] || fail "staged Debian image metadata differs"
+    return
+  fi
+  umask 077
+  curl --fail --location --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 1800 --retry 3 --retry-all-errors --silent --show-error "$IMAGE_URL" --output "$pending"
+  actual=$(sha512sum "$pending" | awk '{print $1}')
+  [[ $actual == "$IMAGE_SHA512" ]] || fail "downloaded Debian image digest differs"
+  chown root:root "$pending"
+  chmod 0600 "$pending"
+  ln "$pending" "$IMAGE_PATH"
+  rm -f -- "$pending"
+}
+
+stage_snippet() {
+  local source=$1 target=$2 expected_sha=$3 expected_size=$4 pending actual
+  pending=$(dirname "$target")/.$(basename "$target").pending
+  [[ -f $source && ! -L $source ]] || fail "cloud-init source is absent or unsafe: $source"
+  [[ $(stat -c %s "$source") -eq $expected_size ]] || fail "cloud-init source size differs: $source"
+  actual=$(sha256sum "$source" | awk '{print $1}')
+  [[ $actual == "$expected_sha" ]] || fail "cloud-init source digest differs: $source"
+  [[ ! -e $pending && ! -L $pending ]] || fail "a pending cloud-init snippet requires manual reconciliation: $pending"
+  if [[ -e $target || -L $target ]]; then
+    [[ -f $target && ! -L $target ]] || fail "cloud-init target is absent or unsafe: $target"
+    [[ $(stat -c %U:%G:%a:%s "$target") == root:root:600:$expected_size ]] || fail "cloud-init target metadata differs: $target"
+    actual=$(sha256sum "$target" | awk '{print $1}')
+    [[ $actual == "$expected_sha" ]] || fail "cloud-init target digest differs: $target"
+    return
+  fi
+  install -d -o root -g root -m 0755 "$(dirname "$target")"
+  install -o root -g root -m 0600 "$source" "$pending"
+  ln "$pending" "$target"
+  rm -f -- "$pending"
+}
+
+verify_iso_entry() {
+  local iso=$1 entry=$2 expected_sha=$3 expected_size=$4 temporary actual valid=true
+  temporary=$(mktemp --tmpdir=/run home-lab-debian-cloudinit.XXXXXX)
+  chmod 0600 "$temporary"
+  isoinfo -i "$iso" -x "$entry" > "$temporary" || valid=false
+  [[ $(stat -c %s "$temporary") -eq $expected_size ]] || valid=false
+  actual=$(sha256sum "$temporary" | awk '{print $1}')
+  [[ $actual == "$expected_sha" ]] || valid=false
+  rm -f -- "$temporary"
+  [[ $valid == true ]]
+}
+
+prepare_arch_restore() {
+  local cloudinit_path
+  scripts/stage-flatcar-ignition check >/dev/null
+  qm set "$VMID" --cicustom "$CURRENT_CICUSTOM"
+  qm cloudinit update "$VMID"
+  cloudinit_path=$(pvesm path local-lvm:vm-100-cloudinit)
+  verify_iso_entry "$cloudinit_path" '/USER_DATA.;1' "$CURRENT_IGNITION_SHA256" "$CURRENT_IGNITION_SIZE"
+}
+
+guest_exec_json() {
+  local timeout_seconds=$1
+  shift
+  qm guest exec "$VMID" --timeout "$timeout_seconds" -- "$@"
+}
+
+guest_exec_ok() {
+  local timeout_seconds=$1 result
+  shift
+  result=$(guest_exec_json "$timeout_seconds" "$@")
+  jq -e '.exited == 1 and .exitcode == 0' <<< "$result" >/dev/null
+}
+
+verify_arch_post_restore() {
+  guest_exec_ok 60 /bin/bash -lc "[[ \$(docker ps -q | wc -l) -eq 41 ]]"
+  guest_exec_ok 60 /bin/bash -lc "[[ -z \$(docker ps --filter health=unhealthy -q) ]]"
+  guest_exec_ok 60 /bin/bash -lc "docker inspect \$(docker ps -aq) | jq -e '[.[].Mounts[] | select(.Type == \"volume\")] | length == 0' >/dev/null"
+  guest_exec_ok 60 /bin/bash -lc "docker inspect \$(docker ps -aq) | jq -e '[.[].Mounts[] | select(.Type == \"bind\" and (.Source | startswith(\"/srv/home-lab-state/\")))] | length == 115' >/dev/null"
+  guest_exec_ok 30 /bin/bash -lc "source=\$(findmnt -rn -o SOURCE -T /srv/home-lab-state); [[ \$(blkid -s UUID -o value \"\$source\") == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
+}
+
+wait_for_ping() {
+  local timeout_seconds=$1
+  for ((second = 0; second < timeout_seconds; second += 3)); do
+    ping -c 1 -W 2 "$CANDIDATE_IP" >/dev/null 2>&1 && return 0
+    sleep 3
+  done
+  return 1
+}
+
+ssh_port_reachable() {
+  timeout 3 bash -c "exec 3<>/dev/tcp/$CANDIDATE_IP/22" >/dev/null 2>&1
+}
+
+wait_for_ssh_port() {
+  local timeout_seconds=$1
+  for ((second = 0; second < timeout_seconds; second += 3)); do
+    ssh_port_reachable && return 0
+    sleep 3
+  done
+  return 1
+}
+
+candidate_diagnostics() {
+  local ping_state=unreachable ssh_state=unreachable agent_state=unavailable console_sha=empty
+  ping -c 1 -W 2 "$CANDIDATE_IP" >/dev/null 2>&1 && ping_state=reachable
+  ssh_port_reachable && ssh_state=reachable
+  qm guest cmd "$VMID" ping >/dev/null 2>&1 && agent_state=ready
+  if [[ -s $CONSOLE_LOG ]]; then
+    console_sha=$(sha256sum "$CONSOLE_LOG" | awk '{print $1}')
+  fi
+  write_diagnostic_json "$ATTEMPT_LOG" candidate-failed "$stage" "$ping_state" "$ssh_state" "$agent_state" "$console_sha"
+  printf 'Debian diagnostics: stage=%s ping=%s ssh=%s agent=%s console_log=%s console_sha256=%s\n' \
+    "$stage" "$ping_state" "$ssh_state" "$agent_state" "$CONSOLE_LOG" "$console_sha" >&2
+  if [[ -s $CONSOLE_LOG ]]; then
+    grep -Eai 'cloud-init|failed|failure|error|emergency|dependency|firmware|amdgpu' "$CONSOLE_LOG" | tail -60 >&2 || true
+  fi
+}
+
+[[ $# -eq 0 ]] || { fail "usage: scripts/qualify-debian-inert"; exit 1; }
+[[ $(id -u) -eq 0 ]] || { fail "Debian qualification requires root"; exit 1; }
+[[ ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} == "$CONFIRMATION" ]] || { fail "exact Debian qualification confirmation is required"; exit 1; }
+[[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "Debian qualification requires a physical Proxmox console"; exit 1; }
+[[ -d $RECONCILIATION_ROOT && ! -L $RECONCILIATION_ROOT ]] || { fail "reconciliation lock root is absent or unsafe"; exit 1; }
+[[ ! -e $RECONCILIATION_ROOT/apply.lock ]] || { fail "a protected Proxmox apply is active"; exit 1; }
+[[ ! -e /var/lib/iac-ansible-production.lock ]] || { fail "Ansible host ownership is active"; exit 1; }
+locks_held=false
+acquire_transition_locks || { fail "another protected Proxmox operation holds a transition lock"; exit 1; }
+
+[[ $(git branch --show-current) == main ]] || { fail "repository is not on main"; exit 1; }
+[[ -z $(git status --porcelain) ]] || { fail "repository is not clean"; exit 1; }
+verify_plan_attestation || { fail "fresh zero-action controller plan attestation is unavailable"; exit 1; }
+[[ $(git rev-parse HEAD) == $(git rev-parse origin/main) ]] || { fail "repository is not at origin/main"; exit 1; }
+scripts/validate-contract >/dev/null
+[[ $(vm_status) == running ]] || { fail "VM 100 is not running"; exit 1; }
+wait_for_agent 30 || { fail "Arch QEMU guest agent is unavailable"; exit 1; }
+[[ $(os_id) == arch ]] || { fail "VM 100 is not running Arch"; exit 1; }
+verify_arch_post_restore || { fail "Arch workload health differs"; exit 1; }
+
+digest_temporary=
+before=$(mktemp --tmpdir=/run home-lab-debian-qualification.XXXXXX)
+before_current=$(mktemp --tmpdir=/run home-lab-debian-qualification-current.XXXXXX)
+stopped_config=$(mktemp --tmpdir=/run home-lab-debian-qualification-stopped.XXXXXX)
+cleanup() {
+  rm -f -- "$before" "$before_current" "$stopped_config" "$IMAGE_PATH.pending"
+  if [[ -n ${digest_temporary:-} ]]; then
+    rm -f -- "$digest_temporary"
+  fi
+  stop_console_capture
+}
+trap cleanup EXIT
+chmod 0600 "$before" "$before_current" "$stopped_config"
+qm config "$VMID" > "$before"
+qm config "$VMID" --current 1 > "$before_current"
+for config in "$before" "$before_current"; do
+  [[ $(config_value "$config" boot) == "$ARCH_BOOT" ]] || { fail "Arch boot order differs"; exit 1; }
+  [[ $(config_value "$config" scsi0) == "$EFFECTIVE_SCSI0" ]] || { fail "effective scsi0 differs"; exit 1; }
+  [[ $(config_value "$config" scsi1) == "$EFFECTIVE_SCSI1" ]] || { fail "effective scsi1 differs"; exit 1; }
+  [[ $(config_value "$config" scsi2) == "$EFFECTIVE_SCSI2" ]] || { fail "effective scsi2 differs"; exit 1; }
+  current_scsi3=$(config_value "$config" scsi3)
+  [[ $current_scsi3 == "$CURRENT_SCSI3" || $current_scsi3 == "$DEBIAN_SCSI3" ]] || { fail "effective scsi3 is not an exact replaceable candidate disk"; exit 1; }
+  [[ $(config_value "$config" ide2) == "$EFFECTIVE_IDE2" ]] || { fail "effective ide2 differs"; exit 1; }
+  current_cicustom=$(config_value "$config" cicustom)
+  [[ $current_cicustom == "$CURRENT_CICUSTOM" || $current_cicustom == "$DEBIAN_CICUSTOM" ]] || { fail "effective cicustom is not an exact qualification revision"; exit 1; }
+  [[ $(config_value "$config" vga) == none ]] || { fail "VM 100 VGA configuration differs"; exit 1; }
+done
+[[ $(config_value "$before" scsi3) == $(config_value "$before_current" scsi3) ]] || { fail "pending and current scsi3 differ"; exit 1; }
+[[ $(config_value "$before" cicustom) == $(config_value "$before_current" cicustom) ]] || { fail "pending and current cicustom differ"; exit 1; }
+[[ $(config_value "$before" protection) == 1 ]] || { fail "VM 100 protection differs"; exit 1; }
+! config_value "$before" lock >/dev/null 2>&1 || { fail "VM 100 has an active Proxmox configuration lock"; exit 1; }
+! grep -Eq '^unused[0-9]+:' "$before" || { fail "an unused disk requires reconciliation"; exit 1; }
+
+stage="stage-debian-image"
+echo "Staging and verifying pinned Debian image before Arch shutdown" >&2
+stage_image
+stage="stage-debian-cloud-init"
+echo "Staging exact inert Debian cloud-init snippets" >&2
+stage_snippet "$USER_SOURCE" "$USER_TARGET" "$USER_SHA256" "$USER_SIZE"
+stage_snippet "$NETWORK_SOURCE" "$NETWORK_TARGET" "$NETWORK_SHA256" "$NETWORK_SIZE"
+stage_snippet "$META_SOURCE" "$META_TARGET" "$META_SHA256" "$META_SIZE"
+
+candidate_volume_id=${current_scsi3%%,*}
+state_volume_id=${EFFECTIVE_SCSI2%%,*}
+arch_volume_id=${EFFECTIVE_SCSI0%%,*}
+[[ $candidate_volume_id == local-lvm:vm-100-disk-2 ]] || { fail "current scsi3 volume identity differs"; exit 1; }
+[[ $state_volume_id == local-lvm:vm-100-disk-1 ]] || { fail "current scsi2 volume identity differs"; exit 1; }
+[[ $arch_volume_id == local-lvm:vm-100-disk-0 ]] || { fail "current scsi0 volume identity differs"; exit 1; }
+volume_path=$(pvesm path "$candidate_volume_id")
+state_volume_path=$(pvesm path "$state_volume_id")
+arch_volume_path=$(pvesm path "$arch_volume_id")
+[[ $volume_path == /dev/pve/vm-100-disk-2 && -L $volume_path ]] || { fail "Debian target volume path is unsafe"; exit 1; }
+[[ $state_volume_path == /dev/pve/vm-100-disk-1 && -L $state_volume_path ]] || { fail "state volume path is unsafe"; exit 1; }
+[[ $arch_volume_path == /dev/pve/vm-100-disk-0 && -L $arch_volume_path ]] || { fail "Arch volume path is unsafe"; exit 1; }
+volume_device=$(readlink -f "$volume_path")
+state_volume_device=$(readlink -f "$state_volume_path")
+arch_volume_device=$(readlink -f "$arch_volume_path")
+[[ $volume_device == /dev/dm-[0-9]* && -b $volume_device ]] || { fail "Debian target device is unsafe"; exit 1; }
+[[ $state_volume_device == /dev/dm-[0-9]* && -b $state_volume_device ]] || { fail "state device is unsafe"; exit 1; }
+[[ $arch_volume_device == /dev/dm-[0-9]* && -b $arch_volume_device ]] || { fail "Arch device is unsafe"; exit 1; }
+[[ $volume_device != "$state_volume_device" ]] || { fail "Debian target aliases the state volume"; exit 1; }
+[[ $volume_device != "$arch_volume_device" ]] || { fail "Debian target aliases the Arch volume"; exit 1; }
+[[ $(blockdev --getsize64 "$volume_device") -eq 68719476736 ]] || { fail "Debian target volume size differs"; exit 1; }
+[[ $(qemu-img info --output=json "$IMAGE_PATH" | jq -r '.format') == qcow2 ]] || { fail "Debian image format differs"; exit 1; }
+image_virtual_size=$(qemu-img info --output=json "$IMAGE_PATH" | jq -r '."virtual-size"')
+[[ $image_virtual_size -gt 0 && $image_virtual_size -le 68719476736 ]] || { fail "Debian image virtual size is invalid"; exit 1; }
+
+install -d -o root -g root -m 0700 "$DIAGNOSTIC_ROOT"
+install -o root -g root -m 0600 /dev/null "$CONSOLE_LOG"
+rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG"
+transition_started=false
+console_pid=
+stage=preflight
+on_error() {
+  result=$?
+  trap - ERR
+  echo "error: Debian inert qualification failed at stage: $stage" >&2
+  if [[ ${locks_held:-false} != true ]] && ! acquire_transition_locks; then
+    echo "critical: transition locks could not be reacquired; remain at the physical console" >&2
+    stop_console_capture
+    exit "$result"
+  fi
+  if [[ $transition_started == true ]]; then
+    candidate_diagnostics
+    stop_console_capture
+  fi
+  if [[ $transition_started == true || $(vm_status) == stopped ]]; then
+    restore_arch || true
+  fi
+  exit "$result"
+}
+trap on_error ERR
+
+stage=shutdown-arch
+qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || true
+wait_for_status stopped 180
+stage=reconcile-stopped-attachments
+qm config "$VMID" > "$stopped_config"
+for key in scsi0 scsi1 scsi2 scsi3 ide2 cicustom; do
+  [[ $(config_value "$stopped_config" "$key") == $(config_value "$before_current" "$key") ]] || { fail "stopped VM attachment differs: $key"; false; }
+done
+transition_started=true
+stage=verify-exclusive-debian-target
+if fuser "$volume_device" >/dev/null 2>&1; then
+  false
+fi
+stage=set-debian-disk-identity
+qm set "$VMID" --scsi3 "$DEBIAN_SCSI3"
+stage=discard-flatcar-candidate
+blkdiscard "$volume_device"
+stage=write-debian-image
+qemu-img convert -p -f qcow2 -O raw "$IMAGE_PATH" "$volume_device"
+stage=verify-debian-image
+qemu-img compare -f qcow2 -F raw "$IMAGE_PATH" "$volume_device"
+stage=set-debian-cloud-init
+qm set "$VMID" --cicustom "$DEBIAN_CICUSTOM"
+qm cloudinit update "$VMID"
+cloudinit_path=$(pvesm path local-lvm:vm-100-cloudinit)
+verify_iso_entry "$cloudinit_path" '/USER_DATA.;1' "$USER_SHA256" "$USER_SIZE"
+verify_iso_entry "$cloudinit_path" '/NETWORK_CONFIG.;1' "$NETWORK_SHA256" "$NETWORK_SIZE"
+verify_iso_entry "$cloudinit_path" '/META_DATA.;1' "$META_SHA256" "$META_SIZE"
+stage=set-debian-boot
+qm set "$VMID" --boot "$DEBIAN_BOOT" --vga none
+stage=start-debian
+start_without_lock_inheritance
+wait_for_status running 120
+start_console_capture_without_lock_inheritance
+stage=wait-debian-agent
+wait_for_agent 900
+stage=verify-debian-identity
+[[ $(os_id) == debian ]]
+stage=wait-cloud-init
+guest_exec_ok 600 /usr/bin/cloud-init status --wait
+stage=verify-debian-network
+wait_for_ping 180
+wait_for_ssh_port 180
+stage=verify-debian-kernel
+guest_exec_ok 30 /usr/bin/test "$(guest_exec_json 30 /usr/bin/uname -r | jq -r '."out-data" // ""' | tr -d '\r\n')" = "$KERNEL_RELEASE"
+stage=verify-debian-hostname
+guest_exec_ok 30 /usr/bin/test "$(guest_exec_json 30 /usr/bin/hostname | jq -r '."out-data" // ""' | tr -d '\r\n')" = docker-host
+stage=verify-debian-interface
+guest_exec_ok 30 /bin/bash -lc "ip -j address show ens18 | jq -e '.[0].addr_info | any(.family == \"inet\" and .local == \"192.168.0.100\" and .prefixlen == 24)' >/dev/null"
+stage=verify-debian-cloud-init-marker
+guest_exec_ok 30 /usr/bin/test -f /var/lib/home-lab/debian-inert-provisioned
+stage=verify-debian-modules
+for module in amdgpu uhid uinput; do
+  guest_exec_ok 30 /usr/sbin/modinfo "$module"
+  guest_exec_ok 30 /bin/bash -lc "grep -q '^$module ' /proc/modules"
+done
+stage=verify-debian-gpu
+guest_exec_ok 30 /bin/bash -lc "lspci -Dnns 02:00.0 | grep -Fq '$GPU_VENDOR_DEVICE'"
+guest_exec_ok 30 /bin/bash -lc "[[ \$(basename \"\$(readlink -f /sys/bus/pci/devices/0000:02:00.0/driver)\") == amdgpu ]]"
+guest_exec_ok 30 /usr/bin/test -c /dev/dri/renderD128
+guest_exec_ok 60 /bin/bash -lc 'LIBVA_DRIVER_NAME=radeonsi vainfo --display drm --device /dev/dri/renderD128 >/dev/null'
+guest_exec_ok 30 /bin/bash -lc 'lspci -Dnns 02:00.1 | grep -Fq "1002:ab30"'
+stage=verify-debian-usb
+guest_exec_ok 30 /bin/bash -lc 'lsusb -d 0bda:a729 | grep -q .'
+guest_exec_ok 30 /bin/bash -lc "[[ \$(lsusb -d 10c4:ea60 | wc -l) -eq 2 ]]"
+stage=verify-debian-inert
+guest_exec_ok 30 /usr/bin/test ! -e /etc/home-lab/allow-storage-activation
+guest_exec_ok 30 /bin/bash -lc '! findmnt -rn /srv/home-lab-state /mnt/games /mnt/storage | grep -q .'
+guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=home-lab-state -s UUID -o value | sort -u) == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
+guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=games -s UUID -o value | sort -u) == 31602ce7-0054-498a-9f24-f51ca491e7b3 ]]"
+for unit in 'srv-home\x2dlab\x2dstate.mount' mnt-games.mount mnt-storage.mount; do
+  guest_exec_ok 30 /bin/bash -lc "[[ \$(systemctl is-enabled '$unit' 2>/dev/null || true) == disabled ]] && [[ \$(systemctl is-active '$unit' 2>/dev/null || true) == inactive ]]"
+done
+guest_exec_ok 30 /bin/bash -lc '! command -v docker && ! systemctl list-unit-files --no-legend | grep -q "^home-lab-compose.service"'
+stage=verify-debian-updates
+guest_exec_ok 30 /bin/bash -lc 'grep -Fq '\''Unattended-Upgrade::Automatic-Reboot "false";'\'' /etc/apt/apt.conf.d/52home-lab-unattended-upgrades'
+stage=verify-debian-failed-units
+guest_exec_ok 30 /bin/bash -lc "[[ \$(systemctl --failed --no-legend | wc -l) -eq 0 ]]"
+stage=verify-debian-boot-order
+[[ $(qm config "$VMID" | awk -F ': ' '$1 == "boot" { print $2 }') == "$DEBIAN_BOOT" ]]
+stop_console_capture
+console_sha=empty
+if [[ -s $CONSOLE_LOG ]]; then
+  console_sha=$(sha256sum "$CONSOLE_LOG" | awk '{print $1}')
+fi
+write_diagnostic_json "$ATTEMPT_LOG" candidate-ready complete reachable reachable ready "$console_sha"
+trap - ERR
+echo "Debian inert qualification passed; protected mounts, Docker, and Compose remain inactive"

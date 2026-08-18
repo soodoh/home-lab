@@ -213,7 +213,7 @@
                 "source_path": { "const": "infrastructure/debian/cloud-init/user-data" },
                 "snippet_path": { "const": "/var/lib/vz/snippets/vm-100-debian-user.yaml" },
                 "sha256": { "$ref": "#/$defs/sha256" },
-                "size": { "const": 3994 }
+                "size": { "const": 4401 }
               }
             },
             "network_data": {
@@ -258,9 +258,10 @@
         "qualification": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["os_id", "hostname", "network_interface", "kernel_modules", "gpu_vendor_device", "gpu_render_node", "protected_mounts", "compose_service", "automatic_reboot"],
+          "required": ["os_id", "kernel_release", "hostname", "network_interface", "kernel_modules", "gpu_vendor_device", "gpu_render_node", "protected_mounts", "compose_service", "automatic_reboot"],
           "properties": {
             "os_id": { "const": "debian" },
+            "kernel_release": { "const": "6.12.101+deb13-amd64" },
             "hostname": { "const": "docker-host" },
             "network_interface": { "const": "ens18" },
             "kernel_modules": { "type": "array", "prefixItems": [{ "const": "amdgpu" }, { "const": "uhid" }, { "const": "uinput" }], "items": false, "minItems": 3, "maxItems": 3 },

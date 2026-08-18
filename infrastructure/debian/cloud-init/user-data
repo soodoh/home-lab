@@ -3,6 +3,11 @@ hostname: docker-host
 manage_etc_hosts: true
 disable_root: true
 ssh_pwauth: false
+groups:
+  - dialout
+  - input
+  - render
+  - video
 users:
   - name: docker
     uid: 1000
@@ -21,13 +26,6 @@ users:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDDlzFF6z8f3tx7jPWlCMyZv9SqwEPWkotgPHIFPepf8
 apt:
   preserve_sources_list: true
-  sources:
-    debian-components:
-      source: deb https://deb.debian.org/debian trixie main contrib non-free-firmware
-    debian-updates-components:
-      source: deb https://deb.debian.org/debian trixie-updates main contrib non-free-firmware
-    debian-security-components:
-      source: deb https://security.debian.org/debian-security trixie-security main contrib non-free-firmware
 package_update: true
 package_upgrade: false
 packages:
@@ -42,8 +40,24 @@ packages:
   - pciutils
   - qemu-guest-agent
   - unattended-upgrades
+  - usbutils
   - vainfo
 write_files:
+  - path: /etc/apt/sources.list.d/debian.sources
+    owner: root:root
+    permissions: "0644"
+    content: |
+      Types: deb
+      URIs: https://deb.debian.org/debian
+      Suites: trixie trixie-updates
+      Components: main contrib non-free-firmware
+      Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+
+      Types: deb
+      URIs: https://security.debian.org/debian-security
+      Suites: trixie-security
+      Components: main contrib non-free-firmware
+      Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
   - path: /etc/modules-load.d/home-lab-hardware.conf
     owner: root:root
     permissions: "0644"
@@ -88,6 +102,7 @@ write_files:
     content: |
       [Unit]
       Description=Home lab application state
+      ConditionPathExists=/etc/home-lab/allow-storage-activation
       ConditionPathIsMountPoint=!/srv/home-lab-state
 
       [Mount]
@@ -104,6 +119,7 @@ write_files:
     content: |
       [Unit]
       Description=Home lab games storage
+      ConditionPathExists=/etc/home-lab/allow-storage-activation
       ConditionPathIsMountPoint=!/mnt/games
 
       [Mount]
@@ -122,6 +138,7 @@ write_files:
       Description=Home lab shared NFS storage
       After=network-online.target
       Wants=network-online.target
+      ConditionPathExists=/etc/home-lab/allow-storage-activation
       ConditionPathIsMountPoint=!/mnt/storage
 
       [Mount]

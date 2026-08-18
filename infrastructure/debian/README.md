@@ -45,7 +45,7 @@ The candidate boot order is `scsi3;scsi0;net0`; fallback is `scsi0;net0`.
 
 ## Minimal physical-console boundary
 
-All rendering, source validation, contract validation, tests, plans, and post-boot inspection are controller-driven. The remaining privileged operation is intentionally one physical-console command. Its guarded helper will:
+All rendering, source validation, contract validation, tests, plans, and post-boot inspection are controller-driven. The physical command may be offered only after the controller has produced zero-action plans for the exact current commit. The controller re-hashes every saved OpenTofu plan and the saved Proxmox host plan, rejects plan artifacts older than one hour, then publishes a JSON attestation to `refs/notes/debian-qualification`. Destructive preflight refreshes both `origin/main` and that note, then requires the exact commit, all five zero-action OpenTofu roots with exact plan digests, a zero-action Proxmox host plan, and an attestation age no greater than 24 hours. The Proxmox host does not hold the protected controller credentials needed to reproduce that plan. The remaining privileged operation is intentionally one physical-console command. Its guarded helper will:
 
 1. require exact VM, disk, lock, repository, and Arch-health preconditions;
 2. download and verify the pinned Debian image before stopping Arch;
@@ -57,7 +57,7 @@ All rendering, source validation, contract validation, tests, plans, and post-bo
 8. require cloud-init, QGA, LAN, SSH, kernel modules, `amdgpu`, `/dev/dri/renderD128`, and inert mount/Compose postconditions; and
 9. restore verified Arch automatically on any failure.
 
-This physical boundary is retained because disk imaging and boot-path mutation cannot be safely authorized by repository state or remote root access alone.
+This physical boundary is retained because disk imaging and boot-path mutation cannot be safely authorized by repository state or remote root access alone. Repository state, plan evidence, and the physical confirmation are cumulative gates; none independently authorizes mutation.
 
 ## Qualification gates
 
