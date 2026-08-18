@@ -335,7 +335,7 @@ fi
 stage=set-debian-disk-identity
 qm set "$VMID" --scsi3 "$DEBIAN_SCSI3"
 stage=discard-flatcar-candidate
-blkdiscard "$volume_device"
+blkdiscard --force "$volume_device"
 stage=write-debian-image
 qemu-img convert -p -f qcow2 -O raw "$IMAGE_PATH" "$volume_device"
 stage=verify-debian-image
