@@ -358,7 +358,7 @@ if [[ $finalize_mode == true ]]; then
     .state == "awaiting-host-reboot" and .services == "docker-disabled-containerd-masked-inactive" and .vmid == 100 and
     .archBoot == $archBoot and .candidateScsi3 == $candidateScsi3 and .sourceCommit == $sourceCommit and
     (.hostBootIdBefore | test("^[0-9a-f-]{36}$")) and (.archConfigSha256 | test("^[0-9a-f]{64}$")) and
-    (.dockerPackageVersion | length > 0) and (.composePackageVersion | length > 0) and (.composeVersion | length > 0)
+    (.dockerPackageVersion | length > 0) and (.dockerCliPackageVersion | length > 0) and (.composePackageVersion | length > 0) and (.composeVersion | length > 0)
   ' <<< "$pending_evidence" >/dev/null || { fail "pending package evidence differs"; exit 1; }
   created_epoch=$(date -d "$(jq -er .createdAt <<< "$pending_evidence")" +%s)
   now_epoch=$(date +%s)
@@ -586,15 +586,15 @@ if [[ $prepare_mode == true ]]; then
     guest_exec_ok 30 /bin/bash -lc '! command -v docker && ! command -v tailscale'
     stage=prepare-debian-packages
     prepare_source=infrastructure/debian/prepare-packages.sh
-    prepare_sha=2952c317479dab0ede386c41378d150e27fedeef46f4f1d92b7afb344bdb4f46
+    prepare_sha=24fdefb745e6b6bb6ef2f286070fe70f64482401104700d888ac7e8e4623b7cd
     [[ $(sha256sum "$prepare_source" | awk '{print $1}') == "$prepare_sha" ]]
     prepare_payload=$(base64 -w 0 "$prepare_source")
     guest_exec_ok 1800 /bin/bash -lc "set -Eeuo pipefail; umask 077; target=/run/home-lab-debian-prepare-packages; trap 'rm -f -- \"\$target\"' EXIT; printf %s '$prepare_payload' | base64 -d > \"\$target\"; [[ \$(sha256sum \"\$target\" | awk '{print \$1}') == '$prepare_sha' ]]; chmod 0700 \"\$target\"; /bin/bash \"\$target\" > /var/log/home-lab-debian-package-preparation.log 2>&1 || { result=\$?; cat /var/log/home-lab-debian-package-preparation.log; exit \"\$result\"; }"
   fi
   stage=verify-debian-packages-prepared
   prepare_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-packages-prepared.json | jq -er '."out-data"')
-  jq -e '.format == "home-lab-debian-packages-prepared-v1" and .services == "docker-disabled-containerd-masked-inactive" and (.dockerPackageVersion | length > 0) and (.composePackageVersion | length > 0) and (.composeVersion | length > 0)' <<< "$prepare_marker" >/dev/null
-  guest_exec_ok 30 /bin/bash -lc "marker=/var/lib/home-lab/debian-packages-prepared.json; [[ \$(jq -r .dockerPackageVersion \"\$marker\") == \$(dpkg-query -W -f='\${Version}' docker.io) ]]; [[ \$(jq -r .composePackageVersion \"\$marker\") == \$(dpkg-query -W -f='\${Version}' docker-compose) ]]; [[ \$(jq -r .composeVersion \"\$marker\") == \$(docker compose version --short) ]]"
+  jq -e '.format == "home-lab-debian-packages-prepared-v1" and .services == "docker-disabled-containerd-masked-inactive" and (.dockerPackageVersion | length > 0) and (.dockerCliPackageVersion | length > 0) and (.composePackageVersion | length > 0) and (.composeVersion | length > 0)' <<< "$prepare_marker" >/dev/null
+  guest_exec_ok 30 /bin/bash -lc "marker=/var/lib/home-lab/debian-packages-prepared.json; [[ \$(jq -r .dockerPackageVersion \"\$marker\") == \$(dpkg-query -W -f='\${Version}' docker.io) ]]; [[ \$(jq -r .dockerCliPackageVersion \"\$marker\") == \$(dpkg-query -W -f='\${Version}' docker-cli) ]]; [[ \$(jq -r .composePackageVersion \"\$marker\") == \$(dpkg-query -W -f='\${Version}' docker-compose) ]]; [[ \$(jq -r .composeVersion \"\$marker\") == \$(docker compose version --short) ]]"
   guest_exec_ok 30 /bin/bash -lc "for service in docker.service docker.socket; do [[ \$(systemctl is-enabled \"\$service\" 2>/dev/null || true) == disabled ]] && [[ \$(systemctl is-active \"\$service\" 2>/dev/null || true) == inactive ]] || exit 1; done; [[ \$(systemctl is-enabled containerd.service 2>/dev/null || true) == masked ]]; [[ \$(systemctl is-active containerd.service 2>/dev/null || true) == inactive ]]; [[ ! -S /run/docker.sock ]]"
   guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done; for root in /var/lib/docker/containers /var/lib/docker/image /var/lib/docker/overlay2 /var/lib/docker/volumes; do [[ ! -d \$root || -z \$(find \"\$root\" -mindepth 1 -print -quit) ]] || exit 1; done; [[ ! -e /etc/sops/age && ! -e /etc/docker-compose && ! -e /var/lib/tailscale && ! -e /etc/default/tailscaled ]]; ! command -v tailscale >/dev/null 2>&1; ! command -v tailscaled >/dev/null 2>&1; ! systemctl list-unit-files --no-legend | grep -q '^tailscaled\\.'; ! pgrep -x tailscaled >/dev/null 2>&1"
   stage=persist-debian-package-evidence

@@ -1220,6 +1220,7 @@ debian:
     stage: qualified
     package_source: debian-stable
     docker_package: docker.io
+    docker_cli_package: docker-cli
     compose_package: docker-compose
     expected_service_count: 41
     expected_state_bind_count: 115

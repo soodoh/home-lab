@@ -12,8 +12,9 @@ const script = fs.readFileSync(path.join(root, "infrastructure/debian/prepare-pa
 
 assert.equal(contract.debian.cutover.stage, "qualified");
 assert.equal(contract.debian.cutover.package_source, "debian-stable");
-assert.ok(script.includes(`readonly PACKAGES=(${contract.debian.cutover.docker_package} ${contract.debian.cutover.compose_package})`));
+assert.ok(script.includes(`readonly PACKAGES=(${contract.debian.cutover.docker_package} ${contract.debian.cutover.docker_cli_package} ${contract.debian.cutover.compose_package})`));
 assert.match(script, /os_id == debian && \$os_version == 13/);
+assert.equal(contract.debian.cutover.docker_cli_package, "docker-cli");
 assert.match(script, /debian-inert-provisioned/);
 assert.match(script, /verify_protected_mounts_inactive/);
 assert.match(script, /findmnt -rn --target "\$target"/);

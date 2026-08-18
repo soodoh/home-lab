@@ -31,7 +31,7 @@ A physical-console transition boots the existing Debian `scsi3` without reimagin
 2. cleanly shuts down Arch;
 3. boots Debian using the existing qualified cloud-init;
 4. re-verifies the qualified inert baseline;
-5. installs Debian Stable `docker.io` and `docker-compose` with service autostart blocked;
+5. installs Debian Stable `docker.io`, `docker-cli`, and `docker-compose` with service autostart blocked;
 6. requires Docker services and sockets to remain disabled and inactive, while the static containerd unit remains masked and inactive;
 7. requires zero containers, images, and volumes and no protected mounts;
 8. records package and Compose versions as durable pending evidence without credentials;

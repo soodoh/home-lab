@@ -275,11 +275,12 @@
         "cutover": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["stage", "package_source", "docker_package", "compose_package", "expected_service_count", "expected_state_bind_count", "expected_docker_volume_mount_count", "state_mountpoint", "games_mountpoint", "nfs_mountpoint", "credentials", "tailscale_enrollment", "rollback_boot_order", "transition_restore", "package_evidence", "minimum_observation_days"],
+          "required": ["stage", "package_source", "docker_package", "docker_cli_package", "compose_package", "expected_service_count", "expected_state_bind_count", "expected_docker_volume_mount_count", "state_mountpoint", "games_mountpoint", "nfs_mountpoint", "credentials", "tailscale_enrollment", "rollback_boot_order", "transition_restore", "package_evidence", "minimum_observation_days"],
           "properties": {
             "stage": { "enum": ["qualified", "packages-prepared", "storage-rehearsed", "credentials-staged", "production-canary", "production", "rollback"] },
             "package_source": { "const": "debian-stable" },
             "docker_package": { "const": "docker.io" },
+            "docker_cli_package": { "const": "docker-cli" },
             "compose_package": { "const": "docker-compose" },
             "expected_service_count": { "const": 41 },
             "expected_state_bind_count": { "const": 115 },

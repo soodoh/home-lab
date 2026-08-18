@@ -125,7 +125,7 @@ assert.match(prepareRunner, /exec "\$root\/scripts\/qualify-debian-inert"/);
 assert.match(script, /"\$PREPARE_CONFIRMATION"\) prepare_mode=true/);
 assert.match(script, /package preparation requires the exact qualified Debian disk/);
 assert.match(script, /prepare_source=infrastructure\/debian\/prepare-packages\.sh/);
-assert.match(script, /prepare_sha=2952c317479dab0ede386c41378d150e27fedeef46f4f1d92b7afb344bdb4f46/);
+assert.match(script, /prepare_sha=24fdefb745e6b6bb6ef2f286070fe70f64482401104700d888ac7e8e4623b7cd/);
 assert.match(script, /guest_exec_ok 1800 \/bin\/bash -lc/);
 assert.match(script, /\/bin\/bash \\"\\\$target\\" > \/var\/log\/home-lab-debian-package-preparation\.log/);
 assert.match(script, /guest-exec-failure\.json/);

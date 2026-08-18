@@ -4,7 +4,7 @@ set -Eeuo pipefail
 readonly MARKER=/var/lib/home-lab/debian-packages-prepared.json
 readonly POLICY=/usr/sbin/policy-rc.d
 readonly EXPECTED_KERNEL=6.12.101+deb13-amd64
-readonly PACKAGES=(docker.io docker-compose)
+readonly PACKAGES=(docker.io docker-cli docker-compose)
 readonly DOCKER_SERVICES=(docker.service docker.socket)
 readonly RUNTIME_SERVICE=containerd.service
 readonly SERVICES=("${DOCKER_SERVICES[@]}" "$RUNTIME_SERVICE")
@@ -54,6 +54,7 @@ result = {
     "composePackageVersion": output("/usr/bin/dpkg-query", "-W", "-f=${Version}", "docker-compose"),
     "composeVersion": output("/usr/bin/docker", "compose", "version", "--short"),
     "dockerPackageVersion": output("/usr/bin/dpkg-query", "-W", "-f=${Version}", "docker.io"),
+    "dockerCliPackageVersion": output("/usr/bin/dpkg-query", "-W", "-f=${Version}", "docker-cli"),
     "format": "home-lab-debian-packages-prepared-v1",
     "services": "docker-disabled-containerd-masked-inactive",
 }
