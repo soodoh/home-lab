@@ -1160,7 +1160,7 @@ debian:
   version: "13"
   point_release: "13.6"
   build_id: "20260810-2566"
-  qualification_stage: design
+  qualification_stage: debian-inert
   image:
     variant: generic
     format: qcow2
