@@ -803,6 +803,12 @@ a.runtime.atomic(target,b"journal",0o600)
             self.assertIn(control,source)
         self.assertFalse((ROOT/"ansible/roles/proxmox_firewall").exists())
 
+    def test_firewall_policy_is_recursively_canonical(self):
+        path=ROOT/"infrastructure/proxmox-firewall/host/proxmox-firewall-policy.json"
+        raw=path.read_bytes(); value=json.loads(raw)
+        expected=(json.dumps(value,ensure_ascii=False,separators=(",",":"),sort_keys=True)+"\n").encode()
+        self.assertEqual(raw,expected)
+
     def test_contract_closes_apply_and_forces_both_service_identities(self):
         contract=(ROOT/"infrastructure/contract/home-lab.yml").read_text()
         self.assertIn('tofu-apply ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-private-preparer prepare, /usr/local/libexec/home-lab/proxmox-activator session',contract)
