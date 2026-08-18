@@ -366,6 +366,18 @@ stage=verify-debian-identity
 [[ $(os_id) == debian ]]
 stage=wait-cloud-init
 guest_exec_ok 600 /usr/bin/cloud-init status --wait
+stage=shutdown-debian-after-provision
+stop_console_capture
+qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || true
+wait_for_status stopped 180
+stage=start-debian-after-provision
+start_without_lock_inheritance
+wait_for_status running 120
+start_console_capture_without_lock_inheritance
+stage=wait-debian-agent-after-provision
+wait_for_agent 900
+stage=verify-debian-identity-after-provision
+[[ $(os_id) == debian ]]
 stage=verify-debian-network
 wait_for_ping 180
 wait_for_ssh_port 180
