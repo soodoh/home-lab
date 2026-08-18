@@ -43,11 +43,12 @@ mv -T "$pending" "$TARGET"
 [[ $(sha256sum "$TARGET" | awk '{print $1}') == "$EXPECTED_SHA256" ]] || { echo "installed canonical policy digest differs" >&2; exit 1; }
 result=$($TRANSACTION boot-config-recover)
 jq -e '.status == "boot-commit-config-verified"' <<< "$result" >/dev/null
-systemctl reset-failed home-lab-proxmox-firewall-config-recovery.service
+systemctl reset-failed home-lab-proxmox-firewall-config-recovery.service home-lab-proxmox-firewall-rollback.service
 systemctl start home-lab-proxmox-firewall-post-recovery.service
 result=$($TRANSACTION status)
 jq -e '.status == "committed"' <<< "$result" >/dev/null
 [[ $(systemctl is-active pve-firewall.service) == active ]]
 [[ $(systemctl is-active proxmox-firewall.service) == active ]]
 [[ $(pve-firewall status) == "Status: enabled/running" ]]
+[[ -z $(systemctl --failed --no-legend) ]]
 echo "Proxmox firewall boot recovery committed; Arch production remains running"

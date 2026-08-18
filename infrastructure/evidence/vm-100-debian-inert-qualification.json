@@ -67,6 +67,27 @@
     "operationLockHolders": 0,
     "firstBootLockHolders": 0
   },
+  "postQualificationRestore": {
+    "observedAt": "2026-08-18T05:07:55Z",
+    "state": "verified",
+    "hostRebootRequiredForGpuReset": true,
+    "bootOrder": "scsi0;net0",
+    "osIdentity": "arch",
+    "qemuGuestAgent": "ready",
+    "runningContainers": 41,
+    "unhealthyContainers": 0,
+    "dockerVolumeMounts": 0,
+    "stateBindMounts": 115,
+    "stateDiskUuid": "d4a19647-7879-4079-9fc9-b3e79711b449",
+    "productionAudit": {
+      "ok": 41,
+      "changed": 0,
+      "failed": 0,
+      "unreachable": 0
+    },
+    "proxmoxFirewallTransaction": "committed",
+    "proxmoxFirewallBackends": "enabled-running"
+  },
   "authorization": {
     "cutover": false,
     "mountActivation": false,
