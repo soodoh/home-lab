@@ -213,7 +213,7 @@
                 "source_path": { "const": "infrastructure/debian/cloud-init/user-data" },
                 "snippet_path": { "const": "/var/lib/vz/snippets/vm-100-debian-user.yaml" },
                 "sha256": { "$ref": "#/$defs/sha256" },
-                "size": { "const": 4401 }
+                "size": { "const": 4350 }
               }
             },
             "network_data": {

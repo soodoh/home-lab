@@ -37,7 +37,8 @@ for (const [contractKey, name] of inputs) {
 
 const userData = parsed.get("user-data");
 const dockerUser = userData.users.find((user) => user.name === "docker");
-assert.deepEqual(userData.groups, ["dialout", "input", "render", "video"]);
+assert.equal(userData.groups, undefined);
+assert.deepEqual(dockerUser.groups, ["adm", "sudo", "video", "render", "input", "dialout"]);
 assert.equal(dockerUser.uid, 1000);
 assert.equal(dockerUser.lock_passwd, true);
 assert.equal(dockerUser.ssh_authorized_keys.length, 1);
