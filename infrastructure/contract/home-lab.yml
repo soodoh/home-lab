@@ -1302,9 +1302,10 @@ debian:
         - vuetorrent
       evidence: post-reboot-arch-verified
     credentials_stage:
-      phase: identity-generated
+      phase: recipient-committed
       identity_path: /etc/sops/age/keys.txt
       recipient_evidence: infrastructure/evidence/vm-100-debian-age-identity.json
+      recipient_commit_evidence: infrastructure/evidence/vm-100-debian-sops-recipient.json
       private_identity_exported: false
       sops_version: 3.13.3
       sops_sha256: e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
@@ -1313,7 +1314,7 @@ debian:
       age_sha256: 2e305637f2a0555305e21c17fb74446acbb39b53135d43d4b744e50c287133a5
       age_keygen_sha256: c56ef69834e18ca4d3b953117f4481522c35fb6862a5d2871685aa4685893664
       expected_sops_recipient_count: 3
-      current_compose_artifact_sha256: 08acc4bab440a9f6a05d2d05f045c90697b45e561ae096138774ef37b2844f0e
+      current_compose_artifact_sha256: d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c
       compose_validation: deferred-until-recipient-commit
       docker_runtime: inactive
       tailscale: deferred
