@@ -14,10 +14,11 @@ const coordinator = fs.readFileSync(path.join(root, "scripts/qualify-debian-iner
 const runner = fs.readFileSync(path.join(root, "scripts/run-debian-production-canary"), "utf8");
 const finalizer = fs.readFileSync(path.join(root, "scripts/finalize-debian-production-canary"), "utf8");
 const promoter = fs.readFileSync(path.join(root, "scripts/promote-recovered-debian-production-canary"), "utf8");
+const evidence = JSON.parse(fs.readFileSync(path.join(root, "infrastructure/evidence/vm-100-debian-production-canary.json"), "utf8"));
 const canary = contract.debian.cutover.production_canary;
 
-assert.equal(contract.debian.cutover.stage, "credentials-staged");
-assert.equal(canary.phase, "not-run");
+assert.equal(contract.debian.cutover.stage, "production-canary");
+assert.equal(canary.phase, "verified");
 assert.equal(canary.service, "openfit");
 assert.equal(canary.state_bind, "/srv/home-lab-state/openfit-data");
 assert.equal(canary.state_metadata, "root:root:755");
@@ -28,6 +29,14 @@ assert.equal(canary.s3_checked, false);
 assert.equal(canary.pulls, "disabled");
 assert.equal(canary.runtime_environment, "staged-only");
 assert.equal(canary.production_boot, false);
+assert.equal(evidence.stage, "production-canary");
+assert.equal(evidence.canaryEvidence.canaryHealthy, true);
+assert.equal(evidence.canaryEvidence.cleanupComplete, true);
+assert.equal(evidence.canaryEvidence.transitionState, "complete");
+assert.equal(evidence.canaryEvidence.forensicPromotion.basis, "exact-source-control-flow-plus-post-reboot-cleanup");
+assert.equal(evidence.postRebootArch.runningContainers, 41);
+assert.equal(evidence.postRebootArch.unhealthyContainers, 0);
+assert.equal(evidence.authorization.productionCutover, false);
 assert.ok(prepare.includes(`readonly IMAGE='${canary.image}'`));
 assert.ok(prepare.includes(`readonly TRANSFER=${canary.image_transfer_path}`));
 assert.match(prepare, /for root in \$BACKUP_ROOTS/);

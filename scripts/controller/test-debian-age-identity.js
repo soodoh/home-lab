@@ -15,7 +15,7 @@ const finalizer = fs.readFileSync(path.join(root, "scripts/finalize-debian-age-i
 const sopsConfig = fs.readFileSync(path.join(root, ".sops.yaml"), "utf8");
 const stage = contract.debian.cutover.credentials_stage;
 
-assert.equal(contract.debian.cutover.stage, "credentials-staged");
+assert.equal(contract.debian.cutover.stage, "production-canary");
 assert.equal(stage.phase, "credentials-staged");
 assert.equal(stage.identity_path, "/etc/sops/age/keys.txt");
 assert.equal(stage.recipient_evidence, "infrastructure/evidence/vm-100-debian-age-identity.json");
