@@ -15,11 +15,19 @@ const finalizer = fs.readFileSync(path.join(root, "scripts/finalize-debian-age-i
 const stage = contract.debian.cutover.credentials_stage;
 
 assert.equal(contract.debian.cutover.stage, "storage-rehearsed");
-assert.equal(stage.phase, "identity-not-generated");
+assert.equal(stage.phase, "identity-generated");
 assert.equal(stage.identity_path, "/etc/sops/age/keys.txt");
+assert.equal(stage.recipient_evidence, "infrastructure/evidence/vm-100-debian-age-identity.json");
 assert.equal(stage.private_identity_exported, false);
 assert.equal(stage.expected_sops_recipient_count, 3);
 assert.equal(stage.current_compose_artifact_sha256, "08acc4bab440a9f6a05d2d05f045c90697b45e561ae096138774ef37b2844f0e");
+const evidence = JSON.parse(fs.readFileSync(path.join(root, stage.recipient_evidence), "utf8"));
+assert.equal(evidence.stage, "identity-generated");
+assert.equal(evidence.identityEvidence.transitionState, "complete");
+assert.equal(evidence.identityEvidence.archRestore, "verified");
+assert.equal(evidence.identityEvidence.privateIdentityExported, false);
+assert.match(evidence.identityEvidence.recipient, /^age1[0-9a-z]{58}$/);
+assert.notEqual(evidence.identityEvidence.hostBootIdBefore, evidence.identityEvidence.hostBootIdAfter);
 assert.ok(script.includes(`readonly SOPS_SHA256=${stage.sops_sha256}`));
 assert.ok(script.includes(`readonly AGE_ARCHIVE_SHA256=${stage.age_archive_sha256}`));
 assert.ok(script.includes(`readonly AGE_SHA256=${stage.age_sha256}`));

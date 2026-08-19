@@ -1302,9 +1302,9 @@ debian:
         - vuetorrent
       evidence: post-reboot-arch-verified
     credentials_stage:
-      phase: identity-not-generated
+      phase: identity-generated
       identity_path: /etc/sops/age/keys.txt
-      recipient_evidence: post-reboot-arch-verified
+      recipient_evidence: infrastructure/evidence/vm-100-debian-age-identity.json
       private_identity_exported: false
       sops_version: 3.13.3
       sops_sha256: e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b

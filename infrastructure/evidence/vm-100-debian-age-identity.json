@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-08-19T06:25:24Z",
+  "sourceCommit": "aae814f18cf8bc4aaefa1b8f57a76346fbd3ae51",
+  "vmid": 100,
+  "stage": "identity-generated",
+  "identityEvidence": {
+    "ageVersion": "1.3.1",
+    "createdAt": "2026-08-19T06:00:58Z",
+    "format": "home-lab-debian-age-identity-v1",
+    "identityMetadata": "root:root:600",
+    "identityPath": "/etc/sops/age/keys.txt",
+    "privateIdentityExported": false,
+    "recipient": "age1atumjua6hxyls6z8v20tsgy72304x72lqjstwmwzqy5ma4txyfsse7xakv",
+    "sopsVersion": "3.13.3",
+    "archBoot": "order=scsi0;net0",
+    "candidateScsi3": "local-lvm:vm-100-disk-2,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=HOME-LAB-DEBIAN-64G,size=64G,ssd=0",
+    "evidenceFormat": "home-lab-debian-age-transition-v1",
+    "hostBootIdBefore": "aeba9094-cc02-4058-845c-90046416a4fe",
+    "sourceCommit": "aae814f18cf8bc4aaefa1b8f57a76346fbd3ae51",
+    "transitionState": "complete",
+    "vmid": 100,
+    "archConfigSha256": "ae05ffdab8fe2c4bda72f8f64174d546a24953edf2bdc03ace25c88d663e8514",
+    "archRestore": "verified",
+    "finalizedAt": "2026-08-19T06:25:24Z",
+    "hostBootIdAfter": "fe8dfccd-d158-49b8-9fe1-c96f254dc81b"
+  },
+  "postRebootArch": {
+    "state": "verified",
+    "bootOrder": "scsi0;net0",
+    "osIdentity": "arch",
+    "qemuGuestAgent": "ready",
+    "runningContainers": 41,
+    "unhealthyContainers": 0,
+    "dockerVolumeMounts": 0,
+    "failedHostUnits": 0,
+    "proxmoxFirewall": "enabled-running"
+  },
+  "safety": {
+    "privateIdentityExported": false,
+    "publicRecipientOnlyRecorded": true,
+    "archDiskModified": false,
+    "stateDiskModified": false,
+    "protectedMountsActivated": false,
+    "dockerRuntimeStartedOnDebian": false,
+    "composeStartedOnDebian": false,
+    "tailscaleEnrolled": false,
+    "productionCredentialsInstalledOnDebian": false
+  },
+  "authorization": {
+    "identityPreparation": true,
+    "recipientCommit": false,
+    "credentialStaging": false,
+    "mountActivation": false,
+    "dockerRuntime": false,
+    "composeActivation": false,
+    "tailscaleEnrollment": false,
+    "productionCutover": false
+  }
+}

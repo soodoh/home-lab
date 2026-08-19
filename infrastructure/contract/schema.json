@@ -321,7 +321,7 @@
               "properties": {
                 "phase": { "enum": ["identity-not-generated", "identity-generated", "recipient-committed", "credentials-staged"] },
                 "identity_path": { "const": "/etc/sops/age/keys.txt" },
-                "recipient_evidence": { "const": "post-reboot-arch-verified" },
+                "recipient_evidence": { "enum": ["post-reboot-arch-verified", "infrastructure/evidence/vm-100-debian-age-identity.json"] },
                 "private_identity_exported": { "const": false },
                 "sops_version": { "const": "3.13.3" },
                 "sops_sha256": { "const": "e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b" },
