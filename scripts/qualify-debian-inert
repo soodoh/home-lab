@@ -51,6 +51,8 @@ readonly IDENTITY_CONFIRMATION=prepare-reviewed-vm-100-debian-age-identity
 readonly FINALIZE_IDENTITY_CONFIRMATION=finalize-reviewed-vm-100-debian-age-after-reboot
 readonly CREDENTIALS_CONFIRMATION=stage-reviewed-vm-100-debian-credentials-compose-offline
 readonly FINALIZE_CREDENTIALS_CONFIRMATION=finalize-reviewed-vm-100-debian-credentials-after-reboot
+readonly CANARY_CONFIRMATION=run-reviewed-vm-100-debian-openfit-canary
+readonly FINALIZE_CANARY_CONFIRMATION=finalize-reviewed-vm-100-debian-canary-after-reboot
 readonly PLAN_NOTES_REF=refs/notes/debian-qualification
 readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
 readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
@@ -67,6 +69,9 @@ readonly IDENTITY_LOG=$DIAGNOSTIC_ROOT/age-identity.json
 readonly IDENTITY_PENDING_LOG=$DIAGNOSTIC_ROOT/age-identity.pending.json
 readonly CREDENTIALS_LOG=$DIAGNOSTIC_ROOT/credentials-compose-staged.json
 readonly CREDENTIALS_PENDING_LOG=$DIAGNOSTIC_ROOT/credentials-compose-staged.pending.json
+readonly CANARY_LOG=$DIAGNOSTIC_ROOT/openfit-canary.json
+readonly CANARY_PENDING_LOG=$DIAGNOSTIC_ROOT/openfit-canary.pending.json
+readonly CANARY_ABORTED_LOG=$DIAGNOSTIC_ROOT/openfit-canary-aborted.json
 readonly SERIAL_SOCKET=/var/run/qemu-server/100.serial0
 readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
 readonly ARCH_RESTORE_REQUIRES_HOST_REBOOT=true
@@ -200,6 +205,38 @@ guest_exec_ok() {
   mv -T "$temporary" "$GUEST_FAILURE_LOG"
   jq -r '(."out-data" // "") + (."err-data" // "")' <<< "$result" >&2
   return 1
+}
+
+wait_for_guest_operation() {
+  local result_path=$1 timeout_seconds=$2 elapsed=0 response status
+  [[ $result_path =~ ^/run/home-lab-(arch|debian)-canary-[a-z-]+\.result$ ]] || return 1
+  while [[ $elapsed -lt $timeout_seconds ]]; do
+    [[ $(vm_status) == running ]] || return 1
+    response=$(guest_exec_json 30 /bin/bash -lc "if [[ -f '$result_path' && ! -L '$result_path' ]]; then cat '$result_path'; else printf pending; fi") || return 1
+    status=$(jq -er '."out-data"' <<< "$response") || return 1
+    if [[ $status != pending ]]; then
+      [[ $status =~ ^[0-9]+$ ]] || return 1
+      [[ $status -eq 0 ]]
+      return
+    fi
+    sleep 10
+    elapsed=$((elapsed + 10))
+  done
+  return 1
+}
+
+cancel_guest_operation() {
+  local pid=$1 response
+  [[ $pid =~ ^[1-9][0-9]*$ ]] || return 1
+  guest_exec_ok 30 /bin/kill -TERM -- "-$pid" || true
+  for ((attempt = 0; attempt < 300; attempt += 1)); do
+    response=$(guest_exec_json 30 /bin/bash -lc "if ps -eo pgid= | grep -Eq '^[[:space:]]*$pid[[:space:]]*$'; then exit 1; fi") || return 1
+    if jq -e '.exited == 1 and .exitcode == 0' <<< "$response" >/dev/null; then return 0; fi
+    sleep 2
+  done
+  guest_exec_ok 30 /bin/kill -KILL -- "-$pid" || true
+  response=$(guest_exec_json 30 /bin/bash -lc "if ps -eo pgid= | grep -Eq '^[[:space:]]*$pid[[:space:]]*$'; then exit 1; fi") || return 1
+  jq -e '.exited == 1 and .exitcode == 0' <<< "$response" >/dev/null
 }
 
 verify_arch_post_restore() {
@@ -338,6 +375,54 @@ mark_credentials_evidence_awaiting_reboot() {
   mv -T "$temporary" "$CREDENTIALS_PENDING_LOG"
 }
 
+write_canary_pending_evidence() {
+  local marker=$1 host_boot_id temporary
+  host_boot_id=$(cat /proc/sys/kernel/random/boot_id)
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .openfit-canary-pending.XXXXXX)
+  jq -c --arg archBoot "$ARCH_BOOT" --arg candidateScsi3 "$DEBIAN_SCSI3" \
+    --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdBefore "$host_boot_id" \
+    --arg sourceCommit "$(git rev-parse HEAD)" \
+    '. + {archBoot:$archBoot,candidateScsi3:$candidateScsi3,createdAt:$createdAt,evidenceFormat:"home-lab-debian-canary-transition-v1",hostBootIdBefore:$hostBootIdBefore,sourceCommit:$sourceCommit,transitionState:"canary-verified",vmid:100}' \
+    <<< "$marker" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$CANARY_PENDING_LOG"
+}
+
+write_canary_transfer_pending_evidence() {
+  local marker=$1 host_boot_id temporary
+  host_boot_id=$(cat /proc/sys/kernel/random/boot_id)
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .openfit-canary-pending.XXXXXX)
+  jq -c --arg archBoot "$ARCH_BOOT" --arg candidateScsi3 "$DEBIAN_SCSI3" \
+    --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdBefore "$host_boot_id" \
+    --arg sourceCommit "$(git rev-parse HEAD)" \
+    '. + {archBoot:$archBoot,candidateScsi3:$candidateScsi3,createdAt:$createdAt,evidenceFormat:"home-lab-debian-canary-transition-v1",hostBootIdBefore:$hostBootIdBefore,sourceCommit:$sourceCommit,transitionState:"transfer-prepared",vmid:100}' \
+    <<< "$marker" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$CANARY_PENDING_LOG"
+}
+
+mark_canary_evidence_awaiting_reboot() {
+  local config_sha=$1 temporary
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .openfit-canary-pending.XXXXXX)
+  jq -c --arg archConfigSha256 "$config_sha" '. + {archConfigSha256:$archConfigSha256,transitionState:"awaiting-host-reboot"}' \
+    "$CANARY_PENDING_LOG" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$CANARY_PENDING_LOG"
+}
+
+mark_failed_canary_evidence_awaiting_reboot() {
+  local config_sha=$1 temporary
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .openfit-canary-pending.XXXXXX)
+  jq -c --arg archConfigSha256 "$config_sha" '. + {archConfigSha256:$archConfigSha256,attemptOutcome:"failed",transitionState:"failed-awaiting-host-reboot"}' \
+    "$CANARY_PENDING_LOG" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$CANARY_PENDING_LOG"
+}
+
 prepare_arch_host_reboot_path() {
   local pending current
   if [[ $(vm_status) != stopped ]]; then
@@ -415,6 +500,8 @@ identity_mode=false
 finalize_identity_mode=false
 credentials_mode=false
 finalize_credentials_mode=false
+canary_mode=false
+finalize_canary_mode=false
 case ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} in
   "$CONFIRMATION") ;;
   "$RESTORE_CONFIRMATION") restore_mode=true ;;
@@ -426,6 +513,8 @@ case ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} in
   "$FINALIZE_IDENTITY_CONFIRMATION") finalize_identity_mode=true ;;
   "$CREDENTIALS_CONFIRMATION") credentials_mode=true ;;
   "$FINALIZE_CREDENTIALS_CONFIRMATION") finalize_credentials_mode=true ;;
+  "$CANARY_CONFIRMATION") canary_mode=true ;;
+  "$FINALIZE_CANARY_CONFIRMATION") finalize_canary_mode=true ;;
   *) fail "exact Debian qualification or staged transition confirmation is required"; exit 1 ;;
 esac
 [[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "Debian qualification requires a physical Proxmox console"; exit 1; }
@@ -654,6 +743,103 @@ if [[ $finalize_credentials_mode == true ]]; then
   echo "Debian credential and Compose staging finalized after physical reboot and complete Arch verification" >&2
   exit 0
 fi
+if [[ $finalize_canary_mode == true ]]; then
+  [[ -f $CANARY_PENDING_LOG && ! -L $CANARY_PENDING_LOG ]] || { fail "pending canary evidence is absent or unsafe"; exit 1; }
+  [[ $(stat -c %U:%G:%a "$CANARY_PENDING_LOG") == root:root:600 ]] || { fail "pending canary evidence metadata differs"; exit 1; }
+  [[ ! -e $CANARY_LOG && ! -L $CANARY_LOG ]] || { fail "final canary evidence already exists or is unsafe"; exit 1; }
+  pending_evidence=$(cat "$CANARY_PENDING_LOG")
+  if jq -e '.transitionState == "failed-awaiting-host-reboot" and .attemptOutcome == "failed"' <<< "$pending_evidence" >/dev/null 2>&1; then
+    jq -e --arg archBoot "$ARCH_BOOT" --arg candidateScsi3 "$DEBIAN_SCSI3" --arg sourceCommit "$(git rev-parse HEAD)" '
+      .evidenceFormat == "home-lab-debian-canary-transition-v1" and
+      .format == "home-lab-debian-openfit-canary-transfer-v1" and .vmid == 100 and
+      .image == "ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778" and
+      .backupReplicaCount == 3 and .backupBytes >= 1000000000 and .openfitStoppedForSnapshot == true and
+      (.backupSha256 | test("^[0-9a-f]{64}$")) and (.imageSha256 | test("^[0-9a-f]{64}$")) and
+      .archBoot == $archBoot and .candidateScsi3 == $candidateScsi3 and .sourceCommit == $sourceCommit and
+      (.hostBootIdBefore | test("^[0-9a-f-]{36}$")) and (.archConfigSha256 | test("^[0-9a-f]{64}$"))
+    ' <<< "$pending_evidence" >/dev/null || { fail "failed canary recovery evidence differs"; exit 1; }
+    recovery_created_epoch=$(date -d "$(jq -er .createdAt <<< "$pending_evidence")" +%s)
+    recovery_now_epoch=$(date +%s)
+    recovery_age=$((recovery_now_epoch - recovery_created_epoch))
+    [[ $recovery_age -ge -300 && $recovery_age -le 86400 ]] || { fail "failed canary recovery evidence is stale or future-dated"; exit 1; }
+    host_boot_id_after=$(cat /proc/sys/kernel/random/boot_id)
+    [[ $host_boot_id_after != $(jq -er .hostBootIdBefore <<< "$pending_evidence") ]] || { fail "the required physical host reboot has not occurred"; exit 1; }
+    recovery_pending=$(mktemp --tmpdir=/run home-lab-canary-recovery-pending.XXXXXX)
+    recovery_current=$(mktemp --tmpdir=/run home-lab-canary-recovery-current.XXXXXX)
+    recovery_evidence=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .openfit-canary-aborted.XXXXXX)
+    trap 'rm -f -- "$recovery_pending" "$recovery_current" "$recovery_evidence"' EXIT
+    chmod 0600 "$recovery_pending" "$recovery_current" "$recovery_evidence"
+    qm config "$VMID" > "$recovery_pending"
+    qm config "$VMID" --current 1 > "$recovery_current"
+    verify_exact_arch_configuration "$recovery_pending" "$recovery_current" || { fail "post-reboot Arch configuration differs"; exit 1; }
+    [[ $(arch_config_sha256 "$recovery_pending") == $(jq -er .archConfigSha256 <<< "$pending_evidence") ]] || { fail "post-reboot Arch configuration digest differs"; exit 1; }
+    wait_for_agent 600 || { fail "post-reboot Arch QEMU guest agent is unavailable"; exit 1; }
+    [[ $(os_id) == arch ]] || { fail "post-reboot VM 100 is not Arch"; exit 1; }
+    verify_arch_post_restore || { fail "post-reboot Arch workload health differs"; exit 1; }
+    guest_exec_ok 30 /bin/rm -f /srv/home-lab-state/.debian-openfit-canary-image.tar /srv/home-lab-state/.debian-openfit-canary-transfer.json || { fail "failed canary transfer cleanup on Arch failed"; exit 1; }
+    [[ $(systemctl --failed --no-legend | wc -l) -eq 0 ]] || { fail "the Proxmox host has failed units"; exit 1; }
+    pve-firewall status | grep -Fxq 'Status: enabled/running' || { fail "Proxmox firewall status differs"; exit 1; }
+    [[ ! -L $CANARY_ABORTED_LOG ]] || { fail "aborted canary evidence path is unsafe"; exit 1; }
+    jq -c --arg recoveredAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdAfter "$host_boot_id_after" \
+      '. + {archRestore:"verified",hostBootIdAfter:$hostBootIdAfter,recoveredAt:$recoveredAt,transitionState:"aborted"}' \
+      <<< "$pending_evidence" > "$recovery_evidence"
+    chown root:root "$recovery_evidence"
+    chmod 0600 "$recovery_evidence"
+    mv -T "$recovery_evidence" "$CANARY_ABORTED_LOG"
+    rm -f -- "$CANARY_PENDING_LOG"
+    trap - EXIT
+    rm -f -- "$recovery_pending" "$recovery_current"
+    echo "Failed Debian canary attempt recovered after physical reboot; Stage 4 remains incomplete" >&2
+    exit 0
+  fi
+  jq -e --arg archBoot "$ARCH_BOOT" --arg candidateScsi3 "$DEBIAN_SCSI3" --arg sourceCommit "$(git rev-parse HEAD)" '
+    .evidenceFormat == "home-lab-debian-canary-transition-v1" and
+    .format == "home-lab-debian-openfit-production-canary-v1" and
+    .transitionState == "awaiting-host-reboot" and .vmid == 100 and
+    .artifactSha256 == "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" and
+    .service == "openfit" and .image == "ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778" and
+    .canaryHealthy == true and .cleanupComplete == true and .protectedMountsUnmounted == true and
+    .dockerRuntime == "stopped-disabled-containerd-masked" and .pulls == "disabled" and
+    .runtimeEnvironmentInstalled == false and .tailscaleEnrolled == false and
+    .stateBind == "rw-verified" and .kernelStorageErrors == 0 and
+    .backup.backupReplicaCount == 3 and .backup.backupBytes >= 1000000000 and .backup.openfitStoppedForSnapshot == true and
+    (.backup.backupSha256 | test("^[0-9a-f]{64}$")) and
+    .archBoot == $archBoot and .candidateScsi3 == $candidateScsi3 and .sourceCommit == $sourceCommit and
+    (.hostBootIdBefore | test("^[0-9a-f-]{36}$")) and (.archConfigSha256 | test("^[0-9a-f]{64}$"))
+  ' <<< "$pending_evidence" >/dev/null || { fail "pending canary evidence differs"; exit 1; }
+  created_epoch=$(date -d "$(jq -er .createdAt <<< "$pending_evidence")" +%s)
+  now_epoch=$(date +%s)
+  evidence_age=$((now_epoch - created_epoch))
+  [[ $evidence_age -ge -300 && $evidence_age -le 86400 ]] || { fail "pending canary evidence is stale or future-dated"; exit 1; }
+  host_boot_id_after=$(cat /proc/sys/kernel/random/boot_id)
+  [[ $host_boot_id_after != $(jq -er .hostBootIdBefore <<< "$pending_evidence") ]] || { fail "the required physical host reboot has not occurred"; exit 1; }
+  finalize_pending=$(mktemp --tmpdir=/run home-lab-canary-finalize-pending.XXXXXX)
+  finalize_current=$(mktemp --tmpdir=/run home-lab-canary-finalize-current.XXXXXX)
+  finalize_evidence=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .openfit-canary-final.XXXXXX)
+  trap 'rm -f -- "$finalize_pending" "$finalize_current" "$finalize_evidence"' EXIT
+  chmod 0600 "$finalize_pending" "$finalize_current" "$finalize_evidence"
+  qm config "$VMID" > "$finalize_pending"
+  qm config "$VMID" --current 1 > "$finalize_current"
+  verify_exact_arch_configuration "$finalize_pending" "$finalize_current" || { fail "post-reboot Arch configuration differs"; exit 1; }
+  [[ $(arch_config_sha256 "$finalize_pending") == $(jq -er .archConfigSha256 <<< "$pending_evidence") ]] || { fail "post-reboot Arch configuration digest differs"; exit 1; }
+  wait_for_agent 600 || { fail "post-reboot Arch QEMU guest agent is unavailable"; exit 1; }
+  [[ $(os_id) == arch ]] || { fail "post-reboot VM 100 is not Arch"; exit 1; }
+  verify_arch_post_restore || { fail "post-reboot Arch workload health differs"; exit 1; }
+  guest_exec_ok 30 /bin/rm -f /srv/home-lab-state/.debian-openfit-canary-image.tar /srv/home-lab-state/.debian-openfit-canary-transfer.json || { fail "canary transfer cleanup on Arch failed"; exit 1; }
+  [[ $(systemctl --failed --no-legend | wc -l) -eq 0 ]] || { fail "the Proxmox host has failed units"; exit 1; }
+  pve-firewall status | grep -Fxq 'Status: enabled/running' || { fail "Proxmox firewall status differs"; exit 1; }
+  jq -c --arg finalizedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdAfter "$host_boot_id_after" \
+    '. + {archRestore:"verified",finalizedAt:$finalizedAt,hostBootIdAfter:$hostBootIdAfter,transitionState:"complete"}' \
+    <<< "$pending_evidence" > "$finalize_evidence"
+  chown root:root "$finalize_evidence"
+  chmod 0600 "$finalize_evidence"
+  mv -T "$finalize_evidence" "$CANARY_LOG"
+  rm -f -- "$CANARY_PENDING_LOG"
+  trap - EXIT
+  rm -f -- "$finalize_pending" "$finalize_current"
+  echo "Debian Openfit canary finalized after physical reboot and complete Arch verification" >&2
+  exit 0
+fi
 if [[ $restore_mode == true ]]; then
   wait_for_agent 30 || { fail "Debian QEMU guest agent is unavailable"; exit 1; }
   [[ $(os_id) == debian ]] || { fail "VM 100 is not running inert Debian"; exit 1; }
@@ -752,6 +938,16 @@ if [[ $credentials_mode == true ]]; then
   [[ ! -e $CREDENTIALS_PENDING_LOG && ! -L $CREDENTIALS_PENDING_LOG ]] || { fail "pending credential staging evidence requires finalization or reconciliation"; exit 1; }
   [[ ! -e $CREDENTIALS_LOG && ! -L $CREDENTIALS_LOG ]] || { fail "Debian credential staging is already finalized"; exit 1; }
 fi
+if [[ $canary_mode == true ]]; then
+  verify_exact_arch_configuration "$before" "$before_current" || { fail "canary Arch configuration differs"; exit 1; }
+  [[ -f $CREDENTIALS_LOG && ! -L $CREDENTIALS_LOG ]] || { fail "final credential staging evidence is absent or unsafe"; exit 1; }
+  [[ $(stat -c %U:%G:%a "$CREDENTIALS_LOG") == root:root:600 ]] || { fail "final credential staging evidence metadata differs"; exit 1; }
+  [[ $(jq -cS . "$CREDENTIALS_LOG") == $(jq -cS .stagingEvidence infrastructure/evidence/vm-100-debian-credentials-compose-staged.json) ]] || { fail "host and repository credential staging evidence diverge"; exit 1; }
+  [[ $(python3 scripts/compose-artifact.py hash) == d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c ]] || { fail "Compose artifact hash differs"; exit 1; }
+  [[ ! -e $CANARY_PENDING_LOG && ! -L $CANARY_PENDING_LOG ]] || { fail "pending canary evidence requires finalization or reconciliation"; exit 1; }
+  [[ ! -e $CANARY_LOG && ! -L $CANARY_LOG ]] || { fail "Debian canary is already finalized"; exit 1; }
+  guest_exec_ok 30 /bin/bash -lc '[[ ! -e /srv/home-lab-state/.debian-openfit-canary-image.tar && ! -e /srv/home-lab-state/.debian-openfit-canary-transfer.json ]]' || { fail "a prior canary transfer exists on Arch"; exit 1; }
+fi
 
 stage="stage-debian-image"
 echo "Staging and verifying pinned Debian image before Arch shutdown" >&2
@@ -797,6 +993,9 @@ install -d -o root -g root -m 0700 "$DIAGNOSTIC_ROOT"
 install -o root -g root -m 0600 /dev/null "$CONSOLE_LOG"
 rm -f -- "$ATTEMPT_LOG" "$RESTORE_LOG" "$GUEST_FAILURE_LOG"
 transition_started=false
+canary_transfer_ready=false
+canary_prepare_invoked=false
+canary_operation_pid=
 console_pid=
 stage=preflight
 handle_failure() {
@@ -809,11 +1008,27 @@ handle_failure() {
     stop_console_capture || true
     exit "$result"
   fi
+  if [[ $canary_mode == true && -n ${canary_operation_pid:-} && $(vm_status) == running ]]; then
+    cancel_guest_operation "$canary_operation_pid" || true
+    canary_operation_pid=
+  fi
+  if [[ $canary_mode == true && $canary_prepare_invoked == true && $transition_started == false && $(vm_status) == running ]]; then
+    guest_exec_ok 30 /bin/rm -f /srv/home-lab-state/.debian-openfit-canary-image.tar /srv/home-lab-state/.debian-openfit-canary-transfer.json /run/home-lab-openfit-canary-transfer.json /run/home-lab-arch-canary-prepare.result /run/home-lab-arch-canary-prepare.result.pending /run/home-lab-arch-canary-prepare.runner /run/home-lab-prepare-openfit-canary || true
+    for ((recovery_attempt = 0; recovery_attempt < 60; recovery_attempt += 1)); do
+      if verify_arch_post_restore; then break; fi
+      sleep 5
+    done
+    if verify_arch_post_restore; then
+      rm -f -- "$CANARY_PENDING_LOG"
+    else
+      echo "critical: Arch workloads did not recover after interrupted canary preparation" >&2
+    fi
+  fi
   if [[ $transition_started == true ]]; then
     candidate_diagnostics || echo "warning: candidate diagnostics could not be persisted" >&2
     stop_console_capture || true
   fi
-  if [[ ($prepare_mode == true || $rehearsal_mode == true || $identity_mode == true || $credentials_mode == true) && $transition_started == true ]]; then
+  if [[ ($prepare_mode == true || $rehearsal_mode == true || $identity_mode == true || $credentials_mode == true || $canary_mode == true) && $transition_started == true ]]; then
     if prepare_arch_host_reboot_path; then
       if [[ $prepare_mode == true && -f $PREPARE_PENDING_LOG ]] && jq -e '.state == "package-verified"' "$PREPARE_PENDING_LOG" >/dev/null 2>&1; then
         mark_package_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
@@ -826,6 +1041,14 @@ handle_failure() {
       fi
       if [[ $credentials_mode == true && -f $CREDENTIALS_PENDING_LOG ]] && jq -e '.transitionState == "credentials-verified"' "$CREDENTIALS_PENDING_LOG" >/dev/null 2>&1; then
         mark_credentials_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
+      fi
+      if [[ $canary_mode == true && -f $CANARY_PENDING_LOG ]]; then
+        if jq -e '.transitionState == "canary-verified"' "$CANARY_PENDING_LOG" >/dev/null 2>&1; then
+          mark_canary_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
+        elif jq -e '.transitionState == "transfer-prepared"' "$CANARY_PENDING_LOG" >/dev/null 2>&1; then
+          mark_failed_canary_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
+          echo "After reboot, run /root/home-lab/scripts/finalize-debian-production-canary to complete failed-attempt recovery" >&2
+        fi
       fi
       echo "Arch boot configuration prepared; a physical Proxmox host reboot is required" >&2
     else
@@ -845,6 +1068,28 @@ trap on_error ERR
 trap 'handle_failure 130 interrupted' INT
 trap 'handle_failure 143 terminated' TERM
 trap 'handle_failure 129 disconnected' HUP
+if [[ $canary_mode == true ]]; then
+  stage="prepare-openfit-canary-from-arch"
+  canary_prepare_source=infrastructure/debian/prepare-openfit-canary-from-arch.sh
+  canary_prepare_sha=01bbe84ced176e20613b3541bd71cc6d63941fa198a190d9ecc11298bc82288f
+  [[ $(sha256sum "$canary_prepare_source" | awk '{print $1}') == "$canary_prepare_sha" ]]
+  canary_prepare_payload=$(base64 -w 0 "$canary_prepare_source")
+  canary_prepare_runner_payload=$(printf '%s\n' '#!/bin/bash' 'set +e' '/bin/bash /run/home-lab-prepare-openfit-canary' 'status=$?' 'printf "%s\n" "$status" > /run/home-lab-arch-canary-prepare.result.pending' 'mv -T /run/home-lab-arch-canary-prepare.result.pending /run/home-lab-arch-canary-prepare.result' 'rm -f -- /run/home-lab-prepare-openfit-canary /run/home-lab-arch-canary-prepare.runner' 'exit "$status"' | base64 -w 0)
+  guest_exec_ok 60 /bin/bash -lc "set -Eeuo pipefail; umask 077; printf %s '$canary_prepare_payload' | base64 -d > /run/home-lab-prepare-openfit-canary; printf %s '$canary_prepare_runner_payload' | base64 -d > /run/home-lab-arch-canary-prepare.runner; [[ \$(sha256sum /run/home-lab-prepare-openfit-canary | awk '{print \$1}') == '$canary_prepare_sha' ]]"
+  canary_prepare_invoked=true
+  operation_response=$(guest_exec_json 30 /bin/bash -lc "rm -f -- /run/home-lab-arch-canary-prepare.result /run/home-lab-arch-canary-prepare.result.pending; setsid /bin/bash /run/home-lab-arch-canary-prepare.runner </dev/null > /var/log/home-lab-prepare-openfit-canary.log 2>&1 & printf %s \$!")
+  canary_operation_pid=$(jq -er '."out-data" | select(test("^[1-9][0-9]*$"))' <<< "$operation_response")
+  if ! wait_for_guest_operation /run/home-lab-arch-canary-prepare.result 10800; then
+    guest_exec_ok 30 /usr/bin/tail -100 /var/log/home-lab-prepare-openfit-canary.log || true
+    false
+  fi
+  canary_operation_pid=
+  guest_exec_ok 30 /bin/rm -f /run/home-lab-arch-canary-prepare.result /run/home-lab-arch-canary-prepare.result.pending
+  canary_transfer_marker=$(guest_exec_json 30 /usr/bin/cat /run/home-lab-openfit-canary-transfer.json | jq -er '."out-data"')
+  jq -e '.format == "home-lab-debian-openfit-canary-transfer-v1" and .image == "ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778" and (.imageId | test("^sha256:[0-9a-f]{64}$")) and (.imageSha256 | test("^[0-9a-f]{64}$")) and .imageBytes > 0 and .backupReplicaCount == 3 and .backupBytes >= 1000000000 and (.backupSha256 | test("^[0-9a-f]{64}$")) and .openfitState == "1000:1000" and .openfitStoppedForSnapshot == true and .privateDataExported == false' <<< "$canary_transfer_marker" >/dev/null
+  write_canary_transfer_pending_evidence "$canary_transfer_marker"
+  canary_transfer_ready=true
+fi
 
 stage=shutdown-arch
 transition_started=true
@@ -855,10 +1100,10 @@ qm config "$VMID" > "$stopped_config"
 for key in scsi0 scsi1 scsi2 scsi3 ide2 cicustom; do
   [[ $(config_value "$stopped_config" "$key") == $(config_value "$before_current" "$key") ]] || { fail "stopped VM attachment differs: $key"; false; }
 done
-if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true || $credentials_mode == true ]]; then
+if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true || $credentials_mode == true || $canary_mode == true ]]; then
   stage=verify-exclusive-debian-target
   if fuser "$volume_device" >/dev/null 2>&1; then false; fi
-  if [[ $rehearsal_mode == true ]]; then
+  if [[ $rehearsal_mode == true || $canary_mode == true ]]; then
     stage=verify-exclusive-protected-storage
     for protected_device in "$state_volume_device" "$games_volume_device" "$arch_volume_device"; do
       if fuser "$protected_device" >/dev/null 2>&1; then false; fi
@@ -888,6 +1133,37 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
   guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=home-lab-state -s UUID -o value | sort -u) == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=games -s UUID -o value | sort -u) == 31602ce7-0054-498a-9f24-f51ca491e7b3 ]]"
+  if [[ $canary_mode == true ]]; then
+    stage="run-debian-openfit-production-canary"
+    canary_source=infrastructure/debian/run-openfit-production-canary.sh
+    canary_sha=5b5ab060fc43a995779c76bf3158c79271148b7faeebc6ef1cc7a13a48d362e0
+    [[ $(sha256sum "$canary_source" | awk '{print $1}') == "$canary_sha" ]]
+    canary_payload=$(base64 -w 0 "$canary_source")
+    canary_image_sha=$(jq -er .imageSha256 <<< "$canary_transfer_marker")
+    canary_image_bytes=$(jq -er .imageBytes <<< "$canary_transfer_marker")
+    canary_runner_payload=$(printf '%s\n' '#!/bin/bash' 'set +e' "/bin/bash /run/home-lab-run-openfit-canary '$canary_image_sha' '$canary_image_bytes'" 'status=$?' 'printf "%s\n" "$status" > /run/home-lab-debian-canary-run.result.pending' 'mv -T /run/home-lab-debian-canary-run.result.pending /run/home-lab-debian-canary-run.result' 'rm -f -- /run/home-lab-run-openfit-canary /run/home-lab-debian-canary-run.runner' 'exit "$status"' | base64 -w 0)
+    guest_exec_ok 60 /bin/bash -lc "set -Eeuo pipefail; umask 077; printf %s '$canary_payload' | base64 -d > /run/home-lab-run-openfit-canary; printf %s '$canary_runner_payload' | base64 -d > /run/home-lab-debian-canary-run.runner; [[ \$(sha256sum /run/home-lab-run-openfit-canary | awk '{print \$1}') == '$canary_sha' ]]"
+    operation_response=$(guest_exec_json 30 /bin/bash -lc "rm -f -- /run/home-lab-debian-canary-run.result /run/home-lab-debian-canary-run.result.pending; setsid /bin/bash /run/home-lab-debian-canary-run.runner </dev/null > /var/log/home-lab-debian-openfit-canary.log 2>&1 & printf %s \$!")
+    canary_operation_pid=$(jq -er '."out-data" | select(test("^[1-9][0-9]*$"))' <<< "$operation_response")
+    if ! wait_for_guest_operation /run/home-lab-debian-canary-run.result 1800; then
+      guest_exec_ok 30 /usr/bin/tail -100 /var/log/home-lab-debian-openfit-canary.log || true
+      false
+    fi
+    canary_operation_pid=
+    guest_exec_ok 30 /bin/rm -f /run/home-lab-debian-canary-run.result /run/home-lab-debian-canary-run.result.pending
+    canary_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-openfit-canary.json | jq -er '."out-data"')
+    jq -e '.format == "home-lab-debian-openfit-production-canary-v1" and .service == "openfit" and .artifactSha256 == "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" and .canaryHealthy == true and .cleanupComplete == true and .protectedMountsUnmounted == true and .dockerRuntime == "stopped-disabled-containerd-masked" and .pulls == "disabled" and .runtimeEnvironmentInstalled == false and .tailscaleEnrolled == false and .stateBind == "rw-verified" and .kernelStorageErrors == 0 and .backup.backupReplicaCount == 3 and .backup.backupBytes >= 1000000000 and .backup.openfitStoppedForSnapshot == true and (.backup.backupSha256 | test("^[0-9a-f]{64}$"))' <<< "$canary_marker" >/dev/null
+    canary_transfer_ready=false
+    write_canary_pending_evidence "$canary_marker"
+    stop_console_capture
+    prepare_arch_host_reboot_path
+    mark_canary_evidence_awaiting_reboot "$arch_reboot_config_sha"
+    transition_started=false
+    trap - ERR INT TERM HUP
+    echo "Debian Openfit production canary passed and cleaned up; a physical Proxmox host reboot is required" >&2
+    echo "After reboot, run /root/home-lab/scripts/finalize-debian-production-canary at the physical console" >&2
+    exit 0
+  fi
   if [[ $credentials_mode == true ]]; then
     stage="stage-debian-credentials-compose-payload"
     credentials_source=infrastructure/debian/stage-credentials-compose-offline.sh

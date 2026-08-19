@@ -1228,7 +1228,7 @@ debian:
     state_mountpoint: /srv/home-lab-state
     games_mountpoint: /mnt/games
     nfs_mountpoint: /mnt/storage
-    credentials: deferred
+    credentials: staged
     tailscale_enrollment: deferred
     rollback_boot_order:
       - scsi0
@@ -1319,6 +1319,21 @@ debian:
       compose_validation: staged-quiet-pass
       docker_runtime: inactive
       tailscale: deferred
+    production_canary:
+      phase: not-run
+      service: openfit
+      image: ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778
+      artifact_sha256: d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c
+      state_bind: /srv/home-lab-state/openfit-data
+      backup_max_age_hours: 24
+      backup_replica_count: 3
+      image_transfer_path: /srv/home-lab-state/.debian-openfit-canary-image.tar
+      pulls: disabled
+      runtime_environment: staged-only
+      protected_mounts: transient-cleanup-required
+      docker_runtime: transient-cleanup-required
+      tailscale: deferred
+      production_boot: false
     minimum_observation_days: 7
 omada:
   controller_version: 6.2.14.11

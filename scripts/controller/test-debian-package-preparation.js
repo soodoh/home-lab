@@ -41,7 +41,7 @@ assert.match(script, /\/var\/lib\/docker\/containers/);
 assert.match(script, /write_live_evidence/);
 assert.match(script, /cmp -s "\$live_marker" "\$MARKER"/);
 assert.doesNotMatch(script, /docker compose (?:up|create|start)|mount .*home-lab-state|tailscale up|sops decrypt/);
-assert.equal(contract.debian.cutover.credentials, "deferred");
+assert.equal(contract.debian.cutover.credentials, "staged");
 assert.equal(contract.debian.cutover.tailscale_enrollment, "deferred");
 assert.deepEqual(contract.debian.cutover.rollback_boot_order, ["scsi0", "net0"]);
 assert.equal(contract.debian.cutover.transition_restore, "physical-host-reboot");

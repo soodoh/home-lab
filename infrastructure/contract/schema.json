@@ -275,7 +275,7 @@
         "cutover": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["stage", "package_source", "docker_package", "docker_cli_package", "compose_package", "expected_service_count", "expected_state_bind_count", "expected_docker_volume_mount_count", "state_mountpoint", "games_mountpoint", "nfs_mountpoint", "credentials", "tailscale_enrollment", "rollback_boot_order", "transition_restore", "package_evidence", "storage_rehearsal", "credentials_stage", "minimum_observation_days"],
+          "required": ["stage", "package_source", "docker_package", "docker_cli_package", "compose_package", "expected_service_count", "expected_state_bind_count", "expected_docker_volume_mount_count", "state_mountpoint", "games_mountpoint", "nfs_mountpoint", "credentials", "tailscale_enrollment", "rollback_boot_order", "transition_restore", "package_evidence", "storage_rehearsal", "credentials_stage", "production_canary", "minimum_observation_days"],
           "properties": {
             "stage": { "enum": ["qualified", "packages-prepared", "storage-rehearsed", "credentials-staged", "production-canary", "production", "rollback"] },
             "package_source": { "const": "debian-stable" },
@@ -336,6 +336,27 @@
                 "compose_validation": { "enum": ["deferred-until-recipient-commit", "staged-quiet-pass"] },
                 "docker_runtime": { "const": "inactive" },
                 "tailscale": { "const": "deferred" }
+              }
+            },
+            "production_canary": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["phase", "service", "image", "artifact_sha256", "state_bind", "backup_max_age_hours", "backup_replica_count", "image_transfer_path", "pulls", "runtime_environment", "protected_mounts", "docker_runtime", "tailscale", "production_boot"],
+              "properties": {
+                "phase": { "enum": ["not-run", "verified"] },
+                "service": { "const": "openfit" },
+                "image": { "const": "ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778" },
+                "artifact_sha256": { "const": "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" },
+                "state_bind": { "const": "/srv/home-lab-state/openfit-data" },
+                "backup_max_age_hours": { "const": 24 },
+                "backup_replica_count": { "const": 3 },
+                "image_transfer_path": { "const": "/srv/home-lab-state/.debian-openfit-canary-image.tar" },
+                "pulls": { "const": "disabled" },
+                "runtime_environment": { "const": "staged-only" },
+                "protected_mounts": { "const": "transient-cleanup-required" },
+                "docker_runtime": { "const": "transient-cleanup-required" },
+                "tailscale": { "const": "deferred" },
+                "production_boot": { "const": false }
               }
             },
             "minimum_observation_days": { "const": 7 }

@@ -50,7 +50,7 @@ Stage 3 is split across two independently attested physical-reboot continuations
 
 ### 4. Production canary
 
-Require fresh backup evidence and an exact reviewed cutover manifest. Shut down Arch cleanly, boot Debian, verify disks again, activate exact `fstab` entries, and start Docker. Start only the reviewed canary service with pulls disabled and require health plus mount correctness. Any failure stops Docker, unmounts protected filesystems, and restores Arch.
+Require a newly generated encrypted backup with three byte-identical, SHA-256-verified replicas. Openfit is stopped only while the backup snapshot tar is created, then health-verified again before transition. Export its exact digest-pinned image to the state disk without private data, shut down Arch, boot Debian, and activate all three exact mount units transiently. Load the transferred image without a registry pull, start only Openfit using the staged environment and immutable artifact with `--no-deps --pull never`, and require healthy status plus its exact read-write state bind and zero Docker volumes. The coordinator then removes the canary, image, and non-default network; stops and re-inerts Docker/containerd; removes transfer files; unmounts all protected filesystems; restores exact Arch boot authority; and requires a physical host reboot. Stage 4 does not install the runtime environment, enroll Tailscale, retain a running container, persist mount activation, or authorize production boot.
 
 ### 5. Production cutover
 
