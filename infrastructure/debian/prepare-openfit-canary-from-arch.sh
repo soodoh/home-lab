@@ -32,7 +32,7 @@ grep -Fxq 'ID=arch' /etc/os-release || fail "source guest is not Arch"
 verify_arch_workloads || fail "Arch workload health differs before backup"
 [[ ! -e $TRANSFER && ! -L $TRANSFER && ! -e $TRANSFER_MARKER && ! -L $TRANSFER_MARKER ]] || fail "a prior canary transfer requires reconciliation"
 [[ -d /srv/home-lab-state/openfit-data && ! -L /srv/home-lab-state/openfit-data ]] || fail "Openfit state directory is absent or unsafe"
-[[ $(stat -c %u:%g /srv/home-lab-state/openfit-data) == 1000:1000 ]] || fail "Openfit state ownership differs"
+[[ $(stat -c %u:%g:%a /srv/home-lab-state/openfit-data) == 0:0:755 ]] || fail "Openfit state metadata differs"
 docker image inspect "$IMAGE" >/dev/null || fail "exact Openfit image is absent"
 docker image inspect "$IMAGE" | jq -e --arg digest "$IMAGE_REPO_DIGEST" '.[0].RepoDigests | index($digest) != null' >/dev/null || fail "Openfit image digest differs"
 image_id=$(docker image inspect "$IMAGE" --format '{{.Id}}')
@@ -151,7 +151,7 @@ jq -cn --arg backupName "$backup_name" --arg backupSha256 "$backup_sha" \
   --arg completedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg image "$IMAGE" --arg imageId "$image_id" \
   --arg imageSha256 "$transfer_sha" --argjson backupBytes "$backup_size" \
   --argjson backupStatus "$backup_status" --argjson imageBytes "$transfer_size" \
-  '{backupBytes:$backupBytes,backupCommandStatus:$backupStatus,backupName:$backupName,backupReplicaCount:3,backupSha256:$backupSha256,completedAt:$completedAt,format:"home-lab-debian-openfit-canary-transfer-v1",image:$image,imageBytes:$imageBytes,imageId:$imageId,imageSha256:$imageSha256,openfitState:"1000:1000",openfitStoppedForSnapshot:true,privateDataExported:false}' > "$marker_pending"
+  '{backupBytes:$backupBytes,backupCommandStatus:$backupStatus,backupName:$backupName,backupReplicaCount:3,backupSha256:$backupSha256,completedAt:$completedAt,format:"home-lab-debian-openfit-canary-transfer-v1",image:$image,imageBytes:$imageBytes,imageId:$imageId,imageSha256:$imageSha256,openfitState:"0:0:755",openfitStoppedForSnapshot:true,privateDataExported:false}' > "$marker_pending"
 chown root:root "$marker_pending"
 chmod 0600 "$marker_pending"
 mv -T "$marker_pending" "$TRANSFER_MARKER"

@@ -341,13 +341,14 @@
             "production_canary": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["phase", "service", "image", "artifact_sha256", "state_bind", "backup_max_age_hours", "backup_replica_count", "image_transfer_path", "pulls", "runtime_environment", "protected_mounts", "docker_runtime", "tailscale", "production_boot"],
+              "required": ["phase", "service", "image", "artifact_sha256", "state_bind", "state_metadata", "backup_max_age_hours", "backup_replica_count", "image_transfer_path", "pulls", "runtime_environment", "protected_mounts", "docker_runtime", "tailscale", "production_boot"],
               "properties": {
                 "phase": { "enum": ["not-run", "verified"] },
                 "service": { "const": "openfit" },
                 "image": { "const": "ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778" },
                 "artifact_sha256": { "const": "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" },
                 "state_bind": { "const": "/srv/home-lab-state/openfit-data" },
+                "state_metadata": { "const": "root:root:755" },
                 "backup_max_age_hours": { "const": 24 },
                 "backup_replica_count": { "const": 3 },
                 "image_transfer_path": { "const": "/srv/home-lab-state/.debian-openfit-canary-image.tar" },

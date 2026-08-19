@@ -18,6 +18,8 @@ const canary = contract.debian.cutover.production_canary;
 assert.equal(contract.debian.cutover.stage, "credentials-staged");
 assert.equal(canary.phase, "not-run");
 assert.equal(canary.service, "openfit");
+assert.equal(canary.state_bind, "/srv/home-lab-state/openfit-data");
+assert.equal(canary.state_metadata, "root:root:755");
 assert.equal(canary.backup_max_age_hours, 24);
 assert.equal(canary.backup_replica_count, 3);
 assert.equal(canary.pulls, "disabled");
@@ -34,6 +36,7 @@ assert.match(prepare, /CONTAINER_BACKUP_PID/);
 assert.match(prepare, /stop_container_backup/);
 assert.match(prepare, /docker image save --output/);
 assert.match(prepare, /privateDataExported:false/);
+assert.match(prepare, /openfitState:"0:0:755"/);
 
 assert.ok(canaryScript.includes(`readonly ARTIFACT_SHA256=${canary.artifact_sha256}`));
 assert.ok(canaryScript.includes(`readonly IMAGE='${canary.image}'`));
@@ -52,8 +55,8 @@ assert.match(canaryScript, /protectedMountsUnmounted:true/);
 assert.match(canaryScript, /runtimeEnvironmentInstalled:false/);
 assert.doesNotMatch(canaryScript, /tailscale up|docker compose.*pull|--pull always|\/etc\/docker-compose\/production\.env.*install/);
 
-assert.ok(coordinator.includes("canary_prepare_sha=01bbe84ced176e20613b3541bd71cc6d63941fa198a190d9ecc11298bc82288f"));
-assert.ok(coordinator.includes("canary_sha=5b5ab060fc43a995779c76bf3158c79271148b7faeebc6ef1cc7a13a48d362e0"));
+assert.ok(coordinator.includes("canary_prepare_sha=94b89943009a6c76c8215b147777ed00942e4f2f846e25448c59190a82635849"));
+assert.ok(coordinator.includes("canary_sha=f814ae02d8600788d32f655c8a4f02f1ad0d429384b814c9983c030528a03093"));
 assert.match(coordinator, /setsid \/bin\/bash \/run\/home-lab-arch-canary-prepare\.runner/);
 assert.match(coordinator, /setsid \/bin\/bash \/run\/home-lab-debian-canary-run\.runner/);
 assert.match(coordinator, /cancel_guest_operation/);
