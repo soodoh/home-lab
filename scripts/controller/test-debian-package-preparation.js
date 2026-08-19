@@ -10,7 +10,7 @@ const root = path.resolve(__dirname, "../..");
 const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/home-lab.yml"), "utf8"));
 const script = fs.readFileSync(path.join(root, "infrastructure/debian/prepare-packages.sh"), "utf8");
 
-assert.equal(contract.debian.cutover.stage, "packages-prepared");
+assert.equal(contract.debian.cutover.stage, "storage-rehearsed");
 assert.equal(contract.debian.cutover.package_source, "debian-stable");
 assert.ok(script.includes(`readonly PACKAGES=(${contract.debian.cutover.docker_package} ${contract.debian.cutover.docker_cli_package} ${contract.debian.cutover.compose_package})`));
 assert.match(script, /os_id == debian && \$os_version == 13/);

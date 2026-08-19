@@ -14,7 +14,7 @@ const runner = fs.readFileSync(path.join(root, "scripts/run-debian-storage-rehea
 const finalizer = fs.readFileSync(path.join(root, "scripts/finalize-debian-storage-rehearsal"), "utf8");
 const rehearsal = contract.debian.cutover.storage_rehearsal;
 
-assert.equal(contract.debian.cutover.stage, "packages-prepared");
+assert.equal(contract.debian.cutover.stage, "storage-rehearsed");
 assert.equal(rehearsal.mode, "read-only");
 assert.equal(rehearsal.isolated_mount_root, "/run/home-lab-storage-rehearsal");
 assert.deepEqual(rehearsal.ext4_options, ["ro", "noload", "nodev", "nosuid", "noexec"]);

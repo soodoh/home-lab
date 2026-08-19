@@ -2,9 +2,9 @@
 
 ## Status
 
-Debian 13 inert qualification, hardware parity, and Stage 1 package preparation passed. Package evidence is recorded in `infrastructure/evidence/vm-100-debian-packages-prepared.json`. Arch remains production authority. Debian is preserved on externally managed `scsi3`; `scsi0` and application-state `scsi2` remain protected rollback assets.
+Debian 13 inert qualification, hardware parity, Stage 1 package preparation, and Stage 2 read-only storage rehearsal passed. Evidence is recorded in `infrastructure/evidence/vm-100-debian-packages-prepared.json` and `infrastructure/evidence/vm-100-debian-storage-rehearsal.json`. Arch remains production authority. Debian is preserved on externally managed `scsi3`; `scsi0` and application-state `scsi2` remain protected rollback assets.
 
-The selected path is a staged cutover. Stage 1 completion does not authorize mounting application storage, decrypting production credentials, enrolling Tailscale, starting Docker, starting Compose, or changing the production boot path. Stage 2 remains a separately reviewed read-only storage rehearsal.
+The selected path is a staged cutover. Stage 2 completion does not authorize persistent or read-write application mounts, decrypting production credentials, enrolling Tailscale, starting Docker, starting Compose, or changing the production boot path. Stage 3 credentials and Compose staging remains separately unauthorized.
 
 ## Non-negotiable invariants
 
