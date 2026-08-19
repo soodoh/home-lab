@@ -118,11 +118,12 @@ write_diagnostic_json() {
 restore_arch() {
   local restored=true restore_stage=shutdown-candidate
   echo "Restoring the Arch boot path" >&2
-  if [[ $(vm_status) == running ]]; then
-    qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || qm shutdown "$VMID" --timeout 60 || true
-    if ! wait_for_status stopped 180; then
+  if [[ $(vm_status) != stopped ]]; then
+    timeout 15 qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || timeout 75 qm shutdown "$VMID" --timeout 60 || true
+    if ! wait_for_status stopped 30; then
       restore_stage=force-stop-candidate
       qm stop "$VMID" || restored=false
+      wait_for_status stopped 30 || restored=false
     fi
   fi
   restore_stage=wait-candidate-stopped
@@ -133,6 +134,17 @@ restore_arch() {
   fi
   restore_stage=set-arch-boot
   qm set "$VMID" --boot "$ARCH_BOOT" --vga none || restored=false
+  if [[ $restored == true && ${ARCH_RESTORE_REQUIRES_HOST_REBOOT:-false} == true ]]; then
+    restore_stage=verify-arch-reboot-path
+    [[ $(vm_status) == stopped ]] || restored=false
+    [[ $(qm config "$VMID" | awk -F ': ' '$1 == "boot" { print $2 }') == "$ARCH_BOOT" ]] || restored=false
+    [[ $(qm config "$VMID" | awk -F ': ' '$1 == "onboot" { print $2 }') == 1 ]] || restored=false
+    if [[ $restored == true ]]; then
+      write_diagnostic_json "$RESTORE_LOG" arch-reboot-prepared complete unknown unknown unavailable empty
+      echo "Exact Arch boot path prepared; a physical Proxmox host reboot is required" >&2
+      return 0
+    fi
+  fi
   if [[ $restored == true ]]; then
     restore_stage=start-arch
     start_without_lock_inheritance || true

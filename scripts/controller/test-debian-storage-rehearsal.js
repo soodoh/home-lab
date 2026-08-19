@@ -52,6 +52,12 @@ assert.match(coordinator, /stage=verify-exclusive-protected-storage[\s\S]*fuser 
 assert.match(coordinator, /write_rehearsal_pending_evidence "\$rehearsal_marker"/);
 assert.match(coordinator, /mark_rehearsal_evidence_awaiting_reboot "\$arch_reboot_config_sha"/);
 assert.match(coordinator, /home-lab-debian-storage-transition-v1/);
+assert.match(coordinator, /transitionState:"rehearsal-verified"/);
+assert.match(coordinator, /transitionState:"awaiting-host-reboot"/);
+assert.doesNotMatch(coordinator, /sourceCommit:\$sourceCommit,state:"rehearsal-verified"/);
+assert.match(coordinator, /attested-source-script-completed-before-wrapper-overwrite/);
+assert.match(coordinator, /git notes --ref="\$PLAN_NOTES_REF" show "\$pending_source_commit"/);
+assert.match(coordinator, /source_rehearsal_sha == c7ee3b85a274a56e2285a0819f004bb7dcc65330589982c207b8ecdae5126a9e/);
 assert.match(coordinator, /finalize_rehearsal_mode == true/);
 assert.match(coordinator, /verify_arch_post_restore[\s\S]*mv -T "\$finalize_evidence" "\$REHEARSAL_LOG"/);
 assert.ok(runner.includes("readonly CONFIRMATION=rehearse-reviewed-vm-100-debian-storage-readonly"));
