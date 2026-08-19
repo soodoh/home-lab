@@ -365,7 +365,7 @@
             "production_cutover": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["phase", "scope", "compose_artifact_sha256", "model_inventory_sha256", "image_lock", "image_lock_sha256", "image_service_count", "unique_image_count", "image_transfer_path", "pulls", "backup_validation", "runtime_environment", "protected_mounts", "docker_runtime", "tailscale_enrollment", "tailscale_tag", "tailscale_hostname", "tailscale_key_delivery", "tailscale_key_expiry_seconds", "tailscale_key_artifact", "production_boot", "rollback_boot_order", "rollback_requires_physical_reboot"],
+              "required": ["phase", "scope", "compose_artifact_sha256", "model_inventory_sha256", "image_lock", "image_lock_sha256", "image_service_count", "unique_image_count", "image_transfer_path", "pulls", "backup_validation", "runtime_environment", "protected_mounts", "docker_runtime", "tailscale_enrollment", "tailscale_version", "tailscale_archive_sha256", "tailscale_tag", "tailscale_hostname", "tailscale_key_delivery", "tailscale_key_expiry_seconds", "tailscale_key_artifact", "production_boot", "rollback_boot_order", "rollback_requires_physical_reboot"],
               "properties": {
                 "phase": { "enum": ["designed", "key-staged", "awaiting-host-reboot", "verified"] },
                 "scope": { "const": "full-compose-and-tailscale" },
@@ -382,6 +382,8 @@
                 "protected_mounts": { "const": "persistent" },
                 "docker_runtime": { "const": "persistent" },
                 "tailscale_enrollment": { "const": "one-use-preauthorized-key" },
+                "tailscale_version": { "const": "1.98.4" },
+                "tailscale_archive_sha256": { "const": "e6c08a8ee7e63e69aaf1b62ecd12672b3883fbcd2a176bf6cfa42a15fdce0b6b" },
                 "tailscale_tag": { "const": "tag:docker-host" },
                 "tailscale_hostname": { "const": "docker-host-debian" },
                 "tailscale_key_delivery": { "const": "age-encrypted-debian-recipient" },

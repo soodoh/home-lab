@@ -1353,6 +1353,8 @@ debian:
       protected_mounts: persistent
       docker_runtime: persistent
       tailscale_enrollment: one-use-preauthorized-key
+      tailscale_version: 1.98.4
+      tailscale_archive_sha256: e6c08a8ee7e63e69aaf1b62ecd12672b3883fbcd2a176bf6cfa42a15fdce0b6b
       tailscale_tag: tag:docker-host
       tailscale_hostname: docker-host-debian
       tailscale_key_delivery: age-encrypted-debian-recipient
