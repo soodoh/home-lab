@@ -1217,7 +1217,7 @@ debian:
     compose_service: home-lab-compose.service
     automatic_reboot: false
   cutover:
-    stage: qualified
+    stage: packages-prepared
     package_source: debian-stable
     docker_package: docker.io
     docker_cli_package: docker-cli
