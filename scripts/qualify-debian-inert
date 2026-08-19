@@ -47,6 +47,8 @@ readonly PREPARE_CONFIRMATION=prepare-reviewed-vm-100-debian-packages
 readonly FINALIZE_CONFIRMATION=finalize-reviewed-vm-100-debian-packages-after-reboot
 readonly REHEARSAL_CONFIRMATION=rehearse-reviewed-vm-100-debian-storage-readonly
 readonly FINALIZE_REHEARSAL_CONFIRMATION=finalize-reviewed-vm-100-debian-storage-after-reboot
+readonly IDENTITY_CONFIRMATION=prepare-reviewed-vm-100-debian-age-identity
+readonly FINALIZE_IDENTITY_CONFIRMATION=finalize-reviewed-vm-100-debian-age-after-reboot
 readonly PLAN_NOTES_REF=refs/notes/debian-qualification
 readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
 readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
@@ -59,6 +61,8 @@ readonly PREPARE_PENDING_LOG=$DIAGNOSTIC_ROOT/packages-prepared.pending.json
 readonly GUEST_FAILURE_LOG=$DIAGNOSTIC_ROOT/guest-exec-failure.json
 readonly REHEARSAL_LOG=$DIAGNOSTIC_ROOT/storage-rehearsed.json
 readonly REHEARSAL_PENDING_LOG=$DIAGNOSTIC_ROOT/storage-rehearsed.pending.json
+readonly IDENTITY_LOG=$DIAGNOSTIC_ROOT/age-identity.json
+readonly IDENTITY_PENDING_LOG=$DIAGNOSTIC_ROOT/age-identity.pending.json
 readonly SERIAL_SOCKET=/var/run/qemu-server/100.serial0
 readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
 readonly ARCH_RESTORE_REQUIRES_HOST_REBOOT=true
@@ -282,12 +286,36 @@ mark_rehearsal_evidence_awaiting_reboot() {
   mv -T "$temporary" "$REHEARSAL_PENDING_LOG"
 }
 
+write_identity_pending_evidence() {
+  local marker=$1 host_boot_id temporary
+  host_boot_id=$(cat /proc/sys/kernel/random/boot_id)
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .age-identity-pending.XXXXXX)
+  jq -c --arg archBoot "$ARCH_BOOT" --arg candidateScsi3 "$DEBIAN_SCSI3" \
+    --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdBefore "$host_boot_id" \
+    --arg sourceCommit "$(git rev-parse HEAD)" \
+    '. + {archBoot:$archBoot,candidateScsi3:$candidateScsi3,createdAt:$createdAt,evidenceFormat:"home-lab-debian-age-transition-v1",hostBootIdBefore:$hostBootIdBefore,sourceCommit:$sourceCommit,transitionState:"identity-verified",vmid:100}' \
+    <<< "$marker" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$IDENTITY_PENDING_LOG"
+}
+
+mark_identity_evidence_awaiting_reboot() {
+  local config_sha=$1 temporary
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .age-identity-pending.XXXXXX)
+  jq -c --arg archConfigSha256 "$config_sha" '. + {archConfigSha256:$archConfigSha256,transitionState:"awaiting-host-reboot"}' \
+    "$IDENTITY_PENDING_LOG" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$IDENTITY_PENDING_LOG"
+}
+
 prepare_arch_host_reboot_path() {
   local pending current
   if [[ $(vm_status) != stopped ]]; then
     stage=shutdown-debian-for-host-reboot
-    timeout 15 qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || qm shutdown "$VMID" --timeout 60 || true
-    if ! wait_for_status stopped 180; then
+    timeout 15 qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || timeout 75 qm shutdown "$VMID" --timeout 60 || true
+    if ! wait_for_status stopped 30; then
       stage=force-stop-debian-for-host-reboot
       qm stop "$VMID" || return 1
       wait_for_status stopped 30 || return 1
@@ -355,6 +383,8 @@ prepare_mode=false
 finalize_mode=false
 rehearsal_mode=false
 finalize_rehearsal_mode=false
+identity_mode=false
+finalize_identity_mode=false
 case ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} in
   "$CONFIRMATION") ;;
   "$RESTORE_CONFIRMATION") restore_mode=true ;;
@@ -362,7 +392,9 @@ case ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} in
   "$FINALIZE_CONFIRMATION") finalize_mode=true ;;
   "$REHEARSAL_CONFIRMATION") rehearsal_mode=true ;;
   "$FINALIZE_REHEARSAL_CONFIRMATION") finalize_rehearsal_mode=true ;;
-  *) fail "exact Debian qualification, package preparation/finalization, storage rehearsal/finalization, or Arch restore confirmation is required"; exit 1 ;;
+  "$IDENTITY_CONFIRMATION") identity_mode=true ;;
+  "$FINALIZE_IDENTITY_CONFIRMATION") finalize_identity_mode=true ;;
+  *) fail "exact Debian qualification or staged transition confirmation is required"; exit 1 ;;
 esac
 [[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "Debian qualification requires a physical Proxmox console"; exit 1; }
 [[ -d $RECONCILIATION_ROOT && ! -L $RECONCILIATION_ROOT ]] || { fail "reconciliation lock root is absent or unsafe"; exit 1; }
@@ -494,6 +526,52 @@ if [[ $finalize_rehearsal_mode == true ]]; then
   echo "Debian storage rehearsal finalized after physical reboot and complete Arch verification" >&2
   exit 0
 fi
+if [[ $finalize_identity_mode == true ]]; then
+  [[ -f $IDENTITY_PENDING_LOG && ! -L $IDENTITY_PENDING_LOG ]] || { fail "pending Debian identity evidence is absent or unsafe"; exit 1; }
+  [[ $(stat -c %U:%G:%a "$IDENTITY_PENDING_LOG") == root:root:600 ]] || { fail "pending Debian identity evidence metadata differs"; exit 1; }
+  [[ ! -e $IDENTITY_LOG && ! -L $IDENTITY_LOG ]] || { fail "final Debian identity evidence already exists or is unsafe"; exit 1; }
+  pending_evidence=$(cat "$IDENTITY_PENDING_LOG")
+  jq -e --arg archBoot "$ARCH_BOOT" --arg candidateScsi3 "$DEBIAN_SCSI3" --arg sourceCommit "$(git rev-parse HEAD)" '
+    .evidenceFormat == "home-lab-debian-age-transition-v1" and .format == "home-lab-debian-age-identity-v1" and
+    .transitionState == "awaiting-host-reboot" and .vmid == 100 and
+    .identityPath == "/etc/sops/age/keys.txt" and .identityMetadata == "root:root:600" and
+    .privateIdentityExported == false and .sopsVersion == "3.13.3" and .ageVersion == "1.3.1" and
+    (.recipient | test("^age1[0-9a-z]{58}$")) and
+    .archBoot == $archBoot and .candidateScsi3 == $candidateScsi3 and .sourceCommit == $sourceCommit and
+    (.hostBootIdBefore | test("^[0-9a-f-]{36}$")) and (.archConfigSha256 | test("^[0-9a-f]{64}$"))
+  ' <<< "$pending_evidence" >/dev/null || { fail "pending Debian identity evidence differs"; exit 1; }
+  created_epoch=$(date -d "$(jq -er .createdAt <<< "$pending_evidence")" +%s)
+  now_epoch=$(date +%s)
+  evidence_age=$((now_epoch - created_epoch))
+  [[ $evidence_age -ge -300 && $evidence_age -le 86400 ]] || { fail "pending Debian identity evidence is stale or future-dated"; exit 1; }
+  host_boot_id_after=$(cat /proc/sys/kernel/random/boot_id)
+  [[ $host_boot_id_after != $(jq -er .hostBootIdBefore <<< "$pending_evidence") ]] || { fail "the required physical host reboot has not occurred"; exit 1; }
+  finalize_pending=$(mktemp --tmpdir=/run home-lab-identity-finalize-pending.XXXXXX)
+  finalize_current=$(mktemp --tmpdir=/run home-lab-identity-finalize-current.XXXXXX)
+  finalize_evidence=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .age-identity-final.XXXXXX)
+  trap 'rm -f -- "$finalize_pending" "$finalize_current" "$finalize_evidence"' EXIT
+  chmod 0600 "$finalize_pending" "$finalize_current" "$finalize_evidence"
+  qm config "$VMID" > "$finalize_pending"
+  qm config "$VMID" --current 1 > "$finalize_current"
+  verify_exact_arch_configuration "$finalize_pending" "$finalize_current" || { fail "post-reboot Arch configuration differs"; exit 1; }
+  [[ $(arch_config_sha256 "$finalize_pending") == $(jq -er .archConfigSha256 <<< "$pending_evidence") ]] || { fail "post-reboot Arch configuration digest differs"; exit 1; }
+  wait_for_agent 600 || { fail "post-reboot Arch QEMU guest agent is unavailable"; exit 1; }
+  [[ $(os_id) == arch ]] || { fail "post-reboot VM 100 is not Arch"; exit 1; }
+  verify_arch_post_restore || { fail "post-reboot Arch workload health differs"; exit 1; }
+  [[ $(systemctl --failed --no-legend | wc -l) -eq 0 ]] || { fail "the Proxmox host has failed units"; exit 1; }
+  pve-firewall status | grep -Fxq 'Status: enabled/running' || { fail "Proxmox firewall status differs"; exit 1; }
+  jq -c --arg finalizedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdAfter "$host_boot_id_after" \
+    '. + {archRestore:"verified",finalizedAt:$finalizedAt,hostBootIdAfter:$hostBootIdAfter,transitionState:"complete"}' \
+    <<< "$pending_evidence" > "$finalize_evidence"
+  chown root:root "$finalize_evidence"
+  chmod 0600 "$finalize_evidence"
+  mv -T "$finalize_evidence" "$IDENTITY_LOG"
+  rm -f -- "$IDENTITY_PENDING_LOG"
+  trap - EXIT
+  rm -f -- "$finalize_pending" "$finalize_current"
+  echo "Debian age identity finalized after physical reboot and complete Arch verification" >&2
+  exit 0
+fi
 if [[ $restore_mode == true ]]; then
   wait_for_agent 30 || { fail "Debian QEMU guest agent is unavailable"; exit 1; }
   [[ $(os_id) == debian ]] || { fail "VM 100 is not running inert Debian"; exit 1; }
@@ -574,6 +652,14 @@ if [[ $rehearsal_mode == true ]]; then
   [[ ! -e $REHEARSAL_PENDING_LOG && ! -L $REHEARSAL_PENDING_LOG ]] || { fail "pending storage rehearsal evidence requires finalization or reconciliation"; exit 1; }
   [[ ! -e $REHEARSAL_LOG && ! -L $REHEARSAL_LOG ]] || { fail "Debian storage rehearsal is already finalized"; exit 1; }
 fi
+if [[ $identity_mode == true ]]; then
+  verify_exact_arch_configuration "$before" "$before_current" || { fail "identity-preparation Arch configuration differs"; exit 1; }
+  [[ -f $REHEARSAL_LOG && ! -L $REHEARSAL_LOG ]] || { fail "final storage rehearsal evidence is absent or unsafe"; exit 1; }
+  [[ $(stat -c %U:%G:%a "$REHEARSAL_LOG") == root:root:600 ]] || { fail "final storage rehearsal evidence metadata differs"; exit 1; }
+  [[ $(jq -cS . "$REHEARSAL_LOG") == $(jq -cS .rehearsalEvidence infrastructure/evidence/vm-100-debian-storage-rehearsal.json) ]] || { fail "host and repository storage rehearsal evidence diverge"; exit 1; }
+  [[ ! -e $IDENTITY_PENDING_LOG && ! -L $IDENTITY_PENDING_LOG ]] || { fail "pending identity evidence requires finalization or reconciliation"; exit 1; }
+  [[ ! -e $IDENTITY_LOG && ! -L $IDENTITY_LOG ]] || { fail "Debian identity preparation is already finalized"; exit 1; }
+fi
 
 stage="stage-debian-image"
 echo "Staging and verifying pinned Debian image before Arch shutdown" >&2
@@ -635,13 +721,16 @@ handle_failure() {
     candidate_diagnostics || echo "warning: candidate diagnostics could not be persisted" >&2
     stop_console_capture || true
   fi
-  if [[ ($prepare_mode == true || $rehearsal_mode == true) && $transition_started == true ]]; then
+  if [[ ($prepare_mode == true || $rehearsal_mode == true || $identity_mode == true) && $transition_started == true ]]; then
     if prepare_arch_host_reboot_path; then
       if [[ $prepare_mode == true && -f $PREPARE_PENDING_LOG ]] && jq -e '.state == "package-verified"' "$PREPARE_PENDING_LOG" >/dev/null 2>&1; then
         mark_package_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
       fi
       if [[ $rehearsal_mode == true && -f $REHEARSAL_PENDING_LOG ]] && jq -e '.transitionState == "rehearsal-verified"' "$REHEARSAL_PENDING_LOG" >/dev/null 2>&1; then
         mark_rehearsal_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
+      fi
+      if [[ $identity_mode == true && -f $IDENTITY_PENDING_LOG ]] && jq -e '.transitionState == "identity-verified"' "$IDENTITY_PENDING_LOG" >/dev/null 2>&1; then
+        mark_identity_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
       fi
       echo "Arch boot configuration prepared; a physical Proxmox host reboot is required" >&2
     else
@@ -671,7 +760,7 @@ qm config "$VMID" > "$stopped_config"
 for key in scsi0 scsi1 scsi2 scsi3 ide2 cicustom; do
   [[ $(config_value "$stopped_config" "$key") == $(config_value "$before_current" "$key") ]] || { fail "stopped VM attachment differs: $key"; false; }
 done
-if [[ $prepare_mode == true || $rehearsal_mode == true ]]; then
+if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true ]]; then
   stage=verify-exclusive-debian-target
   if fuser "$volume_device" >/dev/null 2>&1; then false; fi
   if [[ $rehearsal_mode == true ]]; then
@@ -704,6 +793,28 @@ if [[ $prepare_mode == true || $rehearsal_mode == true ]]; then
   guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=home-lab-state -s UUID -o value | sort -u) == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=games -s UUID -o value | sort -u) == 31602ce7-0054-498a-9f24-f51ca491e7b3 ]]"
+  if [[ $identity_mode == true ]]; then
+    stage=prepare-debian-age-identity
+    identity_source=infrastructure/debian/prepare-age-identity.sh
+    identity_sha=ecd1bb1849340a29386836c778f966b5c2b66077cde375412e38f832cad23d57
+    [[ $(sha256sum "$identity_source" | awk '{print $1}') == "$identity_sha" ]]
+    identity_payload=$(base64 -w 0 "$identity_source")
+    guest_exec_ok 900 /bin/bash -lc "set -Eeuo pipefail; umask 077; target=/run/home-lab-debian-prepare-age; trap 'rm -f -- \"\$target\"' EXIT; printf %s '$identity_payload' | base64 -d > \"\$target\"; [[ \$(sha256sum \"\$target\" | awk '{print \$1}') == '$identity_sha' ]]; /bin/bash \"\$target\" > /var/log/home-lab-debian-age-identity.log 2>&1 || { result=\$?; cat /var/log/home-lab-debian-age-identity.log; exit \"\$result\"; }"
+    stage=verify-debian-age-identity
+    identity_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-age-identity.json | jq -er '."out-data"')
+    jq -e '.format == "home-lab-debian-age-identity-v1" and .identityPath == "/etc/sops/age/keys.txt" and .identityMetadata == "root:root:600" and .privateIdentityExported == false and .sopsVersion == "3.13.3" and .ageVersion == "1.3.1" and (.recipient | test("^age1[0-9a-z]{58}$"))' <<< "$identity_marker" >/dev/null
+    guest_exec_ok 30 /bin/bash -lc "[[ \$(stat -c %U:%G:%a /etc/sops/age/keys.txt) == root:root:600 ]]; [[ ! -e /etc/docker-compose && ! -e /var/lib/tailscale ]]; for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done; for service in docker.service docker.socket containerd.service; do [[ \$(systemctl is-active \"\$service\" 2>/dev/null || true) == inactive ]] || exit 1; done; [[ ! -S /run/docker.sock ]]"
+    stage=persist-debian-age-identity-evidence
+    write_identity_pending_evidence "$identity_marker"
+    stop_console_capture
+    prepare_arch_host_reboot_path
+    mark_identity_evidence_awaiting_reboot "$arch_reboot_config_sha"
+    transition_started=false
+    trap - ERR INT TERM HUP
+    echo "Debian age identity prepared and exact Arch boot configuration prepared; a physical Proxmox host reboot is required" >&2
+    echo "After reboot, run /root/home-lab/scripts/finalize-debian-age-identity at the physical console" >&2
+    exit 0
+  fi
   if [[ $rehearsal_mode == true ]]; then
     stage=rehearse-debian-storage-readonly
     rehearsal_source=infrastructure/debian/rehearse-storage-readonly.sh

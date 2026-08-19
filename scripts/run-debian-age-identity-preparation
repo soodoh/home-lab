@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly CONFIRMATION=prepare-reviewed-vm-100-debian-age-identity
+
+[[ $# -eq 0 ]] || { echo "usage: scripts/run-debian-age-identity-preparation" >&2; exit 1; }
+[[ -t 0 ]] || { echo "Debian age identity preparation requires an interactive physical console" >&2; exit 1; }
+printf 'Type the exact confirmation to generate the Debian-only age identity without exporting it:\n%s\n' "$CONFIRMATION" >&2
+IFS= read -r confirmation
+[[ $confirmation == "$CONFIRMATION" ]] || { echo "exact Debian age-identity confirmation is required" >&2; exit 1; }
+export HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED=$CONFIRMATION
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+exec "$root/scripts/qualify-debian-inert"

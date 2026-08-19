@@ -46,7 +46,7 @@ Boot Debian under the same coordinator and keep Docker/containerd inert. Resolve
 
 ### 3. Credentials and Compose staged
 
-Generate a Debian-specific age identity on `scsi3`, expose only its public recipient, and add that recipient to the SOPS creation rule while retaining the independent recovery and Arch recipients. Re-encrypt without changing plaintext. Install pinned SOPS/age tooling, a root-only candidate environment, and the immutable Compose artifact. Validate `docker compose config` and the secret-free model inventory while Docker remains stopped. A one-use Tailscale auth key is not created yet.
+Stage 3 is split across two independently attested physical-reboot continuations. First, install checksum-pinned SOPS/age tooling on `scsi3`, generate a Debian-only age identity at `/etc/sops/age/keys.txt`, and expose only its public recipient; the private identity is never exported. After Arch recovery, add that recipient to the SOPS creation rule while retaining the independent recovery and Arch recipients, then re-encrypt without changing plaintext. A second Debian boot may then install the root-only candidate environment and immutable Compose artifact and validate `docker compose config --quiet` plus the secret-free model inventory while Docker/containerd remain inactive. A one-use Tailscale auth key is not created.
 
 ### 4. Production canary
 

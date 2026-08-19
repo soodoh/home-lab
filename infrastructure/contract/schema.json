@@ -275,7 +275,7 @@
         "cutover": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["stage", "package_source", "docker_package", "docker_cli_package", "compose_package", "expected_service_count", "expected_state_bind_count", "expected_docker_volume_mount_count", "state_mountpoint", "games_mountpoint", "nfs_mountpoint", "credentials", "tailscale_enrollment", "rollback_boot_order", "transition_restore", "package_evidence", "storage_rehearsal", "minimum_observation_days"],
+          "required": ["stage", "package_source", "docker_package", "docker_cli_package", "compose_package", "expected_service_count", "expected_state_bind_count", "expected_docker_volume_mount_count", "state_mountpoint", "games_mountpoint", "nfs_mountpoint", "credentials", "tailscale_enrollment", "rollback_boot_order", "transition_restore", "package_evidence", "storage_rehearsal", "credentials_stage", "minimum_observation_days"],
           "properties": {
             "stage": { "enum": ["qualified", "packages-prepared", "storage-rehearsed", "credentials-staged", "production-canary", "production", "rollback"] },
             "package_source": { "const": "debian-stable" },
@@ -312,6 +312,28 @@
                 "expected_games_directories": { "const": ["backups", "bioses", "es-de-media", "roms", "wolf"] },
                 "expected_nfs_directories": { "const": ["backups", "media", "vuetorrent"] },
                 "evidence": { "const": "post-reboot-arch-verified" }
+              }
+            },
+            "credentials_stage": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["phase", "identity_path", "recipient_evidence", "private_identity_exported", "sops_version", "sops_sha256", "age_version", "age_archive_sha256", "age_sha256", "age_keygen_sha256", "expected_sops_recipient_count", "current_compose_artifact_sha256", "compose_validation", "docker_runtime", "tailscale"],
+              "properties": {
+                "phase": { "enum": ["identity-not-generated", "identity-generated", "recipient-committed", "credentials-staged"] },
+                "identity_path": { "const": "/etc/sops/age/keys.txt" },
+                "recipient_evidence": { "const": "post-reboot-arch-verified" },
+                "private_identity_exported": { "const": false },
+                "sops_version": { "const": "3.13.3" },
+                "sops_sha256": { "const": "e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b" },
+                "age_version": { "const": "1.3.1" },
+                "age_archive_sha256": { "const": "bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377" },
+                "age_sha256": { "const": "2e305637f2a0555305e21c17fb74446acbb39b53135d43d4b744e50c287133a5" },
+                "age_keygen_sha256": { "const": "c56ef69834e18ca4d3b953117f4481522c35fb6862a5d2871685aa4685893664" },
+                "expected_sops_recipient_count": { "const": 3 },
+                "current_compose_artifact_sha256": { "$ref": "#/$defs/sha256" },
+                "compose_validation": { "enum": ["deferred-until-recipient-commit", "staged-quiet-pass"] },
+                "docker_runtime": { "const": "inactive" },
+                "tailscale": { "const": "deferred" }
               }
             },
             "minimum_observation_days": { "const": 7 }
