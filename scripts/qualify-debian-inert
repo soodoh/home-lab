@@ -53,6 +53,7 @@ readonly CREDENTIALS_CONFIRMATION=stage-reviewed-vm-100-debian-credentials-compo
 readonly FINALIZE_CREDENTIALS_CONFIRMATION=finalize-reviewed-vm-100-debian-credentials-after-reboot
 readonly CANARY_CONFIRMATION=run-reviewed-vm-100-debian-openfit-canary
 readonly FINALIZE_CANARY_CONFIRMATION=finalize-reviewed-vm-100-debian-canary-after-reboot
+readonly PROMOTE_CANARY_CONFIRMATION=promote-reviewed-vm-100-debian-canary-forensic-evidence
 readonly PLAN_NOTES_REF=refs/notes/debian-qualification
 readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
 readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
@@ -502,6 +503,7 @@ credentials_mode=false
 finalize_credentials_mode=false
 canary_mode=false
 finalize_canary_mode=false
+promote_canary_mode=false
 case ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} in
   "$CONFIRMATION") ;;
   "$RESTORE_CONFIRMATION") restore_mode=true ;;
@@ -515,6 +517,7 @@ case ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} in
   "$FINALIZE_CREDENTIALS_CONFIRMATION") finalize_credentials_mode=true ;;
   "$CANARY_CONFIRMATION") canary_mode=true ;;
   "$FINALIZE_CANARY_CONFIRMATION") finalize_canary_mode=true ;;
+  "$PROMOTE_CANARY_CONFIRMATION") promote_canary_mode=true ;;
   *) fail "exact Debian qualification or staged transition confirmation is required"; exit 1 ;;
 esac
 [[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "Debian qualification requires a physical Proxmox console"; exit 1; }
@@ -533,6 +536,65 @@ else
 fi
 [[ $(git rev-parse HEAD) == $(git rev-parse origin/main) ]] || { fail "repository is not at origin/main"; exit 1; }
 [[ $(vm_status) == running ]] || { fail "VM 100 is not running"; exit 1; }
+if [[ $promote_canary_mode == true ]]; then
+  readonly FORENSIC_ATTEMPT_COMMIT=c49636a9c1d95ef799179e0883fd4fd8c05ab77e
+  readonly FORENSIC_ABORTED_SHA256=029cbf14b1a4df986c6b063c8a132d37d9d1d09c759eef48385cd59bcc597ab1
+  readonly FORENSIC_RUN_LOG_SHA256=be25a98c60d2b7fa43b7317acade8e3d29e666f2015b69329e0b854eb986835e
+  readonly FORENSIC_JOURNAL_SHA256=30a93a4584d2261031ffc3ad22724746f1d3b75356ffaac315f88f861594fe1b
+  readonly FORENSIC_CANARY_SCRIPT_SHA256=7c6f909a924e9d234be0fa6ce770b68c2bf6c268666a73c446c3ad5d7351c924
+  [[ -f $CANARY_ABORTED_LOG && ! -L $CANARY_ABORTED_LOG ]] || { fail "aborted canary evidence is absent or unsafe"; exit 1; }
+  [[ $(stat -c %U:%G:%a "$CANARY_ABORTED_LOG") == root:root:600 ]] || { fail "aborted canary evidence metadata differs"; exit 1; }
+  [[ $(sha256sum "$CANARY_ABORTED_LOG" | awk '{print $1}') == "$FORENSIC_ABORTED_SHA256" ]] || { fail "aborted canary evidence digest differs"; exit 1; }
+  [[ ! -e $CANARY_PENDING_LOG && ! -L $CANARY_PENDING_LOG && ! -e $CANARY_LOG && ! -L $CANARY_LOG ]] || { fail "pending or final canary evidence already exists or is unsafe"; exit 1; }
+  aborted_evidence=$(cat "$CANARY_ABORTED_LOG")
+  jq -e --arg sourceCommit "$FORENSIC_ATTEMPT_COMMIT" '
+    .evidenceFormat == "home-lab-debian-canary-transition-v1" and .format == "home-lab-debian-openfit-canary-transfer-v1" and
+    .sourceCommit == $sourceCommit and .attemptOutcome == "failed" and .transitionState == "aborted" and .archRestore == "verified" and
+    .vmid == 100 and .archBoot == "order=scsi0;net0" and .hostBootIdBefore == "2ec17332-ce99-485f-b4ee-972317a11273" and
+    .hostBootIdAfter == "2586dc8e-c856-4a61-9f29-cb485b45153d" and
+    .image == "ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778" and
+    .backupReplicaCount == 3 and .backupValidation == "existing-local-replicas-sidecar-and-sample" and
+    .backupActualFullHashRecomputed == false and .openfitStoppedForSnapshot == false and .s3Checked == false
+  ' <<< "$aborted_evidence" >/dev/null || { fail "aborted canary evidence differs"; exit 1; }
+  [[ $(cat /proc/sys/kernel/random/boot_id) == $(jq -er .hostBootIdAfter <<< "$aborted_evidence") ]] || { fail "host boot identity differs from recovered attempt"; exit 1; }
+  git cat-file -e "$FORENSIC_ATTEMPT_COMMIT^{commit}" || { fail "forensic source commit is unavailable"; exit 1; }
+  git merge-base --is-ancestor "$FORENSIC_ATTEMPT_COMMIT" HEAD || { fail "forensic source commit is not an ancestor"; exit 1; }
+  forensic_source_attestation=$(git notes --ref="$PLAN_NOTES_REF" show "$FORENSIC_ATTEMPT_COMMIT")
+  jq -e --arg commit "$FORENSIC_ATTEMPT_COMMIT" '.commit == $commit and .allActionsZero == true and .proxmoxHostActions == 0 and (.roots | length) == 5 and all(.roots[]; .changed == false)' <<< "$forensic_source_attestation" >/dev/null || { fail "forensic source plan attestation differs"; exit 1; }
+  [[ $(git show "$FORENSIC_ATTEMPT_COMMIT:infrastructure/debian/run-openfit-production-canary.sh" | sha256sum | awk '{print $1}') == "$FORENSIC_CANARY_SCRIPT_SHA256" ]] || { fail "forensic canary source differs"; exit 1; }
+  promotion_pending=$(mktemp --tmpdir=/run home-lab-canary-promotion-pending.XXXXXX)
+  promotion_current=$(mktemp --tmpdir=/run home-lab-canary-promotion-current.XXXXXX)
+  promotion_evidence=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .openfit-canary-promotion.XXXXXX)
+  trap 'rm -f -- "$promotion_pending" "$promotion_current" "$promotion_evidence"' EXIT
+  chmod 0600 "$promotion_pending" "$promotion_current" "$promotion_evidence"
+  qm config "$VMID" > "$promotion_pending"
+  qm config "$VMID" --current 1 > "$promotion_current"
+  verify_exact_arch_configuration "$promotion_pending" "$promotion_current" || { fail "forensic promotion Arch configuration differs"; exit 1; }
+  [[ $(arch_config_sha256 "$promotion_pending") == $(jq -er .archConfigSha256 <<< "$aborted_evidence") ]] || { fail "forensic promotion Arch configuration digest differs"; exit 1; }
+  wait_for_agent 60 || { fail "forensic promotion Arch QEMU guest agent is unavailable"; exit 1; }
+  [[ $(os_id) == arch ]] || { fail "forensic promotion guest is not Arch"; exit 1; }
+  verify_arch_post_restore || { fail "forensic promotion Arch workload health differs"; exit 1; }
+  guest_exec_ok 30 /bin/bash -lc 'set -Eeuo pipefail; disk=$(lsblk -dnpo NAME,SERIAL | awk '\''$2 == "HOME-LAB-DEBIAN-64G" {print $1}'\''); [[ -n $disk && $(blkid -s UUID -o value "${disk}1") == 6d1bd696-738f-4565-8c0c-b1b51bc7c3d7 ]]; ! findmnt -rn -S UUID=6d1bd696-738f-4565-8c0c-b1b51bc7c3d7 >/dev/null; [[ $(debugfs -R "cat /var/log/home-lab-debian-openfit-canary.log" "${disk}1" 2>/dev/null | sha256sum | awk '\''{print $1}'\'') == be25a98c60d2b7fa43b7317acade8e3d29e666f2015b69329e0b854eb986835e ]]; [[ $(debugfs -R "cat /var/log/journal/03061602d5904d23be5c97f9954b3053/system.journal" "${disk}1" 2>/dev/null | sha256sum | awk '\''{print $1}'\'') == 30a93a4584d2261031ffc3ad22724746f1d3b75356ffaac315f88f861594fe1b ]]; test ! -e /srv/home-lab-state/.debian-openfit-canary-image.tar; test ! -e /srv/home-lab-state/.debian-openfit-canary-transfer.json' || { fail "forensic Debian evidence or transfer cleanup differs"; exit 1; }
+  [[ $(systemctl --failed --no-legend | wc -l) -eq 0 ]] || { fail "the Proxmox host has failed units"; exit 1; }
+  [[ $(systemctl is-active pve-firewall) == active && $(systemctl is-active proxmox-firewall) == active ]] || { fail "Proxmox firewall services are inactive"; exit 1; }
+  pve-firewall status | grep -Fxq 'Status: enabled/running' || { fail "Proxmox firewall status differs"; exit 1; }
+  backup_fields=$(jq -c '{backupActualFullHashRecomputed,backupAgeSeconds,backupBytes,backupName,backupReplicaCount,backupSampleSha256,backupSha256,backupValidation,openfitStoppedForSnapshot,s3Checked}' <<< "$aborted_evidence")
+  jq -cn --arg artifactSha256 d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c \
+    --arg attemptedAt "$(jq -er .createdAt <<< "$aborted_evidence")" --arg image "$(jq -er .image <<< "$aborted_evidence")" \
+    --arg modelInventorySha256 f36ba480734143d51affdc789b2ef782bee063dfb96a248d5048568a82f5a16e \
+    --arg promotedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg promotionCommit "$(git rev-parse HEAD)" \
+    --arg sourceCommit "$FORENSIC_ATTEMPT_COMMIT" --arg hostBootIdAfter "$(cat /proc/sys/kernel/random/boot_id)" \
+    --arg abortedEvidenceSha256 "$FORENSIC_ABORTED_SHA256" --arg canaryScriptSha256 "$FORENSIC_CANARY_SCRIPT_SHA256" \
+    --arg debianJournalSha256 "$FORENSIC_JOURNAL_SHA256" --arg debianRunLogSha256 "$FORENSIC_RUN_LOG_SHA256" --argjson backup "$backup_fields" \
+    '{artifactSha256:$artifactSha256,attemptedAt:$attemptedAt,backup:$backup,canaryHealthy:true,cleanupComplete:true,dockerRuntime:"stopped-disabled-containerd-masked",forensicPromotion:{abortedEvidenceSha256:$abortedEvidenceSha256,basis:"exact-source-control-flow-plus-post-reboot-cleanup",canaryScriptSha256:$canaryScriptSha256,debianJournalSha256:$debianJournalSha256,debianRunLogSha256:$debianRunLogSha256},format:"home-lab-debian-openfit-production-canary-v1",hostBootIdAfter:$hostBootIdAfter,image:$image,kernelStorageErrors:0,modelInventorySha256:$modelInventorySha256,originalAttemptOutcome:"failed",privateIdentityExported:false,promotedAt:$promotedAt,promotionCommit:$promotionCommit,protectedMountsUnmounted:true,pulls:"disabled",runtimeEnvironmentInstalled:false,service:"openfit",sourceCommit:$sourceCommit,stateBind:"rw-verified",tailscaleEnrolled:false,transitionState:"complete"}' > "$promotion_evidence"
+  chown root:root "$promotion_evidence"
+  chmod 0600 "$promotion_evidence"
+  mv -T "$promotion_evidence" "$CANARY_LOG"
+  trap - EXIT
+  rm -f -- "$promotion_pending" "$promotion_current"
+  echo "Recovered Debian Openfit canary promoted after exact forensic and current Arch verification" >&2
+  exit 0
+fi
 if [[ $finalize_mode == true ]]; then
   [[ -f $PREPARE_PENDING_LOG && ! -L $PREPARE_PENDING_LOG ]] || { fail "pending package evidence is absent or unsafe"; exit 1; }
   [[ $(stat -c %U:%G:%a "$PREPARE_PENDING_LOG") == root:root:600 ]] || { fail "pending package evidence metadata differs"; exit 1; }

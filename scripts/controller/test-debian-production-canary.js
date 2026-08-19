@@ -13,6 +13,7 @@ const canaryScript = fs.readFileSync(path.join(root, "infrastructure/debian/run-
 const coordinator = fs.readFileSync(path.join(root, "scripts/qualify-debian-inert"), "utf8");
 const runner = fs.readFileSync(path.join(root, "scripts/run-debian-production-canary"), "utf8");
 const finalizer = fs.readFileSync(path.join(root, "scripts/finalize-debian-production-canary"), "utf8");
+const promoter = fs.readFileSync(path.join(root, "scripts/promote-recovered-debian-production-canary"), "utf8");
 const canary = contract.debian.cutover.production_canary;
 
 assert.equal(contract.debian.cutover.stage, "credentials-staged");
@@ -71,9 +72,16 @@ assert.match(coordinator, /write_canary_pending_evidence "\$canary_marker"/);
 assert.match(coordinator, /mark_canary_evidence_awaiting_reboot "\$arch_reboot_config_sha"/);
 assert.match(coordinator, /finalize_canary_mode == true/);
 assert.match(coordinator, /verify_arch_post_restore[\s\S]*mv -T "\$finalize_evidence" "\$CANARY_LOG"/);
+assert.match(coordinator, /promote_canary_mode == true/);
+assert.match(coordinator, /FORENSIC_ABORTED_SHA256=029cbf14b1a4df986c6b063c8a132d37d9d1d09c759eef48385cd59bcc597ab1/);
+assert.match(coordinator, /FORENSIC_RUN_LOG_SHA256=be25a98c60d2b7fa43b7317acade8e3d29e666f2015b69329e0b854eb986835e/);
+assert.match(coordinator, /FORENSIC_JOURNAL_SHA256=30a93a4584d2261031ffc3ad22724746f1d3b75356ffaac315f88f861594fe1b/);
+assert.match(coordinator, /exact-source-control-flow-plus-post-reboot-cleanup/);
+assert.match(coordinator, /originalAttemptOutcome:"failed"/);
 assert.ok(runner.includes("readonly CONFIRMATION=run-reviewed-vm-100-debian-openfit-canary"));
 assert.ok(finalizer.includes("readonly CONFIRMATION=finalize-reviewed-vm-100-debian-canary-after-reboot"));
-for (const wrapper of [runner, finalizer]) {
+assert.ok(promoter.includes("readonly CONFIRMATION=promote-reviewed-vm-100-debian-canary-forensic-evidence"));
+for (const wrapper of [runner, finalizer, promoter]) {
   assert.match(wrapper, /\[\[ -t 0 \]\]/);
   assert.match(wrapper, /exec "\$root\/scripts\/qualify-debian-inert"/);
 }
