@@ -436,8 +436,8 @@ if [[ $finalize_rehearsal_mode == true ]]; then
     .format == "home-lab-debian-storage-rehearsal-v1" and .state == "awaiting-host-reboot" and
     .readOnly == true and .unmounted == true and .kernelStorageErrors == 0 and .vmid == 100 and
     .dockerServices == "docker-disabled-containerd-masked-inactive" and .workloadIdentity == "1000:1000" and
-    .state.uuid == "d4a19647-7879-4079-9fc9-b3e79711b449" and .state.availableBytes >= 50000000000 and (.state.options | contains("noload")) and
-    .games.uuid == "31602ce7-0054-498a-9f24-f51ca491e7b3" and .games.availableBytes >= 2000000000000 and (.games.options | contains("noload")) and
+    .state.uuid == "d4a19647-7879-4079-9fc9-b3e79711b449" and .state.availableBytes >= 50000000000 and ((.state.options | contains("noload")) or (.state.options | contains("norecovery"))) and
+    .games.uuid == "31602ce7-0054-498a-9f24-f51ca491e7b3" and .games.availableBytes >= 2000000000000 and ((.games.options | contains("noload")) or (.games.options | contains("norecovery"))) and
     .nfs.source == "192.168.0.123:/storage/docker" and .nfs.availableBytes >= 10000000000000 and (.nfs.options | contains("ro")) and
     .archBoot == $archBoot and .candidateScsi3 == $candidateScsi3 and .sourceCommit == $sourceCommit and
     (.hostBootIdBefore | test("^[0-9a-f-]{36}$")) and (.archConfigSha256 | test("^[0-9a-f]{64}$"))
@@ -689,13 +689,13 @@ if [[ $prepare_mode == true || $rehearsal_mode == true ]]; then
   if [[ $rehearsal_mode == true ]]; then
     stage=rehearse-debian-storage-readonly
     rehearsal_source=infrastructure/debian/rehearse-storage-readonly.sh
-    rehearsal_sha=dd212d9d93c219702d1405a26c6b6438f068577f79bb2a3710ffc5b238e79f4a
+    rehearsal_sha=c7ee3b85a274a56e2285a0819f004bb7dcc65330589982c207b8ecdae5126a9e
     [[ $(sha256sum "$rehearsal_source" | awk '{print $1}') == "$rehearsal_sha" ]]
     rehearsal_payload=$(base64 -w 0 "$rehearsal_source")
     guest_exec_ok 900 /bin/bash -lc "set -Eeuo pipefail; umask 077; target=/run/home-lab-debian-rehearse-storage; trap 'rm -f -- \"\$target\"' EXIT; printf %s '$rehearsal_payload' | base64 -d > \"\$target\"; [[ \$(sha256sum \"\$target\" | awk '{print \$1}') == '$rehearsal_sha' ]]; /bin/bash \"\$target\" > /var/log/home-lab-debian-storage-rehearsal.log 2>&1 || { result=\$?; cat /var/log/home-lab-debian-storage-rehearsal.log; exit \"\$result\"; }"
     stage=verify-debian-storage-rehearsal
     rehearsal_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-storage-rehearsed.json | jq -er '."out-data"')
-    jq -e '.format == "home-lab-debian-storage-rehearsal-v1" and .readOnly == true and .unmounted == true and .kernelStorageErrors == 0 and .dockerServices == "docker-disabled-containerd-masked-inactive" and .workloadIdentity == "1000:1000" and .state.uuid == "d4a19647-7879-4079-9fc9-b3e79711b449" and .state.availableBytes >= 50000000000 and (.state.options | contains("noload")) and .games.uuid == "31602ce7-0054-498a-9f24-f51ca491e7b3" and .games.availableBytes >= 2000000000000 and (.games.options | contains("noload")) and .nfs.source == "192.168.0.123:/storage/docker" and .nfs.availableBytes >= 10000000000000 and (.nfs.options | contains("ro"))' <<< "$rehearsal_marker" >/dev/null
+    jq -e '.format == "home-lab-debian-storage-rehearsal-v1" and .readOnly == true and .unmounted == true and .kernelStorageErrors == 0 and .dockerServices == "docker-disabled-containerd-masked-inactive" and .workloadIdentity == "1000:1000" and .state.uuid == "d4a19647-7879-4079-9fc9-b3e79711b449" and .state.availableBytes >= 50000000000 and ((.state.options | contains("noload")) or (.state.options | contains("norecovery"))) and .games.uuid == "31602ce7-0054-498a-9f24-f51ca491e7b3" and .games.availableBytes >= 2000000000000 and ((.games.options | contains("noload")) or (.games.options | contains("norecovery"))) and .nfs.source == "192.168.0.123:/storage/docker" and .nfs.availableBytes >= 10000000000000 and (.nfs.options | contains("ro"))' <<< "$rehearsal_marker" >/dev/null
     guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage /run/home-lab-storage-rehearsal/state /run/home-lab-storage-rehearsal/games /run/home-lab-storage-rehearsal/nfs; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done; [[ ! -e /run/home-lab-storage-rehearsal ]]"
     stage=persist-debian-storage-rehearsal-evidence
     write_rehearsal_pending_evidence "$rehearsal_marker"

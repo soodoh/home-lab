@@ -117,7 +117,7 @@ for target in "$STATE_MOUNT" "$GAMES_MOUNT" "$NFS_MOUNT"; do
   findmnt -rn -o VFS-OPTIONS --target "$target" | tr ',' '\n' | grep -Fxq ro || fail "rehearsal mount is not read-only: $target"
 done
 for target in "$STATE_MOUNT" "$GAMES_MOUNT"; do
-  findmnt -rn -o FS-OPTIONS --target "$target" | tr ',' '\n' | grep -Fxq noload || fail "ext4 journal replay is not disabled: $target"
+  findmnt -rn -o FS-OPTIONS --target "$target" | tr ',' '\n' | grep -Exq 'noload|norecovery' || fail "ext4 journal replay is not disabled: $target"
 done
 [[ $(findmnt -rn -o SOURCE --target "$NFS_MOUNT") == "$NFS_SOURCE" ]] || fail "NFS source differs"
 

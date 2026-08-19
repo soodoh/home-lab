@@ -29,7 +29,7 @@ for (const name of [...rehearsal.expected_state_directories, ...rehearsal.expect
 assert.match(script, /mount -t ext4 -o ro,noload,nodev,nosuid,noexec "\$state_device" "\$STATE_MOUNT"/);
 assert.match(script, /mount -t ext4 -o ro,noload,nodev,nosuid,noexec "\$games_device" "\$GAMES_MOUNT"/);
 assert.match(script, /mount -t nfs4 -o ro,nodev,nosuid,noexec,vers=4\.2,hard,timeo=600,retrans=2/);
-assert.match(script, /FS-OPTIONS.*grep -Fxq noload/);
+assert.match(script, /FS-OPTIONS.*grep -Exq 'noload\|norecovery'/);
 assert.match(script, /VFS-OPTIONS.*grep -Fxq ro/);
 assert.match(script, /journalctl -k --after-cursor/);
 assert.match(script, /EXT4-fs.*error.*NFS.*error.*I\/O error/);
@@ -45,7 +45,7 @@ assert.ok(trapIndex > 0 && trapIndex < firstMountIndex);
 assert.ok(firstMountIndex < unmountIndex && unmountIndex < markerIndex);
 assert.match(script, /for target in "\$STATE_MOUNT" "\$GAMES_MOUNT" "\$NFS_MOUNT"; do[\s\S]*! mountpoint -q/);
 
-assert.ok(coordinator.includes("rehearsal_sha=dd212d9d93c219702d1405a26c6b6438f068577f79bb2a3710ffc5b238e79f4a"));
+assert.ok(coordinator.includes("rehearsal_sha=c7ee3b85a274a56e2285a0819f004bb7dcc65330589982c207b8ecdae5126a9e"));
 assert.match(coordinator, /games_volume_path=\$\{EFFECTIVE_SCSI1%%,\*\}/);
 assert.match(coordinator, /blockdev --getsize64 "\$games_volume_device"\) -eq 4000787030016/);
 assert.match(coordinator, /stage=verify-exclusive-protected-storage[\s\S]*fuser "\$protected_device"/);
