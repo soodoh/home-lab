@@ -49,6 +49,8 @@ readonly REHEARSAL_CONFIRMATION=rehearse-reviewed-vm-100-debian-storage-readonly
 readonly FINALIZE_REHEARSAL_CONFIRMATION=finalize-reviewed-vm-100-debian-storage-after-reboot
 readonly IDENTITY_CONFIRMATION=prepare-reviewed-vm-100-debian-age-identity
 readonly FINALIZE_IDENTITY_CONFIRMATION=finalize-reviewed-vm-100-debian-age-after-reboot
+readonly CREDENTIALS_CONFIRMATION=stage-reviewed-vm-100-debian-credentials-compose-offline
+readonly FINALIZE_CREDENTIALS_CONFIRMATION=finalize-reviewed-vm-100-debian-credentials-after-reboot
 readonly PLAN_NOTES_REF=refs/notes/debian-qualification
 readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
 readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
@@ -63,6 +65,8 @@ readonly REHEARSAL_LOG=$DIAGNOSTIC_ROOT/storage-rehearsed.json
 readonly REHEARSAL_PENDING_LOG=$DIAGNOSTIC_ROOT/storage-rehearsed.pending.json
 readonly IDENTITY_LOG=$DIAGNOSTIC_ROOT/age-identity.json
 readonly IDENTITY_PENDING_LOG=$DIAGNOSTIC_ROOT/age-identity.pending.json
+readonly CREDENTIALS_LOG=$DIAGNOSTIC_ROOT/credentials-compose-staged.json
+readonly CREDENTIALS_PENDING_LOG=$DIAGNOSTIC_ROOT/credentials-compose-staged.pending.json
 readonly SERIAL_SOCKET=/var/run/qemu-server/100.serial0
 readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
 readonly ARCH_RESTORE_REQUIRES_HOST_REBOOT=true
@@ -310,6 +314,30 @@ mark_identity_evidence_awaiting_reboot() {
   mv -T "$temporary" "$IDENTITY_PENDING_LOG"
 }
 
+write_credentials_pending_evidence() {
+  local marker=$1 host_boot_id temporary
+  host_boot_id=$(cat /proc/sys/kernel/random/boot_id)
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .credentials-compose-pending.XXXXXX)
+  jq -c --arg archBoot "$ARCH_BOOT" --arg candidateScsi3 "$DEBIAN_SCSI3" \
+    --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdBefore "$host_boot_id" \
+    --arg sourceCommit "$(git rev-parse HEAD)" \
+    '. + {archBoot:$archBoot,candidateScsi3:$candidateScsi3,createdAt:$createdAt,evidenceFormat:"home-lab-debian-credentials-transition-v1",hostBootIdBefore:$hostBootIdBefore,sourceCommit:$sourceCommit,transitionState:"credentials-verified",vmid:100}' \
+    <<< "$marker" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$CREDENTIALS_PENDING_LOG"
+}
+
+mark_credentials_evidence_awaiting_reboot() {
+  local config_sha=$1 temporary
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .credentials-compose-pending.XXXXXX)
+  jq -c --arg archConfigSha256 "$config_sha" '. + {archConfigSha256:$archConfigSha256,transitionState:"awaiting-host-reboot"}' \
+    "$CREDENTIALS_PENDING_LOG" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$CREDENTIALS_PENDING_LOG"
+}
+
 prepare_arch_host_reboot_path() {
   local pending current
   if [[ $(vm_status) != stopped ]]; then
@@ -385,6 +413,8 @@ rehearsal_mode=false
 finalize_rehearsal_mode=false
 identity_mode=false
 finalize_identity_mode=false
+credentials_mode=false
+finalize_credentials_mode=false
 case ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} in
   "$CONFIRMATION") ;;
   "$RESTORE_CONFIRMATION") restore_mode=true ;;
@@ -394,6 +424,8 @@ case ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} in
   "$FINALIZE_REHEARSAL_CONFIRMATION") finalize_rehearsal_mode=true ;;
   "$IDENTITY_CONFIRMATION") identity_mode=true ;;
   "$FINALIZE_IDENTITY_CONFIRMATION") finalize_identity_mode=true ;;
+  "$CREDENTIALS_CONFIRMATION") credentials_mode=true ;;
+  "$FINALIZE_CREDENTIALS_CONFIRMATION") finalize_credentials_mode=true ;;
   *) fail "exact Debian qualification or staged transition confirmation is required"; exit 1 ;;
 esac
 [[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "Debian qualification requires a physical Proxmox console"; exit 1; }
@@ -572,6 +604,56 @@ if [[ $finalize_identity_mode == true ]]; then
   echo "Debian age identity finalized after physical reboot and complete Arch verification" >&2
   exit 0
 fi
+if [[ $finalize_credentials_mode == true ]]; then
+  [[ -f $CREDENTIALS_PENDING_LOG && ! -L $CREDENTIALS_PENDING_LOG ]] || { fail "pending credential staging evidence is absent or unsafe"; exit 1; }
+  [[ $(stat -c %U:%G:%a "$CREDENTIALS_PENDING_LOG") == root:root:600 ]] || { fail "pending credential staging evidence metadata differs"; exit 1; }
+  [[ ! -e $CREDENTIALS_LOG && ! -L $CREDENTIALS_LOG ]] || { fail "final credential staging evidence already exists or is unsafe"; exit 1; }
+  pending_evidence=$(cat "$CREDENTIALS_PENDING_LOG")
+  jq -e --arg archBoot "$ARCH_BOOT" --arg candidateScsi3 "$DEBIAN_SCSI3" --arg sourceCommit "$(git rev-parse HEAD)" '
+    .evidenceFormat == "home-lab-debian-credentials-transition-v1" and
+    .format == "home-lab-debian-credentials-compose-staged-v1" and
+    .transitionState == "awaiting-host-reboot" and .vmid == 100 and
+    .artifactSha256 == "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" and
+    .composeValidation == "quiet-pass" and .dockerServices == "docker-disabled-containerd-masked-inactive" and
+    .privateIdentityExported == false and .protectedMountsActivated == false and
+    .runtimeEnvironmentInstalled == false and .tailscaleEnrolled == false and
+    .recipientCount == 3 and .serviceCount == 41 and .variableCount == 90 and
+    .archBoot == $archBoot and .candidateScsi3 == $candidateScsi3 and .sourceCommit == $sourceCommit and
+    (.hostBootIdBefore | test("^[0-9a-f-]{36}$")) and (.archConfigSha256 | test("^[0-9a-f]{64}$")) and
+    (.modelInventorySha256 | test("^[0-9a-f]{64}$"))
+  ' <<< "$pending_evidence" >/dev/null || { fail "pending credential staging evidence differs"; exit 1; }
+  created_epoch=$(date -d "$(jq -er .createdAt <<< "$pending_evidence")" +%s)
+  now_epoch=$(date +%s)
+  evidence_age=$((now_epoch - created_epoch))
+  [[ $evidence_age -ge -300 && $evidence_age -le 86400 ]] || { fail "pending credential staging evidence is stale or future-dated"; exit 1; }
+  host_boot_id_after=$(cat /proc/sys/kernel/random/boot_id)
+  [[ $host_boot_id_after != $(jq -er .hostBootIdBefore <<< "$pending_evidence") ]] || { fail "the required physical host reboot has not occurred"; exit 1; }
+  finalize_pending=$(mktemp --tmpdir=/run home-lab-credentials-finalize-pending.XXXXXX)
+  finalize_current=$(mktemp --tmpdir=/run home-lab-credentials-finalize-current.XXXXXX)
+  finalize_evidence=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .credentials-compose-final.XXXXXX)
+  trap 'rm -f -- "$finalize_pending" "$finalize_current" "$finalize_evidence"' EXIT
+  chmod 0600 "$finalize_pending" "$finalize_current" "$finalize_evidence"
+  qm config "$VMID" > "$finalize_pending"
+  qm config "$VMID" --current 1 > "$finalize_current"
+  verify_exact_arch_configuration "$finalize_pending" "$finalize_current" || { fail "post-reboot Arch configuration differs"; exit 1; }
+  [[ $(arch_config_sha256 "$finalize_pending") == $(jq -er .archConfigSha256 <<< "$pending_evidence") ]] || { fail "post-reboot Arch configuration digest differs"; exit 1; }
+  wait_for_agent 600 || { fail "post-reboot Arch QEMU guest agent is unavailable"; exit 1; }
+  [[ $(os_id) == arch ]] || { fail "post-reboot VM 100 is not Arch"; exit 1; }
+  verify_arch_post_restore || { fail "post-reboot Arch workload health differs"; exit 1; }
+  [[ $(systemctl --failed --no-legend | wc -l) -eq 0 ]] || { fail "the Proxmox host has failed units"; exit 1; }
+  pve-firewall status | grep -Fxq 'Status: enabled/running' || { fail "Proxmox firewall status differs"; exit 1; }
+  jq -c --arg finalizedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdAfter "$host_boot_id_after" \
+    '. + {archRestore:"verified",finalizedAt:$finalizedAt,hostBootIdAfter:$hostBootIdAfter,transitionState:"complete"}' \
+    <<< "$pending_evidence" > "$finalize_evidence"
+  chown root:root "$finalize_evidence"
+  chmod 0600 "$finalize_evidence"
+  mv -T "$finalize_evidence" "$CREDENTIALS_LOG"
+  rm -f -- "$CREDENTIALS_PENDING_LOG"
+  trap - EXIT
+  rm -f -- "$finalize_pending" "$finalize_current"
+  echo "Debian credential and Compose staging finalized after physical reboot and complete Arch verification" >&2
+  exit 0
+fi
 if [[ $restore_mode == true ]]; then
   wait_for_agent 30 || { fail "Debian QEMU guest agent is unavailable"; exit 1; }
   [[ $(os_id) == debian ]] || { fail "VM 100 is not running inert Debian"; exit 1; }
@@ -660,6 +742,16 @@ if [[ $identity_mode == true ]]; then
   [[ ! -e $IDENTITY_PENDING_LOG && ! -L $IDENTITY_PENDING_LOG ]] || { fail "pending identity evidence requires finalization or reconciliation"; exit 1; }
   [[ ! -e $IDENTITY_LOG && ! -L $IDENTITY_LOG ]] || { fail "Debian identity preparation is already finalized"; exit 1; }
 fi
+if [[ $credentials_mode == true ]]; then
+  verify_exact_arch_configuration "$before" "$before_current" || { fail "credential-staging Arch configuration differs"; exit 1; }
+  [[ -f $IDENTITY_LOG && ! -L $IDENTITY_LOG ]] || { fail "final identity evidence is absent or unsafe"; exit 1; }
+  [[ $(stat -c %U:%G:%a "$IDENTITY_LOG") == root:root:600 ]] || { fail "final identity evidence metadata differs"; exit 1; }
+  [[ $(jq -cS . "$IDENTITY_LOG") == $(jq -cS .identityEvidence infrastructure/evidence/vm-100-debian-age-identity.json) ]] || { fail "host and repository identity evidence diverge"; exit 1; }
+  jq -e '.stage == "recipient-committed" and .validation.plaintextUnchanged == true and .validation.recipientCount == 3 and .validation.composeArtifactSha256 == "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c"' infrastructure/evidence/vm-100-debian-sops-recipient.json >/dev/null || { fail "SOPS recipient evidence differs"; exit 1; }
+  [[ $(python3 scripts/compose-artifact.py hash) == d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c ]] || { fail "Compose artifact hash differs"; exit 1; }
+  [[ ! -e $CREDENTIALS_PENDING_LOG && ! -L $CREDENTIALS_PENDING_LOG ]] || { fail "pending credential staging evidence requires finalization or reconciliation"; exit 1; }
+  [[ ! -e $CREDENTIALS_LOG && ! -L $CREDENTIALS_LOG ]] || { fail "Debian credential staging is already finalized"; exit 1; }
+fi
 
 stage="stage-debian-image"
 echo "Staging and verifying pinned Debian image before Arch shutdown" >&2
@@ -721,7 +813,7 @@ handle_failure() {
     candidate_diagnostics || echo "warning: candidate diagnostics could not be persisted" >&2
     stop_console_capture || true
   fi
-  if [[ ($prepare_mode == true || $rehearsal_mode == true || $identity_mode == true) && $transition_started == true ]]; then
+  if [[ ($prepare_mode == true || $rehearsal_mode == true || $identity_mode == true || $credentials_mode == true) && $transition_started == true ]]; then
     if prepare_arch_host_reboot_path; then
       if [[ $prepare_mode == true && -f $PREPARE_PENDING_LOG ]] && jq -e '.state == "package-verified"' "$PREPARE_PENDING_LOG" >/dev/null 2>&1; then
         mark_package_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
@@ -731,6 +823,9 @@ handle_failure() {
       fi
       if [[ $identity_mode == true && -f $IDENTITY_PENDING_LOG ]] && jq -e '.transitionState == "identity-verified"' "$IDENTITY_PENDING_LOG" >/dev/null 2>&1; then
         mark_identity_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
+      fi
+      if [[ $credentials_mode == true && -f $CREDENTIALS_PENDING_LOG ]] && jq -e '.transitionState == "credentials-verified"' "$CREDENTIALS_PENDING_LOG" >/dev/null 2>&1; then
+        mark_credentials_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
       fi
       echo "Arch boot configuration prepared; a physical Proxmox host reboot is required" >&2
     else
@@ -760,7 +855,7 @@ qm config "$VMID" > "$stopped_config"
 for key in scsi0 scsi1 scsi2 scsi3 ide2 cicustom; do
   [[ $(config_value "$stopped_config" "$key") == $(config_value "$before_current" "$key") ]] || { fail "stopped VM attachment differs: $key"; false; }
 done
-if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true ]]; then
+if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true || $credentials_mode == true ]]; then
   stage=verify-exclusive-debian-target
   if fuser "$volume_device" >/dev/null 2>&1; then false; fi
   if [[ $rehearsal_mode == true ]]; then
@@ -793,6 +888,37 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
   guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=home-lab-state -s UUID -o value | sort -u) == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=games -s UUID -o value | sort -u) == 31602ce7-0054-498a-9f24-f51ca491e7b3 ]]"
+  if [[ $credentials_mode == true ]]; then
+    stage="stage-debian-credentials-compose-payload"
+    credentials_source=infrastructure/debian/stage-credentials-compose-offline.sh
+    credentials_sha=742fc18c9784da71daafe556ba45a128ca2b67f23b3d0bb6d31b604267994928
+    [[ $(sha256sum "$credentials_source" | awk '{print $1}') == "$credentials_sha" ]]
+    artifact_directory=$(mktemp -d /run/home-lab-compose-artifact.XXXXXX)
+    artifact_archive=$(mktemp /run/home-lab-compose-artifact.XXXXXX.tar.gz)
+    python3 scripts/compose-artifact.py copy "$artifact_directory" >/dev/null
+    tar -C "$artifact_directory" -czf "$artifact_archive" .
+    credentials_payload=$(base64 -w 0 "$credentials_source")
+    artifact_payload=$(base64 -w 0 "$artifact_archive")
+    rm -rf -- "$artifact_directory"
+    rm -f -- "$artifact_archive"
+    guest_exec_ok 60 /bin/bash -lc "set -Eeuo pipefail; umask 077; printf %s '$credentials_payload' | base64 -d > /run/home-lab-debian-stage-credentials; printf %s '$artifact_payload' | base64 -d > /run/home-lab-compose-artifact.tar.gz; [[ \$(sha256sum /run/home-lab-debian-stage-credentials | awk '{print \$1}') == '$credentials_sha' ]]"
+    stage="stage-debian-credentials-compose-offline"
+    guest_exec_ok 900 /bin/bash -lc "set -Eeuo pipefail; trap 'rm -f -- /run/home-lab-debian-stage-credentials /run/home-lab-compose-artifact.tar.gz' EXIT; /bin/bash /run/home-lab-debian-stage-credentials /run/home-lab-compose-artifact.tar.gz > /var/log/home-lab-debian-credentials-compose.log 2>&1 || { result=\$?; cat /var/log/home-lab-debian-credentials-compose.log; exit \"\$result\"; }"
+    stage=verify-debian-credentials-compose-offline
+    credentials_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-compose-staged.json | jq -er '."out-data"')
+    jq -e '.format == "home-lab-debian-credentials-compose-staged-v1" and .artifactSha256 == "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" and .composeValidation == "quiet-pass" and .dockerServices == "docker-disabled-containerd-masked-inactive" and .privateIdentityExported == false and .protectedMountsActivated == false and .runtimeEnvironmentInstalled == false and .tailscaleEnrolled == false and .recipientCount == 3 and .serviceCount == 41 and .variableCount == 90 and (.modelInventorySha256 | test("^[0-9a-f]{64}$"))' <<< "$credentials_marker" >/dev/null
+    guest_exec_ok 30 /bin/bash -lc "[[ \$(stat -c %U:%G:%a /etc/docker-compose/staging/d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c.env) == root:root:600 ]]; [[ ! -e /etc/docker-compose/production.env && ! -e /var/lib/tailscale ]]; for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done; for service in docker.service docker.socket containerd.service; do [[ \$(systemctl is-active \"\$service\" 2>/dev/null || true) == inactive ]] || exit 1; done; [[ ! -S /run/docker.sock ]]"
+    stage=persist-debian-credentials-compose-evidence
+    write_credentials_pending_evidence "$credentials_marker"
+    stop_console_capture
+    prepare_arch_host_reboot_path
+    mark_credentials_evidence_awaiting_reboot "$arch_reboot_config_sha"
+    transition_started=false
+    trap - ERR INT TERM HUP
+    echo "Debian credentials and immutable Compose artifact staged offline; a physical Proxmox host reboot is required" >&2
+    echo "After reboot, run /root/home-lab/scripts/finalize-debian-credentials-compose at the physical console" >&2
+    exit 0
+  fi
   if [[ $identity_mode == true ]]; then
     stage=prepare-debian-age-identity
     identity_source=infrastructure/debian/prepare-age-identity.sh
