@@ -275,7 +275,7 @@
         "cutover": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["stage", "package_source", "docker_package", "docker_cli_package", "compose_package", "expected_service_count", "expected_state_bind_count", "expected_docker_volume_mount_count", "state_mountpoint", "games_mountpoint", "nfs_mountpoint", "credentials", "tailscale_enrollment", "rollback_boot_order", "transition_restore", "package_evidence", "storage_rehearsal", "credentials_stage", "production_canary", "minimum_observation_days"],
+          "required": ["stage", "package_source", "docker_package", "docker_cli_package", "compose_package", "expected_service_count", "expected_state_bind_count", "expected_docker_volume_mount_count", "state_mountpoint", "games_mountpoint", "nfs_mountpoint", "credentials", "tailscale_enrollment", "rollback_boot_order", "transition_restore", "package_evidence", "storage_rehearsal", "credentials_stage", "production_canary", "production_cutover", "minimum_observation_days"],
           "properties": {
             "stage": { "enum": ["qualified", "packages-prepared", "storage-rehearsed", "credentials-staged", "production-canary", "production", "rollback"] },
             "package_source": { "const": "debian-stable" },
@@ -360,6 +360,36 @@
                 "docker_runtime": { "const": "transient-cleanup-required" },
                 "tailscale": { "const": "deferred" },
                 "production_boot": { "const": false }
+              }
+            },
+            "production_cutover": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["phase", "scope", "compose_artifact_sha256", "model_inventory_sha256", "image_lock", "image_lock_sha256", "image_service_count", "unique_image_count", "image_transfer_path", "pulls", "backup_validation", "runtime_environment", "protected_mounts", "docker_runtime", "tailscale_enrollment", "tailscale_tag", "tailscale_hostname", "tailscale_key_delivery", "tailscale_key_expiry_seconds", "tailscale_key_artifact", "production_boot", "rollback_boot_order", "rollback_requires_physical_reboot"],
+              "properties": {
+                "phase": { "enum": ["designed", "key-staged", "awaiting-host-reboot", "verified"] },
+                "scope": { "const": "full-compose-and-tailscale" },
+                "compose_artifact_sha256": { "const": "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" },
+                "model_inventory_sha256": { "const": "f36ba480734143d51affdc789b2ef782bee063dfb96a248d5048568a82f5a16e" },
+                "image_lock": { "const": "infrastructure/debian/production-image-lock.json" },
+                "image_lock_sha256": { "const": "c74199885009f0082cc7b5956eeb526ad895d1cab1605df15998767185aec726" },
+                "image_service_count": { "const": 41 },
+                "unique_image_count": { "const": 36 },
+                "image_transfer_path": { "const": "/srv/home-lab-state/.debian-production-images.tar" },
+                "pulls": { "const": "disabled" },
+                "backup_validation": { "const": "existing-local-replicas-sidecar-and-sample" },
+                "runtime_environment": { "const": "install-staged" },
+                "protected_mounts": { "const": "persistent" },
+                "docker_runtime": { "const": "persistent" },
+                "tailscale_enrollment": { "const": "one-use-preauthorized-key" },
+                "tailscale_tag": { "const": "tag:docker-host" },
+                "tailscale_hostname": { "const": "docker-host-debian" },
+                "tailscale_key_delivery": { "const": "age-encrypted-debian-recipient" },
+                "tailscale_key_expiry_seconds": { "const": 86400 },
+                "tailscale_key_artifact": { "type": "string", "minLength": 1 },
+                "production_boot": { "enum": ["pending-physical-reboot-verification", "verified"] },
+                "rollback_boot_order": { "const": ["scsi0", "net0"] },
+                "rollback_requires_physical_reboot": { "const": true }
               }
             },
             "minimum_observation_days": { "const": 7 }

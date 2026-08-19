@@ -1,0 +1,337 @@
+{
+  "captured_at": "2026-08-19T19:10:51.784884+00:00",
+  "images": [
+    {
+      "image_id": "sha256:66b24f73e543959d5df7e57bc0edbeab5e759730ec356656198b5da123468c15",
+      "reference": "ghcr.io/advplyr/audiobookshelf:2.36.0@sha256:180acad33d69c99ed208676465d8edcb268fa46967735579a7810859885b1a8e",
+      "repo_digests": [
+        "ghcr.io/advplyr/audiobookshelf@sha256:180acad33d69c99ed208676465d8edcb268fa46967735579a7810859885b1a8e"
+      ],
+      "service": "audiobookshelf"
+    },
+    {
+      "image_id": "sha256:9163dd9965e0c74f7f0015cf0bfa2a657e43c4d86dbd8c090b3bcdf6ee88504e",
+      "reference": "ghcr.io/goauthentik/server:2026.5.6@sha256:ed120caf710ccf82ef0026f0bc74e51615bc95ebff228a7a2d6fc60c441c3868",
+      "repo_digests": [
+        "ghcr.io/goauthentik/server@sha256:ed120caf710ccf82ef0026f0bc74e51615bc95ebff228a7a2d6fc60c441c3868"
+      ],
+      "service": "authentik-server"
+    },
+    {
+      "image_id": "sha256:9163dd9965e0c74f7f0015cf0bfa2a657e43c4d86dbd8c090b3bcdf6ee88504e",
+      "reference": "ghcr.io/goauthentik/server:2026.5.6@sha256:ed120caf710ccf82ef0026f0bc74e51615bc95ebff228a7a2d6fc60c441c3868",
+      "repo_digests": [
+        "ghcr.io/goauthentik/server@sha256:ed120caf710ccf82ef0026f0bc74e51615bc95ebff228a7a2d6fc60c441c3868"
+      ],
+      "service": "authentik-worker"
+    },
+    {
+      "image_id": "sha256:56f165aaff9f4cc422c97d8f6f56cce3066ae7dbf3de89c9ce3d4a18ca568e87",
+      "reference": "ghcr.io/pennydreadful/bookshelf:hardcover-v0.4.20@sha256:388eecc94362580eae31ee0a454be6af516f8a311f8432a521c202fb475f4359",
+      "repo_digests": [
+        "ghcr.io/pennydreadful/bookshelf@sha256:388eecc94362580eae31ee0a454be6af516f8a311f8432a521c202fb475f4359"
+      ],
+      "service": "bookshelf"
+    },
+    {
+      "image_id": "sha256:af555904a0961945f16bb323a501457b13a4f7e9bde969b145b97da80b38ecbe",
+      "reference": "caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9",
+      "repo_digests": [
+        "caddy@sha256:1557580dffd3f309e30bd76b23a26aa3970d98bff11313cfa3a63b735ac8d04a",
+        "caddy@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9",
+        "caddy@sha256:af5fdcd76f2db5e4e974ee92f96ee8c0fc3edb55bd4ba5032547cbf3f65e486d"
+      ],
+      "service": "caddy"
+    },
+    {
+      "image_id": "sha256:8811521144eec038b11fced5c86e81cfef89f2e35b1d087f3b26ceb42857862e",
+      "reference": "ghcr.io/linuxserver/calibre:9.11.0@sha256:a65e85852ae4dfec58ff6b65ffa0717fd5d2c21dddf0f5683e778365d87c588d",
+      "repo_digests": [
+        "ghcr.io/linuxserver/calibre@sha256:a65e85852ae4dfec58ff6b65ffa0717fd5d2c21dddf0f5683e778365d87c588d"
+      ],
+      "service": "calibre"
+    },
+    {
+      "image_id": "sha256:5ef521449e6211ff7c1fc3138775cf976c3f8adcc1798e4ee583d37985f71c2c",
+      "reference": "ghcr.io/crocodilestick/calibre-web-automated:v4.0.6@sha256:c31a738b6d5ec6982c050063dd3f063b6943eb1051fc81144789f840d9093a8d",
+      "repo_digests": [
+        "ghcr.io/crocodilestick/calibre-web-automated@sha256:c31a738b6d5ec6982c050063dd3f063b6943eb1051fc81144789f840d9093a8d"
+      ],
+      "service": "calibre-web-automated"
+    },
+    {
+      "image_id": "sha256:9dfd5319f306ef505ccef6965d56024cc5b364c87192c2e3f525b6d0de556999",
+      "reference": "ghcr.io/suwayomi/tachidesk:v2.3.2284@sha256:6f1fcbf31714137ec3d1c48d4aa57a8d158e3f88afd34a3d6999338cd1bd189a",
+      "repo_digests": [
+        "ghcr.io/suwayomi/tachidesk@sha256:6f1fcbf31714137ec3d1c48d4aa57a8d158e3f88afd34a3d6999338cd1bd189a"
+      ],
+      "service": "caro-tachidesk"
+    },
+    {
+      "image_id": "sha256:5338efad1fe49f81265bb1c43ff87cb14d5e5dc8e16955a4c2416141efc88616",
+      "reference": "ghcr.io/offen/docker-volume-backup:v2.48.2@sha256:19102d8e59eb1d598cf8c647c2b21100abaadc5a1c808ac643fa612e323c3013",
+      "repo_digests": [
+        "ghcr.io/offen/docker-volume-backup@sha256:19102d8e59eb1d598cf8c647c2b21100abaadc5a1c808ac643fa612e323c3013"
+      ],
+      "service": "daily-local-backup"
+    },
+    {
+      "image_id": "sha256:e0df6d17c782b78837b258a066040943382c18c42f893ceba0665e644e321ec8",
+      "reference": "ghcr.io/qdm12/ddns-updater:v2.10.0@sha256:3e2aa558946b5a293def4d73008fa4651c072b2c12932cecd02126fb23979831",
+      "repo_digests": [
+        "ghcr.io/qdm12/ddns-updater@sha256:3e2aa558946b5a293def4d73008fa4651c072b2c12932cecd02126fb23979831"
+      ],
+      "service": "ddns-updater"
+    },
+    {
+      "image_id": "sha256:894893ed4d4557764df3e74d27c5bc1b3944e5a33ed410e62ab7c744b348f415",
+      "reference": "ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47",
+      "repo_digests": [
+        "ghcr.io/flaresolverr/flaresolverr@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47"
+      ],
+      "service": "flaresolverr"
+    },
+    {
+      "image_id": "sha256:fefe344ea78b6589c5a40c146b56d23449e35cc169408f3822657b89e8a5b585",
+      "reference": "ghcr.io/blakeblackshear/frigate:0.17.2@sha256:d4351369984d4a9e2a49ac59736f6490856a7ea11f7790040746d21496967010",
+      "repo_digests": [
+        "ghcr.io/blakeblackshear/frigate@sha256:d4351369984d4a9e2a49ac59736f6490856a7ea11f7790040746d21496967010"
+      ],
+      "service": "frigate"
+    },
+    {
+      "image_id": "sha256:aa63666f60f7cc608cf7a14ab9c127de3f748b71ce0b83078c3ceea78796551f",
+      "reference": "qmcgaw/gluetun:v3.41.3@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027",
+      "repo_digests": [
+        "qmcgaw/gluetun@sha256:fa19cc76b2af13d57a8d3dc3066f2ada061b1c761b8aecf989b3877c0486e027"
+      ],
+      "service": "gluetun"
+    },
+    {
+      "image_id": "sha256:7ea5a33d30d48350ba4709935cff23d022dcb15d43934b83f10e7013bd73c16e",
+      "reference": "ghcr.io/home-assistant/home-assistant:2026.7.4@sha256:5a531753cea96444200158fc2b0ac7ccd739291ec50414877b396de6e0bb29b3",
+      "repo_digests": [
+        "ghcr.io/home-assistant/home-assistant@sha256:5a531753cea96444200158fc2b0ac7ccd739291ec50414877b396de6e0bb29b3"
+      ],
+      "service": "homeassistant"
+    },
+    {
+      "image_id": "sha256:d57d4a0c18b3e51b913bd2f8f0f122eb7c7150ea37bb0e352df9cb329de11d24",
+      "reference": "ghcr.io/jellyfin/jellyfin:10.11.11@sha256:45f648c382a0c8b552582fcea40e95cb17c5d475473a891cba0eb7523fb92112",
+      "repo_digests": [
+        "ghcr.io/jellyfin/jellyfin@sha256:45f648c382a0c8b552582fcea40e95cb17c5d475473a891cba0eb7523fb92112"
+      ],
+      "service": "jellyfin"
+    },
+    {
+      "image_id": "sha256:c9be89bc70c925f0df64e0153279fcb87d559c17864571d62cbdc630c9468a3d",
+      "reference": "radrootllc/karaoke-eternal:latest@sha256:96a4ff5f14657aaa0e7308f1455fedab7065756e1e3e163522619ee3aa9f5c5f",
+      "repo_digests": [
+        "radrootllc/karaoke-eternal@sha256:96a4ff5f14657aaa0e7308f1455fedab7065756e1e3e163522619ee3aa9f5c5f"
+      ],
+      "service": "karaoke-eternal"
+    },
+    {
+      "image_id": "sha256:15895a114a669e40e8547b9d92b8909503d303f414ed8035df5ccc40f74f6511",
+      "reference": "ghcr.io/berriai/litellm:1.94.0@sha256:65d84a2282137b4dc73bbe184650a7c807177c533e4223b3bfbc87963fe3fabe",
+      "repo_digests": [
+        "ghcr.io/berriai/litellm@sha256:65d84a2282137b4dc73bbe184650a7c807177c533e4223b3bfbc87963fe3fabe"
+      ],
+      "service": "litellm"
+    },
+    {
+      "image_id": "sha256:93a0bdfcbd9b7a86b36127cb81f54e1afd2019f12f39033458df405a027c03e3",
+      "reference": "eclipse-mosquitto:2.0.22-openssl@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c",
+      "repo_digests": [
+        "eclipse-mosquitto@sha256:212f89e1eaeb2c322d6441b64396e3346026674db8fa9c27beac293405c32b3c"
+      ],
+      "service": "mosquitto"
+    },
+    {
+      "image_id": "sha256:e879978daf70ae11ddec952e2c3c692b8f43fecfe082eaa77e281f971bbc6e8e",
+      "reference": "nextcloud:34.0.2-apache@sha256:d7666d54d87c58d52869ddda36d1acbd4a7f53faf8ab6b91293daf204f3434e8",
+      "repo_digests": [
+        "nextcloud@sha256:d7666d54d87c58d52869ddda36d1acbd4a7f53faf8ab6b91293daf204f3434e8"
+      ],
+      "service": "nextcloud"
+    },
+    {
+      "image_id": "sha256:eac2a5e27b580fcffc146a2d1487c8c53aff27c62d32d2ced8a83acf23317073",
+      "reference": "mariadb:lts-ubi9@sha256:29dd37f5df222f7c2668b51d412536ffeff0efc4d4b68d849e9bcead913bffe0",
+      "repo_digests": [
+        "mariadb@sha256:29dd37f5df222f7c2668b51d412536ffeff0efc4d4b68d849e9bcead913bffe0"
+      ],
+      "service": "nextcloud-db"
+    },
+    {
+      "image_id": "sha256:785b2ab0cd428cdede8aee2d2f37cf835c2ac9358ab80b38ae21b075a02dae17",
+      "reference": "redis:8.2-m01-alpine@sha256:73785dd3f61435fbea1a14bafd2c6509f9df112f50953e09eb31c94717c77e76",
+      "repo_digests": [
+        "redis@sha256:73785dd3f61435fbea1a14bafd2c6509f9df112f50953e09eb31c94717c77e76"
+      ],
+      "service": "nextcloud-redis"
+    },
+    {
+      "image_id": "sha256:6e48f6d5e430afd3b23b31ee43e306cac7d258ae48f6a7d2c8fc1e8064ee3598",
+      "reference": "mbentley/omada-controller:6.2@sha256:d281c115461bd5969e6e1864483e7bf57ca966bddde69d6a3b9a770f3289e273",
+      "repo_digests": [
+        "mbentley/omada-controller@sha256:d281c115461bd5969e6e1864483e7bf57ca966bddde69d6a3b9a770f3289e273"
+      ],
+      "service": "omada"
+    },
+    {
+      "image_id": "sha256:ee630248e8f8e345e33efde913a5ef8e6d7bdfcd490dcfdb95ab79943217a764",
+      "reference": "ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778",
+      "repo_digests": [
+        "ghcr.io/soodoh/openfit@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778"
+      ],
+      "service": "openfit"
+    },
+    {
+      "image_id": "sha256:27b410ff85b3449158c1ed568b4078c6037463952ad9939b673b28ba13bd9aa7",
+      "reference": "pihole/pihole:2026.07.2@sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b",
+      "repo_digests": [
+        "pihole/pihole@sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b"
+      ],
+      "service": "pihole"
+    },
+    {
+      "image_id": "sha256:bd1890816ae0b8ad4644f05728570d4be774e1f1490d7232f5084b52ea335183",
+      "reference": "postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15",
+      "repo_digests": [
+        "postgres@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"
+      ],
+      "service": "postgres"
+    },
+    {
+      "image_id": "sha256:8422d55de16243926d2b35db09f6bebeab6ffdb8388d103eda4d25f2f31f6311",
+      "reference": "ghcr.io/linuxserver/prowlarr:2.6.0-develop@sha256:2df9ae57c475bf4341abd833e56a9268bb02167cc5f3f828a8347d2d8628f652",
+      "repo_digests": [
+        "ghcr.io/linuxserver/prowlarr@sha256:2df9ae57c475bf4341abd833e56a9268bb02167cc5f3f828a8347d2d8628f652"
+      ],
+      "service": "prowlarr"
+    },
+    {
+      "image_id": "sha256:6625182c31663597fb603ab6d37289b1df5010ca355c868d934a3a47105897c2",
+      "reference": "ghcr.io/linuxserver/qbittorrent:5.2.3@sha256:b024436f8ca665d16d9a997d26fd27fdf867ee5566ba09f32764e7b2976d3e02",
+      "repo_digests": [
+        "ghcr.io/linuxserver/qbittorrent@sha256:b024436f8ca665d16d9a997d26fd27fdf867ee5566ba09f32764e7b2976d3e02"
+      ],
+      "service": "qbittorrent"
+    },
+    {
+      "image_id": "sha256:5a29acd9cee5afd4ef094d9d62297454b2c3b759478381aeb4fe89d93577c9c7",
+      "reference": "ghcr.io/linuxserver/radarr:6.3.0@sha256:a45b5ab0f850f39edb4cc9c95bbd967b52ddc3d4574a4dfb45561177db6c88f4",
+      "repo_digests": [
+        "ghcr.io/linuxserver/radarr@sha256:a45b5ab0f850f39edb4cc9c95bbd967b52ddc3d4574a4dfb45561177db6c88f4"
+      ],
+      "service": "radarr"
+    },
+    {
+      "image_id": "sha256:5a29acd9cee5afd4ef094d9d62297454b2c3b759478381aeb4fe89d93577c9c7",
+      "reference": "ghcr.io/linuxserver/radarr:6.3.0@sha256:a45b5ab0f850f39edb4cc9c95bbd967b52ddc3d4574a4dfb45561177db6c88f4",
+      "repo_digests": [
+        "ghcr.io/linuxserver/radarr@sha256:a45b5ab0f850f39edb4cc9c95bbd967b52ddc3d4574a4dfb45561177db6c88f4"
+      ],
+      "service": "radarr-4k"
+    },
+    {
+      "image_id": "sha256:885bfde4314455c0a35171d88342b0fda1055c77e2e7c2c8d80334add7374912",
+      "reference": "ghcr.io/recyclarr/recyclarr:8.7.0@sha256:2d6107f758d882a59fe9d646aa54fa8a5a4fb7a40995125fade575652a3f7871",
+      "repo_digests": [
+        "ghcr.io/recyclarr/recyclarr@sha256:2d6107f758d882a59fe9d646aa54fa8a5a4fb7a40995125fade575652a3f7871"
+      ],
+      "service": "recyclarr"
+    },
+    {
+      "image_id": "sha256:785b2ab0cd428cdede8aee2d2f37cf835c2ac9358ab80b38ae21b075a02dae17",
+      "reference": "redis:8.2-m01-alpine@sha256:73785dd3f61435fbea1a14bafd2c6509f9df112f50953e09eb31c94717c77e76",
+      "repo_digests": [
+        "redis@sha256:73785dd3f61435fbea1a14bafd2c6509f9df112f50953e09eb31c94717c77e76"
+      ],
+      "service": "redis"
+    },
+    {
+      "image_id": "sha256:515cf58ed2ca88d65378958375f94fbe6798c86de3c89b7e604847a99fdf8e5c",
+      "reference": "ghcr.io/linuxserver/sabnzbd:5.0.4@sha256:4307a4ef4a1687c6f7dfa36fc745c1fc10b78db9916b64970b9ff682539dd03b",
+      "repo_digests": [
+        "ghcr.io/linuxserver/sabnzbd@sha256:4307a4ef4a1687c6f7dfa36fc745c1fc10b78db9916b64970b9ff682539dd03b"
+      ],
+      "service": "sabnzbd"
+    },
+    {
+      "image_id": "sha256:c347376dba02f79e4e2451b3c07df862dec4b37361067f564969335eadad2bbd",
+      "reference": "ghcr.io/seerr-team/seerr:v3.4.0@sha256:d206d9e4056bb90178297df58047791196e7721e6dc19384579b0530702fe086",
+      "repo_digests": [
+        "ghcr.io/seerr-team/seerr@sha256:d206d9e4056bb90178297df58047791196e7721e6dc19384579b0530702fe086"
+      ],
+      "service": "seerr"
+    },
+    {
+      "image_id": "sha256:4874781c27d80fdf204ef4c93e47b337e96c50d3e7b0db89895321c878edf99b",
+      "reference": "ghcr.io/linuxserver/sonarr:4.0.19@sha256:24acea2956a0ccb11f103877d9f4f8576600fb34bff34820ed749c2256dab89f",
+      "repo_digests": [
+        "ghcr.io/linuxserver/sonarr@sha256:24acea2956a0ccb11f103877d9f4f8576600fb34bff34820ed749c2256dab89f"
+      ],
+      "service": "sonarr"
+    },
+    {
+      "image_id": "sha256:9dfd5319f306ef505ccef6965d56024cc5b364c87192c2e3f525b6d0de556999",
+      "reference": "ghcr.io/suwayomi/tachidesk:v2.3.2284@sha256:6f1fcbf31714137ec3d1c48d4aa57a8d158e3f88afd34a3d6999338cd1bd189a",
+      "repo_digests": [
+        "ghcr.io/suwayomi/tachidesk@sha256:6f1fcbf31714137ec3d1c48d4aa57a8d158e3f88afd34a3d6999338cd1bd189a"
+      ],
+      "service": "tachidesk"
+    },
+    {
+      "image_id": "sha256:6ab4385127e6f1baa6a4133e2a0cd3fe5413ac457c18262117b1bfe42391a28a",
+      "reference": "golift/unpackerr:0.15.2@sha256:057e34740d26c34d81ec8e2faf8ec11f8dbfc77489b7a42826f52b37e5ee1b6c",
+      "repo_digests": [
+        "golift/unpackerr@sha256:057e34740d26c34d81ec8e2faf8ec11f8dbfc77489b7a42826f52b37e5ee1b6c"
+      ],
+      "service": "unpackerr"
+    },
+    {
+      "image_id": "sha256:30f18e1c6bf3de9dfa990172cbf1aaeb7e773c1151ce7d1f859f51731d32c38b",
+      "reference": "ghcr.io/dani-garcia/vaultwarden:1.37.1@sha256:ebdfe70701c60ac0c28c697e787cea767d7972940b786037b29fe0d507f821e8",
+      "repo_digests": [
+        "ghcr.io/dani-garcia/vaultwarden@sha256:ebdfe70701c60ac0c28c697e787cea767d7972940b786037b29fe0d507f821e8"
+      ],
+      "service": "vaultwarden"
+    },
+    {
+      "image_id": "sha256:60fe1ee8f729c17b057ba00a49b968adb4ed1e774cea36b5f4cc81340991a7d2",
+      "reference": "ghcr.io/go-vikunja/vikunja:2.4.0@sha256:1a5dd2d410b5359f689c77bbd1c66742cde1993f82d4adfe9aefa400ff1dd833",
+      "repo_digests": [
+        "ghcr.io/go-vikunja/vikunja@sha256:1a5dd2d410b5359f689c77bbd1c66742cde1993f82d4adfe9aefa400ff1dd833"
+      ],
+      "service": "vikunja"
+    },
+    {
+      "image_id": "sha256:5338efad1fe49f81265bb1c43ff87cb14d5e5dc8e16955a4c2416141efc88616",
+      "reference": "ghcr.io/offen/docker-volume-backup:v2.48.2@sha256:19102d8e59eb1d598cf8c647c2b21100abaadc5a1c808ac643fa612e323c3013",
+      "repo_digests": [
+        "ghcr.io/offen/docker-volume-backup@sha256:19102d8e59eb1d598cf8c647c2b21100abaadc5a1c808ac643fa612e323c3013"
+      ],
+      "service": "weekly-remote-backup"
+    },
+    {
+      "image_id": "sha256:75e04a64b30005cd998c4f94eab10f329e23995af7495aba02f9b81d88531677",
+      "reference": "ghcr.io/games-on-whales/wolf:stable@sha256:ff82c125c9b79b2e9443de2b0eaec40c904edb03291680d408cccd57c1d59c76",
+      "repo_digests": [
+        "ghcr.io/games-on-whales/wolf@sha256:ff82c125c9b79b2e9443de2b0eaec40c904edb03291680d408cccd57c1d59c76"
+      ],
+      "service": "wolf"
+    },
+    {
+      "image_id": "sha256:fd91fe2d50cbc18041378b5446b4f4714bc8a30ea4d3ba373c0382a9d12a21c9",
+      "reference": "ghcr.io/zwave-js/zwave-js-ui:11.22@sha256:f24115c115f98a1cd69fea620bf20180be17889e9ae3c58ceabf5df1bc56c2a8",
+      "repo_digests": [
+        "ghcr.io/zwave-js/zwave-js-ui@sha256:f24115c115f98a1cd69fea620bf20180be17889e9ae3c58ceabf5df1bc56c2a8"
+      ],
+      "service": "zwave"
+    }
+  ],
+  "project": "docker-compose",
+  "schema": 1
+}

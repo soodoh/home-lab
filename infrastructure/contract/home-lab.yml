@@ -1337,6 +1337,32 @@ debian:
       docker_runtime: transient-cleanup-required
       tailscale: deferred
       production_boot: false
+    production_cutover:
+      phase: designed
+      scope: full-compose-and-tailscale
+      compose_artifact_sha256: d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c
+      model_inventory_sha256: f36ba480734143d51affdc789b2ef782bee063dfb96a248d5048568a82f5a16e
+      image_lock: infrastructure/debian/production-image-lock.json
+      image_lock_sha256: c74199885009f0082cc7b5956eeb526ad895d1cab1605df15998767185aec726
+      image_service_count: 41
+      unique_image_count: 36
+      image_transfer_path: /srv/home-lab-state/.debian-production-images.tar
+      pulls: disabled
+      backup_validation: existing-local-replicas-sidecar-and-sample
+      runtime_environment: install-staged
+      protected_mounts: persistent
+      docker_runtime: persistent
+      tailscale_enrollment: one-use-preauthorized-key
+      tailscale_tag: tag:docker-host
+      tailscale_hostname: docker-host-debian
+      tailscale_key_delivery: age-encrypted-debian-recipient
+      tailscale_key_expiry_seconds: 86400
+      tailscale_key_artifact: not-generated
+      production_boot: pending-physical-reboot-verification
+      rollback_boot_order:
+        - scsi0
+        - net0
+      rollback_requires_physical_reboot: true
     minimum_observation_days: 7
 omada:
   controller_version: 6.2.14.11
