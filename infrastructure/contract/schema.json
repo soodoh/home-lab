@@ -341,7 +341,7 @@
             "production_canary": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["phase", "service", "image", "artifact_sha256", "state_bind", "state_metadata", "backup_max_age_hours", "backup_replica_count", "image_transfer_path", "pulls", "runtime_environment", "protected_mounts", "docker_runtime", "tailscale", "production_boot"],
+              "required": ["phase", "service", "image", "artifact_sha256", "state_bind", "state_metadata", "backup_max_age_hours", "backup_replica_count", "backup_validation", "s3_checked", "image_transfer_path", "pulls", "runtime_environment", "protected_mounts", "docker_runtime", "tailscale", "production_boot"],
               "properties": {
                 "phase": { "enum": ["not-run", "verified"] },
                 "service": { "const": "openfit" },
@@ -349,8 +349,10 @@
                 "artifact_sha256": { "const": "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" },
                 "state_bind": { "const": "/srv/home-lab-state/openfit-data" },
                 "state_metadata": { "const": "root:root:755" },
-                "backup_max_age_hours": { "const": 24 },
+                "backup_max_age_hours": { "const": 168 },
                 "backup_replica_count": { "const": 3 },
+                "backup_validation": { "const": "existing-local-replicas-sidecar-and-sample" },
+                "s3_checked": { "const": false },
                 "image_transfer_path": { "const": "/srv/home-lab-state/.debian-openfit-canary-image.tar" },
                 "pulls": { "const": "disabled" },
                 "runtime_environment": { "const": "staged-only" },

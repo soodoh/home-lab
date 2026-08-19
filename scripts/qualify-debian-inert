@@ -753,7 +753,7 @@ if [[ $finalize_canary_mode == true ]]; then
       .evidenceFormat == "home-lab-debian-canary-transition-v1" and
       .format == "home-lab-debian-openfit-canary-transfer-v1" and .vmid == 100 and
       .image == "ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778" and
-      .backupReplicaCount == 3 and .backupBytes >= 1000000000 and .openfitStoppedForSnapshot == true and
+      .backupReplicaCount == 3 and .backupBytes >= 1000000000 and .backupAgeSeconds <= 604800 and .backupValidation == "existing-local-replicas-sidecar-and-sample" and .backupActualFullHashRecomputed == false and .openfitStoppedForSnapshot == false and .s3Checked == false and
       (.backupSha256 | test("^[0-9a-f]{64}$")) and (.imageSha256 | test("^[0-9a-f]{64}$")) and
       .archBoot == $archBoot and .candidateScsi3 == $candidateScsi3 and .sourceCommit == $sourceCommit and
       (.hostBootIdBefore | test("^[0-9a-f-]{36}$")) and (.archConfigSha256 | test("^[0-9a-f]{64}$"))
@@ -802,7 +802,7 @@ if [[ $finalize_canary_mode == true ]]; then
     .dockerRuntime == "stopped-disabled-containerd-masked" and .pulls == "disabled" and
     .runtimeEnvironmentInstalled == false and .tailscaleEnrolled == false and
     .stateBind == "rw-verified" and .kernelStorageErrors == 0 and
-    .backup.backupReplicaCount == 3 and .backup.backupBytes >= 1000000000 and .backup.openfitStoppedForSnapshot == true and
+    .backup.backupReplicaCount == 3 and .backup.backupBytes >= 1000000000 and .backup.backupAgeSeconds <= 604800 and .backup.backupValidation == "existing-local-replicas-sidecar-and-sample" and .backup.backupActualFullHashRecomputed == false and .backup.openfitStoppedForSnapshot == false and .backup.s3Checked == false and
     (.backup.backupSha256 | test("^[0-9a-f]{64}$")) and
     .archBoot == $archBoot and .candidateScsi3 == $candidateScsi3 and .sourceCommit == $sourceCommit and
     (.hostBootIdBefore | test("^[0-9a-f-]{36}$")) and (.archConfigSha256 | test("^[0-9a-f]{64}$"))
@@ -1071,7 +1071,7 @@ trap 'handle_failure 129 disconnected' HUP
 if [[ $canary_mode == true ]]; then
   stage="prepare-openfit-canary-from-arch"
   canary_prepare_source=infrastructure/debian/prepare-openfit-canary-from-arch.sh
-  canary_prepare_sha=94b89943009a6c76c8215b147777ed00942e4f2f846e25448c59190a82635849
+  canary_prepare_sha=2ca4fc66a62da672b33f8463a77bcf313f43a4e5c20735037b25f6f604edface
   [[ $(sha256sum "$canary_prepare_source" | awk '{print $1}') == "$canary_prepare_sha" ]]
   canary_prepare_payload=$(base64 -w 0 "$canary_prepare_source")
   canary_prepare_runner_payload=$(printf '%s\n' '#!/bin/bash' 'set +e' '/bin/bash /run/home-lab-prepare-openfit-canary' 'status=$?' 'printf "%s\n" "$status" > /run/home-lab-arch-canary-prepare.result.pending' 'mv -T /run/home-lab-arch-canary-prepare.result.pending /run/home-lab-arch-canary-prepare.result' 'rm -f -- /run/home-lab-prepare-openfit-canary /run/home-lab-arch-canary-prepare.runner' 'exit "$status"' | base64 -w 0)
@@ -1086,7 +1086,7 @@ if [[ $canary_mode == true ]]; then
   canary_operation_pid=
   guest_exec_ok 30 /bin/rm -f /run/home-lab-arch-canary-prepare.result /run/home-lab-arch-canary-prepare.result.pending
   canary_transfer_marker=$(guest_exec_json 30 /usr/bin/cat /run/home-lab-openfit-canary-transfer.json | jq -er '."out-data"')
-  jq -e '.format == "home-lab-debian-openfit-canary-transfer-v1" and .image == "ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778" and (.imageId | test("^sha256:[0-9a-f]{64}$")) and (.imageSha256 | test("^[0-9a-f]{64}$")) and .imageBytes > 0 and .backupReplicaCount == 3 and .backupBytes >= 1000000000 and (.backupSha256 | test("^[0-9a-f]{64}$")) and .openfitState == "0:0:755" and .openfitStoppedForSnapshot == true and .privateDataExported == false' <<< "$canary_transfer_marker" >/dev/null
+  jq -e '.format == "home-lab-debian-openfit-canary-transfer-v1" and .image == "ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778" and (.imageId | test("^sha256:[0-9a-f]{64}$")) and (.imageSha256 | test("^[0-9a-f]{64}$")) and .imageBytes > 0 and .backupReplicaCount == 3 and .backupBytes >= 1000000000 and (.backupSha256 | test("^[0-9a-f]{64}$")) and .openfitState == "0:0:755" and .backupAgeSeconds <= 604800 and .backupValidation == "existing-local-replicas-sidecar-and-sample" and .backupActualFullHashRecomputed == false and .openfitStoppedForSnapshot == false and .privateDataExported == false and .s3Checked == false' <<< "$canary_transfer_marker" >/dev/null
   write_canary_transfer_pending_evidence "$canary_transfer_marker"
   canary_transfer_ready=true
 fi
@@ -1136,7 +1136,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
   if [[ $canary_mode == true ]]; then
     stage="run-debian-openfit-production-canary"
     canary_source=infrastructure/debian/run-openfit-production-canary.sh
-    canary_sha=f814ae02d8600788d32f655c8a4f02f1ad0d429384b814c9983c030528a03093
+    canary_sha=7c6f909a924e9d234be0fa6ce770b68c2bf6c268666a73c446c3ad5d7351c924
     [[ $(sha256sum "$canary_source" | awk '{print $1}') == "$canary_sha" ]]
     canary_payload=$(base64 -w 0 "$canary_source")
     canary_image_sha=$(jq -er .imageSha256 <<< "$canary_transfer_marker")
@@ -1152,7 +1152,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
     canary_operation_pid=
     guest_exec_ok 30 /bin/rm -f /run/home-lab-debian-canary-run.result /run/home-lab-debian-canary-run.result.pending
     canary_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-openfit-canary.json | jq -er '."out-data"')
-    jq -e '.format == "home-lab-debian-openfit-production-canary-v1" and .service == "openfit" and .artifactSha256 == "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" and .canaryHealthy == true and .cleanupComplete == true and .protectedMountsUnmounted == true and .dockerRuntime == "stopped-disabled-containerd-masked" and .pulls == "disabled" and .runtimeEnvironmentInstalled == false and .tailscaleEnrolled == false and .stateBind == "rw-verified" and .kernelStorageErrors == 0 and .backup.backupReplicaCount == 3 and .backup.backupBytes >= 1000000000 and .backup.openfitStoppedForSnapshot == true and (.backup.backupSha256 | test("^[0-9a-f]{64}$"))' <<< "$canary_marker" >/dev/null
+    jq -e '.format == "home-lab-debian-openfit-production-canary-v1" and .service == "openfit" and .artifactSha256 == "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" and .canaryHealthy == true and .cleanupComplete == true and .protectedMountsUnmounted == true and .dockerRuntime == "stopped-disabled-containerd-masked" and .pulls == "disabled" and .runtimeEnvironmentInstalled == false and .tailscaleEnrolled == false and .stateBind == "rw-verified" and .kernelStorageErrors == 0 and .backup.backupReplicaCount == 3 and .backup.backupBytes >= 1000000000 and .backup.backupValidation == "existing-local-replicas-sidecar-and-sample" and .backup.backupActualFullHashRecomputed == false and .backup.openfitStoppedForSnapshot == false and .backup.s3Checked == false and (.backup.backupSha256 | test("^[0-9a-f]{64}$"))' <<< "$canary_marker" >/dev/null
     canary_transfer_ready=false
     write_canary_pending_evidence "$canary_marker"
     stop_console_capture

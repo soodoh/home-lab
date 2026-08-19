@@ -1326,8 +1326,10 @@ debian:
       artifact_sha256: d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c
       state_bind: /srv/home-lab-state/openfit-data
       state_metadata: root:root:755
-      backup_max_age_hours: 24
+      backup_max_age_hours: 168
       backup_replica_count: 3
+      backup_validation: existing-local-replicas-sidecar-and-sample
+      s3_checked: false
       image_transfer_path: /srv/home-lab-state/.debian-openfit-canary-image.tar
       pulls: disabled
       runtime_environment: staged-only

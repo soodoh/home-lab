@@ -113,7 +113,7 @@ findmnt -rn -T /mnt/storage -o OPTIONS | tr ',' '\n' | grep -Fxq vers=4.2 || fai
 [[ $(sha256sum "$TRANSFER" | awk '{print $1}') == "$expected_image_sha" ]] || fail "canary image checksum differs"
 [[ -f $TRANSFER_MARKER && ! -L $TRANSFER_MARKER ]] || fail "canary transfer marker is absent or unsafe"
 transfer_marker=$(cat "$TRANSFER_MARKER")
-jq -e --arg image "$IMAGE" --arg imageSha256 "$expected_image_sha" --argjson imageBytes "$expected_image_bytes" '.format == "home-lab-debian-openfit-canary-transfer-v1" and .image == $image and .imageSha256 == $imageSha256 and .imageBytes == $imageBytes and (.imageId | test("^sha256:[0-9a-f]{64}$")) and .backupReplicaCount == 3 and (.backupSha256 | test("^[0-9a-f]{64}$")) and .backupBytes >= 1000000000 and .openfitStoppedForSnapshot == true and .privateDataExported == false' <<< "$transfer_marker" >/dev/null || fail "canary transfer marker differs"
+jq -e --arg image "$IMAGE" --arg imageSha256 "$expected_image_sha" --argjson imageBytes "$expected_image_bytes" '.format == "home-lab-debian-openfit-canary-transfer-v1" and .image == $image and .imageSha256 == $imageSha256 and .imageBytes == $imageBytes and (.imageId | test("^sha256:[0-9a-f]{64}$")) and .backupReplicaCount == 3 and (.backupSha256 | test("^[0-9a-f]{64}$")) and (.backupSampleSha256 | test("^[0-9a-f]{64}$")) and .backupBytes >= 1000000000 and .backupAgeSeconds >= 0 and .backupAgeSeconds <= 604800 and .backupValidation == "existing-local-replicas-sidecar-and-sample" and .backupActualFullHashRecomputed == false and .openfitStoppedForSnapshot == false and .privateDataExported == false and .s3Checked == false' <<< "$transfer_marker" >/dev/null || fail "canary transfer marker differs"
 [[ -d /srv/home-lab-state/openfit-data && ! -L /srv/home-lab-state/openfit-data && $(stat -c %u:%g:%a /srv/home-lab-state/openfit-data) == 0:0:755 ]] || fail "Openfit state metadata differs"
 
 systemctl unmask containerd.service
@@ -144,7 +144,7 @@ done
 [[ $(docker inspect openfit | jq '[.[0].Mounts[] | select(.Type == "volume")] | length') -eq 0 ]] || fail "Openfit canary used a Docker volume"
 [[ $(docker inspect openfit --format '{{.Image}}') == "$loaded_image_id" && $(docker inspect openfit --format '{{.Config.Image}}') == "$CANARY_IMAGE_TAG" ]] || fail "Openfit canary image differs"
 
-backup_fields=$(jq -c '{backupBytes,backupCommandStatus,backupName,backupReplicaCount,backupSha256,openfitStoppedForSnapshot}' <<< "$transfer_marker")
+backup_fields=$(jq -c '{backupActualFullHashRecomputed,backupAgeSeconds,backupBytes,backupName,backupReplicaCount,backupSampleSha256,backupSha256,backupValidation,openfitStoppedForSnapshot,s3Checked}' <<< "$transfer_marker")
 model_sha=$(jq -er .modelInventorySha256 /var/lib/home-lab/debian-compose-staged.json)
 cleanup
 trap - EXIT INT TERM HUP
