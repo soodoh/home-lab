@@ -1217,7 +1217,7 @@ debian:
     compose_service: home-lab-compose.service
     automatic_reboot: false
   cutover:
-    stage: storage-rehearsed
+    stage: credentials-staged
     package_source: debian-stable
     docker_package: docker.io
     docker_cli_package: docker-cli
@@ -1302,10 +1302,11 @@ debian:
         - vuetorrent
       evidence: post-reboot-arch-verified
     credentials_stage:
-      phase: recipient-committed
+      phase: credentials-staged
       identity_path: /etc/sops/age/keys.txt
       recipient_evidence: infrastructure/evidence/vm-100-debian-age-identity.json
       recipient_commit_evidence: infrastructure/evidence/vm-100-debian-sops-recipient.json
+      staging_evidence: infrastructure/evidence/vm-100-debian-credentials-compose-staged.json
       private_identity_exported: false
       sops_version: 3.13.3
       sops_sha256: e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
@@ -1315,7 +1316,7 @@ debian:
       age_keygen_sha256: c56ef69834e18ca4d3b953117f4481522c35fb6862a5d2871685aa4685893664
       expected_sops_recipient_count: 3
       current_compose_artifact_sha256: d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c
-      compose_validation: deferred-until-recipient-commit
+      compose_validation: staged-quiet-pass
       docker_runtime: inactive
       tailscale: deferred
     minimum_observation_days: 7

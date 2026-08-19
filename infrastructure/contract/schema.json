@@ -317,12 +317,13 @@
             "credentials_stage": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["phase", "identity_path", "recipient_evidence", "recipient_commit_evidence", "private_identity_exported", "sops_version", "sops_sha256", "age_version", "age_archive_sha256", "age_sha256", "age_keygen_sha256", "expected_sops_recipient_count", "current_compose_artifact_sha256", "compose_validation", "docker_runtime", "tailscale"],
+              "required": ["phase", "identity_path", "recipient_evidence", "recipient_commit_evidence", "staging_evidence", "private_identity_exported", "sops_version", "sops_sha256", "age_version", "age_archive_sha256", "age_sha256", "age_keygen_sha256", "expected_sops_recipient_count", "current_compose_artifact_sha256", "compose_validation", "docker_runtime", "tailscale"],
               "properties": {
                 "phase": { "enum": ["identity-not-generated", "identity-generated", "recipient-committed", "credentials-staged"] },
                 "identity_path": { "const": "/etc/sops/age/keys.txt" },
                 "recipient_evidence": { "enum": ["post-reboot-arch-verified", "infrastructure/evidence/vm-100-debian-age-identity.json"] },
                 "recipient_commit_evidence": { "const": "infrastructure/evidence/vm-100-debian-sops-recipient.json" },
+                "staging_evidence": { "const": "infrastructure/evidence/vm-100-debian-credentials-compose-staged.json" },
                 "private_identity_exported": { "const": false },
                 "sops_version": { "const": "3.13.3" },
                 "sops_sha256": { "const": "e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b" },

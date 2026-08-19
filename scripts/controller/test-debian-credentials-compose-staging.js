@@ -15,10 +15,19 @@ const finalizer = fs.readFileSync(path.join(root, "scripts/finalize-debian-crede
 const stage = contract.debian.cutover.credentials_stage;
 const artifact = stage.current_compose_artifact_sha256;
 
-assert.equal(stage.phase, "recipient-committed");
-assert.equal(stage.compose_validation, "deferred-until-recipient-commit");
+assert.equal(stage.phase, "credentials-staged");
+assert.equal(stage.compose_validation, "staged-quiet-pass");
+assert.equal(stage.staging_evidence, "infrastructure/evidence/vm-100-debian-credentials-compose-staged.json");
 assert.equal(stage.docker_runtime, "inactive");
 assert.equal(stage.tailscale, "deferred");
+const finalEvidence = JSON.parse(fs.readFileSync(path.join(root, stage.staging_evidence), "utf8"));
+assert.equal(finalEvidence.stage, "credentials-staged");
+assert.equal(finalEvidence.stagingEvidence.transitionState, "complete");
+assert.equal(finalEvidence.stagingEvidence.archRestore, "verified");
+assert.equal(finalEvidence.stagingEvidence.composeValidation, "quiet-pass");
+assert.equal(finalEvidence.stagingEvidence.runtimeEnvironmentInstalled, false);
+assert.equal(finalEvidence.stagingEvidence.artifactSha256, stage.current_compose_artifact_sha256);
+assert.notEqual(finalEvidence.stagingEvidence.hostBootIdBefore, finalEvidence.stagingEvidence.hostBootIdAfter);
 assert.ok(script.includes(`readonly ARTIFACT_SHA256=${artifact}`));
 assert.ok(script.includes("readonly DEBIAN_RECIPIENT=age1atumjua6hxyls6z8v20tsgy72304x72lqjstwmwzqy5ma4txyfsse7xakv"));
 assert.match(script, /verify_inert \|\| fail/);

@@ -2,9 +2,9 @@
 
 ## Status
 
-Debian 13 inert qualification, hardware parity, Stage 1 package preparation, Stage 2 read-only storage rehearsal, and the Stage 3 Debian-only age identity plus three-recipient SOPS re-encryption passed. Evidence is recorded under `infrastructure/evidence/vm-100-debian-*.json`. Arch remains production authority. Debian is preserved on externally managed `scsi3`; `scsi0` and application-state `scsi2` remain protected rollback assets.
+Debian 13 inert qualification, hardware parity, Stage 1 package preparation, Stage 2 read-only storage rehearsal, and all Stage 3 credential and immutable Compose staging checks passed. Evidence is recorded under `infrastructure/evidence/vm-100-debian-*.json`. Arch remains production authority. Debian is preserved on externally managed `scsi3`; `scsi0` and application-state `scsi2` remain protected rollback assets.
 
-The selected path is a staged cutover. The next guarded transition may install only the root-only staged environment and immutable Compose artifact, then run offline quiet validation. It does not authorize production mounts, a runtime environment, Tailscale enrollment, Docker/containerd startup, Compose activation, or a production boot-path change.
+Stage 3 completion authorizes only the retained root-readable staged environment and artifact on `scsi3`. It does not authorize production mounts, installing the runtime environment, Tailscale enrollment, Docker/containerd startup, Compose activation, a production canary, or a production boot-path change. Stage 4 remains separately gated.
 
 ## Non-negotiable invariants
 
