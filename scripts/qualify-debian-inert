@@ -45,6 +45,8 @@ readonly CONFIRMATION=qualify-reviewed-vm-100-debian-13-inert
 readonly RESTORE_CONFIRMATION=restore-reviewed-vm-100-arch-after-debian-inert
 readonly PREPARE_CONFIRMATION=prepare-reviewed-vm-100-debian-packages
 readonly FINALIZE_CONFIRMATION=finalize-reviewed-vm-100-debian-packages-after-reboot
+readonly REHEARSAL_CONFIRMATION=rehearse-reviewed-vm-100-debian-storage-readonly
+readonly FINALIZE_REHEARSAL_CONFIRMATION=finalize-reviewed-vm-100-debian-storage-after-reboot
 readonly PLAN_NOTES_REF=refs/notes/debian-qualification
 readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
 readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
@@ -55,6 +57,8 @@ readonly RESTORE_LOG=$DIAGNOSTIC_ROOT/inert-restore.json
 readonly PREPARE_LOG=$DIAGNOSTIC_ROOT/packages-prepared.json
 readonly PREPARE_PENDING_LOG=$DIAGNOSTIC_ROOT/packages-prepared.pending.json
 readonly GUEST_FAILURE_LOG=$DIAGNOSTIC_ROOT/guest-exec-failure.json
+readonly REHEARSAL_LOG=$DIAGNOSTIC_ROOT/storage-rehearsed.json
+readonly REHEARSAL_PENDING_LOG=$DIAGNOSTIC_ROOT/storage-rehearsed.pending.json
 readonly SERIAL_SOCKET=/var/run/qemu-server/100.serial0
 readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
@@ -253,6 +257,30 @@ mark_package_evidence_awaiting_reboot() {
   mv -T "$temporary" "$PREPARE_PENDING_LOG"
 }
 
+write_rehearsal_pending_evidence() {
+  local marker=$1 host_boot_id temporary
+  host_boot_id=$(cat /proc/sys/kernel/random/boot_id)
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .storage-rehearsed-pending.XXXXXX)
+  jq -c --arg archBoot "$ARCH_BOOT" --arg candidateScsi3 "$DEBIAN_SCSI3" \
+    --arg createdAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdBefore "$host_boot_id" \
+    --arg sourceCommit "$(git rev-parse HEAD)" \
+    '. + {archBoot:$archBoot,candidateScsi3:$candidateScsi3,createdAt:$createdAt,evidenceFormat:"home-lab-debian-storage-transition-v1",hostBootIdBefore:$hostBootIdBefore,sourceCommit:$sourceCommit,state:"rehearsal-verified",vmid:100}' \
+    <<< "$marker" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$REHEARSAL_PENDING_LOG"
+}
+
+mark_rehearsal_evidence_awaiting_reboot() {
+  local config_sha=$1 temporary
+  temporary=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .storage-rehearsed-pending.XXXXXX)
+  jq -c --arg archConfigSha256 "$config_sha" '. + {archConfigSha256:$archConfigSha256,state:"awaiting-host-reboot"}' \
+    "$REHEARSAL_PENDING_LOG" > "$temporary"
+  chmod 0600 "$temporary"
+  chown root:root "$temporary"
+  mv -T "$temporary" "$REHEARSAL_PENDING_LOG"
+}
+
 prepare_arch_host_reboot_path() {
   local pending current
   if [[ $(vm_status) != stopped ]]; then
@@ -324,12 +352,16 @@ candidate_diagnostics() {
 restore_mode=false
 prepare_mode=false
 finalize_mode=false
+rehearsal_mode=false
+finalize_rehearsal_mode=false
 case ${HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED:-} in
   "$CONFIRMATION") ;;
   "$RESTORE_CONFIRMATION") restore_mode=true ;;
   "$PREPARE_CONFIRMATION") prepare_mode=true ;;
   "$FINALIZE_CONFIRMATION") finalize_mode=true ;;
-  *) fail "exact Debian qualification, package preparation, package finalization, or Arch restore confirmation is required"; exit 1 ;;
+  "$REHEARSAL_CONFIRMATION") rehearsal_mode=true ;;
+  "$FINALIZE_REHEARSAL_CONFIRMATION") finalize_rehearsal_mode=true ;;
+  *) fail "exact Debian qualification, package preparation/finalization, storage rehearsal/finalization, or Arch restore confirmation is required"; exit 1 ;;
 esac
 [[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || { fail "Debian qualification requires a physical Proxmox console"; exit 1; }
 [[ -d $RECONCILIATION_ROOT && ! -L $RECONCILIATION_ROOT ]] || { fail "reconciliation lock root is absent or unsafe"; exit 1; }
@@ -392,6 +424,56 @@ if [[ $finalize_mode == true ]]; then
   trap - EXIT
   rm -f -- "$finalize_pending" "$finalize_current"
   echo "Debian package preparation finalized after physical reboot and complete Arch verification" >&2
+  exit 0
+fi
+if [[ $finalize_rehearsal_mode == true ]]; then
+  [[ -f $REHEARSAL_PENDING_LOG && ! -L $REHEARSAL_PENDING_LOG ]] || { fail "pending storage rehearsal evidence is absent or unsafe"; exit 1; }
+  [[ $(stat -c %U:%G:%a "$REHEARSAL_PENDING_LOG") == root:root:600 ]] || { fail "pending storage rehearsal evidence metadata differs"; exit 1; }
+  [[ ! -e $REHEARSAL_LOG && ! -L $REHEARSAL_LOG ]] || { fail "final storage rehearsal evidence already exists or is unsafe"; exit 1; }
+  pending_evidence=$(cat "$REHEARSAL_PENDING_LOG")
+  jq -e --arg archBoot "$ARCH_BOOT" --arg candidateScsi3 "$DEBIAN_SCSI3" --arg sourceCommit "$(git rev-parse HEAD)" '
+    .evidenceFormat == "home-lab-debian-storage-transition-v1" and
+    .format == "home-lab-debian-storage-rehearsal-v1" and .state == "awaiting-host-reboot" and
+    .readOnly == true and .unmounted == true and .kernelStorageErrors == 0 and .vmid == 100 and
+    .dockerServices == "docker-disabled-containerd-masked-inactive" and .workloadIdentity == "1000:1000" and
+    .state.uuid == "d4a19647-7879-4079-9fc9-b3e79711b449" and .state.availableBytes >= 50000000000 and (.state.options | contains("noload")) and
+    .games.uuid == "31602ce7-0054-498a-9f24-f51ca491e7b3" and .games.availableBytes >= 2000000000000 and (.games.options | contains("noload")) and
+    .nfs.source == "192.168.0.123:/storage/docker" and .nfs.availableBytes >= 10000000000000 and (.nfs.options | contains("ro")) and
+    .archBoot == $archBoot and .candidateScsi3 == $candidateScsi3 and .sourceCommit == $sourceCommit and
+    (.hostBootIdBefore | test("^[0-9a-f-]{36}$")) and (.archConfigSha256 | test("^[0-9a-f]{64}$"))
+  ' <<< "$pending_evidence" >/dev/null || { fail "pending storage rehearsal evidence differs"; exit 1; }
+  created_epoch=$(date -d "$(jq -er .createdAt <<< "$pending_evidence")" +%s)
+  now_epoch=$(date +%s)
+  evidence_age=$((now_epoch - created_epoch))
+  [[ $evidence_age -ge -300 && $evidence_age -le 86400 ]] || { fail "pending storage rehearsal evidence is stale or future-dated"; exit 1; }
+  host_boot_id_after=$(cat /proc/sys/kernel/random/boot_id)
+  [[ $host_boot_id_after != $(jq -er .hostBootIdBefore <<< "$pending_evidence") ]] || { fail "the required physical host reboot has not occurred"; exit 1; }
+  finalize_pending=$(mktemp --tmpdir=/run home-lab-rehearsal-finalize-pending.XXXXXX)
+  finalize_current=$(mktemp --tmpdir=/run home-lab-rehearsal-finalize-current.XXXXXX)
+  finalize_evidence=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .storage-rehearsed-final.XXXXXX)
+  trap 'rm -f -- "$finalize_pending" "$finalize_current" "$finalize_evidence"' EXIT
+  chmod 0600 "$finalize_pending" "$finalize_current" "$finalize_evidence"
+  qm config "$VMID" > "$finalize_pending"
+  qm config "$VMID" --current 1 > "$finalize_current"
+  verify_exact_arch_configuration "$finalize_pending" "$finalize_current" || { fail "post-reboot Arch configuration differs"; exit 1; }
+  [[ $(arch_config_sha256 "$finalize_pending") == $(jq -er .archConfigSha256 <<< "$pending_evidence") ]] || { fail "post-reboot Arch configuration digest differs"; exit 1; }
+  wait_for_agent 600 || { fail "post-reboot Arch QEMU guest agent is unavailable"; exit 1; }
+  [[ $(os_id) == arch ]] || { fail "post-reboot VM 100 is not Arch"; exit 1; }
+  verify_arch_post_restore || { fail "post-reboot Arch workload health differs"; exit 1; }
+  [[ $(systemctl --failed --no-legend | wc -l) -eq 0 ]] || { fail "the Proxmox host has failed units"; exit 1; }
+  [[ $(systemctl is-active pve-firewall) == active && $(systemctl is-active proxmox-firewall) == active ]] || { fail "Proxmox firewall services are inactive"; exit 1; }
+  pve-firewall status | grep -Fxq 'Status: enabled/running' || { fail "Proxmox firewall status differs"; exit 1; }
+  jq -c --arg finalizedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdAfter "$host_boot_id_after" \
+    '. + {archRestore:"verified",finalizedAt:$finalizedAt,hostBootIdAfter:$hostBootIdAfter,state:"complete"}' \
+    <<< "$pending_evidence" > "$finalize_evidence"
+  chown root:root "$finalize_evidence"
+  chmod 0600 "$finalize_evidence"
+  mv -T "$finalize_evidence" "$REHEARSAL_LOG"
+  rm -f -- "$REHEARSAL_PENDING_LOG"
+  write_diagnostic_json "$RESTORE_LOG" arch-restored complete reachable reachable ready empty
+  trap - EXIT
+  rm -f -- "$finalize_pending" "$finalize_current"
+  echo "Debian storage rehearsal finalized after physical reboot and complete Arch verification" >&2
   exit 0
 fi
 if [[ $restore_mode == true ]]; then
@@ -465,6 +547,15 @@ if [[ $prepare_mode == true ]]; then
   [[ ! -e $PREPARE_PENDING_LOG && ! -L $PREPARE_PENDING_LOG ]] || { fail "pending package evidence requires finalization or reconciliation"; exit 1; }
   [[ ! -e $PREPARE_LOG && ! -L $PREPARE_LOG ]] || { fail "Debian package preparation is already finalized"; exit 1; }
 fi
+if [[ $rehearsal_mode == true ]]; then
+  verify_exact_arch_configuration "$before" "$before_current" || { fail "storage-rehearsal Arch configuration differs"; exit 1; }
+  [[ -f $PREPARE_LOG && ! -L $PREPARE_LOG ]] || { fail "final package evidence is absent or unsafe"; exit 1; }
+  [[ $(stat -c %U:%G:%a "$PREPARE_LOG") == root:root:600 ]] || { fail "final package evidence metadata differs"; exit 1; }
+  jq -e '.state == "complete" and .archRestore == "verified" and .services == "docker-disabled-containerd-masked-inactive"' "$PREPARE_LOG" >/dev/null || { fail "final package evidence differs"; exit 1; }
+  [[ $(jq -cS . "$PREPARE_LOG") == $(jq -cS .packageEvidence infrastructure/evidence/vm-100-debian-packages-prepared.json) ]] || { fail "host and repository package evidence diverge"; exit 1; }
+  [[ ! -e $REHEARSAL_PENDING_LOG && ! -L $REHEARSAL_PENDING_LOG ]] || { fail "pending storage rehearsal evidence requires finalization or reconciliation"; exit 1; }
+  [[ ! -e $REHEARSAL_LOG && ! -L $REHEARSAL_LOG ]] || { fail "Debian storage rehearsal is already finalized"; exit 1; }
+fi
 
 stage="stage-debian-image"
 echo "Staging and verifying pinned Debian image before Arch shutdown" >&2
@@ -484,17 +575,23 @@ arch_volume_id=${EFFECTIVE_SCSI0%%,*}
 volume_path=$(pvesm path "$candidate_volume_id")
 state_volume_path=$(pvesm path "$state_volume_id")
 arch_volume_path=$(pvesm path "$arch_volume_id")
+games_volume_path=${EFFECTIVE_SCSI1%%,*}
+[[ $games_volume_path == /dev/disk/by-id/nvme-CT4000P3PSSD8_2412E8A04266 && -L $games_volume_path ]] || { fail "games volume path is unsafe"; exit 1; }
 [[ $volume_path == /dev/pve/vm-100-disk-2 && -L $volume_path ]] || { fail "Debian target volume path is unsafe"; exit 1; }
 [[ $state_volume_path == /dev/pve/vm-100-disk-1 && -L $state_volume_path ]] || { fail "state volume path is unsafe"; exit 1; }
 [[ $arch_volume_path == /dev/pve/vm-100-disk-0 && -L $arch_volume_path ]] || { fail "Arch volume path is unsafe"; exit 1; }
 volume_device=$(readlink -f "$volume_path")
 state_volume_device=$(readlink -f "$state_volume_path")
 arch_volume_device=$(readlink -f "$arch_volume_path")
+games_volume_device=$(readlink -f "$games_volume_path")
 [[ $volume_device == /dev/dm-[0-9]* && -b $volume_device ]] || { fail "Debian target device is unsafe"; exit 1; }
 [[ $state_volume_device == /dev/dm-[0-9]* && -b $state_volume_device ]] || { fail "state device is unsafe"; exit 1; }
 [[ $arch_volume_device == /dev/dm-[0-9]* && -b $arch_volume_device ]] || { fail "Arch device is unsafe"; exit 1; }
+[[ $games_volume_device == /dev/nvme*n1 && -b $games_volume_device ]] || { fail "games device is unsafe"; exit 1; }
+[[ $(blockdev --getsize64 "$games_volume_device") -eq 4000787030016 ]] || { fail "games device size differs"; exit 1; }
 [[ $volume_device != "$state_volume_device" ]] || { fail "Debian target aliases the state volume"; exit 1; }
 [[ $volume_device != "$arch_volume_device" ]] || { fail "Debian target aliases the Arch volume"; exit 1; }
+[[ $games_volume_device != "$volume_device" && $games_volume_device != "$state_volume_device" && $games_volume_device != "$arch_volume_device" ]] || { fail "games device aliases another VM disk"; exit 1; }
 [[ $(blockdev --getsize64 "$volume_device") -eq 68719476736 ]] || { fail "Debian target volume size differs"; exit 1; }
 [[ $(qemu-img info --output=json "$IMAGE_PATH" | jq -r '.format') == qcow2 ]] || { fail "Debian image format differs"; exit 1; }
 image_virtual_size=$(qemu-img info --output=json "$IMAGE_PATH" | jq -r '."virtual-size"')
@@ -520,10 +617,13 @@ handle_failure() {
     candidate_diagnostics || echo "warning: candidate diagnostics could not be persisted" >&2
     stop_console_capture || true
   fi
-  if [[ $prepare_mode == true && $transition_started == true ]]; then
+  if [[ ($prepare_mode == true || $rehearsal_mode == true) && $transition_started == true ]]; then
     if prepare_arch_host_reboot_path; then
-      if [[ -f $PREPARE_PENDING_LOG ]] && jq -e '.state == "package-verified"' "$PREPARE_PENDING_LOG" >/dev/null 2>&1; then
+      if [[ $prepare_mode == true && -f $PREPARE_PENDING_LOG ]] && jq -e '.state == "package-verified"' "$PREPARE_PENDING_LOG" >/dev/null 2>&1; then
         mark_package_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
+      fi
+      if [[ $rehearsal_mode == true && -f $REHEARSAL_PENDING_LOG ]] && jq -e '.state == "rehearsal-verified"' "$REHEARSAL_PENDING_LOG" >/dev/null 2>&1; then
+        mark_rehearsal_evidence_awaiting_reboot "$arch_reboot_config_sha" || true
       fi
       echo "Arch boot configuration prepared; a physical Proxmox host reboot is required" >&2
     else
@@ -553,9 +653,15 @@ qm config "$VMID" > "$stopped_config"
 for key in scsi0 scsi1 scsi2 scsi3 ide2 cicustom; do
   [[ $(config_value "$stopped_config" "$key") == $(config_value "$before_current" "$key") ]] || { fail "stopped VM attachment differs: $key"; false; }
 done
-if [[ $prepare_mode == true ]]; then
+if [[ $prepare_mode == true || $rehearsal_mode == true ]]; then
   stage=verify-exclusive-debian-target
   if fuser "$volume_device" >/dev/null 2>&1; then false; fi
+  if [[ $rehearsal_mode == true ]]; then
+    stage=verify-exclusive-protected-storage
+    for protected_device in "$state_volume_device" "$games_volume_device" "$arch_volume_device"; do
+      if fuser "$protected_device" >/dev/null 2>&1; then false; fi
+    done
+  fi
   stage=set-debian-cloud-init
   qm set "$VMID" --scsi3 "$DEBIAN_SCSI3"
   qm set "$VMID" --cicustom "$DEBIAN_CICUSTOM"
@@ -580,6 +686,28 @@ if [[ $prepare_mode == true ]]; then
   guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=home-lab-state -s UUID -o value | sort -u) == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=games -s UUID -o value | sort -u) == 31602ce7-0054-498a-9f24-f51ca491e7b3 ]]"
+  if [[ $rehearsal_mode == true ]]; then
+    stage=rehearse-debian-storage-readonly
+    rehearsal_source=infrastructure/debian/rehearse-storage-readonly.sh
+    rehearsal_sha=dd212d9d93c219702d1405a26c6b6438f068577f79bb2a3710ffc5b238e79f4a
+    [[ $(sha256sum "$rehearsal_source" | awk '{print $1}') == "$rehearsal_sha" ]]
+    rehearsal_payload=$(base64 -w 0 "$rehearsal_source")
+    guest_exec_ok 900 /bin/bash -lc "set -Eeuo pipefail; umask 077; target=/run/home-lab-debian-rehearse-storage; trap 'rm -f -- \"\$target\"' EXIT; printf %s '$rehearsal_payload' | base64 -d > \"\$target\"; [[ \$(sha256sum \"\$target\" | awk '{print \$1}') == '$rehearsal_sha' ]]; /bin/bash \"\$target\" > /var/log/home-lab-debian-storage-rehearsal.log 2>&1 || { result=\$?; cat /var/log/home-lab-debian-storage-rehearsal.log; exit \"\$result\"; }"
+    stage=verify-debian-storage-rehearsal
+    rehearsal_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-storage-rehearsed.json | jq -er '."out-data"')
+    jq -e '.format == "home-lab-debian-storage-rehearsal-v1" and .readOnly == true and .unmounted == true and .kernelStorageErrors == 0 and .dockerServices == "docker-disabled-containerd-masked-inactive" and .workloadIdentity == "1000:1000" and .state.uuid == "d4a19647-7879-4079-9fc9-b3e79711b449" and .state.availableBytes >= 50000000000 and (.state.options | contains("noload")) and .games.uuid == "31602ce7-0054-498a-9f24-f51ca491e7b3" and .games.availableBytes >= 2000000000000 and (.games.options | contains("noload")) and .nfs.source == "192.168.0.123:/storage/docker" and .nfs.availableBytes >= 10000000000000 and (.nfs.options | contains("ro"))' <<< "$rehearsal_marker" >/dev/null
+    guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage /run/home-lab-storage-rehearsal/state /run/home-lab-storage-rehearsal/games /run/home-lab-storage-rehearsal/nfs; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done; [[ ! -e /run/home-lab-storage-rehearsal ]]"
+    stage=persist-debian-storage-rehearsal-evidence
+    write_rehearsal_pending_evidence "$rehearsal_marker"
+    stop_console_capture
+    prepare_arch_host_reboot_path
+    mark_rehearsal_evidence_awaiting_reboot "$arch_reboot_config_sha"
+    transition_started=false
+    trap - ERR INT TERM HUP
+    echo "Debian storage rehearsal verified read-only and exact Arch boot configuration prepared; a physical Proxmox host reboot is required" >&2
+    echo "After reboot, run /root/home-lab/scripts/finalize-debian-storage-rehearsal at the physical console" >&2
+    exit 0
+  fi
   if guest_exec_ok 30 /usr/bin/test -f /var/lib/home-lab/debian-packages-prepared.json; then
     stage=verify-existing-debian-packages
   else

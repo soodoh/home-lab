@@ -42,7 +42,7 @@ After the reboot, a separate physical-console finalizer requires a changed host 
 
 ### 2. Storage rehearsal
 
-Boot Debian under the same coordinator, keep Docker stopped, and mount the exact games and state UUIDs read-only with `noload`. Mount NFS read-only. Verify source identities, ownership compatibility for UID/GID 1000, expected state directories, free space, and absence of filesystem or kernel errors. Unmount all three and restore Arch. No `fstab` activation occurs in this stage.
+Boot Debian under the same coordinator and keep Docker/containerd inert. Resolve state and games by exact UUID, label, parent serial, size, canonical host attachment, and non-aliasing. Mount both ext4 filesystems only below `/run/home-lab-storage-rehearsal` with `ro,noload,nodev,nosuid,noexec`; mount exact NFS source `192.168.0.123:/storage/docker` there with read-only hard NFSv4.2 options. Verify read-only and no-journal-replay mount flags, UID/GID 1000 compatibility, exact active state ownership manifests, expected games/NFS directories, minimum free space, and no new kernel storage errors. Unmount all three before writing candidate evidence, restore exact Arch boot authority, require the planned physical host reboot, and promote evidence only after full Arch verification. No production mountpoint, persistent mount unit, Docker runtime, credentials, or Tailscale state is activated.
 
 ### 3. Credentials and Compose staged
 

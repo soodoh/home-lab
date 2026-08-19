@@ -138,7 +138,7 @@ const prepareRebootIndex = script.indexOf("  prepare_arch_host_reboot_path", pen
 const awaitingIndex = script.indexOf('mark_package_evidence_awaiting_reboot "', prepareRebootIndex);
 assert.ok(packageIndex < pendingIndex && pendingIndex < prepareRebootIndex && prepareRebootIndex < awaitingIndex);
 assert.match(script, /if guest_exec_ok 30 \/usr\/bin\/test -f \/var\/lib\/home-lab\/debian-packages-prepared\.json; then[\s\S]*stage=verify-existing-debian-packages[\s\S]*else[\s\S]*stage=prepare-debian-packages/);
-assert.match(script, /prepare_mode == true && \$transition_started == true[\s\S]*prepare_arch_host_reboot_path/);
+assert.match(script, /\(\$prepare_mode == true \|\| \$rehearsal_mode == true\) && \$transition_started == true[\s\S]*prepare_arch_host_reboot_path/);
 assert.match(script, /timeout 15 qm guest cmd "\$VMID" shutdown/);
 assert.match(script, /state:"package-verified"/);
 assert.match(script, /state:"awaiting-host-reboot"/);

@@ -1,0 +1,13 @@
+#!/bin/bash
+set -euo pipefail
+
+readonly CONFIRMATION=finalize-reviewed-vm-100-debian-storage-after-reboot
+
+[[ $# -eq 0 ]] || { echo "usage: scripts/finalize-debian-storage-rehearsal" >&2; exit 1; }
+[[ -t 0 ]] || { echo "Debian storage finalization requires confirmation from an interactive physical console" >&2; exit 1; }
+printf 'Type the exact confirmation to finalize read-only storage evidence after the physical host reboot:\n%s\n' "$CONFIRMATION" >&2
+IFS= read -r confirmation
+[[ $confirmation == "$CONFIRMATION" ]] || { echo "exact Debian storage-finalization confirmation is required" >&2; exit 1; }
+export HOME_LAB_DEBIAN_QUALIFICATION_CONFIRMED=$CONFIRMATION
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+exec "$root/scripts/qualify-debian-inert"

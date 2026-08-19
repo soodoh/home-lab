@@ -1235,6 +1235,72 @@ debian:
       - net0
     transition_restore: physical-host-reboot
     package_evidence: post-reboot-arch-verified
+    storage_rehearsal:
+      mode: read-only
+      isolated_mount_root: /run/home-lab-storage-rehearsal
+      ext4_options:
+        - ro
+        - noload
+        - nodev
+        - nosuid
+        - noexec
+      nfs_source: 192.168.0.123:/storage/docker
+      nfs_options:
+        - ro
+        - nodev
+        - nosuid
+        - noexec
+        - vers=4.2
+      state_min_available_bytes: 50000000000
+      games_min_available_bytes: 2000000000000
+      nfs_min_available_bytes: 10000000000000
+      workload_uid: 1000
+      workload_gid: 1000
+      expected_state_directories:
+        - audiobookshelf-data
+        - authentik-data
+        - bookshelf-data
+        - caddy-data
+        - calibre-data
+        - calibre-web-data
+        - calibre-web-ingest
+        - caro-tachidesk-data
+        - ddns-updater-data
+        - flaresolverr-data
+        - frigate-data
+        - gluetun-data
+        - jellyfin-data
+        - karaoke-eternal-data
+        - litellm-data
+        - mosquitto-data
+        - nextcloud-db-data
+        - nextcloud-redis-data
+        - omada-data
+        - openfit-data
+        - pihole-data
+        - prowlarr-data
+        - qbittorrent-data
+        - radarr-4k-data
+        - radarr-data
+        - recyclarr-data
+        - sabnzbd-data
+        - seerr-data
+        - sonarr-data
+        - tachidesk-data
+        - vaultwarden-data
+        - vikunja-data
+        - zwave-data
+      expected_games_directories:
+        - backups
+        - bioses
+        - es-de-media
+        - roms
+        - wolf
+      expected_nfs_directories:
+        - backups
+        - media
+        - vuetorrent
+      evidence: post-reboot-arch-verified
     minimum_observation_days: 7
 omada:
   controller_version: 6.2.14.11
