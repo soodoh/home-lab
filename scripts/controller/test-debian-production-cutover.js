@@ -20,6 +20,7 @@ const coordinator = fs.readFileSync(path.join(root, "scripts/qualify-debian-iner
 const runner = fs.readFileSync(path.join(root, "scripts/run-debian-production-cutover"), "utf8");
 const finalizer = fs.readFileSync(path.join(root, "scripts/finalize-debian-production-cutover"), "utf8");
 const revoker = fs.readFileSync(path.join(root, "scripts/controller/revoke-debian-production-tailscale-device.py"), "utf8");
+const credentialConfigurator = fs.readFileSync(path.join(root, "scripts/configure-debian-production-tailscale-credentials"), "utf8");
 
 assert.equal(contract.debian.cutover.stage, "production-canary");
 assert.equal(cutover.phase, "designed");
@@ -52,6 +53,10 @@ assert.match(keyGenerator, /"tags": \[TAG\]/);
 assert.match(keyGenerator, /age", "--encrypt", "--recipient", RECIPIENT/);
 assert.match(keyGenerator, /"plaintextRetained": False/);
 assert.doesNotMatch(keyGenerator, /print\(auth_key|write_text\(auth_key/);
+assert.match(keyGenerator, /tailscale-cutover-credentials\.json/);
+assert.match(revoker, /tailscale-cutover-credentials\.json/);
+assert.match(credentialConfigurator, /read -r -s -p 'Tailscale cutover OAuth client secret/);
+assert.match(credentialConfigurator, /chmod 0600 "\$pending"/);
 assert.match(archPrepare, /docker image save --output/);
 assert.match(archPrepare, /production image lock/);
 assert.match(archPrepare, /tailscale_1\.98\.4_amd64\.tgz/);

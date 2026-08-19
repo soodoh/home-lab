@@ -50,7 +50,7 @@ def main() -> None:
         fail("hostname_not_allowed")
 
     config_dir = args.config_dir.expanduser().resolve()
-    credentials_path = config_dir / "apply-credentials.json"
+    credentials_path = config_dir / "tailscale-cutover-credentials.json"
     if (
         not config_dir.is_dir()
         or config_dir.is_symlink()

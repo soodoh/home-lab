@@ -26,7 +26,7 @@ def fail(reason: str) -> None:
 
 
 def read_credentials(config_dir: Path) -> tuple[str, str]:
-    path = config_dir / "apply-credentials.json"
+    path = config_dir / "tailscale-cutover-credentials.json"
     if (
         not config_dir.is_dir()
         or config_dir.is_symlink()
