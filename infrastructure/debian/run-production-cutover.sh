@@ -18,6 +18,7 @@ readonly TAILSCALE_ARCHIVE=/srv/home-lab-state/.debian-tailscale-1.98.4-amd64.tg
 readonly ACTIVATION_MARKER=/etc/home-lab/allow-storage-activation
 readonly OUTPUT_MARKER=/var/lib/home-lab/debian-production.json
 readonly IMAGE_LOCK_TARGET=/var/lib/home-lab/production-image-lock.json
+readonly IMAGE_OVERRIDE=/var/lib/home-lab/production-image-override.json
 readonly COMPOSE_UNIT=/etc/systemd/system/home-lab-compose.service
 readonly ACTIVATION_JOURNAL=/var/lib/home-lab/debian-production-activation.json
 readonly FAILED_MARKER=/var/lib/home-lab/debian-production-failed.json
@@ -81,9 +82,12 @@ started_epoch=$(date +%s)
 cutover_complete=false
 tailscale_enrolled=false
 cleanup() {
-  local result=$?
+  local result=$? cleanup_safe=true cleanup_result
+  local -a compose_files
   trap - EXIT INT TERM HUP
   if [[ $cutover_complete == true ]]; then return "$result"; fi
+  cleanup_result=$result
+  [[ $cleanup_result -ne 0 ]] || cleanup_result=1
   set +e
   persist_tailscale_node_id || true
   if [[ -f $ACTIVATION_JOURNAL && ! -L $ACTIVATION_JOURNAL ]]; then
@@ -94,19 +98,33 @@ cleanup() {
   if command -v tailscale >/dev/null 2>&1; then tailscale down >/dev/null 2>&1 || true; fi
   systemctl disable --now tailscaled.service home-lab-compose.service >/dev/null 2>&1 || true
   if systemctl is-active docker.service >/dev/null 2>&1; then
-    HOME=/root docker compose --project-name "$PROJECT" --project-directory "$DEPLOY_ROOT" --env-file "$PRODUCTION_ENV" --file "$DEPLOY_ROOT/docker-compose.yml" down --remove-orphans >/dev/null 2>&1 || true
+    compose_files=(--file "$DEPLOY_ROOT/docker-compose.yml")
+    [[ ! -f $IMAGE_OVERRIDE || -L $IMAGE_OVERRIDE ]] || compose_files+=(--file "$IMAGE_OVERRIDE")
+    HOME=/root docker compose --project-name "$PROJECT" --project-directory "$DEPLOY_ROOT" --env-file "$PRODUCTION_ENV" "${compose_files[@]}" down --remove-orphans >/dev/null 2>&1 || true
     docker system prune --all --force --volumes >/dev/null 2>&1 || true
   fi
   systemctl disable --now docker.service docker.socket >/dev/null 2>&1 || true
   systemctl stop containerd.service >/dev/null 2>&1 || true
   systemctl mask containerd.service >/dev/null 2>&1 || true
   for unit in "$NFS_UNIT" "$GAMES_UNIT" "$STATE_UNIT"; do systemctl disable --now "$unit" >/dev/null 2>&1 || true; done
-  rm -f -- "$PRODUCTION_ENV" "$ACTIVATION_MARKER" "$ACTIVATION_JOURNAL" "$COMPOSE_UNIT" "$IMAGE_LOCK_TARGET" "$DEPLOY_ROOT" "$GUARD_SCRIPT" "$GUARD_UNIT" "$DOCKER_DROPIN" "$TAILSCALE_DROPIN" "$TRANSACTION_MARKER" /etc/systemd/system/tailscaled.service /etc/systemd/system/tailscale-online.target /etc/systemd/system/tailscale-wait-online.service /etc/default/tailscaled /usr/bin/tailscale /usr/sbin/tailscaled
+  for service in tailscaled.service home-lab-compose.service docker.service docker.socket containerd.service; do
+    if systemctl is-active "$service" >/dev/null 2>&1; then cleanup_safe=false; fi
+  done
+  [[ ! -S /run/docker.sock ]] || cleanup_safe=false
+  for target in /srv/home-lab-state /mnt/games /mnt/storage; do
+    if mount_active "$target"; then cleanup_safe=false; fi
+  done
+  rm -f -- "$encrypted_key" /run/home-lab-production-authkey
+  if [[ $cleanup_safe != true ]]; then
+    echo "critical: candidate cleanup is incomplete; fail-closed guard and activation journal were retained" >&2
+    exit "$cleanup_result"
+  fi
+  rm -f -- "$PRODUCTION_ENV" "$ACTIVATION_MARKER" "$ACTIVATION_JOURNAL" "$COMPOSE_UNIT" "$IMAGE_LOCK_TARGET" "$IMAGE_OVERRIDE" "$DEPLOY_ROOT" "$GUARD_SCRIPT" "$GUARD_UNIT" "$DOCKER_DROPIN" "$TAILSCALE_DROPIN" "$TRANSACTION_MARKER" /etc/systemd/system/tailscaled.service /etc/systemd/system/tailscale-online.target /etc/systemd/system/tailscale-wait-online.service /etc/default/tailscaled /usr/bin/tailscale /usr/sbin/tailscaled
   rm -rf -- /var/lib/tailscale /var/cache/tailscale /run/tailscale
-  rm -f -- "$IMAGE_TRANSFER" "$TRANSFER_MARKER" "$TAILSCALE_ARCHIVE" "$encrypted_key" /run/home-lab-production-model.json /run/home-lab-production-runtime-lock.json /run/home-lab-production-authkey
+  rm -f -- "$IMAGE_TRANSFER" "$TRANSFER_MARKER" "$TAILSCALE_ARCHIVE" /run/home-lab-production-model.json /run/home-lab-production-runtime-lock.json
   systemctl daemon-reload >/dev/null 2>&1 || true
   echo "critical: Debian production activation rolled back in the candidate; Arch recovery requires a physical host reboot" >&2
-  exit "$result"
+  exit "$cleanup_result"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -172,10 +190,21 @@ docker load --input "$IMAGE_TRANSFER" >/dev/null
 rm -f -- "$IMAGE_TRANSFER"
 python3 "$ARTIFACT_ROOT/scripts/compose-image-lock.py" verify --current "$IMAGE_LOCK_TARGET" --previous "$IMAGE_LOCK_TARGET" >/dev/null
 python3 "$ARTIFACT_ROOT/scripts/compose-image-lock.py" activate --lock "$IMAGE_LOCK_TARGET" >/dev/null
+override_temporary=$(mktemp /var/lib/home-lab/.production-image-override.XXXXXX)
+jq -c '{services:(reduce .images[] as $image ({}; .[$image.service] = {image:$image.image_id}))}' "$IMAGE_LOCK_TARGET" > "$override_temporary"
+jq -e '(.services | length) == 41 and all(.services | to_entries[]; (.key | length) > 0 and (.value | keys) == ["image"] and (.value.image | test("^sha256:[0-9a-f]{64}$")))' "$override_temporary" >/dev/null || fail "production image override differs"
+chown root:root "$override_temporary"
+chmod 0644 "$override_temporary"
+mv -T "$override_temporary" "$IMAGE_OVERRIDE"
+probe_image=$(jq -er '.images[0].image_id | select(test("^sha256:[0-9a-f]{64}$"))' "$IMAGE_LOCK_TARGET")
+probe_container=$(docker create --name home-lab-image-id-probe "$probe_image")
+[[ $probe_container =~ ^[0-9a-f]{64}$ ]] || fail "Docker image-ID probe differs"
+docker rm "$probe_container" >/dev/null
 HOME=/root python3 "$ARTIFACT_ROOT/scripts/compose-model-inventory.py" desired --artifact-root "$ARTIFACT_ROOT" --project-directory "$ARTIFACT_ROOT" --env-file "$PRODUCTION_ENV" --project-name "$PROJECT" --bind-root-override /srv/docker-compose/current --output /run/home-lab-production-model.json >/dev/null
 [[ $(sha256sum /run/home-lab-production-model.json | awk '{print $1}') == "$MODEL_SHA256" ]] || fail "production Compose model differs"
 install -d -o root -g root -m 0755 /srv/docker-compose
 ln -s "$ARTIFACT_ROOT" "$DEPLOY_ROOT"
+diff -u <(jq -r '[.images[].image_id] | unique[]' "$IMAGE_LOCK_TARGET") <(HOME=/root docker compose --project-name "$PROJECT" --project-directory "$DEPLOY_ROOT" --env-file "$PRODUCTION_ENV" --file "$DEPLOY_ROOT/docker-compose.yml" --file "$IMAGE_OVERRIDE" config --images | sort -u) >/dev/null || fail "Compose image-ID override resolution differs"
 cat > "$COMPOSE_UNIT" <<EOF
 [Unit]
 Description=Home lab production Compose stack
@@ -188,8 +217,8 @@ Type=oneshot
 RemainAfterExit=yes
 Environment=HOME=/root
 WorkingDirectory=$DEPLOY_ROOT
-ExecStart=/usr/bin/docker compose --project-name $PROJECT --project-directory $DEPLOY_ROOT --env-file $PRODUCTION_ENV --file $DEPLOY_ROOT/docker-compose.yml up --detach --pull never --remove-orphans
-ExecStop=/usr/bin/docker compose --project-name $PROJECT --project-directory $DEPLOY_ROOT --env-file $PRODUCTION_ENV --file $DEPLOY_ROOT/docker-compose.yml stop --timeout 120
+ExecStart=/usr/bin/docker compose --project-name $PROJECT --project-directory $DEPLOY_ROOT --env-file $PRODUCTION_ENV --file $DEPLOY_ROOT/docker-compose.yml --file $IMAGE_OVERRIDE up --detach --pull never --remove-orphans
+ExecStop=/usr/bin/docker compose --project-name $PROJECT --project-directory $DEPLOY_ROOT --env-file $PRODUCTION_ENV --file $DEPLOY_ROOT/docker-compose.yml --file $IMAGE_OVERRIDE stop --timeout 120
 TimeoutStartSec=1200
 TimeoutStopSec=300
 
@@ -212,7 +241,7 @@ mapfile -t ids < <(docker ps -q)
 [[ $(docker inspect "${ids[@]}" | jq '[.[].Mounts[] | select(.Type == "bind" and (.Source | startswith("/srv/home-lab-state/")))] | length') -eq 115 ]] || fail "production state bind count differs"
 [[ $(docker inspect "${ids[@]}" | jq '[.[].Mounts[] | select(.Type == "volume")] | length') -eq 0 ]] || fail "production Docker volume use differs"
 python3 "$ARTIFACT_ROOT/scripts/compose-image-lock.py" capture --project "$PROJECT" --output /run/home-lab-production-runtime-lock.json >/dev/null
-jq -e --slurpfile expected "$IMAGE_LOCK_TARGET" '.images == $expected[0].images' /run/home-lab-production-runtime-lock.json >/dev/null || fail "production runtime images differ"
+jq -e --slurpfile expected "$IMAGE_LOCK_TARGET" '[.images[] | {service,image_id}] == [$expected[0].images[] | {service,image_id}]' /run/home-lab-production-runtime-lock.json >/dev/null || fail "production runtime image IDs differ"
 for port in 80 443 8123 8096; do timeout 10 /bin/bash -lc "</dev/tcp/127.0.0.1/$port" || fail "LAN production port $port is unavailable"; done
 kernel_errors=$(journalctl -k --since "@$started_epoch" --no-pager | grep -Eci 'I/O error|EXT4-fs error|Buffer I/O|blk_update_request|nfs: server .* not responding' || true)
 [[ $kernel_errors -eq 0 ]] || fail "kernel storage errors occurred during production activation"
