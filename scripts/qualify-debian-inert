@@ -1400,7 +1400,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
   if [[ $production_mode == true ]]; then
     stage="reconcile-failed-debian-production"
     failed_reconcile_source=infrastructure/debian/reconcile-failed-production.sh
-    failed_reconcile_sha=f5f77120d864f7f1767800d02ba035409195dc57d1fa2842b5f0b1d2222d12d5
+    failed_reconcile_sha=d3797fbc93ebf0dc28f10cbac5ff06f84610edab20f664beb5a4c84ced5f9160
     [[ $(sha256sum "$failed_reconcile_source" | awk '{print $1}') == "$failed_reconcile_sha" ]]
     failed_reconcile_payload=$(base64 -w 0 "$failed_reconcile_source")
     guest_exec_ok 600 /bin/bash -lc "set -Eeuo pipefail; printf %s '$failed_reconcile_payload' | base64 -d > /run/home-lab-reconcile-failed-production; [[ \$(sha256sum /run/home-lab-reconcile-failed-production | awk '{print \$1}') == '$failed_reconcile_sha' ]]; /bin/bash /run/home-lab-reconcile-failed-production; rm -f -- /run/home-lab-reconcile-failed-production"

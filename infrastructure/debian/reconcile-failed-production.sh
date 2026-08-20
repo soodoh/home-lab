@@ -67,7 +67,12 @@ for service in tailscaled.service home-lab-compose.service docker.service docker
   state=$(verified_service_state "$service" 2>/dev/null) || fail "runtime service state is unreadable: $service"
   [[ $state == inactive ]] || fail "runtime service is not explicitly inactive: $service ($state)"
 done
-[[ ! -S /run/docker.sock ]] || fail "Docker socket remains active"
+if [[ -S /run/docker.sock && ! -L /run/docker.sock ]]; then
+  socket_listeners=$(ss -Hxl 'src /run/docker.sock') || fail "Docker socket listener state is unreadable"
+  [[ -z $socket_listeners ]] || fail "Docker socket listener remains active"
+  rm -f -- /run/docker.sock
+fi
+[[ ! -e /run/docker.sock && ! -L /run/docker.sock ]] || fail "unsafe Docker socket artifact remains"
 for target in /srv/home-lab-state /mnt/games /mnt/storage; do
   state=$(verified_mount_state "$target") || fail "protected mount state is unreadable: $target"
   [[ $state == unmounted ]] || fail "protected mount is not explicitly unmounted: $target ($state)"
