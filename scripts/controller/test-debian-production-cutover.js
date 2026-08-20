@@ -100,9 +100,9 @@ assert.ok(failedReconcile.indexOf('runtime service is not explicitly inactive') 
 assert.match(production, /verified_mount_state "\$target"[\s\S]*\$state != unmounted[\s\S]*cleanup_safe=false/);
 assert.match(production, /verified_service_state "\$service"[\s\S]*\$state != inactive[\s\S]*cleanup_safe=false/);
 assert.match(failedReconcile, /rm -f --[\s\S]*"\$SERIAL_RULES" "\$FAILED_MARKER"/);
-assert.match(production, /wait_for_tcp_port\(\)[\s\S]*attempt < 120[\s\S]*timeout 2/);
-assert.match(production, /for port in 80 443 8123 8096; do wait_for_tcp_port/);
-assert.match(coordinator, /guest_exec_ok 900 \/bin\/bash -lc[\s\S]*port_ready=false[\s\S]*attempt < 120/);
+assert.match(production, /wait_for_tcp_port\(\)[\s\S]*local address=\$1 port=\$2[\s\S]*attempt < 120[\s\S]*timeout 2/);
+assert.match(production, /for port in 80 443 8123 8096; do wait_for_tcp_port 192\.168\.0\.100 "\$port"/);
+assert.match(coordinator, /guest_exec_ok 900 \/bin\/bash -lc[\s\S]*port_ready=false[\s\S]*attempt < 120[\s\S]*\/dev\/tcp\/192\.168\.0\.100\/\$port/);
 assert.match(production, /containerCount:41/);
 assert.match(production, /stateBindCount:115/);
 assert.ok(archPrepare.includes('select(.Type == "bind" and (.Source | startswith("/srv/home-lab-state/")))'));
@@ -119,7 +119,7 @@ assert.match(coordinator, /stage=verify-qualified-debian-package-baseline[\s\S]*
 assert.doesNotMatch(coordinator, /! findmnt -rn --target/);
 assert.ok(coordinator.includes("production_prepare_sha=45c2b585df41ff956db70f02fb6bd28d2f9c42eb23dd2437115195fc4db1d76b"));
 assert.ok(coordinator.includes("failed_reconcile_sha=f5f77120d864f7f1767800d02ba035409195dc57d1fa2842b5f0b1d2222d12d5"));
-assert.ok(coordinator.includes("production_sha=5f7b2a385c98374485a1848f08ea2261093b911238d7c6259947b262a40d6f94"));
+assert.ok(coordinator.includes("production_sha=28636dd3ffbda5856f6709481c56e9512046e16c8c52269bdff3da12f308c2c1"));
 assert.match(coordinator, /stage="reconcile-failed-debian-production"/);
 assert.match(coordinator, /setsid \/bin\/bash \/run\/home-lab-arch-production-prepare\.runner/);
 assert.match(coordinator, /setsid \/bin\/bash \/run\/home-lab-debian-production\.runner/);
