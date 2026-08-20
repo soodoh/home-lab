@@ -612,11 +612,11 @@ plan_all() {
     plan_log="$plan_dir/$root.plan.log"
     : >"$plan_log"
     chmod 0600 "$plan_log"
-    set +e
+    set +eu
     tofu -chdir="infrastructure/tofu/$root" plan -input=false -lock-timeout=5m -no-color \
       -parallelism=1 -detailed-exitcode -out="$plan" "${plan_args[@]}" >"$plan_log" 2>&1
     exit_code=$?
-    set -e
+    set -eu
     [[ $exit_code == 0 || $exit_code == 2 ]] || {
       echo "OpenTofu planning failed for $root; inspect the protected local plan log." >&2
       exit "$exit_code"
@@ -1047,11 +1047,11 @@ verify_all() {
     verify_log="$plan_dir/$root.verify.log"
     : >"$verify_log"
     chmod 0600 "$verify_log"
-    set +e
+    set +eu
     tofu -chdir="infrastructure/tofu/$root" plan -input=false -lock-timeout=5m -no-color \
       -parallelism=1 -detailed-exitcode "${plan_args[@]}" >"$verify_log" 2>&1
     exit_code=$?
-    set -e
+    set -eu
     [[ $exit_code == 0 ]] || {
       echo "OpenTofu root is not converged: $root; inspect the protected local verification log." >&2
       exit 1
