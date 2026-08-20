@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "commit": "5847a066017e39f071dca540059322d6d30b5fcb",
+  "createdAt": "2026-08-20T23:24:52.408Z",
+  "phase": "steady",
+  "stage": "converge",
+  "manifestSha256": "a0e1b86aa00d5fb41193b962d9d0288aa7fe9fc38b5af73186e2443cf30d2e58",
+  "proxmoxHostActions": 0,
+  "allActionsZero": true,
+  "roots": [
+    {
+      "root": "aws-foundation",
+      "changed": false,
+      "sha256": "938af3e6a6e4c03dcc41944ce38f9fef860d5b6a26e1ad119878a72308cbce16"
+    },
+    {
+      "root": "omada",
+      "changed": false,
+      "sha256": "d31e64236bf6ac6ff66f257fde96b6ef671c9ab8f0756c24056fd0778b05277e"
+    },
+    {
+      "root": "proxmox",
+      "changed": false,
+      "sha256": "8925586bc1b8e3c485778a72fa646d7e96b40bec1c0a25e579809159e7f889ff"
+    },
+    {
+      "root": "proxmox-legacy",
+      "changed": false,
+      "sha256": "abcc4449accaa7b1e3db02e9392e6363385458c7a1187161d438a6e5ca6e8c46"
+    },
+    {
+      "root": "tailscale",
+      "changed": false,
+      "sha256": "821e4276d816cc4203428b450136af89287ce3bb262f7f207b06ab7d41bc1a5b"
+    }
+  ]
+}
