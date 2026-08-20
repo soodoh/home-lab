@@ -99,13 +99,16 @@ candidates.sort(key=lambda candidate: candidate[0], reverse=True)
 for _, _, path in candidates:
     sys.stdout.buffer.write(path.encode() + b"\0")
 PY
-mapfile -d '' -t local_candidates <"$candidate_file"
+local_candidates=()
+while IFS= read -r -d '' local_candidate; do local_candidates+=("$local_candidate"); done <"$candidate_file"
+unset local_candidate
 rm -f -- "$candidate_file"
 
 selected_source=
 selected_backup_id=
 selected_backup_sha256=
 selected_version=
+if ((${#local_candidates[@]})); then
 for local_source in "${local_candidates[@]}"; do
   stage=local-snapshot
   archive_basename=${local_source##*/}
@@ -135,20 +138,21 @@ for local_source in "${local_candidates[@]}"; do
     break
   fi
 done
+fi
 
 if [[ -z $selected_source ]]; then
   stage=remote-validation
   : "${RECOVERY_BACKUP_URL:?RECOVERY_BACKUP_URL is required when no valid local backup is available}"
   : "${RECOVERY_BACKUP_VERSION_ID:?RECOVERY_BACKUP_VERSION_ID is required when no valid local backup is available}"
   : "${RECOVERY_REMOTE_BACKUP_SHA256:?RECOVERY_REMOTE_BACKUP_SHA256 is required when no valid local backup is available}"
-  [[ ${RECOVERY_REMOTE_BACKUP_LATEST_CONFIRMED:-} == true ]]
-  [[ $remote_backup_id =~ ^weekly-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}\.tar\.gz\.gpg$ ]]
-  [[ $RECOVERY_REMOTE_BACKUP_SHA256 =~ ^[0-9a-f]{64}$ ]]
-  [[ $RECOVERY_BACKUP_VERSION_ID =~ ^[A-Za-z0-9._~+-]{1,1024}$ ]]
-  [[ $RECOVERY_BACKUP_URL == https://* ]]
+  [[ ${RECOVERY_REMOTE_BACKUP_LATEST_CONFIRMED:-} == true ]] || { echo "remote backup latest-version confirmation is required" >&2; exit 1; }
+  [[ $remote_backup_id =~ ^weekly-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}\.tar\.gz\.gpg$ ]] || { echo "remote backup ID is invalid" >&2; exit 1; }
+  [[ $RECOVERY_REMOTE_BACKUP_SHA256 =~ ^[0-9a-f]{64}$ ]] || { echo "remote backup SHA-256 is invalid" >&2; exit 1; }
+  [[ $RECOVERY_BACKUP_VERSION_ID =~ ^[A-Za-z0-9._~+-]{1,1024}$ ]] || { echo "remote backup version ID is invalid" >&2; exit 1; }
+  [[ $RECOVERY_BACKUP_URL == https://* ]] || { echo "remote backup URL must use HTTPS" >&2; exit 1; }
   url_path=${RECOVERY_BACKUP_URL%%\?*}
   url_name=${url_path##*/}
-  [[ $url_name == "$remote_backup_id" ]]
+  [[ $url_name == "$remote_backup_id" ]] || { echo "remote backup URL does not match the approved backup ID" >&2; exit 1; }
   RECOVERY_URL="$RECOVERY_BACKUP_URL" RECOVERY_VERSION="$RECOVERY_BACKUP_VERSION_ID" python3 - <<'PY'
 import os
 from urllib.parse import parse_qs, urlsplit
