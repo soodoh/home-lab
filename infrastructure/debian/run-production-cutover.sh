@@ -26,6 +26,7 @@ readonly GUARD_SCRIPT=/usr/local/sbin/home-lab-production-guard
 readonly GUARD_UNIT=/etc/systemd/system/home-lab-production-guard.service
 readonly DOCKER_DROPIN=/etc/systemd/system/docker.service.d/10-home-lab-storage.conf
 readonly TAILSCALE_DROPIN=/etc/systemd/system/tailscaled.service.d/10-home-lab-production-guard.conf
+readonly SERIAL_RULES=/etc/udev/rules.d/71-home-lab-usb-serial.rules
 readonly TRANSACTION_MARKER=/run/home-lab-production-transaction
 readonly STATE_UNIT='srv-home\x2dlab\x2dstate.mount'
 readonly GAMES_UNIT=mnt-games.mount
@@ -34,6 +35,8 @@ readonly PROJECT=docker-compose
 
 fail() { echo "error: $*" >&2; exit 1; }
 mount_active() { mountpoint -q "$1"; }
+verified_mount_state() { awk -v target="$1" 'BEGIN { state="unmounted" } $5 == target { state="mounted" } END { print state }' /proc/self/mountinfo; }
+verified_service_state() { systemctl show --property=ActiveState --value "$1"; }
 write_phase() {
   local phase=$1 temporary
   temporary=$(mktemp /var/lib/home-lab/.debian-production-activation.XXXXXX)
@@ -82,7 +85,7 @@ started_epoch=$(date +%s)
 cutover_complete=false
 tailscale_enrolled=false
 cleanup() {
-  local result=$? cleanup_safe=true cleanup_result
+  local result=$? cleanup_safe=true cleanup_result state
   local -a compose_files
   trap - EXIT INT TERM HUP
   if [[ $cutover_complete == true ]]; then return "$result"; fi
@@ -107,22 +110,24 @@ cleanup() {
   systemctl stop containerd.service >/dev/null 2>&1 || true
   systemctl mask containerd.service >/dev/null 2>&1 || true
   for unit in "$NFS_UNIT" "$GAMES_UNIT" "$STATE_UNIT"; do systemctl disable --now "$unit" >/dev/null 2>&1 || true; done
+  systemctl reset-failed tailscaled.service home-lab-compose.service docker.service docker.socket containerd.service >/dev/null 2>&1 || true
   for service in tailscaled.service home-lab-compose.service docker.service docker.socket containerd.service; do
-    if systemctl is-active "$service" >/dev/null 2>&1; then cleanup_safe=false; fi
+    if ! state=$(verified_service_state "$service" 2>/dev/null) || [[ $state != inactive ]]; then cleanup_safe=false; fi
   done
   [[ ! -S /run/docker.sock ]] || cleanup_safe=false
   for target in /srv/home-lab-state /mnt/games /mnt/storage; do
-    if mount_active "$target"; then cleanup_safe=false; fi
+    if ! state=$(verified_mount_state "$target") || [[ $state != unmounted ]]; then cleanup_safe=false; fi
   done
   rm -f -- "$encrypted_key" /run/home-lab-production-authkey
   if [[ $cleanup_safe != true ]]; then
     echo "critical: candidate cleanup is incomplete; fail-closed guard and activation journal were retained" >&2
     exit "$cleanup_result"
   fi
-  rm -f -- "$PRODUCTION_ENV" "$ACTIVATION_MARKER" "$ACTIVATION_JOURNAL" "$COMPOSE_UNIT" "$IMAGE_LOCK_TARGET" "$IMAGE_OVERRIDE" "$DEPLOY_ROOT" "$GUARD_SCRIPT" "$GUARD_UNIT" "$DOCKER_DROPIN" "$TAILSCALE_DROPIN" "$TRANSACTION_MARKER" /etc/systemd/system/tailscaled.service /etc/systemd/system/tailscale-online.target /etc/systemd/system/tailscale-wait-online.service /etc/default/tailscaled /usr/bin/tailscale /usr/sbin/tailscaled
+  rm -f -- "$PRODUCTION_ENV" "$ACTIVATION_MARKER" "$ACTIVATION_JOURNAL" "$COMPOSE_UNIT" "$IMAGE_LOCK_TARGET" "$IMAGE_OVERRIDE" "$DEPLOY_ROOT" "$GUARD_SCRIPT" "$GUARD_UNIT" "$DOCKER_DROPIN" "$TAILSCALE_DROPIN" "$SERIAL_RULES" "$TRANSACTION_MARKER" /etc/systemd/system/tailscaled.service /etc/systemd/system/tailscale-online.target /etc/systemd/system/tailscale-wait-online.service /etc/default/tailscaled /usr/bin/tailscale /usr/sbin/tailscaled
   rm -rf -- /var/lib/tailscale /var/cache/tailscale /run/tailscale
   rm -f -- "$IMAGE_TRANSFER" "$TRANSFER_MARKER" "$TAILSCALE_ARCHIVE" /run/home-lab-production-model.json /run/home-lab-production-runtime-lock.json
   systemctl daemon-reload >/dev/null 2>&1 || true
+  udevadm control --reload >/dev/null 2>&1 || true
   echo "critical: Debian production activation rolled back in the candidate; Arch recovery requires a physical host reboot" >&2
   exit "$cleanup_result"
 }
@@ -202,6 +207,16 @@ probe_container=$(docker create --name home-lab-image-id-probe "$probe_image")
 docker rm "$probe_container" >/dev/null
 HOME=/root python3 "$ARTIFACT_ROOT/scripts/compose-model-inventory.py" desired --artifact-root "$ARTIFACT_ROOT" --project-directory "$ARTIFACT_ROOT" --env-file "$PRODUCTION_ENV" --project-name "$PROJECT" --bind-root-override /srv/docker-compose/current --output /run/home-lab-production-model.json >/dev/null
 [[ $(sha256sum /run/home-lab-production-model.json | awk '{print $1}') == "$MODEL_SHA256" ]] || fail "production Compose model differs"
+cat > "$SERIAL_RULES" <<'EOF'
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="5075bd467fc9eb11a783914f1d69213e", SYMLINK+="zigbee", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="tty", ATTRS{idVendor}=="10c4", ATTRS{idProduct}=="ea60", ATTRS{serial}=="0001", SYMLINK+="zwave", GROUP="dialout", MODE="0660"
+EOF
+chown root:root "$SERIAL_RULES"
+chmod 0644 "$SERIAL_RULES"
+udevadm control --reload
+udevadm trigger --subsystem-match=tty
+udevadm settle --timeout=30
+for device in zigbee zwave; do [[ -L /dev/$device && -c $(readlink -f "/dev/$device") ]] || fail "production serial alias is absent: $device"; done
 install -d -o root -g root -m 0755 /srv/docker-compose
 ln -s "$ARTIFACT_ROOT" "$DEPLOY_ROOT"
 diff -u <(jq -r '[.images[].image_id] | unique[]' "$IMAGE_LOCK_TARGET") <(HOME=/root docker compose --project-name "$PROJECT" --project-directory "$DEPLOY_ROOT" --env-file "$PRODUCTION_ENV" --file "$DEPLOY_ROOT/docker-compose.yml" --file "$IMAGE_OVERRIDE" config --images | sort -u) >/dev/null || fail "Compose image-ID override resolution differs"
