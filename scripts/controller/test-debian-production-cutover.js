@@ -124,6 +124,7 @@ assert.match(postRebootRecovery, /ATTEMPT_COMMIT=b03bb6843996d1c5873600d267c34ea
 assert.match(postRebootRecovery, /physical Proxmox console/);
 assert.match(postRebootRecovery, /source scripts\/lib\/vm-100-os-transition[\s\S]*acquire_transition_locks/);
 assert.match(postRebootRecovery, /manifestSha256[\s\S]*\[\.roots\[\]\.root\][\s\S]*age -le 86400/);
+assert.match(postRebootRecovery, /verify_plan_attestation\(\)[\s\S]*commit=\$ATTEMPT_COMMIT/);
 assert.match(postRebootRecovery, /evidenceFormat[\s\S]*stateBindCount == 115[\s\S]*tailscale\.hostname == "docker-host-debian"/);
 assert.match(postRebootRecovery, /wolf[\s\S]*Error during drmGetDevice for \/dev\/dri\/renderD128[\s\S]*amdgpu_device_ip_resume failed \(-62\)/);
 assert.ok(postRebootRecovery.indexOf('wait_for_status stopped 180') < postRebootRecovery.indexOf('qm set "$VMID" --cicustom'));

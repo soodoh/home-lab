@@ -64,7 +64,7 @@ arch_config_sha256() {
 }
 verify_plan_attestation() {
   local attestation commit created_at created_epoch now_epoch age
-  commit=$(git rev-parse HEAD)
+  commit=$ATTEMPT_COMMIT
   attestation=$(git notes --ref=debian-qualification show "$commit")
   jq -e --arg commit "$commit" '
     .schemaVersion == 1 and .commit == $commit and .phase == "steady" and .stage == "converge" and
