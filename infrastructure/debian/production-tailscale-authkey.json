@@ -1,0 +1,20 @@
+{
+  "createdAt": "2026-08-20T04:29:56.787125+00:00",
+  "description": "debian production cutover",
+  "encryptedPath": "infrastructure/debian/production-tailscale-authkey.age",
+  "encryptedSha256": "2cdbd1358acf0c52ad2bad29d071e02b18f278c5463f14d29a3e22228588bc86",
+  "ephemeral": false,
+  "expires": "2026-08-21T04:29:57Z",
+  "expirySeconds": 86400,
+  "format": "home-lab-debian-production-tailscale-key-v1",
+  "keyId": "kqpBEQLw7u11CNTRL",
+  "keyType": "auth",
+  "plaintextRetained": false,
+  "preauthorized": true,
+  "recipient": "age1atumjua6hxyls6z8v20tsgy72304x72lqjstwmwzqy5ma4txyfsse7xakv",
+  "reusable": false,
+  "schemaVersion": 1,
+  "tags": [
+    "tag:docker-host"
+  ]
+}

@@ -13,6 +13,9 @@ const cutover = contract.debian.cutover.production_cutover;
 const lockPath = path.join(root, cutover.image_lock);
 const lockBody = fs.readFileSync(lockPath);
 const lock = JSON.parse(lockBody);
+const encryptedKeyPath = path.join(root, cutover.tailscale_key_artifact);
+const encryptedKeyBody = fs.readFileSync(encryptedKeyPath);
+const keyMetadata = JSON.parse(fs.readFileSync(path.join(root, "infrastructure/debian/production-tailscale-authkey.json"), "utf8"));
 const keyGenerator = fs.readFileSync(path.join(root, "scripts/controller/create-debian-production-tailscale-key.py"), "utf8");
 const archPrepare = fs.readFileSync(path.join(root, "infrastructure/debian/prepare-production-cutover-from-arch.sh"), "utf8");
 const production = fs.readFileSync(path.join(root, "infrastructure/debian/run-production-cutover.sh"), "utf8");
@@ -23,7 +26,7 @@ const revoker = fs.readFileSync(path.join(root, "scripts/controller/revoke-debia
 const credentialConfigurator = fs.readFileSync(path.join(root, "scripts/configure-debian-production-tailscale-credentials"), "utf8");
 
 assert.equal(contract.debian.cutover.stage, "production-canary");
-assert.equal(cutover.phase, "designed");
+assert.equal(cutover.phase, "key-staged");
 assert.equal(cutover.scope, "full-compose-and-tailscale");
 assert.equal(cutover.compose_artifact_sha256, "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c");
 assert.equal(cutover.model_inventory_sha256, "f36ba480734143d51affdc789b2ef782bee063dfb96a248d5048568a82f5a16e");
@@ -42,7 +45,16 @@ assert.equal(cutover.tailscale_archive_sha256, "e6c08a8ee7e63e69aaf1b62ecd12672b
 assert.equal(cutover.tailscale_tag, "tag:docker-host");
 assert.equal(cutover.tailscale_hostname, "docker-host-debian");
 assert.equal(cutover.tailscale_key_delivery, "age-encrypted-debian-recipient");
-assert.equal(cutover.tailscale_key_artifact, "not-generated");
+assert.equal(cutover.tailscale_key_artifact, "infrastructure/debian/production-tailscale-authkey.age");
+assert.match(encryptedKeyBody.toString("utf8"), /^age-encryption\.org\/v1\n/);
+assert.equal(crypto.createHash("sha256").update(encryptedKeyBody).digest("hex"), keyMetadata.encryptedSha256);
+assert.equal(keyMetadata.keyType, "auth");
+assert.equal(keyMetadata.expirySeconds, cutover.tailscale_key_expiry_seconds);
+assert.deepEqual(keyMetadata.tags, [cutover.tailscale_tag]);
+assert.equal(keyMetadata.reusable, false);
+assert.equal(keyMetadata.ephemeral, false);
+assert.equal(keyMetadata.preauthorized, true);
+assert.equal(keyMetadata.plaintextRetained, false);
 assert.equal(cutover.production_boot, "pending-physical-reboot-verification");
 assert.deepEqual(cutover.rollback_boot_order, ["scsi0", "net0"]);
 assert.equal(cutover.rollback_requires_physical_reboot, true);
