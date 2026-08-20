@@ -27,6 +27,9 @@ readonly GUARD_UNIT=/etc/systemd/system/home-lab-production-guard.service
 readonly DOCKER_DROPIN=/etc/systemd/system/docker.service.d/10-home-lab-storage.conf
 readonly TAILSCALE_DROPIN=/etc/systemd/system/tailscaled.service.d/10-home-lab-production-guard.conf
 readonly SERIAL_RULES=/etc/udev/rules.d/71-home-lab-usb-serial.rules
+readonly AMDGPU_GRUB_DROPIN=/etc/default/grub.d/99-home-lab-amdgpu.cfg
+readonly AMDGPU_GRUB_BACKUP=/etc/default/grub.d/99-home-lab-amdgpu.cfg.cleanup-pending
+readonly AMDGPU_GRUB_CONTENT="GRUB_CMDLINE_LINUX=\"\${GRUB_CMDLINE_LINUX:-} amdgpu.runpm=0\""
 readonly TRANSACTION_MARKER=/run/home-lab-production-transaction
 readonly STATE_UNIT='srv-home\x2dlab\x2dstate.mount'
 readonly GAMES_UNIT=mnt-games.mount
@@ -44,6 +47,32 @@ wait_for_tcp_port() {
     sleep 5
   done
   return 1
+}
+amdgpu_grub_file_valid() {
+  local path=$1
+  [[ -f $path && ! -L $path && $(stat -c %U:%G:%a "$path") == root:root:644 ]] || return 1
+  [[ $(cat "$path") == "$AMDGPU_GRUB_CONTENT" ]]
+}
+grub_linux_entries_exclude_runpm() {
+  local -a entries
+  mapfile -t entries < <(grep -E '^[[:space:]]*linux[[:space:]]' /boot/grub/grub.cfg)
+  [[ ${#entries[@]} -gt 0 ]] || return 1
+  ! printf '%s\n' "${entries[@]}" | grep -Fq 'amdgpu.runpm=0'
+}
+configure_amdgpu_runtime_pm() {
+  local temporary
+  local -a linux_entries
+  install -d -o root -g root -m 0755 /etc/default/grub.d
+  temporary=$(mktemp /etc/default/grub.d/.99-home-lab-amdgpu.XXXXXX)
+  printf '%s\n' "$AMDGPU_GRUB_CONTENT" > "$temporary"
+  chown root:root "$temporary"
+  chmod 0644 "$temporary"
+  mv -T "$temporary" "$AMDGPU_GRUB_DROPIN"
+  amdgpu_grub_file_valid "$AMDGPU_GRUB_DROPIN"
+  update-grub >/dev/null
+  mapfile -t linux_entries < <(grep -E '^[[:space:]]*linux[[:space:]]' /boot/grub/grub.cfg)
+  [[ ${#linux_entries[@]} -gt 0 ]]
+  ! printf '%s\n' "${linux_entries[@]}" | grep -Fvq 'amdgpu.runpm=0'
 }
 write_phase() {
   local phase=$1 temporary
@@ -83,6 +112,7 @@ grep -Fxq 'ID=debian' /etc/os-release || fail "candidate is not Debian"
 [[ $(python3 "$ARTIFACT_ROOT/scripts/compose-artifact.py" --root "$ARTIFACT_ROOT" --no-git hash) == "$ARTIFACT_SHA256" ]] || fail "staged artifact hash differs"
 [[ $(stat -c %U:%G:%a "$STAGED_ENV") == root:root:600 ]] || fail "staged environment metadata differs"
 [[ ! -e $PRODUCTION_ENV && ! -e $OUTPUT_MARKER && ! -e $ACTIVATION_JOURNAL && ! -e /var/lib/tailscale && ! -e $DEPLOY_ROOT && ! -L $DEPLOY_ROOT ]] || fail "runtime environment, deployment root, activation journal, production marker, or Tailscale state already exists"
+[[ ! -e $AMDGPU_GRUB_DROPIN && ! -L $AMDGPU_GRUB_DROPIN && ! -e $AMDGPU_GRUB_BACKUP && ! -L $AMDGPU_GRUB_BACKUP ]] || fail "AMDGPU GRUB activation artifact already exists"
 for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! mount_active "$target" || fail "a protected mount is already active"; done
 for service in docker.service docker.socket containerd.service; do [[ $(systemctl is-active "$service" 2>/dev/null || true) == inactive ]] || fail "Docker or containerd is already active"; done
 [[ ! -S /run/docker.sock ]] || fail "Docker socket already exists"
@@ -126,6 +156,20 @@ cleanup() {
   for target in /srv/home-lab-state /mnt/games /mnt/storage; do
     if ! state=$(verified_mount_state "$target") || [[ $state != unmounted ]]; then cleanup_safe=false; fi
   done
+  if [[ -e $AMDGPU_GRUB_DROPIN || -L $AMDGPU_GRUB_DROPIN ]]; then
+    if amdgpu_grub_file_valid "$AMDGPU_GRUB_DROPIN" && [[ ! -e $AMDGPU_GRUB_BACKUP && ! -L $AMDGPU_GRUB_BACKUP ]]; then
+      mv -T "$AMDGPU_GRUB_DROPIN" "$AMDGPU_GRUB_BACKUP"
+      if update-grub >/dev/null 2>&1 && grub_linux_entries_exclude_runpm; then
+        rm -f -- "$AMDGPU_GRUB_BACKUP"
+      else
+        mv -T "$AMDGPU_GRUB_BACKUP" "$AMDGPU_GRUB_DROPIN" >/dev/null 2>&1 || true
+        cleanup_safe=false
+      fi
+    else
+      cleanup_safe=false
+    fi
+  fi
+  [[ ! -e $AMDGPU_GRUB_BACKUP && ! -L $AMDGPU_GRUB_BACKUP ]] || cleanup_safe=false
   rm -f -- "$encrypted_key" /run/home-lab-production-authkey
   if [[ $cleanup_safe != true ]]; then
     echo "critical: candidate cleanup is incomplete; fail-closed guard and activation journal were retained" >&2
@@ -151,6 +195,8 @@ install -o root -g root -m 0400 /dev/null "$TRANSACTION_MARKER"
 printf '{}\n' > "$ACTIVATION_JOURNAL"
 chown root:root "$ACTIVATION_JOURNAL"
 chmod 0600 "$ACTIVATION_JOURNAL"
+configure_amdgpu_runtime_pm || fail "AMDGPU runtime power-management boot configuration failed"
+write_phase gpu-runtime-pm-configured
 cat > "$GUARD_SCRIPT" <<'EOF'
 #!/bin/bash
 set -euo pipefail
@@ -324,7 +370,7 @@ mv -T "$journal_temporary" "$ACTIVATION_JOURNAL"
 rm -f -- "$TRANSFER_MARKER" /run/home-lab-production-model.json /run/home-lab-production-runtime-lock.json
 
 marker_temporary=$(mktemp /var/lib/home-lab/.debian-production.XXXXXX)
-jq -cn --arg artifactSha256 "$ARTIFACT_SHA256" --arg completedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg imageLockSha256 "$IMAGE_LOCK_SHA256" --arg modelInventorySha256 "$MODEL_SHA256" --arg tailscaleDns "$tailscale_dns" --arg tailscaleIpv4 "$tailscale_ipv4" --arg tailscaleNodeId "$tailscale_node_id" --arg tailscaleTag "$TAILSCALE_TAG" --arg tailscaleVersion "$TAILSCALE_VERSION" --argjson backup "$(jq -c .backup <<< "$transfer_marker")" '{artifactSha256:$artifactSha256,backup:$backup,completedAt:$completedAt,containerCount:41,dockerRuntime:"enabled-active",dockerVolumeMountCount:0,format:"home-lab-debian-production-v1",imageLockSha256:$imageLockSha256,kernelStorageErrors:0,modelInventorySha256:$modelInventorySha256,protectedMounts:"enabled-mounted-rw",pulls:"disabled",runtimeEnvironmentInstalled:true,stateBindCount:115,tailscale:{dnsName:$tailscaleDns,enrolled:true,hostname:"docker-host-debian",ipv4:$tailscaleIpv4,nodeId:$tailscaleNodeId,tag:$tailscaleTag,version:$tailscaleVersion},unhealthyContainerCount:0}' > "$marker_temporary"
+jq -cn --arg artifactSha256 "$ARTIFACT_SHA256" --arg completedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg imageLockSha256 "$IMAGE_LOCK_SHA256" --arg modelInventorySha256 "$MODEL_SHA256" --arg tailscaleDns "$tailscale_dns" --arg tailscaleIpv4 "$tailscale_ipv4" --arg tailscaleNodeId "$tailscale_node_id" --arg tailscaleTag "$TAILSCALE_TAG" --arg tailscaleVersion "$TAILSCALE_VERSION" --argjson backup "$(jq -c .backup <<< "$transfer_marker")" '{artifactSha256:$artifactSha256,backup:$backup,completedAt:$completedAt,containerCount:41,dockerRuntime:"enabled-active",dockerVolumeMountCount:0,format:"home-lab-debian-production-v1",gpuRuntimePmNextBoot:"disabled",imageLockSha256:$imageLockSha256,kernelStorageErrors:0,modelInventorySha256:$modelInventorySha256,protectedMounts:"enabled-mounted-rw",pulls:"disabled",runtimeEnvironmentInstalled:true,stateBindCount:115,tailscale:{dnsName:$tailscaleDns,enrolled:true,hostname:"docker-host-debian",ipv4:$tailscaleIpv4,nodeId:$tailscaleNodeId,tag:$tailscaleTag,version:$tailscaleVersion},unhealthyContainerCount:0}' > "$marker_temporary"
 chown root:root "$marker_temporary"
 chmod 0600 "$marker_temporary"
 mv -T "$marker_temporary" "$OUTPUT_MARKER"

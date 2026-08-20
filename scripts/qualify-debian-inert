@@ -677,7 +677,7 @@ if [[ $finalize_production_mode == true ]]; then
     if [[ -n $failed_tailscale_node ]]; then echo "Revoke stale Tailscale node from the controller: scripts/controller/revoke-debian-production-tailscale-device.py --device-id $failed_tailscale_node" >&2; else echo "If Tailscale partially enrolled, delete it from the controller: scripts/controller/revoke-debian-production-tailscale-device.py" >&2; fi
     exit 0
   fi
-  jq -e --arg sourceCommit "$(git rev-parse HEAD)" '.format == "home-lab-debian-production-v1" and .evidenceFormat == "home-lab-debian-production-transition-v1" and .sourceCommit == $sourceCommit and .transitionState == "awaiting-host-reboot" and .containerCount == 41 and .unhealthyContainerCount == 0 and .stateBindCount == 115 and .dockerVolumeMountCount == 0 and .dockerRuntime == "enabled-active" and .protectedMounts == "enabled-mounted-rw" and .pulls == "disabled" and .runtimeEnvironmentInstalled == true and .tailscale.enrolled == true and .tailscale.hostname == "docker-host-debian" and .tailscale.tag == "tag:docker-host"' <<< "$pending_evidence" >/dev/null || { fail "pending production evidence differs"; exit 1; }
+  jq -e --arg sourceCommit "$(git rev-parse HEAD)" '.format == "home-lab-debian-production-v1" and .evidenceFormat == "home-lab-debian-production-transition-v1" and .sourceCommit == $sourceCommit and .transitionState == "awaiting-host-reboot" and .containerCount == 41 and .unhealthyContainerCount == 0 and .stateBindCount == 115 and .dockerVolumeMountCount == 0 and .dockerRuntime == "enabled-active" and .gpuRuntimePmNextBoot == "disabled" and .protectedMounts == "enabled-mounted-rw" and .pulls == "disabled" and .runtimeEnvironmentInstalled == true and .tailscale.enrolled == true and .tailscale.hostname == "docker-host-debian" and .tailscale.tag == "tag:docker-host"' <<< "$pending_evidence" >/dev/null || { fail "pending production evidence differs"; exit 1; }
   for config in "$finalize_pending" "$finalize_current"; do
     [[ $(config_value "$config" boot) == "$DEBIAN_BOOT" && $(config_value "$config" scsi0) == "$EFFECTIVE_SCSI0" && $(config_value "$config" scsi1) == "$EFFECTIVE_SCSI1" && $(config_value "$config" scsi2) == "$EFFECTIVE_SCSI2" && $(config_value "$config" scsi3) == "$DEBIAN_SCSI3" && $(config_value "$config" cicustom) == "$DEBIAN_CICUSTOM" && $(config_value "$config" vga) == none ]] || { fail "persistent Debian production configuration differs"; exit 1; }
   done
@@ -686,9 +686,44 @@ if [[ $finalize_production_mode == true ]]; then
   [[ $(os_id) == debian ]] || { fail "post-reboot production guest is not Debian"; exit 1; }
   production_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-production.json | jq -er '."out-data"')
   [[ $(jq -cS '. | del(.archBoot,.candidateScsi3,.createdAt,.evidenceFormat,.hostBootIdBefore,.sourceCommit,.transitionState,.vmid,.configSha256)' <<< "$pending_evidence") == $(jq -cS . <<< "$production_marker") ]] || { fail "post-reboot Debian production marker differs"; exit 1; }
-  guest_exec_ok 900 /bin/bash -lc 'set -Eeuo pipefail; model=/run/home-lab-finalize-model.json; runtime_lock=/run/home-lab-finalize-images.json; trap '\''rm -f -- "$model" "$runtime_lock"'\'' EXIT; [[ $(findmnt -rn -S UUID=d4a19647-7879-4079-9fc9-b3e79711b449 -o TARGET) == /srv/home-lab-state ]]; [[ $(findmnt -rn -S UUID=31602ce7-0054-498a-9f24-f51ca491e7b3 -o TARGET) == /mnt/games ]]; [[ $(findmnt -rn -T /mnt/storage -o SOURCE) == 192.168.0.123:/storage/docker ]]; for target in /srv/home-lab-state /mnt/games /mnt/storage; do findmnt -rn -T "$target" -o OPTIONS | tr '\'',\'' '\''\n'\'' | grep -Fxq rw; done; for device in zigbee zwave; do [[ -L /dev/$device && -c $(readlink -f "/dev/$device") ]]; done; jq -e '\''.format == "home-lab-debian-production-activation-v1" and .phase == "committed"'\'' /var/lib/home-lab/debian-production-activation.json >/dev/null; [[ $(systemctl is-active home-lab-production-guard.service home-lab-compose.service docker.service containerd.service tailscaled.service | grep -c '\''^active$'\'') -eq 5 ]]; for unit in srv-home\x2dlab\x2dstate.mount mnt-games.mount mnt-storage.mount docker.service home-lab-compose.service tailscaled.service; do [[ $(systemctl is-enabled "$unit") == enabled ]]; done; ids=(); mapfile -t ids < <(docker ps -q); [[ ${#ids[@]} -eq 41 && $(docker ps --filter health=unhealthy -q | wc -l) -eq 0 ]]; docker inspect "${ids[@]}" | jq -e '\''all(.[]; if .State.Health then .State.Health.Status == "healthy" else true end)'\'' >/dev/null; [[ $(docker inspect "${ids[@]}" | jq '\''[.[].Mounts[] | select(.Type == "bind" and (.Source | startswith("/srv/home-lab-state/")))] | length'\'') -eq 115 ]]; [[ $(docker inspect "${ids[@]}" | jq '\''[.[].Mounts[] | select(.Type == "volume")] | length'\'') -eq 0 ]]; deploy_stash=/srv/docker-compose/.current.finalize; mv /srv/docker-compose/current "$deploy_stash"; HOME=/root python3 /var/lib/home-lab/compose-staging/d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c/scripts/compose-model-inventory.py desired --artifact-root /var/lib/home-lab/compose-staging/d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c --project-directory /var/lib/home-lab/compose-staging/d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c --env-file /etc/docker-compose/production.env --project-name docker-compose --bind-root-override /srv/docker-compose/current --output "$model" >/dev/null || { mv "$deploy_stash" /srv/docker-compose/current; exit 1; }; mv "$deploy_stash" /srv/docker-compose/current; [[ $(sha256sum "$model" | awk '\''{print $1}'\'') == f36ba480734143d51affdc789b2ef782bee063dfb96a248d5048568a82f5a16e ]]; jq -e --slurpfile expected /var/lib/home-lab/production-image-lock.json '\''(.services | length) == 41 and ([.services | to_entries[] | {service:.key,image_id:.value.image}] | sort_by(.service)) == ([$expected[0].images[] | {service,image_id}] | sort_by(.service))'\'' /var/lib/home-lab/production-image-override.json >/dev/null; python3 /srv/docker-compose/current/scripts/compose-image-lock.py capture --project docker-compose --output "$runtime_lock" >/dev/null; jq -e --slurpfile expected /var/lib/home-lab/production-image-lock.json '\''[.images[] | {service,image_id}] == [$expected[0].images[] | {service,image_id}]'\'' "$runtime_lock" >/dev/null; for port in 80 443 8123 8096; do port_ready=false; for ((attempt = 0; attempt < 120; attempt += 1)); do if timeout 2 /bin/bash -lc "</dev/tcp/192.168.0.100/$port"; then port_ready=true; break; fi; sleep 5; done; [[ $port_ready == true ]]; done; tailscale status --json | jq -e '\''.BackendState == "Running" and .Self.Online == true and .Self.HostName == "docker-host-debian" and (.Self.Tags | index("tag:docker-host") != null)'\'' >/dev/null; [[ $(journalctl -k -b --no-pager | grep -Eci '\''I/O error|EXT4-fs error|Buffer I/O|blk_update_request|nfs: server .* not responding'\'' || true) -eq 0 ]]' || { fail "post-reboot Debian production health differs"; exit 1; }
-  [[ $(systemctl --failed --no-legend | wc -l) -eq 0 ]] || { fail "the Proxmox host has failed units"; exit 1; }
-  pve-firewall status | grep -Fxq 'Status: enabled/running' || { fail "Proxmox firewall status differs"; exit 1; }
+  fail_post_reboot_production_to_arch() {
+    local reason=$1 rejection_script
+    read -r -d '' rejection_script <<'GUEST' || true
+set -Eeuo pipefail
+journal=/var/lib/home-lab/debian-production-activation.json
+output=/var/lib/home-lab/debian-production.json
+failed=/var/lib/home-lab/debian-production-failed.json
+[[ -f $journal && ! -L $journal && -f $output && ! -L $output && ! -e $failed && ! -L $failed ]]
+jq -e '.format == "home-lab-debian-production-activation-v1" and .phase == "committed"' "$journal" >/dev/null
+jq -e '.format == "home-lab-debian-production-v1" and .containerCount == 41 and .unhealthyContainerCount == 0' "$output" >/dev/null
+temporary=$(mktemp /var/lib/home-lab/.debian-production-failed.XXXXXX)
+trap 'rm -f -- "$temporary"' EXIT
+jq -c --arg failedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '. + {failedAt:$failedAt,phase:"failed",rejection:"post-reboot-health"}' "$journal" > "$temporary"
+chown root:root "$temporary"
+chmod 0600 "$temporary"
+mv -T "$temporary" "$failed"
+rm -f -- "$output"
+GUEST
+    guest_exec_ok 30 /bin/bash -lc "$rejection_script" || { fail "$reason; committed candidate rejection journaling failed"; exit 1; }
+    guest_exec_ok 30 /bin/rm -f /run/home-lab-finalize-production-health || true
+    capture_failed_production_activation || true
+    prepare_arch_host_reboot_path || { fail "$reason; Arch reboot preparation failed"; exit 1; }
+    mark_failed_production_evidence_awaiting_reboot "$arch_reboot_config_sha"
+    trap - EXIT
+    rm -f -- "$finalize_pending" "$finalize_current" "$finalize_evidence"
+    echo "$reason; failed closed to Arch boot authority. Physically reboot the host, then rerun this finalizer" >&2
+    exit 0
+  }
+  finalize_health_source=infrastructure/debian/finalize-production-health.sh
+  finalize_health_sha=5f72397f8a02b098bf69b46eeb842c905bb10df40eb2b74da3985f1458f494ca
+  [[ $(sha256sum "$finalize_health_source" | awk '{print $1}') == "$finalize_health_sha" ]] || fail_post_reboot_production_to_arch "post-reboot production health helper differs"
+  finalize_health_payload=$(base64 -w 0 "$finalize_health_source")
+  guest_exec_ok 60 /bin/bash -lc "set -Eeuo pipefail; umask 077; printf %s '$finalize_health_payload' | base64 -d > /run/home-lab-finalize-production-health; [[ \$(sha256sum /run/home-lab-finalize-production-health | awk '{print \$1}') == '$finalize_health_sha' ]]" || fail_post_reboot_production_to_arch "post-reboot production health helper staging failed"
+  stage=verify-post-reboot-debian-production-health
+  guest_exec_ok 3300 /usr/bin/timeout --kill-after=10 3000 /bin/bash /run/home-lab-finalize-production-health || fail_post_reboot_production_to_arch "post-reboot Debian production health differs"
+  guest_exec_ok 30 /bin/rm -f /run/home-lab-finalize-production-health || fail_post_reboot_production_to_arch "post-reboot production health helper cleanup failed"
+  [[ $(systemctl --failed --no-legend | wc -l) -eq 0 ]] || fail_post_reboot_production_to_arch "the Proxmox host has failed units"
+  pve-firewall status | grep -Fxq 'Status: enabled/running' || fail_post_reboot_production_to_arch "Proxmox firewall status differs"
   jq -c --arg finalizedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg hostBootIdAfter "$host_boot_id_after" '. + {finalizedAt:$finalizedAt,hostBootIdAfter:$hostBootIdAfter,transitionState:"complete"}' <<< "$pending_evidence" > "$finalize_evidence"
   chown root:root "$finalize_evidence"
   chmod 0600 "$finalize_evidence"
@@ -1403,7 +1438,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
   if [[ $production_mode == true ]]; then
     stage="reconcile-failed-debian-production"
     failed_reconcile_source=infrastructure/debian/reconcile-failed-production.sh
-    failed_reconcile_sha=d3797fbc93ebf0dc28f10cbac5ff06f84610edab20f664beb5a4c84ced5f9160
+    failed_reconcile_sha=57e8ce252053704d3f0f401abfae86054d260eb5945091a732d2b1363854f3e0
     [[ $(sha256sum "$failed_reconcile_source" | awk '{print $1}') == "$failed_reconcile_sha" ]]
     failed_reconcile_payload=$(base64 -w 0 "$failed_reconcile_source")
     guest_exec_ok 600 /bin/bash -lc "set -Eeuo pipefail; printf %s '$failed_reconcile_payload' | base64 -d > /run/home-lab-reconcile-failed-production; [[ \$(sha256sum /run/home-lab-reconcile-failed-production | awk '{print \$1}') == '$failed_reconcile_sha' ]]; /bin/bash /run/home-lab-reconcile-failed-production; rm -f -- /run/home-lab-reconcile-failed-production"
@@ -1419,7 +1454,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
     [[ $(date -d "$(jq -er .expires infrastructure/debian/production-tailscale-authkey.json)" +%s) -gt $(($(date +%s) + 3600)) ]] || { fail "production Tailscale key expires too soon for Debian activation"; false; }
     stage="run-debian-production-cutover"
     production_source=infrastructure/debian/run-production-cutover.sh
-    production_sha=28636dd3ffbda5856f6709481c56e9512046e16c8c52269bdff3da12f308c2c1
+    production_sha=1c4e32ea0a6451991011bd168d5db73f46b7aa36d72f185e9488cf959506be4f
     [[ $(sha256sum "$production_source" | awk '{print $1}') == "$production_sha" ]]
     production_payload=$(base64 -w 0 "$production_source")
     production_lock_payload=$(base64 -w 0 infrastructure/debian/production-image-lock.json)
@@ -1434,7 +1469,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
     production_operation_pid=
     guest_exec_ok 30 /bin/rm -f /run/home-lab-debian-production.result /run/home-lab-debian-production.result.pending
     production_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-production.json | jq -er '."out-data"')
-    jq -e '.format == "home-lab-debian-production-v1" and .artifactSha256 == "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" and .modelInventorySha256 == "f36ba480734143d51affdc789b2ef782bee063dfb96a248d5048568a82f5a16e" and .imageLockSha256 == "c74199885009f0082cc7b5956eeb526ad895d1cab1605df15998767185aec726" and .containerCount == 41 and .unhealthyContainerCount == 0 and .stateBindCount == 115 and .dockerVolumeMountCount == 0 and .dockerRuntime == "enabled-active" and .protectedMounts == "enabled-mounted-rw" and .pulls == "disabled" and .runtimeEnvironmentInstalled == true and .tailscale.enrolled == true and .tailscale.hostname == "docker-host-debian" and .tailscale.tag == "tag:docker-host"' <<< "$production_marker" >/dev/null
+    jq -e '.format == "home-lab-debian-production-v1" and .artifactSha256 == "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" and .modelInventorySha256 == "f36ba480734143d51affdc789b2ef782bee063dfb96a248d5048568a82f5a16e" and .imageLockSha256 == "c74199885009f0082cc7b5956eeb526ad895d1cab1605df15998767185aec726" and .containerCount == 41 and .unhealthyContainerCount == 0 and .stateBindCount == 115 and .dockerVolumeMountCount == 0 and .dockerRuntime == "enabled-active" and .gpuRuntimePmNextBoot == "disabled" and .protectedMounts == "enabled-mounted-rw" and .pulls == "disabled" and .runtimeEnvironmentInstalled == true and .tailscale.enrolled == true and .tailscale.hostname == "docker-host-debian" and .tailscale.tag == "tag:docker-host"' <<< "$production_marker" >/dev/null
     production_transfer_ready=false
     write_production_pending_evidence "$production_marker"
     production_config=$(mktemp --tmpdir=/run home-lab-production-config.XXXXXX)
