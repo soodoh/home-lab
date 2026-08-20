@@ -589,7 +589,7 @@ plan_all() {
   fi
   ./scripts/validate-provider-locks
 
-  local root plan plan_log exit_code tailscale_live_policy_sha256 tailscale_policy_before_sha256 tailscale_policy_after_sha256 tailscale_policy_etag tailscale_policy_changed
+  local root plan plan_log exit_code tailscale_live_policy_sha256 tailscale_policy_before_sha256 tailscale_policy_after_sha256 tailscale_policy_etag tailscale_policy_changed argument
   local planned_before_policy planned_after_policy compose_hash recovery_backup_identity_sha256 recovery_expectations_sha256 ansible_extra_vars_file_sha256 proxmox_host_plan
   proxmox_host_plan=$(plan_proxmox_host true)
   if [[ $(jq -r .prerequisite <<<"$proxmox_host_plan") == vm-start ]]; then
@@ -606,7 +606,8 @@ plan_all() {
       IFS=$'\t' read -r tailscale_live_policy_sha256 tailscale_policy_etag < <(tailscale_policy_identity)
     fi
     plan="$plan_dir/$root.tfplan"
-    mapfile -d '' -t plan_args < <(root_plan_args "$root")
+    plan_args=()
+    while IFS= read -r -d '' argument; do plan_args+=("$argument"); done < <(root_plan_args "$root")
     plan_log="$plan_dir/$root.plan.log"
     : >"$plan_log"
     chmod 0600 "$plan_log"
@@ -638,7 +639,8 @@ plan_all() {
     if [[ $root == proxmox && $(jq -r .prerequisite <<<"$proxmox_host_plan") == vm-start ]]; then
       inspect_args=(--mode vm-start-prerequisite)
     else
-      mapfile -d '' -t inspect_args < <(policy_args "$root")
+      inspect_args=()
+      while IFS= read -r -d '' argument; do inspect_args+=("$argument"); done < <(policy_args "$root")
     fi
     TOFU_PLAN_CHDIR="infrastructure/tofu/$root" ./scripts/inspect-tofu-plan "$plan" "${inspect_args[@]}"
     jq -cn \
@@ -807,7 +809,7 @@ verify_manifest() {
     }
   fi
 
-  local root file expected expected_policy_before_sha256 expected_policy_after_sha256
+  local root file expected expected_policy_before_sha256 expected_policy_after_sha256 argument
   while IFS=$'\t' read -r root file expected; do
     [[ -f $plan_dir/$file ]]
     [[ $(sha256_file "$plan_dir/$file") == "$expected" ]]
@@ -821,7 +823,8 @@ verify_manifest() {
     if [[ $root == proxmox && $(jq -r .stage "$manifest") == vm-start-prerequisite ]]; then
       inspect_args=(--mode vm-start-prerequisite)
     else
-      mapfile -d '' -t inspect_args < <(policy_args "$root")
+      inspect_args=()
+      while IFS= read -r -d '' argument; do inspect_args+=("$argument"); done < <(policy_args "$root")
     fi
     TOFU_PLAN_CHDIR="infrastructure/tofu/$root" ./scripts/inspect-tofu-plan "$plan_dir/$file" "${inspect_args[@]}"
   done < <(jq -r '.plans[] | [.root, .file, .sha256] | @tsv' "$manifest")
@@ -1034,11 +1037,12 @@ compose_recovery_apply() {
 }
 
 verify_all() {
-  local root exit_code verify_log
+  local root exit_code verify_log argument
   verify_fresh_proxmox_host_noop
   for root in "${roots[@]}"; do
     backend_init "$root"
-    mapfile -d '' -t plan_args < <(root_plan_args "$root")
+    plan_args=()
+    while IFS= read -r -d '' argument; do plan_args+=("$argument"); done < <(root_plan_args "$root")
     verify_log="$plan_dir/$root.verify.log"
     : >"$verify_log"
     chmod 0600 "$verify_log"
