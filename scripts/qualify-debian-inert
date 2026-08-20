@@ -607,7 +607,10 @@ if [[ $finalize_production_mode == true ]]; then
   [[ -f $PRODUCTION_PENDING_LOG && ! -L $PRODUCTION_PENDING_LOG && $(stat -c %U:%G:%a "$PRODUCTION_PENDING_LOG") == root:root:600 ]] || { fail "pending production evidence is absent or unsafe"; exit 1; }
   [[ ! -e $PRODUCTION_LOG && ! -L $PRODUCTION_LOG ]] || { fail "final production evidence already exists or is unsafe"; exit 1; }
   pending_evidence=$(cat "$PRODUCTION_PENDING_LOG")
-  jq -e --arg sourceCommit "$(git rev-parse HEAD)" '.evidenceFormat == "home-lab-debian-production-transition-v1" and .sourceCommit == $sourceCommit and .vmid == 100 and .archBoot == "order=scsi0;net0" and .candidateScsi3 == "local-lvm:vm-100-disk-2,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=HOME-LAB-DEBIAN-64G,size=64G,ssd=0" and (.hostBootIdBefore | test("^[0-9a-f-]{36}$"))' <<< "$pending_evidence" >/dev/null || { fail "pending production transition evidence differs"; exit 1; }
+  pending_source_commit=$(jq -er '.sourceCommit | select(test("^[0-9a-f]{40}$"))' <<< "$pending_evidence") || { fail "pending production source commit differs"; exit 1; }
+  git cat-file -e "$pending_source_commit^{commit}" || { fail "pending production source commit is unavailable"; exit 1; }
+  git merge-base --is-ancestor "$pending_source_commit" HEAD || { fail "pending production source commit is not an ancestor of recovery HEAD"; exit 1; }
+  jq -e '.evidenceFormat == "home-lab-debian-production-transition-v1" and .vmid == 100 and .archBoot == "order=scsi0;net0" and .candidateScsi3 == "local-lvm:vm-100-disk-2,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=HOME-LAB-DEBIAN-64G,size=64G,ssd=0" and (.hostBootIdBefore | test("^[0-9a-f-]{36}$"))' <<< "$pending_evidence" >/dev/null || { fail "pending production transition evidence differs"; exit 1; }
   host_boot_id_after=$(cat /proc/sys/kernel/random/boot_id)
   [[ $host_boot_id_after != $(jq -er .hostBootIdBefore <<< "$pending_evidence") ]] || { fail "the required physical host reboot has not occurred"; exit 1; }
   finalize_pending=$(mktemp --tmpdir=/run home-lab-production-finalize-pending.XXXXXX)

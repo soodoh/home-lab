@@ -23,6 +23,7 @@ const failedReconcile = fs.readFileSync(path.join(root, "infrastructure/debian/r
 const coordinator = fs.readFileSync(path.join(root, "scripts/qualify-debian-inert"), "utf8");
 const runner = fs.readFileSync(path.join(root, "scripts/run-debian-production-cutover"), "utf8");
 const finalizer = fs.readFileSync(path.join(root, "scripts/finalize-debian-production-cutover"), "utf8");
+const postRebootRecovery = fs.readFileSync(path.join(root, "scripts/recover-debian-production-post-reboot"), "utf8");
 const revoker = fs.readFileSync(path.join(root, "scripts/controller/revoke-debian-production-tailscale-device.py"), "utf8");
 const credentialConfigurator = fs.readFileSync(path.join(root, "scripts/configure-debian-production-tailscale-credentials"), "utf8");
 
@@ -117,6 +118,19 @@ assert.match(production, /persist_tailscale_node_id \|\| true/);
 assert.match(coordinator, /deploy_stash=\/srv\/docker-compose\/\.current\.finalize/);
 assert.match(coordinator, /production_mode == true/);
 assert.match(coordinator, /finalize_production_mode == true/);
+assert.match(coordinator, /pending_source_commit=.*sourceCommit[\s\S]*git merge-base --is-ancestor "\$pending_source_commit" HEAD/);
+assert.match(postRebootRecovery, /CONFIRMATION=recover-reviewed-vm-100-debian-production-post-reboot/);
+assert.match(postRebootRecovery, /ATTEMPT_COMMIT=b03bb6843996d1c5873600d267c34ea206748449/);
+assert.match(postRebootRecovery, /physical Proxmox console/);
+assert.match(postRebootRecovery, /source scripts\/lib\/vm-100-os-transition[\s\S]*acquire_transition_locks/);
+assert.match(postRebootRecovery, /manifestSha256[\s\S]*\[\.roots\[\]\.root\][\s\S]*age -le 86400/);
+assert.match(postRebootRecovery, /evidenceFormat[\s\S]*stateBindCount == 115[\s\S]*tailscale\.hostname == "docker-host-debian"/);
+assert.match(postRebootRecovery, /wolf[\s\S]*Error during drmGetDevice for \/dev\/dri\/renderD128[\s\S]*amdgpu_device_ip_resume failed \(-62\)/);
+assert.ok(postRebootRecovery.indexOf('wait_for_status stopped 180') < postRebootRecovery.indexOf('qm set "$VMID" --cicustom'));
+assert.match(postRebootRecovery, /verify_exact_arch_configuration "\$pending_config" "\$current_config"/);
+assert.match(postRebootRecovery, /failureReason:"post-reboot-amdgpu-runtime-resume",transitionState:"failed-awaiting-host-reboot"/);
+assert.match(postRebootRecovery, /DO NOT REBOOT/);
+assert.doesNotMatch(postRebootRecovery, /qm start/);
 assert.match(coordinator, /stage=verify-qualified-debian-package-baseline[\s\S]*findmnt -rn --mountpoint/);
 assert.doesNotMatch(coordinator, /! findmnt -rn --target/);
 assert.ok(coordinator.includes("production_prepare_sha=45c2b585df41ff956db70f02fb6bd28d2f9c42eb23dd2437115195fc4db1d76b"));

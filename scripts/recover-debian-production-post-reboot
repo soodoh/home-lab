@@ -1,0 +1,175 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+readonly VMID=100
+readonly CONFIRMATION=recover-reviewed-vm-100-debian-production-post-reboot
+readonly ATTEMPT_COMMIT=b03bb6843996d1c5873600d267c34ea206748449
+readonly ARCH_BOOT='order=scsi0;net0'
+readonly CURRENT_CICUSTOM='user=local:snippets/vm-100-flatcar.ign'
+readonly CURRENT_IGNITION_SHA256=d60808452116247828f749517a66ec29d4656c4978d2997ab22e938d8cb4bc6d
+readonly CURRENT_IGNITION_SIZE=76685
+readonly EFFECTIVE_SCSI0='local-lvm:vm-100-disk-0,iothread=1,size=550G'
+readonly EFFECTIVE_SCSI1='/dev/disk/by-id/nvme-CT4000P3PSSD8_2412E8A04266,backup=0,discard=on,iothread=1,size=3907018584K,ssd=1'
+readonly EFFECTIVE_SCSI2='local-lvm:vm-100-disk-1,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=QUAL-NIXOS-128G,size=128G,ssd=0'
+readonly EFFECTIVE_SCSI3='local-lvm:vm-100-disk-2,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=HOME-LAB-DEBIAN-64G,size=64G,ssd=0'
+readonly EFFECTIVE_IDE2='local-lvm:vm-100-cloudinit,media=cdrom'
+readonly EFFECTIVE_HOSTPCI1='mapping=rx-7900-xtx,pcie=1,rombar=1,x-vga=1'
+readonly EFFECTIVE_HOSTPCI2='mapping=rx-7900-xtx-audio,pcie=1,rombar=1'
+readonly EFFECTIVE_USB0='mapping=zigbee-cp210x'
+readonly EFFECTIVE_USB1='mapping=zwave-cp210x'
+readonly EFFECTIVE_USB2='mapping=realtek-bluetooth,usb3=1'
+readonly RECONCILIATION_ROOT=/var/lib/home-lab/reconciliation
+readonly DIAGNOSTIC_ROOT=/var/lib/home-lab/debian
+readonly RESTORE_LOG=$DIAGNOSTIC_ROOT/inert-restore.json
+readonly VFIO_CONFIRMATION=recover-vm-100-vfio-group-14
+readonly PENDING=$DIAGNOSTIC_ROOT/production.pending.json
+readonly PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$root"
+source scripts/lib/vm-100-os-transition
+
+config_value() {
+  local file=$1 key=$2
+  awk -F ': ' -v key="$key" '$1 == key { sub(/^[^:]+: /, ""); print; found=1 } END { if (!found) exit 1 }' "$file"
+}
+verify_exact_arch_configuration() {
+  local pending=$1 current=$2 config key
+  for config in "$pending" "$current"; do
+    [[ $(config_value "$config" boot) == "$ARCH_BOOT" ]] || return 1
+    [[ $(config_value "$config" scsi0) == "$EFFECTIVE_SCSI0" ]] || return 1
+    [[ $(config_value "$config" scsi1) == "$EFFECTIVE_SCSI1" ]] || return 1
+    [[ $(config_value "$config" scsi2) == "$EFFECTIVE_SCSI2" ]] || return 1
+    [[ $(config_value "$config" scsi3) == "$EFFECTIVE_SCSI3" ]] || return 1
+    [[ $(config_value "$config" ide2) == "$EFFECTIVE_IDE2" ]] || return 1
+    [[ $(config_value "$config" cicustom) == "$CURRENT_CICUSTOM" ]] || return 1
+    [[ $(config_value "$config" hostpci1) == "$EFFECTIVE_HOSTPCI1" ]] || return 1
+    [[ $(config_value "$config" hostpci2) == "$EFFECTIVE_HOSTPCI2" ]] || return 1
+    [[ $(config_value "$config" usb0) == "$EFFECTIVE_USB0" ]] || return 1
+    [[ $(config_value "$config" usb1) == "$EFFECTIVE_USB1" ]] || return 1
+    [[ $(config_value "$config" usb2) == "$EFFECTIVE_USB2" ]] || return 1
+    [[ $(config_value "$config" onboot) == 1 ]] || return 1
+    [[ $(config_value "$config" protection) == 1 ]] || return 1
+    [[ $(config_value "$config" vga) == none ]] || return 1
+    ! config_value "$config" lock >/dev/null 2>&1 || return 1
+    ! grep -Eq '^unused[0-9]+:' "$config" || return 1
+  done
+  for key in boot scsi0 scsi1 scsi2 scsi3 ide2 cicustom hostpci1 hostpci2 usb0 usb1 usb2 onboot protection vga; do
+    [[ $(config_value "$pending" "$key") == $(config_value "$current" "$key") ]] || return 1
+  done
+}
+arch_config_sha256() {
+  grep -E '^(boot|cicustom|hostpci1|hostpci2|ide2|onboot|protection|scsi0|scsi1|scsi2|scsi3|usb0|usb1|usb2|vga): ' "$1" \
+    | LC_ALL=C sort | sha256sum | awk '{print $1}'
+}
+verify_plan_attestation() {
+  local attestation commit created_at created_epoch now_epoch age
+  commit=$(git rev-parse HEAD)
+  attestation=$(git notes --ref=debian-qualification show "$commit")
+  jq -e --arg commit "$commit" '
+    .schemaVersion == 1 and .commit == $commit and .phase == "steady" and .stage == "converge" and
+    .proxmoxHostActions == 0 and .allActionsZero == true and
+    (.manifestSha256 | test("^[0-9a-f]{64}$")) and (.roots | length) == 5 and
+    all(.roots[]; .changed == false and (.sha256 | test("^[0-9a-f]{64}$"))) and
+    ([.roots[].root] | sort) == ["aws-foundation", "omada", "proxmox", "proxmox-legacy", "tailscale"]
+  ' <<< "$attestation" >/dev/null
+  created_at=$(jq -er .createdAt <<< "$attestation")
+  created_epoch=$(date -d "$created_at" +%s)
+  now_epoch=$(date +%s)
+  age=$((now_epoch - created_epoch))
+  [[ $age -ge -300 && $age -le 86400 ]]
+}
+
+[[ $(id -u) -eq 0 ]] || fail "recovery requires root"
+[[ $(ps -o tty= -p "$$" | tr -d ' ') =~ ^tty[0-9]+$ ]] || fail "recovery requires the physical Proxmox console"
+[[ -d $RECONCILIATION_ROOT && ! -L $RECONCILIATION_ROOT ]] || fail "reconciliation lock root is absent or unsafe"
+[[ ! -e $RECONCILIATION_ROOT/apply.lock ]] || fail "a protected Proxmox apply is active"
+[[ ! -e /var/lib/iac-ansible-production.lock ]] || fail "Ansible host ownership is active"
+locks_held=false
+acquire_transition_locks || fail "another protected Proxmox operation holds a transition lock"
+mutation_started=false
+recovery_complete=false
+ignition=
+pending_config=
+current_config=
+evidence=
+cleanup() {
+  rm -f -- "${ignition:-}" "${pending_config:-}" "${current_config:-}" "${evidence:-}"
+  release_transition_locks || true
+  if [[ $mutation_started == true && $recovery_complete == false ]]; then
+    echo "RECOVERY STOPPED AFTER VM CONFIGURATION MUTATION: DO NOT REBOOT; report the error for reconciliation." >&2
+  fi
+}
+trap cleanup EXIT
+[[ $(git branch --show-current) == main && -z $(git status --porcelain) ]] || fail "repository must be clean on main"
+git fetch --quiet origin "+refs/heads/main:refs/remotes/origin/main" "+refs/notes/debian-qualification:refs/notes/debian-qualification"
+[[ $(git rev-parse HEAD) == $(git rev-parse origin/main) ]] || fail "repository is not at origin/main"
+verify_plan_attestation || fail "fresh zero-action plan attestation is unavailable"
+git merge-base --is-ancestor "$ATTEMPT_COMMIT" HEAD || fail "attempt commit is not an ancestor of recovery HEAD"
+[[ -f $PENDING && ! -L $PENDING && $(stat -c %U:%G:%a "$PENDING") == root:root:600 ]] || fail "pending evidence is absent or unsafe"
+jq -e --arg commit "$ATTEMPT_COMMIT" '
+  .sourceCommit == $commit and .evidenceFormat == "home-lab-debian-production-transition-v1" and
+  .transitionState == "awaiting-host-reboot" and .vmid == 100 and .archBoot == "order=scsi0;net0" and
+  .candidateScsi3 == "local-lvm:vm-100-disk-2,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=HOME-LAB-DEBIAN-64G,size=64G,ssd=0" and
+  (.hostBootIdBefore | test("^[0-9a-f-]{36}$")) and (.configSha256 | test("^[0-9a-f]{64}$")) and
+  .artifactSha256 == "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" and
+  .imageLockSha256 == "c74199885009f0082cc7b5956eeb526ad895d1cab1605df15998767185aec726" and
+  .containerCount == 41 and .unhealthyContainerCount == 0 and .stateBindCount == 115 and .dockerVolumeMountCount == 0 and
+  .dockerRuntime == "enabled-active" and .protectedMounts == "enabled-mounted-rw" and .pulls == "disabled" and
+  .tailscale.enrolled == true and .tailscale.nodeId == "nDQKpygDAk11CNTRL" and
+  .tailscale.hostname == "docker-host-debian" and .tailscale.tag == "tag:docker-host" and .tailscale.version == "1.98.4"
+' "$PENDING" >/dev/null || fail "pending evidence does not exactly describe the affected production attempt"
+[[ $(cat /proc/sys/kernel/random/boot_id) != $(jq -er .hostBootIdBefore "$PENDING") ]] || fail "the production host reboot is not proven"
+[[ $(vm_status) == running ]] || fail "VM 100 is not running"
+[[ $(config_value <(qm config "$VMID") boot) == 'order=scsi3;scsi0;net0' ]] || fail "Debian is not the configured boot authority"
+
+read -r -d '' guest_health_check <<'GUEST' || true
+set -e
+grep -Fxq ID=debian /etc/os-release
+[[ $(docker ps --filter health=unhealthy --format "{{.Names}}" | grep -Fx wolf) == wolf ]]
+docker logs wolf 2>&1 | grep -Fq "Error during drmGetDevice for /dev/dri/renderD128"
+journalctl -k -b --no-pager | grep -Fq "amdgpu_device_ip_resume failed (-62)"
+cat /var/lib/home-lab/debian-production-activation.json
+GUEST
+health=$(qm guest exec "$VMID" --timeout 30 -- /bin/bash -lc "$guest_health_check")
+activation=$(jq -er '."out-data" | fromjson' <<< "$health")
+jq -e '.format == "home-lab-debian-production-activation-v1" and .phase == "committed" and .tailscale.nodeId == "nDQKpygDAk11CNTRL"' <<< "$activation" >/dev/null || fail "committed activation journal differs"
+
+scripts/stage-flatcar-ignition check >/dev/null || fail "Arch Ignition staging check failed"
+printf 'Type %s to stage the verified Arch rollback: ' "$CONFIRMATION" >&2
+read -r confirmation
+[[ $confirmation == "$CONFIRMATION" ]] || fail "confirmation differs"
+
+timeout 15 qm guest cmd "$VMID" shutdown >/dev/null 2>&1 || true
+if ! wait_for_status stopped 30; then
+  timeout 180 qm shutdown "$VMID" --timeout 165 >/dev/null
+fi
+wait_for_status stopped 180 || fail "Debian did not stop; boot configuration was not changed"
+
+mutation_started=true
+qm set "$VMID" --cicustom "$CURRENT_CICUSTOM" >/dev/null
+qm cloudinit update "$VMID" >/dev/null
+cloudinit_path=$(pvesm path local-lvm:vm-100-cloudinit)
+ignition=$(mktemp --tmpdir=/run vm-100-arch-ignition.XXXXXX)
+pending_config=$(mktemp --tmpdir=/run vm-100-arch-pending.XXXXXX)
+current_config=$(mktemp --tmpdir=/run vm-100-arch-current.XXXXXX)
+evidence=$(mktemp --tmpdir="$DIAGNOSTIC_ROOT" .production-pending.XXXXXX)
+chmod 0600 "$ignition" "$pending_config" "$current_config" "$evidence"
+isoinfo -i "$cloudinit_path" -x '/USER_DATA.;1' > "$ignition"
+[[ $(stat -c %s "$ignition") -eq $CURRENT_IGNITION_SIZE && $(sha256sum "$ignition" | awk '{print $1}') == "$CURRENT_IGNITION_SHA256" ]] || fail "Arch Ignition cloud-init media differs"
+qm set "$VMID" --boot "$ARCH_BOOT" --vga none >/dev/null
+qm config "$VMID" > "$pending_config"
+qm config "$VMID" --current 1 > "$current_config"
+verify_exact_arch_configuration "$pending_config" "$current_config" || fail "restored Arch configuration differs"
+arch_sha=$(arch_config_sha256 "$pending_config")
+jq -c --arg archConfigSha256 "$arch_sha" --argjson activation "$activation" '
+  . + {activationJournal:$activation,archConfigSha256:$archConfigSha256,attemptOutcome:"failed",
+       failureReason:"post-reboot-amdgpu-runtime-resume",transitionState:"failed-awaiting-host-reboot"}
+' "$PENDING" > "$evidence"
+chown root:root "$evidence"
+chmod 0600 "$evidence"
+mv -T "$evidence" "$PENDING"
+evidence=
+recovery_complete=true
+
+echo "Arch rollback is staged and VM 100 is stopped. Physically reboot the Proxmox host, then run scripts/finalize-debian-production-cutover."
