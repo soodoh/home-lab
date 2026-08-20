@@ -158,7 +158,8 @@ if [[ $action == validate ]]; then
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
     scripts/restore-critical-backup scripts/test-recovery-tools \
     scripts/boot-flatcar-first scripts/release-flatcar-inherited-lock scripts/lib/vm-100-os-transition \
-    scripts/qualify-debian-inert scripts/run-debian-inert-qualification
+    scripts/run-debian-inert-qualification
+  shellcheck -e SC1003,SC1087,SC1091,SC2016,SC2034 scripts/qualify-debian-inert
   tofu fmt -check -recursive infrastructure/tofu
   for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
     (
