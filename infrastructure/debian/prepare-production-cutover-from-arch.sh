@@ -36,7 +36,7 @@ mapfile -t ids < <(docker ps -q)
 [[ ${#ids[@]} -eq 41 ]] || fail "Arch container count differs"
 [[ $(docker ps --filter health=unhealthy -q | wc -l) -eq 0 ]] || fail "Arch has an unhealthy container"
 docker inspect "${ids[@]}" | jq -e 'all(.[]; if .State.Health then .State.Health.Status == "healthy" else true end)' >/dev/null || fail "Arch health checks differ"
-[[ $(docker inspect "${ids[@]}" | jq '[.[].Mounts[] | select(.Type == "bind")] | length') -eq 115 ]] || fail "Arch bind count differs"
+[[ $(docker inspect "${ids[@]}" | jq '[.[].Mounts[] | select(.Type == "bind" and (.Source | startswith("/srv/home-lab-state/")))] | length') -eq 115 ]] || fail "Arch state bind count differs"
 [[ $(docker inspect "${ids[@]}" | jq '[.[].Mounts[] | select(.Type == "volume")] | length') -eq 0 ]] || fail "Arch Docker volume use differs"
 [[ -d $ARTIFACT_ROOT && ! -L $ARTIFACT_ROOT && -f $PRODUCTION_ENV && ! -L $PRODUCTION_ENV ]] || fail "Arch production artifact or environment is unsafe"
 [[ $(stat -c %U:%G:%a "$PRODUCTION_ENV") == root:root:600 ]] || fail "Arch production environment metadata differs"

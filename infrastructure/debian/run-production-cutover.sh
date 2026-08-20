@@ -209,7 +209,7 @@ for ((attempt = 0; attempt < 180; attempt += 1)); do
 done
 [[ $healthy == true ]] || fail "production containers did not become healthy"
 mapfile -t ids < <(docker ps -q)
-[[ $(docker inspect "${ids[@]}" | jq '[.[].Mounts[] | select(.Type == "bind")] | length') -eq 115 ]] || fail "production bind count differs"
+[[ $(docker inspect "${ids[@]}" | jq '[.[].Mounts[] | select(.Type == "bind" and (.Source | startswith("/srv/home-lab-state/")))] | length') -eq 115 ]] || fail "production state bind count differs"
 [[ $(docker inspect "${ids[@]}" | jq '[.[].Mounts[] | select(.Type == "volume")] | length') -eq 0 ]] || fail "production Docker volume use differs"
 python3 "$ARTIFACT_ROOT/scripts/compose-image-lock.py" capture --project "$PROJECT" --output /run/home-lab-production-runtime-lock.json >/dev/null
 jq -e --slurpfile expected "$IMAGE_LOCK_TARGET" '.images == $expected[0].images' /run/home-lab-production-runtime-lock.json >/dev/null || fail "production runtime images differ"
