@@ -91,6 +91,8 @@ assert.match(production, /persist_tailscale_node_id \|\| true/);
 assert.match(coordinator, /deploy_stash=\/srv\/docker-compose\/\.current\.finalize/);
 assert.match(coordinator, /production_mode == true/);
 assert.match(coordinator, /finalize_production_mode == true/);
+assert.match(coordinator, /stage=verify-qualified-debian-package-baseline[\s\S]*findmnt -rn --mountpoint/);
+assert.doesNotMatch(coordinator, /! findmnt -rn --target/);
 assert.ok(coordinator.includes("production_prepare_sha=45c2b585df41ff956db70f02fb6bd28d2f9c42eb23dd2437115195fc4db1d76b"));
 assert.ok(coordinator.includes("production_sha=00284ccbbc61ec647e0c76bb358b2cbae3a21776a4ad674c1d0b6036d286561f"));
 assert.match(coordinator, /setsid \/bin\/bash \/run\/home-lab-arch-production-prepare\.runner/);

@@ -1401,7 +1401,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
   guest_exec_ok 30 /usr/bin/test "$(guest_exec_json 30 /usr/bin/uname -r | jq -r '."out-data" // ""' | tr -d '\r\n')" = "$KERNEL_RELEASE"
   guest_exec_ok 30 /usr/bin/test -f /var/lib/home-lab/debian-inert-provisioned
   guest_exec_ok 30 /usr/bin/test ! -e /etc/home-lab/allow-storage-activation
-  guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done"
+  guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --mountpoint \"\$target\" >/dev/null || exit 1; done"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=home-lab-state -s UUID -o value | sort -u) == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=games -s UUID -o value | sort -u) == 31602ce7-0054-498a-9f24-f51ca491e7b3 ]]"
   if [[ $production_mode == true ]]; then
@@ -1489,7 +1489,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
     stage=verify-debian-credentials-compose-offline
     credentials_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-compose-staged.json | jq -er '."out-data"')
     jq -e '.format == "home-lab-debian-credentials-compose-staged-v1" and .artifactSha256 == "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" and .composeValidation == "quiet-pass" and .dockerServices == "docker-disabled-containerd-masked-inactive" and .privateIdentityExported == false and .protectedMountsActivated == false and .runtimeEnvironmentInstalled == false and .tailscaleEnrolled == false and .recipientCount == 3 and .serviceCount == 41 and .variableCount == 90 and (.modelInventorySha256 | test("^[0-9a-f]{64}$"))' <<< "$credentials_marker" >/dev/null
-    guest_exec_ok 30 /bin/bash -lc "[[ \$(stat -c %U:%G:%a /etc/docker-compose/staging/d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c.env) == root:root:600 ]]; [[ ! -e /etc/docker-compose/production.env && ! -e /var/lib/tailscale ]]; for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done; for service in docker.service docker.socket containerd.service; do [[ \$(systemctl is-active \"\$service\" 2>/dev/null || true) == inactive ]] || exit 1; done; [[ ! -S /run/docker.sock ]]"
+    guest_exec_ok 30 /bin/bash -lc "[[ \$(stat -c %U:%G:%a /etc/docker-compose/staging/d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c.env) == root:root:600 ]]; [[ ! -e /etc/docker-compose/production.env && ! -e /var/lib/tailscale ]]; for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --mountpoint \"\$target\" >/dev/null || exit 1; done; for service in docker.service docker.socket containerd.service; do [[ \$(systemctl is-active \"\$service\" 2>/dev/null || true) == inactive ]] || exit 1; done; [[ ! -S /run/docker.sock ]]"
     stage=persist-debian-credentials-compose-evidence
     write_credentials_pending_evidence "$credentials_marker"
     stop_console_capture
@@ -1511,7 +1511,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
     stage=verify-debian-age-identity
     identity_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-age-identity.json | jq -er '."out-data"')
     jq -e '.format == "home-lab-debian-age-identity-v1" and .identityPath == "/etc/sops/age/keys.txt" and .identityMetadata == "root:root:600" and .privateIdentityExported == false and .sopsVersion == "3.13.3" and .ageVersion == "1.3.1" and (.recipient | test("^age1[0-9a-z]{58}$"))' <<< "$identity_marker" >/dev/null
-    guest_exec_ok 30 /bin/bash -lc "[[ \$(stat -c %U:%G:%a /etc/sops/age/keys.txt) == root:root:600 ]]; [[ ! -e /etc/docker-compose && ! -e /var/lib/tailscale ]]; for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done; for service in docker.service docker.socket containerd.service; do [[ \$(systemctl is-active \"\$service\" 2>/dev/null || true) == inactive ]] || exit 1; done; [[ ! -S /run/docker.sock ]]"
+    guest_exec_ok 30 /bin/bash -lc "[[ \$(stat -c %U:%G:%a /etc/sops/age/keys.txt) == root:root:600 ]]; [[ ! -e /etc/docker-compose && ! -e /var/lib/tailscale ]]; for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --mountpoint \"\$target\" >/dev/null || exit 1; done; for service in docker.service docker.socket containerd.service; do [[ \$(systemctl is-active \"\$service\" 2>/dev/null || true) == inactive ]] || exit 1; done; [[ ! -S /run/docker.sock ]]"
     stage=persist-debian-age-identity-evidence
     write_identity_pending_evidence "$identity_marker"
     stop_console_capture
@@ -1533,7 +1533,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
     stage=verify-debian-storage-rehearsal
     rehearsal_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-storage-rehearsed.json | jq -er '."out-data"')
     jq -e '.format == "home-lab-debian-storage-rehearsal-v1" and .readOnly == true and .unmounted == true and .kernelStorageErrors == 0 and .dockerServices == "docker-disabled-containerd-masked-inactive" and .workloadIdentity == "1000:1000" and .state.uuid == "d4a19647-7879-4079-9fc9-b3e79711b449" and .state.availableBytes >= 50000000000 and ((.state.options | contains("noload")) or (.state.options | contains("norecovery"))) and .games.uuid == "31602ce7-0054-498a-9f24-f51ca491e7b3" and .games.availableBytes >= 2000000000000 and ((.games.options | contains("noload")) or (.games.options | contains("norecovery"))) and .nfs.source == "192.168.0.123:/storage/docker" and .nfs.availableBytes >= 10000000000000 and (.nfs.options | contains("ro"))' <<< "$rehearsal_marker" >/dev/null
-    guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage /run/home-lab-storage-rehearsal/state /run/home-lab-storage-rehearsal/games /run/home-lab-storage-rehearsal/nfs; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done; [[ ! -e /run/home-lab-storage-rehearsal ]]"
+    guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage /run/home-lab-storage-rehearsal/state /run/home-lab-storage-rehearsal/games /run/home-lab-storage-rehearsal/nfs; do ! findmnt -rn --mountpoint \"\$target\" >/dev/null || exit 1; done; [[ ! -e /run/home-lab-storage-rehearsal ]]"
     stage=persist-debian-storage-rehearsal-evidence
     write_rehearsal_pending_evidence "$rehearsal_marker"
     stop_console_capture
@@ -1561,7 +1561,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
   jq -e '.format == "home-lab-debian-packages-prepared-v1" and .services == "docker-disabled-containerd-masked-inactive" and (.dockerPackageVersion | length > 0) and (.dockerCliPackageVersion | length > 0) and (.composePackageVersion | length > 0) and (.composeVersion | length > 0)' <<< "$prepare_marker" >/dev/null
   guest_exec_ok 30 /bin/bash -lc "marker=/var/lib/home-lab/debian-packages-prepared.json; [[ \$(jq -r .dockerPackageVersion \"\$marker\") == \$(dpkg-query -W -f='\${Version}' docker.io) ]]; [[ \$(jq -r .dockerCliPackageVersion \"\$marker\") == \$(dpkg-query -W -f='\${Version}' docker-cli) ]]; [[ \$(jq -r .composePackageVersion \"\$marker\") == \$(dpkg-query -W -f='\${Version}' docker-compose) ]]; [[ \$(jq -r .composeVersion \"\$marker\") == \$(docker compose version --short) ]]"
   guest_exec_ok 30 /bin/bash -lc "for service in docker.service docker.socket; do [[ \$(systemctl is-enabled \"\$service\" 2>/dev/null || true) == disabled ]] && [[ \$(systemctl is-active \"\$service\" 2>/dev/null || true) == inactive ]] || exit 1; done; [[ \$(systemctl is-enabled containerd.service 2>/dev/null || true) == masked ]]; [[ \$(systemctl is-active containerd.service 2>/dev/null || true) == inactive ]]; [[ ! -S /run/docker.sock ]]"
-  guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done; for root in /var/lib/docker/containers /var/lib/docker/image /var/lib/docker/overlay2 /var/lib/docker/volumes; do [[ ! -d \$root || -z \$(find \"\$root\" -mindepth 1 -print -quit) ]] || exit 1; done; [[ ! -e /etc/sops/age && ! -e /etc/docker-compose && ! -e /var/lib/tailscale && ! -e /etc/default/tailscaled ]]; ! command -v tailscale >/dev/null 2>&1; ! command -v tailscaled >/dev/null 2>&1; ! systemctl list-unit-files --no-legend | grep -q '^tailscaled\\.'; ! pgrep -x tailscaled >/dev/null 2>&1"
+  guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --mountpoint \"\$target\" >/dev/null || exit 1; done; for root in /var/lib/docker/containers /var/lib/docker/image /var/lib/docker/overlay2 /var/lib/docker/volumes; do [[ ! -d \$root || -z \$(find \"\$root\" -mindepth 1 -print -quit) ]] || exit 1; done; [[ ! -e /etc/sops/age && ! -e /etc/docker-compose && ! -e /var/lib/tailscale && ! -e /etc/default/tailscaled ]]; ! command -v tailscale >/dev/null 2>&1; ! command -v tailscaled >/dev/null 2>&1; ! systemctl list-unit-files --no-legend | grep -q '^tailscaled\\.'; ! pgrep -x tailscaled >/dev/null 2>&1"
   stage=persist-debian-package-evidence
   write_package_pending_evidence "$prepare_marker"
   stop_console_capture
@@ -1643,7 +1643,7 @@ guest_exec_ok 30 /bin/bash -lc 'lsusb -d 0bda:a729 | grep -q .'
 guest_exec_ok 30 /bin/bash -lc "[[ \$(lsusb -d 10c4:ea60 | wc -l) -eq 2 ]]"
 stage=verify-debian-inert
 guest_exec_ok 30 /usr/bin/test ! -e /etc/home-lab/allow-storage-activation
-guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --target \"\$target\" >/dev/null || exit 1; done"
+guest_exec_ok 30 /bin/bash -lc "for target in /srv/home-lab-state /mnt/games /mnt/storage; do ! findmnt -rn --mountpoint \"\$target\" >/dev/null || exit 1; done"
 guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=home-lab-state -s UUID -o value | sort -u) == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
 guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=games -s UUID -o value | sort -u) == 31602ce7-0054-498a-9f24-f51ca491e7b3 ]]"
 for unit in 'srv-home\x2dlab\x2dstate.mount' mnt-games.mount mnt-storage.mount; do
