@@ -37,6 +37,14 @@ fail() { echo "error: $*" >&2; exit 1; }
 mount_active() { mountpoint -q "$1"; }
 verified_mount_state() { awk -v target="$1" 'BEGIN { state="unmounted" } $5 == target { state="mounted" } END { print state }' /proc/self/mountinfo; }
 verified_service_state() { systemctl show --property=ActiveState --value "$1"; }
+wait_for_tcp_port() {
+  local port=$1
+  for ((attempt = 0; attempt < 120; attempt += 1)); do
+    if timeout 2 /bin/bash -lc "</dev/tcp/127.0.0.1/$port"; then return 0; fi
+    sleep 5
+  done
+  return 1
+}
 write_phase() {
   local phase=$1 temporary
   temporary=$(mktemp /var/lib/home-lab/.debian-production-activation.XXXXXX)
@@ -257,7 +265,7 @@ mapfile -t ids < <(docker ps -q)
 [[ $(docker inspect "${ids[@]}" | jq '[.[].Mounts[] | select(.Type == "volume")] | length') -eq 0 ]] || fail "production Docker volume use differs"
 python3 "$ARTIFACT_ROOT/scripts/compose-image-lock.py" capture --project "$PROJECT" --output /run/home-lab-production-runtime-lock.json >/dev/null
 jq -e --slurpfile expected "$IMAGE_LOCK_TARGET" '[.images[] | {service,image_id}] == [$expected[0].images[] | {service,image_id}]' /run/home-lab-production-runtime-lock.json >/dev/null || fail "production runtime image IDs differ"
-for port in 80 443 8123 8096; do timeout 10 /bin/bash -lc "</dev/tcp/127.0.0.1/$port" || fail "LAN production port $port is unavailable"; done
+for port in 80 443 8123 8096; do wait_for_tcp_port "$port" || fail "LAN production port $port did not become ready"; done
 kernel_errors=$(journalctl -k --since "@$started_epoch" --no-pager | grep -Eci 'I/O error|EXT4-fs error|Buffer I/O|blk_update_request|nfs: server .* not responding' || true)
 [[ $kernel_errors -eq 0 ]] || fail "kernel storage errors occurred during production activation"
 write_phase compose-healthy
