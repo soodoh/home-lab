@@ -48,7 +48,12 @@ function buildAttestation(manifestBody, commit, createdAt) {
 
 function validatePlanArtifacts(manifest, manifestPath, nowMs = Date.now()) {
   const manifestDirectory = path.dirname(manifestPath);
-  const repositoryRoot = path.resolve(manifestDirectory, "../..");
+  const reconcileMarker = `${path.sep}.reconcile${path.sep}`;
+  const reconcileOffset = manifestPath.lastIndexOf(reconcileMarker);
+  if (reconcileOffset <= 0) {
+    throw new Error("plan manifest is not beneath a repository .reconcile directory");
+  }
+  const repositoryRoot = manifestPath.slice(0, reconcileOffset);
   const maximumAgeMs = 60 * 60 * 1000;
   const minimumAgeMs = -5 * 60 * 1000;
   const assertFreshRegularFile = (target, label) => {
