@@ -2,8 +2,9 @@ locals {
   vm                    = local.contract.proxmox.vm
   node                  = local.contract.proxmox.node
   recovery              = var.phase == "recovery"
-  flatcar_qualification = contains(["ignition-attached", "ready-for-first-boot", "flatcar-inert", "hardware-blocked"], local.contract.flatcar.qualification_stage)
-  debian_qualification  = contains(["cloud-init-staged", "ready-for-first-boot", "debian-inert", "hardware-blocked"], local.contract.debian.qualification_stage)
+  debian_authoritative  = local.contract.vm_100.deployment_authority == "debian"
+  flatcar_qualification = !local.debian_authoritative && contains(["ignition-attached", "ready-for-first-boot", "flatcar-inert", "hardware-blocked"], local.contract.flatcar.qualification_stage)
+  debian_qualification  = local.debian_authoritative || contains(["cloud-init-staged", "ready-for-first-boot", "debian-inert", "hardware-blocked"], local.contract.debian.qualification_stage)
   os_qualification      = local.flatcar_qualification || local.debian_qualification
   use_hardware_mappings = local.recovery || local.vm.hardware_attachment_mode == "managed"
 }
@@ -27,7 +28,7 @@ resource "proxmox_virtual_environment_vm" "arch" {
 
   machine       = local.vm.machine
   kvm_arguments = local.vm.cpu.kvm_arguments
-  boot_order = local.debian_qualification && local.contract.debian.qualification_stage == "debian-inert" ? (
+  boot_order = !local.recovery && (local.debian_authoritative || (local.debian_qualification && local.contract.debian.qualification_stage == "debian-inert")) ? (
     local.contract.debian.os_disk.qualification_boot_order
   ) : local.vm.boot_order
   scsi_hardware = "virtio-scsi-single"
