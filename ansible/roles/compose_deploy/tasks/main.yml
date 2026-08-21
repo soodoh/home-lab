@@ -22,6 +22,7 @@
     - "{{ compose_runtime_env_path }}"
     - "{{ compose_staged_inventory_path }}"
     - "{{ compose_runtime_inventory_path }}"
+    - "{{ compose_image_override_path }}"
 
 - name: Require complete root-owned candidate and active inputs
   ansible.builtin.assert:
@@ -30,12 +31,18 @@
       - compose_deploy_paths.results[1].stat.isreg | default(false)
       - compose_deploy_paths.results[1].stat.pw_name == 'root'
       - compose_deploy_paths.results[1].stat.mode == '0600'
-      - compose_deploy_paths.results[2].stat.isdir | default(false)
+      - >-
+        (compose_deploy_paths.results[2].stat.isdir | default(false)) or
+        ((compose_deploy_paths.results[2].stat.islnk | default(false)) and
+         compose_deploy_paths.results[2].stat.lnk_source == compose_legacy_current_target)
       - compose_deploy_paths.results[3].stat.isreg | default(false)
       - compose_deploy_paths.results[3].stat.pw_name == 'root'
       - compose_deploy_paths.results[3].stat.mode == '0600'
       - compose_deploy_paths.results[4].stat.isreg | default(false)
       - compose_deploy_paths.results[5].stat.isreg | default(false)
+      - compose_deploy_paths.results[6].stat.isreg | default(false)
+      - compose_deploy_paths.results[6].stat.pw_name == 'root'
+      - compose_deploy_paths.results[6].stat.mode == '0600'
     fail_msg: "Candidate staging, active deployment, environment, or inventory input is missing."
 
 - name: Recompute candidate and current artifact identities
@@ -84,6 +91,7 @@
       --project-directory {{ compose_staging_root }}/{{ compose_artifact_hash }}
       --env-file {{ compose_staged_env_path }}
       --compose-file {{ compose_staging_root }}/{{ compose_artifact_hash }}/docker-compose.yml
+      --override-file {{ compose_image_override_path }}
       --bind-root-override {{ compose_current_dir }}
       --output /run/docker-compose-deploy-actions.json
     executable: "{{ ansible_python_interpreter }}"
@@ -291,7 +299,48 @@
 
     - name: Atomically rotate current and previous artifacts before Docker convergence
       block:
-        - name: Move current to the tracked previous artifact
+        - name: Materialize the exact legacy current artifact for rollback
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/cp
+              - --archive
+              - --dereference
+              - --
+              - "{{ compose_current_dir }}"
+              - "{{ compose_previous_dir }}"
+          become: true
+          changed_when: true
+          when: compose_deploy_paths.results[2].stat.islnk | default(false)
+
+        - name: Verify the materialized legacy rollback artifact
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_python_interpreter }}"
+              - "{{ compose_previous_dir }}/scripts/compose-artifact.py"
+              - --root
+              - "{{ compose_previous_dir }}"
+              - --no-git
+              - hash
+          become: true
+          register: compose_deploy_materialized_previous_hash
+          changed_when: false
+          when: compose_deploy_paths.results[2].stat.islnk | default(false)
+
+        - name: Require the materialized legacy rollback identity
+          ansible.builtin.assert:
+            that:
+              - compose_deploy_materialized_previous_hash.stdout == compose_deploy_artifact_hashes.results[1].stdout
+            fail_msg: "Materialized legacy rollback artifact differs from the active artifact."
+          when: compose_deploy_paths.results[2].stat.islnk | default(false)
+
+        - name: Remove the verified legacy current symlink
+          ansible.builtin.file:
+            path: "{{ compose_current_dir }}"
+            state: absent
+          become: true
+          when: compose_deploy_paths.results[2].stat.islnk | default(false)
+
+        - name: Move a directory-backed current artifact to previous
           ansible.builtin.command:
             argv:
               - /usr/bin/mv
@@ -300,6 +349,7 @@
               - "{{ compose_previous_dir }}"
           become: true
           changed_when: true
+          when: compose_deploy_paths.results[2].stat.isdir | default(false)
 
         - name: Publish the incoming artifact as current
           ansible.builtin.command:
@@ -389,6 +439,7 @@
           --project-directory {{ compose_current_dir }}
           --env-file {{ compose_runtime_env_path }}
           --compose-file {{ compose_current_dir }}/docker-compose.yml
+          --override-file {{ compose_image_override_path }}
           --output /run/docker-compose-deploy-post.json
         executable: "{{ ansible_python_interpreter }}"
       become: true

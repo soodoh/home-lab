@@ -215,6 +215,8 @@
           - "{{ compose_staged_env_path }}"
           - --file
           - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/docker-compose.yml"
+          - --file
+          - "{{ compose_image_override_path }}"
           - config
           - --quiet
       become: true
@@ -235,6 +237,8 @@
           - "{{ compose_staging_root }}/{{ compose_artifact_hash }}"
           - --env-file
           - "{{ compose_staged_env_path }}"
+          - --override-file
+          - "{{ compose_image_override_path }}"
           - --project-name
           - "{{ compose_project_name }}"
           - --bind-root-override
@@ -289,6 +293,8 @@
           - "{{ compose_staged_env_path }}"
           - --file
           - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/docker-compose.yml"
+          - --file
+          - "{{ compose_image_override_path }}"
           - config
           - --quiet
       become: true
@@ -311,6 +317,8 @@
           - "{{ compose_staged_env_path }}"
           - --file
           - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/docker-compose.yml"
+          - --file
+          - "{{ compose_image_override_path }}"
           - pull
           - --policy
           - missing
@@ -321,6 +329,7 @@
       no_log: true
       environment:
         HOME: "{{ compose_home_dir }}"
+      when: compose_image_override_path | length == 0
 
     - name: Report the reviewed dry-run identity without model data
       ansible.builtin.debug:

@@ -143,23 +143,22 @@ def normalize_desired_volume_source(source: object, declared: set[str], project_
 
 def desired_inventory(args: Namespace) -> dict[str, object]:
     artifact_root = args.artifact_root.resolve()
-    model = run_json(
-        [
-            LIVE_DOCKER,
-            "compose",
-            "--project-name",
-            args.project_name,
-            "--project-directory",
-            str(args.project_directory.resolve()),
-            "--env-file",
-            str(args.env_file.resolve()),
-            "--file",
-            str(artifact_root / "docker-compose.yml"),
-            "config",
-            "--format",
-            "json",
-        ]
-    )
+    command = [
+        LIVE_DOCKER,
+        "compose",
+        "--project-name",
+        args.project_name,
+        "--project-directory",
+        str(args.project_directory.resolve()),
+        "--env-file",
+        str(args.env_file.resolve()),
+        "--file",
+        str(artifact_root / "docker-compose.yml"),
+    ]
+    if args.override_file is not None:
+        command.extend(["--file", str(args.override_file.resolve())])
+    command.extend(["config", "--format", "json"])
+    model = run_json(command)
 
     declared_volume_names = set((model.get("volumes") or {}).keys())
     network_names = {
@@ -384,6 +383,7 @@ def parse_args() -> Namespace:
     desired.add_argument("--env-file", required=True, type=Path)
     desired.add_argument("--project-name", default="docker-compose")
     desired.add_argument("--bind-root-override", type=Path)
+    desired.add_argument("--override-file", type=Path)
     desired.add_argument("--output", type=Path)
     runtime = subparsers.add_parser("runtime")
     runtime.add_argument("--project-name", default="docker-compose")

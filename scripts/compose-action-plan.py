@@ -21,24 +21,26 @@ def compose_model(
     project_directory: Path,
     env_file: Path,
     compose_file: Path,
+    override_file: Path | None,
     bind_root_override: Path | None,
 ) -> dict:
+    command = [
+        "/usr/bin/docker",
+        "compose",
+        "--project-name",
+        project_name,
+        "--project-directory",
+        str(project_directory),
+        "--env-file",
+        str(env_file),
+        "--file",
+        str(compose_file),
+    ]
+    if override_file is not None:
+        command.extend(["--file", str(override_file)])
+    command.extend(["config", "--format", "json"])
     result = subprocess.run(
-        [
-            "/usr/bin/docker",
-            "compose",
-            "--project-name",
-            project_name,
-            "--project-directory",
-            str(project_directory),
-            "--env-file",
-            str(env_file),
-            "--file",
-            str(compose_file),
-            "config",
-            "--format",
-            "json",
-        ],
+        command,
         check=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -153,6 +155,7 @@ def main() -> None:
     parser.add_argument("--project-directory", required=True, type=Path)
     parser.add_argument("--env-file", required=True, type=Path)
     parser.add_argument("--compose-file", required=True, type=Path)
+    parser.add_argument("--override-file", type=Path)
     parser.add_argument("--bind-root-override", type=Path)
     parser.add_argument("--normalized-output", type=Path)
     parser.add_argument("--output", required=True, type=Path)
@@ -163,6 +166,7 @@ def main() -> None:
         args.project_directory,
         args.env_file,
         args.compose_file,
+        args.override_file,
         args.bind_root_override,
     )
     dry_run_file = args.compose_file
@@ -180,26 +184,26 @@ def main() -> None:
 
     created_aliases = prepare_running_image_aliases(model, args.project_name)
     try:
+        dry_run_command = [
+            "/usr/bin/docker",
+            "compose",
+            "--ansi",
+            "never",
+            "--dry-run",
+            "--project-name",
+            args.project_name,
+            "--project-directory",
+            str(dry_run_project_directory),
+            "--env-file",
+            str(args.env_file),
+            "--file",
+            str(dry_run_file),
+        ]
+        if args.override_file is not None and normalized_input is None:
+            dry_run_command.extend(["--file", str(args.override_file)])
+        dry_run_command.extend(["create", "--no-build", "--pull", "never"])
         result = subprocess.run(
-            [
-                "/usr/bin/docker",
-                "compose",
-                "--ansi",
-                "never",
-                "--dry-run",
-                "--project-name",
-                args.project_name,
-                "--project-directory",
-                str(dry_run_project_directory),
-                "--env-file",
-                str(args.env_file),
-                "--file",
-                str(dry_run_file),
-                "create",
-                "--no-build",
-                "--pull",
-                "never",
-            ],
+            dry_run_command,
             check=False,
             input=normalized_input,
             stdout=subprocess.PIPE,

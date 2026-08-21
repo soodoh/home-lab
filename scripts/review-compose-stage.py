@@ -77,6 +77,7 @@ def main() -> None:
     parser.add_argument("--artifact-root", required=True, type=Path)
     parser.add_argument("--project-directory", required=True, type=Path)
     parser.add_argument("--env-file", required=True, type=Path)
+    parser.add_argument("--override-file", type=Path)
     parser.add_argument("--project-name", default="docker-compose")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
@@ -104,11 +105,10 @@ def main() -> None:
         str(args.env_file.resolve()),
         "--file",
         str(args.artifact_root.resolve() / "docker-compose.yml"),
-        "create",
-        "--no-build",
-        "--pull",
-        "never",
     ]
+    if args.override_file is not None:
+        command.extend(["--file", str(args.override_file.resolve())])
+    command.extend(["create", "--no-build", "--pull", "never"])
     dry_run = subprocess.run(
         command,
         check=True,

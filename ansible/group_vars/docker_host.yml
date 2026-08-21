@@ -48,6 +48,7 @@ apply_lock_path: /var/lib/iac-ansible-production.lock
 compose_home_dir: /home/docker
 compose_deployment_root: /srv/docker-compose
 compose_current_dir: /srv/docker-compose/current
+compose_legacy_current_target: /var/lib/home-lab/compose-staging/d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c
 compose_staging_root: /srv/docker-compose/staging
 compose_previous_dir: /srv/docker-compose/previous
 compose_runtime_env_path: /etc/docker-compose/production.env
@@ -55,6 +56,7 @@ compose_staged_env_root: /etc/docker-compose/staging
 compose_staged_env_path: "{{ compose_staged_env_root }}/{{ compose_artifact_hash }}.env"
 compose_previous_env_path: /etc/docker-compose/previous.env
 compose_age_identity_path: /etc/sops/age/keys.txt
+compose_image_override_path: /var/lib/home-lab/production-image-override.json
 compose_runtime_cli:
   - /usr/bin/docker
   - compose
@@ -66,6 +68,8 @@ compose_runtime_cli:
   - "{{ compose_runtime_env_path }}"
   - --file
   - "{{ compose_current_dir }}/docker-compose.yml"
+  - --file
+  - "{{ compose_image_override_path }}"
 compose_staged_inventory_path: /var/lib/docker-compose/staged-model.json
 compose_runtime_inventory_path: /var/lib/docker-compose/runtime-model.json
 maintenance_compose_current_image_lock_path: /var/lib/docker-compose/current-images.json
