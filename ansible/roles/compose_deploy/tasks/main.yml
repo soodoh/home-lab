@@ -180,7 +180,7 @@
       - >-
         compose_deploy_plan.manual_only_paths | length == 0 or
         (
-          (compose_deploy_manual_paths_confirmation | default('')) == 'deploy-reviewed-three-path-backups' and
+          (compose_deploy_manual_paths_confirmation | default('')) == 'deploy-reviewed-two-path-backups' and
           compose_deploy_plan.manual_only_paths == ['services/data/replicate-local-backup'] and
           'daily-local-backup' in compose_deploy_plan.recreate_services
         )
@@ -194,7 +194,7 @@
       {{
         []
         if (
-          (compose_deploy_manual_paths_confirmation | default('')) == 'deploy-reviewed-three-path-backups' and
+          (compose_deploy_manual_paths_confirmation | default('')) == 'deploy-reviewed-two-path-backups' and
           compose_deploy_plan.recreate_services | length == 41
         )
         else ['--no-deps']
