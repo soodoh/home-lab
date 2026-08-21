@@ -472,6 +472,13 @@ backup_mounts = {volume["target"]: volume["source"] for volume in daily_service[
 assert backup_mounts["/archive"] == "/mnt/storage/backups"
 assert backup_mounts["/replica-home"] == "/home/docker/backups"
 assert backup_mounts["/replica-games"] == "/mnt/games/backups"
+assert backup_mounts["/tmp"] == "/mnt/games/backups/.tmp"
+weekly_mounts = {volume["target"]: volume["source"] for volume in weekly_service["volumes"]}
+assert weekly_mounts["/tmp"] == "/mnt/games/backups/.tmp"
+for service in (daily_service, weekly_service):
+    temp_mount = next(volume for volume in service["volumes"] if volume["target"] == "/tmp")
+    assert temp_mount["type"] == "bind"
+    assert temp_mount["bind"]["create_host_path"] is False
 assert weekly["BACKUP_CRON_EXPRESSION"] == "0 6 * * 0"
 assert weekly["BACKUP_FILENAME"].startswith("weekly-backup-")
 assert weekly["BACKUP_ARCHIVE"] == "/archive-disabled"

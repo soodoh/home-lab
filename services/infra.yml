@@ -66,6 +66,13 @@ x-backup-volumes: &backup-volumes
   - /mnt/storage/backups:/archive
   - /home/docker/backups:/replica-home
   - /mnt/games/backups:/replica-games
+  # Keep large plaintext working archives off the capacity-constrained OS disk.
+  # The hidden directory is excluded from replica discovery and backup pruning prefixes.
+  - type: bind
+    source: /mnt/games/backups/.tmp
+    target: /tmp
+    bind:
+      create_host_path: false
 
 services:
   omada:

@@ -72,6 +72,10 @@ It never emits environment values, resolved commands, labels, or the complete Co
 
 The backup services declare `/etc/docker-compose/production.env:/backup/.env:ro`; active containers use the root-only production environment rather than a repository checkout.
 
+## Backup temporary storage
+
+Both backup services bind `/mnt/games/backups/.tmp` to container `/tmp` with automatic host-path creation disabled. The host directory must exist as `root:root` mode `0700` before staging or deployment. This keeps large plaintext working archives off the 64 GiB Debian root filesystem while preserving the existing encrypted archive and replica paths. The games filesystem has sufficient independent capacity; backup discovery and pruning remain limited to their existing top-level encrypted filename patterns.
+
 ## Cutover boundary
 
 Staging may populate hash-addressed artifacts and inactive root-only candidate environment files. It never overwrites the active `/etc/docker-compose/production.env`, synchronizes an artifact into `current`, changes runtime Compose labels, pulls images, or converges containers.
