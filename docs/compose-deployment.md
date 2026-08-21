@@ -74,7 +74,7 @@ The backup services declare `/etc/docker-compose/production.env:/backup/.env:ro`
 
 ## Backup temporary storage
 
-Both backup services bind `/mnt/games/backups/.tmp` to container `/tmp` with automatic host-path creation disabled. The host directory must exist as `root:root` mode `0700` before staging or deployment. This keeps large plaintext working archives off the 64 GiB Debian root filesystem while preserving the existing encrypted archive and replica paths. The games filesystem has sufficient independent capacity; backup discovery and pruning remain limited to their existing top-level encrypted filename patterns.
+Both backup services bind `/mnt/games/backups/.tmp` to container `/tmp` with automatic host-path creation disabled. `scripts/prepare-debian-production-automation` is the physical-console boundary that verifies the exact games UUID at `/mnt/games`, `rw`, at least 100 GiB available, and the completed Debian production journal before installing `/mnt/games/backups/.tmp` as `root:root` mode `0700`. It also installs the dedicated, password-locked `ansible-deploy` controller account outside the Docker group. Staging and deployment repeat the read-only mount, capacity, metadata, non-symlink, and device checks and fail if any differ. This keeps large plaintext working archives off the 64 GiB Debian root filesystem while preserving the existing encrypted archive and replica paths. Backup discovery and pruning remain limited to their existing top-level encrypted filename patterns.
 
 ## Cutover boundary
 
@@ -111,6 +111,8 @@ Every apply attempt retains the production lock on failure. Success requires an 
 ### Host-checkout independence
 
 Active audit, health, Compose preflight, Wolf-file comparison, deployment, and rollback operations all resolve the exact stable artifact with explicit project name, project directory, environment file, and Compose file arguments. The production environment metadata gate requires `root:root 0600`. No workflow runs `git pull` on the server or reads a host checkout. A merge from any machine therefore follows the same GitHub-controlled artifact path.
+
+The Debian production endpoint is `docker-host-debian` with dedicated login identity `ansible-deploy`; the `docker` workload account is not the deployment identity. Strict SSH host-key checking remains mandatory. `infrastructure/evidence/vm-100-debian-ssh-host-key.json` records the ED25519 key independently read through Proxmox QGA and its exact match to the tailnet endpoint; controllers must pin that key before connecting.
 
 PR [#219](https://github.com/soodoh/home-lab/pull/219) retired the one-time cutover code, initial legacy rollback, recorded-hash side metadata, and every tracked host-checkout path. It also changed rollback to converge the exact normalized previous model before an atomic artifact exchange, privately binds the plan to both artifact hashes and the unchanged environment hash, and ensures plan-only normalized configuration is passed through standard input rather than written to disk.
 

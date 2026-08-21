@@ -103,7 +103,7 @@
     - name: Recompute the incoming host artifact hash
       ansible.builtin.command:
         argv:
-          - python
+          - "{{ ansible_python_interpreter }}"
           - "{{ compose_stage_incoming.path }}/scripts/compose-artifact.py"
           - --root
           - "{{ compose_stage_incoming.path }}"
@@ -135,7 +135,7 @@
     - name: Recompute the published host artifact hash
       ansible.builtin.command:
         argv:
-          - python
+          - "{{ ansible_python_interpreter }}"
           - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/scripts/compose-artifact.py"
           - --root
           - "{{ compose_staging_root }}/{{ compose_artifact_hash }}"
@@ -181,7 +181,7 @@
     - name: Restore the exact non-secret dotenv layout
       ansible.builtin.command:
         argv:
-          - python
+          - "{{ ansible_python_interpreter }}"
           - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/scripts/restore-dotenv-layout.py"
           - "{{ compose_stage_decrypt_workspace.path }}/canonical.env"
           - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/secrets/production.env.layout.json"
@@ -226,7 +226,7 @@
     - name: Produce the secret-free staged model inventory
       ansible.builtin.command:
         argv:
-          - python
+          - "{{ ansible_python_interpreter }}"
           - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/scripts/compose-model-inventory.py"
           - desired
           - --artifact-root
@@ -250,7 +250,7 @@
     - name: Produce the secret-free runtime model inventory
       ansible.builtin.command:
         argv:
-          - python
+          - "{{ ansible_python_interpreter }}"
           - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/scripts/compose-model-inventory.py"
           - runtime
           - --project-name

@@ -30,7 +30,7 @@
               --env-file {{ compose_staged_env_path }}
               --project-name {{ compose_project_name }}
               --output {{ compose_stage_review_path }}
-            executable: python
+            executable: "{{ ansible_python_interpreter }}"
           become: true
           changed_when: false
           no_log: true

@@ -13,6 +13,9 @@
       vars:
         apply_lock_action: acquire
         apply_lock_operation: compose-deploy
+    - name: Verify fail-closed backup temporary storage
+      ansible.builtin.import_role:
+        name: backup_temp_preflight
   roles:
     - role: compose_deploy
   post_tasks:

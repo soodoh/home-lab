@@ -418,9 +418,10 @@
         "tags": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["arch", "proxmox"],
+          "required": ["arch", "debian", "proxmox"],
           "properties": {
             "arch": { "type": "string", "pattern": "^tag:" },
+            "debian": { "type": "string", "pattern": "^tag:" },
             "proxmox": { "type": "string", "pattern": "^tag:" }
           }
         },
@@ -472,9 +473,9 @@
       "required": ["vmid", "host_name", "network_identity", "deployment_authority", "workload_identity", "access", "networking", "storage", "hardware"],
       "properties": {
         "vmid": { "const": 100 },
-        "host_name": { "const": "archlinux" },
+        "host_name": { "const": "docker-host" },
         "network_identity": { "const": "docker-host" },
-        "deployment_authority": { "enum": ["arch", "flatcar", "debian"] },
+        "deployment_authority": { "enum": ["arch", "debian"] },
         "workload_identity": {
           "type": "object", "additionalProperties": false,
           "required": ["user", "uid", "primary_group", "gid", "home", "shell", "supplementary_groups"],
@@ -499,7 +500,7 @@
           "required": ["openssh_enabled", "authorized_login_keys", "password_authentication", "keyboard_interactive_authentication", "permit_root_login", "allow_tcp_forwarding", "x11_forwarding"],
           "properties": {
             "openssh_enabled": { "const": true },
-            "authorized_login_keys": { "const": 0 },
+            "authorized_login_keys": { "const": 2 },
             "password_authentication": { "const": false },
             "keyboard_interactive_authentication": { "const": false },
             "permit_root_login": { "const": false },

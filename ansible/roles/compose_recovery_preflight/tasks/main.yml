@@ -38,7 +38,7 @@
       --project {{ compose_project_name | quote }}
       {{ '--retain-existing-binds' if (recovery_retain_existing_bind_data | default(false) | bool) else '' }}
       {{ '--retained-bind-review-confirmed' if (recovery_retained_bind_review_confirmed | default(false) | bool) else '' }}
-    executable: /usr/bin/python
+    executable: "{{ ansible_python_interpreter }}"
   register: compose_recovery_preflight_result
   changed_when: false
   no_log: true

@@ -4,9 +4,9 @@ all:
     docker_host:
       hosts:
         docker-host-production:
-          ansible_host: docker-host
+          ansible_host: docker-host-debian
           ansible_user: ansible-deploy
-          ansible_python_interpreter: /usr/bin/python
+          ansible_python_interpreter: /usr/bin/python3
           ansible_become: true
           ansible_become_method: sudo
           ansible_ssh_common_args: >-

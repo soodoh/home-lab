@@ -6,16 +6,16 @@ all:
     docker_host:
       hosts:
         docker-host-production:
-          ansible_host: docker-host
+          ansible_host: docker-host-debian
           ansible_user: ansible-deploy
-          ansible_python_interpreter: /usr/bin/python
+          ansible_python_interpreter: /usr/bin/python3
           # The controller reaches this host through the authenticated tailnet path
           # and keeps normal Ansible host-key verification enabled.
           ansible_ssh_common_args: >-
             -o ConnectTimeout=10
             -o ServerAliveInterval=15
             -o ServerAliveCountMax=2
-          # The deployment user is outside the docker group. Remote audits use its
-          # separately validated passwordless sudo policy.
+          # Debian production retains the dedicated controller account outside the Docker
+          # group and its separately validated passwordless sudo policy.
           ansible_become: true
           ansible_become_method: sudo

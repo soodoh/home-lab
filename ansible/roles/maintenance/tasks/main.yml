@@ -40,7 +40,7 @@
 - name: Bootstrap only missing image locks from the current running set
   ansible.builtin.command:
     argv:
-      - /usr/bin/python
+      - "{{ ansible_python_interpreter }}"
       - "{{ compose_current_dir }}/scripts/compose-image-lock.py"
       - capture
       - --project
@@ -72,7 +72,7 @@
 - name: Verify rollback image locks before enabling prune
   ansible.builtin.command:
     argv:
-      - /usr/bin/python
+      - "{{ ansible_python_interpreter }}"
       - "{{ compose_current_dir }}/scripts/compose-image-lock.py"
       - verify
       - --current
@@ -110,7 +110,7 @@
       }
       trap cleanup EXIT
       /usr/bin/docker system df
-      /usr/bin/python {{ compose_current_dir }}/scripts/compose-image-lock.py prune \
+      {{ ansible_python_interpreter }} {{ compose_current_dir }}/scripts/compose-image-lock.py prune \
         --current {{ maintenance_compose_current_image_lock_path }} \
         --previous {{ maintenance_compose_previous_image_lock_path }} \
         --check-registry \

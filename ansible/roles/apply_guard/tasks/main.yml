@@ -9,6 +9,15 @@
       Refusing a normal run. Use --check for planning. A separately approved apply requires
       -e iac_apply_confirmed=true and exactly one approved -e iac_apply_tag=<tag> matching --tags.
 
+- name: Refuse ordinary Arch convergence under replacement authority
+  ansible.builtin.assert:
+    that:
+      - vm_100.deployment_authority == 'arch'
+    fail_msg: >-
+      Ordinary Arch package, network, storage, and host convergence is inhibited while
+      {{ vm_100.deployment_authority }} is VM 100 deployment authority.
+  when: not ansible_check_mode
+
 - name: Require one explicitly selected convergence tag for a normal run
   ansible.builtin.assert:
     that:

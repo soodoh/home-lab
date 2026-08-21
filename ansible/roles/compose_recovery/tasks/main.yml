@@ -42,7 +42,7 @@
 - name: Verify the staged artifact identity
   ansible.builtin.command:
     argv:
-      - /usr/bin/python
+      - "{{ ansible_python_interpreter }}"
       - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/scripts/compose-artifact.py"
       - --root
       - "{{ compose_staging_root }}/{{ compose_artifact_hash }}"
@@ -151,7 +151,7 @@
       --env-file {{ compose_runtime_env_path | quote }}
       --compose-file {{ (compose_current_dir ~ '/docker-compose.yml') | quote }}
       --output /run/home-lab-recovery-volumes.json
-    executable: /usr/bin/python
+    executable: "{{ ansible_python_interpreter }}"
   changed_when: true
   no_log: true
 - name: Create stopped recovery containers and their fresh volumes
@@ -171,7 +171,7 @@
       --volume-inventory /run/home-lab-recovery-volumes.json
       --project {{ compose_project_name | quote }}
       {{ '--retain-existing-binds' if (recovery_retain_existing_bind_data | default(false) | bool) else '' }}
-    executable: /usr/bin/python
+    executable: "{{ ansible_python_interpreter }}"
   changed_when: true
   no_log: true
 
@@ -205,7 +205,7 @@
 - name: Capture the recovered image set
   ansible.builtin.command:
     argv:
-      - /usr/bin/python
+      - "{{ ansible_python_interpreter }}"
       - "{{ compose_current_dir }}/scripts/compose-image-lock.py"
       - capture
       - --project

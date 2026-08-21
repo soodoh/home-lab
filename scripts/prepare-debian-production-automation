@@ -1,0 +1,137 @@
+#!/bin/bash
+set -Eeuo pipefail
+
+readonly VMID=100
+readonly CONFIRMATION=prepare-reviewed-vm-100-debian-production-automation
+readonly OPERATION_LOCK=/var/lib/home-lab/reconciliation/operation.lock
+readonly PLAN_NOTES_REF=refs/notes/debian-qualification
+readonly CONTROLLER_KEY='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDDlzFF6z8f3tx7jPWlCMyZv9SqwEPWkotgPHIFPepf8 home-lab-controller'
+
+fail() { echo "error: $*" >&2; exit 1; }
+verify_plan_attestation() {
+  local attestation commit created_at created_epoch now_epoch age
+  git fetch --quiet origin "+refs/heads/main:refs/remotes/origin/main" "+$PLAN_NOTES_REF:$PLAN_NOTES_REF"
+  commit=$(git rev-parse HEAD)
+  attestation=$(git notes --ref="$PLAN_NOTES_REF" show "$commit")
+  jq -e --arg commit "$commit" '
+    .schemaVersion == 1 and .commit == $commit and .phase == "steady" and .stage == "converge" and
+    .proxmoxHostActions == 0 and .allActionsZero == true and
+    (.manifestSha256 | test("^[0-9a-f]{64}$")) and (.roots | length) == 5 and
+    all(.roots[]; .changed == false and (.sha256 | test("^[0-9a-f]{64}$"))) and
+    ([.roots[].root] | sort) == ["aws-foundation", "omada", "proxmox", "proxmox-legacy", "tailscale"]
+  ' <<<"$attestation" >/dev/null
+  created_at=$(jq -er .createdAt <<<"$attestation")
+  created_epoch=$(date -d "$created_at" +%s)
+  now_epoch=$(date +%s)
+  age=$((now_epoch - created_epoch))
+  [[ $age -ge -300 && $age -le 86400 ]]
+}
+[[ $EUID -eq 0 ]] || fail "run as root at the physical Proxmox console"
+[[ -t 0 ]] || fail "automation preparation requires an interactive physical console"
+repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || fail "not inside the reviewed repository"
+cd "$repo_root"
+[[ -z $(git status --porcelain) ]] || fail "repository is not clean"
+verify_plan_attestation || fail "fresh zero-action controller plan attestation is unavailable"
+head_commit=$(git rev-parse HEAD)
+[[ $head_commit == $(git rev-parse origin/main) ]] || fail "HEAD is not the fetched origin/main tip"
+[[ -f /var/lib/home-lab/debian/production.json ]] || fail "completed Debian production evidence is absent"
+jq -e --arg commit f34c7d07b862ea3a2f5552664ff527d8d8bb0d1e \
+  '.transitionState == "complete" and .sourceCommit == $commit and .containerCount == 41 and .unhealthyContainerCount == 0' \
+  /var/lib/home-lab/debian/production.json >/dev/null || fail "completed Debian production evidence differs"
+[[ $(qm status "$VMID") == 'status: running' ]] || fail "VM 100 is not running"
+[[ $(qm config "$VMID" | awk -F': ' '$1 == "boot" { print $2 }') == 'order=scsi3;scsi0;net0' ]] || fail "Debian production boot authority differs"
+
+[[ -f $OPERATION_LOCK && ! -L $OPERATION_LOCK ]] || fail "operation lock is not an existing regular file"
+[[ $(stat -c '%U:%G:%a' "$OPERATION_LOCK") == root:root:600 ]] || fail "operation lock metadata differs"
+exec 9>>"$OPERATION_LOCK"
+[[ $(stat -Lc '%d:%i' "$OPERATION_LOCK") == $(stat -Lc '%d:%i' /proc/$$/fd/9) ]] || fail "operation lock identity changed while opening"
+flock -n 9 || fail "another protected operation holds the reconciliation lock"
+printf 'Type the exact confirmation to prepare Debian production automation:\n%s\n' "$CONFIRMATION" >&2
+IFS= read -r confirmation
+[[ $confirmation == "$CONFIRMATION" ]] || fail "exact automation-preparation confirmation is required"
+
+payload=$(base64 -w 0 <<GUEST
+#!/bin/bash
+set -Eeuo pipefail
+readonly controller_key='$CONTROLLER_KEY'
+readonly temp_dir=/mnt/games/backups/.tmp
+. /etc/os-release
+[[ \$ID == debian ]]
+jq -e '.format == "home-lab-debian-production-activation-v1" and .phase == "committed"' /var/lib/home-lab/debian-production-activation.json >/dev/null
+[[ \$(systemctl is-active home-lab-production-guard.service) == active ]]
+[[ \$(systemctl is-active home-lab-compose.service) == active ]]
+[[ \$(findmnt -rn -S UUID=31602ce7-0054-498a-9f24-f51ca491e7b3 -o TARGET) == /mnt/games ]]
+findmnt -rn --mountpoint /mnt/games -o OPTIONS | tr ',' '\n' | grep -Fxq rw
+[[ \$(df --block-size=1 --output=avail /mnt/games | tail -1 | tr -d ' ') -ge 107374182400 ]]
+[[ -d /mnt/games/backups && ! -L /mnt/games/backups ]]
+[[ \$(stat -c '%U:%G:%a' /mnt/games/backups) == root:root:700 ]]
+temp_exists=false
+if [[ -e \$temp_dir || -L \$temp_dir ]]; then
+  [[ -d \$temp_dir && ! -L \$temp_dir ]]
+  [[ \$(stat -c '%U:%G:%a' \$temp_dir) == root:root:700 ]]
+  [[ \$(stat -c '%d' \$temp_dir) == \$(stat -c '%d' /mnt/games) ]]
+  temp_exists=true
+fi
+[[ \$(stat -c '%d' /mnt/games/backups) == \$(stat -c '%d' /mnt/games) ]]
+[[ -d /home && ! -L /home && \$(stat -c '%U:%G:%a' /home) == root:root:755 ]]
+[[ -d /etc/sudoers.d && ! -L /etc/sudoers.d && \$(stat -c '%U:%G:%a' /etc/sudoers.d) == root:root:750 ]]
+account_exists=false
+if getent passwd ansible-deploy >/dev/null; then
+  [[ \$(getent passwd ansible-deploy | cut -d: -f3,4,6,7) == 1001:1001:/home/ansible-deploy:/bin/bash ]]
+  [[ \$(getent group ansible-deploy | cut -d: -f3,4) == 1001: ]]
+  [[ \$(id -Gn ansible-deploy) == ansible-deploy ]]
+  [[ \$(passwd --status ansible-deploy | awk '{print \$2}') == L ]]
+  [[ -d /home/ansible-deploy && ! -L /home/ansible-deploy ]]
+  [[ \$(stat -c '%U:%G:%a' /home/ansible-deploy) == ansible-deploy:ansible-deploy:700 ]]
+  [[ -d /home/ansible-deploy/.ssh && ! -L /home/ansible-deploy/.ssh ]]
+  [[ \$(stat -c '%U:%G:%a' /home/ansible-deploy/.ssh) == ansible-deploy:ansible-deploy:700 ]]
+  [[ -f /home/ansible-deploy/.ssh/authorized_keys && ! -L /home/ansible-deploy/.ssh/authorized_keys ]]
+  [[ \$(stat -c '%U:%G:%a' /home/ansible-deploy/.ssh/authorized_keys) == ansible-deploy:ansible-deploy:600 ]]
+  [[ \$(cat /home/ansible-deploy/.ssh/authorized_keys) == "\$controller_key" ]]
+  [[ -f /etc/sudoers.d/ansible-deploy && ! -L /etc/sudoers.d/ansible-deploy ]]
+  [[ \$(stat -c '%U:%G:%a' /etc/sudoers.d/ansible-deploy) == root:root:440 ]]
+  [[ \$(cat /etc/sudoers.d/ansible-deploy) == 'ansible-deploy ALL=(root) NOPASSWD: ALL' ]]
+  visudo --check --file=/etc/sudoers.d/ansible-deploy >/dev/null
+  account_exists=true
+else
+  ! getent passwd 1001 >/dev/null
+  ! getent group ansible-deploy >/dev/null
+  ! getent group 1001 >/dev/null
+  [[ ! -e /home/ansible-deploy && ! -L /home/ansible-deploy ]]
+  [[ ! -e /etc/sudoers.d/ansible-deploy && ! -L /etc/sudoers.d/ansible-deploy ]]
+fi
+if [[ \$temp_exists == false ]]; then
+  install -d -o root -g root -m 0700 \$temp_dir
+fi
+if [[ \$account_exists == false ]]; then
+  groupadd --gid 1001 ansible-deploy
+  useradd --uid 1001 --gid 1001 --create-home --shell /bin/bash --comment 'Ansible deployment user' ansible-deploy
+  passwd --lock ansible-deploy >/dev/null
+  chmod 0700 /home/ansible-deploy
+  install -d -o ansible-deploy -g ansible-deploy -m 0700 /home/ansible-deploy/.ssh
+  authorized_tmp=\$(mktemp /home/ansible-deploy/.ssh/.authorized_keys.XXXXXX)
+  printf '%s\n' "\$controller_key" >"\$authorized_tmp"
+  chown ansible-deploy:ansible-deploy "\$authorized_tmp"
+  chmod 0600 "\$authorized_tmp"
+  mv -T "\$authorized_tmp" /home/ansible-deploy/.ssh/authorized_keys
+  sudoers_tmp=\$(mktemp /etc/sudoers.d/.ansible-deploy.XXXXXX)
+  printf '%s\n' 'ansible-deploy ALL=(root) NOPASSWD: ALL' >"\$sudoers_tmp"
+  chown root:root "\$sudoers_tmp"
+  chmod 0440 "\$sudoers_tmp"
+  visudo --check --file="\$sudoers_tmp" >/dev/null
+  mv -T "\$sudoers_tmp" /etc/sudoers.d/ansible-deploy
+fi
+[[ \$(id -Gn ansible-deploy) == ansible-deploy ]]
+[[ \$(passwd --status ansible-deploy | awk '{print \$2}') == L ]]
+[[ \$(stat -c '%U:%G:%a' /home/ansible-deploy) == ansible-deploy:ansible-deploy:700 ]]
+[[ \$(stat -c '%U:%G:%a' /home/ansible-deploy/.ssh/authorized_keys) == ansible-deploy:ansible-deploy:600 ]]
+[[ \$(cat /home/ansible-deploy/.ssh/authorized_keys) == "\$controller_key" ]]
+[[ \$(stat -c '%U:%G:%a' /etc/sudoers.d/ansible-deploy) == root:root:440 ]]
+[[ \$(stat -c '%U:%G:%a' \$temp_dir) == root:root:700 ]]
+echo debian_production_automation=prepared
+GUEST
+)
+response=$(timeout --kill-after=10 180 qm guest exec "$VMID" -- /bin/bash -lc "printf %s '$payload' | base64 -d | /bin/bash") || fail "QGA automation preparation failed"
+[[ $(jq -er .exitcode <<<"$response") -eq 0 ]] || { jq -r '."err-data" // ."out-data" // empty' <<<"$response" >&2; fail "guest refused automation preparation"; }
+[[ $(jq -r '."out-data"' <<<"$response" | tr -d '\n') == debian_production_automation=prepared ]] || fail "guest preparation result differs"
+printf 'debian_production_automation=prepared commit=%s\n' "$head_commit"

@@ -14,4 +14,4 @@
     owner: root
     group: root
     mode: "0755"
-    validate: /usr/bin/python -m py_compile %s
+    validate: "{{ ansible_python_interpreter }} -m py_compile %s"

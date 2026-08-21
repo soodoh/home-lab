@@ -7,4 +7,5 @@
     - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
     - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   roles:
+    - role: backup_temp_preflight
     - role: compose_stage

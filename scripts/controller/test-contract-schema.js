@@ -13,6 +13,8 @@ const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/h
 const schema = JSON.parse(fs.readFileSync(path.join(root, "infrastructure/contract/schema.json"), "utf8"));
 const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
 const proxmoxSource = fs.readFileSync(path.join(root, "infrastructure/tofu/proxmox/main.tf"), "utf8");
+const productionInventory = fs.readFileSync(path.join(root, "ansible/inventory/production.yml"), "utf8");
+const infrastructureInventory = fs.readFileSync(path.join(root, "ansible/inventory/infrastructure.yml"), "utf8");
 
 function check(value, expected, label) {
   const actual = validate(value);
@@ -32,6 +34,16 @@ check(structuredClone(contract), true, "current contract");
 if (validateProxmoxHostPolicy(contract).length) {
   throw new Error(`current Proxmox host policy failed semantics: ${JSON.stringify(validateProxmoxHostPolicy(contract))}`);
 }
+if (!contract.tailscale.required_endpoints.includes("docker-host-debian:22") ||
+    !contract.tailscale.required_endpoints.includes("docker-host-debian:8043") ||
+    !productionInventory.includes("ansible_host: docker-host-debian") ||
+    !productionInventory.includes("ansible_user: ansible-deploy") ||
+    !productionInventory.includes("ansible_python_interpreter: /usr/bin/python3") ||
+    !infrastructureInventory.includes("ansible_host: docker-host-debian") ||
+    !infrastructureInventory.includes("ansible_user: ansible-deploy") ||
+    !infrastructureInventory.includes("ansible_python_interpreter: /usr/bin/python3")) {
+  throw new Error("production automation must target the verified Debian Tailscale identity");
+}
 const stateDisk = contract.proxmox.vm.state_disk;
 if (stateDisk.interface !== "scsi2" || stateDisk.serial !== "QUAL-NIXOS-128G" ||
     stateDisk.filesystem_uuid !== "d4a19647-7879-4079-9fc9-b3e79711b449" ||
@@ -41,12 +53,12 @@ if (stateDisk.interface !== "scsi2" || stateDisk.serial !== "QUAL-NIXOS-128G" ||
   throw new Error("production state disk must retain the exact scsi2 filesystem identity and lifecycle");
 }
 
-for (const authority of ["arch", "flatcar"]) {
+for (const authority of ["arch", "debian"]) {
   const validVmAuthority = structuredClone(contract);
   validVmAuthority.vm_100.deployment_authority = authority;
   check(validVmAuthority, true, `VM 100 accepts ${authority} authority`);
 }
-for (const authority of ["migration-in-progress", "nixos", "dual"]) {
+for (const authority of ["migration-in-progress", "nixos", "flatcar", "dual"]) {
   const invalidVmAuthority = structuredClone(contract);
   invalidVmAuthority.vm_100.deployment_authority = authority;
   check(invalidVmAuthority, false, `VM 100 rejects retired authority ${authority}`);
@@ -66,7 +78,7 @@ for (const mutate of [
 ]) {
   const invalidBaseAccess = structuredClone(contract);
   mutate(invalidBaseAccess);
-  check(invalidBaseAccess, false, "VM 100 base identity and console-only access are closed");
+  check(invalidBaseAccess, false, "VM 100 Debian production identity and hardened access are closed");
 }
 
 function valueAt(document, dottedPath) {

@@ -9,7 +9,7 @@ const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
 
 function validateAuthority(vm100) {
   const authority = vm100?.deployment_authority;
-  if (!new Set(["arch", "flatcar"]).has(authority)) {
+  if (!new Set(["arch", "debian"]).has(authority)) {
     throw new Error("VM 100 deployment authority is invalid");
   }
   return authority;
@@ -27,7 +27,7 @@ function assertOrdinaryMutationPermitted(vm100) {
 }
 
 function refusalReason(authority) {
-  if (authority === "flatcar") return "flatcar_authoritative";
+  if (authority === "debian") return "debian_authoritative";
   throw new Error(`no ordinary-mutation refusal reason for authority ${authority}`);
 }
 

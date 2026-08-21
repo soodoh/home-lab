@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-08-21T16:35:47Z",
+  "sourceCommit": "f34c7d07b862ea3a2f5552664ff527d8d8bb0d1e",
+  "vmid": 100,
+  "hostBootId": "ea147d61-f096-46df-b10a-10783644423d",
+  "guestBootId": "d8ac0e02-1590-4232-8bad-02cd3ed69da3",
+  "tailscaleHostname": "docker-host-debian",
+  "tailscaleIpv4": "100.116.163.42",
+  "keyType": "ssh-ed25519",
+  "publicKey": "AAAAC3NzaC1lZDI1NTE5AAAAIOzIiVflT7s48QPpSdDJ1VifuFkZvmXAS1bQlQODqncU",
+  "sha256Fingerprint": "SHA256:7GYR95H1ybocMXsvjw0qAaiDiW3OQXcaZDU+oO5cOsQ",
+  "verification": {
+    "guestSource": "/etc/ssh/ssh_host_ed25519_key.pub",
+    "guestReadVia": "proxmox-qga",
+    "tailnetKeyscanMatched": true,
+    "privateKeyRead": false
+  }
+}

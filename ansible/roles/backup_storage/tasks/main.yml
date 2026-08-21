@@ -40,7 +40,7 @@
       --home-retention-days {{ backups.home_retention_days }}
       --replica-retention-days {{ backups.local_retention_days }}
       --estimated-archive-bytes {{ backups.estimated_archive_bytes }}
-    executable: /usr/bin/python
+    executable: "{{ ansible_python_interpreter }}"
   register: backup_storage_capacity
   changed_when: false
   become: true

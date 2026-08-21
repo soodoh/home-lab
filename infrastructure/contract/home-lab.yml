@@ -8,10 +8,10 @@ recovery:
   recovery_age_recipient: age1vvzm5pczjum52v5alall8euucjen9q4v9xa5g0xmswhna5vare9qwv9rq6
 vm_100:
   vmid: 100
-  host_name: archlinux
+  host_name: docker-host
   network_identity: docker-host
-  # Arch remains authoritative until a decoupled-state replacement OS cutover is fully qualified.
-  deployment_authority: arch
+  # Debian is production authority; Arch remains an intact rollback asset through stability acceptance.
+  deployment_authority: debian
   workload_identity:
     user: docker
     uid: 1000
@@ -25,7 +25,7 @@ vm_100:
       - uucp
   access:
     openssh_enabled: true
-    authorized_login_keys: 0
+    authorized_login_keys: 2
     password_authentication: false
     keyboard_interactive_authentication: false
     permit_root_login: false
@@ -1374,12 +1374,13 @@ tailscale:
   owner_identity: soodoh@github
   tags:
     arch: tag:docker-host
+    debian: tag:docker-host
     proxmox: tag:proxmox
   required_endpoints:
-    - docker-host:22
+    - docker-host-debian:22
     - proxmox:22
     - proxmox:8006
-    - docker-host:8043
+    - docker-host-debian:8043
 aws:
   region: us-east-1
   recovery_region: us-west-2

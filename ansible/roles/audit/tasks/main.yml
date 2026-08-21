@@ -42,6 +42,31 @@
   loop_control:
     label: "{{ item.key }}"
 
+- name: Inspect guarded oneshot unit state
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/systemctl
+      - show
+      - --property=ActiveState
+      - --property=UnitFileState
+      - --value
+      - "{{ item.key }}"
+  loop: "{{ audit_expected_guarded_units | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  register: audit_guarded_unit_states
+  changed_when: false
+  check_mode: false
+
+- name: Assert guarded oneshot units retain exact active state
+  ansible.builtin.assert:
+    that:
+      - item.stdout_lines == ['active', item.item.value]
+    fail_msg: "Phase 0 stop gate: {{ item.item.key }} is not active with unit state {{ item.item.value }}."
+  loop: "{{ audit_guarded_unit_states.results }}"
+  loop_control:
+    label: "{{ item.item.key }}"
+
 - name: Inspect the active root-only Compose environment metadata
   ansible.builtin.stat:
     path: "{{ compose_runtime_env_path }}"
@@ -135,13 +160,23 @@
   changed_when: false
   check_mode: false
 
-- name: Assert Docker and Compose runtime versions
+- name: Inspect standalone Tailscale version
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/tailscale
+      - version
+  register: audit_tailscale_version
+  changed_when: false
+  check_mode: false
+
+- name: Assert Docker, Compose, and Tailscale runtime versions
   ansible.builtin.assert:
     that:
       - audit_docker_version.stdout == audit_expected_docker_client_version ~ '|' ~ audit_expected_docker_server_version
       - audit_compose_version.stdout == audit_expected_compose_version
+      - audit_tailscale_version.stdout_lines | first == audit_expected_tailscale_version
     fail_msg: >-
-      Docker client, daemon, or Compose version differs from the adopted post-reboot baseline.
+      Docker client, daemon, Compose, or Tailscale version differs from the adopted Debian production baseline.
 
 - name: Validate the active resolved Compose model without displaying it
   ansible.builtin.command:
@@ -355,33 +390,46 @@
     get_checksum: false
     get_mime: false
   register: audit_root_cron_stat
+  when: audit_root_cron_required | bool
 
 - name: Assert the unadopted root crontab file still exists
   ansible.builtin.assert:
     that:
       - audit_root_cron_stat.stat.exists
     fail_msg: "Phase 0 stop gate: root cron metadata changed; inspect it with separately approved privilege."
+  when: audit_root_cron_required | bool
 
-- name: Verify the newest encrypted local backup across all three replica paths
+- name: Verify the newest common encrypted local backup across required replica paths
   ansible.builtin.shell:
     executable: /bin/bash
     cmd: |
       set -euo pipefail
-      expected_name=
+      paths=({{ audit_local_backup_replica_paths | map('quote') | join(' ') }})
+      expected_replicas={{ audit_local_backup_replica_paths | length }}
+      candidate=
+      while IFS= read -r name; do
+        common=true
+        for path in "${paths[@]}"; do
+          [[ -f "$path/$name" && -f "$path/$name.sha256" ]] || common=false
+        done
+        if [[ $common == true ]]; then
+          candidate=$name
+          break
+        fi
+      done < <(
+        find "${paths[0]}" -maxdepth 1 -type f \
+          -name 'daily-local-backup-????-??-??T??-??-??.tar.gz.gpg' \
+          -printf '%T@ %f\n' | sort -nr | cut -d' ' -f2-
+      )
+      if [[ -z $candidate ]]; then
+        echo 'local_backup_replica_audit=failed reason=common_archive_absent' >&2
+        exit 1
+      fi
       expected_sha256=
       expected_size=
       seen_devices=' '
       replicas=0
-      for path in {{ backups.local_paths | map('quote') | join(' ') }}; do
-        candidate=$(
-          find "$path" -maxdepth 1 -type f \
-            -name 'daily-local-backup-????-??-??T??-??-??.tar.gz.gpg' \
-            -printf '%T@ %f\n' | sort -nr | head -n 1 | cut -d' ' -f2-
-        )
-        if [[ -z $candidate || ! -f "$path/$candidate.sha256" ]]; then
-          echo 'local_backup_replica_audit=failed reason=archive_or_checksum_missing' >&2
-          exit 1
-        fi
+      for path in "${paths[@]}"; do
         read -r recorded_sha256 recorded_name <"$path/$candidate.sha256"
         if [[ ! $recorded_sha256 =~ ^[0-9a-f]{64}$ || $recorded_name != "$candidate" ]]; then
           echo 'local_backup_replica_audit=failed reason=checksum_metadata_invalid' >&2
@@ -395,30 +443,29 @@
         fi
         seen_devices+="$device_id "
         if ((replicas == 0)); then
-          expected_name=$candidate
           expected_sha256=$recorded_sha256
           expected_size=$archive_size
-        elif [[ $candidate != "$expected_name" || $recorded_sha256 != "$expected_sha256" || $archive_size != "$expected_size" ]]; then
+        elif [[ $recorded_sha256 != "$expected_sha256" || $archive_size != "$expected_size" ]]; then
           echo 'local_backup_replica_audit=failed reason=replicas_mismatch' >&2
           exit 1
         fi
         ((replicas += 1))
       done
-      if ((replicas != 3)); then
+      if ((replicas != expected_replicas)); then
         echo 'local_backup_replica_audit=failed reason=replica_count_invalid' >&2
         exit 1
       fi
-      echo 'local_backup_replica_audit=verified replicas=3'
+      echo "local_backup_replica_audit=verified replicas=$expected_replicas"
   changed_when: false
   check_mode: false
   register: audit_local_backup_replicas
 
-- name: Assert the three-path local backup audit passed
+- name: Assert the required local backup replica audit passed
   ansible.builtin.assert:
     that:
-      - audit_local_backup_replicas.stdout == 'local_backup_replica_audit=verified replicas=3'
+      - audit_local_backup_replicas.stdout == 'local_backup_replica_audit=verified replicas=' ~ (audit_local_backup_replica_paths | length | string)
     fail_msg: >-
-      The newest local backup is absent, invalid, or inconsistent across home, games, and storage.
+      The newest common local backup is absent, invalid, or inconsistent across required Debian-accessible replicas.
 
 - name: Simulate active Compose create without builds, pulls, or changes
   ansible.builtin.command:

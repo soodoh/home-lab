@@ -20,7 +20,7 @@
     - name: Hash the active Compose artifact without Git metadata
       ansible.builtin.command:
         argv:
-          - /usr/bin/python
+          - "{{ ansible_python_interpreter }}"
           - "{{ compose_current_dir }}/scripts/compose-artifact.py"
           - --root
           - "{{ compose_current_dir }}"

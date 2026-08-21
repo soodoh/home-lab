@@ -48,7 +48,7 @@
 - name: Verify both rollback image sets remain locally and remotely available
   ansible.builtin.command:
     argv:
-      - /usr/bin/python
+      - "{{ ansible_python_interpreter }}"
       - "{{ compose_current_dir }}/scripts/compose-image-lock.py"
       - verify
       - --current
@@ -64,7 +64,7 @@
 - name: Derive services whose immutable image IDs differ across rollback locks
   ansible.builtin.command:
     argv:
-      - /usr/bin/python
+      - "{{ ansible_python_interpreter }}"
       - "{{ compose_current_dir }}/scripts/compose-image-lock.py"
       - diff
       - --current
@@ -80,7 +80,7 @@
 - name: Bind mutable rollback references to the exact previous image IDs
   ansible.builtin.command:
     argv:
-      - /usr/bin/python
+      - "{{ ansible_python_interpreter }}"
       - "{{ compose_current_dir }}/scripts/compose-image-lock.py"
       - activate
       - --lock
@@ -93,7 +93,7 @@
 - name: Recompute current and previous artifact identities
   ansible.builtin.command:
     argv:
-      - python
+      - "{{ ansible_python_interpreter }}"
       - "{{ item }}/scripts/compose-artifact.py"
       - --root
       - "{{ item }}"
@@ -198,7 +198,7 @@
       --compose-file {{ compose_previous_dir }}/docker-compose.yml
       --bind-root-override {{ compose_current_dir }}
       --output /run/docker-compose-rollback-plan.json
-    executable: python
+    executable: "{{ ansible_python_interpreter }}"
   become: true
   environment:
     HOME: "{{ compose_home_dir }}"
@@ -308,7 +308,7 @@
           --bind-root-override {{ compose_current_dir }}
           --normalized-output /run/docker-compose-rollback-target.json
           --output /run/docker-compose-rollback-apply-plan.json
-        executable: python
+        executable: "{{ ansible_python_interpreter }}"
       become: true
       environment:
         HOME: "{{ compose_home_dir }}"
@@ -360,7 +360,7 @@
           --env-file {{ compose_runtime_env_path }}
           --compose-file /run/docker-compose-rollback-target.json
           --output /run/docker-compose-rollback-target-post.json
-        executable: python
+        executable: "{{ ansible_python_interpreter }}"
       become: true
       environment:
         HOME: "{{ compose_home_dir }}"
@@ -417,7 +417,7 @@
     - name: Recompute activated current and retained previous artifact identities
       ansible.builtin.command:
         argv:
-          - python
+          - "{{ ansible_python_interpreter }}"
           - "{{ item }}/scripts/compose-artifact.py"
           - --root
           - "{{ item }}"
@@ -447,7 +447,7 @@
           --env-file {{ compose_runtime_env_path }}
           --compose-file {{ compose_current_dir }}/docker-compose.yml
           --output /run/docker-compose-rollback-current-post.json
-        executable: python
+        executable: "{{ ansible_python_interpreter }}"
       become: true
       environment:
         HOME: "{{ compose_home_dir }}"

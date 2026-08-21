@@ -483,6 +483,41 @@ assert weekly["BACKUP_CRON_EXPRESSION"] == "0 6 * * 0"
 assert weekly["BACKUP_FILENAME"].startswith("weekly-backup-")
 assert weekly["BACKUP_ARCHIVE"] == "/archive-disabled"
 assert {"AWS_S3_BUCKET_NAME", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} <= weekly.keys()
+preflight = (repo / "ansible/roles/backup_temp_preflight/tasks/main.yml").read_text()
+stage = (repo / "ansible/playbooks/stage-compose.yml").read_text()
+deploy = (repo / "ansible/playbooks/deploy-compose.yml").read_text()
+for required in (
+    "UUID=31602ce7-0054-498a-9f24-f51ca491e7b3",
+    "--mountpoint",
+    "107374182400",
+    "/mnt/games/backups/.tmp",
+    "stat.mode == '0700'",
+    "stat.dev == backup_temp_preflight_path_stats.results[0].stat.dev",
+):
+    assert required in preflight
+assert "role: backup_temp_preflight" in stage
+assert "name: backup_temp_preflight" in deploy
+automation = (repo / "scripts/prepare-debian-production-automation").read_text()
+for required in (
+    "prepare-reviewed-vm-100-debian-production-automation",
+    "refs/notes/debian-qualification",
+    "git fetch --quiet origin",
+    "all(.roots[]; .changed == false",
+    "stat -c '%U:%G:%a' \"$OPERATION_LOCK\"",
+    "stat -Lc '%d:%i' /proc/$$/fd/9",
+    "order=scsi3;scsi0;net0",
+    "UUID=31602ce7-0054-498a-9f24-f51ca491e7b3",
+    "107374182400",
+    "install -d -o root -g root -m 0700",
+    "useradd --uid 1001 --gid 1001 --create-home",
+    "ansible-deploy ALL=(root) NOPASSWD: ALL",
+    "visudo --check",
+    "id -Gn ansible-deploy",
+    "qm guest exec",
+):
+    assert required in automation
+assert "docker restart" not in automation
+assert "docker compose" not in automation
 PY
 
 echo "recovery tool safety fixtures passed"

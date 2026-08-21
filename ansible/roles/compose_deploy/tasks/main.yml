@@ -41,7 +41,7 @@
 - name: Recompute candidate and current artifact identities
   ansible.builtin.command:
     argv:
-      - python
+      - "{{ ansible_python_interpreter }}"
       - "{{ item.root }}/scripts/compose-artifact.py"
       - --root
       - "{{ item.root }}"
@@ -86,7 +86,7 @@
       --compose-file {{ compose_staging_root }}/{{ compose_artifact_hash }}/docker-compose.yml
       --bind-root-override {{ compose_current_dir }}
       --output /run/docker-compose-deploy-actions.json
-    executable: python
+    executable: "{{ ansible_python_interpreter }}"
   become: true
   environment:
     HOME: "{{ compose_home_dir }}"
@@ -108,7 +108,7 @@
       --canary-service {{ compose_canary_service }}
       --canary-path {{ compose_canary_path }}
       --output /run/docker-compose-deploy-plan.json
-    executable: python
+    executable: "{{ ansible_python_interpreter }}"
   become: true
   changed_when: false
   check_mode: false
@@ -209,7 +209,7 @@
     - name: Capture the active image set for rollback before pulls
       ansible.builtin.command:
         argv:
-          - /usr/bin/python
+          - "{{ ansible_python_interpreter }}"
           - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/scripts/compose-image-lock.py"
           - capture
           - --project
@@ -256,7 +256,7 @@
     - name: Recompute the incoming current artifact identity
       ansible.builtin.command:
         argv:
-          - python
+          - "{{ ansible_python_interpreter }}"
           - "{{ compose_deploy_incoming.path }}/scripts/compose-artifact.py"
           - --root
           - "{{ compose_deploy_incoming.path }}"
@@ -390,7 +390,7 @@
           --env-file {{ compose_runtime_env_path }}
           --compose-file {{ compose_current_dir }}/docker-compose.yml
           --output /run/docker-compose-deploy-post.json
-        executable: python
+        executable: "{{ ansible_python_interpreter }}"
       become: true
       environment:
         HOME: "{{ compose_home_dir }}"
@@ -449,7 +449,7 @@
     - name: Capture the exact converged image set
       ansible.builtin.command:
         argv:
-          - /usr/bin/python
+          - "{{ ansible_python_interpreter }}"
           - "{{ compose_current_dir }}/scripts/compose-image-lock.py"
           - capture
           - --project
