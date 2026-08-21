@@ -4,6 +4,8 @@ set -Eeuo pipefail
 readonly FAILED_MARKER=/var/lib/home-lab/debian-production-failed.json
 readonly ACTIVATION_JOURNAL=/var/lib/home-lab/debian-production-activation.json
 readonly OUTPUT_MARKER=/var/lib/home-lab/debian-production.json
+readonly LEGACY_OUTPUT_SHA256=1771b2516d738d8c7d70dbf3dbdb205168b2f3d38c4cc5d513b263e4600c0b08
+readonly LEGACY_ACTIVATION_SHA256=01954d544d39da5d58a88f171fbcc9ead93366576decc6f306bdd66407354198
 readonly ACTIVATION_MARKER=/etc/home-lab/allow-storage-activation
 readonly PRODUCTION_ENV=/etc/docker-compose/production.env
 readonly DEPLOY_ROOT=/srv/docker-compose/current
@@ -40,6 +42,20 @@ grub_linux_entries_exclude_runpm() {
 [[ $# -eq 0 ]] || fail "usage: reconcile-failed-production.sh"
 [[ $(id -u) -eq 0 ]] || fail "failed production reconciliation requires root"
 grep -Fxq 'ID=debian' /etc/os-release || fail "candidate is not Debian"
+if [[ ! -e $FAILED_MARKER && ! -L $FAILED_MARKER && -e $OUTPUT_MARKER && -e $ACTIVATION_JOURNAL ]]; then
+  [[ -f $OUTPUT_MARKER && ! -L $OUTPUT_MARKER && $(stat -c %U:%G:%a "$OUTPUT_MARKER") == root:root:600 ]] || fail "legacy rejected output marker is unsafe"
+  [[ -f $ACTIVATION_JOURNAL && ! -L $ACTIVATION_JOURNAL && $(stat -c %U:%G:%a "$ACTIVATION_JOURNAL") == root:root:600 ]] || fail "legacy rejected activation journal is unsafe"
+  [[ $(sha256sum "$OUTPUT_MARKER" | awk '{print $1}') == "$LEGACY_OUTPUT_SHA256" ]] || fail "legacy rejected output marker digest differs"
+  [[ $(sha256sum "$ACTIVATION_JOURNAL" | awk '{print $1}') == "$LEGACY_ACTIVATION_SHA256" ]] || fail "legacy rejected activation journal digest differs"
+  legacy_failed=$(mktemp /var/lib/home-lab/.debian-production-failed.XXXXXX)
+  trap 'rm -f -- "$legacy_failed"' EXIT
+  jq -c --arg failedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg outputSha256 "$LEGACY_OUTPUT_SHA256" '. + {failedAt:$failedAt,outputSha256:$outputSha256,phase:"failed",rejection:"post-reboot-health"}' "$ACTIVATION_JOURNAL" > "$legacy_failed"
+  chown root:root "$legacy_failed"
+  chmod 0600 "$legacy_failed"
+  mv -T "$legacy_failed" "$FAILED_MARKER"
+  legacy_failed=
+  trap - EXIT
+fi
 
 runtime_paths=(
   "$OUTPUT_MARKER" "$ACTIVATION_JOURNAL" "$ACTIVATION_MARKER" "$PRODUCTION_ENV" "$DEPLOY_ROOT"
@@ -58,16 +74,20 @@ if [[ -e $OUTPUT_MARKER || -L $OUTPUT_MARKER ]]; then
   [[ -f $OUTPUT_MARKER && ! -L $OUTPUT_MARKER ]] || fail "rejected production marker is unsafe"
   jq -e '.format == "home-lab-debian-production-v1" and .containerCount == 41 and .unhealthyContainerCount == 0' "$OUTPUT_MARKER" >/dev/null || fail "rejected production marker differs"
   jq -e '.rejection == "post-reboot-health"' "$FAILED_MARKER" >/dev/null || fail "a committed production marker cannot be reconciled automatically"
+  expected_output_sha=$(jq -er '.outputSha256 | select(test("^[0-9a-f]{64}$"))' "$FAILED_MARKER") || fail "rejected production marker provenance is absent"
+  actual_output_sha=$(sha256sum "$OUTPUT_MARKER" | awk '{print $1}') || fail "rejected production marker digest is unreadable"
+  [[ $actual_output_sha == "$expected_output_sha" ]] || fail "rejected production marker digest differs from failed-marker provenance"
 fi
-if [[ -e $ACTIVATION_JOURNAL || -L $ACTIVATION_JOURNAL ]]; then
+rejection=$(jq -r '.rejection // empty' "$FAILED_MARKER") || fail "failed production rejection field is unreadable"
+if [[ $rejection == post-reboot-health ]]; then
+  [[ -f $ACTIVATION_JOURNAL && ! -L $ACTIVATION_JOURNAL ]] || fail "post-reboot rejection requires its committed activation journal"
+  jq -e '.format == "home-lab-debian-production-activation-v1" and .phase == "committed"' "$ACTIVATION_JOURNAL" >/dev/null || fail "post-reboot rejection activation journal is not committed"
+  activation_basis=$(jq -cS 'del(.phase,.failedAt,.rejection,.outputSha256)' "$ACTIVATION_JOURNAL") || fail "committed activation basis is unreadable"
+  failed_basis=$(jq -cS 'del(.phase,.failedAt,.rejection,.outputSha256)' "$FAILED_MARKER") || fail "failed activation basis is unreadable"
+  [[ $activation_basis == "$failed_basis" ]] || fail "failed marker was not derived from the committed activation journal"
+elif [[ -e $ACTIVATION_JOURNAL || -L $ACTIVATION_JOURNAL ]]; then
   [[ -f $ACTIVATION_JOURNAL && ! -L $ACTIVATION_JOURNAL ]] || fail "activation journal is unsafe"
-  if jq -e '.phase == "committed"' "$ACTIVATION_JOURNAL" >/dev/null; then
-    jq -e '.phase == "failed" and .rejection == "post-reboot-health"' "$FAILED_MARKER" >/dev/null || fail "committed activation rejection differs"
-    activation_basis=$(jq -cS 'del(.phase,.failedAt,.rejection)' "$ACTIVATION_JOURNAL") || fail "committed activation basis is unreadable"
-    failed_basis=$(jq -cS 'del(.phase,.failedAt,.rejection)' "$FAILED_MARKER") || fail "failed activation basis is unreadable"
-    [[ $activation_basis == "$failed_basis" ]] || fail "failed marker was not derived from the committed activation journal"
-  fi
-  jq -e '.format == "home-lab-debian-production-activation-v1" and (.phase == "failed" or .phase == "committed")' "$ACTIVATION_JOURNAL" >/dev/null || fail "activation journal is committed or invalid"
+  jq -e '.format == "home-lab-debian-production-activation-v1" and .phase != "committed"' "$ACTIVATION_JOURNAL" >/dev/null || fail "ordinary failed activation journal is committed or invalid"
 fi
 
 set +e

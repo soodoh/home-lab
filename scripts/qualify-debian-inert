@@ -696,9 +696,11 @@ failed=/var/lib/home-lab/debian-production-failed.json
 [[ -f $journal && ! -L $journal && -f $output && ! -L $output && ! -e $failed && ! -L $failed ]]
 jq -e '.format == "home-lab-debian-production-activation-v1" and .phase == "committed"' "$journal" >/dev/null
 jq -e '.format == "home-lab-debian-production-v1" and .containerCount == 41 and .unhealthyContainerCount == 0' "$output" >/dev/null
+output_sha=$(sha256sum "$output" | awk '{print $1}')
+[[ $output_sha =~ ^[0-9a-f]{64}$ ]]
 temporary=$(mktemp /var/lib/home-lab/.debian-production-failed.XXXXXX)
 trap 'rm -f -- "$temporary"' EXIT
-jq -c --arg failedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '. + {failedAt:$failedAt,phase:"failed",rejection:"post-reboot-health"}' "$journal" > "$temporary"
+jq -c --arg failedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg outputSha256 "$output_sha" '. + {failedAt:$failedAt,outputSha256:$outputSha256,phase:"failed",rejection:"post-reboot-health"}' "$journal" > "$temporary"
 chown root:root "$temporary"
 chmod 0600 "$temporary"
 mv -T "$temporary" "$failed"
@@ -1438,7 +1440,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
   if [[ $production_mode == true ]]; then
     stage="reconcile-failed-debian-production"
     failed_reconcile_source=infrastructure/debian/reconcile-failed-production.sh
-    failed_reconcile_sha=57e8ce252053704d3f0f401abfae86054d260eb5945091a732d2b1363854f3e0
+    failed_reconcile_sha=082435e694fc4782b9b2225664cb15b819f10edad4c79d5f78ac08652fccfa2e
     [[ $(sha256sum "$failed_reconcile_source" | awk '{print $1}') == "$failed_reconcile_sha" ]]
     failed_reconcile_payload=$(base64 -w 0 "$failed_reconcile_source")
     guest_exec_ok 600 /bin/bash -lc "set -Eeuo pipefail; printf %s '$failed_reconcile_payload' | base64 -d > /run/home-lab-reconcile-failed-production; [[ \$(sha256sum /run/home-lab-reconcile-failed-production | awk '{print \$1}') == '$failed_reconcile_sha' ]]; /bin/bash /run/home-lab-reconcile-failed-production; rm -f -- /run/home-lab-reconcile-failed-production"
