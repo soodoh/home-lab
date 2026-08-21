@@ -10,7 +10,7 @@ readonly BACKUP_PATTERN='daily-local-backup-????-??-??T??-??-??.tar.gz.gpg'
 readonly MINIMUM_BACKUP_BYTES=1000000000
 readonly MAXIMUM_BACKUP_AGE_SECONDS=604800
 readonly SAMPLE_BYTES=1048576
-readonly BACKUP_ROOTS='/home/docker/backups /mnt/games/backups /mnt/storage/backups'
+readonly BACKUP_ROOTS='/mnt/games/backups /mnt/storage/backups'
 
 fail() { echo "error: $*" >&2; exit 1; }
 verify_arch_workloads() {
@@ -37,14 +37,14 @@ docker image inspect "$IMAGE" | jq -e --arg digest "$IMAGE_REPO_DIGEST" '.[0].Re
 image_id=$(docker image inspect "$IMAGE" --format '{{.Id}}')
 [[ $image_id =~ ^sha256:[0-9a-f]{64}$ ]] || fail "Openfit image ID differs"
 
-home_backup=$(find /home/docker/backups -maxdepth 1 -type f -name "$BACKUP_PATTERN" -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
-[[ -n $home_backup ]] || fail "local backup evidence is absent"
-backup_name=${home_backup##*/}
+reference_backup=$(find /mnt/games/backups -maxdepth 1 -type f -name "$BACKUP_PATTERN" -printf '%T@ %p\n' | sort -nr | head -1 | cut -d' ' -f2-)
+[[ -n $reference_backup ]] || fail "local backup evidence is absent"
+backup_name=${reference_backup##*/}
 [[ $backup_name =~ ^daily-local-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}\.tar\.gz\.gpg$ ]] || fail "backup filename differs"
-backup_size=$(stat -c %s "$home_backup")
+backup_size=$(stat -c %s "$reference_backup")
 [[ $backup_size -ge $MINIMUM_BACKUP_BYTES ]] || fail "local backup is unexpectedly small"
 now_epoch=$(date +%s)
-backup_mtime=$(stat -c %Y "$home_backup")
+backup_mtime=$(stat -c %Y "$reference_backup")
 backup_age=$((now_epoch - backup_mtime))
 [[ $backup_age -ge -300 && $backup_age -le $MAXIMUM_BACKUP_AGE_SECONDS ]] || fail "local backup evidence is stale or future-dated"
 backup_sha=
@@ -90,11 +90,11 @@ jq -cn --arg backupName "$backup_name" --arg backupSha256 "$backup_sha" \
   --arg backupSampleSha256 "$backup_sample_sha" --arg completedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --arg image "$IMAGE" --arg imageId "$image_id" --arg imageSha256 "$transfer_sha" \
   --argjson backupAgeSeconds "$backup_age" --argjson backupBytes "$backup_size" --argjson imageBytes "$transfer_size" \
-  '{backupActualFullHashRecomputed:false,backupAgeSeconds:$backupAgeSeconds,backupBytes:$backupBytes,backupName:$backupName,backupReplicaCount:3,backupSampleSha256:$backupSampleSha256,backupSha256:$backupSha256,backupValidation:"existing-local-replicas-sidecar-and-sample",completedAt:$completedAt,format:"home-lab-debian-openfit-canary-transfer-v1",image:$image,imageBytes:$imageBytes,imageId:$imageId,imageSha256:$imageSha256,openfitState:"0:0:755",openfitStoppedForSnapshot:false,privateDataExported:false,s3Checked:false}' > "$marker_pending"
+  '{backupActualFullHashRecomputed:false,backupAgeSeconds:$backupAgeSeconds,backupBytes:$backupBytes,backupName:$backupName,backupReplicaCount:2,backupSampleSha256:$backupSampleSha256,backupSha256:$backupSha256,backupValidation:"existing-local-replicas-sidecar-and-sample",completedAt:$completedAt,format:"home-lab-debian-openfit-canary-transfer-v1",image:$image,imageBytes:$imageBytes,imageId:$imageId,imageSha256:$imageSha256,openfitState:"0:0:755",openfitStoppedForSnapshot:false,privateDataExported:false,s3Checked:false}' > "$marker_pending"
 chown root:root "$marker_pending"
 chmod 0600 "$marker_pending"
 mv -T "$marker_pending" "$TRANSFER_MARKER"
 install -o root -g root -m 0600 "$TRANSFER_MARKER" "$OUTPUT_MARKER"
 completed=true
 trap - EXIT INT TERM HUP
-printf 'openfit_canary_transfer=pass backup=%s replicas=3 s3=not-checked image_sha256=%s\n' "$backup_name" "$transfer_sha"
+printf 'openfit_canary_transfer=pass backup=%s replicas=2 s3=not-checked image_sha256=%s\n' "$backup_name" "$transfer_sha"

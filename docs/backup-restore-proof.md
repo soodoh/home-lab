@@ -19,7 +19,7 @@ Observed on 2026-08-01:
 - `ListObjectVersions` independently reported the same object as the sole current version with no delete marker. Its observed age was approximately 29 hours, within the configured 14-day retention window.
 - No manual backup, upload, prune, container lifecycle, volume, or production-path mutation was performed during verification.
 
-The current design retains separate jobs. `daily-local-backup` writes to `/mnt/storage/backups` and must replicate the verified ciphertext and checksum sidecar to `/home/docker/backups` and `/mnt/games/backups`; storage and games keep seven days, home keeps two days, and any failed replica fails the run. `/mnt/storage` is the existing NFS mount, not local LVM; `/mnt/games` is the separate local ext4 disk, while `/home/docker` resides on `/dev/sda1` on the host root filesystem. The reviewed Proxmox operation grows VM 100's local-LVM-backed `scsi0` from 400 to 550 GiB, followed by exact online partition and ext4 growth. `weekly-remote-backup` creates a distinct weekly S3 archive and disables local retention. Recovery tries the newest valid local archive globally, using home, games, then storage as the tie-break order, and uses the reviewed latest version-bound weekly archive only when every local candidate fails.
+The current design retains separate jobs. `daily-local-backup` writes to `/mnt/storage/backups` and must replicate the verified ciphertext and checksum sidecar to `/mnt/games/backups`; both locations keep seven days, and a failed replica fails the run. `/mnt/storage` is the existing NFS mount, not local LVM, while `/mnt/games` is the separate local ext4 disk. `weekly-remote-backup` creates a distinct weekly S3 archive and disables local retention. Recovery tries the newest valid local archive globally, using games then storage as the tie-break order, and uses the reviewed latest version-bound weekly archive only when every local candidate fails.
 
 ## Backup-job inventory commands
 
@@ -27,7 +27,7 @@ These commands inspect only service metadata, configured variable names, mount p
 
 ```sh
 docker inspect --format 'status={{.State.Status}} image={{.Config.Image}} started={{.State.StartedAt}}' daily-local-backup weekly-remote-backup
-for path in /home/docker/backups /mnt/games/backups /mnt/storage/backups; do find "$path" -maxdepth 1 -type f -name '*.gpg' -printf '%p\t%s\t%T@\t%TY-%Tm-%TdT%TH:%TM:%TS%Tz\n'; done
+for path in /mnt/games/backups /mnt/storage/backups; do find "$path" -maxdepth 1 -type f -name '*.gpg' -printf '%p\t%s\t%T@\t%TY-%Tm-%TdT%TH:%TM:%TS%Tz\n'; done
 gpg --show-keys --with-colons services/data/backup-gpg-public.asc
 gpg --batch --with-colons --list-secret-keys
 ```

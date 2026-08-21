@@ -43,7 +43,7 @@ x-backup-volumes: &backup-volumes
   - /srv/home-lab-state/vikunja-data:/backup/vikunja-data:ro
   - /srv/home-lab-state/zwave-data:/backup/zwave-data:ro
   # Non-volumes
-  - ${HASS_PATH}:/backup/hass-data:ro
+  - /srv/home-lab-state/hass-data:/backup/hass-data:ro
   # Wolf identity, pairings, profiles, and application configuration
   - ${GAMES_PATH}/wolf/cfg:/backup/wolf/cfg:ro
   # Steam game data, ROMs, BIOS files, and regenerable scraped media are intentionally excluded
@@ -59,12 +59,10 @@ x-backup-volumes: &backup-volumes
   # Needed so that the container reflects the $TZ timezone
   - /etc/localtime:/etc/localtime:ro
   - /usr/share/zoneinfo:/usr/share/zoneinfo:ro
-  # Preserve the existing storage archive as the write target during rollout,
-  # then synchronously replicate to the host root filesystem and games disk.
-  # Recovery independently prefers home, games, then storage. Weekly S3 backups disable it.
+  # Write the primary archive to NFS, then synchronously replicate it to the games disk.
+  # Recovery independently prefers games, then storage. Weekly S3 backups disable it.
   - ./data/replicate-local-backup:/usr/local/bin/replicate-local-backup:ro
   - /mnt/storage/backups:/archive
-  - /home/docker/backups:/replica-home
   - /mnt/games/backups:/replica-games
   # Keep large plaintext working archives off the capacity-constrained OS disk.
   # The hidden directory is excluded from replica discovery and backup pruning prefixes.

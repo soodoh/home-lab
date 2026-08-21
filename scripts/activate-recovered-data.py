@@ -38,18 +38,15 @@ def dotenv_paths(path: Path) -> dict[str, Path]:
         value = value.strip()
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
             value = value[1:-1]
-        if key in {"HASS_PATH", "GAMES_PATH"}:
+        if key == "GAMES_PATH":
             candidate = Path(value)
             if not candidate.is_absolute():
                 fail("bind_path_not_absolute")
             values[key] = candidate
-    if set(values) != {"HASS_PATH", "GAMES_PATH"}:
+    if set(values) != {"GAMES_PATH"}:
         fail("required_bind_path_missing")
     if values["GAMES_PATH"] != Path("/mnt/games"):
         fail("games_path_outside_contract")
-    storage_root = Path("/mnt/storage")
-    if values["HASS_PATH"] == storage_root or not values["HASS_PATH"].is_relative_to(storage_root):
-        fail("hass_path_outside_storage")
     return values
 
 
@@ -189,7 +186,7 @@ def main() -> None:
         activated_sources.add(logical_name)
 
     bind_mappings = {
-        "hass-data": paths["HASS_PATH"],
+        "hass-data": Path("/srv/home-lab-state/hass-data"),
         "wolf/cfg": paths["GAMES_PATH"] / "wolf/cfg",
         "wolf/profile-data": paths["GAMES_PATH"] / "wolf/profile-data",
         ".ssh": Path("/home/docker/.ssh"),

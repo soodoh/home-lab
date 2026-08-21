@@ -27,7 +27,7 @@ The local controller stores provider capabilities in separate mode-`0600` plan/a
 
 2. **Bootstrap Proxmox locally.** Check out the exact reviewed pushed commit and follow [`../docs/proxmox-bootstrap.md`](../docs/proxmox-bootstrap.md) in order: establish only the console-asserted network/storage/package/Tailscale baseline; run `bootstrap-proxmox-nix-access install`; create protected inputs; run `bootstrap-proxmox-nix-host check`, explicitly approved `install`, and `verify`; then perform the separately reviewed isolated firewall activation from [`../docs/proxmox-firewall-cutover.md`](../docs/proxmox-firewall-cutover.md). Prove fixed plan/apply/firewall identities and arbitrary-command denial before controller recovery.
 
-3. **Prepare protected recovery identity.** Configure the encrypted S3 backend and copy `recovery/extra-vars.example.yml` to an ignored mode-`0600` file. Review every false mutation gate. Inventory the three local backup paths in documented order and record the newest candidate in a protected JSON object containing `source`, `backup_id`, and `ciphertext_sha256`. For a remote fallback, also bind `remote_version_id`.
+3. **Prepare protected recovery identity.** Configure the encrypted S3 backend and copy `recovery/extra-vars.example.yml` to an ignored mode-`0600` file. Review every false mutation gate. Inventory the two local backup paths in documented order and record the newest candidate in a protected JSON object containing `source`, `backup_id`, and `ciphertext_sha256`. For a remote fallback, also bind `remote_version_id`.
 
    Derive the exact selection identity:
 
@@ -63,7 +63,7 @@ The local controller stores provider capabilities in separate mode-`0600` plan/a
 
 7. **Verify and record evidence.** An ordinary recovery whose VM already exists is a single `converge` stage: Tailscale/Proxmox owner plans run, then exact guarded Nix runs before Arch/Compose. On fresh PVE, the first reviewed manifest may instead be `external-owner-prerequisite`, containing a canonical blocked Nix plan whose only blockers are OpenTofu-owned VM prerequisites. Apply consumes only the exact saved AWS/Tailscale/Proxmox plans, stops successfully with `requires_new_reviewed_plan=true`, and performs no Nix, Arch, or Compose work. Run `scripts/local-controller plan recovery` again and independently review the new ready `converge` manifest before the second apply. Apply never replans.
 
-   The second `converge` apply stages the exact Compose artifact and tries valid local archives newest-first across the three ordered filesystems. It downloads the reviewed S3 fallback only when no local candidate is usable. The selected candidate must match the manifest-bound recovery identity. After activation, it verifies services, maintenance, live Tailscale policy/state equality, every enabled OpenTofu root no-op, a fresh zero-action Proxmox Nix plan, Arch audit no-op, and Arch bootstrap no-op.
+   The second `converge` apply stages the exact Compose artifact and tries valid local archives newest-first across the two ordered filesystems. It downloads the reviewed S3 fallback only when no local candidate is usable. The selected candidate must match the manifest-bound recovery identity. After activation, it verifies services, maintenance, live Tailscale policy/state equality, every enabled OpenTofu root no-op, a fresh zero-action Proxmox Nix plan, Arch audit no-op, and Arch bootstrap no-op.
 
    Record only secret-free commit, plan/artifact/backup hashes, health outcomes, and elapsed time. The adopted contract keeps managed mappings in both recovery and steady phases. Refresh the protected serial-to-port runtime inputs before planning so Zigbee and Z-Wave mappings follow their adapters. Never change managed mode back to raw.
 
@@ -71,9 +71,9 @@ The local controller stores provider capabilities in separate mode-`0600` plan/a
 
 The restore target must be an approved empty staging root. The extractor rejects traversal, device nodes, hard links, escaping relative symlinks, duplicate writes, and archives missing critical classes. Absolute cache/runtime symlinks are omitted and counted rather than materialized.
 
-Recovery inventories a fresh Compose volume set before activation, refuses existing Docker volumes, and refuses nonempty bind targets. If ZFS-backed Home Assistant or Wolf data deliberately survived, `recovery_retain_existing_bind_data=true` may retain only modeled nonempty binds; it never authorizes overwriting them or a nonempty recovered SSH target.
+Recovery inventories a fresh Compose volume set before activation, refuses existing Docker volumes, and refuses nonempty bind targets. If Home Assistant or Wolf data deliberately survived, `recovery_retain_existing_bind_data=true` may retain only modeled nonempty binds; it never authorizes overwriting them or a nonempty recovered SSH target.
 
-The daily backup creates one GPG-encrypted archive under `/mnt/storage/backups`. Its mandatory post-hook verifies and replicates the exact ciphertext and checksum sidecar to `/home/docker/backups` and `/mnt/games/backups`; any failed replica fails the job. The three paths must be distinct writable filesystems with the contract-required capacity. The weekly job uploads separately to versioned KMS-protected S3. The contract records a 24-hour local critical RPO and 168-hour remote-only RPO.
+The daily backup creates one GPG-encrypted archive under `/mnt/storage/backups`. Its mandatory post-hook verifies and replicates the exact ciphertext and checksum sidecar to `/mnt/games/backups`; a failed replica fails the job. The two paths must be distinct writable filesystems with the contract-required capacity. The weekly job uploads separately to versioned KMS-protected S3. The contract records a 24-hour local critical RPO and 168-hour remote-only RPO.
 
 ## Compose activation and rollback
 

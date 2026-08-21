@@ -26,8 +26,6 @@
       - ansible_check_mode or not (backup_storage_paths.results[0].stat.islnk | default(false))
       - ansible_check_mode or (backup_storage_paths.results[1].stat.isdir | default(false))
       - ansible_check_mode or not (backup_storage_paths.results[1].stat.islnk | default(false))
-      - ansible_check_mode or (backup_storage_paths.results[2].stat.isdir | default(false))
-      - ansible_check_mode or not (backup_storage_paths.results[2].stat.islnk | default(false))
     quiet: true
 
 - name: Verify independent filesystems and tiered retention capacity
@@ -36,9 +34,7 @@
       {{ role_path }}/../../../scripts/check-backup-storage.py
       --path {{ backups.local_paths[0] | quote }}
       --path {{ backups.local_paths[1] | quote }}
-      --path {{ backups.local_paths[2] | quote }}
-      --home-retention-days {{ backups.home_retention_days }}
-      --replica-retention-days {{ backups.local_retention_days }}
+      --retention-days {{ backups.local_retention_days }}
       --estimated-archive-bytes {{ backups.estimated_archive_bytes }}
     executable: "{{ ansible_python_interpreter }}"
   register: backup_storage_capacity
@@ -48,4 +44,3 @@
   when:
     - backup_storage_paths.results[0].stat.isdir | default(false)
     - backup_storage_paths.results[1].stat.isdir | default(false)
-    - backup_storage_paths.results[2].stat.isdir | default(false)

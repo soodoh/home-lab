@@ -19,19 +19,18 @@ def fail(reason: str) -> None:
 def main() -> None:
     parser = ArgumentParser()
     parser.add_argument("--path", action="append", required=True, type=Path)
-    parser.add_argument("--home-retention-days", required=True, type=int)
-    parser.add_argument("--replica-retention-days", required=True, type=int)
+    parser.add_argument("--retention-days", required=True, type=int)
     parser.add_argument("--estimated-archive-bytes", required=True, type=int)
     args = parser.parse_args()
 
-    if len(args.path) != 3 or len(set(args.path)) != 3:
+    if len(args.path) != 2 or len(set(args.path)) != 2:
         fail("path_set_invalid")
-    if args.home_retention_days != 2 or args.replica_retention_days != 7 or args.estimated_archive_bytes < 1:
+    if args.retention_days != 7 or args.estimated_archive_bytes < 1:
         fail("retention_contract_invalid")
 
     devices: set[int] = set()
     for index, path in enumerate(args.path):
-        retention_days = args.home_retention_days if index == 0 else args.replica_retention_days
+        retention_days = args.retention_days
         if not path.is_absolute() or not path.is_dir() or path.is_symlink():
             fail("path_invalid")
         if not os.access(path, os.W_OK | os.X_OK):
@@ -55,7 +54,7 @@ def main() -> None:
         if available + current_archive_bytes < required_capacity:
             fail("retention_capacity_insufficient")
 
-    print("backup_storage=verified paths=3 home_retention_days=2 replica_retention_days=7")
+    print("backup_storage=verified paths=2 retention_days=7")
 
 
 if __name__ == "__main__":

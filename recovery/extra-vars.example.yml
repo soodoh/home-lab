@@ -7,7 +7,7 @@
 arch_network_restart_confirmed: false
 
 # Recovery automatically tries the newest decryptable local archive across
-# /home/docker/backups, /mnt/games/backups, then /mnt/storage/backups (path order breaks ties).
+# /mnt/games/backups, then /mnt/storage/backups (path order breaks ties).
 # Supply the independently reviewed latest weekly S3 object as the final fallback.
 recovery_remote_backup_id: ""
 recovery_remote_backup_sha256: ""

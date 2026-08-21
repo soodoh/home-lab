@@ -17,13 +17,13 @@ const promoter = fs.readFileSync(path.join(root, "scripts/promote-recovered-debi
 const evidence = JSON.parse(fs.readFileSync(path.join(root, "infrastructure/evidence/vm-100-debian-production-canary.json"), "utf8"));
 const canary = contract.debian.cutover.production_canary;
 
-assert.equal(contract.debian.cutover.stage, "production-canary");
+assert.equal(contract.debian.cutover.stage, "production");
 assert.equal(canary.phase, "verified");
 assert.equal(canary.service, "openfit");
 assert.equal(canary.state_bind, "/srv/home-lab-state/openfit-data");
 assert.equal(canary.state_metadata, "root:root:755");
 assert.equal(canary.backup_max_age_hours, 168);
-assert.equal(canary.backup_replica_count, 3);
+assert.equal(canary.backup_replica_count, 2);
 assert.equal(canary.backup_validation, "existing-local-replicas-sidecar-and-sample");
 assert.equal(canary.s3_checked, false);
 assert.equal(canary.pulls, "disabled");
@@ -41,7 +41,7 @@ assert.ok(prepare.includes(`readonly IMAGE='${canary.image}'`));
 assert.ok(prepare.includes(`readonly TRANSFER=${canary.image_transfer_path}`));
 assert.match(prepare, /for root in \$BACKUP_ROOTS/);
 assert.match(prepare, /backupSampleSha256/);
-assert.match(prepare, /backupReplicaCount:3/);
+assert.match(prepare, /backupReplicaCount:2/);
 assert.match(prepare, /backupValidation:"existing-local-replicas-sidecar-and-sample"/);
 assert.match(prepare, /openfitStoppedForSnapshot:false/);
 assert.match(prepare, /s3Checked:false/);
@@ -67,8 +67,8 @@ assert.match(canaryScript, /protectedMountsUnmounted:true/);
 assert.match(canaryScript, /runtimeEnvironmentInstalled:false/);
 assert.doesNotMatch(canaryScript, /tailscale up|docker compose.*pull|--pull always|\/etc\/docker-compose\/production\.env.*install/);
 
-assert.ok(coordinator.includes("canary_prepare_sha=2ca4fc66a62da672b33f8463a77bcf313f43a4e5c20735037b25f6f604edface"));
-assert.ok(coordinator.includes("canary_sha=7c6f909a924e9d234be0fa6ce770b68c2bf6c268666a73c446c3ad5d7351c924"));
+assert.ok(coordinator.includes("canary_prepare_sha=b6f56ca0c28fd2042902c6e682d9a94c845e78ed591aee0566c9c03979603e33"));
+assert.ok(coordinator.includes("canary_sha=2116f564b6c56b1acbee856584306989faa051935b434dc6a2227ed5c8b1e389"));
 assert.match(coordinator, /setsid \/bin\/bash \/run\/home-lab-arch-canary-prepare\.runner/);
 assert.match(coordinator, /setsid \/bin\/bash \/run\/home-lab-debian-canary-run\.runner/);
 assert.match(coordinator, /cancel_guest_operation/);

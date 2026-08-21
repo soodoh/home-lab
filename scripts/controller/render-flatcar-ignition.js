@@ -165,7 +165,6 @@ function buildButaneConfig(contract, inputs) {
 
   const directories = [
     { path: "/etc/docker-compose", mode: 0o700 },
-    { path: "/home/docker/backups", mode: 0o750, user: { id: vm.workload_identity.uid }, group: { id: vm.workload_identity.gid } },
     { path: "/home/docker/.ssh", mode: 0o700, user: { id: vm.workload_identity.uid }, group: { id: vm.workload_identity.gid } },
     { path: "/mnt/games", mode: 0o755 },
     { path: "/mnt/storage", mode: 0o755 },

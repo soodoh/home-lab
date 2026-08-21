@@ -28,8 +28,8 @@ const postRebootRecovery = fs.readFileSync(path.join(root, "scripts/recover-debi
 const revoker = fs.readFileSync(path.join(root, "scripts/controller/revoke-debian-production-tailscale-device.py"), "utf8");
 const credentialConfigurator = fs.readFileSync(path.join(root, "scripts/configure-debian-production-tailscale-credentials"), "utf8");
 
-assert.equal(contract.debian.cutover.stage, "production-canary");
-assert.equal(cutover.phase, "key-staged");
+assert.equal(contract.debian.cutover.stage, "production");
+assert.equal(cutover.phase, "verified");
 assert.equal(cutover.scope, "full-compose-and-tailscale");
 assert.equal(cutover.compose_artifact_sha256, "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c");
 assert.equal(cutover.model_inventory_sha256, "f36ba480734143d51affdc789b2ef782bee063dfb96a248d5048568a82f5a16e");
@@ -58,7 +58,7 @@ assert.equal(keyMetadata.reusable, false);
 assert.equal(keyMetadata.ephemeral, false);
 assert.equal(keyMetadata.preauthorized, true);
 assert.equal(keyMetadata.plaintextRetained, false);
-assert.equal(cutover.production_boot, "pending-physical-reboot-verification");
+assert.equal(cutover.production_boot, "verified");
 assert.deepEqual(cutover.rollback_boot_order, ["scsi0", "net0"]);
 assert.equal(cutover.rollback_requires_physical_reboot, true);
 assert.match(keyGenerator, /reusable": False/);
@@ -151,7 +151,7 @@ assert.match(postRebootRecovery, /DO NOT REBOOT/);
 assert.doesNotMatch(postRebootRecovery, /qm start/);
 assert.match(coordinator, /stage=verify-qualified-debian-package-baseline[\s\S]*findmnt -rn --mountpoint/);
 assert.doesNotMatch(coordinator, /! findmnt -rn --target/);
-assert.ok(coordinator.includes("production_prepare_sha=45c2b585df41ff956db70f02fb6bd28d2f9c42eb23dd2437115195fc4db1d76b"));
+assert.ok(coordinator.includes("production_prepare_sha=8e871bd2cd2f2c1bdb2792754ac347905482b2c7c4e5f85fa67516f6465e9509"));
 assert.ok(coordinator.includes("failed_reconcile_sha=082435e694fc4782b9b2225664cb15b819f10edad4c79d5f78ac08652fccfa2e"));
 assert.ok(coordinator.includes("production_sha=47ec5bc9b58a222f86adea3708377be10b0783a6160b154352a864b9f3dc503d"));
 assert.match(coordinator, /wait_for_guest_operation \/run\/home-lab-debian-production\.result 7200/);

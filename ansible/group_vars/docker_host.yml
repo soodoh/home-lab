@@ -86,7 +86,7 @@ audit_expected_health:
   gluetun: healthy
   seerr: healthy
 
-# The third validated pre-cutover replica remains on the retained Arch root disk.
+# Local encrypted backups are retained only on the games disk and NFS storage.
 audit_local_backup_replica_paths:
   - /mnt/games/backups
   - /mnt/storage/backups

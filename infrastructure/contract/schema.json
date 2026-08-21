@@ -283,7 +283,7 @@
             "docker_cli_package": { "const": "docker-cli" },
             "compose_package": { "const": "docker-compose" },
             "expected_service_count": { "const": 41 },
-            "expected_state_bind_count": { "const": 115 },
+            "expected_state_bind_count": { "const": 118 },
             "expected_docker_volume_mount_count": { "const": 0 },
             "state_mountpoint": { "const": "/srv/home-lab-state" },
             "games_mountpoint": { "const": "/mnt/games" },
@@ -308,7 +308,7 @@
                 "nfs_min_available_bytes": { "const": 10000000000000 },
                 "workload_uid": { "const": 1000 },
                 "workload_gid": { "const": 1000 },
-                "expected_state_directories": { "const": ["audiobookshelf-data", "authentik-data", "bookshelf-data", "caddy-data", "calibre-data", "calibre-web-data", "calibre-web-ingest", "caro-tachidesk-data", "ddns-updater-data", "flaresolverr-data", "frigate-data", "gluetun-data", "jellyfin-data", "karaoke-eternal-data", "litellm-data", "mosquitto-data", "nextcloud-db-data", "nextcloud-redis-data", "omada-data", "openfit-data", "pihole-data", "prowlarr-data", "qbittorrent-data", "radarr-4k-data", "radarr-data", "recyclarr-data", "sabnzbd-data", "seerr-data", "sonarr-data", "tachidesk-data", "vaultwarden-data", "vikunja-data", "zwave-data"] },
+                "expected_state_directories": { "const": ["audiobookshelf-data", "authentik-data", "bookshelf-data", "caddy-data", "calibre-data", "calibre-web-data", "calibre-web-ingest", "caro-tachidesk-data", "ddns-updater-data", "flaresolverr-data", "frigate-data", "gluetun-data", "hass-data", "jellyfin-data", "karaoke-eternal-data", "litellm-data", "mosquitto-data", "nextcloud-db-data", "nextcloud-redis-data", "omada-data", "openfit-data", "pihole-data", "prowlarr-data", "qbittorrent-data", "radarr-4k-data", "radarr-data", "recyclarr-data", "sabnzbd-data", "seerr-data", "sonarr-data", "tachidesk-data", "vaultwarden-data", "vikunja-data", "zwave-data"] },
                 "expected_games_directories": { "const": ["backups", "bioses", "es-de-media", "roms", "wolf"] },
                 "expected_nfs_directories": { "const": ["backups", "media", "vuetorrent"] },
                 "evidence": { "const": "post-reboot-arch-verified" }
@@ -350,7 +350,7 @@
                 "state_bind": { "const": "/srv/home-lab-state/openfit-data" },
                 "state_metadata": { "const": "root:root:755" },
                 "backup_max_age_hours": { "const": 168 },
-                "backup_replica_count": { "const": 3 },
+                "backup_replica_count": { "const": 2 },
                 "backup_validation": { "const": "existing-local-replicas-sidecar-and-sample" },
                 "s3_checked": { "const": false },
                 "image_transfer_path": { "const": "/srv/home-lab-state/.debian-openfit-canary-image.tar" },
@@ -443,26 +443,24 @@
     "backups": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["local_schedule", "local_paths", "estimated_archive_bytes", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "local_retention_days", "home_retention_days", "excluded_classes"],
+      "required": ["local_schedule", "local_paths", "estimated_archive_bytes", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "local_retention_days", "excluded_classes"],
       "properties": {
         "local_schedule": { "type": "string", "minLength": 9 },
         "local_paths": {
           "type": "array",
           "prefixItems": [
-            { "const": "/home/docker/backups" },
             { "const": "/mnt/games/backups" },
             { "const": "/mnt/storage/backups" }
           ],
           "items": false,
-          "minItems": 3,
-          "maxItems": 3
+          "minItems": 2,
+          "maxItems": 2
         },
         "estimated_archive_bytes": { "type": "integer", "minimum": 1000000000 },
         "remote_schedule": { "type": "string", "minLength": 9 },
         "remote_rpo_hours": { "type": "integer", "minimum": 24 },
         "remote_retention_days": { "type": "integer", "minimum": 2 },
         "local_retention_days": { "type": "integer", "minimum": 2 },
-        "home_retention_days": { "const": 2 },
         "excluded_classes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
       }
     }

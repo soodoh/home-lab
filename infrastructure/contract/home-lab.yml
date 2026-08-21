@@ -1223,7 +1223,7 @@ debian:
     docker_cli_package: docker-cli
     compose_package: docker-compose
     expected_service_count: 41
-    expected_state_bind_count: 115
+    expected_state_bind_count: 118
     expected_docker_volume_mount_count: 0
     state_mountpoint: /srv/home-lab-state
     games_mountpoint: /mnt/games
@@ -1269,6 +1269,7 @@ debian:
         - flaresolverr-data
         - frigate-data
         - gluetun-data
+        - hass-data
         - jellyfin-data
         - karaoke-eternal-data
         - litellm-data
@@ -1327,7 +1328,7 @@ debian:
       state_bind: /srv/home-lab-state/openfit-data
       state_metadata: root:root:755
       backup_max_age_hours: 168
-      backup_replica_count: 3
+      backup_replica_count: 2
       backup_validation: existing-local-replicas-sidecar-and-sample
       s3_checked: false
       image_transfer_path: /srv/home-lab-state/.debian-openfit-canary-image.tar
@@ -1390,7 +1391,6 @@ aws:
 backups:
   local_schedule: "0 5 * * *"
   local_paths:
-    - /home/docker/backups
     - /mnt/games/backups
     - /mnt/storage/backups
   estimated_archive_bytes: 50000000000
@@ -1398,7 +1398,6 @@ backups:
   remote_rpo_hours: 168
   remote_retention_days: 14
   local_retention_days: 7
-  home_retention_days: 2
   excluded_classes:
     - bulk-media
     - steam-data

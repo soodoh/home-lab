@@ -71,7 +71,7 @@ if [[ -n ${RECOVERY_GPG_PASSPHRASE_FILE:-} ]]; then
   decrypt_args+=(--pinentry-mode loopback --passphrase-file "$RECOVERY_GPG_PASSPHRASE_FILE")
 fi
 
-local_roots=(/home/docker/backups /mnt/games/backups /mnt/storage/backups)
+local_roots=(/mnt/games/backups /mnt/storage/backups)
 candidate_file="$workspace/local-candidates"
 python3 - "${local_roots[@]}" >"$candidate_file" <<'PY'
 from pathlib import Path

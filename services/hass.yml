@@ -21,7 +21,7 @@ services:
     environment:
       TZ: $TZ
     volumes:
-      - ${HASS_PATH}:/config
+      - /srv/home-lab-state/hass-data:/config
       - /etc/localtime:/etc/localtime:ro
       - /run/dbus:/run/dbus:ro
     # Must use Host network for Homekit bridge, as it uses mDNS

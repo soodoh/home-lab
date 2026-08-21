@@ -16,7 +16,7 @@ case "$expected_sha256" in
 esac
 [ "${#expected_sha256}" -eq 64 ]
 
-for destination in /archive /replica-home /replica-games; do
+for destination in /archive /replica-games; do
   [ -d "$destination" ] && [ ! -L "$destination" ] || {
     echo "local_backup_replication=failed reason=destination_invalid" >&2
     exit 1
@@ -67,8 +67,7 @@ prune_destination() {
     [ -f "${checksum%.sha256}" ] || rm -f -- "$checksum"
   done
 }
-prune_destination /replica-home 2
 prune_destination /replica-games 7
 prune_destination /archive 7
 
-printf 'local_backup_replication=verified destinations=3\n'
+printf 'local_backup_replication=verified destinations=2\n'
