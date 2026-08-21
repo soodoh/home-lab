@@ -210,6 +210,8 @@ class ReconcileSecurityTests(unittest.TestCase):
                 self.skipTest("a real controller apply lock is already held")
             real_git = shutil.which("git")
             self.assertIsNotNone(real_git)
+            real_node = shutil.which("node")
+            self.assertIsNotNone(real_node)
             with tempfile.TemporaryDirectory(dir=reconcile_root) as directory:
                 temporary = Path(directory)
                 binaries = temporary / "bin"
@@ -228,6 +230,18 @@ fi
 '''
                 )
                 git.chmod(git.stat().st_mode | stat.S_IXUSR)
+                node = binaries / "node"
+                node.write_text(
+                    f'''#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${{1:-}} == scripts/controller/check-vm-100-authority.js ]]; then
+  printf 'vm_100_mutation_authority=arch\\n'
+  exit 0
+fi
+exec {real_node} "$@"
+'''
+                )
+                node.chmod(node.stat().st_mode | stat.S_IXUSR)
                 for name in ("tofu", "ansible", "ansible-playbook"):
                     stub = binaries / name
                     stub.write_text("#!/usr/bin/env bash\nexit 0\n")
