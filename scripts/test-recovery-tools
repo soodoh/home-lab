@@ -446,11 +446,30 @@ PY
 
 REPO_ROOT="$repo_root" python3 - <<'PY'
 import json
+import importlib.util
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 
 repo = Path(os.environ["REPO_ROOT"])
+spec = importlib.util.spec_from_file_location("compose_model_inventory", repo / "scripts/compose-model-inventory.py")
+assert spec is not None and spec.loader is not None
+inventory_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(inventory_module)
+with tempfile.TemporaryDirectory() as directory:
+    root = Path(directory)
+    artifact = root / "artifact"
+    artifact.mkdir()
+    source = artifact / "services/data/file"
+    source.parent.mkdir(parents=True)
+    source.touch()
+    legacy = root / "legacy"
+    legacy.mkdir()
+    lexical = root / "current"
+    lexical.symlink_to(legacy, target_is_directory=True)
+    mapped = inventory_module.mapped_bind_source(str(source), artifact.resolve(), lexical)
+    assert mapped == str(lexical.absolute() / "services/data/file")
 model = json.loads(subprocess.run(
     ["docker", "compose", "config", "--no-interpolate", "--format", "json"],
     cwd=repo,

@@ -58,7 +58,7 @@ def compose_model(
                 relative = Path(mount["source"]).resolve().relative_to(project_root)
             except ValueError:
                 continue
-            mount["source"] = str(bind_root_override.resolve() / relative)
+            mount["source"] = str(bind_root_override.absolute() / relative)
     return model
 
 

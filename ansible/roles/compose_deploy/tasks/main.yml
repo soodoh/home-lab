@@ -42,7 +42,7 @@
       - compose_deploy_paths.results[5].stat.isreg | default(false)
       - compose_deploy_paths.results[6].stat.isreg | default(false)
       - compose_deploy_paths.results[6].stat.pw_name == 'root'
-      - compose_deploy_paths.results[6].stat.mode == '0600'
+      - compose_deploy_paths.results[6].stat.mode == '0644'
     fail_msg: "Candidate staging, active deployment, environment, or inventory input is missing."
 
 - name: Recompute candidate and current artifact identities

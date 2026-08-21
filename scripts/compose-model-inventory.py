@@ -118,7 +118,7 @@ def mapped_bind_source(
         relative_source = Path(source).resolve().relative_to(artifact_root)
     except ValueError:
         return source
-    return str(bind_root_override.resolve() / relative_source)
+    return str(bind_root_override.absolute() / relative_source)
 
 
 def run_json(command: list[str]) -> Any:
