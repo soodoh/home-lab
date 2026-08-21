@@ -25,6 +25,23 @@ def write_executable(path: Path, content: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+def write_arch_authority_node(path: Path) -> None:
+    real_node = shutil.which("node")
+    if real_node is None:
+        raise RuntimeError("node executable is unavailable")
+    write_executable(
+        path,
+        f"""#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${{1:-}} == scripts/controller/check-vm-100-authority.js ]]; then
+  printf 'vm_100_mutation_authority=arch\\n'
+  exit 0
+fi
+exec {real_node} "$@"
+""",
+    )
+
+
 def write_proxmox_host_plan(plan_dir: Path, manifest: dict) -> None:
     record = manifest["proxmox_host_plan"]
     source = {"actions": [], "applyEligible": True, "blockers": [], "findings": [],
@@ -117,6 +134,7 @@ else
 fi
 """,
             )
+            write_arch_authority_node(binaries / "node")
             for command in ("ansible", "ansible-playbook", "curl"):
                 write_executable(binaries / command, "#!/usr/bin/env bash\nexit 0\n")
             extra_vars.write_text(extra_vars_content + "# tampered\n")
@@ -285,6 +303,7 @@ else
 fi
 """,
             )
+            write_arch_authority_node(binaries / "node")
             write_executable(
                 binaries / "aws",
                 """#!/usr/bin/env bash
