@@ -188,14 +188,15 @@
       Deployment refuses service additions/removals, forbidden Compose actions, and data-file changes
       without their exact operation-specific restart approval.
 
-- name: Select dependency handling for the exact full backup rollout
+- name: Preserve dependencies for the exact two-path backup rollout
   ansible.builtin.set_fact:
     compose_deploy_dependency_args: >-
       {{
         []
         if (
           (compose_deploy_manual_paths_confirmation | default('')) == 'deploy-reviewed-two-path-backups' and
-          compose_deploy_plan.recreate_services | length == 41
+          compose_deploy_plan.manual_only_paths == ['services/data/replicate-local-backup'] and
+          'daily-local-backup' in compose_deploy_plan.recreate_services
         )
         else ['--no-deps']
       }}
