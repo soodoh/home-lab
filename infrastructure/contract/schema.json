@@ -378,7 +378,7 @@
                 "image_transfer_path": { "const": "/srv/home-lab-state/.debian-production-images.tar" },
                 "pulls": { "const": "disabled" },
                 "backup_validation": { "const": "existing-local-replicas-sidecar-and-sample" },
-                "runtime_environment": { "const": "install-staged" },
+                "runtime_environment": { "enum": ["install-staged", "installed"] },
                 "protected_mounts": { "const": "persistent" },
                 "docker_runtime": { "const": "persistent" },
                 "tailscale_enrollment": { "const": "one-use-preauthorized-key" },

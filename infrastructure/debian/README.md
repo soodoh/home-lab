@@ -1,6 +1,6 @@
 # Debian 13 replacement design for VM 100
 
-This directory defines the low-maintenance Debian 13 Stable qualification path for VM 100. It does not authorize a cutover. Arch remains production authority, `scsi0` remains unchanged and bootable, and `scsi2` remains the exact application-state filesystem throughout qualification.
+This directory defines the low-maintenance Debian 13 Stable qualification and production path for VM 100. Debian became production authority after the guarded cutover and physical-reboot verification recorded in `infrastructure/evidence/vm-100-debian-production.json`. Arch `scsi0` remains unchanged and bootable, and `scsi2` remains the authoritative application-state filesystem during the required rollback-retention period.
 
 ## Why Debian
 
@@ -77,3 +77,9 @@ An inert Debian boot proves only the replacement OS and hardware baseline. It mu
 - security updates enabled with automatic reboot disabled.
 
 Mounting state, installing Docker, enrolling Tailscale, rendering production credentials, starting Compose, and enabling guarded maintenance reboots remain separate approvals. Arch must remain unchanged and bootable for at least seven stable Debian days after eventual activation.
+
+## Production status
+
+The full production cutover completed from attested commit `f34c7d07b862ea3a2f5552664ff527d8d8bb0d1e` on 2026-08-21. Post-reboot verification proved Debian booted with `amdgpu.runpm=0`, 41 healthy containers, 115 state bind mounts, zero Docker volume mounts, all required LAN endpoints, the expected tagged Tailscale identity, and no matching GPU, storage, or NFS kernel errors. The boot order remains `scsi3;scsi0;net0`; Arch `scsi0`, its named volumes, and its recovery assets must remain intact until the separately accepted seven-day stability period completes.
+
+The first finalization attempt exposed a production-capacity issue: `daily-local-backup` retained a deleted 34.2 GB temporary archive on the 64 GiB Debian root filesystem. Restarting only that container released the file, and restarting the guarded Compose unit restored all 41 services before finalization. Backup temporary storage must be moved off the Debian root filesystem before the next scheduled run.

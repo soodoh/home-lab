@@ -1217,7 +1217,7 @@ debian:
     compose_service: home-lab-compose.service
     automatic_reboot: false
   cutover:
-    stage: production-canary
+    stage: production
     package_source: debian-stable
     docker_package: docker.io
     docker_cli_package: docker-cli
@@ -1338,7 +1338,7 @@ debian:
       tailscale: deferred
       production_boot: false
     production_cutover:
-      phase: key-staged
+      phase: verified
       scope: full-compose-and-tailscale
       compose_artifact_sha256: d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c
       model_inventory_sha256: f36ba480734143d51affdc789b2ef782bee063dfb96a248d5048568a82f5a16e
@@ -1349,7 +1349,7 @@ debian:
       image_transfer_path: /srv/home-lab-state/.debian-production-images.tar
       pulls: disabled
       backup_validation: existing-local-replicas-sidecar-and-sample
-      runtime_environment: install-staged
+      runtime_environment: installed
       protected_mounts: persistent
       docker_runtime: persistent
       tailscale_enrollment: one-use-preauthorized-key
@@ -1360,7 +1360,7 @@ debian:
       tailscale_key_delivery: age-encrypted-debian-recipient
       tailscale_key_expiry_seconds: 86400
       tailscale_key_artifact: infrastructure/debian/production-tailscale-authkey.age
-      production_boot: pending-physical-reboot-verification
+      production_boot: verified
       rollback_boot_order:
         - scsi0
         - net0
