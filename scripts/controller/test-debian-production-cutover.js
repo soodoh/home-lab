@@ -107,8 +107,8 @@ assert.match(failedReconcile, /rm -f --[\s\S]*"\$SERIAL_RULES" "\$FAILED_MARKER"
 assert.match(production, /GRUB_CMDLINE_LINUX=.*amdgpu\.runpm=0[\s\S]*update-grub[\s\S]*linux_entries/);
 assert.match(production, /mv -T "\$AMDGPU_GRUB_DROPIN" "\$AMDGPU_GRUB_BACKUP"[\s\S]*update-grub[\s\S]*grub_linux_entries_exclude_runpm[\s\S]*mv -T "\$AMDGPU_GRUB_BACKUP" "\$AMDGPU_GRUB_DROPIN"[\s\S]*cleanup_safe=false/);
 assert.match(failedReconcile, /AMDGPU_GRUB_BACKUP[\s\S]*mv -T "\$AMDGPU_GRUB_DROPIN" "\$AMDGPU_GRUB_BACKUP"[\s\S]*update-grub[\s\S]*GRUB baseline regeneration failed[\s\S]*grub_linux_entries_exclude_runpm/);
-assert.match(production, /wait_for_tcp_port\(\)[\s\S]*local address=\$1 port=\$2[\s\S]*attempt < 120[\s\S]*timeout 2/);
-assert.match(production, /for port in 80 443 8123 8096; do wait_for_tcp_port 192\.168\.0\.100 "\$port"/);
+assert.match(production, /wait_for_lan_ports\(\)[\s\S]*attempt < 120[\s\S]*for port in 80 443 8123 8096[\s\S]*timeout --kill-after=1 2[\s\S]*all_ready/);
+assert.match(production, /systemctl start home-lab-compose\.service \|\| compose_start_status=\$\?[\s\S]*attempt < 120[\s\S]*docker inspect --format[\s\S]*gluetun_recovered == true[\s\S]*systemctl reset-failed home-lab-compose\.service[\s\S]*systemctl start home-lab-compose\.service/);
 assert.match(finalHealth, /attempt < 120[\s\S]*docker ps --filter health=unhealthy/);
 assert.match(finalHealth, /wait_for_lan_ports\(\)[\s\S]*attempt < 120[\s\S]*for port in 80 443 8123 8096[\s\S]*all_ready/);
 assert.match(finalHealth, /amdgpu\\?\.runpm=0[\s\S]*\/sys\/module\/amdgpu\/parameters\/runpm[\s\S]*amdgpu_device_ip_resume failed/);
@@ -153,7 +153,9 @@ assert.match(coordinator, /stage=verify-qualified-debian-package-baseline[\s\S]*
 assert.doesNotMatch(coordinator, /! findmnt -rn --target/);
 assert.ok(coordinator.includes("production_prepare_sha=45c2b585df41ff956db70f02fb6bd28d2f9c42eb23dd2437115195fc4db1d76b"));
 assert.ok(coordinator.includes("failed_reconcile_sha=082435e694fc4782b9b2225664cb15b819f10edad4c79d5f78ac08652fccfa2e"));
-assert.ok(coordinator.includes("production_sha=1c4e32ea0a6451991011bd168d5db73f46b7aa36d72f185e9488cf959506be4f"));
+assert.ok(coordinator.includes("production_sha=47ec5bc9b58a222f86adea3708377be10b0783a6160b154352a864b9f3dc503d"));
+assert.match(coordinator, /wait_for_guest_operation \/run\/home-lab-debian-production\.result 7200/);
+assert.match(coordinator, /expires[\s\S]*\+ 10800[\s\S]*bounded Debian activation/);
 assert.match(coordinator, /stage="reconcile-failed-debian-production"/);
 assert.match(coordinator, /setsid \/bin\/bash \/run\/home-lab-arch-production-prepare\.runner/);
 assert.match(coordinator, /setsid \/bin\/bash \/run\/home-lab-debian-production\.runner/);

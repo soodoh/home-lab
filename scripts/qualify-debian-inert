@@ -1453,10 +1453,10 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=home-lab-state -s UUID -o value | sort -u) == d4a19647-7879-4079-9fc9-b3e79711b449 ]]"
   guest_exec_ok 30 /bin/bash -lc "[[ \$(blkid -t LABEL=games -s UUID -o value | sort -u) == 31602ce7-0054-498a-9f24-f51ca491e7b3 ]]"
   if [[ $production_mode == true ]]; then
-    [[ $(date -d "$(jq -er .expires infrastructure/debian/production-tailscale-authkey.json)" +%s) -gt $(($(date +%s) + 3600)) ]] || { fail "production Tailscale key expires too soon for Debian activation"; false; }
+    [[ $(date -d "$(jq -er .expires infrastructure/debian/production-tailscale-authkey.json)" +%s) -gt $(($(date +%s) + 10800)) ]] || { fail "production Tailscale key expires too soon for the bounded Debian activation"; false; }
     stage="run-debian-production-cutover"
     production_source=infrastructure/debian/run-production-cutover.sh
-    production_sha=1c4e32ea0a6451991011bd168d5db73f46b7aa36d72f185e9488cf959506be4f
+    production_sha=47ec5bc9b58a222f86adea3708377be10b0783a6160b154352a864b9f3dc503d
     [[ $(sha256sum "$production_source" | awk '{print $1}') == "$production_sha" ]]
     production_payload=$(base64 -w 0 "$production_source")
     production_lock_payload=$(base64 -w 0 infrastructure/debian/production-image-lock.json)
@@ -1467,7 +1467,7 @@ if [[ $prepare_mode == true || $rehearsal_mode == true || $identity_mode == true
     guest_exec_ok 60 /bin/bash -lc "set -Eeuo pipefail; umask 077; printf %s '$production_payload' | base64 -d > /run/home-lab-run-production; printf %s '$production_lock_payload' | base64 -d > /run/home-lab-production-image-lock.json; printf %s '$production_key_payload' | base64 -d > /run/home-lab-production-tailscale-key.age; printf %s '$production_runner_payload' | base64 -d > /run/home-lab-debian-production.runner; chown root:root /run/home-lab-production-tailscale-key.age; chmod 0600 /run/home-lab-production-tailscale-key.age; [[ \$(sha256sum /run/home-lab-run-production | awk '{print \$1}') == '$production_sha' ]]"
     operation_response=$(guest_exec_json 30 /bin/bash -lc "rm -f -- /run/home-lab-debian-production.result /run/home-lab-debian-production.result.pending; setsid /bin/bash /run/home-lab-debian-production.runner </dev/null > /var/log/home-lab-debian-production.log 2>&1 & printf %s \$!")
     production_operation_pid=$(jq -er '."out-data" | select(test("^[1-9][0-9]*$"))' <<< "$operation_response")
-    if ! wait_for_guest_operation /run/home-lab-debian-production.result 2400; then guest_exec_ok 30 /usr/bin/tail -120 /var/log/home-lab-debian-production.log || true; false; fi
+    if ! wait_for_guest_operation /run/home-lab-debian-production.result 7200; then guest_exec_ok 30 /usr/bin/tail -120 /var/log/home-lab-debian-production.log || true; false; fi
     production_operation_pid=
     guest_exec_ok 30 /bin/rm -f /run/home-lab-debian-production.result /run/home-lab-debian-production.result.pending
     production_marker=$(guest_exec_json 30 /usr/bin/cat /var/lib/home-lab/debian-production.json | jq -er '."out-data"')

@@ -40,10 +40,14 @@ fail() { echo "error: $*" >&2; exit 1; }
 mount_active() { mountpoint -q "$1"; }
 verified_mount_state() { awk -v target="$1" 'BEGIN { state="unmounted" } $5 == target { state="mounted" } END { print state }' /proc/self/mountinfo; }
 verified_service_state() { systemctl show --property=ActiveState --value "$1"; }
-wait_for_tcp_port() {
-  local address=$1 port=$2
+wait_for_lan_ports() {
+  local all_ready port
   for ((attempt = 0; attempt < 120; attempt += 1)); do
-    if timeout 2 /bin/bash -lc "</dev/tcp/$address/$port"; then return 0; fi
+    all_ready=true
+    for port in 80 443 8123 8096; do
+      timeout --kill-after=1 2 /bin/bash -lc "</dev/tcp/192.168.0.100/$port" || all_ready=false
+    done
+    [[ $all_ready == true ]] && return 0
     sleep 5
   done
   return 1
@@ -297,7 +301,23 @@ EOF
 chown root:root "$COMPOSE_UNIT"
 chmod 0644 "$COMPOSE_UNIT"
 systemctl daemon-reload
-systemctl enable --now home-lab-compose.service
+systemctl enable home-lab-compose.service
+compose_start_status=0
+systemctl start home-lab-compose.service || compose_start_status=$?
+if [[ $compose_start_status -ne 0 ]]; then
+  gluetun_recovered=false
+  for ((attempt = 0; attempt < 120; attempt += 1)); do
+    if [[ $(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}missing{{end}}' gluetun 2>/dev/null || true) == healthy ]]; then
+      gluetun_recovered=true
+      break
+    fi
+    sleep 5
+  done
+  [[ $gluetun_recovered == true ]] || fail "Gluetun did not recover after the initial Compose dependency failure"
+  systemctl reset-failed home-lab-compose.service
+  systemctl start home-lab-compose.service
+fi
+[[ $(systemctl is-active home-lab-compose.service) == active ]] || fail "production Compose unit is not active"
 
 healthy=false
 for ((attempt = 0; attempt < 180; attempt += 1)); do
@@ -311,7 +331,7 @@ mapfile -t ids < <(docker ps -q)
 [[ $(docker inspect "${ids[@]}" | jq '[.[].Mounts[] | select(.Type == "volume")] | length') -eq 0 ]] || fail "production Docker volume use differs"
 python3 "$ARTIFACT_ROOT/scripts/compose-image-lock.py" capture --project "$PROJECT" --output /run/home-lab-production-runtime-lock.json >/dev/null
 jq -e --slurpfile expected "$IMAGE_LOCK_TARGET" '[.images[] | {service,image_id}] == [$expected[0].images[] | {service,image_id}]' /run/home-lab-production-runtime-lock.json >/dev/null || fail "production runtime image IDs differ"
-for port in 80 443 8123 8096; do wait_for_tcp_port 192.168.0.100 "$port" || fail "LAN production endpoint 192.168.0.100:$port did not become ready"; done
+wait_for_lan_ports || fail "LAN production endpoints did not become ready together"
 kernel_errors=$(journalctl -k --since "@$started_epoch" --no-pager | grep -Eci 'I/O error|EXT4-fs error|Buffer I/O|blk_update_request|nfs: server .* not responding' || true)
 [[ $kernel_errors -eq 0 ]] || fail "kernel storage errors occurred during production activation"
 write_phase compose-healthy
