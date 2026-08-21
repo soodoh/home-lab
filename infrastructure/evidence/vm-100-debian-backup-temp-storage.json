@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-08-21T20:26:48Z",
+  "sourceCommit": "937e67528fa94fbe3edc25205a8665f0c709b930",
+  "vmid": 100,
+  "status": "verified",
+  "deployment": {
+    "candidateArtifactSha256": "16f76d7969f5a7be9ebd1b6c80ed567296c39c04ba6d486ec76130fa7e07554b",
+    "previousArtifactSha256": "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c",
+    "planSha256": "a6e9404e474915356d9b1eee3485e92fadb81ae1cc6ede4a0123d1bb12e2ecea",
+    "changedPaths": [
+      "scripts/compose-model-inventory.py",
+      "services/infra.yml"
+    ],
+    "recreatedServices": [
+      "daily-local-backup",
+      "weekly-remote-backup"
+    ],
+    "imageServices": [],
+    "forbiddenActions": [],
+    "pulls": "disabled",
+    "postDeploymentPlan": "zero-action"
+  },
+  "temporaryStorage": {
+    "hostPath": "/mnt/games/backups/.tmp",
+    "containerPath": "/tmp",
+    "filesystemUuid": "31602ce7-0054-498a-9f24-f51ca491e7b3",
+    "metadata": "root:root:700",
+    "dailyMounted": true,
+    "weeklyMounted": true,
+    "createHostPath": false
+  },
+  "health": {
+    "rootFilesystemUsePercent": 52,
+    "rootFilesystemAvailableGiB": 30,
+    "runningContainers": 41,
+    "unhealthyContainers": 0,
+    "stateBindMounts": 115,
+    "dockerVolumeMounts": 0,
+    "completeAudit": "passed"
+  },
+  "rollback": {
+    "previousArtifactMaterialized": true,
+    "previousEnvironmentRetained": true,
+    "archRollbackAssetsRetained": true
+  }
+}
