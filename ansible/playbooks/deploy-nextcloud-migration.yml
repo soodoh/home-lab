@@ -17,6 +17,13 @@
     - name: Verify fail-closed backup temporary storage
       ansible.builtin.import_role:
         name: backup_temp_preflight
+
+    - name: Install the declared metadata-preserving copy dependency when absent
+      ansible.builtin.import_role:
+        name: apt_packages
+      vars:
+        apt_packages_requested:
+          - rsync
   roles:
     - role: nextcloud_path_migration
     - role: compose_deploy

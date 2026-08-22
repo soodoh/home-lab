@@ -9,6 +9,23 @@
       - nextcloud.rollback_window_days == 7
     fail_msg: "Nextcloud path migration requires the exact artifact and operation-specific confirmation."
 
+- name: Inspect the metadata-preserving copy dependency
+  ansible.builtin.stat:
+    path: /usr/bin/rsync
+    get_checksum: false
+    get_mime: false
+    follow: false
+  register: nextcloud_path_migration_rsync
+
+- name: Require the declared metadata-preserving copy dependency
+  ansible.builtin.assert:
+    that:
+      - nextcloud_path_migration_rsync.stat.isreg | default(false)
+      - not (nextcloud_path_migration_rsync.stat.islnk | default(false))
+      - nextcloud_path_migration_rsync.stat.pw_name == 'root'
+      - nextcloud_path_migration_rsync.stat.executable | default(false)
+    fail_msg: "The declared rsync migration dependency is unavailable or has an unexpected identity."
+
 - name: Derive private same-filesystem staging paths
   ansible.builtin.set_fact:
     nextcloud_path_migration_entries:

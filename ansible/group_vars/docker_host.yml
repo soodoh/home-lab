@@ -146,7 +146,8 @@ apply_guard_allowed_tags:
 bootstrap_allowed_apply_tags:
   - management_plane
 
-base_packages: []
+base_packages:
+  - rsync
 base_services: []
 
 docker_packages:

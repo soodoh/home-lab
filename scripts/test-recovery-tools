@@ -897,6 +897,9 @@ path_migration = (repo / "ansible/roles/nextcloud_path_migration/tasks/main.yml"
 assert "deploy-reviewed-nextcloud-five-mount-migration" in compose_deploy
 assert "rollback-reviewed-nextcloud-five-mount-migration" in compose_rollback
 assert "activate-reviewed-nextcloud-five-mount-paths" in path_migration
+assert "path: /usr/bin/rsync" in path_migration
+assert "apt_packages_requested:\n          - rsync" in (repo / "ansible/playbooks/deploy-nextcloud-migration.yml").read_text()
+assert "base_packages:\n  - rsync" in group_vars
 assert "--exclude=/data/" in path_migration
 assert "nextcloud.paths.data.resolved_source" in path_migration
 assert "--no-target-directory" in path_migration
