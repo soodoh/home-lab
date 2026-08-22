@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+readonly VMID=100
+readonly CONFIRMATION=detach-reviewed-arch-scsi0-and-reboot
+readonly REBOOT_CONFIRMATION=reboot-reviewed-debian-without-arch-scsi0
+readonly OPERATION_LOCK=/var/lib/home-lab/reconciliation/operation.lock
+readonly APPLY_LOCK=/var/lib/home-lab/reconciliation/apply.lock
+readonly ANSIBLE_LOCK=/var/lib/iac-ansible-production.lock
+readonly RETIREMENT_LOCK=/run/lock/home-lab-vm-100-arch-retirement.lock
+readonly EVIDENCE_ROOT=/var/lib/home-lab/retirement
+readonly EXPECTED_BOOT='order=scsi3;scsi0;net0'
+readonly RETIRED_BOOT='order=scsi3;net0'
+readonly EXPECTED_SCSI0='local-lvm:vm-100-disk-0,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,size=550G,ssd=0'
+readonly EXPECTED_SCSI3='local-lvm:vm-100-disk-2,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=HOME-LAB-DEBIAN-64G,size=64G,ssd=0'
+
+fail() { echo "arch_scsi0_retirement=failed reason=$*" >&2; exit 1; }
+config_value() { qm config "$VMID" | awk -F': ' -v key="$1" '$1 == key {print $2}'; }
+require_console_confirmation() {
+  local expected=$1 value
+  [[ -c /dev/tty ]] || fail "physical_console_tty_required"
+  printf 'Type the exact physical-console confirmation:\n%s\n' "$expected" >/dev/tty
+  IFS= read -r value </dev/tty
+  [[ $value == "$expected" ]] || fail "confirmation_invalid"
+}
+guest_exec() {
+  local output
+  output=$(qm guest exec "$VMID" -- /bin/bash -lc "$1") || fail "guest_agent_command_failed"
+  jq -e '.exitcode == 0' <<<"$output" >/dev/null || fail "guest_preflight_failed"
+}
+
+[[ $(id -u) -eq 0 ]] || fail "root_required"
+for command in awk flock jq qm sha256sum stat systemctl; do command -v "$command" >/dev/null || fail "missing_command_$command"; done
+[[ -f $OPERATION_LOCK && ! -L $OPERATION_LOCK ]] || fail "operation_lock_unsafe"
+[[ $(stat -c '%U:%G:%a' "$OPERATION_LOCK") == root:root:600 ]] || fail "operation_lock_metadata"
+[[ ! -e $APPLY_LOCK && ! -e $ANSIBLE_LOCK ]] || fail "another_apply_lock_exists"
+exec 9>>"$OPERATION_LOCK"
+[[ $(stat -Lc '%d:%i' "$OPERATION_LOCK") == $(stat -Lc '%d:%i' /proc/$$/fd/9) ]] || fail "operation_lock_identity_changed"
+flock -n 9 || fail "operation_lock_held"
+exec 8>"$RETIREMENT_LOCK"
+flock -n 8 || fail "retirement_lock_held"
+
+[[ $(qm status "$VMID" | awk '{print $2}') == running ]] || fail "vm_not_running"
+[[ $(config_value boot) == "$EXPECTED_BOOT" ]] || fail "boot_order_differs"
+[[ $(config_value scsi0) == "$EXPECTED_SCSI0" ]] || fail "scsi0_identity_differs"
+[[ $(config_value scsi3) == "$EXPECTED_SCSI3" ]] || fail "scsi3_identity_differs"
+[[ -n $(config_value scsi1) && -n $(config_value scsi2) ]] || fail "protected_disk_missing"
+[[ -z $(qm config "$VMID" | awk -F': ' '$1 ~ /^unused[0-9]+$/ {print}') ]] || fail "preexisting_unused_disk"
+
+guest_exec 'test "$(cat /etc/os-release | sed -n "s/^ID=//p")" = debian'
+guest_exec 'test "$(docker ps -q | wc -l)" -eq 41 && test "$(docker ps --filter health=unhealthy -q | wc -l)" -eq 0'
+guest_exec 'findmnt -rn -S UUID=d4a19647-7879-4079-9fc9-b3e79711b449 -T /srv/home-lab-state -o TARGET,FSTYPE,OPTIONS | grep -Eq "^/srv/home-lab-state ext4 (rw|.*,rw)(,|$)"'
+
+require_console_confirmation "$CONFIRMATION"
+install -d -o root -g root -m 0700 "$EVIDENCE_ROOT"
+before=$(mktemp "$EVIDENCE_ROOT/.vm-100-pre-scsi0.XXXXXX")
+qm config "$VMID" >"$before"
+chown root:root "$before"
+chmod 0600 "$before"
+before_sha=$(sha256sum "$before" | awk '{print $1}')
+
+scsi1_before=$(config_value scsi1)
+scsi2_before=$(config_value scsi2)
+scsi3_before=$(config_value scsi3)
+rollback_required=true
+rollback() {
+  local status=$?
+  if [[ $rollback_required == true ]]; then
+    if [[ -z $(config_value scsi0) && $(config_value unused0) == local-lvm:vm-100-disk-0 ]]; then
+      qm set "$VMID" --scsi0 "$EXPECTED_SCSI0" >/dev/null || true
+    fi
+    qm set "$VMID" --boot "$EXPECTED_BOOT" >/dev/null || true
+  fi
+  exit "$status"
+}
+trap rollback ERR INT TERM
+
+qm shutdown "$VMID" --timeout 180 >/dev/null
+[[ $(qm status "$VMID" | awk '{print $2}') == stopped ]] || fail "vm_did_not_stop"
+qm set "$VMID" --boot "$RETIRED_BOOT" >/dev/null
+qm set "$VMID" --delete scsi0 >/dev/null
+
+[[ -z $(config_value scsi0) ]] || fail "scsi0_still_attached"
+[[ $(config_value unused0) == local-lvm:vm-100-disk-0 ]] || fail "retired_volume_not_quarantined"
+[[ $(config_value boot) == "$RETIRED_BOOT" ]] || fail "retired_boot_order_differs"
+[[ $(config_value scsi1) == "$scsi1_before" ]] || fail "games_disk_changed"
+[[ $(config_value scsi2) == "$scsi2_before" ]] || fail "state_disk_changed"
+[[ $(config_value scsi3) == "$scsi3_before" ]] || fail "debian_disk_changed"
+[[ $(qm status "$VMID" | awk '{print $2}') == stopped ]] || fail "vm_restarted_unexpectedly"
+
+rollback_required=false
+trap - ERR INT TERM
+evidence=$(mktemp "$EVIDENCE_ROOT/.vm-100-arch-scsi0-detached.XXXXXX")
+jq -n \
+  --arg observedAt "$(date -u +%FT%TZ)" \
+  --arg beforeConfig "$before" \
+  --arg beforeSha256 "$before_sha" \
+  --arg boot "$RETIRED_BOOT" \
+  --arg volume "local-lvm:vm-100-disk-0" \
+  '{schemaVersion:1,observedAt:$observedAt,vmid:100,status:"detached-quarantined",beforeConfig:$beforeConfig,beforeConfigSha256:$beforeSha256,boot:$boot,retiredVolume:$volume,scsi0Attached:false,scsi1Changed:false,scsi2Changed:false,scsi3Changed:false}' >"$evidence"
+chown root:root "$evidence"
+chmod 0600 "$evidence"
+mv "$evidence" "$EVIDENCE_ROOT/vm-100-arch-scsi0-detached.json"
+
+echo "arch_scsi0_retirement=detached volume=local-lvm:vm-100-disk-0 boot=$RETIRED_BOOT"
+require_console_confirmation "$REBOOT_CONFIRMATION"
+sync
+systemctl reboot

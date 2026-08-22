@@ -902,6 +902,20 @@ plan_token_rotation = (repo / "scripts/rotate-proxmox-plan-api-token").read_text
 assert 'New tofu-plan UUID value (input hidden)' in plan_token_rotation
 assert 'token = f"root@pam!tofu-plan={secret}"' in plan_token_rotation
 assert 'stat.S_IMODE(path.stat().st_mode) != 0o600' in plan_token_rotation
+arch_disk_retirement = (repo / "scripts/retire-arch-scsi0").read_text()
+for required in (
+    "detach-reviewed-arch-scsi0-and-reboot",
+    "reboot-reviewed-debian-without-arch-scsi0",
+    "local-lvm:vm-100-disk-0",
+    'qm set "$VMID" --delete scsi0',
+    '$(config_value unused0) == local-lvm:vm-100-disk-0',
+    '$(config_value scsi1) == "$scsi1_before"',
+    '$(config_value scsi2) == "$scsi2_before"',
+    '$(config_value scsi3) == "$scsi3_before"',
+    "systemctl reboot",
+):
+    assert required in arch_disk_retirement
+assert "pvesm free" not in arch_disk_retirement
 automation = (repo / "scripts/prepare-debian-production-automation").read_text()
 for required in (
     "prepare-reviewed-vm-100-debian-production-automation",
