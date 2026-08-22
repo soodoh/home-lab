@@ -657,6 +657,16 @@ spec = importlib.util.spec_from_file_location("compose_model_inventory", repo / 
 assert spec is not None and spec.loader is not None
 inventory_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(inventory_module)
+action_spec = importlib.util.spec_from_file_location("compose_action_plan", repo / "scripts/compose-action-plan.py")
+assert action_spec is not None and action_spec.loader is not None
+action_module = importlib.util.module_from_spec(action_spec)
+action_spec.loader.exec_module(action_module)
+assert action_module.canonical_actions([
+    ("nextcloud-cron", "Creating"),
+    ("nextcloud-cron", "Created"),
+    ("nextcloud", "Recreate"),
+    ("nextcloud", "Recreated"),
+]) == [("nextcloud", "Recreate"), ("nextcloud-cron", "Create")]
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
     artifact = root / "artifact"
@@ -900,6 +910,9 @@ assert "compose-artifact.py" in compose_stage and "- --no-git" in compose_stage 
 assert "Materialize the exact legacy current artifact for rollback" in (repo / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
 for helper in (action_plan, model_inventory, stage_review):
     assert '"--override-file"' in helper
+assert 'parser.add_argument("--bind-root-override", required=True' in stage_review
+assert "--bind-root-override {{ compose_current_dir }}" in (repo / "ansible/playbooks/review-compose-stage.yml").read_text()
+assert "Restart Caddy to load the reviewed bind-mounted configuration" in compose_deploy
 assert "ansible_extra_args=(--extra-vars '{}')" in (repo / "scripts/reconcile-infrastructure").read_text()
 plan_token_rotation = (repo / "scripts/rotate-proxmox-plan-api-token").read_text()
 assert 'New tofu-plan UUID value (input hidden)' in plan_token_rotation

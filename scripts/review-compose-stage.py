@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Review staged Compose and runtime inventories without exposing environment data."""
 
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 import hashlib
 import json
 from pathlib import Path
@@ -42,6 +42,44 @@ def write_report(path: Path, report: dict[str, object]) -> None:
     path.chmod(0o600)
 
 
+def normalized_compose_model(args: Namespace) -> str:
+    command = [
+        "/usr/bin/docker",
+        "compose",
+        "--project-name",
+        args.project_name,
+        "--project-directory",
+        str(args.project_directory.resolve()),
+        "--env-file",
+        str(args.env_file.resolve()),
+        "--file",
+        str(args.artifact_root.resolve() / "docker-compose.yml"),
+    ]
+    if args.override_file is not None:
+        command.extend(["--file", str(args.override_file.resolve())])
+    command.extend(["config", "--format", "json"])
+    result = subprocess.run(
+        command,
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    model = json.loads(result.stdout)
+    artifact_root = args.artifact_root.resolve()
+    for service in (model.get("services") or {}).values():
+        for mount in service.get("volumes") or []:
+            source = mount.get("source")
+            if mount.get("type") != "bind" or not isinstance(source, str):
+                continue
+            try:
+                relative = Path(source).resolve().relative_to(artifact_root)
+            except ValueError:
+                continue
+            mount["source"] = str(args.bind_root_override.resolve() / relative)
+    return json.dumps(model, sort_keys=True, separators=(",", ":")) + "\n"
+
+
 def service_differences(
     desired_services: dict[str, object], runtime_services: dict[str, object], field: str
 ) -> dict[str, object]:
@@ -78,6 +116,7 @@ def main() -> None:
     parser.add_argument("--project-directory", required=True, type=Path)
     parser.add_argument("--env-file", required=True, type=Path)
     parser.add_argument("--override-file", type=Path)
+    parser.add_argument("--bind-root-override", required=True, type=Path)
     parser.add_argument("--project-name", default="docker-compose")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
@@ -93,6 +132,7 @@ def main() -> None:
     if not isinstance(desired_services, dict) or not isinstance(runtime_services, dict):
         raise SystemExit("service inventory is invalid")
 
+    normalized_model = normalized_compose_model(args)
     command = [
         "/usr/bin/docker",
         "compose",
@@ -100,18 +140,20 @@ def main() -> None:
         "--project-name",
         args.project_name,
         "--project-directory",
-        str(args.project_directory.resolve()),
+        str(args.bind_root_override.resolve()),
         "--env-file",
         str(args.env_file.resolve()),
         "--file",
-        str(args.artifact_root.resolve() / "docker-compose.yml"),
+        "-",
+        "create",
+        "--no-build",
+        "--pull",
+        "never",
     ]
-    if args.override_file is not None:
-        command.extend(["--file", str(args.override_file.resolve())])
-    command.extend(["create", "--no-build", "--pull", "never"])
     dry_run = subprocess.run(
         command,
         check=True,
+        input=normalized_model,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,

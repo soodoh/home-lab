@@ -16,6 +16,28 @@ ACTION_PATTERN = re.compile(
 )
 
 
+ACTION_CANONICAL_NAMES = {
+    "Creating": "Create",
+    "Created": "Create",
+    "Create": "Create",
+    "Recreated": "Recreate",
+    "Recreate": "Recreate",
+    "Removing": "Remove",
+    "Removed": "Remove",
+    "Remove": "Remove",
+    "Starting": "Start",
+    "Started": "Start",
+    "Start": "Start",
+    "Stopping": "Stop",
+    "Stopped": "Stop",
+    "Stop": "Stop",
+}
+
+
+def canonical_actions(raw_actions: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    return sorted({(container, ACTION_CANONICAL_NAMES[action]) for container, action in raw_actions})
+
+
 def compose_model(
     project_name: str,
     project_directory: Path,
@@ -221,9 +243,10 @@ def main() -> None:
         for service_name, service in (model.get("services") or {}).items()
     }
     raw_actions = ACTION_PATTERN.findall(output)
+    actions_by_container = canonical_actions(raw_actions)
     unmapped_containers = {
         container_name
-        for container_name, _action in raw_actions
+        for container_name, _action in actions_by_container
         if container_name not in container_to_service
     }
     if unmapped_containers:
@@ -232,16 +255,14 @@ def main() -> None:
         )
     actions = [
         {"service": container_to_service[container_name], "action": action}
-        for container_name, action in raw_actions
+        for container_name, action in actions_by_container
     ]
     report = {
         "recreate_services": sorted(
             {entry["service"] for entry in actions if entry["action"] == "Recreate"}
         ),
         "forbidden_actions": [
-            entry
-            for entry in actions
-            if entry["action"] in {"Create", "Creating", "Created", "Remove", "Removing", "Removed"}
+            entry for entry in actions if entry["action"] in {"Create", "Remove"}
         ],
         "action_count": len(actions),
     }

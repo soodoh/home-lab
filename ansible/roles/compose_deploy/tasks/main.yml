@@ -435,7 +435,7 @@
         that:
           - >-
             compose_deploy_plan.recreate_services |
-            difference([nextcloud.database_service, nextcloud.web_service, 'caddy',
+            difference([nextcloud.database_service, nextcloud.web_service,
                         'daily-local-backup', 'weekly-remote-backup']) | length == 0
           - nextcloud.database_service in compose_deploy_plan.recreate_services
           - nextcloud.web_service in compose_deploy_plan.recreate_services
@@ -452,10 +452,21 @@
       loop:
         - "{{ nextcloud.database_service }}"
         - "{{ nextcloud.web_service }}"
-        - caddy
       when:
         - compose_deploy_nextcloud_migration
         - item in compose_deploy_plan.recreate_services
+      changed_when: true
+      no_log: true
+
+    - name: Restart Caddy to load the reviewed bind-mounted configuration
+      ansible.builtin.command:
+        argv: "{{ compose_runtime_cli + ['restart', 'caddy'] }}"
+      become: true
+      environment:
+        HOME: "{{ compose_home_dir }}"
+      when:
+        - compose_deploy_nextcloud_migration
+        - compose_deploy_plan.manual_only_paths == ['services/data/Caddyfile']
       changed_when: true
       no_log: true
 

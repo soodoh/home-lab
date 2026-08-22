@@ -30,6 +30,7 @@
               --env-file {{ compose_staged_env_path }}
               --override-file {{ compose_image_override_path }}
               --project-name {{ compose_project_name }}
+              --bind-root-override {{ compose_current_dir }}
               --output {{ compose_stage_review_path }}
             executable: "{{ ansible_python_interpreter }}"
           become: true

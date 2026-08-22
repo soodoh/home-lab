@@ -41,7 +41,7 @@ Review the staged artifact, secret-free model inventory, image availability, act
 First run the migration playbook in check mode. Apply only when the plan contains:
 
 - one new service: `nextcloud-cron`;
-- bounded recreation of Nextcloud web/database, Caddy, and the backup schedulers affected by mount changes;
+- bounded recreation of Nextcloud web/database and the backup schedulers affected by mount changes, plus an explicit Caddy restart for the changed bind-mounted configuration;
 - no image-version change;
 - no removal or replacement of external user data.
 
@@ -62,7 +62,7 @@ Apply with both confirmations plus `compose_deploy_confirmed=true`. The playbook
 5. performs a final checksum-proven synchronization;
 6. atomically activates the four `/srv/home-lab-state` paths;
 7. proves the external-data device and inode are unchanged;
-8. deploys `_FILE` credentials, MariaDB upgrade settings, Caddy HSTS, and the reviewed mounts;
+8. deploys `_FILE` credentials, MariaDB upgrade settings, Caddy HSTS, and the reviewed mounts, then explicitly restarts Caddy to load its changed bind-mounted configuration;
 9. starts MariaDB before web and recreates cron and backup schedulers in a stopped state;
 10. applies the declared native Nextcloud settings and disables maintenance mode;
 11. verifies `occ status`, the external HSTS value, and the intentionally stopped services before releasing the lock.
