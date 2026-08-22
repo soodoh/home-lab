@@ -3,9 +3,9 @@
 function docker_compose_restore_proof
     umask 077
     set -l SERVER docker-host-debian
-    set -l EXPECTED_SHA256 48fad5cb05264464264565cad343028881bfbc099db54f3ff49fa719d20bc046
-    set -l EXPECTED_BYTES 2325181235
-    set -l BACKUP /mnt/storage/backups/daily-local-backup-2026-08-21T21-13-02.tar.gz.gpg
+    set -l EXPECTED_SHA256 0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431
+    set -l EXPECTED_BYTES 2319938554
+    set -l BACKUP /mnt/storage/backups/daily-local-backup-2026-08-21T22-32-08.tar.gz.gpg
 
     for tool in gpg python3 ssh shasum
         command -q $tool; or begin
