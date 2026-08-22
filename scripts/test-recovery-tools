@@ -898,6 +898,10 @@ for required in (
     'fail("debian_device_changed")',
 ):
     assert required in tailscale_retirement
+plan_token_rotation = (repo / "scripts/rotate-proxmox-plan-api-token").read_text()
+assert 'New tofu-plan UUID value (input hidden)' in plan_token_rotation
+assert 'token = f"root@pam!tofu-plan={secret}"' in plan_token_rotation
+assert 'stat.S_IMODE(path.stat().st_mode) != 0o600' in plan_token_rotation
 automation = (repo / "scripts/prepare-debian-production-automation").read_text()
 for required in (
     "prepare-reviewed-vm-100-debian-production-automation",
