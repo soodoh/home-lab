@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "commit": "a92994dc631108be81682047355b673af7e1eb20",
+  "createdAt": "2026-08-22T07:15:15.000Z",
+  "phase": "steady",
+  "stage": "converge",
+  "manifestSha256": "cf488740eebf31d40ba32dc336e74bf44b3f073ce709f5e046a349ebe39b218c",
+  "proxmoxHostActions": 0,
+  "allActionsZero": true,
+  "approvedExternalActions": [
+    "delete exact retained Arch Tailscale device 5011652268534622",
+    "rename Debian Tailscale hostname in place to docker-host"
+  ],
+  "roots": [
+    {
+      "root": "aws-foundation",
+      "changed": false,
+      "sha256": "6d237a381394339245863e9e710d00251c27bddfe55e9b9edfe22b71e331932b"
+    },
+    {
+      "root": "omada",
+      "changed": false,
+      "sha256": "03d433d9a9b8daf0ef2fa4c02cfa96932379b68bbf2043b1251c52e3daaa4b07"
+    },
+    {
+      "root": "proxmox",
+      "changed": false,
+      "sha256": "c80d98a96867a5dbe4a68590424bb017b7bdf44065a03545dacdc4cb714e8bcd"
+    },
+    {
+      "root": "proxmox-legacy",
+      "changed": false,
+      "sha256": "47aef2fac9bce96349b518d7b873f1f99fe59b92edae0ab43050f721f65a3ccb"
+    },
+    {
+      "root": "tailscale",
+      "changed": false,
+      "sha256": "8aca17fb87e1d1510f604529f2bd080724fa2aefad2cdcf5b16df01933ad08e6"
+    }
+  ]
+}
