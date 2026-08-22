@@ -170,6 +170,7 @@ services:
       BACKUP_CRON_EXPRESSION: "0 5 * * *"
       BACKUP_RETENTION_DAYS: 7
       LOCAL_BACKUP_NO_PRUNE: "0"
+      LOCAL_BACKUP_NO_PRUNE_FILE: /tmp/.local-backup-no-prune
     labels:
       docker-volume-backup.copy-post: /bin/sh -c /usr/local/bin/replicate-local-backup
     volumes: *backup-volumes

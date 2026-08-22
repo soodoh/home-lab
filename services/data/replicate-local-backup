@@ -2,10 +2,22 @@
 set -eu
 
 no_prune=${LOCAL_BACKUP_NO_PRUNE:-0}
+no_prune_file=${LOCAL_BACKUP_NO_PRUNE_FILE:-}
 case "$no_prune" in
   0|1) ;;
   *) echo "local_backup_replication=failed reason=no_prune_invalid" >&2; exit 1 ;;
 esac
+case "$no_prune_file" in
+  ''|/tmp/.local-backup-no-prune) ;;
+  *) echo "local_backup_replication=failed reason=no_prune_file_invalid" >&2; exit 1 ;;
+esac
+if [ -n "$no_prune_file" ] && [ -e "$no_prune_file" ]; then
+  [ -f "$no_prune_file" ] && [ ! -L "$no_prune_file" ] || {
+    echo "local_backup_replication=failed reason=no_prune_file_unsafe" >&2
+    exit 1
+  }
+  no_prune=1
+fi
 archive=${COMMAND_RUNTIME_ARCHIVE_FILEPATH:?COMMAND_RUNTIME_ARCHIVE_FILEPATH is required}
 basename=${archive##*/}
 printf '%s\n' "$basename" | grep -Eq \
@@ -73,6 +85,9 @@ if [ "$no_prune" -eq 0 ]; then
   prune_destination /archive 7
 else
   printf 'local_backup_pruning=disabled mode=validation\n'
+  if [ -n "$no_prune_file" ] && [ -f "$no_prune_file" ] && [ ! -L "$no_prune_file" ]; then
+    rm -f -- "$no_prune_file"
+  fi
 fi
 
 printf 'local_backup_replication=verified destinations=2\n'

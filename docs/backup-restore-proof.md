@@ -26,13 +26,19 @@ The current design retains separate jobs. `daily-local-backup` writes to `/mnt/s
 The first reduced daily backup is a one-time no-prune validation run. Stop `weekly-remote-backup`, confirm no S3 upload is active, and invoke only the daily container with the pinned image's documented manual command:
 
 ```sh
+docker exec daily-local-backup sh -c '
+  set -eu
+  test "$LOCAL_BACKUP_NO_PRUNE_FILE" = /tmp/.local-backup-no-prune
+  umask 077
+  : >"$LOCAL_BACKUP_NO_PRUNE_FILE"
+'
 docker exec \
-  -e BACKUP_RETENTION_DAYS=0 \
-  -e LOCAL_BACKUP_NO_PRUNE=1 \
+  -e BACKUP_RETENTION_DAYS=36500 \
   daily-local-backup backup
+docker exec daily-local-backup test ! -e /tmp/.local-backup-no-prune
 ```
 
-Both overrides are required. `BACKUP_RETENTION_DAYS=0` disables Offen pruning for that process, while `LOCAL_BACKUP_NO_PRUNE=1` disables pruning in the verified-copy hook. The hook still hashes the NFS primary, copies through a temporary file, verifies the games copy, atomically renames it, and writes both sidecars. Normal scheduled runs retain `BACKUP_RETENTION_DAYS=7` and `LOCAL_BACKUP_NO_PRUNE=0`.
+Both controls are required. The large positive `BACKUP_RETENTION_DAYS` value prevents Offen pruning for that one process. The mode-`0600` sentinel disables pruning in the verified-copy hook, whose labeled command inherits the container's configured environment rather than `docker exec` process overrides. The hook removes the sentinel only after both replicas and sidecars are verified. If the backup fails before then, leave the sentinel in place until the failure is reviewed. Normal scheduled runs retain `BACKUP_RETENTION_DAYS=7`, `LOCAL_BACKUP_NO_PRUNE=0`, and no sentinel.
 
 The pinned image digest reports version `v2.48.2` and source revision `2bfd05b4ac7a15c04e91d86f623764a86339730b`. That revision calls Docker's synchronous `ContainerStop` operation for each selected container, then installs a deferred restart closure around archive creation. The closure runs when archive creation succeeds or fails and reports any restart failures; it runs before encryption, copying, or upload. This provides graceful Docker stop semantics and fail-safe restart coverage for the exact pinned build.
 

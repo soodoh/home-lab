@@ -353,16 +353,18 @@ fi
 replication_primary="$work/replication-primary"
 replication_games="$work/replication-games"
 mkdir "$replication_primary" "$replication_games"
+no_prune_sentinel="$work/no-prune-sentinel"
 replication_id=daily-local-backup-2026-08-07T05-00-00.tar.gz.gpg
 old_replication_id=daily-local-backup-2020-01-01T05-00-00.tar.gz.gpg
 cp "$work/valid.tar.gz" "$replication_primary/$replication_id"
 REPO_ROOT="$repo_root" WORK="$work" PRIMARY="$replication_primary" \
-  GAMES_REPLICA="$replication_games" python3 - <<'PY'
+  GAMES_REPLICA="$replication_games" NO_PRUNE_SENTINEL="$no_prune_sentinel" python3 - <<'PY'
 import os
 from pathlib import Path
 source = Path(os.environ["REPO_ROOT"], "services/data/replicate-local-backup").read_text()
 source = source.replace("/replica-games", os.environ["GAMES_REPLICA"])
 source = source.replace("/archive", os.environ["PRIMARY"])
+source = source.replace("/tmp/.local-backup-no-prune", os.environ["NO_PRUNE_SENTINEL"])
 target = Path(os.environ["WORK"], "replicate-local-backup")
 target.write_text(source)
 target.chmod(0o755)
@@ -384,10 +386,12 @@ for destination in "$replication_primary" "$replication_games"; do
     "$destination/daily-backup-2020-01-01T05-00-00.tar.gz.gpg" \
     "$destination/daily-backup-2020-01-01T05-00-00.tar.gz.gpg.sha256"
 done
-no_prune_output=$(LOCAL_BACKUP_NO_PRUNE=1 \
+(umask 077; : >"$no_prune_sentinel")
+no_prune_output=$(LOCAL_BACKUP_NO_PRUNE=0 LOCAL_BACKUP_NO_PRUNE_FILE="$no_prune_sentinel" \
   COMMAND_RUNTIME_ARCHIVE_FILEPATH="$replication_primary/$replication_id" \
   "$work/replicate-local-backup")
 grep -q '^local_backup_pruning=disabled mode=validation$' <<<"$no_prune_output"
+[[ ! -e $no_prune_sentinel ]]
 for destination in "$replication_primary" "$replication_games"; do
   [[ -f $destination/$old_replication_id ]]
   [[ -f $destination/backup-2020-01-01T05-00-00.tar.gz.gpg ]]
@@ -605,6 +609,7 @@ assert daily["BACKUP_CRON_EXPRESSION"] == contract["backups"]["local_schedule"]
 assert daily["BACKUP_FILENAME"].startswith("daily-local-backup-")
 assert daily["BACKUP_RETENTION_DAYS"] == contract["backups"]["local_retention_days"] == 7
 assert daily["LOCAL_BACKUP_NO_PRUNE"] == "0"
+assert daily["LOCAL_BACKUP_NO_PRUNE_FILE"] == "/tmp/.local-backup-no-prune"
 assert daily_service["labels"]["docker-volume-backup.copy-post"] == "/bin/sh -c /usr/local/bin/replicate-local-backup"
 backup_mounts = {volume["target"]: volume["source"] for volume in daily_service["volumes"]}
 assert backup_mounts["/archive"] == "/mnt/storage/backups"
@@ -641,6 +646,7 @@ allowed_environment_differences = {
     "BACKUP_PRUNING_PREFIX",
     "BACKUP_RETENTION_DAYS",
     "LOCAL_BACKUP_NO_PRUNE",
+    "LOCAL_BACKUP_NO_PRUNE_FILE",
 }
 assert {
     key for key in daily.keys() | weekly.keys() if daily.get(key) != weekly.get(key)
