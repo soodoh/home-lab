@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "commit": "e54ddccbaac0fbbc022f1dd505fa28d33ea180c7",
+  "createdAt": "2026-08-22T19:42:32.000Z",
+  "phase": "steady",
+  "stage": "converge",
+  "manifestSha256": "581f11bde6d1849c7d5b793a517207e9235a3673d07155a57afc5d46cfcbad17",
+  "approvedExternalAction": {
+    "kind": "rename-vm-100",
+    "before": "arch",
+    "after": "docker-host",
+    "script": "scripts/finalize-vm-100-name",
+    "scriptSha256": "f1329020b397bc3345813b202a74b583eec4a7064db763f3ce9ca9419c1139ad"
+  },
+  "proxmoxHostActions": 0,
+  "roots": [
+    {
+      "root": "aws-foundation",
+      "changed": false,
+      "sha256": "b625a66a1f436da0f9437baed7c8160b59cd70fb1a2d138e82cb7c9df27b7a94"
+    },
+    {
+      "root": "omada",
+      "changed": false,
+      "sha256": "792e274c365e06b35b7ca27ff6de0a43456f9db19ef254e03257dad1dda5ba49"
+    },
+    {
+      "root": "proxmox",
+      "changed": true,
+      "sha256": "e54a3431b039f7ae64cfd56ed8f9e1b57828d005413c1e852fd0bd7bddd5fe0d"
+    },
+    {
+      "root": "proxmox-legacy",
+      "changed": false,
+      "sha256": "5eb8dfd6b4933711462468f0405ae546c3703abda884679efc5415a97517127c"
+    },
+    {
+      "root": "tailscale",
+      "changed": false,
+      "sha256": "389549ffc7bc19387b771fd3f7e8c1c460a64726a03fdc12e27f3b39d027eda8"
+    }
+  ]
+}
