@@ -1,9 +1,11 @@
 #!/usr/bin/env fish
 
 function docker_compose_restore_proof
-    set -l SERVER docker@100.111.210.72
-    set -l EXPECTED_SHA256 3b9aa766409aac86017080a11d17e8e7178aa4cedae9a75a0801c2afd8eb4568
-    set -l BACKUP /mnt/storage/backups/daily-backup-2026-08-01T06-00-00.tar.gz.gpg
+    umask 077
+    set -l SERVER docker-host-debian
+    set -l EXPECTED_SHA256 48fad5cb05264464264565cad343028881bfbc099db54f3ff49fa719d20bc046
+    set -l EXPECTED_BYTES 2325181235
+    set -l BACKUP /mnt/storage/backups/daily-local-backup-2026-08-21T21-13-02.tar.gz.gpg
 
     for tool in gpg python3 ssh shasum
         command -q $tool; or begin
@@ -24,12 +26,28 @@ function docker_compose_restore_proof
     python3 -m py_compile "$VERIFIER"; or return 1
 
     set -l ACTUAL_SHA256 (shasum -a 256 "$VERIFIER" | awk '{print $1}')
-    test "$ACTUAL_SHA256" = "$EXPECTED_SHA256"; or begin
+    test "$ACTUAL_SHA256" = bdfddde9c07c837341797f639abcdf06bc47334331084038c9b2ee1edd36a60b; or begin
         echo verifier_checksum=failed >&2
         return 1
     end
 
-    ssh "$SERVER" "test -r '$BACKUP'"; or return 1
+    set -l RECOVERY_FINGERPRINT 5B14A67EC89DBA1F4C0FEE7CA678E17443DBD7A4
+    gpg --batch --with-colons --list-secret-keys "$RECOVERY_FINGERPRINT" 2>/dev/null \
+        | string match -q "*:$RECOVERY_FINGERPRINT:*"; or begin
+        echo recovery_identity=missing >&2
+        return 1
+    end
+
+    set -l REMOTE_METADATA (ssh "$SERVER" "sudo -n stat -c '%s' '$BACKUP'; sudo -n sha256sum '$BACKUP' | cut -d' ' -f1"); or return 1
+    test (count $REMOTE_METADATA) -eq 2; or return 1
+    test "$REMOTE_METADATA[1]" = "$EXPECTED_BYTES"; or begin
+        echo ciphertext_size=failed >&2
+        return 1
+    end
+    test "$REMOTE_METADATA[2]" = "$EXPECTED_SHA256"; or begin
+        echo ciphertext_checksum=failed >&2
+        return 1
+    end
 
     read --silent --prompt-str 'GPG passphrase (input hidden): ' GPG_PASSPHRASE </dev/tty; or return 1
     echo >/dev/tty
@@ -42,7 +60,7 @@ function docker_compose_restore_proof
     echo restore_stream=starting
     set -l STARTED (date +%s)
 
-    ssh "$SERVER" "exec cat -- '$BACKUP'" \
+    ssh "$SERVER" "exec sudo -n cat -- '$BACKUP'" \
         | gpg --batch --yes --quiet --pinentry-mode loopback \
             --passphrase-file (printf '%s\n' "$GPG_PASSPHRASE" | psub -f) \
             --decrypt 2>/dev/null \
@@ -54,15 +72,26 @@ function docker_compose_restore_proof
 
     for RESULT in $PIPE_RESULTS
         test "$RESULT" -eq 0; or begin
+            if test (path dirname "$RESTORE_ROOT") = "$WORKDIR"
+                rm -rf -- "$RESTORE_ROOT"; or return 1
+                rm -f -- "$VERIFIER"; or return 1
+                test -s "$EVIDENCE"; or rm -f -- "$EVIDENCE"
+            end
+            echo decrypted_cleanup=pass >&2
             echo restore_pipeline=failed >&2
             return 1
         end
     end
 
     set -l FINISHED (date +%s)
+    chmod 0600 "$EVIDENCE"; or return 1
+    test (path dirname "$RESTORE_ROOT") = "$WORKDIR"; or return 1
+    rm -rf -- "$RESTORE_ROOT"; or return 1
+    rm -f -- "$VERIFIER"; or return 1
+    test ! -e "$RESTORE_ROOT"; or return 1
     echo restore_pipeline=pass
     echo restore_elapsed_seconds=(math "$FINISHED" - "$STARTED")
-    echo restore_root="$RESTORE_ROOT"
+    echo decrypted_cleanup=pass
     echo evidence_file="$EVIDENCE"
 end
 

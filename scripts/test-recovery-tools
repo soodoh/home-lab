@@ -121,6 +121,96 @@ done
 WORK="$work" REPO_ROOT="$repo_root" python3 - <<'PY'
 import importlib.util
 import io
+import json
+import os
+from pathlib import Path
+import sqlite3
+import subprocess
+import sys
+import tarfile
+
+repo = Path(os.environ["REPO_ROOT"])
+root = Path(os.environ["WORK"], "full-stream-proof")
+root.mkdir()
+spec = importlib.util.spec_from_file_location(
+    "verify_backup_archive", repo / "scripts/verify-backup-archive.py"
+)
+module = importlib.util.module_from_spec(spec)
+assert spec.loader is not None
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+
+database_fixture = root / "fixture.db"
+connection = sqlite3.connect(database_fixture)
+connection.execute("CREATE TABLE proof (value TEXT NOT NULL)")
+connection.execute("INSERT INTO proof VALUES ('fixture')")
+connection.commit()
+connection.close()
+database_bytes = database_fixture.read_bytes()
+
+members = {database.archive_path: database_bytes for database in module.DATABASES}
+for expected_paths in module.REQUIRED_PATHS.values():
+    for expected in expected_paths:
+        name = f"{expected}fixture" if expected.endswith("/") else expected
+        members.setdefault(name, b"fixture")
+
+
+def create_archive(path: Path, *, forbidden: bool) -> None:
+    selected = dict(members)
+    if forbidden:
+        selected["backup/calibre-data/books/forbidden.epub"] = b"excluded"
+    with tarfile.open(path, "w:gz") as archive:
+        for name, data in sorted(selected.items()):
+            member = tarfile.TarInfo(name)
+            member.size = len(data)
+            member.uid = 0
+            member.gid = 0
+            member.mode = 0o644
+            archive.addfile(member, io.BytesIO(data))
+
+
+valid = root / "valid.tar.gz"
+create_archive(valid, forbidden=False)
+result = subprocess.run(
+    [
+        sys.executable,
+        str(repo / "scripts/verify-backup-archive.py"),
+        "--restore-root",
+        str(root / "restored"),
+    ],
+    input=valid.read_bytes(),
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+)
+assert result.returncode == 0, result.stderr.decode()
+evidence = json.loads(result.stdout)
+assert evidence["archive_integrity"] == "pass"
+assert evidence["safe_paths"] == "pass"
+assert all(value["status"] == "present" for value in evidence["required_state_classes"].values())
+assert all(value["status"] == "absent" for value in evidence["excluded_state_classes"].values())
+assert set(evidence["sqlite_databases"]) == {database.label for database in module.DATABASES}
+assert all(value["sqlite_integrity"] == "pass" for value in evidence["sqlite_databases"].values())
+
+rejected = root / "rejected.tar.gz"
+create_archive(rejected, forbidden=True)
+result = subprocess.run(
+    [
+        sys.executable,
+        str(repo / "scripts/verify-backup-archive.py"),
+        "--restore-root",
+        str(root / "rejected-restore"),
+    ],
+    input=rejected.read_bytes(),
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+)
+assert result.returncode != 0
+assert b"excluded_state_class_present" in result.stderr
+PY
+
+WORK="$work" REPO_ROOT="$repo_root" python3 - <<'PY'
+import importlib.util
+import io
 import os
 from pathlib import Path
 import sys
@@ -695,6 +785,8 @@ for excluded_path in (
     "/backup/radarr-data/Backups/scheduled/archive.zip",
     "/backup/recyclarr-data/repositories/config-templates/file.json",
     "/backup/tachidesk-data/cache/runtime.bin",
+    "/backup/tachidesk-data/android-compat/appdata/cache/filters.json.zst",
+    "/backup/nextcloud-db-data/ddl_recovery-backup.log",
     "/backup/tachidesk-data/database.mv.db.200.backup",
     "/backup/pihole-data/pihole-FTL.db-wal",
     "/backup/authentik-data/postgresql-16/base/1",
@@ -702,6 +794,7 @@ for excluded_path in (
     "/backup/hass-data/backups/native.tar",
     "/backup/omada-data/data/device-firmware/firmware.bin",
     "/backup/wolf/profile-data/paul/WolfES-DE/.local/share/Steam/appcache/file",
+    "/backup/wolf/profile-data/paul/WolfES-DE/.config/retroarch/playlists/logs/core/game.lrtl",
     "/backup/wolf/profile-data/paul/WolfES-DE/bioses/bios.bin",
     "/backup/wolf/profile-data/paul/WolfES-DE/roms/game.rom",
     "/backup/wolf/profile-data/paul/WolfES-DE/ES-DE/themes/theme/file",
