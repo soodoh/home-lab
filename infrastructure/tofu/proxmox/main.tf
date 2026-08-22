@@ -74,6 +74,21 @@ resource "proxmox_virtual_environment_vm" "debian" {
     floating  = 0
   }
 
+  # Preserve TypeList indexes while the detached Arch volume remains quarantined as unused0.
+  # Ignoring disk[0] prevents the provider from reattaching it; live identity is guarded externally.
+  disk {
+    datastore_id = local.vm.root_disk.datastore
+    import_from  = local.recovery ? proxmox_download_file.arch_recovery_image[0].id : ""
+    interface    = local.vm.root_disk.interface
+    size         = local.vm.root_disk.size_gb
+    iothread     = local.vm.root_disk.iothread
+    backup       = true
+    cache        = "none"
+    discard      = "ignore"
+    replicate    = true
+    ssd          = false
+  }
+
   disk {
     datastore_id      = ""
     path_in_datastore = var.games_disk_by_id
@@ -224,7 +239,7 @@ resource "proxmox_virtual_environment_vm" "debian" {
 
   lifecycle {
     prevent_destroy = true
-    ignore_changes  = [disk[1].file_format]
+    ignore_changes  = [disk[0], disk[1].file_format]
 
     precondition {
       condition     = !local.recovery || var.recovery_ssh_public_key != ""
