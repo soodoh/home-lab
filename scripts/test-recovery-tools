@@ -919,6 +919,21 @@ for required in (
 ):
     assert required in arch_disk_retirement
 assert "pvesm free" not in arch_disk_retirement
+arch_disk_delete = (repo / "scripts/delete-quarantined-arch-disk").read_text()
+for required in (
+    "delete-reviewed-quarantined-arch-volume",
+    "local-lvm:vm-100-disk-0",
+    '$(config_value unused0) == "$RETIRED_VOLUME"',
+    'pvesm list local-lvm --vmid "$VMID"',
+    'qm set "$VMID" --delete unused0',
+    'qm set "$VMID" --protection 0',
+    'qm set "$VMID" --protection 1',
+    '$(config_value scsi1) == "$scsi1_before"',
+    '$(config_value scsi2) == "$scsi2_before"',
+    '$(config_value scsi3) == "$scsi3_before"',
+):
+    assert required in arch_disk_delete
+assert "pvesm free" not in arch_disk_delete
 automation = (repo / "scripts/prepare-debian-production-automation").read_text()
 for required in (
     "prepare-reviewed-vm-100-debian-production-automation",
