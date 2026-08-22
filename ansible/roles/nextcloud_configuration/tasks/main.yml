@@ -68,6 +68,7 @@
     fail_msg: "A declared Nextcloud setting did not persist."
   loop: "{{ nextcloud_configuration_values.results }}"
   no_log: true
+  when: not ansible_check_mode
 
 - name: Inspect intentionally stopped cron and backup scheduler containers
   ansible.builtin.command:
@@ -90,6 +91,7 @@
       - item.stdout == 'created' or item.stdout == 'exited'
     fail_msg: "Cron or a backup scheduler started before the migration validation gate."
   loop: "{{ nextcloud_configuration_stopped_services.results }}"
+  when: not ansible_check_mode
 
 - name: Verify HSTS on the external Nextcloud response
   ansible.builtin.uri:
@@ -106,3 +108,4 @@
     that:
       - nextcloud_configuration_https.strict_transport_security == 'max-age=' ~ (nextcloud.hsts_max_age | string)
     fail_msg: "External Nextcloud HSTS differs from the contract."
+  when: not ansible_check_mode
