@@ -122,6 +122,8 @@ def main() -> None:
         fail("web_plaintext_password_environment")
 
     database_environment = environment(database)
+    if database.get("user") != "0":
+        fail("database_secret_bootstrap_user")
     required_database_environment = {
         "MARIADB_AUTO_UPGRADE": "1",
         "MARIADB_DISABLE_UPGRADE_BACKUP": "1",

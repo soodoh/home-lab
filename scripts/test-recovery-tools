@@ -916,6 +916,8 @@ for helper in (action_plan, model_inventory, stage_review):
 assert 'parser.add_argument("--bind-root-override", required=True' in stage_review
 assert "--bind-root-override {{ compose_current_dir }}" in (repo / "ansible/playbooks/review-compose-stage.yml").read_text()
 assert "Restart Caddy to load the reviewed bind-mounted configuration" in compose_deploy
+assert "['up', '--no-start', '--no-build', '--pull', 'never', '--no-deps']" in compose_deploy
+assert "['create', '--no-build', '--pull', 'never', '--no-deps']" not in compose_deploy
 assert "ansible_extra_args=(--extra-vars '{}')" in (repo / "scripts/reconcile-infrastructure").read_text()
 plan_token_rotation = (repo / "scripts/rotate-proxmox-plan-api-token").read_text()
 assert 'New tofu-plan UUID value (input hidden)' in plan_token_rotation

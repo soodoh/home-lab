@@ -479,10 +479,10 @@
       when: compose_deploy_nextcloud_migration
       no_log: true
 
-    - name: Create changed backup schedulers and Nextcloud cron without starting them
+    - name: Converge changed backup schedulers and Nextcloud cron without starting them
       ansible.builtin.command:
         argv: >-
-          {{ compose_runtime_cli + ['create', '--no-build', '--pull', 'never', '--no-deps'] +
+          {{ compose_runtime_cli + ['up', '--no-start', '--no-build', '--pull', 'never', '--no-deps'] +
              compose_deploy_nextcloud_migration_stopped_services }}
       become: true
       environment:

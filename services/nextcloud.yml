@@ -81,6 +81,8 @@ services:
     image: mariadb:lts-ubi9@sha256:29dd37f5df222f7c2668b51d412536ffeff0efc4d4b68d849e9bcead913bffe0
     container_name: nextcloud-db
     restart: always
+    # Read root-only Compose secrets before the official entrypoint drops to mysql.
+    user: "0"
     logging: *default-logging
     command: --transaction-isolation=READ-COMMITTED
     volumes:
