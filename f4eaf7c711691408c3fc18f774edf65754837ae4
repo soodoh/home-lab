@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "commit": "f4eaf7c711691408c3fc18f774edf65754837ae4",
+  "createdAt": "2026-08-22T18:35:54.000Z",
+  "phase": "steady",
+  "stage": "converge",
+  "manifestSha256": "9aba51fd7dc7511ab6d9d31841fe6f51a1d6d6e015a93ce77604457c6bc3856f",
+  "proxmoxHostActions": 0,
+  "allActionsZero": true,
+  "archScsi0": {
+    "status": "detached-quarantined",
+    "volume": "local-lvm:vm-100-disk-0",
+    "liveSlot": "unused0"
+  },
+  "roots": [
+    {
+      "root": "aws-foundation",
+      "changed": false,
+      "sha256": "80eef13a905da774c51ac040e046447e6687b5c3528459c9a6cf5692b8955847"
+    },
+    {
+      "root": "omada",
+      "changed": false,
+      "sha256": "a2079b7a64252d50e8f56f826855718f7bf7989ca8d0a1446d0f69f768832887"
+    },
+    {
+      "root": "proxmox",
+      "changed": false,
+      "sha256": "5ec69d8d0094f1b0d17689a1e69c4703458670641a483567a14cf2c442e988c4"
+    },
+    {
+      "root": "proxmox-legacy",
+      "changed": false,
+      "sha256": "539046a23fa2c6a2bc31f0261c7f9b2c14be1215bec595dce9c18b856a6e0470"
+    },
+    {
+      "root": "tailscale",
+      "changed": false,
+      "sha256": "614bec6a7ebb5d24b00c09545a9d0153e8c6ebb9eb6a2639c3a5cedaf754a6b3"
+    }
+  ]
+}
