@@ -893,7 +893,7 @@ apply_root() {
   export PROXMOX_VE_API_TOKEN=$old_proxmox
 }
 
-ansible_extra_args=()
+ansible_extra_args=(--extra-vars '{}')
 if [[ -n ${RECONCILE_ANSIBLE_EXTRA_VARS_FILE:-} ]]; then
   if [[ $RECONCILE_ANSIBLE_EXTRA_VARS_FILE != /* ]]; then
     RECONCILE_ANSIBLE_EXTRA_VARS_FILE="$repo_root/$RECONCILE_ANSIBLE_EXTRA_VARS_FILE"

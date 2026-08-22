@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-08-22T07:00:00Z",
+  "vmid": 100,
+  "status": "verified",
+  "packages": {
+    "docker.io": {
+      "before": "26.1.5+dfsg1-9+b13",
+      "after": "26.1.5+dfsg1-9+deb13u1",
+      "candidate": "26.1.5+dfsg1-9+deb13u1",
+      "origin": "https://security.debian.org/debian-security"
+    },
+    "docker-cli": {
+      "before": "26.1.5+dfsg1-9+b13",
+      "after": "26.1.5+dfsg1-9+deb13u1",
+      "candidate": "26.1.5+dfsg1-9+deb13u1",
+      "origin": "https://security.debian.org/debian-security"
+    }
+  },
+  "dpkgUpgradeAt": "2026-08-22T06:59:51Z",
+  "unattendedUpgradesEnabled": true,
+  "runtime": {
+    "containers": 41,
+    "unhealthy": 0,
+    "dockerClient": "26.1.5+dfsg1",
+    "dockerServer": "26.1.5+dfsg1",
+    "compose": "2.26.1-4"
+  }
+}
