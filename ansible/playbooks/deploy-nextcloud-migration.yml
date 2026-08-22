@@ -1,0 +1,30 @@
+---
+- name: Activate the reviewed Nextcloud five-mount migration
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  pre_tasks:
+    - name: Acquire the host-side production apply lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: nextcloud-five-mount-migration
+
+    - name: Verify fail-closed backup temporary storage
+      ansible.builtin.import_role:
+        name: backup_temp_preflight
+  roles:
+    - role: nextcloud_path_migration
+    - role: compose_deploy
+    - role: nextcloud_configuration
+  post_tasks:
+    - name: Release the host-side production apply lock after bounded web validation
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: nextcloud-five-mount-migration

@@ -101,12 +101,16 @@ def main() -> None:
     parser.add_argument("--volume-inventory", required=True, type=Path)
     parser.add_argument("--project", default="docker-compose")
     parser.add_argument("--retain-existing-binds", action="store_true")
+    parser.add_argument("--protected-external-data", required=True, type=Path)
     args = parser.parse_args()
 
     backup = args.staging_root.resolve(strict=True) / "backup"
     if not backup.is_dir():
         fail("backup_root_missing")
     paths = dotenv_paths(args.env_file.resolve(strict=True))
+    protected_external_data = args.protected_external_data.resolve(strict=True)
+    if protected_external_data != Path("/mnt/storage/media/nextcloud/data") or not protected_external_data.is_dir():
+        fail("protected_external_data_identity")
 
     try:
         inventory = json.loads(args.volume_inventory.resolve(strict=True).read_text(encoding="utf-8"))
@@ -187,10 +191,17 @@ def main() -> None:
 
     bind_mappings = {
         "hass-data": Path("/srv/home-lab-state/hass-data"),
+        "nextcloud-config": Path("/srv/home-lab-state/nextcloud-config"),
+        "nextcloud-custom-apps": Path("/srv/home-lab-state/nextcloud-custom-apps"),
+        "nextcloud-themes": Path("/srv/home-lab-state/nextcloud-themes"),
         "wolf/cfg": paths["GAMES_PATH"] / "wolf/cfg",
         "wolf/profile-data": paths["GAMES_PATH"] / "wolf/profile-data",
         ".ssh": Path("/home/docker/.ssh"),
     }
+    for destination in bind_mappings.values():
+        resolved_destination = destination.absolute()
+        if resolved_destination == protected_external_data or protected_external_data.is_relative_to(resolved_destination):
+            fail("external_data_parent_restore_forbidden")
     for archive_name, destination in bind_mappings.items():
         source = backup.joinpath(*archive_name.split("/"))
         if destination.exists() and any(destination.iterdir()):
@@ -203,13 +214,14 @@ def main() -> None:
         copied_files += copy_tree(source, destination)
         activated_sources.add(archive_name.split("/", 1)[0])
 
-    allowed_top_level = set(volumes) | {"hass-data", "wolf", ".env", ".ssh"}
+    allowed_top_level = set(volumes) | {"hass-data", "nextcloud-config", "nextcloud-custom-apps", "nextcloud-themes", "wolf", ".env", ".ssh"}
     observed_top_level = {path.name for path in backup.iterdir()}
     if observed_top_level - allowed_top_level:
         fail("unmodeled_archive_source")
-    if not {"vaultwarden-data", "omada-data", "hass-data", "wolf", ".ssh"}.issubset(
-        activated_sources
-    ):
+    if not {
+        "vaultwarden-data", "omada-data", "hass-data", "nextcloud-config",
+        "nextcloud-custom-apps", "nextcloud-themes", "wolf", ".ssh"
+    }.issubset(activated_sources):
         fail("critical_activation_missing")
     print(
         f"recovery_activation=verified files={copied_files} "

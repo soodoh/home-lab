@@ -180,11 +180,14 @@ def activate(args: Namespace) -> None:
 def difference(args: Namespace) -> None:
     current = {record["service"]: record for record in read_lock(args.current, "current")}
     previous = {record["service"]: record for record in read_lock(args.previous, "previous")}
-    if set(current) != set(previous):
-        fail("image_lock_service_set_changed")
+    removed = set(current) - set(previous)
+    added = set(previous) - set(current)
+    if removed or added:
+        if args.allow_removed_service is None or removed != {args.allow_removed_service} or added:
+            fail("image_lock_service_set_changed")
     changed = sorted(
         service
-        for service in current
+        for service in set(current) & set(previous)
         if current[service].get("image_id") != previous[service].get("image_id")
     )
     print(json.dumps(changed, separators=(",", ":")))
@@ -251,6 +254,7 @@ def main() -> None:
     diff_parser = subparsers.add_parser("diff")
     diff_parser.add_argument("--current", type=Path, required=True)
     diff_parser.add_argument("--previous", type=Path, required=True)
+    diff_parser.add_argument("--allow-removed-service")
     diff_parser.set_defaults(handler=difference)
 
     prune_parser = subparsers.add_parser("prune")

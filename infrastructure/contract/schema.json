@@ -4,7 +4,7 @@
   "title": "Home lab infrastructure contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "system_name", "recovery", "vm_100", "network", "proxmox", "storage", "debian", "omada", "tailscale", "aws", "backups"],
+  "required": ["version", "system_name", "recovery", "vm_100", "network", "proxmox", "storage", "debian", "omada", "tailscale", "aws", "nextcloud", "backups"],
   "properties": {
     "version": { "const": 1 },
     "system_name": { "const": "home-lab" },
@@ -207,6 +207,7 @@
         "kms_alias": { "type": "string", "pattern": "^alias/" }
       }
     },
+    "nextcloud": { "$ref": "#/$defs/nextcloudPolicy" },
     "backups": {
       "type": "object",
       "additionalProperties": false,
@@ -226,7 +227,7 @@
         "incomplete_multipart_abort_days": { "const": 1 },
         "gpg_public_key_ring_file": { "const": "/etc/docker-volume-backup/gpg-public.asc" },
         "stateful_services": {
-          "const": ["audiobookshelf", "authentik-server", "authentik-worker", "bookshelf", "calibre", "calibre-web-automated", "caro-tachidesk", "frigate", "homeassistant", "jellyfin", "karaoke-eternal", "litellm", "mosquitto", "nextcloud", "nextcloud-db", "omada", "openfit", "pihole", "postgres", "prowlarr", "qbittorrent", "radarr", "radarr-4k", "sabnzbd", "seerr", "sonarr", "tachidesk", "vaultwarden", "vikunja", "wolf", "zwave"]
+          "const": ["audiobookshelf", "authentik-server", "authentik-worker", "bookshelf", "calibre", "calibre-web-automated", "caro-tachidesk", "frigate", "homeassistant", "jellyfin", "karaoke-eternal", "litellm", "mosquitto", "nextcloud", "nextcloud-cron", "nextcloud-db", "omada", "openfit", "pihole", "postgres", "prowlarr", "qbittorrent", "radarr", "radarr-4k", "sabnzbd", "seerr", "sonarr", "tachidesk", "vaultwarden", "vikunja", "wolf", "zwave"]
         },
         "excluded_classes": {
           "const": ["bulk-media", "calibre-books", "downloaded-manga", "nextcloud-user-files", "application-caches", "logs", "generated-metadata-artwork", "internal-application-backup-archives", "mariadb-binary-logs", "legacy-database-rollback-directories", "steam-data", "roms", "bios-files", "scraped-gaming-media"]
@@ -235,6 +236,86 @@
     }
   },
   "$defs": {
+    "nextcloudPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["web_service", "cron_service", "database_service", "redis_service", "application_network", "image", "image_digest", "managed_state_root", "trusted_proxy", "hsts_max_age", "maintenance_window_start", "default_phone_region", "logging", "secrets", "paths", "writer_stop_order", "expected_compose_service_count", "expected_image_reference_count", "expected_image_lock_service_count", "rollback_window_days", "old_path_cleanup_gate"],
+      "properties": {
+        "web_service": { "const": "nextcloud" },
+        "cron_service": { "const": "nextcloud-cron" },
+        "database_service": { "const": "nextcloud-db" },
+        "redis_service": { "const": "nextcloud-redis" },
+        "application_network": { "const": "nextcloud" },
+        "image": { "const": "nextcloud:34.0.2-apache@sha256:d7666d54d87c58d52869ddda36d1acbd4a7f53faf8ab6b91293daf204f3434e8" },
+        "image_digest": { "const": "sha256:d7666d54d87c58d52869ddda36d1acbd4a7f53faf8ab6b91293daf204f3434e8" },
+        "managed_state_root": { "const": "/srv/home-lab-state" },
+        "trusted_proxy": { "const": "172.23.0.250" },
+        "hsts_max_age": { "const": 15552000 },
+        "maintenance_window_start": { "const": 6 },
+        "default_phone_region": { "const": "US" },
+        "logging": {
+          "type": "object", "additionalProperties": false,
+          "required": ["type", "level", "rotate_size", "backtrace", "query"],
+          "properties": {
+            "type": { "const": "file" }, "level": { "const": 2 },
+            "rotate_size": { "const": 104857600 }, "backtrace": { "const": false },
+            "query": { "const": false }
+          }
+        },
+        "secrets": {
+          "type": "object", "additionalProperties": false,
+          "required": ["application_password", "root_password"],
+          "properties": {
+            "application_password": { "$ref": "#/$defs/nextcloudSecretFile" },
+            "root_password": { "$ref": "#/$defs/nextcloudSecretFile" }
+          }
+        },
+        "paths": {
+          "type": "object", "additionalProperties": false,
+          "required": ["html", "data", "config", "custom_apps", "themes"],
+          "properties": {
+            "html": { "$ref": "#/$defs/nextcloudPersistentPath" },
+            "data": { "$ref": "#/$defs/nextcloudPersistentPath" },
+            "config": { "$ref": "#/$defs/nextcloudPersistentPath" },
+            "custom_apps": { "$ref": "#/$defs/nextcloudPersistentPath" },
+            "themes": { "$ref": "#/$defs/nextcloudPersistentPath" }
+          }
+        },
+        "writer_stop_order": {
+          "type": "array",
+          "prefixItems": [{ "const": "nextcloud-cron" }, { "const": "nextcloud" }, { "const": "nextcloud-db" }],
+          "items": false, "minItems": 3, "maxItems": 3, "uniqueItems": true
+        },
+        "expected_compose_service_count": { "const": 42 },
+        "expected_image_reference_count": { "const": 36 },
+        "expected_image_lock_service_count": { "const": 42 },
+        "rollback_window_days": { "const": 7 },
+        "old_path_cleanup_gate": { "const": "nextcloud-old-paths-reviewed-after-recovery-proof" }
+      }
+    },
+    "nextcloudSecretFile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_secret_ref", "compose_name", "destination", "container_path", "owner", "group", "mode"],
+      "properties": {
+        "source_secret_ref": { "enum": ["MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD"] },
+        "compose_name": { "enum": ["nextcloud_mysql_password", "nextcloud_mariadb_root_password"] },
+        "destination": { "type": "string", "pattern": "^/etc/docker-compose/credentials/nextcloud-[a-z-]+$" },
+        "container_path": { "type": "string", "pattern": "^/run/secrets/nextcloud_[a-z_]+$" },
+        "owner": { "const": "root" }, "group": { "const": "root" }, "mode": { "const": "0600" }
+      }
+    },
+    "nextcloudPersistentPath": {
+      "type": "object", "additionalProperties": false,
+      "required": ["old_source", "compose_source", "resolved_source", "target", "category", "recovery"],
+      "properties": {
+        "old_source": { "type": "string", "pattern": "^/" },
+        "compose_source": { "type": "string", "minLength": 1 },
+        "resolved_source": { "type": "string", "pattern": "^/" },
+        "target": { "type": "string", "pattern": "^/var/www/html(?:/.*)?$" },
+        "category": { "enum": ["managed-state", "external-user-data", "regenerable-runtime"] },
+        "recovery": { "enum": ["reconstruct-from-image", "retain-existing", "restore", "restore-if-nonempty"] }
+      }
+    },
     "vm100Scaffold": {
       "type": "object", "additionalProperties": false,
       "required": ["vmid", "host_name", "network_identity", "deployment_authority", "workload_identity", "access", "networking", "storage", "hardware"],

@@ -31,7 +31,7 @@ audit_expected_docker_client_version: 26.1.5+dfsg1
 audit_expected_docker_server_version: "{{ audit_expected_docker_client_version }}"
 audit_expected_compose_version: 2.26.1-4
 audit_expected_tailscale_version: 1.98.4
-audit_expected_compose_service_count: 41
+audit_expected_compose_service_count: 42
 
 # Pinned standalone SOPS and age tooling. No package transaction is used.
 sops_version: 3.13.3

@@ -13,6 +13,9 @@ REQUIRED_CLASSES = (
     "omada-data",
     "hass-data",
     "wolf/cfg",
+    "nextcloud-config",
+    "nextcloud-custom-apps",
+    "nextcloud-themes",
     ".env",
     ".ssh",
 )

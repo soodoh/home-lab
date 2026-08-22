@@ -103,6 +103,27 @@ for (const removablePath of contract.proxmox.root_cleanup.remove_paths) {
 }
 if (contract.network.proxmox.ipv4 === contract.network.docker_host.ipv4) failures.push("host addresses must differ");
 if (contract.network.proxmox.mac === contract.network.docker_host.mac) failures.push("host MAC addresses must differ");
+const nextcloudPaths = Object.values(contract.nextcloud.paths);
+const nextcloudTargets = nextcloudPaths.map((entry) => entry.target);
+if (new Set(nextcloudTargets).size !== nextcloudTargets.length) failures.push("Nextcloud mount targets must be unique");
+const nextcloudData = contract.nextcloud.paths.data;
+if (nextcloudData.resolved_source === contract.nextcloud.managed_state_root
+    || nextcloudData.resolved_source.startsWith(`${contract.nextcloud.managed_state_root}/`)) {
+  failures.push("external Nextcloud data cannot be under the managed-state root");
+}
+const nextcloudSecretDestinations = Object.values(contract.nextcloud.secrets).map((entry) => entry.destination);
+const nextcloudSecretNames = Object.values(contract.nextcloud.secrets).map((entry) => entry.compose_name);
+if (new Set(nextcloudSecretDestinations).size !== nextcloudSecretDestinations.length) {
+  failures.push("Nextcloud secret destinations must be unique");
+}
+if (new Set(nextcloudSecretNames).size !== nextcloudSecretNames.length) {
+  failures.push("Nextcloud Compose secret names must be unique");
+}
+if (contract.nextcloud.writer_stop_order[0] !== contract.nextcloud.cron_service
+    || contract.nextcloud.writer_stop_order[1] !== contract.nextcloud.web_service
+    || !contract.backups.stateful_services.includes(contract.nextcloud.cron_service)) {
+  failures.push("Nextcloud writer stop order and backup stop set must include cron before web");
+}
 
 if (!fs.existsSync(qualificationEvidencePath)) {
   failures.push("retired CT 101 requires infrastructure/evidence/proxmox-lxc-qualification.json");

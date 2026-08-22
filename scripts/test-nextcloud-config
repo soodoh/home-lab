@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""Validate the secret-free Nextcloud Compose and recovery contract."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+
+ROOT = Path(__file__).resolve().parent.parent
+CONTRACT_PATH = ROOT / "infrastructure/contract/home-lab.yml"
+CADDYFILE_PATH = ROOT / "services/data/Caddyfile"
+
+
+def fail(message: str) -> None:
+    print(f"nextcloud_config=failed reason={message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def compose_model() -> dict[str, object]:
+    result = subprocess.run(
+        ["docker", "compose", "config", "--no-interpolate", "--format", "json"],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return json.loads(result.stdout)
+
+
+def load_contract() -> dict[str, object]:
+    result = subprocess.run(
+        [
+            "node",
+            "-e",
+            "const fs=require('fs');const yaml=require('js-yaml');"
+            "process.stdout.write(JSON.stringify(yaml.load(fs.readFileSync(process.argv[1],'utf8'))));",
+            str(CONTRACT_PATH),
+        ],
+        cwd=ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return json.loads(result.stdout)
+
+
+def service_mounts(service: dict[str, object]) -> dict[str, str]:
+    mounts: dict[str, str] = {}
+    for volume in service.get("volumes", []):
+        if not isinstance(volume, dict):
+            fail("volume_schema")
+        source = volume.get("source")
+        target = volume.get("target")
+        if not isinstance(source, str) or not isinstance(target, str):
+            fail("volume_identity_schema")
+        mounts[target] = source
+        if volume.get("type") == "bind" and volume.get("bind", {}).get("create_host_path") is not False:
+            fail("bind_must_not_create_host_path")
+    return mounts
+
+
+def environment(service: dict[str, object]) -> dict[str, str]:
+    value = service.get("environment", {})
+    if not isinstance(value, dict) or any(not isinstance(key, str) for key in value):
+        fail("environment_schema")
+    return value
+
+
+def main() -> None:
+    contract = load_contract()
+    policy = contract["nextcloud"]
+    model = compose_model()
+    services = model["services"]
+    if len(services) != policy["expected_compose_service_count"]:
+        fail("compose_service_count")
+    if len({service["image"] for service in services.values()}) != policy["expected_image_reference_count"]:
+        fail("compose_image_reference_count")
+
+    web = services[policy["web_service"]]
+    cron = services[policy["cron_service"]]
+    database = services[policy["database_service"]]
+    if web["image"] != policy["image"] or cron["image"] != policy["image"]:
+        fail("nextcloud_image_identity")
+    if policy["image_digest"] not in policy["image"]:
+        fail("nextcloud_digest_binding")
+
+    expected_mounts = {}
+    for definition in policy["paths"].values():
+        source = definition["compose_source"]
+        if source.startswith("${"):
+            source = str(ROOT / "services" / source)
+        expected_mounts[definition["target"]] = source
+    if service_mounts(web) != expected_mounts or service_mounts(cron) != expected_mounts:
+        fail("web_cron_mount_mismatch")
+    if cron.get("entrypoint") != "/cron.sh":
+        fail("cron_entrypoint")
+    if set(cron.get("depends_on", {})) != {policy["database_service"], policy["redis_service"]}:
+        fail("cron_dependencies")
+    if set(cron.get("networks", {})) != {policy["application_network"]}:
+        fail("cron_networks")
+    if cron.get("ports") or cron.get("expose"):
+        fail("cron_exposure")
+    if str(cron.get("labels", {}).get("docker-volume-backup.stop-during-backup", "")).lower() != "true":
+        fail("cron_writer_stop_label")
+
+    web_environment = environment(web)
+    required_web_environment = {
+        "APACHE_DISABLE_REWRITE_IP": "1",
+        "TRUSTED_PROXIES": policy["trusted_proxy"],
+        "NEXTCLOUD_INIT_HTACCESS": "true",
+        "MYSQL_PASSWORD_FILE": policy["secrets"]["application_password"]["container_path"],
+    }
+    if any(web_environment.get(key) != value for key, value in required_web_environment.items()):
+        fail("web_environment")
+    if {"MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD"} & web_environment.keys():
+        fail("web_plaintext_password_environment")
+
+    database_environment = environment(database)
+    required_database_environment = {
+        "MARIADB_AUTO_UPGRADE": "1",
+        "MARIADB_DISABLE_UPGRADE_BACKUP": "1",
+        "MYSQL_PASSWORD_FILE": policy["secrets"]["application_password"]["container_path"],
+        "MYSQL_ROOT_PASSWORD_FILE": policy["secrets"]["root_password"]["container_path"],
+    }
+    if any(database_environment.get(key) != value for key, value in required_database_environment.items()):
+        fail("database_environment")
+    if {"MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD"} & database_environment.keys():
+        fail("database_plaintext_password_environment")
+
+    secret_definitions = model.get("secrets", {})
+    for definition in policy["secrets"].values():
+        compose_secret = secret_definitions.get(definition["compose_name"])
+        if not isinstance(compose_secret, dict) or compose_secret.get("file") != definition["destination"]:
+            fail("compose_secret_source")
+    serialized = json.dumps(model, sort_keys=True)
+    if re.search(r'"(?:MYSQL_PASSWORD|MYSQL_ROOT_PASSWORD)"\s*:', serialized):
+        fail("resolved_plaintext_password")
+
+    caddyfile = CADDYFILE_PATH.read_text(encoding="utf-8")
+    nextcloud_block = re.search(r"nextcloud\.diloreto\.com \{(?P<body>.*?)\n\}", caddyfile, re.DOTALL)
+    if nextcloud_block is None:
+        fail("caddy_site_missing")
+    expected_hsts = f"Strict-Transport-Security \"max-age={policy['hsts_max_age']}\""
+    if expected_hsts not in nextcloud_block.group("body"):
+        fail("hsts_missing")
+    if "includeSubDomains" in nextcloud_block.group("body") or "preload" in nextcloud_block.group("body"):
+        fail("hsts_scope_too_broad")
+
+    nextcloud_source = (ROOT / "services/nextcloud.yml").read_text(encoding="utf-8")
+    forbidden = ("healthcheck:", "openmetrics", "prometheus", "smtp_", "nextcloud-exporter")
+    if any(value.lower() in nextcloud_source.lower() for value in forbidden):
+        fail("excluded_feature_introduced")
+    if policy["paths"]["data"]["resolved_source"].startswith(policy["managed_state_root"] + "/"):
+        fail("external_data_under_managed_root")
+    if policy["paths"]["data"]["category"] != "external-user-data":
+        fail("external_data_classification")
+    if policy["writer_stop_order"][:2] != [policy["cron_service"], policy["web_service"]]:
+        fail("writer_stop_order")
+
+    print(
+        "nextcloud_config=pass "
+        f"services={len(services)} mounts={len(expected_mounts)} "
+        f"image_lock_services={policy['expected_image_lock_service_count']}"
+    )
+
+
+if __name__ == "__main__":
+    main()

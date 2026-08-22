@@ -18,6 +18,7 @@ EXPLICIT_PATHS = {
     "scripts/compose-artifact.py",
     "scripts/compose-image-lock.py",
     "scripts/compose-model-inventory.py",
+    "scripts/materialize-compose-secret-files.py",
     "scripts/restore-dotenv-layout.py",
     "secrets/production.env.keys",
     "secrets/production.env.layout.json",

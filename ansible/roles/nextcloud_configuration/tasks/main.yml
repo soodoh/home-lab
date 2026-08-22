@@ -1,0 +1,108 @@
+---
+- name: Wait for the migrated Nextcloud web service to answer occ status
+  ansible.builtin.command:
+    argv: "{{ compose_runtime_cli + ['exec', '--user', 'www-data', nextcloud.web_service, 'php', 'occ', 'status', '--output=json'] }}"
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  register: nextcloud_configuration_status
+  retries: 12
+  delay: 5
+  until: nextcloud_configuration_status.rc == 0
+  changed_when: false
+  no_log: true
+
+- name: Apply idempotent native Nextcloud system settings
+  ansible.builtin.command:
+    argv: "{{ compose_runtime_cli + ['exec', '--user', 'www-data', nextcloud.web_service, 'php', 'occ'] + item }}"
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  loop:
+    - [background:cron]
+    - [config:system:set, maintenance_window_start, --type=integer, "--value={{ nextcloud.maintenance_window_start }}"]
+    - [config:system:set, default_phone_region, --type=string, "--value={{ nextcloud.default_phone_region }}"]
+    - [config:system:set, log_type, --type=string, "--value={{ nextcloud.logging.type }}"]
+    - [config:system:set, loglevel, --type=integer, "--value={{ nextcloud.logging.level }}"]
+    - [config:system:set, log_rotate_size, --type=integer, "--value={{ nextcloud.logging.rotate_size }}"]
+    - [config:system:set, log.backtrace, --type=boolean, --value=false]
+    - [config:system:set, log_query, --type=boolean, --value=false]
+  register: nextcloud_configuration_occ
+  changed_when: "'unchanged' not in nextcloud_configuration_occ.stdout | lower"
+  no_log: true
+
+- name: Disable maintenance mode after migrated configuration succeeds
+  ansible.builtin.command:
+    argv: "{{ compose_runtime_cli + ['exec', '--user', 'www-data', nextcloud.web_service, 'php', 'occ', 'maintenance:mode', '--off'] }}"
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  changed_when: true
+  no_log: true
+
+- name: Read back only declared non-secret Nextcloud settings
+  ansible.builtin.command:
+    argv: "{{ compose_runtime_cli + ['exec', '--user', 'www-data', nextcloud.web_service, 'php', 'occ', 'config:system:get', item.key, '--output=json'] }}"
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  loop:
+    - key: maintenance_window_start
+      value: "{{ nextcloud.maintenance_window_start }}"
+    - key: default_phone_region
+      value: "{{ nextcloud.default_phone_region }}"
+    - key: log_type
+      value: "{{ nextcloud.logging.type }}"
+    - key: loglevel
+      value: "{{ nextcloud.logging.level }}"
+    - key: log_rotate_size
+      value: "{{ nextcloud.logging.rotate_size }}"
+    - key: log.backtrace
+      value: false
+    - key: log_query
+      value: false
+  register: nextcloud_configuration_values
+  changed_when: false
+  no_log: true
+
+- name: Require exact declared Nextcloud setting values
+  ansible.builtin.assert:
+    that:
+      - item.stdout | from_json == item.item.value
+    fail_msg: "A declared Nextcloud setting did not persist."
+  loop: "{{ nextcloud_configuration_values.results }}"
+  no_log: true
+
+- name: Inspect intentionally stopped cron and backup scheduler containers
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - inspect
+      - --format
+      - "{% raw %}{{.State.Status}}{% endraw %}"
+      - "{{ item }}"
+  loop:
+    - "{{ nextcloud.cron_service }}"
+    - daily-local-backup
+    - weekly-remote-backup
+  register: nextcloud_configuration_stopped_services
+  changed_when: false
+
+- name: Require cron and backup schedulers to remain stopped through web validation
+  ansible.builtin.assert:
+    that:
+      - item.stdout == 'created' or item.stdout == 'exited'
+    fail_msg: "Cron or a backup scheduler started before the migration validation gate."
+  loop: "{{ nextcloud_configuration_stopped_services.results }}"
+
+- name: Verify HSTS on the external Nextcloud response
+  ansible.builtin.uri:
+    url: https://nextcloud.diloreto.com/
+    method: HEAD
+    follow_redirects: none
+    status_code: [200, 301, 302, 303]
+    return_content: false
+  register: nextcloud_configuration_https
+  changed_when: false
+
+- name: Require the contract HSTS value without preload or subdomain scope
+  ansible.builtin.assert:
+    that:
+      - nextcloud_configuration_https.strict_transport_security == 'max-age=' ~ (nextcloud.hsts_max_age | string)
+    fail_msg: "External Nextcloud HSTS differs from the contract."

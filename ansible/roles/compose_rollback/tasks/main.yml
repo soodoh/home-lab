@@ -63,14 +63,14 @@
 
 - name: Derive services whose immutable image IDs differ across rollback locks
   ansible.builtin.command:
-    argv:
-      - "{{ ansible_python_interpreter }}"
-      - "{{ compose_current_dir }}/scripts/compose-image-lock.py"
-      - diff
-      - --current
-      - "{{ maintenance_compose_current_image_lock_path }}"
-      - --previous
-      - "{{ maintenance_compose_previous_image_lock_path }}"
+    argv: >-
+      {{ [ansible_python_interpreter, compose_current_dir ~ '/scripts/compose-image-lock.py',
+          'diff', '--current', maintenance_compose_current_image_lock_path,
+          '--previous', maintenance_compose_previous_image_lock_path] +
+         (['--allow-removed-service', nextcloud.cron_service]
+          if (compose_rollback_nextcloud_migration_confirmation | default('')) ==
+             'rollback-reviewed-nextcloud-five-mount-migration'
+          else []) }}
   become: true
   register: compose_rollback_locked_image_diff
   changed_when: false
@@ -165,11 +165,30 @@
       env: "{{ compose_previous_env_path }}"
   no_log: true
 
+- name: Identify the exact Nextcloud migration rollback service-set boundary
+  ansible.builtin.set_fact:
+    compose_rollback_nextcloud_migration: >-
+      {{
+        (compose_rollback_nextcloud_migration_confirmation | default('')) ==
+          'rollback-reviewed-nextcloud-five-mount-migration' and
+        (compose_rollback_service_sets.results[0].stdout_lines |
+         difference(compose_rollback_service_sets.results[1].stdout_lines)) == [nextcloud.cron_service] and
+        (compose_rollback_service_sets.results[1].stdout_lines |
+         difference(compose_rollback_service_sets.results[0].stdout_lines)) | length == 0
+      }}
+  no_log: true
 - name: Require rollback to preserve the complete service set
   ansible.builtin.assert:
     that:
-      - (compose_rollback_service_sets.results[0].stdout_lines | sort) == (compose_rollback_service_sets.results[1].stdout_lines | sort)
+      - >-
+        ((compose_rollback_service_sets.results[0].stdout_lines | sort) ==
+         (compose_rollback_service_sets.results[1].stdout_lines | sort)) or
+        compose_rollback_nextcloud_migration
       - compose_rollback_service_sets.results[0].stdout_lines | length == audit_expected_compose_service_count
+      - >-
+        compose_rollback_service_sets.results[1].stdout_lines | length == audit_expected_compose_service_count or
+        (compose_rollback_nextcloud_migration and
+         compose_rollback_service_sets.results[1].stdout_lines | length == audit_expected_compose_service_count - 1)
     fail_msg: "Previous artifact changes the adopted Compose service set."
   no_log: true
 
@@ -280,7 +299,14 @@
 - name: Require the safe rollback boundary and exact apply-time plan
   ansible.builtin.assert:
     that:
-      - compose_rollback_plan.forbidden_actions | length == 0
+      - >-
+          compose_rollback_plan.forbidden_actions | length == 0 or
+          (
+            compose_rollback_nextcloud_migration and
+            compose_rollback_plan.forbidden_actions | length == 1 and
+            compose_rollback_plan.forbidden_actions[0].service == nextcloud.cron_service and
+            compose_rollback_plan.forbidden_actions[0].action in ['Remove', 'Removing', 'Removed']
+          )
       - ansible_check_mode or compose_rollback_plan_hash == compose_rollback_expected_plan_hash
     fail_msg: "Rollback proposes create/removal actions or differs from the exact reviewed plan."
   no_log: true
@@ -337,6 +363,30 @@
         fail_msg: "Apply-time rollback actions differ from the reviewed plan."
       no_log: true
 
+    - name: Stop Nextcloud writers and backup schedulers before migration rollback
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - stop
+          - "{{ nextcloud.cron_service }}"
+          - "{{ nextcloud.web_service }}"
+          - daily-local-backup
+          - weekly-remote-backup
+      when: compose_rollback_nextcloud_migration
+      changed_when: true
+      no_log: true
+
+    - name: Remove only the approved Nextcloud cron container before previous-model convergence
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - container
+          - rm
+          - --force
+          - "{{ nextcloud.cron_service }}"
+      when: compose_rollback_nextcloud_migration
+      changed_when: true
+      no_log: true
     - name: Recreate only the reviewed rollback services without pulls or builds
       ansible.builtin.command:
         argv: >-

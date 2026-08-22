@@ -1,0 +1,42 @@
+---
+- name: Roll back the reviewed Nextcloud five-mount migration
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  pre_tasks:
+    - name: Acquire the host-side production apply lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: nextcloud-five-mount-rollback
+  roles:
+    - role: compose_rollback
+  post_tasks:
+    - name: Count running previous-model project containers
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - container
+          - ls
+          - --quiet
+          - --filter
+          - "label=com.docker.compose.project={{ compose_project_name }}"
+      register: nextcloud_rollback_running_containers
+      changed_when: false
+
+    - name: Require the previous 41-service running baseline
+      ansible.builtin.assert:
+        that:
+          - nextcloud_rollback_running_containers.stdout_lines | length == audit_expected_compose_service_count - 1
+        fail_msg: "Nextcloud migration rollback did not restore the previous service count."
+
+    - name: Release the host-side production apply lock after rollback validation
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: nextcloud-five-mount-rollback

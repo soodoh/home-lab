@@ -1174,6 +1174,87 @@ aws:
   state_bucket: null
   recovery_bucket: null
   kms_alias: alias/home-lab-opentofu
+nextcloud:
+  web_service: nextcloud
+  cron_service: nextcloud-cron
+  database_service: nextcloud-db
+  redis_service: nextcloud-redis
+  application_network: nextcloud
+  image: nextcloud:34.0.2-apache@sha256:d7666d54d87c58d52869ddda36d1acbd4a7f53faf8ab6b91293daf204f3434e8
+  image_digest: sha256:d7666d54d87c58d52869ddda36d1acbd4a7f53faf8ab6b91293daf204f3434e8
+  managed_state_root: /srv/home-lab-state
+  trusted_proxy: 172.23.0.250
+  hsts_max_age: 15552000
+  maintenance_window_start: 6
+  default_phone_region: US
+  logging:
+    type: file
+    level: 2
+    rotate_size: 104857600
+    backtrace: false
+    query: false
+  secrets:
+    application_password:
+      source_secret_ref: MYSQL_PASSWORD
+      compose_name: nextcloud_mysql_password
+      destination: /etc/docker-compose/credentials/nextcloud-mysql-password
+      container_path: /run/secrets/nextcloud_mysql_password
+      owner: root
+      group: root
+      mode: "0600"
+    root_password:
+      source_secret_ref: MYSQL_ROOT_PASSWORD
+      compose_name: nextcloud_mariadb_root_password
+      destination: /etc/docker-compose/credentials/nextcloud-mariadb-root-password
+      container_path: /run/secrets/nextcloud_mariadb_root_password
+      owner: root
+      group: root
+      mode: "0600"
+  paths:
+    html:
+      old_source: /mnt/storage/media/nextcloud
+      compose_source: /srv/home-lab-state/nextcloud-html
+      resolved_source: /srv/home-lab-state/nextcloud-html
+      target: /var/www/html
+      category: regenerable-runtime
+      recovery: reconstruct-from-image
+    data:
+      old_source: /mnt/storage/media/nextcloud/data
+      compose_source: ${MEDIA_PATH}/nextcloud/data
+      resolved_source: /mnt/storage/media/nextcloud/data
+      target: /var/www/html/data
+      category: external-user-data
+      recovery: retain-existing
+    config:
+      old_source: /mnt/storage/media/nextcloud/config
+      compose_source: /srv/home-lab-state/nextcloud-config
+      resolved_source: /srv/home-lab-state/nextcloud-config
+      target: /var/www/html/config
+      category: managed-state
+      recovery: restore
+    custom_apps:
+      old_source: /mnt/storage/media/nextcloud/custom_apps
+      compose_source: /srv/home-lab-state/nextcloud-custom-apps
+      resolved_source: /srv/home-lab-state/nextcloud-custom-apps
+      target: /var/www/html/custom_apps
+      category: managed-state
+      recovery: restore-if-nonempty
+    themes:
+      old_source: /mnt/storage/media/nextcloud/themes
+      compose_source: /srv/home-lab-state/nextcloud-themes
+      resolved_source: /srv/home-lab-state/nextcloud-themes
+      target: /var/www/html/themes
+      category: managed-state
+      recovery: restore-if-nonempty
+  writer_stop_order:
+    - nextcloud-cron
+    - nextcloud
+    - nextcloud-db
+  expected_compose_service_count: 42
+  expected_image_reference_count: 36
+  expected_image_lock_service_count: 42
+  rollback_window_days: 7
+  old_path_cleanup_gate: nextcloud-old-paths-reviewed-after-recovery-proof
 backups:
   local_schedule: "0 5 * * *"
   local_paths:
@@ -1203,6 +1284,7 @@ backups:
     - litellm
     - mosquitto
     - nextcloud
+    - nextcloud-cron
     - nextcloud-db
     - omada
     - openfit

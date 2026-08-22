@@ -34,6 +34,16 @@ Before restoration, verify:
 6. Activate through `ansible/playbooks/recover-compose.yml`; builds and pulls remain disabled.
 7. Run the Debian production audit, Compose simulation, backup checks, and service health checks.
 
+## Nextcloud recovery boundary
+
+Nextcloud recovery treats the five mounts independently:
+
+- `/srv/home-lab-state/nextcloud-html` is regenerable application code reconstructed from the exact pinned image;
+- `/srv/home-lab-state/nextcloud-config`, `/srv/home-lab-state/nextcloud-custom-apps`, and `/srv/home-lab-state/nextcloud-themes` are restored application state;
+- `/mnt/storage/media/nextcloud/data` is retained external user data and is never populated, replaced, recursively deleted, or treated as a child of application-state recovery.
+
+Stage Compose first so SOPS recreates the root-owned mode-`0600` files under `/etc/docker-compose/credentials`. Fresh recovery must find the external data directory on its expected NFS filesystem before creating Nextcloud containers. It reconstructs the application tree, restores the three managed boundaries, restores MariaDB, then starts MariaDB and Redis before the web and cron services. Any archive containing an old parent-style `backup/nextcloud` or `backup/nextcloud-data` tree is rejected rather than merged.
+
 For infrastructure drift or VM hardware changes, return to steady `scripts/local-controller plan steady`. Disk, boot, passthrough, and host-reboot work still requires a separate reviewed plan and physical-console boundary.
 
 Record only secret-free commit, artifact, archive, and health evidence.

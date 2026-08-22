@@ -18,6 +18,9 @@ required = (
     "omada-data/data",
     "hass-data/data",
     "wolf/cfg/config",
+    "nextcloud-config/config.php",
+    "nextcloud-custom-apps/.empty-boundary",
+    "nextcloud-themes/theme.css",
     ".env",
     ".ssh/key",
 )
@@ -590,7 +593,7 @@ recovery_root = root / "recovery"
 target = recovery_root / "target"
 backup = target / "backup"
 staged = root / "staged"
-for required in ("vaultwarden-data", "omada-data", "hass-data", "wolf/cfg", ".ssh"):
+for required in ("vaultwarden-data", "omada-data", "hass-data", "nextcloud-config", "nextcloud-custom-apps", "nextcloud-themes", "wolf/cfg", ".ssh"):
     (backup / required).mkdir(parents=True, exist_ok=True)
 (backup / ".env").write_text("fixture")
 staged.mkdir(parents=True)
@@ -674,7 +677,7 @@ model = json.loads(subprocess.run(
     text=True,
     stdout=subprocess.PIPE,
 ).stdout)
-assert len(model["services"]) == 41
+assert len(model["services"]) == 42
 daily_service = model["services"]["daily-local-backup"]
 weekly_service = model["services"]["weekly-remote-backup"]
 homeassistant_service = model["services"]["homeassistant"]
@@ -814,6 +817,8 @@ for critical_path in (
     "/backup/jellyfin-data/config/data/jellyfin.db",
     "/backup/mosquitto-data/data/mosquitto.db",
     "/backup/nextcloud-db-data/nextcloud/file.ibd",
+    "/backup/nextcloud-config/config.php",
+    "/backup/nextcloud-themes/example/default.css",
     "/backup/omada-data/data/db/WiredTiger",
     "/backup/openfit-data/openfit.db",
     "/backup/openfit-data/uploads/receipt.jpg",
@@ -870,6 +875,21 @@ group_vars = (repo / "ansible/group_vars/docker_host.yml").read_text()
 action_plan = (repo / "scripts/compose-action-plan.py").read_text()
 model_inventory = (repo / "scripts/compose-model-inventory.py").read_text()
 stage_review = (repo / "scripts/review-compose-stage.py").read_text()
+activation = (repo / "scripts/activate-recovered-data.py").read_text()
+assert 'parser.add_argument("--protected-external-data", required=True' in activation
+assert 'fail("external_data_parent_restore_forbidden")' in activation
+assert '"nextcloud-config": Path("/srv/home-lab-state/nextcloud-config")' in activation
+assert '"nextcloud-custom-apps": Path("/srv/home-lab-state/nextcloud-custom-apps")' in activation
+assert '"nextcloud-themes": Path("/srv/home-lab-state/nextcloud-themes")' in activation
+compose_deploy = (repo / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
+compose_rollback = (repo / "ansible/roles/compose_rollback/tasks/main.yml").read_text()
+path_migration = (repo / "ansible/roles/nextcloud_path_migration/tasks/main.yml").read_text()
+assert "deploy-reviewed-nextcloud-five-mount-migration" in compose_deploy
+assert "rollback-reviewed-nextcloud-five-mount-migration" in compose_rollback
+assert "activate-reviewed-nextcloud-five-mount-paths" in path_migration
+assert "--exclude=/data/" in path_migration
+assert "nextcloud.paths.data.resolved_source" in path_migration
+assert "--no-target-directory" in path_migration
 assert "compose_image_override_path: /var/lib/home-lab/production-image-override.json" in group_vars
 assert "compose_legacy_current_target: /var/lib/home-lab/compose-staging/d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" in group_vars
 compose_stage = (repo / "ansible/roles/compose_stage/tasks/main.yml").read_text()
@@ -887,4 +907,6 @@ assert 'token = f"root@pam!tofu-plan={secret}"' in plan_token_rotation
 assert 'stat.S_IMODE(path.stat().st_mode) != 0o600' in plan_token_rotation
 PY
 
+"$repo_root/scripts/test-nextcloud-config"
+"$repo_root/scripts/test-compose-secret-files"
 echo "recovery tool safety fixtures passed"

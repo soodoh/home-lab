@@ -4,23 +4,55 @@ x-logging: &default-logging
     max-size: 10m
     max-file: 3
 
+x-nextcloud-image: &nextcloud-image nextcloud:34.0.2-apache@sha256:d7666d54d87c58d52869ddda36d1acbd4a7f53faf8ab6b91293daf204f3434e8
+
+x-nextcloud-volumes: &nextcloud-volumes
+  - type: bind
+    source: /srv/home-lab-state/nextcloud-html
+    target: /var/www/html
+    bind:
+      create_host_path: false
+  - type: bind
+    source: ${MEDIA_PATH}/nextcloud/data
+    target: /var/www/html/data
+    bind:
+      create_host_path: false
+  - type: bind
+    source: /srv/home-lab-state/nextcloud-config
+    target: /var/www/html/config
+    bind:
+      create_host_path: false
+  - type: bind
+    source: /srv/home-lab-state/nextcloud-custom-apps
+    target: /var/www/html/custom_apps
+    bind:
+      create_host_path: false
+  - type: bind
+    source: /srv/home-lab-state/nextcloud-themes
+    target: /var/www/html/themes
+    bind:
+      create_host_path: false
+
 services:
   nextcloud:
-    image: nextcloud:34.0.2-apache@sha256:d7666d54d87c58d52869ddda36d1acbd4a7f53faf8ab6b91293daf204f3434e8
+    image: *nextcloud-image
     container_name: nextcloud
     restart: always
     logging: *default-logging
-    volumes:
-      - ${MEDIA_PATH}/nextcloud:/var/www/html
+    volumes: *nextcloud-volumes
     environment:
       TZ: $TZ
       REDIS_HOST: nextcloud-redis
       REDIS_HOST_PORT: 6379
       MYSQL_HOST: nextcloud-db
-      MYSQL_ROOT_PASSWORD: $MYSQL_ROOT_PASSWORD
-      MYSQL_PASSWORD: $MYSQL_PASSWORD
+      MYSQL_PASSWORD_FILE: /run/secrets/nextcloud_mysql_password
       MYSQL_DATABASE: $MYSQL_DATABASE
       MYSQL_USER: $MYSQL_USER
+      APACHE_DISABLE_REWRITE_IP: "1"
+      TRUSTED_PROXIES: 172.23.0.250
+      NEXTCLOUD_INIT_HTACCESS: "true"
+    secrets:
+      - nextcloud_mysql_password
     labels:
       docker-volume-backup.stop-during-backup: true
     depends_on:
@@ -28,6 +60,21 @@ services:
       - nextcloud-redis
     networks:
       - proxy
+      - nextcloud
+
+  nextcloud-cron:
+    image: *nextcloud-image
+    container_name: nextcloud-cron
+    restart: always
+    entrypoint: /cron.sh
+    logging: *default-logging
+    volumes: *nextcloud-volumes
+    labels:
+      docker-volume-backup.stop-during-backup: true
+    depends_on:
+      - nextcloud-db
+      - nextcloud-redis
+    networks:
       - nextcloud
 
   nextcloud-db:
@@ -41,10 +88,14 @@ services:
     environment:
       TZ: $TZ
       MARIADB_AUTO_UPGRADE: "1"
-      MYSQL_ROOT_PASSWORD: $MYSQL_ROOT_PASSWORD
-      MYSQL_PASSWORD: $MYSQL_PASSWORD
+      MARIADB_DISABLE_UPGRADE_BACKUP: "1"
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/nextcloud_mariadb_root_password
+      MYSQL_PASSWORD_FILE: /run/secrets/nextcloud_mysql_password
       MYSQL_DATABASE: $MYSQL_DATABASE
       MYSQL_USER: $MYSQL_USER
+    secrets:
+      - nextcloud_mariadb_root_password
+      - nextcloud_mysql_password
     labels:
       docker-volume-backup.stop-during-backup: true
     networks:
@@ -61,6 +112,12 @@ services:
       - /srv/home-lab-state/nextcloud-redis-data:/data
     networks:
       - nextcloud
+
+secrets:
+  nextcloud_mysql_password:
+    file: /etc/docker-compose/credentials/nextcloud-mysql-password
+  nextcloud_mariadb_root_password:
+    file: /etc/docker-compose/credentials/nextcloud-mariadb-root-password
 
 networks:
   nextcloud:

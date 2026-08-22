@@ -30,6 +30,9 @@ x-backup-volumes: &backup-volumes
   - /srv/home-lab-state/mosquitto-data/config:/backup/mosquitto-data/config:ro
   - /srv/home-lab-state/mosquitto-data/data:/backup/mosquitto-data/data:ro
   - /srv/home-lab-state/nextcloud-db-data:/backup/nextcloud-db-data:ro
+  - /srv/home-lab-state/nextcloud-config:/backup/nextcloud-config:ro
+  - /srv/home-lab-state/nextcloud-custom-apps:/backup/nextcloud-custom-apps:ro
+  - /srv/home-lab-state/nextcloud-themes:/backup/nextcloud-themes:ro
   - /srv/home-lab-state/omada-data/data:/backup/omada-data/data:ro
   - /srv/home-lab-state/openfit-data:/backup/openfit-data:ro
   - /srv/home-lab-state/pihole-data:/backup/pihole-data:ro

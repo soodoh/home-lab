@@ -45,6 +45,23 @@
       - compose_deploy_paths.results[6].stat.mode == '0644'
     fail_msg: "Candidate staging, active deployment, environment, or inventory input is missing."
 
+- name: Recheck protected Nextcloud database secret files before deployment
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_python_interpreter }}"
+      - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/scripts/materialize-compose-secret-files.py"
+      - --dotenv
+      - "{{ compose_staged_env_path }}"
+      - --directory
+      - "{{ nextcloud.secrets.application_password.destination | dirname }}"
+      - --secret
+      - "{{ nextcloud.secrets.application_password.source_secret_ref }}={{ nextcloud.secrets.application_password.destination | basename }}"
+      - --secret
+      - "{{ nextcloud.secrets.root_password.source_secret_ref }}={{ nextcloud.secrets.root_password.destination | basename }}"
+      - --check
+  become: true
+  changed_when: false
+  no_log: true
 - name: Recompute candidate and current artifact identities
   ansible.builtin.command:
     argv:
@@ -136,6 +153,21 @@
     compose_deploy_plan: "{{ compose_deploy_plan_file.content | b64decode | from_json }}"
   no_log: true
 
+- name: Identify the exact reviewed Nextcloud migration deployment lane
+  ansible.builtin.set_fact:
+    compose_deploy_nextcloud_migration: >-
+      {{
+        (compose_deploy_nextcloud_migration_confirmation | default('')) ==
+          'deploy-reviewed-nextcloud-five-mount-migration' and
+        compose_deploy_plan.missing_runtime_services == [nextcloud.cron_service] and
+        compose_deploy_plan.unexpected_runtime_services | length == 0 and
+        compose_deploy_plan.forbidden_actions | length == 1 and
+        compose_deploy_plan.forbidden_actions[0].service == nextcloud.cron_service and
+        compose_deploy_plan.forbidden_actions[0].action in ['Create', 'Creating', 'Created'] and
+        compose_deploy_plan.manual_only_paths == ['services/data/Caddyfile']
+      }}
+  no_log: true
+
 - name: Remove root-only deployment plan files
   ansible.builtin.file:
     path: "{{ item }}"
@@ -174,16 +206,20 @@
 - name: Require a deployment with no unreviewed service-set or data-file changes
   ansible.builtin.assert:
     that:
-      - compose_deploy_plan.missing_runtime_services | length == 0
-      - compose_deploy_plan.unexpected_runtime_services | length == 0
-      - compose_deploy_plan.forbidden_actions | length == 0
       - >-
-        compose_deploy_plan.manual_only_paths | length == 0 or
         (
-          (compose_deploy_manual_paths_confirmation | default('')) == 'deploy-reviewed-two-path-backups' and
-          compose_deploy_plan.manual_only_paths == ['services/data/replicate-local-backup'] and
-          'daily-local-backup' in compose_deploy_plan.recreate_services
-        )
+          compose_deploy_plan.missing_runtime_services | length == 0 and
+          compose_deploy_plan.unexpected_runtime_services | length == 0 and
+          compose_deploy_plan.forbidden_actions | length == 0 and
+          (
+            compose_deploy_plan.manual_only_paths | length == 0 or
+            (
+              (compose_deploy_manual_paths_confirmation | default('')) == 'deploy-reviewed-two-path-backups' and
+              compose_deploy_plan.manual_only_paths == ['services/data/replicate-local-backup'] and
+              'daily-local-backup' in compose_deploy_plan.recreate_services
+            )
+          )
+        ) or compose_deploy_nextcloud_migration
     fail_msg: >-
       Deployment refuses service additions/removals, forbidden Compose actions, and data-file changes
       without their exact operation-specific restart approval.
@@ -394,6 +430,55 @@
       become: true
       no_log: true
 
+    - name: Require the bounded Nextcloud migration service set
+      ansible.builtin.assert:
+        that:
+          - >-
+            compose_deploy_plan.recreate_services |
+            difference([nextcloud.database_service, nextcloud.web_service, 'caddy',
+                        'daily-local-backup', 'weekly-remote-backup']) | length == 0
+          - nextcloud.database_service in compose_deploy_plan.recreate_services
+          - nextcloud.web_service in compose_deploy_plan.recreate_services
+        fail_msg: "Nextcloud migration proposes an unexpected service recreation set."
+      when: compose_deploy_nextcloud_migration
+
+    - name: Converge running Nextcloud migration services in dependency order
+      ansible.builtin.command:
+        argv: >-
+          {{ compose_runtime_cli + ['up', '--detach', '--no-build', '--pull', 'never', '--no-deps', item] }}
+      become: true
+      environment:
+        HOME: "{{ compose_home_dir }}"
+      loop:
+        - "{{ nextcloud.database_service }}"
+        - "{{ nextcloud.web_service }}"
+        - caddy
+      when:
+        - compose_deploy_nextcloud_migration
+        - item in compose_deploy_plan.recreate_services
+      changed_when: true
+      no_log: true
+
+    - name: Derive stopped services for the bounded Nextcloud migration
+      ansible.builtin.set_fact:
+        compose_deploy_nextcloud_migration_stopped_services: >-
+          {{ ([nextcloud.cron_service] +
+              (compose_deploy_plan.recreate_services |
+               intersect(['daily-local-backup', 'weekly-remote-backup']))) | unique | sort }}
+      when: compose_deploy_nextcloud_migration
+      no_log: true
+
+    - name: Create changed backup schedulers and Nextcloud cron without starting them
+      ansible.builtin.command:
+        argv: >-
+          {{ compose_runtime_cli + ['create', '--no-build', '--pull', 'never', '--no-deps'] +
+             compose_deploy_nextcloud_migration_stopped_services }}
+      become: true
+      environment:
+        HOME: "{{ compose_home_dir }}"
+      when: compose_deploy_nextcloud_migration
+      changed_when: true
+      no_log: true
     - name: Converge only the reviewed services without builds, removal, or orphan removal
       ansible.builtin.command:
         argv: >-
@@ -406,17 +491,16 @@
       register: compose_deploy_converge
       failed_when: false
       no_log: true
-      when: compose_deploy_plan.recreate_services | length > 0
+      when:
+        - not compose_deploy_nextcloud_migration
+        - compose_deploy_plan.recreate_services | length > 0
       changed_when: true
 
     - name: Retain protected Compose convergence diagnostics
       ansible.builtin.copy:
         content: |-
-          rc={{ compose_deploy_converge.rc }}
-          stdout:
-          {{ compose_deploy_converge.stdout }}
-          stderr:
-          {{ compose_deploy_converge.stderr }}
+          rc={{ 0 if compose_deploy_nextcloud_migration else compose_deploy_converge.rc }}
+          migration_lane={{ compose_deploy_nextcloud_migration }}
         dest: "/var/lib/docker-compose/deploy-{{ compose_artifact_hash }}.log"
         owner: root
         group: root
@@ -428,7 +512,7 @@
     - name: Require successful reviewed Compose convergence
       ansible.builtin.assert:
         that:
-          - compose_deploy_plan.recreate_services | length == 0 or compose_deploy_converge.rc == 0
+          - compose_deploy_nextcloud_migration or compose_deploy_plan.recreate_services | length == 0 or compose_deploy_converge.rc == 0
         fail_msg: "Compose convergence failed; inspect the protected host deployment log."
       no_log: true
 

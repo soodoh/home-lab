@@ -239,6 +239,65 @@
       no_log: true
       changed_when: true
 
+    - name: Materialize protected Nextcloud database secret files
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/scripts/materialize-compose-secret-files.py"
+          - --dotenv
+          - "{{ compose_stage_decrypt_workspace.path }}/canonical.env"
+          - --directory
+          - "{{ nextcloud.secrets.application_password.destination | dirname }}"
+          - --secret
+          - "{{ nextcloud.secrets.application_password.source_secret_ref }}={{ nextcloud.secrets.application_password.destination | basename }}"
+          - --secret
+          - "{{ nextcloud.secrets.root_password.source_secret_ref }}={{ nextcloud.secrets.root_password.destination | basename }}"
+      become: true
+      register: compose_stage_nextcloud_secret_materialization
+      changed_when: "'changed=0' not in compose_stage_nextcloud_secret_materialization.stdout"
+      no_log: true
+
+    - name: Recheck protected Nextcloud database secret files idempotently
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - "{{ compose_staging_root }}/{{ compose_artifact_hash }}/scripts/materialize-compose-secret-files.py"
+          - --dotenv
+          - "{{ compose_stage_decrypt_workspace.path }}/canonical.env"
+          - --directory
+          - "{{ nextcloud.secrets.application_password.destination | dirname }}"
+          - --secret
+          - "{{ nextcloud.secrets.application_password.source_secret_ref }}={{ nextcloud.secrets.application_password.destination | basename }}"
+          - --secret
+          - "{{ nextcloud.secrets.root_password.source_secret_ref }}={{ nextcloud.secrets.root_password.destination | basename }}"
+          - --check
+      become: true
+      changed_when: false
+      no_log: true
+
+    - name: Inspect protected Nextcloud database secret files
+      ansible.builtin.stat:
+        path: "{{ item.destination }}"
+        get_checksum: false
+        get_mime: false
+        follow: false
+      become: true
+      register: compose_stage_nextcloud_secret_files
+      loop: "{{ nextcloud.secrets.values() | list }}"
+      no_log: true
+
+    - name: Require protected Nextcloud database secret-file identities
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.nlink == 1
+          - item.stat.pw_name == item.item.owner
+          - item.stat.gr_name == item.item.group
+          - item.stat.mode == item.item.mode
+        fail_msg: "Nextcloud database secret file identity differs from the contract."
+      loop: "{{ compose_stage_nextcloud_secret_files.results }}"
+      no_log: true
     - name: Atomically install the root-only candidate environment
       ansible.builtin.copy:
         src: "{{ compose_stage_decrypt_workspace.path }}/production.env"

@@ -142,6 +142,90 @@
     mode: "0600"
   no_log: true
 
+- name: Recheck recovered Nextcloud database secret files before container creation
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_python_interpreter }}"
+      - "{{ compose_current_dir }}/scripts/materialize-compose-secret-files.py"
+      - --dotenv
+      - "{{ compose_runtime_env_path }}"
+      - --directory
+      - "{{ nextcloud.secrets.application_password.destination | dirname }}"
+      - --secret
+      - "{{ nextcloud.secrets.application_password.source_secret_ref }}={{ nextcloud.secrets.application_password.destination | basename }}"
+      - --secret
+      - "{{ nextcloud.secrets.root_password.source_secret_ref }}={{ nextcloud.secrets.root_password.destination | basename }}"
+      - --check
+  changed_when: false
+  no_log: true
+- name: Inspect protected external Nextcloud data and fresh application paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    get_checksum: false
+    get_mime: false
+    follow: false
+  register: compose_recovery_nextcloud_paths
+  loop:
+    - "{{ nextcloud.paths.data.resolved_source }}"
+    - "{{ nextcloud.paths.html.resolved_source }}"
+    - "{{ nextcloud.paths.config.resolved_source }}"
+    - "{{ nextcloud.paths.custom_apps.resolved_source }}"
+    - "{{ nextcloud.paths.themes.resolved_source }}"
+
+- name: Require retained external data and absent fresh Nextcloud application paths
+  ansible.builtin.assert:
+    that:
+      - compose_recovery_nextcloud_paths.results[0].stat.isdir | default(false)
+      - not (compose_recovery_nextcloud_paths.results[0].stat.islnk | default(false))
+      - not (compose_recovery_nextcloud_paths.results[1].stat.exists | default(false))
+      - not (compose_recovery_nextcloud_paths.results[2].stat.exists | default(false))
+      - not (compose_recovery_nextcloud_paths.results[3].stat.exists | default(false))
+      - not (compose_recovery_nextcloud_paths.results[4].stat.exists | default(false))
+    fail_msg: "Recovery requires retained external Nextcloud data and fresh application-state paths."
+
+- name: Create fresh Nextcloud application-state mount roots
+  ansible.builtin.file:
+    path: "{{ item.resolved_source }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ nextcloud.paths.html }}"
+    - "{{ nextcloud.paths.config }}"
+    - "{{ nextcloud.paths.custom_apps }}"
+    - "{{ nextcloud.paths.themes }}"
+
+- name: Reconstruct regenerable Nextcloud application code from the pinned image
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - run
+      - --rm
+      - --network
+      - none
+      - --volume
+      - "{{ nextcloud.paths.html.resolved_source }}:/target"
+      - --entrypoint
+      - /bin/sh
+      - "{{ nextcloud.image }}"
+      - -c
+      - cp -a /usr/src/nextcloud/. /target/
+  changed_when: true
+
+- name: Verify reconstructed Nextcloud application code
+  ansible.builtin.stat:
+    path: "{{ nextcloud.paths.html.resolved_source }}/occ"
+    get_checksum: false
+    follow: false
+  register: compose_recovery_nextcloud_occ
+
+- name: Require the reconstructed pinned application tree
+  ansible.builtin.assert:
+    that:
+      - compose_recovery_nextcloud_occ.stat.isreg | default(false)
+      - not (compose_recovery_nextcloud_occ.stat.islnk | default(false))
+    fail_msg: "Pinned Nextcloud application reconstruction did not produce occ."
 - name: Create only declared fresh volumes and required subpaths
   ansible.builtin.script:
     cmd: >-
@@ -169,6 +253,7 @@
       --staging-root {{ recovery_target | quote }}
       --env-file {{ compose_runtime_env_path | quote }}
       --volume-inventory /run/home-lab-recovery-volumes.json
+      --protected-external-data {{ nextcloud.paths.data.resolved_source | quote }}
       --project {{ compose_project_name | quote }}
       {{ '--retain-existing-binds' if (recovery_retain_existing_bind_data | default(false) | bool) else '' }}
     executable: "{{ ansible_python_interpreter }}"
@@ -186,9 +271,70 @@
   ansible.builtin.include_role:
     name: host_files
 
-- name: Create all recovered services without builds or implicit pulls
+- name: List recovered services for ordered startup
   ansible.builtin.command:
-    argv: "{{ compose_runtime_cli + ['up', '--detach', '--no-build', '--pull', 'never'] }}"
+    argv: "{{ compose_runtime_cli + ['config', '--services'] }}"
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  register: compose_recovery_declared_services
+  changed_when: false
+  no_log: true
+
+- name: Derive services outside the ordered Nextcloud startup set
+  ansible.builtin.set_fact:
+    compose_recovery_other_services: >-
+      {{ compose_recovery_declared_services.stdout_lines |
+         difference([nextcloud.database_service, nextcloud.redis_service,
+                     nextcloud.web_service, nextcloud.cron_service,
+                     'daily-local-backup', 'weekly-remote-backup']) | sort }}
+  no_log: true
+
+- name: Start recovered services outside Nextcloud without builds or pulls
+  ansible.builtin.command:
+    argv: >-
+      {{ compose_runtime_cli + ['up', '--detach', '--no-build', '--pull', 'never', '--no-deps']
+         + compose_recovery_other_services }}
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  changed_when: true
+  no_log: true
+  when: compose_recovery_other_services | length > 0
+
+- name: Start recovered Nextcloud database and Redis first
+  ansible.builtin.command:
+    argv: >-
+      {{ compose_runtime_cli + ['up', '--detach', '--no-build', '--pull', 'never', '--no-deps',
+         nextcloud.database_service, nextcloud.redis_service] }}
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  changed_when: true
+  no_log: true
+
+- name: Start the recovered Nextcloud web service after dependencies
+  ansible.builtin.command:
+    argv: >-
+      {{ compose_runtime_cli + ['up', '--detach', '--no-build', '--pull', 'never', '--no-deps',
+         nextcloud.web_service] }}
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  changed_when: true
+  no_log: true
+
+- name: Start recovered Nextcloud cron after web availability
+  ansible.builtin.command:
+    argv: >-
+      {{ compose_runtime_cli + ['up', '--detach', '--no-build', '--pull', 'never', '--no-deps',
+         nextcloud.cron_service] }}
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  changed_when: true
+  no_log: true
+
+- name: Start recovered backup schedulers only after all Nextcloud state is available
+  ansible.builtin.command:
+    argv: >-
+      {{ compose_runtime_cli + ['up', '--detach', '--no-build', '--pull', 'never', '--no-deps',
+         'daily-local-backup', 'weekly-remote-backup'] }}
   environment:
     HOME: "{{ compose_home_dir }}"
   changed_when: true

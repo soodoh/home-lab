@@ -1,0 +1,204 @@
+---
+- name: Validate the bounded Nextcloud path-migration contract
+  ansible.builtin.assert:
+    that:
+      - compose_artifact_hash is match('^[0-9a-f]{64}$')
+      - ansible_check_mode or nextcloud_path_migration_confirmation | default('') == 'activate-reviewed-nextcloud-five-mount-paths'
+      - nextcloud.paths.data.category == 'external-user-data'
+      - nextcloud.paths.data.resolved_source == '/mnt/storage/media/nextcloud/data'
+      - nextcloud.rollback_window_days == 7
+    fail_msg: "Nextcloud path migration requires the exact artifact and operation-specific confirmation."
+
+- name: Derive private same-filesystem staging paths
+  ansible.builtin.set_fact:
+    nextcloud_path_migration_entries:
+      - name: html
+        source: "{{ nextcloud.paths.html.old_source }}"
+        staging: "{{ nextcloud.paths.html.resolved_source }}.staging-{{ compose_artifact_hash }}"
+        destination: "{{ nextcloud.paths.html.resolved_source }}"
+        exclusions:
+          - --exclude=/data/
+          - --exclude=/config/
+          - --exclude=/custom_apps/
+          - --exclude=/themes/
+      - name: config
+        source: "{{ nextcloud.paths.config.old_source }}"
+        staging: "{{ nextcloud.paths.config.resolved_source }}.staging-{{ compose_artifact_hash }}"
+        destination: "{{ nextcloud.paths.config.resolved_source }}"
+        exclusions: []
+      - name: custom_apps
+        source: "{{ nextcloud.paths.custom_apps.old_source }}"
+        staging: "{{ nextcloud.paths.custom_apps.resolved_source }}.staging-{{ compose_artifact_hash }}"
+        destination: "{{ nextcloud.paths.custom_apps.resolved_source }}"
+        exclusions: []
+      - name: themes
+        source: "{{ nextcloud.paths.themes.old_source }}"
+        staging: "{{ nextcloud.paths.themes.resolved_source }}.staging-{{ compose_artifact_hash }}"
+        destination: "{{ nextcloud.paths.themes.resolved_source }}"
+        exclusions: []
+  no_log: true
+
+- name: Inspect source, staging, destination, and external-data identities
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    get_checksum: false
+    get_mime: false
+    follow: false
+  loop: >-
+    {{ [nextcloud.paths.data.resolved_source] +
+       (nextcloud_path_migration_entries | map(attribute='source') | list) +
+       (nextcloud_path_migration_entries | map(attribute='staging') | list) +
+       (nextcloud_path_migration_entries | map(attribute='destination') | list) }}
+  register: nextcloud_path_migration_stats
+  no_log: true
+
+- name: Require retained data, real source directories, and unused migration targets
+  ansible.builtin.assert:
+    that:
+      - nextcloud_path_migration_stats.results[0].stat.isdir | default(false)
+      - not (nextcloud_path_migration_stats.results[0].stat.islnk | default(false))
+      - >-
+        nextcloud_path_migration_stats.results[1:5] |
+        map(attribute='stat.isdir', default=false) | select('equalto', true) | list | length == 4
+      - >-
+        nextcloud_path_migration_stats.results[1:5] |
+        map(attribute='stat.islnk', default=false) | select('equalto', true) | list | length == 0
+      - >-
+        nextcloud_path_migration_stats.results[5:13] |
+        map(attribute='stat.exists', default=false) | select('equalto', true) | list | length == 0
+    fail_msg: "Nextcloud source, external-data, staging, or destination identity differs from the reviewed layout."
+  no_log: true
+
+- name: Inspect managed-state filesystem identity and free space
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/df
+      - --block-size=1
+      - --output=avail
+      - "{{ nextcloud.managed_state_root }}"
+  register: nextcloud_path_migration_capacity
+  changed_when: false
+  check_mode: false
+
+- name: Require bounded managed-state capacity
+  ansible.builtin.assert:
+    that:
+      - nextcloud_path_migration_capacity.stdout_lines | last | int > 2147483648
+    fail_msg: "Managed-state filesystem lacks the 2 GiB migration reserve."
+
+- name: Create private Nextcloud staging roots
+  ansible.builtin.file:
+    path: "{{ item.staging }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop: "{{ nextcloud_path_migration_entries }}"
+  when: not ansible_check_mode
+  no_log: true
+
+- name: Perform the initial metadata-preserving Nextcloud copy while web remains available
+  ansible.builtin.command:
+    argv: >-
+      {{ ['/usr/bin/rsync', '--archive', '--hard-links', '--acls', '--xattrs', '--numeric-ids',
+          '--delete', '--one-file-system'] + item.exclusions + [item.source ~ '/', item.staging ~ '/'] }}
+  loop: "{{ nextcloud_path_migration_entries }}"
+  when: not ansible_check_mode
+  changed_when: true
+  no_log: true
+
+- name: Stop backup schedulers for the bounded activation window
+  ansible.builtin.command:
+    argv: "{{ compose_runtime_cli + ['stop', 'daily-local-backup', 'weekly-remote-backup'] }}"
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  when: not ansible_check_mode
+  changed_when: true
+  no_log: true
+
+- name: Enable native Nextcloud maintenance mode before final synchronization
+  ansible.builtin.command:
+    argv: "{{ compose_runtime_cli + ['exec', '--user', 'www-data', nextcloud.web_service, 'php', 'occ', 'maintenance:mode', '--on'] }}"
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  when: not ansible_check_mode
+  changed_when: true
+  no_log: true
+
+- name: Stop the Nextcloud web writer before final synchronization
+  ansible.builtin.command:
+    argv: "{{ compose_runtime_cli + ['stop', nextcloud.web_service] }}"
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  when: not ansible_check_mode
+  changed_when: true
+  no_log: true
+
+- name: Perform the final metadata-preserving Nextcloud synchronization
+  ansible.builtin.command:
+    argv: >-
+      {{ ['/usr/bin/rsync', '--archive', '--hard-links', '--acls', '--xattrs', '--numeric-ids',
+          '--delete', '--one-file-system'] + item.exclusions + [item.source ~ '/', item.staging ~ '/'] }}
+  loop: "{{ nextcloud_path_migration_entries }}"
+  when: not ansible_check_mode
+  changed_when: true
+  no_log: true
+
+- name: Prove staged Nextcloud trees match their exact sources
+  ansible.builtin.command:
+    argv: >-
+      {{ ['/usr/bin/rsync', '--archive', '--hard-links', '--acls', '--xattrs', '--numeric-ids',
+          '--delete', '--one-file-system', '--checksum', '--dry-run', '--itemize-changes'] +
+         item.exclusions + [item.source ~ '/', item.staging ~ '/'] }}
+  loop: "{{ nextcloud_path_migration_entries }}"
+  when: not ansible_check_mode
+  register: nextcloud_path_migration_proof
+  changed_when: false
+  no_log: true
+
+- name: Require empty checksum-based synchronization plans
+  ansible.builtin.assert:
+    that:
+      - item.stdout_lines | length == 0
+    fail_msg: "A staged Nextcloud tree differs from its stopped source."
+  loop: "{{ nextcloud_path_migration_proof.results | default([]) }}"
+  when: not ansible_check_mode
+  no_log: true
+
+- name: Atomically activate staged Nextcloud application paths
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/mv
+      - --no-target-directory
+      - --
+      - "{{ item.staging }}"
+      - "{{ item.destination }}"
+  loop: "{{ nextcloud_path_migration_entries }}"
+  when: not ansible_check_mode
+  changed_when: true
+  no_log: true
+
+- name: Reinspect activated paths and retained external data
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    get_checksum: false
+    get_mime: false
+    follow: false
+  loop: >-
+    {{ [nextcloud.paths.data.resolved_source] +
+       (nextcloud_path_migration_entries | map(attribute='destination') | list) }}
+  register: nextcloud_path_migration_activated
+  when: not ansible_check_mode
+  no_log: true
+
+- name: Require four activated roots and unchanged external-data identity
+  ansible.builtin.assert:
+    that:
+      - nextcloud_path_migration_activated.results[0].stat.dev == nextcloud_path_migration_stats.results[0].stat.dev
+      - nextcloud_path_migration_activated.results[0].stat.inode == nextcloud_path_migration_stats.results[0].stat.inode
+      - >-
+        nextcloud_path_migration_activated.results[1:5] |
+        map(attribute='stat.isdir', default=false) | select('equalto', true) | list | length == 4
+    fail_msg: "Activated Nextcloud paths or retained external data differ from the reviewed identities."
+  when: not ansible_check_mode
+  no_log: true
