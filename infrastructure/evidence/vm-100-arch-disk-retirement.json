@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-08-22T18:52:09Z",
+  "sourceCommit": "ba90c49e34441eb302c10a9a7a9ea4341cd1f82f",
+  "vmid": 100,
+  "status": "permanently-deleted",
+  "deletedVolume": "local-lvm:vm-100-disk-0",
+  "guardScriptSha256": "c89223d031ce2ee30d8b0e2e4ee691c9303f0a6073123fec8252f36b8250047d",
+  "operatorConfirmation": "delete-reviewed-quarantined-arch-volume",
+  "configuration": {
+    "scsi0": null,
+    "unused0": null,
+    "boot": "order=scsi3;net0",
+    "protection": true,
+    "scsi1Changed": false,
+    "scsi2Changed": false,
+    "scsi3Changed": false
+  },
+  "production": {
+    "containers": 41,
+    "unhealthy": 0,
+    "stateBindMounts": 126,
+    "dockerVolumes": 0,
+    "kernelErrors": 0,
+    "ansibleAudit": {
+      "ok": 40,
+      "changed": 0,
+      "failed": 0
+    }
+  },
+  "recoveryProof": "infrastructure/evidence/vm-100-debian-retirement-restore-proof.json"
+}
