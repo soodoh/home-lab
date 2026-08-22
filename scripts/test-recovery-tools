@@ -773,7 +773,11 @@ model_inventory = (repo / "scripts/compose-model-inventory.py").read_text()
 stage_review = (repo / "scripts/review-compose-stage.py").read_text()
 assert "compose_image_override_path: /var/lib/home-lab/production-image-override.json" in group_vars
 assert "compose_legacy_current_target: /var/lib/home-lab/compose-staging/d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" in group_vars
-assert "when: compose_image_override_path | length == 0" in (repo / "ansible/roles/compose_stage/tasks/main.yml").read_text()
+compose_stage = (repo / "ansible/roles/compose_stage/tasks/main.yml").read_text()
+assert "when: compose_image_override_path | length == 0" in compose_stage
+assert 'src: "{{ compose_artifact_controller_dir }}/"' not in compose_stage
+assert "Materialize only the selected deterministic artifact paths" in compose_stage
+assert "compose-artifact.py" in compose_stage and "- copy" in compose_stage
 assert "Materialize the exact legacy current artifact for rollback" in (repo / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
 for helper in (action_plan, model_inventory, stage_review):
     assert '"--override-file"' in helper

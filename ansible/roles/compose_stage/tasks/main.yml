@@ -80,25 +80,73 @@
           )
         }}
 
-    - name: Create an incoming root-owned artifact directory
-      ansible.builtin.tempfile:
-        state: directory
-        path: "{{ compose_staging_root }}"
-        prefix: .incoming-
-      become: true
-      register: compose_stage_incoming
+    - name: Materialize and transfer only the deterministic Compose artifact
       when: not compose_stage_existing_paths.results[0].stat.exists
+      block:
+        - name: Create a private controller artifact directory
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: home-lab-compose-artifact-
+          delegate_to: localhost
+          become: false
+          register: compose_stage_controller_artifact
 
-    - name: Copy only the deterministic artifact from the controller checkout
-      ansible.builtin.copy:
-        src: "{{ compose_artifact_controller_dir }}/"
-        dest: "{{ compose_stage_incoming.path }}/"
-        owner: root
-        group: root
-        mode: preserve
-        directory_mode: "0755"
-      become: true
-      when: not compose_stage_existing_paths.results[0].stat.exists
+        - name: Materialize only the selected deterministic artifact paths
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_playbook_python }}"
+              - "{{ compose_artifact_controller_dir }}/scripts/compose-artifact.py"
+              - --root
+              - "{{ compose_artifact_controller_dir }}"
+              - copy
+              - "{{ compose_stage_controller_artifact.path }}"
+          delegate_to: localhost
+          become: false
+          register: compose_stage_materialized_hash
+          changed_when: true
+
+        - name: Require the materialized controller artifact hash
+          ansible.builtin.assert:
+            that:
+              - compose_stage_materialized_hash.stdout == compose_artifact_hash
+            fail_msg: "Materialized controller artifact differs from the reviewed hash."
+
+        - name: Create an incoming root-owned artifact directory
+          ansible.builtin.tempfile:
+            state: directory
+            path: "{{ compose_staging_root }}"
+            prefix: .incoming-
+          become: true
+          register: compose_stage_incoming
+
+        - name: Copy only the materialized deterministic artifact
+          ansible.builtin.copy:
+            src: "{{ compose_stage_controller_artifact.path }}/"
+            dest: "{{ compose_stage_incoming.path }}/"
+            owner: root
+            group: root
+            mode: preserve
+            directory_mode: "0755"
+          become: true
+      rescue:
+        - name: Remove a partial incoming host artifact
+          ansible.builtin.file:
+            path: "{{ compose_stage_incoming.path | default('/nonexistent-compose-stage-incoming') }}"
+            state: absent
+          become: true
+          when: compose_stage_incoming.path | default('') | length > 0
+
+        - name: Stop after deterministic artifact transfer failure
+          ansible.builtin.fail:
+            msg: "Deterministic Compose artifact transfer failed; partial host staging was removed."
+      always:
+        - name: Remove the private controller artifact directory
+          ansible.builtin.file:
+            path: "{{ compose_stage_controller_artifact.path | default('/nonexistent-compose-controller-artifact') }}"
+            state: absent
+          delegate_to: localhost
+          become: false
+          when: compose_stage_controller_artifact.path | default('') | length > 0
 
     - name: Recompute the incoming host artifact hash
       ansible.builtin.command:
