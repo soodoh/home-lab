@@ -16,7 +16,7 @@ assert.equal(debian.version, "13");
 assert.equal(debian.image.variant, "generic");
 assert.equal(debian.image.format, "qcow2");
 assert.match(debian.image.sha512, /^[0-9a-f]{128}$/);
-assert.deepEqual(debian.os_disk.qualification_boot_order, ["scsi3", "scsi0", "net0"]);
+assert.deepEqual(debian.os_disk.qualification_boot_order, ["scsi3", "net0"]);
 assert.deepEqual(debian.qualification.kernel_modules, ["amdgpu", "uhid", "uinput"]);
 
 const inputs = [
