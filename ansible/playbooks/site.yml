@@ -21,21 +21,12 @@
       tags:
         - always
   roles:
-    - role: arch_packages
-      tags:
-        - base
     - role: base
       tags:
         - base
-    - role: arch_network
-      tags:
-        - arch_network
     - role: tailscale
       tags:
         - tailscale
-    - role: arch_mounts
-      tags:
-        - storage
     - role: firewall_nfs_canary
       tags:
         - storage
@@ -54,9 +45,6 @@
     - role: sops_age
       tags:
         - sops_age
-    - role: arch_hardware
-      tags:
-        - hardware
     - role: hardware
       tags:
         - hardware
@@ -64,7 +52,6 @@
       vars:
         ssh_service_name: sshd.service
         ssh_password_authentication: false
-        ssh_access_proven: "{{ arch_ssh_access_proven | default(false) }}"
         ssh_allow_users:
           - ansible-plan
           - ansible-deploy
@@ -73,9 +60,6 @@
     - role: host_files
       tags:
         - host_files
-    - role: maintenance
-      tags:
-        - maintenance
     - role: compose
       tags:
         - compose

@@ -1,0 +1,27 @@
+---
+- name: Gather installed package facts
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Identify requested packages that are absent
+  ansible.builtin.set_fact:
+    apt_packages_missing: >-
+      {{ apt_packages_requested | reject('in', ansible_facts.packages.keys() | list) | list }}
+
+- name: Report packages that would be installed
+  ansible.builtin.debug:
+    msg: "Packages would be installed: {{ apt_packages_missing | join(', ') }}"
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - apt_packages_missing | length > 0
+
+- name: Install only absent requested packages without upgrading present packages
+  ansible.builtin.apt:
+    name: "{{ apt_packages_missing }}"
+    state: present
+    update_cache: false
+  become: true
+  when:
+    - not ansible_check_mode
+    - apt_packages_missing | length > 0

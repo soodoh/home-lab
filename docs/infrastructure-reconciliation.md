@@ -1,90 +1,39 @@
 # Infrastructure reconciliation
 
-The desired-state boundary is [`../infrastructure/contract/home-lab.yml`](../infrastructure/contract/home-lab.yml). OpenTofu owns infrastructure, controller-side Nix owns the Proxmox host, Ansible owns the Arch host, and Compose owns applications. Completed one-time transition operations are not supported controller modes.
+[`infrastructure/contract/home-lab.yml`](../infrastructure/contract/home-lab.yml) is the desired-state boundary. OpenTofu owns infrastructure resources, controller-side Nix owns the Proxmox host, Ansible owns the Debian Docker host, and Compose owns applications.
 
-Use only the trusted local controller:
+## Steady reconciliation
 
-```sh
+Run from the repository root:
+
+```bash
 scripts/local-controller plan steady
 scripts/local-controller apply steady
 ```
 
-Recovery uses the same commands with operation `recovery`. Both commands run validation internally, `plan` displays every validated saved plan, and `apply` requires an interactive operation-specific confirmation before loading mutation credentials. Direct `scripts/reconcile-infrastructure` use is an implementation and recovery-debugging interface.
+Planning validates the contract, provider locks, policies, Nix projection, Ansible, and Compose model. It creates one saved binary plan for each enabled OpenTofu root and a canonical Proxmox host plan under `.reconcile/plans/<commit>/steady/`. The manifest binds the exact commit, backend, plan paths and hashes, Compose artifact, protected inputs, and Tailscale policy identity.
 
-## Failure domains and roots
+Apply accepts only a clean checkout at the manifest commit. It verifies every saved hash and policy, acquires the controller-wide lock, asks for the exact operation confirmation, and only then loads mutation credentials. It never replans during apply.
 
-Steady plans the following roots, subject to the Omada and Tailscale management enable flags:
+The production order is:
 
-1. `aws-foundation`
-2. `proxmox-legacy`
-3. `proxmox`
-4. `omada`
-5. `tailscale`
+1. AWS foundation and legacy tombstone verification;
+2. guarded Proxmox Nix preparation;
+3. Proxmox OpenTofu;
+4. bounded Debian Ansible tags;
+5. Omada and Tailscale OpenTofu;
+6. exact Compose artifact activation; and
+7. full zero-change verification.
 
-Recovery plans `aws-foundation`, `proxmox`, `omada`, and `tailscale`. It excludes `proxmox-legacy` because retired CT 101 is not a recovery resource.
+VM 100 is Debian-authoritative. Retired Arch, Flatcar, inert-qualification, migration cutover, and infrastructure-recovery modes are not supported controller paths.
 
-Two empty roots remain deliberately:
+## Safety boundaries
 
-- `proxmox-legacy` preserves the retired CT 101 backend/state boundary as a steady tombstone.
-- `proxmox-lxc-qualification` preserves the completed disposable-LXC qualification backend and provider lock as an out-of-band tombstone; it is not a steady or recovery root. Its tracked evidence remains schema-validated.
+- S3 native lockfiles and `-lock-timeout=5m` protect each OpenTofu backend.
+- A controller-wide lock spans all providers, Nix, Ansible, and Compose work.
+- VM protection, disk topology, hardware mappings, and boot changes remain protected fields.
+- Registry pulls and Compose builds remain disabled.
+- Ansible normal runs require one approved tag and matching confirmation.
+- Success requires all five OpenTofu roots, the Proxmox host plan, the Debian audit, and Compose simulation to be no-op.
 
-Do not delete either backend or run `state rm`, import, or backend migration merely because its configuration is empty.
-
-## State-address invariants
-
-The simplification deliberately preserves active resource addresses:
-
-- `proxmox_virtual_environment_vm.debian`
-- `omada_network.lan[0]`
-- `omada_dhcp_reservation.reservation[<mac>]`
-- `terraform_data.tailscale_policy[0]`
-
-VM 100, the Omada LAN, and the Tailscale policy anchor retain destruction protection. Address changes require an explicit state-migration design and a separately reviewed live plan; source refactoring alone must not rename, recount, forget, or recreate these resources.
-
-## Plan policy
-
-The inspector has two policy modes:
-
-- `normal` for every steady root and non-Proxmox recovery root;
-- `recovery` only for the Proxmox recovery plan.
-
-`normal` rejects destructive, replacement, compute creation, protection-disabling, root-disk-size, and network/device changes unless an enduring root allowlist explicitly permits them. `recovery` compares every expected Proxmox resource and protected field with a mode-`0600` expectations projection generated from the validated contract and protected disk identity; it accepts only exact creates/no-ops and rejects unrelated changes or unknown protected values. The projection SHA-256 is manifest-bound. The unresolved disposable Proxmox VM qualification configuration remains isolated in the main Proxmox root and is not enabled by normal steady/recovery input.
-
-The durable `proxmox.vm.hardware_attachment_mode` is `managed`. Zigbee and Z-Wave serial secrets are resolved on the Proxmox host to unique physical USB paths and passed as protected runtime OpenTofu inputs. The tracked contract declares explicit serial and port *reference names* but never the protected serial or port values. Reversing managed mode to raw would delete protected mapping resources and rewrite protected VM devices, so lifecycle and normal policy fail closed.
-
-A plan pass proves only that the proposed action shape is authorized. It does not prove that a provider operation works live.
-
-## Exact saved plans
-
-Planning initializes each isolated S3 backend, uses native lockfiles and `-lock-timeout=5m`, creates one binary saved plan per enabled root, checks that provider credentials do not appear in it, and runs the policy inspector. The version-5 manifest binds the commit, phase, backend bucket, exact OpenTofu root set, plan paths and SHA-256 values, the exact Proxmox Nix host plan path/internal/file hashes and action count, Compose artifact SHA-256, the protected Arch/Compose recovery extra-vars file when present, recovery backup identity and expectations projection, and Tailscale policy identities.
-
-Apply requires the exact manifest commit and a clean checkout. It reinitializes each backend, verifies every saved-plan hash and policy result, and calls `tofu apply` with the saved binary file. It never generates a new plan as an apply source; mandatory post-apply `tofu plan` runs are convergence verification only.
-
-Plan credentials are read-only. Apply verifies the saved-plan identity and requires interactive confirmation before mutation credentials are loaded. Provider credential values remain in mode-`0600` controller files or environment variables and never enter the manifest; the Tailscale OAuth client secret is URL-encoded through a protected temporary request file rather than a process argument.
-
-## Locks and Tailscale concurrency
-
-`reconcile-infrastructure apply` itself exclusively acquires and owns one nonblocking descriptor `flock` on the persistent regular file `.reconcile/controller-apply.lock`; callers cannot claim that the lock is already held. A fixed supervisor writes canonical ownership metadata, re-executes the reconciler with an inherited descriptor and ephemeral token, and the reconciler validates both before continuing. Nested Proxmox host/firewall apply paths validate and borrow that same ownership rather than reacquiring or unlinking the mutex. The lock spans OpenTofu, Ansible, Compose, and final verification; process exit releases it while the inert metadata file remains. Every root also uses the native S3 state lock.
-
-For the Tailscale root, planning records the canonical live policy SHA-256 and HTTP ETag as well as the planned before/after SHA-256 values. Apply refuses unrelated live drift, uses `If-Match`, verifies the resulting policy hash, and proves that live policy equals the state-held policy. The terminal policy retains direct owner/admin access required for Proxmox and Omada, including TCP 8043 to the Docker host.
-
-## Host and Compose convergence
-
-The Proxmox host is managed by the controller-side Nix workflow. The authoritative contract is projected through an explicit allowlist into tracked canonical, schema-closed JSON under `nix/proxmox/`; repository validation proves exact regeneration and exclusion of protected values, reference names, paths, controller/API locations, hardware identities, and migration/cleanup gates. The dedicated sanitized flake root is `nix/`, pinned to `nixos-26.05`; use `nix flake check 'path:./nix'` and `nix build 'path:./nix#proxmox-host-bundle'`. The explicit `path:` prefix prevents nested-flake Git resolution from archiving the repository root. No repository-root flake exists. Validation archives and scans the exact sanitized flake source, direct derivation source inputs, output, and closure. The flake builds a canonical content-hashed bundle containing the projection, current exact 1,353-package manifest with its count derived from hash-bound provenance, rendered safe ordinary files and audit expectations, and bound protocol-v4 observer, activator, and private-preparer helpers. Nix remains controller-side; ordinary fixed helpers run on Proxmox only after the separately approved console bootstrap.
-
-The local controller binds the exact ready Proxmox Nix host plan into the version-5 saved manifest and displays it with the OpenTofu plans. Guarded apply consumes only that saved plan through protected preparation and exact approval. Steady runs Nix before Proxmox OpenTofu; recovery runs Tailscale and Proxmox OpenTofu owner steps first, then Nix before Arch/Compose; final verification requires a fresh zero-action Nix host plan. Ansible retains only Arch and application recovery authority.
-
-Ansible check plans are run twice and normalized; differing plans fail closed. The protected extra-vars file is SHA-256-bound to the manifest, and controller-fixed Compose artifact and recovery values are passed last so file values cannot override them. Steady converges the Proxmox host through Nix and bounded Arch tags through Ansible, then stages the exact manifest-bound Compose artifact. Compose deployment reproduces a private action-plan hash immediately before activation, uses no builds or orphan removal, preserves current/previous artifact and environment generations, and requires an idempotent post-check. Failures retain the host production lock for inspected recovery.
-
-Recovery first applies Tailscale and Proxmox OpenTofu owner state, then reconciles the host through Nix and bootstraps Arch through the recovery inventory, restores only the exact reviewed backup into fresh targets, and activates Compose through the recovery-specific plan hash. Critical ZFS/storage restoration remains assertion-oriented and cannot format or overwrite existing storage.
-
-## Required final verification
-
-Every successful apply ends by replanning every enabled OpenTofu root and requiring exit code zero. It also requires:
-
-- live Tailscale policy/state equality;
-- a fresh zero-action Proxmox Nix host plan;
-- a zero-change Arch audit; and
-- for recovery, a no-op Arch bootstrap check.
-
-A changed or failed final check means reconciliation is incomplete even if earlier apply steps succeeded. See [`local-controller.md`](local-controller.md), [`compose-deployment.md`](compose-deployment.md), and [`../recovery/README.md`](../recovery/README.md).
+Generic encrypted backup restoration, Compose rollback, SOPS/age recovery, firewall recovery, and hardware-mapping recovery remain separate procedures under [`recovery/`](../recovery/) and the dedicated recovery documentation.

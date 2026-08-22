@@ -11,7 +11,7 @@
       ansible.builtin.assert:
         that:
           - ansible_facts.distribution == 'Archlinux'
-          - ansible_facts.hostname == network.arch.hostname
+          - ansible_facts.hostname == network.docker_host.hostname
           - ansible_check_mode or (proxmox_firewall_nfs_canary_install_confirmed | default(false) | bool)
         fail_msg: "Firewall NFS canary installation requires the intended Arch host and explicit approval."
 

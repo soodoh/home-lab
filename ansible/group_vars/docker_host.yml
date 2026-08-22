@@ -97,7 +97,7 @@ audit_expected_mounts:
   - path: "{{ storage.nfs.mountpoint }}"
     source: "{{ audit_nfs_source }}"
     fstype: nfs4
-  - path: "{{ arch.games_mountpoint }}"
+  - path: "{{ vm_100.storage.games.mountpoint }}"
     source: /dev/sdb1
     fstype: ext4
   - path: "{{ proxmox.vm.state_disk.mountpoint }}"
@@ -136,25 +136,22 @@ audit_root_cron_required: false
 apply_guard_allowed_tags:
   - host_files
   - base
-  - maintenance
   - storage
   - hardware
   - docker
   - compose
   - ssh
   - sops_age
-  - arch_network
   - tailscale
 bootstrap_allowed_apply_tags:
   - management_plane
 
-base_packages:
-  - cronie
-base_services:
-  - cronie.service
+base_packages: []
+base_services: []
 
 docker_packages:
-  - docker
+  - docker.io
+  - docker-cli
   - docker-compose
 docker_services:
   - docker.service
@@ -165,8 +162,8 @@ maintenance_manage_root_cron: true
 # preauthorized, one-use, and scoped to the contract's Docker-host tag.
 tailscale_package: tailscale
 tailscale_service: tailscaled.service
-tailscale_hostname: "{{ debian.production_cutover.tailscale_hostname }}"
-tailscale_advertise_tags: "{{ tailscale.tags.debian }}"
+tailscale_hostname: "{{ vm_100.host_name }}"
+tailscale_advertise_tags: "{{ tailscale.tags.docker_host }}"
 tailscale_advertise_routes: []
 tailscale_accept_dns: false
 tailscale_accept_routes: false

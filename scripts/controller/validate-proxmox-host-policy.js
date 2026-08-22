@@ -270,11 +270,11 @@ function validateProxmoxHostPolicy(contract) {
     failures.push("NFS export must equal the protected ZFS dataset mountpoint");
   }
 
-  const archAddress = contract.network.arch.ipv4.split("/")[0];
+  const dockerHostAddress = contract.network.docker_host.ipv4.split("/")[0];
   const expectedFirewallRules = [
     ["IN", "ACCEPT", contract.network.cidr, "tcp", 22, "nolog"],
     ["IN", "ACCEPT", contract.network.cidr, "tcp", 8006, "nolog"],
-    ["IN", "ACCEPT", `${archAddress}/32`, "tcp", 2049, "nolog"],
+    ["IN", "ACCEPT", `${dockerHostAddress}/32`, "tcp", 2049, "nolog"],
     ["IN", "ACCEPT", "0.0.0.0/0", "udp", 41641, "nolog"],
     ["IN", "ACCEPT", "100.64.0.0/10", "tcp", 22, "nolog"],
     ["IN", "ACCEPT", "100.64.0.0/10", "tcp", 8006, "nolog"],

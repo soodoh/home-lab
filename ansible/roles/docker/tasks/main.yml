@@ -1,9 +1,9 @@
 ---
-- name: Keep Docker packages present without pulling images or upgrading packages
+- name: Keep Debian Docker packages present without pulling images or upgrading packages
   ansible.builtin.include_role:
-    name: pacman_packages
+    name: apt_packages
   vars:
-    pacman_packages_requested: "{{ docker_packages }}"
+    apt_packages_requested: "{{ docker_packages }}"
 
 - name: Keep Docker enabled and started without restarting it
   ansible.builtin.systemd_service:

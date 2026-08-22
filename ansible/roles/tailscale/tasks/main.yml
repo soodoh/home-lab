@@ -1,24 +1,10 @@
 ---
-- name: Gather package facts before planning Tailscale bootstrap
-  ansible.builtin.package_facts:
-    manager: auto
-
-- name: Keep the Tailscale package present through native pacman
+- name: Keep the Debian Tailscale package present
   ansible.builtin.include_role:
-    name: pacman_packages
+    name: apt_packages
   vars:
-    pacman_packages_requested:
+    apt_packages_requested:
       - "{{ tailscale_package }}"
-  when: ansible_facts.distribution == 'Archlinux'
-
-- name: Keep the Tailscale package present through the detected non-pacman manager
-  ansible.builtin.package:
-    name: "{{ tailscale_package }}"
-    state: present
-  become: "{{ not ansible_check_mode }}"
-  when:
-    - ansible_facts.distribution != 'Archlinux'
-    - not ansible_check_mode or tailscale_package in ansible_facts.packages
 
 - name: Keep tailscaled enabled and started without restarting it
   ansible.builtin.systemd_service:

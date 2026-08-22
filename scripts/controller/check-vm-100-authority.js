@@ -9,26 +9,14 @@ const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
 
 function validateAuthority(vm100) {
   const authority = vm100?.deployment_authority;
-  if (!new Set(["arch", "debian"]).has(authority)) {
-    throw new Error("VM 100 deployment authority is invalid");
+  if (authority !== "debian") {
+    throw new Error("VM 100 deployment authority must be debian");
   }
   return authority;
 }
 
 function assertOrdinaryMutationPermitted(vm100) {
-  const authority = validateAuthority(vm100);
-  if (authority !== "arch") {
-    const error = new Error(`ordinary Arch steady/recovery mutation is inhibited for VM 100 authority ${authority}`);
-    error.code = "VM100_ORDINARY_MUTATION_INHIBITED";
-    error.authority = authority;
-    throw error;
-  }
-  return authority;
-}
-
-function refusalReason(authority) {
-  if (authority === "debian") return "debian_authoritative";
-  throw new Error(`no ordinary-mutation refusal reason for authority ${authority}`);
+  return validateAuthority(vm100);
 }
 
 function main() {
@@ -50,4 +38,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { assertOrdinaryMutationPermitted, refusalReason, validateAuthority };
+module.exports = { assertOrdinaryMutationPermitted, validateAuthority };

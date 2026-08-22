@@ -90,8 +90,8 @@ if (contract.proxmox.kernels.retention_count !== expectedRetentionCount) {
 if (contract.proxmox.kernels.require_boot_history_proof !== distinctFallback) {
   failures.push("boot-history proof must be enabled exactly when a distinct fallback kernel is retained");
 }
-const archHostAddress = contract.network.arch.ipv4.split("/")[0];
-if (contract.storage.nfs.client !== `${archHostAddress}/32`) failures.push("NFS client must be the Arch VM /32 address");
+const dockerHostAddress = contract.network.docker_host.ipv4.split("/")[0];
+if (contract.storage.nfs.client !== `${dockerHostAddress}/32`) failures.push("NFS client must be the Arch VM /32 address");
 if (contract.storage.nfs.client_vmid !== contract.proxmox.vm.vmid) failures.push("NFS client VMID must identify VM 100");
 const pveStorage = contract.storage.zfs.pve_storage;
 if (pveStorage.pool !== contract.storage.zfs.pool || pveStorage.nodes[0] !== contract.proxmox.node) {
@@ -101,8 +101,8 @@ const preservedRootPaths = new Set(contract.proxmox.root_cleanup.preserve_paths)
 for (const removablePath of contract.proxmox.root_cleanup.remove_paths) {
   if (preservedRootPaths.has(removablePath)) failures.push(`root cleanup path ${removablePath} is also preserved`);
 }
-if (contract.network.proxmox.ipv4 === contract.network.arch.ipv4) failures.push("host addresses must differ");
-if (contract.network.proxmox.mac === contract.network.arch.mac) failures.push("host MAC addresses must differ");
+if (contract.network.proxmox.ipv4 === contract.network.docker_host.ipv4) failures.push("host addresses must differ");
+if (contract.network.proxmox.mac === contract.network.docker_host.mac) failures.push("host MAC addresses must differ");
 
 if (!fs.existsSync(qualificationEvidencePath)) {
   failures.push("retired CT 101 requires infrastructure/evidence/proxmox-lxc-qualification.json");

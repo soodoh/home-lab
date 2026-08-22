@@ -1,6 +1,0 @@
-#!/bin/bash
-set -euo pipefail
-
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-export HOME_LAB_FLATCAR_LOCK_RELEASE_CONFIRMED=restart-reviewed-vm-100-release-inherited-locks
-exec "$root/scripts/release-flatcar-inherited-lock"

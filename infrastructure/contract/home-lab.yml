@@ -10,7 +10,7 @@ vm_100:
   vmid: 100
   host_name: docker-host
   network_identity: docker-host
-  # Debian is production authority; Arch remains an intact rollback asset through stability acceptance.
+  # Debian is the sole production and deployment authority.
   deployment_authority: debian
   workload_identity:
     user: docker
@@ -105,8 +105,8 @@ network:
     magicdns_name: proxmox
     ipv4: 192.168.0.123/24
     mac: E8:9C:25:46:62:3D
-  arch:
-    hostname: archlinux
+  docker_host:
+    hostname: docker-host
     magicdns_name: docker-host
     ipv4: 192.168.0.100/24
     mac: BC:24:11:89:19:5A
@@ -930,13 +930,13 @@ proxmox:
       - /usr/local
   vm:
     vmid: 100
-    name: arch
+    name: docker-host
     hardware_attachment_mode: managed
     desired_protection: true
     on_boot: true
     started: true
     boot_order:
-      - scsi0
+      - scsi3
       - net0
     cpu:
       cores: 24
@@ -946,7 +946,7 @@ proxmox:
     memory_mb: 65536
     machine: q35
     smbios_uuid: 03061602-d590-4d23-be5c-97f9954b3053
-    root_disk:
+    retired_disk_slot:
       datastore: local-lvm
       interface: scsi0
       size_gb: 550
@@ -1014,11 +1014,6 @@ proxmox:
         vendor_device: 0bda:a729
         mapping: realtek-bluetooth
         usb3: true
-    cloud_image:
-      version: v20260801.566320
-      url: https://geo.mirror.pkgbuild.com/images/v20260801.566320/Arch-Linux-x86_64-cloudimg-20260801.566320.qcow2
-      sha256: 9ca8d4b0a60e53b8aa1ac2317166ecffc4e9eae8d0b28b7ca0e3d333578f9a07
-      signature_url: https://geo.mirror.pkgbuild.com/images/v20260801.566320/Arch-Linux-x86_64-cloudimg-20260801.566320.qcow2.sig
   legacy_container:
     vmid: 101
     name: tailscale-gateway
@@ -1100,61 +1095,6 @@ storage:
       - sync
       - no_subtree_check
     squash_policy: no_root_squash
-arch:
-  repository_snapshot: "2026/08/01"
-  network_interface: ens18
-  user: docker
-  games_mountpoint: /mnt/games
-  packages:
-    kernel: 7.1.5.arch1-2
-    docker: "1:29.6.2-1"
-    docker_compose: 5.3.1-1
-    tailscale: 1.98.10-1
-flatcar:
-  channel: stable
-  qualification_stage: hardware-blocked
-  version: 4593.2.5
-  build_id: "2026-08-11-2350"
-  image:
-    url: https://stable.release.flatcar-linux.net/amd64-usr/4593.2.5/flatcar_production_proxmoxve_image.img
-    digest_url: https://stable.release.flatcar-linux.net/amd64-usr/4593.2.5/flatcar_production_proxmoxve_image.img.DIGESTS
-    sha512: 21fdba07ffc73aac80aa40f1f99e0460e2d53b1c2815a774d5e2940d2b5cfa78fb2c86391fbf3bb76e28e8ece1ca41333f30ce18d1dd3f0c016e95bed120aba8
-  butane:
-    version: 0.29.0
-    config_variant: flatcar
-    config_version: 1.1.0
-    darwin_aarch64_url: https://github.com/coreos/butane/releases/download/v0.29.0/butane-aarch64-apple-darwin
-    darwin_aarch64_sha256: 9d27a4093e4908d6a66b3996ccf4aaf2ea6123972809c4d47dc1b14ac05d8417
-    linux_x86_64_url: https://github.com/coreos/butane/releases/download/v0.29.0/butane-x86_64-unknown-linux-gnu
-    linux_x86_64_sha256: 53a20d820fbaa7fda4f1afd1814974badc8e448db4c151d3f1ba005dc29bc4c9
-  compose:
-    version: 5.3.1
-    url: https://github.com/docker/compose/releases/download/v5.3.1/docker-compose-linux-x86_64
-    sha256: f9ebc6ebdb19d769b793c245a736caaeb198c62587f13b25c660c13b4987f959
-  tailscale:
-    version: 1.98.10
-    url: https://pkgs.tailscale.com/stable/tailscale_1.98.10_amd64.tgz
-    sha256: 52490ce0832b245857e2afef7426d6ae5a4b49fb391412833cc95729bd23f7de
-  network_interface: ens18
-  production_ignition:
-    version: 3.4.0
-    sha256: d60808452116247828f749517a66ec29d4656c4978d2997ab22e938d8cb4bc6d
-    size: 76685
-  os_disk:
-    datastore: local-lvm
-    path_in_datastore: vm-100-disk-2
-    interface: scsi3
-    serial: HOME-LAB-FLATCAR-64G
-    size_gb: 64
-    ignition_drive_interface: ide2
-    ignition_drive_datastore: local-lvm
-    snippet_storage: local
-    snippet_path: /var/lib/vz/snippets/vm-100-flatcar.ign
-    qualification_boot_order:
-      - scsi3
-      - scsi0
-      - net0
-    rollback_days: 7
 debian:
   release: trixie
   version: "13"
@@ -1194,10 +1134,9 @@ debian:
     interface: scsi3
     serial: HOME-LAB-DEBIAN-64G
     size_gb: 64
-    qualification_boot_order:
+    boot_order:
       - scsi3
       - net0
-    rollback_days: 7
   qualification:
     os_id: debian
     kernel_release: 6.12.101+deb13-amd64
@@ -1215,157 +1154,6 @@ debian:
       - /mnt/storage
     compose_service: home-lab-compose.service
     automatic_reboot: false
-  cutover:
-    stage: production
-    package_source: debian-stable
-    docker_package: docker.io
-    docker_cli_package: docker-cli
-    compose_package: docker-compose
-    expected_service_count: 41
-    expected_state_bind_count: 118
-    expected_docker_volume_mount_count: 0
-    state_mountpoint: /srv/home-lab-state
-    games_mountpoint: /mnt/games
-    nfs_mountpoint: /mnt/storage
-    credentials: staged
-    tailscale_enrollment: deferred
-    rollback_boot_order:
-      - scsi0
-      - net0
-    transition_restore: physical-host-reboot
-    package_evidence: post-reboot-arch-verified
-    storage_rehearsal:
-      mode: read-only
-      isolated_mount_root: /run/home-lab-storage-rehearsal
-      ext4_options:
-        - ro
-        - noload
-        - nodev
-        - nosuid
-        - noexec
-      nfs_source: 192.168.0.123:/storage/docker
-      nfs_options:
-        - ro
-        - nodev
-        - nosuid
-        - noexec
-        - vers=4.2
-      state_min_available_bytes: 50000000000
-      games_min_available_bytes: 2000000000000
-      nfs_min_available_bytes: 10000000000000
-      workload_uid: 1000
-      workload_gid: 1000
-      expected_state_directories:
-        - audiobookshelf-data
-        - authentik-data
-        - bookshelf-data
-        - caddy-data
-        - calibre-data
-        - calibre-web-data
-        - calibre-web-ingest
-        - caro-tachidesk-data
-        - ddns-updater-data
-        - flaresolverr-data
-        - frigate-data
-        - gluetun-data
-        - hass-data
-        - jellyfin-data
-        - karaoke-eternal-data
-        - litellm-data
-        - mosquitto-data
-        - nextcloud-db-data
-        - nextcloud-redis-data
-        - omada-data
-        - openfit-data
-        - pihole-data
-        - prowlarr-data
-        - qbittorrent-data
-        - radarr-4k-data
-        - radarr-data
-        - recyclarr-data
-        - sabnzbd-data
-        - seerr-data
-        - sonarr-data
-        - tachidesk-data
-        - vaultwarden-data
-        - vikunja-data
-        - zwave-data
-      expected_games_directories:
-        - backups
-        - bioses
-        - es-de-media
-        - roms
-        - wolf
-      expected_nfs_directories:
-        - backups
-        - media
-        - vuetorrent
-      evidence: post-reboot-arch-verified
-    credentials_stage:
-      phase: credentials-staged
-      identity_path: /etc/sops/age/keys.txt
-      recipient_evidence: infrastructure/evidence/vm-100-debian-age-identity.json
-      recipient_commit_evidence: infrastructure/evidence/vm-100-debian-sops-recipient.json
-      staging_evidence: infrastructure/evidence/vm-100-debian-credentials-compose-staged.json
-      private_identity_exported: false
-      sops_version: 3.13.3
-      sops_sha256: e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
-      age_version: 1.3.1
-      age_archive_sha256: bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377
-      age_sha256: 2e305637f2a0555305e21c17fb74446acbb39b53135d43d4b744e50c287133a5
-      age_keygen_sha256: c56ef69834e18ca4d3b953117f4481522c35fb6862a5d2871685aa4685893664
-      expected_sops_recipient_count: 3
-      current_compose_artifact_sha256: d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c
-      compose_validation: staged-quiet-pass
-      docker_runtime: inactive
-      tailscale: deferred
-    production_canary:
-      phase: verified
-      service: openfit
-      image: ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778
-      artifact_sha256: d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c
-      state_bind: /srv/home-lab-state/openfit-data
-      state_metadata: root:root:755
-      backup_max_age_hours: 168
-      backup_replica_count: 2
-      backup_validation: existing-local-replicas-sidecar-and-sample
-      s3_checked: false
-      image_transfer_path: /srv/home-lab-state/.debian-openfit-canary-image.tar
-      pulls: disabled
-      runtime_environment: staged-only
-      protected_mounts: transient-cleanup-required
-      docker_runtime: transient-cleanup-required
-      tailscale: deferred
-      production_boot: false
-    production_cutover:
-      phase: verified
-      scope: full-compose-and-tailscale
-      compose_artifact_sha256: d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c
-      model_inventory_sha256: f36ba480734143d51affdc789b2ef782bee063dfb96a248d5048568a82f5a16e
-      image_lock: infrastructure/debian/production-image-lock.json
-      image_lock_sha256: c74199885009f0082cc7b5956eeb526ad895d1cab1605df15998767185aec726
-      image_service_count: 41
-      unique_image_count: 36
-      image_transfer_path: /srv/home-lab-state/.debian-production-images.tar
-      pulls: disabled
-      backup_validation: existing-local-replicas-sidecar-and-sample
-      runtime_environment: installed
-      protected_mounts: persistent
-      docker_runtime: persistent
-      tailscale_enrollment: one-use-preauthorized-key
-      tailscale_version: 1.98.4
-      tailscale_archive_sha256: e6c08a8ee7e63e69aaf1b62ecd12672b3883fbcd2a176bf6cfa42a15fdce0b6b
-      tailscale_tag: tag:docker-host
-      tailscale_hostname: docker-host-debian
-      tailscale_key_delivery: age-encrypted-debian-recipient
-      tailscale_key_expiry_seconds: 86400
-      tailscale_key_artifact: infrastructure/debian/production-tailscale-authkey.age
-      production_boot: verified
-      rollback_boot_order:
-        - scsi0
-        - net0
-      rollback_requires_physical_reboot: true
-    minimum_observation_days: 7
 omada:
   controller_version: 6.2.14.11
   endpoint: https://Omada:8043
@@ -1373,8 +1161,7 @@ omada:
 tailscale:
   owner_identity: soodoh@github
   tags:
-    arch: tag:docker-host
-    debian: tag:docker-host
+    docker_host: tag:docker-host
     proxmox: tag:proxmox
   required_endpoints:
     - docker-host:22

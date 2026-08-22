@@ -53,12 +53,10 @@ if (stateDisk.interface !== "scsi2" || stateDisk.serial !== "QUAL-NIXOS-128G" ||
   throw new Error("production state disk must retain the exact scsi2 filesystem identity and lifecycle");
 }
 
-for (const authority of ["arch", "debian"]) {
-  const validVmAuthority = structuredClone(contract);
-  validVmAuthority.vm_100.deployment_authority = authority;
-  check(validVmAuthority, true, `VM 100 accepts ${authority} authority`);
-}
-for (const authority of ["migration-in-progress", "nixos", "flatcar", "dual"]) {
+const validVmAuthority = structuredClone(contract);
+validVmAuthority.vm_100.deployment_authority = "debian";
+check(validVmAuthority, true, "VM 100 accepts Debian authority");
+for (const authority of ["arch", "migration-in-progress", "nixos", "flatcar", "dual"]) {
   const invalidVmAuthority = structuredClone(contract);
   invalidVmAuthority.vm_100.deployment_authority = authority;
   check(invalidVmAuthority, false, `VM 100 rejects retired authority ${authority}`);
@@ -104,7 +102,7 @@ const closedRequiredPolicyObjects = [
   "network.ownership",
   "network.ownership.interfaces_file",
   "proxmox.vm",
-  "proxmox.vm.root_disk",
+  "proxmox.vm.retired_disk_slot",
   "proxmox.vm.state_disk",
   "proxmox.vm.games_disk",
   "proxmox.grub",
@@ -296,13 +294,6 @@ const missingPackageManifestReference = structuredClone(contract);
 delete missingPackageManifestReference.proxmox.packages.manifest;
 check(missingPackageManifestReference, false, "missing package manifest reference");
 
-const missing = structuredClone(contract);
-delete missing.arch.packages.kernel;
-check(missing, false, "missing required package");
-
-const unknown = structuredClone(contract);
-unknown.arch.packages.parallel_runtime = "1.2.3-1";
-check(unknown, false, "unknown package");
 
 const customRom = structuredClone(contract);
 customRom.proxmox.vm.pci.gpu.rom_file = "unmanaged.rom";
@@ -320,11 +311,6 @@ if (!romFailures.some((failure) => failure.includes("source, SHA-256, and host p
   throw new Error(`unmanaged Tofu ROM unexpectedly passed: ${JSON.stringify(romFailures)}`);
 }
 
-for (const key of ["kernel", "docker", "docker_compose", "tailscale"]) {
-  const malformed = structuredClone(contract);
-  malformed.arch.packages[key] = "latest";
-  check(malformed, false, `malformed ${key} version`);
-}
 
 const malformedService = structuredClone(contract);
 malformedService.proxmox.services[0] = "chrony";

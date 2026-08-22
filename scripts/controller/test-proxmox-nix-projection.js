@@ -47,7 +47,7 @@ for (const segments of objectPaths(projected)) {
 
 function mutateExcludedInputs(value) {
   value.network.proxmox.mac = "AA:AA:AA:AA:AA:AA";
-  value.network.arch.mac = "BB:BB:BB:BB:BB:BB";
+  value.network.docker_host.mac = "BB:BB:BB:BB:BB:BB";
   value.proxmox.api_endpoint = "https://protected-controller.invalid/api";
   value.proxmox.vfio.modprobe_file.path = "/protected/hardware-bound-vfio.conf";
   value.proxmox.access.sudo_validation.executable = "/protected/controller/validator";
@@ -73,7 +73,7 @@ function mutateExcludedInputs(value) {
   value.proxmox.packages.manifest.path = "/protected/controller/package-manifest.json";
   value.proxmox.root_cleanup = { mutated_cleanup_marker: "/protected/cleanup-marker" };
   value.proxmox.vm.memory_mb = 1;
-  value.proxmox.vm.root_disk.size_gb = 1;
+  value.proxmox.vm.retired_disk_slot.size_gb = 1;
   value.storage.zfs.pool_guid_secret_ref = "MUTATED_POOL_GUID_REF";
   value.storage.zfs.members = [{ secret_ref: "MUTATED_MEMBER_REF", mirror: 999 }];
   return value;

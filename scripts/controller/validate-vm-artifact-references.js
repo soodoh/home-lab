@@ -4,7 +4,7 @@ function validateVmArtifactReferences(contract, proxmoxSource) {
   const failures = [];
   const vm = contract.proxmox.vm;
   const declaredBootDevices = new Set([
-    vm.root_disk.interface,
+    contract.debian.os_disk.interface,
     vm.games_disk.interface,
     "net0",
   ]);

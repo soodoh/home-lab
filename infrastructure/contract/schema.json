@@ -4,7 +4,7 @@
   "title": "Home lab infrastructure contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "system_name", "recovery", "vm_100", "network", "proxmox", "storage", "arch", "flatcar", "debian", "omada", "tailscale", "aws", "backups"],
+  "required": ["version", "system_name", "recovery", "vm_100", "network", "proxmox", "storage", "debian", "omada", "tailscale", "aws", "backups"],
   "properties": {
     "version": { "const": 1 },
     "system_name": { "const": "home-lab" },
@@ -23,7 +23,7 @@
     "network": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cidr", "gateway", "dns", "bridge", "bridge_port", "ownership", "proxmox", "arch"],
+      "required": ["cidr", "gateway", "dns", "bridge", "bridge_port", "ownership", "proxmox", "docker_host"],
       "properties": {
         "cidr": { "$ref": "#/$defs/cidr" },
         "gateway": { "$ref": "#/$defs/ipv4" },
@@ -32,7 +32,7 @@
         "bridge_port": { "type": "string", "minLength": 1 },
         "ownership": { "$ref": "#/$defs/networkOwnership" },
         "proxmox": { "$ref": "#/$defs/host" },
-        "arch": { "$ref": "#/$defs/host" }
+        "docker_host": { "$ref": "#/$defs/host" }
       }
     },
     "proxmox": {
@@ -68,116 +68,10 @@
         "nfs": { "$ref": "#/$defs/nfsPolicy" }
       }
     },
-    "arch": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["network_interface", "user", "games_mountpoint", "repository_snapshot", "packages"],
-      "properties": {
-        "network_interface": { "type": "string", "minLength": 1 },
-        "user": { "type": "string", "minLength": 1 },
-        "games_mountpoint": { "type": "string", "pattern": "^/" },
-        "repository_snapshot": { "type": "string", "pattern": "^[0-9]{4}/[0-9]{2}/[0-9]{2}$" },
-        "packages": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["kernel", "docker", "docker_compose", "tailscale"],
-          "properties": {
-            "kernel": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+\\.arch[0-9]+-[1-9][0-9]*$" },
-            "docker": { "type": "string", "pattern": "^[1-9][0-9]*:[0-9]+\\.[0-9]+\\.[0-9]+-[1-9][0-9]*$" },
-            "docker_compose": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-[1-9][0-9]*$" },
-            "tailscale": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-[1-9][0-9]*$" }
-          }
-        }
-      }
-    },
-    "flatcar": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["channel", "qualification_stage", "version", "build_id", "image", "butane", "compose", "tailscale", "network_interface", "production_ignition", "os_disk"],
-      "properties": {
-        "channel": { "const": "stable" },
-        "qualification_stage": { "enum": ["ignition-attached", "ready-for-first-boot", "flatcar-inert", "hardware-blocked"] },
-        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
-        "build_id": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{4}$" },
-        "image": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["url", "digest_url", "sha512"],
-          "properties": {
-            "url": { "type": "string", "pattern": "^https://stable\\.release\\.flatcar-linux\\.net/amd64-usr/[0-9]+\\.[0-9]+\\.[0-9]+/flatcar_production_proxmoxve_image\\.img$" },
-            "digest_url": { "type": "string", "pattern": "^https://stable\\.release\\.flatcar-linux\\.net/amd64-usr/[0-9]+\\.[0-9]+\\.[0-9]+/flatcar_production_proxmoxve_image\\.img\\.DIGESTS$" },
-            "sha512": { "type": "string", "pattern": "^[0-9a-f]{128}$" }
-          }
-        },
-        "butane": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["version", "config_variant", "config_version", "darwin_aarch64_url", "darwin_aarch64_sha256", "linux_x86_64_url", "linux_x86_64_sha256"],
-          "properties": {
-            "version": { "const": "0.29.0" },
-            "config_variant": { "const": "flatcar" },
-            "config_version": { "const": "1.1.0" },
-            "darwin_aarch64_url": { "type": "string", "pattern": "^https://github\\.com/coreos/butane/releases/download/v0\\.29\\.0/butane-aarch64-apple-darwin$" },
-            "darwin_aarch64_sha256": { "$ref": "#/$defs/sha256" },
-            "linux_x86_64_url": { "type": "string", "pattern": "^https://github\\.com/coreos/butane/releases/download/v0\\.29\\.0/butane-x86_64-unknown-linux-gnu$" },
-            "linux_x86_64_sha256": { "$ref": "#/$defs/sha256" }
-          }
-        },
-        "compose": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["version", "url", "sha256"],
-          "properties": {
-            "version": { "const": "5.3.1" },
-            "url": { "type": "string", "pattern": "^https://github\\.com/docker/compose/releases/download/v5\\.3\\.1/docker-compose-linux-x86_64$" },
-            "sha256": { "$ref": "#/$defs/sha256" }
-          }
-        },
-        "tailscale": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["version", "url", "sha256"],
-          "properties": {
-            "version": { "const": "1.98.10" },
-            "url": { "type": "string", "pattern": "^https://pkgs\\.tailscale\\.com/stable/tailscale_1\\.98\\.10_amd64\\.tgz$" },
-            "sha256": { "$ref": "#/$defs/sha256" }
-          }
-        },
-        "network_interface": { "const": "ens18" },
-        "production_ignition": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["version", "sha256", "size"],
-          "properties": {
-            "version": { "const": "3.4.0" },
-            "sha256": { "$ref": "#/$defs/sha256" },
-            "size": { "const": 76685 }
-          }
-        },
-        "os_disk": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["datastore", "path_in_datastore", "interface", "serial", "size_gb", "ignition_drive_interface", "ignition_drive_datastore", "snippet_storage", "snippet_path", "qualification_boot_order", "rollback_days"],
-          "properties": {
-            "datastore": { "const": "local-lvm" },
-            "path_in_datastore": { "const": "vm-100-disk-2" },
-            "interface": { "const": "scsi3" },
-            "serial": { "const": "HOME-LAB-FLATCAR-64G" },
-            "size_gb": { "const": 64 },
-            "ignition_drive_interface": { "const": "ide2" },
-            "ignition_drive_datastore": { "const": "local-lvm" },
-            "snippet_storage": { "const": "local" },
-            "snippet_path": { "const": "/var/lib/vz/snippets/vm-100-flatcar.ign" },
-            "qualification_boot_order": { "type": "array", "prefixItems": [{ "const": "scsi3" }, { "const": "scsi0" }, { "const": "net0" }], "items": false, "minItems": 3, "maxItems": 3 },
-            "rollback_days": { "const": 7 }
-          }
-        }
-      }
-    },
     "debian": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["release", "version", "point_release", "build_id", "qualification_stage", "image", "cloud_init", "os_disk", "qualification", "cutover"],
+      "required": ["release", "version", "point_release", "build_id", "qualification_stage", "image", "cloud_init", "os_disk", "qualification"],
       "properties": {
         "release": { "const": "trixie" },
         "version": { "const": "13" },
@@ -244,15 +138,14 @@
         "os_disk": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["datastore", "path_in_datastore", "interface", "serial", "size_gb", "qualification_boot_order", "rollback_days"],
+          "required": ["datastore", "path_in_datastore", "interface", "serial", "size_gb", "boot_order"],
           "properties": {
             "datastore": { "const": "local-lvm" },
             "path_in_datastore": { "const": "vm-100-disk-2" },
             "interface": { "const": "scsi3" },
             "serial": { "const": "HOME-LAB-DEBIAN-64G" },
             "size_gb": { "const": 64 },
-            "qualification_boot_order": { "type": "array", "prefixItems": [{ "const": "scsi3" }, { "const": "net0" }], "items": false, "minItems": 2, "maxItems": 2 },
-            "rollback_days": { "const": 7 }
+            "boot_order": { "type": "array", "prefixItems": [{ "const": "scsi3" }, { "const": "net0" }], "items": false, "minItems": 2, "maxItems": 2 }
           }
         },
         "qualification": {
@@ -270,131 +163,6 @@
             "protected_mounts": { "type": "array", "prefixItems": [{ "const": "/srv/home-lab-state" }, { "const": "/mnt/games" }, { "const": "/mnt/storage" }], "items": false, "minItems": 3, "maxItems": 3 },
             "compose_service": { "const": "home-lab-compose.service" },
             "automatic_reboot": { "const": false }
-          }
-        },
-        "cutover": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["stage", "package_source", "docker_package", "docker_cli_package", "compose_package", "expected_service_count", "expected_state_bind_count", "expected_docker_volume_mount_count", "state_mountpoint", "games_mountpoint", "nfs_mountpoint", "credentials", "tailscale_enrollment", "rollback_boot_order", "transition_restore", "package_evidence", "storage_rehearsal", "credentials_stage", "production_canary", "production_cutover", "minimum_observation_days"],
-          "properties": {
-            "stage": { "enum": ["qualified", "packages-prepared", "storage-rehearsed", "credentials-staged", "production-canary", "production", "rollback"] },
-            "package_source": { "const": "debian-stable" },
-            "docker_package": { "const": "docker.io" },
-            "docker_cli_package": { "const": "docker-cli" },
-            "compose_package": { "const": "docker-compose" },
-            "expected_service_count": { "const": 41 },
-            "expected_state_bind_count": { "const": 118 },
-            "expected_docker_volume_mount_count": { "const": 0 },
-            "state_mountpoint": { "const": "/srv/home-lab-state" },
-            "games_mountpoint": { "const": "/mnt/games" },
-            "nfs_mountpoint": { "const": "/mnt/storage" },
-            "credentials": { "enum": ["deferred", "staged"] },
-            "tailscale_enrollment": { "enum": ["deferred", "staged", "enrolled"] },
-            "rollback_boot_order": { "type": "array", "prefixItems": [{ "const": "scsi0" }, { "const": "net0" }], "items": false, "minItems": 2, "maxItems": 2 },
-            "transition_restore": { "const": "physical-host-reboot" },
-            "package_evidence": { "const": "post-reboot-arch-verified" },
-            "storage_rehearsal": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["mode", "isolated_mount_root", "ext4_options", "nfs_source", "nfs_options", "state_min_available_bytes", "games_min_available_bytes", "nfs_min_available_bytes", "workload_uid", "workload_gid", "expected_state_directories", "expected_games_directories", "expected_nfs_directories", "evidence"],
-              "properties": {
-                "mode": { "const": "read-only" },
-                "isolated_mount_root": { "const": "/run/home-lab-storage-rehearsal" },
-                "ext4_options": { "const": ["ro", "noload", "nodev", "nosuid", "noexec"] },
-                "nfs_source": { "const": "192.168.0.123:/storage/docker" },
-                "nfs_options": { "const": ["ro", "nodev", "nosuid", "noexec", "vers=4.2"] },
-                "state_min_available_bytes": { "const": 50000000000 },
-                "games_min_available_bytes": { "const": 2000000000000 },
-                "nfs_min_available_bytes": { "const": 10000000000000 },
-                "workload_uid": { "const": 1000 },
-                "workload_gid": { "const": 1000 },
-                "expected_state_directories": { "const": ["audiobookshelf-data", "authentik-data", "bookshelf-data", "caddy-data", "calibre-data", "calibre-web-data", "calibre-web-ingest", "caro-tachidesk-data", "ddns-updater-data", "flaresolverr-data", "frigate-data", "gluetun-data", "hass-data", "jellyfin-data", "karaoke-eternal-data", "litellm-data", "mosquitto-data", "nextcloud-db-data", "nextcloud-redis-data", "omada-data", "openfit-data", "pihole-data", "prowlarr-data", "qbittorrent-data", "radarr-4k-data", "radarr-data", "recyclarr-data", "sabnzbd-data", "seerr-data", "sonarr-data", "tachidesk-data", "vaultwarden-data", "vikunja-data", "zwave-data"] },
-                "expected_games_directories": { "const": ["backups", "bioses", "es-de-media", "roms", "wolf"] },
-                "expected_nfs_directories": { "const": ["backups", "media", "vuetorrent"] },
-                "evidence": { "const": "post-reboot-arch-verified" }
-              }
-            },
-            "credentials_stage": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["phase", "identity_path", "recipient_evidence", "recipient_commit_evidence", "staging_evidence", "private_identity_exported", "sops_version", "sops_sha256", "age_version", "age_archive_sha256", "age_sha256", "age_keygen_sha256", "expected_sops_recipient_count", "current_compose_artifact_sha256", "compose_validation", "docker_runtime", "tailscale"],
-              "properties": {
-                "phase": { "enum": ["identity-not-generated", "identity-generated", "recipient-committed", "credentials-staged"] },
-                "identity_path": { "const": "/etc/sops/age/keys.txt" },
-                "recipient_evidence": { "enum": ["post-reboot-arch-verified", "infrastructure/evidence/vm-100-debian-age-identity.json"] },
-                "recipient_commit_evidence": { "const": "infrastructure/evidence/vm-100-debian-sops-recipient.json" },
-                "staging_evidence": { "const": "infrastructure/evidence/vm-100-debian-credentials-compose-staged.json" },
-                "private_identity_exported": { "const": false },
-                "sops_version": { "const": "3.13.3" },
-                "sops_sha256": { "const": "e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b" },
-                "age_version": { "const": "1.3.1" },
-                "age_archive_sha256": { "const": "bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377" },
-                "age_sha256": { "const": "2e305637f2a0555305e21c17fb74446acbb39b53135d43d4b744e50c287133a5" },
-                "age_keygen_sha256": { "const": "c56ef69834e18ca4d3b953117f4481522c35fb6862a5d2871685aa4685893664" },
-                "expected_sops_recipient_count": { "const": 3 },
-                "current_compose_artifact_sha256": { "$ref": "#/$defs/sha256" },
-                "compose_validation": { "enum": ["deferred-until-recipient-commit", "staged-quiet-pass"] },
-                "docker_runtime": { "const": "inactive" },
-                "tailscale": { "const": "deferred" }
-              }
-            },
-            "production_canary": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["phase", "service", "image", "artifact_sha256", "state_bind", "state_metadata", "backup_max_age_hours", "backup_replica_count", "backup_validation", "s3_checked", "image_transfer_path", "pulls", "runtime_environment", "protected_mounts", "docker_runtime", "tailscale", "production_boot"],
-              "properties": {
-                "phase": { "enum": ["not-run", "verified"] },
-                "service": { "const": "openfit" },
-                "image": { "const": "ghcr.io/soodoh/openfit:latest@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778" },
-                "artifact_sha256": { "const": "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" },
-                "state_bind": { "const": "/srv/home-lab-state/openfit-data" },
-                "state_metadata": { "const": "root:root:755" },
-                "backup_max_age_hours": { "const": 168 },
-                "backup_replica_count": { "const": 2 },
-                "backup_validation": { "const": "existing-local-replicas-sidecar-and-sample" },
-                "s3_checked": { "const": false },
-                "image_transfer_path": { "const": "/srv/home-lab-state/.debian-openfit-canary-image.tar" },
-                "pulls": { "const": "disabled" },
-                "runtime_environment": { "const": "staged-only" },
-                "protected_mounts": { "const": "transient-cleanup-required" },
-                "docker_runtime": { "const": "transient-cleanup-required" },
-                "tailscale": { "const": "deferred" },
-                "production_boot": { "const": false }
-              }
-            },
-            "production_cutover": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["phase", "scope", "compose_artifact_sha256", "model_inventory_sha256", "image_lock", "image_lock_sha256", "image_service_count", "unique_image_count", "image_transfer_path", "pulls", "backup_validation", "runtime_environment", "protected_mounts", "docker_runtime", "tailscale_enrollment", "tailscale_version", "tailscale_archive_sha256", "tailscale_tag", "tailscale_hostname", "tailscale_key_delivery", "tailscale_key_expiry_seconds", "tailscale_key_artifact", "production_boot", "rollback_boot_order", "rollback_requires_physical_reboot"],
-              "properties": {
-                "phase": { "enum": ["designed", "key-staged", "awaiting-host-reboot", "verified"] },
-                "scope": { "const": "full-compose-and-tailscale" },
-                "compose_artifact_sha256": { "const": "d23478a665cfc668efc8bf1296783f05b75a8c84080758c33eb264f45f1e3d5c" },
-                "model_inventory_sha256": { "const": "f36ba480734143d51affdc789b2ef782bee063dfb96a248d5048568a82f5a16e" },
-                "image_lock": { "const": "infrastructure/debian/production-image-lock.json" },
-                "image_lock_sha256": { "const": "c74199885009f0082cc7b5956eeb526ad895d1cab1605df15998767185aec726" },
-                "image_service_count": { "const": 41 },
-                "unique_image_count": { "const": 36 },
-                "image_transfer_path": { "const": "/srv/home-lab-state/.debian-production-images.tar" },
-                "pulls": { "const": "disabled" },
-                "backup_validation": { "const": "existing-local-replicas-sidecar-and-sample" },
-                "runtime_environment": { "enum": ["install-staged", "installed"] },
-                "protected_mounts": { "const": "persistent" },
-                "docker_runtime": { "const": "persistent" },
-                "tailscale_enrollment": { "const": "one-use-preauthorized-key" },
-                "tailscale_version": { "const": "1.98.4" },
-                "tailscale_archive_sha256": { "const": "e6c08a8ee7e63e69aaf1b62ecd12672b3883fbcd2a176bf6cfa42a15fdce0b6b" },
-                "tailscale_tag": { "const": "tag:docker-host" },
-                "tailscale_hostname": { "const": "docker-host-debian" },
-                "tailscale_key_delivery": { "const": "age-encrypted-debian-recipient" },
-                "tailscale_key_expiry_seconds": { "const": 86400 },
-                "tailscale_key_artifact": { "type": "string", "minLength": 1 },
-                "production_boot": { "enum": ["pending-physical-reboot-verification", "verified"] },
-                "rollback_boot_order": { "const": ["scsi0", "net0"] },
-                "rollback_requires_physical_reboot": { "const": true }
-              }
-            },
-            "minimum_observation_days": { "const": 7 }
           }
         }
       }
@@ -418,10 +186,9 @@
         "tags": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["arch", "debian", "proxmox"],
+          "required": ["docker_host", "proxmox"],
           "properties": {
-            "arch": { "type": "string", "pattern": "^tag:" },
-            "debian": { "type": "string", "pattern": "^tag:" },
+            "docker_host": { "type": "string", "pattern": "^tag:" },
             "proxmox": { "type": "string", "pattern": "^tag:" }
           }
         },
@@ -475,7 +242,7 @@
         "vmid": { "const": 100 },
         "host_name": { "const": "docker-host" },
         "network_identity": { "const": "docker-host" },
-        "deployment_authority": { "enum": ["arch", "debian"] },
+        "deployment_authority": { "const": "debian" },
         "workload_identity": {
           "type": "object", "additionalProperties": false,
           "required": ["user", "uid", "primary_group", "gid", "home", "shell", "supplementary_groups"],
@@ -1354,10 +1121,10 @@
     "vm": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["vmid", "name", "hardware_attachment_mode", "desired_protection", "on_boot", "started", "boot_order", "cpu", "memory_mb", "machine", "smbios_uuid", "root_disk", "state_disk", "games_disk", "pci", "usb", "cloud_image"],
+      "required": ["vmid", "name", "hardware_attachment_mode", "desired_protection", "on_boot", "started", "boot_order", "cpu", "memory_mb", "machine", "smbios_uuid", "retired_disk_slot", "state_disk", "games_disk", "pci", "usb"],
       "properties": {
         "vmid": { "const": 100 },
-        "name": { "const": "arch" },
+        "name": { "const": "docker-host" },
         "hardware_attachment_mode": { "type": "string", "enum": ["raw", "managed"] },
         "desired_protection": { "const": true },
         "on_boot": { "const": true },
@@ -1367,12 +1134,11 @@
         "memory_mb": { "const": 65536 },
         "machine": { "const": "q35" },
         "smbios_uuid": { "type": "string" },
-        "root_disk": { "$ref": "#/$defs/rootDisk" },
+        "retired_disk_slot": { "$ref": "#/$defs/rootDisk" },
         "state_disk": { "$ref": "#/$defs/stateDisk" },
         "games_disk": { "$ref": "#/$defs/gamesDisk" },
         "pci": { "type": "object", "additionalProperties": false, "required": ["gpu", "gpu_audio", "host_igpu"], "properties": { "gpu": { "$ref": "#/$defs/pciDevice" }, "gpu_audio": { "$ref": "#/$defs/pciDevice" }, "host_igpu": { "$ref": "#/$defs/pciDevice" } } },
-        "usb": { "type": "object", "additionalProperties": false, "required": ["zigbee", "zwave", "bluetooth"], "properties": { "zigbee": { "$ref": "#/$defs/serialUsbDevice" }, "zwave": { "$ref": "#/$defs/serialUsbDevice" }, "bluetooth": { "$ref": "#/$defs/usbDevice" } } },
-        "cloud_image": { "type": "object", "additionalProperties": false, "required": ["version", "url", "sha256", "signature_url"], "properties": { "version": { "type": "string" }, "url": { "type": "string", "pattern": "^https://" }, "sha256": { "$ref": "#/$defs/sha256" }, "signature_url": { "type": "string", "pattern": "^https://" } } }
+        "usb": { "type": "object", "additionalProperties": false, "required": ["zigbee", "zwave", "bluetooth"], "properties": { "zigbee": { "$ref": "#/$defs/serialUsbDevice" }, "zwave": { "$ref": "#/$defs/serialUsbDevice" }, "bluetooth": { "$ref": "#/$defs/usbDevice" } } }
       }
     },
     "legacyContainer": {

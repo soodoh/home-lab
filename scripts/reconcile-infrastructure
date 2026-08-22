@@ -11,20 +11,16 @@ usage() {
 usage: scripts/reconcile-infrastructure <validate|plan|apply|verify> [options]
 
 Options:
-  --phase <steady|recovery>           Desired reconciliation phase (default: steady)
-  --plan-dir <path>                   Protected saved-plan directory
-  --arch-inventory <path>             Arch Ansible inventory
-  --arch-bootstrap-inventory <path>   Temporary Arch recovery inventory
+  --phase steady                       Desired reconciliation phase (default: steady)
+  --plan-dir <path>                    Protected saved-plan directory
 
 Required environment:
-  TF_BACKEND_BUCKET                   Existing encrypted OpenTofu state bucket
+  TF_BACKEND_BUCKET                    Existing encrypted OpenTofu state bucket
   AWS credentials and provider TF_VAR_* credentials for every enabled root
 
 Apply requires a clean checkout at the exact manifest commit. Per-root OpenTofu S3 locks and
-an atomic controller-wide local lock serialize mutation. Recovery gates are supplied only through
-RECONCILE_ANSIBLE_EXTRA_VARS_FILE (an ignored mode-0600 YAML file); they are never accepted as
-shell text. The Proxmox Nix host bootstrap must already be installed and verified locally with
-physical-console and tested-LAN fallback before any steady or recovery apply.
+an atomic controller-wide local lock serialize mutation. The Proxmox Nix host bootstrap must
+already be installed and verified locally with physical-console and tested-LAN fallback.
 EOF
   exit 64
 }
@@ -36,8 +32,7 @@ shift
 case "$action" in validate|plan|apply|verify) ;; *) usage ;; esac
 phase=steady
 plan_dir="$repo_root/.reconcile/plans"
-arch_inventory=inventory/production.yml
-arch_bootstrap_inventory=inventory/arch-recovery.yml
+production_inventory=inventory/production.yml
 
 while (($#)); do
   case "$1" in
@@ -51,31 +46,19 @@ while (($#)); do
       plan_dir=$2
       shift 2
       ;;
-
-    --arch-inventory)
-      (($# >= 2)) || usage
-      arch_inventory=$2
-      shift 2
-      ;;
-    --arch-bootstrap-inventory)
-      (($# >= 2)) || usage
-      arch_bootstrap_inventory=$2
-      shift 2
-      ;;
     *) usage ;;
   esac
 done
 
-case "$phase" in steady|recovery) ;; *) usage ;; esac
+[[ $phase == steady ]] || usage
 case "$plan_dir" in
   "$repo_root/.reconcile/"*) ;;
   *) echo "plan directory must remain under $repo_root/.reconcile" >&2; exit 64 ;;
 esac
 [[ $plan_dir != *"/../"* && $plan_dir != */.. ]] || exit 64
 
-if [[ $action == apply ]] && ! node scripts/controller/check-vm-100-authority.js --require-ordinary-mutation 2>/dev/null; then
-  python3 scripts/controller/verify-debian-state-only-move.py \
-    --repo-root "$repo_root" --plan-dir "$plan_dir"
+if [[ $action == apply ]]; then
+  node scripts/controller/check-vm-100-authority.js --require-ordinary-mutation
 fi
 
 if [[ $action == validate ]]; then
@@ -89,16 +72,7 @@ if [[ $action == validate ]]; then
   scripts/validate-provider-locks
   infrastructure/policy/test-policy.sh
   node scripts/controller/test-contract-schema.js
-  node scripts/controller/test-render-flatcar-ignition.js
-  node scripts/controller/test-stage-flatcar-image.js
-  node scripts/controller/test-stage-flatcar-ignition.js
-  node scripts/controller/test-import-flatcar-disk.js
-  node scripts/controller/test-attach-flatcar-ignition.js
-  node scripts/controller/test-boot-flatcar-first.js
-  node scripts/controller/test-debian-cloud-init.js
-  node scripts/controller/test-qualify-debian-inert.js
   node scripts/controller/test-attest-debian-qualification-plan.js
-  node scripts/controller/test-release-flatcar-inherited-lock.js
   node scripts/controller/test-proxmox-package-manifest.js
   node scripts/controller/test-proxmox-nix-projection.js
   python3 scripts/controller/test-vfio-recover.py
@@ -157,10 +131,7 @@ if [[ $action == validate ]]; then
     scripts/configure-local-provider-credentials \
     scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack scripts/validate-proxmox-bootstrap-keys \
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
-    scripts/restore-critical-backup scripts/test-recovery-tools \
-    scripts/boot-flatcar-first scripts/release-flatcar-inherited-lock scripts/lib/vm-100-os-transition \
-    scripts/run-debian-inert-qualification
-  shellcheck -e SC1003,SC1087,SC1091,SC2016,SC2034 scripts/qualify-debian-inert
+    scripts/restore-critical-backup scripts/test-recovery-tools
   tofu fmt -check -recursive infrastructure/tofu
   for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
     (
@@ -213,23 +184,7 @@ require_protected_regular_file() {
 }
 
 recovery_expected_backup_identity_sha256() {
-  if [[ $phase != recovery ]]; then
-    printf '\n'
-    return
-  fi
-  [[ -n ${RECONCILE_ANSIBLE_EXTRA_VARS_FILE:-} && -f $RECONCILE_ANSIBLE_EXTRA_VARS_FILE ]] || {
-    echo "Recovery planning requires the protected Ansible extra-vars file." >&2
-    return 1
-  }
-  require_protected_regular_file "$RECONCILE_ANSIBLE_EXTRA_VARS_FILE" "recovery Ansible extra-vars file"
-  EXTRA_VARS_FILE="$RECONCILE_ANSIBLE_EXTRA_VARS_FILE" node --input-type=module - <<'NODE'
-import fs from "node:fs";
-import { load } from "js-yaml";
-const document = load(fs.readFileSync(process.env.EXTRA_VARS_FILE, "utf8"));
-const value = document?.recovery_expected_backup_identity_sha256;
-if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) process.exit(1);
-process.stdout.write(value);
-NODE
+  printf '\n'
 }
 
 ansible_extra_vars_sha256() {
@@ -554,14 +509,8 @@ backend_init() {
 }
 
 policy_args() {
-  local root=$1 mode=normal
-  if [[ $phase == recovery && $root == proxmox ]]; then
-    mode=recovery
-  fi
-  printf '%s\0' --mode "$mode"
-  if [[ $mode == recovery ]]; then
-    printf '%s\0' --recovery-expectations "$plan_dir/recovery-expectations.json"
-  fi
+  local root=$1
+  printf '%s\0' --mode normal
   if [[ -f infrastructure/policy/allow/$root.txt ]]; then
     printf '%s\0' --allow-change-file "$repo_root/infrastructure/policy/allow/$root.txt"
   fi
@@ -569,9 +518,6 @@ policy_args() {
 
 root_plan_args() {
   local root=$1
-  if [[ $root == proxmox ]]; then
-    printf '%s\0' -var="phase=$phase"
-  fi
   if [[ $root == omada && ${TF_VAR_omada_enable_management:-false} == true ]]; then
     printf '%s\0' -var="omada_export_path=$repo_root/.local/omada/export.json"
   fi
@@ -585,10 +531,6 @@ plan_all() {
   : >"$records"
 
   ./scripts/validate-contract
-  if [[ $phase == recovery ]]; then
-    node scripts/controller/build-recovery-expectations.js \
-      --output "$plan_dir/recovery-expectations.json"
-  fi
   ./scripts/validate-provider-locks
 
   local root plan plan_log exit_code tailscale_live_policy_sha256 tailscale_policy_before_sha256 tailscale_policy_after_sha256 tailscale_policy_etag tailscale_policy_changed argument
@@ -663,9 +605,6 @@ plan_all() {
   recovery_backup_identity_sha256=$(recovery_expected_backup_identity_sha256)
   ansible_extra_vars_file_sha256=$(ansible_extra_vars_sha256)
   recovery_expectations_sha256=""
-  if [[ $phase == recovery ]]; then
-    recovery_expectations_sha256=$(sha256_file "$plan_dir/recovery-expectations.json")
-  fi
   jq -s \
     --arg commit "$commit" \
     --arg phase "$phase" \
@@ -759,19 +698,6 @@ verify_manifest() {
     exit 66
   fi
   [[ $(jq -r .recovery_backup_identity_sha256 "$manifest") == "$(recovery_expected_backup_identity_sha256)" ]]
-  if [[ $phase == recovery ]]; then
-    local regenerated_expectations
-    regenerated_expectations=$(mktemp "${TMPDIR:-/tmp}/recovery-expectations.XXXXXX")
-    node scripts/controller/build-recovery-expectations.js --output "$regenerated_expectations"
-    if [[ ! -f $plan_dir/recovery-expectations.json ]] || \
-      [[ $(sha256_file "$plan_dir/recovery-expectations.json") != "$(jq -r .recovery_expectations_sha256 "$manifest")" ]] || \
-      ! cmp -s "$regenerated_expectations" "$plan_dir/recovery-expectations.json"; then
-      rm -f "$regenerated_expectations"
-      echo "saved recovery expectations are missing, modified, or differ from protected inputs" >&2
-      exit 66
-    fi
-    rm -f "$regenerated_expectations"
-  fi
 
   local expected_roots manifest_stage
   manifest_stage=$(jq -r .stage "$manifest")
@@ -906,12 +832,6 @@ if [[ -n ${RECONCILE_ANSIBLE_EXTRA_VARS_FILE:-} ]]; then
   ansible_extra_args+=(--extra-vars "@$RECONCILE_ANSIBLE_EXTRA_VARS_FILE")
 fi
 
-if [[ $phase == recovery ]]; then
-  [[ -n ${RECONCILE_ANSIBLE_EXTRA_VARS_FILE:-} ]] || {
-    echo "recovery requires RECONCILE_ANSIBLE_EXTRA_VARS_FILE" >&2
-    exit 66
-  }
-fi
 
 ansible_checked_apply() {
   local inventory=$1 playbook=$2 label=$3 host=$4
@@ -959,13 +879,13 @@ ansible_require_noop() {
   rm -f "$check_log"
 }
 
-apply_arch_steady() {
+apply_debian_steady() {
   local tag
   echo "Deferring the separately gated Arch network migration during routine steady convergence."
   for tag in base tailscale ssh storage docker sops_age hardware host_files compose; do
-    ansible_checked_apply "$arch_inventory" playbooks/site.yml "Arch/$tag" docker-host-production \
+    ansible_checked_apply "$production_inventory" playbooks/site.yml "Debian/$tag" docker-host-production \
       --tags "$tag" -e iac_apply_confirmed=true -e "iac_apply_tag=$tag" \
-      -e arch_ssh_access_proven=true
+      -e ssh_access_proven=true
   done
 }
 
@@ -974,7 +894,7 @@ compose_apply() {
   artifact_root=$(mktemp -d)
   artifact_hash=$(python3 scripts/compose-artifact.py copy "$artifact_root")
   pushd ansible >/dev/null
-  ansible-playbook -i "$arch_inventory" playbooks/stage-compose.yml \
+  ansible-playbook -i "$production_inventory" playbooks/stage-compose.yml \
     "${ansible_extra_args[@]}" \
     -e "compose_artifact_hash=$artifact_hash" \
     -e "compose_artifact_controller_dir=$artifact_root" \
@@ -982,18 +902,18 @@ compose_apply() {
   plan_log=$(mktemp)
   repeat_log=$(mktemp)
   postcheck_log=$(mktemp)
-  ansible-playbook -i "$arch_inventory" playbooks/deploy-compose.yml --check --diff \
+  ansible-playbook -i "$production_inventory" playbooks/deploy-compose.yml --check --diff \
     "${ansible_extra_args[@]}" -e "compose_artifact_hash=$artifact_hash" | tee "$plan_log"
   plan_hash=$(grep -oE 'compose_deploy_plan_sha256=[0-9a-f]{64}' "$plan_log" | cut -d= -f2 | sort -u)
-  ansible-playbook -i "$arch_inventory" playbooks/deploy-compose.yml --check --diff \
+  ansible-playbook -i "$production_inventory" playbooks/deploy-compose.yml --check --diff \
     "${ansible_extra_args[@]}" -e "compose_artifact_hash=$artifact_hash" | tee "$repeat_log"
   repeat_hash=$(grep -oE 'compose_deploy_plan_sha256=[0-9a-f]{64}' "$repeat_log" | cut -d= -f2 | sort -u)
   [[ $plan_hash =~ ^[0-9a-f]{64}$ && $plan_hash == "$repeat_hash" ]]
-  ansible-playbook -i "$arch_inventory" playbooks/deploy-compose.yml \
+  ansible-playbook -i "$production_inventory" playbooks/deploy-compose.yml \
     "${ansible_extra_args[@]}" \
     -e "compose_artifact_hash=$artifact_hash" \
     -e compose_deploy_confirmed=true
-  ansible-playbook -i "$arch_inventory" playbooks/deploy-compose.yml --check --diff \
+  ansible-playbook -i "$production_inventory" playbooks/deploy-compose.yml --check --diff \
     "${ansible_extra_args[@]}" -e "compose_artifact_hash=$artifact_hash" | tee "$postcheck_log"
   python3 "$repo_root/scripts/controller/parse-ansible-recap.py" "$postcheck_log" docker-host-production \
     | jq -e '.changed == 0 and .unreachable == 0 and .failed == 0' >/dev/null
@@ -1008,28 +928,28 @@ compose_recovery_apply() {
   second_log=$(mktemp)
   artifact_hash=$(python3 scripts/compose-artifact.py copy "$artifact_root")
   pushd ansible >/dev/null
-  ansible-playbook -i "$arch_inventory" playbooks/stage-compose.yml \
+  ansible-playbook -i "$production_inventory" playbooks/stage-compose.yml \
     "${ansible_extra_args[@]}" \
     -e "compose_artifact_hash=$artifact_hash" \
     -e "compose_artifact_controller_dir=$artifact_root" \
     -e compose_stage_confirmed=true \
     -e compose_stage_fresh_recovery=true
-  ansible-playbook -i "$arch_inventory" playbooks/disaster-recovery.yml \
+  ansible-playbook -i "$production_inventory" playbooks/disaster-recovery.yml \
     "${ansible_extra_args[@]}"
-  ansible-playbook -i "$arch_inventory" playbooks/plan-compose-recovery.yml \
+  ansible-playbook -i "$production_inventory" playbooks/plan-compose-recovery.yml \
     "${ansible_extra_args[@]}" -e "compose_artifact_hash=$artifact_hash" | tee "$first_log"
-  ansible-playbook -i "$arch_inventory" playbooks/plan-compose-recovery.yml \
+  ansible-playbook -i "$production_inventory" playbooks/plan-compose-recovery.yml \
     "${ansible_extra_args[@]}" -e "compose_artifact_hash=$artifact_hash" | tee "$second_log"
   first_hash=$(grep -oE 'compose_recovery_plan_sha256=[0-9a-f]{64}' "$first_log" | cut -d= -f2 | sort -u)
   second_hash=$(grep -oE 'compose_recovery_plan_sha256=[0-9a-f]{64}' "$second_log" | cut -d= -f2 | sort -u)
   [[ $first_hash =~ ^[0-9a-f]{64}$ && $first_hash == "$second_hash" ]]
-  ansible-playbook -i "$arch_inventory" playbooks/recover-compose.yml \
+  ansible-playbook -i "$production_inventory" playbooks/recover-compose.yml \
     "${ansible_extra_args[@]}" \
     -e "compose_artifact_hash=$artifact_hash" \
     -e "compose_recovery_expected_plan_sha256=$first_hash" \
     -e compose_recovery_confirmed=true
   postcheck_log=$(mktemp)
-  ansible-playbook -i "$arch_inventory" playbooks/deploy-compose.yml --check --diff \
+  ansible-playbook -i "$production_inventory" playbooks/deploy-compose.yml --check --diff \
     "${ansible_extra_args[@]}" -e "compose_artifact_hash=$artifact_hash" | tee "$postcheck_log"
   python3 "$repo_root/scripts/controller/parse-ansible-recap.py" "$postcheck_log" docker-host-production \
     | jq -e '.changed == 0 and .unreachable == 0 and .failed == 0' >/dev/null
@@ -1062,10 +982,7 @@ verify_all() {
     fi
   done
   pushd ansible >/dev/null
-  ansible_require_noop "$arch_inventory" playbooks/audit.yml docker-host-production
-  if [[ $phase == recovery ]]; then
-    ansible_require_noop "$arch_inventory" playbooks/arch-bootstrap.yml docker-host-production
-  fi
+  ansible_require_noop "$production_inventory" playbooks/audit.yml docker-host-production
   popd >/dev/null
 }
 
@@ -1095,42 +1012,21 @@ case "$action" in
     acquire_apply_lock
     verify_manifest
     apply_root aws-foundation
-    if [[ $phase == recovery ]]; then
-      apply_root tailscale
+    apply_root proxmox-legacy
+    if [[ $(jq -r .stage "$plan_dir/manifest.json") == vm-start-prerequisite ]]; then
       apply_root proxmox
-      if [[ $(jq -r .stage "$plan_dir/manifest.json") == external-owner-prerequisite ]]; then
-        echo "recovery_stage=external-owner-prerequisite status=applied requires_new_reviewed_plan=true"
-        exit 0
-      fi
-      prepare_apply_proxmox_host
-      pushd ansible >/dev/null
-      ansible_checked_apply "$arch_bootstrap_inventory" playbooks/arch-bootstrap.yml Arch-bootstrap docker-host-recovery
-      ansible -i "$arch_inventory" docker_host -m ansible.builtin.ping
-      ansible_checked_apply "$arch_inventory" playbooks/site.yml Arch/ssh docker-host-production \
-        --tags ssh -e iac_apply_confirmed=true -e iac_apply_tag=ssh \
-        -e arch_ssh_access_proven=true
-      popd >/dev/null
-    else
-      apply_root proxmox-legacy
-      if [[ $(jq -r .stage "$plan_dir/manifest.json") == vm-start-prerequisite ]]; then
-        apply_root proxmox
-        echo "steady_stage=vm-start-prerequisite status=applied requires_new_reviewed_plan=true"
-        exit 0
-      fi
-      prepare_apply_proxmox_host
-      apply_root proxmox
-      pushd ansible >/dev/null
-      apply_arch_steady
-      popd >/dev/null
+      echo "steady_stage=vm-start-prerequisite status=applied requires_new_reviewed_plan=true"
+      exit 0
     fi
+    prepare_apply_proxmox_host
+    apply_root proxmox
+    pushd ansible >/dev/null
+    apply_debian_steady
+    popd >/dev/null
 
     apply_root omada
-    if [[ $phase != recovery ]]; then apply_root tailscale; fi
-    if [[ $phase == recovery ]]; then compose_recovery_apply; else compose_apply; fi
-    pushd ansible >/dev/null
-    ansible_checked_apply "$arch_inventory" playbooks/site.yml Arch/maintenance docker-host-production \
-      --tags maintenance -e iac_apply_confirmed=true -e iac_apply_tag=maintenance
-    popd >/dev/null
+    apply_root tailscale
+    compose_apply
     verify_all
     ;;
   verify)

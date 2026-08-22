@@ -1,29 +1,7 @@
 locals {
   vm                    = local.contract.proxmox.vm
   node                  = local.contract.proxmox.node
-  recovery              = var.phase == "recovery"
-  debian_authoritative  = local.contract.vm_100.deployment_authority == "debian"
-  flatcar_qualification = !local.debian_authoritative && contains(["ignition-attached", "ready-for-first-boot", "flatcar-inert", "hardware-blocked"], local.contract.flatcar.qualification_stage)
-  debian_qualification  = local.debian_authoritative || contains(["cloud-init-staged", "ready-for-first-boot", "debian-inert", "hardware-blocked"], local.contract.debian.qualification_stage)
-  os_qualification      = local.flatcar_qualification || local.debian_qualification
-  use_hardware_mappings = local.recovery || local.vm.hardware_attachment_mode == "managed"
-}
-
-moved {
-  from = proxmox_virtual_environment_vm.arch
-  to   = proxmox_virtual_environment_vm.debian
-}
-
-resource "proxmox_download_file" "arch_recovery_image" {
-  count = local.recovery ? 1 : 0
-
-  content_type       = "import"
-  datastore_id       = "local"
-  node_name          = local.node
-  url                = local.vm.cloud_image.url
-  checksum           = local.vm.cloud_image.sha256
-  checksum_algorithm = "sha256"
-  file_name          = "Arch-Linux-x86_64-cloudimg-${local.vm.cloud_image.version}.qcow2"
+  use_hardware_mappings = local.vm.hardware_attachment_mode == "managed"
 }
 
 resource "proxmox_virtual_environment_vm" "debian" {
@@ -33,9 +11,7 @@ resource "proxmox_virtual_environment_vm" "debian" {
 
   machine       = local.vm.machine
   kvm_arguments = local.vm.cpu.kvm_arguments
-  boot_order = !local.recovery && (local.debian_authoritative || (local.debian_qualification && local.contract.debian.qualification_stage == "debian-inert")) ? (
-    local.contract.debian.os_disk.qualification_boot_order
-  ) : local.vm.boot_order
+  boot_order    = local.contract.debian.os_disk.boot_order
   scsi_hardware = "virtio-scsi-single"
   on_boot       = local.vm.on_boot
   started       = local.vm.started
@@ -55,14 +31,6 @@ resource "proxmox_virtual_environment_vm" "debian" {
     }
   }
 
-  dynamic "cdrom" {
-    for_each = local.recovery ? [1] : []
-    content {
-      file_id   = "none"
-      interface = "ide2"
-    }
-  }
-
   cpu {
     cores   = local.vm.cpu.cores
     sockets = local.vm.cpu.sockets
@@ -74,14 +42,14 @@ resource "proxmox_virtual_environment_vm" "debian" {
     floating  = 0
   }
 
-  # Preserve TypeList indexes while the detached Arch volume remains quarantined as unused0.
-  # Ignoring disk[0] prevents the provider from reattaching it; live identity is guarded externally.
+  # Preserve provider TypeList indexes after permanent retirement of the former disk[0].
+  # The whole ignored block is inert and prevents index shifts from mutating scsi1 or scsi2.
   disk {
-    datastore_id = local.vm.root_disk.datastore
-    import_from  = local.recovery ? proxmox_download_file.arch_recovery_image[0].id : ""
-    interface    = local.vm.root_disk.interface
-    size         = local.vm.root_disk.size_gb
-    iothread     = local.vm.root_disk.iothread
+    datastore_id = local.vm.retired_disk_slot.datastore
+    import_from  = ""
+    interface    = local.vm.retired_disk_slot.interface
+    size         = local.vm.retired_disk_slot.size_gb
+    iothread     = local.vm.retired_disk_slot.iothread
     backup       = true
     cache        = "none"
     discard      = "ignore"
@@ -118,7 +86,7 @@ resource "proxmox_virtual_environment_vm" "debian" {
   network_device {
     bridge      = local.contract.network.bridge
     firewall    = true
-    mac_address = local.contract.network.arch.mac
+    mac_address = local.contract.network.docker_host.mac
     model       = "virtio"
   }
 
@@ -159,14 +127,6 @@ resource "proxmox_virtual_environment_vm" "debian" {
     device = "socket"
   }
 
-  dynamic "smbios" {
-    for_each = local.recovery ? [1] : []
-    content {
-      uuid = local.vm.smbios_uuid
-    }
-  }
-
-
   operating_system {
     type = "l26"
   }
@@ -175,55 +135,25 @@ resource "proxmox_virtual_environment_vm" "debian" {
     type = "none"
   }
 
-  dynamic "initialization" {
-    for_each = local.recovery || local.os_qualification ? [1] : []
-    content {
-      datastore_id = local.recovery ? local.vm.root_disk.datastore : (
-        local.debian_qualification ? local.contract.debian.cloud_init.drive_datastore : local.contract.flatcar.os_disk.ignition_drive_datastore
-      )
-      interface = local.debian_qualification ? local.contract.debian.cloud_init.drive_interface : local.contract.flatcar.os_disk.ignition_drive_interface
-      upgrade   = !local.recovery
-      user_data_file_id = local.recovery ? null : format(
-        "%s:snippets/%s",
-        local.debian_qualification ? local.contract.debian.cloud_init.datastore : local.contract.flatcar.os_disk.snippet_storage,
-        basename(local.debian_qualification ? local.contract.debian.cloud_init.user_data.snippet_path : local.contract.flatcar.os_disk.snippet_path),
-      )
-      meta_data_file_id = local.recovery || !local.debian_qualification ? null : format(
-        "%s:snippets/%s",
-        local.contract.debian.cloud_init.datastore,
-        basename(local.contract.debian.cloud_init.meta_data.snippet_path),
-      )
-      network_data_file_id = local.recovery || !local.debian_qualification ? null : format(
-        "%s:snippets/%s",
-        local.contract.debian.cloud_init.datastore,
-        basename(local.contract.debian.cloud_init.network_data.snippet_path),
-      )
-
-      dynamic "dns" {
-        for_each = local.recovery ? [1] : []
-        content {
-          servers = local.contract.network.dns
-        }
-      }
-
-      dynamic "ip_config" {
-        for_each = local.recovery ? [1] : []
-        content {
-          ipv4 {
-            address = local.contract.network.arch.ipv4
-            gateway = local.contract.network.gateway
-          }
-        }
-      }
-
-      dynamic "user_account" {
-        for_each = local.recovery ? [1] : []
-        content {
-          username = local.contract.arch.user
-          keys     = [var.recovery_ssh_public_key]
-        }
-      }
-    }
+  initialization {
+    datastore_id = local.contract.debian.cloud_init.drive_datastore
+    interface    = local.contract.debian.cloud_init.drive_interface
+    upgrade      = true
+    user_data_file_id = format(
+      "%s:snippets/%s",
+      local.contract.debian.cloud_init.datastore,
+      basename(local.contract.debian.cloud_init.user_data.snippet_path),
+    )
+    meta_data_file_id = format(
+      "%s:snippets/%s",
+      local.contract.debian.cloud_init.datastore,
+      basename(local.contract.debian.cloud_init.meta_data.snippet_path),
+    )
+    network_data_file_id = format(
+      "%s:snippets/%s",
+      local.contract.debian.cloud_init.datastore,
+      basename(local.contract.debian.cloud_init.network_data.snippet_path),
+    )
   }
 
   startup {
@@ -240,15 +170,5 @@ resource "proxmox_virtual_environment_vm" "debian" {
   lifecycle {
     prevent_destroy = true
     ignore_changes  = [disk[0], disk[1].file_format]
-
-    precondition {
-      condition     = !local.recovery || var.recovery_ssh_public_key != ""
-      error_message = "Fresh recovery requires a bootstrap SSH public key."
-    }
-
-    precondition {
-      condition     = !local.recovery || local.use_hardware_mappings
-      error_message = "Fresh recovery requires managed hardware mappings; raw host-device IDs cannot use API-token auth."
-    }
   }
 }

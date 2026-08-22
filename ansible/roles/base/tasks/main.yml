@@ -1,9 +1,9 @@
 ---
-- name: Keep approved base packages present without upgrades
+- name: Keep approved Debian base packages present without upgrades
   ansible.builtin.include_role:
-    name: pacman_packages
+    name: apt_packages
   vars:
-    pacman_packages_requested: "{{ base_packages }}"
+    apt_packages_requested: "{{ base_packages }}"
 
 - name: Keep approved base services enabled and started without restarting them
   ansible.builtin.systemd_service:

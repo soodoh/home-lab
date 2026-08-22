@@ -880,81 +880,11 @@ assert "compose-artifact.py" in compose_stage and "- --no-git" in compose_stage 
 assert "Materialize the exact legacy current artifact for rollback" in (repo / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
 for helper in (action_plan, model_inventory, stage_review):
     assert '"--override-file"' in helper
-state_move_guard = (repo / "scripts/controller/verify-debian-state-only-move.py").read_text()
-assert 'OLD_ADDRESS = "proxmox_virtual_environment_vm.arch"' in state_move_guard
-assert 'NEW_ADDRESS = "proxmox_virtual_environment_vm.debian"' in state_move_guard
-assert 'values.get("before") != values.get("after")' in state_move_guard
-assert 'note.get("stateOnlyMoves")' in state_move_guard
-assert "verify-debian-state-only-move.py" in (repo / "scripts/local-controller").read_text()
-assert "verify-debian-state-only-move.py" in (repo / "scripts/reconcile-infrastructure").read_text()
 assert "ansible_extra_args=(--extra-vars '{}')" in (repo / "scripts/reconcile-infrastructure").read_text()
-tailscale_retirement = (repo / "scripts/controller/retire-arch-tailscale-device.py").read_text()
-for required in (
-    '"id": "5011652268534622"',
-    '"id": "6762069159616123"',
-    '"100.111.210.72"',
-    '"100.116.163.42"',
-    'CONFIRMATION = "retire-exact-arch-tailscale-device"',
-    'fail("debian_device_changed")',
-):
-    assert required in tailscale_retirement
 plan_token_rotation = (repo / "scripts/rotate-proxmox-plan-api-token").read_text()
 assert 'New tofu-plan UUID value (input hidden)' in plan_token_rotation
 assert 'token = f"root@pam!tofu-plan={secret}"' in plan_token_rotation
 assert 'stat.S_IMODE(path.stat().st_mode) != 0o600' in plan_token_rotation
-arch_disk_retirement = (repo / "scripts/retire-arch-scsi0").read_text()
-for required in (
-    "detach-reviewed-arch-scsi0-and-reboot",
-    "reboot-reviewed-debian-without-arch-scsi0",
-    "local-lvm:vm-100-disk-0",
-    'qm set "$VMID" --delete scsi0',
-    'qm set "$VMID" --protection 0',
-    'qm set "$VMID" --protection 1',
-    '$(config_value protection) == 1',
-    '$(config_value unused0) == local-lvm:vm-100-disk-0',
-    '$(config_value scsi1) == "$scsi1_before"',
-    '$(config_value scsi2) == "$scsi2_before"',
-    '$(config_value scsi3) == "$scsi3_before"',
-    "systemctl reboot",
-):
-    assert required in arch_disk_retirement
-assert "pvesm free" not in arch_disk_retirement
-arch_disk_delete = (repo / "scripts/delete-quarantined-arch-disk").read_text()
-for required in (
-    "delete-reviewed-quarantined-arch-volume",
-    "local-lvm:vm-100-disk-0",
-    '$(config_value unused0) == "$RETIRED_VOLUME"',
-    'pvesm list local-lvm --vmid "$VMID"',
-    'qm set "$VMID" --delete unused0',
-    'qm set "$VMID" --protection 0',
-    'qm set "$VMID" --protection 1',
-    '$(config_value scsi1) == "$scsi1_before"',
-    '$(config_value scsi2) == "$scsi2_before"',
-    '$(config_value scsi3) == "$scsi3_before"',
-):
-    assert required in arch_disk_delete
-assert "pvesm free" not in arch_disk_delete
-automation = (repo / "scripts/prepare-debian-production-automation").read_text()
-for required in (
-    "prepare-reviewed-vm-100-debian-production-automation",
-    "refs/notes/debian-qualification",
-    "git fetch --quiet origin",
-    "all(.roots[]; .changed == false",
-    "stat -c '%U:%G:%a' \"$OPERATION_LOCK\"",
-    "stat -Lc '%d:%i' /proc/$$/fd/9",
-    "order=scsi3;scsi0;net0",
-    "UUID=31602ce7-0054-498a-9f24-f51ca491e7b3",
-    "107374182400",
-    "install -d -o root -g root -m 0700",
-    "useradd --uid 1001 --gid 1001 --create-home",
-    "ansible-deploy ALL=(root) NOPASSWD: ALL",
-    "visudo --check",
-    "id -Gn ansible-deploy",
-    "qm guest exec",
-):
-    assert required in automation
-assert "docker restart" not in automation
-assert "docker compose" not in automation
 PY
 
 echo "recovery tool safety fixtures passed"

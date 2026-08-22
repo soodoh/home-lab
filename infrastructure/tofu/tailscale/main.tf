@@ -10,19 +10,19 @@ locals {
 
   policy = {
     tagOwners = {
-      (local.tags.arch)    = ["autogroup:admin"]
-      (local.tags.proxmox) = ["autogroup:admin"]
+      (local.tags.docker_host) = ["autogroup:admin"]
+      (local.tags.proxmox)     = ["autogroup:admin"]
     }
 
     grants = [
       {
         src = ["autogroup:owner", "autogroup:admin"]
-        dst = [local.tags.arch]
+        dst = [local.tags.docker_host]
         ip  = ["tcp:22"]
       },
       {
         src = ["autogroup:owner", "autogroup:admin"]
-        dst = [local.tags.arch]
+        dst = [local.tags.docker_host]
         ip  = ["tcp:8043"]
       },
       {
@@ -36,7 +36,7 @@ locals {
         ip  = ["tcp:22", "tcp:8006"]
       },
       {
-        src = [local.tags.arch]
+        src = [local.tags.docker_host]
         dst = [local.tags.proxmox]
         ip  = ["tcp:8006"]
       },
@@ -46,13 +46,13 @@ locals {
       {
         action = "accept"
         src    = ["autogroup:owner"]
-        dst    = [local.tags.arch]
+        dst    = [local.tags.docker_host]
         users  = ["docker"]
       },
       {
         action = "accept"
         src    = ["autogroup:owner", "autogroup:admin"]
-        dst    = [local.tags.arch]
+        dst    = [local.tags.docker_host]
         users  = ["ansible-deploy"]
       },
       {
@@ -77,7 +77,7 @@ locals {
 
     tests = [
       {
-        src   = local.tags.arch
+        src   = local.tags.docker_host
         proto = "tcp"
         accept = [
           "${local.tags.proxmox}:8006",
@@ -90,14 +90,14 @@ locals {
       {
         src    = local.owner_identity
         proto  = "tcp"
-        accept = ["${local.tags.arch}:8043"]
+        accept = ["${local.tags.docker_host}:8043"]
       },
     ]
 
     sshTests = [
       {
         src    = local.owner_identity
-        dst    = [local.tags.arch]
+        dst    = [local.tags.docker_host]
         accept = ["docker", "ansible-deploy"]
         deny   = ["proxmox", "root"]
       },

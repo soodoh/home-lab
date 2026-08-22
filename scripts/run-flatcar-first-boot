@@ -1,6 +1,0 @@
-#!/bin/bash
-set -euo pipefail
-
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-export HOME_LAB_FLATCAR_FIRST_BOOT_CONFIRMED=boot-reviewed-vm-100-flatcar-inert
-exec "$root/scripts/boot-flatcar-first"

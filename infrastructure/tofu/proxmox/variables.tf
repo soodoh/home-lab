@@ -27,35 +27,3 @@ variable "serial_usb_paths" {
     error_message = "Each serial USB path must be a unique physical USB port such as 1-6 or 1-6.2."
   }
 }
-
-variable "phase" {
-  type    = string
-  default = "steady"
-
-  validation {
-    condition     = contains(["steady", "recovery"], var.phase)
-    error_message = "phase must be steady or recovery."
-  }
-}
-
-variable "enable_qualification" {
-  type    = bool
-  default = false
-}
-
-variable "qualification_vm_id" {
-  type    = number
-  default = 9899
-}
-
-variable "qualification_ssh_public_key" {
-  type      = string
-  sensitive = true
-  default   = ""
-}
-
-variable "recovery_ssh_public_key" {
-  type      = string
-  sensitive = true
-  default   = ""
-}
