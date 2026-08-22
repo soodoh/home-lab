@@ -22,7 +22,7 @@ def load_helper():
 
 
 alias = load_helper()
-if alias.DOCKER_HOST != "docker-host":
+if alias.DOCKER_HOST != "docker-host-debian":
     raise RuntimeError("Omada alias must follow Debian production authority")
 
 
