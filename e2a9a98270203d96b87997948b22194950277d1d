@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "commit": "e2a9a98270203d96b87997948b22194950277d1d",
+  "createdAt": "2026-08-22T17:08:37.000Z",
+  "phase": "steady",
+  "stage": "converge",
+  "manifestSha256": "b781422e9a68186899888aee307ad436a83c4c923cba2f40f9fc9ba7a1f72846",
+  "proxmoxHostActions": 0,
+  "allActionsZero": true,
+  "approvedExternalAction": {
+    "kind": "detach-quarantine-arch-scsi0-and-physical-reboot",
+    "script": "scripts/retire-arch-scsi0",
+    "scriptSha256": "ee0d175ed48fdefa1f3c351789db4cb7bf171b3a8130a980e6da268c58ebea4d",
+    "volume": "local-lvm:vm-100-disk-0",
+    "retained": true
+  },
+  "roots": [
+    {
+      "root": "aws-foundation",
+      "changed": false,
+      "sha256": "18cf3275c1bff4c99509a5f172c2962c8ab199f58987b56917e6b8cb8264793b"
+    },
+    {
+      "root": "omada",
+      "changed": false,
+      "sha256": "5605a862cecb2526e84078f490d69b277324a4096ee39370de1c24b1caca3509"
+    },
+    {
+      "root": "proxmox",
+      "changed": false,
+      "sha256": "5e4c14d52b126f6c1840d3ec56c50af75d29cfbf498a394ff9848ac4b03cc2f9"
+    },
+    {
+      "root": "proxmox-legacy",
+      "changed": false,
+      "sha256": "8a1ac62deba877891d1b325d40b3d3a898764cfa2bb80757201fc9f9a14769c4"
+    },
+    {
+      "root": "tailscale",
+      "changed": false,
+      "sha256": "a13dc91524806ac5e50f1502213c9305ed046d665290ce2fe7662254c2439bae"
+    }
+  ]
+}
