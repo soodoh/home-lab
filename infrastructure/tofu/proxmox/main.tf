@@ -9,6 +9,11 @@ locals {
   use_hardware_mappings = local.recovery || local.vm.hardware_attachment_mode == "managed"
 }
 
+moved {
+  from = proxmox_virtual_environment_vm.arch
+  to   = proxmox_virtual_environment_vm.debian
+}
+
 resource "proxmox_download_file" "arch_recovery_image" {
   count = local.recovery ? 1 : 0
 
@@ -21,7 +26,7 @@ resource "proxmox_download_file" "arch_recovery_image" {
   file_name          = "Arch-Linux-x86_64-cloudimg-${local.vm.cloud_image.version}.qcow2"
 }
 
-resource "proxmox_virtual_environment_vm" "arch" {
+resource "proxmox_virtual_environment_vm" "debian" {
   node_name = local.node
   vm_id     = local.vm.vmid
   name      = local.vm.name
@@ -106,6 +111,19 @@ resource "proxmox_virtual_environment_vm" "arch" {
     discard      = local.vm.state_disk.discard
     replicate    = true
     ssd          = local.vm.state_disk.ssd
+  }
+
+  disk {
+    datastore_id = local.contract.debian.os_disk.datastore
+    interface    = local.contract.debian.os_disk.interface
+    serial       = "HOME-LAB-DEBIAN-64G"
+    size         = local.contract.debian.os_disk.size_gb
+    iothread     = true
+    backup       = true
+    cache        = "none"
+    discard      = "ignore"
+    replicate    = true
+    ssd          = false
   }
 
   network_device {

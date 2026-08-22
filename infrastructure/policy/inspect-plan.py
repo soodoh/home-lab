@@ -67,7 +67,7 @@ VM_BOOT_LIFECYCLE_FIELDS = {
 }
 STORAGE_RESOURCE_MARKERS = ("zfs", "filesystem", "disk", "mount", "storage")
 NETWORK_RESOURCE_MARKERS = ("firewall", "network", "acl", "ruleset", "federated_identity")
-VM_ADDRESS = "proxmox_virtual_environment_vm.arch"
+VM_ADDRESS = "proxmox_virtual_environment_vm.debian"
 VM_RESOURCE_TYPE = "proxmox_virtual_environment_vm"
 VM_CUTOVER_BOOT_ORDERS = {
     "vm-cutover-forward": (["scsi0", "net0"], ["scsi3", "scsi0", "net0"]),
@@ -107,7 +107,7 @@ RECOVERY_RESOURCE_TYPES = {
     'proxmox_hardware_mapping_usb.device["bluetooth"]': "proxmox_hardware_mapping_usb",
     'proxmox_hardware_mapping_usb.device["zigbee"]': "proxmox_hardware_mapping_usb",
     'proxmox_hardware_mapping_usb.device["zwave"]': "proxmox_hardware_mapping_usb",
-    "proxmox_virtual_environment_vm.arch": "proxmox_virtual_environment_vm",
+    "proxmox_virtual_environment_vm.debian": "proxmox_virtual_environment_vm",
 }
 
 
@@ -551,7 +551,7 @@ def vm_start_prerequisite_failure(plan: dict[str, Any]) -> str | None:
         return "VM-start prerequisite requires exactly one changed resource"
     resource = changes[0]
     change = resource.get("change", {})
-    if resource.get("address") != "proxmox_virtual_environment_vm.arch" or \
+    if resource.get("address") != "proxmox_virtual_environment_vm.debian" or \
             resource.get("type") != "proxmox_virtual_environment_vm" or \
             change.get("actions") != ["update"] or change.get("importing") is not None:
         return "VM-start prerequisite permits only an update-in-place of VM 100"

@@ -34,7 +34,7 @@ Do not delete either backend or run `state rm`, import, or backend migration mer
 
 The simplification deliberately preserves active resource addresses:
 
-- `proxmox_virtual_environment_vm.arch`
+- `proxmox_virtual_environment_vm.debian`
 - `omada_network.lan[0]`
 - `omada_dhcp_reservation.reservation[<mac>]`
 - `terraform_data.tailscale_policy[0]`

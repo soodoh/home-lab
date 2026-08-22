@@ -107,7 +107,7 @@ class VmCutoverPolicyTests(unittest.TestCase):
             plan_path = Path(directory) / "plan.json"
             allow_path = Path(directory) / "allow.txt"
             plan_path.write_text(json.dumps(plan))
-            allow_path.write_text("proxmox_virtual_environment_vm.arch\n")
+            allow_path.write_text("proxmox_virtual_environment_vm.debian\n")
             result = subprocess.run(
                 [str(POLICY_PATH), str(plan_path), "--mode", "normal", "--allow-change-file", str(allow_path)],
                 stdout=subprocess.PIPE,

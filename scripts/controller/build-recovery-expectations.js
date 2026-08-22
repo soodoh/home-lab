@@ -69,7 +69,7 @@ resources["proxmox_download_file.arch_recovery_image[0]"] = {
     file_name: `Arch-Linux-x86_64-cloudimg-${vm.cloud_image.version}.qcow2`,
   },
 };
-resources["proxmox_virtual_environment_vm.arch"] = {
+resources["proxmox_virtual_environment_vm.debian"] = {
   type: "proxmox_virtual_environment_vm",
   expected: {
     node_name: node,

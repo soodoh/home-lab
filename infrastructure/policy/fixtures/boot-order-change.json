@@ -2,7 +2,7 @@
   "format_version": "1.2",
   "resource_changes": [
     {
-      "address": "proxmox_virtual_environment_vm.arch",
+      "address": "proxmox_virtual_environment_vm.debian",
       "type": "proxmox_virtual_environment_vm",
       "change": {
         "actions": [

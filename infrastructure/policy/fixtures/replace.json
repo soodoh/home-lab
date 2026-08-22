@@ -1,1 +1,1 @@
-{"format_version":"1.2","resource_changes":[{"address":"proxmox_virtual_environment_vm.arch","type":"proxmox_virtual_environment_vm","change":{"actions":["delete","create"],"before":{"vm_id":100},"after":{"vm_id":102}}}]}
+{"format_version":"1.2","resource_changes":[{"address":"proxmox_virtual_environment_vm.debian","type":"proxmox_virtual_environment_vm","change":{"actions":["delete","create"],"before":{"vm_id":100},"after":{"vm_id":102}}}]}

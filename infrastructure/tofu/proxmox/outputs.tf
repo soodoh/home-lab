@@ -1,5 +1,5 @@
 output "arch_vm_id" {
-  value = proxmox_virtual_environment_vm.arch.vm_id
+  value = proxmox_virtual_environment_vm.debian.vm_id
 }
 
 output "arch_mac" {

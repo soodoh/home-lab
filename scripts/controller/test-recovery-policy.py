@@ -92,7 +92,7 @@ class RecoveryPolicyTests(unittest.TestCase):
         self.assertIsNone(
             resources['proxmox_hardware_mapping_usb.device["bluetooth"]']["expected"]["map"][0]["path"]
         )
-        vm = resources["proxmox_virtual_environment_vm.arch"]["expected"]
+        vm = resources["proxmox_virtual_environment_vm.debian"]["expected"]
         self.assertTrue(all(device["id"] is None for device in vm["hostpci"]))
         self.assertTrue(all(device["host"] is None for device in vm["usb"]))
 
@@ -161,7 +161,7 @@ class RecoveryPolicyTests(unittest.TestCase):
         create = {
             "resource_changes": [
                 {
-                    "address": "proxmox_virtual_environment_vm.arch",
+                    "address": "proxmox_virtual_environment_vm.debian",
                     "type": "proxmox_virtual_environment_vm",
                     "change": {"actions": ["create"], "before": None, "after": {"vm_id": 100}},
                 }
@@ -200,7 +200,7 @@ class RecoveryPolicyTests(unittest.TestCase):
                     "change": {"actions": ["delete"], "before": {"name": "rx-7900-xtx"}, "after": None},
                 },
                 {
-                    "address": "proxmox_virtual_environment_vm.arch",
+                    "address": "proxmox_virtual_environment_vm.debian",
                     "type": "proxmox_virtual_environment_vm",
                     "change": {
                         "actions": ["update"],
