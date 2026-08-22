@@ -251,7 +251,7 @@
             "interface": { "const": "scsi3" },
             "serial": { "const": "HOME-LAB-DEBIAN-64G" },
             "size_gb": { "const": 64 },
-            "qualification_boot_order": { "type": "array", "prefixItems": [{ "const": "scsi3" }, { "const": "scsi0" }, { "const": "net0" }], "items": false, "minItems": 3, "maxItems": 3 },
+            "qualification_boot_order": { "type": "array", "prefixItems": [{ "const": "scsi3" }, { "const": "net0" }], "items": false, "minItems": 2, "maxItems": 2 },
             "rollback_days": { "const": 7 }
           }
         },

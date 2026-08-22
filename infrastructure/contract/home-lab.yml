@@ -1196,7 +1196,6 @@ debian:
     size_gb: 64
     qualification_boot_order:
       - scsi3
-      - scsi0
       - net0
     rollback_days: 7
   qualification:

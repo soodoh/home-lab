@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-08-22T18:26:12Z",
+  "sourceCommit": "2e958a97e1ea9cf7fa30cb43e9d0f448052bbf83",
+  "vmid": 100,
+  "status": "detached-quarantined",
+  "configuration": {
+    "boot": "order=scsi3;net0",
+    "scsi0": null,
+    "scsi1Retained": true,
+    "scsi2": "local-lvm:vm-100-disk-1",
+    "scsi3": "local-lvm:vm-100-disk-2",
+    "unused0": "local-lvm:vm-100-disk-0",
+    "protection": true,
+    "onBoot": true
+  },
+  "reboot": {
+    "physicalHostReboot": true,
+    "guestBootId": "87b6fad8-db9a-46fa-bf0d-68b9b28237f3",
+    "debianBootedWithoutScsi0": true
+  },
+  "production": {
+    "containers": 41,
+    "unhealthy": 0,
+    "stateBindMounts": 126,
+    "desiredStateBindMounts": 126,
+    "dockerVolumeMounts": 0,
+    "guardedServices": "active",
+    "kernelErrors": 0,
+    "tailscaleHostname": "docker-host"
+  },
+  "quarantine": {
+    "volumeRetained": true,
+    "volumeDeleted": false,
+    "secondConfirmationRequired": true
+  }
+}

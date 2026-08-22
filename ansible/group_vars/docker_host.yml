@@ -101,7 +101,7 @@ audit_expected_mounts:
     source: /dev/sdb1
     fstype: ext4
   - path: "{{ proxmox.vm.state_disk.mountpoint }}"
-    source: /dev/sdc1
+    source: /dev/sda1
     fstype: ext4
 
 audit_expected_modules:
