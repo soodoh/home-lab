@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "commit": "ba90c49e34441eb302c10a9a7a9ea4341cd1f82f",
+  "createdAt": "2026-08-22T18:42:56.000Z",
+  "phase": "steady",
+  "stage": "converge",
+  "manifestSha256": "376e100d4dc22dbfe5279af16248967209c713277192cc3700d6825a05e1e954",
+  "proxmoxHostActions": 0,
+  "allActionsZero": true,
+  "approvedExternalAction": {
+    "kind": "permanently-delete-quarantined-arch-volume",
+    "script": "scripts/delete-quarantined-arch-disk",
+    "scriptSha256": "c89223d031ce2ee30d8b0e2e4ee691c9303f0a6073123fec8252f36b8250047d",
+    "volume": "local-lvm:vm-100-disk-0",
+    "operatorConfirmed": true
+  },
+  "roots": [
+    {
+      "root": "aws-foundation",
+      "changed": false,
+      "sha256": "7bd4625d030c3522908d39d06e5330fe4c84273df52678354dea77d6340e6608"
+    },
+    {
+      "root": "omada",
+      "changed": false,
+      "sha256": "59259f1156c97f1e0346584b32b55498577f50fb48c1da6b4830ae0484bd8f80"
+    },
+    {
+      "root": "proxmox",
+      "changed": false,
+      "sha256": "b4136fb884dcfa06a28a50da2f832eeb19ff67097d39b1905eed1e7d23002b2c"
+    },
+    {
+      "root": "proxmox-legacy",
+      "changed": false,
+      "sha256": "1c9fe8cb5daf90073912e8834ee9aad993b195ce6cb0144e3c52136ccdd6c901"
+    },
+    {
+      "root": "tailscale",
+      "changed": false,
+      "sha256": "8a9147bac0e1a22c32a9072b0b5dd1805df66c84de07252f285c66c5783aae75"
+    }
+  ]
+}
