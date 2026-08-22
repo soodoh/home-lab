@@ -29,9 +29,10 @@ def protected_regular_file(path: Path) -> os.stat_result:
     return info
 
 
-def parse_dotenv(path: Path) -> dict[str, str]:
+def parse_dotenv(path: Path, selected_keys: set[str]) -> dict[str, str]:
     protected_regular_file(path)
     values: dict[str, str] = {}
+    seen: set[str] = set()
     for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -40,8 +41,11 @@ def parse_dotenv(path: Path) -> dict[str, str]:
             line = line.removeprefix("export ").lstrip()
         key, separator, encoded = line.partition("=")
         key = key.strip()
-        if not separator or KEY_PATTERN.fullmatch(key) is None or key in values:
+        if not separator or KEY_PATTERN.fullmatch(key) is None or key in seen:
             fail(f"dotenv_assignment_{line_number}")
+        seen.add(key)
+        if key not in selected_keys:
+            continue
         try:
             decoded = shlex.split(encoded, comments=True, posix=True)
         except ValueError:
@@ -130,7 +134,7 @@ def main() -> None:
             fail("secret_mapping")
         mappings[key] = filename
 
-    values = parse_dotenv(args.dotenv)
+    values = parse_dotenv(args.dotenv, set(mappings))
     if any(key not in values for key in mappings):
         fail("secret_key_missing")
     validate_directory(args.directory, args.owner_uid, args.group_gid)
