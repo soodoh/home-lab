@@ -880,6 +880,13 @@ assert "compose-artifact.py" in compose_stage and "- --no-git" in compose_stage 
 assert "Materialize the exact legacy current artifact for rollback" in (repo / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
 for helper in (action_plan, model_inventory, stage_review):
     assert '"--override-file"' in helper
+state_move_guard = (repo / "scripts/controller/verify-debian-state-only-move.py").read_text()
+assert 'OLD_ADDRESS = "proxmox_virtual_environment_vm.arch"' in state_move_guard
+assert 'NEW_ADDRESS = "proxmox_virtual_environment_vm.debian"' in state_move_guard
+assert 'values.get("before") != values.get("after")' in state_move_guard
+assert 'note.get("stateOnlyMoves")' in state_move_guard
+assert "verify-debian-state-only-move.py" in (repo / "scripts/local-controller").read_text()
+assert "verify-debian-state-only-move.py" in (repo / "scripts/reconcile-infrastructure").read_text()
 automation = (repo / "scripts/prepare-debian-production-automation").read_text()
 for required in (
     "prepare-reviewed-vm-100-debian-production-automation",

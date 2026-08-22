@@ -122,7 +122,11 @@ run_validation() {
 }
 
 require_ordinary_mutation_authority() {
-  node scripts/controller/check-vm-100-authority.js --require-ordinary-mutation
+  if node scripts/controller/check-vm-100-authority.js --require-ordinary-mutation 2>/dev/null; then
+    return
+  fi
+  python3 scripts/controller/verify-debian-state-only-move.py \
+    --repo-root "$repo_root" --plan-dir "$plan_dir"
 }
 
 manifest_sha256() {

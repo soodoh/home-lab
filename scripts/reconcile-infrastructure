@@ -73,8 +73,9 @@ case "$plan_dir" in
 esac
 [[ $plan_dir != *"/../"* && $plan_dir != */.. ]] || exit 64
 
-if [[ $action == apply ]]; then
-  node scripts/controller/check-vm-100-authority.js --require-ordinary-mutation
+if [[ $action == apply ]] && ! node scripts/controller/check-vm-100-authority.js --require-ordinary-mutation 2>/dev/null; then
+  python3 scripts/controller/verify-debian-state-only-move.py \
+    --repo-root "$repo_root" --plan-dir "$plan_dir"
 fi
 
 if [[ $action == validate ]]; then
