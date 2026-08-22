@@ -12,7 +12,7 @@ readonly RETIREMENT_LOCK=/run/lock/home-lab-vm-100-arch-retirement.lock
 readonly EVIDENCE_ROOT=/var/lib/home-lab/retirement
 readonly EXPECTED_BOOT='order=scsi3;scsi0;net0'
 readonly RETIRED_BOOT='order=scsi3;net0'
-readonly EXPECTED_SCSI0='local-lvm:vm-100-disk-0,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,size=550G,ssd=0'
+readonly EXPECTED_SCSI0='local-lvm:vm-100-disk-0,iothread=1,size=550G'
 readonly EXPECTED_SCSI3='local-lvm:vm-100-disk-2,backup=1,cache=none,discard=ignore,iothread=1,replicate=1,serial=HOME-LAB-DEBIAN-64G,size=64G,ssd=0'
 
 fail() { echo "arch_scsi0_retirement=failed reason=$*" >&2; exit 1; }
@@ -48,8 +48,8 @@ flock -n 8 || fail "retirement_lock_held"
 [[ -n $(config_value scsi1) && -n $(config_value scsi2) ]] || fail "protected_disk_missing"
 [[ -z $(qm config "$VMID" | awk -F': ' '$1 ~ /^unused[0-9]+$/ {print}') ]] || fail "preexisting_unused_disk"
 
-guest_exec 'test "$(cat /etc/os-release | sed -n "s/^ID=//p")" = debian'
-guest_exec 'test "$(docker ps -q | wc -l)" -eq 41 && test "$(docker ps --filter health=unhealthy -q | wc -l)" -eq 0'
+guest_exec "test \"\$(cat /etc/os-release | sed -n 's/^ID=//p')\" = debian"
+guest_exec "test \"\$(docker ps -q | wc -l)\" -eq 41 && test \"\$(docker ps --filter health=unhealthy -q | wc -l)\" -eq 0"
 guest_exec 'findmnt -rn -S UUID=d4a19647-7879-4079-9fc9-b3e79711b449 -T /srv/home-lab-state -o TARGET,FSTYPE,OPTIONS | grep -Eq "^/srv/home-lab-state ext4 (rw|.*,rw)(,|$)"'
 
 require_console_confirmation "$CONFIRMATION"
