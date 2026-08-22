@@ -43,6 +43,7 @@ flock -n 8 || fail "retirement_lock_held"
 
 [[ $(qm status "$VMID" | awk '{print $2}') == running ]] || fail "vm_not_running"
 [[ $(config_value boot) == "$EXPECTED_BOOT" ]] || fail "boot_order_differs"
+[[ $(config_value protection) == 1 ]] || fail "vm_protection_differs"
 [[ $(config_value scsi0) == "$EXPECTED_SCSI0" ]] || fail "scsi0_identity_differs"
 [[ $(config_value scsi3) == "$EXPECTED_SCSI3" ]] || fail "scsi3_identity_differs"
 [[ -n $(config_value scsi1) && -n $(config_value scsi2) ]] || fail "protected_disk_missing"
@@ -67,10 +68,12 @@ rollback_required=true
 rollback() {
   local status=$?
   if [[ $rollback_required == true ]]; then
+    qm set "$VMID" --protection 0 >/dev/null || true
     if [[ -z $(config_value scsi0) && $(config_value unused0) == local-lvm:vm-100-disk-0 ]]; then
       qm set "$VMID" --scsi0 "$EXPECTED_SCSI0" >/dev/null || true
     fi
     qm set "$VMID" --boot "$EXPECTED_BOOT" >/dev/null || true
+    qm set "$VMID" --protection 1 >/dev/null || true
   fi
   exit "$status"
 }
@@ -78,12 +81,15 @@ trap rollback ERR INT TERM
 
 qm shutdown "$VMID" --timeout 180 >/dev/null
 [[ $(qm status "$VMID" | awk '{print $2}') == stopped ]] || fail "vm_did_not_stop"
+qm set "$VMID" --protection 0 >/dev/null
 qm set "$VMID" --boot "$RETIRED_BOOT" >/dev/null
 qm set "$VMID" --delete scsi0 >/dev/null
+qm set "$VMID" --protection 1 >/dev/null
 
 [[ -z $(config_value scsi0) ]] || fail "scsi0_still_attached"
 [[ $(config_value unused0) == local-lvm:vm-100-disk-0 ]] || fail "retired_volume_not_quarantined"
 [[ $(config_value boot) == "$RETIRED_BOOT" ]] || fail "retired_boot_order_differs"
+[[ $(config_value protection) == 1 ]] || fail "vm_protection_not_restored"
 [[ $(config_value scsi1) == "$scsi1_before" ]] || fail "games_disk_changed"
 [[ $(config_value scsi2) == "$scsi2_before" ]] || fail "state_disk_changed"
 [[ $(config_value scsi3) == "$scsi3_before" ]] || fail "debian_disk_changed"
