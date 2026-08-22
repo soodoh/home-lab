@@ -113,19 +113,6 @@ resource "proxmox_virtual_environment_vm" "debian" {
     ssd          = local.vm.state_disk.ssd
   }
 
-  disk {
-    datastore_id = local.contract.debian.os_disk.datastore
-    interface    = local.contract.debian.os_disk.interface
-    serial       = "HOME-LAB-DEBIAN-64G"
-    size         = local.contract.debian.os_disk.size_gb
-    iothread     = true
-    backup       = true
-    cache        = "none"
-    discard      = "ignore"
-    replicate    = true
-    ssd          = false
-  }
-
   network_device {
     bridge      = local.contract.network.bridge
     firewall    = true
