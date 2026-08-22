@@ -876,7 +876,7 @@ compose_stage = (repo / "ansible/roles/compose_stage/tasks/main.yml").read_text(
 assert "when: compose_image_override_path | length == 0" in compose_stage
 assert 'src: "{{ compose_artifact_controller_dir }}/"' not in compose_stage
 assert "Materialize only the selected deterministic artifact paths" in compose_stage
-assert "compose-artifact.py" in compose_stage and "- copy" in compose_stage
+assert "compose-artifact.py" in compose_stage and "- --no-git" in compose_stage and "- copy" in compose_stage
 assert "Materialize the exact legacy current artifact for rollback" in (repo / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
 for helper in (action_plan, model_inventory, stage_review):
     assert '"--override-file"' in helper

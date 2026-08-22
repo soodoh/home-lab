@@ -96,6 +96,7 @@
             argv:
               - "{{ ansible_playbook_python }}"
               - "{{ compose_artifact_controller_dir }}/scripts/compose-artifact.py"
+              - --no-git
               - --root
               - "{{ compose_artifact_controller_dir }}"
               - copy
