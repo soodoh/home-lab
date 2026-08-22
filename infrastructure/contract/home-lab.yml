@@ -1378,10 +1378,10 @@ tailscale:
     debian: tag:docker-host
     proxmox: tag:proxmox
   required_endpoints:
-    - docker-host-debian:22
+    - docker-host:22
     - proxmox:22
     - proxmox:8006
-    - docker-host-debian:8043
+    - docker-host:8043
 aws:
   region: us-east-1
   recovery_region: us-west-2

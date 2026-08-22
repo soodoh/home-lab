@@ -2,7 +2,7 @@
 
 function docker_compose_restore_proof
     umask 077
-    set -l SERVER docker-host-debian
+    set -l SERVER docker-host
     set -l EXPECTED_SHA256 0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431
     set -l EXPECTED_BYTES 2319938554
     set -l BACKUP /mnt/storage/backups/daily-local-backup-2026-08-21T22-32-08.tar.gz.gpg

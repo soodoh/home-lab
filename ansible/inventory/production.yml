@@ -6,7 +6,7 @@ all:
     docker_host:
       hosts:
         docker-host-production:
-          ansible_host: docker-host-debian
+          ansible_host: docker-host
           ansible_user: ansible-deploy
           ansible_python_interpreter: /usr/bin/python3
           # The controller reaches this host through the authenticated tailnet path

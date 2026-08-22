@@ -34,12 +34,12 @@ check(structuredClone(contract), true, "current contract");
 if (validateProxmoxHostPolicy(contract).length) {
   throw new Error(`current Proxmox host policy failed semantics: ${JSON.stringify(validateProxmoxHostPolicy(contract))}`);
 }
-if (!contract.tailscale.required_endpoints.includes("docker-host-debian:22") ||
-    !contract.tailscale.required_endpoints.includes("docker-host-debian:8043") ||
-    !productionInventory.includes("ansible_host: docker-host-debian") ||
+if (!contract.tailscale.required_endpoints.includes("docker-host:22") ||
+    !contract.tailscale.required_endpoints.includes("docker-host:8043") ||
+    !productionInventory.includes("ansible_host: docker-host") ||
     !productionInventory.includes("ansible_user: ansible-deploy") ||
     !productionInventory.includes("ansible_python_interpreter: /usr/bin/python3") ||
-    !infrastructureInventory.includes("ansible_host: docker-host-debian") ||
+    !infrastructureInventory.includes("ansible_host: docker-host") ||
     !infrastructureInventory.includes("ansible_user: ansible-deploy") ||
     !infrastructureInventory.includes("ansible_python_interpreter: /usr/bin/python3")) {
   throw new Error("production automation must target the verified Debian Tailscale identity");

@@ -888,6 +888,16 @@ assert 'note.get("stateOnlyMoves")' in state_move_guard
 assert "verify-debian-state-only-move.py" in (repo / "scripts/local-controller").read_text()
 assert "verify-debian-state-only-move.py" in (repo / "scripts/reconcile-infrastructure").read_text()
 assert "ansible_extra_args=(--extra-vars '{}')" in (repo / "scripts/reconcile-infrastructure").read_text()
+tailscale_retirement = (repo / "scripts/controller/retire-arch-tailscale-device.py").read_text()
+for required in (
+    '"id": "5011652268534622"',
+    '"id": "6762069159616123"',
+    '"100.111.210.72"',
+    '"100.116.163.42"',
+    'CONFIRMATION = "retire-exact-arch-tailscale-device"',
+    'fail("debian_device_changed")',
+):
+    assert required in tailscale_retirement
 automation = (repo / "scripts/prepare-debian-production-automation").read_text()
 for required in (
     "prepare-reviewed-vm-100-debian-production-automation",

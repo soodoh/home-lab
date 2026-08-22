@@ -13,7 +13,7 @@ import sys
 import tempfile
 
 ALIAS = "Omada"
-DOCKER_HOST = "docker-host-debian"
+DOCKER_HOST = "docker-host"
 MARKER = "# home-lab-omada"
 TAILSCALE_IPV4 = ipaddress.IPv4Network("100.64.0.0/10")
 
