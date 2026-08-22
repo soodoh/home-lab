@@ -10,6 +10,8 @@ services:
     container_name: hass
     restart: unless-stopped
     logging: *default-logging
+    labels:
+      docker-volume-backup.stop-during-backup: true
     depends_on:
       zwave:
         condition: service_started
@@ -32,6 +34,8 @@ services:
     container_name: zwave
     restart: always
     logging: *default-logging
+    labels:
+      docker-volume-backup.stop-during-backup: true
     tty: true
     stop_signal: SIGINT
     devices:
@@ -56,6 +60,8 @@ services:
     container_name: mosquitto
     restart: unless-stopped
     logging: *default-logging
+    labels:
+      docker-volume-backup.stop-during-backup: true
     environment:
       TZ: $TZ
     volumes:
@@ -80,6 +86,8 @@ services:
     container_name: frigate
     restart: unless-stopped
     logging: *default-logging
+    labels:
+      docker-volume-backup.stop-during-backup: true
     shm_size: "100mb"
     mem_limit: 4096m
     privileged: true

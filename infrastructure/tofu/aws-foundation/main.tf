@@ -217,7 +217,22 @@ resource "aws_s3_bucket_lifecycle_configuration" "recovery" {
     }
 
     noncurrent_version_expiration {
-      noncurrent_days = local.contract.backups.remote_retention_days * 2
+      noncurrent_days = local.contract.backups.remote_noncurrent_retention_days
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = local.contract.backups.incomplete_multipart_abort_days
+    }
+  }
+
+  rule {
+    id     = "expired-delete-marker-cleanup"
+    status = "Enabled"
+
+    filter {}
+
+    expiration {
+      expired_object_delete_marker = true
     }
   }
 }

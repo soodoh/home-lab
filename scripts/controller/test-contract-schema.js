@@ -87,6 +87,7 @@ function valueAt(document, dottedPath) {
 
 const closedRequiredPolicyObjects = [
   "vm_100",
+  "backups",
   "vm_100.workload_identity",
   "vm_100.access",
   "vm_100.networking",

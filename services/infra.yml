@@ -7,35 +7,39 @@ x-logging: &default-logging
 x-backup-env: &backup-env
   TZ: $TZ
   GPG_PUBLIC_KEY_RING_FILE: /etc/docker-volume-backup/gpg-public.asc
-  BACKUP_EXCLUDE_REGEXP: '^/backup/wolf/profile-data/paul/WolfES-DE/(\.cache/|ES-DE/logs/|\.config/retroarch/(assets|downloads|logs|thumbnails)/)'
+  BACKUP_EXCLUDE_REGEXP: '^/backup/(audiobookshelf-data/metadata/|bookshelf-data/(Backups/|MediaCover/|Sentry/|logs/|logs\.db(-.*)?$)|calibre-data/(books/|config/\.cache/)|calibre-web-data/(\.cwa_conversion_tmp/|\.cwa_db_debug/|app\.db\.bak\..*$|calibre-web\.log(\..*)?$|cwa_ingest_retry_queue/|cwa_ingest_status/|epub-fixer\.log$|log_archive/|processed_books/|thumbnails/)|caro-tachidesk-data/(backups/|bin/|cache/|database(\..*)?\.trace\.db$|database\..*\.(backup|sql)$|downloads/|logs/|webUI/)|frigate-data/(\.exports/|\.search_stats\.json$|\.timeline/|\.vacuum/|backup\.db$|model_cache/)|hass-data/(\.cache/|backups?/|core$|home-assistant\.log(\..*)?$|tts/)|jellyfin-data/(cache/|config/(\.cache/|data/(SQLiteBackups/|attachments/|introskipper/|library\.db\.old(-.*)?$|subtitles/)|log/|metadata/))|nextcloud-db-data/(binlog\..*$|system_mysql_backup_.*$)|omada-data/data/(device-firmware/|mongodb-preupgrade\.tar$|mongodb_upgrade\.log(\..*)?$)|pihole-data/(config_backups/|gravity_backups/|gravity_old\.db$|listsCache/|migration_backup/|pihole-FTL\.db(-.*)?$)|((bookshelf|prowlarr|radarr|radarr-4k|sonarr)-data)/(Backups/|MediaCover/|Sentry/|logs/|logs\.db(-.*)?$)|qbittorrent-data/(\.cache/|qBittorrent/(GeoDB/|logs/))|recyclarr-data/(logs/|repositories/|resources/|state/)|sabnzbd-data/logs/|seerr-data/(cache/|logs/)|tachidesk-data/(backups/|bin/|cache/|database(\..*)?\.trace\.db$|database\..*\.(backup|sql)$|downloads/|logs/|webUI/)|vaultwarden-data/(icon_cache/|tmp/)|zwave-data/logs/|wolf/cfg/backtrace\..*\.dump$|wolf/profile-data/paul/WolfES-DE/(\.local/share/Steam/|\.config/retroarch/(assets/|cores/|downloads/|logs/|thumbnails/)|ES-DE/(logs/|scrapers/|screensavers/|themes/)))'
 x-backup-volumes: &backup-volumes
-  - /srv/home-lab-state/audiobookshelf-data:/backup/audiobookshelf-data:ro
-  - /srv/home-lab-state/authentik-data:/backup/authentik-data:ro
+  - /srv/home-lab-state/audiobookshelf-data/config:/backup/audiobookshelf-data/config:ro
+  - /srv/home-lab-state/authentik-data/postgresql:/backup/authentik-data/postgresql:ro
+  - /srv/home-lab-state/authentik-data/media:/backup/authentik-data/media:ro
+  - /srv/home-lab-state/authentik-data/custom-templates:/backup/authentik-data/custom-templates:ro
+  - /srv/home-lab-state/authentik-data/certs/live:/backup/authentik-data/certs/live:ro
+  - /srv/home-lab-state/authentik-data/certs/archive:/backup/authentik-data/certs/archive:ro
   - /srv/home-lab-state/bookshelf-data:/backup/bookshelf-data:ro
-  - /srv/home-lab-state/caddy-data:/backup/caddy-data:ro
-  - /srv/home-lab-state/calibre-data:/backup/calibre-data:ro
+  - /srv/home-lab-state/calibre-data/config:/backup/calibre-data/config:ro
+  - /srv/home-lab-state/calibre-data/plugins:/backup/calibre-data/plugins:ro
   - /srv/home-lab-state/calibre-web-data:/backup/calibre-web-data:ro
-  - /srv/home-lab-state/calibre-web-ingest:/backup/calibre-web-ingest:ro
   - /srv/home-lab-state/caro-tachidesk-data:/backup/caro-tachidesk-data:ro
   - /srv/home-lab-state/ddns-updater-data:/backup/ddns-updater-data:ro
   - /srv/home-lab-state/frigate-data:/backup/frigate-data:ro
-  - /srv/home-lab-state/flaresolverr-data:/backup/flaresolverr-data:ro
   - /srv/home-lab-state/gluetun-data:/backup/gluetun-data:ro
-  - /srv/home-lab-state/jellyfin-data:/backup/jellyfin-data:ro
+  - /srv/home-lab-state/jellyfin-data/config:/backup/jellyfin-data/config:ro
   - /srv/home-lab-state/seerr-data:/backup/seerr-data:ro
   - /srv/home-lab-state/karaoke-eternal-data:/backup/karaoke-eternal-data:ro
   - /srv/home-lab-state/litellm-data:/backup/litellm-data:ro
-  - /srv/home-lab-state/mosquitto-data:/backup/mosquitto-data:ro
+  - /srv/home-lab-state/mosquitto-data/config:/backup/mosquitto-data/config:ro
+  - /srv/home-lab-state/mosquitto-data/data:/backup/mosquitto-data/data:ro
   - /srv/home-lab-state/nextcloud-db-data:/backup/nextcloud-db-data:ro
-  - /srv/home-lab-state/nextcloud-redis-data:/backup/nextcloud-redis-data:ro
-  - /srv/home-lab-state/omada-data:/backup/omada-data:ro
+  - /srv/home-lab-state/omada-data/data:/backup/omada-data/data:ro
   - /srv/home-lab-state/openfit-data:/backup/openfit-data:ro
   - /srv/home-lab-state/pihole-data:/backup/pihole-data:ro
   - /srv/home-lab-state/prowlarr-data:/backup/prowlarr-data:ro
   - /srv/home-lab-state/qbittorrent-data:/backup/qbittorrent-data:ro
   - /srv/home-lab-state/radarr-4k-data:/backup/radarr-4k-data:ro
   - /srv/home-lab-state/radarr-data:/backup/radarr-data:ro
-  - /srv/home-lab-state/recyclarr-data:/backup/recyclarr-data:ro
+  - /srv/home-lab-state/recyclarr-data/configs:/backup/recyclarr-data/configs:ro
+  - /srv/home-lab-state/recyclarr-data/includes:/backup/recyclarr-data/includes:ro
+  - /srv/home-lab-state/recyclarr-data/settings.yml:/backup/recyclarr-data/settings.yml:ro
   - /srv/home-lab-state/sabnzbd-data:/backup/sabnzbd-data:ro
   - /srv/home-lab-state/sonarr-data:/backup/sonarr-data:ro
   - /srv/home-lab-state/tachidesk-data:/backup/tachidesk-data:ro
@@ -44,11 +48,11 @@ x-backup-volumes: &backup-volumes
   - /srv/home-lab-state/zwave-data:/backup/zwave-data:ro
   # Non-volumes
   - /srv/home-lab-state/hass-data:/backup/hass-data:ro
-  # Wolf identity, pairings, profiles, and application configuration
+  # Wolf identity, pairings, profiles, and non-regenerable configuration
   - ${GAMES_PATH}/wolf/cfg:/backup/wolf/cfg:ro
-  # Steam game data, ROMs, BIOS files, and regenerable scraped media are intentionally excluded
-  # See the use of BACKUP_EXCLUDE_REGEXP
-  - ${GAMES_PATH}/wolf/profile-data/paul/WolfES-DE:/backup/wolf/profile-data/paul/WolfES-DE:ro
+  - ${GAMES_PATH}/wolf/profile-data/paul/WolfES-DE/.config:/backup/wolf/profile-data/paul/WolfES-DE/.config:ro
+  - ${GAMES_PATH}/wolf/profile-data/paul/WolfES-DE/.local/share:/backup/wolf/profile-data/paul/WolfES-DE/.local/share:ro
+  - ${GAMES_PATH}/wolf/profile-data/paul/WolfES-DE/ES-DE:/backup/wolf/profile-data/paul/WolfES-DE/ES-DE:ro
   # Sensitive host files remain safe in S3 because backups are GPG-encrypted.
   - /etc/docker-compose/production.env:/backup/.env:ro
   - ${HOME}/.ssh:/backup/.ssh:ro
@@ -136,6 +140,8 @@ services:
     container_name: pihole
     restart: always
     logging: *default-logging
+    labels:
+      docker-volume-backup.stop-during-backup: true
     ports:
       - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:53:53/tcp
       - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:53:53/udp
@@ -163,6 +169,7 @@ services:
       BACKUP_PRUNING_PREFIX: daily-local-backup-
       BACKUP_CRON_EXPRESSION: "0 5 * * *"
       BACKUP_RETENTION_DAYS: 7
+      LOCAL_BACKUP_NO_PRUNE: "0"
     labels:
       docker-volume-backup.copy-post: /bin/sh -c /usr/local/bin/replicate-local-backup
     volumes: *backup-volumes

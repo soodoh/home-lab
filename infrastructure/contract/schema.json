@@ -443,25 +443,27 @@
     "backups": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["local_schedule", "local_paths", "estimated_archive_bytes", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "local_retention_days", "excluded_classes"],
+      "required": ["local_schedule", "local_paths", "estimated_archive_bytes", "local_retention_days", "remote_frequency", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "remote_noncurrent_retention_days", "incomplete_multipart_abort_days", "gpg_public_key_ring_file", "stateful_services", "excluded_classes"],
       "properties": {
-        "local_schedule": { "type": "string", "minLength": 9 },
+        "local_schedule": { "const": "0 5 * * *" },
         "local_paths": {
-          "type": "array",
-          "prefixItems": [
-            { "const": "/mnt/games/backups" },
-            { "const": "/mnt/storage/backups" }
-          ],
-          "items": false,
-          "minItems": 2,
-          "maxItems": 2
+          "const": ["/mnt/games/backups", "/mnt/storage/backups"]
         },
         "estimated_archive_bytes": { "type": "integer", "minimum": 1000000000 },
-        "remote_schedule": { "type": "string", "minLength": 9 },
-        "remote_rpo_hours": { "type": "integer", "minimum": 24 },
-        "remote_retention_days": { "type": "integer", "minimum": 2 },
-        "local_retention_days": { "type": "integer", "minimum": 2 },
-        "excluded_classes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+        "local_retention_days": { "const": 7 },
+        "remote_frequency": { "const": "weekly" },
+        "remote_schedule": { "const": "0 6 * * 0" },
+        "remote_rpo_hours": { "const": 168 },
+        "remote_retention_days": { "const": 14 },
+        "remote_noncurrent_retention_days": { "const": 1 },
+        "incomplete_multipart_abort_days": { "const": 1 },
+        "gpg_public_key_ring_file": { "const": "/etc/docker-volume-backup/gpg-public.asc" },
+        "stateful_services": {
+          "const": ["audiobookshelf", "authentik-server", "authentik-worker", "bookshelf", "calibre", "calibre-web-automated", "caro-tachidesk", "frigate", "homeassistant", "jellyfin", "karaoke-eternal", "litellm", "mosquitto", "nextcloud", "nextcloud-db", "omada", "openfit", "pihole", "postgres", "prowlarr", "qbittorrent", "radarr", "radarr-4k", "sabnzbd", "seerr", "sonarr", "tachidesk", "vaultwarden", "vikunja", "wolf", "zwave"]
+        },
+        "excluded_classes": {
+          "const": ["bulk-media", "calibre-books", "downloaded-manga", "nextcloud-user-files", "application-caches", "logs", "generated-metadata-artwork", "internal-application-backup-archives", "mariadb-binary-logs", "legacy-database-rollback-directories", "steam-data", "roms", "bios-files", "scraped-gaming-media"]
+        }
       }
     }
   },

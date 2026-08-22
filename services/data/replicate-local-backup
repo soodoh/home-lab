@@ -1,6 +1,11 @@
 #!/bin/sh
 set -eu
 
+no_prune=${LOCAL_BACKUP_NO_PRUNE:-0}
+case "$no_prune" in
+  0|1) ;;
+  *) echo "local_backup_replication=failed reason=no_prune_invalid" >&2; exit 1 ;;
+esac
 archive=${COMMAND_RUNTIME_ARCHIVE_FILEPATH:?COMMAND_RUNTIME_ARCHIVE_FILEPATH is required}
 basename=${archive##*/}
 printf '%s\n' "$basename" | grep -Eq \
@@ -53,21 +58,21 @@ prune_destination() {
   destination=$1
   retention_days=$2
   retention_minutes=$((retention_days * 24 * 60))
-  for pattern in \
-    'daily-local-backup-????-??-??T??-??-??.tar.gz.gpg' \
-    'daily-backup-????-??-??T??-??-??.tar.gz.gpg'; do
-    find "$destination" -maxdepth 1 -type f -name "$pattern" \
-      -mmin "+$retention_minutes" \
-      -exec sh -c 'for archive do rm -f -- "$archive" "$archive.sha256"; done' sh {} +
-  done
-  for checksum in \
-    "$destination"/daily-local-backup-*.tar.gz.gpg.sha256 \
-    "$destination"/daily-backup-*.tar.gz.gpg.sha256; do
+  find "$destination" -maxdepth 1 -type f \
+    -name 'daily-local-backup-????-??-??T??-??-??.tar.gz.gpg' \
+    -mmin "+$retention_minutes" \
+    -exec sh -c 'for archive do rm -f -- "$archive" "$archive.sha256"; done' sh {} +
+  for checksum in "$destination"/daily-local-backup-*.tar.gz.gpg.sha256; do
     [ -e "$checksum" ] || continue
     [ -f "${checksum%.sha256}" ] || rm -f -- "$checksum"
   done
 }
-prune_destination /replica-games 7
-prune_destination /archive 7
+
+if [ "$no_prune" -eq 0 ]; then
+  prune_destination /replica-games 7
+  prune_destination /archive 7
+else
+  printf 'local_backup_pruning=disabled mode=validation\n'
+fi
 
 printf 'local_backup_replication=verified destinations=2\n'

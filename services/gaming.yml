@@ -10,6 +10,8 @@ services:
     container_name: wolf
     restart: unless-stopped
     logging: *default-logging
+    labels:
+      docker-volume-backup.stop-during-backup: true
     network_mode: host
     healthcheck:
       test:

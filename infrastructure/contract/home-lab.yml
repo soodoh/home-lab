@@ -1394,13 +1394,58 @@ backups:
     - /mnt/games/backups
     - /mnt/storage/backups
   estimated_archive_bytes: 50000000000
+  local_retention_days: 7
+  remote_frequency: weekly
   remote_schedule: "0 6 * * 0"
   remote_rpo_hours: 168
   remote_retention_days: 14
-  local_retention_days: 7
+  remote_noncurrent_retention_days: 1
+  incomplete_multipart_abort_days: 1
+  gpg_public_key_ring_file: /etc/docker-volume-backup/gpg-public.asc
+  stateful_services:
+    - audiobookshelf
+    - authentik-server
+    - authentik-worker
+    - bookshelf
+    - calibre
+    - calibre-web-automated
+    - caro-tachidesk
+    - frigate
+    - homeassistant
+    - jellyfin
+    - karaoke-eternal
+    - litellm
+    - mosquitto
+    - nextcloud
+    - nextcloud-db
+    - omada
+    - openfit
+    - pihole
+    - postgres
+    - prowlarr
+    - qbittorrent
+    - radarr
+    - radarr-4k
+    - sabnzbd
+    - seerr
+    - sonarr
+    - tachidesk
+    - vaultwarden
+    - vikunja
+    - wolf
+    - zwave
   excluded_classes:
     - bulk-media
+    - calibre-books
+    - downloaded-manga
+    - nextcloud-user-files
+    - application-caches
+    - logs
+    - generated-metadata-artwork
+    - internal-application-backup-archives
+    - mariadb-binary-logs
+    - legacy-database-rollback-directories
     - steam-data
     - roms
     - bios-files
-    - regenerable-scraped-media
+    - scraped-gaming-media

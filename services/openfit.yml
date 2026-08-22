@@ -10,6 +10,8 @@ services:
     container_name: openfit
     restart: unless-stopped
     logging: *default-logging
+    labels:
+      docker-volume-backup.stop-during-backup: true
     volumes:
       - /srv/home-lab-state/openfit-data:/app/data
     environment:

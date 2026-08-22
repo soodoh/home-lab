@@ -35,7 +35,7 @@ services:
     container_name: nextcloud-db
     restart: always
     logging: *default-logging
-    command: --transaction-isolation=READ-COMMITTED --log-bin=binlog --binlog-format=ROW
+    command: --transaction-isolation=READ-COMMITTED
     volumes:
       - /srv/home-lab-state/nextcloud-db-data:/var/lib/mysql
     environment:

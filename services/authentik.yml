@@ -50,8 +50,6 @@ services:
       - type: bind
         source: /srv/home-lab-state/authentik-data/redis
         target: /data
-    labels:
-      docker-volume-backup.stop-during-backup: true
     networks:
       - authentik
 

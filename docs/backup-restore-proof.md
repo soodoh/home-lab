@@ -21,6 +21,27 @@ Observed on 2026-08-01:
 
 The current design retains separate jobs. `daily-local-backup` writes to `/mnt/storage/backups` and must replicate the verified ciphertext and checksum sidecar to `/mnt/games/backups`; both locations keep seven days, and a failed replica fails the run. `/mnt/storage` is the existing NFS mount, not local LVM, while `/mnt/games` is the separate local ext4 disk. `weekly-remote-backup` creates a distinct weekly S3 archive and disables local retention. Recovery tries the newest valid local archive globally, using games then storage as the tie-break order, and uses the reviewed latest version-bound weekly archive only when every local candidate fails.
 
+## Reduced-backup validation and cleanup controls
+
+The first reduced daily backup is a one-time no-prune validation run. Stop `weekly-remote-backup`, confirm no S3 upload is active, and invoke only the daily container with the pinned image's documented manual command:
+
+```sh
+docker exec \
+  -e BACKUP_RETENTION_DAYS=0 \
+  -e LOCAL_BACKUP_NO_PRUNE=1 \
+  daily-local-backup backup
+```
+
+Both overrides are required. `BACKUP_RETENTION_DAYS=0` disables Offen pruning for that process, while `LOCAL_BACKUP_NO_PRUNE=1` disables pruning in the verified-copy hook. The hook still hashes the NFS primary, copies through a temporary file, verifies the games copy, atomically renames it, and writes both sidecars. Normal scheduled runs retain `BACKUP_RETENTION_DAYS=7` and `LOCAL_BACKUP_NO_PRUNE=0`.
+
+The pinned image digest reports version `v2.48.2` and source revision `2bfd05b4ac7a15c04e91d86f623764a86339730b`. That revision calls Docker's synchronous `ContainerStop` operation for each selected container, then installs a deferred restart closure around archive creation. The closure runs when archive creation succeeds or fails and reports any restart failures; it runs before encryption, copying, or upload. This provides graceful Docker stop semantics and fail-safe restart coverage for the exact pinned build.
+
+Do not run the weekly container's `backup` command during this workflow. Keep its scheduler stopped until the external restore proof and guarded cleanup are complete.
+
+After the external proof passes, [`scripts/cleanup-local-backups.py`](../scripts/cleanup-local-backups.py) creates a mode-`0600` dry-run manifest for exactly two independent roots. It recognizes only timestamped `backup-*`, `daily-backup-*`, and `daily-local-backup-*` workflow files, their sidecars, and narrowly defined partial names. Applying the manifest requires its SHA-256 and revalidates every file's device, inode, size, and modification time. The selected validated daily basename and sidecar must exist on both roots and are never included. The Vikunja pre-restore tarball and unrelated files do not match the allowlist.
+
+[`scripts/cleanup-s3-backups.py`](../scripts/cleanup-s3-backups.py) follows the same two-phase model for versioned S3 cleanup. Its default allowlist is exactly `weekly-backup-*` and `daily-remote-backup-*`; any additional reviewed historical prefix must be supplied explicitly in both phases. The private manifest records every exact key and version ID plus hashed identities, counts, aggregate bytes, the latest backup timestamp, and an unrelated-object identity summary. Apply requires the manifest SHA-256, deletes exact versions in bounded batches, paginates the post-check, requires zero recognized versions or markers, and requires unrelated versions to remain unchanged.
+
 ## Backup-job inventory commands
 
 These commands inspect only service metadata, configured variable names, mount paths, and ciphertext metadata. They must never print container environment values or use `backup print-config`.
