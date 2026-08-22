@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "commit": "ec42d2ac27772c7157a8a5d144b87f67e8776f71",
+  "createdAt": "2026-08-22T18:56:56.000Z",
+  "phase": "steady",
+  "stage": "converge",
+  "manifestSha256": "4ca24cb6c6c5e2ff2fc0de4d868b4c8a063d4170fef4fbd9033b26986cfd107d",
+  "proxmoxHostActions": 0,
+  "allActionsZero": true,
+  "archDisk": {
+    "status": "permanently-deleted",
+    "volume": "local-lvm:vm-100-disk-0",
+    "evidence": "infrastructure/evidence/vm-100-arch-disk-retirement.json"
+  },
+  "production": {
+    "containers": 41,
+    "unhealthy": 0,
+    "stateBinds": 126,
+    "dockerVolumes": 0,
+    "ansibleAuditChanged": 0
+  },
+  "roots": [
+    {
+      "root": "aws-foundation",
+      "changed": false,
+      "sha256": "f747b808043e382e98f4d571911805ad13cf4a64467440ba501817887fe3fb71"
+    },
+    {
+      "root": "omada",
+      "changed": false,
+      "sha256": "edcb1e1efc9ce628ed9a7b19122e6285f4ac38ca5c94fe372b4bc7cc3432aa6d"
+    },
+    {
+      "root": "proxmox",
+      "changed": false,
+      "sha256": "b0fe88312989038ce8783f1ea04f1e0a3388beca6cfa45782c44dde4285bd4a8"
+    },
+    {
+      "root": "proxmox-legacy",
+      "changed": false,
+      "sha256": "11680611be37f4b512d7a16360e8b1083f7e6341fb5c510c756df5ec528140df"
+    },
+    {
+      "root": "tailscale",
+      "changed": false,
+      "sha256": "defa91345fcaaa0a2a47799ac4f6f253c570c093ef7a3fa6311fb4867f68b95f"
+    }
+  ]
+}
