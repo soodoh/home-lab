@@ -1,10 +1,20 @@
 ---
-- name: Keep the Debian Tailscale package present
+- name: Gather package facts before Tailscale convergence
+  ansible.builtin.package_facts:
+    manager: auto
+
+- name: Inspect the installed Tailscale client
+  ansible.builtin.stat:
+    path: /usr/bin/tailscale
+  register: tailscale_client_binary
+
+- name: Install Tailscale from Debian packaging only when the client is absent
   ansible.builtin.include_role:
     name: apt_packages
   vars:
     apt_packages_requested:
       - "{{ tailscale_package }}"
+  when: not tailscale_client_binary.stat.exists
 
 - name: Keep tailscaled enabled and started without restarting it
   ansible.builtin.systemd_service:
@@ -13,7 +23,7 @@
     state: "{{ tailscale_service_state }}"
     daemon_reload: false
   become: "{{ not ansible_check_mode }}"
-  when: not ansible_check_mode or tailscale_package in ansible_facts.packages
+  when: not ansible_check_mode or tailscale_client_binary.stat.exists or tailscale_package in ansible_facts.packages
 
 - name: Initialize the observed Tailscale backend state
   ansible.builtin.set_fact:
