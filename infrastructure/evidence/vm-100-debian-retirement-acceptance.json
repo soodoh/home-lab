@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-08-22T06:28:31Z",
+  "sourceCommit": "c4541e0ab1895345fc270612be3f6b37670cdcf1",
+  "vmid": 100,
+  "status": "accepted-early",
+  "acceptance": {
+    "minimumObservationDaysWaived": true,
+    "weeklyBackupWaived": true,
+    "acceptedBy": "operator",
+    "reason": "Successful corrected daily backup and isolated restore proof accepted as the retirement gate"
+  },
+  "backup": {
+    "name": "daily-local-backup-2026-08-21T22-32-08.tar.gz.gpg",
+    "bytes": 2319938554,
+    "sha256": "0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431",
+    "matchingReplicas": 2,
+    "temporaryDirectoryEmpty": true
+  },
+  "restoreProof": {
+    "path": "infrastructure/evidence/vm-100-debian-retirement-restore-proof.json",
+    "sha256": "f5438d2e755f8e9f57339ecbb9ee7236ccf94b7b8afd006761fe2b971337e974",
+    "archiveIntegrity": "pass",
+    "safePaths": "pass",
+    "memberCount": 22902,
+    "regularFileCount": 21971,
+    "totalUncompressedBytes": 6684789590,
+    "requiredStateClasses": 36,
+    "sqliteIntegrity": "pass",
+    "decryptedCleanup": "pass"
+  },
+  "production": {
+    "containers": 41,
+    "paused": 0,
+    "unhealthy": 0,
+    "stateBindMounts": 115,
+    "dockerVolumeMounts": 0,
+    "ansibleAudit": "zero-change-pass"
+  }
+}
