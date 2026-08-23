@@ -51,6 +51,7 @@ services:
       APACHE_DISABLE_REWRITE_IP: "1"
       TRUSTED_PROXIES: 172.23.0.250
       NEXTCLOUD_INIT_HTACCESS: "true"
+      PHP_MEMORY_LIMIT: 1G
     secrets:
       - nextcloud_mysql_password
     labels:
@@ -68,6 +69,8 @@ services:
     restart: always
     entrypoint: /cron.sh
     logging: *default-logging
+    environment:
+      PHP_MEMORY_LIMIT: 1G
     volumes: *nextcloud-volumes
     labels:
       docker-volume-backup.stop-during-backup: true

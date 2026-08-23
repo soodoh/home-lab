@@ -108,12 +108,15 @@ def main() -> None:
         fail("cron_exposure")
     if str(cron.get("labels", {}).get("docker-volume-backup.stop-during-backup", "")).lower() != "true":
         fail("cron_writer_stop_label")
+    if environment(cron).get("PHP_MEMORY_LIMIT") != policy["php_memory_limit"]:
+        fail("cron_php_memory_limit")
 
     web_environment = environment(web)
     required_web_environment = {
         "APACHE_DISABLE_REWRITE_IP": "1",
         "TRUSTED_PROXIES": policy["trusted_proxy"],
         "NEXTCLOUD_INIT_HTACCESS": "true",
+        "PHP_MEMORY_LIMIT": policy["php_memory_limit"],
         "MYSQL_PASSWORD_FILE": policy["secrets"]["application_password"]["container_path"],
     }
     if any(web_environment.get(key) != value for key, value in required_web_environment.items()):

@@ -239,7 +239,7 @@
     "nextcloudPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["web_service", "cron_service", "database_service", "redis_service", "application_network", "image", "image_digest", "managed_state_root", "trusted_proxy", "hsts_max_age", "maintenance_window_start", "default_phone_region", "logging", "secrets", "paths", "writer_stop_order", "expected_compose_service_count", "expected_image_reference_count", "expected_image_lock_service_count", "rollback_window_days", "old_path_cleanup_gate"],
+      "required": ["web_service", "cron_service", "database_service", "redis_service", "application_network", "image", "image_digest", "managed_state_root", "trusted_proxy", "hsts_max_age", "maintenance_window_start", "php_memory_limit", "default_phone_region", "logging", "secrets", "paths", "writer_stop_order", "expected_compose_service_count", "expected_image_reference_count", "expected_image_lock_service_count", "rollback_window_days", "old_path_cleanup_gate"],
       "properties": {
         "web_service": { "const": "nextcloud" },
         "cron_service": { "const": "nextcloud-cron" },
@@ -252,6 +252,7 @@
         "trusted_proxy": { "const": "172.23.0.250" },
         "hsts_max_age": { "const": 15552000 },
         "maintenance_window_start": { "const": 6 },
+        "php_memory_limit": { "const": "1G" },
         "default_phone_region": { "const": "US" },
         "logging": {
           "type": "object", "additionalProperties": false,
