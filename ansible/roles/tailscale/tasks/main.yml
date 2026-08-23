@@ -1,20 +1,30 @@
 ---
-- name: Gather package facts before Tailscale convergence
-  ansible.builtin.package_facts:
-    manager: auto
-
-- name: Inspect the installed Tailscale client
+- name: Inspect pinned standalone Tailscale binaries
   ansible.builtin.stat:
-    path: /usr/bin/tailscale
-  register: tailscale_client_binary
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+    follow: false
+  loop:
+    - path: "{{ tailscale_client_path }}"
+      sha256: "{{ tailscale_client_sha256 }}"
+    - path: "{{ tailscale_daemon_path }}"
+      sha256: "{{ tailscale_daemon_sha256 }}"
+  register: tailscale_binaries
 
-- name: Install Tailscale from Debian packaging only when the client is absent
-  ansible.builtin.include_role:
-    name: apt_packages
-  vars:
-    apt_packages_requested:
-      - "{{ tailscale_package }}"
-  when: not tailscale_client_binary.stat.exists
+- name: Require exact pinned standalone Tailscale binaries
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.nlink | default(0) | int == 1
+      - item.stat.pw_name == 'root'
+      - item.stat.gr_name == 'root'
+      - item.stat.mode == '0755'
+      - item.stat.checksum == item.item.sha256
+    fail_msg: Tailscale binary provenance differs; use a separately approved access-critical installation or upgrade.
+  loop: "{{ tailscale_binaries.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
 
 - name: Keep tailscaled enabled and started without restarting it
   ansible.builtin.systemd_service:
@@ -23,7 +33,6 @@
     state: "{{ tailscale_service_state }}"
     daemon_reload: false
   become: "{{ not ansible_check_mode }}"
-  when: not ansible_check_mode or tailscale_client_binary.stat.exists or tailscale_package in ansible_facts.packages
 
 - name: Initialize the observed Tailscale backend state
   ansible.builtin.set_fact:
@@ -33,7 +42,7 @@
 - name: Inspect Tailscale status without exposing tailnet identity
   ansible.builtin.command:
     argv:
-      - /usr/bin/tailscale
+      - "{{ tailscale_client_path }}"
       - status
       - --json
   register: tailscale_status_before
@@ -41,7 +50,6 @@
   changed_when: false
   check_mode: false
   no_log: true
-  when: not ansible_check_mode or tailscale_package in ansible_facts.packages
 
 - name: Record the current Tailscale backend state privately
   ansible.builtin.set_fact:
@@ -89,7 +97,7 @@
     - name: Enroll with no DNS, accepted routes, advertised routes, or Tailscale SSH
       ansible.builtin.command:
         argv:
-          - /usr/bin/tailscale
+          - "{{ tailscale_client_path }}"
           - up
           - "--auth-key=file:{{ tailscale_auth_key_file.path }}"
           - "--hostname={{ tailscale_hostname }}"
@@ -111,7 +119,7 @@
 - name: Inspect Tailscale preferences without exposing node identity
   ansible.builtin.command:
     argv:
-      - /usr/bin/tailscale
+      - "{{ tailscale_client_path }}"
       - debug
       - prefs
   register: tailscale_preferences_before
@@ -120,10 +128,19 @@
   no_log: true
   when: not ansible_check_mode
 
+- name: Require the access-critical Tailscale update policy before ordinary convergence
+  ansible.builtin.assert:
+    that:
+      - ((tailscale_preferences_before.stdout | from_json).AutoUpdate.Apply | bool) == (tailscale_auto_update_apply | bool)
+      - ((tailscale_preferences_before.stdout | from_json).AutoUpdate.Check | bool) == (tailscale_update_check | bool)
+    fail_msg: Use reconcile-tailscale-baseline.yml with explicit recovery confirmations; ordinary convergence cannot change update policy.
+  no_log: true
+  when: not ansible_check_mode
+
 - name: Converge complete Tailscale preferences
   ansible.builtin.command:
     argv:
-      - /usr/bin/tailscale
+      - "{{ tailscale_client_path }}"
       - set
       - "--hostname={{ tailscale_hostname }}"
       - "--advertise-routes={{ tailscale_advertise_routes | join(',') }}"
@@ -146,10 +163,31 @@
       (((tailscale_preferences_before.stdout | from_json).AdvertiseRoutes | default([], true)) | sort) != (tailscale_advertise_routes | sort) or
       ((tailscale_preferences_before.stdout | from_json).NetfilterMode | default(0) | int) != (tailscale_expected_netfilter_mode | int)
 
+- name: Reinspect complete Tailscale preferences after convergence
+  ansible.builtin.command:
+    argv:
+      - "{{ tailscale_client_path }}"
+      - debug
+      - prefs
+  register: tailscale_preferences_after
+  changed_when: false
+  check_mode: false
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Inspect the pinned Tailscale version after convergence
+  ansible.builtin.command:
+    argv:
+      - "{{ tailscale_client_path }}"
+      - version
+  register: tailscale_version_after
+  changed_when: false
+  check_mode: false
+
 - name: Verify Tailscale reaches the running backend state
   ansible.builtin.command:
     argv:
-      - /usr/bin/tailscale
+      - "{{ tailscale_client_path }}"
       - status
       - --json
   register: tailscale_status_after
@@ -161,7 +199,7 @@
 - name: Verify the host has a Tailscale IPv4 address
   ansible.builtin.command:
     argv:
-      - /usr/bin/tailscale
+      - "{{ tailscale_client_path }}"
       - ip
       - --4
   register: tailscale_ipv4
@@ -176,6 +214,9 @@
       - (tailscale_status_after.stdout | from_json).BackendState == tailscale_expected_backend_state
       - tailscale_ipv4.stdout | length > 0
       - tailscale_advertise_tags in ((tailscale_status_after.stdout | from_json).Self.Tags | default([]))
+      - tailscale_version_after.stdout_lines | first == tailscale_expected_version
+      - ((tailscale_preferences_after.stdout | from_json).AutoUpdate.Apply | bool) == (tailscale_auto_update_apply | bool)
+      - ((tailscale_preferences_after.stdout | from_json).AutoUpdate.Check | bool) == (tailscale_update_check | bool)
     fail_msg: >-
       Tailscale did not reach Running with the expected IPv4 address and device tag. Keep LAN SSH and Proxmox console recovery available.
   no_log: true

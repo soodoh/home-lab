@@ -180,9 +180,27 @@
     "tailscale": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["owner_identity", "tags", "required_endpoints"],
+      "required": ["owner_identity", "docker_host_client", "tags", "required_endpoints"],
       "properties": {
         "owner_identity": { "const": "soodoh@github" },
+        "docker_host_client": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["installation", "version", "architecture", "archive_url", "archive_sha256", "client_path", "client_sha256", "daemon_path", "daemon_sha256", "auto_update_apply", "update_check"],
+          "properties": {
+            "installation": { "const": "official-static-archive" },
+            "version": { "const": "1.102.3" },
+            "architecture": { "const": "linux_amd64" },
+            "archive_url": { "const": "https://pkgs.tailscale.com/stable/tailscale_1.102.3_amd64.tgz" },
+            "archive_sha256": { "const": "36ddd9b51be57ffc2990cf76323cfa13643bfbb1b8a969f6183fa164741cdef5" },
+            "client_path": { "const": "/usr/bin/tailscale" },
+            "client_sha256": { "const": "d6ffcba02fa07728f0c4847fc06d61f239f763478bd59156abf3591bdb1a3ad1" },
+            "daemon_path": { "const": "/usr/sbin/tailscaled" },
+            "daemon_sha256": { "const": "ce4770bbe6fc9dbcf47d8a2ccc5efad73e3f975460b01738dd0b059879d01221" },
+            "auto_update_apply": { "const": false },
+            "update_check": { "const": true }
+          }
+        },
         "tags": {
           "type": "object",
           "additionalProperties": false,

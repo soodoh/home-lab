@@ -27,7 +27,7 @@ The policy authority remains `infrastructure/contract/home-lab.yml`. Every live 
   - actual SHA-256 on both replicas `8034bcf7a03d19c446a23c30a56c1b9a8c4ffdd2d829557a5a16e39c0aab1f08`;
   - its manifests agree, but no restore proof was run during planning.
 - The five required Restic/Proton key names are absent from `secrets/production.sops.env`.
-- The full read-only host audit currently fails because live Tailscale is `1.102.3` while the contract expects `1.98.4`; reconcile that unrelated baseline drift before any migration mutation.
+- The Tailscale drift was traced to a Tailscale-managed automatic update at `2026-08-23T05:25:10Z` from `1.98.4` to `1.102.3`. The live client and daemon hashes exactly match Tailscale’s official `1.102.3` amd64 archive (archive SHA-256 `36ddd9b51be57ffc2990cf76323cfa13643bfbb1b8a969f6183fa164741cdef5`). The contract adopts those binaries but requires automatic update application disabled; run the separately guarded no-restart preference reconciliation and require a complete audit no-op before further migration mutation.
 - A read-only Restic-role Ansible check predicts ten changed tasks and no host failures after the local readiness fixes described below.
 
 ## Blocking repository work before any live mutation

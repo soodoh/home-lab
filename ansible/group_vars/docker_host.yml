@@ -40,7 +40,11 @@ restic_audit_inert_units:
 audit_expected_docker_client_version: 26.1.5+dfsg1
 audit_expected_docker_server_version: "{{ audit_expected_docker_client_version }}"
 audit_expected_compose_version: 2.26.1-4
-audit_expected_tailscale_version: 1.98.4
+audit_expected_tailscale_version: "{{ tailscale.docker_host_client.version }}"
+audit_expected_tailscale_client_sha256: "{{ tailscale.docker_host_client.client_sha256 }}"
+audit_expected_tailscale_daemon_sha256: "{{ tailscale.docker_host_client.daemon_sha256 }}"
+audit_expected_tailscale_auto_update_apply: "{{ tailscale.docker_host_client.auto_update_apply }}"
+audit_expected_tailscale_update_check: "{{ tailscale.docker_host_client.update_check }}"
 audit_expected_compose_service_count: 42
 audit_expected_stopped_compose_services: >-
   {{ backups.legacy_offen.scheduler_services if backups.legacy_offen.scheduler_state == 'quiesced' else [] }}
@@ -189,7 +193,13 @@ maintenance_manage_root_cron: true
 
 # The auth key is controller environment only and must be short-lived,
 # preauthorized, one-use, and scoped to the contract's Docker-host tag.
-tailscale_package: tailscale
+tailscale_client_path: "{{ tailscale.docker_host_client.client_path }}"
+tailscale_client_sha256: "{{ tailscale.docker_host_client.client_sha256 }}"
+tailscale_daemon_path: "{{ tailscale.docker_host_client.daemon_path }}"
+tailscale_daemon_sha256: "{{ tailscale.docker_host_client.daemon_sha256 }}"
+tailscale_expected_version: "{{ tailscale.docker_host_client.version }}"
+tailscale_auto_update_apply: "{{ tailscale.docker_host_client.auto_update_apply }}"
+tailscale_update_check: "{{ tailscale.docker_host_client.update_check }}"
 tailscale_service: tailscaled.service
 tailscale_hostname: "{{ vm_100.host_name }}"
 tailscale_advertise_tags: "{{ tailscale.tags.docker_host }}"

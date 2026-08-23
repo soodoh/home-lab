@@ -169,12 +169,43 @@
   changed_when: false
   check_mode: false
 
+- name: Inspect standalone Tailscale binary provenance
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+    follow: false
+  loop:
+    - path: /usr/bin/tailscale
+      sha256: "{{ audit_expected_tailscale_client_sha256 }}"
+    - path: /usr/sbin/tailscaled
+      sha256: "{{ audit_expected_tailscale_daemon_sha256 }}"
+  register: audit_tailscale_binaries
+
+- name: Inspect standalone Tailscale update preferences privately
+  ansible.builtin.command:
+    argv: [/usr/bin/tailscale, debug, prefs]
+  register: audit_tailscale_preferences
+  changed_when: false
+  check_mode: false
+  no_log: true
+
 - name: Assert Docker, Compose, and Tailscale runtime versions
   ansible.builtin.assert:
     that:
       - audit_docker_version.stdout == audit_expected_docker_client_version ~ '|' ~ audit_expected_docker_server_version
       - audit_compose_version.stdout == audit_expected_compose_version
       - audit_tailscale_version.stdout_lines | first == audit_expected_tailscale_version
+      - audit_tailscale_binaries.results | length == 2
+      - audit_tailscale_binaries.results | map(attribute='stat.isreg') | list == [true, true]
+      - audit_tailscale_binaries.results | map(attribute='stat.islnk') | list == [false, false]
+      - audit_tailscale_binaries.results | map(attribute='stat.nlink') | map('int') | list == [1, 1]
+      - audit_tailscale_binaries.results | map(attribute='stat.pw_name') | list == ['root', 'root']
+      - audit_tailscale_binaries.results | map(attribute='stat.gr_name') | list == ['root', 'root']
+      - audit_tailscale_binaries.results | map(attribute='stat.mode') | list == ['0755', '0755']
+      - audit_tailscale_binaries.results[0].stat.checksum == audit_expected_tailscale_client_sha256
+      - audit_tailscale_binaries.results[1].stat.checksum == audit_expected_tailscale_daemon_sha256
+      - ((audit_tailscale_preferences.stdout | from_json).AutoUpdate.Apply | bool) == (audit_expected_tailscale_auto_update_apply | bool)
+      - ((audit_tailscale_preferences.stdout | from_json).AutoUpdate.Check | bool) == (audit_expected_tailscale_update_check | bool)
     fail_msg: >-
       Docker client, daemon, Compose, or Tailscale version differs from the adopted Debian production baseline.
 

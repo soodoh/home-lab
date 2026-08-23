@@ -6,3 +6,10 @@ tailscale_service_state: started
 tailscale_enrollment_timeout_seconds: 30
 tailscale_enrollment_ssh: false
 tailscale_expected_backend_state: Running
+tailscale_client_path: /usr/bin/tailscale
+tailscale_client_sha256: ""
+tailscale_daemon_path: /usr/sbin/tailscaled
+tailscale_daemon_sha256: ""
+tailscale_expected_version: ""
+tailscale_auto_update_apply: false
+tailscale_update_check: true

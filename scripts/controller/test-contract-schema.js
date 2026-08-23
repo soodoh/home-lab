@@ -516,6 +516,12 @@ function parsedTask(relativePath, taskName) {
   if (!task) throw new Error(`${relativePath} lacks active task ${taskName}`);
   return task;
 }
+function parsedPlayTask(relativePath, taskName) {
+  const plays = load(fs.readFileSync(path.join(root, relativePath), "utf8"));
+  const task = plays.flatMap((play) => play.tasks || []).find((candidate) => candidate.name === taskName);
+  if (!task) throw new Error(`${relativePath} lacks active play task ${taskName}`);
+  return task;
+}
 function requireTaskArgument(relativePath, taskName, moduleName, argument, expected) {
   const task = parsedTask(relativePath, taskName);
   const actual = task[moduleName]?.[argument];
@@ -533,6 +539,42 @@ if (!sshMetadataTask.when.includes("not ansible_check_mode or (ssh_host_key_sent
   throw new Error("SSH host-key metadata enforcement must skip an absent sentinel only in check mode");
 }
 requireTaskArgument("ansible/roles/tailscale/tasks/main.yml", "Keep tailscaled enabled and started without restarting it", "ansible.builtin.systemd_service", "state", "{{ tailscale_service_state }}");
+const dockerHostTailscale = contract.tailscale.docker_host_client;
+if (dockerHostTailscale.version !== "1.102.3" ||
+    dockerHostTailscale.archive_sha256 !== "36ddd9b51be57ffc2990cf76323cfa13643bfbb1b8a969f6183fa164741cdef5" ||
+    dockerHostTailscale.client_sha256 !== "d6ffcba02fa07728f0c4847fc06d61f239f763478bd59156abf3591bdb1a3ad1" ||
+    dockerHostTailscale.daemon_sha256 !== "ce4770bbe6fc9dbcf47d8a2ccc5efad73e3f975460b01738dd0b059879d01221" ||
+    dockerHostTailscale.auto_update_apply !== false || dockerHostTailscale.update_check !== true) {
+  throw new Error("Docker-host Tailscale must retain the adopted official pinned baseline");
+}
+const tailscaleBinaryAssertion = parsedTask("ansible/roles/tailscale/tasks/main.yml", "Require exact pinned standalone Tailscale binaries");
+if (!tailscaleBinaryAssertion["ansible.builtin.assert"].that.some((condition) => condition.includes("stat.checksum"))) {
+  throw new Error("Tailscale convergence must verify pinned binary hashes");
+}
+const tailscaleUpdatePolicyAssertion = parsedTask("ansible/roles/tailscale/tasks/main.yml", "Require the access-critical Tailscale update policy before ordinary convergence");
+if (!tailscaleUpdatePolicyAssertion["ansible.builtin.assert"].that.every((condition) => condition.includes("AutoUpdate"))) {
+  throw new Error("Ordinary Tailscale convergence must fail closed on update-policy drift");
+}
+const tailscalePreferenceConvergence = parsedTask("ansible/roles/tailscale/tasks/main.yml", "Converge complete Tailscale preferences");
+const tailscalePreferenceArgs = tailscalePreferenceConvergence["ansible.builtin.command"].argv;
+if (tailscalePreferenceArgs.some((value) => value.includes("--auto-update=") || value.includes("--update-check="))) {
+  throw new Error("Ordinary Tailscale convergence must not mutate access-critical update policy");
+}
+const tailscaleReconciliationPlaybook = fs.readFileSync(path.join(root, "ansible/playbooks/reconcile-tailscale-baseline.yml"), "utf8");
+for (const required of ["adopt-official-tailscale-1.102.3-disable-auto-apply", "lan_ssh_recovery_confirmed", "proxmox_console_recovery_confirmed", "ActiveEnterTimestampMonotonic"]) {
+  if (!tailscaleReconciliationPlaybook.includes(required)) throw new Error(`Tailscale reconciliation omits ${required}`);
+}
+const tailscaleUpdateMutation = parsedPlayTask("ansible/playbooks/reconcile-tailscale-baseline.yml", "Disable Tailscale automatic update application without restarting tailscaled");
+if (JSON.stringify(tailscaleUpdateMutation["ansible.builtin.command"].argv) !== JSON.stringify([
+  "{{ tailscale.docker_host_client.client_path }}", "set", "--auto-update=false", "--update-check=true",
+])) {
+  throw new Error("Tailscale reconciliation mutation command differs from the exact reviewed preference change");
+}
+const tailscaleReconciliationAssertion = parsedPlayTask("ansible/playbooks/reconcile-tailscale-baseline.yml", "Require pinned Tailscale state with no service restart after reconciliation");
+const tailscaleReconciliationConditions = tailscaleReconciliationAssertion["ansible.builtin.assert"].that.join("\n");
+for (const required of ["dict2items", "Self.ID", "Self.NodeID", "Self.PublicKey", "Self.UserID", "Self.HostName", "Self.DNSName", "Self.TailscaleIPs", "Self.Tags", "version_after", "service_after", "stat.isreg", "stat.islnk", "stat.nlink", "stat.pw_name", "stat.gr_name", "stat.mode", "stat.checksum"]) {
+  if (!tailscaleReconciliationConditions.includes(required)) throw new Error(`Tailscale reconciliation postconditions omit ${required}`);
+}
 const tailscaleAssertion = parsedTask("ansible/roles/tailscale/tasks/main.yml", "Assert local Tailscale verification passed");
 if (!tailscaleAssertion["ansible.builtin.assert"].that.some((condition) => condition.includes("tailscale_expected_backend_state"))) {
   throw new Error("Tailscale verification must consume the expected backend state");

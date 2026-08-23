@@ -1,0 +1,206 @@
+---
+- name: Guardedly adopt the pinned Docker-host Tailscale baseline
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  pre_tasks:
+    - name: Require exact access-critical Tailscale reconciliation approval
+      ansible.builtin.assert:
+        that:
+          - not ansible_check_mode
+          - tailscale_baseline_reconciliation_confirmed | default(false) | bool
+          - tailscale_baseline_reconciliation_confirmation | default('') == 'adopt-official-tailscale-1.102.3-disable-auto-apply'
+          - lan_ssh_recovery_confirmed | default(false) | bool
+          - proxmox_console_recovery_confirmed | default(false) | bool
+          - tailscale_ssh_policy_confirmed | default(false) | bool
+          - tailscale.docker_host_client.version == '1.102.3'
+          - tailscale.docker_host_client.auto_update_apply == false
+          - tailscale.docker_host_client.update_check == true
+        fail_msg: The access-critical Tailscale reconciliation requires exact baseline and recovery confirmations.
+
+    - name: Acquire the shared production mutation lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: tailscale-baseline-reconciliation
+  tasks:
+    - name: Inspect pinned Tailscale binary metadata and hashes before reconciliation
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - path: "{{ tailscale.docker_host_client.client_path }}"
+          sha256: "{{ tailscale.docker_host_client.client_sha256 }}"
+        - path: "{{ tailscale.docker_host_client.daemon_path }}"
+          sha256: "{{ tailscale.docker_host_client.daemon_sha256 }}"
+      register: tailscale_reconciliation_binaries_before
+
+    - name: Inspect Tailscale runtime before reconciliation
+      ansible.builtin.command:
+        argv: ["{{ tailscale.docker_host_client.client_path }}", version]
+      register: tailscale_reconciliation_version_before
+      changed_when: false
+      check_mode: false
+
+    - name: Inspect Tailscale preferences before reconciliation privately
+      ansible.builtin.command:
+        argv: ["{{ tailscale.docker_host_client.client_path }}", debug, prefs]
+      register: tailscale_reconciliation_preferences_before
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Inspect Tailscale status before reconciliation privately
+      ansible.builtin.command:
+        argv: ["{{ tailscale.docker_host_client.client_path }}", status, --json]
+      register: tailscale_reconciliation_status_before
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Inspect tailscaled process continuity before reconciliation
+      ansible.builtin.command:
+        argv: [/usr/bin/systemctl, show, tailscaled.service, --property, MainPID, --property, ActiveEnterTimestampMonotonic, --property, NRestarts]
+      register: tailscale_reconciliation_service_before
+      changed_when: false
+      check_mode: false
+
+    - name: Require the exact official running Tailscale baseline before preference mutation
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.system == 'Linux'
+          - ansible_facts.architecture == 'x86_64'
+          - tailscale_reconciliation_version_before.stdout_lines | first == tailscale.docker_host_client.version
+          - tailscale_reconciliation_binaries_before.results | length == 2
+          - tailscale_reconciliation_binaries_before.results | map(attribute='stat.isreg') | list == [true, true]
+          - tailscale_reconciliation_binaries_before.results | map(attribute='stat.islnk') | list == [false, false]
+          - tailscale_reconciliation_binaries_before.results | map(attribute='stat.nlink') | map('int') | list == [1, 1]
+          - tailscale_reconciliation_binaries_before.results | map(attribute='stat.pw_name') | list == ['root', 'root']
+          - tailscale_reconciliation_binaries_before.results | map(attribute='stat.gr_name') | list == ['root', 'root']
+          - tailscale_reconciliation_binaries_before.results | map(attribute='stat.mode') | list == ['0755', '0755']
+          - tailscale_reconciliation_binaries_before.results[0].stat.checksum == tailscale.docker_host_client.client_sha256
+          - tailscale_reconciliation_binaries_before.results[1].stat.checksum == tailscale.docker_host_client.daemon_sha256
+          - (tailscale_reconciliation_status_before.stdout | from_json).BackendState == 'Running'
+          - tailscale.tags.docker_host in ((tailscale_reconciliation_status_before.stdout | from_json).Self.Tags | default([]))
+          - (tailscale_reconciliation_preferences_before.stdout | from_json).RunSSH | bool
+          - not ((tailscale_reconciliation_preferences_before.stdout | from_json).CorpDNS | bool)
+          - not ((tailscale_reconciliation_preferences_before.stdout | from_json).RouteAll | bool)
+        fail_msg: Refusing to mutate Tailscale preferences because binary provenance, runtime identity, or access policy differs.
+      no_log: true
+
+    - name: Disable Tailscale automatic update application without restarting tailscaled
+      ansible.builtin.command:
+        argv:
+          - "{{ tailscale.docker_host_client.client_path }}"
+          - set
+          - "--auto-update=false"
+          - "--update-check=true"
+      become: true
+      changed_when: true
+      when: >-
+        ((tailscale_reconciliation_preferences_before.stdout | from_json).AutoUpdate.Apply | bool) or
+        not ((tailscale_reconciliation_preferences_before.stdout | from_json).AutoUpdate.Check | bool)
+
+    - name: Reinspect Tailscale preferences after reconciliation privately
+      ansible.builtin.command:
+        argv: ["{{ tailscale.docker_host_client.client_path }}", debug, prefs]
+      register: tailscale_reconciliation_preferences_after
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Reinspect Tailscale status after reconciliation privately
+      ansible.builtin.command:
+        argv: ["{{ tailscale.docker_host_client.client_path }}", status, --json]
+      register: tailscale_reconciliation_status_after
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Reinspect pinned Tailscale version after reconciliation
+      ansible.builtin.command:
+        argv: ["{{ tailscale.docker_host_client.client_path }}", version]
+      register: tailscale_reconciliation_version_after
+      changed_when: false
+      check_mode: false
+
+    - name: Reinspect tailscaled process continuity after reconciliation
+      ansible.builtin.command:
+        argv: [/usr/bin/systemctl, show, tailscaled.service, --property, MainPID, --property, ActiveEnterTimestampMonotonic, --property, NRestarts]
+      register: tailscale_reconciliation_service_after
+      changed_when: false
+      check_mode: false
+
+    - name: Reinspect pinned Tailscale binary hashes after reconciliation
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - path: "{{ tailscale.docker_host_client.client_path }}"
+          sha256: "{{ tailscale.docker_host_client.client_sha256 }}"
+        - path: "{{ tailscale.docker_host_client.daemon_path }}"
+          sha256: "{{ tailscale.docker_host_client.daemon_sha256 }}"
+      register: tailscale_reconciliation_binaries_after
+
+    - name: Require pinned Tailscale state with no service restart after reconciliation
+      ansible.builtin.assert:
+        that:
+          - not ((tailscale_reconciliation_preferences_after.stdout | from_json).AutoUpdate.Apply | bool)
+          - (tailscale_reconciliation_preferences_after.stdout | from_json).AutoUpdate.Check | bool
+          - >-
+            ((tailscale_reconciliation_preferences_before.stdout | from_json | dict2items |
+              rejectattr('key', 'equalto', 'AutoUpdate') | list | items2dict) ==
+             (tailscale_reconciliation_preferences_after.stdout | from_json | dict2items |
+              rejectattr('key', 'equalto', 'AutoUpdate') | list | items2dict))
+          - (tailscale_reconciliation_status_after.stdout | from_json).BackendState == 'Running'
+          - >-
+            (tailscale_reconciliation_status_after.stdout | from_json).Self.ID ==
+            (tailscale_reconciliation_status_before.stdout | from_json).Self.ID
+          - >-
+            (tailscale_reconciliation_status_after.stdout | from_json).Self.NodeID ==
+            (tailscale_reconciliation_status_before.stdout | from_json).Self.NodeID
+          - >-
+            (tailscale_reconciliation_status_after.stdout | from_json).Self.PublicKey ==
+            (tailscale_reconciliation_status_before.stdout | from_json).Self.PublicKey
+          - >-
+            (tailscale_reconciliation_status_after.stdout | from_json).Self.UserID ==
+            (tailscale_reconciliation_status_before.stdout | from_json).Self.UserID
+          - >-
+            (tailscale_reconciliation_status_after.stdout | from_json).Self.HostName ==
+            (tailscale_reconciliation_status_before.stdout | from_json).Self.HostName
+          - >-
+            (tailscale_reconciliation_status_after.stdout | from_json).Self.DNSName ==
+            (tailscale_reconciliation_status_before.stdout | from_json).Self.DNSName
+          - >-
+            ((tailscale_reconciliation_status_after.stdout | from_json).Self.TailscaleIPs | sort) ==
+            ((tailscale_reconciliation_status_before.stdout | from_json).Self.TailscaleIPs | sort)
+          - >-
+            ((tailscale_reconciliation_status_after.stdout | from_json).Self.Tags | sort) ==
+            ((tailscale_reconciliation_status_before.stdout | from_json).Self.Tags | sort)
+          - tailscale.tags.docker_host in ((tailscale_reconciliation_status_after.stdout | from_json).Self.Tags | default([]))
+          - (tailscale_reconciliation_preferences_after.stdout | from_json).RunSSH | bool
+          - tailscale_reconciliation_version_after.stdout_lines | first == tailscale.docker_host_client.version
+          - tailscale_reconciliation_service_after.stdout_lines | sort == tailscale_reconciliation_service_before.stdout_lines | sort
+          - tailscale_reconciliation_binaries_after.results | map(attribute='stat.isreg') | list == [true, true]
+          - tailscale_reconciliation_binaries_after.results | map(attribute='stat.islnk') | list == [false, false]
+          - tailscale_reconciliation_binaries_after.results | map(attribute='stat.nlink') | map('int') | list == [1, 1]
+          - tailscale_reconciliation_binaries_after.results | map(attribute='stat.pw_name') | list == ['root', 'root']
+          - tailscale_reconciliation_binaries_after.results | map(attribute='stat.gr_name') | list == ['root', 'root']
+          - tailscale_reconciliation_binaries_after.results | map(attribute='stat.mode') | list == ['0755', '0755']
+          - tailscale_reconciliation_binaries_after.results[0].stat.checksum == tailscale.docker_host_client.client_sha256
+          - tailscale_reconciliation_binaries_after.results[1].stat.checksum == tailscale.docker_host_client.daemon_sha256
+        fail_msg: Tailscale preference mutation changed service continuity, access, provenance, or the running backend.
+      no_log: true
+  post_tasks:
+    - name: Release the shared production mutation lock after verified reconciliation
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: tailscale-baseline-reconciliation
