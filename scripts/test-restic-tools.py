@@ -2,6 +2,7 @@
 """Static and focused failure-path tests for the inert Restic implementation."""
 
 import json
+import hashlib
 from pathlib import Path
 import runpy
 import subprocess
@@ -223,6 +224,8 @@ def main() -> None:
     assert "archive_bytes=invalid" in offen_proof
     assert "test (count $argv) -ne 0" in offen_proof
     assert "0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431" not in offen_proof
+    verifier_sha256 = hashlib.sha256((ROOT / "scripts/verify-backup-archive.py").read_bytes()).hexdigest()
+    assert f'test "$ACTUAL_SHA256" = {verifier_sha256}' in offen_proof
 
     restore = (ROOT / "scripts/restore-critical-backup").read_text()
     assert 'restic restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify' in restore

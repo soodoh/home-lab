@@ -49,7 +49,7 @@ function docker_compose_restore_proof
     python3 -m py_compile "$VERIFIER"; or return 1
 
     set -l ACTUAL_SHA256 (shasum -a 256 "$VERIFIER" | awk '{print $1}')
-    test "$ACTUAL_SHA256" = bdfddde9c07c837341797f639abcdf06bc47334331084038c9b2ee1edd36a60b; or begin
+    test "$ACTUAL_SHA256" = e78f1f009d89af872fe2d48b2f091597c66a309f657842f1e522c221f643ac5c; or begin
         echo verifier_checksum=failed >&2
         return 1
     end
