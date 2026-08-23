@@ -26,6 +26,7 @@
              offen_scheduler_expected_aws_hold_plan_sha256 | default('') == backups.legacy_offen.migration_retention_hold.plan_sha256 and
              (offen_scheduler_expected_recovery_object_version_id_sha256 | default('')) ==
              backups.legacy_offen.migration_retention_hold.recovery_object_version_id_sha256)
+          - backups.legacy_offen.migration_archive_preservation.state == 'applied'
           - >-
             offen_scheduler_action == 'resume' or
             (backups.legacy_offen.migration_retention_hold.verified_at <= now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') and
@@ -78,19 +79,20 @@
       vars:
         observed: "{{ (item.stdout | from_json).filesystems }}"
 
-    - name: Require both exact Offen archive replicas before scheduler transition
+    - name: Require every protected Offen archive replica before scheduler transition
       ansible.builtin.shell:
         cmd: |
           set -euo pipefail
-          expected_bytes={{ backups.legacy_offen.final_archive.bytes | quote }}
-          expected_sha256={{ backups.legacy_offen.final_archive.sha256 | quote }}
-          {% for root in backups.legacy_offen.final_archive.replica_paths %}
-          path={{ (root ~ '/' ~ backups.legacy_offen.final_archive.basename) | quote }}
+          {% for root in backups.legacy_offen.migration_archive_preservation.replica_roots %}
+          {% for archive in backups.legacy_offen.migration_archive_preservation.archives %}
+          path={{ (root ~ '/' ~ backups.legacy_offen.migration_archive_preservation.protected_subdirectory ~ '/' ~ archive.basename) | quote }}
+          expected_bytes={{ archive.bytes | quote }}
+          expected_sha256={{ archive.sha256 | quote }}
           test -f "$path" && test ! -L "$path"
           test "$(/usr/bin/stat -c '%u:%g:%a:%h:%s' "$path")" = "0:0:600:1:$expected_bytes"
           test "$(/usr/bin/sha256sum "$path" | /usr/bin/cut -d' ' -f1)" = "$expected_sha256"
           {% endfor %}
-      args:
+          {% endfor %}
         executable: /bin/bash
       changed_when: false
       check_mode: false
@@ -311,19 +313,20 @@
       ansible.builtin.import_role:
         name: health
 
-    - name: Reverify both exact Offen archive replicas after scheduler transition
+    - name: Reverify every protected Offen archive replica after scheduler transition
       ansible.builtin.shell:
         cmd: |
           set -euo pipefail
-          expected_bytes={{ backups.legacy_offen.final_archive.bytes | quote }}
-          expected_sha256={{ backups.legacy_offen.final_archive.sha256 | quote }}
-          {% for root in backups.legacy_offen.final_archive.replica_paths %}
-          path={{ (root ~ '/' ~ backups.legacy_offen.final_archive.basename) | quote }}
+          {% for root in backups.legacy_offen.migration_archive_preservation.replica_roots %}
+          {% for archive in backups.legacy_offen.migration_archive_preservation.archives %}
+          path={{ (root ~ '/' ~ backups.legacy_offen.migration_archive_preservation.protected_subdirectory ~ '/' ~ archive.basename) | quote }}
+          expected_bytes={{ archive.bytes | quote }}
+          expected_sha256={{ archive.sha256 | quote }}
           test -f "$path" && test ! -L "$path"
           test "$(/usr/bin/stat -c '%u:%g:%a:%h:%s' "$path")" = "0:0:600:1:$expected_bytes"
           test "$(/usr/bin/sha256sum "$path" | /usr/bin/cut -d' ' -f1)" = "$expected_sha256"
           {% endfor %}
-      args:
+          {% endfor %}
         executable: /bin/bash
       changed_when: false
       check_mode: false

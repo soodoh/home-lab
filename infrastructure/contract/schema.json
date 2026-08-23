@@ -222,7 +222,7 @@
     "legacyOffenPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["scheduler_state", "scheduler_services", "migration_retention_hold", "local_schedule", "local_paths", "estimated_archive_bytes", "local_retention_days", "remote_frequency", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "remote_noncurrent_retention_days", "incomplete_multipart_abort_days", "gpg_public_key_ring_file", "stateful_services", "excluded_classes", "final_archive"],
+      "required": ["scheduler_state", "scheduler_services", "migration_retention_hold", "migration_archive_preservation", "local_schedule", "local_paths", "estimated_archive_bytes", "local_retention_days", "remote_frequency", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "remote_noncurrent_retention_days", "incomplete_multipart_abort_days", "gpg_public_key_ring_file", "stateful_services", "excluded_classes", "final_archive"],
       "properties": {
         "scheduler_state": { "enum": ["active", "quiesced"] },
         "scheduler_services": { "const": ["daily-local-backup", "weekly-remote-backup"] },
@@ -251,6 +251,29 @@
         "gpg_public_key_ring_file": { "const": "/etc/docker-volume-backup/gpg-public.asc" },
         "stateful_services": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
         "excluded_classes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "migration_archive_preservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "protected_subdirectory", "replica_roots", "archives", "verified_at"],
+          "properties": {
+            "state": { "enum": ["planned", "applied"] },
+            "protected_subdirectory": { "const": ".migration-preserved-offen" },
+            "replica_roots": { "const": ["/mnt/games/backups", "/mnt/storage/backups"] },
+            "archives": {
+              "type": "array", "minItems": 2, "maxItems": 2,
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["basename", "bytes", "sha256"],
+                "properties": {
+                  "basename": { "type": "string", "pattern": "^daily-local-backup-[0-9T-]+\\.tar\\.gz\\.gpg$" },
+                  "bytes": { "type": "integer", "minimum": 1 },
+                  "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+                }
+              }
+            },
+            "verified_at": { "type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }
+          }
+        },
         "final_archive": {
           "type": "object",
           "additionalProperties": false,
@@ -259,12 +282,50 @@
             "basename": { "type": "string", "pattern": "^daily-local-backup-[0-9T-]+\\.tar\\.gz\\.gpg$" },
             "bytes": { "type": "integer", "minimum": 1 },
             "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-            "replica_paths": { "const": ["/mnt/games/backups", "/mnt/storage/backups"] },
-            "restore_proof_script": { "const": "scripts/run-backup-restore-proof.fish" }
+            "replica_paths": { "oneOf": [{ "const": ["/mnt/games/backups", "/mnt/storage/backups"] }, { "const": ["/mnt/games/backups/.migration-preserved-offen", "/mnt/storage/backups/.migration-preserved-offen"] }] },
+            "restore_proof_script": { "const": "scripts/run-backup-restore-proof.fish" },
+            "restore_proof": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["evidence_file", "evidence_sha256", "verifier_sha256", "started_at", "finished_at", "elapsed_seconds", "restore_pipeline", "decrypted_cleanup", "archive_integrity", "safe_paths", "member_count", "regular_file_count", "total_uncompressed_bytes", "member_path_stream_sha256"],
+              "properties": {
+                "evidence_file": { "type": "string", "pattern": "^infrastructure/evidence/offen-final-archive-[0-9-]+-restore-proof\\.json$" },
+                "evidence_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                "verifier_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                "started_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+                "finished_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+                "elapsed_seconds": { "type": "integer", "minimum": 1 },
+                "restore_pipeline": { "const": "pass" },
+                "decrypted_cleanup": { "const": "pass" },
+                "archive_integrity": { "const": "pass" },
+                "safe_paths": { "const": "pass" },
+                "member_count": { "type": "integer", "minimum": 1 },
+                "regular_file_count": { "type": "integer", "minimum": 1 },
+                "total_uncompressed_bytes": { "type": "integer", "minimum": 1 },
+                "member_path_stream_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+              }
+            }
           }
         }
       },
       "allOf": [
+        {
+          "if": { "properties": { "migration_archive_preservation": { "type": "object", "properties": { "state": { "const": "planned" } }, "required": ["state"] } } },
+          "then": { "properties": { "migration_archive_preservation": { "type": "object", "properties": { "verified_at": { "const": null } } }, "final_archive": { "type": "object", "properties": { "replica_paths": { "const": ["/mnt/games/backups", "/mnt/storage/backups"] } } } } }
+        },
+        {
+          "if": { "properties": { "migration_archive_preservation": { "type": "object", "properties": { "state": { "const": "applied" } }, "required": ["state"] } } },
+          "then": {
+            "properties": {
+              "migration_archive_preservation": { "type": "object", "properties": { "verified_at": { "type": "string" } } },
+              "final_archive": { "type": "object", "required": ["restore_proof"], "properties": { "replica_paths": { "const": ["/mnt/games/backups/.migration-preserved-offen", "/mnt/storage/backups/.migration-preserved-offen"] }, "restore_proof": {} } }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "scheduler_state": { "const": "quiesced" } }, "required": ["scheduler_state"] },
+          "then": { "properties": { "migration_archive_preservation": { "type": "object", "properties": { "state": { "const": "applied" } } } } }
+        },
         {
           "if": { "properties": { "migration_retention_hold": { "type": "object", "properties": { "state": { "const": "absent" } }, "required": ["state"] } } },
           "then": {

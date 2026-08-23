@@ -2,6 +2,7 @@
 """Static and focused failure-path tests for the inert Restic implementation."""
 
 import json
+from datetime import datetime
 import hashlib
 from pathlib import Path
 import runpy
@@ -32,6 +33,49 @@ def main() -> None:
         "verified_at": None,
         "review_deadline": None,
     }
+    preservation = offen["migration_archive_preservation"]
+    assert preservation["state"] in {"planned", "applied"}
+    assert preservation["protected_subdirectory"] == ".migration-preserved-offen"
+    assert preservation["replica_roots"] == ["/mnt/games/backups", "/mnt/storage/backups"]
+    assert preservation["archives"] == [
+        {
+            "basename": "daily-local-backup-2026-08-21T22-32-08.tar.gz.gpg",
+            "bytes": 2_319_938_554,
+            "sha256": "0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431",
+        },
+        {
+            "basename": "daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg",
+            "bytes": 2_411_062_883,
+            "sha256": "8034bcf7a03d19c446a23c30a56c1b9a8c4ffdd2d829557a5a16e39c0aab1f08",
+        },
+    ]
+    final_archive = offen["final_archive"]
+    evidence_path = ROOT / "infrastructure/evidence/offen-final-archive-2026-08-23-restore-proof.json"
+    evidence_bytes = evidence_path.read_bytes()
+    evidence = json.loads(evidence_bytes)
+    assert hashlib.sha256(evidence_bytes).hexdigest() == "89712ec78f8724730d2e3eeb07c3929db0b7c2fad7cb30410d517cc115f7eff1"
+    assert hashlib.sha256((ROOT / "scripts/verify-backup-archive.py").read_bytes()).hexdigest() == "e78f1f009d89af872fe2d48b2f091597c66a309f657842f1e522c221f643ac5c"
+    assert evidence["archive_integrity"] == "pass" and evidence["safe_paths"] == "pass"
+    assert len(evidence["required_state_classes"]) == 39
+    assert all(item["status"] == "present" for item in evidence["required_state_classes"].values())
+    assert len(evidence["excluded_state_classes"]) == 17
+    assert all(item["status"] == "absent" for item in evidence["excluded_state_classes"].values())
+    assert len(evidence["sqlite_databases"]) == 6
+    assert all(item["sqlite_integrity"] == "pass" for item in evidence["sqlite_databases"].values())
+    if preservation["state"] == "planned":
+        assert preservation["verified_at"] is None
+        assert final_archive["basename"] == preservation["archives"][0]["basename"]
+        assert "restore_proof" not in final_archive
+    else:
+        restore_proof = final_archive["restore_proof"]
+        assert preservation["verified_at"] is not None
+        assert final_archive["basename"] == preservation["archives"][1]["basename"]
+        assert hashlib.sha256(evidence_bytes).hexdigest() == restore_proof["evidence_sha256"]
+        started_at = datetime.fromisoformat(restore_proof["started_at"].replace("Z", "+00:00"))
+        finished_at = datetime.fromisoformat(restore_proof["finished_at"].replace("Z", "+00:00"))
+        assert int((finished_at - started_at).total_seconds()) == restore_proof["elapsed_seconds"]
+        for key in ("member_count", "regular_file_count", "total_uncompressed_bytes", "member_path_stream_sha256"):
+            assert evidence[key] == restore_proof[key]
     assert policy["migration_state"] == "inert"
     assert [policy["retention"][key] for key in ("keep_daily", "keep_weekly", "keep_monthly")] == [7, 5, 12]
     assert policy["schedule"]["proton_independent_timer"] is False
@@ -203,6 +247,22 @@ def main() -> None:
     assert "offen_scheduler_expected_aws_hold_plan_sha256" in offen_transition
     assert ".total_seconds() <= 2592000" in offen_transition
     assert "Require a complete source-state audit before an initial Offen quiescence" in offen_transition
+    assert "migration_archive_preservation.state == 'applied'" in offen_transition
+    assert "every protected Offen archive replica" in offen_transition
+    offen_preservation = (ROOT / "ansible/playbooks/preserve-offen-archives.yml").read_text()
+    assert "copy-both-offen-generations-to-protected-replicas" in offen_preservation
+    assert "apply_lock_operation: offen-archive-preservation" in offen_preservation
+    assert "/usr/bin/cp --reflink=never" in offen_preservation
+    assert "offen_archive_preservation=verified" in offen_preservation
+    assert "exec /bin/sleep 1800" in offen_preservation
+    assert "async: 1200" in offen_preservation
+    assert offen_preservation.index("Inspect free bytes on each protected replica filesystem") < offen_preservation.index("Acquire each Offen scheduler internal lock")
+    assert offen_preservation.index("Recheck preservation locks immediately before the bounded copy") < offen_preservation.index("Create and verify independent protected archive copies")
+    assert "force_handlers: true" in offen_preservation
+    assert "ansible.builtin.meta: flush_handlers" in offen_preservation
+    assert "listen: Release Offen internal preservation locks" in offen_preservation
+    assert "/usr/bin/rm -f -- \"$temporary\"" in offen_preservation
+    assert "rm -rf" not in offen_preservation
     health = (ROOT / "ansible/roles/health/tasks/main.yml").read_text()
     audit = (ROOT / "ansible/roles/audit/tasks/main.yml").read_text()
     assert "audit_expected_stopped_compose_services" in health

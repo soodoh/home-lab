@@ -77,7 +77,7 @@ Commit only a clean, reviewed result before proceeding.
 4. Record restore evidence, exact basename, bytes, SHA-256, verifier identity, start/end time, and cleanup proof.
 5. Update `backups.legacy_offen.final_archive` and commit.
 
-Fail closed if either replica, manifest, ciphertext hash, restore pipeline, or decrypted cleanup differs. The 2026-08-21 archive remains the fallback until the new proof is accepted.
+Fail closed if either replica, manifest, ciphertext hash, restore pipeline, decrypted cleanup, or durable preservation differs. The 2026-08-23 candidate restore proof passed: both replicas were rehashed after the proof; the full-stream verifier processed 22,877 members and 7,019,884,389 uncompressed bytes; all required, excluded, safe-path, archive, and selected SQLite checks passed; and decrypted cleanup passed. The proof ran from `2026-08-23T12:16:17Z` through `2026-08-23T12:16:58Z` with verifier SHA-256 `e78f1f009d89af872fe2d48b2f091597c66a309f657842f1e522c221f643ac5c`. Raw evidence is `infrastructure/evidence/offen-final-archive-2026-08-23-restore-proof.json` with SHA-256 `89712ec78f8724730d2e3eeb07c3929db0b7c2fad7cb30410d517cc115f7eff1`. Final acceptance remains pending until both 2026-08-21 and 2026-08-23 generations are copied and verified under each root’s `.migration-preserved-offen` directory, outside Offen’s active top-level seven-day pruning.
 
 ### AWS retention hold required before quiescence
 

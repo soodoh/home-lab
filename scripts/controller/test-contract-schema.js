@@ -55,7 +55,35 @@ appliedRetentionHold.backups.legacy_offen.migration_retention_hold = {
 };
 check(appliedRetentionHold, true, "AWS retention hold accepts complete applied evidence");
 appliedRetentionHold.backups.legacy_offen.scheduler_state = "quiesced";
-check(appliedRetentionHold, true, "Offen quiescence accepts complete applied AWS retention evidence");
+check(appliedRetentionHold, false, "Offen quiescence rejects a planned-only archive preservation state");
+
+const appliedArchivePreservation = structuredClone(appliedRetentionHold);
+appliedArchivePreservation.backups.legacy_offen.migration_archive_preservation.state = "applied";
+appliedArchivePreservation.backups.legacy_offen.migration_archive_preservation.verified_at = "2026-08-23T20:00:00Z";
+appliedArchivePreservation.backups.legacy_offen.final_archive = {
+  basename: "daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg",
+  bytes: 2411062883,
+  sha256: "8034bcf7a03d19c446a23c30a56c1b9a8c4ffdd2d829557a5a16e39c0aab1f08",
+  replica_paths: ["/mnt/games/backups/.migration-preserved-offen", "/mnt/storage/backups/.migration-preserved-offen"],
+  restore_proof_script: "scripts/run-backup-restore-proof.fish",
+  restore_proof: {
+    evidence_file: "infrastructure/evidence/offen-final-archive-2026-08-23-restore-proof.json",
+    evidence_sha256: "8".repeat(64),
+    verifier_sha256: "9".repeat(64),
+    started_at: "2026-08-23T12:16:17Z",
+    finished_at: "2026-08-23T12:16:58Z",
+    elapsed_seconds: 41,
+    restore_pipeline: "pass",
+    decrypted_cleanup: "pass",
+    archive_integrity: "pass",
+    safe_paths: "pass",
+    member_count: 22877,
+    regular_file_count: 21939,
+    total_uncompressed_bytes: 7019884389,
+    member_path_stream_sha256: "7".repeat(64),
+  },
+};
+check(appliedArchivePreservation, true, "Offen quiescence accepts applied retention and archive preservation evidence");
 if (!contract.tailscale.required_endpoints.includes("docker-host:22") ||
     !contract.tailscale.required_endpoints.includes("docker-host:8043") ||
     !productionInventory.includes("ansible_host: docker-host") ||

@@ -4,15 +4,14 @@
 
 The checked-in Restic implementation is **inert**. Offen remains the production backup and AWS recovery resources remain managed. The Restic repository IDs are deliberately `null`, credential bootstrap is disabled, and all Restic timers plus reboot recovery are installed disabled. This state must fail closed rather than initialize a repository, stop a container, authenticate Proton, or create a snapshot during ordinary Ansible convergence.
 
-The final reviewed Offen recovery point remains:
+The final accepted Offen recovery point remains:
 
 - basename `daily-local-backup-2026-08-21T22-32-08.tar.gz.gpg`;
 - 2,319,938,554 bytes;
-- SHA-256 `0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431`;
-- replicas under `/mnt/games/backups` and `/mnt/storage/backups`; and
-- restore proof through `scripts/run-backup-restore-proof.fish`.
+- SHA-256 `0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431`; and
+- replicas under `/mnt/games/backups` and `/mnt/storage/backups`.
 
-Do not delete either replica until the Proton fresh restore and isolated in-place preservation proofs pass.
+The 2026-08-23 candidate passed its full-stream restore proof: archive integrity, safe paths, all 39 required state classes, absence of all 17 excluded classes, all six selected SQLite databases, and decrypted cleanup passed. Raw evidence is recorded in `infrastructure/evidence/offen-final-archive-2026-08-23-restore-proof.json` (SHA-256 `89712ec78f8724730d2e3eeb07c3929db0b7c2fad7cb30410d517cc115f7eff1`). Acceptance remains pending until both generations are copied and verified under each root’s `.migration-preserved-offen` directory so Offen’s active seven-day pruning cannot remove them.
 
 ## Policy authority
 
