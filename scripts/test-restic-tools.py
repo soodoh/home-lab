@@ -150,6 +150,13 @@ def main() -> None:
     assert "Refusing a pre-existing games Restic repository until its exact ID is recorded" in role
     assert "The games Restic repository ID differs from the contract" in role
     assert "Refusing Restic deployment without the exact contract repository mount" in role
+    assert "import bz2" in role and "zipfile.ZipFile" in role
+    assert "/usr/bin/bzip2" not in role and "/usr/bin/unzip" not in role and "ansible.builtin.unarchive" not in role
+    sops_install = role.split("Install canonical SOPS ciphertext", 1)[1].split("Gather confined Restic identity records", 1)[0]
+    assert "no_log: true" in sops_install
+    reconcile = (ROOT / "scripts/reconcile-infrastructure").read_text()
+    steady_tags = reconcile.split("apply_debian_steady()", 1)[1].split("compose_apply()", 1)[0]
+    assert "restic_backup" in steady_tags
     assert "restic-proton" in role and "groups: []" in role and "shell: /usr/sbin/nologin" in role
     assert "enabled: false" in role and "state: stopped" in role
 

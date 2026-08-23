@@ -883,7 +883,7 @@ ansible_require_noop() {
 apply_debian_steady() {
   local tag
   echo "Deferring the separately gated Arch network migration during routine steady convergence."
-  for tag in base tailscale ssh storage docker sops_age hardware host_files compose; do
+  for tag in base tailscale ssh storage docker sops_age restic_backup hardware host_files compose; do
     ansible_checked_apply "$production_inventory" playbooks/site.yml "Debian/$tag" docker-host-production \
       --tags "$tag" -e iac_apply_confirmed=true -e "iac_apply_tag=$tag" \
       -e ssh_access_proven=true

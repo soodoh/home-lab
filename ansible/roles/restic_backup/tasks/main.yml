@@ -8,14 +8,6 @@
       - backups.restic.tools.rclone.architecture == 'linux_amd64'
     fail_msg: Restic tooling supports only the reviewed Linux amd64 host.
 
-- name: Require standalone archive extraction prerequisites
-  ansible.builtin.command:
-    argv: [/usr/bin/test, -x, "{{ item }}"]
-  loop:
-    - /usr/bin/bzip2
-    - /usr/bin/unzip
-  changed_when: false
-  check_mode: false
 
 - name: Inspect exact Restic repository mount identities
   ansible.builtin.command:
@@ -114,13 +106,20 @@
         checksum: "sha256:{{ restic_archive_sha256 }}"
         mode: "0600"
 
-    - name: Extract the pinned Restic binary
-      ansible.builtin.shell:
-        cmd: >-
-          set -o noclobber && /usr/bin/bzip2 --decompress --stdout
-          {{ (restic_backup_workspace.path ~ '/restic.bz2') | quote }}
-          > {{ (restic_backup_workspace.path ~ '/restic') | quote }}
-        executable: /bin/bash
+    - name: Extract the pinned Restic binary with the host Python standard library
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - -c
+          - >-
+            import bz2, shutil, sys;
+            source = bz2.open(sys.argv[1], 'rb');
+            destination = open(sys.argv[2], 'xb');
+            shutil.copyfileobj(source, destination);
+            destination.close();
+            source.close()
+          - "{{ restic_backup_workspace.path }}/restic.bz2"
+          - "{{ restic_backup_workspace.path }}/restic"
       changed_when: true
 
     - name: Download the pinned rclone archive
@@ -130,11 +129,27 @@
         checksum: "sha256:{{ rclone_archive_sha256 }}"
         mode: "0600"
 
-    - name: Extract the pinned rclone archive
-      ansible.builtin.unarchive:
-        src: "{{ restic_backup_workspace.path }}/rclone.zip"
-        dest: "{{ restic_backup_workspace.path }}"
-        remote_src: true
+    - name: Extract only the pinned rclone binary with the host Python standard library
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - -c
+          - >-
+            import shutil, stat, sys, zipfile;
+            archive = zipfile.ZipFile(sys.argv[1], 'r');
+            member = archive.getinfo(sys.argv[2]);
+            mode = (member.external_attr >> 16) & 0o170000;
+            mode != stat.S_IFLNK or sys.exit('symlink member refused');
+            source = archive.open(member, 'r');
+            destination = open(sys.argv[3], 'xb');
+            shutil.copyfileobj(source, destination);
+            destination.close();
+            source.close();
+            archive.close()
+          - "{{ restic_backup_workspace.path }}/rclone.zip"
+          - "rclone-v{{ rclone_version }}-linux-amd64/rclone"
+          - "{{ restic_backup_workspace.path }}/rclone"
+      changed_when: true
 
     - name: Install the pinned Restic binary
       ansible.builtin.copy:
@@ -147,7 +162,7 @@
 
     - name: Install the pinned rclone binary
       ansible.builtin.copy:
-        src: "{{ restic_backup_workspace.path }}/rclone-v{{ rclone_version }}-linux-amd64/rclone"
+        src: "{{ restic_backup_workspace.path }}/rclone"
         dest: /usr/local/bin/rclone
         remote_src: true
         owner: root
@@ -399,6 +414,7 @@
     owner: root
     group: root
     mode: "0400"
+  no_log: true
 
 - name: Gather confined Restic identity records
   ansible.builtin.getent:
