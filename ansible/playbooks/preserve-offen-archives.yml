@@ -226,10 +226,16 @@
             file=/tmp/.offen-archive-preservation-lock.pid;
             if ! test -e "$file"; then exit 0; fi;
             test -f "$file" && test ! -L "$file";
-            pid=$(cat "$file");
-            case "$pid" in ''|*[!0-9]*) exit 1;; esac;
-            test "$(cat "/proc/$pid/comm")" = sleep;
-            kill "$pid";
+            matches=0;
+            candidate=;
+            for pid in $(/bin/pidof sleep || true); do
+              if test "$(/usr/bin/tr '\000' ' ' < "/proc/$pid/cmdline")" = '/bin/sleep 1800 '; then
+                candidate=$pid;
+                matches=$((matches + 1));
+              fi;
+            done;
+            test "$matches" -eq 1;
+            kill "$candidate";
             rm -f -- "$file"
       loop: "{{ backups.legacy_offen.scheduler_services }}"
       changed_when: true

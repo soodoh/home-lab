@@ -261,6 +261,7 @@ def main() -> None:
     assert "force_handlers: true" in offen_preservation
     assert "ansible.builtin.meta: flush_handlers" in offen_preservation
     assert "listen: Release Offen internal preservation locks" in offen_preservation
+    assert offen_preservation.index('test "$matches" -eq 1;') < offen_preservation.index('kill "$candidate";')
     assert "/usr/bin/rm -f -- \"$temporary\"" in offen_preservation
     assert "rm -rf" not in offen_preservation
     health = (ROOT / "ansible/roles/health/tasks/main.yml").read_text()
