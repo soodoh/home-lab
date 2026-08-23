@@ -518,7 +518,7 @@ function parsedTask(relativePath, taskName) {
 }
 function parsedPlayTask(relativePath, taskName) {
   const plays = load(fs.readFileSync(path.join(root, relativePath), "utf8"));
-  const task = plays.flatMap((play) => play.tasks || []).find((candidate) => candidate.name === taskName);
+  const task = plays.flatMap((play) => [...(play.pre_tasks || []), ...(play.tasks || []), ...(play.post_tasks || [])]).find((candidate) => candidate.name === taskName);
   if (!task) throw new Error(`${relativePath} lacks active play task ${taskName}`);
   return task;
 }
@@ -544,7 +544,7 @@ if (dockerHostTailscale.version !== "1.102.3" ||
     dockerHostTailscale.archive_sha256 !== "36ddd9b51be57ffc2990cf76323cfa13643bfbb1b8a969f6183fa164741cdef5" ||
     dockerHostTailscale.client_sha256 !== "d6ffcba02fa07728f0c4847fc06d61f239f763478bd59156abf3591bdb1a3ad1" ||
     dockerHostTailscale.daemon_sha256 !== "ce4770bbe6fc9dbcf47d8a2ccc5efad73e3f975460b01738dd0b059879d01221" ||
-    dockerHostTailscale.auto_update_apply !== false || dockerHostTailscale.update_check !== true) {
+    dockerHostTailscale.auto_update_apply !== false || dockerHostTailscale.run_ssh !== false || dockerHostTailscale.update_check !== true) {
   throw new Error("Docker-host Tailscale must retain the adopted official pinned baseline");
 }
 const tailscaleBinaryAssertion = parsedTask("ansible/roles/tailscale/tasks/main.yml", "Require exact pinned standalone Tailscale binaries");
@@ -561,8 +561,21 @@ if (tailscalePreferenceArgs.some((value) => value.includes("--auto-update=") || 
   throw new Error("Ordinary Tailscale convergence must not mutate access-critical update policy");
 }
 const tailscaleReconciliationPlaybook = fs.readFileSync(path.join(root, "ansible/playbooks/reconcile-tailscale-baseline.yml"), "utf8");
-for (const required of ["adopt-official-tailscale-1.102.3-disable-auto-apply", "lan_ssh_recovery_confirmed", "proxmox_console_recovery_confirmed", "ActiveEnterTimestampMonotonic"]) {
+for (const required of ["adopt-official-tailscale-1.102.3-disable-auto-apply", "lan_ssh_recovery_confirmed", "proxmox_console_recovery_confirmed", "tailscale_transport_ssh_confirmed", "ActiveEnterTimestampMonotonic"]) {
   if (!tailscaleReconciliationPlaybook.includes(required)) throw new Error(`Tailscale reconciliation omits ${required}`);
+}
+const tailscaleBootstrapGuard = parsedPlayTask("ansible/playbooks/bootstrap.yml", "Require dual-path recovery and tailnet-policy confirmations before a normal bootstrap");
+if (!tailscaleBootstrapGuard["ansible.builtin.assert"].that.some((condition) => condition.includes("tailscale_transport_ssh_confirmed")) ||
+    !tailscaleBootstrapGuard["ansible.builtin.assert"].fail_msg.includes("OpenSSH over the Tailscale transport")) {
+  throw new Error("Docker bootstrap must confirm the actual OpenSSH-over-Tailscale access mechanism");
+}
+const tailscaleReconciliationPreflight = parsedPlayTask("ansible/playbooks/reconcile-tailscale-baseline.yml", "Require the exact official running Tailscale baseline before preference mutation");
+if (!tailscaleReconciliationPreflight["ansible.builtin.assert"].that.some((condition) => condition.includes("docker_host_client.run_ssh"))) {
+  throw new Error("Tailscale reconciliation preflight must bind RunSSH to contract");
+}
+const tailscaleAuditAssertion = parsedTask("ansible/roles/audit/tasks/main.yml", "Assert Docker, Compose, and Tailscale runtime versions");
+if (!tailscaleAuditAssertion["ansible.builtin.assert"].that.some((condition) => condition.includes("RunSSH") && condition.includes("audit_expected_tailscale_run_ssh"))) {
+  throw new Error("Tailscale audit must bind RunSSH to contract");
 }
 const tailscaleUpdateMutation = parsedPlayTask("ansible/playbooks/reconcile-tailscale-baseline.yml", "Disable Tailscale automatic update application without restarting tailscaled");
 if (JSON.stringify(tailscaleUpdateMutation["ansible.builtin.command"].argv) !== JSON.stringify([
@@ -572,7 +585,7 @@ if (JSON.stringify(tailscaleUpdateMutation["ansible.builtin.command"].argv) !== 
 }
 const tailscaleReconciliationAssertion = parsedPlayTask("ansible/playbooks/reconcile-tailscale-baseline.yml", "Require pinned Tailscale state with no service restart after reconciliation");
 const tailscaleReconciliationConditions = tailscaleReconciliationAssertion["ansible.builtin.assert"].that.join("\n");
-for (const required of ["dict2items", "Self.ID", "Self.NodeID", "Self.PublicKey", "Self.UserID", "Self.HostName", "Self.DNSName", "Self.TailscaleIPs", "Self.Tags", "version_after", "service_after", "stat.isreg", "stat.islnk", "stat.nlink", "stat.pw_name", "stat.gr_name", "stat.mode", "stat.checksum"]) {
+for (const required of ["dict2items", "docker_host_client.run_ssh", "Self.ID", "Self.NodeID", "Self.PublicKey", "Self.UserID", "Self.HostName", "Self.DNSName", "Self.TailscaleIPs", "Self.Tags", "version_after", "service_after", "stat.isreg", "stat.islnk", "stat.nlink", "stat.pw_name", "stat.gr_name", "stat.mode", "stat.checksum"]) {
   if (!tailscaleReconciliationConditions.includes(required)) throw new Error(`Tailscale reconciliation postconditions omit ${required}`);
 }
 const tailscaleAssertion = parsedTask("ansible/roles/tailscale/tasks/main.yml", "Assert local Tailscale verification passed");

@@ -44,6 +44,7 @@ audit_expected_tailscale_version: "{{ tailscale.docker_host_client.version }}"
 audit_expected_tailscale_client_sha256: "{{ tailscale.docker_host_client.client_sha256 }}"
 audit_expected_tailscale_daemon_sha256: "{{ tailscale.docker_host_client.daemon_sha256 }}"
 audit_expected_tailscale_auto_update_apply: "{{ tailscale.docker_host_client.auto_update_apply }}"
+audit_expected_tailscale_run_ssh: "{{ tailscale.docker_host_client.run_ssh }}"
 audit_expected_tailscale_update_check: "{{ tailscale.docker_host_client.update_check }}"
 audit_expected_compose_service_count: 42
 audit_expected_stopped_compose_services: >-
@@ -199,6 +200,7 @@ tailscale_daemon_path: "{{ tailscale.docker_host_client.daemon_path }}"
 tailscale_daemon_sha256: "{{ tailscale.docker_host_client.daemon_sha256 }}"
 tailscale_expected_version: "{{ tailscale.docker_host_client.version }}"
 tailscale_auto_update_apply: "{{ tailscale.docker_host_client.auto_update_apply }}"
+tailscale_ssh: "{{ tailscale.docker_host_client.run_ssh }}"
 tailscale_update_check: "{{ tailscale.docker_host_client.update_check }}"
 tailscale_service: tailscaled.service
 tailscale_hostname: "{{ vm_100.host_name }}"

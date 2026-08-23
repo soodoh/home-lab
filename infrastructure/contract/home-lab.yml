@@ -1171,6 +1171,7 @@ tailscale:
     daemon_path: /usr/sbin/tailscaled
     daemon_sha256: ce4770bbe6fc9dbcf47d8a2ccc5efad73e3f975460b01738dd0b059879d01221
     auto_update_apply: false
+    run_ssh: false
     update_check: true
   tags:
     docker_host: tag:docker-host

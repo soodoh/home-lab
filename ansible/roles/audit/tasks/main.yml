@@ -205,6 +205,7 @@
       - audit_tailscale_binaries.results[0].stat.checksum == audit_expected_tailscale_client_sha256
       - audit_tailscale_binaries.results[1].stat.checksum == audit_expected_tailscale_daemon_sha256
       - ((audit_tailscale_preferences.stdout | from_json).AutoUpdate.Apply | bool) == (audit_expected_tailscale_auto_update_apply | bool)
+      - ((audit_tailscale_preferences.stdout | from_json).RunSSH | bool) == (audit_expected_tailscale_run_ssh | bool)
       - ((audit_tailscale_preferences.stdout | from_json).AutoUpdate.Check | bool) == (audit_expected_tailscale_update_check | bool)
     fail_msg: >-
       Docker client, daemon, Compose, or Tailscale version differs from the adopted Debian production baseline.

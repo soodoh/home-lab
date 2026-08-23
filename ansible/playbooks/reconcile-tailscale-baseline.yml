@@ -15,7 +15,7 @@
           - tailscale_baseline_reconciliation_confirmation | default('') == 'adopt-official-tailscale-1.102.3-disable-auto-apply'
           - lan_ssh_recovery_confirmed | default(false) | bool
           - proxmox_console_recovery_confirmed | default(false) | bool
-          - tailscale_ssh_policy_confirmed | default(false) | bool
+          - tailscale_transport_ssh_confirmed | default(false) | bool
           - tailscale.docker_host_client.version == '1.102.3'
           - tailscale.docker_host_client.auto_update_apply == false
           - tailscale.docker_host_client.update_check == true
@@ -87,7 +87,7 @@
           - tailscale_reconciliation_binaries_before.results[1].stat.checksum == tailscale.docker_host_client.daemon_sha256
           - (tailscale_reconciliation_status_before.stdout | from_json).BackendState == 'Running'
           - tailscale.tags.docker_host in ((tailscale_reconciliation_status_before.stdout | from_json).Self.Tags | default([]))
-          - (tailscale_reconciliation_preferences_before.stdout | from_json).RunSSH | bool
+          - ((tailscale_reconciliation_preferences_before.stdout | from_json).RunSSH | bool) == (tailscale.docker_host_client.run_ssh | bool)
           - not ((tailscale_reconciliation_preferences_before.stdout | from_json).CorpDNS | bool)
           - not ((tailscale_reconciliation_preferences_before.stdout | from_json).RouteAll | bool)
         fail_msg: Refusing to mutate Tailscale preferences because binary provenance, runtime identity, or access policy differs.
@@ -184,7 +184,7 @@
             ((tailscale_reconciliation_status_after.stdout | from_json).Self.Tags | sort) ==
             ((tailscale_reconciliation_status_before.stdout | from_json).Self.Tags | sort)
           - tailscale.tags.docker_host in ((tailscale_reconciliation_status_after.stdout | from_json).Self.Tags | default([]))
-          - (tailscale_reconciliation_preferences_after.stdout | from_json).RunSSH | bool
+          - ((tailscale_reconciliation_preferences_after.stdout | from_json).RunSSH | bool) == (tailscale.docker_host_client.run_ssh | bool)
           - tailscale_reconciliation_version_after.stdout_lines | first == tailscale.docker_host_client.version
           - tailscale_reconciliation_service_after.stdout_lines | sort == tailscale_reconciliation_service_before.stdout_lines | sort
           - tailscale_reconciliation_binaries_after.results | map(attribute='stat.isreg') | list == [true, true]

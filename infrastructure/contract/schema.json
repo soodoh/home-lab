@@ -186,7 +186,7 @@
         "docker_host_client": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["installation", "version", "architecture", "archive_url", "archive_sha256", "client_path", "client_sha256", "daemon_path", "daemon_sha256", "auto_update_apply", "update_check"],
+          "required": ["installation", "version", "architecture", "archive_url", "archive_sha256", "client_path", "client_sha256", "daemon_path", "daemon_sha256", "auto_update_apply", "run_ssh", "update_check"],
           "properties": {
             "installation": { "const": "official-static-archive" },
             "version": { "const": "1.102.3" },
@@ -198,6 +198,7 @@
             "daemon_path": { "const": "/usr/sbin/tailscaled" },
             "daemon_sha256": { "const": "ce4770bbe6fc9dbcf47d8a2ccc5efad73e3f975460b01738dd0b059879d01221" },
             "auto_update_apply": { "const": false },
+            "run_ssh": { "const": false },
             "update_check": { "const": true }
           }
         },
