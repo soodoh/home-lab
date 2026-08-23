@@ -7,15 +7,29 @@
   register: health_running_services
   changed_when: false
   check_mode: false
-  until: ansible_check_mode or health_running_services.stdout_lines | length == audit_expected_compose_service_count
+  until: ansible_check_mode or health_running_services.stdout_lines | length == audit_expected_running_compose_service_count | int
   retries: 30
   delay: 10
 
-- name: Assert all adopted Compose services remain running
+- name: List all materialized services from the active Compose artifact
+  ansible.builtin.command:
+    argv: "{{ compose_runtime_cli + ['ps', '--all', '--services'] }}"
+  environment:
+    HOME: "{{ compose_home_dir }}"
+  register: health_materialized_services
+  changed_when: false
+  check_mode: false
+
+- name: Assert adopted Compose services remain in the contract scheduler state
   ansible.builtin.assert:
     that:
-      - ansible_check_mode or health_running_services.stdout_lines | length == audit_expected_compose_service_count
-    fail_msg: "One or more adopted Compose services are not running."
+      - ansible_check_mode or health_materialized_services.stdout_lines | length == audit_expected_compose_service_count
+      - ansible_check_mode or health_running_services.stdout_lines | length == audit_expected_running_compose_service_count | int
+      - >-
+        ansible_check_mode or
+        (health_materialized_services.stdout_lines | difference(health_running_services.stdout_lines) | sort) ==
+        (audit_expected_stopped_compose_services | sort)
+    fail_msg: One or more adopted Compose services differ from the contract scheduler state.
 
 - name: Inspect required container health without exposing container configuration
   ansible.builtin.command:

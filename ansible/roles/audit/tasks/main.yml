@@ -215,7 +215,7 @@
 
 - name: List active Compose container identifiers
   ansible.builtin.command:
-    argv: "{{ compose_runtime_cli + ['ps', '--quiet'] }}"
+    argv: "{{ compose_runtime_cli + ['ps', '--quiet', '--all'] }}"
   environment:
     HOME: "{{ compose_home_dir }}"
   register: audit_container_ids
@@ -226,10 +226,13 @@
   ansible.builtin.assert:
     that:
       - audit_declared_services.stdout_lines | length == audit_expected_compose_service_count
-      - audit_running_services.stdout_lines | length == audit_expected_compose_service_count
+      - audit_running_services.stdout_lines | length == audit_expected_running_compose_service_count | int
       - audit_container_ids.stdout_lines | length == audit_expected_compose_service_count
       - audit_declared_volumes.stdout_lines | length == audit_expected_declared_volume_count
-    fail_msg: "Phase 0 stop gate: Compose service or declared-volume counts changed."
+      - >-
+        (audit_declared_services.stdout_lines | difference(audit_running_services.stdout_lines) | sort) ==
+        (audit_expected_stopped_compose_services | sort)
+    fail_msg: Compose definitions, materialized containers, or contract scheduler state changed.
 
 - name: Inspect required container health without exposing configuration
   ansible.builtin.command:

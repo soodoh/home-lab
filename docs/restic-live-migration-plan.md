@@ -27,6 +27,7 @@ The policy authority remains `infrastructure/contract/home-lab.yml`. Every live 
   - actual SHA-256 on both replicas `8034bcf7a03d19c446a23c30a56c1b9a8c4ffdd2d829557a5a16e39c0aab1f08`;
   - its manifests agree, but no restore proof was run during planning.
 - The five required Restic/Proton key names are absent from `secrets/production.sops.env`.
+- The full read-only host audit currently fails because live Tailscale is `1.102.3` while the contract expects `1.98.4`; reconcile that unrelated baseline drift before any migration mutation.
 - A read-only Restic-role Ansible check predicts ten changed tasks and no host failures after the local readiness fixes described below.
 
 ## Blocking repository work before any live mutation
@@ -49,6 +50,7 @@ Do not stop Offen yet. Complete and review these repository gates first:
 6. Add guarded Proton qualification and native repository-initialization tooling. Do not improvise account or repository mutation from an interactive shell.
 7. Add an exact-confirmation first-run playbook that invokes `/usr/local/libexec/home-lab/restic-backup preflight` and starts the daily target under the production mutation lock.
 8. Implement the two independent recovery bundles and isolated in-place activation fixtures before advertising in-place recovery.
+9. Reconcile the Tailscale version drift through its normal reviewed infrastructure path and require a complete audit no-op before qualifying or quiescing Offen.
 
 After each repository change:
 
@@ -64,6 +66,13 @@ Commit only a clean, reviewed result before proceeding.
 
 1. Reobserve that no Offen backup process is currently active.
 2. Run the parameterized restore proof against the newest exact archive from one replica.
+
+```sh
+./scripts/run-backup-restore-proof.fish \
+  --archive /mnt/storage/backups/daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg \
+  --sha256 8034bcf7a03d19c446a23c30a56c1b9a8c4ffdd2d829557a5a16e39c0aab1f08 \
+  --bytes 2411062883
+```
 3. Verify ciphertext size and SHA-256 against both replicas after the proof.
 4. Record restore evidence, exact basename, bytes, SHA-256, verifier identity, start/end time, and cleanup proof.
 5. Update `backups.legacy_offen.final_archive` and commit.
@@ -72,23 +81,31 @@ Fail closed if either replica, manifest, ciphertext hash, restore pipeline, or d
 
 ### AWS retention hold required before quiescence
 
-Weekly Offen uploads currently replenish the AWS recovery object, while the active lifecycle expires current objects after 14 days. Before Phase 2, merge a contract-backed temporary hold that extends current-object expiration to at least 365 days and records a 30-day migration review deadline. Produce and review an exact saved OpenTofu plan whose only AWS recovery change is the retention extension, apply it through the existing locked plan/apply transaction, then verify the bucket lifecycle and exact current recovery object/version. Do not stop Offen if the hold or object proof is absent. Do not shorten or remove this hold until Phase 8 evidence is accepted through a later saved plan.
+Weekly Offen uploads currently replenish the AWS recovery object, while the active lifecycle expires current objects after 14 days. Before Phase 2, first merge a `planned` contract transition that extends current-object expiration to at least 365 days while Offen remains `active`. Produce and review an exact saved OpenTofu plan whose only AWS recovery change is the retention extension, apply it through the existing locked plan/apply transaction, then verify the bucket lifecycle and exact current recovery object/version. Commit the resulting plan hash, version-ID hash, verification time, 30-day review deadline, and `state: applied`; only then may a separate reviewed commit set `scheduler_state: quiesced`. Do not stop Offen if the hold or object proof is absent. Do not shorten or remove this hold until Phase 8 evidence is accepted through a later saved plan.
 
 ## Phase 2 — stop Offen schedules without deleting definitions
 
-After the AWS retention hold and exact recovery-object proof pass, use the future guarded quiesce playbook, not ad-hoc `docker stop`:
+After the AWS retention hold and exact recovery-object proof pass, commit `scheduler_state: quiesced`, reconcile the Tailscale drift, and require a complete source-state audit. Export `AWS_HOLD_PLAN_SHA256` and `RECOVERY_OBJECT_VERSION_ID_SHA256` from the exact reviewed contract evidence, then use the guarded quiesce playbook—not ad-hoc `docker stop`:
 
 ```sh
 cd ansible
 ansible-playbook -i inventory/production.yml playbooks/quiesce-offen-backups.yml \
   --check --diff \
-  -e offen_quiesce_confirmed=true \
-  -e offen_quiesce_confirmation=stop-offen-keep-definitions-and-archives
+  -e offen_scheduler_action=quiesce \
+  -e offen_scheduler_transition_confirmed=true \
+  -e "offen_scheduler_expected_aws_hold_plan_sha256=$AWS_HOLD_PLAN_SHA256" \
+  -e "offen_scheduler_expected_recovery_object_version_id_sha256=$RECOVERY_OBJECT_VERSION_ID_SHA256" \
+  -e offen_scheduler_transition_confirmation=stop-offen-keep-definitions-and-archives
 
 ansible-playbook -i inventory/production.yml playbooks/quiesce-offen-backups.yml \
-  -e offen_quiesce_confirmed=true \
-  -e offen_quiesce_confirmation=stop-offen-keep-definitions-and-archives
+  -e offen_scheduler_action=quiesce \
+  -e offen_scheduler_transition_confirmed=true \
+  -e "offen_scheduler_expected_aws_hold_plan_sha256=$AWS_HOLD_PLAN_SHA256" \
+  -e "offen_scheduler_expected_recovery_object_version_id_sha256=$RECOVERY_OBJECT_VERSION_ID_SHA256" \
+  -e offen_scheduler_transition_confirmation=stop-offen-keep-definitions-and-archives
 ```
+
+Rollback requires a separately reviewed commit returning `scheduler_state: active`, followed by the same playbook with `offen_scheduler_action=resume` and confirmation `resume-offen-existing-definitions`. The resume path deliberately does not require the AWS or full-audit gate so it remains available for partial-transition recovery.
 
 Required postconditions:
 

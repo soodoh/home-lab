@@ -34,6 +34,28 @@ check(structuredClone(contract), true, "current contract");
 if (validateProxmoxHostPolicy(contract).length) {
   throw new Error(`current Proxmox host policy failed semantics: ${JSON.stringify(validateProxmoxHostPolicy(contract))}`);
 }
+
+const invalidQuiescedWithoutRetentionHold = structuredClone(contract);
+invalidQuiescedWithoutRetentionHold.backups.legacy_offen.scheduler_state = "quiesced";
+check(invalidQuiescedWithoutRetentionHold, false, "Offen quiescence requires an applied AWS retention hold");
+
+const plannedRetentionHold = structuredClone(contract);
+plannedRetentionHold.backups.legacy_offen.migration_retention_hold.state = "planned";
+plannedRetentionHold.backups.legacy_offen.migration_retention_hold.current_object_retention_days = 365;
+check(plannedRetentionHold, true, "AWS retention hold accepts a pre-apply planned state while Offen remains active");
+
+const appliedRetentionHold = structuredClone(plannedRetentionHold);
+appliedRetentionHold.backups.legacy_offen.migration_retention_hold = {
+  state: "applied",
+  current_object_retention_days: 365,
+  plan_sha256: "a".repeat(64),
+  recovery_object_version_id_sha256: "b".repeat(64),
+  verified_at: "2026-08-23T18:00:00Z",
+  review_deadline: "2026-09-22T18:00:00Z",
+};
+check(appliedRetentionHold, true, "AWS retention hold accepts complete applied evidence");
+appliedRetentionHold.backups.legacy_offen.scheduler_state = "quiesced";
+check(appliedRetentionHold, true, "Offen quiescence accepts complete applied AWS retention evidence");
 if (!contract.tailscale.required_endpoints.includes("docker-host:22") ||
     !contract.tailscale.required_endpoints.includes("docker-host:8043") ||
     !productionInventory.includes("ansible_host: docker-host") ||

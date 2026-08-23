@@ -213,7 +213,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "recovery" {
     filter {}
 
     expiration {
-      days = local.contract.backups.legacy_offen.remote_retention_days
+      days = local.contract.backups.legacy_offen.migration_retention_hold.state == "absent" ? local.contract.backups.legacy_offen.remote_retention_days : local.contract.backups.legacy_offen.migration_retention_hold.current_object_retention_days
     }
 
     noncurrent_version_expiration {

@@ -20,6 +20,17 @@ def contract() -> dict:
 def main() -> None:
     value = contract()
     policy = value["backups"]["restic"]
+    offen = value["backups"]["legacy_offen"]
+    assert offen["scheduler_state"] == "active"
+    assert offen["scheduler_services"] == ["daily-local-backup", "weekly-remote-backup"]
+    assert offen["migration_retention_hold"] == {
+        "state": "absent",
+        "current_object_retention_days": 14,
+        "plan_sha256": None,
+        "recovery_object_version_id_sha256": None,
+        "verified_at": None,
+        "review_deadline": None,
+    }
     assert policy["migration_state"] == "inert"
     assert [policy["retention"][key] for key in ("keep_daily", "keep_weekly", "keep_monthly")] == [7, 5, 12]
     assert policy["schedule"]["proton_independent_timer"] is False
@@ -180,6 +191,22 @@ def main() -> None:
     compose_deploy = (ROOT / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
     compose_rollback = (ROOT / "ansible/roles/compose_rollback/tasks/main.yml").read_text()
     assert "current-artifact.sha256" in compose_deploy
+    offen_transition = (ROOT / "ansible/playbooks/quiesce-offen-backups.yml").read_text()
+    assert "stop-offen-keep-definitions-and-archives" in offen_transition
+    assert "resume-offen-existing-definitions" in offen_transition
+    assert "Refuse to stop an Offen scheduler with an active child process" in offen_transition
+    assert "sha256sum" in offen_transition and "state: absent" not in offen_transition
+    assert "dockervolumebackup.lock" in offen_transition
+    assert "Require exact declared, materialized, and non-Offen running service sets" in offen_transition
+    assert "backup-root-wide non-deletion" in offen_transition
+    assert "offen_scheduler_expected_aws_hold_plan_sha256" in offen_transition
+    assert ".total_seconds() <= 2592000" in offen_transition
+    assert "Require a complete source-state audit before an initial Offen quiescence" in offen_transition
+    health = (ROOT / "ansible/roles/health/tasks/main.yml").read_text()
+    audit = (ROOT / "ansible/roles/audit/tasks/main.yml").read_text()
+    assert "audit_expected_stopped_compose_services" in health
+    assert "audit_expected_stopped_compose_services" in audit
+    assert "['ps', '--quiet', '--all']" in audit
     migration = (ROOT / "ansible/playbooks/migrate-preserved-backup-data.yml").read_text()
     assert "/usr/bin/findmnt" in migration and "mount_source" in migration
     assert "--checksum" in migration and "--itemize-changes" in migration
@@ -188,6 +215,14 @@ def main() -> None:
     assert "preserved_migration_token" in migration and ".home-lab-migration-owner" in migration
     assert all(name in migration for name in ("preserved_migration_findmnt", "preserved_migration_active_findmnt", "preserved_migration_activation_findmnt"))
     assert "current-artifact.sha256" in compose_rollback
+
+    offen_proof = (ROOT / "scripts/run-backup-restore-proof.fish").read_text()
+    assert "'a/archive=' 's/sha256=' 'b/bytes='" in offen_proof
+    assert "archive_identity=invalid" in offen_proof
+    assert "archive_sha256=invalid" in offen_proof
+    assert "archive_bytes=invalid" in offen_proof
+    assert "test (count $argv) -ne 0" in offen_proof
+    assert "0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431" not in offen_proof
 
     restore = (ROOT / "scripts/restore-critical-backup").read_text()
     assert 'restic restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify' in restore
@@ -213,6 +248,7 @@ def main() -> None:
     foundation = (ROOT / "infrastructure/tofu/aws-foundation/main.tf").read_text()
     assert "resource \"aws_s3_bucket\" \"state\"" in foundation
     assert "prevent_destroy = true" in foundation
+    assert "migration_retention_hold.current_object_retention_days" in foundation
     assert "force_destroy" not in foundation
 
     print("restic static safety fixtures passed")

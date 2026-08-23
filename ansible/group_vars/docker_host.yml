@@ -42,6 +42,10 @@ audit_expected_docker_server_version: "{{ audit_expected_docker_client_version }
 audit_expected_compose_version: 2.26.1-4
 audit_expected_tailscale_version: 1.98.4
 audit_expected_compose_service_count: 42
+audit_expected_stopped_compose_services: >-
+  {{ backups.legacy_offen.scheduler_services if backups.legacy_offen.scheduler_state == 'quiesced' else [] }}
+audit_expected_running_compose_service_count: >-
+  {{ audit_expected_compose_service_count - (audit_expected_stopped_compose_services | length) }}
 
 # Pinned standalone SOPS and age tooling. No package transaction is used.
 sops_version: 3.13.3

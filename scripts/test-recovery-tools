@@ -876,7 +876,9 @@ for required in (
 assert contract["backups"]["legacy_offen"]["local_paths"] == ["/mnt/games/backups", "/mnt/storage/backups"]
 assert contract["backups"]["legacy_offen"]["local_retention_days"] == 7
 lifecycle = (repo / "infrastructure/tofu/aws-foundation/main.tf").read_text()
-assert "days = local.contract.backups.legacy_offen.remote_retention_days" in lifecycle
+assert 'migration_retention_hold.state == "absent"' in lifecycle
+assert "migration_retention_hold.current_object_retention_days" in lifecycle
+assert "backups.legacy_offen.remote_retention_days" in lifecycle
 assert "noncurrent_days = local.contract.backups.legacy_offen.remote_noncurrent_retention_days" in lifecycle
 assert "days_after_initiation = local.contract.backups.legacy_offen.incomplete_multipart_abort_days" in lifecycle
 assert "expired_object_delete_marker = true" in lifecycle

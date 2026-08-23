@@ -1258,10 +1258,21 @@ nextcloud:
   old_path_cleanup_gate: nextcloud-old-paths-reviewed-after-recovery-proof
 backups:
   legacy_offen:
+    scheduler_state: active
+    scheduler_services:
+      - daily-local-backup
+      - weekly-remote-backup
     local_schedule: "0 5 * * *"
     local_paths:
       - /mnt/games/backups
       - /mnt/storage/backups
+    migration_retention_hold:
+      state: absent
+      current_object_retention_days: 14
+      plan_sha256: null
+      recovery_object_version_id_sha256: null
+      verified_at: null
+      review_deadline: null
     estimated_archive_bytes: 50000000000
     local_retention_days: 7
     remote_frequency: weekly

@@ -3,9 +3,32 @@
 function docker_compose_restore_proof
     umask 077
     set -l SERVER docker-host
-    set -l EXPECTED_SHA256 0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431
-    set -l EXPECTED_BYTES 2319938554
-    set -l BACKUP /mnt/storage/backups/daily-local-backup-2026-08-21T22-32-08.tar.gz.gpg
+
+    argparse 'a/archive=' 's/sha256=' 'b/bytes=' -- $argv; or return 64
+    if test (count $argv) -ne 0
+        echo 'usage: run-backup-restore-proof.fish --archive ABSOLUTE_PATH --sha256 SHA256 --bytes BYTES' >&2
+        return 64
+    end
+    if not set -q _flag_archive; or not set -q _flag_sha256; or not set -q _flag_bytes
+        echo 'usage: run-backup-restore-proof.fish --archive ABSOLUTE_PATH --sha256 SHA256 --bytes BYTES' >&2
+        return 64
+    end
+
+    set -l BACKUP $_flag_archive
+    set -l EXPECTED_SHA256 $_flag_sha256
+    set -l EXPECTED_BYTES $_flag_bytes
+    string match -rq '^/mnt/(games|storage)/backups/daily-local-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}\.tar\.gz\.gpg$' -- "$BACKUP"; or begin
+        echo archive_identity=invalid >&2
+        return 64
+    end
+    string match -rq '^[0-9a-f]{64}$' -- "$EXPECTED_SHA256"; or begin
+        echo archive_sha256=invalid >&2
+        return 64
+    end
+    string match -rq '^[1-9][0-9]*$' -- "$EXPECTED_BYTES"; or begin
+        echo archive_bytes=invalid >&2
+        return 64
+    end
 
     for tool in gpg python3 ssh shasum
         command -q $tool; or begin
@@ -90,10 +113,13 @@ function docker_compose_restore_proof
     rm -f -- "$VERIFIER"; or return 1
     test ! -e "$RESTORE_ROOT"; or return 1
     echo restore_pipeline=pass
+    echo archive_path="$BACKUP"
+    echo archive_bytes="$EXPECTED_BYTES"
+    echo archive_sha256="$EXPECTED_SHA256"
     echo restore_elapsed_seconds=(math "$FINISHED" - "$STARTED")
     echo decrypted_cleanup=pass
     echo evidence_file="$EVIDENCE"
 end
 
-docker_compose_restore_proof
+docker_compose_restore_proof $argv
 exit $status

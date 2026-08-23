@@ -222,8 +222,22 @@
     "legacyOffenPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["local_schedule", "local_paths", "estimated_archive_bytes", "local_retention_days", "remote_frequency", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "remote_noncurrent_retention_days", "incomplete_multipart_abort_days", "gpg_public_key_ring_file", "stateful_services", "excluded_classes", "final_archive"],
+      "required": ["scheduler_state", "scheduler_services", "migration_retention_hold", "local_schedule", "local_paths", "estimated_archive_bytes", "local_retention_days", "remote_frequency", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "remote_noncurrent_retention_days", "incomplete_multipart_abort_days", "gpg_public_key_ring_file", "stateful_services", "excluded_classes", "final_archive"],
       "properties": {
+        "scheduler_state": { "enum": ["active", "quiesced"] },
+        "scheduler_services": { "const": ["daily-local-backup", "weekly-remote-backup"] },
+        "migration_retention_hold": {
+          "type": "object", "additionalProperties": false,
+          "required": ["state", "current_object_retention_days", "plan_sha256", "recovery_object_version_id_sha256", "verified_at", "review_deadline"],
+          "properties": {
+            "state": { "enum": ["absent", "planned", "applied"] },
+            "current_object_retention_days": { "type": "integer", "minimum": 14, "maximum": 3650 },
+            "plan_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+            "recovery_object_version_id_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+            "verified_at": { "type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+            "review_deadline": { "type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }
+          }
+        },
         "local_schedule": { "const": "0 5 * * *" },
         "local_paths": { "const": ["/mnt/games/backups", "/mnt/storage/backups"] },
         "estimated_archive_bytes": { "type": "integer", "minimum": 1000000000 },
@@ -249,7 +263,61 @@
             "restore_proof_script": { "const": "scripts/run-backup-restore-proof.fish" }
           }
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "migration_retention_hold": { "type": "object", "properties": { "state": { "const": "absent" } }, "required": ["state"] } } },
+          "then": {
+            "properties": {
+              "remote_retention_days": { "const": 14 },
+              "migration_retention_hold": {
+                "type": "object", "properties": {
+                  "current_object_retention_days": { "const": 14 },
+                  "plan_sha256": { "const": null },
+                  "recovery_object_version_id_sha256": { "const": null },
+                  "verified_at": { "const": null },
+                  "review_deadline": { "const": null }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "migration_retention_hold": { "type": "object", "properties": { "state": { "const": "planned" } }, "required": ["state"] } } },
+          "then": {
+            "properties": {
+              "migration_retention_hold": {
+                "type": "object", "properties": {
+                  "current_object_retention_days": { "type": "integer", "minimum": 365 },
+                  "recovery_object_version_id_sha256": { "const": null },
+                  "verified_at": { "const": null },
+                  "review_deadline": { "const": null }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "migration_retention_hold": { "type": "object", "properties": { "state": { "const": "applied" } }, "required": ["state"] } } },
+          "then": {
+            "properties": {
+              "migration_retention_hold": {
+                "type": "object", "properties": {
+                  "current_object_retention_days": { "type": "integer", "minimum": 365 },
+                  "plan_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                  "recovery_object_version_id_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+                  "verified_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+                  "review_deadline": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "scheduler_state": { "const": "quiesced" } }, "required": ["scheduler_state"] },
+          "then": { "properties": { "migration_retention_hold": { "type": "object", "properties": { "state": { "const": "applied" } } } } }
+        }
+      ]
     },
     "resticPathClass": {
       "type": "string",
