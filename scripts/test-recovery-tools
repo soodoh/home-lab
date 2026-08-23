@@ -708,9 +708,9 @@ contract = json.loads(subprocess.run(
     stdout=subprocess.PIPE,
 ).stdout)
 assert not {"AWS_S3_BUCKET_NAME", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} & daily.keys()
-assert daily["BACKUP_CRON_EXPRESSION"] == contract["backups"]["local_schedule"]
+assert daily["BACKUP_CRON_EXPRESSION"] == contract["backups"]["legacy_offen"]["local_schedule"]
 assert daily["BACKUP_FILENAME"].startswith("daily-local-backup-")
-assert daily["BACKUP_RETENTION_DAYS"] == contract["backups"]["local_retention_days"] == 7
+assert daily["BACKUP_RETENTION_DAYS"] == contract["backups"]["legacy_offen"]["local_retention_days"] == 7
 assert daily["LOCAL_BACKUP_NO_PRUNE"] == "0"
 assert daily["LOCAL_BACKUP_NO_PRUNE_FILE"] == "/tmp/.local-backup-no-prune"
 assert daily_service["labels"]["docker-volume-backup.copy-post"] == "/bin/sh -c /usr/local/bin/replicate-local-backup"
@@ -724,9 +724,9 @@ for service in (daily_service, weekly_service):
     temp_mount = next(volume for volume in service["volumes"] if volume["target"] == "/tmp")
     assert temp_mount["type"] == "bind"
     assert temp_mount["bind"]["create_host_path"] is False
-assert weekly["BACKUP_CRON_EXPRESSION"] == contract["backups"]["remote_schedule"]
+assert weekly["BACKUP_CRON_EXPRESSION"] == contract["backups"]["legacy_offen"]["remote_schedule"]
 assert weekly["BACKUP_FILENAME"].startswith("weekly-backup-")
-assert weekly["BACKUP_RETENTION_DAYS"] == contract["backups"]["remote_retention_days"] == 14
+assert weekly["BACKUP_RETENTION_DAYS"] == contract["backups"]["legacy_offen"]["remote_retention_days"] == 14
 assert weekly["BACKUP_ARCHIVE"] == "/archive-disabled"
 assert {"AWS_S3_BUCKET_NAME", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"} <= weekly.keys()
 
@@ -738,7 +738,7 @@ source_mounts = lambda service: sorted(
 assert source_mounts(daily_service) == source_mounts(weekly_service)
 assert daily["BACKUP_EXCLUDE_REGEXP"] == weekly["BACKUP_EXCLUDE_REGEXP"]
 assert daily["GPG_PUBLIC_KEY_RING_FILE"] == weekly["GPG_PUBLIC_KEY_RING_FILE"]
-assert daily["GPG_PUBLIC_KEY_RING_FILE"] == contract["backups"]["gpg_public_key_ring_file"]
+assert daily["GPG_PUBLIC_KEY_RING_FILE"] == contract["backups"]["legacy_offen"]["gpg_public_key_ring_file"]
 allowed_environment_differences = {
     "AWS_ACCESS_KEY_ID",
     "AWS_S3_BUCKET_NAME",
@@ -760,7 +760,7 @@ labeled_services = sorted(
     name for name, service in model["services"].items()
     if str(service.get("labels", {}).get(stop_label, "")).lower() == "true"
 )
-assert labeled_services == contract["backups"]["stateful_services"]
+assert labeled_services == contract["backups"]["legacy_offen"]["stateful_services"]
 for excluded_service in (
     "authentik-redis",
     "caddy",
@@ -867,20 +867,20 @@ assert "role: backup_temp_preflight" in stage
 assert "name: backup_temp_preflight" in deploy
 backup_storage_role = (repo / "ansible/roles/backup_storage/tasks/main.yml").read_text()
 for required in (
-    "--path {{ backups.local_paths[0] | quote }}",
-    "--path {{ backups.local_paths[1] | quote }}",
-    "--retention-days {{ backups.local_retention_days }}",
-    "--estimated-archive-bytes {{ backups.estimated_archive_bytes }}",
+    "--path {{ backups.legacy_offen.local_paths[0] | quote }}",
+    "--path {{ backups.legacy_offen.local_paths[1] | quote }}",
+    "--retention-days {{ backups.legacy_offen.local_retention_days }}",
+    "--estimated-archive-bytes {{ backups.legacy_offen.estimated_archive_bytes }}",
 ):
     assert required in backup_storage_role
-assert contract["backups"]["local_paths"] == ["/mnt/games/backups", "/mnt/storage/backups"]
-assert contract["backups"]["local_retention_days"] == 7
+assert contract["backups"]["legacy_offen"]["local_paths"] == ["/mnt/games/backups", "/mnt/storage/backups"]
+assert contract["backups"]["legacy_offen"]["local_retention_days"] == 7
 lifecycle = (repo / "infrastructure/tofu/aws-foundation/main.tf").read_text()
-assert "days = local.contract.backups.remote_retention_days" in lifecycle
-assert "noncurrent_days = local.contract.backups.remote_noncurrent_retention_days" in lifecycle
-assert "days_after_initiation = local.contract.backups.incomplete_multipart_abort_days" in lifecycle
+assert "days = local.contract.backups.legacy_offen.remote_retention_days" in lifecycle
+assert "noncurrent_days = local.contract.backups.legacy_offen.remote_noncurrent_retention_days" in lifecycle
+assert "days_after_initiation = local.contract.backups.legacy_offen.incomplete_multipart_abort_days" in lifecycle
 assert "expired_object_delete_marker = true" in lifecycle
-assert contract["backups"]["remote_noncurrent_retention_days"] == 1
+assert contract["backups"]["legacy_offen"]["remote_noncurrent_retention_days"] == 1
 group_vars = (repo / "ansible/group_vars/docker_host.yml").read_text()
 action_plan = (repo / "scripts/compose-action-plan.py").read_text()
 model_inventory = (repo / "scripts/compose-model-inventory.py").read_text()
@@ -927,4 +927,5 @@ PY
 
 "$repo_root/scripts/test-nextcloud-config"
 "$repo_root/scripts/test-compose-secret-files"
+python3 "$repo_root/scripts/test-restic-tools.py"
 echo "recovery tool safety fixtures passed"

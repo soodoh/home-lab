@@ -1,0 +1,695 @@
+#!/usr/bin/env python3
+"""Fail-closed orchestration for the contract-declared Restic workflows."""
+
+from __future__ import annotations
+
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import pwd
+import subprocess
+import sys
+import tempfile
+import time
+from typing import Any
+
+
+SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "maintenance", "status"}
+PROHIBITED_RCLONE = {"cleanup", "mount", "nfsmount", "purge", "sync", "bisync", "delete", "deletefile"}
+SNAPSHOT_ID = re.compile(r"^[0-9a-f]{64}$")
+
+
+class WorkflowError(RuntimeError):
+    pass
+
+
+def fail(reason: str) -> None:
+    print(f"restic_backup=failed reason={reason}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def testing() -> bool:
+    return os.environ.get("HOME_LAB_RESTIC_TESTING") == "1"
+
+
+def rooted(path: str) -> Path:
+    candidate = Path(path)
+    if testing():
+        root = Path(os.environ["HOME_LAB_RESTIC_TEST_ROOT"]).resolve()
+        return root / candidate.relative_to("/")
+    return candidate
+
+
+def require_regular(
+    path: Path,
+    modes: set[int],
+    owners: set[int] | None = None,
+    groups: set[int] | None = None,
+) -> None:
+    if not testing():
+        for parent in path.parents:
+            if parent == Path("/"):
+                break
+            try:
+                if parent.is_symlink():
+                    raise WorkflowError("protected_parent_symlink")
+            except OSError as error:
+                raise WorkflowError("protected_parent_missing") from error
+    try:
+        metadata = path.lstat()
+    except OSError as error:
+        raise WorkflowError("protected_file_missing") from error
+    if path.is_symlink() or not path.is_file() or metadata.st_nlink != 1:
+        raise WorkflowError("protected_file_type")
+    if metadata.st_mode & 0o777 not in modes:
+        raise WorkflowError("protected_file_mode")
+    if owners is not None and metadata.st_uid not in owners:
+        raise WorkflowError("protected_file_owner")
+    if groups is not None and metadata.st_gid not in groups:
+        raise WorkflowError("protected_file_group")
+
+
+def load_policy() -> tuple[dict[str, Any], str]:
+    policy_path = rooted("/etc/home-lab/restic-policy.json")
+    require_regular(policy_path, {0o440, 0o600, 0o640, 0o644}, None if testing() else {0})
+    raw = policy_path.read_bytes()
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise WorkflowError("policy_json") from error
+    if not isinstance(value, dict) or value.get("policy_version") != 1:
+        raise WorkflowError("policy_schema")
+    return value, hashlib.sha256(raw).hexdigest()
+
+
+def run(arguments: list[str], *, environment: dict[str, str] | None = None, timeout: int = 7200) -> subprocess.CompletedProcess[str]:
+    if not arguments or any(argument == "" for argument in arguments):
+        raise WorkflowError("command_shape")
+    if Path(arguments[0]).name == "rclone" and len(arguments) > 1 and arguments[1] in PROHIBITED_RCLONE:
+        raise WorkflowError("prohibited_rclone_command")
+    merged = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/var/empty", "LC_ALL": "C", "TZ": "UTC"}
+    if environment:
+        merged.update(environment)
+    try:
+        return subprocess.run(
+            arguments,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=merged,
+            timeout=timeout,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise WorkflowError("command_execution") from error
+
+
+def require_success(result: subprocess.CompletedProcess[str], reason: str) -> None:
+    if result.returncode != 0:
+        # Restic backup exit 3 is an incomplete snapshot and is never accepted.
+        raise WorkflowError("restic_partial_source" if result.returncode == 3 else reason)
+
+
+def proton_identity() -> tuple[int, int]:
+    if testing():
+        return os.getuid(), os.getgid()
+    try:
+        record = pwd.getpwnam("restic-proton")
+    except KeyError as error:
+        raise WorkflowError("proton_identity_missing") from error
+    return record.pw_uid, record.pw_gid
+
+
+def shared_state_owners() -> set[int]:
+    proton_uid, _ = proton_identity()
+    return {0, os.getuid(), proton_uid}
+
+
+def fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def durable_unlink(path: Path) -> None:
+    path.unlink(missing_ok=True)
+    fsync_directory(path.parent)
+
+
+def atomic_json(path: Path, value: object, mode: int = 0o640) -> None:
+    if testing():
+        path.parent.mkdir(parents=True, exist_ok=True)
+    parent = path.parent
+    metadata = parent.lstat()
+    if parent.is_symlink() or not parent.is_dir() or metadata.st_uid not in {0, os.getuid()} or metadata.st_mode & 0o002:
+        raise WorkflowError("evidence_parent_metadata")
+    if path.exists():
+        require_regular(path, {mode}, shared_state_owners(), {metadata.st_gid})
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=parent)
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, mode)
+        os.fchown(descriptor, -1, metadata.st_gid)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            json.dump(value, stream, sort_keys=True, separators=(",", ":"))
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(path)
+        fsync_directory(parent)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+
+
+def read_json(path: Path, default: object) -> object:
+    if not path.exists():
+        return default
+    parent = path.parent.lstat()
+    require_regular(path, {0o600, 0o640, 0o660}, shared_state_owners(), {parent.st_gid})
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise WorkflowError("evidence_json") from error
+
+
+def command_paths(policy: dict[str, Any]) -> tuple[str, str]:
+    return policy["tools"]["restic"]["installed_path"], policy["tools"]["rclone"]["installed_path"]
+
+
+def check_tool_versions(policy: dict[str, Any]) -> None:
+    restic, rclone = command_paths(policy)
+    restic_version = run([restic, "version"])
+    rclone_version = run([rclone, "version"])
+    require_success(restic_version, "restic_version")
+    require_success(rclone_version, "rclone_version")
+    if restic_version.stdout.splitlines()[0] != policy["tools"]["restic"]["version_output"]:
+        raise WorkflowError("restic_version_identity")
+    if not rclone_version.stdout.startswith(policy["tools"]["rclone"]["version_output_prefix"] + "\n"):
+        raise WorkflowError("rclone_version_identity")
+
+
+def credential_environment(policy: dict[str, Any], destination: str, source: str | None = None) -> dict[str, str]:
+    directory = rooted("/etc/home-lab/restic/credentials")
+    local = directory / "local-password"
+    proton = directory / "proton-password"
+    selected = local if policy["repositories"][destination]["password"] == "local" else proton
+    require_regular(selected, {0o400, 0o440}, None if testing() else {0})
+    confined_runtime = destination == "proton" or (not testing() and os.geteuid() != 0)
+    cache = rooted(policy["runner"]["proton_cache_path"] if confined_runtime else policy["runner"]["local_cache_path"])
+    cache_metadata = cache.lstat()
+    expected_cache_owner = os.getuid() if confined_runtime else 0
+    if cache.is_symlink() or not cache.is_dir() or cache_metadata.st_uid != expected_cache_owner or cache_metadata.st_mode & 0o777 != 0o700:
+        raise WorkflowError("cache_metadata")
+    environment = {"RESTIC_PASSWORD_FILE": str(selected), "RESTIC_CACHE_DIR": str(cache)}
+    if source is not None:
+        source_password = local if policy["repositories"][source]["password"] == "local" else proton
+        require_regular(source_password, {0o400, 0o440}, None if testing() else {0})
+        environment["RESTIC_FROM_PASSWORD_FILE"] = str(source_password)
+    if destination == "proton":
+        config = rooted("/var/lib/restic-proton/rclone.conf")
+        require_regular(config, {0o600}, None if testing() else {os.getuid()})
+        environment.update({"RCLONE_CONFIG": str(config), "HOME": str(config.parent)})
+    return environment
+
+
+def repository(policy: dict[str, Any], name: str) -> str:
+    configured = policy["repositories"][name]["path"]
+    if configured.startswith("/"):
+        return str(rooted(configured))
+    return configured
+
+
+def check_mount(policy: dict[str, Any], repository_name: str) -> None:
+    definition = policy["repositories"][repository_name]
+    if "mountpoint" not in definition:
+        return
+    mountpoint = str(rooted(definition["mountpoint"]))
+    target = repository(policy, repository_name) if not testing() and os.geteuid() != 0 else mountpoint
+    result = run(["/usr/bin/findmnt", "--json", "--target", target, "--output", "TARGET,SOURCE,FSTYPE,UUID"])
+    require_success(result, "mount_identity")
+    try:
+        filesystems = json.loads(result.stdout)["filesystems"]
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        raise WorkflowError("mount_json") from error
+    if len(filesystems) != 1 or filesystems[0]["fstype"] != definition["filesystem"]:
+        raise WorkflowError("mount_identity")
+    if definition.get("filesystem_uuid") and filesystems[0].get("uuid") != definition["filesystem_uuid"]:
+        raise WorkflowError("mount_identity")
+    if definition.get("mount_source") and filesystems[0].get("source") != definition["mount_source"]:
+        raise WorkflowError("mount_identity")
+
+
+def restic_result(policy: dict[str, Any], name: str, arguments: list[str], *, source: str | None = None) -> subprocess.CompletedProcess[str]:
+    restic, _ = command_paths(policy)
+    environment = credential_environment(policy, name, source)
+    if source is not None:
+        environment["RESTIC_FROM_REPOSITORY"] = repository(policy, source)
+    return run([restic, "-r", repository(policy, name), *arguments], environment=environment)
+
+
+def verify_repository(policy: dict[str, Any], name: str) -> dict[str, Any]:
+    expected = policy["repositories"][name].get("id")
+    if not isinstance(expected, str) or SNAPSHOT_ID.fullmatch(expected) is None:
+        raise WorkflowError(f"repository_id_uninitialized_{name}")
+    result = restic_result(policy, name, ["cat", "config"])
+    require_success(result, f"repository_open_{name}")
+    try:
+        config = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise WorkflowError(f"repository_id_{name}") from error
+    if not isinstance(config, dict) or config.get("id") != expected:
+        raise WorkflowError(f"repository_id_{name}")
+    polynomial = config.get("chunker_polynomial")
+    if not isinstance(polynomial, str) or not polynomial:
+        raise WorkflowError(f"repository_chunker_{name}")
+    return config
+
+
+def verify_static_files(policy: dict[str, Any]) -> None:
+    files_from = rooted(policy["runner"]["files_from_path"])
+    excludes = rooted(policy["runner"]["exclude_file_path"])
+    require_regular(files_from, {0o440, 0o444, 0o640, 0o644}, None if testing() else {0})
+    require_regular(excludes, {0o440, 0o444, 0o640, 0o644}, None if testing() else {0})
+    expected_sources = [entry["path"] for entry in policy["sources"]]
+    if files_from.read_text(encoding="utf-8").splitlines() != expected_sources:
+        raise WorkflowError("files_from_identity")
+    if excludes.read_text(encoding="utf-8").splitlines() != policy["excludes"]:
+        raise WorkflowError("excludes_identity")
+
+
+def verify_sources(policy: dict[str, Any]) -> None:
+    for entry in policy["sources"]:
+        source = rooted(entry["path"])
+        try:
+            metadata = source.lstat()
+        except OSError as error:
+            raise WorkflowError("source_path_missing") from error
+        if source.is_symlink() or (source.is_file() and metadata.st_nlink != 1) or not (source.is_file() or source.is_dir()):
+            raise WorkflowError("source_path_type")
+
+
+def preflight(
+    policy: dict[str, Any], *, repositories: bool = True, proton: bool = False,
+    include_nfs: bool = True, verify_source_paths: bool = True,
+) -> None:
+    for process in ("restic", "rclone"):
+        observed = run(["/usr/bin/pgrep", "--exact", process], timeout=30)
+        if observed.returncode == 0:
+            raise WorkflowError("external_backup_operation")
+        if observed.returncode not in {0, 1}:
+            raise WorkflowError("process_inventory")
+    check_tool_versions(policy)
+    verify_static_files(policy)
+    if verify_source_paths:
+        verify_sources(policy)
+    check_mount(policy, "games")
+    if include_nfs:
+        check_mount(policy, "nfs")
+    if repositories:
+        games = verify_repository(policy, "games")
+        if include_nfs:
+            nfs = verify_repository(policy, "nfs")
+            if nfs["chunker_polynomial"] != games["chunker_polynomial"]:
+                raise WorkflowError("repository_chunker_nfs")
+        if proton:
+            proton_config = verify_repository(policy, "proton")
+            if proton_config["chunker_polynomial"] != games["chunker_polynomial"]:
+                raise WorkflowError("repository_chunker_proton")
+            quota(policy)
+
+
+def compose(policy: dict[str, Any], arguments: list[str]) -> subprocess.CompletedProcess[str]:
+    command = policy["runner"].get("compose_command") or [
+        "/usr/bin/docker", "compose", "--project-name", "docker-compose",
+        "--project-directory", "/srv/docker-compose/current", "--env-file", "/etc/docker-compose/production.env",
+        "--file", "/srv/docker-compose/current/docker-compose.yml",
+    ]
+    return run([*command, *arguments], timeout=300)
+
+
+def service_running(service: str) -> bool:
+    result = run(["/usr/bin/docker", "inspect", "--format", "{{.State.Running}}", service], timeout=30)
+    require_success(result, "service_inventory")
+    value = result.stdout.strip()
+    if value not in {"true", "false"}:
+        raise WorkflowError("service_inventory_output")
+    return value == "true"
+
+
+def service_healthy(service: str) -> bool:
+    result = run(["/usr/bin/docker", "inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", service], timeout=30)
+    return result.returncode == 0 and result.stdout.strip() in {"healthy", "running"}
+
+
+def journal_path(policy: dict[str, Any]) -> Path:
+    return rooted(policy["runner"]["journal_path"])
+
+
+def restart_recorded(policy: dict[str, Any], journal: dict[str, Any]) -> None:
+    running = set(journal.get("running_services", []))
+    for service in policy["stop_groups"]["start_order"]:
+        if service not in running:
+            continue
+        require_success(compose(policy, ["start", service]), "service_restart")
+    deadline = time.monotonic() + (3 if testing() else 300)
+    while time.monotonic() < deadline:
+        if all(service_healthy(service) for service in running):
+            durable_unlink(journal_path(policy))
+            return
+        time.sleep(0.1 if testing() else 5)
+    raise WorkflowError("service_health")
+
+
+def recover_interruption(policy: dict[str, Any]) -> None:
+    value = read_json(journal_path(policy), {})
+    if value:
+        if not isinstance(value, dict):
+            raise WorkflowError("journal_schema")
+        restart_recorded(policy, value)
+
+
+def artifact_hash(policy: dict[str, Any]) -> str:
+    path_value = rooted(policy["runner"]["artifact_hash_path"])
+    require_regular(path_value, {0o440, 0o444, 0o600, 0o640, 0o644}, None if testing() else {0})
+    value = path_value.read_text(encoding="utf-8").strip()
+    if SNAPSHOT_ID.fullmatch(value) is None:
+        raise WorkflowError("artifact_hash")
+    return value
+
+
+def parse_backup_snapshot(result: subprocess.CompletedProcess[str]) -> str:
+    snapshot = None
+    for line in result.stdout.splitlines():
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if message.get("message_type") == "summary":
+            snapshot = message.get("snapshot_id")
+    if not isinstance(snapshot, str) or SNAPSHOT_ID.fullmatch(snapshot) is None:
+        raise WorkflowError("snapshot_id_missing")
+    return snapshot
+
+
+def snapshot_mapping(policy: dict[str, Any], destination: str, source_id: str) -> str:
+    result = restic_result(policy, destination, ["snapshots", "--json"])
+    require_success(result, "snapshot_verify")
+    try:
+        snapshots = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise WorkflowError("snapshot_json") from error
+    matches = [entry["id"] for entry in snapshots if entry.get("original") == source_id]
+    if len(matches) != 1 or SNAPSHOT_ID.fullmatch(matches[0]) is None:
+        raise WorkflowError("snapshot_mapping")
+    return matches[0]
+
+
+def pending_entry(policy: dict[str, Any], entry: object) -> dict[str, Any]:
+    if not isinstance(entry, dict):
+        raise WorkflowError("pending_entry_schema")
+    required = {"source_snapshot", "nfs_snapshot", "policy", "artifact", "accepted_at"}
+    if set(entry) != required:
+        raise WorkflowError("pending_entry_schema")
+    if any(SNAPSHOT_ID.fullmatch(entry.get(key, "")) is None for key in ("source_snapshot", "nfs_snapshot", "policy", "artifact")):
+        raise WorkflowError("pending_entry_identity")
+    if not isinstance(entry.get("accepted_at"), int) or entry["accepted_at"] <= 0:
+        raise WorkflowError("pending_entry_time")
+    result = restic_result(policy, "games", ["snapshots", "--json", entry["source_snapshot"]])
+    require_success(result, "pending_snapshot_lookup")
+    try:
+        records = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise WorkflowError("pending_snapshot_json") from error
+    if not isinstance(records, list) or len(records) != 1 or records[0].get("id") != entry["source_snapshot"]:
+        raise WorkflowError("pending_snapshot_identity")
+    tags = set(records[0].get("tags") or [])
+    required_tags = {"cadence=daily", f"policy={entry['policy']}", f"artifact={entry['artifact']}"}
+    if not required_tags <= tags:
+        raise WorkflowError("pending_snapshot_tags")
+    return entry
+
+
+def snapshot_copy_bound(policy: dict[str, Any], snapshot: str) -> int:
+    result = restic_result(policy, "games", ["stats", "--mode", "raw-data", "--json", snapshot])
+    require_success(result, "snapshot_transfer_bound")
+    try:
+        value = json.loads(result.stdout)
+        total = int(value["total_size"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        raise WorkflowError("snapshot_transfer_bound_json") from error
+    if total <= 0:
+        raise WorkflowError("snapshot_transfer_bound")
+    return total
+
+
+def check_repository(policy: dict[str, Any], name: str) -> None:
+    result = restic_result(policy, name, ["check", "--json"])
+    require_success(result, f"repository_check_{name}")
+
+
+def copy_snapshot(policy: dict[str, Any], source: str, destination: str, snapshot: str) -> str:
+    result = restic_result(policy, destination, ["copy", "--json", snapshot], source=source)
+    require_success(result, f"copy_{destination}")
+    return snapshot_mapping(policy, destination, snapshot)
+
+
+def accepted_path(policy: dict[str, Any]) -> Path:
+    return rooted(policy["runner"]["accepted_path"])
+
+
+def retention(policy: dict[str, Any], name: str, protected_source_ids: set[str]) -> None:
+    keep = policy["retention"]
+    arguments = [
+        "forget", "--json", "--dry-run", "--keep-daily", str(keep["keep_daily"]),
+        "--keep-weekly", str(keep["keep_weekly"]), "--keep-monthly", str(keep["keep_monthly"]),
+        "--group-by", keep["group_by"], "--tag", ",".join(keep["required_tags"]),
+    ]
+    dry_run = restic_result(policy, name, arguments)
+    require_success(dry_run, f"forget_dry_run_{name}")
+    try:
+        groups = json.loads(dry_run.stdout)
+    except json.JSONDecodeError as error:
+        raise WorkflowError("forget_json") from error
+    if not isinstance(groups, list):
+        raise WorkflowError("forget_json")
+    removed = {
+        entry.get("id")
+        for group in groups if isinstance(group, dict)
+        for entry in (group.get("remove") or []) if isinstance(entry, dict)
+    }
+    if removed & protected_source_ids:
+        raise WorkflowError("forget_protected_snapshot")
+    actual = restic_result(policy, name, [argument for argument in arguments if argument != "--dry-run"])
+    require_success(actual, f"forget_{name}")
+
+
+def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
+    recover_interruption(policy)
+    # NFS is deliberately deferred until after the games snapshot commits so
+    # an NFS outage cannot suppress the primary local recovery point.
+    preflight(policy, include_nfs=False)
+    stop_order = [*policy["stop_groups"]["applications"], *policy["stop_groups"]["databases"]]
+    running = [service for service in stop_order if service_running(service)]
+    journal = {"version": 1, "stage": "stopping", "running_services": running, "stopped_services": [], "started_at": int(time.time())}
+    atomic_json(journal_path(policy), journal, 0o600)
+    snapshot = None
+    try:
+        for service in stop_order:
+            if service not in running:
+                continue
+            require_success(compose(policy, ["stop", "--timeout", "120", service]), "service_stop")
+            if service_running(service):
+                raise WorkflowError("service_still_running")
+            journal["stopped_services"].append(service)
+            atomic_json(journal_path(policy), journal, 0o600)
+        current_artifact = artifact_hash(policy)
+        tags = ["cadence=daily", f"policy={policy_hash}", f"artifact={current_artifact}"]
+        arguments = ["backup", "--json", "--files-from", str(rooted(policy["runner"]["files_from_path"])), "--exclude-file", str(rooted(policy["runner"]["exclude_file_path"]))]
+        for tag in tags:
+            arguments.extend(["--tag", tag])
+        result = restic_result(policy, "games", arguments)
+        require_success(result, "backup")
+        snapshot = parse_backup_snapshot(result)
+    finally:
+        restart_recorded(policy, journal)
+    if snapshot is None:
+        raise WorkflowError("snapshot_not_committed")
+    check_repository(policy, "games")
+    evidence_value = read_json(accepted_path(policy), {"version": 1, "pending": []})
+    if not isinstance(evidence_value, dict) or evidence_value.get("version") != 1 or not isinstance(evidence_value.get("pending"), list):
+        raise WorkflowError("accepted_schema")
+    existing = [pending_entry(policy, item) for item in evidence_value["pending"]]
+    protected_games = {snapshot, *(item["source_snapshot"] for item in existing)}
+    retention(policy, "games", protected_games)
+    check_mount(policy, "nfs")
+    games_config = verify_repository(policy, "games")
+    nfs_config = verify_repository(policy, "nfs")
+    if nfs_config["chunker_polynomial"] != games_config["chunker_polynomial"]:
+        raise WorkflowError("repository_chunker_nfs")
+    nfs_snapshot = copy_snapshot(policy, "games", "nfs", snapshot)
+    check_repository(policy, "nfs")
+    entry = {"source_snapshot": snapshot, "nfs_snapshot": nfs_snapshot, "policy": policy_hash, "artifact": current_artifact, "accepted_at": int(time.time())}
+    evidence_value["pending"] = [item for item in existing if item["source_snapshot"] != snapshot] + [entry]
+    atomic_json(accepted_path(policy), evidence_value, 0o660)
+    retention(policy, "nfs", {item["nfs_snapshot"] for item in evidence_value["pending"]})
+    print(f"restic_backup=accepted source_snapshot={snapshot} nfs_snapshot={nfs_snapshot}")
+
+
+def quota(policy: dict[str, Any], required_headroom: int = 0) -> dict[str, int]:
+    _, rclone = command_paths(policy)
+    config = rooted("/var/lib/restic-proton/rclone.conf")
+    result = run([rclone, "about", "--json", "--config", str(config), f"{policy['repositories']['proton']['remote']}:"] , environment={"HOME": str(config.parent)})
+    require_success(result, "proton_quota")
+    try:
+        value = json.loads(result.stdout)
+        used = int(value["used"])
+        free = int(value["free"])
+        total = int(value["total"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        raise WorkflowError("proton_quota_json") from error
+    hard = policy["proton"]["hard_failure_used_bytes"]
+    if total != policy["repositories"]["proton"]["allocated_bytes"] or used >= hard or used + required_headroom >= hard:
+        raise WorkflowError("proton_quota_gate")
+    remote_path = f"{policy['repositories']['proton']['remote']}:{policy['repositories']['proton']['remote_path']}"
+    size_result = run([rclone, "size", "--json", "--config", str(config), remote_path], environment={"HOME": str(config.parent)})
+    require_success(size_result, "proton_repository_size")
+    try:
+        active = int(json.loads(size_result.stdout)["bytes"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        raise WorkflowError("proton_repository_size_json") from error
+    warning_threshold = max(policy["proton"]["warning_minimum_used_bytes"], active * policy["proton"]["warning_repository_multiplier"])
+    return {"used": used, "free": free, "total": total, "active": active, "warning": int(used >= warning_threshold)}
+
+
+def daily_proton(policy: dict[str, Any], policy_hash: str) -> None:
+    preflight(policy, proton=True, include_nfs=False, verify_source_paths=False)
+    value = read_json(accepted_path(policy), {"version": 1, "pending": []})
+    if not isinstance(value, dict) or value.get("version") != 1 or not isinstance(value.get("pending"), list):
+        raise WorkflowError("accepted_schema")
+    pending = sorted((pending_entry(policy, item) for item in value["pending"]), key=lambda item: item["accepted_at"], reverse=True)
+    current_artifact = artifact_hash(policy)
+    current = [item for item in pending if item["policy"] == policy_hash and item["artifact"] == current_artifact]
+    if pending and not current:
+        raise WorkflowError("pending_current_acceptance_missing")
+    copied: dict[str, str] = {}
+    selected = current[: policy["proton"]["backlog_limit"]]
+    for entry in selected:
+        source = entry["source_snapshot"]
+        quota(policy, snapshot_copy_bound(policy, source))
+        copied[source] = copy_snapshot(policy, "games", "proton", source)
+    check_repository(policy, "proton")
+    newest_proven = max((entry["accepted_at"] for entry in selected if entry["source_snapshot"] in copied), default=0)
+    remaining = []
+    expired = 0
+    for entry in pending:
+        if entry["source_snapshot"] in copied:
+            continue
+        stale = (entry["policy"] != policy_hash or entry["artifact"] != current_artifact) and entry["accepted_at"] <= newest_proven
+        if stale:
+            expired += 1
+        else:
+            remaining.append(entry)
+    value["pending"] = remaining
+    value["proton_copies"] = {**value.get("proton_copies", {}), **copied}
+    atomic_json(accepted_path(policy), value, 0o660)
+    retention(policy, "proton", set(copied.values()))
+    quota_value = quota(policy)
+    print(f"restic_backup=proton copied={len(copied)} expired={expired} pending={len(remaining)} used={quota_value['used']} free={quota_value['free']} active={quota_value['active']} quota_warning={quota_value['warning']}")
+
+
+def maintenance(policy: dict[str, Any]) -> None:
+    scope = os.environ.get("HOME_LAB_RESTIC_MAINTENANCE_SCOPE")
+    if scope not in {"local", "proton"}:
+        raise WorkflowError("maintenance_scope")
+    names = ["games", "nfs"] if scope == "local" else ["proton"]
+    preflight(
+        policy, proton=scope == "proton", include_nfs=scope == "local",
+        verify_source_paths=scope == "local",
+    )
+    evidence = read_json(accepted_path(policy), {"version": 1, "pending": []})
+    if not isinstance(evidence, dict) or evidence.get("version") != 1 or not isinstance(evidence.get("pending"), list):
+        raise WorkflowError("accepted_schema")
+    pending = [pending_entry(policy, item) for item in evidence["pending"]]
+    protected_games = {item["source_snapshot"] for item in pending}
+    protected_nfs = {item["nfs_snapshot"] for item in pending}
+    state_path = rooted(policy["runner"]["maintenance_state_path"])
+    state = read_json(state_path, {"version": 1, "local": 0, "proton": 0})
+    if not isinstance(state, dict) or state.get("version") != 1:
+        raise WorkflowError("maintenance_state_schema")
+    subset_total = policy["retention"]["read_data_subsets"]
+    subset = int(state.get(scope, 0)) % subset_total + 1
+    for name in names:
+        protected = protected_games if name == "games" else protected_nfs if name == "nfs" else set()
+        check_repository(policy, name)
+        retention(policy, name, protected)
+        prune = restic_result(policy, name, ["prune", "--max-repack-size", policy["retention"]["prune_max_repack_size"], "--max-unused", policy["retention"]["prune_max_unused"]])
+        require_success(prune, f"prune_{name}")
+        check_repository(policy, name)
+        data_check = restic_result(policy, name, ["check", "--json", "--read-data-subset", f"{subset}/{subset_total}"])
+        require_success(data_check, f"repository_data_check_{name}")
+    state[scope] = subset
+    atomic_json(state_path, state, 0o660)
+    quota_fields = ""
+    if scope == "proton":
+        quota_value = quota(policy)
+        quota_fields = f" used={quota_value['used']} free={quota_value['free']} active={quota_value['active']} quota_warning={quota_value['warning']}"
+    print(f"restic_backup=maintenance scope={scope} repositories={len(names)} subset={subset}/{subset_total}{quota_fields}")
+
+
+def status(policy: dict[str, Any], policy_hash: str) -> None:
+    evidence = read_json(accepted_path(policy), {"pending": []})
+    pending = evidence.get("pending", []) if isinstance(evidence, dict) else []
+    ids_ready = all(isinstance(value.get("id"), str) and SNAPSHOT_ID.fullmatch(value["id"]) for value in policy["repositories"].values())
+    journal = journal_path(policy).exists()
+    print(f"restic_backup=status migration={policy['migration_state']} policy={policy_hash} repositories_ready={str(ids_ready).lower()} pending={len(pending)} interruption={str(journal).lower()}")
+
+
+def main() -> None:
+    if len(sys.argv) != 2 or sys.argv[1] not in SUBCOMMANDS:
+        fail("fixed_subcommand_required")
+    try:
+        policy, policy_hash = load_policy()
+        lock = rooted(policy["runner"]["lock_path"])
+        if testing():
+            lock.parent.mkdir(parents=True, exist_ok=True)
+        if lock.exists():
+            require_regular(lock, {0o660}, None if testing() else {0})
+        elif not testing():
+            raise WorkflowError("lock_path_missing")
+        with lock.open("a+", encoding="utf-8") as stream:
+            try:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError as error:
+                raise WorkflowError("concurrent_operation") from error
+            deploy_lock = rooted(policy["runner"]["deploy_lock_path"])
+            if deploy_lock.exists():
+                if deploy_lock.is_symlink() or not deploy_lock.is_dir():
+                    raise WorkflowError("deploy_lock_type")
+                raise WorkflowError("concurrent_deploy")
+            command = sys.argv[1]
+            if command == "preflight":
+                recover_interruption(policy)
+                preflight(policy)
+                print("restic_backup=preflight_passed")
+            elif command == "daily-local":
+                daily_local(policy, policy_hash)
+            elif command == "daily-proton":
+                daily_proton(policy, policy_hash)
+            elif command == "maintenance":
+                maintenance(policy)
+            else:
+                status(policy, policy_hash)
+    except (WorkflowError, KeyError, TypeError, ValueError, OSError) as error:
+        reason = str(error) if isinstance(error, WorkflowError) else "internal_validation"
+        fail(reason)
+
+
+if __name__ == "__main__":
+    main()

@@ -211,12 +211,21 @@
     "backups": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["local_schedule", "local_paths", "estimated_archive_bytes", "local_retention_days", "remote_frequency", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "remote_noncurrent_retention_days", "incomplete_multipart_abort_days", "gpg_public_key_ring_file", "stateful_services", "excluded_classes"],
+      "required": ["legacy_offen", "restic"],
+      "properties": {
+        "legacy_offen": { "$ref": "#/$defs/legacyOffenPolicy" },
+        "restic": { "$ref": "#/$defs/resticPolicy" }
+      }
+    }
+  },
+  "$defs": {
+    "legacyOffenPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["local_schedule", "local_paths", "estimated_archive_bytes", "local_retention_days", "remote_frequency", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "remote_noncurrent_retention_days", "incomplete_multipart_abort_days", "gpg_public_key_ring_file", "stateful_services", "excluded_classes", "final_archive"],
       "properties": {
         "local_schedule": { "const": "0 5 * * *" },
-        "local_paths": {
-          "const": ["/mnt/games/backups", "/mnt/storage/backups"]
-        },
+        "local_paths": { "const": ["/mnt/games/backups", "/mnt/storage/backups"] },
         "estimated_archive_bytes": { "type": "integer", "minimum": 1000000000 },
         "local_retention_days": { "const": 7 },
         "remote_frequency": { "const": "weekly" },
@@ -226,16 +235,82 @@
         "remote_noncurrent_retention_days": { "const": 1 },
         "incomplete_multipart_abort_days": { "const": 1 },
         "gpg_public_key_ring_file": { "const": "/etc/docker-volume-backup/gpg-public.asc" },
-        "stateful_services": {
-          "const": ["audiobookshelf", "authentik-server", "authentik-worker", "bookshelf", "calibre", "calibre-web-automated", "caro-tachidesk", "frigate", "homeassistant", "jellyfin", "karaoke-eternal", "litellm", "mosquitto", "nextcloud", "nextcloud-cron", "nextcloud-db", "omada", "openfit", "pihole", "postgres", "prowlarr", "qbittorrent", "radarr", "radarr-4k", "sabnzbd", "seerr", "sonarr", "tachidesk", "vaultwarden", "vikunja", "wolf", "zwave"]
-        },
-        "excluded_classes": {
-          "const": ["bulk-media", "calibre-books", "downloaded-manga", "nextcloud-user-files", "application-caches", "logs", "generated-metadata-artwork", "internal-application-backup-archives", "mariadb-binary-logs", "legacy-database-rollback-directories", "steam-data", "roms", "bios-files", "scraped-gaming-media"]
+        "stateful_services": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "excluded_classes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "final_archive": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["basename", "bytes", "sha256", "replica_paths", "restore_proof_script"],
+          "properties": {
+            "basename": { "type": "string", "pattern": "^daily-local-backup-[0-9T-]+\\.tar\\.gz\\.gpg$" },
+            "bytes": { "type": "integer", "minimum": 1 },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "replica_paths": { "const": ["/mnt/games/backups", "/mnt/storage/backups"] },
+            "restore_proof_script": { "const": "scripts/run-backup-restore-proof.fish" }
+          }
         }
       }
-    }
-  },
-  "$defs": {
+    },
+    "resticPathClass": {
+      "type": "string",
+      "enum": ["replace-tree", "replace-entries", "preserve", "regenerate", "retain", "external"]
+    },
+    "resticSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "class", "writers", "mutable_database"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^/" },
+        "class": { "enum": ["replace-tree", "replace-entries"] },
+        "writers": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "mutable_database": { "type": "boolean" }
+      }
+    },
+    "resticClassifiedPath": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "class", "owner_services"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^/" },
+        "class": { "$ref": "#/$defs/resticPathClass" },
+        "owner_services": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+      }
+    },
+    "resticPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["migration_state", "policy_version", "tools", "repositories", "retention", "proton", "schedule", "runner", "credential_refs", "stop_groups", "sources", "classified_paths", "excludes", "critical_fixtures", "restore"],
+      "properties": {
+        "migration_state": { "enum": ["inert", "qualified", "active"] },
+        "policy_version": { "const": 1 },
+        "tools": {
+          "type": "object", "additionalProperties": false, "required": ["restic", "rclone"],
+          "properties": {
+            "restic": { "type": "object", "additionalProperties": false, "required": ["version", "architecture", "url", "archive_sha256", "installed_path", "version_output"], "properties": { "version": { "const": "0.19.1" }, "architecture": { "const": "linux_amd64" }, "url": { "type": "string", "pattern": "^https://" }, "archive_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "installed_path": { "const": "/usr/local/bin/restic" }, "version_output": { "type": "string" } } },
+            "rclone": { "type": "object", "additionalProperties": false, "required": ["version", "architecture", "url", "archive_sha256", "installed_path", "version_output_prefix"], "properties": { "version": { "const": "1.75.0" }, "architecture": { "const": "linux_amd64" }, "url": { "type": "string", "pattern": "^https://" }, "archive_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "installed_path": { "const": "/usr/local/bin/rclone" }, "version_output_prefix": { "type": "string" } } }
+          }
+        },
+        "repositories": {
+          "type": "object", "additionalProperties": false, "required": ["games", "nfs", "proton"],
+          "properties": {
+            "games": { "type": "object", "additionalProperties": false, "required": ["path", "id", "filesystem", "filesystem_uuid", "mountpoint", "password"], "properties": { "path": { "const": "/mnt/games/restic/home-lab" }, "id": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^[0-9a-f]{64}$" }] }, "filesystem": { "const": "ext4" }, "filesystem_uuid": { "const": "31602ce7-0054-498a-9f24-f51ca491e7b3" }, "mountpoint": { "const": "/mnt/games" }, "password": { "const": "local" } } },
+            "nfs": { "type": "object", "additionalProperties": false, "required": ["path", "id", "filesystem", "mount_source", "mountpoint", "password", "copy_chunker_params_from"], "properties": { "path": { "const": "/mnt/storage/restic/home-lab" }, "id": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^[0-9a-f]{64}$" }] }, "filesystem": { "const": "nfs4" }, "mount_source": { "const": "192.168.0.123:/storage/docker" }, "mountpoint": { "const": "/mnt/storage" }, "password": { "const": "local" }, "copy_chunker_params_from": { "const": "games" } } },
+            "proton": { "type": "object", "additionalProperties": false, "required": ["path", "id", "remote", "remote_path", "account_ref", "allocated_bytes", "password", "copy_chunker_params_from"], "properties": { "path": { "const": "rclone:proton-backup:Backups/home-lab-restic" }, "id": { "anyOf": [{ "type": "null" }, { "type": "string", "pattern": "^[0-9a-f]{64}$" }] }, "remote": { "const": "proton-backup" }, "remote_path": { "const": "Backups/home-lab-restic" }, "account_ref": { "const": "dedicated-proton-family-backup-member" }, "allocated_bytes": { "const": 1000000000000 }, "password": { "const": "proton" }, "copy_chunker_params_from": { "const": "games" } } }
+          }
+        },
+        "retention": { "type": "object", "required": ["keep_daily", "keep_weekly", "keep_monthly", "group_by", "required_tags", "prune_schedule", "prune_max_repack_size", "prune_max_unused", "read_data_subsets"], "properties": { "keep_daily": { "const": 7 }, "keep_weekly": { "const": 5 }, "keep_monthly": { "const": 12 }, "group_by": { "const": "host,paths" }, "required_tags": { "const": ["cadence=daily"] }, "prune_schedule": { "const": "monthly" }, "prune_max_repack_size": { "type": "string" }, "prune_max_unused": { "type": "string" }, "read_data_subsets": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
+        "proton": { "type": "object", "additionalProperties": false, "required": ["backend_status", "exclusive_client", "replace_existing_draft", "enable_caching", "trash_cleanup", "warning_minimum_used_bytes", "warning_repository_multiplier", "hard_failure_used_bytes", "backlog_limit"], "properties": { "backend_status": { "const": "beta-unpublished-api" }, "exclusive_client": { "const": true }, "replace_existing_draft": { "const": true }, "enable_caching": { "const": true }, "trash_cleanup": { "const": "manual-only" }, "warning_minimum_used_bytes": { "const": 100000000000 }, "warning_repository_multiplier": { "const": 10 }, "hard_failure_used_bytes": { "const": 900000000000 }, "backlog_limit": { "type": "integer", "minimum": 1, "maximum": 31 } } },
+        "schedule": { "type": "object", "additionalProperties": false, "required": ["daily_calendar", "maintenance_calendar", "proton_independent_timer"], "properties": { "daily_calendar": { "const": "*-*-* 05:00:00" }, "maintenance_calendar": { "const": "monthly" }, "proton_independent_timer": { "const": false } } },
+        "runner": { "type": "object", "additionalProperties": false, "required": ["path", "identity_local", "identity_proton", "policy_path", "files_from_path", "exclude_file_path", "lock_path", "deploy_lock_path", "journal_path", "accepted_path", "maintenance_state_path", "local_cache_path", "proton_cache_path", "artifact_hash_path", "units"], "properties": { "path": { "const": "/usr/local/libexec/home-lab/restic-backup" }, "identity_local": { "const": "root" }, "identity_proton": { "const": "restic-proton" }, "policy_path": { "const": "/etc/home-lab/restic-policy.json" }, "files_from_path": { "const": "/etc/home-lab/restic/files-from" }, "exclude_file_path": { "const": "/etc/home-lab/restic/excludes" }, "lock_path": { "const": "/run/lock/home-lab-backup.lock" }, "deploy_lock_path": { "const": "/var/lib/iac-ansible-production.lock" }, "journal_path": { "const": "/var/lib/home-lab-restic/interruption.json" }, "accepted_path": { "const": "/var/lib/home-lab-restic/replication/accepted.json" }, "maintenance_state_path": { "const": "/var/lib/home-lab-restic/replication/maintenance.json" }, "local_cache_path": { "const": "/var/cache/home-lab-restic" }, "proton_cache_path": { "const": "/var/lib/restic-proton/cache" }, "artifact_hash_path": { "const": "/var/lib/docker-compose/current-artifact.sha256" }, "units": { "type": "object", "additionalProperties": false, "required": ["daily_timer", "daily_target", "daily_local", "daily_proton", "interruption_recovery", "maintenance_timer", "maintenance_target", "maintenance_local", "maintenance_proton"], "properties": { "daily_timer": { "const": "home-lab-restic-daily.timer" }, "daily_target": { "const": "home-lab-restic-daily.target" }, "daily_local": { "const": "home-lab-restic-daily-local.service" }, "daily_proton": { "const": "home-lab-restic-daily-proton.service" }, "interruption_recovery": { "const": "home-lab-restic-recover.service" }, "maintenance_timer": { "const": "home-lab-restic-maintenance.timer" }, "maintenance_target": { "const": "home-lab-restic-maintenance.target" }, "maintenance_local": { "const": "home-lab-restic-maintenance-local.service" }, "maintenance_proton": { "const": "home-lab-restic-maintenance-proton.service" } } } } },
+        "credential_refs": { "type": "object", "additionalProperties": false, "required": ["local_password", "proton_password", "proton_username", "proton_login_password", "proton_totp_seed", "proton_mailbox_password"], "properties": { "local_password": { "const": "RESTIC_LOCAL_PASSWORD" }, "proton_password": { "const": "RESTIC_PROTON_PASSWORD" }, "proton_username": { "const": "PROTON_BACKUP_USERNAME" }, "proton_login_password": { "const": "PROTON_BACKUP_PASSWORD" }, "proton_totp_seed": { "const": "PROTON_BACKUP_TOTP_SEED" }, "proton_mailbox_password": { "const": "PROTON_BACKUP_MAILBOX_PASSWORD" } } },
+        "stop_groups": { "type": "object", "required": ["applications", "databases", "start_order"], "properties": { "applications": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "databases": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }, "start_order": { "type": "array", "items": { "type": "string" }, "uniqueItems": true } }, "additionalProperties": false },
+        "sources": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/resticSource" } },
+        "classified_paths": { "type": "array", "items": { "$ref": "#/$defs/resticClassifiedPath" } },
+        "excludes": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "critical_fixtures": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^/" }, "uniqueItems": true },
+        "restore": { "type": "object", "additionalProperties": false, "required": ["staging_root", "production_root", "modes", "exact_snapshot_required", "verify_restore", "direct_production_restore", "restore_delete_allowed", "fresh_requires_empty", "activation_status", "activation", "readiness"], "properties": { "staging_root": { "const": "/srv/home-lab-recovery/restic" }, "production_root": { "const": "/srv/home-lab-state" }, "modes": { "const": ["staging"] }, "exact_snapshot_required": { "const": true }, "verify_restore": { "const": true }, "direct_production_restore": { "const": false }, "restore_delete_allowed": { "const": false }, "fresh_requires_empty": { "const": true }, "activation_status": { "const": "unavailable-pending-isolated-proofs" }, "activation": { "type": "object", "additionalProperties": false, "required": ["replace-tree", "replace-entries", "preserve", "regenerate", "retain", "external"], "properties": { "replace-tree": { "const": "unavailable" }, "replace-entries": { "const": "unavailable" }, "preserve": { "const": "verify-staging-absence" }, "regenerate": { "const": "verify-staging-absence" }, "retain": { "const": "verify-staging-absence" }, "external": { "const": "readiness-gate" } } }, "readiness": { "type": "object", "additionalProperties": { "const": "state-restored-user-data-pending" }, "required": ["nextcloud", "calibre", "calibre-web-automated", "bookshelf", "caro-tachidesk"], "properties": { "nextcloud": { "const": "state-restored-user-data-pending" }, "calibre": { "const": "state-restored-user-data-pending" }, "calibre-web-automated": { "const": "state-restored-user-data-pending" }, "bookshelf": { "const": "state-restored-user-data-pending" }, "caro-tachidesk": { "const": "state-restored-user-data-pending" } } } } }
+      }
+    },
     "nextcloudPolicy": {
       "type": "object",
       "additionalProperties": false,

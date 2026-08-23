@@ -614,3 +614,12 @@
       become: true
       changed_when: false
       no_log: true
+
+    - name: Publish the exact active Compose artifact identity for Restic acceptance
+      ansible.builtin.copy:
+        content: "{{ compose_artifact_hash }}\n"
+        dest: /var/lib/docker-compose/current-artifact.sha256
+        owner: root
+        group: root
+        mode: "0444"
+      become: true

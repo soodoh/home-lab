@@ -18,6 +18,8 @@ Use an ignored, owner-only mode-`0600` extra-vars file based on `recovery/extra-
 
 Before restoration, verify:
 
+Restic migration and its still-inert/live gates are documented in [`../docs/restic-backups.md`](../docs/restic-backups.md). Until the Proton fresh and isolated in-place proofs pass, the known-good Offen archive remains a supported fallback. Restic recovery must select an exact snapshot ID, restore with native verification only into a fresh `/srv/home-lab-recovery/restic-*` staging root, and must not use the legacy archive activator on that Restic tree.
+
 1. VM 100 is the Debian `docker-host` and production guards are active;
 2. `/srv/home-lab-state`, `/mnt/games`, and `/mnt/storage` resolve to their exact expected filesystems;
 3. no infrastructure or Ansible apply lock is active;

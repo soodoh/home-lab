@@ -45,6 +45,9 @@
     - role: sops_age
       tags:
         - sops_age
+    - role: restic_backup
+      tags:
+        - restic_backup
     - role: hardware
       tags:
         - hardware

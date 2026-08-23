@@ -1,0 +1,20 @@
+[Unit]
+Description=Recover services interrupted by a Restic snapshot window
+After=docker.service
+ConditionPathExists={{ backups.restic.runner.journal_path }}
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0027
+ExecStart={{ backups.restic.runner.path }} preflight
+TimeoutStartSec=15m
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/var/lib/home-lab-restic {{ backups.restic.runner.lock_path }} /run/docker.sock
+
+[Install]
+WantedBy=multi-user.target

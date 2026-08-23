@@ -1,0 +1,11 @@
+[Unit]
+Description=Schedule the Home Lab chained Restic daily workflow
+
+[Timer]
+OnCalendar={{ backups.restic.schedule.daily_calendar }}
+Persistent=false
+RandomizedDelaySec=0
+Unit=home-lab-restic-daily.target
+
+[Install]
+WantedBy=timers.target

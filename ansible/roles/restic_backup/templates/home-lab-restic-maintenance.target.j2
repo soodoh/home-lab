@@ -1,0 +1,5 @@
+[Unit]
+Description=Home Lab Restic monthly maintenance workflow
+Requires=home-lab-restic-maintenance-local.service home-lab-restic-maintenance-proton.service
+After=home-lab-restic-maintenance-local.service home-lab-restic-maintenance-proton.service
+StopWhenUnneeded=yes

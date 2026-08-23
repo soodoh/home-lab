@@ -474,3 +474,15 @@
     HOME: "{{ compose_home_dir }}"
   changed_when: false
   check_mode: false
+
+- name: Inspect whether inert Restic deployment is installed
+  ansible.builtin.stat:
+    path: /etc/home-lab/restic-policy.json
+    follow: false
+  register: audit_restic_policy
+
+- name: Audit inert Restic deployment when installed
+  ansible.builtin.include_tasks: restic.yml
+  when:
+    - audit_restic_policy.stat.isreg | default(false)
+    - not (audit_restic_policy.stat.islnk | default(false))

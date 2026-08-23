@@ -1257,64 +1257,605 @@ nextcloud:
   rollback_window_days: 7
   old_path_cleanup_gate: nextcloud-old-paths-reviewed-after-recovery-proof
 backups:
-  local_schedule: "0 5 * * *"
-  local_paths:
-    - /mnt/games/backups
-    - /mnt/storage/backups
-  estimated_archive_bytes: 50000000000
-  local_retention_days: 7
-  remote_frequency: weekly
-  remote_schedule: "0 6 * * 0"
-  remote_rpo_hours: 168
-  remote_retention_days: 14
-  remote_noncurrent_retention_days: 1
-  incomplete_multipart_abort_days: 1
-  gpg_public_key_ring_file: /etc/docker-volume-backup/gpg-public.asc
-  stateful_services:
-    - audiobookshelf
-    - authentik-server
-    - authentik-worker
-    - bookshelf
-    - calibre
-    - calibre-web-automated
-    - caro-tachidesk
-    - frigate
-    - homeassistant
-    - jellyfin
-    - karaoke-eternal
-    - litellm
-    - mosquitto
-    - nextcloud
-    - nextcloud-cron
-    - nextcloud-db
-    - omada
-    - openfit
-    - pihole
-    - postgres
-    - prowlarr
-    - qbittorrent
-    - radarr
-    - radarr-4k
-    - sabnzbd
-    - seerr
-    - sonarr
-    - tachidesk
-    - vaultwarden
-    - vikunja
-    - wolf
-    - zwave
-  excluded_classes:
-    - bulk-media
-    - calibre-books
-    - downloaded-manga
-    - nextcloud-user-files
-    - application-caches
-    - logs
-    - generated-metadata-artwork
-    - internal-application-backup-archives
-    - mariadb-binary-logs
-    - legacy-database-rollback-directories
-    - steam-data
-    - roms
-    - bios-files
-    - scraped-gaming-media
+  legacy_offen:
+    local_schedule: "0 5 * * *"
+    local_paths:
+      - /mnt/games/backups
+      - /mnt/storage/backups
+    estimated_archive_bytes: 50000000000
+    local_retention_days: 7
+    remote_frequency: weekly
+    remote_schedule: "0 6 * * 0"
+    remote_rpo_hours: 168
+    remote_retention_days: 14
+    remote_noncurrent_retention_days: 1
+    incomplete_multipart_abort_days: 1
+    gpg_public_key_ring_file: /etc/docker-volume-backup/gpg-public.asc
+    stateful_services:
+      - audiobookshelf
+      - authentik-server
+      - authentik-worker
+      - bookshelf
+      - calibre
+      - calibre-web-automated
+      - caro-tachidesk
+      - frigate
+      - homeassistant
+      - jellyfin
+      - karaoke-eternal
+      - litellm
+      - mosquitto
+      - nextcloud
+      - nextcloud-cron
+      - nextcloud-db
+      - omada
+      - openfit
+      - pihole
+      - postgres
+      - prowlarr
+      - qbittorrent
+      - radarr
+      - radarr-4k
+      - sabnzbd
+      - seerr
+      - sonarr
+      - tachidesk
+      - vaultwarden
+      - vikunja
+      - wolf
+      - zwave
+    excluded_classes:
+      - bulk-media
+      - calibre-books
+      - downloaded-manga
+      - nextcloud-user-files
+      - application-caches
+      - logs
+      - generated-metadata-artwork
+      - internal-application-backup-archives
+      - mariadb-binary-logs
+      - legacy-database-rollback-directories
+      - steam-data
+      - roms
+      - bios-files
+      - scraped-gaming-media
+    final_archive:
+      basename: daily-local-backup-2026-08-21T22-32-08.tar.gz.gpg
+      bytes: 2319938554
+      sha256: 0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431
+      replica_paths:
+        - /mnt/games/backups
+        - /mnt/storage/backups
+      restore_proof_script: scripts/run-backup-restore-proof.fish
+  restic:
+    migration_state: inert
+    policy_version: 1
+    tools:
+      restic:
+        version: 0.19.1
+        architecture: linux_amd64
+        url: https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_amd64.bz2
+        archive_sha256: f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c
+        installed_path: /usr/local/bin/restic
+        version_output: restic 0.19.1 compiled with go1.26.4 on linux/amd64
+      rclone:
+        version: 1.75.0
+        architecture: linux_amd64
+        url: https://github.com/rclone/rclone/releases/download/v1.75.0/rclone-v1.75.0-linux-amd64.zip
+        archive_sha256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+        installed_path: /usr/local/bin/rclone
+        version_output_prefix: rclone v1.75.0
+    repositories:
+      games:
+        path: /mnt/games/restic/home-lab
+        id: null
+        filesystem: ext4
+        filesystem_uuid: 31602ce7-0054-498a-9f24-f51ca491e7b3
+        mountpoint: /mnt/games
+        password: local
+      nfs:
+        path: /mnt/storage/restic/home-lab
+        id: null
+        filesystem: nfs4
+        mount_source: 192.168.0.123:/storage/docker
+        mountpoint: /mnt/storage
+        password: local
+        copy_chunker_params_from: games
+      proton:
+        path: rclone:proton-backup:Backups/home-lab-restic
+        id: null
+        remote: proton-backup
+        remote_path: Backups/home-lab-restic
+        account_ref: dedicated-proton-family-backup-member
+        allocated_bytes: 1000000000000
+        password: proton
+        copy_chunker_params_from: games
+    retention:
+      keep_daily: 7
+      keep_weekly: 5
+      keep_monthly: 12
+      group_by: host,paths
+      required_tags:
+        - cadence=daily
+      prune_schedule: monthly
+      prune_max_repack_size: 10G
+      prune_max_unused: 10%
+      read_data_subsets: 12
+    proton:
+      backend_status: beta-unpublished-api
+      exclusive_client: true
+      replace_existing_draft: true
+      enable_caching: true
+      trash_cleanup: manual-only
+      warning_minimum_used_bytes: 100000000000
+      warning_repository_multiplier: 10
+      hard_failure_used_bytes: 900000000000
+      backlog_limit: 7
+    schedule:
+      daily_calendar: "*-*-* 05:00:00"
+      maintenance_calendar: monthly
+      proton_independent_timer: false
+    runner:
+      path: /usr/local/libexec/home-lab/restic-backup
+      identity_local: root
+      identity_proton: restic-proton
+      policy_path: /etc/home-lab/restic-policy.json
+      files_from_path: /etc/home-lab/restic/files-from
+      exclude_file_path: /etc/home-lab/restic/excludes
+      lock_path: /run/lock/home-lab-backup.lock
+      deploy_lock_path: /var/lib/iac-ansible-production.lock
+      journal_path: /var/lib/home-lab-restic/interruption.json
+      accepted_path: /var/lib/home-lab-restic/replication/accepted.json
+      maintenance_state_path: /var/lib/home-lab-restic/replication/maintenance.json
+      local_cache_path: /var/cache/home-lab-restic
+      proton_cache_path: /var/lib/restic-proton/cache
+      artifact_hash_path: /var/lib/docker-compose/current-artifact.sha256
+      units:
+        daily_timer: home-lab-restic-daily.timer
+        daily_target: home-lab-restic-daily.target
+        daily_local: home-lab-restic-daily-local.service
+        daily_proton: home-lab-restic-daily-proton.service
+        interruption_recovery: home-lab-restic-recover.service
+        maintenance_timer: home-lab-restic-maintenance.timer
+        maintenance_target: home-lab-restic-maintenance.target
+        maintenance_local: home-lab-restic-maintenance-local.service
+        maintenance_proton: home-lab-restic-maintenance-proton.service
+    credential_refs:
+      local_password: RESTIC_LOCAL_PASSWORD
+      proton_password: RESTIC_PROTON_PASSWORD
+      proton_username: PROTON_BACKUP_USERNAME
+      proton_login_password: PROTON_BACKUP_PASSWORD
+      proton_totp_seed: PROTON_BACKUP_TOTP_SEED
+      proton_mailbox_password: PROTON_BACKUP_MAILBOX_PASSWORD
+    stop_groups:
+      applications:
+        - nextcloud-cron
+        - nextcloud
+        - authentik-worker
+        - authentik-server
+        - calibre-web-automated
+        - calibre
+        - caro-tachidesk
+        - tachidesk
+        - audiobookshelf
+        - bookshelf
+        - frigate
+        - homeassistant
+        - jellyfin
+        - karaoke-eternal
+        - litellm
+        - mosquitto
+        - omada
+        - openfit
+        - pihole
+        - prowlarr
+        - qbittorrent
+        - radarr
+        - radarr-4k
+        - sabnzbd
+        - seerr
+        - sonarr
+        - vaultwarden
+        - vikunja
+        - wolf
+        - zwave
+        - ddns-updater
+        - gluetun
+      databases:
+        - nextcloud-db
+        - postgres
+      start_order:
+        - postgres
+        - nextcloud-db
+        - gluetun
+        - ddns-updater
+        - zwave
+        - wolf
+        - vikunja
+        - vaultwarden
+        - sonarr
+        - seerr
+        - sabnzbd
+        - radarr-4k
+        - radarr
+        - qbittorrent
+        - prowlarr
+        - pihole
+        - openfit
+        - omada
+        - mosquitto
+        - litellm
+        - karaoke-eternal
+        - jellyfin
+        - homeassistant
+        - frigate
+        - bookshelf
+        - audiobookshelf
+        - tachidesk
+        - caro-tachidesk
+        - calibre
+        - calibre-web-automated
+        - authentik-server
+        - authentik-worker
+        - nextcloud
+        - nextcloud-cron
+    sources:
+      - path: /srv/home-lab-state/audiobookshelf-data/config
+        class: replace-tree
+        writers: [audiobookshelf]
+        mutable_database: false
+      - path: /srv/home-lab-state/authentik-data/postgresql
+        class: replace-tree
+        writers: [postgres]
+        mutable_database: true
+      - path: /srv/home-lab-state/authentik-data/media
+        class: replace-tree
+        writers: [authentik-server, authentik-worker]
+        mutable_database: false
+      - path: /srv/home-lab-state/authentik-data/custom-templates
+        class: replace-tree
+        writers: [authentik-server, authentik-worker]
+        mutable_database: false
+      - path: /srv/home-lab-state/authentik-data/certs/live
+        class: replace-tree
+        writers: [authentik-server, authentik-worker]
+        mutable_database: false
+      - path: /srv/home-lab-state/authentik-data/certs/archive
+        class: replace-tree
+        writers: [authentik-server, authentik-worker]
+        mutable_database: false
+      - path: /srv/home-lab-state/bookshelf-data
+        class: replace-entries
+        writers: [bookshelf]
+        mutable_database: true
+      - path: /srv/home-lab-state/calibre-data/config
+        class: replace-entries
+        writers: [calibre]
+        mutable_database: true
+      - path: /srv/home-lab-state/calibre-data/plugins
+        class: replace-tree
+        writers: [calibre]
+        mutable_database: false
+      - path: /srv/home-lab-state/calibre-web-data
+        class: replace-entries
+        writers: [calibre-web-automated]
+        mutable_database: true
+      - path: /srv/home-lab-state/caro-tachidesk-data
+        class: replace-entries
+        writers: [caro-tachidesk]
+        mutable_database: true
+      - path: /srv/home-lab-state/ddns-updater-data
+        class: replace-tree
+        writers: [ddns-updater]
+        mutable_database: false
+      - path: /srv/home-lab-state/frigate-data
+        class: replace-entries
+        writers: [frigate]
+        mutable_database: true
+      - path: /srv/home-lab-state/gluetun-data
+        class: replace-tree
+        writers: [gluetun]
+        mutable_database: false
+      - path: /srv/home-lab-state/jellyfin-data/config
+        class: replace-entries
+        writers: [jellyfin]
+        mutable_database: true
+      - path: /srv/home-lab-state/seerr-data
+        class: replace-entries
+        writers: [seerr]
+        mutable_database: true
+      - path: /srv/home-lab-state/karaoke-eternal-data
+        class: replace-tree
+        writers: [karaoke-eternal]
+        mutable_database: true
+      - path: /srv/home-lab-state/litellm-data
+        class: replace-tree
+        writers: [litellm]
+        mutable_database: true
+      - path: /srv/home-lab-state/mosquitto-data/config
+        class: replace-tree
+        writers: [mosquitto]
+        mutable_database: false
+      - path: /srv/home-lab-state/mosquitto-data/data
+        class: replace-tree
+        writers: [mosquitto]
+        mutable_database: true
+      - path: /srv/home-lab-state/nextcloud-db-data
+        class: replace-entries
+        writers: [nextcloud-db]
+        mutable_database: true
+      - path: /srv/home-lab-state/nextcloud-config
+        class: replace-tree
+        writers: [nextcloud, nextcloud-cron]
+        mutable_database: false
+      - path: /srv/home-lab-state/nextcloud-custom-apps
+        class: replace-tree
+        writers: [nextcloud, nextcloud-cron]
+        mutable_database: false
+      - path: /srv/home-lab-state/nextcloud-themes
+        class: replace-tree
+        writers: [nextcloud, nextcloud-cron]
+        mutable_database: false
+      - path: /srv/home-lab-state/omada-data/data
+        class: replace-entries
+        writers: [omada]
+        mutable_database: true
+      - path: /srv/home-lab-state/openfit-data
+        class: replace-tree
+        writers: [openfit]
+        mutable_database: true
+      - path: /srv/home-lab-state/pihole-data
+        class: replace-entries
+        writers: [pihole]
+        mutable_database: true
+      - path: /srv/home-lab-state/prowlarr-data
+        class: replace-entries
+        writers: [prowlarr]
+        mutable_database: true
+      - path: /srv/home-lab-state/qbittorrent-data
+        class: replace-entries
+        writers: [qbittorrent]
+        mutable_database: true
+      - path: /srv/home-lab-state/radarr-4k-data
+        class: replace-entries
+        writers: [radarr-4k]
+        mutable_database: true
+      - path: /srv/home-lab-state/radarr-data
+        class: replace-entries
+        writers: [radarr]
+        mutable_database: true
+      - path: /srv/home-lab-state/recyclarr-data/configs
+        class: replace-tree
+        writers: []
+        mutable_database: false
+      - path: /srv/home-lab-state/recyclarr-data/includes
+        class: replace-tree
+        writers: []
+        mutable_database: false
+      - path: /srv/home-lab-state/recyclarr-data/settings.yml
+        class: replace-tree
+        writers: []
+        mutable_database: false
+      - path: /srv/home-lab-state/sabnzbd-data
+        class: replace-entries
+        writers: [sabnzbd]
+        mutable_database: true
+      - path: /srv/home-lab-state/sonarr-data
+        class: replace-entries
+        writers: [sonarr]
+        mutable_database: true
+      - path: /srv/home-lab-state/tachidesk-data
+        class: replace-entries
+        writers: [tachidesk]
+        mutable_database: true
+      - path: /srv/home-lab-state/vaultwarden-data
+        class: replace-entries
+        writers: [vaultwarden]
+        mutable_database: true
+      - path: /srv/home-lab-state/vikunja-data
+        class: replace-tree
+        writers: [vikunja]
+        mutable_database: true
+      - path: /srv/home-lab-state/zwave-data
+        class: replace-entries
+        writers: [zwave]
+        mutable_database: true
+      - path: /srv/home-lab-state/hass-data
+        class: replace-entries
+        writers: [homeassistant]
+        mutable_database: true
+      - path: /mnt/games/wolf/cfg
+        class: replace-entries
+        writers: [wolf]
+        mutable_database: false
+      - path: /mnt/games/wolf/profile-data/paul/WolfES-DE/.config
+        class: replace-entries
+        writers: [wolf]
+        mutable_database: false
+      - path: /mnt/games/wolf/profile-data/paul/WolfES-DE/.local/share
+        class: replace-entries
+        writers: [wolf]
+        mutable_database: false
+      - path: /mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE
+        class: replace-entries
+        writers: [wolf]
+        mutable_database: false
+      - path: /etc/docker-compose/production.env
+        class: replace-tree
+        writers: []
+        mutable_database: false
+      - path: /home/docker/.ssh
+        class: replace-tree
+        writers: []
+        mutable_database: false
+    classified_paths:
+      - path: /mnt/storage/media/caro-tachidesk
+        class: external
+        owner_services: [caro-tachidesk]
+      - path: /mnt/storage/media/calibre/books
+        class: external
+        owner_services: [calibre, calibre-web-automated, bookshelf]
+      - path: /mnt/storage/media/nextcloud/data
+        class: external
+        owner_services: [nextcloud, nextcloud-cron]
+      - path: /mnt/storage/media/tachidesk
+        class: external
+        owner_services: [tachidesk]
+      - path: /srv/home-lab-state/caro-tachidesk-data/downloads
+        class: preserve
+        owner_services: [caro-tachidesk]
+      - path: /srv/home-lab-state/calibre-data/books
+        class: preserve
+        owner_services: [calibre, calibre-web-automated, bookshelf]
+      - path: /srv/home-lab-state/calibre-web-ingest
+        class: preserve
+        owner_services: [calibre-web-automated]
+      - path: /srv/home-lab-state/hass-data/.cache
+        class: regenerate
+        owner_services: [homeassistant]
+      - path: /srv/home-lab-state/jellyfin-data/config/cache
+        class: regenerate
+        owner_services: [jellyfin]
+      - path: /srv/home-lab-state/frigate-data/model_cache
+        class: regenerate
+        owner_services: [frigate]
+      - path: /srv/home-lab-state/qbittorrent-data/.cache
+        class: regenerate
+        owner_services: [qbittorrent]
+      - path: /srv/home-lab-state/audiobookshelf-data/metadata
+        class: regenerate
+        owner_services: [audiobookshelf]
+      - path: /srv/home-lab-state/caddy-data
+        class: regenerate
+        owner_services: [caddy]
+      - path: /srv/home-lab-state/jellyfin-data/cache
+        class: regenerate
+        owner_services: [jellyfin]
+      - path: /srv/home-lab-state/nextcloud-html
+        class: regenerate
+        owner_services: [nextcloud, nextcloud-cron]
+      - path: /srv/home-lab-state/nextcloud-redis-data
+        class: regenerate
+        owner_services: [nextcloud-redis]
+      - path: /srv/home-lab-state/omada-data/logs
+        class: retain
+        owner_services: [omada]
+      - path: /srv/home-lab-state/hass-data/home-assistant.log
+        class: retain
+        owner_services: [homeassistant]
+      - path: /srv/home-lab-state/zwave-data/logs
+        class: retain
+        owner_services: [zwave]
+    excludes:
+      - /mnt/games/restic/**
+      - /mnt/storage/restic/**
+      - /srv/home-lab-state/calibre-data/books/**
+      - /srv/home-lab-state/caro-tachidesk-data/downloads/**
+      - /srv/home-lab-state/tachidesk-data/downloads/**
+      - /srv/home-lab-state/**/[Cc]ache/**
+      - /srv/home-lab-state/hass-data/.cache/**
+      - /srv/home-lab-state/qbittorrent-data/.cache/**
+      - /srv/home-lab-state/**/[Ll]og/**
+      - /srv/home-lab-state/**/[Ll]ogs/**
+      - /srv/home-lab-state/**/*.log
+      - /srv/home-lab-state/**/*.log.*
+      - /srv/home-lab-state/**/logs.db*
+      - /srv/home-lab-state/**/Backups/**
+      - /srv/home-lab-state/**/MediaCover/**
+      - /srv/home-lab-state/**/Sentry/**
+      - /srv/home-lab-state/calibre-data/config/.cache/**
+      - /srv/home-lab-state/calibre-web-data/.cwa_conversion_tmp/**
+      - /srv/home-lab-state/calibre-web-data/.cwa_db_debug/**
+      - /srv/home-lab-state/calibre-web-data/app.db.bak.*
+      - /srv/home-lab-state/calibre-web-data/calibre-web.log*
+      - /srv/home-lab-state/calibre-web-data/log_archive/**
+      - /srv/home-lab-state/calibre-web-data/epub-fixer.log
+      - /srv/home-lab-state/calibre-web-data/cwa_ingest_retry_queue/**
+      - /srv/home-lab-state/calibre-web-data/cwa_ingest_status/**
+      - /srv/home-lab-state/calibre-web-data/processed_books/**
+      - /srv/home-lab-state/calibre-web-data/thumbnails/**
+      - /srv/home-lab-state/caro-tachidesk-data/backups/**
+      - /srv/home-lab-state/caro-tachidesk-data/bin/**
+      - /srv/home-lab-state/caro-tachidesk-data/database*.trace.db
+      - /srv/home-lab-state/caro-tachidesk-data/database*.backup
+      - /srv/home-lab-state/caro-tachidesk-data/database*.sql
+      - /srv/home-lab-state/caro-tachidesk-data/webUI/**
+      - /srv/home-lab-state/frigate-data/.exports/**
+      - /srv/home-lab-state/frigate-data/.timeline/**
+      - /srv/home-lab-state/frigate-data/.vacuum/**
+      - /srv/home-lab-state/frigate-data/.search_stats.json
+      - /srv/home-lab-state/frigate-data/backup.db
+      - /srv/home-lab-state/frigate-data/model_cache/**
+      - /srv/home-lab-state/hass-data/backups/**
+      - /srv/home-lab-state/hass-data/backup/**
+      - /srv/home-lab-state/hass-data/core
+      - /srv/home-lab-state/hass-data/tts/**
+      - /srv/home-lab-state/jellyfin-data/config/data/SQLiteBackups/**
+      - /srv/home-lab-state/jellyfin-data/config/.cache/**
+      - /srv/home-lab-state/jellyfin-data/config/data/attachments/**
+      - /srv/home-lab-state/jellyfin-data/config/data/introskipper/**
+      - /srv/home-lab-state/jellyfin-data/config/data/subtitles/**
+      - /srv/home-lab-state/jellyfin-data/config/data/library.db.old*
+      - /srv/home-lab-state/jellyfin-data/config/metadata/**
+      - /srv/home-lab-state/nextcloud-db-data/binlog.*
+      - /srv/home-lab-state/nextcloud-db-data/system_mysql_backup_*
+      - /srv/home-lab-state/omada-data/data/device-firmware/**
+      - /srv/home-lab-state/omada-data/data/mongodb-preupgrade.tar
+      - /srv/home-lab-state/pihole-data/config_backups/**
+      - /srv/home-lab-state/pihole-data/gravity_backups/**
+      - /srv/home-lab-state/pihole-data/listsCache/**
+      - /srv/home-lab-state/pihole-data/migration_backup/**
+      - /srv/home-lab-state/pihole-data/gravity_old.db
+      - /srv/home-lab-state/pihole-data/pihole-FTL.db*
+      - /srv/home-lab-state/qbittorrent-data/qBittorrent/GeoDB/**
+      - /srv/home-lab-state/recyclarr-data/repositories/**
+      - /srv/home-lab-state/recyclarr-data/resources/**
+      - /srv/home-lab-state/recyclarr-data/state/**
+      - /srv/home-lab-state/vaultwarden-data/icon_cache/**
+      - /srv/home-lab-state/tachidesk-data/backups/**
+      - /srv/home-lab-state/tachidesk-data/bin/**
+      - /srv/home-lab-state/tachidesk-data/database*.trace.db
+      - /srv/home-lab-state/tachidesk-data/database*.backup
+      - /srv/home-lab-state/tachidesk-data/database*.sql
+      - /srv/home-lab-state/tachidesk-data/webUI/**
+      - /srv/home-lab-state/vaultwarden-data/tmp/**
+      - /mnt/games/wolf/cfg/backtrace.*.dump
+      - /mnt/games/wolf/profile-data/paul/WolfES-DE/.local/share/Steam/**
+      - /mnt/games/wolf/profile-data/paul/WolfES-DE/.config/retroarch/assets/**
+      - /mnt/games/wolf/profile-data/paul/WolfES-DE/.config/retroarch/cores/**
+      - /mnt/games/wolf/profile-data/paul/WolfES-DE/.config/retroarch/downloads/**
+      - /mnt/games/wolf/profile-data/paul/WolfES-DE/.config/retroarch/logs/**
+      - /mnt/games/wolf/profile-data/paul/WolfES-DE/.config/retroarch/thumbnails/**
+      - /mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE/logs/**
+      - /mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE/scrapers/**
+      - /mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE/screensavers/**
+      - /mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE/themes/**
+    critical_fixtures:
+      - /srv/home-lab-state/authentik-data/postgresql/PG_VERSION
+      - /srv/home-lab-state/nextcloud-db-data/mysql/db.frm
+      - /srv/home-lab-state/vaultwarden-data/db.sqlite3
+      - /srv/home-lab-state/hass-data/home-assistant_v2.db
+      - /etc/docker-compose/production.env
+    restore:
+      staging_root: /srv/home-lab-recovery/restic
+      production_root: /srv/home-lab-state
+      modes: [staging]
+      exact_snapshot_required: true
+      verify_restore: true
+      direct_production_restore: false
+      restore_delete_allowed: false
+      fresh_requires_empty: true
+      activation_status: unavailable-pending-isolated-proofs
+      activation:
+        replace-tree: unavailable
+        replace-entries: unavailable
+        preserve: verify-staging-absence
+        regenerate: verify-staging-absence
+        retain: verify-staging-absence
+        external: readiness-gate
+      readiness:
+        nextcloud: state-restored-user-data-pending
+        calibre: state-restored-user-data-pending
+        calibre-web-automated: state-restored-user-data-pending
+        bookshelf: state-restored-user-data-pending
+        caro-tachidesk: state-restored-user-data-pending

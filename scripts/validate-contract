@@ -8,6 +8,7 @@ const { load } = require("js-yaml");
 const Ajv2020 = require("ajv/dist/2020");
 const { validateVmArtifactReferences } = require("./controller/validate-vm-artifact-references");
 const { validateProxmoxHostPolicy } = require("./controller/validate-proxmox-host-policy");
+const { validateResticPolicy } = require("./controller/validate-restic-policy");
 const {
   validateProxmoxPackageArtifactBinding,
   validateProxmoxPackagePolicy,
@@ -119,10 +120,24 @@ if (new Set(nextcloudSecretDestinations).size !== nextcloudSecretDestinations.le
 if (new Set(nextcloudSecretNames).size !== nextcloudSecretNames.length) {
   failures.push("Nextcloud Compose secret names must be unique");
 }
+const resticPolicy = contract.backups.restic;
+const stoppedApplications = resticPolicy.stop_groups.applications;
 if (contract.nextcloud.writer_stop_order[0] !== contract.nextcloud.cron_service
     || contract.nextcloud.writer_stop_order[1] !== contract.nextcloud.web_service
-    || !contract.backups.stateful_services.includes(contract.nextcloud.cron_service)) {
-  failures.push("Nextcloud writer stop order and backup stop set must include cron before web");
+    || !stoppedApplications.includes(contract.nextcloud.cron_service)) {
+  failures.push("Nextcloud writer stop order and Restic stop set must include cron before web");
+}
+failures.push(...validateResticPolicy(resticPolicy));
+const sourcePaths = resticPolicy.sources.map((entry) => entry.path);
+const renderedFilesFrom = `${sourcePaths.join("\n")}\n`;
+const renderedExcludes = `${resticPolicy.excludes.join("\n")}\n`;
+const filesFromPath = path.join(root, "services/data/restic/files-from");
+const excludesPath = path.join(root, "services/data/restic/excludes");
+if (!fs.existsSync(filesFromPath) || fs.readFileSync(filesFromPath, "utf8") !== renderedFilesFrom) {
+  failures.push("generated Restic files-from differs from the contract");
+}
+if (!fs.existsSync(excludesPath) || fs.readFileSync(excludesPath, "utf8") !== renderedExcludes) {
+  failures.push("generated Restic excludes differs from the contract");
 }
 
 if (!fs.existsSync(qualificationEvidencePath)) {

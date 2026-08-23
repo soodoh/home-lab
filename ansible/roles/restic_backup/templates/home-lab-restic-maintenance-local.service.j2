@@ -1,0 +1,20 @@
+[Unit]
+Description=Home Lab Restic monthly local maintenance
+RequiresMountsFor={{ backups.restic.repositories.games.mountpoint }} {{ backups.restic.repositories.nfs.mountpoint }}
+After=network-online.target
+Before=home-lab-restic-maintenance-proton.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0027
+Environment=HOME_LAB_RESTIC_MAINTENANCE_SCOPE=local
+ExecStart={{ backups.restic.runner.path }} maintenance
+TimeoutStartSec=12h
+KillSignal=SIGINT
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths={{ backups.restic.repositories.games.mountpoint }}/restic {{ backups.restic.repositories.nfs.mountpoint }}/restic /var/lib/home-lab-restic /var/cache/home-lab-restic {{ backups.restic.runner.lock_path }}

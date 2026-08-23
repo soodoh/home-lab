@@ -6,7 +6,7 @@
     owner: root
     group: root
     mode: "0700"
-  loop: "{{ backups.local_paths }}"
+  loop: "{{ backups.legacy_offen.local_paths }}"
   become: true
 
 - name: Inspect the local backup destinations without following links
@@ -16,7 +16,7 @@
     get_attributes: false
     get_checksum: false
     get_mime: false
-  loop: "{{ backups.local_paths }}"
+  loop: "{{ backups.legacy_offen.local_paths }}"
   register: backup_storage_paths
 
 - name: Require exact safe local backup directories after convergence
@@ -32,10 +32,10 @@
   ansible.builtin.script:
     cmd: >-
       {{ role_path }}/../../../scripts/check-backup-storage.py
-      --path {{ backups.local_paths[0] | quote }}
-      --path {{ backups.local_paths[1] | quote }}
-      --retention-days {{ backups.local_retention_days }}
-      --estimated-archive-bytes {{ backups.estimated_archive_bytes }}
+      --path {{ backups.legacy_offen.local_paths[0] | quote }}
+      --path {{ backups.legacy_offen.local_paths[1] | quote }}
+      --retention-days {{ backups.legacy_offen.local_retention_days }}
+      --estimated-archive-bytes {{ backups.legacy_offen.estimated_archive_bytes }}
     executable: "{{ ansible_python_interpreter }}"
   register: backup_storage_capacity
   changed_when: false

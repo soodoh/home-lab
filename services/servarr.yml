@@ -126,6 +126,11 @@ services:
       BIND_PORT: 4568
     volumes:
       - /srv/home-lab-state/caro-tachidesk-data:/home/suwayomi/.local/share/Tachidesk
+      - type: bind
+        source: ${MEDIA_PATH}/caro-tachidesk
+        target: /home/suwayomi/.local/share/Tachidesk/downloads
+        bind:
+          create_host_path: false
 
   flaresolverr:
     image: ghcr.io/flaresolverr/flaresolverr:v3.5.0@sha256:139dfee1c6f89249c8d665d1333a42e8ec74ec0a86bc6bb1c8461e10d3a66a47
@@ -264,8 +269,10 @@ services:
       - /srv/home-lab-state/bookshelf-data:/config
       - ${MEDIA_PATH}:/data
       - type: bind
-        source: /srv/home-lab-state/calibre-data/books
+        source: ${MEDIA_PATH}/calibre/books
         target: /books
+        bind:
+          create_host_path: false
     labels:
       docker-volume-backup.stop-during-backup: true
 

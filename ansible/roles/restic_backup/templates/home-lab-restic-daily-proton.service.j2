@@ -1,0 +1,31 @@
+[Unit]
+Description=Home Lab Restic daily Proton replication
+Requires=home-lab-restic-daily-local.service
+After=home-lab-restic-daily-local.service network-online.target
+ConditionPathExists={{ backups.restic.runner.accepted_path }}
+
+[Service]
+Type=oneshot
+User=restic-proton
+Group=restic-proton
+UMask=0077
+ExecStart={{ backups.restic.runner.path }} daily-proton
+TimeoutStartSec=12h
+KillSignal=SIGINT
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+InaccessiblePaths=/srv/home-lab-state /mnt/storage /home/docker /etc/docker-compose /mnt/games
+BindReadOnlyPaths={{ backups.restic.repositories.games.path }}
+BindPaths={{ backups.restic.repositories.games.path }}/locks
+ReadOnlyPaths=/etc/home-lab/restic
+ReadWritePaths=/var/lib/home-lab-restic/replication /var/lib/restic-proton {{ backups.restic.runner.lock_path }}

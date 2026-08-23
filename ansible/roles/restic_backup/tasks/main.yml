@@ -1,0 +1,489 @@
+---
+- name: Require the supported Restic host architecture
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.system == 'Linux'
+      - ansible_facts.architecture == 'x86_64'
+      - backups.restic.tools.restic.architecture == 'linux_amd64'
+      - backups.restic.tools.rclone.architecture == 'linux_amd64'
+    fail_msg: Restic tooling supports only the reviewed Linux amd64 host.
+
+- name: Require standalone archive extraction prerequisites
+  ansible.builtin.command:
+    argv: [/usr/bin/test, -x, "{{ item }}"]
+  loop:
+    - /usr/bin/bzip2
+    - /usr/bin/unzip
+  changed_when: false
+  check_mode: false
+
+- name: Inspect exact Restic repository mount identities
+  ansible.builtin.command:
+    argv: [/usr/bin/findmnt, --json, --target, "{{ item.mountpoint }}", --output, "TARGET,SOURCE,FSTYPE,UUID"]
+  loop:
+    - mountpoint: "{{ backups.restic.repositories.games.mountpoint }}"
+      filesystem: "{{ backups.restic.repositories.games.filesystem }}"
+      filesystem_uuid: "{{ backups.restic.repositories.games.filesystem_uuid }}"
+      mount_source: ""
+    - mountpoint: "{{ backups.restic.repositories.nfs.mountpoint }}"
+      filesystem: "{{ backups.restic.repositories.nfs.filesystem }}"
+      filesystem_uuid: ""
+      mount_source: "{{ backups.restic.repositories.nfs.mount_source }}"
+  register: restic_backup_mount_identities
+  changed_when: false
+  check_mode: false
+
+- name: Require exact Restic repository mount identities
+  ansible.builtin.assert:
+    that:
+      - observed | length == 1
+      - observed[0].target == item.item.mountpoint
+      - observed[0].fstype == item.item.filesystem
+      - item.item.filesystem_uuid | length == 0 or observed[0].uuid == item.item.filesystem_uuid
+      - item.item.mount_source | length == 0 or observed[0].source == item.item.mount_source
+    fail_msg: Refusing Restic deployment without the exact contract repository mount.
+  loop: "{{ restic_backup_mount_identities.results }}"
+  vars:
+    observed: "{{ (item.stdout | from_json).filesystems }}"
+
+- name: Inspect Restic binary destinations without following unsafe replacements
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+    follow: false
+  loop:
+    - path: /usr/local/bin/restic
+      sha256: "{{ restic_binary_sha256 }}"
+    - path: /usr/local/bin/rclone
+      sha256: "{{ rclone_binary_sha256 }}"
+  register: restic_backup_existing_binaries
+
+- name: Reject unsafe existing Restic binary destinations
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (item.stat.exists | default(false)) or
+        ((item.stat.isreg | default(false)) and
+        not (item.stat.islnk | default(false)) and
+        (item.stat.nlink | default(0) | int) == 1)
+    fail_msg: Refusing to replace a non-regular, symlinked, or hard-linked Restic tool destination.
+  loop: "{{ restic_backup_existing_binaries.results }}"
+
+- name: Record whether pinned Restic tools require installation
+  ansible.builtin.set_fact:
+    restic_backup_install_required: >-
+      {{
+        restic_backup_existing_binaries.results
+        | rejectattr('stat.checksum', 'defined')
+        | list
+        | length > 0
+        or restic_backup_existing_binaries.results[0].stat.checksum != restic_binary_sha256
+        or restic_backup_existing_binaries.results[1].stat.checksum != rclone_binary_sha256
+        or restic_backup_existing_binaries.results[0].stat.pw_name != 'root'
+        or restic_backup_existing_binaries.results[1].stat.pw_name != 'root'
+        or restic_backup_existing_binaries.results[0].stat.gr_name != 'root'
+        or restic_backup_existing_binaries.results[1].stat.gr_name != 'root'
+        or restic_backup_existing_binaries.results[0].stat.mode != '0755'
+        or restic_backup_existing_binaries.results[1].stat.mode != '0755'
+      }}
+
+- name: Report pinned Restic tool drift during check mode
+  ansible.builtin.debug:
+    msg: The pinned Restic and rclone binaries require reconciliation.
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - restic_backup_install_required
+
+- name: Install pinned Restic tools outside check mode
+  when:
+    - not ansible_check_mode
+    - restic_backup_install_required
+  block:
+    - name: Create a root-only Restic tool workspace
+      ansible.builtin.tempfile:
+        state: directory
+        path: /var/tmp
+        prefix: restic-tools-
+      register: restic_backup_workspace
+
+    - name: Download the pinned Restic archive
+      ansible.builtin.get_url:
+        url: "{{ restic_download_url }}"
+        dest: "{{ restic_backup_workspace.path }}/restic.bz2"
+        checksum: "sha256:{{ restic_archive_sha256 }}"
+        mode: "0600"
+
+    - name: Extract the pinned Restic binary
+      ansible.builtin.shell:
+        cmd: >-
+          set -o noclobber && /usr/bin/bzip2 --decompress --stdout
+          {{ (restic_backup_workspace.path ~ '/restic.bz2') | quote }}
+          > {{ (restic_backup_workspace.path ~ '/restic') | quote }}
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Download the pinned rclone archive
+      ansible.builtin.get_url:
+        url: "{{ rclone_download_url }}"
+        dest: "{{ restic_backup_workspace.path }}/rclone.zip"
+        checksum: "sha256:{{ rclone_archive_sha256 }}"
+        mode: "0600"
+
+    - name: Extract the pinned rclone archive
+      ansible.builtin.unarchive:
+        src: "{{ restic_backup_workspace.path }}/rclone.zip"
+        dest: "{{ restic_backup_workspace.path }}"
+        remote_src: true
+
+    - name: Install the pinned Restic binary
+      ansible.builtin.copy:
+        src: "{{ restic_backup_workspace.path }}/restic"
+        dest: /usr/local/bin/restic
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the pinned rclone binary
+      ansible.builtin.copy:
+        src: "{{ restic_backup_workspace.path }}/rclone-v{{ rclone_version }}-linux-amd64/rclone"
+        dest: /usr/local/bin/rclone
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+  always:
+    - name: Remove the Restic tool workspace
+      ansible.builtin.file:
+        path: "{{ restic_backup_workspace.path }}"
+        state: absent
+      when: restic_backup_workspace.path is defined
+
+- name: Verify installed Restic tool checksums
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+    follow: false
+  loop:
+    - path: /usr/local/bin/restic
+      sha256: "{{ restic_binary_sha256 }}"
+    - path: /usr/local/bin/rclone
+      sha256: "{{ rclone_binary_sha256 }}"
+  register: restic_backup_installed_binaries
+
+- name: Require exact installed Restic tools
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - not (item.stat.islnk | default(false))
+      - (item.stat.nlink | int) == 1
+      - item.stat.pw_name == 'root'
+      - item.stat.gr_name == 'root'
+      - item.stat.mode == '0755'
+      - item.stat.checksum == item.item.sha256
+    fail_msg: Installed Restic tool differs from the pinned official release.
+  loop: "{{ restic_backup_installed_binaries.results }}"
+  when: not ansible_check_mode or not restic_backup_install_required
+
+- name: Inspect exact installed Restic version
+  ansible.builtin.command:
+    argv: [/usr/local/bin/restic, version]
+  register: restic_backup_restic_version
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode or not restic_backup_install_required
+
+- name: Inspect exact installed rclone version
+  ansible.builtin.command:
+    argv: [/usr/local/bin/rclone, version]
+  register: restic_backup_rclone_version
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode or not restic_backup_install_required
+
+- name: Require exact Restic and rclone versions
+  ansible.builtin.assert:
+    that:
+      - restic_backup_restic_version.stdout_lines | first == backups.restic.tools.restic.version_output
+      - restic_backup_rclone_version.stdout_lines | first == backups.restic.tools.rclone.version_output_prefix
+    fail_msg: Installed Restic or rclone version output differs from the contract.
+  when: not ansible_check_mode or not restic_backup_install_required
+
+- name: Create confined restic-proton group
+  ansible.builtin.group:
+    name: restic-proton
+    system: true
+    state: present
+
+- name: Create confined restic-proton user
+  ansible.builtin.user:
+    name: restic-proton
+    group: restic-proton
+    groups: []
+    append: false
+    create_home: false
+    home: /var/lib/restic-proton
+    shell: /usr/sbin/nologin
+    password_lock: true
+    system: true
+    state: present
+
+
+- name: Inspect protected Restic directory destinations
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /etc/home-lab/restic
+    - /etc/home-lab/restic/credentials
+    - /var/lib/home-lab-restic
+    - /var/lib/home-lab-restic/replication
+    - /var/cache/home-lab-restic
+    - /var/lib/restic-proton
+    - /var/lib/restic-proton/cache
+    - /mnt/games/restic
+    - /mnt/storage/restic
+  register: restic_backup_directory_destinations
+
+- name: Reject symlinked protected Restic directory destinations
+  ansible.builtin.assert:
+    that:
+      - not (item.stat.islnk | default(false))
+    fail_msg: Refusing to manage a symlinked protected Restic directory.
+  loop: "{{ restic_backup_directory_destinations.results }}"
+
+- name: Create protected Restic directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/home-lab, owner: root, group: root, mode: '0755' }
+    - { path: /etc/home-lab/restic, owner: root, group: restic-proton, mode: '0750' }
+    - { path: /etc/home-lab/restic/credentials, owner: root, group: restic-proton, mode: '0750' }
+    - { path: /var/lib/home-lab-restic, owner: root, group: root, mode: '0750' }
+    - { path: /var/lib/home-lab-restic/replication, owner: root, group: restic-proton, mode: '2770' }
+    - { path: /var/cache/home-lab-restic, owner: root, group: root, mode: '0700' }
+    - { path: /var/lib/restic-proton, owner: restic-proton, group: restic-proton, mode: '0700' }
+    - { path: /var/lib/restic-proton/cache, owner: restic-proton, group: restic-proton, mode: '0700' }
+    - { path: /mnt/games/restic, owner: root, group: restic-proton, mode: '0750' }
+    - { path: /mnt/storage/restic, owner: root, group: root, mode: '0750' }
+
+- name: Inspect initialized games Restic repository
+  ansible.builtin.stat:
+    path: "{{ backups.restic.repositories.games.path }}/config"
+    follow: false
+  register: restic_backup_games_repository
+
+- name: Reject unrecognized or unsafe pre-existing games repositories
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (restic_backup_games_repository.stat.exists | default(false)) or
+        ((restic_backup_games_repository.stat.isreg | default(false)) and
+        not (restic_backup_games_repository.stat.islnk | default(false)) and
+        backups.restic.repositories.games.id is string)
+    fail_msg: Refusing a pre-existing games Restic repository until its exact ID is recorded.
+
+- name: Read recognized games repository identity without a password
+  ansible.builtin.slurp:
+    src: "{{ backups.restic.repositories.games.path }}/config"
+  register: restic_backup_games_config
+  when:
+    - restic_backup_games_repository.stat.isreg | default(false)
+    - not (restic_backup_games_repository.stat.islnk | default(false))
+    - backups.restic.repositories.games.id is string
+
+- name: Require exact recognized games repository identity
+  ansible.builtin.assert:
+    that:
+      - (restic_backup_games_config.content | b64decode | from_json).id == backups.restic.repositories.games.id
+    fail_msg: The games Restic repository ID differs from the contract.
+  when:
+    - restic_backup_games_repository.stat.isreg | default(false)
+    - not (restic_backup_games_repository.stat.islnk | default(false))
+    - backups.restic.repositories.games.id is string
+
+- name: Validate initialized games repository tree before permission changes
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      repository={{ backups.restic.repositories.games.path | quote }};
+      test -z "$(/usr/bin/find "$repository" -xdev -mindepth 1
+      \( -type l -o -type f -links +1 -o \( ! -type f ! -type d \) \) -print -quit)";
+      test -z "$(/usr/bin/findmnt --raw --noheadings --output TARGET |
+      /usr/bin/awk -v prefix="$repository/" 'index($0, prefix) == 1 { print; exit }')"
+    executable: /bin/bash
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - restic_backup_games_repository.stat.isreg | default(false)
+    - not (restic_backup_games_repository.stat.islnk | default(false))
+    - backups.restic.repositories.games.id is string
+
+- name: Constrain initialized games repository access for restic-proton
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      repository={{ backups.restic.repositories.games.path | quote }};
+      {
+      /usr/bin/find "$repository" -xdev -type d -exec /usr/bin/chgrp --changes restic-proton {} +;
+      /usr/bin/find "$repository" -xdev -type f -exec /usr/bin/chgrp --changes restic-proton {} +;
+      /usr/bin/find "$repository" -xdev -type d -exec /usr/bin/chmod --changes 2750 {} +;
+      /usr/bin/find "$repository" -xdev -type f -exec /usr/bin/chmod --changes 0440 {} +;
+      /usr/bin/chmod --changes 2770 "$repository/locks";
+      }
+    executable: /bin/bash
+  register: restic_backup_repository_permissions
+  changed_when: restic_backup_repository_permissions.stdout | length > 0
+  when:
+    - not ansible_check_mode
+    - restic_backup_games_repository.stat.isreg | default(false)
+    - not (restic_backup_games_repository.stat.islnk | default(false))
+    - backups.restic.repositories.games.id is string
+
+- name: Inspect confined restic-proton supplementary groups
+  ansible.builtin.command:
+    argv: [/usr/bin/id, --groups, --name, restic-proton]
+  register: restic_backup_proton_groups
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Require restic-proton to have no Docker or unrelated group access
+  ansible.builtin.assert:
+    that:
+      - restic_backup_proton_groups.stdout.split() == ['restic-proton']
+    fail_msg: restic-proton unexpectedly has supplementary group access.
+  when: not ansible_check_mode
+
+- name: Install generated Restic inputs
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: restic-proton
+    mode: "0440"
+  loop:
+    - src: "{{ playbook_dir }}/../../services/data/restic/files-from"
+      dest: /etc/home-lab/restic/files-from
+    - src: "{{ playbook_dir }}/../../services/data/restic/excludes"
+      dest: /etc/home-lab/restic/excludes
+
+- name: Install rendered Restic policy JSON
+  ansible.builtin.copy:
+    content: "{{ backups.restic | to_nice_json }}\n"
+    dest: /etc/home-lab/restic-policy.json
+    owner: root
+    group: restic-proton
+    mode: "0440"
+
+- name: Install Restic runner and credential bootstrap helper
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: "{{ playbook_dir }}/../../scripts/restic-backup", dest: /usr/local/libexec/home-lab/restic-backup, mode: '0755' }
+    - { src: "{{ playbook_dir }}/../../scripts/bootstrap-restic-credentials", dest: /usr/local/libexec/home-lab/bootstrap-restic-credentials, mode: '0750' }
+
+- name: Install canonical SOPS ciphertext for host-side credential bootstrap
+  ansible.builtin.copy:
+    src: "{{ restic_sops_ciphertext_source }}"
+    dest: "{{ restic_sops_ciphertext_path }}"
+    owner: root
+    group: root
+    mode: "0400"
+
+- name: Gather confined Restic identity records
+  ansible.builtin.getent:
+    database: "{{ item }}"
+    key: restic-proton
+  loop:
+    - passwd
+    - group
+  when:
+    - restic_credentials_bootstrap_enabled
+    - not ansible_check_mode
+
+- name: Materialize Restic credentials and bootstrap absent rclone config
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      SOPS_AGE_KEY_FILE={{ compose_age_identity_path | quote }} /usr/local/bin/sops --decrypt
+      {{ restic_sops_ciphertext_path | quote }} |
+      /usr/local/libexec/home-lab/bootstrap-restic-credentials
+      {{ ansible_facts.getent_passwd['restic-proton'][1] | quote }}
+      {{ ansible_facts.getent_group['restic-proton'][1] | quote }}
+    executable: /bin/bash
+  changed_when: "'state=changed' in restic_backup_credentials.stdout"
+  register: restic_backup_credentials
+  no_log: true
+  when:
+    - restic_credentials_bootstrap_enabled
+    - not ansible_check_mode
+
+- name: Install Restic runtime lock tmpfiles policy
+  ansible.builtin.copy:
+    content: "f {{ backups.restic.runner.lock_path }} 0660 root restic-proton -\n"
+    dest: /etc/tmpfiles.d/home-lab-restic.conf
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Materialize the protected Restic runtime lock
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/systemd-tmpfiles
+      - --create
+      - /etc/tmpfiles.d/home-lab-restic.conf
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Install inert Restic systemd units
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - home-lab-restic-daily-local.service
+    - home-lab-restic-daily-proton.service
+    - home-lab-restic-daily.target
+    - home-lab-restic-daily.timer
+    - home-lab-restic-recover.service
+    - home-lab-restic-maintenance-local.service
+    - home-lab-restic-maintenance-proton.service
+    - home-lab-restic-maintenance.target
+    - home-lab-restic-maintenance.timer
+  register: restic_backup_units
+
+- name: Reload systemd after Restic unit changes
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when:
+    - restic_backup_units.changed
+    - not ansible_check_mode
+
+- name: Keep every Restic unit disabled and stopped during inert deployment
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop:
+    - home-lab-restic-daily.timer
+    - home-lab-restic-daily.target
+    - home-lab-restic-daily-local.service
+    - home-lab-restic-daily-proton.service
+    - home-lab-restic-maintenance.timer
+    - home-lab-restic-maintenance.target
+    - home-lab-restic-maintenance-local.service
+    - home-lab-restic-maintenance-proton.service
+    - home-lab-restic-recover.service
+  when: not ansible_check_mode

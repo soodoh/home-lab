@@ -1,0 +1,368 @@
+---
+- name: Guardedly separate preserved Calibre and Caro data
+  hosts: docker_host
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  vars:
+    preserved_migrations:
+      - name: calibre-books
+        source: /srv/home-lab-state/calibre-data/books
+        destination: /mnt/storage/media/calibre/books
+        services: [calibre-web-automated, calibre, bookshelf]
+      - name: caro-tachidesk-downloads
+        source: /srv/home-lab-state/caro-tachidesk-data/downloads
+        destination: /mnt/storage/media/caro-tachidesk
+        services: [caro-tachidesk]
+  pre_tasks:
+    - name: Require explicit preserved-data migration approval
+      ansible.builtin.assert:
+        that:
+          - preserved_data_migration_confirmed | default(false) | bool
+          - preserved_data_migration_confirmation | default('') == 'migrate-preserved-data-keep-old-sources'
+        fail_msg: The preserved-data migration requires its exact confirmation and retains old sources.
+
+    - name: Inspect exact NFS mount identity before migration
+      ansible.builtin.command:
+        argv: [/usr/bin/findmnt, --json, --target, /mnt/storage, --output, "TARGET,SOURCE,FSTYPE"]
+      register: preserved_migration_findmnt
+      changed_when: false
+      check_mode: false
+
+    - name: Require the contract NFS mount before migration
+      ansible.builtin.assert:
+        that:
+          - (preserved_migration_findmnt.stdout | from_json).filesystems | length == 1
+          - (preserved_migration_findmnt.stdout | from_json).filesystems[0].target == backups.restic.repositories.nfs.mountpoint
+          - (preserved_migration_findmnt.stdout | from_json).filesystems[0].source == backups.restic.repositories.nfs.mount_source
+          - (preserved_migration_findmnt.stdout | from_json).filesystems[0].fstype == backups.restic.repositories.nfs.filesystem
+        fail_msg: Refusing preserved-data migration without the exact contract NFS mount.
+
+    - name: Create an ownership token for bounded migration cleanup
+      ansible.builtin.command:
+        argv: [/usr/bin/cat, /proc/sys/kernel/random/uuid]
+      register: preserved_migration_token
+      changed_when: false
+      check_mode: false
+      failed_when: preserved_migration_token.stdout is not match('^[0-9a-f-]{36}$')
+
+    - name: Acquire the shared production mutation lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+  tasks:
+    - name: Inspect migration source and destination parents
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop: "{{ preserved_migrations | map(attribute='source') | list + ['/mnt/storage/media'] }}"
+      register: preserved_migration_paths
+
+    - name: Require regular source boundaries and the NFS media parent
+      ansible.builtin.assert:
+        that:
+          - not (item.stat.islnk | default(false))
+          - item.stat.isdir | default(false)
+        fail_msg: A preserved-data source or destination parent is missing or unsafe.
+      loop: "{{ preserved_migration_paths.results }}"
+
+    - name: Inspect reserved migration ownership marker names
+      ansible.builtin.stat:
+        path: "{{ item.source }}/.home-lab-migration-owner"
+        follow: false
+      loop: "{{ preserved_migrations }}"
+      register: preserved_migration_source_markers
+
+    - name: Reserve the private migration ownership marker name
+      ansible.builtin.assert:
+        that:
+          - not (item.stat.exists | default(false))
+          - not (item.stat.islnk | default(false))
+        fail_msg: A migration source contains the reserved ownership marker name.
+      loop: "{{ preserved_migration_source_markers.results }}"
+
+
+    - name: Inspect migration destinations
+      ansible.builtin.stat:
+        path: "{{ item.destination }}"
+        follow: false
+      loop: "{{ preserved_migrations }}"
+      register: preserved_migration_destinations_preflight
+
+    - name: Inspect migration destination parents
+      ansible.builtin.stat:
+        path: "{{ item.destination | dirname }}"
+        follow: false
+      loop: "{{ preserved_migrations }}"
+      register: preserved_migration_destination_parents
+
+    - name: Inspect private migration staging paths
+      ansible.builtin.stat:
+        path: "/mnt/storage/media/.home-lab-{{ item.name }}-staging"
+        follow: false
+      loop: "{{ preserved_migrations }}"
+      register: preserved_migration_staging_preflight
+
+    - name: Require absent destinations and staging with safe destination parents
+      ansible.builtin.assert:
+        that:
+          - not (preserved_migration_destinations_preflight.results[index].stat.exists | default(false))
+          - not (preserved_migration_staging_preflight.results[index].stat.exists | default(false))
+          - >-
+            not (preserved_migration_destination_parents.results[index].stat.exists | default(false)) or
+            ((preserved_migration_destination_parents.results[index].stat.isdir | default(false)) and
+            not (preserved_migration_destination_parents.results[index].stat.islnk | default(false)))
+        fail_msg: Refusing unsafe, existing, or stale preserved-data migration paths.
+      loop: "{{ preserved_migrations }}"
+      loop_control:
+        index_var: index
+
+    - name: Inspect available destination capacity
+      ansible.builtin.command:
+        argv: [/usr/bin/df, --output=avail, --block-size=1, /mnt/storage/media]
+      register: preserved_migration_capacity
+      changed_when: false
+      check_mode: false
+
+    - name: Require destination capacity above the declared source bytes
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail && required=0;
+          {% for migration in preserved_migrations %}
+          bytes=$(/usr/bin/du --bytes --summarize {{ migration.source | quote }} | /usr/bin/cut -f1);
+          required=$((required + bytes));
+          {% endfor %}
+          test {{ preserved_migration_capacity.stdout_lines[1] | int }} -gt "$required"
+        executable: /bin/bash
+      changed_when: false
+      check_mode: false
+
+    - name: Determine which owning services were running
+      ansible.builtin.command:
+        argv: [/usr/bin/docker, inspect, --format, "{{ '{{.State.Running}}' }}", "{{ item }}"]
+      loop: "{{ preserved_migrations | map(attribute='services') | flatten | unique }}"
+      register: preserved_migration_running
+      changed_when: false
+      failed_when: preserved_migration_running.rc != 0
+      check_mode: false
+
+    - name: Stop owners, copy, and verify through private destination staging
+      when: not ansible_check_mode
+      block:
+        - name: Stop only running owning services
+          ansible.builtin.command:
+            argv: [/usr/bin/docker, stop, --time, "120", "{{ item.item }}"]
+          loop: "{{ preserved_migration_running.results }}"
+          when: item.stdout == 'true'
+          changed_when: true
+
+        - name: Reinspect NFS mount identity immediately before destination writes
+          ansible.builtin.command:
+            argv: [/usr/bin/findmnt, --json, --target, /mnt/storage, --output, "TARGET,SOURCE,FSTYPE"]
+          register: preserved_migration_active_findmnt
+          changed_when: false
+
+        - name: Require the unchanged NFS mount immediately before destination writes
+          ansible.builtin.assert:
+            that:
+              - (preserved_migration_active_findmnt.stdout | from_json).filesystems | length == 1
+              - (preserved_migration_active_findmnt.stdout | from_json).filesystems[0].target == backups.restic.repositories.nfs.mountpoint
+              - (preserved_migration_active_findmnt.stdout | from_json).filesystems[0].source == backups.restic.repositories.nfs.mount_source
+              - (preserved_migration_active_findmnt.stdout | from_json).filesystems[0].fstype == backups.restic.repositories.nfs.filesystem
+            fail_msg: The NFS mount identity changed after migration preflight.
+
+        - name: Create dedicated destination parent directories
+          ansible.builtin.file:
+            path: "{{ item.destination | dirname }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+          loop: "{{ preserved_migrations }}"
+
+        - name: Atomically claim private migration staging directories
+          ansible.builtin.shell:
+            cmd: >-
+              set -euo pipefail;
+              staging={{ ('/mnt/storage/media/.home-lab-' + item.name + '-staging') | quote }};
+              /usr/bin/mkdir --mode=0700 -- "$staging";
+              /usr/bin/printf '%s' {{ preserved_migration_token.stdout | quote }} >"$staging/.home-lab-migration-owner";
+              /usr/bin/chown root:root "$staging/.home-lab-migration-owner";
+              /usr/bin/chmod 0600 "$staging/.home-lab-migration-owner"
+            executable: /bin/bash
+          loop: "{{ preserved_migrations }}"
+          changed_when: true
+
+        - name: Copy preserved data with metadata
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/rsync
+              - --archive
+              - --hard-links
+              - --acls
+              - --xattrs
+              - --numeric-ids
+              - --one-file-system
+              - "{{ item.source }}/"
+              - "/mnt/storage/media/.home-lab-{{ item.name }}-staging/"
+          loop: "{{ preserved_migrations }}"
+          changed_when: true
+
+        - name: Verify source and staged file inventories
+          ansible.builtin.shell:
+            cmd: >-
+              set -o pipefail;
+              source_identity=$(cd {{ source_path | quote }} && /usr/bin/find . -xdev -type f ! -name .home-lab-migration-owner -print0 |
+              /usr/bin/sort --zero-terminated | /usr/bin/xargs --null --no-run-if-empty /usr/bin/sha256sum | /usr/bin/sha256sum);
+              staged_identity=$(cd {{ staged_path | quote }} && /usr/bin/find . -xdev -type f ! -name .home-lab-migration-owner -print0 |
+              /usr/bin/sort --zero-terminated | /usr/bin/xargs --null --no-run-if-empty /usr/bin/sha256sum | /usr/bin/sha256sum);
+              test "$source_identity" = "$staged_identity";
+              test "$(/usr/bin/find {{ source_path | quote }} -xdev -type f ! -name .home-lab-migration-owner -printf . | /usr/bin/wc -c)" =
+              "$(/usr/bin/find {{ staged_path | quote }} -xdev -type f ! -name .home-lab-migration-owner -printf . | /usr/bin/wc -c)";
+              test "$(/usr/bin/find {{ source_path | quote }} -xdev -type f ! -name .home-lab-migration-owner -printf '%s\n' |
+              /usr/bin/awk '{sum += $1} END {print sum + 0}')" =
+              "$(/usr/bin/find {{ staged_path | quote }} -xdev -type f ! -name .home-lab-migration-owner -printf '%s\n' |
+              /usr/bin/awk '{sum += $1} END {print sum + 0}')"
+            executable: /bin/bash
+          loop: "{{ preserved_migrations }}"
+          vars:
+            source_path: "{{ item.source }}"
+            staged_path: "/mnt/storage/media/.home-lab-{{ item.name }}-staging"
+          changed_when: false
+
+        - name: Verify complete staged trees and metadata with rsync checksum dry-run
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/rsync
+              - --archive
+              - --hard-links
+              - --acls
+              - --xattrs
+              - --numeric-ids
+              - --one-file-system
+              - --checksum
+              - --exclude=/.home-lab-migration-owner
+              - --dry-run
+              - --itemize-changes
+              - "{{ item.source }}/"
+              - "/mnt/storage/media/.home-lab-{{ item.name }}-staging/"
+          loop: "{{ preserved_migrations }}"
+          register: preserved_migration_rsync_verification
+          changed_when: false
+          failed_when: preserved_migration_rsync_verification.rc != 0 or preserved_migration_rsync_verification.stdout | length > 0
+
+        - name: Reinspect NFS mount identity immediately before activation
+          ansible.builtin.command:
+            argv: [/usr/bin/findmnt, --json, --target, /mnt/storage, --output, "TARGET,SOURCE,FSTYPE"]
+          register: preserved_migration_activation_findmnt
+          changed_when: false
+
+        - name: Require the unchanged NFS mount immediately before activation
+          ansible.builtin.assert:
+            that:
+              - (preserved_migration_activation_findmnt.stdout | from_json).filesystems | length == 1
+              - (preserved_migration_activation_findmnt.stdout | from_json).filesystems[0].target == backups.restic.repositories.nfs.mountpoint
+              - (preserved_migration_activation_findmnt.stdout | from_json).filesystems[0].source == backups.restic.repositories.nfs.mount_source
+              - (preserved_migration_activation_findmnt.stdout | from_json).filesystems[0].fstype == backups.restic.repositories.nfs.filesystem
+            fail_msg: The NFS mount identity changed before migration activation.
+
+        - name: Require destination absent before activation
+          ansible.builtin.stat:
+            path: "{{ item.destination }}"
+            follow: false
+          loop: "{{ preserved_migrations }}"
+          register: preserved_migration_destinations
+
+        - name: Refuse an existing migration destination
+          ansible.builtin.assert:
+            that:
+              - not item.stat.exists
+            fail_msg: Refusing to replace an existing preserved-data destination.
+          loop: "{{ preserved_migration_destinations.results }}"
+
+        - name: Atomically activate verified destination paths
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/mv
+              - --no-target-directory
+              - "/mnt/storage/media/.home-lab-{{ item.name }}-staging"
+              - "{{ item.destination }}"
+          loop: "{{ preserved_migrations }}"
+          changed_when: true
+      rescue:
+        - name: Remove only current-run paths after revalidating the destination mount
+          ansible.builtin.shell:
+            cmd: |
+              set -euo pipefail
+              read -r target source fstype < <(/usr/bin/findmnt --raw --noheadings --target /mnt/storage --output TARGET,SOURCE,FSTYPE)
+              test "$target" = {{ backups.restic.repositories.nfs.mountpoint | quote }}
+              test "$source" = {{ backups.restic.repositories.nfs.mount_source | quote }}
+              test "$fstype" = {{ backups.restic.repositories.nfs.filesystem | quote }}
+              cleanup_path() {
+                path=$1
+                marker="$path/.home-lab-migration-owner"
+                test -d "$path" && test ! -L "$path" || return 0
+                test -f "$marker" && test ! -L "$marker" || return 0
+                test "$(/usr/bin/stat -c '%u:%g:%a:%h' "$marker")" = '0:0:600:1' || return 0
+                test "$(/usr/bin/cat "$marker")" = {{ preserved_migration_token.stdout | quote }} || return 0
+                /usr/bin/find "$path" -xdev -mindepth 1 -delete
+                /usr/bin/rmdir -- "$path"
+              }
+              {% for migration in preserved_migrations %}
+              cleanup_path {{ migration.destination | quote }}
+              cleanup_path {{ ('/mnt/storage/media/.home-lab-' + migration.name + '-staging') | quote }}
+              {% endfor %}
+            executable: /bin/bash
+          changed_when: true
+
+        - name: Fail after restoring the pre-migration destination boundary
+          ansible.builtin.fail:
+            msg: Preserved-data migration failed; only current-run paths with exact mount and marker proof were removed, and old sources remain authoritative.
+      always:
+        - name: Restart only owning services that were running before migration
+          ansible.builtin.command:
+            argv: [/usr/bin/docker, start, "{{ item.item }}"]
+          loop: "{{ preserved_migration_running.results }}"
+          when:
+            - not ansible_check_mode
+            - item.stdout == 'true'
+          changed_when: true
+
+    - name: Remove current-run ownership markers after complete activation
+      ansible.builtin.file:
+        path: "{{ item.destination }}/.home-lab-migration-owner"
+        state: absent
+      loop: "{{ preserved_migrations }}"
+
+    - name: Require restarted migration owners to become healthy or running
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - inspect
+          - --format
+          - "{{ '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' }}"
+          - "{{ item.item }}"
+      loop: "{{ preserved_migration_running.results }}"
+      when:
+        - not ansible_check_mode
+        - item.stdout == 'true'
+      register: preserved_migration_health
+      changed_when: false
+      until: preserved_migration_health.stdout in ['healthy', 'running']
+      retries: 60
+      delay: 5
+
+    - name: Report retained rollback sources
+      ansible.builtin.debug:
+        msg: >-
+          Preserved data is staged at the dedicated media binds. Old source paths remain untouched;
+          deploy the reviewed Compose artifact, health-check applications, and remove old sources only in a later approved cleanup.
+  post_tasks:
+    - name: Release the shared production mutation lock after success
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release

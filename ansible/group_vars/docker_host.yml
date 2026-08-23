@@ -26,6 +26,16 @@ audit_expected_services:
 audit_expected_guarded_units:
   home-lab-production-guard.service: static
   home-lab-compose.service: enabled
+restic_audit_inert_units:
+  home-lab-restic-daily.timer: disabled
+  home-lab-restic-daily.target: static
+  home-lab-restic-daily-local.service: static
+  home-lab-restic-daily-proton.service: static
+  home-lab-restic-maintenance.timer: disabled
+  home-lab-restic-maintenance.target: static
+  home-lab-restic-maintenance-local.service: static
+  home-lab-restic-maintenance-proton.service: static
+  home-lab-restic-recover.service: disabled
 
 audit_expected_docker_client_version: 26.1.5+dfsg1
 audit_expected_docker_server_version: "{{ audit_expected_docker_client_version }}"
@@ -42,6 +52,19 @@ age_download_url: https://github.com/FiloSottile/age/releases/download/v1.3.1/ag
 age_archive_sha256: bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377
 age_binary_sha256: 2e305637f2a0555305e21c17fb74446acbb39b53135d43d4b744e50c287133a5
 age_keygen_binary_sha256: c56ef69834e18ca4d3b953117f4481522c35fb6862a5d2871685aa4685893664
+
+# Pinned official Restic and rclone binaries. The role installs no distribution packages.
+restic_version: "{{ backups.restic.tools.restic.version }}"
+restic_download_url: "{{ backups.restic.tools.restic.url }}"
+restic_archive_sha256: "{{ backups.restic.tools.restic.archive_sha256 }}"
+restic_binary_sha256: 20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639
+rclone_version: "{{ backups.restic.tools.rclone.version }}"
+rclone_download_url: "{{ backups.restic.tools.rclone.url }}"
+rclone_archive_sha256: "{{ backups.restic.tools.rclone.archive_sha256 }}"
+rclone_binary_sha256: f3f9aff817f9766029e50adf9a7963c169e475b8f10c7927823568a0d9443db7
+restic_sops_ciphertext_source: "{{ playbook_dir }}/../../secrets/production.sops.env"
+restic_sops_ciphertext_path: /etc/home-lab/restic/production.sops.env
+restic_credentials_bootstrap_enabled: false
 
 compose_project_name: docker-compose
 apply_lock_path: /var/lib/iac-ansible-production.lock
@@ -142,6 +165,7 @@ apply_guard_allowed_tags:
   - compose
   - ssh
   - sops_age
+  - restic_backup
   - tailscale
 bootstrap_allowed_apply_tags:
   - management_plane

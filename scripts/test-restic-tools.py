@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Static and focused failure-path tests for the inert Restic implementation."""
+
+import json
+from pathlib import Path
+import runpy
+import subprocess
+import tempfile
+
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def contract() -> dict:
+    script = "const{load}=require('js-yaml');const fs=require('fs');process.stdout.write(JSON.stringify(load(fs.readFileSync('infrastructure/contract/home-lab.yml','utf8'))))"
+    result = subprocess.run(["node", "-e", script], cwd=ROOT, check=True, stdout=subprocess.PIPE, text=True)
+    return json.loads(result.stdout)
+
+
+def main() -> None:
+    value = contract()
+    policy = value["backups"]["restic"]
+    assert policy["migration_state"] == "inert"
+    assert [policy["retention"][key] for key in ("keep_daily", "keep_weekly", "keep_monthly")] == [7, 5, 12]
+    assert policy["schedule"]["proton_independent_timer"] is False
+    assert policy["proton"]["trash_cleanup"] == "manual-only"
+    assert policy["repositories"]["games"]["id"] is None
+    assert policy["repositories"]["nfs"]["copy_chunker_params_from"] == "games"
+    assert policy["repositories"]["proton"]["copy_chunker_params_from"] == "games"
+    assert policy["repositories"]["proton"]["allocated_bytes"] == 1_000_000_000_000
+    assert policy["proton"]["warning_minimum_used_bytes"] == 100_000_000_000
+    assert policy["proton"]["hard_failure_used_bytes"] == 900_000_000_000
+    assert policy["retention"]["group_by"] == "host,paths"
+    assert policy["restore"]["modes"] == ["staging"]
+    assert policy["restore"]["activation_status"] == "unavailable-pending-isolated-proofs"
+
+    files_from = (ROOT / "services/data/restic/files-from").read_text().splitlines()
+    excludes = (ROOT / "services/data/restic/excludes").read_text().splitlines()
+    assert files_from == [entry["path"] for entry in policy["sources"]]
+    assert excludes == policy["excludes"]
+    assert not any("restic/home-lab" in source for source in files_from)
+
+    runner_text = (ROOT / "scripts/restic-backup").read_text()
+    assert 'SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "maintenance", "status"}' in runner_text
+    for command in ("cleanup", "mount", "nfsmount", "purge", "sync", "bisync"):
+        assert f'"{command}"' in runner_text
+    assert "restic_partial_source" in runner_text
+    assert '"--read-data-subset"' in runner_text
+    assert 'warning_repository_multiplier' in runner_text and 'hard_failure_used_bytes' in runner_text
+    assert "an NFS outage cannot suppress the primary local recovery point" in runner_text
+    assert "concurrent_deploy" in runner_text
+    apply_lock = (ROOT / "ansible/roles/apply_lock/tasks/main.yml").read_text()
+    assert "apply_lock_backup_guard_path" in apply_lock and "/usr/bin/flock" in apply_lock
+    assert "stderr" not in runner_text.split("def require_success", 1)[1].split("def atomic_json", 1)[0]
+
+    module = runpy.run_path(str(ROOT / "scripts/restic-backup"), run_name="restic_test_module")
+    partial = subprocess.CompletedProcess(["restic"], 3, "", "provider secret response")
+    try:
+        module["require_success"](partial, "backup")
+    except module["WorkflowError"] as error:
+        assert str(error) == "restic_partial_source"
+    else:
+        raise AssertionError("Restic exit 3 was accepted")
+    try:
+        module["run"](["/usr/local/bin/rclone", "cleanup", "proton-backup:"])
+    except module["WorkflowError"] as error:
+        assert str(error) == "prohibited_rclone_command"
+    else:
+        raise AssertionError("prohibited rclone cleanup was accepted")
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        stopped = root / "journal.json"
+        stopped.write_text("{}")
+        test_policy = {
+            "stop_groups": {"start_order": ["database", "application"]},
+            "runner": {"journal_path": "/journal.json"},
+        }
+        started = []
+        runner_globals = module["restart_recorded"].__globals__
+        runner_globals["testing"] = lambda: True
+        runner_globals["rooted"] = lambda path: root / path.lstrip("/")
+        runner_globals["compose"] = lambda _policy, arguments: (started.append(arguments[-1]) or subprocess.CompletedProcess(arguments, 0, "", ""))
+        runner_globals["service_healthy"] = lambda _service: True
+        module["restart_recorded"](test_policy, {"running_services": ["application", "database"]})
+        assert started == ["database", "application"]
+        assert not stopped.exists()
+
+    runner_globals["run"] = lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1, "", "secret provider failure")
+    try:
+        module["service_running"]("database")
+    except module["WorkflowError"] as error:
+        assert str(error) == "service_inventory"
+    else:
+        raise AssertionError("Docker inspection failure was treated as stopped")
+
+    runner_globals["proton_identity"] = lambda: (12345, 12346)
+    owners = module["shared_state_owners"]()
+    assert {0, 12345} <= owners
+
+    try:
+        module["pending_entry"](policy, {"source_snapshot": "malformed"})
+    except module["WorkflowError"] as error:
+        assert str(error) == "pending_entry_schema"
+    else:
+        raise AssertionError("malformed pending replication evidence was accepted")
+    maintenance_text = runner_text.split("def maintenance", 1)[1].split("def status", 1)[0]
+    assert "pending_entry(policy, item)" in maintenance_text
+
+    captured = []
+    runner_globals["restic_result"] = lambda _policy, name, arguments, **_kwargs: (
+        captured.append((name, arguments)) or subprocess.CompletedProcess(arguments, 0, "[]", "")
+    )
+    module["retention"](policy, "games", set())
+    dry_arguments = captured[0][1]
+    assert ["--group-by", "host,paths"] == dry_arguments[dry_arguments.index("--group-by"):dry_arguments.index("--group-by") + 2]
+    assert "cadence=daily" in dry_arguments
+
+    runner_globals["command_paths"] = lambda _policy: ("/usr/local/bin/restic", "/usr/local/bin/rclone")
+    runner_globals["rooted"] = lambda path: Path(path)
+    runner_globals["run"] = lambda arguments, **_kwargs: subprocess.CompletedProcess(
+        arguments,
+        0,
+        json.dumps({"used": 899_999_999_999, "free": 100_000_000_001, "total": 1_000_000_000_000}) if "about" in arguments else json.dumps({"bytes": 1}),
+        "",
+    )
+    try:
+        module["quota"](policy, 1)
+    except module["WorkflowError"] as error:
+        assert str(error) == "proton_quota_gate"
+    else:
+        raise AssertionError("Proton copy headroom could cross the hard quota")
+
+    role = (ROOT / "ansible/roles/restic_backup/tasks/main.yml").read_text()
+    bootstrap = (ROOT / "scripts/bootstrap-restic-credentials").read_text()
+    assert "required_sops_keys_absent" in bootstrap
+    assert "state={'changed' if changed else 'noop'}" in bootstrap
+    assert '["/usr/local/bin/rclone", "obscure", "-"]' in bootstrap
+    assert "path.read_text(encoding=\"utf-8\") == content" in bootstrap
+    assert "except (ConfigError, OSError)" in bootstrap
+    assert 'remote.get("original_file_size") != "true"' in bootstrap
+    assert 'remote.get("otp_secret_key")' in bootstrap
+    group_vars = (ROOT / "ansible/group_vars/docker_host.yml").read_text()
+    assert 'restic_archive_sha256: "{{ backups.restic.tools.restic.archive_sha256 }}"' in group_vars
+    assert 'rclone_archive_sha256: "{{ backups.restic.tools.rclone.archive_sha256 }}"' in group_vars
+    assert policy["tools"]["restic"]["archive_sha256"] == "f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c"
+    assert policy["tools"]["rclone"]["archive_sha256"] == "aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa"
+    assert "ansible_facts.architecture == 'x86_64'" in role
+    assert "Refusing to replace a non-regular, symlinked, or hard-linked Restic tool destination" in role
+    assert "Refusing a pre-existing games Restic repository until its exact ID is recorded" in role
+    assert "The games Restic repository ID differs from the contract" in role
+    assert "Refusing Restic deployment without the exact contract repository mount" in role
+    assert "restic-proton" in role and "groups: []" in role and "shell: /usr/sbin/nologin" in role
+    assert "enabled: false" in role and "state: stopped" in role
+
+    daily_target = (ROOT / "ansible/roles/restic_backup/templates/home-lab-restic-daily.target.j2").read_text()
+    local_service = (ROOT / "ansible/roles/restic_backup/templates/home-lab-restic-daily-local.service.j2").read_text()
+    local_mount_requirement = next(line for line in local_service.splitlines() if line.startswith("RequiresMountsFor="))
+    assert "repositories.games.mountpoint" in local_mount_requirement
+    assert "repositories.nfs.mountpoint" not in local_mount_requirement
+    proton_service = (ROOT / "ansible/roles/restic_backup/templates/home-lab-restic-daily-proton.service.j2").read_text()
+    timers = list((ROOT / "ansible/roles/restic_backup/templates").glob("*.timer.j2"))
+    assert "daily-local.service home-lab-restic-daily-proton.service" in daily_target
+    assert "Requires=home-lab-restic-daily-local.service" in proton_service
+    assert "User=restic-proton" in proton_service
+    assert "InaccessiblePaths=/srv/home-lab-state" in proton_service
+    assert "BindReadOnlyPaths={{ backups.restic.repositories.games.path }}" in proton_service
+    assert "ReadWritePaths=/var/lib/home-lab-restic/replication /var/lib/restic-proton {{ backups.restic.runner.lock_path }}" in proton_service
+    assert len(timers) == 2
+    assert all("proton" not in path.name for path in timers)
+    assert all("Persistent=false" in path.read_text() for path in timers)
+
+    compose_deploy = (ROOT / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
+    compose_rollback = (ROOT / "ansible/roles/compose_rollback/tasks/main.yml").read_text()
+    assert "current-artifact.sha256" in compose_deploy
+    migration = (ROOT / "ansible/playbooks/migrate-preserved-backup-data.yml").read_text()
+    assert "/usr/bin/findmnt" in migration and "mount_source" in migration
+    assert "--checksum" in migration and "--itemize-changes" in migration
+    assert "Remove only current-run paths after revalidating the destination mount" in migration
+    assert "Require restarted migration owners to become healthy or running" in migration
+    assert "preserved_migration_token" in migration and ".home-lab-migration-owner" in migration
+    assert all(name in migration for name in ("preserved_migration_findmnt", "preserved_migration_active_findmnt", "preserved_migration_activation_findmnt"))
+    assert "current-artifact.sha256" in compose_rollback
+
+    restore = (ROOT / "scripts/restore-critical-backup").read_text()
+    assert 'restic restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify' in restore
+    assert "restore --delete" not in restore
+    assert "RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID" in restore
+    assert "RECOVERY_EXPECTED_POLICY_SHA256" in restore
+    assert "RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256" in restore
+    assert "realpath --canonicalize-existing" in restore
+    assert '$(stat -c %u "$RECOVERY_TARGET") == 0' in restore
+    assert '$(stat -c %a "$RECOVERY_TARGET") == 700' in restore
+    assert policy["restore"]["activation"]["replace-tree"] == "unavailable"
+    assert policy["restore"]["activation"]["replace-entries"] == "unavailable"
+    assert "/srv/home-lab-state" not in restore.split("if [[ -n $restic_snapshot_id ]]", 1)[1].split("fi", 1)[0]
+
+    apps = (ROOT / "services/apps.yml").read_text()
+    servarr = (ROOT / "services/servarr.yml").read_text()
+    nextcloud = (ROOT / "services/nextcloud.yml").read_text()
+    assert apps.count("${MEDIA_PATH}/calibre/books") == 2
+    assert "${MEDIA_PATH}/caro-tachidesk" in servarr
+    assert "${MEDIA_PATH}/calibre/books" in servarr
+    assert "${MEDIA_PATH}/nextcloud/data" in nextcloud
+
+    foundation = (ROOT / "infrastructure/tofu/aws-foundation/main.tf").read_text()
+    assert "resource \"aws_s3_bucket\" \"state\"" in foundation
+    assert "prevent_destroy = true" in foundation
+    assert "force_destroy" not in foundation
+
+    print("restic static safety fixtures passed")
+
+
+if __name__ == "__main__":
+    main()

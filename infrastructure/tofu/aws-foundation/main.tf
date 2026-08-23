@@ -213,15 +213,15 @@ resource "aws_s3_bucket_lifecycle_configuration" "recovery" {
     filter {}
 
     expiration {
-      days = local.contract.backups.remote_retention_days
+      days = local.contract.backups.legacy_offen.remote_retention_days
     }
 
     noncurrent_version_expiration {
-      noncurrent_days = local.contract.backups.remote_noncurrent_retention_days
+      noncurrent_days = local.contract.backups.legacy_offen.remote_noncurrent_retention_days
     }
 
     abort_incomplete_multipart_upload {
-      days_after_initiation = local.contract.backups.incomplete_multipart_abort_days
+      days_after_initiation = local.contract.backups.legacy_offen.incomplete_multipart_abort_days
     }
   }
 

@@ -80,8 +80,10 @@ services:
         source: /srv/home-lab-state/calibre-data/plugins
         target: /plugins
       - type: bind
-        source: /srv/home-lab-state/calibre-data/books
+        source: ${MEDIA_PATH}/calibre/books
         target: /books
+        bind:
+          create_host_path: false
       - ${MEDIA_PATH}/downloads:/downloads
     networks:
       proxy:
@@ -106,8 +108,10 @@ services:
     volumes:
       - /srv/home-lab-state/calibre-web-data:/config
       - type: bind
-        source: /srv/home-lab-state/calibre-data/books
+        source: ${MEDIA_PATH}/calibre/books
         target: /calibre-library
+        bind:
+          create_host_path: false
       - /srv/home-lab-state/calibre-web-ingest:/cwa-book-ingest
     networks:
       - proxy

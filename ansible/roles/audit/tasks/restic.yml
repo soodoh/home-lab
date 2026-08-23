@@ -1,0 +1,21 @@
+---
+- name: Inspect inert Restic unit state
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/systemctl
+      - show
+      - --property=ActiveState
+      - --property=UnitFileState
+      - --value
+      - "{{ item.key }}"
+  loop: "{{ restic_audit_inert_units | dict2items }}"
+  register: audit_restic_unit_states
+  changed_when: false
+  check_mode: false
+
+- name: Require inert Restic units to remain inactive and disabled or static
+  ansible.builtin.assert:
+    that:
+      - item.stdout_lines == ['inactive', item.item.value]
+    fail_msg: "Restic inert deployment unit {{ item.item.key }} is unexpectedly active or enabled."
+  loop: "{{ audit_restic_unit_states.results }}"

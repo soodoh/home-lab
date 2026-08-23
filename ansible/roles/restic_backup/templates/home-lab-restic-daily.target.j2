@@ -1,0 +1,5 @@
+[Unit]
+Description=Home Lab Restic chained daily workflow
+Requires=home-lab-restic-daily-local.service home-lab-restic-daily-proton.service
+After=home-lab-restic-daily-local.service home-lab-restic-daily-proton.service
+StopWhenUnneeded=yes

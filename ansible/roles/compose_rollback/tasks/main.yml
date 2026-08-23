@@ -524,6 +524,15 @@
           - compose_rollback_current_post.forbidden_actions | length == 0
         fail_msg: "Activated rollback artifact still proposes container convergence."
       no_log: true
+
+    - name: Publish the exact active rollback artifact identity for Restic acceptance
+      ansible.builtin.copy:
+        content: "{{ compose_rollback_target_hash }}\n"
+        dest: /var/lib/docker-compose/current-artifact.sha256
+        owner: root
+        group: root
+        mode: "0444"
+      become: true
   always:
     - name: Remove root-only normalized rollback and action files
       ansible.builtin.file:

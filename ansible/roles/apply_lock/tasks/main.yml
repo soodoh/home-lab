@@ -35,9 +35,14 @@
     - apply_lock_action == 'acquire'
     - apply_lock_guard_path | length > 0
 
-- name: Acquire the production apply lock without a host guard
+- name: Acquire the production apply lock under the compatible backup mutex
   ansible.builtin.command:
     argv:
+      - /usr/bin/flock
+      - --exclusive
+      - --nonblock
+      - --
+      - "{{ apply_lock_backup_guard_path }}"
       - /usr/bin/mkdir
       - --mode=0700
       - --
