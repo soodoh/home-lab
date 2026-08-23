@@ -4,14 +4,15 @@
 
 The checked-in Restic implementation is **inert**. Offen remains the production backup and AWS recovery resources remain managed. The Restic repository IDs are deliberately `null`, credential bootstrap is disabled, and all Restic timers plus reboot recovery are installed disabled. This state must fail closed rather than initialize a repository, stop a container, authenticate Proton, or create a snapshot during ordinary Ansible convergence.
 
-The final accepted Offen recovery point remains:
+The final accepted Offen recovery point is:
 
-- basename `daily-local-backup-2026-08-21T22-32-08.tar.gz.gpg`;
-- 2,319,938,554 bytes;
-- SHA-256 `0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431`; and
-- replicas under `/mnt/games/backups` and `/mnt/storage/backups`.
+- basename `daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg`;
+- 2,411,062,883 bytes;
+- SHA-256 `8034bcf7a03d19c446a23c30a56c1b9a8c4ffdd2d829557a5a16e39c0aab1f08`;
+- protected replicas under `/mnt/games/backups/.migration-preserved-offen` and `/mnt/storage/backups/.migration-preserved-offen`; and
+- successful full-stream restore proof recorded in `infrastructure/evidence/offen-final-archive-2026-08-23-restore-proof.json` (SHA-256 `89712ec78f8724730d2e3eeb07c3929db0b7c2fad7cb30410d517cc115f7eff1`).
 
-The 2026-08-23 candidate passed its full-stream restore proof: archive integrity, safe paths, all 39 required state classes, absence of all 17 excluded classes, all six selected SQLite databases, and decrypted cleanup passed. Raw evidence is recorded in `infrastructure/evidence/offen-final-archive-2026-08-23-restore-proof.json` (SHA-256 `89712ec78f8724730d2e3eeb07c3929db0b7c2fad7cb30410d517cc115f7eff1`). Acceptance remains pending until both generations are copied and verified under each root’s `.migration-preserved-offen` directory so Offen’s active seven-day pruning cannot remove them.
+The proof verified archive integrity, safe paths, all 39 required state classes, absence of all 17 excluded classes, and integrity of all six selected SQLite databases. The 7,019,884,389-byte expanded restore completed in 41 seconds and decrypted staging was removed. Both the 2026-08-21 historical fallback and 2026-08-23 final archive are independently copied and verified under each protected directory; their original top-level copies also remained exact at acceptance.
 
 ## Policy authority
 

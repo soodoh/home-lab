@@ -71,6 +71,11 @@ def main() -> None:
         assert preservation["verified_at"] is not None
         assert final_archive["basename"] == preservation["archives"][1]["basename"]
         assert hashlib.sha256(evidence_bytes).hexdigest() == restore_proof["evidence_sha256"]
+        assert final_archive["replica_paths"] == ["/mnt/games/backups/.migration-preserved-offen", "/mnt/storage/backups/.migration-preserved-offen"]
+        assert restore_proof["verifier_sha256"] == hashlib.sha256((ROOT / "scripts/verify-backup-archive.py").read_bytes()).hexdigest()
+        assert restore_proof["restore_pipeline"] == restore_proof["decrypted_cleanup"] == "pass"
+        assert restore_proof["archive_integrity"] == evidence["archive_integrity"] == "pass"
+        assert restore_proof["safe_paths"] == evidence["safe_paths"] == "pass"
         started_at = datetime.fromisoformat(restore_proof["started_at"].replace("Z", "+00:00"))
         finished_at = datetime.fromisoformat(restore_proof["finished_at"].replace("Z", "+00:00"))
         assert int((finished_at - started_at).total_seconds()) == restore_proof["elapsed_seconds"]

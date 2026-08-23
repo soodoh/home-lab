@@ -54,10 +54,21 @@ appliedRetentionHold.backups.legacy_offen.migration_retention_hold = {
   review_deadline: "2026-09-22T18:00:00Z",
 };
 check(appliedRetentionHold, true, "AWS retention hold accepts complete applied evidence");
-appliedRetentionHold.backups.legacy_offen.scheduler_state = "quiesced";
-check(appliedRetentionHold, false, "Offen quiescence rejects a planned-only archive preservation state");
+const plannedArchivePreservation = structuredClone(appliedRetentionHold);
+plannedArchivePreservation.backups.legacy_offen.scheduler_state = "quiesced";
+plannedArchivePreservation.backups.legacy_offen.migration_archive_preservation.state = "planned";
+plannedArchivePreservation.backups.legacy_offen.migration_archive_preservation.verified_at = null;
+plannedArchivePreservation.backups.legacy_offen.final_archive = {
+  basename: "daily-local-backup-2026-08-21T22-32-08.tar.gz.gpg",
+  bytes: 2319938554,
+  sha256: "0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431",
+  replica_paths: ["/mnt/games/backups", "/mnt/storage/backups"],
+  restore_proof_script: "scripts/run-backup-restore-proof.fish",
+};
+check(plannedArchivePreservation, false, "Offen quiescence rejects a planned-only archive preservation state");
 
 const appliedArchivePreservation = structuredClone(appliedRetentionHold);
+appliedArchivePreservation.backups.legacy_offen.scheduler_state = "quiesced";
 appliedArchivePreservation.backups.legacy_offen.migration_archive_preservation.state = "applied";
 appliedArchivePreservation.backups.legacy_offen.migration_archive_preservation.verified_at = "2026-08-23T20:00:00Z";
 appliedArchivePreservation.backups.legacy_offen.final_archive = {
