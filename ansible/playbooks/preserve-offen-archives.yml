@@ -105,7 +105,7 @@
           - /var/lock/dockervolumebackup.lock
           - /bin/sh
           - -c
-          - "echo $$ > /tmp/.offen-archive-preservation-lock.pid; exec /bin/sleep 1800"
+          - "echo $$ > /tmp/.offen-archive-preservation-lock.{{ item }}.pid; exec /bin/sleep 1800"
       loop: "{{ backups.legacy_offen.scheduler_services }}"
       changed_when: true
       check_mode: false
@@ -223,7 +223,7 @@
           - -c
           - >-
             set -eu;
-            file=/tmp/.offen-archive-preservation-lock.pid;
+            file=/tmp/.offen-archive-preservation-lock.{{ item }}.pid;
             if ! test -e "$file"; then exit 0; fi;
             test -f "$file" && test ! -L "$file";
             matches=0;
