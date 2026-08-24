@@ -281,8 +281,6 @@ def main() -> None:
     assert "apply_lock_operation: proton-qualification" in qualification_playbook
     assert "qualify-proton-bounded-operations" not in qualification_playbook
     assert "backups.restic.qualification.confirmation" in qualification_playbook
-    assert "/usr/bin/flock" in qualification_playbook
-    assert "become_user: restic-proton" in qualification_playbook
     assert "Require a complete quiesced source-state audit before Proton qualification" in qualification_playbook
     assert "Remove only the transient user-owned qualification result" in qualification_playbook
     assert "Require exact reviewed qualification artifact metadata and hashes" in qualification_playbook
@@ -293,6 +291,38 @@ def main() -> None:
     assert "release only the proton-qualification lock" in recovery_playbook
     assert "proton-qualification-recovery-{{ proton_recovery_transaction_sha256 }}.json" in recovery_playbook
     assert "evidence.transaction_sha256 == proton_recovery_transaction_sha256" in recovery_playbook
+    resume_playbook = (ROOT / "ansible/playbooks/resume-proton-qualification.yml").read_text()
+
+    def exact_service_user_command(*action_lines: str) -> str:
+        return "\n".join(
+            (
+                "        argv:",
+                "          - /usr/bin/flock",
+                "          - --exclusive",
+                "          - --nonblock",
+                "          - --",
+                '          - "{{ backups.restic.runner.lock_path }}"',
+                "          - /usr/sbin/runuser",
+                "          - --user",
+                "          - restic-proton",
+                "          - --",
+                "          - /usr/local/libexec/home-lab/qualify-proton-backup",
+                *(f"          - {line}" for line in action_lines),
+                "      become: true",
+            )
+        )
+
+    exact_service_user_commands = (
+        (qualification_playbook, exact_service_user_command("qualify")),
+        (
+            recovery_playbook,
+            exact_service_user_command("recover", '"{{ proton_recovery_transaction_sha256 }}"'),
+        ),
+        (resume_playbook, exact_service_user_command("inspect")),
+    )
+    for service_user_playbook, exact_command in exact_service_user_commands:
+        assert exact_command in service_user_playbook
+        assert "become_user: restic-proton" not in service_user_playbook
     for forbidden in ("cleanup", "delete", "mount", "nfsmount", "purge", "sync", "bisync"):
         assert f"/usr/local/bin/rclone {forbidden}" not in qualification_playbook
 

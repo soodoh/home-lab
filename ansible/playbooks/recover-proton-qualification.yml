@@ -213,11 +213,14 @@
           - --nonblock
           - --
           - "{{ backups.restic.runner.lock_path }}"
+          - /usr/sbin/runuser
+          - --user
+          - restic-proton
+          - --
           - /usr/local/libexec/home-lab/qualify-proton-backup
           - recover
           - "{{ proton_recovery_transaction_sha256 }}"
       become: true
-      become_user: restic-proton
       register: proton_recovery_run
       changed_when: true
       no_log: true

@@ -329,10 +329,13 @@
           - --nonblock
           - --
           - "{{ backups.restic.runner.lock_path }}"
+          - /usr/sbin/runuser
+          - --user
+          - restic-proton
+          - --
           - /usr/local/libexec/home-lab/qualify-proton-backup
           - inspect
       become: true
-      become_user: restic-proton
       register: proton_resume_remote_inspection
       changed_when: false
       no_log: true
