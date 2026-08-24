@@ -49,7 +49,7 @@
     - name: Validate the automatic-plan sudoers syntax
       ansible.builtin.command:
         argv:
-          - /usr/bin/visudo
+          - /usr/sbin/visudo
           - --check
           - "--file={{ plan_user_sudoers_path }}"
       become: true

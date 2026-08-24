@@ -19,6 +19,24 @@
   loop_control:
     label: "{{ item.name }}"
 
+- name: Inspect the required sudoers validator before convergence
+  ansible.builtin.stat:
+    path: "{{ human_access_visudo_executable }}"
+    checksum_algorithm: sha256
+    follow: false
+  register: human_access_visudo
+  check_mode: false
+
+- name: Require the exact protected sudoers validator before convergence
+  ansible.builtin.assert:
+    that:
+      - human_access_visudo.stat.isreg | default(false)
+      - not (human_access_visudo.stat.islnk | default(false))
+      - human_access_visudo.stat.pw_name == 'root'
+      - human_access_visudo.stat.gr_name == 'root'
+      - human_access_visudo.stat.mode == '0755'
+    fail_msg: Refusing human-access convergence without the exact protected visudo executable.
+
 - name: Inspect human-access accounts before convergence
   ansible.builtin.command:
     argv:
@@ -121,8 +139,8 @@
     human_access_password_inspection.results[account_index].stdout.split() | length < 2 or
     human_access_password_inspection.results[account_index].stdout.split()[1] != 'L' or
     human_access_primary_group_inspection.results[account_index].stdout != item.group or
-    human_access_groups_inspection.results[account_index].stdout.split() !=
-      [item.group] + (item.supplementary_groups | default([]))
+    (human_access_groups_inspection.results[account_index].stdout.split() | sort) !=
+      (([item.group] + (item.supplementary_groups | default([]))) | sort)
 
 - name: Remove contract-declared conventional OpenSSH authorized-key files for human accounts
   ansible.builtin.file:
@@ -234,8 +252,8 @@
       - human_access_identity_result.results[account_index].stdout.split(':')[6] == item.shell
       - human_access_password_result.results[account_index].stdout.split()[1] == 'L'
       - >-
-        human_access_groups_result.results[account_index].stdout.split() ==
-        [item.group] + (item.supplementary_groups | default([]))
+        (human_access_groups_result.results[account_index].stdout.split() | sort) ==
+        (([item.group] + (item.supplementary_groups | default([]))) | sort)
     fail_msg: "The human-access identity, password lock, home, shell, or group boundary differs from the declared state."
   loop: "{{ human_access_accounts }}"
   loop_control:

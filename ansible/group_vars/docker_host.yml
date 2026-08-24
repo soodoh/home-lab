@@ -212,7 +212,7 @@ tailscale_accept_dns: false
 tailscale_accept_routes: false
 tailscale_auth_key: "{{ lookup('ansible.builtin.env', 'TAILSCALE_AUTH_KEY') }}"
 
-human_access_visudo_path: /usr/bin/visudo
+human_access_visudo_path: /usr/sbin/visudo
 human_access_accounts:
   - name: docker
     comment: Home Lab Docker Administrator

@@ -65,7 +65,7 @@
     group: root
     mode: "0440"
     backup: false
-    validate: /usr/bin/visudo --check --file=%s
+    validate: /usr/sbin/visudo --check --file=%s
   become: true
   when: not ansible_check_mode
 

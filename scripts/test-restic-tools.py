@@ -345,6 +345,21 @@ def main() -> None:
         )
         assert traversal.returncode == 7
 
+    visudo_sources = [
+        ROOT / "ansible/group_vars/docker_host.yml",
+        ROOT / "ansible/roles/deploy_user/tasks/main.yml",
+        ROOT / "ansible/playbooks/plan-controller-audit.yml",
+    ]
+    for source in visudo_sources:
+        content = source.read_text()
+        assert "/usr/bin/visudo" not in content
+        assert "/usr/sbin/visudo" in content
+    human_access = (ROOT / "ansible/roles/human_access/tasks/main.yml").read_text()
+    assert "Inspect the required sudoers validator before convergence" in human_access
+    assert "human_access_visudo.stat.mode == '0755'" in human_access
+    assert "human_access_groups_inspection.results[account_index].stdout.split() | sort" in human_access
+    assert "human_access_groups_result.results[account_index].stdout.split() | sort" in human_access
+
     apply_lock = (ROOT / "ansible/roles/apply_lock/tasks/main.yml").read_text()
     owner_publish = apply_lock.index("/usr/bin/printf 'controller=%s\\noperation=%s\\nstarted=%s\\n'")
     acquire = apply_lock.index('/usr/bin/mv --no-target-directory -- "$staging" "$lock"', owner_publish)
