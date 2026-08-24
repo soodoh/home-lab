@@ -1,0 +1,286 @@
+---
+- name: Recover only the exact failed Proton qualification scope
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  tasks:
+    - name: Require exact failed Proton qualification recovery approval
+      ansible.builtin.assert:
+        that:
+          - proton_qualification_recovery_confirmed | default(false) | bool
+          - proton_qualification_recovery_confirmation | default('') == 'recover-only-proton-qualification-fixtures'
+          - backups.restic.migration_state == 'inert'
+          - backups.restic.qualification.state == 'ready'
+          - backups.restic.qualification.username_sha256 is match('^[0-9a-f]{64}$')
+          - backups.restic.credentials.state == 'provisioned'
+          - backups.legacy_offen.scheduler_state == 'quiesced'
+          - backups.legacy_offen.migration_archive_preservation.state == 'applied'
+          - backups.legacy_offen.migration_retention_hold.state == 'applied'
+          - backups.legacy_offen.migration_retention_hold.current_object_retention_days >= 365
+          - backups.legacy_offen.migration_retention_hold.review_deadline > now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')
+        fail_msg: Failed Proton qualification recovery requires its exact reviewed state and confirmation.
+
+    - name: Inspect the retained failed qualification lock and owner
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      loop:
+        - "{{ apply_lock_path }}"
+        - "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_recovery_lock_paths
+
+    - name: Inspect retained failed qualification lock contents
+      ansible.builtin.find:
+        paths: "{{ apply_lock_path }}"
+        hidden: true
+        recurse: false
+        file_type: any
+      become: true
+      register: proton_recovery_lock_entries
+      when: proton_recovery_lock_paths.results[0].stat.isdir | default(false)
+
+    - name: Read retained failed qualification owner
+      ansible.builtin.slurp:
+        src: "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_recovery_lock_owner
+      no_log: true
+      when: proton_recovery_lock_paths.results[1].stat.isreg | default(false)
+
+    - name: Require the exact owner-bearing failed qualification lock
+      ansible.builtin.assert:
+        that:
+          - proton_recovery_lock_paths.results[0].stat.isdir | default(false)
+          - proton_recovery_lock_paths.results[0].stat.pw_name == 'root'
+          - proton_recovery_lock_paths.results[0].stat.mode == '0700'
+          - proton_recovery_lock_paths.results[1].stat.isreg | default(false)
+          - proton_recovery_lock_paths.results[1].stat.pw_name == 'root'
+          - proton_recovery_lock_paths.results[1].stat.mode == '0600'
+          - proton_recovery_lock_entries.matched == 1
+          - "'controller=ansible-deploy' in (proton_recovery_lock_owner.content | b64decode).splitlines()"
+          - "'operation=proton-qualification' in (proton_recovery_lock_owner.content | b64decode).splitlines()"
+          - (proton_recovery_lock_owner.content | b64decode).splitlines() | select('match', '^started=[0-9]{4}-[0-9]{2}-[0-9]{2}T') | list | length == 1
+        fail_msg: Retained production lock is not the exact failed Proton qualification lock.
+      no_log: true
+
+    - name: Bind recovery evidence to the exact retained lock owner
+      ansible.builtin.set_fact:
+        proton_recovery_transaction_sha256: "{{ proton_recovery_lock_owner.content | b64decode | hash('sha256') }}"
+      no_log: true
+
+    - name: Require no concurrent Restic or rclone process during recovery
+      ansible.builtin.command:
+        argv: [/usr/bin/pgrep, --exact, "{{ item }}"]
+      loop: [restic, rclone]
+      register: proton_recovery_processes
+      changed_when: false
+      failed_when: proton_recovery_processes.rc != 1
+      check_mode: false
+
+    - name: Inspect exact backup mount identities during recovery
+      ansible.builtin.command:
+        argv: [/usr/bin/findmnt, --json, --target, "{{ item.mountpoint }}", --output, "TARGET,SOURCE,FSTYPE,UUID"]
+      loop:
+        - mountpoint: "{{ backups.restic.repositories.games.mountpoint }}"
+          filesystem: "{{ backups.restic.repositories.games.filesystem }}"
+          filesystem_uuid: "{{ backups.restic.repositories.games.filesystem_uuid }}"
+          mount_source: ""
+        - mountpoint: "{{ backups.restic.repositories.nfs.mountpoint }}"
+          filesystem: "{{ backups.restic.repositories.nfs.filesystem }}"
+          filesystem_uuid: ""
+          mount_source: "{{ backups.restic.repositories.nfs.mount_source }}"
+      register: proton_recovery_mounts
+      changed_when: false
+      check_mode: false
+
+    - name: Require exact backup mount identities during recovery
+      ansible.builtin.assert:
+        that:
+          - observed | length == 1
+          - observed[0].target == item.item.mountpoint
+          - observed[0].fstype == item.item.filesystem
+          - item.item.filesystem_uuid | length == 0 or observed[0].uuid == item.item.filesystem_uuid
+          - item.item.mount_source | length == 0 or observed[0].source == item.item.mount_source
+        fail_msg: Backup mount identity differs during Proton qualification recovery.
+      loop: "{{ proton_recovery_mounts.results }}"
+      vars:
+        observed: "{{ (item.stdout | from_json).filesystems }}"
+
+    - name: Inspect stopped Offen scheduler states during recovery
+      ansible.builtin.command:
+        argv: [/usr/bin/docker, inspect, --format, "{{ '{{.State.Running}}' }}", "{{ item }}"]
+      loop: "{{ backups.legacy_offen.scheduler_services }}"
+      register: proton_recovery_offen_states
+      changed_when: false
+      check_mode: false
+
+    - name: Require Offen schedulers to remain stopped during recovery
+      ansible.builtin.assert:
+        that:
+          - item.stdout == 'false'
+        fail_msg: An Offen scheduler is not quiesced during Proton qualification recovery.
+      loop: "{{ proton_recovery_offen_states.results }}"
+
+    - name: Inspect protected recovery prerequisites
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      loop:
+        - { name: policy, path: /etc/home-lab/restic-policy.json, owner: root, group: restic-proton, mode: '0440' }
+        - name: helper
+          path: /usr/local/libexec/home-lab/qualify-proton-backup
+          owner: root
+          group: root
+          mode: "0750"
+          checksum: "{{ backups.restic.qualification.helper_sha256 }}"
+        - { name: rclone, path: /usr/local/bin/rclone, owner: root, group: root, mode: '0755', checksum: "{{ backups.restic.tools.rclone.installed_sha256 }}" }
+        - { name: local_password, path: /etc/home-lab/restic/credentials/local-password, owner: root, group: restic-proton, mode: '0440' }
+        - { name: proton_password, path: /etc/home-lab/restic/credentials/proton-password, owner: root, group: restic-proton, mode: '0440' }
+        - { name: rclone_config, path: /var/lib/restic-proton/rclone.conf, owner: restic-proton, group: restic-proton, mode: '0600' }
+      become: true
+      register: proton_recovery_prerequisites
+
+    - name: Require exact protected recovery prerequisite metadata and hashes
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.nlink == 1
+          - item.stat.pw_name == item.item.owner
+          - item.stat.gr_name == item.item.group
+          - item.stat.mode == item.item.mode
+          - item.item.checksum is not defined or item.stat.checksum == item.item.checksum
+        fail_msg: "Protected Proton recovery prerequisite {{ item.item.name }} differs."
+      loop: "{{ proton_recovery_prerequisites.results }}"
+
+    - name: Read installed policy during recovery
+      ansible.builtin.slurp:
+        src: /etc/home-lab/restic-policy.json
+      become: true
+      register: proton_recovery_installed_policy
+      no_log: true
+
+    - name: Require installed policy to equal the reviewed recovery contract
+      ansible.builtin.assert:
+        that:
+          - (proton_recovery_installed_policy.content | b64decode | from_json) == backups.restic
+        fail_msg: Installed Restic policy differs during Proton qualification recovery.
+      no_log: true
+
+    - name: Inspect qualification result and published evidence before exact cleanup
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      loop:
+        - "{{ backups.restic.qualification.result_path }}"
+        - "{{ backups.restic.qualification.host_evidence_path }}"
+        - "/var/lib/home-lab-restic/proton-qualification-recovery-{{ proton_recovery_transaction_sha256 }}.json"
+      become: true
+      register: proton_recovery_prior_evidence
+
+    - name: Refuse cleanup after qualification result or evidence publication
+      ansible.builtin.assert:
+        that:
+          - not item.stat.exists
+        fail_msg: Published qualification evidence requires attestation, not failed-object cleanup.
+      loop: "{{ proton_recovery_prior_evidence.results }}"
+
+    - name: Report exact failed qualification cleanup in check mode
+      ansible.builtin.debug:
+        msg: >-
+          Would inspect the dedicated qualification directory, reject unknown entries, remove only
+          fixture.bin and fixture-renamed.bin when present, remove only the empty dedicated directory,
+          retain redacted recovery evidence, and release only the proton-qualification lock.
+      changed_when: true
+      when: ansible_check_mode
+
+    - name: Recover only exact qualification fixtures under the backup mutex
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/flock
+          - --exclusive
+          - --nonblock
+          - --
+          - "{{ backups.restic.runner.lock_path }}"
+          - /usr/local/libexec/home-lab/qualify-proton-backup
+          - recover
+          - "{{ proton_recovery_transaction_sha256 }}"
+      become: true
+      become_user: restic-proton
+      register: proton_recovery_run
+      changed_when: true
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Read exact qualification recovery result
+      ansible.builtin.slurp:
+        src: "{{ backups.restic.qualification.result_path }}"
+      become: true
+      register: proton_recovery_result
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Require exact bounded qualification recovery evidence
+      ansible.builtin.assert:
+        that:
+          - evidence.keys() | sort == expected_keys | sort
+          - evidence.account_username_sha256 == backups.restic.qualification.username_sha256
+          - evidence.recovered_files | difference(['fixture.bin', 'fixture-renamed.bin']) | length == 0
+          - evidence.recovered_files | unique | length == evidence.recovered_files | length
+          - evidence.remote_cleanup == 'pass'
+          - evidence.state == 'recovered'
+          - evidence.transaction_sha256 == proton_recovery_transaction_sha256
+          - evidence.version == 1
+          - evidence.recovered_at is match('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')
+          - proton_recovery_run.stdout == 'proton_qualification_recovery=passed evidence_sha256=' ~ result_sha256
+        fail_msg: Proton qualification recovery evidence differs from the reviewed scope.
+      vars:
+        evidence: "{{ proton_recovery_result.content | b64decode | from_json }}"
+        result_sha256: "{{ proton_recovery_result.content | b64decode | hash('sha256') }}"
+        expected_keys:
+          - account_username_sha256
+          - recovered_at
+          - recovered_files
+          - remote_cleanup
+          - state
+          - transaction_sha256
+          - version
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Retain root-owned failed qualification recovery evidence
+      ansible.builtin.copy:
+        content: "{{ proton_recovery_result.content | b64decode }}"
+        dest: "/var/lib/home-lab-restic/proton-qualification-recovery-{{ proton_recovery_transaction_sha256 }}.json"
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Remove only the transient qualification recovery result
+      ansible.builtin.file:
+        path: "{{ backups.restic.qualification.result_path }}"
+        state: absent
+      become: true
+      when: not ansible_check_mode
+
+  post_tasks:
+    - name: Release only the verified failed Proton qualification lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: proton-qualification

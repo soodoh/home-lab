@@ -1396,6 +1396,7 @@ backups:
         architecture: linux_amd64
         url: https://github.com/rclone/rclone/releases/download/v1.75.0/rclone-v1.75.0-linux-amd64.zip
         archive_sha256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+        installed_sha256: f3f9aff817f9766029e50adf9a7963c169e475b8f10c7927823568a0d9443db7
         installed_path: /usr/local/bin/rclone
         version_output_prefix: rclone v1.75.0
     repositories:
@@ -1444,6 +1445,20 @@ backups:
       warning_repository_multiplier: 10
       hard_failure_used_bytes: 900000000000
       backlog_limit: 7
+    qualification:
+      state: pending
+      username_sha256: null
+      helper_sha256: fc7b52f32bdd255fedaea54278b9aa7772854e141de9610c4ffc38bb32b01fc3
+      remote_directory: Backups/.home-lab-rclone-qualification
+      result_path: /var/lib/restic-proton/proton-qualification-result.json
+      host_evidence_path: /var/lib/home-lab-restic/proton-qualification.json
+      evidence_file: infrastructure/evidence/proton-qualification.json
+      fixture_bytes: 4096
+      range_offset: 1024
+      range_count: 1024
+      confirmation: qualify-proton-bounded-operations
+      evidence_sha256: null
+      verified_at: null
     schedule:
       daily_calendar: "*-*-* 05:00:00"
       maintenance_calendar: monthly
@@ -1473,6 +1488,9 @@ backups:
         maintenance_target: home-lab-restic-maintenance.target
         maintenance_local: home-lab-restic-maintenance-local.service
         maintenance_proton: home-lab-restic-maintenance-proton.service
+    credentials:
+      bootstrap_enabled: false
+      state: absent
     credential_refs:
       local_password: RESTIC_LOCAL_PASSWORD
       proton_password: RESTIC_PROTON_PASSWORD

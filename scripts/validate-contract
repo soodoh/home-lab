@@ -4,11 +4,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const crypto = require("node:crypto");
 const { load } = require("js-yaml");
 const Ajv2020 = require("ajv/dist/2020");
 const { validateVmArtifactReferences } = require("./controller/validate-vm-artifact-references");
 const { validateProxmoxHostPolicy } = require("./controller/validate-proxmox-host-policy");
-const { validateResticPolicy } = require("./controller/validate-restic-policy");
+const { validateProtonQualificationEvidence, validateResticPolicy } = require("./controller/validate-restic-policy");
 const {
   validateProxmoxPackageArtifactBinding,
   validateProxmoxPackagePolicy,
@@ -22,6 +23,7 @@ const packageManifestSchemaPath = path.join(root, "nix/proxmox/package-manifest.
 const qualificationEvidencePath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.json");
 const qualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.schema.json");
 const qualificationValidatorPath = path.join(root, "scripts/controller/validate-lxc-qualification-evidence.py");
+const protonQualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proton-qualification.schema.json");
 const operational = process.argv.includes("--operational");
 
 const contract = load(fs.readFileSync(contractPath, "utf8"));
@@ -30,10 +32,12 @@ const packageManifestRaw = fs.readFileSync(packageManifestPath, "utf8");
 const packageManifest = JSON.parse(packageManifestRaw);
 const packageManifestSchema = JSON.parse(fs.readFileSync(packageManifestSchemaPath, "utf8"));
 const qualificationEvidenceSchema = JSON.parse(fs.readFileSync(qualificationEvidenceSchemaPath, "utf8"));
+const protonQualificationEvidenceSchema = JSON.parse(fs.readFileSync(protonQualificationEvidenceSchemaPath, "utf8"));
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validate = ajv.compile(schema);
 const validatePackageManifest = ajv.compile(packageManifestSchema);
 const validateQualificationEvidence = ajv.compile(qualificationEvidenceSchema);
+const validateProtonQualificationSchema = ajv.compile(protonQualificationEvidenceSchema);
 
 if (!validate(contract)) {
   for (const error of validate.errors || []) {
@@ -128,6 +132,31 @@ if (contract.nextcloud.writer_stop_order[0] !== contract.nextcloud.cron_service
   failures.push("Nextcloud writer stop order and Restic stop set must include cron before web");
 }
 failures.push(...validateResticPolicy(resticPolicy));
+const protonQualification = resticPolicy.qualification;
+const protonQualificationHelperPath = path.join(root, "scripts/qualify-proton-backup");
+const protonQualificationHelperSha256 = crypto.createHash("sha256").update(fs.readFileSync(protonQualificationHelperPath)).digest("hex");
+if (protonQualificationHelperSha256 !== protonQualification.helper_sha256) {
+  failures.push("Proton qualification helper SHA-256 differs from the contract");
+}
+const protonEvidencePath = path.join(root, protonQualification.evidence_file);
+if (protonQualification.state === "qualified") {
+  if (!fs.existsSync(protonEvidencePath)) failures.push("qualified Proton state requires retained evidence");
+  else {
+    const rawProtonEvidence = fs.readFileSync(protonEvidencePath);
+    let protonEvidence;
+    try {
+      protonEvidence = JSON.parse(rawProtonEvidence);
+    } catch {
+      failures.push("Proton qualification evidence is not valid JSON");
+    }
+    if (protonEvidence) {
+      if (!validateProtonQualificationSchema(protonEvidence)) failures.push("Proton qualification evidence does not match its schema");
+      else failures.push(...validateProtonQualificationEvidence(resticPolicy, protonEvidence, rawProtonEvidence));
+    }
+  }
+} else if (fs.existsSync(protonEvidencePath)) {
+  failures.push("pending or ready Proton qualification must not retain committed evidence");
+}
 const sourcePaths = resticPolicy.sources.map((entry) => entry.path);
 const renderedFilesFrom = `${sourcePaths.join("\n")}\n`;
 const renderedExcludes = `${resticPolicy.excludes.join("\n")}\n`;

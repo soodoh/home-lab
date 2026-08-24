@@ -70,10 +70,10 @@ restic_binary_sha256: 20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b3
 rclone_version: "{{ backups.restic.tools.rclone.version }}"
 rclone_download_url: "{{ backups.restic.tools.rclone.url }}"
 rclone_archive_sha256: "{{ backups.restic.tools.rclone.archive_sha256 }}"
-rclone_binary_sha256: f3f9aff817f9766029e50adf9a7963c169e475b8f10c7927823568a0d9443db7
+rclone_binary_sha256: "{{ backups.restic.tools.rclone.installed_sha256 }}"
 restic_sops_ciphertext_source: "{{ playbook_dir }}/../../secrets/production.sops.env"
 restic_sops_ciphertext_path: /etc/home-lab/restic/production.sops.env
-restic_credentials_bootstrap_enabled: false
+restic_credentials_bootstrap_enabled: "{{ backups.restic.credentials.bootstrap_enabled }}"
 restic_proton_uid: 60000
 restic_proton_gid: 60000
 

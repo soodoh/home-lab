@@ -94,6 +94,12 @@ def main() -> None:
     assert policy["retention"]["group_by"] == "host,paths"
     assert policy["restore"]["modes"] == ["staging"]
     assert policy["restore"]["activation_status"] == "unavailable-pending-isolated-proofs"
+    assert policy["credentials"] == {"bootstrap_enabled": False, "state": "absent"}
+    assert policy["qualification"]["state"] == "pending"
+    assert policy["qualification"]["username_sha256"] is None
+    assert policy["qualification"]["evidence_sha256"] is None
+    assert policy["qualification"]["verified_at"] is None
+    assert policy["qualification"]["remote_directory"] == "Backups/.home-lab-rclone-qualification"
 
     files_from = (ROOT / "services/data/restic/files-from").read_text().splitlines()
     excludes = (ROOT / "services/data/restic/excludes").read_text().splitlines()
@@ -201,9 +207,21 @@ def main() -> None:
     assert "except (ConfigError, OSError)" in bootstrap
     assert 'remote.get("original_file_size") != "true"' in bootstrap
     assert 'remote.get("otp_secret_key")' in bootstrap
+    qualification = (ROOT / "scripts/qualify-proton-backup").read_text()
+    assert 'ALLOWED_COMMANDS = {"about", "cat", "copyto", "deletefile", "lsjson", "moveto", "rmdir"}' in qualification
+    assert "stderr_sha256" in qualification and "digest_bytes(result.stderr)" in qualification
+    assert "print(result.stderr" not in qualification
+    assert "invalidate_auth_cache(policy)" in qualification
+    assert 'remote_directory != "Backups/.home-lab-rclone-qualification"' in qualification
+    assert "secrets.token_bytes" in qualification
+    assert "password_totp_reauthentication" in qualification
     group_vars = (ROOT / "ansible/group_vars/docker_host.yml").read_text()
     assert 'restic_archive_sha256: "{{ backups.restic.tools.restic.archive_sha256 }}"' in group_vars
     assert 'rclone_archive_sha256: "{{ backups.restic.tools.rclone.archive_sha256 }}"' in group_vars
+    assert 'restic_credentials_bootstrap_enabled: "{{ backups.restic.credentials.bootstrap_enabled }}"' in group_vars
+    assert 'rclone_binary_sha256: "{{ backups.restic.tools.rclone.installed_sha256 }}"' in group_vars
+    assert policy["tools"]["rclone"]["installed_sha256"] == "f3f9aff817f9766029e50adf9a7963c169e475b8f10c7927823568a0d9443db7"
+    assert policy["qualification"]["helper_sha256"] == hashlib.sha256((ROOT / "scripts/qualify-proton-backup").read_bytes()).hexdigest()
     assert policy["tools"]["restic"]["archive_sha256"] == "f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c"
     assert policy["tools"]["rclone"]["archive_sha256"] == "aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa"
     assert "ansible_facts.architecture == 'x86_64'" in role
@@ -220,6 +238,26 @@ def main() -> None:
     assert "restic_backup" in steady_tags
     assert "restic-proton" in role and "groups: []" in role and "shell: /usr/sbin/nologin" in role
     assert "enabled: false" in role and "state: stopped" in role
+    assert "qualify-proton-backup" in role
+    assert "Require contract-backed credential materialization state" in role
+    qualification_playbook = (ROOT / "ansible/playbooks/qualify-proton-backup.yml").read_text()
+    assert "apply_lock_operation: proton-qualification" in qualification_playbook
+    assert "qualify-proton-bounded-operations" not in qualification_playbook
+    assert "backups.restic.qualification.confirmation" in qualification_playbook
+    assert "/usr/bin/flock" in qualification_playbook
+    assert "become_user: restic-proton" in qualification_playbook
+    assert "Require a complete quiesced source-state audit before Proton qualification" in qualification_playbook
+    assert "Remove only the transient user-owned qualification result" in qualification_playbook
+    assert "Require exact reviewed qualification artifact metadata and hashes" in qualification_playbook
+    assert "installed policy to equal the reviewed contract" in qualification_playbook
+    recovery_playbook = (ROOT / "ansible/playbooks/recover-proton-qualification.yml").read_text()
+    assert "recover-only-proton-qualification-fixtures" in recovery_playbook
+    assert "Refuse cleanup after qualification result or evidence publication" in recovery_playbook
+    assert "release only the proton-qualification lock" in recovery_playbook
+    assert "proton-qualification-recovery-{{ proton_recovery_transaction_sha256 }}.json" in recovery_playbook
+    assert "evidence.transaction_sha256 == proton_recovery_transaction_sha256" in recovery_playbook
+    for forbidden in ("cleanup", "delete", "mount", "nfsmount", "purge", "sync", "bisync"):
+        assert f"/usr/local/bin/rclone {forbidden}" not in qualification_playbook
 
     daily_target = (ROOT / "ansible/roles/restic_backup/templates/home-lab-restic-daily.target.j2").read_text()
     local_service = (ROOT / "ansible/roles/restic_backup/templates/home-lab-restic-daily-local.service.j2").read_text()
@@ -378,6 +416,7 @@ def main() -> None:
     assert clear_detach < clear_owner < clear_tombstone
     assert "Remove only the inspected owner record" not in clear_failed_lock
     assert '"{{ backups.restic.runner.lock_path }}"' in clear_failed_lock
+    assert "iac_failed_lock_expected_operation != 'proton-qualification'" in clear_failed_lock
 
     restic_documentation = (ROOT / "docs/restic-backups.md").read_text()
     assert "iac_failed_lock_expected_operation=restic_backup" in restic_documentation

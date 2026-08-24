@@ -2,7 +2,7 @@
 
 ## Current state
 
-The checked-in Restic implementation is **inert**. Offen remains the production backup and AWS recovery resources remain managed. The Restic repository IDs are deliberately `null`, credential bootstrap is disabled, and all Restic timers plus reboot recovery are installed disabled. This state must fail closed rather than initialize a repository, stop a container, authenticate Proton, or create a snapshot during ordinary Ansible convergence.
+The checked-in Restic implementation is **inert**. Offen’s two scheduler containers are quiesced but remain defined, both protected Offen archive generations remain intact, and the AWS recovery hold remains managed at 365-day current-object retention. Restic repository IDs are deliberately `null`, credential bootstrap is contract-backed and disabled, Proton qualification is `pending`, and all Restic timers plus reboot recovery are installed disabled. Ordinary convergence must fail closed rather than initialize a repository, authenticate Proton, or create a snapshot.
 
 The final accepted Offen recovery point is:
 
@@ -27,7 +27,7 @@ Path classes have these activation meanings:
 - `retain`: operational state remains in place during in-place recovery and is absent on fresh recovery; and
 - `external`: readiness remains gated until the independently managed data is mounted or restored.
 
-Nextcloud data remains at `${MEDIA_PATH}/nextcloud/data`. Calibre books and Caro downloads are changed in Compose to `${MEDIA_PATH}/calibre/books` and `${MEDIA_PATH}/caro-tachidesk`. Before deploying that Compose artifact, run the separately approved `ansible/playbooks/migrate-preserved-backup-data.yml`. It verifies capacity, stops only owning services, copies through private NFS staging, verifies complete file hashes/counts/bytes, atomically activates only absent destinations, restarts previously running services, and retains the old sources. Old sources require a later explicit cleanup approval.
+Nextcloud data remains at `${MEDIA_PATH}/nextcloud/data`. The active Compose artifact uses `${MEDIA_PATH}/calibre/books` and `${MEDIA_PATH}/caro-tachidesk` for Calibre books and Caro downloads. The guarded preserved-data migration verified capacity, copied through private NFS staging, verified complete file hashes/counts/bytes, atomically activated only absent destinations, restarted previously running services, and retained the old source trees. Old sources require a later explicit cleanup approval.
 
 ## Pinned tools and credentials
 
@@ -52,6 +52,41 @@ Before credential bootstrap can be explicitly enabled, the canonical SOPS dotenv
 - optional `PROTON_BACKUP_MAILBOX_PASSWORD` only for two-password mode.
 
 `bootstrap-restic-credentials` receives decrypted dotenv only on standard input under Ansible `no_log`. It writes password files without command-line secrets. It creates an absent rclone config using `rclone obscure -`; on later runs it validates static account/backend options without overwriting rotating fields or cached state. Obscured values remain plaintext-equivalent.
+
+Credential bootstrap is governed by `backups.restic.credentials`, not an independent Ansible switch. A reviewed transition may set it to `bootstrap_enabled: true` and `state: provisioned` only while Offen is quiesced, archive preservation and the AWS hold remain applied, and qualification moves from `pending` to `ready` with the SHA-256 of the exact Proton username. The username itself, passwords, TOTP seed, mailbox password, and cached client tokens must never be logged or committed.
+
+`qualify-proton-backup` is installed inertly but cannot run while qualification is `pending`. The separately gated `ansible/playbooks/qualify-proton-backup.yml` requires the exact contract confirmation, a complete quiesced audit, exact mounts, absent repository configs, provisioned protected credential files, inactive Restic units, and zero Restic/rclone processes. Under both the production mutation lock and shared backup mutex it removes only rclone’s four cached `client_*` fields, forces password-plus-TOTP reauthentication, proves the exact username hash and decimal 1 TB quota, and exercises only `about`, bounded `lsjson`, `copyto`, `cat`, `moveto`, `deletefile`, and `rmdir` against `Backups/.home-lab-rclone-qualification`. It writes bounded JSON evidence without account names, credentials, tokens, remote listings, or raw provider errors; provider failures retain only the command label, exit status, and stderr SHA-256. Proton Trash is never emptied.
+
+A failed qualification deliberately retains the owner-bearing production lock as operation `proton-qualification`. Do not rerun qualification, remove the lock, delete a remote object, or edit cached fields manually. Inspect the protected host result/evidence paths, rclone config metadata, exact dedicated remote directory, process state, mounts, Offen state, and AWS hold first. Generic rclone deletion, cleanup, purge, sync, bisync, and mount operations remain prohibited.
+
+The generic `clear-failed-apply-lock.yml` transaction explicitly rejects `proton-qualification`. After inspection and fresh AWS/access proofs, plan the dedicated recovery transaction with the exact retained lock. Its only live remote mutations are `deletefile` for `fixture.bin` and/or `fixture-renamed.bin` when an exact bounded listing contains no other entry, followed by `rmdir` for the now-empty qualification directory:
+
+```sh
+cd ansible
+ansible-playbook -i inventory/production.yml playbooks/recover-proton-qualification.yml --check --diff \
+  -e proton_qualification_recovery_confirmed=true \
+  -e proton_qualification_recovery_confirmation=recover-only-proton-qualification-fixtures
+
+ansible-playbook -i inventory/production.yml playbooks/recover-proton-qualification.yml \
+  -e proton_qualification_recovery_confirmed=true \
+  -e proton_qualification_recovery_confirmation=recover-only-proton-qualification-fixtures
+```
+
+The live recovery command requires separate authorization. It rejects unknown files or directories, published qualification evidence, a differing lock owner, stale policy/helper/rclone hashes, unexpected mounts or processes, resumed Offen schedulers, or an expired AWS hold. It hashes the exact retained owner record, passes that transaction SHA-256 to the recovery helper, and retains root-owned redacted evidence at a transaction-specific path containing the same hash before releasing only the exact failed lock. Historical recovery evidence cannot satisfy a newer lock.
+
+If qualification or its exact recovery was interrupted after the helper atomically wrote a valid transient result—or after host/controller evidence publication—the cleanup playbook intentionally refuses it. Use the separate resume/attestation transaction instead. It accepts either byte-identical transient and published evidence or one surviving validated copy, proves the dedicated remote directory is absent through the pinned helper, completes only missing evidence publication/fetch, removes only the validated transient result, and releases the exact retained lock:
+
+```sh
+ansible-playbook -i inventory/production.yml playbooks/resume-proton-qualification.yml --check --diff \
+  -e proton_qualification_resume_action=qualification \
+  -e proton_qualification_resume_confirmed=true \
+  -e proton_qualification_resume_confirmation=attest-interrupted-proton-qualification
+
+# Use action=recovery and confirmation=attest-interrupted-proton-recovery
+# only for a validated interrupted exact-fixture recovery.
+```
+
+The corresponding live resume command requires separate authorization. A differing result/evidence pair, wrong evidence type, non-absent remote directory, stale artifact, or unexpected recovery/qualification evidence fails closed and retains the lock.
 
 ## Units and runner
 
@@ -85,7 +120,7 @@ No automated workflow may empty Proton Trash. The warning threshold is 100 GB us
 
 ## Inert deployment failure recovery
 
-A failed `restic_backup` convergence deliberately retains `/var/lib/iac-ansible-production.lock` and its exact owner record. Do not remove the directory manually and do not delete partially installed inert artifacts. First prove that no `restic` or `rclone` process exists, both Offen schedulers remain running, the games and NFS mount identities remain exact, no repository `config` exists, no credential file or rclone config was materialized, and every installed Restic unit is inactive and disabled or static. Inspect the lock as operation `restic_backup`, then plan and separately confirm only its exact clearance:
+A failed `restic_backup` convergence deliberately retains `/var/lib/iac-ansible-production.lock` and its exact owner record. Do not remove the directory manually and do not delete partially installed inert artifacts. First prove that no `restic` or `rclone` process exists, both Offen schedulers remain defined and match the committed scheduler state, the games and NFS mount identities remain exact, repository `config` files match the contract, credential and qualification paths match the committed credential state, and every installed Restic unit is inactive and disabled or static. Inspect the lock as operation `restic_backup`, then plan and separately confirm only its exact clearance:
 
 ```sh
 cd ansible
@@ -104,6 +139,7 @@ After clearance, rerun check mode and review its complete scope before separatel
 ./scripts/render-restic-policy.js --check
 ./scripts/validate-contract
 python3 scripts/test-restic-tools.py
+python3 scripts/test-proton-qualification.py
 ./scripts/test-recovery-tools
 docker compose config --no-interpolate --quiet
 cd ansible && ansible-playbook -i inventory/infrastructure.yml --syntax-check playbooks/site.yml

@@ -1,0 +1,434 @@
+---
+- name: Resume only a verified interrupted Proton qualification transaction
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  tasks:
+    - name: Require exact Proton transaction resume approval
+      ansible.builtin.assert:
+        that:
+          - proton_qualification_resume_action | default('') in ['qualification', 'recovery']
+          - proton_qualification_resume_confirmed | default(false) | bool
+          - >-
+            (proton_qualification_resume_action == 'qualification' and
+             proton_qualification_resume_confirmation | default('') == 'attest-interrupted-proton-qualification') or
+            (proton_qualification_resume_action == 'recovery' and
+             proton_qualification_resume_confirmation | default('') == 'attest-interrupted-proton-recovery')
+          - backups.restic.migration_state == 'inert'
+          - backups.restic.qualification.state == 'ready'
+          - backups.restic.qualification.username_sha256 is match('^[0-9a-f]{64}$')
+          - backups.restic.credentials.state == 'provisioned'
+          - backups.legacy_offen.scheduler_state == 'quiesced'
+          - backups.legacy_offen.migration_archive_preservation.state == 'applied'
+          - backups.legacy_offen.migration_retention_hold.state == 'applied'
+          - backups.legacy_offen.migration_retention_hold.current_object_retention_days >= 365
+          - backups.legacy_offen.migration_retention_hold.review_deadline > now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')
+        fail_msg: Proton transaction resume requires its exact action, state, and confirmation.
+
+    - name: Inspect retained interrupted transaction lock and owner
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      loop:
+        - "{{ apply_lock_path }}"
+        - "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_resume_lock_paths
+
+    - name: Inspect retained interrupted transaction lock contents
+      ansible.builtin.find:
+        paths: "{{ apply_lock_path }}"
+        hidden: true
+        recurse: false
+        file_type: any
+      become: true
+      register: proton_resume_lock_entries
+      when: proton_resume_lock_paths.results[0].stat.isdir | default(false)
+
+    - name: Read retained interrupted transaction owner
+      ansible.builtin.slurp:
+        src: "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_resume_lock_owner
+      no_log: true
+      when: proton_resume_lock_paths.results[1].stat.isreg | default(false)
+
+    - name: Require exact owner-bearing interrupted Proton qualification lock
+      ansible.builtin.assert:
+        that:
+          - proton_resume_lock_paths.results[0].stat.isdir | default(false)
+          - proton_resume_lock_paths.results[0].stat.pw_name == 'root'
+          - proton_resume_lock_paths.results[0].stat.mode == '0700'
+          - proton_resume_lock_paths.results[1].stat.isreg | default(false)
+          - proton_resume_lock_paths.results[1].stat.pw_name == 'root'
+          - proton_resume_lock_paths.results[1].stat.mode == '0600'
+          - proton_resume_lock_entries.matched == 1
+          - "'controller=ansible-deploy' in (proton_resume_lock_owner.content | b64decode).splitlines()"
+          - "'operation=proton-qualification' in (proton_resume_lock_owner.content | b64decode).splitlines()"
+          - (proton_resume_lock_owner.content | b64decode).splitlines() | select('match', '^started=[0-9]{4}-[0-9]{2}-[0-9]{2}T') | list | length == 1
+        fail_msg: Retained lock is not the exact interrupted Proton qualification lock.
+      no_log: true
+
+    - name: Bind resume evidence to the exact retained lock owner
+      ansible.builtin.set_fact:
+        proton_resume_transaction_sha256: "{{ proton_resume_lock_owner.content | b64decode | hash('sha256') }}"
+      no_log: true
+
+    - name: Require no concurrent Restic or rclone process during resume
+      ansible.builtin.command:
+        argv: [/usr/bin/pgrep, --exact, "{{ item }}"]
+      loop: [restic, rclone]
+      register: proton_resume_processes
+      changed_when: false
+      failed_when: proton_resume_processes.rc != 1
+      check_mode: false
+
+    - name: Inspect exact backup mount identities during resume
+      ansible.builtin.command:
+        argv: [/usr/bin/findmnt, --json, --target, "{{ item.mountpoint }}", --output, "TARGET,SOURCE,FSTYPE,UUID"]
+      loop:
+        - mountpoint: "{{ backups.restic.repositories.games.mountpoint }}"
+          filesystem: "{{ backups.restic.repositories.games.filesystem }}"
+          filesystem_uuid: "{{ backups.restic.repositories.games.filesystem_uuid }}"
+          mount_source: ""
+        - mountpoint: "{{ backups.restic.repositories.nfs.mountpoint }}"
+          filesystem: "{{ backups.restic.repositories.nfs.filesystem }}"
+          filesystem_uuid: ""
+          mount_source: "{{ backups.restic.repositories.nfs.mount_source }}"
+      register: proton_resume_mounts
+      changed_when: false
+      check_mode: false
+
+    - name: Require exact backup mount identities during resume
+      ansible.builtin.assert:
+        that:
+          - observed | length == 1
+          - observed[0].target == item.item.mountpoint
+          - observed[0].fstype == item.item.filesystem
+          - item.item.filesystem_uuid | length == 0 or observed[0].uuid == item.item.filesystem_uuid
+          - item.item.mount_source | length == 0 or observed[0].source == item.item.mount_source
+        fail_msg: Backup mount identity differs during Proton transaction resume.
+      loop: "{{ proton_resume_mounts.results }}"
+      vars:
+        observed: "{{ (item.stdout | from_json).filesystems }}"
+
+    - name: Inspect stopped Offen scheduler states during resume
+      ansible.builtin.command:
+        argv: [/usr/bin/docker, inspect, --format, "{{ '{{.State.Running}}' }}", "{{ item }}"]
+      loop: "{{ backups.legacy_offen.scheduler_services }}"
+      register: proton_resume_offen_states
+      changed_when: false
+      check_mode: false
+
+    - name: Require Offen schedulers to remain stopped during resume
+      ansible.builtin.assert:
+        that:
+          - item.stdout == 'false'
+        fail_msg: An Offen scheduler is not quiesced during Proton transaction resume.
+      loop: "{{ proton_resume_offen_states.results }}"
+
+    - name: Inspect protected resume prerequisites
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      loop:
+        - { name: policy, path: /etc/home-lab/restic-policy.json, owner: root, group: restic-proton, mode: '0440' }
+        - name: helper
+          path: /usr/local/libexec/home-lab/qualify-proton-backup
+          owner: root
+          group: root
+          mode: "0750"
+          checksum: "{{ backups.restic.qualification.helper_sha256 }}"
+        - { name: rclone, path: /usr/local/bin/rclone, owner: root, group: root, mode: '0755', checksum: "{{ backups.restic.tools.rclone.installed_sha256 }}" }
+        - { name: local_password, path: /etc/home-lab/restic/credentials/local-password, owner: root, group: restic-proton, mode: '0440' }
+        - { name: proton_password, path: /etc/home-lab/restic/credentials/proton-password, owner: root, group: restic-proton, mode: '0440' }
+        - { name: rclone_config, path: /var/lib/restic-proton/rclone.conf, owner: restic-proton, group: restic-proton, mode: '0600' }
+      become: true
+      register: proton_resume_prerequisites
+
+    - name: Require exact protected resume prerequisite metadata and hashes
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.nlink == 1
+          - item.stat.pw_name == item.item.owner
+          - item.stat.gr_name == item.item.group
+          - item.stat.mode == item.item.mode
+          - item.item.checksum is not defined or item.stat.checksum == item.item.checksum
+        fail_msg: "Protected Proton resume prerequisite {{ item.item.name }} differs."
+      loop: "{{ proton_resume_prerequisites.results }}"
+
+    - name: Read installed policy during resume
+      ansible.builtin.slurp:
+        src: /etc/home-lab/restic-policy.json
+      become: true
+      register: proton_resume_installed_policy
+      no_log: true
+
+    - name: Require installed policy to equal the reviewed resume contract
+      ansible.builtin.assert:
+        that:
+          - (proton_resume_installed_policy.content | b64decode | from_json) == backups.restic
+        fail_msg: Installed Restic policy differs during Proton transaction resume.
+      no_log: true
+
+    - name: Inspect all possible interrupted transaction evidence sources
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      loop:
+        - { name: transient, path: "{{ backups.restic.qualification.result_path }}", owner: restic-proton, group: restic-proton, mode: '0600' }
+        - { name: qualification, path: "{{ backups.restic.qualification.host_evidence_path }}", owner: root, group: root, mode: '0600' }
+        - name: recovery
+          path: "/var/lib/home-lab-restic/proton-qualification-recovery-{{ proton_resume_transaction_sha256 }}.json"
+          owner: root
+          group: root
+          mode: "0600"
+      become: true
+      register: proton_resume_evidence_paths
+
+    - name: Select only evidence sources for the exact resume action
+      ansible.builtin.set_fact:
+        proton_resume_selected_paths: >-
+          {{
+            proton_resume_evidence_paths.results
+            | selectattr('stat.exists')
+            | selectattr('item.name', 'in',
+                (['transient', 'qualification'] if proton_qualification_resume_action == 'qualification'
+                 else ['transient', 'recovery']))
+            | list
+          }}
+        proton_resume_forbidden_paths: >-
+          {{
+            [] if proton_qualification_resume_action == 'qualification'
+            else
+            (proton_resume_evidence_paths.results
+             | selectattr('stat.exists')
+             | selectattr('item.name', 'equalto', 'qualification')
+             | list)
+          }}
+
+    - name: Require exact metadata and non-ambiguous resume evidence sources
+      ansible.builtin.assert:
+        that:
+          - proton_resume_selected_paths | length >= 1
+          - proton_resume_forbidden_paths | length == 0
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.nlink == 1
+          - item.stat.pw_name == item.item.owner
+          - item.stat.gr_name == item.item.group
+          - item.stat.mode == item.item.mode
+        fail_msg: Interrupted Proton transaction evidence is absent, ambiguous, or unsafe.
+      loop: "{{ proton_resume_selected_paths }}"
+
+    - name: Read every selected interrupted transaction evidence source
+      ansible.builtin.slurp:
+        src: "{{ item.item.path }}"
+      loop: "{{ proton_resume_selected_paths }}"
+      become: true
+      register: proton_resume_evidence_contents
+      no_log: true
+
+    - name: Require all retained evidence sources to be byte-identical
+      ansible.builtin.assert:
+        that:
+          - proton_resume_evidence_contents.results | map(attribute='content') | unique | length == 1
+        fail_msg: Interrupted Proton transaction evidence sources differ.
+      no_log: true
+
+    - name: Require strict completed qualification evidence for qualification resume
+      ansible.builtin.assert:
+        that:
+          - evidence.keys() | sort == expected_keys | sort
+          - evidence.version == 1
+          - evidence.state == 'qualified'
+          - evidence.account_username_sha256 == backups.restic.qualification.username_sha256
+          - evidence.allocated_bytes == backups.restic.repositories.proton.allocated_bytes
+          - evidence.used_bytes < backups.restic.proton.hard_failure_used_bytes
+          - evidence.free_bytes >= 0
+          - evidence.fixture_bytes == backups.restic.qualification.fixture_bytes
+          - evidence.fixture_sha256 is match('^[0-9a-f]{64}$')
+          - evidence.range_offset == backups.restic.qualification.range_offset
+          - evidence.range_count == backups.restic.qualification.range_count
+          - evidence.operations == ['about', 'lsjson', 'copyto', 'cat', 'moveto', 'deletefile', 'rmdir']
+          - evidence.cache_invalidation == 'pass'
+          - evidence.password_totp_reauthentication == 'pass'
+          - evidence.original_file_size == 'pass'
+          - evidence.replace_existing_draft == 'pass'
+          - evidence.remote_cleanup == 'pass'
+          - evidence.trash_cleanup == 'manual-only'
+          - evidence.verified_at is match('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')
+        fail_msg: Interrupted qualification evidence differs from the reviewed schema.
+      vars:
+        evidence: "{{ proton_resume_evidence_contents.results[0].content | b64decode | from_json }}"
+        expected_keys:
+          - account_username_sha256
+          - allocated_bytes
+          - cache_invalidation
+          - fixture_bytes
+          - fixture_sha256
+          - free_bytes
+          - operations
+          - original_file_size
+          - password_totp_reauthentication
+          - range_count
+          - range_offset
+          - remote_cleanup
+          - replace_existing_draft
+          - state
+          - trash_cleanup
+          - used_bytes
+          - verified_at
+          - version
+      no_log: true
+      when: proton_qualification_resume_action == 'qualification'
+
+    - name: Require strict completed recovery evidence for recovery resume
+      ansible.builtin.assert:
+        that:
+          - evidence.keys() | sort == expected_keys | sort
+          - evidence.account_username_sha256 == backups.restic.qualification.username_sha256
+          - evidence.recovered_files | difference(['fixture.bin', 'fixture-renamed.bin']) | length == 0
+          - evidence.recovered_files | unique | length == evidence.recovered_files | length
+          - evidence.remote_cleanup == 'pass'
+          - evidence.state == 'recovered'
+          - evidence.transaction_sha256 == proton_resume_transaction_sha256
+          - evidence.version == 1
+          - evidence.recovered_at is match('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')
+        fail_msg: Interrupted recovery evidence differs from the reviewed schema.
+      vars:
+        evidence: "{{ proton_resume_evidence_contents.results[0].content | b64decode | from_json }}"
+        expected_keys:
+          - account_username_sha256
+          - recovered_at
+          - recovered_files
+          - remote_cleanup
+          - state
+          - transaction_sha256
+          - version
+      no_log: true
+      when: proton_qualification_resume_action == 'recovery'
+
+    - name: Verify the dedicated remote qualification directory is absent
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/flock
+          - --exclusive
+          - --nonblock
+          - --
+          - "{{ backups.restic.runner.lock_path }}"
+          - /usr/local/libexec/home-lab/qualify-proton-backup
+          - inspect
+      become: true
+      become_user: restic-proton
+      register: proton_resume_remote_inspection
+      changed_when: false
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Require exact absent remote qualification state
+      ansible.builtin.assert:
+        that:
+          - proton_resume_remote_inspection.stdout == 'proton_qualification_remote=absent'
+        fail_msg: Dedicated Proton qualification directory is not absent.
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Report the exact interrupted transaction completion in check mode
+      ansible.builtin.debug:
+        msg: >-
+          Would validate the retained {{ proton_qualification_resume_action }} result, prove the
+          dedicated remote directory absent, complete only missing evidence publication, remove only
+          the validated transient result, and release only the proton-qualification lock.
+      changed_when: true
+      when: ansible_check_mode
+
+    - name: Publish missing root-owned qualification evidence
+      ansible.builtin.copy:
+        content: "{{ proton_resume_evidence_contents.results[0].content | b64decode }}"
+        dest: "{{ backups.restic.qualification.host_evidence_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      no_log: true
+      when:
+        - not ansible_check_mode
+        - proton_qualification_resume_action == 'qualification'
+
+    - name: Publish missing root-owned recovery evidence
+      ansible.builtin.copy:
+        content: "{{ proton_resume_evidence_contents.results[0].content | b64decode }}"
+        dest: "/var/lib/home-lab-restic/proton-qualification-recovery-{{ proton_resume_transaction_sha256 }}.json"
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      no_log: true
+      when:
+        - not ansible_check_mode
+        - proton_qualification_resume_action == 'recovery'
+
+    - name: Fetch completed qualification evidence for reviewed attestation
+      ansible.builtin.fetch:
+        src: "{{ backups.restic.qualification.host_evidence_path }}"
+        dest: "{{ playbook_dir }}/../../{{ backups.restic.qualification.evidence_file }}"
+        flat: true
+        validate_checksum: true
+      become: true
+      no_log: true
+      when:
+        - not ansible_check_mode
+        - proton_qualification_resume_action == 'qualification'
+
+    - name: Verify resumed qualification evidence hash on the controller
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/shasum
+          - -a
+          - "256"
+          - "{{ playbook_dir }}/../../{{ backups.restic.qualification.evidence_file }}"
+      delegate_to: localhost
+      become: false
+      register: proton_resume_fetched_hash
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - proton_qualification_resume_action == 'qualification'
+
+    - name: Require resumed fetched qualification evidence to remain exact
+      ansible.builtin.assert:
+        that:
+          - proton_resume_fetched_hash.stdout.split()[0] == (proton_resume_evidence_contents.results[0].content | b64decode | hash('sha256'))
+        fail_msg: Resumed controller qualification evidence differs from retained evidence.
+      no_log: true
+      when:
+        - not ansible_check_mode
+        - proton_qualification_resume_action == 'qualification'
+
+    - name: Remove only the validated transient result when present
+      ansible.builtin.file:
+        path: "{{ backups.restic.qualification.result_path }}"
+        state: absent
+      become: true
+      when: not ansible_check_mode
+
+  post_tasks:
+    - name: Release only the resumed Proton qualification lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: proton-qualification

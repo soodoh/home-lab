@@ -1,6 +1,7 @@
 "use strict";
 
 const path = require("node:path");
+const crypto = require("node:crypto");
 
 function globRegex(pattern) {
   let expression = "^";
@@ -26,6 +27,25 @@ function globRegex(pattern) {
     } else expression += character.replace(/[\\^$+?.()|{}]/g, "\\$&");
   }
   return new RegExp(`${expression}(?:/.*)?$`);
+}
+
+function validateProtonQualificationEvidence(policy, evidence, rawEvidence) {
+  const failures = [];
+  const qualification = policy.qualification;
+  if (qualification.state !== "qualified") return failures;
+  const evidenceSha256 = crypto.createHash("sha256").update(rawEvidence).digest("hex");
+  if (evidenceSha256 !== qualification.evidence_sha256) failures.push("Proton qualification evidence SHA-256 differs from the contract");
+  if (evidence.account_username_sha256 !== qualification.username_sha256) failures.push("Proton qualification account hash differs from the contract");
+  if (evidence.allocated_bytes !== policy.repositories.proton.allocated_bytes) failures.push("Proton qualification allocation differs from the contract");
+  if (evidence.fixture_bytes !== qualification.fixture_bytes
+      || evidence.range_offset !== qualification.range_offset
+      || evidence.range_count !== qualification.range_count) {
+    failures.push("Proton qualification fixture parameters differ from the contract");
+  }
+  if (evidence.verified_at !== qualification.verified_at) failures.push("Proton qualification timestamp differs from the contract");
+  if (evidence.trash_cleanup !== policy.proton.trash_cleanup) failures.push("Proton qualification Trash policy differs from the contract");
+  if (evidence.used_bytes >= policy.proton.hard_failure_used_bytes) failures.push("Proton qualification evidence crossed the hard quota boundary");
+  return failures;
 }
 
 function validateResticPolicy(policy) {
@@ -113,7 +133,31 @@ function validateResticPolicy(policy) {
       || policy.proton.hard_failure_used_bytes !== 900000000000) {
     failures.push("Proton quota thresholds must use the reviewed decimal GB/TB values");
   }
+  const qualification = policy.qualification;
+  const credentials = policy.credentials;
+  const usernameRecorded = typeof qualification.username_sha256 === "string";
+  const evidenceRecorded = typeof qualification.evidence_sha256 === "string" && typeof qualification.verified_at === "string";
+  if (qualification.state === "pending" && (
+    credentials.bootstrap_enabled !== false
+    || credentials.state !== "absent"
+    || qualification.username_sha256 !== null
+    || qualification.evidence_sha256 !== null
+    || qualification.verified_at !== null
+  )) failures.push("pending Proton qualification must remain credential-free and evidence-free");
+  if (qualification.state === "ready" && (
+    credentials.bootstrap_enabled !== true
+    || credentials.state !== "provisioned"
+    || !usernameRecorded
+    || qualification.evidence_sha256 !== null
+    || qualification.verified_at !== null
+  )) failures.push("ready Proton qualification requires provisioned credentials and an exact account hash");
+  if (qualification.state === "qualified" && (
+    credentials.bootstrap_enabled !== true
+    || credentials.state !== "provisioned"
+    || !usernameRecorded
+    || !evidenceRecorded
+  )) failures.push("qualified Proton state requires bound account and evidence hashes");
   return failures;
 }
 
-module.exports = { globRegex, validateResticPolicy };
+module.exports = { globRegex, validateProtonQualificationEvidence, validateResticPolicy };

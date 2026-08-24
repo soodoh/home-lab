@@ -939,4 +939,6 @@ PY
 "$repo_root/scripts/test-nextcloud-config"
 "$repo_root/scripts/test-compose-secret-files"
 python3 "$repo_root/scripts/test-restic-tools.py"
+python3 "$repo_root/scripts/test-proton-qualification.py"
+python3 "$repo_root/scripts/test-proton-transaction-boundaries.py"
 echo "recovery tool safety fixtures passed"

@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "account_username_sha256",
+    "allocated_bytes",
+    "cache_invalidation",
+    "fixture_bytes",
+    "fixture_sha256",
+    "free_bytes",
+    "operations",
+    "original_file_size",
+    "password_totp_reauthentication",
+    "range_count",
+    "range_offset",
+    "remote_cleanup",
+    "replace_existing_draft",
+    "state",
+    "trash_cleanup",
+    "used_bytes",
+    "verified_at",
+    "version"
+  ],
+  "properties": {
+    "account_username_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "allocated_bytes": { "const": 1000000000000 },
+    "cache_invalidation": { "const": "pass" },
+    "fixture_bytes": { "const": 4096 },
+    "fixture_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "free_bytes": { "type": "integer", "minimum": 0 },
+    "operations": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "about" },
+        { "const": "lsjson" },
+        { "const": "copyto" },
+        { "const": "cat" },
+        { "const": "moveto" },
+        { "const": "deletefile" },
+        { "const": "rmdir" }
+      ],
+      "items": false,
+      "minItems": 7,
+      "maxItems": 7
+    },
+    "original_file_size": { "const": "pass" },
+    "password_totp_reauthentication": { "const": "pass" },
+    "range_count": { "const": 1024 },
+    "range_offset": { "const": 1024 },
+    "remote_cleanup": { "const": "pass" },
+    "replace_existing_draft": { "const": "pass" },
+    "state": { "const": "qualified" },
+    "trash_cleanup": { "const": "manual-only" },
+    "used_bytes": { "type": "integer", "minimum": 0, "exclusiveMaximum": 900000000000 },
+    "verified_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "version": { "const": 1 }
+  }
+}

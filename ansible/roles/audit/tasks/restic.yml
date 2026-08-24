@@ -26,6 +26,40 @@
       - audit_restic_identity_groups.stdout.split() == ['restic-proton']
     fail_msg: Inert Restic service identity is aliased or has unexpected group access.
 
+- name: Inspect contract-governed Restic credential and qualification paths
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  loop:
+    - { name: local_password, path: /etc/home-lab/restic/credentials/local-password, owner: root, group: restic-proton, mode: '0440', provisioned: true }
+    - { name: proton_password, path: /etc/home-lab/restic/credentials/proton-password, owner: root, group: restic-proton, mode: '0440', provisioned: true }
+    - { name: rclone_config, path: /var/lib/restic-proton/rclone.conf, owner: restic-proton, group: restic-proton, mode: '0600', provisioned: true }
+    - { name: qualification_result, path: "{{ backups.restic.qualification.result_path }}", provisioned: false }
+    - { name: qualification_evidence, path: "{{ backups.restic.qualification.host_evidence_path }}", owner: root, group: root, mode: '0600', evidence: true }
+  become: true
+  register: audit_restic_protected_paths
+
+- name: Require exact Restic credential and qualification path states
+  ansible.builtin.assert:
+    that:
+      - >-
+        (expected_absent and not item.stat.exists) or
+        (not expected_absent and item.stat.isreg | default(false) and
+         not (item.stat.islnk | default(false)) and item.stat.nlink == 1 and
+         item.stat.pw_name == item.item.owner and item.stat.gr_name == item.item.group and
+         item.stat.mode == item.item.mode)
+    fail_msg: "Restic protected path {{ item.item.name }} differs from the contract state."
+  loop: "{{ audit_restic_protected_paths.results }}"
+  vars:
+    expected_absent: >-
+      {{
+        (item.item.provisioned | default(false) and backups.restic.credentials.state == 'absent') or
+        (item.item.evidence | default(false) and backups.restic.qualification.state != 'qualified') or
+        (not (item.item.provisioned | default(false)) and not (item.item.evidence | default(false)))
+      }}
+
 - name: Reject inert Restic identity ownership in protected source trees
   ansible.builtin.shell:
     cmd: >-

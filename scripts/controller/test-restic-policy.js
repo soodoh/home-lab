@@ -2,11 +2,15 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
+const Ajv2020 = require("ajv/dist/2020");
 const { load } = require("js-yaml");
-const { globRegex, validateResticPolicy } = require("./validate-restic-policy");
+const { globRegex, validateProtonQualificationEvidence, validateResticPolicy } = require("./validate-restic-policy");
 
 const base = load(fs.readFileSync("infrastructure/contract/home-lab.yml", "utf8")).backups.restic;
+const qualificationEvidenceSchema = JSON.parse(fs.readFileSync("infrastructure/evidence/proton-qualification.schema.json", "utf8"));
+const validateQualificationEvidenceSchema = new Ajv2020({ allErrors: true, strict: true }).compile(qualificationEvidenceSchema);
 const clone = () => structuredClone(base);
 assert.deepEqual(validateResticPolicy(base), []);
 assert(globRegex("/srv/**/cache/**").test("/srv/cache/value"));
@@ -62,5 +66,52 @@ assert(validateResticPolicy(fixture).some((failure) => failure.includes("must no
 fixture = clone();
 fixture.proton.hard_failure_used_bytes = 966367641600;
 assert(validateResticPolicy(fixture).some((failure) => failure.includes("decimal")));
+
+fixture = clone();
+fixture.credentials = { bootstrap_enabled: true, state: "provisioned" };
+fixture.qualification.state = "ready";
+fixture.qualification.username_sha256 = "a".repeat(64);
+assert.deepEqual(validateResticPolicy(fixture), []);
+
+fixture = clone();
+fixture.credentials = { bootstrap_enabled: true, state: "provisioned" };
+assert(validateResticPolicy(fixture).some((failure) => failure.includes("pending Proton qualification")));
+
+fixture = clone();
+fixture.qualification.state = "ready";
+assert(validateResticPolicy(fixture).some((failure) => failure.includes("ready Proton qualification")));
+
+fixture = clone();
+fixture.credentials = { bootstrap_enabled: true, state: "provisioned" };
+fixture.qualification.state = "qualified";
+fixture.qualification.username_sha256 = "a".repeat(64);
+fixture.qualification.verified_at = "2026-08-24T18:00:00Z";
+const qualificationEvidence = {
+  account_username_sha256: fixture.qualification.username_sha256,
+  allocated_bytes: 1000000000000,
+  cache_invalidation: "pass",
+  fixture_bytes: 4096,
+  fixture_sha256: "c".repeat(64),
+  free_bytes: 800000000000,
+  operations: ["about", "lsjson", "copyto", "cat", "moveto", "deletefile", "rmdir"],
+  original_file_size: "pass",
+  password_totp_reauthentication: "pass",
+  range_count: 1024,
+  range_offset: 1024,
+  remote_cleanup: "pass",
+  replace_existing_draft: "pass",
+  state: "qualified",
+  trash_cleanup: "manual-only",
+  used_bytes: 200000000000,
+  verified_at: fixture.qualification.verified_at,
+  version: 1,
+};
+assert(validateQualificationEvidenceSchema(qualificationEvidence));
+const rawQualificationEvidence = Buffer.from(`${JSON.stringify(qualificationEvidence)}\n`);
+fixture.qualification.evidence_sha256 = crypto.createHash("sha256").update(rawQualificationEvidence).digest("hex");
+assert.deepEqual(validateResticPolicy(fixture), []);
+assert.deepEqual(validateProtonQualificationEvidence(fixture, qualificationEvidence, rawQualificationEvidence), []);
+assert(validateProtonQualificationEvidence(fixture, qualificationEvidence, Buffer.from("{}\n"))
+  .some((failure) => failure.includes("SHA-256")));
 
 console.log("restic_policy_semantics=verified");

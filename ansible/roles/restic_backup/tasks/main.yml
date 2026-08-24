@@ -477,7 +477,7 @@
     group: restic-proton
     mode: "0440"
 
-- name: Install Restic runner and credential bootstrap helper
+- name: Install Restic runner and guarded credential or qualification helpers
   ansible.builtin.copy:
     src: "{{ item.src }}"
     dest: "{{ item.dest }}"
@@ -487,6 +487,7 @@
   loop:
     - { src: "{{ playbook_dir }}/../../scripts/restic-backup", dest: /usr/local/libexec/home-lab/restic-backup, mode: '0755' }
     - { src: "{{ playbook_dir }}/../../scripts/bootstrap-restic-credentials", dest: /usr/local/libexec/home-lab/bootstrap-restic-credentials, mode: '0750' }
+    - { src: "{{ playbook_dir }}/../../scripts/qualify-proton-backup", dest: /usr/local/libexec/home-lab/qualify-proton-backup, mode: '0750' }
 
 - name: Install canonical SOPS ciphertext for host-side credential bootstrap
   ansible.builtin.copy:
@@ -497,6 +498,19 @@
     mode: "0400"
   no_log: true
 
+- name: Require contract-backed credential materialization state
+  ansible.builtin.assert:
+    that:
+      - backups.legacy_offen.scheduler_state == 'quiesced'
+      - backups.restic.migration_state == 'inert'
+      - >-
+        backups.restic.credentials ==
+        {'bootstrap_enabled': true, 'state': 'provisioned'}
+      - backups.restic.qualification.state in ['ready', 'qualified']
+      - backups.legacy_offen.migration_archive_preservation.state == 'applied'
+      - backups.legacy_offen.migration_retention_hold.state == 'applied'
+    fail_msg: Restic credential materialization requires the reviewed quiesced migration state.
+  when: restic_credentials_bootstrap_enabled
 - name: Gather confined Restic identity records
   ansible.builtin.getent:
     database: "{{ item }}"

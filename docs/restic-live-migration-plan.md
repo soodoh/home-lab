@@ -202,6 +202,43 @@ rmdir <the now-empty dedicated qualification directory>
 
 It must never use `mount`, `sync`, `bisync`, `cleanup`, or `purge`. It must prove exact account identity, `1,000,000,000,000` allocated bytes, initial remote path emptiness, expected draft replacement behavior, original file sizes, bounded deletion, redacted errors, safe cache invalidation, and automatic password+TOTP reauthentication. Proton Trash remains manual.
 
+The prepared guarded workflow keeps `credentials.bootstrap_enabled: false`, credential state `absent`, qualification state `pending`, and the account hash/evidence fields `null`. Before any live login, add the required values through SOPS, compute only the SHA-256 of the decrypted Proton username without printing it, and commit a reviewed transition to credential state `provisioned` plus qualification state `ready`. The transition must leave migration `inert`, all repository IDs `null`, and every Restic unit disabled.
+
+Run and review the exact single-tag credential plan before separately authorizing its apply:
+
+```sh
+cd ansible
+ansible-playbook -i inventory/production.yml playbooks/site.yml --check --diff \
+  --tags restic_backup \
+  -e iac_apply_confirmed=true \
+  -e iac_apply_tag=restic_backup \
+  -e ssh_access_proven=true
+
+ansible-playbook -i inventory/production.yml playbooks/site.yml \
+  --tags restic_backup \
+  -e iac_apply_confirmed=true \
+  -e iac_apply_tag=restic_backup \
+  -e ssh_access_proven=true
+```
+
+After a zero-change credential postcheck, fresh access proofs, fresh AWS version evidence, and confirmation that Offen remains stopped, review the guarded qualification plan. The live command requires a second separate authorization:
+
+```sh
+ansible-playbook -i inventory/production.yml playbooks/qualify-proton-backup.yml --check --diff \
+  -e proton_qualification_confirmed=true \
+  -e proton_qualification_confirmation=qualify-proton-bounded-operations
+
+ansible-playbook -i inventory/production.yml playbooks/qualify-proton-backup.yml \
+  -e proton_qualification_confirmed=true \
+  -e proton_qualification_confirmation=qualify-proton-bounded-operations
+```
+
+A successful run fetches only bounded redacted JSON to `infrastructure/evidence/proton-qualification.json`. The evidence schema, helper SHA-256, exact account hash, quota, operation list, fixture parameters, and timestamp must validate before a reviewed commit can move qualification state to `qualified`. Pending and ready states reject a committed evidence file.
+
+A failure retains the exact `operation=proton-qualification` lock. The generic failed-lock clearer rejects this operation. If no result or published evidence exists, use only the separately authorized `recover-proton-qualification.yml` transaction after inspecting protected state, exact remote entries, processes, mounts, Offen, AWS hold, and recovery access. It refuses unknown remote entries and can delete only the two fixed fixture names before removing the empty dedicated directory.
+
+If qualification or recovery was interrupted after atomic result creation or evidence publication, use only `resume-proton-qualification.yml` with its exact `qualification` or `recovery` attestation. It validates one surviving evidence source or byte-identical retained copies, proves the remote qualification directory absent, completes only missing publication/fetch, removes only the validated transient result, and releases the exact lock. Never clear the lock merely to retry.
+
 ## Phase 6 — initialize three native Restic repositories
 
 After Proton qualification and an exclusive-client attestation, initialize games first. Initialize NFS and Proton from games with native Restic `init --from-repo ... --copy-chunker-params`. Use protected environment files; never put passwords on command lines and never mirror repository bytes with rclone.
