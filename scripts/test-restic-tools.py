@@ -323,6 +323,11 @@ def main() -> None:
     for service_user_playbook, exact_command in exact_service_user_commands:
         assert exact_command in service_user_playbook
         assert "become_user: restic-proton" not in service_user_playbook
+    controlled_failure_pattern = "is match('^proton_qualification=failed reason=[a-z0-9_]+$')"
+    for service_user_playbook, _exact_command in exact_service_user_commands:
+        assert service_user_playbook.count(controlled_failure_pattern) == 1
+        assert "failed_when: false" in service_user_playbook
+        assert "proton_qualification=failed reason=unclassified" in service_user_playbook
     for forbidden in ("cleanup", "delete", "mount", "nfsmount", "purge", "sync", "bisync"):
         assert f"/usr/local/bin/rclone {forbidden}" not in qualification_playbook
 

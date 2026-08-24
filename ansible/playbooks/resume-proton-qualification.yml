@@ -338,7 +338,31 @@
       become: true
       register: proton_resume_remote_inspection
       changed_when: false
+      failed_when: false
       no_log: true
+      when: not ansible_check_mode
+
+    - name: Capture only a controlled bounded resume inspection failure
+      ansible.builtin.set_fact:
+        proton_resume_failure_report: >-
+          {{
+            (((proton_resume_remote_inspection.stderr | default('') | trim)
+              is match('^proton_qualification=failed reason=[a-z0-9_]+$'))
+              | ternary(
+                  proton_resume_remote_inspection.stderr | default('') | trim,
+                  'proton_qualification=failed reason=unclassified'
+                ))
+          }}
+      no_log: true
+      when:
+        - not ansible_check_mode
+        - proton_resume_remote_inspection.rc != 0
+
+    - name: Require bounded Proton resume inspection helper success
+      ansible.builtin.assert:
+        that:
+          - proton_resume_remote_inspection.rc == 0
+        fail_msg: "{{ proton_resume_failure_report | default('proton_qualification=failed reason=unclassified') }}"
       when: not ansible_check_mode
 
     - name: Require exact absent remote qualification state

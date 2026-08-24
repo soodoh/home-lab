@@ -252,7 +252,31 @@
       become: true
       register: proton_qualification_run
       changed_when: true
+      failed_when: false
       no_log: true
+      when: not ansible_check_mode
+
+    - name: Capture only a controlled bounded qualification failure
+      ansible.builtin.set_fact:
+        proton_qualification_failure_report: >-
+          {{
+            (((proton_qualification_run.stderr | default('') | trim)
+              is match('^proton_qualification=failed reason=[a-z0-9_]+$'))
+              | ternary(
+                  proton_qualification_run.stderr | default('') | trim,
+                  'proton_qualification=failed reason=unclassified'
+                ))
+          }}
+      no_log: true
+      when:
+        - not ansible_check_mode
+        - proton_qualification_run.rc != 0
+
+    - name: Require bounded Proton qualification helper success
+      ansible.builtin.assert:
+        that:
+          - proton_qualification_run.rc == 0
+        fail_msg: "{{ proton_qualification_failure_report | default('proton_qualification=failed reason=unclassified') }}"
       when: not ansible_check_mode
 
     - name: Inspect protected qualification result

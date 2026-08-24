@@ -223,7 +223,31 @@
       become: true
       register: proton_recovery_run
       changed_when: true
+      failed_when: false
       no_log: true
+      when: not ansible_check_mode
+
+    - name: Capture only a controlled bounded recovery failure
+      ansible.builtin.set_fact:
+        proton_recovery_failure_report: >-
+          {{
+            (((proton_recovery_run.stderr | default('') | trim)
+              is match('^proton_qualification=failed reason=[a-z0-9_]+$'))
+              | ternary(
+                  proton_recovery_run.stderr | default('') | trim,
+                  'proton_qualification=failed reason=unclassified'
+                ))
+          }}
+      no_log: true
+      when:
+        - not ansible_check_mode
+        - proton_recovery_run.rc != 0
+
+    - name: Require bounded Proton recovery helper success
+      ansible.builtin.assert:
+        that:
+          - proton_recovery_run.rc == 0
+        fail_msg: "{{ proton_recovery_failure_report | default('proton_qualification=failed reason=unclassified') }}"
       when: not ansible_check_mode
 
     - name: Read exact qualification recovery result
