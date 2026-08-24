@@ -884,6 +884,13 @@ assert "days_after_initiation = local.contract.backups.legacy_offen.incomplete_m
 assert "expired_object_delete_marker = true" in lifecycle
 iam = (repo / "infrastructure/tofu/aws-foundation/iam.tf").read_text()
 assert iam.count('"s3:ListBucketVersions"') == 3
+bucket_policies = (repo / "infrastructure/tofu/aws-foundation/policies.tf").read_text()
+assert 'sid       = "AllowBackupPrincipalVersionEvidence"' in bucket_policies
+assert 'actions   = ["s3:ListBucketVersions"]' in bucket_policies
+assert 'identifiers = [var.backup_principal_arn]' in bucket_policies
+assert 'resources = [aws_s3_bucket.recovery.arn]' in bucket_policies
+assert bucket_policies.count('sid     = "DenyInsecureTransport"') == 2
+assert bucket_policies.count('variable = "aws:SecureTransport"') == 2
 assert contract["backups"]["legacy_offen"]["remote_noncurrent_retention_days"] == 1
 group_vars = (repo / "ansible/group_vars/docker_host.yml").read_text()
 action_plan = (repo / "scripts/compose-action-plan.py").read_text()

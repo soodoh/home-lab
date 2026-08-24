@@ -43,6 +43,18 @@ data "aws_iam_policy_document" "tls_only_recovery" {
       values   = ["false"]
     }
   }
+
+  statement {
+    sid       = "AllowBackupPrincipalVersionEvidence"
+    effect    = "Allow"
+    actions   = ["s3:ListBucketVersions"]
+    resources = [aws_s3_bucket.recovery.arn]
+
+    principals {
+      type        = "AWS"
+      identifiers = [var.backup_principal_arn]
+    }
+  }
 }
 
 resource "aws_s3_bucket_policy" "recovery" {
