@@ -231,12 +231,22 @@
       ansible.builtin.set_fact:
         proton_recovery_failure_report: >-
           {{
-            (((proton_recovery_run.stderr | default('') | trim)
-              is match('^proton_qualification=failed reason=[a-z0-9_]+$'))
-              | ternary(
-                  proton_recovery_run.stderr | default('') | trim,
-                  'proton_qualification=failed reason=unclassified'
-                ))
+            (
+              proton_recovery_run.stderr
+              | default('')
+              | regex_search('(?m)^proton_qualification=failed reason=[a-z0-9_.-]+\r?$')
+              | default('', true)
+              | trim
+            )
+            if (
+              proton_recovery_run.stderr
+              | default('')
+              | regex_search('(?m)^proton_qualification=failed reason=[a-z0-9_.-]+\r?$')
+              | default('', true)
+              | length
+            ) > 0
+            else 'proton_qualification=failed reason=unclassified_stderr_sha256_'
+              ~ (proton_recovery_run.stderr | default('') | hash('sha256'))
           }}
       no_log: true
       when:

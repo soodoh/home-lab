@@ -346,12 +346,22 @@
       ansible.builtin.set_fact:
         proton_resume_failure_report: >-
           {{
-            (((proton_resume_remote_inspection.stderr | default('') | trim)
-              is match('^proton_qualification=failed reason=[a-z0-9_]+$'))
-              | ternary(
-                  proton_resume_remote_inspection.stderr | default('') | trim,
-                  'proton_qualification=failed reason=unclassified'
-                ))
+            (
+              proton_resume_remote_inspection.stderr
+              | default('')
+              | regex_search('(?m)^proton_qualification=failed reason=[a-z0-9_.-]+\r?$')
+              | default('', true)
+              | trim
+            )
+            if (
+              proton_resume_remote_inspection.stderr
+              | default('')
+              | regex_search('(?m)^proton_qualification=failed reason=[a-z0-9_.-]+\r?$')
+              | default('', true)
+              | length
+            ) > 0
+            else 'proton_qualification=failed reason=unclassified_stderr_sha256_'
+              ~ (proton_resume_remote_inspection.stderr | default('') | hash('sha256'))
           }}
       no_log: true
       when:

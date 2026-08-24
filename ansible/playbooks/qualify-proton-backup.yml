@@ -260,12 +260,22 @@
       ansible.builtin.set_fact:
         proton_qualification_failure_report: >-
           {{
-            (((proton_qualification_run.stderr | default('') | trim)
-              is match('^proton_qualification=failed reason=[a-z0-9_]+$'))
-              | ternary(
-                  proton_qualification_run.stderr | default('') | trim,
-                  'proton_qualification=failed reason=unclassified'
-                ))
+            (
+              proton_qualification_run.stderr
+              | default('')
+              | regex_search('(?m)^proton_qualification=failed reason=[a-z0-9_.-]+\r?$')
+              | default('', true)
+              | trim
+            )
+            if (
+              proton_qualification_run.stderr
+              | default('')
+              | regex_search('(?m)^proton_qualification=failed reason=[a-z0-9_.-]+\r?$')
+              | default('', true)
+              | length
+            ) > 0
+            else 'proton_qualification=failed reason=unclassified_stderr_sha256_'
+              ~ (proton_qualification_run.stderr | default('') | hash('sha256'))
           }}
       no_log: true
       when:
