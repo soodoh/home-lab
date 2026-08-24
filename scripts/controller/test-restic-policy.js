@@ -75,9 +75,12 @@ assert.deepEqual(validateResticPolicy(fixture), []);
 
 fixture = clone();
 fixture.credentials = { bootstrap_enabled: true, state: "provisioned" };
+fixture.qualification.state = "pending";
+fixture.qualification.username_sha256 = null;
 assert(validateResticPolicy(fixture).some((failure) => failure.includes("pending Proton qualification")));
 
 fixture = clone();
+fixture.credentials = { bootstrap_enabled: false, state: "absent" };
 fixture.qualification.state = "ready";
 assert(validateResticPolicy(fixture).some((failure) => failure.includes("ready Proton qualification")));
 

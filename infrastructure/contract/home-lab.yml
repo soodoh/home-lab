@@ -1446,8 +1446,8 @@ backups:
       hard_failure_used_bytes: 900000000000
       backlog_limit: 7
     qualification:
-      state: pending
-      username_sha256: null
+      state: ready
+      username_sha256: 809cd2b0e14ad028438ad5a0a7af801dce013a86a3f1d62926a605177198389b
       helper_sha256: fc7b52f32bdd255fedaea54278b9aa7772854e141de9610c4ffc38bb32b01fc3
       remote_directory: Backups/.home-lab-rclone-qualification
       result_path: /var/lib/restic-proton/proton-qualification-result.json
@@ -1489,8 +1489,8 @@ backups:
         maintenance_local: home-lab-restic-maintenance-local.service
         maintenance_proton: home-lab-restic-maintenance-proton.service
     credentials:
-      bootstrap_enabled: false
-      state: absent
+      bootstrap_enabled: true
+      state: provisioned
     credential_refs:
       local_password: RESTIC_LOCAL_PASSWORD
       proton_password: RESTIC_PROTON_PASSWORD

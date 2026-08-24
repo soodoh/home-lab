@@ -86,6 +86,8 @@ def main() -> None:
     assert policy["schedule"]["proton_independent_timer"] is False
     assert policy["proton"]["trash_cleanup"] == "manual-only"
     assert policy["repositories"]["games"]["id"] is None
+    assert policy["repositories"]["nfs"]["id"] is None
+    assert policy["repositories"]["proton"]["id"] is None
     assert policy["repositories"]["nfs"]["copy_chunker_params_from"] == "games"
     assert policy["repositories"]["proton"]["copy_chunker_params_from"] == "games"
     assert policy["repositories"]["proton"]["allocated_bytes"] == 1_000_000_000_000
@@ -94,9 +96,9 @@ def main() -> None:
     assert policy["retention"]["group_by"] == "host,paths"
     assert policy["restore"]["modes"] == ["staging"]
     assert policy["restore"]["activation_status"] == "unavailable-pending-isolated-proofs"
-    assert policy["credentials"] == {"bootstrap_enabled": False, "state": "absent"}
-    assert policy["qualification"]["state"] == "pending"
-    assert policy["qualification"]["username_sha256"] is None
+    assert policy["credentials"] == {"bootstrap_enabled": True, "state": "provisioned"}
+    assert policy["qualification"]["state"] == "ready"
+    assert policy["qualification"]["username_sha256"] == "809cd2b0e14ad028438ad5a0a7af801dce013a86a3f1d62926a605177198389b"
     assert policy["qualification"]["evidence_sha256"] is None
     assert policy["qualification"]["verified_at"] is None
     assert policy["qualification"]["remote_directory"] == "Backups/.home-lab-rclone-qualification"

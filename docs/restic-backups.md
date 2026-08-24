@@ -2,7 +2,7 @@
 
 ## Current state
 
-The checked-in Restic implementation is **inert**. Offen’s two scheduler containers are quiesced but remain defined, both protected Offen archive generations remain intact, and the AWS recovery hold remains managed at 365-day current-object retention. Restic repository IDs are deliberately `null`, credential bootstrap is contract-backed and disabled, Proton qualification is `pending`, and all Restic timers plus reboot recovery are installed disabled. Ordinary convergence must fail closed rather than initialize a repository, authenticate Proton, or create a snapshot.
+The checked-in Restic implementation is **inert**. Offen’s two scheduler containers are quiesced but remain defined, both protected Offen archive generations remain intact, and the AWS recovery hold remains managed at 365-day current-object retention. Restic repository IDs are deliberately `null`, credential provisioning is contract-backed, Proton qualification is `ready` but has not run, and all Restic timers plus reboot recovery remain disabled. This state does not authorize a Proton login, qualification, repository initialization, or snapshot.
 
 The final accepted Offen recovery point is:
 

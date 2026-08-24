@@ -7,8 +7,8 @@ The foundation is active for Compose. The trusted local controller stages the ex
 The repository contains only:
 
 - SOPS dotenv ciphertext at `secrets/production.sops.env`;
-- its sorted 90-name and non-secret blank-line manifests; and
-- two public age recipients in `.sops.yaml`: retained Arch rollback and independent recovery.
+- its sorted 94-name and non-secret blank-line manifests; and
+- three public age recipients in `.sops.yaml`: active Debian production, retained Arch rollback, and independent recovery.
 
 No production age identity is present in Git or repository files.
 
@@ -25,28 +25,24 @@ Standalone binaries were installed without a package transaction:
 
 The versions, release URLs, and checksums are also recorded in `ansible/group_vars/docker_host.yml`. `scripts/install-sops-age.sh` verifies the release archives and installed binaries before reporting success.
 
-## Server identity
+## Production and retained rollback identities
 
-The identity was generated directly on the server:
+The active Debian identity was generated directly on the server and was never exported:
 
 ```text
 /etc/sops/age             root:root 0700
 /etc/sops/age/keys.txt    root:root 0600
 ```
 
-Only this public recipient is recorded:
+Its public recipient is `age1atumjua6hxyls6z8v20tsgy72304x72lqjstwmwzqy5ma4txyfsse7xakv`; the generation and recipient transition are bound to `infrastructure/evidence/vm-100-debian-age-identity.json` and `infrastructure/evidence/vm-100-debian-sops-recipient.json`.
 
-```text
-age1vvzm5pczjum52v5alall8euucjen9q4v9xa5g0xmswhna5vare9qwv9rq6
-```
-
-The private identity was encrypted to the existing backup GPG recipient before transfer. The external recovery copy and its GPG ciphertext are stored on `Paul's MacBook` under `~/.config/sops/age-recovery`, both mode `0600` inside a mode `0700` directory. External `age-keygen -y` matched the server recipient, and an independent age encrypt/decrypt round trip passed. Private-key and passphrase content was never printed or placed in command arguments.
+The retained Arch rollback recipient is `age1vvzm5pczjum52v5alall8euucjen9q4v9xa5g0xmswhna5vare9qwv9rq6`. Its private identity was encrypted to the existing backup GPG recipient before transfer. The external recovery copy and its GPG ciphertext are stored on `Paul's MacBook` under `~/.config/sops/age-recovery`, both mode `0600` inside a mode `0700` directory. External `age-keygen -y` matched the retained recipient, and an independent age encrypt/decrypt round trip passed. Private-key and passphrase content was never printed or placed in command arguments.
 
 ## Independent recovery identity
 
 The independent recovery recipient is `age1ddk0qtwjclc2za5afrz5pl4j5kley02rqv2vh0s07c27a8t5u58sph58qm`. Its private identity and GPG escrow are controller-local under `~/.config/sops/home-lab-recovery`, mode `0600` in a mode `0700` directory. The GPG ciphertext also has a byte-identical external recovery copy.
 
-The cancelled NixOS runtime recipient was removed from `.sops.yaml` and the ciphertext with `sops updatekeys`. Decryption with the retained Arch recovery identity and secret-free two-recipient validation passed before the NixOS private identity and escrow were deleted.
+The cancelled NixOS runtime recipient was removed from `.sops.yaml` and the ciphertext with `sops updatekeys`. Decryption with the retained Arch recovery identity and secret-free two-recipient validation passed before the NixOS private identity and escrow were deleted; the active Debian recipient was added later through its separately attested transition.
 
 ## Encryption and exact reconstruction
 
@@ -57,7 +53,7 @@ SOPS dotenv encryption preserves all variable names, values, comments, and order
 3. `scripts/restore-dotenv-layout.py` deterministically restores those blank lines after decryption.
 4. Root-only verification decrypted into a mode `0700` temporary directory, reconstructed the layout, and used `cmp --silent` against the migration source.
 
-The final verification reported:
+The initial 90-variable migration verification reported:
 
 ```text
 server_sops_decryption=pass
@@ -67,12 +63,14 @@ variable_name_sets=pass count=90
 
 The migrated source checksum and metadata were unchanged during encryption. Production now uses only the root-owned reconstructed environment.
 
+The credential-ready transition increases the current manifest to 94 names and the layout to 138 source lines with the same 20 blank-line positions; the additional six content lines are five variables plus one encrypted section comment. Protected local verification matched all decrypted key names to that exact manifest; the historical 90-variable byte-match evidence remains unchanged.
+
 ## Secret-free validation
 
 Secret-free validation runs locally without an age identity and cannot decrypt production secrets. It:
 
 1. rejects tracked plaintext production environment files;
-2. requires the exact single-file `.sops.yaml` rule and both distinct public recipients;
+2. requires the exact single-file `.sops.yaml` rule and all three distinct public recipients;
 3. requires every application value and comment to use SOPS AES-GCM ciphertext;
 4. validates SOPS age, MAC, version, and recipient metadata;
 5. rejects missing, duplicate, or unexpected variable names;
@@ -82,7 +80,7 @@ Secret-free validation runs locally without an age identity and cannot decrypt p
 ## Safety boundaries
 
 - Do not use `SOPS_AGE_KEY`, which would place a private identity in an environment value.
-- Arch host decryption must use `SOPS_AGE_KEY_FILE=/etc/sops/age/keys.txt` with Ansible `no_log: true` and a root-only temporary file.
+- Production-host decryption must use `SOPS_AGE_KEY_FILE=/etc/sops/age/keys.txt` with Ansible `no_log: true` and a root-only temporary file.
 - Never print `sops decrypt` output or resolved Compose configuration.
 - Treat all decrypted Compose environment paths as root-only runtime or rollback inputs; never print or copy their contents.
 - Do not copy production identities into GitHub secrets, workflow files, artifacts, or summaries.
