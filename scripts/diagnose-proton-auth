@@ -210,6 +210,80 @@ def classify(returncode: int, stderr: bytes) -> str:
     return "rclone_unclassified"
 
 
+def parse_rotation_dotenv(raw: bytes) -> dict[str, str]:
+    try:
+        lines = raw.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        fail("rotation_dotenv_encoding")
+    values: dict[str, str] = {}
+    wanted = {
+        "RESTIC_LOCAL_PASSWORD",
+        "RESTIC_PROTON_PASSWORD",
+        "PROTON_BACKUP_USERNAME",
+        "PROTON_BACKUP_PASSWORD",
+        "PROTON_BACKUP_TOTP_SEED",
+        "PROTON_BACKUP_MAILBOX_PASSWORD",
+    }
+    for line in lines:
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key in wanted:
+            values[key] = value
+    required = wanted - {"PROTON_BACKUP_MAILBOX_PASSWORD"}
+    if not required <= values.keys() or any(not value or "\x00" in value or "\n" in value for value in values.values()):
+        fail("rotation_dotenv_values")
+    password = values["PROTON_BACKUP_PASSWORD"]
+    if len(password.encode("utf-8")) < 40 or not password.isascii() or not password.isalnum():
+        fail("proton_login_password_rotation_policy")
+    if password in {values["RESTIC_LOCAL_PASSWORD"], values["RESTIC_PROTON_PASSWORD"]}:
+        fail("proton_login_password_not_distinct")
+    return values
+
+
+def obscure(value: str) -> str:
+    result = subprocess.run(
+        [str(RCLONE), "obscure", "-"],
+        check=False,
+        input=(value + "\n").encode(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        env=controlled_environment(),
+    )
+    if result.returncode != 0:
+        fail(f"rclone_obscure_rc_{result.returncode}_stderr_sha256_{digest_bytes(result.stderr)}")
+    try:
+        obscured = result.stdout.decode("ascii").strip()
+    except UnicodeDecodeError:
+        fail("rclone_obscure_output")
+    if not obscured or "\n" in obscured:
+        fail("rclone_obscure_output")
+    return obscured
+
+
+def atomic_config(parser: ConfigParser, uid: int, gid: int) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".rclone.conf.", dir=CONFIG.parent)
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        os.fchown(descriptor, uid, gid)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            parser.write(stream)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(CONFIG)
+        directory_descriptor = os.open(CONFIG.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    require_regular(CONFIG, uid, gid, 0o600)
+
+
 def atomic_json(path: Path, value: dict[str, object], replace: bool) -> str:
     content = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
     if not replace:
@@ -430,6 +504,176 @@ def run_under_lock(expected_transaction: str, expected_script_sha256: str) -> No
     print(f"proton_auth_diagnostic=observed category={category} evidence_sha256={evidence_sha256}")
 
 
+def load_auth_diagnostic_evidence(expected_transaction: str, expected_sha256: str) -> dict[str, object]:
+    path = EVIDENCE_PARENT / f"proton-auth-diagnostic-{expected_transaction}.json"
+    require_regular(path, 0, 0, 0o600)
+    try:
+        content = path.read_bytes()
+        evidence = json.loads(content)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        fail("auth_diagnostic_evidence_invalid")
+    expected_keys = {
+        "account_username_sha256",
+        "category",
+        "observed_at",
+        "operation",
+        "remote_directory",
+        "rclone_rc",
+        "state",
+        "stderr_sha256",
+        "stdout_sha256",
+        "transaction_sha256",
+        "version",
+    }
+    if (
+        not isinstance(evidence, dict)
+        or set(evidence) != expected_keys
+        or digest_bytes(content) != expected_sha256
+        or evidence.get("transaction_sha256") != expected_transaction
+        or evidence.get("state") != "observed"
+        or evidence.get("operation") != "lsjson"
+        or evidence.get("remote_directory") != REMOTE_DIRECTORY
+        or evidence.get("category") == "reachable"
+    ):
+        fail("auth_diagnostic_evidence_invalid")
+    return evidence
+
+
+def run_rotation_under_lock(
+    expected_transaction: str,
+    expected_script_sha256: str,
+    expected_auth_evidence_sha256: str,
+    raw_dotenv: bytes,
+) -> None:
+    if os.getuid() != 0 or os.getgid() != 0:
+        fail("identity")
+    service = pwd.getpwnam("restic-proton")
+    service_group = grp.getgrnam("restic-proton")
+    if service.pw_uid != 60000 or service.pw_gid != 60000 or service_group.gr_gid != 60000:
+        fail("service_identity")
+    if digest_file(Path(__file__)) != expected_script_sha256:
+        fail("diagnostic_script_hash")
+    require_regular(MUTEX, 0, service_group.gr_gid, 0o660)
+    require_directory(EVIDENCE_PARENT, 0, 0, 0o750)
+    require_directory(CONFIG.parent, service.pw_uid, service.pw_gid, 0o700)
+    require_regular(RCLONE, 0, 0, 0o755)
+    policy = load_policy(service_group.gr_gid)
+    qualification = policy["qualification"]
+    tools = policy.get("tools")
+    if not isinstance(tools, dict) or not isinstance(tools.get("rclone"), dict):
+        fail("tool_policy")
+    if digest_file(RCLONE) != tools["rclone"].get("installed_sha256"):
+        fail("rclone_hash")
+    owner_content = validate_lock(expected_transaction)
+    require_no_backup_processes()
+    auth_evidence = load_auth_diagnostic_evidence(expected_transaction, expected_auth_evidence_sha256)
+    if auth_evidence.get("account_username_sha256") != qualification.get("username_sha256"):
+        fail("auth_diagnostic_account_identity")
+    values = parse_rotation_dotenv(raw_dotenv)
+    if digest_bytes(values["PROTON_BACKUP_USERNAME"].encode()) != qualification.get("username_sha256"):
+        fail("rotation_account_identity")
+    static_before = validate_config(service.pw_uid, service.pw_gid, qualification["username_sha256"])
+    if ("mailbox_password" in static_before) != ("PROTON_BACKUP_MAILBOX_PASSWORD" in values):
+        fail("rotation_mailbox_mode")
+    new_obscured_password = obscure(values["PROTON_BACKUP_PASSWORD"])
+    rotation_evidence_path = EVIDENCE_PARENT / f"proton-credential-rotation-{expected_transaction}.json"
+    if rotation_evidence_path.exists() or rotation_evidence_path.is_symlink():
+        fail("prior_rotation_evidence")
+    marker = {
+        "account_username_sha256": qualification["username_sha256"],
+        "auth_diagnostic_evidence_sha256": expected_auth_evidence_sha256,
+        "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "state": "started",
+        "transaction_sha256": expected_transaction,
+        "version": 1,
+    }
+    atomic_json(rotation_evidence_path, marker, replace=False)
+    parser = parser_from_config()
+    remote = parser["proton-backup"]
+    remote["password"] = new_obscured_password
+    for key in CACHE_KEYS:
+        remote.pop(key, None)
+    atomic_config(parser, service.pw_uid, service.pw_gid)
+    static_after = validate_config(service.pw_uid, service.pw_gid, qualification["username_sha256"])
+    for key, value in static_before.items():
+        if key != "password" and static_after.get(key) != value:
+            fail("rotation_static_config_drift")
+    if static_after.get("password") != new_obscured_password:
+        fail("rotation_password_update")
+    if CACHE_KEYS & set(parser_from_config()["proton-backup"]):
+        fail("rotation_cache_invalidation")
+    if validate_lock(expected_transaction) != owner_content:
+        fail("apply_lock_owner_drift")
+    evidence = {
+        "account_username_sha256": qualification["username_sha256"],
+        "auth_diagnostic_evidence_sha256": expected_auth_evidence_sha256,
+        "cache_invalidation": "pass",
+        "password_rotation": "pass",
+        "rotated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "state": "rotated",
+        "transaction_sha256": expected_transaction,
+        "version": 1,
+    }
+    evidence_sha256 = atomic_json(rotation_evidence_path, evidence, replace=True)
+    if validate_lock(expected_transaction) != owner_content:
+        fail("apply_lock_owner_drift")
+    print(f"proton_credential_rotation=passed evidence_sha256={evidence_sha256}")
+
+
+def supervise_rotation(
+    expected_transaction: str,
+    expected_script_sha256: str,
+    expected_auth_evidence_sha256: str,
+    raw_dotenv: bytes,
+) -> None:
+    if os.getuid() != 0 or os.getgid() != 0:
+        fail("identity")
+    if len(raw_dotenv) == 0 or len(raw_dotenv) > 1024 * 1024:
+        fail("rotation_dotenv_size")
+    if digest_file(Path(__file__)) != expected_script_sha256:
+        fail("diagnostic_script_hash")
+    service_gid = grp.getgrnam("restic-proton").gr_gid
+    require_regular(MUTEX, 0, service_gid, 0o660)
+    command = [
+        str(FLOCK),
+        "--exclusive",
+        "--nonblock",
+        "--conflict-exit-code",
+        "75",
+        "--",
+        str(MUTEX),
+        "/usr/bin/python3",
+        str(Path(__file__)),
+        "rotate-under-lock",
+        expected_transaction,
+        expected_script_sha256,
+        expected_auth_evidence_sha256,
+    ]
+    result = subprocess.run(
+        command,
+        check=False,
+        input=raw_dotenv,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=120,
+        env=controlled_environment(),
+    )
+    if result.returncode == 75:
+        fail("backup_mutex_busy")
+    if result.returncode != 0:
+        controlled = re.fullmatch(rb"proton_auth_diagnostic=failed reason=([a-z0-9_.-]+)\n?", result.stderr)
+        if controlled is not None:
+            fail(controlled.group(1).decode("ascii"))
+        fail(f"rotation_subprocess_rc_{result.returncode}_stderr_sha256_{digest_bytes(result.stderr)}")
+    try:
+        output = result.stdout.decode("ascii").strip()
+    except UnicodeDecodeError:
+        fail("rotation_output")
+    if re.fullmatch(r"proton_credential_rotation=passed evidence_sha256=[0-9a-f]{64}", output) is None:
+        fail("rotation_output")
+    print(output)
+
+
 def supervise(expected_transaction: str, expected_script_sha256: str) -> None:
     if os.getuid() != 0 or os.getgid() != 0:
         fail("identity")
@@ -478,16 +722,33 @@ def supervise(expected_transaction: str, expected_script_sha256: str) -> None:
 
 def main() -> None:
     try:
-        if len(sys.argv) != 4 or sys.argv[1] not in {"supervise", "under-lock"}:
+        if len(sys.argv) < 2:
+            fail("usage")
+        action = sys.argv[1]
+        if action in {"supervise", "under-lock"}:
+            if len(sys.argv) != 4:
+                fail("usage")
+            expected_transaction = sys.argv[2]
+            expected_script_sha256 = sys.argv[3]
+            if re.fullmatch(r"[0-9a-f]{64}", expected_transaction) is None or re.fullmatch(r"[0-9a-f]{64}", expected_script_sha256) is None:
+                fail("usage")
+            if action == "supervise":
+                supervise(expected_transaction, expected_script_sha256)
+            else:
+                run_under_lock(expected_transaction, expected_script_sha256)
+            return
+        if action not in {"rotate-supervise", "rotate-under-lock"} or len(sys.argv) != 5:
             fail("usage")
         expected_transaction = sys.argv[2]
         expected_script_sha256 = sys.argv[3]
-        if re.fullmatch(r"[0-9a-f]{64}", expected_transaction) is None or re.fullmatch(r"[0-9a-f]{64}", expected_script_sha256) is None:
+        expected_auth_evidence_sha256 = sys.argv[4]
+        if any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in (expected_transaction, expected_script_sha256, expected_auth_evidence_sha256)):
             fail("usage")
-        if sys.argv[1] == "supervise":
-            supervise(expected_transaction, expected_script_sha256)
+        raw_dotenv = sys.stdin.buffer.read(1024 * 1024 + 1)
+        if action == "rotate-supervise":
+            supervise_rotation(expected_transaction, expected_script_sha256, expected_auth_evidence_sha256, raw_dotenv)
         else:
-            run_under_lock(expected_transaction, expected_script_sha256)
+            run_rotation_under_lock(expected_transaction, expected_script_sha256, expected_auth_evidence_sha256, raw_dotenv)
     except DiagnosticError as error:
         print(f"proton_auth_diagnostic=failed reason={error}", file=sys.stderr)
         raise SystemExit(1) from None

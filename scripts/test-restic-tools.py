@@ -353,6 +353,35 @@ def main() -> None:
     assert classify(1, b"opaque provider failure") == "rclone_unclassified"
     for forbidden in ("copyto", "deletefile", "moveto", "rmdir", "purge", "sync", "bisync", "mount"):
         assert f'"{forbidden}"' not in auth_diagnostic
+    credential_rotation_playbook = (ROOT / "ansible/playbooks/rotate-proton-login-credential.yml").read_text()
+    assert "rotate-only-proton-login-password" in credential_rotation_playbook
+    assert f"proton_credential_rotation_script_sha256: {auth_diagnostic_sha256}" in credential_rotation_playbook
+    assert "proton_credential_rotation_expected_transaction_sha256" in credential_rotation_playbook
+    assert "proton_credential_rotation_expected_auth_evidence_sha256" in credential_rotation_playbook
+    assert "SOPS_AGE_KEY_FILE=/etc/sops/age/keys.txt" in credential_rotation_playbook
+    assert 'checksum: "{{ sops_sha256 }}"' in credential_rotation_playbook
+    assert "PATH=/usr/local/bin:/usr/bin:/bin" in credential_rotation_playbook
+    assert "/usr/bin/python3\n              {{ proton_credential_rotation_script_temp | quote }}" in credential_rotation_playbook
+    assert "rotate-supervise" in credential_rotation_playbook
+    assert "no_log: true" in credential_rotation_playbook
+    assert "apply_lock_action: release" not in credential_rotation_playbook
+    assert "proton-credential-rotation-{{ proton_credential_rotation_lock_owner.content | b64decode | hash('sha256') }}.json" in credential_rotation_playbook
+    assert "Remove only ephemeral Proton credential rotation inputs" in credential_rotation_playbook
+    assert 'action not in {"rotate-supervise", "rotate-under-lock"}' in auth_diagnostic
+    assert 'remote["password"] = new_obscured_password' in auth_diagnostic
+    assert "for key in CACHE_KEYS:" in auth_diagnostic
+    assert "rotation_static_config_drift" in auth_diagnostic
+    parse_rotation_dotenv = diagnostic_module["parse_rotation_dotenv"]
+    rotation_values = parse_rotation_dotenv(
+        (
+            "RESTIC_LOCAL_PASSWORD=" + "L" * 40 + "\n"
+            "RESTIC_PROTON_PASSWORD=" + "R" * 40 + "\n"
+            "PROTON_BACKUP_USERNAME=backup@example.test\n"
+            "PROTON_BACKUP_PASSWORD=" + "A1" * 20 + "\n"
+            "PROTON_BACKUP_TOTP_SEED=JBSWY3DPEHPK3PXP\n"
+        ).encode()
+    )
+    assert rotation_values["PROTON_BACKUP_PASSWORD"] == "A1" * 20
 
     def exact_service_user_command(*action_lines: str) -> str:
         return "\n".join(

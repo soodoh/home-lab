@@ -79,6 +79,26 @@ ansible-playbook -i inventory/production.yml playbooks/diagnose-proton-auth.yml 
 
 The controlled categories are `reachable`, `api_captcha`, `invalid_credentials`, `two_factor_rejected`, `account_key_incompatible`, `rate_limited`, `network_failure`, and `rclone_unclassified`. Raw provider output and remote listings remain only in the root supervisor’s memory, are reduced to SHA-256 values, and never reach Ansible output or evidence. The supervisor validates an execution marker created as `restic-proton`, preserves optional mailbox-password mode, requires static config values to remain byte-identical, and permits only an absent or complete four-field rclone `client_*` cache. It atomically replaces the initial `started` marker with redacted `observed` evidence only after revalidating the exact lock owner; interruption or local validation failure leaves the marker to prohibit a second request. Diagnosis performs no remote write, delete, move, cleanup, sync, mount, qualification, recovery, or lock-release operation.
 
+If a reviewed account password rotation must be reconciled while the failed qualification lock is retained, never run the ordinary credential bootstrap or edit `rclone.conf` manually. `rotate-proton-login-credential.yml` requires the exact retained owner hash and immutable authentication-diagnostic evidence hash. It stages only ephemeral encrypted SOPS ciphertext and a hash-pinned supervisor under `/run`; SOPS plaintext flows only through a protected stdin pipe. Under the existing backup mutex it validates the account identity and static config, requires a 40-byte minimum ASCII alphanumeric Proton login password distinct from both Restic passwords, atomically claims rotation evidence, changes only the obscured `password` field, removes only the complete four-field `client_*` cache when present, and proves every other static field is byte-identical. It makes no Proton request and never releases the production lock:
+
+```sh
+cd ansible
+ansible-playbook -i inventory/production.yml playbooks/rotate-proton-login-credential.yml --check --diff \
+  -e proton_credential_rotation_confirmed=true \
+  -e proton_credential_rotation_confirmation=rotate-only-proton-login-password \
+  -e proton_credential_rotation_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
+  -e proton_credential_rotation_expected_auth_evidence_sha256=b87ea466ac0e7234824d5a4bf8c59095534bd26eb38c8baaf0cce2faaf27a5ed
+
+# Requires separate authorization after reviewing the fresh plan.
+ansible-playbook -i inventory/production.yml playbooks/rotate-proton-login-credential.yml \
+  -e proton_credential_rotation_confirmed=true \
+  -e proton_credential_rotation_confirmation=rotate-only-proton-login-password \
+  -e proton_credential_rotation_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
+  -e proton_credential_rotation_expected_auth_evidence_sha256=b87ea466ac0e7234824d5a4bf8c59095534bd26eb38c8baaf0cce2faaf27a5ed
+```
+
+Interruption after the atomic claim leaves `state=started` evidence and prohibits another credential mutation until separately reviewed. Successful rotation retains root-owned `state=rotated` evidence bound to both the original diagnostic and retained transaction. Ordinary task success or failure removes both staged `/run` inputs; controller termination or host failure can leave only the encrypted ciphertext and root-only script until explicit cleanup or reboot clears `/run`.
+
 The generic `clear-failed-apply-lock.yml` transaction explicitly rejects `proton-qualification`. After inspection and fresh AWS/access proofs, plan the dedicated recovery transaction with the exact retained lock. Its only live remote mutations are `deletefile` for `fixture.bin` and/or `fixture-renamed.bin` when an exact bounded listing contains no other entry, followed by `rmdir` for the now-empty qualification directory:
 
 ```sh
