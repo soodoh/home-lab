@@ -84,6 +84,7 @@
         PATH: /usr/local/bin:/usr/bin:/bin
       register: proton_qualification_rclone_version
       changed_when: false
+      check_mode: false
 
     - name: Require the exact pinned rclone version before lock acquisition
       ansible.builtin.assert:

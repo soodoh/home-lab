@@ -276,6 +276,8 @@ def main() -> None:
     assert "qualify-proton-backup" in role
     assert "Require contract-backed credential materialization state" in role
     qualification_playbook = (ROOT / "ansible/playbooks/qualify-proton-backup.yml").read_text()
+    rclone_version_preflight = qualification_playbook.split("Inspect the pinned rclone version before lock acquisition", 1)[1].split("Require the exact pinned rclone version before lock acquisition", 1)[0]
+    assert "check_mode: false" in rclone_version_preflight
     assert "apply_lock_operation: proton-qualification" in qualification_playbook
     assert "qualify-proton-bounded-operations" not in qualification_playbook
     assert "backups.restic.qualification.confirmation" in qualification_playbook
