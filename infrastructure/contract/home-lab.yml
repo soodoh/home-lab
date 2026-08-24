@@ -1271,7 +1271,7 @@ nextcloud:
   old_path_cleanup_gate: nextcloud-old-paths-reviewed-after-recovery-proof
 backups:
   legacy_offen:
-    scheduler_state: active
+    scheduler_state: quiesced
     scheduler_services:
       - daily-local-backup
       - weekly-remote-backup

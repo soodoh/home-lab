@@ -111,7 +111,7 @@ ansible-playbook -i inventory/production.yml playbooks/quiesce-offen-backups.yml
   -e offen_scheduler_transition_confirmation=stop-offen-keep-definitions-and-archives
 ```
 
-Rollback requires a separately reviewed commit returning `scheduler_state: active`, followed by the same playbook with `offen_scheduler_action=resume` and confirmation `resume-offen-existing-definitions`. The resume path deliberately does not require the AWS or full-audit gate so it remains available for partial-transition recovery.
+Rollback requires first inspecting exact partial container/archive/inventory state, then a separately reviewed and pushed commit returning `scheduler_state: active`. If quiescence failed and retained the production ownership lock, check and separately authorize `clear-failed-apply-lock.yml` only for exact operation `offen-scheduler-quiesce` before running the same playbook with `offen_scheduler_action=resume` and confirmation `resume-offen-existing-definitions`. Never remove the lock manually. The resume path deliberately does not require the AWS or full-audit gate so it remains available for partial-transition recovery.
 
 Required postconditions:
 

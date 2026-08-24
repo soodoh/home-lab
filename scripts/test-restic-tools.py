@@ -23,7 +23,7 @@ def main() -> None:
     value = contract()
     policy = value["backups"]["restic"]
     offen = value["backups"]["legacy_offen"]
-    assert offen["scheduler_state"] == "active"
+    assert offen["scheduler_state"] == "quiesced"
     assert offen["scheduler_services"] == ["daily-local-backup", "weekly-remote-backup"]
     assert offen["migration_retention_hold"] == {
         "state": "applied",

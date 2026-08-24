@@ -48,6 +48,7 @@ invalidQuiescedWithoutRetentionHold.backups.legacy_offen.migration_retention_hol
 check(invalidQuiescedWithoutRetentionHold, false, "Offen quiescence requires an applied AWS retention hold");
 
 const plannedRetentionHold = structuredClone(contract);
+plannedRetentionHold.backups.legacy_offen.scheduler_state = "active";
 plannedRetentionHold.backups.legacy_offen.migration_retention_hold = {
   state: "planned",
   current_object_retention_days: 365,
