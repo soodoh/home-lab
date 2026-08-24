@@ -238,6 +238,8 @@ def main() -> None:
     assert "restic_backup" in steady_tags
     assert "restic-proton" in role and "groups: []" in role and "shell: /usr/sbin/nologin" in role
     assert "enabled: false" in role and "state: stopped" in role
+    assert "Inspect inert Restic unit state before enforcement" in role
+    assert "item.stdout_lines != ['inactive', item.item.value]" in role
     assert "qualify-proton-backup" in role
     assert "Require contract-backed credential materialization state" in role
     qualification_playbook = (ROOT / "ansible/playbooks/qualify-proton-backup.yml").read_text()

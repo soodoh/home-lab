@@ -582,19 +582,24 @@
     - restic_backup_units.changed
     - not ansible_check_mode
 
-- name: Keep every Restic unit disabled and stopped during inert deployment
+- name: Inspect inert Restic unit state before enforcement
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/systemctl
+      - show
+      - --property=ActiveState
+      - --property=UnitFileState
+      - --value
+      - "{{ item.key }}"
+  loop: "{{ restic_audit_inert_units | dict2items }}"
+  register: restic_backup_inert_unit_states
+  changed_when: false
+  check_mode: false
+
+- name: Keep only drifted Restic units disabled and stopped during inert deployment
   ansible.builtin.systemd_service:
-    name: "{{ item }}"
+    name: "{{ item.item.key }}"
     enabled: false
     state: stopped
-  loop:
-    - home-lab-restic-daily.timer
-    - home-lab-restic-daily.target
-    - home-lab-restic-daily-local.service
-    - home-lab-restic-daily-proton.service
-    - home-lab-restic-maintenance.timer
-    - home-lab-restic-maintenance.target
-    - home-lab-restic-maintenance-local.service
-    - home-lab-restic-maintenance-proton.service
-    - home-lab-restic-recover.service
-  when: not ansible_check_mode
+  loop: "{{ restic_backup_inert_unit_states.results }}"
+  when: item.stdout_lines != ['inactive', item.item.value]
