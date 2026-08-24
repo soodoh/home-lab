@@ -26,12 +26,12 @@ def main() -> None:
     assert offen["scheduler_state"] == "active"
     assert offen["scheduler_services"] == ["daily-local-backup", "weekly-remote-backup"]
     assert offen["migration_retention_hold"] == {
-        "state": "planned",
+        "state": "applied",
         "current_object_retention_days": 365,
-        "plan_sha256": None,
-        "recovery_object_version_id_sha256": None,
-        "verified_at": None,
-        "review_deadline": None,
+        "plan_sha256": "6239f3c0a67c66d2a3b23ca7dfa84853391fca98bf8b5b9d116004925d6684ae",
+        "recovery_object_version_id_sha256": "3e42bf4017bedaaac231ce234cc8be64536a87da0ba8e401b90967864c73a8c0",
+        "verified_at": "2026-08-24T16:48:02Z",
+        "review_deadline": "2026-09-23T16:48:02Z",
     }
     preservation = offen["migration_archive_preservation"]
     assert preservation["state"] in {"planned", "applied"}

@@ -37,11 +37,25 @@ if (validateProxmoxHostPolicy(contract).length) {
 
 const invalidQuiescedWithoutRetentionHold = structuredClone(contract);
 invalidQuiescedWithoutRetentionHold.backups.legacy_offen.scheduler_state = "quiesced";
+invalidQuiescedWithoutRetentionHold.backups.legacy_offen.migration_retention_hold = {
+  state: "planned",
+  current_object_retention_days: 365,
+  plan_sha256: null,
+  recovery_object_version_id_sha256: null,
+  verified_at: null,
+  review_deadline: null,
+};
 check(invalidQuiescedWithoutRetentionHold, false, "Offen quiescence requires an applied AWS retention hold");
 
 const plannedRetentionHold = structuredClone(contract);
-plannedRetentionHold.backups.legacy_offen.migration_retention_hold.state = "planned";
-plannedRetentionHold.backups.legacy_offen.migration_retention_hold.current_object_retention_days = 365;
+plannedRetentionHold.backups.legacy_offen.migration_retention_hold = {
+  state: "planned",
+  current_object_retention_days: 365,
+  plan_sha256: null,
+  recovery_object_version_id_sha256: null,
+  verified_at: null,
+  review_deadline: null,
+};
 check(plannedRetentionHold, true, "AWS retention hold accepts a pre-apply planned state while Offen remains active");
 
 const appliedRetentionHold = structuredClone(plannedRetentionHold);

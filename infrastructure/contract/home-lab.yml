@@ -1280,12 +1280,12 @@ backups:
       - /mnt/games/backups
       - /mnt/storage/backups
     migration_retention_hold:
-      state: planned
+      state: applied
       current_object_retention_days: 365
-      plan_sha256: null
-      recovery_object_version_id_sha256: null
-      verified_at: null
-      review_deadline: null
+      plan_sha256: 6239f3c0a67c66d2a3b23ca7dfa84853391fca98bf8b5b9d116004925d6684ae
+      recovery_object_version_id_sha256: 3e42bf4017bedaaac231ce234cc8be64536a87da0ba8e401b90967864c73a8c0
+      verified_at: "2026-08-24T16:48:02Z"
+      review_deadline: "2026-09-23T16:48:02Z"
     estimated_archive_bytes: 50000000000
     local_retention_days: 7
     remote_frequency: weekly
