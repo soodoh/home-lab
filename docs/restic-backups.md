@@ -61,6 +61,24 @@ Credential bootstrap is governed by `backups.restic.credentials`, not an indepen
 
 A failed qualification deliberately retains the owner-bearing production lock as operation `proton-qualification`. Do not rerun qualification, remove the lock, delete a remote object, or edit cached fields manually. Inspect the protected host result/evidence paths, rclone config metadata, exact dedicated remote directory, process state, mounts, Offen state, and AWS hold first. Generic rclone deletion, cleanup, purge, sync, bisync, and mount operations remain prohibited.
 
+When a provider failure is reduced to only an opaque stderr hash, use the separate `diagnose-proton-auth.yml` plan before considering another cleanup attempt. It requires the exact retained transaction, inert contract, stopped Offen schedulers, pinned helper/rclone hashes, exact protected mutex/config/evidence-directory metadata, no result or prior evidence, and zero Restic/rclone processes. Its live supervisor acquires the existing backup mutex through root-authorized `/usr/bin/flock`, atomically claims transaction evidence, revalidates the lock owner and full static rclone configuration under the mutex, then performs exactly one non-mutating `lsjson` against `Backups/.home-lab-rclone-qualification` through `runuser` as `restic-proton`. It never releases the production lock:
+
+```sh
+cd ansible
+ansible-playbook -i inventory/production.yml playbooks/diagnose-proton-auth.yml --check --diff \
+  -e proton_auth_diagnostic_confirmed=true \
+  -e proton_auth_diagnostic_confirmation=diagnose-only-proton-authentication \
+  -e proton_auth_diagnostic_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730
+
+# Requires separate authorization after reviewing the fresh plan.
+ansible-playbook -i inventory/production.yml playbooks/diagnose-proton-auth.yml \
+  -e proton_auth_diagnostic_confirmed=true \
+  -e proton_auth_diagnostic_confirmation=diagnose-only-proton-authentication \
+  -e proton_auth_diagnostic_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730
+```
+
+The controlled categories are `reachable`, `api_captcha`, `invalid_credentials`, `two_factor_rejected`, `account_key_incompatible`, `rate_limited`, `network_failure`, and `rclone_unclassified`. Raw provider output and remote listings remain only in the root supervisor’s memory, are reduced to SHA-256 values, and never reach Ansible output or evidence. The supervisor validates an execution marker created as `restic-proton`, preserves optional mailbox-password mode, requires static config values to remain byte-identical, and permits only an absent or complete four-field rclone `client_*` cache. It atomically replaces the initial `started` marker with redacted `observed` evidence only after revalidating the exact lock owner; interruption or local validation failure leaves the marker to prohibit a second request. Diagnosis performs no remote write, delete, move, cleanup, sync, mount, qualification, recovery, or lock-release operation.
+
 The generic `clear-failed-apply-lock.yml` transaction explicitly rejects `proton-qualification`. After inspection and fresh AWS/access proofs, plan the dedicated recovery transaction with the exact retained lock. Its only live remote mutations are `deletefile` for `fixture.bin` and/or `fixture-renamed.bin` when an exact bounded listing contains no other entry, followed by `rmdir` for the now-empty qualification directory:
 
 ```sh

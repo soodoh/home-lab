@@ -309,6 +309,49 @@ def main() -> None:
     assert "proton_recovery_helper_before_access_repair.stat.checksum == backups.restic.qualification.helper_sha256" in recovery_playbook
     assert "Grant only restic-proton execute access to the exact qualification helper" in recovery_playbook
     assert "ansible_check_mode\n              and item.item.name == 'helper'\n              and item.stat.gr_name == 'root'" in recovery_playbook
+    auth_diagnostic_playbook = (ROOT / "ansible/playbooks/diagnose-proton-auth.yml").read_text()
+    assert "diagnose-only-proton-authentication" in auth_diagnostic_playbook
+    assert "proton_auth_diagnostic_expected_transaction_sha256" in auth_diagnostic_playbook
+    assert "operation=proton-qualification" in auth_diagnostic_playbook
+    assert "proton-auth-diagnostic-{{ proton_auth_diagnostic_lock_owner.content | b64decode | hash('sha256') }}.json" in auth_diagnostic_playbook
+    auth_diagnostic_path = ROOT / "scripts/diagnose-proton-auth"
+    auth_diagnostic = auth_diagnostic_path.read_text()
+    auth_diagnostic_sha256 = hashlib.sha256(auth_diagnostic_path.read_bytes()).hexdigest()
+    assert f"proton_auth_diagnostic_script_sha256: {auth_diagnostic_sha256}" in auth_diagnostic_playbook
+    assert "ansible.builtin.script:" in auth_diagnostic_playbook
+    assert "failed_when: false" in auth_diagnostic_playbook
+    assert "Capture only a controlled Proton authentication diagnostic failure" in auth_diagnostic_playbook
+    assert "backup_mutex" in auth_diagnostic_playbook and "evidence_parent" in auth_diagnostic_playbook
+    assert "atomic Proton authentication diagnostic evidence" in auth_diagnostic_playbook
+    assert "apply_lock_action: release" not in auth_diagnostic_playbook
+    assert "proton_auth_diagnostic_evidence_path" in auth_diagnostic_playbook
+    assert 'FLOCK = Path("/usr/bin/flock")' in auth_diagnostic
+    assert 'RUNUSER = Path("/usr/sbin/runuser")' in auth_diagnostic
+    assert 'REMOTE_DIRECTORY = "Backups/.home-lab-rclone-qualification"' in auth_diagnostic
+    assert "os.O_EXCL" in auth_diagnostic and '"state": "started"' in auth_diagnostic
+    assert "--conflict-exit-code" in auth_diagnostic and 'fail("backup_mutex_busy")' in auth_diagnostic
+    assert "validate_lock(expected_transaction)" in auth_diagnostic
+    assert auth_diagnostic.count("validate_lock(expected_transaction)") >= 3
+    assert "static_after != static_before" in auth_diagnostic
+    assert '"mailbox_password"' in auth_diagnostic
+    assert "launch_marker" in auth_diagnostic and 'fail("rclone_exec")' in auth_diagnostic
+    assert "print(result.stderr" not in auth_diagnostic and "print(result.stdout" not in auth_diagnostic
+    assert 'str(FLOCK),\n        "--exclusive",\n        "--nonblock"' in auth_diagnostic
+    assert 'str(RUNUSER),\n        "--user",\n        "restic-proton",\n        "--",\n        str(ENV)' in auth_diagnostic
+    assert '"-c",\n        \'umask 077; : > "$1"; shift; exec "$@"\'' in auth_diagnostic
+    diagnostic_module = runpy.run_path(str(auth_diagnostic_path), run_name="proton_auth_diagnostic_test_module")
+    classify = diagnostic_module["classify"]
+    assert classify(0, b"remote listing") == "reachable"
+    assert classify(3, b"not found") == "reachable"
+    assert classify(1, b"Code=9001") == "api_captcha"
+    assert classify(1, b"Code=8002") == "invalid_credentials"
+    assert classify(1, b"TOTP rejected") == "two_factor_rejected"
+    assert classify(1, b"missing signature") == "account_key_incompatible"
+    assert classify(1, b"Status=429") == "rate_limited"
+    assert classify(1, b"TLS handshake timeout") == "network_failure"
+    assert classify(1, b"opaque provider failure") == "rclone_unclassified"
+    for forbidden in ("copyto", "deletefile", "moveto", "rmdir", "purge", "sync", "bisync", "mount"):
+        assert f'"{forbidden}"' not in auth_diagnostic
 
     def exact_service_user_command(*action_lines: str) -> str:
         return "\n".join(

@@ -1,0 +1,480 @@
+#!/usr/bin/env python3
+"""Run one transaction-bound, redacted Proton authentication diagnostic."""
+
+from configparser import ConfigParser, Error as ConfigError
+from datetime import datetime, timezone
+import grp
+import hashlib
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+
+
+RCLONE = Path("/usr/local/bin/rclone")
+RUNUSER = Path("/usr/sbin/runuser")
+ENV = Path("/usr/bin/env")
+FLOCK = Path("/usr/bin/flock")
+SHELL = Path("/bin/sh")
+POLICY = Path("/etc/home-lab/restic-policy.json")
+CONFIG = Path("/var/lib/restic-proton/rclone.conf")
+CACHE = Path("/var/lib/restic-proton/cache")
+MUTEX = Path("/run/lock/home-lab-backup.lock")
+APPLY_LOCK = Path("/var/lib/iac-ansible-production.lock")
+EVIDENCE_PARENT = Path("/var/lib/home-lab-restic")
+RESULT = Path("/var/lib/restic-proton/proton-qualification-result.json")
+HOST_EVIDENCE = EVIDENCE_PARENT / "proton-qualification.json"
+REMOTE_DIRECTORY = "Backups/.home-lab-rclone-qualification"
+STATIC_KEYS = {
+    "type",
+    "username",
+    "password",
+    "mailbox_password",
+    "otp_secret_key",
+    "replace_existing_draft",
+    "enable_caching",
+    "original_file_size",
+}
+CACHE_KEYS = {
+    "client_uid",
+    "client_access_token",
+    "client_refresh_token",
+    "client_salted_key_pass",
+}
+CATEGORIES = {
+    "reachable",
+    "api_captcha",
+    "invalid_credentials",
+    "two_factor_rejected",
+    "account_key_incompatible",
+    "rate_limited",
+    "network_failure",
+    "rclone_unclassified",
+}
+
+
+class DiagnosticError(RuntimeError):
+    """A controlled local diagnostic failure."""
+
+
+def digest_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def digest_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def fail(reason: str) -> None:
+    if re.fullmatch(r"[a-z0-9_.-]+", reason) is None:
+        reason = "invalid_failure_reason"
+    raise DiagnosticError(reason)
+
+
+def require_regular(path: Path, uid: int, gid: int, mode: int) -> os.stat_result:
+    try:
+        metadata = path.lstat()
+    except OSError:
+        fail(f"{path.name}_absent")
+    if path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        fail(f"{path.name}_type")
+    if metadata.st_uid != uid or metadata.st_gid != gid or stat.S_IMODE(metadata.st_mode) != mode:
+        fail(f"{path.name}_metadata")
+    return metadata
+
+
+def require_directory(path: Path, uid: int, gid: int, mode: int) -> os.stat_result:
+    try:
+        metadata = path.lstat()
+    except OSError:
+        fail(f"{path.name}_absent")
+    if path.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+        fail(f"{path.name}_type")
+    if metadata.st_uid != uid or metadata.st_gid != gid or stat.S_IMODE(metadata.st_mode) != mode:
+        fail(f"{path.name}_metadata")
+    return metadata
+
+
+def load_policy(service_gid: int) -> dict[str, object]:
+    require_regular(POLICY, 0, service_gid, 0o440)
+    try:
+        policy = json.loads(POLICY.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        fail("policy_invalid")
+    if not isinstance(policy, dict):
+        fail("policy_invalid")
+    qualification = policy.get("qualification")
+    credentials = policy.get("credentials")
+    repositories = policy.get("repositories")
+    if (
+        policy.get("migration_state") != "inert"
+        or not isinstance(qualification, dict)
+        or qualification.get("state") != "ready"
+        or qualification.get("remote_directory") != REMOTE_DIRECTORY
+        or not isinstance(qualification.get("username_sha256"), str)
+        or credentials != {"bootstrap_enabled": True, "state": "provisioned"}
+        or not isinstance(repositories, dict)
+        or any(not isinstance(value, dict) or value.get("id") is not None for value in repositories.values())
+    ):
+        fail("policy_state")
+    return policy
+
+
+def validate_lock(expected_transaction: str) -> bytes:
+    require_directory(APPLY_LOCK, 0, 0, 0o700)
+    try:
+        entries = sorted(path.name for path in APPLY_LOCK.iterdir())
+    except OSError:
+        fail("apply_lock_contents")
+    if entries != ["owner"]:
+        fail("apply_lock_contents")
+    owner = APPLY_LOCK / "owner"
+    require_regular(owner, 0, 0, 0o600)
+    try:
+        content = owner.read_bytes()
+        lines = content.decode("utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        fail("apply_lock_owner")
+    if (
+        lines.count("controller=ansible-deploy") != 1
+        or lines.count("operation=proton-qualification") != 1
+        or len([line for line in lines if re.fullmatch(r"started=[0-9]{4}-[0-9]{2}-[0-9]{2}T.*", line)]) != 1
+        or len(lines) != 3
+        or digest_bytes(content) != expected_transaction
+    ):
+        fail("apply_lock_owner")
+    return content
+
+
+def parser_from_config() -> ConfigParser:
+    parser = ConfigParser(interpolation=None)
+    try:
+        with CONFIG.open(encoding="utf-8") as stream:
+            parser.read_file(stream)
+    except (OSError, UnicodeDecodeError, ConfigError):
+        fail("rclone_config_invalid")
+    return parser
+
+
+def validate_config(service_uid: int, service_gid: int, username_sha256: str) -> dict[str, str]:
+    require_regular(CONFIG, service_uid, service_gid, 0o600)
+    parser = parser_from_config()
+    if parser.sections() != ["proton-backup"]:
+        fail("rclone_config_identity")
+    remote = parser["proton-backup"]
+    keys = set(remote)
+    required_static = STATIC_KEYS - {"mailbox_password"}
+    if not required_static <= keys or not keys <= STATIC_KEYS | CACHE_KEYS:
+        fail("rclone_config_fields")
+    if any(not value or "\x00" in value or "\n" in value for value in remote.values()):
+        fail("rclone_config_values")
+    if (
+        remote.get("type") != "protondrive"
+        or remote.get("replace_existing_draft") != "true"
+        or remote.get("enable_caching") != "true"
+        or remote.get("original_file_size") != "true"
+        or digest_bytes(remote.get("username", "").encode()) != username_sha256
+    ):
+        fail("rclone_config_static_identity")
+    cache_present = CACHE_KEYS & keys
+    if cache_present and cache_present != CACHE_KEYS:
+        fail("rclone_auth_cache_partial")
+    return {key: remote[key] for key in sorted(STATIC_KEYS & keys)}
+
+
+def classify(returncode: int, stderr: bytes) -> str:
+    if returncode in {0, 3}:
+        return "reachable"
+    text = stderr.decode("utf-8", errors="replace")
+    if re.search(r"Code=9001|complete CAPTCHA", text):
+        return "api_captcha"
+    if re.search(r"Code=8002|Incorrect login credentials", text):
+        return "invalid_credentials"
+    if re.search(r"two-factor|2fa|totp|one-time password", text, re.IGNORECASE):
+        return "two_factor_rejected"
+    if re.search(r"missing signature|wrong type|invalid data: user ID signature", text, re.IGNORECASE):
+        return "account_key_incompatible"
+    if re.search(r"Code=429|Status=429|Too Many Requests", text):
+        return "rate_limited"
+    if re.search(r"network is unreachable|connection refused|no such host|i/o timeout|TLS handshake timeout|x509:", text, re.IGNORECASE):
+        return "network_failure"
+    return "rclone_unclassified"
+
+
+def atomic_json(path: Path, value: dict[str, object], replace: bool) -> str:
+    content = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    if not replace:
+        try:
+            descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except FileExistsError:
+            fail("prior_diagnostic_evidence")
+        try:
+            os.fchown(descriptor, 0, 0)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except BaseException:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+            raise
+    else:
+        descriptor, temporary_name = tempfile.mkstemp(prefix=".proton-auth-diagnostic.", dir=path.parent)
+        temporary = Path(temporary_name)
+        try:
+            os.fchmod(descriptor, 0o600)
+            os.fchown(descriptor, 0, 0)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(content)
+                stream.flush()
+                os.fsync(stream.fileno())
+            temporary.replace(path)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+    directory_descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory_descriptor)
+    finally:
+        os.close(directory_descriptor)
+    require_regular(path, 0, 0, 0o600)
+    return digest_bytes(content)
+
+
+def controlled_environment() -> dict[str, str]:
+    return {
+        "HOME": "/var/lib/restic-proton",
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    }
+
+
+def require_no_backup_processes() -> None:
+    for process in ("restic", "rclone"):
+        result = subprocess.run(
+            ["/usr/bin/pgrep", "--exact", process],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+            env=controlled_environment(),
+        )
+        if result.returncode != 1:
+            fail("concurrent_backup_process")
+
+
+def run_under_lock(expected_transaction: str, expected_script_sha256: str) -> None:
+    if os.getuid() != 0 or os.getgid() != 0:
+        fail("identity")
+    service = pwd.getpwnam("restic-proton")
+    service_group = grp.getgrnam("restic-proton")
+    if service.pw_uid != 60000 or service.pw_gid != 60000 or service_group.gr_gid != 60000:
+        fail("service_identity")
+    if digest_file(Path(__file__)) != expected_script_sha256:
+        fail("diagnostic_script_hash")
+    require_regular(MUTEX, 0, service_group.gr_gid, 0o660)
+    require_directory(EVIDENCE_PARENT, 0, 0, 0o750)
+    require_directory(CONFIG.parent, service.pw_uid, service.pw_gid, 0o700)
+    require_directory(CACHE, service.pw_uid, service.pw_gid, 0o700)
+    require_regular(RCLONE, 0, 0, 0o755)
+    require_regular(RUNUSER, 0, 0, 0o755)
+    require_regular(ENV, 0, 0, 0o755)
+    require_regular(SHELL, 0, 0, 0o755)
+    policy = load_policy(service_group.gr_gid)
+    qualification = policy["qualification"]
+    tools = policy.get("tools")
+    if not isinstance(tools, dict) or not isinstance(tools.get("rclone"), dict):
+        fail("tool_policy")
+    rclone_policy = tools["rclone"]
+    if digest_file(RCLONE) != rclone_policy.get("installed_sha256"):
+        fail("rclone_hash")
+    helper = Path("/usr/local/libexec/home-lab/qualify-proton-backup")
+    require_regular(helper, 0, service_group.gr_gid, 0o750)
+    if digest_file(helper) != qualification.get("helper_sha256"):
+        fail("qualification_helper_hash")
+    owner_content = validate_lock(expected_transaction)
+    require_no_backup_processes()
+    static_before = validate_config(service.pw_uid, service.pw_gid, qualification["username_sha256"])
+    recovery_evidence = EVIDENCE_PARENT / f"proton-qualification-recovery-{expected_transaction}.json"
+    evidence_path = EVIDENCE_PARENT / f"proton-auth-diagnostic-{expected_transaction}.json"
+    for path in (RESULT, HOST_EVIDENCE, recovery_evidence, evidence_path):
+        if path.exists() or path.is_symlink():
+            fail("prior_transaction_evidence")
+    started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    marker = {
+        "account_username_sha256": qualification["username_sha256"],
+        "started_at": started_at,
+        "state": "started",
+        "transaction_sha256": expected_transaction,
+        "version": 1,
+    }
+    atomic_json(evidence_path, marker, replace=False)
+    launch_marker = CACHE / f".proton-auth-diagnostic-launch-{expected_transaction}"
+    if launch_marker.exists() or launch_marker.is_symlink():
+        fail("prior_launch_marker")
+    rclone_arguments = [
+        str(RCLONE),
+        "--config",
+        str(CONFIG),
+        "--cache-dir",
+        str(CACHE),
+        "--log-level",
+        "ERROR",
+        "--stats",
+        "0",
+        "--retries",
+        "1",
+        "--low-level-retries",
+        "1",
+        "lsjson",
+        f"proton-backup:{REMOTE_DIRECTORY}",
+        "--max-depth",
+        "1",
+    ]
+    command = [
+        str(RUNUSER),
+        "--user",
+        "restic-proton",
+        "--",
+        str(ENV),
+        "-i",
+        "HOME=/var/lib/restic-proton",
+        "LANG=C.UTF-8",
+        "LC_ALL=C.UTF-8",
+        "PATH=/usr/local/bin:/usr/bin:/bin",
+        str(SHELL),
+        "-c",
+        'umask 077; : > "$1"; shift; exec "$@"',
+        "proton-auth-diagnostic-launch",
+        str(launch_marker),
+        *rclone_arguments,
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=600,
+            env=controlled_environment(),
+        )
+    except subprocess.SubprocessError:
+        fail("rclone_local_operation")
+    require_regular(launch_marker, service.pw_uid, service.pw_gid, 0o600)
+    if result.returncode in {126, 127}:
+        fail("rclone_exec")
+    launch_marker.unlink()
+    cache_descriptor = os.open(CACHE, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(cache_descriptor)
+    finally:
+        os.close(cache_descriptor)
+    category = classify(result.returncode, result.stderr)
+    if category not in CATEGORIES:
+        fail("diagnostic_category")
+    static_after = validate_config(service.pw_uid, service.pw_gid, qualification["username_sha256"])
+    if static_after != static_before:
+        fail("rclone_config_static_drift")
+    if validate_lock(expected_transaction) != owner_content:
+        fail("apply_lock_owner_drift")
+    evidence = {
+        "account_username_sha256": qualification["username_sha256"],
+        "category": category,
+        "observed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "operation": "lsjson",
+        "remote_directory": REMOTE_DIRECTORY,
+        "rclone_rc": result.returncode,
+        "state": "observed",
+        "stderr_sha256": digest_bytes(result.stderr),
+        "stdout_sha256": digest_bytes(result.stdout),
+        "transaction_sha256": expected_transaction,
+        "version": 1,
+    }
+    evidence_sha256 = atomic_json(evidence_path, evidence, replace=True)
+    if validate_lock(expected_transaction) != owner_content:
+        fail("apply_lock_owner_drift")
+    print(f"proton_auth_diagnostic=observed category={category} evidence_sha256={evidence_sha256}")
+
+
+def supervise(expected_transaction: str, expected_script_sha256: str) -> None:
+    if os.getuid() != 0 or os.getgid() != 0:
+        fail("identity")
+    if digest_file(Path(__file__)) != expected_script_sha256:
+        fail("diagnostic_script_hash")
+    service_gid = grp.getgrnam("restic-proton").gr_gid
+    require_regular(MUTEX, 0, service_gid, 0o660)
+    command = [
+        str(FLOCK),
+        "--exclusive",
+        "--nonblock",
+        "--conflict-exit-code",
+        "75",
+        "--",
+        str(MUTEX),
+        "/usr/bin/python3",
+        str(Path(__file__)),
+        "under-lock",
+        expected_transaction,
+        expected_script_sha256,
+    ]
+    result = subprocess.run(
+        command,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=660,
+        env=controlled_environment(),
+    )
+    if result.returncode == 75:
+        fail("backup_mutex_busy")
+    if result.returncode != 0:
+        controlled = re.fullmatch(rb"proton_auth_diagnostic=failed reason=([a-z0-9_.-]+)\n?", result.stderr)
+        if controlled is not None:
+            fail(controlled.group(1).decode("ascii"))
+        fail(f"diagnostic_subprocess_rc_{result.returncode}_stderr_sha256_{digest_bytes(result.stderr)}")
+    try:
+        output = result.stdout.decode("ascii").strip()
+    except UnicodeDecodeError:
+        fail("diagnostic_output")
+    if re.fullmatch(r"proton_auth_diagnostic=observed category=[a-z_]+ evidence_sha256=[0-9a-f]{64}", output) is None:
+        fail("diagnostic_output")
+    print(output)
+
+
+def main() -> None:
+    try:
+        if len(sys.argv) != 4 or sys.argv[1] not in {"supervise", "under-lock"}:
+            fail("usage")
+        expected_transaction = sys.argv[2]
+        expected_script_sha256 = sys.argv[3]
+        if re.fullmatch(r"[0-9a-f]{64}", expected_transaction) is None or re.fullmatch(r"[0-9a-f]{64}", expected_script_sha256) is None:
+            fail("usage")
+        if sys.argv[1] == "supervise":
+            supervise(expected_transaction, expected_script_sha256)
+        else:
+            run_under_lock(expected_transaction, expected_script_sha256)
+    except DiagnosticError as error:
+        print(f"proton_auth_diagnostic=failed reason={error}", file=sys.stderr)
+        raise SystemExit(1) from None
+    except (OSError, KeyError, subprocess.SubprocessError):
+        print("proton_auth_diagnostic=failed reason=local_operation", file=sys.stderr)
+        raise SystemExit(1) from None
+
+
+if __name__ == "__main__":
+    main()
