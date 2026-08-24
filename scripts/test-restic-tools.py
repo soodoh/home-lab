@@ -2,6 +2,8 @@
 """Static and focused failure-path tests for the inert Restic implementation."""
 
 import json
+import contextlib
+import io
 from datetime import datetime
 import hashlib
 from pathlib import Path
@@ -209,6 +211,35 @@ def main() -> None:
     assert "except (ConfigError, OSError)" in bootstrap
     assert 'remote.get("original_file_size") != "true"' in bootstrap
     assert 'remote.get("otp_secret_key")' in bootstrap
+    bootstrap_module = runpy.run_path(str(ROOT / "scripts/bootstrap-restic-credentials"), run_name="restic_bootstrap_test_module")
+    parse_dotenv = bootstrap_module["parse_dotenv"]
+    valid_credentials = {
+        "RESTIC_LOCAL_PASSWORD": "a" * 32,
+        "RESTIC_PROTON_PASSWORD": "b" * 32,
+        "PROTON_BACKUP_USERNAME": "fixture-account",
+        "PROTON_BACKUP_PASSWORD": "fixture-login-password",
+        "PROTON_BACKUP_TOTP_SEED": "A" * 32,
+    }
+
+    def parse_credentials(values: dict[str, str]) -> dict[str, str]:
+        return parse_dotenv("".join(f"{key}={value}\n" for key, value in values.items()))
+
+    assert parse_credentials(valid_credentials) == valid_credentials
+    invalid_credentials = (
+        ({**valid_credentials, "RESTIC_LOCAL_PASSWORD": "short"}, "restic_password_minimum_length"),
+        ({**valid_credentials, "RESTIC_PROTON_PASSWORD": "a" * 32}, "restic_passwords_not_distinct"),
+        ({**valid_credentials, "PROTON_BACKUP_TOTP_SEED": "not-base32"}, "proton_totp_seed_format"),
+        ({**valid_credentials, "PROTON_BACKUP_TOTP_SEED": "A" * 17}, "proton_totp_seed_format"),
+    )
+    for invalid, expected_reason in invalid_credentials:
+        error = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(error):
+                parse_credentials(invalid)
+        except SystemExit:
+            assert expected_reason in error.getvalue()
+        else:
+            raise AssertionError(f"invalid credential fixture passed: {expected_reason}")
     qualification = (ROOT / "scripts/qualify-proton-backup").read_text()
     assert 'ALLOWED_COMMANDS = {"about", "cat", "copyto", "deletefile", "lsjson", "moveto", "rmdir"}' in qualification
     assert "stderr_sha256" in qualification and "digest_bytes(result.stderr)" in qualification

@@ -187,6 +187,8 @@ The operator must add these values through SOPS without exposing them in Git, sh
 - `PROTON_BACKUP_TOTP_SEED`;
 - optional `PROTON_BACKUP_MAILBOX_PASSWORD` only for two-password mode.
 
+The two Restic repository passwords must be distinct and at least 32 UTF-8 bytes each. The TOTP value must be the canonical uppercase unpadded Base32 seed rather than a temporary code; materialization validates both conditions before writing protected files.
+
 Enable credential bootstrap in a reviewed commit, rerun only the `restic_backup` tag, and verify protected files. Units remain disabled.
 
 The guarded qualification tool must use the pinned rclone build and a unique dedicated path. It may use only bounded operations equivalent to:

@@ -51,6 +51,8 @@ Before credential bootstrap can be explicitly enabled, the canonical SOPS dotenv
 - `PROTON_BACKUP_TOTP_SEED`; and
 - optional `PROTON_BACKUP_MAILBOX_PASSWORD` only for two-password mode.
 
+The two Restic repository passwords must each contain at least 32 UTF-8 bytes and must be distinct. The TOTP seed must be the canonical uppercase unpadded Base32 secret, not a temporary six-digit code. Credential materialization rejects these conditions before writing any protected target.
+
 `bootstrap-restic-credentials` receives decrypted dotenv only on standard input under Ansible `no_log`. It writes password files without command-line secrets. It creates an absent rclone config using `rclone obscure -`; on later runs it validates static account/backend options without overwriting rotating fields or cached state. Obscured values remain plaintext-equivalent.
 
 Credential bootstrap is governed by `backups.restic.credentials`, not an independent Ansible switch. A reviewed transition may set it to `bootstrap_enabled: true` and `state: provisioned` only while Offen is quiesced, archive preservation and the AWS hold remain applied, and qualification moves from `pending` to `ready` with the SHA-256 of the exact Proton username. The username itself, passwords, TOTP seed, mailbox password, and cached client tokens must never be logged or committed.
