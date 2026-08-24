@@ -76,19 +76,35 @@
       changed_when: true
       when: ansible_check_mode
 
-    - name: Remove only the inspected owner record
-      ansible.builtin.file:
-        path: "{{ apply_lock_path }}/owner"
-        state: absent
-      become: true
-      when: not ansible_check_mode
-
-    - name: Remove only the inspected failed lock
+    - name: Atomically detach and clear only the inspected failed lock
       ansible.builtin.command:
         argv:
-          - /usr/bin/rmdir
+          - /usr/bin/flock
+          - --exclusive
+          - --nonblock
           - --
+          - "{{ backups.restic.runner.lock_path }}"
+          - /usr/bin/bash
+          - -c
+          - >-
+            set -euo pipefail;
+            lock=$1;
+            expected_operation=$2;
+            owner="$lock/owner";
+            test "$(/usr/bin/stat --format='%U:%G:%a:%F' -- "$lock")" = 'root:root:700:directory';
+            test "$(/usr/bin/stat --format='%U:%G:%a:%h:%F' -- "$owner")" = 'root:root:600:1:regular file';
+            test "$(/usr/bin/find "$lock" -mindepth 1 -maxdepth 1 -printf x | /usr/bin/wc -c)" -eq 1;
+            /usr/bin/grep --fixed-strings --line-regexp -- 'controller=ansible-deploy' "$owner" >/dev/null;
+            /usr/bin/grep --fixed-strings --line-regexp -- "operation=$expected_operation" "$owner" >/dev/null;
+            test "$(/usr/bin/grep --extended-regexp --count '^started=[0-9]{4}-[0-9]{2}-[0-9]{2}T' "$owner")" -eq 1;
+            tombstone="${lock}.cleared.$$";
+            test ! -e "$tombstone";
+            /usr/bin/mv --no-target-directory -- "$lock" "$tombstone";
+            /usr/bin/rm -- "$tombstone/owner";
+            /usr/bin/rmdir -- "$tombstone"
+          - clear-failed-apply-lock
           - "{{ apply_lock_path }}"
+          - "{{ iac_failed_lock_expected_operation }}"
       become: true
       changed_when: true
       when: not ansible_check_mode

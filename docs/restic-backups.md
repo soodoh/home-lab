@@ -79,6 +79,21 @@ Repository validation does not satisfy these operator gates:
 
 No automated workflow may empty Proton Trash. The warning threshold is 100 GB used or ten times active repository size, whichever is greater; new Proton copies hard-fail before 900 GB used while local backups remain available.
 
+## Inert deployment failure recovery
+
+A failed `restic_backup` convergence deliberately retains `/var/lib/iac-ansible-production.lock` and its exact owner record. Do not remove the directory manually and do not delete partially installed inert artifacts. First prove that no `restic` or `rclone` process exists, both Offen schedulers remain running, the games and NFS mount identities remain exact, no repository `config` exists, no credential file or rclone config was materialized, and every installed Restic unit is inactive and disabled or static. Inspect the lock as operation `restic_backup`, then plan and separately confirm only its exact clearance:
+
+```sh
+cd ansible
+ansible-playbook -i inventory/production.yml playbooks/clear-failed-apply-lock.yml --check \
+  -e iac_failed_lock_expected_operation=restic_backup
+ansible-playbook -i inventory/production.yml playbooks/clear-failed-apply-lock.yml \
+  -e iac_failed_lock_expected_operation=restic_backup \
+  -e iac_lock_clear_confirmed=true
+```
+
+After clearance, rerun check mode and review its complete scope before separately authorizing the same single-tag idempotent convergence. Lock acquisition prepares an exact owner-bearing directory off-path and atomically publishes it under the shared backup mutex; interruption cannot create an ownerless blocking lock. Successful release and failed-lock clearance revalidate and atomically detach that exact directory under the same mutex before cleanup. Recovery from a partial inert deployment is forward convergence—not repository initialization or artifact deletion. Postconditions require pinned binary hashes and versions, safe fixed ancestors, no cleartext credentials, absent repository configs, zero Restic/rclone processes, all nine units inactive and disabled/static, Offen unchanged, the production lock absent, and a complete read-only audit no-op.
+
 ## Static validation
 
 ```sh

@@ -316,6 +316,37 @@ def main() -> None:
     assert "${MEDIA_PATH}/calibre/books" in servarr
     assert "${MEDIA_PATH}/nextcloud/data" in nextcloud
 
+    restic_role = (ROOT / "ansible/roles/restic_backup/tasks/main.yml").read_text()
+    assert "Inspect fixed Restic deployment ancestors" in restic_role
+    assert "- { path: /usr/local/libexec, required: true }" in restic_role
+    assert "- { path: /usr/local/libexec/home-lab, required: false }" in restic_role
+    assert "- { path: /usr/local/libexec/home-lab, owner: root, group: root, mode: '0755' }" in restic_role
+    assert "Refusing to manage a non-directory or symlinked protected Restic destination." in restic_role
+
+    apply_lock = (ROOT / "ansible/roles/apply_lock/tasks/main.yml").read_text()
+    owner_publish = apply_lock.index("/usr/bin/printf 'controller=%s\\noperation=%s\\nstarted=%s\\n'")
+    acquire = apply_lock.index('/usr/bin/mv --no-target-directory -- "$staging" "$lock"', owner_publish)
+    assert owner_publish < acquire
+    detach = apply_lock.index('/usr/bin/mv --no-target-directory -- "$lock" "$tombstone"')
+    remove_owner = apply_lock.index('/usr/bin/rm -- "$tombstone/owner"', detach)
+    remove_tombstone = apply_lock.index('/usr/bin/rmdir -- "$tombstone"', remove_owner)
+    assert detach < remove_owner < remove_tombstone
+    assert "Record the production apply-lock owner" not in apply_lock
+    assert "apply_lock_guard_path if apply_lock_guard_path | length > 0 else apply_lock_backup_guard_path" in apply_lock
+
+    clear_failed_lock = (ROOT / "ansible/playbooks/clear-failed-apply-lock.yml").read_text()
+    clear_detach = clear_failed_lock.index('/usr/bin/mv --no-target-directory -- "$lock" "$tombstone"')
+    clear_owner = clear_failed_lock.index('/usr/bin/rm -- "$tombstone/owner"', clear_detach)
+    clear_tombstone = clear_failed_lock.index('/usr/bin/rmdir -- "$tombstone"', clear_owner)
+    assert clear_detach < clear_owner < clear_tombstone
+    assert "Remove only the inspected owner record" not in clear_failed_lock
+    assert '"{{ backups.restic.runner.lock_path }}"' in clear_failed_lock
+
+    restic_documentation = (ROOT / "docs/restic-backups.md").read_text()
+    assert "iac_failed_lock_expected_operation=restic_backup" in restic_documentation
+    assert "atomically publishes it under the shared backup mutex" in restic_documentation
+    assert "Recovery from a partial inert deployment is forward convergence" in restic_documentation
+
     foundation = (ROOT / "infrastructure/tofu/aws-foundation/main.tf").read_text()
     assert "resource \"aws_s3_bucket\" \"state\"" in foundation
     assert "prevent_destroy = true" in foundation

@@ -245,6 +245,30 @@
     state: present
 
 
+- name: Inspect fixed Restic deployment ancestors
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+  loop:
+    - { path: /etc/home-lab, required: false }
+    - { path: /usr/local/libexec, required: true }
+    - { path: /usr/local/libexec/home-lab, required: false }
+  register: restic_backup_fixed_ancestors
+
+- name: Require safe fixed Restic deployment ancestors
+  ansible.builtin.assert:
+    that:
+      - not item.item.required or (item.stat.exists | default(false))
+      - >-
+        not (item.stat.exists | default(false)) or
+        ((item.stat.isdir | default(false)) and
+        not (item.stat.islnk | default(false)) and
+        item.stat.pw_name == 'root' and
+        item.stat.gr_name == 'root' and
+        item.stat.mode == '0755')
+    fail_msg: Refusing Restic deployment through an absent or unsafe fixed ancestor.
+  loop: "{{ restic_backup_fixed_ancestors.results }}"
+
 - name: Inspect protected Restic directory destinations
   ansible.builtin.stat:
     path: "{{ item }}"
@@ -261,11 +285,13 @@
     - /mnt/storage/restic
   register: restic_backup_directory_destinations
 
-- name: Reject symlinked protected Restic directory destinations
+- name: Reject unsafe protected Restic directory destinations
   ansible.builtin.assert:
     that:
-      - not (item.stat.islnk | default(false))
-    fail_msg: Refusing to manage a symlinked protected Restic directory.
+      - >-
+        not (item.stat.exists | default(false)) or
+        ((item.stat.isdir | default(false)) and not (item.stat.islnk | default(false)))
+    fail_msg: Refusing to manage a non-directory or symlinked protected Restic destination.
   loop: "{{ restic_backup_directory_destinations.results }}"
 
 - name: Create protected Restic directories
@@ -277,6 +303,7 @@
     mode: "{{ item.mode }}"
   loop:
     - { path: /etc/home-lab, owner: root, group: root, mode: '0755' }
+    - { path: /usr/local/libexec/home-lab, owner: root, group: root, mode: '0755' }
     - { path: /etc/home-lab/restic, owner: root, group: restic-proton, mode: '0750' }
     - { path: /etc/home-lab/restic/credentials, owner: root, group: restic-proton, mode: '0750' }
     - { path: /var/lib/home-lab-restic, owner: root, group: root, mode: '0750' }
