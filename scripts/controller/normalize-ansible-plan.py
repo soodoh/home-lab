@@ -11,6 +11,12 @@ if len(sys.argv) != 2:
 
 text = Path(sys.argv[1]).read_text(encoding="utf-8")
 text = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", text)
+inline_timing = re.compile(r"(?P<key>'(?:delta|end|start)'\s*:\s*)'[^']*'")
+text = re.sub(
+    r"(?m)^(?:ok|changed|failed|fatal|skipping): \[[^\n]*$",
+    lambda match: inline_timing.sub(r"\g<key>'<normalized>'", match.group(0)),
+    text,
+)
 text = re.sub(
     r'(?m)^\s*"(?:delta|end|start)":\s*"[^"]*",?\s*\n',
     "",

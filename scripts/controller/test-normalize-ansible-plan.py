@@ -36,6 +36,27 @@ class NormalizeAnsiblePlanTests(unittest.TestCase):
             "+++ after: /.ansible/tmp/<normalized>/<normalized>/file.j2\n",
         )
 
+    def test_normalizes_inline_task_result_timing(self) -> None:
+        first = (
+            "ok: [host] => (item={'start': '2026-08-24 17:13:05.070146', "
+            "'end': '2026-08-24 17:13:05.074606', 'delta': '0:00:00.004460'})\n"
+        )
+        second = (
+            "ok: [host] => (item={'start': '2026-08-24 17:13:24.554250', "
+            "'end': '2026-08-24 17:13:24.558378', 'delta': '0:00:00.004128'})\n"
+        )
+        normalized = self.normalize(first)
+        self.assertEqual(normalized, self.normalize(second))
+        self.assertEqual(
+            normalized,
+            "ok: [host] => (item={'start': '<normalized>', "
+            "'end': '<normalized>', 'delta': '<normalized>'})\n",
+        )
+
+    def test_preserves_timing_fields_outside_callback_result_headers(self) -> None:
+        content = "+ payload = {'start': 'reviewed', 'end': 'preserved'}\n"
+        self.assertEqual(self.normalize(content), content)
+
 
 if __name__ == "__main__":
     unittest.main()
