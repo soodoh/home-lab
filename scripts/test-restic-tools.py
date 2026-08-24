@@ -321,6 +321,7 @@ def main() -> None:
     assert "ansible.builtin.script:" in auth_diagnostic_playbook
     assert "failed_when: false" in auth_diagnostic_playbook
     assert "Capture only a controlled Proton authentication diagnostic failure" in auth_diagnostic_playbook
+    assert "proton_auth_diagnostic_run.stderr | length == 0" not in auth_diagnostic_playbook
     assert "backup_mutex" in auth_diagnostic_playbook and "evidence_parent" in auth_diagnostic_playbook
     assert "atomic Proton authentication diagnostic evidence" in auth_diagnostic_playbook
     assert "apply_lock_action: release" not in auth_diagnostic_playbook

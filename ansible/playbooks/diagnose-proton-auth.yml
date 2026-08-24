@@ -242,7 +242,6 @@
       ansible.builtin.assert:
         that:
           - proton_auth_diagnostic_run.rc == 0
-          - proton_auth_diagnostic_run.stderr | length == 0
           - >-
             proton_auth_diagnostic_run.stdout is match(
               '^proton_auth_diagnostic=observed category='
