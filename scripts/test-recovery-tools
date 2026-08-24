@@ -882,6 +882,8 @@ assert "backups.legacy_offen.remote_retention_days" in lifecycle
 assert "noncurrent_days = local.contract.backups.legacy_offen.remote_noncurrent_retention_days" in lifecycle
 assert "days_after_initiation = local.contract.backups.legacy_offen.incomplete_multipart_abort_days" in lifecycle
 assert "expired_object_delete_marker = true" in lifecycle
+iam = (repo / "infrastructure/tofu/aws-foundation/iam.tf").read_text()
+assert iam.count('"s3:ListBucketVersions"') == 3
 assert contract["backups"]["legacy_offen"]["remote_noncurrent_retention_days"] == 1
 group_vars = (repo / "ansible/group_vars/docker_host.yml").read_text()
 action_plan = (repo / "scripts/compose-action-plan.py").read_text()

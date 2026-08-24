@@ -133,6 +133,7 @@ data "aws_iam_policy_document" "state_plan" {
       "s3:GetLifecycleConfiguration",
       "s3:GetReplicationConfiguration",
       "s3:ListBucket",
+      "s3:ListBucketVersions",
     ]
     resources = [aws_s3_bucket.state.arn, aws_s3_bucket.recovery.arn]
   }
@@ -201,6 +202,7 @@ data "aws_iam_policy_document" "state_apply" {
       "s3:GetLifecycleConfiguration",
       "s3:GetReplicationConfiguration",
       "s3:ListBucket",
+      "s3:ListBucketVersions",
       "s3:PutBucketOwnershipControls",
       "s3:PutBucketPolicy",
       "s3:PutBucketPublicAccessBlock",
@@ -287,7 +289,7 @@ resource "aws_iam_user" "recovery" {
 
 data "aws_iam_policy_document" "recovery" {
   statement {
-    actions   = ["s3:ListBucket"]
+    actions   = ["s3:ListBucket", "s3:ListBucketVersions"]
     resources = [aws_s3_bucket.recovery.arn, aws_s3_bucket.state.arn]
   }
   statement {
