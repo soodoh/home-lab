@@ -74,6 +74,8 @@ rclone_binary_sha256: f3f9aff817f9766029e50adf9a7963c169e475b8f10c7927823568a0d9
 restic_sops_ciphertext_source: "{{ playbook_dir }}/../../secrets/production.sops.env"
 restic_sops_ciphertext_path: /etc/home-lab/restic/production.sops.env
 restic_credentials_bootstrap_enabled: false
+restic_proton_uid: 60000
+restic_proton_gid: 60000
 
 compose_project_name: docker-compose
 apply_lock_path: /var/lib/iac-ansible-production.lock

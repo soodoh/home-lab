@@ -322,6 +322,28 @@ def main() -> None:
     assert "- { path: /usr/local/libexec/home-lab, required: false }" in restic_role
     assert "- { path: /usr/local/libexec/home-lab, owner: root, group: root, mode: '0755' }" in restic_role
     assert "Refusing to manage a non-directory or symlinked protected Restic destination." in restic_role
+    assert "gid: \"{{ restic_proton_gid }}\"" in restic_role
+    assert "uid: \"{{ restic_proton_uid }}\"" in restic_role
+    assert "Reject fixed restic-proton ownership in protected source trees" in restic_role
+    restic_group_vars = (ROOT / "ansible/group_vars/docker_host.yml").read_text()
+    assert "restic_proton_uid: 60000" in restic_group_vars
+    assert "restic_proton_gid: 60000" in restic_group_vars
+    restic_audit = (ROOT / "ansible/roles/audit/tasks/restic.yml").read_text()
+    assert "Require exact non-aliased inert Restic service identity" in restic_audit
+    assert "Reject inert Restic identity ownership in protected source trees" in restic_audit
+    for source in (restic_role, restic_audit):
+        assert "matches=$(/usr/bin/find /srv/home-lab-state /mnt/games" in source
+        assert 'test -z "$matches"' in source
+        assert 'test -z "$(/usr/bin/find /srv/home-lab-state /mnt/games' not in source
+    with tempfile.TemporaryDirectory() as directory:
+        failing_find = Path(directory) / "find"
+        failing_find.write_text("#!/bin/sh\nexit 7\n")
+        failing_find.chmod(0o700)
+        traversal = subprocess.run(
+            ["/bin/bash", "-c", 'set -euo pipefail; matches=$("$1"); test -z "$matches"', "ownership-scan", str(failing_find)],
+            check=False,
+        )
+        assert traversal.returncode == 7
 
     apply_lock = (ROOT / "ansible/roles/apply_lock/tasks/main.yml").read_text()
     owner_publish = apply_lock.index("/usr/bin/printf 'controller=%s\\noperation=%s\\nstarted=%s\\n'")

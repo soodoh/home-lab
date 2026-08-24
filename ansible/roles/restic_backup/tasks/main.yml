@@ -225,15 +225,50 @@
     fail_msg: Installed Restic or rclone version output differs from the contract.
   when: not ansible_check_mode or not restic_backup_install_required
 
+- name: Inspect fixed restic-proton identity targets
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/getent
+      - "{{ item.database }}"
+      - "{{ item.identifier | string }}"
+  loop:
+    - { database: passwd, identifier: "{{ restic_proton_uid }}" }
+    - { database: group, identifier: "{{ restic_proton_gid }}" }
+  register: restic_backup_identity_targets
+  changed_when: false
+  failed_when: restic_backup_identity_targets.rc not in [0, 2]
+  check_mode: false
+
+- name: Require fixed identity targets to be absent or already owned by restic-proton
+  ansible.builtin.assert:
+    that:
+      - item.rc == 2 or item.stdout.split(':') | first == 'restic-proton'
+    fail_msg: Refusing to alias the fixed restic-proton identity to another account.
+  loop: "{{ restic_backup_identity_targets.results }}"
+
+- name: Reject fixed restic-proton ownership in protected source trees
+  ansible.builtin.shell:
+    cmd: >-
+      set -euo pipefail;
+      matches=$(/usr/bin/find /srv/home-lab-state /mnt/games -xdev
+      \( -path /mnt/games/restic -prune -o
+      \( -uid {{ restic_proton_uid }} -o -gid {{ restic_proton_gid }} \) -print -quit \));
+      test -z "$matches"
+    executable: /bin/bash
+  changed_when: false
+  check_mode: false
+
 - name: Create confined restic-proton group
   ansible.builtin.group:
     name: restic-proton
+    gid: "{{ restic_proton_gid }}"
     system: true
     state: present
 
 - name: Create confined restic-proton user
   ansible.builtin.user:
     name: restic-proton
+    uid: "{{ restic_proton_uid }}"
     group: restic-proton
     groups: []
     append: false
@@ -244,7 +279,26 @@
     system: true
     state: present
 
+- name: Inspect exact confined restic-proton account and group
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/getent
+      - "{{ item }}"
+      - restic-proton
+  loop: [passwd, group]
+  register: restic_backup_identity_records
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
 
+- name: Require exact confined restic-proton numeric identity
+  ansible.builtin.assert:
+    that:
+      - restic_backup_identity_records.results[0].stdout.split(':')[2] == restic_proton_uid | string
+      - restic_backup_identity_records.results[0].stdout.split(':')[3] == restic_proton_gid | string
+      - restic_backup_identity_records.results[1].stdout.split(':')[2] == restic_proton_gid | string
+    fail_msg: restic-proton numeric identity differs from the fixed deployment identity.
+  when: not ansible_check_mode
 - name: Inspect fixed Restic deployment ancestors
   ansible.builtin.stat:
     path: "{{ item.path }}"

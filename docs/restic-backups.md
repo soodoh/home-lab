@@ -38,6 +38,10 @@ The Ansible `restic_backup` role installs official Linux amd64 binaries only:
 
 The role verifies archive and installed-binary hashes, exact versions, architecture, ownership, modes, and non-symlink destinations. `restic-proton` has no login shell, home creation, Docker group, sudo, or production-source access. Its service sandbox can read the games repository and write only its native `locks/` directory, replication evidence, and protected rclone state.
 
+`restic-proton` is fixed at UID/GID `60000`; automatic system-account allocation is forbidden. The first inert deployment auto-selected UID `999`, which aliased 504 pre-existing Nextcloud Redis/MariaDB state entries even though numeric ownership never changed. The deployment was therefore held after audit. UID/GID `60000` was verified absent from the local root filesystem, `/srv/home-lab-state`, and `/mnt/games` before selection. Ordinary convergence now rejects a conflicting account/group or matching ownership in protected local source trees, and the audit proves the exact numeric identity and absence of source-tree aliases. `/mnt/storage` remains inaccessible to the confined service and is not recursively scanned during routine convergence.
+
+Check mode reports the account/group change but cannot resolve all ownership updates against the future name mapping. The reviewed live remediation also reassigns `/var/lib/restic-proton` and its empty cache from UID `999`/GID `989` to `60000`, changes group ownership on the managed Restic directories and generated files from `989` to `60000`, and reconciles `/run/lock/home-lab-backup.lock` to root:`60000`. These mutations are confined to inert Restic artifacts. The 504 protected source entries retain numeric UID `999`; neither repository, credential, runner, unit activation, Offen, nor application state is mutated.
+
 Before credential bootstrap can be explicitly enabled, the canonical SOPS dotenv must contain:
 
 - `RESTIC_LOCAL_PASSWORD`;

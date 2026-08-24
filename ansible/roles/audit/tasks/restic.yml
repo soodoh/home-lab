@@ -1,4 +1,42 @@
 ---
+- name: Inspect exact inert Restic service identity
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/getent
+      - "{{ item }}"
+      - restic-proton
+  loop: [passwd, group]
+  register: audit_restic_identity_records
+  changed_when: false
+  check_mode: false
+
+- name: Inspect inert Restic supplementary groups
+  ansible.builtin.command:
+    argv: [/usr/bin/id, --groups, --name, restic-proton]
+  register: audit_restic_identity_groups
+  changed_when: false
+  check_mode: false
+
+- name: Require exact non-aliased inert Restic service identity
+  ansible.builtin.assert:
+    that:
+      - audit_restic_identity_records.results[0].stdout.split(':')[2] == restic_proton_uid | string
+      - audit_restic_identity_records.results[0].stdout.split(':')[3] == restic_proton_gid | string
+      - audit_restic_identity_records.results[1].stdout.split(':')[2] == restic_proton_gid | string
+      - audit_restic_identity_groups.stdout.split() == ['restic-proton']
+    fail_msg: Inert Restic service identity is aliased or has unexpected group access.
+
+- name: Reject inert Restic identity ownership in protected source trees
+  ansible.builtin.shell:
+    cmd: >-
+      set -euo pipefail;
+      matches=$(/usr/bin/find /srv/home-lab-state /mnt/games -xdev
+      \( -path /mnt/games/restic -prune -o
+      \( -uid {{ restic_proton_uid }} -o -gid {{ restic_proton_gid }} \) -print -quit \));
+      test -z "$matches"
+    executable: /bin/bash
+  changed_when: false
+  check_mode: false
 - name: Inspect inert Restic unit state
   ansible.builtin.command:
     argv:
