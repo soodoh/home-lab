@@ -20,7 +20,7 @@ RCLONE = Path("/usr/local/bin/rclone")
 RUNUSER = Path("/usr/sbin/runuser")
 ENV = Path("/usr/bin/env")
 FLOCK = Path("/usr/bin/flock")
-SHELL = Path("/bin/sh")
+INSTALL = Path("/usr/bin/install")
 POLICY = Path("/etc/home-lab/restic-policy.json")
 CONFIG = Path("/var/lib/restic-proton/rclone.conf")
 CACHE = Path("/var/lib/restic-proton/cache")
@@ -292,7 +292,7 @@ def run_under_lock(expected_transaction: str, expected_script_sha256: str) -> No
     require_regular(RCLONE, 0, 0, 0o755)
     require_regular(RUNUSER, 0, 0, 0o755)
     require_regular(ENV, 0, 0, 0o755)
-    require_regular(SHELL, 0, 0, 0o755)
+    require_regular(INSTALL, 0, 0, 0o755)
     policy = load_policy(service_group.gr_gid)
     qualification = policy["qualification"]
     tools = policy.get("tools")
@@ -325,7 +325,46 @@ def run_under_lock(expected_transaction: str, expected_script_sha256: str) -> No
     launch_marker = CACHE / f".proton-auth-diagnostic-launch-{expected_transaction}"
     if launch_marker.exists() or launch_marker.is_symlink():
         fail("prior_launch_marker")
-    rclone_arguments = [
+    marker_command = [
+        str(RUNUSER),
+        "--user",
+        "restic-proton",
+        "--",
+        str(ENV),
+        "-i",
+        "HOME=/var/lib/restic-proton",
+        "LANG=C.UTF-8",
+        "LC_ALL=C.UTF-8",
+        "PATH=/usr/local/bin:/usr/bin:/bin",
+        str(INSTALL),
+        "--mode",
+        "0600",
+        "/dev/null",
+        str(launch_marker),
+    ]
+    marker_result = subprocess.run(
+        marker_command,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        env=controlled_environment(),
+    )
+    if marker_result.returncode != 0:
+        fail(f"service_launch_marker_rc_{marker_result.returncode}_stderr_sha256_{digest_bytes(marker_result.stderr)}")
+    require_regular(launch_marker, service.pw_uid, service.pw_gid, 0o600)
+    command = [
+        str(RUNUSER),
+        "--user",
+        "restic-proton",
+        "--",
+        str(ENV),
+        "-i",
+        "HOME=/var/lib/restic-proton",
+        "LANG=C.UTF-8",
+        "LC_ALL=C.UTF-8",
+        "PATH=/usr/local/bin:/usr/bin:/bin",
         str(RCLONE),
         "--config",
         str(CONFIG),
@@ -344,24 +383,6 @@ def run_under_lock(expected_transaction: str, expected_script_sha256: str) -> No
         "--max-depth",
         "1",
     ]
-    command = [
-        str(RUNUSER),
-        "--user",
-        "restic-proton",
-        "--",
-        str(ENV),
-        "-i",
-        "HOME=/var/lib/restic-proton",
-        "LANG=C.UTF-8",
-        "LC_ALL=C.UTF-8",
-        "PATH=/usr/local/bin:/usr/bin:/bin",
-        str(SHELL),
-        "-c",
-        'umask 077; : > "$1"; shift; exec "$@"',
-        "proton-auth-diagnostic-launch",
-        str(launch_marker),
-        *rclone_arguments,
-    ]
     try:
         result = subprocess.run(
             command,
@@ -374,8 +395,7 @@ def run_under_lock(expected_transaction: str, expected_script_sha256: str) -> No
         )
     except subprocess.SubprocessError:
         fail("rclone_local_operation")
-    require_regular(launch_marker, service.pw_uid, service.pw_gid, 0o600)
-    if result.returncode in {126, 127}:
+    if result.stderr.startswith(b"runuser:") or result.returncode in {126, 127}:
         fail("rclone_exec")
     launch_marker.unlink()
     cache_descriptor = os.open(CACHE, os.O_RDONLY | os.O_DIRECTORY)

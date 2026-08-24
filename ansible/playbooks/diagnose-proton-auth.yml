@@ -7,7 +7,7 @@
     - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
     - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   vars:
-    proton_auth_diagnostic_script_sha256: 9d2a2afb2fb7cf214b6977e43c484701722b4295762f17aebe185912b5bc34a6
+    proton_auth_diagnostic_script_sha256: 895149c528dbdb115fe8c43a33e3ba56b9736f63b64b888506f007913bfaca96
   tasks:
     - name: Require exact Proton authentication diagnostic approval
       ansible.builtin.assert:
@@ -212,21 +212,26 @@
         proton_auth_diagnostic_failure_report: >-
           {{
             (
-              proton_auth_diagnostic_run.stderr
-              | default('')
+              diagnostic_failure_output
               | regex_search('(?m)^proton_auth_diagnostic=failed reason=[a-z0-9_.-]+\\r?$')
               | default('', true)
               | trim
             )
             if (
-              proton_auth_diagnostic_run.stderr
-              | default('')
+              diagnostic_failure_output
               | regex_search('(?m)^proton_auth_diagnostic=failed reason=[a-z0-9_.-]+\\r?$')
               | default('', true)
               | length
             ) > 0
-            else 'proton_auth_diagnostic=failed reason=unclassified_stderr_sha256_'
-              ~ (proton_auth_diagnostic_run.stderr | default('') | hash('sha256'))
+            else 'proton_auth_diagnostic=failed reason=unclassified_output_sha256_'
+              ~ (diagnostic_failure_output | hash('sha256'))
+          }}
+      vars:
+        diagnostic_failure_output: >-
+          {{
+            (proton_auth_diagnostic_run.stdout | default(''))
+            ~ '\n' ~ (proton_auth_diagnostic_run.stderr | default(''))
+            ~ '\n' ~ (proton_auth_diagnostic_run.msg | default('') | string)
           }}
       no_log: true
       when:

@@ -338,7 +338,7 @@ def main() -> None:
     assert "print(result.stderr" not in auth_diagnostic and "print(result.stdout" not in auth_diagnostic
     assert 'str(FLOCK),\n        "--exclusive",\n        "--nonblock"' in auth_diagnostic
     assert 'str(RUNUSER),\n        "--user",\n        "restic-proton",\n        "--",\n        str(ENV)' in auth_diagnostic
-    assert '"-c",\n        \'umask 077; : > "$1"; shift; exec "$@"\'' in auth_diagnostic
+    assert 'str(INSTALL),\n        "--mode",\n        "0600",\n        "/dev/null"' in auth_diagnostic
     diagnostic_module = runpy.run_path(str(auth_diagnostic_path), run_name="proton_auth_diagnostic_test_module")
     classify = diagnostic_module["classify"]
     assert classify(0, b"remote listing") == "reachable"
