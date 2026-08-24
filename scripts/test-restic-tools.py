@@ -26,8 +26,8 @@ def main() -> None:
     assert offen["scheduler_state"] == "active"
     assert offen["scheduler_services"] == ["daily-local-backup", "weekly-remote-backup"]
     assert offen["migration_retention_hold"] == {
-        "state": "absent",
-        "current_object_retention_days": 14,
+        "state": "planned",
+        "current_object_retention_days": 365,
         "plan_sha256": None,
         "recovery_object_version_id_sha256": None,
         "verified_at": None,

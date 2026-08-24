@@ -1280,8 +1280,8 @@ backups:
       - /mnt/games/backups
       - /mnt/storage/backups
     migration_retention_hold:
-      state: absent
-      current_object_retention_days: 14
+      state: planned
+      current_object_retention_days: 365
       plan_sha256: null
       recovery_object_version_id_sha256: null
       verified_at: null
