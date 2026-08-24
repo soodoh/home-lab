@@ -40,7 +40,7 @@
         - name: helper
           path: /usr/local/libexec/home-lab/qualify-proton-backup
           owner: root
-          group: root
+          group: restic-proton
           mode: "0750"
           checksum: "{{ backups.restic.qualification.helper_sha256 }}"
         - { name: rclone, path: /usr/local/bin/rclone, owner: root, group: root, mode: '0755', checksum: "{{ backups.restic.tools.rclone.installed_sha256 }}" }
@@ -190,7 +190,7 @@
         - { name: local_password, path: /etc/home-lab/restic/credentials/local-password, owner: root, group: restic-proton, mode: '0440', state: file }
         - { name: proton_password, path: /etc/home-lab/restic/credentials/proton-password, owner: root, group: restic-proton, mode: '0440', state: file }
         - { name: rclone_config, path: /var/lib/restic-proton/rclone.conf, owner: restic-proton, group: restic-proton, mode: '0600', state: file }
-        - { name: qualification_tool, path: /usr/local/libexec/home-lab/qualify-proton-backup, owner: root, group: root, mode: '0750', state: file }
+        - { name: qualification_tool, path: /usr/local/libexec/home-lab/qualify-proton-backup, owner: root, group: restic-proton, mode: '0750', state: file }
         - { name: qualification_result, path: "{{ backups.restic.qualification.result_path }}", state: absent }
         - { name: qualification_evidence, path: "{{ backups.restic.qualification.host_evidence_path }}", state: absent }
         - { name: games_config, path: "{{ backups.restic.repositories.games.path }}/config", state: absent }

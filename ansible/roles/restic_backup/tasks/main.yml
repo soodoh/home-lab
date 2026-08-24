@@ -482,12 +482,15 @@
     src: "{{ item.src }}"
     dest: "{{ item.dest }}"
     owner: root
-    group: root
+    group: "{{ item.group | default('root') }}"
     mode: "{{ item.mode }}"
   loop:
     - { src: "{{ playbook_dir }}/../../scripts/restic-backup", dest: /usr/local/libexec/home-lab/restic-backup, mode: '0755' }
     - { src: "{{ playbook_dir }}/../../scripts/bootstrap-restic-credentials", dest: /usr/local/libexec/home-lab/bootstrap-restic-credentials, mode: '0750' }
-    - { src: "{{ playbook_dir }}/../../scripts/qualify-proton-backup", dest: /usr/local/libexec/home-lab/qualify-proton-backup, mode: '0750' }
+    - src: "{{ playbook_dir }}/../../scripts/qualify-proton-backup"
+      dest: /usr/local/libexec/home-lab/qualify-proton-backup
+      group: restic-proton
+      mode: "0750"
 
 - name: Install canonical SOPS ciphertext for host-side credential bootstrap
   ansible.builtin.copy:

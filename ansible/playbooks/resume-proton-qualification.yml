@@ -144,7 +144,7 @@
         - name: helper
           path: /usr/local/libexec/home-lab/qualify-proton-backup
           owner: root
-          group: root
+          group: restic-proton
           mode: "0750"
           checksum: "{{ backups.restic.qualification.helper_sha256 }}"
         - { name: rclone, path: /usr/local/bin/rclone, owner: root, group: root, mode: '0755', checksum: "{{ backups.restic.tools.rclone.installed_sha256 }}" }

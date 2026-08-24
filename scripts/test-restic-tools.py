@@ -274,6 +274,8 @@ def main() -> None:
     assert "Inspect inert Restic unit state before enforcement" in role
     assert "item.stdout_lines != ['inactive', item.item.value]" in role
     assert "qualify-proton-backup" in role
+    assert 'group: "{{ item.group | default(\'root\') }}"' in role
+    assert "dest: /usr/local/libexec/home-lab/qualify-proton-backup\n      group: restic-proton\n      mode: \"0750\"" in role
     assert "Require contract-backed credential materialization state" in role
     qualification_playbook = (ROOT / "ansible/playbooks/qualify-proton-backup.yml").read_text()
     rclone_version_preflight = qualification_playbook.split("Inspect the pinned rclone version before lock acquisition", 1)[1].split("Require the exact pinned rclone version before lock acquisition", 1)[0]
@@ -292,6 +294,21 @@ def main() -> None:
     assert "proton-qualification-recovery-{{ proton_recovery_transaction_sha256 }}.json" in recovery_playbook
     assert "evidence.transaction_sha256 == proton_recovery_transaction_sha256" in recovery_playbook
     resume_playbook = (ROOT / "ansible/playbooks/resume-proton-qualification.yml").read_text()
+    helper_metadata = "\n".join(
+        (
+            "          path: /usr/local/libexec/home-lab/qualify-proton-backup",
+            "          owner: root",
+            "          group: restic-proton",
+            '          mode: "0750"',
+        )
+    )
+    for helper_consumer_playbook in (qualification_playbook, recovery_playbook, resume_playbook):
+        assert helper_metadata in helper_consumer_playbook
+    assert "Require an exact qualification helper before execute-access repair" in recovery_playbook
+    assert "proton_recovery_helper_before_access_repair.stat.gr_name in ['root', 'restic-proton']" in recovery_playbook
+    assert "proton_recovery_helper_before_access_repair.stat.checksum == backups.restic.qualification.helper_sha256" in recovery_playbook
+    assert "Grant only restic-proton execute access to the exact qualification helper" in recovery_playbook
+    assert "ansible_check_mode\n              and item.item.name == 'helper'\n              and item.stat.gr_name == 'root'" in recovery_playbook
 
     def exact_service_user_command(*action_lines: str) -> str:
         return "\n".join(

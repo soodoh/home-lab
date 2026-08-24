@@ -127,6 +127,37 @@
         fail_msg: An Offen scheduler is not quiesced during Proton qualification recovery.
       loop: "{{ proton_recovery_offen_states.results }}"
 
+    - name: Inspect the qualification helper before service execute-access repair
+      ansible.builtin.stat:
+        path: /usr/local/libexec/home-lab/qualify-proton-backup
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      become: true
+      register: proton_recovery_helper_before_access_repair
+
+    - name: Require an exact qualification helper before execute-access repair
+      ansible.builtin.assert:
+        that:
+          - proton_recovery_helper_before_access_repair.stat.isreg | default(false)
+          - not (proton_recovery_helper_before_access_repair.stat.islnk | default(false))
+          - proton_recovery_helper_before_access_repair.stat.nlink == 1
+          - proton_recovery_helper_before_access_repair.stat.pw_name == 'root'
+          - proton_recovery_helper_before_access_repair.stat.gr_name in ['root', 'restic-proton']
+          - proton_recovery_helper_before_access_repair.stat.mode == '0750'
+          - proton_recovery_helper_before_access_repair.stat.checksum == backups.restic.qualification.helper_sha256
+        fail_msg: Qualification helper differs before its bounded service execute-access repair.
+
+    - name: Grant only restic-proton execute access to the exact qualification helper
+      ansible.builtin.file:
+        path: /usr/local/libexec/home-lab/qualify-proton-backup
+        state: file
+        owner: root
+        group: restic-proton
+        mode: "0750"
+      become: true
+
     - name: Inspect protected recovery prerequisites
       ansible.builtin.stat:
         path: "{{ item.path }}"
@@ -139,7 +170,7 @@
         - name: helper
           path: /usr/local/libexec/home-lab/qualify-proton-backup
           owner: root
-          group: root
+          group: restic-proton
           mode: "0750"
           checksum: "{{ backups.restic.qualification.helper_sha256 }}"
         - { name: rclone, path: /usr/local/bin/rclone, owner: root, group: root, mode: '0755', checksum: "{{ backups.restic.tools.rclone.installed_sha256 }}" }
@@ -156,7 +187,13 @@
           - not (item.stat.islnk | default(false))
           - item.stat.nlink == 1
           - item.stat.pw_name == item.item.owner
-          - item.stat.gr_name == item.item.group
+          - >-
+            item.stat.gr_name == item.item.group
+            or (
+              ansible_check_mode
+              and item.item.name == 'helper'
+              and item.stat.gr_name == 'root'
+            )
           - item.stat.mode == item.item.mode
           - item.item.checksum is not defined or item.stat.checksum == item.item.checksum
         fail_msg: "Protected Proton recovery prerequisite {{ item.item.name }} differs."
