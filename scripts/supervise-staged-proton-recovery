@@ -24,6 +24,7 @@ QUALIFICATION_EVIDENCE = EVIDENCE_PARENT / "proton-qualification.json"
 MUTEX = Path("/run/lock/home-lab-backup.lock")
 RESULT = Path("/var/lib/restic-proton/proton-qualification-result.json")
 RUNUSER = Path("/usr/sbin/runuser")
+PYTHON = Path("/usr/bin/python3.13")
 FLOCK = Path("/usr/bin/flock")
 SERVICE_UID = 60000
 SERVICE_GID = 60000
@@ -330,6 +331,7 @@ def main() -> None:
             fail("service_identity")
         require_regular(FLOCK, 0, 0, 0o755)
         require_regular(RUNUSER, 0, 0, 0o755)
+        require_regular(PYTHON, 0, 0, 0o755)
         require_regular(MUTEX, 0, SERVICE_GID, 0o660)
         require_directory(APPLY_LOCK, 0, 0, 0o700)
         owner = require_regular(APPLY_LOCK / "owner", 0, 0, 0o600)
@@ -367,7 +369,7 @@ def main() -> None:
         require_no_processes()
         command = [
             str(FLOCK), "--exclusive", "--nonblock", "--conflict-exit-code", "75", "--", str(MUTEX),
-            str(RUNUSER), "--user", "restic-proton", "--", str(staged),
+            str(RUNUSER), "--user", "restic-proton", "--", str(PYTHON), str(staged),
             "recover-installed", transaction, expected_staged,
         ]
         try:

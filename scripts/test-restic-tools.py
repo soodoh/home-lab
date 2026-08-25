@@ -1278,6 +1278,8 @@ def main() -> None:
     assert 'require_regular(staged, 0, 0, 0o755)' in staged_recovery
     assert 'str(FLOCK), "--exclusive", "--nonblock", "--conflict-exit-code", "75"' in staged_recovery
     assert 'str(RUNUSER), "--user", "restic-proton"' in staged_recovery
+    assert 'PYTHON = Path("/usr/bin/python3.13")' in staged_recovery
+    assert 'str(PYTHON), str(staged)' in staged_recovery
     assert "validate_post_state(" in staged_recovery
     assert 'QUALIFICATION_EVIDENCE.exists()' in staged_recovery
     assert "remove_validated_staged(" in staged_recovery
