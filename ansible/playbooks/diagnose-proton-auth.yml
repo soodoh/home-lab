@@ -7,7 +7,7 @@
     - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
     - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   vars:
-    proton_auth_diagnostic_script_sha256: 000354f496402d952fb3d9d3d74ae2cdd396b5ba4853b056d84ae341d367ab6a
+    proton_auth_diagnostic_script_sha256: 553f288a8aef83bc59ac03148c6ec270c85a73730374c6585f6f16c0e0ddd31b
   tasks:
     - name: Require exact Proton authentication diagnostic approval
       ansible.builtin.assert:

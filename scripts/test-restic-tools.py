@@ -675,6 +675,220 @@ def main() -> None:
         finally:
             reset_globals.update(saved_reset_globals)
 
+    load_post_reset = diagnostic_module["load_account_reset_reconciliation"]
+    post_reset_globals = load_post_reset.__globals__
+    saved_post_reset_parent = post_reset_globals["EVIDENCE_PARENT"]
+    saved_post_reset_regular = post_reset_globals["require_regular"]
+    with tempfile.TemporaryDirectory() as post_reset_directory:
+        post_reset_root = Path(post_reset_directory)
+        transaction = "a" * 64
+        username_hash = hashlib.sha256(b"backup@example.test").hexdigest()
+        config_hash = hashlib.sha256(b"reconciled-config").hexdigest()
+        referenced_paths = {
+            "auth_diagnostic_evidence_sha256": post_reset_root / f"proton-auth-diagnostic-{transaction}.json",
+            "beta_evidence_sha256": post_reset_root / f"proton-beta-diagnostic-{transaction}.json",
+            "credential_rotation_evidence_sha256": post_reset_root / f"proton-credential-rotation-{transaction}.json",
+            "deployment_evidence_sha256": post_reset_root / f"proton-password-only-deployment-{transaction}.json",
+            "transition_evidence_sha256": post_reset_root / f"proton-password-only-transition-{transaction}.json",
+        }
+        referenced_hashes = {}
+        for index, (key, path) in enumerate(referenced_paths.items()):
+            path.write_bytes(f"evidence-{index}\n".encode())
+            referenced_hashes[key] = hashlib.sha256(path.read_bytes()).hexdigest()
+        reconciliation = {
+            **referenced_hashes,
+            "account_username_sha256": username_hash,
+            "account_reset_attestation": "disposable-account-reset-without-data-recovery",
+            "cache_state": "absent",
+            "config_reconciliation": "pass",
+            "installed_config_sha256": config_hash,
+            "prior_ciphertext_sha256": "1" * 64,
+            "prior_config_sha256": "2" * 64,
+            "provider_requests": 0,
+            "reconciled_at": "2026-08-25T00:00:01Z",
+            "started_at": "2026-08-25T00:00:00Z",
+            "state": "reconciled",
+            "target_ciphertext_sha256": "3" * 64,
+            "target_config_sha256": config_hash,
+            "transaction_sha256": transaction,
+            "version": 1,
+        }
+        reconciliation_path = post_reset_root / f"proton-account-reset-reconciliation-{transaction}.json"
+        reconciliation_content = (json.dumps(reconciliation, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        reconciliation_path.write_bytes(reconciliation_content)
+        reconciliation_hash = hashlib.sha256(reconciliation_content).hexdigest()
+        try:
+            post_reset_globals["EVIDENCE_PARENT"] = post_reset_root
+            post_reset_globals["require_regular"] = lambda *_args: None
+            loaded_reconciliation = load_post_reset(
+                transaction,
+                reconciliation_hash,
+                config_hash,
+                username_hash,
+            )
+            assert loaded_reconciliation == reconciliation
+            referenced_paths["beta_evidence_sha256"].write_bytes(b"drift\n")
+            try:
+                load_post_reset(transaction, reconciliation_hash, config_hash, username_hash)
+            except diagnostic_error as error:
+                assert str(error) == "post_reset_referenced_evidence"
+            else:
+                raise AssertionError("post-reset referenced evidence drift passed")
+        finally:
+            post_reset_globals["EVIDENCE_PARENT"] = saved_post_reset_parent
+            post_reset_globals["require_regular"] = saved_post_reset_regular
+
+    run_post_reset = diagnostic_module["run_post_reset_diagnostic_under_lock"]
+    run_post_reset_globals = run_post_reset.__globals__
+    post_reset_names = (
+        "os",
+        "pwd",
+        "grp",
+        "CONFIG",
+        "CACHE",
+        "MUTEX",
+        "EVIDENCE_PARENT",
+        "RCLONE",
+        "RUNUSER",
+        "INSTALL",
+        "require_regular",
+        "require_directory",
+        "load_policy",
+        "validate_lock",
+        "require_no_backup_processes",
+        "load_account_reset_reconciliation",
+        "bounded_subprocess",
+        "atomic_json",
+    )
+    saved_post_reset_globals = {name: run_post_reset_globals[name] for name in post_reset_names}
+    with tempfile.TemporaryDirectory() as post_reset_run_directory:
+        post_reset_root = Path(post_reset_run_directory)
+        post_reset_config = post_reset_root / "rclone.conf"
+        post_reset_cache = post_reset_root / "cache"
+        post_reset_cache.mkdir()
+        post_reset_evidence = post_reset_root / "evidence"
+        post_reset_evidence.mkdir()
+        post_reset_rclone = post_reset_root / "rclone"
+        post_reset_rclone.write_bytes(b"stable-rclone")
+        post_reset_config_bytes = (
+            "[proton-backup]\n"
+            "type = protondrive\n"
+            "username = backup@example.test\n"
+            "password = obscured-target\n"
+            "replace_existing_draft = true\n"
+            "enable_caching = true\n"
+            "original_file_size = true\n\n"
+        ).encode()
+        post_reset_config.write_bytes(post_reset_config_bytes)
+        transaction = "a" * 64
+        account_reset_hash = "b" * 64
+        config_hash = hashlib.sha256(post_reset_config_bytes).hexdigest()
+        username_hash = hashlib.sha256(b"backup@example.test").hexdigest()
+        bounded_calls: list[tuple[list[str], dict[str, str]]] = []
+
+        def fake_post_reset_atomic(path: Path, value: dict[str, object], replace: bool) -> str:
+            if not replace and path.exists():
+                raise diagnostic_error("prior_post_reset_diagnostic")
+            content = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+            path.write_bytes(content)
+            return hashlib.sha256(content).hexdigest()
+
+        def successful_post_reset_bounded(
+            command: list[str],
+            _timeout: int,
+            environment: dict[str, str],
+            _input_data: bytes | None = None,
+            _inherit_stdin: bool = False,
+        ) -> subprocess.CompletedProcess[bytes]:
+            bounded_calls.append((command, environment))
+            return subprocess.CompletedProcess(command, 1, b"", b"missing signature")
+
+        try:
+            run_post_reset_globals.update(
+                {
+                    "os": RootIdentity,
+                    "pwd": type("Pwd", (), {"getpwnam": staticmethod(lambda _name: ServiceIdentity())}),
+                    "grp": type("Grp", (), {"getgrnam": staticmethod(lambda _name: ServiceIdentity())}),
+                    "CONFIG": post_reset_config,
+                    "CACHE": post_reset_cache,
+                    "MUTEX": post_reset_root / "mutex",
+                    "EVIDENCE_PARENT": post_reset_evidence,
+                    "RCLONE": post_reset_rclone,
+                    "RUNUSER": Path("/usr/sbin/runuser"),
+                    "INSTALL": Path("/usr/bin/install"),
+                    "require_regular": lambda *_args: None,
+                    "require_directory": lambda *_args: None,
+                    "load_policy": lambda _gid: {
+                        "qualification": {"username_sha256": username_hash},
+                        "proton": {"authentication_mode": "password-only"},
+                        "tools": {"rclone": {"installed_sha256": original_digest(post_reset_rclone)}},
+                    },
+                    "validate_lock": lambda _transaction: b"retained-owner-bytes",
+                    "require_no_backup_processes": lambda: None,
+                    "load_account_reset_reconciliation": lambda *_args: {},
+                    "bounded_subprocess": successful_post_reset_bounded,
+                    "atomic_json": fake_post_reset_atomic,
+                }
+            )
+            with contextlib.redirect_stdout(io.StringIO()) as post_reset_output:
+                run_post_reset(transaction, auth_diagnostic_sha256, account_reset_hash, config_hash)
+            assert post_reset_output.getvalue().startswith(
+                "proton_post_reset_diagnostic=observed category=account_key_incompatible evidence_sha256="
+            )
+            assert len(bounded_calls) == 1
+            command, environment = bounded_calls[0]
+            assert command.count("lsjson") == 1
+            assert command[command.index("--config") + 1] == "/dev/null"
+            diagnostic_config_environment = {
+                key: value
+                for key, value in environment.items()
+                if key.startswith("RCLONE_CONFIG_PROTON_BACKUP_")
+            }
+            assert diagnostic_config_environment == {
+                "RCLONE_CONFIG_PROTON_BACKUP_TYPE": "protondrive",
+                "RCLONE_CONFIG_PROTON_BACKUP_USERNAME": "backup@example.test",
+                "RCLONE_CONFIG_PROTON_BACKUP_PASSWORD": "obscured-target",
+                "RCLONE_CONFIG_PROTON_BACKUP_REPLACE_EXISTING_DRAFT": "true",
+                "RCLONE_CONFIG_PROTON_BACKUP_ENABLE_CACHING": "false",
+                "RCLONE_CONFIG_PROTON_BACKUP_ORIGINAL_FILE_SIZE": "true",
+            }
+            assert post_reset_config.read_bytes() == post_reset_config_bytes
+            assert not any(post_reset_cache.iterdir())
+            result_path = post_reset_evidence / f"proton-post-reset-diagnostic-{transaction}.json"
+            result = json.loads(result_path.read_text())
+            assert result["provider_requests"] == 1
+            assert result["state"] == "observed"
+            try:
+                run_post_reset(transaction, auth_diagnostic_sha256, account_reset_hash, config_hash)
+            except diagnostic_error as error:
+                assert str(error) == "prior_post_reset_diagnostic"
+            else:
+                raise AssertionError("post-reset provider diagnostic replay passed")
+            assert len(bounded_calls) == 1
+
+            for failure_name in ("timeout", "exec"):
+                result_path.unlink()
+                bounded_calls.clear()
+                if failure_name == "timeout":
+                    def failing_bounded(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+                        raise subprocess.TimeoutExpired("rclone", 600)
+                else:
+                    def failing_bounded(command: list[str], *_args: object, **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+                        bounded_calls.append((command, {}))
+                        return subprocess.CompletedProcess(command, 126, b"", b"local exec failure")
+                run_post_reset_globals["bounded_subprocess"] = failing_bounded
+                try:
+                    run_post_reset(transaction, auth_diagnostic_sha256, account_reset_hash, config_hash)
+                except (diagnostic_error, subprocess.TimeoutExpired):
+                    pass
+                else:
+                    raise AssertionError(f"post-reset {failure_name} fixture passed")
+                assert json.loads(result_path.read_text())["state"] == "started"
+                assert post_reset_config.read_bytes() == post_reset_config_bytes
+                assert not any(post_reset_cache.iterdir())
+        finally:
+            run_post_reset_globals.update(saved_post_reset_globals)
+
     account_reset_playbook = (ROOT / "ansible/playbooks/reconcile-proton-account-reset.yml").read_text()
     assert f"proton_account_reset_script_sha256: {auth_diagnostic_sha256}" in account_reset_playbook
     assert "reconcile-only-password-after-disposable-proton-account-reset" in account_reset_playbook
@@ -696,6 +910,22 @@ def main() -> None:
     assert "export SOPS_AGE_KEY_FILE=/etc/sops/age/keys.txt &&" in account_reset_playbook
     assert "/usr/local/bin/sops --decrypt --output-type dotenv /etc/home-lab/restic/production.sops.env &&" in account_reset_playbook
     assert "--output-type dotenv\n                /etc/home-lab/restic/production.sops.env" not in account_reset_playbook
+
+    post_reset_playbook = (ROOT / "ansible/playbooks/diagnose-proton-post-reset.yml").read_text()
+    assert f"proton_post_reset_script_sha256: {auth_diagnostic_sha256}" in post_reset_playbook
+    assert "diagnose-one-post-reset-proton-lsjson" in post_reset_playbook
+    assert "post-reset-supervise" in post_reset_playbook
+    assert "proton_post_reset_expected_account_reset_evidence_sha256" in post_reset_playbook
+    assert "proton_post_reset_expected_config_sha256" in post_reset_playbook
+    assert "environment-only" in post_reset_playbook
+    assert "provider_requests == 1" in post_reset_playbook
+    assert "apply_lock_action: release" not in post_reset_playbook
+    assert "print(result.stderr" not in auth_diagnostic
+    assert '"--config",\n        "/dev/null"' in auth_diagnostic
+    assert '"--protondrive-enable-caching=false"' in auth_diagnostic
+    assert "proton-post-reset-diagnostic-" in auth_diagnostic
+    assert ".proton-post-reset-diagnostic-launch-" not in auth_diagnostic
+    assert 'atomic_json(evidence_path, marker, replace=False)' in auth_diagnostic
     bounded_subprocess = diagnostic_module["bounded_subprocess"]
     stdin_reader = [sys.executable, "-c", "import sys;sys.stdout.buffer.write(sys.stdin.buffer.read())"]
     stdin_result = bounded_subprocess(

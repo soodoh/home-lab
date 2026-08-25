@@ -1,0 +1,316 @@
+---
+- name: Diagnose one post-reset Proton listing failure without remote mutation
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  vars:
+    proton_post_reset_script_sha256: 553f288a8aef83bc59ac03148c6ec270c85a73730374c6585f6f16c0e0ddd31b
+  tasks:
+    - name: Require exact post-reset Proton diagnostic approval
+      ansible.builtin.assert:
+        that:
+          - proton_post_reset_diagnostic_confirmed | default(false) | bool
+          - >-
+            proton_post_reset_diagnostic_confirmation | default('')
+            == 'diagnose-one-post-reset-proton-lsjson'
+          - >-
+            proton_post_reset_expected_transaction_sha256 | default('')
+            is match('^[0-9a-f]{64}$')
+          - >-
+            proton_post_reset_expected_account_reset_evidence_sha256 | default('')
+            is match('^[0-9a-f]{64}$')
+          - >-
+            proton_post_reset_expected_config_sha256 | default('')
+            is match('^[0-9a-f]{64}$')
+          - backups.restic.migration_state == 'inert'
+          - backups.restic.credentials.state == 'provisioned'
+          - backups.restic.proton.authentication_mode == 'password-only'
+          - backups.restic.qualification.state == 'ready'
+          - backups.legacy_offen.scheduler_state == 'quiesced'
+          - backups.legacy_offen.migration_retention_hold.state == 'applied'
+          - backups.legacy_offen.migration_retention_hold.current_object_retention_days >= 365
+          - >-
+            backups.legacy_offen.migration_retention_hold.review_deadline
+            > now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')
+        fail_msg: Post-reset Proton diagnosis requires exact reviewed approval and inert state.
+
+    - name: Inspect exact post-reset diagnostic prerequisites
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      loop:
+        - name: lock_directory
+          path: "{{ apply_lock_path }}"
+        - name: lock_owner
+          path: "{{ apply_lock_path }}/owner"
+        - name: account_reset_evidence
+          path: >-
+            /var/lib/home-lab-restic/proton-account-reset-reconciliation-{{ proton_post_reset_expected_transaction_sha256 }}.json
+        - name: config
+          path: /var/lib/restic-proton/rclone.conf
+        - name: prior_result
+          path: >-
+            /var/lib/home-lab-restic/proton-post-reset-diagnostic-{{ proton_post_reset_expected_transaction_sha256 }}.json
+      become: true
+      register: proton_post_reset_paths
+
+    - name: Read exact retained qualification owner
+      ansible.builtin.slurp:
+        src: "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_post_reset_owner
+      no_log: true
+
+    - name: Inspect retained qualification lock contents
+      ansible.builtin.find:
+        paths: "{{ apply_lock_path }}"
+        hidden: true
+        recurse: false
+        file_type: any
+      become: true
+      register: proton_post_reset_lock_entries
+
+    - name: Require exact retained lock, evidence, config, and absent prior result
+      ansible.builtin.assert:
+        that:
+          - proton_post_reset_paths.results[0].stat.isdir | default(false)
+          - proton_post_reset_paths.results[0].stat.pw_name == 'root'
+          - proton_post_reset_paths.results[0].stat.mode == '0700'
+          - proton_post_reset_paths.results[1].stat.isreg | default(false)
+          - proton_post_reset_paths.results[1].stat.pw_name == 'root'
+          - proton_post_reset_paths.results[1].stat.mode == '0600'
+          - proton_post_reset_paths.results[1].stat.nlink == 1
+          - proton_post_reset_lock_entries.matched == 1
+          - >-
+            proton_post_reset_owner.content | b64decode | hash('sha256')
+            == proton_post_reset_expected_transaction_sha256
+          - >-
+            'operation=proton-qualification'
+            in (proton_post_reset_owner.content | b64decode).splitlines()
+          - proton_post_reset_paths.results[2].stat.isreg | default(false)
+          - proton_post_reset_paths.results[2].stat.pw_name == 'root'
+          - proton_post_reset_paths.results[2].stat.gr_name == 'root'
+          - proton_post_reset_paths.results[2].stat.mode == '0600'
+          - proton_post_reset_paths.results[2].stat.nlink == 1
+          - >-
+            proton_post_reset_paths.results[2].stat.checksum
+            == proton_post_reset_expected_account_reset_evidence_sha256
+          - proton_post_reset_paths.results[3].stat.isreg | default(false)
+          - proton_post_reset_paths.results[3].stat.pw_name == 'restic-proton'
+          - proton_post_reset_paths.results[3].stat.gr_name == 'restic-proton'
+          - proton_post_reset_paths.results[3].stat.mode == '0600'
+          - >-
+            proton_post_reset_paths.results[3].stat.checksum
+            == proton_post_reset_expected_config_sha256
+          - not (proton_post_reset_paths.results[4].stat.exists | default(false))
+        fail_msg: Post-reset Proton diagnostic prerequisites differ from reviewed pins.
+      no_log: true
+
+    - name: Require no concurrent Restic or rclone process
+      ansible.builtin.command:
+        argv: [/usr/bin/pgrep, --exact, "{{ item }}"]
+      loop: [restic, rclone]
+      register: proton_post_reset_processes
+      changed_when: false
+      failed_when: proton_post_reset_processes.rc != 1
+
+    - name: Inspect post-reset diagnostic cache contents
+      ansible.builtin.find:
+        paths: /var/lib/restic-proton/cache
+        hidden: true
+        recurse: false
+        file_type: any
+      become: true
+      register: proton_post_reset_cache
+
+    - name: Require empty post-reset diagnostic cache
+      ansible.builtin.assert:
+        that:
+          - proton_post_reset_cache.matched == 0
+        fail_msg: Post-reset diagnostic cache is not empty.
+
+    - name: Verify exact controller-side post-reset diagnostic script hash
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../../scripts/diagnose-proton-auth"
+        get_checksum: true
+        checksum_algorithm: sha256
+      delegate_to: localhost
+      become: false
+      register: proton_post_reset_controller_script
+
+    - name: Require exact controller-side post-reset diagnostic script
+      ansible.builtin.assert:
+        that:
+          - proton_post_reset_controller_script.stat.isreg | default(false)
+          - proton_post_reset_controller_script.stat.checksum == proton_post_reset_script_sha256
+        fail_msg: Post-reset diagnostic script differs from its reviewed pin.
+
+    - name: Report exact post-reset Proton diagnostic in check mode
+      ansible.builtin.debug:
+        msg: >-
+          Would stage the hash-pinned supervisor, run exactly one stable-rclone lsjson
+          through an environment-only password-only config, publish redacted evidence,
+          retain the qualification lock, and make no remote mutation.
+      changed_when: true
+      when: ansible_check_mode
+
+    - name: Run one post-reset Proton diagnostic
+      when: not ansible_check_mode
+      block:
+        - name: Stage hash-pinned post-reset diagnostic supervisor
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/../../scripts/diagnose-proton-auth"
+            dest: >-
+              /run/proton-post-reset-diagnostic-{{ proton_post_reset_expected_transaction_sha256 }}
+            owner: root
+            group: root
+            mode: "0700"
+          become: true
+          no_log: true
+
+        - name: Run exactly one post-reset stable-rclone lsjson
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - >-
+                /run/proton-post-reset-diagnostic-{{ proton_post_reset_expected_transaction_sha256 }}
+              - post-reset-supervise
+              - "{{ proton_post_reset_expected_transaction_sha256 }}"
+              - "{{ proton_post_reset_script_sha256 }}"
+              - "{{ proton_post_reset_expected_account_reset_evidence_sha256 }}"
+              - "{{ proton_post_reset_expected_config_sha256 }}"
+          become: true
+          register: proton_post_reset_run
+          changed_when: true
+          failed_when: false
+          no_log: true
+      always:
+        - name: Remove only the ephemeral post-reset supervisor
+          ansible.builtin.file:
+            path: >-
+              /run/proton-post-reset-diagnostic-{{ proton_post_reset_expected_transaction_sha256 }}
+            state: absent
+          become: true
+          no_log: true
+
+    - name: Capture only a controlled post-reset diagnostic failure
+      ansible.builtin.set_fact:
+        proton_post_reset_failure_report: >-
+          {{
+            proton_post_reset_failure_match
+            if (proton_post_reset_failure_match | length) > 0
+            else 'proton_post_reset_diagnostic=failed reason=unclassified_stderr_sha256_'
+              ~ (proton_post_reset_run.stderr | default('') | hash('sha256'))
+          }}
+      vars:
+        proton_post_reset_failure_match: >-
+          {{
+            proton_post_reset_run.stderr
+            | default('')
+            | regex_search('(?m)^proton_auth_diagnostic=failed reason=[a-z0-9_.-]+\r?$')
+            | default('', true)
+            | trim
+          }}
+      no_log: true
+      when:
+        - not ansible_check_mode
+        - proton_post_reset_run.rc != 0
+
+    - name: Require atomic post-reset diagnostic success
+      ansible.builtin.assert:
+        that:
+          - proton_post_reset_run.rc == 0
+        fail_msg: >-
+          {{ proton_post_reset_failure_report | default('proton_post_reset_diagnostic=failed reason=unclassified') }}
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Read exact post-reset diagnostic evidence
+      ansible.builtin.slurp:
+        src: >-
+          /var/lib/home-lab-restic/proton-post-reset-diagnostic-{{ proton_post_reset_expected_transaction_sha256 }}.json
+      become: true
+      register: proton_post_reset_evidence
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Require exact redacted post-reset diagnostic evidence
+      ansible.builtin.assert:
+        that:
+          - evidence.keys() | sort == expected_keys | sort
+          - >-
+            evidence.account_reset_evidence_sha256
+            == proton_post_reset_expected_account_reset_evidence_sha256
+          - evidence.account_username_sha256 == backups.restic.qualification.username_sha256
+          - evidence.category in allowed_categories
+          - evidence.config_sha256 == proton_post_reset_expected_config_sha256
+          - evidence.config_source == 'environment-only'
+          - evidence.credential_cache == 'disabled'
+          - evidence.operation == 'lsjson'
+          - evidence.provider_requests == 1
+          - evidence.remote_directory == backups.restic.qualification.remote_directory
+          - evidence.stable_rclone_sha256 == backups.restic.tools.rclone.installed_sha256
+          - evidence.state == 'observed'
+          - evidence.transaction_sha256 == proton_post_reset_expected_transaction_sha256
+          - evidence.version == 1
+          - >-
+            proton_post_reset_run.stdout
+            == 'proton_post_reset_diagnostic=observed category=' ~ evidence.category
+            ~ ' evidence_sha256=' ~ (proton_post_reset_evidence.content | b64decode | hash('sha256'))
+        fail_msg: Post-reset diagnostic evidence differs from the reviewed redacted schema.
+      vars:
+        evidence: "{{ proton_post_reset_evidence.content | b64decode | from_json }}"
+        allowed_categories:
+          - reachable
+          - api_captcha
+          - invalid_credentials
+          - two_factor_rejected
+          - account_key_incompatible
+          - rate_limited
+          - network_failure
+          - rclone_unclassified
+        expected_keys:
+          - account_reset_evidence_sha256
+          - account_username_sha256
+          - category
+          - config_sha256
+          - config_source
+          - credential_cache
+          - observed_at
+          - operation
+          - provider_requests
+          - remote_directory
+          - rclone_rc
+          - stable_rclone_sha256
+          - started_at
+          - state
+          - stderr_sha256
+          - stdout_sha256
+          - transaction_sha256
+          - version
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Re-read retained qualification owner after post-reset diagnostic
+      ansible.builtin.slurp:
+        src: "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_post_reset_owner_after
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Confirm post-reset diagnostic retained exact qualification lock
+      ansible.builtin.assert:
+        that:
+          - >-
+            proton_post_reset_owner_after.content | b64decode | hash('sha256')
+            == proton_post_reset_expected_transaction_sha256
+        fail_msg: Post-reset diagnostic changed the retained qualification lock.
+      no_log: true
+      when: not ansible_check_mode
