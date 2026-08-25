@@ -206,6 +206,17 @@ def validate_config(expected_hash: str) -> bytes:
     return raw
 
 
+def child_failure_reason(stderr: bytes) -> str:
+    try:
+        value = stderr.decode("ascii")
+    except UnicodeDecodeError:
+        return f"stderr_sha256_{digest(stderr)}"
+    matched = re.fullmatch(r"proton_qualification=failed reason=([a-z0-9_.-]+)\n", value)
+    if matched is None:
+        return f"stderr_sha256_{digest(stderr)}"
+    return matched.group(1)
+
+
 def validate_result(transaction: str) -> str:
     raw = require_regular(RESULT, SERVICE_UID, SERVICE_GID, 0o600)
     try:
@@ -364,7 +375,7 @@ def main() -> None:
         finally:
             validate_post_state(config_raw, expected_config, transaction, staged, expected_staged)
         if result.returncode != 0:
-            fail(f"recovery_rc_{result.returncode}_stderr_sha256_{digest(result.stderr)}")
+            fail(f"recovery_rc_{result.returncode}_{child_failure_reason(result.stderr)}")
         result_hash = validate_result(transaction)
         print(f"proton_staged_recovery=passed evidence_sha256={result_hash}")
     except RecoveryError as error:

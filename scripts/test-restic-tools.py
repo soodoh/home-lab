@@ -1286,6 +1286,12 @@ def main() -> None:
         str(staged_recovery_path),
         run_name="supervise_staged_proton_recovery_test_module",
     )
+    controlled_child_error = b"proton_qualification=failed reason=qualification_directory_output\n"
+    assert staged_recovery_module["child_failure_reason"](controlled_child_error) == "qualification_directory_output"
+    protected_child_error = b"provider response contains protected account data"
+    assert staged_recovery_module["child_failure_reason"](protected_child_error) == (
+        "stderr_sha256_" + hashlib.sha256(protected_child_error).hexdigest()
+    )
     try:
         staged_recovery_module["bounded"](
             ["/bin/sh", "-c", "exec /bin/sleep 30"],
