@@ -693,6 +693,9 @@ def main() -> None:
     assert "apply_lock_action: release" not in account_reset_playbook
     assert "/etc/home-lab/restic/production.sops.env" in account_reset_playbook
     assert "/usr/bin/printf 'HOME_LAB_PROTON_ACCOUNT_RESET_BOUNDARY_7b9e0c4f2ad68135\\n'" in account_reset_playbook
+    assert "export SOPS_AGE_KEY_FILE=/etc/sops/age/keys.txt &&" in account_reset_playbook
+    assert "/usr/local/bin/sops --decrypt --output-type dotenv /etc/home-lab/restic/production.sops.env &&" in account_reset_playbook
+    assert "--output-type dotenv\n                /etc/home-lab/restic/production.sops.env" not in account_reset_playbook
     bounded_subprocess = diagnostic_module["bounded_subprocess"]
     stdin_reader = [sys.executable, "-c", "import sys;sys.stdout.buffer.write(sys.stdin.buffer.read())"]
     stdin_result = bounded_subprocess(

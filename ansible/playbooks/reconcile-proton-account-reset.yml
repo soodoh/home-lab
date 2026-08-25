@@ -431,14 +431,12 @@
           ansible.builtin.shell:
             cmd: >-
               set -o pipefail &&
+              export PATH=/usr/local/bin:/usr/bin:/bin &&
+              export SOPS_AGE_KEY_FILE=/etc/sops/age/keys.txt &&
               {
-                PATH=/usr/local/bin:/usr/bin:/bin SOPS_AGE_KEY_FILE=/etc/sops/age/keys.txt
-                /usr/local/bin/sops --decrypt --output-type dotenv
-                /etc/home-lab/restic/production.sops.env &&
+                /usr/local/bin/sops --decrypt --output-type dotenv /etc/home-lab/restic/production.sops.env &&
                 /usr/bin/printf 'HOME_LAB_PROTON_ACCOUNT_RESET_BOUNDARY_7b9e0c4f2ad68135\n' &&
-                PATH=/usr/local/bin:/usr/bin:/bin SOPS_AGE_KEY_FILE=/etc/sops/age/keys.txt
-                /usr/local/bin/sops --decrypt --output-type dotenv
-                {{ proton_account_reset_ciphertext_temp | quote }};
+                /usr/local/bin/sops --decrypt --output-type dotenv {{ proton_account_reset_ciphertext_temp | quote }};
               } |
               PATH=/usr/local/bin:/usr/bin:/bin /usr/bin/python3
               {{ proton_account_reset_script_temp | quote }}
