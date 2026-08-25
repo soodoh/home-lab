@@ -47,17 +47,16 @@ Before credential bootstrap can be explicitly enabled, the canonical SOPS dotenv
 - `RESTIC_LOCAL_PASSWORD`;
 - `RESTIC_PROTON_PASSWORD`;
 - `PROTON_BACKUP_USERNAME`;
-- `PROTON_BACKUP_PASSWORD`;
-- `PROTON_BACKUP_TOTP_SEED`; and
+- `PROTON_BACKUP_PASSWORD`; and
 - optional `PROTON_BACKUP_MAILBOX_PASSWORD` only for two-password mode.
 
-The two Restic repository passwords must each contain at least 32 UTF-8 bytes and must be distinct. The TOTP seed must be the canonical uppercase unpadded Base32 secret, not a temporary six-digit code. Credential materialization rejects these conditions before writing any protected target.
+The two Restic repository passwords must each contain at least 32 UTF-8 bytes and must be distinct. The dedicated password-only Proton login password must contain at least 40 ASCII alphanumeric bytes and differ from both Restic passwords. Credential materialization rejects these conditions before writing any protected target.
 
 `bootstrap-restic-credentials` receives decrypted dotenv only on standard input under Ansible `no_log`. It writes password files without command-line secrets. It creates an absent rclone config using `rclone obscure -`; on later runs it validates static account/backend options without overwriting rotating fields or cached state. Obscured values remain plaintext-equivalent.
 
-Credential bootstrap is governed by `backups.restic.credentials`, not an independent Ansible switch. A reviewed transition may set it to `bootstrap_enabled: true` and `state: provisioned` only while Offen is quiesced, archive preservation and the AWS hold remain applied, and qualification moves from `pending` to `ready` with the SHA-256 of the exact Proton username. The username itself, passwords, TOTP seed, mailbox password, and cached client tokens must never be logged or committed.
+Credential bootstrap is governed by `backups.restic.credentials`, not an independent Ansible switch. A reviewed transition may set it to `bootstrap_enabled: true` and `state: provisioned` only while Offen is quiesced, archive preservation and the AWS hold remain applied, and qualification moves from `pending` to `ready` with the SHA-256 of the exact Proton username. The username itself, passwords, mailbox password, and cached client tokens must never be logged or committed.
 
-`qualify-proton-backup` is installed inertly but cannot run while qualification is `pending`. The separately gated `ansible/playbooks/qualify-proton-backup.yml` requires the exact contract confirmation, a complete quiesced audit, exact mounts, absent repository configs, provisioned protected credential files, inactive Restic units, and zero Restic/rclone processes. Under both the production mutation lock and shared backup mutex it removes only rclone’s four cached `client_*` fields, forces password-plus-TOTP reauthentication, proves the exact username hash and decimal 1 TB quota, and exercises only `about`, bounded `lsjson`, `copyto`, `cat`, `moveto`, `deletefile`, and `rmdir` against `Backups/.home-lab-rclone-qualification`. It writes bounded JSON evidence without account names, credentials, tokens, remote listings, or raw provider errors; provider failures retain only the command label, exit status, and stderr SHA-256. Proton Trash is never emptied.
+`qualify-proton-backup` is installed inertly but cannot run while qualification is `pending`. The separately gated `ansible/playbooks/qualify-proton-backup.yml` requires the exact contract confirmation, a complete quiesced audit, exact mounts, absent repository configs, provisioned protected credential files, inactive Restic units, and zero Restic/rclone processes. Under both the production mutation lock and shared backup mutex it removes only rclone’s four cached `client_*` fields, forces password-only reauthentication, proves the exact username hash and decimal 1 TB quota, and exercises only `about`, bounded `lsjson`, `copyto`, `cat`, `moveto`, `deletefile`, and `rmdir` against `Backups/.home-lab-rclone-qualification`. It writes bounded JSON evidence without account names, credentials, tokens, remote listings, or raw provider errors; provider failures retain only the command label, exit status, and stderr SHA-256. Proton Trash is never emptied.
 
 A failed qualification deliberately retains the owner-bearing production lock as operation `proton-qualification`. Do not rerun qualification, remove the lock, delete a remote object, or edit cached fields manually. Inspect the protected host result/evidence paths, rclone config metadata, exact dedicated remote directory, process state, mounts, Offen state, and AWS hold first. Generic rclone deletion, cleanup, purge, sync, bisync, and mount operations remain prohibited.
 
@@ -98,6 +97,28 @@ ansible-playbook -i inventory/production.yml playbooks/rotate-proton-login-crede
 ```
 
 Interruption after the atomic claim leaves `state=started` evidence and prohibits another credential mutation until separately reviewed. Successful rotation retains root-owned `state=rotated` evidence bound to both the original diagnostic and retained transaction. Ordinary task success or failure removes both staged `/run` inputs; controller termination or host failure can leave only the encrypted ciphertext and root-only script until explicit cleanup or reboot clears `/run`.
+
+The dedicated account was changed to permanent password-only authentication after pinned rclone `1.75.0` authenticated successfully with TOTP but failed during Drive/key initialization. This is an explicit availability/security trade-off: Restic still encrypts repository contents, but password-only compromise can threaten remote availability. Recovery codes remain offline. The guarded `transition-proton-password-only.yml` transaction removes only the obsolete `otp_secret_key` from the installed rclone config, requires the client cache to be absent, preserves all other fields and prior evidence, makes zero Proton requests, and retains the failed qualification lock:
+
+```sh
+cd ansible
+ansible-playbook -i inventory/production.yml playbooks/transition-proton-password-only.yml --check --diff \
+  -e proton_password_only_confirmed=true \
+  -e proton_password_only_confirmation=remove-only-obsolete-proton-totp-field \
+  -e proton_password_only_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
+  -e proton_password_only_expected_auth_evidence_sha256=b87ea466ac0e7234824d5a4bf8c59095534bd26eb38c8baaf0cce2faaf27a5ed \
+  -e proton_password_only_expected_rotation_evidence_sha256=8e8f2b932ab436e0fb67eeeecbfd97253cf1ff945d21acd1465119a0d5873249
+
+# Requires separate authorization after reviewing the fresh plan.
+ansible-playbook -i inventory/production.yml playbooks/transition-proton-password-only.yml \
+  -e proton_password_only_confirmed=true \
+  -e proton_password_only_confirmation=remove-only-obsolete-proton-totp-field \
+  -e proton_password_only_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
+  -e proton_password_only_expected_auth_evidence_sha256=b87ea466ac0e7234824d5a4bf8c59095534bd26eb38c8baaf0cce2faaf27a5ed \
+  -e proton_password_only_expected_rotation_evidence_sha256=8e8f2b932ab436e0fb67eeeecbfd97253cf1ff945d21acd1465119a0d5873249
+```
+
+An interrupted transition leaves only transaction-bound `state=started` evidence. The same reviewed transaction can resume safely whether the config still contains the legacy field or the atomic config replacement already completed; any other evidence/config shape fails closed. A first-use transaction must observe the legacy field before claiming evidence. Ordinary Restic convergence fails before replacing the installed legacy policy, helper, or ciphertext until this dedicated transition succeeds. Ordinary task completion removes the root-only staged supervisor.
 
 The generic `clear-failed-apply-lock.yml` transaction explicitly rejects `proton-qualification`. After inspection and fresh AWS/access proofs, plan the dedicated recovery transaction with the exact retained lock. Its only live remote mutations are `deletefile` for `fixture.bin` and/or `fixture-renamed.bin` when an exact bounded listing contains no other entry, followed by `rmdir` for the now-empty qualification directory:
 
@@ -147,7 +168,7 @@ The contract intentionally advertises only verified staging while migration stat
 Repository validation does not satisfy these operator gates:
 
 1. Proton backend create/read/range-read/move/delete-draft/error-redaction qualification with the exact pinned rclone build.
-2. Safe invalidation and automatic reauthentication from SOPS password plus TOTP seed.
+2. Safe cache invalidation and automatic password-only reauthentication from the dedicated SOPS credential.
 3. Empty-path, exact-account, 1 TB quota, and exclusive-client proof.
 4. Repository initialization, copied chunker parameters, and wrong-identity fail-closed tests.
 5. Two physically independent recovery bundles, each tested without host tokens.

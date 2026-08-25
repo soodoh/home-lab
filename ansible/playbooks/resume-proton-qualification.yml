@@ -264,7 +264,7 @@
           - evidence.range_count == backups.restic.qualification.range_count
           - evidence.operations == ['about', 'lsjson', 'copyto', 'cat', 'moveto', 'deletefile', 'rmdir']
           - evidence.cache_invalidation == 'pass'
-          - evidence.password_totp_reauthentication == 'pass'
+          - evidence.password_reauthentication == 'pass'
           - evidence.original_file_size == 'pass'
           - evidence.replace_existing_draft == 'pass'
           - evidence.remote_cleanup == 'pass'
@@ -282,7 +282,7 @@
           - free_bytes
           - operations
           - original_file_size
-          - password_totp_reauthentication
+          - password_reauthentication
           - range_count
           - range_offset
           - remote_cleanup

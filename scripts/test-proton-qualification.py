@@ -17,6 +17,7 @@ def policy(username_sha256: str) -> dict[str, object]:
         "credentials": {"bootstrap_enabled": True, "state": "provisioned"},
         "migration_state": "inert",
         "proton": {
+            "authentication_mode": "password-only",
             "exclusive_client": True,
             "hard_failure_used_bytes": 900_000_000_000,
             "trash_cleanup": "manual-only",
@@ -54,7 +55,6 @@ def main() -> None:
             "type = protondrive\n"
             f"username = {username}\n"
             "password = obscured-password\n"
-            "otp_secret_key = obscured-seed\n"
             "replace_existing_draft = true\n"
             "enable_caching = true\n"
             "original_file_size = true\n"

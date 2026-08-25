@@ -27,7 +27,6 @@ STATIC_KEYS = {
     "username",
     "password",
     "mailbox_password",
-    "otp_secret_key",
     "replace_existing_draft",
     "enable_caching",
     "original_file_size",
@@ -163,7 +162,6 @@ def validate_config(policy: dict[str, object], require_cache: bool | None = None
         or remote.get("enable_caching") != "true"
         or remote.get("original_file_size") != "true"
         or not remote.get("password")
-        or not remote.get("otp_secret_key")
     ):
         fail("rclone_config_static_identity")
     qualification = policy.get("qualification")
@@ -345,6 +343,7 @@ def require_policy(policy: dict[str, object]) -> dict[str, object]:
         or any(not isinstance(value, dict) or value.get("id") is not None for value in repositories.values())
         or not isinstance(proton, dict)
         or proton.get("exclusive_client") is not True
+        or proton.get("authentication_mode") != "password-only"
         or proton.get("trash_cleanup") != "manual-only"
     ):
         fail("qualification_policy")
@@ -487,7 +486,7 @@ def main() -> None:
                 "free_bytes": observed_quota["free"],
                 "operations": ["about", "lsjson", "copyto", "cat", "moveto", "deletefile", "rmdir"],
                 "original_file_size": "pass",
-                "password_totp_reauthentication": "pass",
+                "password_reauthentication": "pass",
                 "range_count": range_count,
                 "range_offset": range_offset,
                 "remote_cleanup": "pass",

@@ -456,6 +456,69 @@
     fail_msg: restic-proton unexpectedly has supplementary group access.
   when: not ansible_check_mode
 
+- name: Inspect installed rclone config before password-only seam updates
+  ansible.builtin.stat:
+    path: /var/lib/restic-proton/rclone.conf
+    follow: false
+    get_checksum: false
+    get_mime: false
+  register: restic_backup_password_only_config
+  when: backups.restic.proton.authentication_mode | default('') == 'password-only'
+
+- name: Require protected installed rclone config before password-only seam updates
+  ansible.builtin.assert:
+    that:
+      - restic_backup_password_only_config.stat.isreg | default(false)
+      - not (restic_backup_password_only_config.stat.islnk | default(false))
+      - restic_backup_password_only_config.stat.nlink == 1
+      - restic_backup_password_only_config.stat.pw_name == 'restic-proton'
+      - restic_backup_password_only_config.stat.gr_name == 'restic-proton'
+      - restic_backup_password_only_config.stat.mode == '0600'
+    fail_msg: Existing rclone config is not protected before the password-only seam guard.
+  when:
+    - backups.restic.proton.authentication_mode | default('') == 'password-only'
+    - restic_backup_password_only_config.stat.exists | default(false)
+
+- name: Inspect only installed rclone field names before password-only seam updates
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        from configparser import ConfigParser, Error as ConfigError
+        from pathlib import Path
+        import sys
+
+        parser = ConfigParser(interpolation=None)
+        try:
+            with Path(sys.argv[1]).open(encoding="utf-8") as stream:
+                parser.read_file(stream)
+        except (OSError, UnicodeDecodeError, ConfigError):
+            raise SystemExit(1)
+        if parser.sections() != ["proton-backup"]:
+            raise SystemExit(1)
+        state = "transition-required" if "otp_secret_key" in parser["proton-backup"] else "ready"
+        print(f"password_only_config={state}")
+      - /var/lib/restic-proton/rclone.conf
+  register: restic_backup_password_only_config_fields
+  changed_when: false
+  check_mode: false
+  no_log: true
+  when:
+    - backups.restic.proton.authentication_mode | default('') == 'password-only'
+    - restic_backup_password_only_config.stat.exists | default(false)
+
+- name: Refuse ordinary convergence before guarded password-only transition
+  ansible.builtin.assert:
+    that:
+      - restic_backup_password_only_config_fields.stdout == 'password_only_config=ready'
+    fail_msg: >-
+      The protected rclone config still contains the legacy TOTP field. Run the separately reviewed
+      transition-proton-password-only.yml transaction before ordinary Restic convergence.
+  when:
+    - backups.restic.proton.authentication_mode | default('') == 'password-only'
+    - restic_backup_password_only_config.stat.exists | default(false)
+
 - name: Install generated Restic inputs
   ansible.builtin.copy:
     src: "{{ item.src }}"

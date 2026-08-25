@@ -35,11 +35,11 @@ STATIC_KEYS = {
     "username",
     "password",
     "mailbox_password",
-    "otp_secret_key",
     "replace_existing_draft",
     "enable_caching",
     "original_file_size",
 }
+LEGACY_TOTP_KEY = "otp_secret_key"
 CACHE_KEYS = {
     "client_uid",
     "client_access_token",
@@ -165,7 +165,12 @@ def parser_from_config() -> ConfigParser:
     return parser
 
 
-def validate_config(service_uid: int, service_gid: int, username_sha256: str) -> dict[str, str]:
+def validate_config(
+    service_uid: int,
+    service_gid: int,
+    username_sha256: str,
+    allow_legacy_totp: bool = False,
+) -> dict[str, str]:
     require_regular(CONFIG, service_uid, service_gid, 0o600)
     parser = parser_from_config()
     if parser.sections() != ["proton-backup"]:
@@ -173,7 +178,10 @@ def validate_config(service_uid: int, service_gid: int, username_sha256: str) ->
     remote = parser["proton-backup"]
     keys = set(remote)
     required_static = STATIC_KEYS - {"mailbox_password"}
-    if not required_static <= keys or not keys <= STATIC_KEYS | CACHE_KEYS:
+    allowed = STATIC_KEYS | CACHE_KEYS
+    if allow_legacy_totp:
+        allowed.add(LEGACY_TOTP_KEY)
+    if not required_static <= keys or not keys <= allowed:
         fail("rclone_config_fields")
     if any(not value or "\x00" in value or "\n" in value for value in remote.values()):
         fail("rclone_config_values")
@@ -188,7 +196,8 @@ def validate_config(service_uid: int, service_gid: int, username_sha256: str) ->
     cache_present = CACHE_KEYS & keys
     if cache_present and cache_present != CACHE_KEYS:
         fail("rclone_auth_cache_partial")
-    return {key: remote[key] for key in sorted(STATIC_KEYS & keys)}
+    static_keys = STATIC_KEYS | ({LEGACY_TOTP_KEY} if allow_legacy_totp else set())
+    return {key: remote[key] for key in sorted(static_keys & keys)}
 
 
 def classify(returncode: int, stderr: bytes) -> str:
@@ -221,13 +230,14 @@ def parse_rotation_dotenv(raw: bytes) -> dict[str, str]:
         "RESTIC_PROTON_PASSWORD",
         "PROTON_BACKUP_USERNAME",
         "PROTON_BACKUP_PASSWORD",
-        "PROTON_BACKUP_TOTP_SEED",
         "PROTON_BACKUP_MAILBOX_PASSWORD",
     }
     for line in lines:
         if "=" not in line:
             continue
         key, value = line.split("=", 1)
+        if key == "PROTON_BACKUP_TOTP_SEED":
+            fail("proton_totp_seed_forbidden")
         if key in wanted:
             values[key] = value
     required = wanted - {"PROTON_BACKUP_MAILBOX_PASSWORD"}
@@ -539,6 +549,225 @@ def load_auth_diagnostic_evidence(expected_transaction: str, expected_sha256: st
     return evidence
 
 
+def load_credential_rotation_evidence(
+    expected_transaction: str,
+    expected_auth_sha256: str,
+    expected_sha256: str,
+) -> dict[str, object]:
+    path = EVIDENCE_PARENT / f"proton-credential-rotation-{expected_transaction}.json"
+    require_regular(path, 0, 0, 0o600)
+    try:
+        content = path.read_bytes()
+        evidence = json.loads(content)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        fail("credential_rotation_evidence_invalid")
+    expected_keys = {
+        "account_username_sha256",
+        "auth_diagnostic_evidence_sha256",
+        "cache_invalidation",
+        "password_rotation",
+        "rotated_at",
+        "state",
+        "transaction_sha256",
+        "version",
+    }
+    if (
+        not isinstance(evidence, dict)
+        or set(evidence) != expected_keys
+        or digest_bytes(content) != expected_sha256
+        or evidence.get("auth_diagnostic_evidence_sha256") != expected_auth_sha256
+        or evidence.get("cache_invalidation") != "pass"
+        or evidence.get("password_rotation") != "pass"
+        or evidence.get("state") != "rotated"
+        or evidence.get("transaction_sha256") != expected_transaction
+        or evidence.get("version") != 1
+    ):
+        fail("credential_rotation_evidence_invalid")
+    return evidence
+
+
+def run_password_only_transition_under_lock(
+    expected_transaction: str,
+    expected_script_sha256: str,
+    expected_auth_evidence_sha256: str,
+    expected_rotation_evidence_sha256: str,
+) -> None:
+    if os.getuid() != 0 or os.getgid() != 0:
+        fail("identity")
+    service = pwd.getpwnam("restic-proton")
+    service_group = grp.getgrnam("restic-proton")
+    if service.pw_uid != 60000 or service.pw_gid != 60000 or service_group.gr_gid != 60000:
+        fail("service_identity")
+    if digest_file(Path(__file__)) != expected_script_sha256:
+        fail("diagnostic_script_hash")
+    require_regular(MUTEX, 0, service_group.gr_gid, 0o660)
+    require_directory(EVIDENCE_PARENT, 0, 0, 0o750)
+    require_directory(CONFIG.parent, service.pw_uid, service.pw_gid, 0o700)
+    owner_content = validate_lock(expected_transaction)
+    require_no_backup_processes()
+    policy = load_policy(service_group.gr_gid)
+    qualification = policy["qualification"]
+    auth_evidence = load_auth_diagnostic_evidence(expected_transaction, expected_auth_evidence_sha256)
+    rotation_evidence = load_credential_rotation_evidence(
+        expected_transaction,
+        expected_auth_evidence_sha256,
+        expected_rotation_evidence_sha256,
+    )
+    if (
+        auth_evidence.get("account_username_sha256") != qualification.get("username_sha256")
+        or rotation_evidence.get("account_username_sha256") != qualification.get("username_sha256")
+    ):
+        fail("password_only_account_identity")
+    recovery_evidence = EVIDENCE_PARENT / f"proton-qualification-recovery-{expected_transaction}.json"
+    for path in (RESULT, HOST_EVIDENCE, recovery_evidence):
+        if path.exists() or path.is_symlink():
+            fail("prior_transaction_evidence")
+    transition_path = EVIDENCE_PARENT / f"proton-password-only-transition-{expected_transaction}.json"
+    marker_keys = {
+        "account_username_sha256",
+        "auth_diagnostic_evidence_sha256",
+        "credential_rotation_evidence_sha256",
+        "started_at",
+        "state",
+        "transaction_sha256",
+        "version",
+    }
+    resuming = transition_path.exists() or transition_path.is_symlink()
+    if not resuming:
+        validate_config(
+            service.pw_uid,
+            service.pw_gid,
+            qualification["username_sha256"],
+            allow_legacy_totp=True,
+        )
+        initial_keys = set(parser_from_config()["proton-backup"])
+        if CACHE_KEYS & initial_keys:
+            fail("password_only_auth_cache_present")
+        if LEGACY_TOTP_KEY not in initial_keys:
+            fail("password_only_legacy_field_absent")
+    if resuming:
+        require_regular(transition_path, 0, 0, 0o600)
+        try:
+            marker = json.loads(transition_path.read_bytes())
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            fail("password_only_transition_evidence_invalid")
+        if (
+            not isinstance(marker, dict)
+            or set(marker) != marker_keys
+            or marker.get("account_username_sha256") != qualification.get("username_sha256")
+            or marker.get("auth_diagnostic_evidence_sha256") != expected_auth_evidence_sha256
+            or marker.get("credential_rotation_evidence_sha256") != expected_rotation_evidence_sha256
+            or marker.get("state") != "started"
+            or marker.get("transaction_sha256") != expected_transaction
+            or marker.get("version") != 1
+        ):
+            fail("password_only_transition_evidence_invalid")
+    else:
+        marker = {
+            "account_username_sha256": qualification["username_sha256"],
+            "auth_diagnostic_evidence_sha256": expected_auth_evidence_sha256,
+            "credential_rotation_evidence_sha256": expected_rotation_evidence_sha256,
+            "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "state": "started",
+            "transaction_sha256": expected_transaction,
+            "version": 1,
+        }
+        atomic_json(transition_path, marker, replace=False)
+    parser = parser_from_config()
+    keys_before = set(parser["proton-backup"])
+    cache_present = CACHE_KEYS & keys_before
+    if cache_present:
+        fail("password_only_auth_cache_present")
+    if LEGACY_TOTP_KEY in keys_before:
+        static_before = validate_config(
+            service.pw_uid,
+            service.pw_gid,
+            qualification["username_sha256"],
+            allow_legacy_totp=True,
+        )
+        parser.remove_option("proton-backup", LEGACY_TOTP_KEY)
+        atomic_config(parser, service.pw_uid, service.pw_gid)
+        expected_static_after = {key: value for key, value in static_before.items() if key != LEGACY_TOTP_KEY}
+    else:
+        expected_static_after = validate_config(service.pw_uid, service.pw_gid, qualification["username_sha256"])
+    static_after = validate_config(service.pw_uid, service.pw_gid, qualification["username_sha256"])
+    if static_after != expected_static_after or LEGACY_TOTP_KEY in parser_from_config()["proton-backup"]:
+        fail("password_only_static_config_drift")
+    if CACHE_KEYS & set(parser_from_config()["proton-backup"]):
+        fail("password_only_auth_cache_present")
+    if validate_lock(expected_transaction) != owner_content:
+        fail("apply_lock_owner_drift")
+    evidence = {
+        "account_username_sha256": qualification["username_sha256"],
+        "auth_diagnostic_evidence_sha256": expected_auth_evidence_sha256,
+        "cache_state": "absent",
+        "credential_rotation_evidence_sha256": expected_rotation_evidence_sha256,
+        "provider_requests": 0,
+        "removed_field": LEGACY_TOTP_KEY,
+        "state": "password-only",
+        "transaction_sha256": expected_transaction,
+        "transitioned_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "version": 1,
+    }
+    evidence_sha256 = atomic_json(transition_path, evidence, replace=True)
+    if validate_lock(expected_transaction) != owner_content:
+        fail("apply_lock_owner_drift")
+    print(f"proton_password_only_transition=passed evidence_sha256={evidence_sha256}")
+
+
+def supervise_password_only_transition(
+    expected_transaction: str,
+    expected_script_sha256: str,
+    expected_auth_evidence_sha256: str,
+    expected_rotation_evidence_sha256: str,
+) -> None:
+    if os.getuid() != 0 or os.getgid() != 0:
+        fail("identity")
+    if digest_file(Path(__file__)) != expected_script_sha256:
+        fail("diagnostic_script_hash")
+    service_gid = grp.getgrnam("restic-proton").gr_gid
+    require_regular(MUTEX, 0, service_gid, 0o660)
+    command = [
+        str(FLOCK),
+        "--exclusive",
+        "--nonblock",
+        "--conflict-exit-code",
+        "75",
+        "--",
+        str(MUTEX),
+        "/usr/bin/python3",
+        str(Path(__file__)),
+        "password-only-under-lock",
+        expected_transaction,
+        expected_script_sha256,
+        expected_auth_evidence_sha256,
+        expected_rotation_evidence_sha256,
+    ]
+    result = subprocess.run(
+        command,
+        check=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=120,
+        env=controlled_environment(),
+    )
+    if result.returncode == 75:
+        fail("backup_mutex_busy")
+    if result.returncode != 0:
+        controlled = re.fullmatch(rb"proton_auth_diagnostic=failed reason=([a-z0-9_.-]+)\n?", result.stderr)
+        if controlled is not None:
+            fail(controlled.group(1).decode("ascii"))
+        fail(f"password_only_subprocess_rc_{result.returncode}_stderr_sha256_{digest_bytes(result.stderr)}")
+    try:
+        output = result.stdout.decode("ascii").strip()
+    except UnicodeDecodeError:
+        fail("password_only_output")
+    if re.fullmatch(r"proton_password_only_transition=passed evidence_sha256=[0-9a-f]{64}", output) is None:
+        fail("password_only_output")
+    print(output)
+
+
 def run_rotation_under_lock(
     expected_transaction: str,
     expected_script_sha256: str,
@@ -736,6 +965,28 @@ def main() -> None:
                 supervise(expected_transaction, expected_script_sha256)
             else:
                 run_under_lock(expected_transaction, expected_script_sha256)
+            return
+        if action in {"password-only-supervise", "password-only-under-lock"}:
+            if len(sys.argv) != 6:
+                fail("usage")
+            values = sys.argv[2:6]
+            if any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in values):
+                fail("usage")
+            expected_transaction, expected_script_sha256, expected_auth_evidence_sha256, expected_rotation_evidence_sha256 = values
+            if action == "password-only-supervise":
+                supervise_password_only_transition(
+                    expected_transaction,
+                    expected_script_sha256,
+                    expected_auth_evidence_sha256,
+                    expected_rotation_evidence_sha256,
+                )
+            else:
+                run_password_only_transition_under_lock(
+                    expected_transaction,
+                    expected_script_sha256,
+                    expected_auth_evidence_sha256,
+                    expected_rotation_evidence_sha256,
+                )
             return
         if action not in {"rotate-supervise", "rotate-under-lock"} or len(sys.argv) != 5:
             fail("usage")

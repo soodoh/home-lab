@@ -230,7 +230,7 @@
       ansible.builtin.debug:
         msg: >-
           Would invalidate only cached Proton client tokens, reauthenticate through the protected
-          password and TOTP seed, exercise one 4096-byte object under the dedicated qualification
+          password-only account, exercise one 4096-byte object under the dedicated qualification
           directory, remove that exact object and directory, and retain redacted evidence.
       changed_when: true
       when: ansible_check_mode
@@ -329,7 +329,7 @@
           - evidence.range_count == backups.restic.qualification.range_count
           - evidence.operations == ['about', 'lsjson', 'copyto', 'cat', 'moveto', 'deletefile', 'rmdir']
           - evidence.cache_invalidation == 'pass'
-          - evidence.password_totp_reauthentication == 'pass'
+          - evidence.password_reauthentication == 'pass'
           - evidence.original_file_size == 'pass'
           - evidence.replace_existing_draft == 'pass'
           - evidence.remote_cleanup == 'pass'
@@ -349,7 +349,7 @@
           - free_bytes
           - operations
           - original_file_size
-          - password_totp_reauthentication
+          - password_reauthentication
           - range_count
           - range_offset
           - remote_cleanup

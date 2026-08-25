@@ -98,7 +98,7 @@ const qualificationEvidence = {
   free_bytes: 800000000000,
   operations: ["about", "lsjson", "copyto", "cat", "moveto", "deletefile", "rmdir"],
   original_file_size: "pass",
-  password_totp_reauthentication: "pass",
+  password_reauthentication: "pass",
   range_count: 1024,
   range_offset: 1024,
   remote_cleanup: "pass",

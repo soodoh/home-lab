@@ -210,15 +210,14 @@ def main() -> None:
     assert "path.read_text(encoding=\"utf-8\") == content" in bootstrap
     assert "except (ConfigError, OSError)" in bootstrap
     assert 'remote.get("original_file_size") != "true"' in bootstrap
-    assert 'remote.get("otp_secret_key")' in bootstrap
+    assert '"otp_secret_key"' not in bootstrap
     bootstrap_module = runpy.run_path(str(ROOT / "scripts/bootstrap-restic-credentials"), run_name="restic_bootstrap_test_module")
     parse_dotenv = bootstrap_module["parse_dotenv"]
     valid_credentials = {
         "RESTIC_LOCAL_PASSWORD": "a" * 32,
         "RESTIC_PROTON_PASSWORD": "b" * 32,
         "PROTON_BACKUP_USERNAME": "fixture-account",
-        "PROTON_BACKUP_PASSWORD": "fixture-login-password",
-        "PROTON_BACKUP_TOTP_SEED": "A" * 32,
+        "PROTON_BACKUP_PASSWORD": "A1" * 20,
     }
 
     def parse_credentials(values: dict[str, str]) -> dict[str, str]:
@@ -228,8 +227,10 @@ def main() -> None:
     invalid_credentials = (
         ({**valid_credentials, "RESTIC_LOCAL_PASSWORD": "short"}, "restic_password_minimum_length"),
         ({**valid_credentials, "RESTIC_PROTON_PASSWORD": "a" * 32}, "restic_passwords_not_distinct"),
-        ({**valid_credentials, "PROTON_BACKUP_TOTP_SEED": "not-base32"}, "proton_totp_seed_format"),
-        ({**valid_credentials, "PROTON_BACKUP_TOTP_SEED": "A" * 17}, "proton_totp_seed_format"),
+        ({**valid_credentials, "PROTON_BACKUP_PASSWORD": "short"}, "proton_login_password_policy"),
+        ({**valid_credentials, "PROTON_BACKUP_PASSWORD": "A!" * 20}, "proton_login_password_policy"),
+        ({**valid_credentials, "RESTIC_LOCAL_PASSWORD": "A1" * 20}, "proton_login_password_not_distinct"),
+        ({**valid_credentials, "PROTON_BACKUP_TOTP_SEED": "A" * 32}, "proton_totp_seed_forbidden"),
     )
     for invalid, expected_reason in invalid_credentials:
         error = io.StringIO()
@@ -247,7 +248,7 @@ def main() -> None:
     assert "invalidate_auth_cache(policy)" in qualification
     assert 'remote_directory != "Backups/.home-lab-rclone-qualification"' in qualification
     assert "secrets.token_bytes" in qualification
-    assert "password_totp_reauthentication" in qualification
+    assert "password_reauthentication" in qualification
     group_vars = (ROOT / "ansible/group_vars/docker_host.yml").read_text()
     assert 'restic_archive_sha256: "{{ backups.restic.tools.restic.archive_sha256 }}"' in group_vars
     assert 'rclone_archive_sha256: "{{ backups.restic.tools.rclone.archive_sha256 }}"' in group_vars
@@ -264,6 +265,9 @@ def main() -> None:
     assert "Refusing Restic deployment without the exact contract repository mount" in role
     assert "import bz2" in role and "zipfile.ZipFile" in role
     assert "/usr/bin/bzip2" not in role and "/usr/bin/unzip" not in role and "ansible.builtin.unarchive" not in role
+    assert "Refuse ordinary convergence before guarded password-only transition" in role
+    assert role.index("Refuse ordinary convergence before guarded password-only transition") < role.index("Install rendered Restic policy JSON")
+    assert role.index("Refuse ordinary convergence before guarded password-only transition") < role.index("Install canonical SOPS ciphertext")
     sops_install = role.split("Install canonical SOPS ciphertext", 1)[1].split("Gather confined Restic identity records", 1)[0]
     assert "no_log: true" in sops_install
     reconcile = (ROOT / "scripts/reconcile-infrastructure").read_text()
@@ -371,6 +375,17 @@ def main() -> None:
     assert 'remote["password"] = new_obscured_password' in auth_diagnostic
     assert "for key in CACHE_KEYS:" in auth_diagnostic
     assert "rotation_static_config_drift" in auth_diagnostic
+    password_only_playbook = (ROOT / "ansible/playbooks/transition-proton-password-only.yml").read_text()
+    assert "remove-only-obsolete-proton-totp-field" in password_only_playbook
+    assert f"proton_password_only_script_sha256: {auth_diagnostic_sha256}" in password_only_playbook
+    assert "password-only-supervise" in password_only_playbook
+    assert "provider_requests == 0" in password_only_playbook
+    assert "apply_lock_action: release" not in password_only_playbook
+    assert 'LEGACY_TOTP_KEY = "otp_secret_key"' in auth_diagnostic
+    assert "run_password_only_transition_under_lock" in auth_diagnostic
+    assert '"provider_requests": 0' in auth_diagnostic
+    assert "proton_totp_seed_forbidden" in auth_diagnostic
+    assert "Require exact resumable password-only transition claim" in password_only_playbook
     parse_rotation_dotenv = diagnostic_module["parse_rotation_dotenv"]
     rotation_values = parse_rotation_dotenv(
         (
@@ -378,7 +393,6 @@ def main() -> None:
             "RESTIC_PROTON_PASSWORD=" + "R" * 40 + "\n"
             "PROTON_BACKUP_USERNAME=backup@example.test\n"
             "PROTON_BACKUP_PASSWORD=" + "A1" * 20 + "\n"
-            "PROTON_BACKUP_TOTP_SEED=JBSWY3DPEHPK3PXP\n"
         ).encode()
     )
     assert rotation_values["PROTON_BACKUP_PASSWORD"] == "A1" * 20
