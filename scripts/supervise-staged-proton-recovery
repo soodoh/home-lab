@@ -1,0 +1,381 @@
+#!/usr/bin/env python3
+"""Supervise one hash-bound staged Proton qualification recovery."""
+
+from configparser import ConfigParser, Error as ConfigError
+from datetime import datetime
+import grp
+import hashlib
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import signal
+import stat
+import subprocess
+import sys
+import time
+
+APPLY_LOCK = Path("/var/lib/iac-ansible-production.lock")
+CACHE = Path("/var/lib/restic-proton/cache")
+CONFIG = Path("/var/lib/restic-proton/rclone.conf")
+EVIDENCE_PARENT = Path("/var/lib/home-lab-restic")
+QUALIFICATION_EVIDENCE = EVIDENCE_PARENT / "proton-qualification.json"
+MUTEX = Path("/run/lock/home-lab-backup.lock")
+RESULT = Path("/var/lib/restic-proton/proton-qualification-result.json")
+RUNUSER = Path("/usr/sbin/runuser")
+FLOCK = Path("/usr/bin/flock")
+SERVICE_UID = 60000
+SERVICE_GID = 60000
+STATIC_KEYS = {
+    "enable_caching",
+    "original_file_size",
+    "password",
+    "replace_existing_draft",
+    "type",
+    "username",
+}
+CACHE_KEYS = {
+    "client_access_token",
+    "client_refresh_token",
+    "client_salted_key_pass",
+    "client_uid",
+}
+
+
+class RecoveryError(RuntimeError):
+    """A controlled redacted recovery-supervision failure."""
+
+
+def fail(reason: str) -> None:
+    if re.fullmatch(r"[a-z0-9_.-]+", reason) is None:
+        reason = "invalid_failure_reason"
+    raise RecoveryError(reason)
+
+
+def digest(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def digest_file(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            value.update(chunk)
+    return value.hexdigest()
+
+
+def require_regular(path: Path, uid: int, gid: int, mode: int) -> bytes:
+    try:
+        metadata = path.lstat()
+        content = path.read_bytes()
+    except OSError:
+        fail(f"{path.name}_absent")
+    if path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        fail(f"{path.name}_type")
+    if metadata.st_uid != uid or metadata.st_gid != gid or stat.S_IMODE(metadata.st_mode) != mode:
+        fail(f"{path.name}_metadata")
+    return content
+
+
+def require_directory(path: Path, uid: int, gid: int, mode: int) -> None:
+    try:
+        metadata = path.lstat()
+    except OSError:
+        fail(f"{path.name}_absent")
+    if path.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+        fail(f"{path.name}_type")
+    if metadata.st_uid != uid or metadata.st_gid != gid or stat.S_IMODE(metadata.st_mode) != mode:
+        fail(f"{path.name}_metadata")
+
+
+def require_no_processes() -> None:
+    for process in ("restic", "rclone"):
+        result = subprocess.run(
+            ["/usr/bin/pgrep", "--exact", process],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env={"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"},
+        )
+        if result.returncode not in {0, 1}:
+            fail("process_inspection")
+        if result.returncode == 0:
+            fail("backup_process_present")
+
+
+def terminate_group(process: subprocess.Popen[bytes]) -> None:
+    try:
+        group = os.getpgid(process.pid)
+    except ProcessLookupError:
+        group = process.pid
+    try:
+        os.killpg(group, signal.SIGTERM)
+    except ProcessLookupError:
+        process.poll()
+        return
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        process.poll()
+        try:
+            os.killpg(group, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            if process.poll() is not None:
+                return
+        time.sleep(0.05)
+    try:
+        os.killpg(group, signal.SIGKILL)
+    except ProcessLookupError:
+        process.poll()
+        return
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        process.poll()
+        try:
+            os.killpg(group, 0)
+        except ProcessLookupError:
+            return
+        except PermissionError:
+            if process.poll() is not None:
+                return
+        time.sleep(0.05)
+    fail("recovery_process_group_survived")
+
+
+def bounded(command: list[str], timeout: float = 600) -> subprocess.CompletedProcess[bytes]:
+    def interrupted(_signum: int, _frame: object) -> None:
+        raise InterruptedError
+
+    handlers = {
+        signum: signal.signal(signum, interrupted)
+        for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+    }
+    process: subprocess.Popen[bytes] | None = None
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/local/bin:/usr/bin:/bin"},
+            start_new_session=True,
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except BaseException:
+            try:
+                terminate_group(process)
+            finally:
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+            raise
+    finally:
+        for signum, handler in handlers.items():
+            signal.signal(signum, handler)
+    if process is None:
+        fail("recovery_exec")
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def validate_config(expected_hash: str) -> bytes:
+    require_directory(CONFIG.parent, SERVICE_UID, SERVICE_GID, 0o700)
+    raw = require_regular(CONFIG, SERVICE_UID, SERVICE_GID, 0o600)
+    if digest(raw) != expected_hash:
+        fail("config_hash")
+    parser = ConfigParser(interpolation=None)
+    try:
+        parser.read_string(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ConfigError):
+        fail("config_shape")
+    if parser.sections() != ["proton-backup"] or set(parser["proton-backup"]) != STATIC_KEYS:
+        fail("config_shape")
+    remote = parser["proton-backup"]
+    if (
+        remote.get("type") != "protondrive"
+        or remote.get("replace_existing_draft") != "true"
+        or remote.get("enable_caching") != "true"
+        or remote.get("original_file_size") != "true"
+        or CACHE_KEYS & set(remote)
+    ):
+        fail("config_shape")
+    return raw
+
+
+def validate_result(transaction: str) -> str:
+    raw = require_regular(RESULT, SERVICE_UID, SERVICE_GID, 0o600)
+    try:
+        evidence = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        fail("result_shape")
+    if not isinstance(evidence, dict) or set(evidence) != {
+        "account_username_sha256",
+        "recovered_at",
+        "recovered_files",
+        "remote_cleanup",
+        "state",
+        "transaction_sha256",
+        "version",
+    }:
+        fail("result_shape")
+    recovered = evidence.get("recovered_files")
+    if (
+        evidence.get("state") != "recovered"
+        or evidence.get("version") != 1
+        or evidence.get("transaction_sha256") != transaction
+        or evidence.get("remote_cleanup") != "pass"
+        or not isinstance(evidence.get("account_username_sha256"), str)
+        or re.fullmatch(r"[0-9a-f]{64}", evidence["account_username_sha256"]) is None
+        or not isinstance(recovered, list)
+        or len(recovered) != len(set(recovered))
+        or not set(recovered) <= {"fixture.bin", "fixture-renamed.bin"}
+        or not isinstance(evidence.get("recovered_at"), str)
+    ):
+        fail("result_shape")
+    try:
+        datetime.strptime(evidence["recovered_at"], "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        fail("result_shape")
+    return digest(raw)
+
+
+def validate_post_state(
+    config_raw: bytes,
+    expected_config: str,
+    transaction: str,
+    staged: Path,
+    expected_staged: str,
+) -> None:
+    drift = False
+    checks = (
+        lambda: require_no_processes(),
+        lambda: validate_config(expected_config),
+        lambda: require_directory(CACHE, SERVICE_UID, SERVICE_GID, 0o700),
+        lambda: require_directory(APPLY_LOCK, 0, 0, 0o700),
+        lambda: require_regular(APPLY_LOCK / "owner", 0, 0, 0o600),
+        lambda: require_regular(staged, 0, 0, 0o755),
+    )
+    results: list[object] = []
+    for check in checks:
+        try:
+            results.append(check())
+        except (OSError, RecoveryError):
+            drift = True
+            results.append(None)
+    config_after, owner_after, staged_after = results[1], results[4], results[5]
+    try:
+        if (
+            config_after != config_raw
+            or any(CACHE.iterdir())
+            or not isinstance(owner_after, bytes)
+            or digest(owner_after) != transaction
+            or not isinstance(staged_after, bytes)
+            or digest(staged_after) != expected_staged
+        ):
+            drift = True
+    except OSError:
+        drift = True
+    if drift:
+        fail("artifact_drift")
+
+
+def remove_validated_staged(
+    staged: Path | None,
+    expected_hash: str | None,
+    validated: bool,
+    uid: int = 0,
+    gid: int = 0,
+) -> None:
+    if staged is None or expected_hash is None or not validated:
+        return
+    try:
+        raw = require_regular(staged, uid, gid, 0o755)
+    except RecoveryError:
+        return
+    if digest(raw) != expected_hash:
+        return
+    staged.unlink()
+
+
+def main() -> None:
+    staged: Path | None = None
+    expected_staged: str | None = None
+    staged_validated = False
+    try:
+        if len(sys.argv) != 5 or os.getuid() != 0 or os.getgid() != 0:
+            fail("usage")
+        transaction, expected_script, expected_staged, expected_config = sys.argv[1:]
+        if any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in sys.argv[1:]):
+            fail("usage")
+        if digest(require_regular(Path(__file__), 0, 0, 0o700)) != expected_script:
+            fail("script_hash")
+        service = pwd.getpwnam("restic-proton")
+        service_group = grp.getgrnam("restic-proton")
+        if service.pw_uid != SERVICE_UID or service.pw_gid != SERVICE_GID or service_group.gr_gid != SERVICE_GID:
+            fail("service_identity")
+        require_regular(FLOCK, 0, 0, 0o755)
+        require_regular(RUNUSER, 0, 0, 0o755)
+        require_regular(MUTEX, 0, SERVICE_GID, 0o660)
+        require_directory(APPLY_LOCK, 0, 0, 0o700)
+        owner = require_regular(APPLY_LOCK / "owner", 0, 0, 0o600)
+        try:
+            owner_lines = owner.decode("utf-8").splitlines()
+        except UnicodeDecodeError:
+            fail("lock_owner")
+        if (
+            digest(owner) != transaction
+            or owner_lines.count("controller=ansible-deploy") != 1
+            or owner_lines.count("operation=proton-qualification") != 1
+            or len(owner_lines) != 3
+        ):
+            fail("lock_owner")
+        staged = Path(f"/run/qualify-proton-backup-recovery-{transaction}")
+        staged_raw = require_regular(staged, 0, 0, 0o755)
+        if digest(staged_raw) != expected_staged:
+            fail("staged_hash")
+        staged_validated = True
+        config_raw = validate_config(expected_config)
+        require_directory(CACHE, SERVICE_UID, SERVICE_GID, 0o700)
+        if any(CACHE.iterdir()):
+            fail("cache_not_empty")
+        require_directory(EVIDENCE_PARENT, 0, 0, 0o750)
+        recovery_evidence = EVIDENCE_PARENT / f"proton-qualification-recovery-{transaction}.json"
+        if (
+            RESULT.exists()
+            or RESULT.is_symlink()
+            or QUALIFICATION_EVIDENCE.exists()
+            or QUALIFICATION_EVIDENCE.is_symlink()
+            or recovery_evidence.exists()
+            or recovery_evidence.is_symlink()
+        ):
+            fail("prior_recovery")
+        require_no_processes()
+        command = [
+            str(FLOCK), "--exclusive", "--nonblock", "--conflict-exit-code", "75", "--", str(MUTEX),
+            str(RUNUSER), "--user", "restic-proton", "--", str(staged),
+            "recover-installed", transaction, expected_staged,
+        ]
+        try:
+            result = bounded(command)
+        finally:
+            validate_post_state(config_raw, expected_config, transaction, staged, expected_staged)
+        if result.returncode != 0:
+            fail(f"recovery_rc_{result.returncode}_stderr_sha256_{digest(result.stderr)}")
+        result_hash = validate_result(transaction)
+        print(f"proton_staged_recovery=passed evidence_sha256={result_hash}")
+    except RecoveryError as error:
+        print(f"proton_staged_recovery=failed reason={error}", file=sys.stderr)
+        raise SystemExit(1) from None
+    except (OSError, KeyError, subprocess.SubprocessError):
+        print("proton_staged_recovery=failed reason=local_operation", file=sys.stderr)
+        raise SystemExit(1) from None
+    finally:
+        remove_validated_staged(staged, expected_staged, staged_validated)
+
+
+if __name__ == "__main__":
+    main()

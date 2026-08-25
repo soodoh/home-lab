@@ -69,7 +69,8 @@ def main() -> None:
     assert "state: absent" in resume
 
     helper = (ROOT / "scripts/qualify-proton-backup").read_text()
-    assert '{"inspect", "qualify", "recover"}' in helper
+    assert '{"inspect", "qualify", "recover", "recover-installed"}' in helper
+    assert 'INSTALLED_HELPER if action == "recover-installed" else Path(__file__)' in helper
     assert "qualification_remote_not_absent" in helper
     assert 'print("proton_qualification_remote=absent")' in helper
     assert '"transaction_sha256": transaction_sha256' in helper

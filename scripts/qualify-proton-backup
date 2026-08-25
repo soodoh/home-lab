@@ -21,6 +21,7 @@ POLICY = Path("/etc/home-lab/restic-policy.json")
 CONFIG = Path("/var/lib/restic-proton/rclone.conf")
 CACHE = Path("/var/lib/restic-proton/cache")
 RESULT = Path("/var/lib/restic-proton/proton-qualification-result.json")
+INSTALLED_HELPER = Path("/usr/local/libexec/home-lab/qualify-proton-backup")
 REMOTE = "proton-backup:"
 STATIC_KEYS = {
     "type",
@@ -66,13 +67,13 @@ def controlled_environment() -> dict[str, str]:
     }
 
 
-def validate_tools(policy: dict[str, object]) -> None:
+def validate_tools(policy: dict[str, object], qualification_helper: Path = Path(__file__)) -> None:
     qualification = policy.get("qualification")
     tools = policy.get("tools")
     if not isinstance(qualification, dict) or not isinstance(tools, dict) or not isinstance(tools.get("rclone"), dict):
         fail("tool_policy")
     rclone_policy = tools["rclone"]
-    if digest_file(Path(__file__)) != qualification.get("helper_sha256"):
+    if digest_file(qualification_helper) != qualification.get("helper_sha256"):
         fail("qualification_helper_hash")
     if digest_file(RCLONE) != rclone_policy.get("installed_sha256"):
         fail("rclone_hash")
@@ -268,8 +269,10 @@ def require_remote_absent(path: str, label: str) -> None:
 
 def qualification_inventory(path: str) -> tuple[bool, list[str]]:
     result = rclone(["lsjson", path, "--max-depth", "1"], "qualification_directory", {0, 3})
+    if result.stdout == b"null\n":
+        return False, []
     if result.returncode == 3:
-        if result.stdout not in {b"", b"null\n"}:
+        if result.stdout:
             fail("qualification_directory_output")
         return False, []
     value = parsed_json(result, "qualification_directory")
@@ -415,10 +418,19 @@ def recover_remote_qualification(
 
 def main() -> None:
     try:
-        if len(sys.argv) < 2 or sys.argv[1] not in {"inspect", "qualify", "recover"}:
+        if len(sys.argv) < 2 or sys.argv[1] not in {"inspect", "qualify", "recover", "recover-installed"}:
             fail("usage")
         action = sys.argv[1]
-        if action == "recover":
+        if action == "recover-installed":
+            if (
+                len(sys.argv) != 4
+                or re.fullmatch(r"[0-9a-f]{64}", sys.argv[2]) is None
+                or re.fullmatch(r"[0-9a-f]{64}", sys.argv[3]) is None
+                or digest_file(Path(__file__)) != sys.argv[3]
+            ):
+                fail("usage")
+            transaction_sha256 = sys.argv[2]
+        elif action == "recover":
             if len(sys.argv) != 3 or re.fullmatch(r"[0-9a-f]{64}", sys.argv[2]) is None:
                 fail("usage")
             transaction_sha256 = sys.argv[2]
@@ -430,11 +442,13 @@ def main() -> None:
         safe_directory(CONFIG.parent, os.getuid(), os.getgid(), 0o700)
         safe_directory(CACHE, os.getuid(), os.getgid(), 0o700)
         safe_regular(RCLONE, 0, 0, 0o755)
-        if action in {"qualify", "recover"} and RESULT.exists():
+        if action == "recover-installed":
+            safe_regular(INSTALLED_HELPER, 0, identity.pw_gid, 0o750)
+        if action in {"qualify", "recover", "recover-installed"} and RESULT.exists():
             fail("prior_result_present")
         policy = load_policy()
         qualification = require_policy(policy)
-        validate_tools(policy)
+        validate_tools(policy, INSTALLED_HELPER if action == "recover-installed" else Path(__file__))
         if qualification.get("result_path") != str(RESULT):
             fail("qualification_result_path")
         remote_directory = qualification.get("remote_directory")
@@ -451,7 +465,7 @@ def main() -> None:
         if action == "inspect":
             inspect_remote_qualification(policy, qualification)
             return
-        if action == "recover":
+        if action in {"recover", "recover-installed"}:
             recover_remote_qualification(policy, qualification, transaction_sha256)
             return
         try:

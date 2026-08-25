@@ -281,7 +281,7 @@ def main() -> None:
     assert "stderr_sha256" in qualification and "digest_bytes(result.stderr)" in qualification
     assert "print(result.stderr" not in qualification
     assert qualification.count("invalidate_auth_cache(policy)") >= 3
-    assert 'result.stdout not in {b"", b"null\\n"}' in qualification
+    assert 'result.stdout == b"null\\n"' in qualification
     qualification_module = runpy.run_path(
         str(ROOT / "scripts/qualify-proton-backup"),
         run_name="qualify_proton_backup_test_module",
@@ -291,6 +291,8 @@ def main() -> None:
     saved_qualification_rclone = qualification_globals["rclone"]
     try:
         qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 3, b"null\n", b"directory not found")
+        assert qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification") == (False, [])
+        qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 0, b"null\n", b"")
         assert qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification") == (False, [])
         qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 3, b"{}\n", b"directory not found")
         try:
@@ -1269,6 +1271,73 @@ def main() -> None:
         pass
     else:
         raise AssertionError("quota diagnostic timeout did not abort")
+    staged_recovery_path = ROOT / "scripts/supervise-staged-proton-recovery"
+    staged_recovery = staged_recovery_path.read_text()
+    assert 'Path(f"/run/qualify-proton-backup-recovery-{transaction}")' in staged_recovery
+    assert 'digest(owner) != transaction' in staged_recovery
+    assert 'require_regular(staged, 0, 0, 0o755)' in staged_recovery
+    assert 'str(FLOCK), "--exclusive", "--nonblock", "--conflict-exit-code", "75"' in staged_recovery
+    assert 'str(RUNUSER), "--user", "restic-proton"' in staged_recovery
+    assert "validate_post_state(" in staged_recovery
+    assert 'QUALIFICATION_EVIDENCE.exists()' in staged_recovery
+    assert "remove_validated_staged(" in staged_recovery
+    assert "print(result.stdout" not in staged_recovery and "print(result.stderr" not in staged_recovery
+    staged_recovery_module = runpy.run_path(
+        str(staged_recovery_path),
+        run_name="supervise_staged_proton_recovery_test_module",
+    )
+    try:
+        staged_recovery_module["bounded"](
+            ["/bin/sh", "-c", "exec /bin/sleep 30"],
+            0.05,
+        )
+    except subprocess.TimeoutExpired:
+        pass
+    else:
+        raise AssertionError("staged Proton recovery timeout did not abort")
+    with tempfile.TemporaryDirectory() as staged_artifact_directory:
+        artifact_root = Path(staged_artifact_directory)
+        artifact = artifact_root / "helper"
+        artifact.write_bytes(b"reviewed helper")
+        artifact.chmod(0o600)
+        assert staged_recovery_module["require_regular"](artifact, os.getuid(), os.getgid(), 0o600) == b"reviewed helper"
+        artifact.chmod(0o644)
+        try:
+            staged_recovery_module["require_regular"](artifact, os.getuid(), os.getgid(), 0o600)
+        except staged_recovery_module["RecoveryError"] as error:
+            assert str(error) == "helper_metadata"
+        else:
+            raise AssertionError("unsafe staged recovery metadata was accepted")
+        artifact.unlink()
+        artifact.symlink_to(staged_recovery_path)
+        try:
+            staged_recovery_module["require_regular"](artifact, os.getuid(), os.getgid(), 0o777)
+        except staged_recovery_module["RecoveryError"] as error:
+            assert str(error) == "helper_type"
+        else:
+            raise AssertionError("staged recovery symlink was accepted")
+        artifact.unlink()
+        artifact.write_bytes(b"reviewed helper")
+        artifact.chmod(0o755)
+        reviewed_hash = hashlib.sha256(artifact.read_bytes()).hexdigest()
+        staged_recovery_module["remove_validated_staged"](
+            artifact, reviewed_hash, False, os.getuid(), os.getgid()
+        )
+        assert artifact.exists()
+        staged_recovery_module["remove_validated_staged"](
+            artifact, "0" * 64, True, os.getuid(), os.getgid()
+        )
+        assert artifact.exists()
+        artifact.chmod(0o644)
+        staged_recovery_module["remove_validated_staged"](
+            artifact, reviewed_hash, True, os.getuid(), os.getgid()
+        )
+        assert artifact.exists()
+        artifact.chmod(0o755)
+        staged_recovery_module["remove_validated_staged"](
+            artifact, reviewed_hash, True, os.getuid(), os.getgid()
+        )
+        assert not artifact.exists()
     post_reset_playbook = (ROOT / "ansible/playbooks/diagnose-proton-post-reset.yml").read_text()
     assert f"proton_post_reset_script_sha256: {auth_diagnostic_sha256}" in post_reset_playbook
     assert "diagnose-one-post-reset-proton-lsjson-v4-corrected-environment-remote" in post_reset_playbook

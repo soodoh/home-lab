@@ -108,6 +108,8 @@ def main() -> None:
         assert recovery_evidence["recovered_files"] == ["fixture-renamed.bin", "fixture.bin"]
         assert recovery_evidence["transaction_sha256"] == "d" * 64
         globals_["qualification_inventory"] = original_inventory
+        globals_["rclone"] = lambda *_args, **_kwargs: subprocess.CompletedProcess([], 0, b"null\n", b"")
+        assert module["qualification_inventory"]("proton-backup:Backups/.home-lab-rclone-qualification") == (False, [])
         globals_["rclone"] = original_rclone_call
 
     secret_error = b"provider response contains a protected account identifier"
