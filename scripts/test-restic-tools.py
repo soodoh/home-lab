@@ -6,6 +6,7 @@ import contextlib
 import io
 from datetime import datetime
 import hashlib
+import os
 from pathlib import Path
 import runpy
 import subprocess
@@ -211,6 +212,9 @@ def main() -> None:
     assert "except (ConfigError, OSError)" in bootstrap
     assert 'remote.get("original_file_size") != "true"' in bootstrap
     assert '"otp_secret_key"' not in bootstrap
+    assert 'sys.argv[3] != "--check"' in bootstrap
+    assert 'fail("credential_drift")' in bootstrap
+    assert 'operation = "validated" if check_only else "materialized"' in bootstrap
     bootstrap_module = runpy.run_path(str(ROOT / "scripts/bootstrap-restic-credentials"), run_name="restic_bootstrap_test_module")
     parse_dotenv = bootstrap_module["parse_dotenv"]
     valid_credentials = {
@@ -241,6 +245,33 @@ def main() -> None:
             assert expected_reason in error.getvalue()
         else:
             raise AssertionError(f"invalid credential fixture passed: {expected_reason}")
+
+    require_credential_contents = bootstrap_module["require_credential_contents"]
+    with tempfile.TemporaryDirectory() as credential_directory:
+        credential_path = Path(credential_directory) / "password"
+        credential_path.write_text("expected\n", encoding="utf-8")
+        credential_path.chmod(0o440)
+        require_credential_contents(
+            {credential_path: "expected\n"},
+            os.getuid(),
+            os.getgid(),
+            0o440,
+        )
+        before = credential_path.read_bytes()
+        error = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(error):
+                require_credential_contents(
+                    {credential_path: "different\n"},
+                    os.getuid(),
+                    os.getgid(),
+                    0o440,
+                )
+        except SystemExit:
+            assert "credential_drift" in error.getvalue()
+        else:
+            raise AssertionError("credential drift was accepted by non-mutating validation")
+        assert credential_path.read_bytes() == before
     qualification = (ROOT / "scripts/qualify-proton-backup").read_text()
     assert 'ALLOWED_COMMANDS = {"about", "cat", "copyto", "deletefile", "lsjson", "moveto", "rmdir"}' in qualification
     assert "stderr_sha256" in qualification and "digest_bytes(result.stderr)" in qualification
@@ -386,6 +417,35 @@ def main() -> None:
     assert '"provider_requests": 0' in auth_diagnostic
     assert "proton_totp_seed_forbidden" in auth_diagnostic
     assert "Require exact resumable password-only transition claim" in password_only_playbook
+    password_only_deployment = (ROOT / "ansible/playbooks/deploy-proton-password-only-artifacts.yml").read_text()
+    assert "deploy-only-password-only-proton-artifacts" in password_only_deployment
+    bootstrap_sha256 = hashlib.sha256((ROOT / "scripts/bootstrap-restic-credentials").read_bytes()).hexdigest()
+    assert f"proton_password_only_new_bootstrap_sha256: {bootstrap_sha256}" in password_only_deployment
+    assert "proton_password_only_deployment_expected_transition_evidence_sha256" in password_only_deployment
+    assert 'checksum: "{{ sops_sha256 }}"' in password_only_deployment
+    assert "/usr/bin/python3\n          /usr/local/libexec/home-lab/bootstrap-restic-credentials" in password_only_deployment
+    assert "provider_requests': 0" in password_only_deployment
+    assert "/usr/local/bin/rclone" not in password_only_deployment
+    assert "apply_lock_action: release" not in password_only_deployment
+    assert "proton_password_only_legacy_policy_sha256" in password_only_deployment
+    assert "Require exact controller-side password-only source hashes" in password_only_deployment
+    assert "Require single-writer artifact deployment claim" in password_only_deployment
+    assert "60000 60000 --check" in password_only_deployment
+    assert "restic_credentials=validated state=noop" in password_only_deployment
+    deployment_order = [
+        password_only_deployment.index(name)
+        for name in (
+            "Require exact controller-side password-only source hashes",
+            "Claim password-only artifact deployment transaction",
+            "Require single-writer artifact deployment claim",
+            "Install reviewed password-only policy",
+            "Install reviewed password-only helpers",
+            "Install reviewed password-only SOPS ciphertext",
+            "Validate protected password-only credential materialization as a no-op",
+            "Finalize password-only artifact deployment evidence",
+        )
+    ]
+    assert deployment_order == sorted(deployment_order)
     parse_rotation_dotenv = diagnostic_module["parse_rotation_dotenv"]
     rotation_values = parse_rotation_dotenv(
         (

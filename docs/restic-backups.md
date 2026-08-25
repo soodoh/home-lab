@@ -120,6 +120,26 @@ ansible-playbook -i inventory/production.yml playbooks/transition-proton-passwor
 
 An interrupted transition leaves only transaction-bound `state=started` evidence. The same reviewed transaction can resume safely whether the config still contains the legacy field or the atomic config replacement already completed; any other evidence/config shape fails closed. A first-use transaction must observe the legacy field before claiming evidence. Ordinary Restic convergence fails before replacing the installed legacy policy, helper, or ciphertext until this dedicated transition succeeds. Ordinary task completion removes the root-only staged supervisor.
 
+After the installed config transition succeeds, the retained production lock prevents ordinary site convergence while recovery still requires the new policy and qualification-helper hash. Use the separate local-only artifact deployment transaction. It accepts only the exact legacy seam or a transaction-claimed mix of exact old/new artifacts, installs only the policy, bootstrap helper, qualification helper, and 93-key encrypted ciphertext, requires credential materialization to be a no-op, writes resumable deployment evidence, makes zero Proton requests, and retains the lock:
+
+```sh
+cd ansible
+ansible-playbook -i inventory/production.yml playbooks/deploy-proton-password-only-artifacts.yml --check --diff \
+  -e proton_password_only_deployment_confirmed=true \
+  -e proton_password_only_deployment_confirmation=deploy-only-password-only-proton-artifacts \
+  -e proton_password_only_deployment_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
+  -e proton_password_only_deployment_expected_transition_evidence_sha256=1e503ba7af5d08b9ed0f7c42f10417a6f442ca851eb7ceff4fa0f772ad13784c
+
+# Requires separate authorization after reviewing the fresh plan.
+ansible-playbook -i inventory/production.yml playbooks/deploy-proton-password-only-artifacts.yml \
+  -e proton_password_only_deployment_confirmed=true \
+  -e proton_password_only_deployment_confirmation=deploy-only-password-only-proton-artifacts \
+  -e proton_password_only_deployment_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
+  -e proton_password_only_deployment_expected_transition_evidence_sha256=1e503ba7af5d08b9ed0f7c42f10417a6f442ca851eb7ceff4fa0f772ad13784c
+```
+
+A `state=started` deployment marker permits exact idempotent artifact reconciliation after interruption; completed `state=deployed` evidence is immutable. This deployment does not authorize transaction recovery, qualification, repository initialization, or timer activation.
+
 The generic `clear-failed-apply-lock.yml` transaction explicitly rejects `proton-qualification`. After inspection and fresh AWS/access proofs, plan the dedicated recovery transaction with the exact retained lock. Its only live remote mutations are `deletefile` for `fixture.bin` and/or `fixture-renamed.bin` when an exact bounded listing contains no other entry, followed by `rmdir` for the now-empty qualification directory:
 
 ```sh
