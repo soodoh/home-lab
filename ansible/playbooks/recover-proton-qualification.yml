@@ -6,6 +6,9 @@
   vars_files:
     - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
     - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  vars:
+    proton_empty_recovery_script_sha256: de248330b34b7619cdb6d074fbe3126c7db4768680e11b3042a133545a6c0a28
+    proton_empty_recovery_observation_sha256: 7164a86b3c7d4c61c64ec780c192e333e2ee26407a9f39dfa38f6a5fdff6405b
   tasks:
     - name: Require exact failed Proton qualification recovery approval
       ansible.builtin.assert:
@@ -479,36 +482,108 @@
         fail_msg: Published qualification evidence requires attestation, not failed-object cleanup.
       loop: "{{ proton_recovery_prior_evidence.results }}"
 
+    - name: Inspect exact backup mutex before empty-directory recovery
+      ansible.builtin.stat:
+        path: "{{ backups.restic.runner.lock_path }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      become: true
+      register: proton_empty_recovery_mutex
+
+    - name: Require exact backup mutex before empty-directory recovery
+      ansible.builtin.assert:
+        that:
+          - proton_empty_recovery_mutex.stat.isreg | default(false)
+          - not (proton_empty_recovery_mutex.stat.islnk | default(false))
+          - proton_empty_recovery_mutex.stat.pw_name == 'root'
+          - proton_empty_recovery_mutex.stat.gr_name == 'restic-proton'
+          - proton_empty_recovery_mutex.stat.mode == '0660'
+          - proton_empty_recovery_mutex.stat.nlink == 1
+        fail_msg: Backup mutex differs before empty-directory recovery.
+
+    - name: Inspect exact empty-directory recovery observation
+      ansible.builtin.stat:
+        path: >-
+          /var/lib/home-lab-restic/proton-post-reset-diagnostic-v4-{{ proton_recovery_transaction_sha256 }}.json
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      become: true
+      register: proton_empty_recovery_observation
+
+    - name: Verify controller-side empty-directory recovery finalizer
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../../scripts/finalize-proton-empty-recovery"
+        get_checksum: true
+        checksum_algorithm: sha256
+      delegate_to: localhost
+      become: false
+      register: proton_empty_recovery_controller_script
+
+    - name: Require exact empty-directory observation and finalizer
+      ansible.builtin.assert:
+        that:
+          - proton_empty_recovery_observation.stat.isreg | default(false)
+          - proton_empty_recovery_observation.stat.pw_name == 'root'
+          - proton_empty_recovery_observation.stat.gr_name == 'root'
+          - proton_empty_recovery_observation.stat.mode == '0600'
+          - proton_empty_recovery_observation.stat.nlink == 1
+          - proton_empty_recovery_observation.stat.checksum == proton_empty_recovery_observation_sha256
+          - proton_empty_recovery_controller_script.stat.isreg | default(false)
+          - proton_empty_recovery_controller_script.stat.checksum == proton_empty_recovery_script_sha256
+        fail_msg: Empty-directory recovery evidence or finalizer differs from its reviewed pin.
+      no_log: true
+
     - name: Report exact failed qualification cleanup in check mode
       ansible.builtin.debug:
         msg: >-
-          Would inspect the dedicated qualification directory, reject unknown entries, remove only
-          fixture.bin and fixture-renamed.bin when present, remove only the empty dedicated directory,
-          retain redacted recovery evidence, and release only the proton-qualification lock.
+          Would use the exact authenticated v4 directory-not-found observation to publish empty recovery
+          evidence without another provider request, then release only the proton-qualification lock.
       changed_when: true
       when: ansible_check_mode
 
-    - name: Recover only exact qualification fixtures under the backup mutex
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/flock
-          - --exclusive
-          - --nonblock
-          - --
-          - "{{ backups.restic.runner.lock_path }}"
-          - /usr/sbin/runuser
-          - --user
-          - restic-proton
-          - --
-          - /usr/local/libexec/home-lab/qualify-proton-backup
-          - recover
-          - "{{ proton_recovery_transaction_sha256 }}"
-      become: true
-      register: proton_recovery_run
-      changed_when: true
-      failed_when: false
-      no_log: true
+    - name: Finalize observed-empty qualification recovery under the backup mutex
       when: not ansible_check_mode
+      block:
+        - name: Stage hash-pinned empty-directory recovery finalizer
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/../../scripts/finalize-proton-empty-recovery"
+            dest: "/run/proton-empty-recovery-{{ proton_recovery_transaction_sha256 }}"
+            owner: root
+            group: root
+            mode: "0700"
+          become: true
+          no_log: true
+
+        - name: Publish exact empty-directory recovery result
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/flock
+              - --exclusive
+              - --nonblock
+              - --
+              - "{{ backups.restic.runner.lock_path }}"
+              - /usr/bin/python3
+              - "/run/proton-empty-recovery-{{ proton_recovery_transaction_sha256 }}"
+              - "{{ proton_recovery_transaction_sha256 }}"
+              - "{{ proton_empty_recovery_script_sha256 }}"
+              - "{{ proton_empty_recovery_observation_sha256 }}"
+              - 35f753dec605defd058aee4b85a59061e7f3a5d38606eaf37739c6716deff645
+              - "{{ proton_qualification_recovery_expected_account_reset_evidence_sha256 }}"
+          become: true
+          register: proton_recovery_run
+          changed_when: true
+          failed_when: false
+          no_log: true
+      always:
+        - name: Remove only the ephemeral empty-directory recovery finalizer
+          ansible.builtin.file:
+            path: "/run/proton-empty-recovery-{{ proton_recovery_transaction_sha256 }}"
+            state: absent
+          become: true
+          no_log: true
 
     - name: Capture only a controlled bounded recovery failure
       ansible.builtin.set_fact:
@@ -604,3 +679,4 @@
       vars:
         apply_lock_action: release
         apply_lock_operation: proton-qualification
+        apply_lock_expected_owner_sha256: "{{ proton_recovery_transaction_sha256 }}"

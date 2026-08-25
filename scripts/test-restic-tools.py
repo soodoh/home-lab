@@ -343,6 +343,53 @@ def main() -> None:
     assert "Require exact password-only transition evidence for recovery" in recovery_playbook
     assert "Require exact password-only deployment evidence for recovery" in recovery_playbook
     assert "evidence.provider_requests == 0" in recovery_playbook
+    empty_recovery_path = ROOT / "scripts/finalize-proton-empty-recovery"
+    empty_recovery = empty_recovery_path.read_text()
+    empty_recovery_sha256 = hashlib.sha256(empty_recovery_path.read_bytes()).hexdigest()
+    assert f"proton_empty_recovery_script_sha256: {empty_recovery_sha256}" in recovery_playbook
+    assert "7164a86b3c7d4c61c64ec780c192e333e2ee26407a9f39dfa38f6a5fdff6405b" in recovery_playbook
+    assert "post-reset-diagnostic-v4" in empty_recovery
+    assert 'observation.get("category") != "reachable"' in empty_recovery
+    assert 'observation.get("rclone_rc") != 3' in empty_recovery
+    assert '"recovered_files": []' in empty_recovery
+    assert "tempfile.mkstemp" in empty_recovery and "os.link" in empty_recovery
+    assert "/usr/local/bin/rclone" not in empty_recovery
+    assert "Require exact backup mutex before empty-directory recovery" in recovery_playbook
+    assert "proton_empty_recovery_mutex.stat.nlink == 1" in recovery_playbook
+    assert "apply_lock_expected_owner_sha256" in recovery_playbook
+    empty_recovery_module = runpy.run_path(
+        str(empty_recovery_path),
+        run_name="finalize_proton_empty_recovery_test_module",
+    )
+    write_empty_recovery = empty_recovery_module["write_result"]
+    write_empty_globals = write_empty_recovery.__globals__
+    saved_empty_result = write_empty_globals["RESULT"]
+    saved_service_uid = write_empty_globals["SERVICE_UID"]
+    saved_service_gid = write_empty_globals["SERVICE_GID"]
+    with tempfile.TemporaryDirectory() as empty_result_directory:
+        empty_result = Path(empty_result_directory) / "result.json"
+        write_empty_globals["RESULT"] = empty_result
+        write_empty_globals["SERVICE_UID"] = os.getuid()
+        write_empty_globals["SERVICE_GID"] = os.getgid()
+        try:
+            empty_value = {"state": "recovered", "version": 1}
+            empty_hash = write_empty_recovery(empty_value)
+            expected_empty_content = (json.dumps(empty_value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+            assert empty_result.read_bytes() == expected_empty_content
+            assert empty_hash == hashlib.sha256(expected_empty_content).hexdigest()
+            assert not list(Path(empty_result_directory).glob(".proton-qualification-result.*"))
+            try:
+                write_empty_recovery(empty_value)
+            except empty_recovery_module["FinalizationError"] as error:
+                assert str(error) == "prior_result_present"
+            else:
+                raise AssertionError("empty recovery result replay passed")
+            assert empty_result.read_bytes() == expected_empty_content
+            assert not list(Path(empty_result_directory).glob(".proton-qualification-result.*"))
+        finally:
+            write_empty_globals["RESULT"] = saved_empty_result
+            write_empty_globals["SERVICE_UID"] = saved_service_uid
+            write_empty_globals["SERVICE_GID"] = saved_service_gid
     resume_playbook = (ROOT / "ansible/playbooks/resume-proton-qualification.yml").read_text()
     helper_metadata = "\n".join(
         (
@@ -1412,21 +1459,20 @@ def main() -> None:
 
     exact_service_user_commands = (
         (qualification_playbook, exact_service_user_command("qualify")),
-        (
-            recovery_playbook,
-            exact_service_user_command("recover", '"{{ proton_recovery_transaction_sha256 }}"'),
-        ),
         (resume_playbook, exact_service_user_command("inspect")),
     )
     for service_user_playbook, exact_command in exact_service_user_commands:
         assert exact_command in service_user_playbook
         assert "become_user: restic-proton" not in service_user_playbook
+    assert "/run/proton-empty-recovery-{{ proton_recovery_transaction_sha256 }}" in recovery_playbook
+    assert "          - /usr/bin/python3" in recovery_playbook
+    assert "become_user: restic-proton" not in recovery_playbook
     controlled_failure_pattern = "regex_search('(?m)^proton_qualification=failed reason=[a-z0-9_.-]+\\r?$')"
-    for service_user_playbook, _exact_command in exact_service_user_commands:
-        assert service_user_playbook.count(controlled_failure_pattern) == 2
-        assert "failed_when: false" in service_user_playbook
-        assert "proton_qualification=failed reason=unclassified_stderr_sha256_" in service_user_playbook
-        assert "hash('sha256')" in service_user_playbook
+    for controlled_playbook in (qualification_playbook, recovery_playbook, resume_playbook):
+        assert controlled_playbook.count(controlled_failure_pattern) == 2
+        assert "failed_when: false" in controlled_playbook
+        assert "proton_qualification=failed reason=unclassified_stderr_sha256_" in controlled_playbook
+        assert "hash('sha256')" in controlled_playbook
     for forbidden in ("cleanup", "delete", "mount", "nfsmount", "purge", "sync", "bisync"):
         assert f"/usr/local/bin/rclone {forbidden}" not in qualification_playbook
 

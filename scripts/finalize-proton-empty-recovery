@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+"""Finalize a failed Proton qualification when exact prior evidence proves its directory absent."""
+
+from datetime import datetime, timezone
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+
+APPLY_LOCK = Path("/var/lib/iac-ansible-production.lock")
+CACHE = Path("/var/lib/restic-proton/cache")
+CONFIG = Path("/var/lib/restic-proton/rclone.conf")
+EVIDENCE_PARENT = Path("/var/lib/home-lab-restic")
+RESULT = Path("/var/lib/restic-proton/proton-qualification-result.json")
+REMOTE_DIRECTORY = "Backups/.home-lab-rclone-qualification"
+SERVICE_UID = 60000
+SERVICE_GID = 60000
+
+
+class FinalizationError(RuntimeError):
+    """A controlled local finalization failure."""
+
+
+def fail(reason: str) -> None:
+    if re.fullmatch(r"[a-z0-9_.-]+", reason) is None:
+        reason = "invalid_failure_reason"
+    raise FinalizationError(reason)
+
+
+def digest(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def require_regular(path: Path, uid: int, gid: int, mode: int) -> bytes:
+    try:
+        metadata = path.lstat()
+        content = path.read_bytes()
+    except OSError:
+        fail(f"{path.name}_absent")
+    if path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        fail(f"{path.name}_type")
+    if metadata.st_uid != uid or metadata.st_gid != gid or stat.S_IMODE(metadata.st_mode) != mode:
+        fail(f"{path.name}_metadata")
+    return content
+
+
+def require_directory(path: Path, uid: int, gid: int, mode: int) -> None:
+    try:
+        metadata = path.lstat()
+    except OSError:
+        fail(f"{path.name}_absent")
+    if path.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+        fail(f"{path.name}_type")
+    if metadata.st_uid != uid or metadata.st_gid != gid or stat.S_IMODE(metadata.st_mode) != mode:
+        fail(f"{path.name}_metadata")
+
+
+def require_no_processes() -> None:
+    for process in ("restic", "rclone"):
+        result = subprocess.run(
+            ["/usr/bin/pgrep", "--exact", process],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env={"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"},
+        )
+        if result.returncode not in {0, 1}:
+            fail("process_inspection")
+        if result.returncode == 0:
+            fail("backup_process_present")
+
+
+def write_result(value: dict[str, object]) -> str:
+    content = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    descriptor, temporary_name = tempfile.mkstemp(prefix=".proton-qualification-result.", dir=RESULT.parent)
+    temporary = Path(temporary_name)
+    published = False
+    try:
+        os.fchown(descriptor, SERVICE_UID, SERVICE_GID)
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, RESULT, follow_symlinks=False)
+        except FileExistsError:
+            fail("prior_result_present")
+        published = True
+    finally:
+        os.close(descriptor)
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+    if not published:
+        fail("result_publication")
+    directory_descriptor = os.open(RESULT.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(directory_descriptor)
+    finally:
+        os.close(directory_descriptor)
+    require_regular(RESULT, SERVICE_UID, SERVICE_GID, 0o600)
+    return digest(content)
+
+
+def main() -> None:
+    try:
+        if len(sys.argv) != 6 or os.getuid() != 0 or os.getgid() != 0:
+            fail("usage")
+        transaction, expected_script, expected_observation, expected_config, expected_account_reset = sys.argv[1:]
+        if any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in sys.argv[1:]):
+            fail("usage")
+        if digest(Path(__file__).read_bytes()) != expected_script:
+            fail("script_hash")
+        require_directory(APPLY_LOCK, 0, 0, 0o700)
+        owner = require_regular(APPLY_LOCK / "owner", 0, 0, 0o600)
+        try:
+            owner_lines = owner.decode("utf-8").splitlines()
+        except UnicodeDecodeError:
+            fail("lock_owner")
+        if (
+            digest(owner) != transaction
+            or owner_lines.count("controller=ansible-deploy") != 1
+            or owner_lines.count("operation=proton-qualification") != 1
+            or len(owner_lines) != 3
+        ):
+            fail("lock_owner")
+        require_directory(CONFIG.parent, SERVICE_UID, SERVICE_GID, 0o700)
+        config = require_regular(CONFIG, SERVICE_UID, SERVICE_GID, 0o600)
+        if digest(config) != expected_config:
+            fail("config_hash")
+        require_directory(CACHE, SERVICE_UID, SERVICE_GID, 0o700)
+        try:
+            if any(CACHE.iterdir()):
+                fail("cache_not_empty")
+        except OSError:
+            fail("cache_not_empty")
+        require_directory(EVIDENCE_PARENT, 0, 0, 0o750)
+        observation_path = EVIDENCE_PARENT / f"proton-post-reset-diagnostic-v4-{transaction}.json"
+        observation_raw = require_regular(observation_path, 0, 0, 0o600)
+        if digest(observation_raw) != expected_observation:
+            fail("observation_hash")
+        try:
+            observation = json.loads(observation_raw)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            fail("observation_shape")
+        if not isinstance(observation, dict):
+            fail("observation_shape")
+        if (
+            observation.get("account_reset_evidence_sha256") != expected_account_reset
+            or observation.get("browser_drive_initialized") is not True
+            or observation.get("category") != "reachable"
+            or observation.get("config_sha256") != expected_config
+            or observation.get("config_source") != "environment-only"
+            or observation.get("credential_cache") != "disabled"
+            or observation.get("diagnostic_remote_name") != "proton_backup"
+            or observation.get("operation") != "lsjson"
+            or observation.get("prior_provider_requests_reclassified") != 0
+            or observation.get("provider_request_boundary") != "backend-recognized-environment-remote"
+            or observation.get("provider_requests") != 1
+            or observation.get("remote_directory") != REMOTE_DIRECTORY
+            or observation.get("rclone_rc") != 3
+            or observation.get("state") != "observed"
+            or observation.get("transaction_sha256") != transaction
+            or observation.get("version") != 4
+        ):
+            fail("observation_state")
+        recovery_path = EVIDENCE_PARENT / f"proton-qualification-recovery-{transaction}.json"
+        if RESULT.exists() or RESULT.is_symlink() or recovery_path.exists() or recovery_path.is_symlink():
+            fail("prior_recovery")
+        require_no_processes()
+        evidence = {
+            "account_username_sha256": observation["account_username_sha256"],
+            "recovered_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "recovered_files": [],
+            "remote_cleanup": "pass",
+            "state": "recovered",
+            "transaction_sha256": transaction,
+            "version": 1,
+        }
+        result_hash = write_result(evidence)
+        print(f"proton_qualification_recovery=passed evidence_sha256={result_hash}")
+    except FinalizationError as error:
+        print(f"proton_qualification=failed reason={error}", file=sys.stderr)
+        raise SystemExit(1) from None
+    except (OSError, KeyError, subprocess.SubprocessError):
+        print("proton_qualification=failed reason=local_operation", file=sys.stderr)
+        raise SystemExit(1) from None
+
+
+if __name__ == "__main__":
+    main()
