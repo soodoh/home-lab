@@ -281,7 +281,7 @@ def main() -> None:
     assert "stderr_sha256" in qualification and "digest_bytes(result.stderr)" in qualification
     assert "print(result.stderr" not in qualification
     assert qualification.count("invalidate_auth_cache(policy)") >= 3
-    assert 'result.stdout == b"null\\n"' in qualification
+    assert "if value is None:" in qualification
     qualification_module = runpy.run_path(
         str(ROOT / "scripts/qualify-proton-backup"),
         run_name="qualify_proton_backup_test_module",
@@ -292,7 +292,9 @@ def main() -> None:
     try:
         qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 3, b"null\n", b"directory not found")
         assert qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification") == (False, [])
-        qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 0, b"null\n", b"")
+        qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 0, b" \nnull \n", b"")
+        assert qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification") == (False, [])
+        qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 3, b"null", b"directory not found")
         assert qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification") == (False, [])
         qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 3, b"{}\n", b"directory not found")
         try:

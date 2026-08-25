@@ -269,14 +269,12 @@ def require_remote_absent(path: str, label: str) -> None:
 
 def qualification_inventory(path: str) -> tuple[bool, list[str]]:
     result = rclone(["lsjson", path, "--max-depth", "1"], "qualification_directory", {0, 3})
-    if result.stdout == b"null\n":
-        return False, []
-    if result.returncode == 3:
-        if result.stdout:
-            fail("qualification_directory_output")
+    if result.returncode == 3 and not result.stdout:
         return False, []
     value = parsed_json(result, "qualification_directory")
-    if not isinstance(value, list):
+    if value is None:
+        return False, []
+    if result.returncode == 3 or not isinstance(value, list):
         fail("qualification_directory_output")
     entries: list[str] = []
     for item in value:
