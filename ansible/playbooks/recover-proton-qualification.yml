@@ -12,6 +12,9 @@
         that:
           - proton_qualification_recovery_confirmed | default(false) | bool
           - proton_qualification_recovery_confirmation | default('') == 'recover-only-proton-qualification-fixtures'
+          - proton_qualification_recovery_expected_transaction_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_qualification_recovery_expected_transition_evidence_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_qualification_recovery_expected_deployment_evidence_sha256 | default('') is match('^[0-9a-f]{64}$')
           - backups.restic.migration_state == 'inert'
           - backups.restic.qualification.state == 'ready'
           - backups.restic.qualification.username_sha256 is match('^[0-9a-f]{64}$')
@@ -66,12 +69,121 @@
           - "'controller=ansible-deploy' in (proton_recovery_lock_owner.content | b64decode).splitlines()"
           - "'operation=proton-qualification' in (proton_recovery_lock_owner.content | b64decode).splitlines()"
           - (proton_recovery_lock_owner.content | b64decode).splitlines() | select('match', '^started=[0-9]{4}-[0-9]{2}-[0-9]{2}T') | list | length == 1
+          - >-
+            (proton_recovery_lock_owner.content | b64decode | hash('sha256'))
+            == proton_qualification_recovery_expected_transaction_sha256
         fail_msg: Retained production lock is not the exact failed Proton qualification lock.
       no_log: true
 
     - name: Bind recovery evidence to the exact retained lock owner
       ansible.builtin.set_fact:
         proton_recovery_transaction_sha256: "{{ proton_recovery_lock_owner.content | b64decode | hash('sha256') }}"
+        proton_recovery_transition_evidence_path: >-
+          /var/lib/home-lab-restic/proton-password-only-transition-{{ proton_recovery_lock_owner.content | b64decode | hash('sha256') }}.json
+        proton_recovery_deployment_evidence_path: >-
+          /var/lib/home-lab-restic/proton-password-only-deployment-{{ proton_recovery_lock_owner.content | b64decode | hash('sha256') }}.json
+      no_log: true
+
+    - name: Inspect immutable password-only recovery evidence prerequisites
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      loop:
+        - name: transition
+          path: "{{ proton_recovery_transition_evidence_path }}"
+          checksum: "{{ proton_qualification_recovery_expected_transition_evidence_sha256 }}"
+        - name: deployment
+          path: "{{ proton_recovery_deployment_evidence_path }}"
+          checksum: "{{ proton_qualification_recovery_expected_deployment_evidence_sha256 }}"
+      become: true
+      register: proton_recovery_password_only_evidence
+
+    - name: Require exact immutable password-only recovery evidence prerequisites
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.nlink == 1
+          - item.stat.pw_name == 'root'
+          - item.stat.gr_name == 'root'
+          - item.stat.mode == '0600'
+          - item.stat.checksum == item.item.checksum
+        fail_msg: "Password-only recovery evidence {{ item.item.name }} differs from its reviewed pin."
+      loop: "{{ proton_recovery_password_only_evidence.results }}"
+
+    - name: Read immutable password-only recovery evidence prerequisites
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - "{{ proton_recovery_transition_evidence_path }}"
+        - "{{ proton_recovery_deployment_evidence_path }}"
+      become: true
+      register: proton_recovery_password_only_evidence_content
+      no_log: true
+
+    - name: Require exact password-only transition evidence for recovery
+      ansible.builtin.assert:
+        that:
+          - evidence.keys() | sort == expected_keys | sort
+          - evidence.account_username_sha256 == backups.restic.qualification.username_sha256
+          - evidence.cache_state == 'absent'
+          - evidence.provider_requests == 0
+          - evidence.removed_field == 'otp_secret_key'
+          - evidence.state == 'password-only'
+          - evidence.transaction_sha256 == proton_recovery_transaction_sha256
+          - evidence.version == 1
+        fail_msg: Password-only transition evidence is not valid for recovery.
+      vars:
+        evidence: "{{ proton_recovery_password_only_evidence_content.results[0].content | b64decode | from_json }}"
+        expected_keys:
+          - account_username_sha256
+          - auth_diagnostic_evidence_sha256
+          - cache_state
+          - credential_rotation_evidence_sha256
+          - provider_requests
+          - removed_field
+          - state
+          - transaction_sha256
+          - transitioned_at
+          - version
+      no_log: true
+
+    - name: Require exact password-only deployment evidence for recovery
+      ansible.builtin.assert:
+        that:
+          - evidence.keys() | sort == expected_keys | sort
+          - evidence.account_username_sha256 == backups.restic.qualification.username_sha256
+          - evidence.bootstrap_helper_sha256 is match('^[0-9a-f]{64}$')
+          - evidence.ciphertext_sha256 is match('^[0-9a-f]{64}$')
+          - evidence.credential_materialization == 'noop'
+          - evidence.policy_sha256 is match('^[0-9a-f]{64}$')
+          - evidence.provider_requests == 0
+          - evidence.qualification_helper_sha256 == backups.restic.qualification.helper_sha256
+          - evidence.state == 'deployed'
+          - evidence.transaction_sha256 == proton_recovery_transaction_sha256
+          - >-
+            evidence.transition_evidence_sha256
+            == proton_qualification_recovery_expected_transition_evidence_sha256
+          - evidence.version == 1
+        fail_msg: Password-only deployment evidence is not valid for recovery.
+      vars:
+        evidence: "{{ proton_recovery_password_only_evidence_content.results[1].content | b64decode | from_json }}"
+        expected_keys:
+          - account_username_sha256
+          - bootstrap_helper_sha256
+          - ciphertext_sha256
+          - credential_materialization
+          - deployed_at
+          - policy_sha256
+          - provider_requests
+          - qualification_helper_sha256
+          - state
+          - transaction_sha256
+          - transition_evidence_sha256
+          - version
       no_log: true
 
     - name: Require no concurrent Restic or rclone process during recovery

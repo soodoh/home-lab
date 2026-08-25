@@ -328,6 +328,12 @@ def main() -> None:
     assert "release only the proton-qualification lock" in recovery_playbook
     assert "proton-qualification-recovery-{{ proton_recovery_transaction_sha256 }}.json" in recovery_playbook
     assert "evidence.transaction_sha256 == proton_recovery_transaction_sha256" in recovery_playbook
+    assert "proton_qualification_recovery_expected_transaction_sha256" in recovery_playbook
+    assert "proton_qualification_recovery_expected_transition_evidence_sha256" in recovery_playbook
+    assert "proton_qualification_recovery_expected_deployment_evidence_sha256" in recovery_playbook
+    assert "Require exact password-only transition evidence for recovery" in recovery_playbook
+    assert "Require exact password-only deployment evidence for recovery" in recovery_playbook
+    assert "evidence.provider_requests == 0" in recovery_playbook
     resume_playbook = (ROOT / "ansible/playbooks/resume-proton-qualification.yml").read_text()
     helper_metadata = "\n".join(
         (

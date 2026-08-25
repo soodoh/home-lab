@@ -30,6 +30,7 @@ def main() -> None:
     ordered(
         recovery,
         [
+            "Require exact password-only deployment evidence for recovery",
             "Recover only exact qualification fixtures under the backup mutex",
             "Retain root-owned failed qualification recovery evidence",
             "Remove only the transient qualification recovery result",

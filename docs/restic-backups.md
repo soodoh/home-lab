@@ -146,11 +146,17 @@ The generic `clear-failed-apply-lock.yml` transaction explicitly rejects `proton
 cd ansible
 ansible-playbook -i inventory/production.yml playbooks/recover-proton-qualification.yml --check --diff \
   -e proton_qualification_recovery_confirmed=true \
-  -e proton_qualification_recovery_confirmation=recover-only-proton-qualification-fixtures
+  -e proton_qualification_recovery_confirmation=recover-only-proton-qualification-fixtures \
+  -e proton_qualification_recovery_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
+  -e proton_qualification_recovery_expected_transition_evidence_sha256=1e503ba7af5d08b9ed0f7c42f10417a6f442ca851eb7ceff4fa0f772ad13784c \
+  -e proton_qualification_recovery_expected_deployment_evidence_sha256=c38e84773f07cb1c39ff1cd9e4a4f71efc9901b22ef42c29d76fe09102160230
 
 ansible-playbook -i inventory/production.yml playbooks/recover-proton-qualification.yml \
   -e proton_qualification_recovery_confirmed=true \
-  -e proton_qualification_recovery_confirmation=recover-only-proton-qualification-fixtures
+  -e proton_qualification_recovery_confirmation=recover-only-proton-qualification-fixtures \
+  -e proton_qualification_recovery_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
+  -e proton_qualification_recovery_expected_transition_evidence_sha256=1e503ba7af5d08b9ed0f7c42f10417a6f442ca851eb7ceff4fa0f772ad13784c \
+  -e proton_qualification_recovery_expected_deployment_evidence_sha256=c38e84773f07cb1c39ff1cd9e4a4f71efc9901b22ef42c29d76fe09102160230
 ```
 
 The live recovery command requires separate authorization. It rejects unknown files or directories, published qualification evidence, a differing lock owner, stale policy/helper/rclone hashes, unexpected mounts or processes, resumed Offen schedulers, or an expired AWS hold. It hashes the exact retained owner record, passes that transaction SHA-256 to the recovery helper, and retains root-owned redacted evidence at a transaction-specific path containing the same hash before releasing only the exact failed lock. Historical recovery evidence cannot satisfy a newer lock.
