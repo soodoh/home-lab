@@ -1,0 +1,603 @@
+---
+- name: Diagnose Proton once with an ephemeral official rclone beta
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  vars:
+    proton_beta_version: 1.76.0-beta.10192.6ee1d851e
+    proton_beta_url: >-
+      https://beta.rclone.org/v1.76.0-beta.10192.6ee1d851e/rclone-v1.76.0-beta.10192.6ee1d851e-linux-amd64.zip
+    proton_beta_archive_sha256: f37f14b7922280dd5b9352e2d1c3101f94739f57d3786132e517fc106cb4c245
+    proton_beta_binary_sha256: b64e72891b07b0f55462121090e9e200e8e75c7d0b95530ba9c1f06517daeac5
+    proton_beta_script_sha256: 731bc68dc4280b1ae87278fb9d1299f2ceca18b00218b9bad82818aec5a202b1
+  tasks:
+    - name: Require exact ephemeral Proton beta diagnostic approval
+      ansible.builtin.assert:
+        that:
+          - proton_beta_diagnostic_confirmed | default(false) | bool
+          - proton_beta_diagnostic_confirmation | default('') == 'diagnose-only-proton-with-official-beta'
+          - proton_beta_diagnostic_expected_transaction_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_beta_diagnostic_expected_transition_evidence_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_beta_diagnostic_expected_deployment_evidence_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - backups.restic.migration_state == 'inert'
+          - backups.restic.proton.authentication_mode == 'password-only'
+          - backups.restic.qualification.state == 'ready'
+          - backups.restic.credentials.state == 'provisioned'
+          - backups.legacy_offen.scheduler_state == 'quiesced'
+          - backups.legacy_offen.migration_retention_hold.state == 'applied'
+          - backups.legacy_offen.migration_retention_hold.review_deadline > now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')
+        fail_msg: Ephemeral Proton beta diagnosis requires its exact reviewed state and confirmation.
+
+    - name: Inspect retained qualification lock and owner
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      loop:
+        - "{{ apply_lock_path }}"
+        - "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_beta_lock_paths
+
+    - name: Inspect retained qualification lock contents
+      ansible.builtin.find:
+        paths: "{{ apply_lock_path }}"
+        hidden: true
+        recurse: false
+        file_type: any
+      become: true
+      register: proton_beta_lock_entries
+      when: proton_beta_lock_paths.results[0].stat.isdir | default(false)
+
+    - name: Read retained qualification owner
+      ansible.builtin.slurp:
+        src: "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_beta_lock_owner
+      no_log: true
+      when: proton_beta_lock_paths.results[1].stat.isreg | default(false)
+
+    - name: Require exact retained qualification lock
+      ansible.builtin.assert:
+        that:
+          - proton_beta_lock_paths.results[0].stat.isdir | default(false)
+          - proton_beta_lock_paths.results[0].stat.pw_name == 'root'
+          - proton_beta_lock_paths.results[0].stat.mode == '0700'
+          - proton_beta_lock_paths.results[1].stat.isreg | default(false)
+          - proton_beta_lock_paths.results[1].stat.pw_name == 'root'
+          - proton_beta_lock_paths.results[1].stat.mode == '0600'
+          - proton_beta_lock_entries.matched == 1
+          - "'controller=ansible-deploy' in (proton_beta_lock_owner.content | b64decode).splitlines()"
+          - "'operation=proton-qualification' in (proton_beta_lock_owner.content | b64decode).splitlines()"
+          - >-
+            (proton_beta_lock_owner.content | b64decode | hash('sha256'))
+            == proton_beta_diagnostic_expected_transaction_sha256
+        fail_msg: Retained lock is not the explicitly reviewed failed Proton qualification transaction.
+      no_log: true
+
+    - name: Set transaction-specific ephemeral Proton beta paths
+      ansible.builtin.set_fact:
+        proton_beta_transaction_sha256: "{{ proton_beta_lock_owner.content | b64decode | hash('sha256') }}"
+        proton_beta_archive_path: >-
+          /var/tmp/rclone-beta-{{ proton_beta_lock_owner.content | b64decode | hash('sha256') }}.zip
+        proton_beta_binary_path: >-
+          /var/tmp/rclone-beta-{{ proton_beta_lock_owner.content | b64decode | hash('sha256') }}
+        proton_beta_script_path: >-
+          /run/proton-beta-diagnostic-{{ proton_beta_lock_owner.content | b64decode | hash('sha256') }}
+        proton_beta_evidence_path: >-
+          /var/lib/home-lab-restic/proton-beta-diagnostic-{{ proton_beta_lock_owner.content | b64decode | hash('sha256') }}.json
+        proton_beta_transition_evidence_path: >-
+          /var/lib/home-lab-restic/proton-password-only-transition-{{ proton_beta_lock_owner.content | b64decode | hash('sha256') }}.json
+        proton_beta_deployment_evidence_path: >-
+          /var/lib/home-lab-restic/proton-password-only-deployment-{{ proton_beta_lock_owner.content | b64decode | hash('sha256') }}.json
+      no_log: true
+
+    - name: Require no concurrent Restic or rclone process
+      ansible.builtin.command:
+        argv: [/usr/bin/pgrep, --exact, "{{ item }}"]
+      loop: [restic, rclone]
+      register: proton_beta_processes
+      changed_when: false
+      failed_when: proton_beta_processes.rc != 1
+      check_mode: false
+
+    - name: Inspect ephemeral beta filesystem execution policies
+      ansible.builtin.command:
+        argv: [/usr/bin/findmnt, --noheadings, --output, OPTIONS, --target, "{{ item.target }}"]
+      loop:
+        - { target: /var/tmp, noexec: false }
+        - { target: /run, noexec: true }
+      register: proton_beta_filesystems
+      changed_when: false
+      check_mode: false
+
+    - name: Require exact ephemeral beta filesystem execution policies
+      ansible.builtin.assert:
+        that:
+          - item.item.noexec == ('noexec' in item.stdout.split(','))
+        fail_msg: "Ephemeral beta filesystem policy differs for {{ item.item.target }}."
+      loop: "{{ proton_beta_filesystems.results }}"
+
+    - name: Inspect stopped Offen scheduler states
+      ansible.builtin.command:
+        argv: [/usr/bin/docker, inspect, --format, "{{ '{{.State.Running}}' }}", "{{ item }}"]
+      loop: "{{ backups.legacy_offen.scheduler_services }}"
+      register: proton_beta_offen_states
+      changed_when: false
+      check_mode: false
+
+    - name: Require Offen schedulers to remain stopped
+      ansible.builtin.assert:
+        that:
+          - item.stdout == 'false'
+        fail_msg: An Offen scheduler is not quiesced during ephemeral Proton beta diagnosis.
+      loop: "{{ proton_beta_offen_states.results }}"
+
+    - name: Inspect protected ephemeral Proton beta prerequisites
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      loop:
+        - name: policy
+          path: /etc/home-lab/restic-policy.json
+          owner: root
+          group: restic-proton
+          mode: "0440"
+        - name: stable_rclone
+          path: /usr/local/bin/rclone
+          owner: root
+          group: root
+          mode: "0755"
+          checksum: "{{ backups.restic.tools.rclone.installed_sha256 }}"
+        - name: config
+          path: /var/lib/restic-proton/rclone.conf
+          owner: restic-proton
+          group: restic-proton
+          mode: "0600"
+        - name: config_parent
+          path: /var/lib/restic-proton
+          owner: restic-proton
+          group: restic-proton
+          mode: "0700"
+          directory: true
+        - name: cache
+          path: /var/lib/restic-proton/cache
+          owner: restic-proton
+          group: restic-proton
+          mode: "0700"
+          directory: true
+        - name: mutex
+          path: /run/lock/home-lab-backup.lock
+          owner: root
+          group: restic-proton
+          mode: "0660"
+        - name: evidence_parent
+          path: /var/lib/home-lab-restic
+          owner: root
+          group: root
+          mode: "0750"
+          directory: true
+      become: true
+      register: proton_beta_prerequisites
+
+    - name: Require exact protected ephemeral Proton beta prerequisites
+      ansible.builtin.assert:
+        that:
+          - >-
+            (item.item.directory | default(false) | bool and item.stat.isdir | default(false))
+            or (not (item.item.directory | default(false) | bool) and item.stat.isreg | default(false))
+          - not (item.stat.islnk | default(false))
+          - item.item.directory | default(false) | bool or item.stat.nlink == 1
+          - item.stat.pw_name == item.item.owner
+          - item.stat.gr_name == item.item.group
+          - item.stat.mode == item.item.mode
+          - item.item.checksum is not defined or item.stat.checksum == item.item.checksum
+        fail_msg: "Ephemeral Proton beta prerequisite {{ item.item.name }} differs."
+      loop: "{{ proton_beta_prerequisites.results }}"
+
+    - name: Read installed password-only policy
+      ansible.builtin.slurp:
+        src: /etc/home-lab/restic-policy.json
+      become: true
+      register: proton_beta_installed_policy
+      no_log: true
+
+    - name: Require installed policy to equal reviewed password-only contract
+      ansible.builtin.assert:
+        that:
+          - (proton_beta_installed_policy.content | b64decode | from_json) == backups.restic
+        fail_msg: Installed Restic policy differs during ephemeral Proton beta diagnosis.
+      no_log: true
+
+    - name: Inspect immutable password-only evidence and absent beta result
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      loop:
+        - name: transition
+          path: "{{ proton_beta_transition_evidence_path }}"
+          present: true
+          checksum: "{{ proton_beta_diagnostic_expected_transition_evidence_sha256 }}"
+        - name: deployment
+          path: "{{ proton_beta_deployment_evidence_path }}"
+          present: true
+          checksum: "{{ proton_beta_diagnostic_expected_deployment_evidence_sha256 }}"
+        - name: beta_evidence
+          path: "{{ proton_beta_evidence_path }}"
+          present: false
+      become: true
+      register: proton_beta_evidence_prerequisites
+
+    - name: Require immutable password-only evidence and absent beta result
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists == item.item.present
+          - not item.item.present or item.stat.isreg | default(false)
+          - not item.item.present or not (item.stat.islnk | default(false))
+          - not item.item.present or item.stat.nlink == 1
+          - not item.item.present or item.stat.pw_name == 'root'
+          - not item.item.present or item.stat.gr_name == 'root'
+          - not item.item.present or item.stat.mode == '0600'
+          - item.item.checksum is not defined or item.stat.checksum == item.item.checksum
+        fail_msg: "Ephemeral Proton beta evidence prerequisite {{ item.item.name }} differs."
+      loop: "{{ proton_beta_evidence_prerequisites.results }}"
+
+    - name: Inspect absent ephemeral beta files
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      loop:
+        - "{{ proton_beta_archive_path }}"
+        - "{{ proton_beta_binary_path }}"
+        - "{{ proton_beta_script_path }}"
+      become: true
+      register: proton_beta_ephemeral_paths
+
+    - name: Require absent ephemeral beta files before diagnosis
+      ansible.builtin.assert:
+        that:
+          - not item.stat.exists
+        fail_msg: A prior ephemeral Proton beta file remains under /var/tmp or /run.
+      loop: "{{ proton_beta_ephemeral_paths.results }}"
+
+    - name: Preflight exact controller-side Proton beta supervisor
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../../scripts/diagnose-proton-auth"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      delegate_to: localhost
+      become: false
+      register: proton_beta_supervisor_source
+
+    - name: Require exact controller-side Proton beta supervisor hash
+      ansible.builtin.assert:
+        that:
+          - proton_beta_supervisor_source.stat.isreg | default(false)
+          - not (proton_beta_supervisor_source.stat.islnk | default(false))
+          - proton_beta_supervisor_source.stat.nlink == 1
+          - proton_beta_supervisor_source.stat.checksum == proton_beta_script_sha256
+        fail_msg: Controller-side Proton beta supervisor differs from its reviewed pin.
+
+    - name: Report one ephemeral Proton beta request in check mode
+      ansible.builtin.debug:
+        msg: >-
+          Would download the checksum-pinned official beta archive, extract one hash-pinned binary under
+          /var/tmp, stage one hash-pinned root supervisor under /run, acquire the backup mutex, provide
+          remote configuration through process memory with caching disabled, run exactly one non-mutating
+          lsjson as restic-proton, publish only redacted transaction-bound evidence, remove all ephemeral
+          files, leave stable rclone byte-identical, and retain the production lock.
+      changed_when: true
+      when: ansible_check_mode
+
+    - name: Stage and run one ephemeral Proton beta diagnostic
+      when: not ansible_check_mode
+      block:
+        - name: Download checksum-pinned official rclone beta archive
+          ansible.builtin.get_url:
+            url: "{{ proton_beta_url }}"
+            dest: "{{ proton_beta_archive_path }}"
+            tmp_dest: /var/tmp
+            checksum: "sha256:{{ proton_beta_archive_sha256 }}"
+            owner: root
+            group: root
+            mode: "0600"
+          become: true
+
+        - name: Extract only the hash-pinned beta binary
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - -c
+              - |
+                import hashlib
+                import os
+                from pathlib import Path
+                import sys
+                import tempfile
+                import zipfile
+
+                archive = Path(sys.argv[1])
+                output = Path(sys.argv[2])
+                member = sys.argv[3]
+                expected = sys.argv[4]
+                gid = 60000
+                with zipfile.ZipFile(archive) as bundle:
+                    info = bundle.getinfo(member)
+                    if info.is_dir():
+                        raise SystemExit(1)
+                    content = bundle.read(info)
+                if hashlib.sha256(content).hexdigest() != expected:
+                    raise SystemExit(1)
+                descriptor, temporary_name = tempfile.mkstemp(prefix=".rclone-beta.", dir=output.parent)
+                temporary = Path(temporary_name)
+                try:
+                    os.fchmod(descriptor, 0o750)
+                    os.fchown(descriptor, 0, gid)
+                    with os.fdopen(descriptor, "wb") as stream:
+                        stream.write(content)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    temporary.replace(output)
+                finally:
+                    if temporary.exists():
+                        temporary.unlink()
+                print("beta_extract=pass")
+              - "{{ proton_beta_archive_path }}"
+              - "{{ proton_beta_binary_path }}"
+              - "rclone-v{{ proton_beta_version }}-linux-amd64/rclone"
+              - "{{ proton_beta_binary_sha256 }}"
+          become: true
+          register: proton_beta_extract
+          changed_when: true
+          no_log: true
+
+        - name: Require exact beta extraction result
+          ansible.builtin.assert:
+            that:
+              - proton_beta_extract.stdout == 'beta_extract=pass'
+            fail_msg: Ephemeral Proton beta extraction did not match the reviewed binary.
+          no_log: true
+
+        - name: Stage hash-pinned Proton beta supervisor
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/../../scripts/diagnose-proton-auth"
+            dest: "{{ proton_beta_script_path }}"
+            owner: root
+            group: root
+            mode: "0700"
+          become: true
+          no_log: true
+
+        - name: Run exactly one non-mutating Proton lsjson with the beta
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - "{{ proton_beta_script_path }}"
+              - beta-supervise
+              - "{{ proton_beta_transaction_sha256 }}"
+              - "{{ proton_beta_script_sha256 }}"
+              - "{{ proton_beta_binary_path }}"
+              - "{{ proton_beta_binary_sha256 }}"
+              - "{{ proton_beta_version }}"
+              - "{{ proton_beta_diagnostic_expected_transition_evidence_sha256 }}"
+              - "{{ proton_beta_diagnostic_expected_deployment_evidence_sha256 }}"
+          become: true
+          register: proton_beta_run
+          changed_when: true
+          failed_when: false
+          no_log: true
+      always:
+        - name: Terminate and verify any residual ephemeral beta process group
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - -c
+              - |
+                import json
+                import os
+                from pathlib import Path
+                import signal
+                import sys
+                import time
+
+                target = sys.argv[1]
+
+                def matching() -> list[int]:
+                    found = []
+                    for executable in Path("/proc").glob("[0-9]*/exe"):
+                        try:
+                            linked = os.readlink(executable).removesuffix(" (deleted)")
+                        except OSError:
+                            continue
+                        if linked == target:
+                            found.append(json.loads(executable.parent.name))
+                    return found
+
+                groups = set()
+                for pid in matching():
+                    try:
+                        groups.add(os.getpgid(pid))
+                    except ProcessLookupError:
+                        pass
+                for group in groups:
+                    try:
+                        os.killpg(group, signal.SIGTERM)
+                    except ProcessLookupError:
+                        pass
+                deadline = time.monotonic() + 10
+                while matching() and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                if matching():
+                    for group in groups:
+                        try:
+                            os.killpg(group, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    time.sleep(1)
+                if matching():
+                    raise SystemExit(1)
+                print("beta_process_cleanup=pass")
+              - "{{ proton_beta_binary_path }}"
+          become: true
+          register: proton_beta_process_cleanup
+          changed_when: false
+          no_log: true
+
+        - name: Require no residual ephemeral beta process
+          ansible.builtin.assert:
+            that:
+              - proton_beta_process_cleanup.stdout == 'beta_process_cleanup=pass'
+            fail_msg: An ephemeral Proton beta process survived bounded cleanup.
+          no_log: true
+
+        - name: Remove all ephemeral Proton beta files
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ proton_beta_archive_path }}"
+            - "{{ proton_beta_binary_path }}"
+            - "{{ proton_beta_script_path }}"
+          become: true
+          no_log: true
+
+    - name: Capture only a controlled ephemeral Proton beta failure
+      ansible.builtin.set_fact:
+        proton_beta_failure_report: >-
+          {{
+            (
+              beta_failure_output
+              | regex_search('(?m)^proton_auth_diagnostic=failed reason=[a-z0-9_.-]+\\r?$')
+              | default('', true)
+              | trim
+            )
+            if (
+              beta_failure_output
+              | regex_search('(?m)^proton_auth_diagnostic=failed reason=[a-z0-9_.-]+\\r?$')
+              | default('', true)
+              | length
+            ) > 0
+            else 'proton_beta_diagnostic=failed reason=unclassified_output_sha256_'
+              ~ (beta_failure_output | hash('sha256'))
+          }}
+      vars:
+        beta_failure_output: >-
+          {{
+            (proton_beta_run.stdout | default(''))
+            ~ '\n' ~ (proton_beta_run.stderr | default(''))
+            ~ '\n' ~ (proton_beta_run.msg | default('') | string)
+          }}
+      no_log: true
+      when:
+        - not ansible_check_mode
+        - proton_beta_run.rc != 0
+
+    - name: Require atomic ephemeral Proton beta observation
+      ansible.builtin.assert:
+        that:
+          - proton_beta_run.rc == 0
+          - >-
+            proton_beta_run.stdout is match(
+              '^proton_beta_diagnostic=observed category='
+              ~ '(reachable|api_captcha|invalid_credentials|two_factor_rejected|account_key_incompatible|'
+              ~ 'rate_limited|network_failure|rclone_unclassified) evidence_sha256=[0-9a-f]{64}$'
+            )
+        fail_msg: "{{ proton_beta_failure_report | default('proton_beta_diagnostic=failed reason=unclassified') }}"
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Read transaction-bound ephemeral Proton beta evidence
+      ansible.builtin.slurp:
+        src: "{{ proton_beta_evidence_path }}"
+      become: true
+      register: proton_beta_evidence
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Require exact ephemeral Proton beta evidence
+      ansible.builtin.assert:
+        that:
+          - evidence.keys() | sort == expected_keys | sort
+          - evidence.account_username_sha256 == backups.restic.qualification.username_sha256
+          - evidence.beta_binary_sha256 == proton_beta_binary_sha256
+          - evidence.beta_version == proton_beta_version
+          - evidence.category in expected_categories
+          - evidence.config_source == 'environment-only'
+          - evidence.credential_cache == 'disabled'
+          - evidence.observed_at is match('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')
+          - evidence.operation == 'lsjson'
+          - evidence.provider_requests == 1
+          - evidence.remote_directory == backups.restic.qualification.remote_directory
+          - evidence.rclone_rc is integer
+          - evidence.stable_rclone_unchanged == 'pass'
+          - evidence.state == 'observed'
+          - evidence.stderr_sha256 is match('^[0-9a-f]{64}$')
+          - evidence.stdout_sha256 is match('^[0-9a-f]{64}$')
+          - evidence.transaction_sha256 == proton_beta_transaction_sha256
+          - evidence.version == 1
+          - >-
+            proton_beta_run.stdout
+            == 'proton_beta_diagnostic=observed category=' ~ evidence.category ~ ' evidence_sha256=' ~ evidence_sha256
+        fail_msg: Ephemeral Proton beta evidence differs from the reviewed transaction schema.
+      vars:
+        evidence: "{{ proton_beta_evidence.content | b64decode | from_json }}"
+        evidence_sha256: "{{ proton_beta_evidence.content | b64decode | hash('sha256') }}"
+        expected_categories:
+          - reachable
+          - api_captcha
+          - invalid_credentials
+          - two_factor_rejected
+          - account_key_incompatible
+          - rate_limited
+          - network_failure
+          - rclone_unclassified
+        expected_keys:
+          - account_username_sha256
+          - beta_binary_sha256
+          - beta_version
+          - category
+          - config_source
+          - credential_cache
+          - observed_at
+          - operation
+          - provider_requests
+          - remote_directory
+          - rclone_rc
+          - stable_rclone_unchanged
+          - state
+          - stderr_sha256
+          - stdout_sha256
+          - transaction_sha256
+          - version
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Re-read retained qualification owner after beta observation
+      ansible.builtin.slurp:
+        src: "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_beta_final_lock_owner
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Confirm beta observation retained exact qualification lock
+      ansible.builtin.assert:
+        that:
+          - proton_beta_final_lock_owner.content == proton_beta_lock_owner.content
+        fail_msg: Ephemeral Proton beta observation did not retain the exact failed qualification owner bytes.
+      no_log: true
+      when: not ansible_check_mode

@@ -161,6 +161,28 @@ ansible-playbook -i inventory/production.yml playbooks/recover-proton-qualificat
 
 The live recovery command requires separate authorization. It rejects unknown files or directories, published qualification evidence, a differing lock owner, stale policy/helper/rclone hashes, unexpected mounts or processes, resumed Offen schedulers, or an expired AWS hold. It hashes the exact retained owner record, passes that transaction SHA-256 to the recovery helper, and retains root-owned redacted evidence at a transaction-specific path containing the same hash before releasing only the exact failed lock. Historical recovery evidence cannot satisfy a newer lock.
 
+If password-only recovery still fails before cleanup, do not replace stable rclone or retry recovery. The final Proton-compatible experiment is `diagnose-proton-beta.yml`. It downloads official beta `1.76.0-beta.10192.6ee1d851e` under executable `/var/tmp` and stages only its root supervisor under noexec `/run`, verifies archive SHA-256 `f37f14b7922280dd5b9352e2d1c3101f94739f57d3786132e517fc106cb4c245` and binary SHA-256 `b64e72891b07b0f55462121090e9e200e8e75c7d0b95530ba9c1f06517daeac5`, supplies the existing password-only remote through process memory with credential caching disabled, and runs exactly one non-mutating `lsjson`. It never replaces `/usr/local/bin/rclone`, writes provider output, mutates the remote, or releases the production lock; all ephemeral files are removed after ordinary task completion:
+
+```sh
+cd ansible
+ansible-playbook -i inventory/production.yml playbooks/diagnose-proton-beta.yml --check --diff \
+  -e proton_beta_diagnostic_confirmed=true \
+  -e proton_beta_diagnostic_confirmation=diagnose-only-proton-with-official-beta \
+  -e proton_beta_diagnostic_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
+  -e proton_beta_diagnostic_expected_transition_evidence_sha256=1e503ba7af5d08b9ed0f7c42f10417a6f442ca851eb7ceff4fa0f772ad13784c \
+  -e proton_beta_diagnostic_expected_deployment_evidence_sha256=c38e84773f07cb1c39ff1cd9e4a4f71efc9901b22ef42c29d76fe09102160230
+
+# Requires separate authorization after reviewing the fresh plan.
+ansible-playbook -i inventory/production.yml playbooks/diagnose-proton-beta.yml \
+  -e proton_beta_diagnostic_confirmed=true \
+  -e proton_beta_diagnostic_confirmation=diagnose-only-proton-with-official-beta \
+  -e proton_beta_diagnostic_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
+  -e proton_beta_diagnostic_expected_transition_evidence_sha256=1e503ba7af5d08b9ed0f7c42f10417a6f442ca851eb7ceff4fa0f772ad13784c \
+  -e proton_beta_diagnostic_expected_deployment_evidence_sha256=c38e84773f07cb1c39ff1cd9e4a4f71efc9901b22ef42c29d76fe09102160230
+```
+
+The first execution atomically claims single-use beta evidence before the provider request. `/var/tmp` must be executable, `/run` must remain noexec, and `get_url` temporary data is confined to `/var/tmp`. Both supervisor layers create bounded process groups with TERM/KILL cleanup; the Ansible `always` path independently terminates any process still executing the exact beta binary before deleting ephemeral files. Interruption or local failure after the evidence claim prohibits a second request. A reachable result proves only that the beta can initialize and list the dedicated path; adopting it for recovery or backups remains a separate pinned-version policy decision.
+
 If qualification or its exact recovery was interrupted after the helper atomically wrote a valid transient result—or after host/controller evidence publication—the cleanup playbook intentionally refuses it. Use the separate resume/attestation transaction instead. It accepts either byte-identical transient and published evidence or one surviving validated copy, proves the dedicated remote directory is absent through the pinned helper, completes only missing evidence publication/fetch, removes only the validated transient result, and releases the exact retained lock:
 
 ```sh

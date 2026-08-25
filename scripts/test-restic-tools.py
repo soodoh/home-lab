@@ -11,6 +11,8 @@ from pathlib import Path
 import runpy
 import subprocess
 import tempfile
+import sys
+import time
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -382,6 +384,33 @@ def main() -> None:
     assert 'str(RUNUSER),\n        "--user",\n        "restic-proton",\n        "--",\n        str(ENV)' in auth_diagnostic
     assert 'str(INSTALL),\n        "--mode",\n        "0600",\n        "/dev/null"' in auth_diagnostic
     diagnostic_module = runpy.run_path(str(auth_diagnostic_path), run_name="proton_auth_diagnostic_test_module")
+    bounded_subprocess = diagnostic_module["bounded_subprocess"]
+    with tempfile.TemporaryDirectory() as process_directory:
+        child_pid_path = Path(process_directory) / "child.pid"
+        launcher = (
+            "import pathlib,subprocess,sys,time;"
+            "child=subprocess.Popen([sys.executable,'-c','import time;time.sleep(60)']);"
+            f"pathlib.Path({str(child_pid_path)!r}).write_text(str(child.pid));"
+            "time.sleep(60)"
+        )
+        try:
+            bounded_subprocess([sys.executable, "-c", launcher], 1, dict(os.environ))
+        except subprocess.TimeoutExpired:
+            pass
+        else:
+            raise AssertionError("bounded subprocess did not enforce timeout")
+        child_pid = json.loads(child_pid_path.read_text())
+        child_gone = False
+        for _attempt in range(50):
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                child_gone = True
+                break
+            time.sleep(0.1)
+        assert child_gone, "bounded subprocess left a descendant running"
+    assert "start_new_session=True" in auth_diagnostic
+    assert "terminate_process_group(process)" in auth_diagnostic
     classify = diagnostic_module["classify"]
     assert classify(0, b"remote listing") == "reachable"
     assert classify(3, b"not found") == "reachable"
@@ -423,6 +452,100 @@ def main() -> None:
     assert '"provider_requests": 0' in auth_diagnostic
     assert "proton_totp_seed_forbidden" in auth_diagnostic
     assert "Require exact resumable password-only transition claim" in password_only_playbook
+    beta_playbook = (ROOT / "ansible/playbooks/diagnose-proton-beta.yml").read_text()
+    assert "diagnose-only-proton-with-official-beta" in beta_playbook
+    assert f"proton_beta_script_sha256: {auth_diagnostic_sha256}" in beta_playbook
+    assert "proton_beta_archive_sha256: f37f14b7922280dd5b9352e2d1c3101f94739f57d3786132e517fc106cb4c245" in beta_playbook
+    assert "proton_beta_binary_sha256: b64e72891b07b0f55462121090e9e200e8e75c7d0b95530ba9c1f06517daeac5" in beta_playbook
+    assert "Run exactly one non-mutating Proton lsjson with the beta" in beta_playbook
+    assert "Require exact controller-side Proton beta supervisor hash" in beta_playbook
+    assert "Remove all ephemeral Proton beta files" in beta_playbook
+    assert "apply_lock_action: release" not in beta_playbook
+    assert '"--config",\n        "/dev/null"' in auth_diagnostic
+    assert '"RCLONE_CONFIG_PROTON_BACKUP_ENABLE_CACHING": "false"' in auth_diagnostic
+    assert '"provider_requests": 1' in auth_diagnostic
+    assert "beta_installed_artifact_drift" in auth_diagnostic
+    assert "tmp_dest: /var/tmp" in beta_playbook
+    assert "Ephemeral beta filesystem policy differs" in beta_playbook
+    assert "Terminate and verify any residual ephemeral beta process group" in beta_playbook
+    assert "Require no residual ephemeral beta process" in beta_playbook
+    assert "bounded_subprocess(command, 600, beta_environment)" in auth_diagnostic
+    assert "bounded_subprocess(command, 660, controlled_environment())" in auth_diagnostic
+    beta_order = [
+        beta_playbook.index(name)
+        for name in (
+            "Require exact controller-side Proton beta supervisor hash",
+            "Download checksum-pinned official rclone beta archive",
+            "Extract only the hash-pinned beta binary",
+            "Stage hash-pinned Proton beta supervisor",
+            "Run exactly one non-mutating Proton lsjson with the beta",
+            "Terminate and verify any residual ephemeral beta process group",
+            "Remove all ephemeral Proton beta files",
+            "Read transaction-bound ephemeral Proton beta evidence",
+            "Confirm beta observation retained exact qualification lock",
+        )
+    ]
+    assert beta_order == sorted(beta_order)
+
+    load_password_only_evidence = diagnostic_module["load_password_only_evidence"]
+    evidence_globals = load_password_only_evidence.__globals__
+    with tempfile.TemporaryDirectory() as evidence_directory:
+        evidence_root = Path(evidence_directory)
+        transaction = "a" * 64
+        username_sha256 = "d" * 64
+        transition = {
+            "account_username_sha256": username_sha256,
+            "auth_diagnostic_evidence_sha256": "b" * 64,
+            "cache_state": "absent",
+            "credential_rotation_evidence_sha256": "c" * 64,
+            "provider_requests": 0,
+            "removed_field": "otp_secret_key",
+            "state": "password-only",
+            "transaction_sha256": transaction,
+            "transitioned_at": "2026-08-25T00:00:00Z",
+            "version": 1,
+        }
+        deployment = {
+            "account_username_sha256": username_sha256,
+            "bootstrap_helper_sha256": "e" * 64,
+            "ciphertext_sha256": "f" * 64,
+            "credential_materialization": "noop",
+            "deployed_at": "2026-08-25T00:01:00Z",
+            "policy_sha256": "1" * 64,
+            "provider_requests": 0,
+            "qualification_helper_sha256": "2" * 64,
+            "state": "deployed",
+            "transaction_sha256": transaction,
+            "transition_evidence_sha256": "",
+            "version": 1,
+        }
+
+        def write_evidence(name: str, value: dict[str, object]) -> str:
+            content = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+            (evidence_root / name).write_bytes(content)
+            return hashlib.sha256(content).hexdigest()
+
+        transition_sha256 = write_evidence(f"proton-password-only-transition-{transaction}.json", transition)
+        deployment["transition_evidence_sha256"] = transition_sha256
+        deployment_name = f"proton-password-only-deployment-{transaction}.json"
+        deployment_sha256 = write_evidence(deployment_name, deployment)
+        original_root = evidence_globals["EVIDENCE_PARENT"]
+        original_require_regular = evidence_globals["require_regular"]
+        evidence_globals["EVIDENCE_PARENT"] = evidence_root
+        evidence_globals["require_regular"] = lambda *_args: None
+        try:
+            load_password_only_evidence(transaction, transition_sha256, deployment_sha256, username_sha256)
+            deployment["provider_requests"] = 1
+            invalid_deployment_sha256 = write_evidence(deployment_name, deployment)
+            try:
+                load_password_only_evidence(transaction, transition_sha256, invalid_deployment_sha256, username_sha256)
+            except diagnostic_module["DiagnosticError"] as error:
+                assert str(error) == "password_only_deployment_evidence_invalid"
+            else:
+                raise AssertionError("remote-bearing deployment evidence was accepted")
+        finally:
+            evidence_globals["EVIDENCE_PARENT"] = original_root
+            evidence_globals["require_regular"] = original_require_regular
     password_only_deployment = (ROOT / "ansible/playbooks/deploy-proton-password-only-artifacts.yml").read_text()
     assert "deploy-only-password-only-proton-artifacts" in password_only_deployment
     bootstrap_sha256 = hashlib.sha256((ROOT / "scripts/bootstrap-restic-credentials").read_bytes()).hexdigest()

@@ -11,9 +11,11 @@ from pathlib import Path
 import pwd
 import re
 import stat
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 
 RCLONE = Path("/usr/local/bin/rclone")
@@ -343,6 +345,65 @@ def controlled_environment() -> dict[str, str]:
         "LC_ALL": "C.UTF-8",
         "PATH": "/usr/local/bin:/usr/bin:/bin",
     }
+
+
+def terminate_process_group(process: subprocess.Popen[bytes]) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+    deadline = time.monotonic() + 10
+    while True:
+        process.poll()
+        try:
+            os.killpg(process.pid, 0)
+        except (ProcessLookupError, PermissionError):
+            break
+        if time.monotonic() >= deadline:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            break
+        time.sleep(0.1)
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
+
+
+def bounded_subprocess(
+    command: list[str],
+    timeout: int,
+    environment: dict[str, str],
+) -> subprocess.CompletedProcess[bytes]:
+    def interrupted(_signum: int, _frame: object) -> None:
+        raise InterruptedError
+
+    previous_handlers = {
+        signum: signal.getsignal(signum)
+        for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+    }
+    for signum in previous_handlers:
+        signal.signal(signum, interrupted)
+    process = subprocess.Popen(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout)
+    except BaseException:
+        terminate_process_group(process)
+        raise
+    finally:
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
 
 
 def require_no_backup_processes() -> None:
@@ -768,6 +829,336 @@ def supervise_password_only_transition(
     print(output)
 
 
+def load_exact_json(path: Path, expected_sha256: str, expected_keys: set[str], reason: str) -> dict[str, object]:
+    require_regular(path, 0, 0, 0o600)
+    try:
+        content = path.read_bytes()
+        evidence = json.loads(content)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        fail(reason)
+    if not isinstance(evidence, dict) or set(evidence) != expected_keys or digest_bytes(content) != expected_sha256:
+        fail(reason)
+    return evidence
+
+
+def load_password_only_evidence(
+    expected_transaction: str,
+    expected_transition_sha256: str,
+    expected_deployment_sha256: str,
+    username_sha256: str,
+) -> None:
+    transition = load_exact_json(
+        EVIDENCE_PARENT / f"proton-password-only-transition-{expected_transaction}.json",
+        expected_transition_sha256,
+        {
+            "account_username_sha256",
+            "auth_diagnostic_evidence_sha256",
+            "cache_state",
+            "credential_rotation_evidence_sha256",
+            "provider_requests",
+            "removed_field",
+            "state",
+            "transaction_sha256",
+            "transitioned_at",
+            "version",
+        },
+        "password_only_transition_evidence_invalid",
+    )
+    if (
+        transition.get("account_username_sha256") != username_sha256
+        or transition.get("cache_state") != "absent"
+        or transition.get("provider_requests") != 0
+        or transition.get("removed_field") != LEGACY_TOTP_KEY
+        or transition.get("state") != "password-only"
+        or transition.get("transaction_sha256") != expected_transaction
+        or transition.get("version") != 1
+    ):
+        fail("password_only_transition_evidence_invalid")
+    deployment = load_exact_json(
+        EVIDENCE_PARENT / f"proton-password-only-deployment-{expected_transaction}.json",
+        expected_deployment_sha256,
+        {
+            "account_username_sha256",
+            "bootstrap_helper_sha256",
+            "ciphertext_sha256",
+            "credential_materialization",
+            "deployed_at",
+            "policy_sha256",
+            "provider_requests",
+            "qualification_helper_sha256",
+            "state",
+            "transaction_sha256",
+            "transition_evidence_sha256",
+            "version",
+        },
+        "password_only_deployment_evidence_invalid",
+    )
+    if (
+        deployment.get("account_username_sha256") != username_sha256
+        or deployment.get("credential_materialization") != "noop"
+        or deployment.get("provider_requests") != 0
+        or deployment.get("state") != "deployed"
+        or deployment.get("transaction_sha256") != expected_transaction
+        or deployment.get("transition_evidence_sha256") != expected_transition_sha256
+        or deployment.get("version") != 1
+    ):
+        fail("password_only_deployment_evidence_invalid")
+
+
+def run_beta_under_lock(
+    expected_transaction: str,
+    expected_script_sha256: str,
+    beta_path: Path,
+    expected_beta_sha256: str,
+    expected_beta_version: str,
+    expected_transition_sha256: str,
+    expected_deployment_sha256: str,
+) -> None:
+    if os.getuid() != 0 or os.getgid() != 0:
+        fail("identity")
+    service = pwd.getpwnam("restic-proton")
+    service_group = grp.getgrnam("restic-proton")
+    if service.pw_uid != 60000 or service.pw_gid != 60000 or service_group.gr_gid != 60000:
+        fail("service_identity")
+    if digest_file(Path(__file__)) != expected_script_sha256:
+        fail("diagnostic_script_hash")
+    require_regular(MUTEX, 0, service_group.gr_gid, 0o660)
+    require_directory(EVIDENCE_PARENT, 0, 0, 0o750)
+    require_directory(CONFIG.parent, service.pw_uid, service.pw_gid, 0o700)
+    require_directory(CACHE, service.pw_uid, service.pw_gid, 0o700)
+    require_regular(beta_path, 0, service_group.gr_gid, 0o750)
+    if digest_file(beta_path) != expected_beta_sha256:
+        fail("beta_rclone_hash")
+    policy = load_policy(service_group.gr_gid)
+    qualification = policy["qualification"]
+    proton = policy.get("proton")
+    tools = policy.get("tools")
+    if (
+        not isinstance(proton, dict)
+        or proton.get("authentication_mode") != "password-only"
+        or not isinstance(tools, dict)
+        or not isinstance(tools.get("rclone"), dict)
+        or digest_file(RCLONE) != tools["rclone"].get("installed_sha256")
+    ):
+        fail("beta_policy")
+    owner_content = validate_lock(expected_transaction)
+    require_no_backup_processes()
+    load_password_only_evidence(
+        expected_transaction,
+        expected_transition_sha256,
+        expected_deployment_sha256,
+        qualification["username_sha256"],
+    )
+    static_config = validate_config(service.pw_uid, service.pw_gid, qualification["username_sha256"])
+    installed_parser = parser_from_config()
+    installed_remote = installed_parser["proton-backup"]
+    if (
+        "mailbox_password" in static_config
+        or CACHE_KEYS & set(installed_remote)
+        or set(static_config) != STATIC_KEYS - {"mailbox_password"}
+    ):
+        fail("beta_config_state")
+    config_before = CONFIG.read_bytes()
+    version_result = subprocess.run(
+        [
+            str(RUNUSER),
+            "--preserve-environment",
+            "--user",
+            "restic-proton",
+            "--",
+            str(beta_path),
+            "version",
+        ],
+        check=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        env=controlled_environment(),
+    )
+    if version_result.returncode != 0:
+        fail(f"beta_version_rc_{version_result.returncode}_stderr_sha256_{digest_bytes(version_result.stderr)}")
+    try:
+        first_line = version_result.stdout.decode("utf-8").splitlines()[0]
+    except (UnicodeDecodeError, IndexError):
+        fail("beta_version_output")
+    if first_line != f"rclone v{expected_beta_version}":
+        fail("beta_version_output")
+    recovery_evidence = EVIDENCE_PARENT / f"proton-qualification-recovery-{expected_transaction}.json"
+    evidence_path = EVIDENCE_PARENT / f"proton-beta-diagnostic-{expected_transaction}.json"
+    for path in (RESULT, HOST_EVIDENCE, recovery_evidence, evidence_path):
+        if path.exists() or path.is_symlink():
+            fail("prior_beta_transaction_evidence")
+    started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    marker = {
+        "account_username_sha256": qualification["username_sha256"],
+        "beta_binary_sha256": expected_beta_sha256,
+        "beta_version": expected_beta_version,
+        "started_at": started_at,
+        "state": "started",
+        "transaction_sha256": expected_transaction,
+        "version": 1,
+    }
+    atomic_json(evidence_path, marker, replace=False)
+    launch_marker = CACHE / f".proton-beta-diagnostic-launch-{expected_transaction}"
+    if launch_marker.exists() or launch_marker.is_symlink():
+        fail("prior_beta_launch_marker")
+    marker_result = subprocess.run(
+        [
+            str(RUNUSER),
+            "--user",
+            "restic-proton",
+            "--",
+            str(INSTALL),
+            "--mode",
+            "0600",
+            "/dev/null",
+            str(launch_marker),
+        ],
+        check=False,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        env=controlled_environment(),
+    )
+    if marker_result.returncode != 0:
+        fail(f"beta_launch_marker_rc_{marker_result.returncode}_stderr_sha256_{digest_bytes(marker_result.stderr)}")
+    require_regular(launch_marker, service.pw_uid, service.pw_gid, 0o600)
+    beta_environment = controlled_environment()
+    beta_environment.update(
+        {
+            "RCLONE_CONFIG_PROTON_BACKUP_TYPE": "protondrive",
+            "RCLONE_CONFIG_PROTON_BACKUP_USERNAME": installed_remote["username"],
+            "RCLONE_CONFIG_PROTON_BACKUP_PASSWORD": installed_remote["password"],
+            "RCLONE_CONFIG_PROTON_BACKUP_REPLACE_EXISTING_DRAFT": "true",
+            "RCLONE_CONFIG_PROTON_BACKUP_ENABLE_CACHING": "false",
+            "RCLONE_CONFIG_PROTON_BACKUP_ORIGINAL_FILE_SIZE": "true",
+        }
+    )
+    command = [
+        str(RUNUSER),
+        "--preserve-environment",
+        "--user",
+        "restic-proton",
+        "--",
+        str(beta_path),
+        "--config",
+        "/dev/null",
+        "--cache-dir",
+        str(CACHE),
+        "--log-level",
+        "ERROR",
+        "--stats",
+        "0",
+        "--retries",
+        "1",
+        "--low-level-retries",
+        "1",
+        "--protondrive-enable-caching=false",
+        "lsjson",
+        f"proton-backup:{REMOTE_DIRECTORY}",
+        "--max-depth",
+        "1",
+    ]
+    try:
+        result = bounded_subprocess(command, 600, beta_environment)
+    except subprocess.SubprocessError:
+        fail("beta_rclone_local_operation")
+    if result.stderr.startswith(b"runuser:") or result.returncode in {126, 127}:
+        fail("beta_rclone_exec")
+    launch_marker.unlink()
+    cache_descriptor = os.open(CACHE, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(cache_descriptor)
+    finally:
+        os.close(cache_descriptor)
+    category = classify(result.returncode, result.stderr)
+    if category not in CATEGORIES:
+        fail("beta_diagnostic_category")
+    if (
+        CONFIG.read_bytes() != config_before
+        or digest_file(RCLONE) != tools["rclone"].get("installed_sha256")
+    ):
+        fail("beta_installed_artifact_drift")
+    if validate_lock(expected_transaction) != owner_content:
+        fail("apply_lock_owner_drift")
+    evidence = {
+        "account_username_sha256": qualification["username_sha256"],
+        "beta_binary_sha256": expected_beta_sha256,
+        "beta_version": expected_beta_version,
+        "category": category,
+        "config_source": "environment-only",
+        "credential_cache": "disabled",
+        "observed_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "operation": "lsjson",
+        "provider_requests": 1,
+        "remote_directory": REMOTE_DIRECTORY,
+        "rclone_rc": result.returncode,
+        "stable_rclone_unchanged": "pass",
+        "state": "observed",
+        "stderr_sha256": digest_bytes(result.stderr),
+        "stdout_sha256": digest_bytes(result.stdout),
+        "transaction_sha256": expected_transaction,
+        "version": 1,
+    }
+    evidence_sha256 = atomic_json(evidence_path, evidence, replace=True)
+    if validate_lock(expected_transaction) != owner_content:
+        fail("apply_lock_owner_drift")
+    print(f"proton_beta_diagnostic=observed category={category} evidence_sha256={evidence_sha256}")
+
+
+def supervise_beta(
+    expected_transaction: str,
+    expected_script_sha256: str,
+    beta_path: Path,
+    expected_beta_sha256: str,
+    expected_beta_version: str,
+    expected_transition_sha256: str,
+    expected_deployment_sha256: str,
+) -> None:
+    if os.getuid() != 0 or os.getgid() != 0:
+        fail("identity")
+    if digest_file(Path(__file__)) != expected_script_sha256:
+        fail("diagnostic_script_hash")
+    service_gid = grp.getgrnam("restic-proton").gr_gid
+    require_regular(MUTEX, 0, service_gid, 0o660)
+    command = [
+        str(FLOCK),
+        "--exclusive",
+        "--nonblock",
+        "--conflict-exit-code",
+        "75",
+        "--",
+        str(MUTEX),
+        "/usr/bin/python3",
+        str(Path(__file__)),
+        "beta-under-lock",
+        expected_transaction,
+        expected_script_sha256,
+        str(beta_path),
+        expected_beta_sha256,
+        expected_beta_version,
+        expected_transition_sha256,
+        expected_deployment_sha256,
+    ]
+    result = bounded_subprocess(command, 660, controlled_environment())
+    if result.returncode == 75:
+        fail("backup_mutex_busy")
+    if result.returncode != 0:
+        controlled = re.fullmatch(rb"proton_auth_diagnostic=failed reason=([a-z0-9_.-]+)\n?", result.stderr)
+        if controlled is not None:
+            fail(controlled.group(1).decode("ascii"))
+        fail(f"beta_subprocess_rc_{result.returncode}_stderr_sha256_{digest_bytes(result.stderr)}")
+    try:
+        output = result.stdout.decode("ascii").strip()
+    except UnicodeDecodeError:
+        fail("beta_output")
+    if re.fullmatch(r"proton_beta_diagnostic=observed category=[a-z_]+ evidence_sha256=[0-9a-f]{64}", output) is None:
+        fail("beta_output")
+    print(output)
+
+
 def run_rotation_under_lock(
     expected_transaction: str,
     expected_script_sha256: str,
@@ -965,6 +1356,43 @@ def main() -> None:
                 supervise(expected_transaction, expected_script_sha256)
             else:
                 run_under_lock(expected_transaction, expected_script_sha256)
+            return
+        if action in {"beta-supervise", "beta-under-lock"}:
+            if len(sys.argv) != 9:
+                fail("usage")
+            expected_transaction = sys.argv[2]
+            expected_script_sha256 = sys.argv[3]
+            beta_path = Path(sys.argv[4])
+            expected_beta_sha256 = sys.argv[5]
+            expected_beta_version = sys.argv[6]
+            expected_transition_sha256 = sys.argv[7]
+            expected_deployment_sha256 = sys.argv[8]
+            hashes = (
+                expected_transaction,
+                expected_script_sha256,
+                expected_beta_sha256,
+                expected_transition_sha256,
+                expected_deployment_sha256,
+            )
+            if (
+                any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in hashes)
+                or re.fullmatch(r"[0-9A-Za-z.-]+", expected_beta_version) is None
+                or beta_path != Path(f"/var/tmp/rclone-beta-{expected_transaction}")
+            ):
+                fail("usage")
+            arguments = (
+                expected_transaction,
+                expected_script_sha256,
+                beta_path,
+                expected_beta_sha256,
+                expected_beta_version,
+                expected_transition_sha256,
+                expected_deployment_sha256,
+            )
+            if action == "beta-supervise":
+                supervise_beta(*arguments)
+            else:
+                run_beta_under_lock(*arguments)
             return
         if action in {"password-only-supervise", "password-only-under-lock"}:
             if len(sys.argv) != 6:
