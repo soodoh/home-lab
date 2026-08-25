@@ -1239,6 +1239,36 @@ def main() -> None:
     assert "/usr/local/bin/sops --decrypt --output-type dotenv /etc/home-lab/restic/production.sops.env &&" in account_reset_playbook
     assert "--output-type dotenv\n                /etc/home-lab/restic/production.sops.env" not in account_reset_playbook
 
+    quota_diagnostic_path = ROOT / "scripts/diagnose-proton-quota"
+    quota_diagnostic = quota_diagnostic_path.read_text()
+    assert '"about", "proton_backup:", "--json"' in quota_diagnostic
+    assert quota_diagnostic.count('"about", "proton_backup:", "--json"') == 1
+    assert '"--config", "/dev/null"' in quota_diagnostic
+    assert '"RCLONE_CONFIG_PROTON_BACKUP_ENABLE_CACHING": "false"' in quota_diagnostic
+    assert "os.O_EXCL" in quota_diagnostic
+    assert '"provider_requests": 1' in quota_diagnostic
+    assert '"stable_rclone_sha256": expected_rclone' in quota_diagnostic
+    assert 'for name in ("total", "used", "free")' in quota_diagnostic
+    assert "print(result.stdout" not in quota_diagnostic and "print(result.stderr" not in quota_diagnostic
+    assert quota_diagnostic.count("require_no_processes()") >= 2
+    assert "require_regular(MUTEX, 0, service_group.gr_gid, 0o660)" in quota_diagnostic
+    assert "rclone_process_group_survived" in quota_diagnostic
+    assert "write_all(descriptor, content)" in quota_diagnostic
+    assert "validate_post_state(" in quota_diagnostic
+    quota_module = runpy.run_path(
+        str(quota_diagnostic_path),
+        run_name="diagnose_proton_quota_test_module",
+    )
+    try:
+        quota_module["bounded"](
+            ["/bin/sh", "-c", "exec /bin/sleep 30"],
+            {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"},
+            0.05,
+        )
+    except subprocess.TimeoutExpired:
+        pass
+    else:
+        raise AssertionError("quota diagnostic timeout did not abort")
     post_reset_playbook = (ROOT / "ansible/playbooks/diagnose-proton-post-reset.yml").read_text()
     assert f"proton_post_reset_script_sha256: {auth_diagnostic_sha256}" in post_reset_playbook
     assert "diagnose-one-post-reset-proton-lsjson-v4-corrected-environment-remote" in post_reset_playbook
