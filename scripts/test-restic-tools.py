@@ -685,6 +685,9 @@ def main() -> None:
     assert "observed_config_sha256 in [marker.prior_config_sha256, marker.target_config_sha256]" in account_reset_playbook
     assert "reason=[a-z0-9_.-]+\\r?$" in account_reset_playbook
     assert "reason=[a-z0-9_.-]+\\\\r?$" not in account_reset_playbook
+    assert "account_reset_failure_match" in account_reset_playbook
+    assert "proton_account_reset_run.stderr" in account_reset_playbook
+    assert "account_reset_failure_output\n              | regex_search" not in account_reset_playbook
     assert "provider_requests == 0" in account_reset_playbook
     assert "apply_lock_action: release" not in account_reset_playbook
     assert "/etc/home-lab/restic/production.sops.env" in account_reset_playbook

@@ -476,22 +476,20 @@
       ansible.builtin.set_fact:
         proton_account_reset_failure_report: >-
           {{
-            (
-              account_reset_failure_output
-              | regex_search('(?m)^proton_auth_diagnostic=failed reason=[a-z0-9_.-]+\r?$')
-              | default('', true)
-              | trim
-            )
-            if (
-              account_reset_failure_output
-              | regex_search('(?m)^proton_auth_diagnostic=failed reason=[a-z0-9_.-]+\r?$')
-              | default('', true)
-              | length
-            ) > 0
+            account_reset_failure_match
+            if (account_reset_failure_match | length) > 0
             else 'proton_account_reset_reconciliation=failed reason=unclassified_output_sha256_'
               ~ (account_reset_failure_output | hash('sha256'))
           }}
       vars:
+        account_reset_failure_match: >-
+          {{
+            proton_account_reset_run.stderr
+            | default('')
+            | regex_search('(?m)^proton_auth_diagnostic=failed reason=[a-z0-9_.-]+\r?$')
+            | default('', true)
+            | trim
+          }}
         account_reset_failure_output: >-
           {{
             (proton_account_reset_run.stdout | default(''))
