@@ -12,7 +12,7 @@
       https://beta.rclone.org/v1.76.0-beta.10192.6ee1d851e/rclone-v1.76.0-beta.10192.6ee1d851e-linux-amd64.zip
     proton_beta_archive_sha256: f37f14b7922280dd5b9352e2d1c3101f94739f57d3786132e517fc106cb4c245
     proton_beta_binary_sha256: b64e72891b07b0f55462121090e9e200e8e75c7d0b95530ba9c1f06517daeac5
-    proton_beta_script_sha256: 39c62450ccb94165bc0d53dff0af9f5aced61af547f72d3c77cc8fa241046b61
+    proton_beta_script_sha256: ca17ea2d6f7365671db5e0a8877d4672642907e8891d6bac504f7727f0ae7efc
   tasks:
     - name: Require exact ephemeral Proton beta diagnostic approval
       ansible.builtin.assert:

@@ -381,10 +381,13 @@ def bounded_subprocess(
     timeout: int,
     environment: dict[str, str],
     input_data: bytes | None = None,
+    inherit_stdin: bool = False,
 ) -> subprocess.CompletedProcess[bytes]:
     def interrupted(_signum: int, _frame: object) -> None:
         raise InterruptedError
 
+    if input_data is not None and inherit_stdin:
+        raise ValueError("input_data and inherit_stdin are mutually exclusive")
     previous_handlers = {
         signum: signal.getsignal(signum)
         for signum in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
@@ -393,14 +396,17 @@ def bounded_subprocess(
         signal.signal(signum, interrupted)
     process = subprocess.Popen(
         command,
-        stdin=subprocess.PIPE if input_data is not None else subprocess.DEVNULL,
+        stdin=None if inherit_stdin else (subprocess.PIPE if input_data is not None else subprocess.DEVNULL),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=environment,
         start_new_session=True,
     )
     try:
-        stdout, stderr = process.communicate(input=input_data, timeout=timeout)
+        if inherit_stdin:
+            stdout, stderr = process.communicate(timeout=timeout)
+        else:
+            stdout, stderr = process.communicate(input=input_data, timeout=timeout)
     except BaseException:
         terminate_process_group(process)
         raise
@@ -1649,12 +1655,9 @@ def supervise_account_reset(
     expected_beta_evidence_sha256: str,
     expected_beta_binary_sha256: str,
     expected_beta_version: str,
-    raw_payload: bytes,
 ) -> None:
     if os.getuid() != 0 or os.getgid() != 0:
         fail("identity")
-    if len(raw_payload) == 0 or len(raw_payload) > 2 * 1024 * 1024:
-        fail("account_reset_dotenv_size")
     if digest_file(Path(__file__)) != expected_script_sha256:
         fail("diagnostic_script_hash")
     service_gid = grp.getgrnam("restic-proton").gr_gid
@@ -1686,7 +1689,7 @@ def supervise_account_reset(
         expected_beta_binary_sha256,
         expected_beta_version,
     ]
-    result = bounded_subprocess(command, 180, controlled_environment(), raw_payload)
+    result = bounded_subprocess(command, 180, controlled_environment(), inherit_stdin=True)
     if result.returncode == 75:
         fail("backup_mutex_busy")
     if result.returncode != 0:
@@ -1870,7 +1873,6 @@ def main() -> None:
                 or target_ciphertext != Path(f"/run/proton-account-reset-{expected_transaction}.sops.env")
             ):
                 fail("usage")
-            raw_payload = sys.stdin.buffer.read(2 * 1024 * 1024 + 1)
             arguments = (
                 expected_transaction,
                 expected_script_sha256,
@@ -1884,12 +1886,12 @@ def main() -> None:
                 expected_beta_evidence_sha256,
                 expected_beta_binary_sha256,
                 expected_beta_version,
-                raw_payload,
             )
             if action == "account-reset-supervise":
                 supervise_account_reset(*arguments)
             else:
-                run_account_reset_under_lock(*arguments)
+                raw_payload = sys.stdin.buffer.read(2 * 1024 * 1024 + 1)
+                run_account_reset_under_lock(*arguments, raw_payload)
             return
         if action not in {"rotate-supervise", "rotate-under-lock"} or len(sys.argv) != 5:
             fail("usage")

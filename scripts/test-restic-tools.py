@@ -693,14 +693,36 @@ def main() -> None:
     assert "/etc/home-lab/restic/production.sops.env" in account_reset_playbook
     assert "/usr/bin/printf '\\0'" in account_reset_playbook
     bounded_subprocess = diagnostic_module["bounded_subprocess"]
+    stdin_reader = [sys.executable, "-c", "import sys;sys.stdout.buffer.write(sys.stdin.buffer.read())"]
     stdin_result = bounded_subprocess(
-        [sys.executable, "-c", "import sys;sys.stdout.buffer.write(sys.stdin.buffer.read())"],
+        stdin_reader,
         10,
         dict(os.environ),
         b"protected-payload",
     )
     assert stdin_result.stdout == b"protected-payload"
-    assert "bounded_subprocess(command, 180, controlled_environment(), raw_payload)" in auth_diagnostic
+    saved_stdin = os.dup(0)
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, b"inherited-protected-payload")
+        os.close(write_fd)
+        write_fd = -1
+        os.dup2(read_fd, 0)
+        inherited_result = bounded_subprocess(
+            stdin_reader,
+            10,
+            dict(os.environ),
+            inherit_stdin=True,
+        )
+    finally:
+        if write_fd >= 0:
+            os.close(write_fd)
+        os.close(read_fd)
+        os.dup2(saved_stdin, 0)
+        os.close(saved_stdin)
+    assert inherited_result.stdout == b"inherited-protected-payload"
+    assert "bounded_subprocess(command, 180, controlled_environment(), inherit_stdin=True)" in auth_diagnostic
+    assert "raw_payload = sys.stdin.buffer.read(2 * 1024 * 1024 + 1)\n                run_account_reset_under_lock" in auth_diagnostic
     with tempfile.TemporaryDirectory() as process_directory:
         child_pid_path = Path(process_directory) / "child.pid"
         launcher = (
