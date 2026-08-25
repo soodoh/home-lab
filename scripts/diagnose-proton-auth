@@ -34,6 +34,7 @@ RESULT = Path("/var/lib/restic-proton/proton-qualification-result.json")
 HOST_EVIDENCE = EVIDENCE_PARENT / "proton-qualification.json"
 INSTALLED_CIPHERTEXT = Path("/etc/home-lab/restic/production.sops.env")
 REMOTE_DIRECTORY = "Backups/.home-lab-rclone-qualification"
+DIAGNOSTIC_REMOTE = "proton_backup"
 ACCOUNT_RESET_BOUNDARY = b"HOME_LAB_PROTON_ACCOUNT_RESET_BOUNDARY_7b9e0c4f2ad68135\n"
 STATIC_KEYS = {
     "type",
@@ -63,6 +64,7 @@ CATEGORIES = {
     "rclone_unclassified",
 }
 POST_RESET_V2_EVIDENCE_SHA256 = "c8c2055fe1547fdc8e3678fb580ba6d3e54eee85f3d54c264420fb35f8eaec78"
+POST_RESET_V3_EVIDENCE_SHA256 = "fb511d7a9960217256108a7a5914a89bca8da04e2db7b97fae1c8b39665450bb"
 POST_RESET_V2_CATEGORIES = CATEGORIES | {
     "drive_share_incompatible",
     "drive_volume_incompatible",
@@ -1387,12 +1389,14 @@ def run_post_reset_diagnostic_under_lock(
     except OSError:
         fail("post_reset_cache_state")
     config_before = CONFIG.read_bytes()
-    if diagnostic_version not in {1, 2, 3}:
+    if diagnostic_version not in {1, 2, 3, 4}:
         fail("post_reset_diagnostic_version")
-    if diagnostic_version in {2, 3}:
+    if diagnostic_version in {2, 3, 4}:
         if expected_prior_diagnostic_sha256 is None:
             fail("post_reset_prior_diagnostic")
         if diagnostic_version == 3 and expected_prior_diagnostic_sha256 != POST_RESET_V2_EVIDENCE_SHA256:
+            fail("post_reset_prior_diagnostic")
+        if diagnostic_version == 4 and expected_prior_diagnostic_sha256 != POST_RESET_V3_EVIDENCE_SHA256:
             fail("post_reset_prior_diagnostic")
         prior_keys = {
             "account_reset_evidence_sha256",
@@ -1415,9 +1419,24 @@ def run_post_reset_diagnostic_under_lock(
             "version",
         }
         prior_version = diagnostic_version - 1
-        if prior_version == 2:
+        if prior_version >= 2:
             prior_keys.add("prior_diagnostic_evidence_sha256")
-        prior_name = "proton-post-reset-diagnostic" if prior_version == 1 else "proton-post-reset-diagnostic-v2"
+        if prior_version == 3:
+            prior_keys.update(
+                {
+                    "browser_drive_initialized",
+                    "log_level",
+                    "verbose_log",
+                    "verbose_log_redactions",
+                    "verbose_log_sha256",
+                }
+            )
+        prior_names = {
+            1: "proton-post-reset-diagnostic",
+            2: "proton-post-reset-diagnostic-v2",
+            3: "proton-post-reset-diagnostic-v3",
+        }
+        prior_name = prior_names[prior_version]
         prior = load_exact_json(
             EVIDENCE_PARENT / f"{prior_name}-{expected_transaction}.json",
             expected_prior_diagnostic_sha256,
@@ -1445,6 +1464,7 @@ def run_post_reset_diagnostic_under_lock(
         1: "proton-post-reset-diagnostic",
         2: "proton-post-reset-diagnostic-v2",
         3: "proton-post-reset-diagnostic-v3",
+        4: "proton-post-reset-diagnostic-v4",
     }
     evidence_name = evidence_names[diagnostic_version]
     evidence_path = EVIDENCE_PARENT / f"{evidence_name}-{expected_transaction}.json"
@@ -1462,8 +1482,11 @@ def run_post_reset_diagnostic_under_lock(
     }
     if expected_prior_diagnostic_sha256 is not None:
         marker["prior_diagnostic_evidence_sha256"] = expected_prior_diagnostic_sha256
-    if diagnostic_version == 3:
+    if diagnostic_version in {3, 4}:
         marker["browser_drive_initialized"] = True
+    if diagnostic_version == 4:
+        marker["diagnostic_remote_name"] = DIAGNOSTIC_REMOTE
+        marker["prior_provider_requests_reclassified"] = 0
     atomic_json(evidence_path, marker, replace=False)
     diagnostic_environment = controlled_environment()
     diagnostic_environment.update(
@@ -1476,7 +1499,7 @@ def run_post_reset_diagnostic_under_lock(
             "RCLONE_CONFIG_PROTON_BACKUP_ORIGINAL_FILE_SIZE": "true",
         }
     )
-    log_arguments = ["-vv"] if diagnostic_version == 3 else ["--log-level", "ERROR"]
+    log_arguments = ["-vv"] if diagnostic_version in {3, 4} else ["--log-level", "ERROR"]
     command = [
         str(RUNUSER),
         "--preserve-environment",
@@ -1497,7 +1520,7 @@ def run_post_reset_diagnostic_under_lock(
         "1",
         "--protondrive-enable-caching=false",
         "lsjson",
-        f"proton-backup:{REMOTE_DIRECTORY}",
+        f"{DIAGNOSTIC_REMOTE if diagnostic_version == 4 else 'proton-backup'}:{REMOTE_DIRECTORY}",
         "--max-depth",
         "1",
     ]
@@ -1511,7 +1534,7 @@ def run_post_reset_diagnostic_under_lock(
     )
     verbose_log: list[str] | None = None
     verbose_log_redactions: int | None = None
-    if diagnostic_version == 3:
+    if diagnostic_version in {3, 4}:
         verbose_log, verbose_log_redactions = sanitize_verbose_log(
             result.stderr,
             (installed_remote["username"], installed_remote["password"]),
@@ -1542,7 +1565,7 @@ def run_post_reset_diagnostic_under_lock(
         "stderr_sha256": digest_bytes(result.stderr),
         "stdout_sha256": digest_bytes(result.stdout),
     }
-    if diagnostic_version == 3:
+    if diagnostic_version in {3, 4}:
         if verbose_log is None or verbose_log_redactions is None:
             fail("post_reset_verbose_log")
         evidence.update(
@@ -1554,6 +1577,8 @@ def run_post_reset_diagnostic_under_lock(
                 "verbose_log_sha256": digest_bytes(("\n".join(verbose_log) + "\n").encode("utf-8")),
             }
         )
+    if diagnostic_version == 4:
+        evidence["provider_request_boundary"] = "backend-recognized-environment-remote"
     evidence_sha256 = atomic_json(evidence_path, evidence, replace=True)
     if validate_lock(expected_transaction) != owner_content:
         fail("apply_lock_owner_drift")
@@ -1588,13 +1613,14 @@ def supervise_post_reset_diagnostic(
             1: "post-reset-under-lock",
             2: "post-reset-v2-under-lock",
             3: "post-reset-v3-under-lock",
+            4: "post-reset-v4-under-lock",
         }.get(diagnostic_version, "invalid"),
         expected_transaction,
         expected_script_sha256,
         expected_account_reset_evidence_sha256,
         expected_config_sha256,
     ]
-    if diagnostic_version in {2, 3} and expected_prior_diagnostic_sha256 is not None:
+    if diagnostic_version in {2, 3, 4} and expected_prior_diagnostic_sha256 is not None:
         command.append(expected_prior_diagnostic_sha256)
     elif diagnostic_version != 1 or expected_prior_diagnostic_sha256 is not None:
         fail("post_reset_diagnostic_version")
@@ -2301,13 +2327,15 @@ def main() -> None:
             "post-reset-v2-under-lock",
             "post-reset-v3-supervise",
             "post-reset-v3-under-lock",
+            "post-reset-v4-supervise",
+            "post-reset-v4-under-lock",
         }:
             if len(sys.argv) != 7:
                 fail("usage")
             values = sys.argv[2:7]
             if any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in values):
                 fail("usage")
-            diagnostic_version = 2 if "-v2-" in action else 3
+            diagnostic_version = {"v2": 2, "v3": 3, "v4": 4}[action.split("-")[2]]
             if action.endswith("-supervise"):
                 supervise_post_reset_diagnostic(*values[:4], values[4], diagnostic_version)
             else:
