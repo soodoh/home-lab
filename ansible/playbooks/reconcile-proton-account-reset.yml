@@ -1,0 +1,598 @@
+---
+- name: Reconcile the installed Proton login credential after a disposable account reset
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  vars:
+    proton_account_reset_script_sha256: 11ef2f84ba80f436f6ab31dda5bbc2ebf80afeb852f1bf46fc71ee2ab29d161a
+    proton_account_reset_beta_binary_sha256: b64e72891b07b0f55462121090e9e200e8e75c7d0b95530ba9c1f06517daeac5
+    proton_account_reset_beta_version: 1.76.0-beta.10192.6ee1d851e
+  tasks:
+    - name: Require exact Proton account-reset reconciliation approval
+      ansible.builtin.assert:
+        that:
+          - proton_account_reset_confirmed | default(false) | bool
+          - proton_account_reset_confirmation | default('') == 'reconcile-only-password-after-disposable-proton-account-reset'
+          - proton_account_reset_expected_transaction_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_account_reset_expected_target_ciphertext_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_account_reset_expected_prior_config_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_account_reset_expected_auth_evidence_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_account_reset_expected_rotation_evidence_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_account_reset_expected_transition_evidence_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_account_reset_expected_deployment_evidence_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_account_reset_expected_beta_evidence_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - backups.restic.migration_state == 'inert'
+          - backups.restic.proton.authentication_mode == 'password-only'
+          - backups.restic.qualification.state == 'ready'
+          - backups.restic.credentials.state == 'provisioned'
+          - backups.legacy_offen.scheduler_state == 'quiesced'
+          - backups.legacy_offen.migration_retention_hold.state == 'applied'
+          - backups.legacy_offen.migration_retention_hold.review_deadline > now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')
+        fail_msg: Proton account-reset reconciliation requires its exact reviewed state and confirmation.
+
+    - name: Inspect controller-side account-reset reconciliation sources
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      loop:
+        - name: supervisor
+          path: "{{ playbook_dir }}/../../scripts/diagnose-proton-auth"
+          checksum: "{{ proton_account_reset_script_sha256 }}"
+        - name: ciphertext
+          path: "{{ playbook_dir }}/../../secrets/production.sops.env"
+          checksum: "{{ proton_account_reset_expected_target_ciphertext_sha256 }}"
+      delegate_to: localhost
+      become: false
+      register: proton_account_reset_controller_sources
+
+    - name: Require exact controller-side account-reset reconciliation source hashes
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.nlink == 1
+          - item.stat.checksum == item.item.checksum
+        fail_msg: "Controller-side account-reset source {{ item.item.name }} differs."
+      loop: "{{ proton_account_reset_controller_sources.results }}"
+
+    - name: Inspect retained qualification lock and owner for account-reset reconciliation
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      loop:
+        - "{{ apply_lock_path }}"
+        - "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_account_reset_lock_paths
+
+    - name: Inspect retained qualification lock contents for account-reset reconciliation
+      ansible.builtin.find:
+        paths: "{{ apply_lock_path }}"
+        hidden: true
+        recurse: false
+        file_type: any
+      become: true
+      register: proton_account_reset_lock_entries
+      when: proton_account_reset_lock_paths.results[0].stat.isdir | default(false)
+
+    - name: Read retained qualification owner for account-reset reconciliation
+      ansible.builtin.slurp:
+        src: "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_account_reset_lock_owner
+      no_log: true
+      when: proton_account_reset_lock_paths.results[1].stat.isreg | default(false)
+
+    - name: Require exact retained qualification lock for account-reset reconciliation
+      ansible.builtin.assert:
+        that:
+          - proton_account_reset_lock_paths.results[0].stat.isdir | default(false)
+          - proton_account_reset_lock_paths.results[0].stat.pw_name == 'root'
+          - proton_account_reset_lock_paths.results[0].stat.mode == '0700'
+          - proton_account_reset_lock_paths.results[1].stat.isreg | default(false)
+          - proton_account_reset_lock_paths.results[1].stat.pw_name == 'root'
+          - proton_account_reset_lock_paths.results[1].stat.mode == '0600'
+          - proton_account_reset_lock_entries.matched == 1
+          - "'controller=ansible-deploy' in (proton_account_reset_lock_owner.content | b64decode).splitlines()"
+          - "'operation=proton-qualification' in (proton_account_reset_lock_owner.content | b64decode).splitlines()"
+          - (proton_account_reset_lock_owner.content | b64decode | hash('sha256')) == proton_account_reset_expected_transaction_sha256
+        fail_msg: Retained lock is not the explicitly reviewed failed Proton qualification transaction.
+      no_log: true
+
+    - name: Set transaction-specific account-reset reconciliation paths
+      ansible.builtin.set_fact:
+        proton_account_reset_transaction_sha256: "{{ proton_account_reset_lock_owner.content | b64decode | hash('sha256') }}"
+        proton_account_reset_ciphertext_temp: >-
+          /run/proton-account-reset-{{ proton_account_reset_lock_owner.content | b64decode | hash('sha256') }}.sops.env
+        proton_account_reset_script_temp: >-
+          /run/proton-account-reset-{{ proton_account_reset_lock_owner.content | b64decode | hash('sha256') }}
+        proton_account_reset_evidence_path: >-
+          /var/lib/home-lab-restic/proton-account-reset-reconciliation-{{ proton_account_reset_lock_owner.content | b64decode | hash('sha256') }}.json
+      no_log: true
+
+    - name: Require no concurrent Restic or rclone process during account-reset reconciliation
+      ansible.builtin.command:
+        argv: [/usr/bin/pgrep, --exact, "{{ item }}"]
+      loop: [restic, rclone]
+      register: proton_account_reset_processes
+      changed_when: false
+      failed_when: proton_account_reset_processes.rc != 1
+      check_mode: false
+
+    - name: Inspect stopped Offen scheduler states during account-reset reconciliation
+      ansible.builtin.command:
+        argv: [/usr/bin/docker, inspect, --format, "{{ '{{.State.Running}}' }}", "{{ item }}"]
+      loop: "{{ backups.legacy_offen.scheduler_services }}"
+      register: proton_account_reset_offen_states
+      changed_when: false
+      check_mode: false
+
+    - name: Require Offen schedulers to remain stopped during account-reset reconciliation
+      ansible.builtin.assert:
+        that:
+          - item.stdout == 'false'
+        fail_msg: An Offen scheduler is not quiesced during Proton account-reset reconciliation.
+      loop: "{{ proton_account_reset_offen_states.results }}"
+
+    - name: Inspect inert Restic units before account-reset reconciliation
+      ansible.builtin.command:
+        argv: [/usr/bin/systemctl, is-active, "{{ item }}"]
+      loop: "{{ restic_audit_inert_units.keys() }}"
+      register: proton_account_reset_units
+      changed_when: false
+      failed_when: proton_account_reset_units.rc not in [0, 3]
+      check_mode: false
+
+    - name: Require every Restic unit to remain inactive during account-reset reconciliation
+      ansible.builtin.assert:
+        that:
+          - item.stdout == 'inactive'
+        fail_msg: A Restic unit is active during Proton account-reset reconciliation.
+      loop: "{{ proton_account_reset_units.results }}"
+
+    - name: Inspect protected account-reset reconciliation prerequisites
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      loop:
+        - { name: policy, path: /etc/home-lab/restic-policy.json, owner: root, group: restic-proton, mode: '0440' }
+        - { name: rclone, path: /usr/local/bin/rclone, owner: root, group: root, mode: '0755', checksum: "{{ backups.restic.tools.rclone.installed_sha256 }}" }
+        - { name: rclone_config, path: /var/lib/restic-proton/rclone.conf, owner: restic-proton, group: restic-proton, mode: '0600' }
+        - { name: config_parent, path: /var/lib/restic-proton, owner: restic-proton, group: restic-proton, mode: '0700', directory: true }
+        - { name: cache, path: /var/lib/restic-proton/cache, owner: restic-proton, group: restic-proton, mode: '0700', directory: true }
+        - { name: backup_mutex, path: /run/lock/home-lab-backup.lock, owner: root, group: restic-proton, mode: '0660' }
+        - { name: evidence_parent, path: /var/lib/home-lab-restic, owner: root, group: root, mode: '0750', directory: true }
+        - { name: ciphertext, path: /etc/home-lab/restic/production.sops.env, owner: root, group: root, mode: '0400' }
+        - { name: sops, path: /usr/local/bin/sops, owner: root, group: root, mode: '0755', checksum: "{{ sops_sha256 }}" }
+        - { name: age_identity, path: /etc/sops/age/keys.txt, owner: root, group: root, mode: '0600' }
+      become: true
+      register: proton_account_reset_prerequisites
+
+    - name: Require exact protected account-reset reconciliation prerequisites
+      ansible.builtin.assert:
+        that:
+          - >-
+            (item.item.directory | default(false) | bool and item.stat.isdir | default(false))
+            or (not (item.item.directory | default(false) | bool) and item.stat.isreg | default(false))
+          - not (item.stat.islnk | default(false))
+          - item.item.directory | default(false) | bool or item.stat.nlink == 1
+          - item.stat.pw_name == item.item.owner
+          - item.stat.gr_name == item.item.group
+          - item.stat.mode == item.item.mode
+          - item.item.checksum is not defined or item.stat.checksum == item.item.checksum
+        fail_msg: "Protected account-reset prerequisite {{ item.item.name }} differs."
+      loop: "{{ proton_account_reset_prerequisites.results }}"
+
+    - name: Read installed policy during account-reset reconciliation
+      ansible.builtin.slurp:
+        src: /etc/home-lab/restic-policy.json
+      become: true
+      register: proton_account_reset_installed_policy
+      no_log: true
+
+    - name: Require installed policy to equal reviewed account-reset contract
+      ansible.builtin.assert:
+        that:
+          - (proton_account_reset_installed_policy.content | b64decode | from_json) == backups.restic
+        fail_msg: Installed Restic policy differs during Proton account-reset reconciliation.
+      no_log: true
+
+    - name: Inspect immutable account-reset evidence chain
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      loop:
+        - name: auth
+          path: "/var/lib/home-lab-restic/proton-auth-diagnostic-{{ proton_account_reset_transaction_sha256 }}.json"
+          checksum: "{{ proton_account_reset_expected_auth_evidence_sha256 }}"
+        - name: rotation
+          path: "/var/lib/home-lab-restic/proton-credential-rotation-{{ proton_account_reset_transaction_sha256 }}.json"
+          checksum: "{{ proton_account_reset_expected_rotation_evidence_sha256 }}"
+        - name: transition
+          path: "/var/lib/home-lab-restic/proton-password-only-transition-{{ proton_account_reset_transaction_sha256 }}.json"
+          checksum: "{{ proton_account_reset_expected_transition_evidence_sha256 }}"
+        - name: deployment
+          path: "/var/lib/home-lab-restic/proton-password-only-deployment-{{ proton_account_reset_transaction_sha256 }}.json"
+          checksum: "{{ proton_account_reset_expected_deployment_evidence_sha256 }}"
+        - name: beta
+          path: "/var/lib/home-lab-restic/proton-beta-diagnostic-{{ proton_account_reset_transaction_sha256 }}.json"
+          checksum: "{{ proton_account_reset_expected_beta_evidence_sha256 }}"
+      become: true
+      register: proton_account_reset_prior_evidence
+
+    - name: Require exact immutable account-reset evidence chain
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.nlink == 1
+          - item.stat.pw_name == 'root'
+          - item.stat.gr_name == 'root'
+          - item.stat.mode == '0600'
+          - item.stat.checksum == item.item.checksum
+        fail_msg: "Immutable account-reset evidence {{ item.item.name }} differs."
+      loop: "{{ proton_account_reset_prior_evidence.results }}"
+
+    - name: Inspect account-reset reconciliation and prohibited later evidence
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      loop:
+        - { name: reconciliation, path: "{{ proton_account_reset_evidence_path }}", absent: false }
+        - { name: qualification_result, path: "{{ backups.restic.qualification.result_path }}", absent: true }
+        - { name: qualification_evidence, path: "{{ backups.restic.qualification.host_evidence_path }}", absent: true }
+        - name: recovery_evidence
+          path: "/var/lib/home-lab-restic/proton-qualification-recovery-{{ proton_account_reset_transaction_sha256 }}.json"
+          absent: true
+      become: true
+      register: proton_account_reset_later_evidence
+
+    - name: Set existing account-reset reconciliation metadata
+      ansible.builtin.set_fact:
+        proton_account_reset_existing_evidence: "{{ proton_account_reset_later_evidence.results[0] }}"
+
+    - name: Require reviewed prior rclone config hash before initial account-reset reconciliation
+      ansible.builtin.assert:
+        that:
+          - >-
+            proton_account_reset_prerequisites.results
+            | selectattr('item.name', 'equalto', 'rclone_config')
+            | map(attribute='stat.checksum') | first
+            == proton_account_reset_expected_prior_config_sha256
+        fail_msg: Installed rclone config differs from the freshly reviewed pre-reset credential state.
+      when: not (proton_account_reset_existing_evidence.stat.exists | default(false))
+
+    - name: Require exact later evidence state before account-reset reconciliation
+      ansible.builtin.assert:
+        that:
+          - >-
+            (item.item.absent | bool and not item.stat.exists)
+            or (not (item.item.absent | bool) and
+                (not item.stat.exists or
+                 (item.stat.isreg | default(false) and not (item.stat.islnk | default(false)) and
+                  item.stat.nlink == 1 and item.stat.pw_name == 'root' and
+                  item.stat.gr_name == 'root' and item.stat.mode == '0600')))
+        fail_msg: "Later account-reset evidence path {{ item.item.name }} differs."
+      loop: "{{ proton_account_reset_later_evidence.results }}"
+
+    - name: Read existing account-reset reconciliation claim
+      ansible.builtin.slurp:
+        src: "{{ proton_account_reset_evidence_path }}"
+      become: true
+      register: proton_account_reset_existing_evidence_content
+      no_log: true
+      when: proton_account_reset_existing_evidence.stat.exists | default(false)
+
+    - name: Require exact resumable account-reset reconciliation claim
+      ansible.builtin.assert:
+        that:
+          - marker.account_username_sha256 == backups.restic.qualification.username_sha256
+          - marker.account_reset_attestation == 'disposable-account-reset-without-data-recovery'
+          - marker.auth_diagnostic_evidence_sha256 == proton_account_reset_expected_auth_evidence_sha256
+          - marker.beta_evidence_sha256 == proton_account_reset_expected_beta_evidence_sha256
+          - marker.credential_rotation_evidence_sha256 == proton_account_reset_expected_rotation_evidence_sha256
+          - marker.transition_evidence_sha256 == proton_account_reset_expected_transition_evidence_sha256
+          - marker.deployment_evidence_sha256 == proton_account_reset_expected_deployment_evidence_sha256
+          - marker.target_ciphertext_sha256 == proton_account_reset_expected_target_ciphertext_sha256
+          - marker.prior_config_sha256 == proton_account_reset_expected_prior_config_sha256
+          - marker.prior_ciphertext_sha256 == installed_ciphertext_sha256
+          - marker.transaction_sha256 == proton_account_reset_transaction_sha256
+          - marker.target_config_sha256 is match('^[0-9a-f]{64}$')
+          - marker.version == 1
+          - >-
+            (marker.state == 'started' and marker.keys() | sort == claim_keys | sort and
+             observed_config_sha256 in [marker.prior_config_sha256, marker.target_config_sha256])
+            or
+            (marker.state == 'reconciled' and marker.keys() | sort == final_keys | sort and
+             marker.cache_state == 'absent' and marker.config_reconciliation == 'pass' and
+             marker.provider_requests == 0 and
+             marker.installed_config_sha256 == marker.target_config_sha256 and
+             observed_config_sha256 == marker.installed_config_sha256)
+        fail_msg: Existing account-reset reconciliation evidence is not an exact resumable claim.
+      vars:
+        marker: "{{ proton_account_reset_existing_evidence_content.content | b64decode | from_json }}"
+        observed_config_sha256: >-
+          {{ proton_account_reset_prerequisites.results
+             | selectattr('item.name', 'equalto', 'rclone_config')
+             | map(attribute='stat.checksum') | first }}
+        installed_ciphertext_sha256: >-
+          {{ proton_account_reset_prerequisites.results
+             | selectattr('item.name', 'equalto', 'ciphertext')
+             | map(attribute='stat.checksum') | first }}
+        claim_keys:
+          - account_username_sha256
+          - account_reset_attestation
+          - auth_diagnostic_evidence_sha256
+          - beta_evidence_sha256
+          - credential_rotation_evidence_sha256
+          - deployment_evidence_sha256
+          - prior_ciphertext_sha256
+          - prior_config_sha256
+          - started_at
+          - state
+          - target_ciphertext_sha256
+          - target_config_sha256
+          - transaction_sha256
+          - transition_evidence_sha256
+          - version
+        final_keys:
+          - account_username_sha256
+          - account_reset_attestation
+          - auth_diagnostic_evidence_sha256
+          - beta_evidence_sha256
+          - cache_state
+          - config_reconciliation
+          - credential_rotation_evidence_sha256
+          - deployment_evidence_sha256
+          - installed_config_sha256
+          - prior_ciphertext_sha256
+          - prior_config_sha256
+          - provider_requests
+          - reconciled_at
+          - started_at
+          - state
+          - target_ciphertext_sha256
+          - target_config_sha256
+          - transaction_sha256
+          - transition_evidence_sha256
+          - version
+      no_log: true
+      when: proton_account_reset_existing_evidence.stat.exists | default(false)
+
+    - name: Inspect account-reset cache contents
+      ansible.builtin.find:
+        paths: /var/lib/restic-proton/cache
+        hidden: true
+        recurse: true
+        file_type: any
+      become: true
+      register: proton_account_reset_cache_contents
+
+    - name: Require account-reset cache to remain empty
+      ansible.builtin.assert:
+        that:
+          - proton_account_reset_cache_contents.matched == 0
+        fail_msg: Proton client cache is not empty before account-reset reconciliation.
+
+    - name: Report exact Proton account-reset reconciliation in check mode
+      ansible.builtin.debug:
+        msg: >-
+          Would stage only the reviewed target SOPS ciphertext and hash-pinned supervisor under /run;
+          decrypt the installed prior and target ciphertexts through one protected no_log stdin pipe;
+          require that only PROTON_BACKUP_PASSWORD changed; acquire the existing backup mutex; update
+          only the installed obscured password; publish transaction-bound zero-provider-request evidence;
+          retain every prior evidence file and the exact production lock; and defer writes to
+          /var/lib/restic-proton/rclone.conf, {{ proton_account_reset_evidence_path }},
+          {{ proton_account_reset_ciphertext_temp }}, and {{ proton_account_reset_script_temp }}.
+      changed_when: true
+      when: ansible_check_mode
+
+    - name: Stage protected ephemeral account-reset reconciliation inputs
+      when: not ansible_check_mode
+      block:
+        - name: Stage target encrypted SOPS ciphertext for account-reset reconciliation
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/../../secrets/production.sops.env"
+            dest: "{{ proton_account_reset_ciphertext_temp }}"
+            owner: root
+            group: root
+            mode: "0600"
+          become: true
+          no_log: true
+
+        - name: Stage hash-pinned account-reset reconciliation supervisor
+          ansible.builtin.copy:
+            src: "{{ playbook_dir }}/../../scripts/diagnose-proton-auth"
+            dest: "{{ proton_account_reset_script_temp }}"
+            owner: root
+            group: root
+            mode: "0700"
+          become: true
+          no_log: true
+
+        - name: Reconcile only the installed Proton password under the backup mutex
+          ansible.builtin.shell:
+            cmd: >-
+              set -o pipefail &&
+              {
+                PATH=/usr/local/bin:/usr/bin:/bin SOPS_AGE_KEY_FILE=/etc/sops/age/keys.txt
+                /usr/local/bin/sops --decrypt --output-type dotenv
+                /etc/home-lab/restic/production.sops.env &&
+                /usr/bin/printf '\0' &&
+                PATH=/usr/local/bin:/usr/bin:/bin SOPS_AGE_KEY_FILE=/etc/sops/age/keys.txt
+                /usr/local/bin/sops --decrypt --output-type dotenv
+                {{ proton_account_reset_ciphertext_temp | quote }};
+              } |
+              PATH=/usr/local/bin:/usr/bin:/bin /usr/bin/python3
+              {{ proton_account_reset_script_temp | quote }}
+              account-reset-supervise
+              {{ proton_account_reset_transaction_sha256 | quote }}
+              {{ proton_account_reset_script_sha256 | quote }}
+              {{ proton_account_reset_ciphertext_temp | quote }}
+              {{ proton_account_reset_expected_target_ciphertext_sha256 | quote }}
+              {{ proton_account_reset_expected_prior_config_sha256 | quote }}
+              {{ proton_account_reset_expected_auth_evidence_sha256 | quote }}
+              {{ proton_account_reset_expected_rotation_evidence_sha256 | quote }}
+              {{ proton_account_reset_expected_transition_evidence_sha256 | quote }}
+              {{ proton_account_reset_expected_deployment_evidence_sha256 | quote }}
+              {{ proton_account_reset_expected_beta_evidence_sha256 | quote }}
+              {{ proton_account_reset_beta_binary_sha256 | quote }}
+              {{ proton_account_reset_beta_version | quote }}
+            executable: /bin/bash
+          become: true
+          register: proton_account_reset_run
+          changed_when: true
+          failed_when: false
+          no_log: true
+      always:
+        - name: Remove only ephemeral account-reset reconciliation inputs
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - "{{ proton_account_reset_ciphertext_temp }}"
+            - "{{ proton_account_reset_script_temp }}"
+          become: true
+          no_log: true
+
+    - name: Capture only a controlled account-reset reconciliation failure
+      ansible.builtin.set_fact:
+        proton_account_reset_failure_report: >-
+          {{
+            (
+              account_reset_failure_output
+              | regex_search('(?m)^proton_auth_diagnostic=failed reason=[a-z0-9_.-]+\\r?$')
+              | default('', true)
+              | trim
+            )
+            if (
+              account_reset_failure_output
+              | regex_search('(?m)^proton_auth_diagnostic=failed reason=[a-z0-9_.-]+\\r?$')
+              | default('', true)
+              | length
+            ) > 0
+            else 'proton_account_reset_reconciliation=failed reason=unclassified_output_sha256_'
+              ~ (account_reset_failure_output | hash('sha256'))
+          }}
+      vars:
+        account_reset_failure_output: >-
+          {{
+            (proton_account_reset_run.stdout | default(''))
+            ~ '\n' ~ (proton_account_reset_run.stderr | default(''))
+            ~ '\n' ~ (proton_account_reset_run.msg | default('') | string)
+          }}
+      no_log: true
+      when:
+        - not ansible_check_mode
+        - proton_account_reset_run.rc != 0
+
+    - name: Require atomic Proton account-reset reconciliation success
+      ansible.builtin.assert:
+        that:
+          - proton_account_reset_run.rc == 0
+          - proton_account_reset_run.stdout is match('^proton_account_reset_reconciliation=passed evidence_sha256=[0-9a-f]{64}$')
+        fail_msg: "{{ proton_account_reset_failure_report | default('proton_account_reset_reconciliation=failed reason=unclassified') }}"
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Read transaction-bound account-reset reconciliation evidence
+      ansible.builtin.slurp:
+        src: "{{ proton_account_reset_evidence_path }}"
+      become: true
+      register: proton_account_reset_evidence
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Inspect reconciled rclone config
+      ansible.builtin.stat:
+        path: /var/lib/restic-proton/rclone.conf
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      become: true
+      register: proton_account_reset_final_config
+      when: not ansible_check_mode
+
+    - name: Require exact account-reset reconciliation evidence
+      ansible.builtin.assert:
+        that:
+          - evidence.keys() | sort == expected_keys | sort
+          - evidence.account_username_sha256 == backups.restic.qualification.username_sha256
+          - evidence.account_reset_attestation == 'disposable-account-reset-without-data-recovery'
+          - evidence.auth_diagnostic_evidence_sha256 == proton_account_reset_expected_auth_evidence_sha256
+          - evidence.beta_evidence_sha256 == proton_account_reset_expected_beta_evidence_sha256
+          - evidence.credential_rotation_evidence_sha256 == proton_account_reset_expected_rotation_evidence_sha256
+          - evidence.deployment_evidence_sha256 == proton_account_reset_expected_deployment_evidence_sha256
+          - evidence.transition_evidence_sha256 == proton_account_reset_expected_transition_evidence_sha256
+          - evidence.target_ciphertext_sha256 == proton_account_reset_expected_target_ciphertext_sha256
+          - evidence.prior_config_sha256 == proton_account_reset_expected_prior_config_sha256
+          - evidence.cache_state == 'absent'
+          - evidence.config_reconciliation == 'pass'
+          - evidence.provider_requests == 0
+          - evidence.state == 'reconciled'
+          - evidence.transaction_sha256 == proton_account_reset_transaction_sha256
+          - evidence.version == 1
+          - evidence.installed_config_sha256 == proton_account_reset_final_config.stat.checksum
+          - evidence.target_config_sha256 == proton_account_reset_final_config.stat.checksum
+          - proton_account_reset_run.stdout == 'proton_account_reset_reconciliation=passed evidence_sha256=' ~ evidence_sha256
+        fail_msg: Account-reset reconciliation evidence differs from the reviewed transaction schema.
+      vars:
+        evidence: "{{ proton_account_reset_evidence.content | b64decode | from_json }}"
+        evidence_sha256: "{{ proton_account_reset_evidence.content | b64decode | hash('sha256') }}"
+        expected_keys:
+          - account_username_sha256
+          - account_reset_attestation
+          - auth_diagnostic_evidence_sha256
+          - beta_evidence_sha256
+          - cache_state
+          - config_reconciliation
+          - credential_rotation_evidence_sha256
+          - deployment_evidence_sha256
+          - installed_config_sha256
+          - prior_ciphertext_sha256
+          - prior_config_sha256
+          - provider_requests
+          - reconciled_at
+          - started_at
+          - state
+          - target_ciphertext_sha256
+          - target_config_sha256
+          - transaction_sha256
+          - transition_evidence_sha256
+          - version
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Re-read retained qualification owner after account-reset reconciliation
+      ansible.builtin.slurp:
+        src: "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_account_reset_final_lock_owner
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Confirm account-reset reconciliation retained exact qualification lock
+      ansible.builtin.assert:
+        that:
+          - proton_account_reset_final_lock_owner.content == proton_account_reset_lock_owner.content
+        fail_msg: Account-reset reconciliation did not retain the exact failed qualification owner bytes.
+      no_log: true
+      when: not ansible_check_mode

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 import grp
 import hashlib
 import json
+import io
 import os
 from pathlib import Path
 import pwd
@@ -31,6 +32,7 @@ APPLY_LOCK = Path("/var/lib/iac-ansible-production.lock")
 EVIDENCE_PARENT = Path("/var/lib/home-lab-restic")
 RESULT = Path("/var/lib/restic-proton/proton-qualification-result.json")
 HOST_EVIDENCE = EVIDENCE_PARENT / "proton-qualification.json"
+INSTALLED_CIPHERTEXT = Path("/etc/home-lab/restic/production.sops.env")
 REMOTE_DIRECTORY = "Backups/.home-lab-rclone-qualification"
 STATIC_KEYS = {
     "type",
@@ -41,6 +43,7 @@ STATIC_KEYS = {
     "enable_caching",
     "original_file_size",
 }
+PASSWORD_ONLY_KEYS = STATIC_KEYS - {"mailbox_password"}
 LEGACY_TOTP_KEY = "otp_secret_key"
 CACHE_KEYS = {
     "client_uid",
@@ -377,6 +380,7 @@ def bounded_subprocess(
     command: list[str],
     timeout: int,
     environment: dict[str, str],
+    input_data: bytes | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
     def interrupted(_signum: int, _frame: object) -> None:
         raise InterruptedError
@@ -389,14 +393,14 @@ def bounded_subprocess(
         signal.signal(signum, interrupted)
     process = subprocess.Popen(
         command,
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.PIPE if input_data is not None else subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         env=environment,
         start_new_session=True,
     )
     try:
-        stdout, stderr = process.communicate(timeout=timeout)
+        stdout, stderr = process.communicate(input=input_data, timeout=timeout)
     except BaseException:
         terminate_process_group(process)
         raise
@@ -846,7 +850,7 @@ def load_password_only_evidence(
     expected_transition_sha256: str,
     expected_deployment_sha256: str,
     username_sha256: str,
-) -> None:
+) -> tuple[dict[str, object], dict[str, object]]:
     transition = load_exact_json(
         EVIDENCE_PARENT / f"proton-password-only-transition-{expected_transaction}.json",
         expected_transition_sha256,
@@ -903,6 +907,7 @@ def load_password_only_evidence(
         or deployment.get("version") != 1
     ):
         fail("password_only_deployment_evidence_invalid")
+    return transition, deployment
 
 
 def run_beta_under_lock(
@@ -1294,6 +1299,410 @@ def supervise_rotation(
     print(output)
 
 
+def parse_exact_dotenv(raw: bytes, reason: str) -> dict[str, str]:
+    if not raw or len(raw) > 1024 * 1024 or b"\x00" in raw:
+        fail(reason)
+    try:
+        lines = raw.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        fail(reason)
+    values: dict[str, str] = {}
+    for line in lines:
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            fail(reason)
+        key, value = line.split("=", 1)
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) is None or key in values:
+            fail(reason)
+        if not value or "\x00" in value or "\n" in value:
+            fail(reason)
+        values[key] = value
+    if not values:
+        fail(reason)
+    return values
+
+
+def parse_account_reset_payload(raw: bytes) -> tuple[dict[str, str], dict[str, str]]:
+    if len(raw) > 2 * 1024 * 1024 or raw.count(b"\x00") != 1:
+        fail("account_reset_dotenv_framing")
+    old_raw, new_raw = raw.split(b"\x00", 1)
+    old_values = parse_exact_dotenv(old_raw, "account_reset_old_dotenv")
+    new_values = parse_exact_dotenv(new_raw, "account_reset_new_dotenv")
+    if set(old_values) != set(new_values):
+        fail("account_reset_dotenv_keys")
+    changed = {key for key in old_values if old_values[key] != new_values[key]}
+    if changed != {"PROTON_BACKUP_PASSWORD"}:
+        fail("account_reset_dotenv_delta")
+    required = {
+        "RESTIC_LOCAL_PASSWORD",
+        "RESTIC_PROTON_PASSWORD",
+        "PROTON_BACKUP_USERNAME",
+        "PROTON_BACKUP_PASSWORD",
+    }
+    if not required <= new_values.keys():
+        fail("account_reset_dotenv_values")
+    if "PROTON_BACKUP_TOTP_SEED" in new_values or "PROTON_BACKUP_MAILBOX_PASSWORD" in new_values:
+        fail("account_reset_authentication_mode")
+    password = new_values["PROTON_BACKUP_PASSWORD"]
+    if len(password.encode("utf-8")) < 40 or not password.isascii() or not password.isalnum():
+        fail("account_reset_password_policy")
+    if password in {new_values["RESTIC_LOCAL_PASSWORD"], new_values["RESTIC_PROTON_PASSWORD"]}:
+        fail("account_reset_password_not_distinct")
+    return old_values, new_values
+
+
+def config_content(parser: ConfigParser) -> bytes:
+    stream = io.StringIO()
+    parser.write(stream)
+    return stream.getvalue().encode("utf-8")
+
+
+def require_empty_cache(service_uid: int, service_gid: int) -> None:
+    require_directory(CACHE, service_uid, service_gid, 0o700)
+    try:
+        entries = list(CACHE.iterdir())
+    except OSError:
+        fail("account_reset_cache_state")
+    if entries:
+        fail("account_reset_cache_state")
+
+
+def load_beta_evidence(
+    expected_transaction: str,
+    expected_sha256: str,
+    expected_binary_sha256: str,
+    expected_version: str,
+    username_sha256: str,
+) -> dict[str, object]:
+    evidence = load_exact_json(
+        EVIDENCE_PARENT / f"proton-beta-diagnostic-{expected_transaction}.json",
+        expected_sha256,
+        {
+            "account_username_sha256",
+            "beta_binary_sha256",
+            "beta_version",
+            "category",
+            "config_source",
+            "credential_cache",
+            "observed_at",
+            "operation",
+            "provider_requests",
+            "remote_directory",
+            "rclone_rc",
+            "stable_rclone_unchanged",
+            "state",
+            "stderr_sha256",
+            "stdout_sha256",
+            "transaction_sha256",
+            "version",
+        },
+        "beta_evidence_invalid",
+    )
+    if (
+        evidence.get("account_username_sha256") != username_sha256
+        or evidence.get("beta_binary_sha256") != expected_binary_sha256
+        or evidence.get("beta_version") != expected_version
+        or evidence.get("category") == "reachable"
+        or evidence.get("config_source") != "environment-only"
+        or evidence.get("credential_cache") != "disabled"
+        or evidence.get("operation") != "lsjson"
+        or evidence.get("provider_requests") != 1
+        or evidence.get("remote_directory") != REMOTE_DIRECTORY
+        or evidence.get("stable_rclone_unchanged") != "pass"
+        or evidence.get("state") != "observed"
+        or evidence.get("transaction_sha256") != expected_transaction
+        or evidence.get("version") != 1
+    ):
+        fail("beta_evidence_invalid")
+    return evidence
+
+
+def run_account_reset_under_lock(
+    expected_transaction: str,
+    expected_script_sha256: str,
+    target_ciphertext: Path,
+    expected_target_ciphertext_sha256: str,
+    expected_prior_config_sha256: str,
+    expected_auth_evidence_sha256: str,
+    expected_rotation_evidence_sha256: str,
+    expected_transition_evidence_sha256: str,
+    expected_deployment_evidence_sha256: str,
+    expected_beta_evidence_sha256: str,
+    expected_beta_binary_sha256: str,
+    expected_beta_version: str,
+    raw_payload: bytes,
+) -> None:
+    if os.getuid() != 0 or os.getgid() != 0:
+        fail("identity")
+    service = pwd.getpwnam("restic-proton")
+    service_group = grp.getgrnam("restic-proton")
+    if service.pw_uid != 60000 or service.pw_gid != 60000 or service_group.gr_gid != 60000:
+        fail("service_identity")
+    if digest_file(Path(__file__)) != expected_script_sha256:
+        fail("diagnostic_script_hash")
+    require_regular(MUTEX, 0, service_group.gr_gid, 0o660)
+    require_directory(EVIDENCE_PARENT, 0, 0, 0o750)
+    require_directory(CONFIG.parent, service.pw_uid, service.pw_gid, 0o700)
+    require_regular(RCLONE, 0, 0, 0o755)
+    require_regular(INSTALLED_CIPHERTEXT, 0, 0, 0o400)
+    require_regular(target_ciphertext, 0, 0, 0o600)
+    if digest_file(target_ciphertext) != expected_target_ciphertext_sha256:
+        fail("account_reset_target_ciphertext_hash")
+    owner_content = validate_lock(expected_transaction)
+    require_no_backup_processes()
+    require_empty_cache(service.pw_uid, service.pw_gid)
+    policy = load_policy(service_group.gr_gid)
+    qualification = policy["qualification"]
+    proton = policy.get("proton")
+    tools = policy.get("tools")
+    if (
+        not isinstance(proton, dict)
+        or proton.get("authentication_mode") != "password-only"
+        or not isinstance(tools, dict)
+        or not isinstance(tools.get("rclone"), dict)
+        or digest_file(RCLONE) != tools["rclone"].get("installed_sha256")
+    ):
+        fail("account_reset_policy")
+    old_values, new_values = parse_account_reset_payload(raw_payload)
+    username_sha256 = qualification.get("username_sha256")
+    if (
+        not isinstance(username_sha256, str)
+        or digest_bytes(new_values["PROTON_BACKUP_USERNAME"].encode()) != username_sha256
+    ):
+        fail("account_reset_account_identity")
+    auth = load_auth_diagnostic_evidence(expected_transaction, expected_auth_evidence_sha256)
+    rotation = load_credential_rotation_evidence(
+        expected_transaction,
+        expected_auth_evidence_sha256,
+        expected_rotation_evidence_sha256,
+    )
+    transition, deployment = load_password_only_evidence(
+        expected_transaction,
+        expected_transition_evidence_sha256,
+        expected_deployment_evidence_sha256,
+        username_sha256,
+    )
+    load_beta_evidence(
+        expected_transaction,
+        expected_beta_evidence_sha256,
+        expected_beta_binary_sha256,
+        expected_beta_version,
+        username_sha256,
+    )
+    prior_ciphertext_sha256 = digest_file(INSTALLED_CIPHERTEXT)
+    if (
+        auth.get("account_username_sha256") != username_sha256
+        or rotation.get("account_username_sha256") != username_sha256
+        or transition.get("auth_diagnostic_evidence_sha256") != expected_auth_evidence_sha256
+        or transition.get("credential_rotation_evidence_sha256") != expected_rotation_evidence_sha256
+        or deployment.get("transition_evidence_sha256") != expected_transition_evidence_sha256
+        or deployment.get("ciphertext_sha256") != prior_ciphertext_sha256
+    ):
+        fail("account_reset_evidence_chain")
+    static_config = validate_config(service.pw_uid, service.pw_gid, username_sha256)
+    installed_parser = parser_from_config()
+    if (
+        set(static_config) != PASSWORD_ONLY_KEYS
+        or set(installed_parser["proton-backup"]) != PASSWORD_ONLY_KEYS
+        or CACHE_KEYS & set(installed_parser["proton-backup"])
+    ):
+        fail("account_reset_config_state")
+    current_config_sha256 = digest_file(CONFIG)
+    evidence_path = EVIDENCE_PARENT / f"proton-account-reset-reconciliation-{expected_transaction}.json"
+    attestation = "disposable-account-reset-without-data-recovery"
+    claim_keys = {
+        "account_username_sha256",
+        "account_reset_attestation",
+        "auth_diagnostic_evidence_sha256",
+        "beta_evidence_sha256",
+        "credential_rotation_evidence_sha256",
+        "deployment_evidence_sha256",
+        "prior_ciphertext_sha256",
+        "prior_config_sha256",
+        "started_at",
+        "state",
+        "target_ciphertext_sha256",
+        "target_config_sha256",
+        "transaction_sha256",
+        "transition_evidence_sha256",
+        "version",
+    }
+    fixed = {
+        "account_username_sha256": username_sha256,
+        "account_reset_attestation": attestation,
+        "auth_diagnostic_evidence_sha256": expected_auth_evidence_sha256,
+        "beta_evidence_sha256": expected_beta_evidence_sha256,
+        "credential_rotation_evidence_sha256": expected_rotation_evidence_sha256,
+        "deployment_evidence_sha256": expected_deployment_evidence_sha256,
+        "prior_ciphertext_sha256": prior_ciphertext_sha256,
+        "prior_config_sha256": expected_prior_config_sha256,
+        "target_ciphertext_sha256": expected_target_ciphertext_sha256,
+        "transaction_sha256": expected_transaction,
+        "transition_evidence_sha256": expected_transition_evidence_sha256,
+        "version": 1,
+    }
+    resuming = evidence_path.exists() or evidence_path.is_symlink()
+    marker: dict[str, object]
+    if resuming:
+        require_regular(evidence_path, 0, 0, 0o600)
+        try:
+            marker = json.loads(evidence_path.read_bytes())
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            fail("account_reset_evidence_invalid")
+        if not isinstance(marker, dict):
+            fail("account_reset_evidence_invalid")
+        final_keys = claim_keys | {
+            "cache_state",
+            "config_reconciliation",
+            "installed_config_sha256",
+            "provider_requests",
+            "reconciled_at",
+        }
+        if marker.get("state") == "reconciled":
+            if (
+                set(marker) != final_keys
+                or any(marker.get(key) != value for key, value in fixed.items())
+                or marker.get("cache_state") != "absent"
+                or marker.get("config_reconciliation") != "pass"
+                or marker.get("provider_requests") != 0
+                or marker.get("installed_config_sha256") != current_config_sha256
+                or marker.get("target_config_sha256") != current_config_sha256
+            ):
+                fail("account_reset_evidence_invalid")
+            require_empty_cache(service.pw_uid, service.pw_gid)
+            if validate_lock(expected_transaction) != owner_content:
+                fail("apply_lock_owner_drift")
+            print(f"proton_account_reset_reconciliation=passed evidence_sha256={digest_file(evidence_path)}")
+            return
+        if (
+            set(marker) != claim_keys
+            or any(marker.get(key) != value for key, value in fixed.items())
+            or marker.get("state") != "started"
+            or re.fullmatch(r"[0-9a-f]{64}", str(marker.get("target_config_sha256", ""))) is None
+        ):
+            fail("account_reset_evidence_invalid")
+        if current_config_sha256 == marker["target_config_sha256"]:
+            target_config_sha256 = current_config_sha256
+            target_parser = None
+        elif current_config_sha256 == expected_prior_config_sha256:
+            target_parser = parser_from_config()
+            target_parser["proton-backup"]["password"] = obscure(new_values["PROTON_BACKUP_PASSWORD"])
+            target_config_sha256 = digest_bytes(config_content(target_parser))
+            marker["target_config_sha256"] = target_config_sha256
+            atomic_json(evidence_path, marker, replace=True)
+        else:
+            fail("account_reset_config_resume_state")
+    else:
+        if current_config_sha256 != expected_prior_config_sha256:
+            fail("account_reset_prior_config_hash")
+        target_parser = parser_from_config()
+        target_parser["proton-backup"]["password"] = obscure(new_values["PROTON_BACKUP_PASSWORD"])
+        target_config_sha256 = digest_bytes(config_content(target_parser))
+        marker = {
+            **fixed,
+            "started_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "state": "started",
+            "target_config_sha256": target_config_sha256,
+        }
+        atomic_json(evidence_path, marker, replace=False)
+    if target_parser is not None:
+        atomic_config(target_parser, service.pw_uid, service.pw_gid)
+    installed_config_sha256 = digest_file(CONFIG)
+    if installed_config_sha256 != target_config_sha256:
+        fail("account_reset_config_reconciliation")
+    static_after = validate_config(service.pw_uid, service.pw_gid, username_sha256)
+    if set(static_after) != PASSWORD_ONLY_KEYS or set(parser_from_config()["proton-backup"]) != PASSWORD_ONLY_KEYS:
+        fail("account_reset_static_config_drift")
+    require_empty_cache(service.pw_uid, service.pw_gid)
+    if digest_file(INSTALLED_CIPHERTEXT) != prior_ciphertext_sha256:
+        fail("account_reset_prior_ciphertext_drift")
+    if validate_lock(expected_transaction) != owner_content:
+        fail("apply_lock_owner_drift")
+    evidence = {
+        **fixed,
+        "cache_state": "absent",
+        "config_reconciliation": "pass",
+        "installed_config_sha256": installed_config_sha256,
+        "provider_requests": 0,
+        "reconciled_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "started_at": marker["started_at"],
+        "state": "reconciled",
+        "target_config_sha256": target_config_sha256,
+    }
+    evidence_sha256 = atomic_json(evidence_path, evidence, replace=True)
+    if validate_lock(expected_transaction) != owner_content:
+        fail("apply_lock_owner_drift")
+    print(f"proton_account_reset_reconciliation=passed evidence_sha256={evidence_sha256}")
+
+
+def supervise_account_reset(
+    expected_transaction: str,
+    expected_script_sha256: str,
+    target_ciphertext: Path,
+    expected_target_ciphertext_sha256: str,
+    expected_prior_config_sha256: str,
+    expected_auth_evidence_sha256: str,
+    expected_rotation_evidence_sha256: str,
+    expected_transition_evidence_sha256: str,
+    expected_deployment_evidence_sha256: str,
+    expected_beta_evidence_sha256: str,
+    expected_beta_binary_sha256: str,
+    expected_beta_version: str,
+    raw_payload: bytes,
+) -> None:
+    if os.getuid() != 0 or os.getgid() != 0:
+        fail("identity")
+    if len(raw_payload) == 0 or len(raw_payload) > 2 * 1024 * 1024:
+        fail("account_reset_dotenv_size")
+    if digest_file(Path(__file__)) != expected_script_sha256:
+        fail("diagnostic_script_hash")
+    service_gid = grp.getgrnam("restic-proton").gr_gid
+    require_regular(MUTEX, 0, service_gid, 0o660)
+    require_regular(target_ciphertext, 0, 0, 0o600)
+    if digest_file(target_ciphertext) != expected_target_ciphertext_sha256:
+        fail("account_reset_target_ciphertext_hash")
+    command = [
+        str(FLOCK),
+        "--exclusive",
+        "--nonblock",
+        "--conflict-exit-code",
+        "75",
+        "--",
+        str(MUTEX),
+        "/usr/bin/python3",
+        str(Path(__file__)),
+        "account-reset-under-lock",
+        expected_transaction,
+        expected_script_sha256,
+        str(target_ciphertext),
+        expected_target_ciphertext_sha256,
+        expected_prior_config_sha256,
+        expected_auth_evidence_sha256,
+        expected_rotation_evidence_sha256,
+        expected_transition_evidence_sha256,
+        expected_deployment_evidence_sha256,
+        expected_beta_evidence_sha256,
+        expected_beta_binary_sha256,
+        expected_beta_version,
+    ]
+    result = bounded_subprocess(command, 180, controlled_environment(), raw_payload)
+    if result.returncode == 75:
+        fail("backup_mutex_busy")
+    if result.returncode != 0:
+        controlled = re.fullmatch(rb"proton_auth_diagnostic=failed reason=([a-z0-9_.-]+)\n?", result.stderr)
+        if controlled is not None:
+            fail(controlled.group(1).decode("ascii"))
+        fail(f"account_reset_subprocess_rc_{result.returncode}_stderr_sha256_{digest_bytes(result.stderr)}")
+    try:
+        output = result.stdout.decode("ascii").strip()
+    except UnicodeDecodeError:
+        fail("account_reset_output")
+    if re.fullmatch(r"proton_account_reset_reconciliation=passed evidence_sha256=[0-9a-f]{64}", output) is None:
+        fail("account_reset_output")
+    print(output)
+
+
 def supervise(expected_transaction: str, expected_script_sha256: str) -> None:
     if os.getuid() != 0 or os.getgid() != 0:
         fail("identity")
@@ -1415,6 +1824,60 @@ def main() -> None:
                     expected_auth_evidence_sha256,
                     expected_rotation_evidence_sha256,
                 )
+            return
+        if action in {"account-reset-supervise", "account-reset-under-lock"}:
+            if len(sys.argv) != 14:
+                fail("usage")
+            expected_transaction = sys.argv[2]
+            expected_script_sha256 = sys.argv[3]
+            target_ciphertext = Path(sys.argv[4])
+            expected_target_ciphertext_sha256 = sys.argv[5]
+            expected_prior_config_sha256 = sys.argv[6]
+            expected_auth_evidence_sha256 = sys.argv[7]
+            expected_rotation_evidence_sha256 = sys.argv[8]
+            expected_transition_evidence_sha256 = sys.argv[9]
+            expected_deployment_evidence_sha256 = sys.argv[10]
+            expected_beta_evidence_sha256 = sys.argv[11]
+            expected_beta_binary_sha256 = sys.argv[12]
+            expected_beta_version = sys.argv[13]
+            hashes = (
+                expected_transaction,
+                expected_script_sha256,
+                expected_target_ciphertext_sha256,
+                expected_prior_config_sha256,
+                expected_auth_evidence_sha256,
+                expected_rotation_evidence_sha256,
+                expected_transition_evidence_sha256,
+                expected_deployment_evidence_sha256,
+                expected_beta_evidence_sha256,
+                expected_beta_binary_sha256,
+            )
+            if (
+                any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in hashes)
+                or re.fullmatch(r"[0-9A-Za-z.-]+", expected_beta_version) is None
+                or target_ciphertext != Path(f"/run/proton-account-reset-{expected_transaction}.sops.env")
+            ):
+                fail("usage")
+            raw_payload = sys.stdin.buffer.read(2 * 1024 * 1024 + 1)
+            arguments = (
+                expected_transaction,
+                expected_script_sha256,
+                target_ciphertext,
+                expected_target_ciphertext_sha256,
+                expected_prior_config_sha256,
+                expected_auth_evidence_sha256,
+                expected_rotation_evidence_sha256,
+                expected_transition_evidence_sha256,
+                expected_deployment_evidence_sha256,
+                expected_beta_evidence_sha256,
+                expected_beta_binary_sha256,
+                expected_beta_version,
+                raw_payload,
+            )
+            if action == "account-reset-supervise":
+                supervise_account_reset(*arguments)
+            else:
+                run_account_reset_under_lock(*arguments)
             return
         if action not in {"rotate-supervise", "rotate-under-lock"} or len(sys.argv) != 5:
             fail("usage")

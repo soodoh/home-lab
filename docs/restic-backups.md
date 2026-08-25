@@ -149,14 +149,16 @@ ansible-playbook -i inventory/production.yml playbooks/recover-proton-qualificat
   -e proton_qualification_recovery_confirmation=recover-only-proton-qualification-fixtures \
   -e proton_qualification_recovery_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
   -e proton_qualification_recovery_expected_transition_evidence_sha256=1e503ba7af5d08b9ed0f7c42f10417a6f442ca851eb7ceff4fa0f772ad13784c \
-  -e proton_qualification_recovery_expected_deployment_evidence_sha256=c38e84773f07cb1c39ff1cd9e4a4f71efc9901b22ef42c29d76fe09102160230
+  -e proton_qualification_recovery_expected_deployment_evidence_sha256=c38e84773f07cb1c39ff1cd9e4a4f71efc9901b22ef42c29d76fe09102160230 \
+  -e proton_qualification_recovery_expected_account_reset_evidence_sha256=<reviewed-account-reset-evidence-sha256>
 
 ansible-playbook -i inventory/production.yml playbooks/recover-proton-qualification.yml \
   -e proton_qualification_recovery_confirmed=true \
   -e proton_qualification_recovery_confirmation=recover-only-proton-qualification-fixtures \
   -e proton_qualification_recovery_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
   -e proton_qualification_recovery_expected_transition_evidence_sha256=1e503ba7af5d08b9ed0f7c42f10417a6f442ca851eb7ceff4fa0f772ad13784c \
-  -e proton_qualification_recovery_expected_deployment_evidence_sha256=c38e84773f07cb1c39ff1cd9e4a4f71efc9901b22ef42c29d76fe09102160230
+  -e proton_qualification_recovery_expected_deployment_evidence_sha256=c38e84773f07cb1c39ff1cd9e4a4f71efc9901b22ef42c29d76fe09102160230 \
+  -e proton_qualification_recovery_expected_account_reset_evidence_sha256=<reviewed-account-reset-evidence-sha256>
 ```
 
 The live recovery command requires separate authorization. It rejects unknown files or directories, published qualification evidence, a differing lock owner, stale policy/helper/rclone hashes, unexpected mounts or processes, resumed Offen schedulers, or an expired AWS hold. It hashes the exact retained owner record, passes that transaction SHA-256 to the recovery helper, and retains root-owned redacted evidence at a transaction-specific path containing the same hash before releasing only the exact failed lock. Historical recovery evidence cannot satisfy a newer lock.
@@ -182,6 +184,27 @@ ansible-playbook -i inventory/production.yml playbooks/diagnose-proton-beta.yml 
 ```
 
 The first execution atomically claims single-use beta evidence before the provider request. `/var/tmp` must be executable, `/run` must remain noexec, and `get_url` temporary data is confined to `/var/tmp`. Both supervisor layers create bounded process groups with TERM/KILL cleanup; the Ansible `always` path independently terminates any process still executing the exact beta binary before deleting ephemeral files. Interruption or local failure after the evidence claim prohibits a second request. A reachable result proves only that the beta can initialize and list the dedicated path; adopting it for recovery or backups remains a separate pinned-version policy decision.
+
+After the beta failed, the disposable password-only Proton account was reset without restoring old encrypted data and its locked Drive was deleted before a new empty Drive was initialized. This operator action is not provider evidence. Before any new provider request, `reconcile-proton-account-reset.yml` must locally reconcile only the installed obscured login password. It binds the exact retained lock, all five immutable prior evidence files, the installed prior SOPS ciphertext, the reviewed target ciphertext, and the exact prior `rclone.conf` hash. In protected `no_log` memory it requires every decrypted SOPS value except `PROTON_BACKUP_PASSWORD` to remain byte-identical, rejects TOTP/mailbox/cache fields, makes zero provider requests, retains the lock, and publishes resumable transaction evidence:
+
+```sh
+cd ansible
+ansible-playbook -i inventory/production.yml playbooks/reconcile-proton-account-reset.yml --check --diff \
+  -e proton_account_reset_confirmed=true \
+  -e proton_account_reset_confirmation=reconcile-only-password-after-disposable-proton-account-reset \
+  -e proton_account_reset_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
+  -e proton_account_reset_expected_target_ciphertext_sha256=b04e43bacf2ec9bf6107fb17b91a33d385b1cebf9662899f9e6d811b793d3a48 \
+  -e proton_account_reset_expected_prior_config_sha256=40529a3487b54d1412829fe8a0beb433a8e753a90ab2f2b82ab8a7e4ecacc340 \
+  -e proton_account_reset_expected_auth_evidence_sha256=b87ea466ac0e7234824d5a4bf8c59095534bd26eb38c8baaf0cce2faaf27a5ed \
+  -e proton_account_reset_expected_rotation_evidence_sha256=8e8f2b932ab436e0fb67eeeecbfd97253cf1ff945d21acd1465119a0d5873249 \
+  -e proton_account_reset_expected_transition_evidence_sha256=1e503ba7af5d08b9ed0f7c42f10417a6f442ca851eb7ceff4fa0f772ad13784c \
+  -e proton_account_reset_expected_deployment_evidence_sha256=c38e84773f07cb1c39ff1cd9e4a4f71efc9901b22ef42c29d76fe09102160230 \
+  -e proton_account_reset_expected_beta_evidence_sha256=3329ac4cae644b4b9604ff69bce8a6122ce624eefddcb9c061aa5c78789c816b
+
+# The live command requires separate authorization after a fresh plan and AWS proof.
+```
+
+The operation does not install the target canonical SOPS ciphertext; ordinary convergence remains blocked by the retained lock. A `state=started` claim permits only exact-input resume. Successful evidence records the current installed config hash, and subsequent recovery requires both that evidence hash and byte-identical `rclone.conf` before making its bounded request.
 
 If qualification or its exact recovery was interrupted after the helper atomically wrote a valid transient result—or after host/controller evidence publication—the cleanup playbook intentionally refuses it. Use the separate resume/attestation transaction instead. It accepts either byte-identical transient and published evidence or one surviving validated copy, proves the dedicated remote directory is absent through the pinned helper, completes only missing evidence publication/fetch, removes only the validated transient result, and releases the exact retained lock:
 
