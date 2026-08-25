@@ -396,6 +396,15 @@ def main() -> None:
         exception_reason = diagnostic_module["local_exception_reason"](error)
     assert exception_reason.startswith("local_exception_typeerror_main_")
     assert "sensitive" not in exception_reason
+    classify_proton_failure = diagnostic_module["classify"]
+    classify_post_reset_v2 = diagnostic_module["classify_post_reset_v2"]
+    assert classify_proton_failure(1, b"unrelated object has wrong type") == "rclone_unclassified"
+    assert classify_proton_failure(1, b"user ID signature with wrong type") == "account_key_incompatible"
+    assert classify_proton_failure(1, b"the main share assumption has failed") == "rclone_unclassified"
+    assert classify_post_reset_v2(1, b"the main share assumption has failed") == "drive_share_incompatible"
+    assert classify_post_reset_v2(1, b"no active volume was found") == "drive_volume_incompatible"
+    assert classify_post_reset_v2(1, b"gopenpgp: failed to unlock user keys") == "account_key_incompatible"
+    assert classify_post_reset_v2(1, b"422 GET https://drive-api.proton.me/example") == "proton_api_failure"
     parse_account_reset_payload = diagnostic_module["parse_account_reset_payload"]
     account_reset_boundary = diagnostic_module["ACCOUNT_RESET_BOUNDARY"]
     diagnostic_error = diagnostic_module["DiagnosticError"]
@@ -801,7 +810,8 @@ def main() -> None:
             _inherit_stdin: bool = False,
         ) -> subprocess.CompletedProcess[bytes]:
             bounded_calls.append((command, environment))
-            return subprocess.CompletedProcess(command, 1, b"", b"missing signature")
+            stderr = b"opaque provider failure" if len(bounded_calls) == 1 else b"the main share assumption has failed"
+            return subprocess.CompletedProcess(command, 1, b"", stderr)
 
         try:
             run_post_reset_globals.update(
@@ -833,7 +843,7 @@ def main() -> None:
             with contextlib.redirect_stdout(io.StringIO()) as post_reset_output:
                 run_post_reset(transaction, auth_diagnostic_sha256, account_reset_hash, config_hash)
             assert post_reset_output.getvalue().startswith(
-                "proton_post_reset_diagnostic=observed category=account_key_incompatible evidence_sha256="
+                "proton_post_reset_diagnostic=observed category=rclone_unclassified evidence_sha256="
             )
             assert len(bounded_calls) == 1
             command, environment = bounded_calls[0]
@@ -858,13 +868,75 @@ def main() -> None:
             result = json.loads(result_path.read_text())
             assert result["provider_requests"] == 1
             assert result["state"] == "observed"
+            prior_diagnostic_hash = hashlib.sha256(result_path.read_bytes()).hexdigest()
+            with contextlib.redirect_stdout(io.StringIO()):
+                run_post_reset(
+                    transaction,
+                    auth_diagnostic_sha256,
+                    account_reset_hash,
+                    config_hash,
+                    prior_diagnostic_hash,
+                    2,
+                )
+            assert len(bounded_calls) == 2
+            v2_path = post_reset_evidence / f"proton-post-reset-diagnostic-v2-{transaction}.json"
+            v2_result = json.loads(v2_path.read_text())
+            assert v2_result["category"] == "drive_share_incompatible"
+            assert v2_result["prior_diagnostic_evidence_sha256"] == prior_diagnostic_hash
+            assert v2_result["provider_requests"] == 1
+            assert v2_result["version"] == 2
+            try:
+                run_post_reset(
+                    transaction,
+                    auth_diagnostic_sha256,
+                    account_reset_hash,
+                    config_hash,
+                    prior_diagnostic_hash,
+                    2,
+                )
+            except diagnostic_error as error:
+                assert str(error) == "prior_post_reset_diagnostic"
+            else:
+                raise AssertionError("post-reset v2 provider diagnostic replay passed")
+            try:
+                run_post_reset(
+                    transaction,
+                    auth_diagnostic_sha256,
+                    account_reset_hash,
+                    config_hash,
+                    "0" * 64,
+                    2,
+                )
+            except diagnostic_error as error:
+                assert str(error) == "post_reset_prior_diagnostic"
+            else:
+                raise AssertionError("post-reset v2 accepted a mismatched prior hash")
+            prior_bytes = result_path.read_bytes()
+            wrong_prior = json.loads(prior_bytes)
+            wrong_prior["category"] = "reachable"
+            wrong_prior_bytes = (json.dumps(wrong_prior, sort_keys=True, separators=(",", ":")) + "\n").encode()
+            result_path.write_bytes(wrong_prior_bytes)
+            try:
+                run_post_reset(
+                    transaction,
+                    auth_diagnostic_sha256,
+                    account_reset_hash,
+                    config_hash,
+                    hashlib.sha256(wrong_prior_bytes).hexdigest(),
+                    2,
+                )
+            except diagnostic_error as error:
+                assert str(error) == "post_reset_prior_diagnostic"
+            else:
+                raise AssertionError("post-reset v2 accepted a classified prior result")
+            result_path.write_bytes(prior_bytes)
             try:
                 run_post_reset(transaction, auth_diagnostic_sha256, account_reset_hash, config_hash)
             except diagnostic_error as error:
                 assert str(error) == "prior_post_reset_diagnostic"
             else:
                 raise AssertionError("post-reset provider diagnostic replay passed")
-            assert len(bounded_calls) == 1
+            assert len(bounded_calls) == 2
 
             for failure_name in ("timeout", "exec"):
                 result_path.unlink()
@@ -913,10 +985,11 @@ def main() -> None:
 
     post_reset_playbook = (ROOT / "ansible/playbooks/diagnose-proton-post-reset.yml").read_text()
     assert f"proton_post_reset_script_sha256: {auth_diagnostic_sha256}" in post_reset_playbook
-    assert "diagnose-one-post-reset-proton-lsjson" in post_reset_playbook
-    assert "post-reset-supervise" in post_reset_playbook
+    assert "diagnose-one-post-reset-proton-lsjson-v2" in post_reset_playbook
+    assert "post-reset-v2-supervise" in post_reset_playbook
     assert "proton_post_reset_expected_account_reset_evidence_sha256" in post_reset_playbook
     assert "proton_post_reset_expected_config_sha256" in post_reset_playbook
+    assert "proton_post_reset_expected_prior_diagnostic_sha256" in post_reset_playbook
     assert "environment-only" in post_reset_playbook
     assert "provider_requests == 1" in post_reset_playbook
     assert "apply_lock_action: release" not in post_reset_playbook

@@ -62,6 +62,11 @@ CATEGORIES = {
     "network_failure",
     "rclone_unclassified",
 }
+POST_RESET_V2_CATEGORIES = CATEGORIES | {
+    "drive_share_incompatible",
+    "drive_volume_incompatible",
+    "proton_api_failure",
+}
 
 
 class DiagnosticError(RuntimeError):
@@ -216,12 +221,36 @@ def classify(returncode: int, stderr: bytes) -> str:
         return "invalid_credentials"
     if re.search(r"two-factor|2fa|totp|one-time password", text, re.IGNORECASE):
         return "two_factor_rejected"
-    if re.search(r"missing signature|wrong type|invalid data: user ID signature", text, re.IGNORECASE):
+    if re.search(
+        r"missing signature|invalid data: user ID signature|(?:signature|user ID).{0,80}wrong type|wrong type.{0,80}(?:signature|user ID)",
+        text,
+        re.IGNORECASE,
+    ):
         return "account_key_incompatible"
     if re.search(r"Code=429|Status=429|Too Many Requests", text):
         return "rate_limited"
     if re.search(r"network is unreachable|connection refused|no such host|i/o timeout|TLS handshake timeout|x509:", text, re.IGNORECASE):
         return "network_failure"
+    return "rclone_unclassified"
+
+
+def classify_post_reset_v2(returncode: int, stderr: bytes) -> str:
+    category = classify(returncode, stderr)
+    if category != "rclone_unclassified":
+        return category
+    text = stderr.decode("utf-8", errors="replace")
+    if re.search(r"the main share assumption has failed|mainShare|primary share|ShareTypeMain", text, re.IGNORECASE):
+        return "drive_share_incompatible"
+    if re.search(r"no active volume|active volume.*(?:missing|not found)|volume.*share ID.*empty", text, re.IGNORECASE):
+        return "drive_volume_incompatible"
+    if re.search(
+        r"gopenpgp|openpgp|key.?ring|failed to unlock user keys|keyPass|decrypt.*(?:key|passphrase)",
+        text,
+        re.IGNORECASE,
+    ):
+        return "account_key_incompatible"
+    if re.search(r"Code=\d+|Status=\d+|\b[45]\d\d (?:GET|POST|PUT|DELETE|PATCH) ", text):
+        return "proton_api_failure"
     return "rclone_unclassified"
 
 
@@ -1240,6 +1269,8 @@ def run_post_reset_diagnostic_under_lock(
     expected_script_sha256: str,
     expected_account_reset_evidence_sha256: str,
     expected_config_sha256: str,
+    expected_prior_diagnostic_sha256: str | None = None,
+    diagnostic_version: int = 1,
 ) -> None:
     if os.getuid() != 0 or os.getgid() != 0:
         fail("identity")
@@ -1290,7 +1321,56 @@ def run_post_reset_diagnostic_under_lock(
     except OSError:
         fail("post_reset_cache_state")
     config_before = CONFIG.read_bytes()
-    evidence_path = EVIDENCE_PARENT / f"proton-post-reset-diagnostic-{expected_transaction}.json"
+    if diagnostic_version not in {1, 2}:
+        fail("post_reset_diagnostic_version")
+    if diagnostic_version == 2:
+        if expected_prior_diagnostic_sha256 is None:
+            fail("post_reset_prior_diagnostic")
+        prior_keys = {
+            "account_reset_evidence_sha256",
+            "account_username_sha256",
+            "category",
+            "config_sha256",
+            "config_source",
+            "credential_cache",
+            "observed_at",
+            "operation",
+            "provider_requests",
+            "remote_directory",
+            "rclone_rc",
+            "stable_rclone_sha256",
+            "started_at",
+            "state",
+            "stderr_sha256",
+            "stdout_sha256",
+            "transaction_sha256",
+            "version",
+        }
+        prior = load_exact_json(
+            EVIDENCE_PARENT / f"proton-post-reset-diagnostic-{expected_transaction}.json",
+            expected_prior_diagnostic_sha256,
+            prior_keys,
+            "post_reset_prior_diagnostic",
+        )
+        if (
+            prior.get("account_reset_evidence_sha256") != expected_account_reset_evidence_sha256
+            or prior.get("account_username_sha256") != qualification["username_sha256"]
+            or prior.get("category") != "rclone_unclassified"
+            or prior.get("config_sha256") != expected_config_sha256
+            or prior.get("config_source") != "environment-only"
+            or prior.get("credential_cache") != "disabled"
+            or prior.get("operation") != "lsjson"
+            or prior.get("provider_requests") != 1
+            or prior.get("stable_rclone_sha256") != tools["rclone"].get("installed_sha256")
+            or prior.get("state") != "observed"
+            or prior.get("transaction_sha256") != expected_transaction
+            or prior.get("version") != 1
+        ):
+            fail("post_reset_prior_diagnostic")
+    elif expected_prior_diagnostic_sha256 is not None:
+        fail("post_reset_prior_diagnostic")
+    evidence_name = "proton-post-reset-diagnostic" if diagnostic_version == 1 else "proton-post-reset-diagnostic-v2"
+    evidence_path = EVIDENCE_PARENT / f"{evidence_name}-{expected_transaction}.json"
     if evidence_path.exists() or evidence_path.is_symlink():
         fail("prior_post_reset_diagnostic")
     started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1301,8 +1381,10 @@ def run_post_reset_diagnostic_under_lock(
         "started_at": started_at,
         "state": "started",
         "transaction_sha256": expected_transaction,
-        "version": 1,
+        "version": diagnostic_version,
     }
+    if expected_prior_diagnostic_sha256 is not None:
+        marker["prior_diagnostic_evidence_sha256"] = expected_prior_diagnostic_sha256
     atomic_json(evidence_path, marker, replace=False)
     diagnostic_environment = controlled_environment()
     diagnostic_environment.update(
@@ -1343,8 +1425,13 @@ def run_post_reset_diagnostic_under_lock(
     result = bounded_subprocess(command, 600, diagnostic_environment)
     if result.stderr.startswith(b"runuser:") or result.returncode in {126, 127}:
         fail("post_reset_rclone_exec")
-    category = classify(result.returncode, result.stderr)
-    if category not in CATEGORIES:
+    category = (
+        classify(result.returncode, result.stderr)
+        if diagnostic_version == 1
+        else classify_post_reset_v2(result.returncode, result.stderr)
+    )
+    allowed_categories = CATEGORIES if diagnostic_version == 1 else POST_RESET_V2_CATEGORIES
+    if category not in allowed_categories:
         fail("post_reset_diagnostic_category")
     if (
         CONFIG.read_bytes() != config_before
@@ -1380,6 +1467,8 @@ def supervise_post_reset_diagnostic(
     expected_script_sha256: str,
     expected_account_reset_evidence_sha256: str,
     expected_config_sha256: str,
+    expected_prior_diagnostic_sha256: str | None = None,
+    diagnostic_version: int = 1,
 ) -> None:
     if os.getuid() != 0 or os.getgid() != 0:
         fail("identity")
@@ -1397,12 +1486,16 @@ def supervise_post_reset_diagnostic(
         str(MUTEX),
         "/usr/bin/python3",
         str(Path(__file__)),
-        "post-reset-under-lock",
+        "post-reset-under-lock" if diagnostic_version == 1 else "post-reset-v2-under-lock",
         expected_transaction,
         expected_script_sha256,
         expected_account_reset_evidence_sha256,
         expected_config_sha256,
     ]
+    if diagnostic_version == 2 and expected_prior_diagnostic_sha256 is not None:
+        command.append(expected_prior_diagnostic_sha256)
+    elif diagnostic_version != 1 or expected_prior_diagnostic_sha256 is not None:
+        fail("post_reset_diagnostic_version")
     result = bounded_subprocess(command, 660, controlled_environment())
     if result.returncode == 75:
         fail("backup_mutex_busy")
@@ -2100,6 +2193,17 @@ def main() -> None:
                 supervise_post_reset_diagnostic(*values)
             else:
                 run_post_reset_diagnostic_under_lock(*values)
+            return
+        if action in {"post-reset-v2-supervise", "post-reset-v2-under-lock"}:
+            if len(sys.argv) != 7:
+                fail("usage")
+            values = sys.argv[2:7]
+            if any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in values):
+                fail("usage")
+            if action == "post-reset-v2-supervise":
+                supervise_post_reset_diagnostic(*values[:4], values[4], 2)
+            else:
+                run_post_reset_diagnostic_under_lock(*values[:4], values[4], 2)
             return
         if action in {"account-reset-supervise", "account-reset-under-lock"}:
             if len(sys.argv) != 14:

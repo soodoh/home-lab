@@ -7,7 +7,7 @@
     - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
     - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   vars:
-    proton_account_reset_script_sha256: 553f288a8aef83bc59ac03148c6ec270c85a73730374c6585f6f16c0e0ddd31b
+    proton_account_reset_script_sha256: 5ccac87533a83bb9a1b82df61e96552a6be6902c27f95193169167c56597fe7e
     proton_account_reset_beta_binary_sha256: b64e72891b07b0f55462121090e9e200e8e75c7d0b95530ba9c1f06517daeac5
     proton_account_reset_beta_version: 1.76.0-beta.10192.6ee1d851e
   tasks:
