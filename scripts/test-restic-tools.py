@@ -397,6 +397,7 @@ def main() -> None:
     assert exception_reason.startswith("local_exception_typeerror_main_")
     assert "sensitive" not in exception_reason
     parse_account_reset_payload = diagnostic_module["parse_account_reset_payload"]
+    account_reset_boundary = diagnostic_module["ACCOUNT_RESET_BOUNDARY"]
     diagnostic_error = diagnostic_module["DiagnosticError"]
     old_reset_values = {
         "RESTIC_LOCAL_PASSWORD": "L" * 32,
@@ -411,18 +412,18 @@ def main() -> None:
         return "".join(f"{key}={value}\n" for key, value in values.items()).encode()
 
     old_parsed, new_parsed = parse_account_reset_payload(
-        reset_dotenv(old_reset_values) + b"\0" + reset_dotenv(new_reset_values)
+        reset_dotenv(old_reset_values) + account_reset_boundary + reset_dotenv(new_reset_values)
     )
     assert old_parsed == old_reset_values
     assert new_parsed == new_reset_values
     invalid_reset_payloads = (
         reset_dotenv(old_reset_values) + reset_dotenv(new_reset_values),
-        reset_dotenv(old_reset_values) + b"\0" + reset_dotenv({**new_reset_values, "UNCHANGED_VALUE": "drift"}),
+        reset_dotenv(old_reset_values) + account_reset_boundary + reset_dotenv({**new_reset_values, "UNCHANGED_VALUE": "drift"}),
         reset_dotenv(old_reset_values)
-        + b"\0"
+        + account_reset_boundary
         + reset_dotenv({**new_reset_values, "PROTON_BACKUP_TOTP_SEED": "A" * 32}),
         reset_dotenv(old_reset_values)
-        + b"\0"
+        + account_reset_boundary
         + reset_dotenv({**new_reset_values, "PROTON_BACKUP_MAILBOX_PASSWORD": "mailbox"}),
     )
     for invalid_payload in invalid_reset_payloads:
@@ -510,7 +511,7 @@ def main() -> None:
         prior_ciphertext_hash = original_digest(prior_ciphertext_path)
         prior_config_hash = hashlib.sha256(prior_config).hexdigest()
         username_hash = hashlib.sha256(b"backup@example.test").hexdigest()
-        payload = reset_dotenv(old_reset_values) + b"\0" + reset_dotenv(new_reset_values)
+        payload = reset_dotenv(old_reset_values) + account_reset_boundary + reset_dotenv(new_reset_values)
         obscure_calls: list[str] = []
 
         def fake_atomic_config(parser: object, _uid: int, _gid: int) -> None:
@@ -691,7 +692,7 @@ def main() -> None:
     assert "provider_requests == 0" in account_reset_playbook
     assert "apply_lock_action: release" not in account_reset_playbook
     assert "/etc/home-lab/restic/production.sops.env" in account_reset_playbook
-    assert "/usr/bin/printf '\\0'" in account_reset_playbook
+    assert "/usr/bin/printf 'HOME_LAB_PROTON_ACCOUNT_RESET_BOUNDARY_7b9e0c4f2ad68135\\n'" in account_reset_playbook
     bounded_subprocess = diagnostic_module["bounded_subprocess"]
     stdin_reader = [sys.executable, "-c", "import sys;sys.stdout.buffer.write(sys.stdin.buffer.read())"]
     stdin_result = bounded_subprocess(

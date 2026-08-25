@@ -34,6 +34,7 @@ RESULT = Path("/var/lib/restic-proton/proton-qualification-result.json")
 HOST_EVIDENCE = EVIDENCE_PARENT / "proton-qualification.json"
 INSTALLED_CIPHERTEXT = Path("/etc/home-lab/restic/production.sops.env")
 REMOTE_DIRECTORY = "Backups/.home-lab-rclone-qualification"
+ACCOUNT_RESET_BOUNDARY = b"HOME_LAB_PROTON_ACCOUNT_RESET_BOUNDARY_7b9e0c4f2ad68135\n"
 STATIC_KEYS = {
     "type",
     "username",
@@ -1330,9 +1331,9 @@ def parse_exact_dotenv(raw: bytes, reason: str) -> dict[str, str]:
 
 
 def parse_account_reset_payload(raw: bytes) -> tuple[dict[str, str], dict[str, str]]:
-    if len(raw) > 2 * 1024 * 1024 or raw.count(b"\x00") != 1:
+    if len(raw) > 2 * 1024 * 1024 or raw.count(ACCOUNT_RESET_BOUNDARY) != 1:
         fail("account_reset_dotenv_framing")
-    old_raw, new_raw = raw.split(b"\x00", 1)
+    old_raw, new_raw = raw.split(ACCOUNT_RESET_BOUNDARY, 1)
     old_values = parse_exact_dotenv(old_raw, "account_reset_old_dotenv")
     new_values = parse_exact_dotenv(new_raw, "account_reset_new_dotenv")
     if set(old_values) != set(new_values):
