@@ -9,6 +9,7 @@ import hashlib
 import os
 from pathlib import Path
 import runpy
+import re
 import subprocess
 import tempfile
 import sys
@@ -405,6 +406,37 @@ def main() -> None:
     assert classify_post_reset_v2(1, b"no active volume was found") == "drive_volume_incompatible"
     assert classify_post_reset_v2(1, b"gopenpgp: failed to unlock user keys") == "account_key_incompatible"
     assert classify_post_reset_v2(1, b"422 GET https://drive-api.proton.me/example") == "proton_api_failure"
+    sanitize_verbose_log = diagnostic_module["sanitize_verbose_log"]
+    sanitized_lines, redaction_count = sanitize_verbose_log(
+        (
+            b"DEBUG : Creating backend with remote proton-backup:Backups/.home-lab-rclone-qualification\n"
+            b"DEBUG : login backup@example.test password=obscured-target Authorization: Bearer abcdefghijklmnopqrstuvwxyz\n"
+            b"DEBUG : root link ID '01234567-89ab-cdef-0123-456789abcdef' https://drive-api.proton.me/share?token=secret\n"
+            b"ERROR : Failed to create file system: user key ID=ABCDEFGHIJKLMNOPQRSTUVWXYZ123456\n"
+        ),
+        ("backup@example.test", "obscured-target"),
+    )
+    sanitized_text = "\n".join(sanitized_lines)
+    assert "Creating backend" in sanitized_text and "Proton initialization failed" in sanitized_text
+    assert redaction_count == 3
+    assert "backup@example.test" not in sanitized_text
+    assert "obscured-target" not in sanitized_text
+    assert "abcdefghijklmnopqrstuvwxyz" not in sanitized_text
+    assert "01234567-89ab-cdef-0123-456789abcdef" not in sanitized_text
+    assert "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456" not in sanitized_text
+    adversarial_verbose = (
+        "root link ID 'abcdefghijklmnopqrstuv': account Paul DiLoreto\n"
+        "Set-Cookie: session=short-token\n"
+        '{"Name":"Paúl Diloréto","Address":"private street","UID":"shortid"}\n'
+        "https://drive-api.proton.me/share/short-id/private%40example.test?x=short\n"
+        "entirely unknown provider text with personal material\n"
+    ).encode()
+    adversarial_lines, adversarial_redactions = sanitize_verbose_log(adversarial_verbose, ())
+    assert adversarial_redactions == 5
+    assert all(re.fullmatch(r"REDACTED : unrecognized_verbose_line_sha256=[0-9a-f]{64}", line) for line in adversarial_lines)
+    adversarial_text = "\n".join(adversarial_lines)
+    for forbidden in ("abcdefghijklmnopqrstuv", "short-token", "Paúl", "private street", "shortid", "private%40example.test", "personal material"):
+        assert forbidden not in adversarial_text
     parse_account_reset_payload = diagnostic_module["parse_account_reset_payload"]
     account_reset_boundary = diagnostic_module["ACCOUNT_RESET_BOUNDARY"]
     diagnostic_error = diagnostic_module["DiagnosticError"]
@@ -768,6 +800,7 @@ def main() -> None:
         "load_account_reset_reconciliation",
         "bounded_subprocess",
         "atomic_json",
+        "POST_RESET_V2_EVIDENCE_SHA256",
     )
     saved_post_reset_globals = {name: run_post_reset_globals[name] for name in post_reset_names}
     with tempfile.TemporaryDirectory() as post_reset_run_directory:
@@ -810,8 +843,15 @@ def main() -> None:
             _inherit_stdin: bool = False,
         ) -> subprocess.CompletedProcess[bytes]:
             bounded_calls.append((command, environment))
-            stderr = b"opaque provider failure" if len(bounded_calls) == 1 else b"the main share assumption has failed"
-            return subprocess.CompletedProcess(command, 1, b"", stderr)
+            if len(bounded_calls) < 3:
+                return subprocess.CompletedProcess(command, 1, b"", b"opaque provider failure")
+            verbose = (
+                b"DEBUG : rclone: Version v1.75.0 starting\n"
+                b"DEBUG : login backup@example.test password=obscured-target\n"
+                b"DEBUG : proton drive root link ID 'ABCDEFGHIJKLMNOPQRSTUVWXYZ123456': Using username and password to log in\n"
+                b"ERROR : Failed to create file system for proton-backup:Backups/.home-lab-rclone-qualification: directory not found\n"
+            )
+            return subprocess.CompletedProcess(command, 3, b"", verbose)
 
         try:
             run_post_reset_globals.update(
@@ -881,10 +921,65 @@ def main() -> None:
             assert len(bounded_calls) == 2
             v2_path = post_reset_evidence / f"proton-post-reset-diagnostic-v2-{transaction}.json"
             v2_result = json.loads(v2_path.read_text())
-            assert v2_result["category"] == "drive_share_incompatible"
+            assert v2_result["category"] == "rclone_unclassified"
             assert v2_result["prior_diagnostic_evidence_sha256"] == prior_diagnostic_hash
             assert v2_result["provider_requests"] == 1
             assert v2_result["version"] == 2
+            v2_hash = hashlib.sha256(v2_path.read_bytes()).hexdigest()
+            run_post_reset_globals["POST_RESET_V2_EVIDENCE_SHA256"] = v2_hash
+            try:
+                run_post_reset(
+                    transaction,
+                    auth_diagnostic_sha256,
+                    account_reset_hash,
+                    config_hash,
+                    "0" * 64,
+                    3,
+                )
+            except diagnostic_error as error:
+                assert str(error) == "post_reset_prior_diagnostic"
+            else:
+                raise AssertionError("post-reset v3 accepted an unpinned v2 evidence hash")
+            assert len(bounded_calls) == 2
+            with contextlib.redirect_stdout(io.StringIO()):
+                run_post_reset(
+                    transaction,
+                    auth_diagnostic_sha256,
+                    account_reset_hash,
+                    config_hash,
+                    v2_hash,
+                    3,
+                )
+            assert len(bounded_calls) == 3
+            v3_command, _v3_environment = bounded_calls[2]
+            assert "-vv" in v3_command
+            assert "--log-level" not in v3_command
+            v3_path = post_reset_evidence / f"proton-post-reset-diagnostic-v3-{transaction}.json"
+            v3_result = json.loads(v3_path.read_text())
+            assert v3_result["browser_drive_initialized"] is True
+            assert v3_result["category"] == "reachable"
+            assert v3_result["log_level"] == "DEBUG"
+            assert v3_result["prior_diagnostic_evidence_sha256"] == v2_hash
+            assert v3_result["provider_requests"] == 1
+            assert v3_result["verbose_log_redactions"] >= 3
+            assert v3_result["version"] == 3
+            v3_log = "\n".join(v3_result["verbose_log"])
+            assert "backup@example.test" not in v3_log
+            assert "obscured-target" not in v3_log
+            assert "ABCDEFGHIJKLMNOPQRSTUVWXYZ123456" not in v3_log
+            try:
+                run_post_reset(
+                    transaction,
+                    auth_diagnostic_sha256,
+                    account_reset_hash,
+                    config_hash,
+                    v2_hash,
+                    3,
+                )
+            except diagnostic_error as error:
+                assert str(error) == "prior_post_reset_diagnostic"
+            else:
+                raise AssertionError("post-reset v3 provider diagnostic replay passed")
             try:
                 run_post_reset(
                     transaction,
@@ -936,7 +1031,7 @@ def main() -> None:
                 assert str(error) == "prior_post_reset_diagnostic"
             else:
                 raise AssertionError("post-reset provider diagnostic replay passed")
-            assert len(bounded_calls) == 2
+            assert len(bounded_calls) == 3
 
             for failure_name in ("timeout", "exec"):
                 result_path.unlink()
@@ -985,8 +1080,11 @@ def main() -> None:
 
     post_reset_playbook = (ROOT / "ansible/playbooks/diagnose-proton-post-reset.yml").read_text()
     assert f"proton_post_reset_script_sha256: {auth_diagnostic_sha256}" in post_reset_playbook
-    assert "diagnose-one-post-reset-proton-lsjson-v2" in post_reset_playbook
-    assert "post-reset-v2-supervise" in post_reset_playbook
+    assert "diagnose-one-post-reset-proton-lsjson-v3-after-browser-drive-open" in post_reset_playbook
+    assert "post-reset-v3-supervise" in post_reset_playbook
+    assert "verbose_log_sha256" in post_reset_playbook
+    assert "browser_drive_initialized" in post_reset_playbook
+    assert "c8c2055fe1547fdc8e3678fb580ba6d3e54eee85f3d54c264420fb35f8eaec78" in post_reset_playbook
     assert "proton_post_reset_expected_account_reset_evidence_sha256" in post_reset_playbook
     assert "proton_post_reset_expected_config_sha256" in post_reset_playbook
     assert "proton_post_reset_expected_prior_diagnostic_sha256" in post_reset_playbook

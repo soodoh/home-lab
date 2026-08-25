@@ -1,5 +1,5 @@
 ---
-- name: Diagnose one post-reset Proton listing failure without remote mutation
+- name: Re-test Proton after browser Drive initialization with a sanitized verbose log
   hosts: docker_host
   gather_facts: true
   any_errors_fatal: true
@@ -7,7 +7,8 @@
     - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
     - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   vars:
-    proton_post_reset_script_sha256: 5ccac87533a83bb9a1b82df61e96552a6be6902c27f95193169167c56597fe7e
+    proton_post_reset_script_sha256: 06e9c7a318e0b881da5e65e45a741927ffb0d27ff319e5e180eb1e8cf931bdee
+    proton_post_reset_v2_evidence_sha256: c8c2055fe1547fdc8e3678fb580ba6d3e54eee85f3d54c264420fb35f8eaec78
   tasks:
     - name: Require exact post-reset Proton diagnostic approval
       ansible.builtin.assert:
@@ -15,7 +16,7 @@
           - proton_post_reset_diagnostic_confirmed | default(false) | bool
           - >-
             proton_post_reset_diagnostic_confirmation | default('')
-            == 'diagnose-one-post-reset-proton-lsjson-v2'
+            == 'diagnose-one-post-reset-proton-lsjson-v3-after-browser-drive-open'
           - >-
             proton_post_reset_expected_transaction_sha256 | default('')
             is match('^[0-9a-f]{64}$')
@@ -27,7 +28,7 @@
             is match('^[0-9a-f]{64}$')
           - >-
             proton_post_reset_expected_prior_diagnostic_sha256 | default('')
-            is match('^[0-9a-f]{64}$')
+            == proton_post_reset_v2_evidence_sha256
           - backups.restic.migration_state == 'inert'
           - backups.restic.credentials.state == 'provisioned'
           - backups.restic.proton.authentication_mode == 'password-only'
@@ -59,10 +60,10 @@
           path: /var/lib/restic-proton/rclone.conf
         - name: prior_diagnostic
           path: >-
-            /var/lib/home-lab-restic/proton-post-reset-diagnostic-{{ proton_post_reset_expected_transaction_sha256 }}.json
+            /var/lib/home-lab-restic/proton-post-reset-diagnostic-v2-{{ proton_post_reset_expected_transaction_sha256 }}.json
         - name: prior_result
           path: >-
-            /var/lib/home-lab-restic/proton-post-reset-diagnostic-v2-{{ proton_post_reset_expected_transaction_sha256 }}.json
+            /var/lib/home-lab-restic/proton-post-reset-diagnostic-v3-{{ proton_post_reset_expected_transaction_sha256 }}.json
       become: true
       register: proton_post_reset_paths
 
@@ -129,7 +130,7 @@
     - name: Read exact prior unclassified post-reset diagnostic
       ansible.builtin.slurp:
         src: >-
-          /var/lib/home-lab-restic/proton-post-reset-diagnostic-{{ proton_post_reset_expected_transaction_sha256 }}.json
+          /var/lib/home-lab-restic/proton-post-reset-diagnostic-v2-{{ proton_post_reset_expected_transaction_sha256 }}.json
       become: true
       register: proton_post_reset_prior_evidence
       no_log: true
@@ -144,9 +145,10 @@
           - prior.operation == 'lsjson'
           - prior.provider_requests == 1
           - prior.state == 'observed'
+          - prior.prior_diagnostic_evidence_sha256 is match('^[0-9a-f]{64}$')
           - prior.transaction_sha256 == proton_post_reset_expected_transaction_sha256
-          - prior.version == 1
-        fail_msg: Broader post-reset diagnosis requires the exact prior unclassified result.
+          - prior.version == 2
+        fail_msg: Verbose post-reset diagnosis requires the exact prior unclassified v2 result.
       vars:
         prior: "{{ proton_post_reset_prior_evidence.content | b64decode | from_json }}"
       no_log: true
@@ -193,9 +195,9 @@
     - name: Report exact post-reset Proton diagnostic in check mode
       ansible.builtin.debug:
         msg: >-
-          Would stage the hash-pinned supervisor, run exactly one stable-rclone lsjson
-          through an environment-only password-only config, publish redacted evidence,
-          retain the qualification lock, and make no remote mutation.
+          Would stage the hash-pinned supervisor, run exactly one stable-rclone -vv lsjson
+          after browser Drive initialization through an environment-only password-only config,
+          publish a bounded sanitized verbose log, retain the qualification lock, and make no remote mutation.
       changed_when: true
       when: ansible_check_mode
 
@@ -219,7 +221,7 @@
               - /usr/bin/python3
               - >-
                 /run/proton-post-reset-diagnostic-{{ proton_post_reset_expected_transaction_sha256 }}
-              - post-reset-v2-supervise
+              - post-reset-v3-supervise
               - "{{ proton_post_reset_expected_transaction_sha256 }}"
               - "{{ proton_post_reset_script_sha256 }}"
               - "{{ proton_post_reset_expected_account_reset_evidence_sha256 }}"
@@ -274,7 +276,7 @@
     - name: Read exact post-reset diagnostic evidence
       ansible.builtin.slurp:
         src: >-
-          /var/lib/home-lab-restic/proton-post-reset-diagnostic-v2-{{ proton_post_reset_expected_transaction_sha256 }}.json
+          /var/lib/home-lab-restic/proton-post-reset-diagnostic-v3-{{ proton_post_reset_expected_transaction_sha256 }}.json
       become: true
       register: proton_post_reset_evidence
       no_log: true
@@ -288,10 +290,12 @@
             evidence.account_reset_evidence_sha256
             == proton_post_reset_expected_account_reset_evidence_sha256
           - evidence.account_username_sha256 == backups.restic.qualification.username_sha256
+          - evidence.browser_drive_initialized | bool
           - evidence.category in allowed_categories
           - evidence.config_sha256 == proton_post_reset_expected_config_sha256
           - evidence.config_source == 'environment-only'
           - evidence.credential_cache == 'disabled'
+          - evidence.log_level == 'DEBUG'
           - evidence.observed_at is match('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')
           - evidence.operation == 'lsjson'
           - evidence.prior_diagnostic_evidence_sha256 == proton_post_reset_expected_prior_diagnostic_sha256
@@ -304,7 +308,16 @@
           - evidence.stderr_sha256 is match('^[0-9a-f]{64}$')
           - evidence.stdout_sha256 is match('^[0-9a-f]{64}$')
           - evidence.transaction_sha256 == proton_post_reset_expected_transaction_sha256
-          - evidence.version == 2
+          - evidence.verbose_log | type_debug == 'list'
+          - evidence.verbose_log | length > 0
+          - evidence.verbose_log | length <= 128
+          - evidence.verbose_log_redactions is integer
+          - evidence.verbose_log_redactions >= 0
+          - evidence.verbose_log_sha256 is match('^[0-9a-f]{64}$')
+          - >-
+            evidence.verbose_log_sha256
+            == (((evidence.verbose_log | join('\n')) ~ '\n') | hash('sha256'))
+          - evidence.version == 3
           - >-
             proton_post_reset_run.stdout
             == 'proton_post_reset_diagnostic=observed category=' ~ evidence.category
@@ -327,10 +340,12 @@
         expected_keys:
           - account_reset_evidence_sha256
           - account_username_sha256
+          - browser_drive_initialized
           - category
           - config_sha256
           - config_source
           - credential_cache
+          - log_level
           - observed_at
           - operation
           - prior_diagnostic_evidence_sha256
@@ -343,6 +358,9 @@
           - stderr_sha256
           - stdout_sha256
           - transaction_sha256
+          - verbose_log
+          - verbose_log_redactions
+          - verbose_log_sha256
           - version
       no_log: true
       when: not ansible_check_mode

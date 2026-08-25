@@ -62,6 +62,7 @@ CATEGORIES = {
     "network_failure",
     "rclone_unclassified",
 }
+POST_RESET_V2_EVIDENCE_SHA256 = "c8c2055fe1547fdc8e3678fb580ba6d3e54eee85f3d54c264420fb35f8eaec78"
 POST_RESET_V2_CATEGORIES = CATEGORIES | {
     "drive_share_incompatible",
     "drive_volume_incompatible",
@@ -252,6 +253,71 @@ def classify_post_reset_v2(returncode: int, stderr: bytes) -> str:
     if re.search(r"Code=\d+|Status=\d+|\b[45]\d\d (?:GET|POST|PUT|DELETE|PATCH) ", text):
         return "proton_api_failure"
     return "rclone_unclassified"
+
+
+def sanitize_verbose_log(raw: bytes, secrets: tuple[str, ...]) -> tuple[list[str], int]:
+    if len(raw) > 64 * 1024:
+        fail("post_reset_verbose_log_size")
+    try:
+        lines = raw.decode("utf-8").splitlines()
+    except UnicodeDecodeError:
+        fail("post_reset_verbose_log_encoding")
+    if not lines or len(lines) > 128 or any(len(line.encode("utf-8")) > 2048 for line in lines):
+        fail("post_reset_verbose_log_shape")
+
+    sanitized: list[str] = []
+    redactions = 0
+    for line in lines:
+        line_hash = digest_bytes(line.encode("utf-8"))
+        lowered = line.lower()
+        if "rclone: version" in lowered and "starting with parameters" in lowered:
+            sanitized.append("DEBUG : rclone started with reviewed -vv lsjson parameters")
+        elif "rclone: version" in lowered and "finishing with parameters" in lowered:
+            sanitized.append("DEBUG : rclone finished with reviewed -vv lsjson parameters")
+        elif "creating backend with remote" in lowered:
+            sanitized.append("DEBUG : Creating backend with reviewed Proton remote")
+        elif "using config file from" in lowered or ("config file" in lowered and "not found" in lowered):
+            sanitized.append("DEBUG : Using reviewed /dev/null configuration")
+        elif "using username and password to log in" in lowered:
+            sanitized.append("DEBUG : Proton backend using username and password to log in")
+        elif "used username and password to initialize the protondrive api" in lowered:
+            sanitized.append("DEBUG : Proton backend initialized after username and password login")
+        elif "has cached credentials" in lowered:
+            sanitized.append("DEBUG : Proton backend unexpectedly reported cached credentials")
+        elif "fs cache" in lowered:
+            sanitized.append("DEBUG : rclone filesystem cache event [details redacted]")
+            redactions += 1
+        elif "resty" in lowered:
+            category = classify_post_reset_v2(1, line.encode("utf-8"))
+            match = re.search(r"\b([1-5][0-9]{2})\s+(GET|POST|PUT|DELETE|PATCH)\s+https://([^/\s:]+)", line, re.IGNORECASE)
+            if match is not None and match.group(3).lower() in {
+                "account.proton.me",
+                "drive-api.proton.me",
+                "mail.proton.me",
+            }:
+                sanitized.append(
+                    f"PROVIDER : HTTP {match.group(1)} {match.group(2).upper()} "
+                    f"https://{match.group(3).lower()}/<redacted-path> "
+                    f"category={category} raw_line_sha256={line_hash}"
+                )
+            else:
+                sanitized.append(f"PROVIDER : RESTY event category={category} raw_line_sha256={line_hash}")
+            redactions += 1
+        elif "failed to create file system" in lowered or "couldn't initialize a new proton drive instance" in lowered:
+            category = classify_post_reset_v2(1, line.encode("utf-8"))
+            sanitized.append(f"ERROR : Proton initialization failed category={category} raw_line_sha256={line_hash}")
+            redactions += 1
+        elif "directory not found" in lowered:
+            sanitized.append(f"ERROR : Reviewed qualification directory not found raw_line_sha256={line_hash}")
+            redactions += 1
+        else:
+            sanitized.append(f"REDACTED : unrecognized_verbose_line_sha256={line_hash}")
+            redactions += 1
+
+    rendered = "\n".join(sanitized)
+    if any(secret and secret in rendered for secret in secrets) or any(line and line in rendered for line in lines):
+        fail("post_reset_verbose_log_redaction")
+    return sanitized, redactions
 
 
 def parse_rotation_dotenv(raw: bytes) -> dict[str, str]:
@@ -1321,10 +1387,12 @@ def run_post_reset_diagnostic_under_lock(
     except OSError:
         fail("post_reset_cache_state")
     config_before = CONFIG.read_bytes()
-    if diagnostic_version not in {1, 2}:
+    if diagnostic_version not in {1, 2, 3}:
         fail("post_reset_diagnostic_version")
-    if diagnostic_version == 2:
+    if diagnostic_version in {2, 3}:
         if expected_prior_diagnostic_sha256 is None:
+            fail("post_reset_prior_diagnostic")
+        if diagnostic_version == 3 and expected_prior_diagnostic_sha256 != POST_RESET_V2_EVIDENCE_SHA256:
             fail("post_reset_prior_diagnostic")
         prior_keys = {
             "account_reset_evidence_sha256",
@@ -1346,8 +1414,12 @@ def run_post_reset_diagnostic_under_lock(
             "transaction_sha256",
             "version",
         }
+        prior_version = diagnostic_version - 1
+        if prior_version == 2:
+            prior_keys.add("prior_diagnostic_evidence_sha256")
+        prior_name = "proton-post-reset-diagnostic" if prior_version == 1 else "proton-post-reset-diagnostic-v2"
         prior = load_exact_json(
-            EVIDENCE_PARENT / f"proton-post-reset-diagnostic-{expected_transaction}.json",
+            EVIDENCE_PARENT / f"{prior_name}-{expected_transaction}.json",
             expected_prior_diagnostic_sha256,
             prior_keys,
             "post_reset_prior_diagnostic",
@@ -1364,12 +1436,17 @@ def run_post_reset_diagnostic_under_lock(
             or prior.get("stable_rclone_sha256") != tools["rclone"].get("installed_sha256")
             or prior.get("state") != "observed"
             or prior.get("transaction_sha256") != expected_transaction
-            or prior.get("version") != 1
+            or prior.get("version") != prior_version
         ):
             fail("post_reset_prior_diagnostic")
     elif expected_prior_diagnostic_sha256 is not None:
         fail("post_reset_prior_diagnostic")
-    evidence_name = "proton-post-reset-diagnostic" if diagnostic_version == 1 else "proton-post-reset-diagnostic-v2"
+    evidence_names = {
+        1: "proton-post-reset-diagnostic",
+        2: "proton-post-reset-diagnostic-v2",
+        3: "proton-post-reset-diagnostic-v3",
+    }
+    evidence_name = evidence_names[diagnostic_version]
     evidence_path = EVIDENCE_PARENT / f"{evidence_name}-{expected_transaction}.json"
     if evidence_path.exists() or evidence_path.is_symlink():
         fail("prior_post_reset_diagnostic")
@@ -1385,6 +1462,8 @@ def run_post_reset_diagnostic_under_lock(
     }
     if expected_prior_diagnostic_sha256 is not None:
         marker["prior_diagnostic_evidence_sha256"] = expected_prior_diagnostic_sha256
+    if diagnostic_version == 3:
+        marker["browser_drive_initialized"] = True
     atomic_json(evidence_path, marker, replace=False)
     diagnostic_environment = controlled_environment()
     diagnostic_environment.update(
@@ -1397,6 +1476,7 @@ def run_post_reset_diagnostic_under_lock(
             "RCLONE_CONFIG_PROTON_BACKUP_ORIGINAL_FILE_SIZE": "true",
         }
     )
+    log_arguments = ["-vv"] if diagnostic_version == 3 else ["--log-level", "ERROR"]
     command = [
         str(RUNUSER),
         "--preserve-environment",
@@ -1408,8 +1488,7 @@ def run_post_reset_diagnostic_under_lock(
         "/dev/null",
         "--cache-dir",
         str(CACHE),
-        "--log-level",
-        "ERROR",
+        *log_arguments,
         "--stats",
         "0",
         "--retries",
@@ -1430,6 +1509,13 @@ def run_post_reset_diagnostic_under_lock(
         if diagnostic_version == 1
         else classify_post_reset_v2(result.returncode, result.stderr)
     )
+    verbose_log: list[str] | None = None
+    verbose_log_redactions: int | None = None
+    if diagnostic_version == 3:
+        verbose_log, verbose_log_redactions = sanitize_verbose_log(
+            result.stderr,
+            (installed_remote["username"], installed_remote["password"]),
+        )
     allowed_categories = CATEGORIES if diagnostic_version == 1 else POST_RESET_V2_CATEGORIES
     if category not in allowed_categories:
         fail("post_reset_diagnostic_category")
@@ -1456,6 +1542,18 @@ def run_post_reset_diagnostic_under_lock(
         "stderr_sha256": digest_bytes(result.stderr),
         "stdout_sha256": digest_bytes(result.stdout),
     }
+    if diagnostic_version == 3:
+        if verbose_log is None or verbose_log_redactions is None:
+            fail("post_reset_verbose_log")
+        evidence.update(
+            {
+                "browser_drive_initialized": True,
+                "log_level": "DEBUG",
+                "verbose_log": verbose_log,
+                "verbose_log_redactions": verbose_log_redactions,
+                "verbose_log_sha256": digest_bytes(("\n".join(verbose_log) + "\n").encode("utf-8")),
+            }
+        )
     evidence_sha256 = atomic_json(evidence_path, evidence, replace=True)
     if validate_lock(expected_transaction) != owner_content:
         fail("apply_lock_owner_drift")
@@ -1486,13 +1584,17 @@ def supervise_post_reset_diagnostic(
         str(MUTEX),
         "/usr/bin/python3",
         str(Path(__file__)),
-        "post-reset-under-lock" if diagnostic_version == 1 else "post-reset-v2-under-lock",
+        {
+            1: "post-reset-under-lock",
+            2: "post-reset-v2-under-lock",
+            3: "post-reset-v3-under-lock",
+        }.get(diagnostic_version, "invalid"),
         expected_transaction,
         expected_script_sha256,
         expected_account_reset_evidence_sha256,
         expected_config_sha256,
     ]
-    if diagnostic_version == 2 and expected_prior_diagnostic_sha256 is not None:
+    if diagnostic_version in {2, 3} and expected_prior_diagnostic_sha256 is not None:
         command.append(expected_prior_diagnostic_sha256)
     elif diagnostic_version != 1 or expected_prior_diagnostic_sha256 is not None:
         fail("post_reset_diagnostic_version")
@@ -2194,16 +2296,22 @@ def main() -> None:
             else:
                 run_post_reset_diagnostic_under_lock(*values)
             return
-        if action in {"post-reset-v2-supervise", "post-reset-v2-under-lock"}:
+        if action in {
+            "post-reset-v2-supervise",
+            "post-reset-v2-under-lock",
+            "post-reset-v3-supervise",
+            "post-reset-v3-under-lock",
+        }:
             if len(sys.argv) != 7:
                 fail("usage")
             values = sys.argv[2:7]
             if any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in values):
                 fail("usage")
-            if action == "post-reset-v2-supervise":
-                supervise_post_reset_diagnostic(*values[:4], values[4], 2)
+            diagnostic_version = 2 if "-v2-" in action else 3
+            if action.endswith("-supervise"):
+                supervise_post_reset_diagnostic(*values[:4], values[4], diagnostic_version)
             else:
-                run_post_reset_diagnostic_under_lock(*values[:4], values[4], 2)
+                run_post_reset_diagnostic_under_lock(*values[:4], values[4], diagnostic_version)
             return
         if action in {"account-reset-supervise", "account-reset-under-lock"}:
             if len(sys.argv) != 14:
