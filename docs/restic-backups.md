@@ -56,7 +56,7 @@ The two Restic repository passwords must each contain at least 32 UTF-8 bytes an
 
 Credential bootstrap is governed by `backups.restic.credentials`, not an independent Ansible switch. A reviewed transition may set it to `bootstrap_enabled: true` and `state: provisioned` only while Offen is quiesced, archive preservation and the AWS hold remain applied, and qualification moves from `pending` to `ready` with the SHA-256 of the exact Proton username. The username itself, passwords, mailbox password, and cached client tokens must never be logged or committed.
 
-`qualify-proton-backup` is installed inertly but cannot run while qualification is `pending`. The separately gated `ansible/playbooks/qualify-proton-backup.yml` requires the exact contract confirmation, a complete quiesced audit, exact mounts, absent repository configs, provisioned protected credential files, inactive Restic units, and zero Restic/rclone processes. Under both the production mutation lock and shared backup mutex it removes only rclone’s four cached `client_*` fields, forces password-only reauthentication, proves the exact username hash and decimal 1 TB quota, and exercises only `about`, bounded `lsjson`, `copyto`, `cat`, `moveto`, `deletefile`, and `rmdir` against `Backups/.home-lab-rclone-qualification`. It writes bounded JSON evidence without account names, credentials, tokens, remote listings, or raw provider errors; provider failures retain only the command label, exit status, and stderr SHA-256. Proton Trash is never emptied.
+`qualify-proton-backup` is installed inertly but cannot run while qualification is `pending`. The separately gated `ansible/playbooks/qualify-proton-backup.yml` requires the exact contract confirmation, a complete quiesced audit, exact mounts, absent repository configs, provisioned protected credential files, inactive Restic units, and zero Restic/rclone processes. Under both the production mutation lock and shared backup mutex it removes only rclone’s four cached `client_*` fields, forces password-only reauthentication, proves the exact username hash, verifies at least the contracted decimal 1 TB allocation and a 100 GB free-space reserve, and exercises only `about`, bounded `lsjson`, `copyto`, `cat`, `moveto`, `deletefile`, and `rmdir` against `Backups/.home-lab-rclone-qualification`. Larger future account allocations remain valid. It writes bounded JSON evidence without account names, credentials, tokens, remote listings, or raw provider errors; provider failures retain only the command label, exit status, and stderr SHA-256. Proton Trash is never emptied.
 
 A failed qualification deliberately retains the owner-bearing production lock as operation `proton-qualification`. Do not rerun qualification, remove the lock, delete a remote object, or edit cached fields manually. Inspect the protected host result/evidence paths, rclone config metadata, exact dedicated remote directory, process state, mounts, Offen state, and AWS hold first. Generic rclone deletion, cleanup, purge, sync, bisync, and mount operations remain prohibited.
 
@@ -240,7 +240,7 @@ Repository validation does not satisfy these operator gates:
 
 1. Proton backend create/read/range-read/move/delete-draft/error-redaction qualification with the exact pinned rclone build.
 2. Safe cache invalidation and automatic password-only reauthentication from the dedicated SOPS credential.
-3. Empty-path, exact-account, 1 TB quota, and exclusive-client proof.
+3. Empty-path, exact-account, minimum 1 TB allocation, 100 GB free-space reserve, and exclusive-client proof.
 4. Repository initialization, copied chunker parameters, and wrong-identity fail-closed tests.
 5. Two physically independent recovery bundles, each tested without host tokens.
 6. One complete chained migration snapshot and exact NFS/Proton copy proof.
@@ -248,7 +248,7 @@ Repository validation does not satisfy these operator gates:
 8. Isolated in-place preservation and interrupted-activation rollback proof.
 9. A separately approved Offen retirement manifest and later two-stage AWS retirement transaction.
 
-No automated workflow may empty Proton Trash. The warning threshold is 100 GB used or ten times active repository size, whichever is greater; new Proton copies hard-fail before 900 GB used while local backups remain available.
+No automated workflow may empty Proton Trash. The warning threshold is 100 GB used or ten times active repository size, whichever is greater. New Proton copies hard-fail before their bounded size would reduce free space below the 100 GB reserve; increasing the account allocation does not invalidate qualification or waste the added capacity.
 
 ## Inert deployment failure recovery
 

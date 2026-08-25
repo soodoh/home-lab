@@ -201,7 +201,7 @@ deletefile <that exact renamed object>
 rmdir <the now-empty dedicated qualification directory>
 ```
 
-It must never use `mount`, `sync`, `bisync`, `cleanup`, or `purge`. It must prove exact account identity, `1,000,000,000,000` allocated bytes, initial remote path emptiness, expected draft replacement behavior, original file sizes, bounded deletion, redacted errors, safe cache invalidation, and automatic password-only reauthentication. Proton Trash remains manual.
+It must never use `mount`, `sync`, `bisync`, `cleanup`, or `purge`. It must prove exact account identity, at least the contracted `1,000,000,000,000` decimal bytes, a 100 GB free-space reserve, initial remote path emptiness, expected draft replacement behavior, original file sizes, bounded deletion, redacted errors, safe cache invalidation, and automatic password-only reauthentication. Larger future allocations remain valid. Proton Trash remains manual.
 
 The reviewed credential transition sets `credentials.bootstrap_enabled: true`, credential state `provisioned`, and qualification state `ready`, records only the SHA-256 of the exact decrypted Proton username, and keeps qualification evidence fields `null`. Its SOPS ciphertext and contract change must be committed before a separately authorized credential apply. The transition leaves migration `inert`, all repository IDs `null`, and every Restic unit disabled; it does not authorize a Proton login or qualification.
 
@@ -334,7 +334,7 @@ Offen definitions/archive cleanup and AWS retirement are separate changes. They 
 
 ## Global stop conditions
 
-Stop immediately on mount identity drift, an active backup process, an absent/shortened AWS retention hold, unrecognized repository content, repository-ID/chunker mismatch, missing or exposed credentials, Proton quota mismatch, non-redacted errors, incomplete snapshot exit status, unhealthy writers, stale deployment locks, differing repeated plans, unexpected Compose service state, restore verification failure, or any proposal to delete Offen/AWS recovery data.
+Stop immediately on mount identity drift, an active backup process, an absent/shortened AWS retention hold, unrecognized repository content, repository-ID/chunker mismatch, missing or exposed credentials, Proton allocation below the minimum or free space below the reserve, non-redacted errors, incomplete snapshot exit status, unhealthy writers, stale deployment locks, differing repeated plans, unexpected Compose service state, restore verification failure, or any proposal to delete Offen/AWS recovery data.
 
 ## Documentation references
 

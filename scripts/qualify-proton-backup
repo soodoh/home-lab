@@ -304,9 +304,14 @@ def quota(policy: dict[str, object]) -> dict[str, int]:
     proton = policy.get("proton")
     if not isinstance(repositories, dict) or not isinstance(repositories.get("proton"), dict) or not isinstance(proton, dict):
         fail("quota_policy")
-    allocated = repositories["proton"].get("allocated_bytes")
-    hard_failure = proton.get("hard_failure_used_bytes")
-    if observed["total"] != allocated or not isinstance(hard_failure, int) or observed["used"] >= hard_failure:
+    minimum_total = repositories["proton"].get("minimum_allocated_bytes")
+    minimum_free = proton.get("minimum_free_bytes")
+    if (
+        not isinstance(minimum_total, int)
+        or not isinstance(minimum_free, int)
+        or observed["total"] < minimum_total
+        or observed["free"] < minimum_free
+    ):
         fail("quota_gate")
     return observed
 
@@ -493,7 +498,8 @@ def main() -> None:
                 rclone(["rmdir", f"{REMOTE}{remote_directory}"], "remove_empty_directory")
                 evidence = {
                     "account_username_sha256": qualification["username_sha256"],
-                    "allocated_bytes": observed_quota["total"],
+                    "minimum_allocated_bytes": policy["repositories"]["proton"]["minimum_allocated_bytes"],
+                    "observed_total_bytes": observed_quota["total"],
                     "cache_invalidation": "pass",
                     "fixture_bytes": fixture_bytes,
                     "fixture_sha256": digest_bytes(second),

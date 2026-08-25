@@ -97,9 +97,9 @@ def main() -> None:
     assert policy["repositories"]["proton"]["id"] is None
     assert policy["repositories"]["nfs"]["copy_chunker_params_from"] == "games"
     assert policy["repositories"]["proton"]["copy_chunker_params_from"] == "games"
-    assert policy["repositories"]["proton"]["allocated_bytes"] == 1_000_000_000_000
+    assert policy["repositories"]["proton"]["minimum_allocated_bytes"] == 1_000_000_000_000
     assert policy["proton"]["warning_minimum_used_bytes"] == 100_000_000_000
-    assert policy["proton"]["hard_failure_used_bytes"] == 900_000_000_000
+    assert policy["proton"]["minimum_free_bytes"] == 100_000_000_000
     assert policy["retention"]["group_by"] == "host,paths"
     assert policy["restore"]["modes"] == ["staging"]
     assert policy["restore"]["activation_status"] == "unavailable-pending-isolated-proofs"
@@ -122,7 +122,7 @@ def main() -> None:
         assert f'"{command}"' in runner_text
     assert "restic_partial_source" in runner_text
     assert '"--read-data-subset"' in runner_text
-    assert 'warning_repository_multiplier' in runner_text and 'hard_failure_used_bytes' in runner_text
+    assert 'warning_repository_multiplier' in runner_text and 'minimum_free_bytes' in runner_text
     assert "an NFS outage cannot suppress the primary local recovery point" in runner_text
     assert "concurrent_deploy" in runner_text
     apply_lock = (ROOT / "ansible/roles/apply_lock/tasks/main.yml").read_text()
@@ -197,7 +197,7 @@ def main() -> None:
     runner_globals["run"] = lambda arguments, **_kwargs: subprocess.CompletedProcess(
         arguments,
         0,
-        json.dumps({"used": 899_999_999_999, "free": 100_000_000_001, "total": 1_000_000_000_000}) if "about" in arguments else json.dumps({"bytes": 1}),
+        json.dumps({"used": 973_741_824_000, "free": 100_000_000_000, "total": 1_073_741_824_000}) if "about" in arguments else json.dumps({"bytes": 1}),
         "",
     )
     try:
@@ -205,7 +205,7 @@ def main() -> None:
     except module["WorkflowError"] as error:
         assert str(error) == "proton_quota_gate"
     else:
-        raise AssertionError("Proton copy headroom could cross the hard quota")
+        raise AssertionError("Proton copy headroom could cross the free-space reserve")
 
     role = (ROOT / "ansible/roles/restic_backup/tasks/main.yml").read_text()
     bootstrap = (ROOT / "scripts/bootstrap-restic-credentials").read_text()

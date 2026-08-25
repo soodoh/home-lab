@@ -320,9 +320,9 @@
           - evidence.version == 1
           - evidence.state == 'qualified'
           - evidence.account_username_sha256 == backups.restic.qualification.username_sha256
-          - evidence.allocated_bytes == backups.restic.repositories.proton.allocated_bytes
-          - evidence.used_bytes < backups.restic.proton.hard_failure_used_bytes
-          - evidence.free_bytes >= 0
+          - evidence.minimum_allocated_bytes == backups.restic.repositories.proton.minimum_allocated_bytes
+          - evidence.observed_total_bytes >= backups.restic.repositories.proton.minimum_allocated_bytes
+          - evidence.free_bytes >= backups.restic.proton.minimum_free_bytes
           - evidence.fixture_bytes == backups.restic.qualification.fixture_bytes
           - evidence.fixture_sha256 is match('^[0-9a-f]{64}$')
           - evidence.range_offset == backups.restic.qualification.range_offset
@@ -342,7 +342,8 @@
         result_sha256: "{{ proton_qualification_result.content | b64decode | hash('sha256') }}"
         expected_keys:
           - account_username_sha256
-          - allocated_bytes
+          - minimum_allocated_bytes
+          - observed_total_bytes
           - cache_invalidation
           - fixture_bytes
           - fixture_sha256

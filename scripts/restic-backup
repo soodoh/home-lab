@@ -554,8 +554,9 @@ def quota(policy: dict[str, Any], required_headroom: int = 0) -> dict[str, int]:
         total = int(value["total"])
     except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         raise WorkflowError("proton_quota_json") from error
-    hard = policy["proton"]["hard_failure_used_bytes"]
-    if total != policy["repositories"]["proton"]["allocated_bytes"] or used >= hard or used + required_headroom >= hard:
+    minimum_total = policy["repositories"]["proton"]["minimum_allocated_bytes"]
+    minimum_free = policy["proton"]["minimum_free_bytes"]
+    if total < minimum_total or free < minimum_free + required_headroom:
         raise WorkflowError("proton_quota_gate")
     remote_path = f"{policy['repositories']['proton']['remote']}:{policy['repositories']['proton']['remote_path']}"
     size_result = run([rclone, "size", "--json", "--config", str(config), remote_path], environment={"HOME": str(config.parent)})

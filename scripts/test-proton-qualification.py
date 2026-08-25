@@ -19,7 +19,7 @@ def policy(username_sha256: str) -> dict[str, object]:
         "proton": {
             "authentication_mode": "password-only",
             "exclusive_client": True,
-            "hard_failure_used_bytes": 900_000_000_000,
+            "minimum_free_bytes": 100_000_000_000,
             "trash_cleanup": "manual-only",
         },
         "qualification": {
@@ -30,7 +30,7 @@ def policy(username_sha256: str) -> dict[str, object]:
         "repositories": {
             "games": {"id": None},
             "nfs": {"id": None},
-            "proton": {"allocated_bytes": 1_000_000_000_000, "id": None},
+            "proton": {"minimum_allocated_bytes": 1_000_000_000_000, "id": None},
         },
     }
 
@@ -143,14 +143,14 @@ def main() -> None:
     globals_["rclone"] = lambda *_args, **_kwargs: subprocess.CompletedProcess(
         [],
         0,
-        json.dumps({"total": 1_000_000_000_000, "used": 100_000_000_000, "free": 900_000_000_000}).encode(),
+        json.dumps({"total": 1_073_741_824_000, "used": 0, "free": 1_073_741_824_000}).encode(),
         b"",
     )
-    assert module["quota"](test_policy)["total"] == 1_000_000_000_000
+    assert module["quota"](test_policy)["total"] == 1_073_741_824_000
     globals_["rclone"] = lambda *_args, **_kwargs: subprocess.CompletedProcess(
         [],
         0,
-        json.dumps({"total": 1_000_000_000_000, "used": 900_000_000_000, "free": 100_000_000_000}).encode(),
+        json.dumps({"total": 999_999_999_999, "used": 0, "free": 999_999_999_999}).encode(),
         b"",
     )
     try:
@@ -158,7 +158,19 @@ def main() -> None:
     except module["QualificationError"] as error:
         assert str(error) == "quota_gate"
     else:
-        raise AssertionError("hard Proton quota boundary was accepted")
+        raise AssertionError("Proton allocation below the minimum was accepted")
+    globals_["rclone"] = lambda *_args, **_kwargs: subprocess.CompletedProcess(
+        [],
+        0,
+        json.dumps({"total": 1_073_741_824_000, "used": 973_741_824_001, "free": 99_999_999_999}).encode(),
+        b"",
+    )
+    try:
+        module["quota"](test_policy)
+    except module["QualificationError"] as error:
+        assert str(error) == "quota_gate"
+    else:
+        raise AssertionError("Proton free-space reserve boundary was accepted")
     finally:
         globals_["rclone"] = original_rclone
 

@@ -1421,7 +1421,7 @@ backups:
         remote: proton-backup
         remote_path: Backups/home-lab-restic
         account_ref: dedicated-proton-family-backup-member
-        allocated_bytes: 1000000000000
+        minimum_allocated_bytes: 1000000000000
         password: proton
         copy_chunker_params_from: games
     retention:
@@ -1444,12 +1444,12 @@ backups:
       trash_cleanup: manual-only
       warning_minimum_used_bytes: 100000000000
       warning_repository_multiplier: 10
-      hard_failure_used_bytes: 900000000000
+      minimum_free_bytes: 100000000000
       backlog_limit: 7
     qualification:
       state: ready
       username_sha256: 809cd2b0e14ad028438ad5a0a7af801dce013a86a3f1d62926a605177198389b
-      helper_sha256: cebe79931b415c3dc60d3eecb88971fc1cd6f74e46cb0e9955d59e10ec82137e
+      helper_sha256: a3d3e152431fb17f7d9adf24cab282a941a93721aa181d886a99fd69fda35bc0
       remote_directory: Backups/.home-lab-rclone-qualification
       result_path: /var/lib/restic-proton/proton-qualification-result.json
       host_evidence_path: /var/lib/home-lab-restic/proton-qualification.json

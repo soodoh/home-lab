@@ -64,7 +64,7 @@ fixture.restore.activation_status = "available";
 assert(validateResticPolicy(fixture).some((failure) => failure.includes("must not advertise")));
 
 fixture = clone();
-fixture.proton.hard_failure_used_bytes = 966367641600;
+fixture.proton.minimum_free_bytes = 107374182400;
 assert(validateResticPolicy(fixture).some((failure) => failure.includes("decimal")));
 
 fixture = clone();
@@ -91,7 +91,8 @@ fixture.qualification.username_sha256 = "a".repeat(64);
 fixture.qualification.verified_at = "2026-08-24T18:00:00Z";
 const qualificationEvidence = {
   account_username_sha256: fixture.qualification.username_sha256,
-  allocated_bytes: 1000000000000,
+  minimum_allocated_bytes: 1000000000000,
+  observed_total_bytes: 1073741824000,
   cache_invalidation: "pass",
   fixture_bytes: 4096,
   fixture_sha256: "c".repeat(64),

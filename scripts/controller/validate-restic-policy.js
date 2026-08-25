@@ -36,7 +36,8 @@ function validateProtonQualificationEvidence(policy, evidence, rawEvidence) {
   const evidenceSha256 = crypto.createHash("sha256").update(rawEvidence).digest("hex");
   if (evidenceSha256 !== qualification.evidence_sha256) failures.push("Proton qualification evidence SHA-256 differs from the contract");
   if (evidence.account_username_sha256 !== qualification.username_sha256) failures.push("Proton qualification account hash differs from the contract");
-  if (evidence.allocated_bytes !== policy.repositories.proton.allocated_bytes) failures.push("Proton qualification allocation differs from the contract");
+  if (evidence.minimum_allocated_bytes !== policy.repositories.proton.minimum_allocated_bytes) failures.push("Proton qualification minimum allocation differs from the contract");
+  if (evidence.observed_total_bytes < policy.repositories.proton.minimum_allocated_bytes) failures.push("Proton qualification observed less than the minimum allocation");
   if (evidence.fixture_bytes !== qualification.fixture_bytes
       || evidence.range_offset !== qualification.range_offset
       || evidence.range_count !== qualification.range_count) {
@@ -44,7 +45,7 @@ function validateProtonQualificationEvidence(policy, evidence, rawEvidence) {
   }
   if (evidence.verified_at !== qualification.verified_at) failures.push("Proton qualification timestamp differs from the contract");
   if (evidence.trash_cleanup !== policy.proton.trash_cleanup) failures.push("Proton qualification Trash policy differs from the contract");
-  if (evidence.used_bytes >= policy.proton.hard_failure_used_bytes) failures.push("Proton qualification evidence crossed the hard quota boundary");
+  if (evidence.free_bytes < policy.proton.minimum_free_bytes) failures.push("Proton qualification evidence crossed the free-space reserve");
   return failures;
 }
 
@@ -128,9 +129,9 @@ function validateResticPolicy(policy) {
     failures.push("Restic schedule and retention invariants differ");
   }
   if (policy.proton.trash_cleanup !== "manual-only") failures.push("Proton Trash cleanup must remain manual-only");
-  if (policy.repositories.proton.allocated_bytes !== 1000000000000
+  if (policy.repositories.proton.minimum_allocated_bytes !== 1000000000000
       || policy.proton.warning_minimum_used_bytes !== 100000000000
-      || policy.proton.hard_failure_used_bytes !== 900000000000) {
+      || policy.proton.minimum_free_bytes !== 100000000000) {
     failures.push("Proton quota thresholds must use the reviewed decimal GB/TB values");
   }
   const qualification = policy.qualification;

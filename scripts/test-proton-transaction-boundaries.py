@@ -31,7 +31,7 @@ def main() -> None:
         recovery,
         [
             "Require exact password-only deployment evidence for recovery",
-            "Recover only exact qualification fixtures under the backup mutex",
+            "Finalize observed-empty qualification recovery under the backup mutex",
             "Retain root-owned failed qualification recovery evidence",
             "Remove only the transient qualification recovery result",
             "Release only the verified failed Proton qualification lock",
