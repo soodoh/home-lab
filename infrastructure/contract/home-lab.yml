@@ -1449,7 +1449,7 @@ backups:
     qualification:
       state: ready
       username_sha256: 809cd2b0e14ad028438ad5a0a7af801dce013a86a3f1d62926a605177198389b
-      helper_sha256: 676164bcc4fc857bb94af51b09217f4856f472643935f31d2f0470c8931c00c2
+      helper_sha256: cebe79931b415c3dc60d3eecb88971fc1cd6f74e46cb0e9955d59e10ec82137e
       remote_directory: Backups/.home-lab-rclone-qualification
       result_path: /var/lib/restic-proton/proton-qualification-result.json
       host_evidence_path: /var/lib/home-lab-restic/proton-qualification.json

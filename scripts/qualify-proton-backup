@@ -142,7 +142,11 @@ def parser_from_config() -> ConfigParser:
     return parser
 
 
-def validate_config(policy: dict[str, object], require_cache: bool | None = None) -> ConfigParser:
+def validate_config(
+    policy: dict[str, object],
+    require_cache: bool | None = None,
+    allow_partial_cache: bool = False,
+) -> ConfigParser:
     safe_regular(CONFIG, os.getuid(), os.getgid(), 0o600)
     parser = parser_from_config()
     if parser.sections() != ["proton-backup"]:
@@ -172,7 +176,7 @@ def validate_config(policy: dict[str, object], require_cache: bool | None = None
     if not isinstance(expected_username, str) or digest_bytes(username.encode()) != expected_username:
         fail("proton_account_identity")
     cache_present = CACHE_KEYS & keys
-    if cache_present and cache_present != CACHE_KEYS:
+    if cache_present and cache_present != CACHE_KEYS and not allow_partial_cache:
         fail("rclone_auth_cache_partial")
     if require_cache is True and cache_present != CACHE_KEYS:
         fail("rclone_auth_cache_absent")
@@ -204,7 +208,10 @@ def atomic_config(parser: ConfigParser) -> None:
 
 
 def invalidate_auth_cache(policy: dict[str, object]) -> None:
-    parser = validate_config(policy)
+    parser = validate_config(policy, allow_partial_cache=True)
+    if not (CACHE_KEYS & set(parser["proton-backup"])):
+        validate_config(policy, require_cache=False)
+        return
     for key in CACHE_KEYS:
         parser.remove_option("proton-backup", key)
     atomic_config(parser)
@@ -262,7 +269,7 @@ def require_remote_absent(path: str, label: str) -> None:
 def qualification_inventory(path: str) -> tuple[bool, list[str]]:
     result = rclone(["lsjson", path, "--max-depth", "1"], "qualification_directory", {0, 3})
     if result.returncode == 3:
-        if result.stdout:
+        if result.stdout not in {b"", b"null\n"}:
             fail("qualification_directory_output")
         return False, []
     value = parsed_json(result, "qualification_directory")
@@ -351,13 +358,16 @@ def require_policy(policy: dict[str, object]) -> dict[str, object]:
 
 
 def inspect_remote_qualification(policy: dict[str, object], qualification: dict[str, object]) -> None:
-    validate_config(policy)
+    validate_config(policy, require_cache=False)
     remote_directory = qualification.get("remote_directory")
     if remote_directory != "Backups/.home-lab-rclone-qualification":
         fail("qualification_fixture_policy")
-    exists, entries = qualification_inventory(f"{REMOTE}{remote_directory}")
-    if exists or entries:
-        fail("qualification_remote_not_absent")
+    try:
+        exists, entries = qualification_inventory(f"{REMOTE}{remote_directory}")
+        if exists or entries:
+            fail("qualification_remote_not_absent")
+    finally:
+        invalidate_auth_cache(policy)
     print("proton_qualification_remote=absent")
 
 
@@ -366,31 +376,34 @@ def recover_remote_qualification(
     qualification: dict[str, object],
     transaction_sha256: str,
 ) -> None:
-    validate_config(policy)
+    validate_config(policy, require_cache=False)
     remote_directory = qualification.get("remote_directory")
     if remote_directory != "Backups/.home-lab-rclone-qualification":
         fail("qualification_fixture_policy")
     remote_path = f"{REMOTE}{remote_directory}"
-    exists, entries = qualification_inventory(remote_path)
-    allowed = {"fixture.bin", "fixture-renamed.bin"}
-    if not set(entries) <= allowed or len(entries) != len(set(entries)):
-        fail("qualification_recovery_scope")
-    for name in sorted(entries):
-        rclone(["deletefile", f"{remote_path}/{name}"], f"recover_{name.replace('.', '_')}")
-    if exists:
-        rclone(["rmdir", remote_path], "recover_empty_directory")
-    remaining_exists, remaining_entries = qualification_inventory(remote_path)
-    if remaining_exists or remaining_entries:
-        fail("qualification_recovery_incomplete")
-    evidence = {
-        "account_username_sha256": qualification["username_sha256"],
-        "recovered_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "recovered_files": sorted(entries),
-        "remote_cleanup": "pass",
-        "state": "recovered",
-        "transaction_sha256": transaction_sha256,
-        "version": 1,
-    }
+    try:
+        exists, entries = qualification_inventory(remote_path)
+        allowed = {"fixture.bin", "fixture-renamed.bin"}
+        if not set(entries) <= allowed or len(entries) != len(set(entries)):
+            fail("qualification_recovery_scope")
+        for name in sorted(entries):
+            rclone(["deletefile", f"{remote_path}/{name}"], f"recover_{name.replace('.', '_')}")
+        if exists:
+            rclone(["rmdir", remote_path], "recover_empty_directory")
+        remaining_exists, remaining_entries = qualification_inventory(remote_path)
+        if remaining_exists or remaining_entries:
+            fail("qualification_recovery_incomplete")
+        evidence = {
+            "account_username_sha256": qualification["username_sha256"],
+            "recovered_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "recovered_files": sorted(entries),
+            "remote_cleanup": "pass",
+            "state": "recovered",
+            "transaction_sha256": transaction_sha256,
+            "version": 1,
+        }
+    finally:
+        invalidate_auth_cache(policy)
     evidence_sha256 = write_result(evidence)
     print(f"proton_qualification_recovery=passed evidence_sha256={evidence_sha256}")
 
@@ -436,67 +449,70 @@ def main() -> None:
         if action == "recover":
             recover_remote_qualification(policy, qualification, transaction_sha256)
             return
-        object_path = f"{REMOTE}{remote_directory}/fixture.bin"
-        renamed_path = f"{REMOTE}{remote_directory}/fixture-renamed.bin"
-        invalidate_auth_cache(policy)
-        observed_quota = quota(policy)
-        validate_config(policy, require_cache=True)
-        require_empty_qualification_directory(f"{REMOTE}{remote_directory}")
-        require_remote_absent(object_path, "initial_object")
-        require_remote_absent(renamed_path, "initial_renamed_object")
-        with tempfile.TemporaryDirectory(prefix="proton-qualification-", dir=CONFIG.parent) as directory:
-            local = Path(directory)
-            first = secrets.token_bytes(fixture_bytes)
-            second = secrets.token_bytes(fixture_bytes)
-            if first == second:
-                fail("fixture_randomness")
-            first_path = local / "fixture-first.bin"
-            second_path = local / "fixture-second.bin"
-            first_path.write_bytes(first)
-            second_path.write_bytes(second)
-            first_path.chmod(0o600)
-            second_path.chmod(0o600)
-            rclone(["copyto", str(first_path), object_path], "copy_first")
-            downloaded_first = rclone(["cat", object_path], "read_first").stdout
-            if downloaded_first != first:
-                fail("first_content")
-            rclone(["copyto", str(second_path), object_path], "replace_draft")
-            downloaded_second = rclone(["cat", object_path], "read_second").stdout
-            if downloaded_second != second or len(downloaded_second) != fixture_bytes:
-                fail("replacement_content")
-            ranged = rclone(
-                ["cat", object_path, "--offset", str(range_offset), "--count", str(range_count)],
-                "range_read",
-            ).stdout
-            if ranged != second[range_offset:range_offset + range_count]:
-                fail("range_content")
-            rclone(["moveto", object_path, renamed_path], "move")
-            require_remote_absent(object_path, "moved_source")
-            if rclone(["cat", renamed_path], "read_renamed").stdout != second:
-                fail("renamed_content")
-            rclone(["deletefile", renamed_path], "delete_exact_file")
-            require_remote_absent(renamed_path, "deleted_object")
-            rclone(["rmdir", f"{REMOTE}{remote_directory}"], "remove_empty_directory")
-            evidence = {
-                "account_username_sha256": qualification["username_sha256"],
-                "allocated_bytes": observed_quota["total"],
-                "cache_invalidation": "pass",
-                "fixture_bytes": fixture_bytes,
-                "fixture_sha256": digest_bytes(second),
-                "free_bytes": observed_quota["free"],
-                "operations": ["about", "lsjson", "copyto", "cat", "moveto", "deletefile", "rmdir"],
-                "original_file_size": "pass",
-                "password_reauthentication": "pass",
-                "range_count": range_count,
-                "range_offset": range_offset,
-                "remote_cleanup": "pass",
-                "replace_existing_draft": "pass",
-                "state": "qualified",
-                "trash_cleanup": "manual-only",
-                "used_bytes": observed_quota["used"],
-                "verified_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "version": 1,
-            }
+        try:
+            object_path = f"{REMOTE}{remote_directory}/fixture.bin"
+            renamed_path = f"{REMOTE}{remote_directory}/fixture-renamed.bin"
+            invalidate_auth_cache(policy)
+            observed_quota = quota(policy)
+            validate_config(policy, require_cache=True)
+            require_empty_qualification_directory(f"{REMOTE}{remote_directory}")
+            require_remote_absent(object_path, "initial_object")
+            require_remote_absent(renamed_path, "initial_renamed_object")
+            with tempfile.TemporaryDirectory(prefix="proton-qualification-", dir=CONFIG.parent) as directory:
+                local = Path(directory)
+                first = secrets.token_bytes(fixture_bytes)
+                second = secrets.token_bytes(fixture_bytes)
+                if first == second:
+                    fail("fixture_randomness")
+                first_path = local / "fixture-first.bin"
+                second_path = local / "fixture-second.bin"
+                first_path.write_bytes(first)
+                second_path.write_bytes(second)
+                first_path.chmod(0o600)
+                second_path.chmod(0o600)
+                rclone(["copyto", str(first_path), object_path], "copy_first")
+                downloaded_first = rclone(["cat", object_path], "read_first").stdout
+                if downloaded_first != first:
+                    fail("first_content")
+                rclone(["copyto", str(second_path), object_path], "replace_draft")
+                downloaded_second = rclone(["cat", object_path], "read_second").stdout
+                if downloaded_second != second or len(downloaded_second) != fixture_bytes:
+                    fail("replacement_content")
+                ranged = rclone(
+                    ["cat", object_path, "--offset", str(range_offset), "--count", str(range_count)],
+                    "range_read",
+                ).stdout
+                if ranged != second[range_offset:range_offset + range_count]:
+                    fail("range_content")
+                rclone(["moveto", object_path, renamed_path], "move")
+                require_remote_absent(object_path, "moved_source")
+                if rclone(["cat", renamed_path], "read_renamed").stdout != second:
+                    fail("renamed_content")
+                rclone(["deletefile", renamed_path], "delete_exact_file")
+                require_remote_absent(renamed_path, "deleted_object")
+                rclone(["rmdir", f"{REMOTE}{remote_directory}"], "remove_empty_directory")
+                evidence = {
+                    "account_username_sha256": qualification["username_sha256"],
+                    "allocated_bytes": observed_quota["total"],
+                    "cache_invalidation": "pass",
+                    "fixture_bytes": fixture_bytes,
+                    "fixture_sha256": digest_bytes(second),
+                    "free_bytes": observed_quota["free"],
+                    "operations": ["about", "lsjson", "copyto", "cat", "moveto", "deletefile", "rmdir"],
+                    "original_file_size": "pass",
+                    "password_reauthentication": "pass",
+                    "range_count": range_count,
+                    "range_offset": range_offset,
+                    "remote_cleanup": "pass",
+                    "replace_existing_draft": "pass",
+                    "state": "qualified",
+                    "trash_cleanup": "manual-only",
+                    "used_bytes": observed_quota["used"],
+                    "verified_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "version": 1,
+                }
+        finally:
+            invalidate_auth_cache(policy)
         evidence_sha256 = write_result(evidence)
         print(f"proton_qualification=passed evidence_sha256={evidence_sha256}")
     except QualificationError as error:

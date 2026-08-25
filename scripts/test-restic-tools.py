@@ -3,6 +3,7 @@
 
 import json
 import contextlib
+from configparser import ConfigParser
 import io
 from datetime import datetime
 import hashlib
@@ -279,7 +280,59 @@ def main() -> None:
     assert 'ALLOWED_COMMANDS = {"about", "cat", "copyto", "deletefile", "lsjson", "moveto", "rmdir"}' in qualification
     assert "stderr_sha256" in qualification and "digest_bytes(result.stderr)" in qualification
     assert "print(result.stderr" not in qualification
-    assert "invalidate_auth_cache(policy)" in qualification
+    assert qualification.count("invalidate_auth_cache(policy)") >= 3
+    assert 'result.stdout not in {b"", b"null\\n"}' in qualification
+    qualification_module = runpy.run_path(
+        str(ROOT / "scripts/qualify-proton-backup"),
+        run_name="qualify_proton_backup_test_module",
+    )
+    qualification_inventory = qualification_module["qualification_inventory"]
+    qualification_globals = qualification_inventory.__globals__
+    saved_qualification_rclone = qualification_globals["rclone"]
+    try:
+        qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 3, b"null\n", b"directory not found")
+        assert qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification") == (False, [])
+        qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 3, b"{}\n", b"directory not found")
+        try:
+            qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification")
+        except qualification_module["QualificationError"] as error:
+            assert str(error) == "qualification_directory_output"
+        else:
+            raise AssertionError("unexpected missing-directory output passed")
+    finally:
+        qualification_globals["rclone"] = saved_qualification_rclone
+    invalidate_auth_cache = qualification_module["invalidate_auth_cache"]
+    invalidate_globals = invalidate_auth_cache.__globals__
+    saved_qualification_config = invalidate_globals["CONFIG"]
+    with tempfile.TemporaryDirectory() as partial_cache_directory:
+        partial_cache_config = Path(partial_cache_directory) / "rclone.conf"
+        partial_cache_config.write_text(
+            "[proton-backup]\n"
+            "type = protondrive\n"
+            "username = backup@example.test\n"
+            "password = obscured-password\n"
+            "replace_existing_draft = true\n"
+            "enable_caching = true\n"
+            "original_file_size = true\n"
+            "client_uid = partial-cache\n\n"
+        )
+        partial_cache_config.chmod(0o600)
+        invalidate_globals["CONFIG"] = partial_cache_config
+        try:
+            invalidate_auth_cache(
+                {"qualification": {"username_sha256": hashlib.sha256(b"backup@example.test").hexdigest()}}
+            )
+            partial_parser = ConfigParser(interpolation=None)
+            partial_parser.read(partial_cache_config)
+            assert set(partial_parser["proton-backup"]) == qualification_module["STATIC_KEYS"] - {"mailbox_password"}
+        finally:
+            invalidate_globals["CONFIG"] = saved_qualification_config
+    recovery_function = qualification.split("def recover_remote_qualification", 1)[1].split("def main", 1)[0]
+    qualification_function = qualification.split('if action == "recover":', 1)[1].split("except QualificationError", 1)[0]
+    assert recovery_function.index("finally:") < recovery_function.index("write_result(evidence)")
+    assert qualification_function.index("finally:") < qualification_function.index("write_result(evidence)")
+    inspect_function = qualification.split("def inspect_remote_qualification", 1)[1].split("def recover_remote_qualification", 1)[0]
+    assert "finally:" in inspect_function and "invalidate_auth_cache(policy)" in inspect_function
     assert 'remote_directory != "Backups/.home-lab-rclone-qualification"' in qualification
     assert "secrets.token_bytes" in qualification
     assert "password_reauthentication" in qualification
