@@ -193,7 +193,7 @@ ansible-playbook -i inventory/production.yml playbooks/reconcile-proton-account-
   -e proton_account_reset_confirmed=true \
   -e proton_account_reset_confirmation=reconcile-only-password-after-disposable-proton-account-reset \
   -e proton_account_reset_expected_transaction_sha256=ac9d9acbe5cd6142ca2802cf6be856ff2defa77c22f63c46e59f8043bdbcf730 \
-  -e proton_account_reset_expected_target_ciphertext_sha256=b04e43bacf2ec9bf6107fb17b91a33d385b1cebf9662899f9e6d811b793d3a48 \
+  -e proton_account_reset_expected_target_ciphertext_sha256=0021c5d9a9b246d822d6e2e1f460d9f1afc6e6cace25453447c25ac051fbbdbf \
   -e proton_account_reset_expected_prior_config_sha256=40529a3487b54d1412829fe8a0beb433a8e753a90ab2f2b82ab8a7e4ecacc340 \
   -e proton_account_reset_expected_auth_evidence_sha256=b87ea466ac0e7234824d5a4bf8c59095534bd26eb38c8baaf0cce2faaf27a5ed \
   -e proton_account_reset_expected_rotation_evidence_sha256=8e8f2b932ab436e0fb67eeeecbfd97253cf1ff945d21acd1465119a0d5873249 \
