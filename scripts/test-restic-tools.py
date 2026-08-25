@@ -390,6 +390,12 @@ def main() -> None:
     assert 'str(RUNUSER),\n        "--user",\n        "restic-proton",\n        "--",\n        str(ENV)' in auth_diagnostic
     assert 'str(INSTALL),\n        "--mode",\n        "0600",\n        "/dev/null"' in auth_diagnostic
     diagnostic_module = runpy.run_path(str(auth_diagnostic_path), run_name="proton_auth_diagnostic_test_module")
+    try:
+        raise TypeError("sensitive detail must not be emitted")
+    except TypeError as error:
+        exception_reason = diagnostic_module["local_exception_reason"](error)
+    assert exception_reason.startswith("local_exception_typeerror_main_")
+    assert "sensitive" not in exception_reason
     parse_account_reset_payload = diagnostic_module["parse_account_reset_payload"]
     diagnostic_error = diagnostic_module["DiagnosticError"]
     old_reset_values = {
@@ -677,6 +683,8 @@ def main() -> None:
     assert "PROTON_BACKUP_PASSWORD changed" in account_reset_playbook
     assert "Require exact resumable account-reset reconciliation claim" in account_reset_playbook
     assert "observed_config_sha256 in [marker.prior_config_sha256, marker.target_config_sha256]" in account_reset_playbook
+    assert "reason=[a-z0-9_.-]+\\r?$" in account_reset_playbook
+    assert "reason=[a-z0-9_.-]+\\\\r?$" not in account_reset_playbook
     assert "provider_requests == 0" in account_reset_playbook
     assert "apply_lock_action: release" not in account_reset_playbook
     assert "/etc/home-lab/restic/production.sops.env" in account_reset_playbook

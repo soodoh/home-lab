@@ -1749,6 +1749,18 @@ def supervise(expected_transaction: str, expected_script_sha256: str) -> None:
     print(output)
 
 
+def local_exception_reason(error: Exception) -> str:
+    trace = error.__traceback__
+    while trace is not None and trace.tb_next is not None:
+        trace = trace.tb_next
+    exception_name = re.sub(r"[^a-z0-9]+", "_", type(error).__name__.lower()).strip("_")
+    function_name = "unknown" if trace is None else re.sub(
+        r"[^a-z0-9]+", "_", trace.tb_frame.f_code.co_name.lower()
+    ).strip("_")
+    line_number = 0 if trace is None else trace.tb_lineno
+    return f"local_exception_{exception_name}_{function_name}_{line_number}"
+
+
 def main() -> None:
     try:
         if len(sys.argv) < 2:
@@ -1896,6 +1908,9 @@ def main() -> None:
         raise SystemExit(1) from None
     except (OSError, KeyError, subprocess.SubprocessError):
         print("proton_auth_diagnostic=failed reason=local_operation", file=sys.stderr)
+        raise SystemExit(1) from None
+    except Exception as error:
+        print(f"proton_auth_diagnostic=failed reason={local_exception_reason(error)}", file=sys.stderr)
         raise SystemExit(1) from None
 
 
