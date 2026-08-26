@@ -485,7 +485,7 @@ def journal(directory: Path, commit: str) -> dict[str, object]:
             "exact-completed-create-adopted", "exact-completed-destroy-adopted",
             "exact-partial-create-adopted", "exact-partial-destroy-adopted", "saved-plan-apply-complete",
             "fresh-api-agent-vm9900-bound", "immediate-api-agent-vm9900-bound", "serial-blank-disk-validated", "serial-disk-prepared",
-            "plaintext-cleanup-and-evidence-complete", "exact-api-untracked-vm-deleted",
+            "plaintext-cleanup-and-evidence-complete", "exact-api-untracked-vm-deleted", "legacy-local-state-adopted",
         }
         points, replans = value.get("checkpoints"), value.get("replans")
         if (set(value) != required or value.get("version") != 1 or value.get("commit") != commit
@@ -495,6 +495,7 @@ def journal(directory: Path, commit: str) -> dict[str, object]:
         detail_states = {
             "expired-or-partial-plan-retained": {"create-replanning", "destroy-replanning"},
             "exact-api-untracked-vm-deleted": {"create-replanning"},
+            "legacy-local-state-adopted": {"create-replanning"},
             "saved-plan-reviewed": {"create-planned", "destroy-planned"},
             "before-saved-plan-apply": {"create-applying", "destroy-applying"},
             "exact-completed-create-adopted": {"create-applied"},
@@ -509,7 +510,7 @@ def journal(directory: Path, commit: str) -> dict[str, object]:
             "plaintext-cleanup-and-evidence-complete": {"run-complete"},
         }
         allowed_transitions = {
-            "new": {"create-planned"},
+            "new": {"create-replanning", "create-planned"},
             "create-replanning": {"create-replanning", "create-planned"},
             "create-planned": {"create-replanning", "create-applying"},
             "create-applying": {"create-replanning", "create-applied", "destroy-planned"},
@@ -677,10 +678,39 @@ def archive_old_plan(directory: Path, operation: str, value: dict[str, object], 
     checkpoint(directory, transaction_journal, f"{operation}-replanning", "expired-or-partial-plan-retained")
 
 
+def adopt_legacy_local_state(directory: Path, values: dict[str, str], transaction_journal: dict[str, object]) -> None:
+    legacy = TF_ROOT / "terraform.tfstate"
+    target = directory / "tofu.tfstate"
+    if not legacy.exists(): return
+    if target.exists() or target.is_symlink(): fail("legacy_state_target_exists")
+    regular_source(legacy, 0o600, "legacy_local_state")
+    try:
+        state = json.loads(legacy.read_text())
+        resources = state.get("resources", [])
+    except (OSError, json.JSONDecodeError):
+        fail("legacy_state_invalid")
+    allowed = {
+        ("managed", "proxmox_download_file", "recovery_image"),
+        ("managed", "proxmox_virtual_environment_file", "recovery_cloud_init"),
+        ("managed", "proxmox_virtual_environment_vm", "recovery"),
+    }
+    observed = {(resource.get("mode"), resource.get("type"), resource.get("name")) for resource in resources if isinstance(resource, dict)}
+    if not observed or not observed <= allowed or len(observed) != len(resources): fail("legacy_state_scope_differs")
+    if any(resource.get("type") == "proxmox_virtual_environment_vm" for resource in resources):
+        if not api_recovery_exact(values, allowed_status={"running", "stopped"}): fail("legacy_state_vm_identity_differs")
+    os.replace(legacy, target)
+    for path in (TF_ROOT, directory):
+        descriptor = os.open(path, os.O_RDONLY)
+        try: os.fsync(descriptor)
+        finally: os.close(descriptor)
+    checkpoint(directory, transaction_journal, "create-replanning", "legacy-local-state-adopted")
+
+
 def plan(operation: str) -> None:
     commit = require_revision(); directory = transaction(commit); paths = sources(operation == "create")
     transaction_journal = journal(directory, commit)
     values = credentials("plan"); production = production_hash(values)
+    if operation == "create": adopt_legacy_local_state(directory, values, transaction_journal)
     cloud, user_public, host_public = cloud_init_data(directory); cloud_sha = sha_bytes(cloud.encode())
     present = recovery_resource(values) is not None
     if operation == "create" and present and recovery_created_exact(directory, values) and current_state_exact(directory, values, cloud_sha):
@@ -706,11 +736,11 @@ def plan(operation: str) -> None:
     env = tofu_environment(values, directory)
     env["TF_VAR_qualification_ssh_public_key"] = user_public.read_text().strip()
     env["TF_VAR_qualification_cloud_init_user_data"] = cloud
-    command(["tofu", f"-chdir={TF_ROOT}", "init", "-backend=false", "-input=false"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    command(["tofu", f"-chdir={TF_ROOT}", "init", "-reconfigure", "-input=false", f"-backend-config=path={directory / 'tofu.tfstate'}"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     plan_file, plan_json = directory / f"{operation}.tfplan", directory / f"{operation}-plan.json"
     enabled = "true" if operation == "create" else "false"
     command([
-        "tofu", f"-chdir={TF_ROOT}", "plan", "-input=false", "-lock=true", f"-state={directory / 'tofu.tfstate'}",
+        "tofu", f"-chdir={TF_ROOT}", "plan", "-input=false", "-lock=true",
         f"-var=enable_qualification={enabled}", "-out", str(plan_file),
     ], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     with plan_json.open("w") as output:
