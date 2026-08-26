@@ -84,6 +84,12 @@
   ansible.builtin.assert:
     that:
       - compose_deploy_artifact_hashes.results[0].stdout == compose_artifact_hash
+      - >-
+        (compose_deploy_offen_retirement_confirmation | default('')) !=
+        'retire-offen-reviewed-' ~ backups.legacy_offen.retirement.manifest_sha256 or
+        compose_deploy_artifact_hashes.results[1].stdout == backups.legacy_offen.retirement.compose_base_artifact_sha256 or
+        (offen_retirement_action | default('')) == 'resume' and
+        compose_deploy_artifact_hashes.results[1].stdout == compose_artifact_hash
     fail_msg: "Candidate artifact identity differs from the reviewed state."
   no_log: true
 
@@ -217,9 +223,9 @@
           (compose_deploy_offen_retirement_confirmation | default('')) ==
             'retire-offen-reviewed-' ~ backups.legacy_offen.retirement.manifest_sha256 and
           compose_deploy_plan.missing_runtime_services | length == 0 and
-          compose_deploy_plan.unexpected_runtime_services == (backups.legacy_offen.scheduler_services | sort) and
+          compose_deploy_plan.unexpected_runtime_services in [[], (backups.legacy_offen.scheduler_services | sort)] and
           compose_deploy_plan.forbidden_actions | length == 0 and
-          compose_deploy_plan.manual_only_paths | length == 0 and
+          compose_deploy_plan.manual_only_paths == ['services/data/replicate-local-backup'] and
           compose_deploy_plan.recreate_services | length == 0
         )
     fail_msg: >-

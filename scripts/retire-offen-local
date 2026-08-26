@@ -252,10 +252,16 @@ def write_image_override(path: Path, raw: bytes, temporary: Path) -> None:
     if temporary.exists() or temporary.is_symlink():
         info = temporary.lstat()
         if (not stat.S_ISREG(info.st_mode) or temporary.is_symlink() or info.st_uid != 0
-                or info.st_gid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o644
-                or temporary.read_bytes() != raw):
+                or info.st_gid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o644):
             fail("image_override_temporary_invalid")
-    else:
+        if temporary.read_bytes() != raw:
+            temporary.unlink()
+            descriptor = os.open(temporary.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+    if not temporary.exists():
         descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
         os.fchown(descriptor, 0, 0)
         os.fchmod(descriptor, 0o644)
@@ -320,6 +326,101 @@ def require_image_override(manifest: dict, retired: bool) -> None:
     required = expected["after_sha256"] if retired else expected["before_sha256"]
     if observed != required:
         fail("image_override_state_differs")
+
+
+def compose_artifact_identity(root: Path) -> str:
+    info = root.lstat()
+    if (not stat.S_ISDIR(info.st_mode) or root.is_symlink() or info.st_uid != 0
+            or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o755):
+        fail("compose_artifact_directory_invalid")
+    script = root / "scripts/compose-artifact.py"
+    return run([sys.executable, str(script), "--root", str(root), "--no-git", "hash"])
+
+
+def require_compose_source(manifest: dict, retired: bool) -> None:
+    compose = manifest["compose"]
+    observed = compose_artifact_identity(Path(compose["working_directory"]))
+    expected = compose["retirement_artifact_sha256"] if retired else compose["base_artifact_sha256"]
+    if observed != expected:
+        fail("compose_artifact_identity_differs")
+
+
+def fsync_compose_parent(path: Path) -> None:
+    descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def recover_missing_current(manifest: dict) -> None:
+    compose = manifest["compose"]
+    current = Path(compose["working_directory"])
+    previous = Path(compose["previous_directory"])
+    events = journal_events()
+    started = any(item.get("event") == "compose_missing_current_recovery_started" for item in events)
+    completed = any(item.get("event") == "compose_missing_current_recovered" for item in events)
+    if current.exists() or current.is_symlink():
+        if started and not completed:
+            if current.is_symlink() or compose_artifact_identity(current) != compose["base_artifact_sha256"]:
+                fail("compose_missing_current_adoption_invalid")
+            if previous.exists() or previous.is_symlink():
+                fail("compose_missing_current_previous_reappeared")
+            fsync_compose_parent(current)
+            append({"event": "compose_missing_current_recovered", "base_sha256": compose["base_artifact_sha256"]})
+        return
+    if compose_artifact_identity(previous) != compose["base_artifact_sha256"]:
+        fail("compose_missing_current_previous_invalid")
+    if not started:
+        append({"event": "compose_missing_current_recovery_started", "base_sha256": compose["base_artifact_sha256"]})
+    previous.rename(current)
+    fsync_compose_parent(current)
+    if not completed:
+        append({"event": "compose_missing_current_recovered", "base_sha256": compose["base_artifact_sha256"]})
+
+
+def require_compose_source_for_resume(manifest: dict) -> None:
+    compose = manifest["compose"]
+    recover_missing_current(manifest)
+    observed = compose_artifact_identity(Path(compose["working_directory"]))
+    allowed = {compose["base_artifact_sha256"], compose["retirement_artifact_sha256"]}
+    if observed not in allowed:
+        fail("compose_artifact_identity_differs")
+    if observed == compose["retirement_artifact_sha256"] and not any(
+            item.get("event") == "apply_complete" for item in journal_events()):
+        fail("compose_retirement_source_premature")
+
+
+def rollback_compose_source(manifest: dict, manifest_hash: str) -> None:
+    compose = manifest["compose"]
+    current = Path(compose["working_directory"])
+    previous = Path(compose["previous_directory"])
+    recover_missing_current(manifest)
+    observed = compose_artifact_identity(current)
+    events = journal_events()
+    started = any(item.get("event") == "compose_source_rollback_started" for item in events)
+    completed = any(item.get("event") == "compose_source_rolled_back" for item in events)
+    if observed == compose["base_artifact_sha256"]:
+        if started:
+            if compose_artifact_identity(previous) != compose["retirement_artifact_sha256"]:
+                fail("compose_rollback_previous_invalid")
+            fsync_compose_parent(current)
+            if not completed:
+                append({"event": "compose_source_rolled_back", "manifest_sha256": manifest_hash})
+        return
+    if observed != compose["retirement_artifact_sha256"]:
+        fail("compose_rollback_current_invalid")
+    if compose_artifact_identity(previous) != compose["base_artifact_sha256"]:
+        fail("compose_rollback_previous_invalid")
+    if not started:
+        append({"event": "compose_source_rollback_started", "from_sha256": compose["retirement_artifact_sha256"], "to_sha256": compose["base_artifact_sha256"]})
+    run(["/usr/bin/mv", "--exchange", "--", str(current), str(previous)])
+    fsync_compose_parent(current)
+    require_compose_source(manifest, False)
+    if compose_artifact_identity(previous) != compose["retirement_artifact_sha256"]:
+        fail("compose_rollback_exchange_invalid")
+    if not completed:
+        append({"event": "compose_source_rolled_back", "manifest_sha256": manifest_hash})
 
 
 def action_plan(manifest: dict, manifest_hash: str) -> dict:
@@ -455,6 +556,7 @@ def mutate_apply(manifest: dict, manifest_hash: str) -> None:
         plan_hash = hashlib.sha256(canonical(plan)).hexdigest()
         create_owner(manifest_hash, plan, plan_hash)
     verify_status_under_lock(manifest); verify_mounts(manifest)
+    require_compose_source_for_resume(manifest)
     verify_archives(manifest, manifest_hash, True); verify_containers(manifest, manifest_hash, True)
     for change in plan["container_renames"]:
         inspected = subprocess.run(["docker", "inspect", "--format", "{{.Id}}", change["from"]], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -486,6 +588,7 @@ def rollback(manifest: dict, manifest_hash: str) -> None:
         fail("rollback_forbidden")
     plan, plan_hash, _owner_hash = load_saved_transaction(manifest, manifest_hash)
     require_apply_complete(plan_hash)
+    rollback_compose_source(manifest, manifest_hash)
     converge_image_override(manifest, manifest_hash, False)
     files_by_path = {item["path"]: item for item in retirement_files(manifest)}
     for change in reversed(plan["file_renames"]):
@@ -576,6 +679,7 @@ def finalize(manifest: dict, manifest_hash: str, evidence_hash: str) -> None:
     irreversible = bool(irreversible_events)
     verify_status_under_lock(manifest); verify_mounts(manifest)
     require_image_override(manifest, True)
+    require_compose_source(manifest, True)
     verify_archives(manifest, manifest_hash, True, irreversible)
     verify_containers(manifest, manifest_hash, True, irreversible)
     if not irreversible:
@@ -699,6 +803,7 @@ def main() -> None:
         if args.action == "plan":
             verify_mounts(manifest); verify_archives(manifest, manifest_hash, False); verify_containers(manifest, manifest_hash, False)
             require_image_override(manifest, False)
+            require_compose_source(manifest, False)
             plan_hash = hashlib.sha256(canonical(action_plan(manifest, manifest_hash))).hexdigest()
             print(f"offen_retirement_local=planned action_plan_sha256={plan_hash}")
         elif args.action in ("apply", "resume"):

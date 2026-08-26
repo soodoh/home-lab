@@ -35,7 +35,7 @@
           - >-
             offen_retirement_action in ['plan', 'rollback', 'finalize'] or (
               compose_deploy_confirmed | default(false) | bool and
-              compose_artifact_hash | default('') is match('^[0-9a-f]{64}$')
+              compose_artifact_hash | default('') == backups.legacy_offen.retirement.compose_artifact_sha256
             )
           - >-
             offen_retirement_action in ['plan', 'apply'] or
@@ -157,3 +157,13 @@
 
 # A successful apply/resume intentionally retains both the production owner lock
 # and the helper transaction owner. R2 attestation is required before finalize.
+
+  post_tasks:
+    - name: Release only the exact retained lock after a complete rollback
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: offen-retirement-local
+        apply_lock_expected_owner_sha256: "{{ offen_retirement_expected_production_owner_sha256 }}"
+      when: offen_retirement_action == 'rollback'

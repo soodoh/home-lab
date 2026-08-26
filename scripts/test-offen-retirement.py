@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "infrastructure/retirement/offen-retirement-manifest.json"
-EXPECTED = "73da02cd3917f2aa3f5a0eee6c355b825456d3f825f9b0c087c8b322c18b012e"
+EXPECTED = "c67d0351b26fddaa7fdb4057a85511b8a3359b40851a9df542c532f8abc00d2c"
 
 raw = MANIFEST.read_bytes()
 assert hashlib.sha256(raw).hexdigest() == EXPECTED
@@ -39,6 +39,10 @@ assert all(item["path"].startswith(("/mnt/games/backups/", "/mnt/storage/backups
 assert value["compose"]["services"] == ["daily-local-backup", "weekly-remote-backup"]
 assert value["compose"]["project"] == "docker-compose"
 assert value["compose"]["working_directory"] == "/srv/docker-compose/current"
+assert value["compose"]["base_commit"] == "d1e37374c38cc0b85f64a92d5ca0345b82e53960"
+assert value["compose"]["retirement_commit"] == "606248628d75d57e81535d8bf4fd0dec0c4194dd"
+assert value["compose"]["base_artifact_sha256"] == "722252e11e15cf315a5ade5cc1f5708eaacf636ecea4706a00ff5670d86ebd74"
+assert value["compose"]["retirement_artifact_sha256"] == "1e994b12d49f814f9dcef946802a6daf1e1027c95c9c9bf9a918aab53490cef9"
 assert value["aws"]["version_id_sha256"] == "3e42bf4017bedaaac231ce234cc8be64536a87da0ba8e401b90967864c73a8c0"
 assert "version_id" not in value["aws"]
 assert {"restic-recovery-bundle-a", "restic-recovery-bundle-b", "proton-trash"} <= set(value["preserve"])
@@ -62,6 +66,10 @@ assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 REAL_CONVERGE_IMAGE_OVERRIDE = module.converge_image_override
+REAL_COMPOSE_ARTIFACT_IDENTITY = module.compose_artifact_identity
+REAL_ROLLBACK_COMPOSE_SOURCE = module.rollback_compose_source
+REAL_RUN = module.run
+REAL_FSYNC_COMPOSE_PARENT = module.fsync_compose_parent
 REAL_FCHOWN = module.os.fchown
 module.container_state = lambda service, _manifest_hash: (service, "sha256:image", "container-" + service)
 plan = module.action_plan(value, EXPECTED)
@@ -83,6 +91,12 @@ assert 'expected_ids = manifest.get("restic_repositories", {})' in local_source
 assert local_source.index("file_rename_started") < local_source.index("irreversible_unlink_started")
 assert "rollback_forbidden" in local_source
 assert "fcntl.LOCK_EX" in local_source
+assert "temporary.unlink()" in local_source
+assert "rollback_compose_source(manifest, manifest_hash)" in local_source
+assert '["/usr/bin/mv", "--exchange"' in local_source
+retirement_playbook = (ROOT / "ansible/playbooks/retire-offen-local.yml").read_text()
+assert "compose_base_artifact_sha256" in (ROOT / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
+assert "when: offen_retirement_action == 'rollback'" in retirement_playbook and "apply_lock_action: release" in retirement_playbook
 
 iam = (ROOT / "infrastructure/tofu/aws-foundation/iam.tf").read_text()
 lifecycle = (ROOT / "infrastructure/tofu/aws-foundation/main.tf").read_text()
@@ -189,6 +203,7 @@ with tempfile.TemporaryDirectory() as temporary:
     module.verify_archives = lambda *_args, **_kwargs: None
     module.verify_containers = lambda *_args, **_kwargs: None
     module.require_image_override = lambda *_args, **_kwargs: None
+    module.require_compose_source = lambda *_args, **_kwargs: None
     module.run = lambda _args: ""
     module.subprocess.run = lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout="")
     authoritative_journal = module.JOURNAL.read_bytes()
@@ -234,6 +249,7 @@ with tempfile.TemporaryDirectory() as temporary:
     rollback_manifest = {"local": {"archives": [item], "metadata_files": [], "protected_directories": []}, "compose": {"services": [], "image": "example.invalid/offen@sha256:" + "d" * 64, "image_override": {"path": str(root / "override.json"), "before_sha256": "3" * 64, "after_sha256": "4" * 64, "removed_services": {}}}}
     module.converge_image_override = lambda *_args, **_kwargs: None
     module.require_image_override = lambda *_args, **_kwargs: None
+    module.rollback_compose_source = lambda *_args, **_kwargs: None
     plan = module.action_plan(rollback_manifest, manifest_hash)
     plan_raw = module.canonical(plan); plan_hash = hashlib.sha256(plan_raw).hexdigest()
     owner_raw = module.canonical({"operation": "offen-retirement-local", "manifest_sha256": manifest_hash, "action_plan_sha256": plan_hash})
@@ -257,6 +273,7 @@ with tempfile.TemporaryDirectory() as temporary:
     module.rollback(rollback_manifest, manifest_hash)
     assert source.read_bytes() == b"rollback"
 module.converge_image_override = REAL_CONVERGE_IMAGE_OVERRIDE
+module.rollback_compose_source = REAL_ROLLBACK_COMPOSE_SOURCE
 
 # The production image override transition is exact, idempotent, and reversible.
 with tempfile.TemporaryDirectory() as temporary:
@@ -279,6 +296,43 @@ with tempfile.TemporaryDirectory() as temporary:
     assert override.read_bytes() == before_raw
     module.converge_image_override(override_manifest, "e" * 64, False)
 module.os.fchown = REAL_FCHOWN
+
+# Compose source rollback adopts an exchange after response loss and recovers
+# the crash-only state where current is absent but exact base previous remains.
+with tempfile.TemporaryDirectory() as temporary:
+    root = Path(temporary); current = root / "current"; previous = root / "previous"
+    current.mkdir(); previous.mkdir(); (current / "identity").write_text("retired"); (previous / "identity").write_text("base")
+    compose_manifest = {"compose": {"working_directory": str(current), "previous_directory": str(previous), "base_artifact_sha256": "base", "retirement_artifact_sha256": "retired"}}
+    module.TRANSACTION = root; module.JOURNAL = root / "journal.jsonl"; module._regular_private = lambda path: path.read_bytes()
+    module.compose_artifact_identity = lambda path: (path / "identity").read_text()
+    def exchange_then_lose(_command):
+        swap = root / "swap"; current.rename(swap); previous.rename(current); swap.rename(previous)
+        raise RuntimeError("simulated exchange response loss")
+    module.run = exchange_then_lose
+    try:
+        module.rollback_compose_source(compose_manifest, "f" * 64)
+        raise AssertionError("exchange response-loss injection did not fire")
+    except RuntimeError:
+        pass
+    module.run = lambda _command: ""
+    module.rollback_compose_source(compose_manifest, "f" * 64)
+    assert (current / "identity").read_text() == "base" and (previous / "identity").read_text() == "retired"
+    missing = root / "missing"; missing.mkdir(); missing_current = missing / "current"; missing_previous = missing / "previous"
+    missing_previous.mkdir(); (missing_previous / "identity").write_text("base")
+    missing_manifest = {"compose": {"working_directory": str(missing_current), "previous_directory": str(missing_previous), "base_artifact_sha256": "base", "retirement_artifact_sha256": "retired"}}
+    module.fsync_compose_parent = lambda _path: (_ for _ in ()).throw(RuntimeError("simulated missing-current response loss"))
+    try:
+        module.recover_missing_current(missing_manifest)
+        raise AssertionError("missing-current response-loss injection did not fire")
+    except RuntimeError:
+        pass
+    module.fsync_compose_parent = REAL_FSYNC_COMPOSE_PARENT
+    module.recover_missing_current(missing_manifest)
+    assert (missing_current / "identity").read_text() == "base" and not missing_previous.exists()
+    assert len([item for item in module.journal_events() if item.get("event") == "compose_missing_current_recovered"]) == 1
+module.compose_artifact_identity = REAL_COMPOSE_ARTIFACT_IDENTITY
+module.fsync_compose_parent = REAL_FSYNC_COMPOSE_PARENT
+module.run = REAL_RUN
 
 # The terminal evidence validator accepts a schema-complete canonical shape and
 # rejects altered manifest/bundle semantics before any release path can clean up.
