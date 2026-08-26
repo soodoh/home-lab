@@ -53,8 +53,8 @@ def normalize_rule(rule: object) -> dict:
     if set(rule) <= concise_keys:
         validate_concise_rule(rule)
         return rule
-    expected_keys = concise_keys | {"filter", "transition", "noncurrent_version_transition"}
-    if set(rule) != expected_keys or rule.get("status") != "Enabled":
+    expected_keys = concise_keys | {"filter", "prefix", "transition", "noncurrent_version_transition"}
+    if set(rule) != expected_keys or rule.get("status") != "Enabled" or rule.get("prefix") != "":
         fail("lifecycle_rule_shape_differs")
     if rule.get("filter") != [{"and": [], "object_size_greater_than": None, "object_size_less_than": None, "prefix": "", "tag": []}]:
         fail("lifecycle_filter_differs")

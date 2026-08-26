@@ -153,7 +153,7 @@ lifecycle_change = next(item for item in provider_plan["resource_changes"] if it
 concise = lifecycle_change["change"]["after"]
 expanded_rules = []
 for rule in concise["rule"]:
-    expanded = {"id": rule["id"], "status": rule["status"], "filter": [{"and": [], "object_size_greater_than": None, "object_size_less_than": None, "prefix": "", "tag": []}], "transition": [], "noncurrent_version_transition": [], "abort_incomplete_multipart_upload": rule.get("abort_incomplete_multipart_upload", [])}
+    expanded = {"id": rule["id"], "status": rule["status"], "filter": [{"and": [], "object_size_greater_than": None, "object_size_less_than": None, "prefix": "", "tag": []}], "prefix": "", "transition": [], "noncurrent_version_transition": [], "abort_incomplete_multipart_upload": rule.get("abort_incomplete_multipart_upload", [])}
     if rule["id"] == "critical-backup-retention":
         expanded["expiration"] = [{"date": None, "days": rule["expiration"][0]["days"], "expired_object_delete_marker": False}]
         expanded["noncurrent_version_expiration"] = [{"newer_noncurrent_versions": None, "noncurrent_days": 1}]
