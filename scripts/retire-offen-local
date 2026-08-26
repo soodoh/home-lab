@@ -79,6 +79,31 @@ def verify_status() -> None:
         fail("recovery_service_invalid")
 
 
+def verify_status_under_lock(manifest: dict) -> None:
+    policy_path = Path("/etc/home-lab/restic-policy.json")
+    if not policy_path.is_file() or policy_path.is_symlink():
+        fail("restic_policy_invalid")
+    policy = json.loads(policy_path.read_text())
+    repositories = policy.get("repositories", {})
+    expected_ids = manifest.get("restic_repositories", {})
+    observed_ids = {
+        name: value.get("id")
+        for name, value in repositories.items()
+        if isinstance(name, str) and isinstance(value, dict)
+    } if isinstance(repositories, dict) else {}
+    if policy.get("migration_state") != "active" or observed_ids != expected_ids:
+        fail("restic_policy_state_invalid")
+    runner = policy.get("runner", {})
+    accepted_path = Path(runner.get("accepted_path", ""))
+    journal_path = Path(runner.get("journal_path", ""))
+    if (not accepted_path.is_absolute() or not accepted_path.is_file()
+            or accepted_path.is_symlink() or not journal_path.is_absolute() or journal_path.exists()):
+        fail("restic_transaction_state_invalid")
+    accepted = json.loads(accepted_path.read_text())
+    if not isinstance(accepted, dict) or accepted.get("version") != 1 or accepted.get("pending") != []:
+        fail("restic_pending_state_invalid")
+
+
 def verify_mounts(manifest: dict) -> None:
     for item in manifest["local"]["mounts"]:
         output = run(["findmnt", "--noheadings", "--output", "FSTYPE,SOURCE", "--target", item["mountpoint"]])
@@ -330,7 +355,7 @@ def mutate_apply(manifest: dict, manifest_hash: str) -> None:
         plan = action_plan(manifest, manifest_hash)
         plan_hash = hashlib.sha256(canonical(plan)).hexdigest()
         create_owner(manifest_hash, plan, plan_hash)
-    verify_status(); verify_mounts(manifest)
+    verify_status_under_lock(manifest); verify_mounts(manifest)
     verify_archives(manifest, manifest_hash, True); verify_containers(manifest, manifest_hash, True)
     for change in plan["container_renames"]:
         inspected = subprocess.run(["docker", "inspect", "--format", "{{.Id}}", change["from"]], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -432,7 +457,7 @@ def finalize(manifest: dict, manifest_hash: str, evidence_hash: str) -> None:
     if len(irreversible_events) > 1 or (irreversible_events and irreversible_events[0].get("evidence_sha256") != evidence_hash):
         fail("irreversible_authorization_differs")
     irreversible = bool(irreversible_events)
-    verify_status(); verify_mounts(manifest)
+    verify_status_under_lock(manifest); verify_mounts(manifest)
     verify_archives(manifest, manifest_hash, True, irreversible)
     verify_containers(manifest, manifest_hash, True, irreversible)
     if not irreversible:
@@ -543,11 +568,15 @@ def main() -> None:
     if os.geteuid() != 0:
         fail("root_required")
     manifest, manifest_hash = load_manifest(args.manifest_sha256)
+    # The runner's status command takes this same mutex non-blockingly, so prove
+    # status immediately before acquisition and re-check its files after locking.
+    verify_status()
     MUTEX.parent.mkdir(parents=True, exist_ok=True)
     with MUTEX.open("a+") as mutex:
         fcntl.flock(mutex, fcntl.LOCK_EX)
+        verify_status_under_lock(manifest)
         if args.action == "plan":
-            verify_status(); verify_mounts(manifest); verify_archives(manifest, manifest_hash, False); verify_containers(manifest, manifest_hash, False)
+            verify_mounts(manifest); verify_archives(manifest, manifest_hash, False); verify_containers(manifest, manifest_hash, False)
             plan_hash = hashlib.sha256(canonical(action_plan(manifest, manifest_hash))).hexdigest()
             print(f"offen_retirement_local=planned action_plan_sha256={plan_hash}")
         elif args.action in ("apply", "resume"):

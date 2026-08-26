@@ -13,11 +13,16 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "infrastructure/retirement/offen-retirement-manifest.json"
-EXPECTED = "f41d0ae852c3aed6e9fbb0c8ecd17323f959bd646d00b71926009711cbacd71f"
+EXPECTED = "16d1054879e7e42097fbec85fdd4bf81361eee00813cfb173291487df64ac23d"
 
 raw = MANIFEST.read_bytes()
 assert hashlib.sha256(raw).hexdigest() == EXPECTED
 value = json.loads(raw)
+assert value["restic_repositories"] == {
+    "games": "b15627185df9b10a95b5dffe7d194dbccdba6ba4eb8a038ee03e750fedbde08f",
+    "nfs": "61d50fa782d194374deb24f354a07b0f11634721afa1b268963e4d017b93bb95",
+    "proton": "d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e",
+}
 archives = value["local"]["archives"]
 assert len(archives) == 12
 assert len({item["path"] for item in archives}) == 12
@@ -70,6 +75,8 @@ assert "s3api list-object-versions" in aws_source
 assert "DeleteObjects" not in aws_source and "--recursive" not in aws_source
 assert all(forbidden not in aws_source for forbidden in ("rclone purge", "rclone cleanup", "aws s3 rm"))
 local_source = (ROOT / "scripts/retire-offen-local").read_text()
+assert 'observed_ids != expected_ids' in local_source
+assert 'expected_ids = manifest.get("restic_repositories", {})' in local_source
 assert local_source.index("file_rename_started") < local_source.index("irreversible_unlink_started")
 assert "rollback_forbidden" in local_source
 assert "fcntl.LOCK_EX" in local_source
@@ -174,6 +181,7 @@ with tempfile.TemporaryDirectory() as temporary:
     for item in module.retirement_files(fixture_manifest):
         Path(item["path"]).rename(module.tombstone(Path(item["path"]), manifest_hash))
     module.verify_status = lambda: None
+    module.verify_status_under_lock = lambda _manifest: None
     module.verify_mounts = lambda _manifest: None
     module.verify_archives = lambda *_args, **_kwargs: None
     module.verify_containers = lambda *_args, **_kwargs: None

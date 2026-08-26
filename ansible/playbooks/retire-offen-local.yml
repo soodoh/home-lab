@@ -38,7 +38,7 @@
               compose_artifact_hash | default('') is match('^[0-9a-f]{64}$')
             )
           - >-
-            offen_retirement_action == 'apply' or
+            offen_retirement_action in ['plan', 'apply'] or
             offen_retirement_expected_production_owner_sha256 | default('') is match('^[0-9a-f]{64}$')
           - >-
             offen_retirement_action != 'finalize' or
