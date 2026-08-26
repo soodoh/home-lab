@@ -160,6 +160,36 @@
         apply_lock_operation: restic-first-run
 
   tasks:
+    - name: Recompute the exact active Compose artifact identity under first-run lock authority
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - /srv/docker-compose/current/scripts/compose-artifact.py
+          - --root
+          - /srv/docker-compose/current
+          - --no-git
+          - hash
+      become: true
+      register: restic_first_run_active_artifact
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require an exact active Compose artifact identity before publication
+      ansible.builtin.assert:
+        that:
+          - restic_first_run_active_artifact.stdout is match('^[0-9a-f]{64}$')
+      no_log: true
+
+    - name: Publish the exact active Compose artifact identity under first-run lock authority
+      ansible.builtin.copy:
+        content: "{{ restic_first_run_active_artifact.stdout }}\n"
+        dest: "{{ backups.restic.runner.artifact_hash_path }}"
+        owner: root
+        group: root
+        mode: "0444"
+      become: true
+      no_log: true
     - name: Publish identical transient and durable AWS proof bytes for the owner-bound transaction
       ansible.builtin.copy:
         content: "{{ restic_first_run_aws_proof.stdout }}\n"
