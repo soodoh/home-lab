@@ -1285,7 +1285,7 @@ backups:
       compose_artifact_sha256: 1e994b12d49f814f9dcef946802a6daf1e1027c95c9c9bf9a918aab53490cef9
       compose_base_artifact_sha256: 722252e11e15cf315a5ade5cc1f5708eaacf636ecea4706a00ff5670d86ebd74
       evidence_file: infrastructure/evidence/offen-retirement-finalizing.json
-      evidence_sha256: e6b7c7031c47d29e6b7a933dd2c13287b1b5124171b7703bc9b928c5712c8281
+      evidence_sha256: dab7d7d64c643ba5d06c41ad93f55208ca58427eed91044ea225020b1aff99ea
     local_schedule: "0 5 * * *"
     local_paths:
       - /mnt/games/backups
