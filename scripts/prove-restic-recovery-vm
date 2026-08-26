@@ -568,7 +568,7 @@ def journal(directory: Path, commit: str) -> dict[str, object]:
         allowed_transitions = {
             "new": {"create-replanning", "create-planned"},
             "create-replanning": {"create-replanning", "create-planned"},
-            "create-planned": {"create-replanning", "create-applying"},
+            "create-planned": {"create-replanning", "create-applying", "create-applied"},
             "create-applying": {"create-replanning", "create-applied", "destroy-planned"},
             "create-applied": {"run-observed", "destroy-planned"},
             "run-observed": {"run-observed", "run-pretransfer-observed", "destroy-planned"},
@@ -577,7 +577,7 @@ def journal(directory: Path, commit: str) -> dict[str, object]:
             "run-disk-prepared": {"run-observed", "run-disk-prepared", "run-complete", "destroy-planned"},
             "run-complete": {"destroy-planned"},
             "destroy-replanning": {"destroy-planned"},
-            "destroy-planned": {"destroy-replanning", "destroy-applying"},
+            "destroy-planned": {"destroy-replanning", "destroy-applying", "destroy-applied"},
             "destroy-applying": {"destroy-replanning", "destroy-applied"},
             "destroy-applied": set(),
         }
