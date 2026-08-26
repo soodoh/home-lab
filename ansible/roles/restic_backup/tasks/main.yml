@@ -384,10 +384,37 @@
         backups.restic.repositories.games.id is string)
     fail_msg: Refusing a pre-existing games Restic repository until its exact ID is recorded.
 
-- name: Read recognized games repository identity without a password
-  ansible.builtin.slurp:
-    src: "{{ backups.restic.repositories.games.path }}/config"
+- name: Require the pinned Restic binary before decrypting repository identity
+  ansible.builtin.assert:
+    that:
+      - restic_backup_existing_binaries.results[0].stat.isreg | default(false)
+      - not (restic_backup_existing_binaries.results[0].stat.islnk | default(false))
+      - restic_backup_existing_binaries.results[0].stat.nlink == 1
+      - restic_backup_existing_binaries.results[0].stat.pw_name == 'root'
+      - restic_backup_existing_binaries.results[0].stat.gr_name == 'root'
+      - restic_backup_existing_binaries.results[0].stat.mode == '0755'
+      - restic_backup_existing_binaries.results[0].stat.checksum == backups.restic.tools.restic.installed_sha256
+    fail_msg: Refusing to decrypt repository identity with an unpinned Restic binary.
+  when:
+    - restic_backup_games_repository.stat.isreg | default(false)
+    - not (restic_backup_games_repository.stat.islnk | default(false))
+    - backups.restic.repositories.games.id is string
+- name: Read recognized games repository identity through Restic
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/restic
+      - -r
+      - "{{ backups.restic.repositories.games.path }}"
+      - cat
+      - config
+  environment:
+    HOME: /var/empty
+    RESTIC_CACHE_DIR: /var/cache/home-lab-restic
+    RESTIC_PASSWORD_FILE: /etc/home-lab/restic/credentials/local-password
   register: restic_backup_games_config
+  changed_when: false
+  check_mode: false
+  no_log: true
   when:
     - restic_backup_games_repository.stat.isreg | default(false)
     - not (restic_backup_games_repository.stat.islnk | default(false))
@@ -396,8 +423,9 @@
 - name: Require exact recognized games repository identity
   ansible.builtin.assert:
     that:
-      - (restic_backup_games_config.content | b64decode | from_json).id == backups.restic.repositories.games.id
+      - (restic_backup_games_config.stdout | from_json).id == backups.restic.repositories.games.id
     fail_msg: The games Restic repository ID differs from the contract.
+  no_log: true
   when:
     - restic_backup_games_repository.stat.isreg | default(false)
     - not (restic_backup_games_repository.stat.islnk | default(false))
