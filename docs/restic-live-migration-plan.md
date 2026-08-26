@@ -201,7 +201,7 @@ deletefile <that exact renamed object>
 rmdir <the now-empty dedicated qualification directory>
 ```
 
-It must never use `mount`, `sync`, `bisync`, `cleanup`, or `purge`. It must prove exact account identity, at least the contracted `1,000,000,000,000` decimal bytes, a 100 GB free-space reserve, initial remote path emptiness, expected draft replacement behavior, original file sizes, bounded deletion, redacted errors, safe cache invalidation, and automatic password-only reauthentication. Larger future allocations remain valid. Proton Trash remains manual.
+It must never use `mount`, `sync`, `bisync`, `cleanup`, or `purge`. It must prove exact account identity, at least the contracted `1,000,000,000,000` decimal bytes, a 100 GB free-space reserve, initial remote path emptiness, reviewed draft-recovery configuration, original file sizes, bounded deletion, redacted errors, safe cache invalidation, and automatic password-only reauthentication. Larger future allocations remain valid. Proton Trash remains manual.
 
 The reviewed credential transition sets `credentials.bootstrap_enabled: true`, credential state `provisioned`, and qualification state `ready`, records only the SHA-256 of the exact decrypted Proton username, and keeps qualification evidence fields `null`. Its SOPS ciphertext and contract change must be committed before a separately authorized credential apply. The transition leaves migration `inert`, all repository IDs `null`, and every Restic unit disabled; it does not authorize a Proton login or qualification.
 

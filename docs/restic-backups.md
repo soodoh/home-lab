@@ -238,7 +238,7 @@ The contract intentionally advertises only verified staging while migration stat
 
 Repository validation does not satisfy these operator gates:
 
-1. Proton backend create/read/range-read/move/delete-draft/error-redaction qualification with the exact pinned rclone build.
+1. Proton backend create/read/range-read/move/delete/error-redaction qualification with the exact pinned rclone build.
 2. Safe cache invalidation and automatic password-only reauthentication from the dedicated SOPS credential.
 3. Empty-path, exact-account, minimum 1 TB allocation, 100 GB free-space reserve, and exclusive-client proof.
 4. Repository initialization, copied chunker parameters, and wrong-identity fail-closed tests.

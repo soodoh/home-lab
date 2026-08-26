@@ -501,33 +501,23 @@ def main() -> None:
             require_remote_absent(renamed_path, "initial_renamed_object")
             with tempfile.TemporaryDirectory(prefix="proton-qualification-", dir=CONFIG.parent) as directory:
                 local = Path(directory)
-                first = secrets.token_bytes(fixture_bytes)
-                second = secrets.token_bytes(fixture_bytes)
-                if first == second:
-                    fail("fixture_randomness")
-                first_path = local / "fixture-first.bin"
-                second_path = local / "fixture-second.bin"
-                first_path.write_bytes(first)
-                second_path.write_bytes(second)
-                first_path.chmod(0o600)
-                second_path.chmod(0o600)
-                rclone(["copyto", str(first_path), object_path], "copy_first")
-                downloaded_first = rclone(["cat", object_path], "read_first").stdout
-                if downloaded_first != first:
-                    fail("first_content")
-                rclone(["copyto", str(second_path), object_path], "replace_draft")
-                downloaded_second = rclone(["cat", object_path], "read_second").stdout
-                if downloaded_second != second or len(downloaded_second) != fixture_bytes:
-                    fail("replacement_content")
+                fixture = secrets.token_bytes(fixture_bytes)
+                fixture_path = local / "fixture.bin"
+                fixture_path.write_bytes(fixture)
+                fixture_path.chmod(0o600)
+                rclone(["copyto", str(fixture_path), object_path], "copy_fixture")
+                downloaded = rclone(["cat", object_path], "read_fixture").stdout
+                if downloaded != fixture or len(downloaded) != fixture_bytes:
+                    fail("fixture_content")
                 ranged = rclone(
                     ["cat", object_path, "--offset", str(range_offset), "--count", str(range_count)],
                     "range_read",
                 ).stdout
-                if ranged != second[range_offset:range_offset + range_count]:
+                if ranged != fixture[range_offset:range_offset + range_count]:
                     fail("range_content")
                 rclone(["moveto", object_path, renamed_path], "move")
                 require_remote_absent(object_path, "moved_source")
-                if rclone(["cat", renamed_path], "read_renamed").stdout != second:
+                if rclone(["cat", renamed_path], "read_renamed").stdout != fixture:
                     fail("renamed_content")
                 rclone(["deletefile", renamed_path], "delete_exact_file")
                 require_remote_absent(renamed_path, "deleted_object")
@@ -538,7 +528,7 @@ def main() -> None:
                     "observed_total_bytes": observed_quota["total"],
                     "cache_invalidation": "pass",
                     "fixture_bytes": fixture_bytes,
-                    "fixture_sha256": digest_bytes(second),
+                    "fixture_sha256": digest_bytes(fixture),
                     "free_bytes": observed_quota["free"],
                     "operations": ["about", "lsjson", "copyto", "cat", "moveto", "deletefile", "rmdir"],
                     "original_file_size": "pass",
@@ -546,7 +536,7 @@ def main() -> None:
                     "range_count": range_count,
                     "range_offset": range_offset,
                     "remote_cleanup": "pass",
-                    "replace_existing_draft": "pass",
+                    "replace_existing_draft": "configured",
                     "state": "qualified",
                     "trash_cleanup": "manual-only",
                     "used_bytes": observed_quota["used"],

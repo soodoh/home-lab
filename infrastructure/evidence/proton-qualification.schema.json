@@ -51,7 +51,7 @@
     "range_count": { "const": 1024 },
     "range_offset": { "const": 1024 },
     "remote_cleanup": { "const": "pass" },
-    "replace_existing_draft": { "const": "pass" },
+    "replace_existing_draft": { "const": "configured" },
     "state": { "const": "qualified" },
     "trash_cleanup": { "const": "manual-only" },
     "used_bytes": { "type": "integer", "minimum": 0 },

@@ -38,6 +38,7 @@ def policy(username_sha256: str) -> dict[str, object]:
 def main() -> None:
     module = runpy.run_path(str(ROOT / "scripts/qualify-proton-backup"), run_name="proton_qualification_test")
     assert module["ALLOWED_COMMANDS"] == {"about", "cat", "copyto", "deletefile", "lsjson", "moveto", "rmdir"}
+    assert (ROOT / "scripts/qualify-proton-backup").read_text().count('rclone(["copyto"') == 1
     assert not ({"cleanup", "delete", "mount", "nfsmount", "purge", "sync", "bisync"} & module["ALLOWED_COMMANDS"])
     username = "dedicated-backup@example.invalid"
     username_sha256 = hashlib.sha256(username.encode()).hexdigest()

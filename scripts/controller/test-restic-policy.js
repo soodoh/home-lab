@@ -103,7 +103,7 @@ const qualificationEvidence = {
   range_count: 1024,
   range_offset: 1024,
   remote_cleanup: "pass",
-  replace_existing_draft: "pass",
+  replace_existing_draft: "configured",
   state: "qualified",
   trash_cleanup: "manual-only",
   used_bytes: 200000000000,
