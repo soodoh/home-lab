@@ -509,11 +509,12 @@ def cloud_init_data(directory: Path) -> tuple[str, Path, Path]:
     user_key = user_public.read_text().strip()
     host_key = " ".join(host_public.read_text().strip().split()[:2])
     data = (
-        "#cloud-config\ndisable_root: true\nssh_pwauth: false\nssh_deletekeys: true\nssh_genkeytypes: []\nssh_keys:\n"
+        "#cloud-config\ndisable_root: false\nssh_pwauth: false\nssh_deletekeys: true\nssh_genkeytypes: []\nssh_keys:\n"
         f"  ed25519_private: |\n{private_lines}\n  ed25519_public: {host_key}\n"
-        "users:\n  - name: recovery\n    groups: [sudo]\n    shell: /bin/bash\n"
-        "    sudo: ALL=(ALL) NOPASSWD:ALL\n    ssh_authorized_keys:\n"
+        "users:\n  - name: root\n    lock_passwd: true\n    ssh_authorized_keys:\n"
         f"      - {user_key}\n"
+        "write_files:\n  - path: /usr/local/bin/sudo\n    owner: root:root\n    permissions: '0755'\n    content: |\n"
+        "      #!/bin/sh\n      exec \"$@\"\n"
     )
     return data, user_public, host_public
 
@@ -985,7 +986,7 @@ def known_hosts(directory: Path, ip: str, host_public: Path) -> Path:
 
 def ssh_base(directory: Path, ip: str) -> list[str]:
     return ["ssh", "-i", str(directory / "ssh-key"), "-o", f"UserKnownHostsFile={directory / 'known_hosts'}",
-            "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", f"recovery@{ip}"]
+            "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", f"root@{ip}"]
 
 
 def remote(directory: Path, ip: str, script: str, *, capture=False, input_text=None):
@@ -1008,7 +1009,7 @@ def remote_cleanup(directory: Path, ip: str) -> bool:
         "if mountpoint -q /srv/home-lab-recovery; then umount /srv/home-lab-recovery; fi; "
         "test ! -e /run/restic-recovery-input && test ! -e /run/restic-fixture && "
         "test ! -e /tmp/restic-recovery-transfer && test ! -e /srv/home-lab-recovery/restic-proton-proof && "
-        "test -z \"$(find /run/restic-recovery -maxdepth 1 -name 'bundle.*' -print -quit)\""
+        "{ test ! -e /run/restic-recovery || test -z \"$(find /run/restic-recovery -maxdepth 1 -name 'bundle.*' -print -quit)\"; }"
     )
     script = "sudo bash -c " + shlex.quote(cleanup)
     return subprocess.run(
@@ -1189,7 +1190,7 @@ def run_restore() -> None:
         remote(directory, ip, "umask 077; install -d -m 0700 /tmp/restic-recovery-transfer")
         transfers = [(paths["bundle"], "bundle.age"), (paths["identity"], "identity.agekey"), (paths["consumer"], "run-restic-recovery-bundle"), (paths["age"], "age"), (paths["activation_test"], "test-restic-activation-fixture"), (paths["activation_engine"], "activate-restic-staging-fixture")]
         for source, name in transfers:
-            command(["scp", "-q", "-i", str(directory / "ssh-key"), "-o", f"UserKnownHostsFile={directory / 'known_hosts'}", "-o", "StrictHostKeyChecking=yes", str(source), f"recovery@{ip}:/tmp/restic-recovery-transfer/{name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            command(["scp", "-q", "-i", str(directory / "ssh-key"), "-o", f"UserKnownHostsFile={directory / 'known_hosts'}", "-o", "StrictHostKeyChecking=yes", str(source), f"root@{ip}:/tmp/restic-recovery-transfer/{name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         prepare = r'''set -euo pipefail
 sudo install -d -o root -g root -m 0700 /run/restic-recovery-input /run/restic-recovery /srv/home-lab-recovery
 sudo install -o root -g root -m 0600 /tmp/restic-recovery-transfer/bundle.age /run/restic-recovery-input/bundle.age
