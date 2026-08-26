@@ -63,6 +63,13 @@ const appliedRetentionHold = structuredClone(plannedRetentionHold);
 appliedRetentionHold.backups.legacy_offen.migration_retention_hold = {
   state: "applied",
   current_object_retention_days: 365,
+  lifecycle_rule_id: "critical-backup-retention",
+  delete_marker_rule_id: "expired-delete-marker-cleanup",
+  expected_principal_arn_sha256: "cbfd4986207c28758c6d4561f6636cbaf31bbeca8972891d347ed25180be2ac7",
+  recovery_object_key: "weekly-backup-2026-08-23T06-00-00.tar.gz.gpg",
+  recovery_object_bytes: 2399491160,
+  recovery_object_last_modified: "2026-08-23T13:03:53Z",
+  recovery_object_storage_class: "STANDARD",
   plan_sha256: "a".repeat(64),
   recovery_object_version_id_sha256: "b".repeat(64),
   verified_at: "2026-08-23T18:00:00Z",

@@ -6,13 +6,15 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const Ajv2020 = require("ajv/dist/2020");
 const { load } = require("js-yaml");
-const { globRegex, validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticPolicy } = require("./validate-restic-policy");
+const { globRegex, validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticFirstRunEvidence, validateResticPolicy } = require("./validate-restic-policy");
 
 const base = load(fs.readFileSync("infrastructure/contract/home-lab.yml", "utf8")).backups.restic;
 const qualificationEvidenceSchema = JSON.parse(fs.readFileSync("infrastructure/evidence/proton-qualification.schema.json", "utf8"));
 const initializationEvidenceSchema = JSON.parse(fs.readFileSync("infrastructure/evidence/restic-repository-initialization.schema.json", "utf8"));
+const firstRunEvidenceSchema = JSON.parse(fs.readFileSync("infrastructure/evidence/restic-first-run.schema.json", "utf8"));
 const validateQualificationEvidenceSchema = new Ajv2020({ allErrors: true, strict: true }).compile(qualificationEvidenceSchema);
 new Ajv2020({ allErrors: true, strict: true }).compile(initializationEvidenceSchema);
+const validateFirstRunSchema = new Ajv2020({ allErrors: true, strict: true }).compile(firstRunEvidenceSchema);
 const clone = () => structuredClone(base);
 const resetInitializationReady = (value) => {
   value.initialization.state = "ready";
@@ -163,5 +165,37 @@ fixture.initialization.evidence_sha256 = crypto.createHash("sha256").update(rawI
 assert.deepEqual(validateResticInitializationEvidence(fixture, initializationEvidence, rawInitializationEvidence), []);
 fixture.repositories.proton.id = fixture.repositories.nfs.id;
 assert(validateResticPolicy(fixture).some((failure) => failure.includes("three distinct IDs")));
+
+fixture = clone();
+fixture.first_run.baseline.games = ["a".repeat(64)];
+assert(validateResticPolicy(fixture).some((failure) => failure.includes("three empty repositories")));
+fixture = clone();
+fixture.first_run.snapshots.games = "a".repeat(64);
+assert(validateResticPolicy(fixture).some((failure) => failure.includes("ready Restic first run")));
+fixture = clone();
+fixture.first_run.state = "completed";
+fixture.first_run.source_policy_sha256 = "a".repeat(64);
+fixture.first_run.artifact_sha256 = "b".repeat(64);
+fixture.first_run.aws_evidence_sha256 = "c".repeat(64);
+fixture.first_run.completed_at = "2026-08-26T02:00:00Z";
+fixture.first_run.snapshots = { games: "d".repeat(64), nfs: "e".repeat(64), proton: "f".repeat(64) };
+const firstRunEvidence = {
+  version: 1, type: "restic-first-run", state: "completed", lock_owner_sha256: "1".repeat(64),
+  source_policy_sha256: fixture.first_run.source_policy_sha256, artifact_sha256: fixture.first_run.artifact_sha256,
+  aws_evidence_sha256: fixture.first_run.aws_evidence_sha256, helper_sha256: fixture.first_run.helper_sha256,
+  runner_sha256: fixture.runner.sha256, restic_sha256: fixture.tools.restic.installed_sha256, rclone_sha256: fixture.tools.rclone.installed_sha256,
+  initialization_evidence_sha256: fixture.initialization.evidence_sha256, qualification_evidence_sha256: fixture.qualification.evidence_sha256,
+  repository_ids: Object.fromEntries(Object.entries(fixture.repositories).map(([name, value]) => [name, value.id])), snapshots: fixture.first_run.snapshots,
+  initially_running_writers: [], stopped_writers: [], restarted_writers: [], writers_healthy: "pass",
+  repository_checks: { games: true, nfs: true, proton: true }, retention: { games: true, nfs: true, proton: true },
+  quota: { used: 1, free: 1073741824000, total: 1073741824000, active: 1, warning: 0 },
+  timers: { daily_timer: "disabled-inactive", maintenance_timer: "disabled-inactive" },
+  started_at: "2026-08-26T01:00:00Z", completed_at: fixture.first_run.completed_at,
+};
+assert(validateFirstRunSchema(firstRunEvidence));
+const rawFirstRun = Buffer.from(`${JSON.stringify(firstRunEvidence)}\n`);
+fixture.first_run.evidence_sha256 = crypto.createHash("sha256").update(rawFirstRun).digest("hex");
+assert.deepEqual(validateResticPolicy(fixture), []);
+assert.deepEqual(validateResticFirstRunEvidence(fixture, firstRunEvidence, rawFirstRun), []);
 
 console.log("restic_policy_semantics=verified");

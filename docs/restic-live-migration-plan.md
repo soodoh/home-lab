@@ -276,7 +276,7 @@ Repository initialization is not rolled back by deletion. On failure, keep all u
 
 ## Phase 7 — create the first chained recovery point through an exact gate
 
-Keep timers disabled. Publish the exact active Compose artifact hash, then use the future guarded first-run playbook—not an ad-hoc runner or `systemctl` command:
+Keep timers disabled. Publish the exact active Compose artifact hash, then use the implemented guarded first-run playbook—not an ad-hoc runner or `systemctl` command:
 
 ```sh
 cd ansible
@@ -290,7 +290,7 @@ ansible-playbook -i inventory/production.yml playbooks/run-first-restic-backup.y
   -e restic_first_run_confirmation=run-one-reviewed-games-nfs-proton-chain
 ```
 
-The playbook must hold the production mutation lock, invoke `/usr/local/libexec/home-lab/restic-backup preflight`, start exactly `home-lab-restic-daily.target`, capture exact journal/evidence identities, and leave both timers disabled.
+Set the controller-only `restic_first_run_sops_binary`, `restic_first_run_aws_binary`, and `restic_first_run_age_key_file` inputs to reviewed hash-pinned, single-link, root-owned, non-writable tools and the protected age key for each check, live, resume, and finalize invocation. The playbook holds `operation=restic-first-run`, obtains a fresh bounded repository-backed AWS proof without persisting plaintext credentials, invokes `/usr/local/libexec/home-lab/restic-backup preflight`, starts exactly `home-lab-restic-daily.target`, captures exact journal/evidence identities, and leaves both timers disabled. The fixed-subcommand runner accepts that deploy lock only when exact owner bytes, policy/artifact/runner hashes, repository IDs, journal stage, and next command bind the transaction; every other deploy lock remains rejected.
 
 Acceptance requires:
 
@@ -303,7 +303,7 @@ Acceptance requires:
 7. retention dry-run and actual behavior preserving pending evidence; and
 8. Proton quota/headroom evidence.
 
-An NFS or Proton failure must not invalidate the committed games snapshot. Keep timers disabled and process only validated pending evidence on retry.
+An NFS or Proton failure does not invalidate the committed games snapshot. The durable first-run journal checkpoints writer stops/restarts, the committed games ID, NFS acceptance, Proton acceptance, checks, retention, and quota. `resume-first-restic-backup.yml` adopts only the exact post-baseline chain under the retained owner lock and never creates a second games snapshot after `games_committed`. The sole pre-journal exception requires all three repositories to equal the committed empty baseline with no acceptance, interruption, result, host-evidence, authorization, or token state; it can replay interrupted AWS host/controller publication and then creates the owner-bound baseline journal. Any nonempty or mismatched state stays locked. After evidence is committed, `finalize-first-restic-backup.yml` runs no-lock/no-cache repository verification against the pending completed policy even in check mode, removes only transient first-run state outside check mode, re-audits protections, and releases only the exact owner-bound lock outside check mode.
 
 ## Phase 8 — recovery bundles and restore proofs
 

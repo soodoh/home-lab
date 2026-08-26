@@ -9,7 +9,7 @@ const { load } = require("js-yaml");
 const Ajv2020 = require("ajv/dist/2020");
 const { validateVmArtifactReferences } = require("./controller/validate-vm-artifact-references");
 const { validateProxmoxHostPolicy } = require("./controller/validate-proxmox-host-policy");
-const { validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticPolicy } = require("./controller/validate-restic-policy");
+const { validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticFirstRunEvidence, validateResticPolicy } = require("./controller/validate-restic-policy");
 const {
   validateProxmoxPackageArtifactBinding,
   validateProxmoxPackagePolicy,
@@ -25,6 +25,7 @@ const qualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence
 const qualificationValidatorPath = path.join(root, "scripts/controller/validate-lxc-qualification-evidence.py");
 const protonQualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proton-qualification.schema.json");
 const resticInitializationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/restic-repository-initialization.schema.json");
+const resticFirstRunEvidenceSchemaPath = path.join(root, "infrastructure/evidence/restic-first-run.schema.json");
 const operational = process.argv.includes("--operational");
 
 const contract = load(fs.readFileSync(contractPath, "utf8"));
@@ -35,12 +36,14 @@ const packageManifestSchema = JSON.parse(fs.readFileSync(packageManifestSchemaPa
 const qualificationEvidenceSchema = JSON.parse(fs.readFileSync(qualificationEvidenceSchemaPath, "utf8"));
 const protonQualificationEvidenceSchema = JSON.parse(fs.readFileSync(protonQualificationEvidenceSchemaPath, "utf8"));
 const resticInitializationEvidenceSchema = JSON.parse(fs.readFileSync(resticInitializationEvidenceSchemaPath, "utf8"));
+const resticFirstRunEvidenceSchema = JSON.parse(fs.readFileSync(resticFirstRunEvidenceSchemaPath, "utf8"));
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validate = ajv.compile(schema);
 const validatePackageManifest = ajv.compile(packageManifestSchema);
 const validateQualificationEvidence = ajv.compile(qualificationEvidenceSchema);
 const validateProtonQualificationSchema = ajv.compile(protonQualificationEvidenceSchema);
 const validateResticInitializationSchema = ajv.compile(resticInitializationEvidenceSchema);
+const validateResticFirstRunSchema = ajv.compile(resticFirstRunEvidenceSchema);
 
 if (!validate(contract)) {
   for (const error of validate.errors || []) {
@@ -184,6 +187,37 @@ if (resticInitialization.state === "initialized") {
   }
 } else if (fs.existsSync(resticInitializationEvidencePath)) {
   failures.push("ready Restic initialization must not retain committed evidence");
+}
+const firstRun = resticPolicy.first_run;
+for (const [file, expected, label] of [
+  ["scripts/restic-backup", resticPolicy.runner.sha256, "Restic runner"],
+  ["scripts/run-first-restic-backup", firstRun.helper_sha256, "Restic first-run helper"],
+  ["scripts/prove-aws-recovery-hold", firstRun.aws_proof_helper_sha256, "AWS recovery proof helper"],
+]) {
+  const observed = crypto.createHash("sha256").update(fs.readFileSync(path.join(root, file))).digest("hex");
+  if (observed !== expected) failures.push(`${label} SHA-256 differs from the contract`);
+}
+const firstRunEvidencePath = path.join(root, firstRun.evidence_file);
+const firstRunAwsEvidencePath = path.join(root, firstRun.aws_evidence_file);
+if (firstRun.state === "completed") {
+  if (!fs.existsSync(firstRunAwsEvidencePath)) failures.push("completed Restic first run requires retained AWS proof evidence");
+  else {
+    const rawAwsEvidence = fs.readFileSync(firstRunAwsEvidencePath);
+    const observedAwsEvidenceSha256 = crypto.createHash("sha256").update(rawAwsEvidence).digest("hex");
+    if (observedAwsEvidenceSha256 !== firstRun.aws_evidence_sha256) failures.push("Restic first-run AWS proof SHA-256 differs from the contract");
+  }
+  if (!fs.existsSync(firstRunEvidencePath)) failures.push("completed Restic first run requires retained evidence");
+  else {
+    const raw = fs.readFileSync(firstRunEvidencePath); let evidence;
+    try { evidence = JSON.parse(raw); } catch { failures.push("Restic first-run evidence is not valid JSON"); }
+    if (evidence) {
+      if (!validateResticFirstRunSchema(evidence)) failures.push("Restic first-run evidence does not match its schema");
+      else failures.push(...validateResticFirstRunEvidence(resticPolicy, evidence, raw));
+    }
+  }
+} else {
+  if (fs.existsSync(firstRunEvidencePath)) failures.push("ready Restic first run must not retain committed evidence");
+  if (fs.existsSync(firstRunAwsEvidencePath)) failures.push("ready Restic first run must not retain committed AWS proof evidence");
 }
 const sourcePaths = resticPolicy.sources.map((entry) => entry.path);
 const renderedFilesFrom = `${sourcePaths.join("\n")}\n`;

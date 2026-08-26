@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version","type","state","lock_owner_sha256","source_policy_sha256","artifact_sha256","aws_evidence_sha256","helper_sha256","runner_sha256","restic_sha256","rclone_sha256","initialization_evidence_sha256","qualification_evidence_sha256","repository_ids","snapshots","initially_running_writers","stopped_writers","restarted_writers","writers_healthy","repository_checks","retention","quota","timers","started_at","completed_at"],
+  "properties": {
+    "version": {"const": 1}, "type": {"const": "restic-first-run"}, "state": {"const": "completed"},
+    "lock_owner_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"}, "source_policy_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "artifact_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"}, "aws_evidence_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "helper_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"}, "runner_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "restic_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"}, "rclone_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "initialization_evidence_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"}, "qualification_evidence_sha256": {"type":"string","pattern":"^[0-9a-f]{64}$"},
+    "repository_ids": {"$ref":"#/$defs/threeIds"}, "snapshots": {"$ref":"#/$defs/threeIds"},
+    "initially_running_writers": {"type":"array","items":{"type":"string"},"uniqueItems":true},
+    "stopped_writers": {"type":"array","items":{"type":"string"},"uniqueItems":true}, "restarted_writers": {"type":"array","items":{"type":"string"},"uniqueItems":true},
+    "writers_healthy": {"const":"pass"}, "repository_checks": {"$ref":"#/$defs/threePass"}, "retention": {"$ref":"#/$defs/threePass"},
+    "quota": {"type":"object","additionalProperties":false,"required":["used","free","total","active","warning"],"properties":{"used":{"type":"integer","minimum":0},"free":{"type":"integer","minimum":100000000000},"total":{"type":"integer","minimum":1000000000000},"active":{"type":"integer","minimum":0},"warning":{"enum":[0,1]}}},
+    "timers": {"type":"object","additionalProperties":false,"required":["daily_timer","maintenance_timer"],"properties":{"daily_timer":{"const":"disabled-inactive"},"maintenance_timer":{"const":"disabled-inactive"}}},
+    "started_at": {"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}, "completed_at": {"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}
+  },
+  "$defs": {
+    "threeIds": {"type":"object","additionalProperties":false,"required":["games","nfs","proton"],"properties":{"games":{"type":"string","pattern":"^[0-9a-f]{64}$"},"nfs":{"type":"string","pattern":"^[0-9a-f]{64}$"},"proton":{"type":"string","pattern":"^[0-9a-f]{64}$"}}},
+    "threePass": {"type":"object","additionalProperties":false,"required":["games","nfs","proton"],"properties":{"games":{"const":true},"nfs":{"const":true},"proton":{"const":true}}}
+  }
+}

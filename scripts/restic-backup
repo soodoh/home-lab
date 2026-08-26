@@ -7,15 +7,14 @@ import fcntl
 import hashlib
 import json
 import os
-from pathlib import Path
-import re
 import pwd
+import re
 import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 from typing import Any
-
 
 SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "maintenance", "status"}
 PROHIBITED_RCLONE = {"cleanup", "mount", "nfsmount", "purge", "sync", "bisync", "delete", "deletefile"}
@@ -98,8 +97,7 @@ def run(arguments: list[str], *, environment: dict[str, str] | None = None, time
             arguments,
             check=False,
             stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             text=True,
             env=merged,
             timeout=timeout,
@@ -398,15 +396,24 @@ def parse_backup_snapshot(result: subprocess.CompletedProcess[str]) -> str:
     return snapshot
 
 
-def snapshot_mapping(policy: dict[str, Any], destination: str, source_id: str) -> str:
+def snapshot_mappings(policy: dict[str, Any], destination: str, source_id: str) -> list[str]:
     result = restic_result(policy, destination, ["snapshots", "--json"])
     require_success(result, "snapshot_verify")
     try:
         snapshots = json.loads(result.stdout)
     except json.JSONDecodeError as error:
         raise WorkflowError("snapshot_json") from error
-    matches = [entry["id"] for entry in snapshots if entry.get("original") == source_id]
-    if len(matches) != 1 or SNAPSHOT_ID.fullmatch(matches[0]) is None:
+    if not isinstance(snapshots, list):
+        raise WorkflowError("snapshot_json")
+    matches = [entry["id"] for entry in snapshots if isinstance(entry, dict) and entry.get("original") == source_id]
+    if any(not isinstance(value, str) or SNAPSHOT_ID.fullmatch(value) is None for value in matches):
+        raise WorkflowError("snapshot_mapping")
+    return matches
+
+
+def snapshot_mapping(policy: dict[str, Any], destination: str, source_id: str) -> str:
+    matches = snapshot_mappings(policy, destination, source_id)
+    if len(matches) != 1:
         raise WorkflowError("snapshot_mapping")
     return matches[0]
 
@@ -460,8 +467,161 @@ def copy_snapshot(policy: dict[str, Any], source: str, destination: str, snapsho
     return snapshot_mapping(policy, destination, snapshot)
 
 
+def adopt_or_copy_snapshot(policy: dict[str, Any], source: str, destination: str, snapshot: str, ambiguous_reason: str) -> str:
+    existing = snapshot_mappings(policy, destination, snapshot)
+    if len(existing) > 1:
+        raise WorkflowError(ambiguous_reason)
+    return existing[0] if existing else copy_snapshot(policy, source, destination, snapshot)
+
+
 def accepted_path(policy: dict[str, Any]) -> Path:
     return rooted(policy["runner"]["accepted_path"])
+
+
+def first_run_context(policy: dict[str, Any], policy_hash: str, command: str) -> dict[str, Any] | None:
+    deploy_lock = rooted(policy["runner"]["deploy_lock_path"])
+    if not deploy_lock.exists():
+        return None
+    if deploy_lock.is_symlink() or not deploy_lock.is_dir():
+        raise WorkflowError("deploy_lock_type")
+    definition = policy.get("first_run")
+    if not isinstance(definition, dict) or definition.get("state") != "ready":
+        raise WorkflowError("concurrent_deploy")
+    authorization_path = rooted(definition["authorization_path"])
+    require_regular(authorization_path, {0o440}, None if testing() else {0})
+    if not testing() and authorization_path.lstat().st_gid != proton_identity()[1]:
+        raise WorkflowError("first_run_authorization_metadata")
+    try:
+        authorization = json.loads(authorization_path.read_bytes())
+    except json.JSONDecodeError as error:
+        raise WorkflowError("first_run_authorization") from error
+    if not isinstance(authorization, dict) or set(authorization) != {"version", "operation", "lock_owner_sha256", "source_policy_sha256", "artifact_sha256", "runner_sha256"}:
+        raise WorkflowError("first_run_authorization")
+    if authorization.get("version") != 1 or authorization.get("operation") != "restic-first-run":
+        raise WorkflowError("first_run_authorization")
+    if testing() or os.geteuid() == 0:
+        owner = deploy_lock / "owner"
+        require_regular(owner, {0o600}, None if testing() else {0})
+        owner_raw = owner.read_bytes()
+        lines = owner_raw.decode("utf-8").splitlines()
+        if {line.split("=", 1)[0] for line in lines} != {"controller", "operation", "started"}:
+            raise WorkflowError("first_run_lock_owner")
+        if "controller=ansible-deploy" not in lines or "operation=restic-first-run" not in lines:
+            raise WorkflowError("concurrent_deploy")
+        if authorization.get("lock_owner_sha256") != hashlib.sha256(owner_raw).hexdigest():
+            raise WorkflowError("first_run_authorization")
+    journal_value = read_json(rooted(definition["journal_path"]), None)
+    if not isinstance(journal_value, dict):
+        raise WorkflowError("first_run_journal")
+    expected = {
+        "preflight": {"baseline"},
+        "daily-local": {"preflight_passed", "games_committed", "writers_restarted", "nfs_completed"},
+        "daily-proton": {"nfs_completed", "complete"},
+    }
+    if command not in expected or journal_value.get("stage") not in expected[command]:
+        raise WorkflowError("first_run_command_stage")
+    runner_hash = hashlib.sha256(rooted(policy["runner"]["path"]).read_bytes()).hexdigest()
+    artifact = artifact_hash(policy)
+    if (journal_value.get("version") != 1 or journal_value.get("operation") != "restic-first-run"
+            or journal_value.get("lock_owner_sha256") != authorization.get("lock_owner_sha256")
+            or journal_value.get("source_policy_sha256") != policy_hash
+            or journal_value.get("artifact_sha256") != artifact
+            or journal_value.get("runner_sha256") != runner_hash
+            or runner_hash != policy["runner"]["sha256"]
+            or authorization.get("source_policy_sha256") != policy_hash
+            or authorization.get("artifact_sha256") != artifact
+            or authorization.get("runner_sha256") != runner_hash):
+        raise WorkflowError("first_run_binding")
+    return journal_value
+
+
+def first_run_checkpoint(policy: dict[str, Any], journal: dict[str, Any]) -> None:
+    atomic_json(rooted(policy["first_run"]["journal_path"]), journal, 0o660)
+
+
+def expected_first_run_proton_token(
+    policy: dict[str, Any], policy_hash: str, journal: dict[str, Any],
+) -> dict[str, Any]:
+    definition = policy["first_run"]
+    lock_path = rooted(policy["runner"]["deploy_lock_path"])
+    lock_metadata = lock_path.lstat()
+    if (lock_path.is_symlink() or not lock_path.is_dir()
+            or (not testing() and (lock_metadata.st_uid != 0 or lock_metadata.st_mode & 0o777 != 0o700))):
+        raise WorkflowError("first_run_lock_metadata")
+    if testing() or os.geteuid() == 0:
+        owner_path = lock_path / "owner"
+        require_regular(owner_path, {0o600}, None if testing() else {0})
+        owner_digest = hashlib.sha256(owner_path.read_bytes()).hexdigest()
+    else:
+        # The confined identity cannot traverse the root-only lock directory.
+        # Root already bound owner bytes into the read-only authorization and
+        # one-use token; non-root additionally binds the live directory inode.
+        owner_digest = journal["lock_owner_sha256"]
+    authorization_path = rooted(definition["authorization_path"])
+    require_regular(authorization_path, {0o440}, None if testing() else {0})
+    authorization_raw = authorization_path.read_bytes()
+    try:
+        authorization = json.loads(authorization_raw)
+    except json.JSONDecodeError as error:
+        raise WorkflowError("first_run_authorization") from error
+    if authorization.get("lock_owner_sha256") != owner_digest or owner_digest != journal["lock_owner_sha256"]:
+        raise WorkflowError("first_run_authorization")
+    journal_raw = (json.dumps(journal, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    return {
+        "version": 1, "operation": "restic-first-run", "lock_owner_sha256": owner_digest,
+        "source_policy_sha256": policy_hash, "artifact_sha256": journal["artifact_sha256"],
+        "runner_sha256": policy["runner"]["sha256"],
+        "authorization_sha256": hashlib.sha256(authorization_raw).hexdigest(),
+        "journal_sha256": hashlib.sha256(journal_raw).hexdigest(),
+        "lock_device": lock_metadata.st_dev, "lock_inode": lock_metadata.st_ino,
+        "lock_ctime_ns": lock_metadata.st_ctime_ns,
+    }
+
+
+def validate_first_run_proton_token(
+    policy: dict[str, Any], policy_hash: str, journal: dict[str, Any], path: Path,
+) -> None:
+    require_regular(path, {0o440}, None if testing() else {0}, None if testing() else {proton_identity()[1]})
+    try:
+        token = json.loads(path.read_bytes())
+    except json.JSONDecodeError as error:
+        raise WorkflowError("first_run_token_json") from error
+    if token != expected_first_run_proton_token(policy, policy_hash, journal):
+        raise WorkflowError("first_run_token_binding")
+
+
+def publish_first_run_proton_token(policy: dict[str, Any], policy_hash: str, journal: dict[str, Any]) -> None:
+    if os.geteuid() != 0 and not testing():
+        raise WorkflowError("first_run_token_root")
+    if journal.get("stage") != "nfs_completed":
+        raise WorkflowError("first_run_token_stage")
+    definition = policy["first_run"]
+    token_path = rooted(definition["proton_token_path"])
+    consumed_path = rooted(definition["proton_consumed_token_path"])
+    if token_path.exists():
+        raise WorkflowError("first_run_token_exists")
+    if consumed_path.exists():
+        # A crash after the one-way rename but before validation/unlink is replayable
+        # only when the retained bytes still bind to this exact live lock and journal.
+        validate_first_run_proton_token(policy, policy_hash, journal, consumed_path)
+        durable_unlink(consumed_path)
+    atomic_json(token_path, expected_first_run_proton_token(policy, policy_hash, journal), 0o440)
+
+
+def consume_first_run_proton_token(policy: dict[str, Any], policy_hash: str, journal: dict[str, Any]) -> None:
+    definition = policy["first_run"]
+    token_path = rooted(definition["proton_token_path"])
+    consumed_path = rooted(definition["proton_consumed_token_path"])
+    if consumed_path.exists():
+        validate_first_run_proton_token(policy, policy_hash, journal, consumed_path)
+        durable_unlink(consumed_path)
+        return
+    if not token_path.exists():
+        raise WorkflowError("first_run_token_state")
+    token_path.replace(consumed_path)
+    fsync_directory(token_path.parent)
+    validate_first_run_proton_token(policy, policy_hash, journal, consumed_path)
+    durable_unlink(consumed_path)
 
 
 def retention(policy: dict[str, Any], name: str, protected_source_ids: set[str]) -> None:
@@ -490,37 +650,81 @@ def retention(policy: dict[str, Any], name: str, protected_source_ids: set[str])
     require_success(actual, f"forget_{name}")
 
 
-def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
+def daily_local(policy: dict[str, Any], policy_hash: str, first_run: dict[str, Any] | None = None) -> None:
     recover_interruption(policy)
     # NFS is deliberately deferred until after the games snapshot commits so
     # an NFS outage cannot suppress the primary local recovery point.
     preflight(policy, include_nfs=False)
-    stop_order = [*policy["stop_groups"]["applications"], *policy["stop_groups"]["databases"]]
-    running = [service for service in stop_order if service_running(service)]
-    journal = {"version": 1, "stage": "stopping", "running_services": running, "stopped_services": [], "started_at": int(time.time())}
-    atomic_json(journal_path(policy), journal, 0o600)
-    snapshot = None
-    try:
-        for service in stop_order:
-            if service not in running:
-                continue
-            require_success(compose(policy, ["stop", "--timeout", "120", service]), "service_stop")
-            if service_running(service):
-                raise WorkflowError("service_still_running")
-            journal["stopped_services"].append(service)
-            atomic_json(journal_path(policy), journal, 0o600)
-        current_artifact = artifact_hash(policy)
-        tags = ["cadence=daily", f"policy={policy_hash}", f"artifact={current_artifact}"]
-        arguments = ["backup", "--json", "--files-from", str(rooted(policy["runner"]["files_from_path"])), "--exclude-file", str(rooted(policy["runner"]["exclude_file_path"]))]
-        for tag in tags:
-            arguments.extend(["--tag", tag])
-        result = restic_result(policy, "games", arguments)
-        require_success(result, "backup")
-        snapshot = parse_backup_snapshot(result)
-    finally:
-        restart_recorded(policy, journal)
+    current_artifact = artifact_hash(policy)
+    snapshot = first_run["snapshots"]["games"] if first_run and first_run["stage"] in {"games_committed", "writers_restarted", "nfs_completed"} else None
+    if first_run and first_run["stage"] == "preflight_passed":
+        inventory = restic_result(policy, "games", ["snapshots", "--json"])
+        require_success(inventory, "first_run_games_inventory")
+        try:
+            records = json.loads(inventory.stdout)
+        except json.JSONDecodeError as error:
+            raise WorkflowError("first_run_games_inventory") from error
+        baseline = set(first_run["baseline"]["games"])
+        candidates = [entry for entry in records if isinstance(entry, dict) and entry.get("id") not in baseline]
+        if len(candidates) > 1:
+            raise WorkflowError("first_run_games_ambiguous")
+        if candidates:
+            tags = set(candidates[0].get("tags") or [])
+            required = {"cadence=daily", f"policy={policy_hash}", f"artifact={current_artifact}"}
+            if required - tags or SNAPSHOT_ID.fullmatch(candidates[0].get("id", "")) is None:
+                raise WorkflowError("first_run_games_adoption")
+            snapshot = candidates[0]["id"]
+            first_run["snapshots"]["games"] = snapshot
+            first_run["stage"] = "games_committed"
+            first_run_checkpoint(policy, first_run)
+    if first_run and first_run["stage"] == "nfs_completed":
+        nfs_snapshot = first_run["snapshots"]["nfs"]
+        if snapshot_mapping(policy, "nfs", snapshot) != nfs_snapshot:
+            raise WorkflowError("first_run_nfs_identity")
+        publish_first_run_proton_token(policy, policy_hash, first_run)
+        print(f"restic_backup=accepted source_snapshot={snapshot} nfs_snapshot={nfs_snapshot}")
+        return
+    if snapshot is None:
+        stop_order = [*policy["stop_groups"]["applications"], *policy["stop_groups"]["databases"]]
+        running = [service for service in stop_order if service_running(service)]
+        if first_run and running != first_run["initially_running_writers"]:
+            raise WorkflowError("first_run_writer_baseline")
+        journal = {"version": 1, "stage": "stopping", "running_services": running, "stopped_services": [], "started_at": int(time.time())}
+        atomic_json(journal_path(policy), journal, 0o600)
+        try:
+            for service in stop_order:
+                if service not in running:
+                    continue
+                require_success(compose(policy, ["stop", "--timeout", "120", service]), "service_stop")
+                if service_running(service):
+                    raise WorkflowError("service_still_running")
+                journal["stopped_services"].append(service)
+                atomic_json(journal_path(policy), journal, 0o600)
+                if first_run:
+                    first_run["stopped_writers"] = list(journal["stopped_services"])
+                    first_run_checkpoint(policy, first_run)
+            tags = ["cadence=daily", f"policy={policy_hash}", f"artifact={current_artifact}"]
+            arguments = ["backup", "--json", "--files-from", str(rooted(policy["runner"]["files_from_path"])), "--exclude-file", str(rooted(policy["runner"]["exclude_file_path"]))]
+            for tag in tags:
+                arguments.extend(["--tag", tag])
+            result = restic_result(policy, "games", arguments)
+            require_success(result, "backup")
+            snapshot = parse_backup_snapshot(result)
+            if first_run:
+                first_run["snapshots"]["games"] = snapshot
+                first_run["stage"] = "games_committed"
+                first_run_checkpoint(policy, first_run)
+        finally:
+            restart_recorded(policy, journal)
     if snapshot is None:
         raise WorkflowError("snapshot_not_committed")
+    if first_run:
+        restarted = [service for service in first_run["initially_running_writers"] if service_healthy(service)]
+        if restarted != first_run["initially_running_writers"]:
+            raise WorkflowError("first_run_writer_recovery")
+        first_run["restarted_writers"] = restarted
+        first_run["stage"] = "writers_restarted"
+        first_run_checkpoint(policy, first_run)
     check_repository(policy, "games")
     evidence_value = read_json(accepted_path(policy), {"version": 1, "pending": []})
     if not isinstance(evidence_value, dict) or evidence_value.get("version") != 1 or not isinstance(evidence_value.get("pending"), list):
@@ -528,17 +732,32 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
     existing = [pending_entry(policy, item) for item in evidence_value["pending"]]
     protected_games = {snapshot, *(item["source_snapshot"] for item in existing)}
     retention(policy, "games", protected_games)
+    if first_run:
+        first_run["checks"]["games"] = True
+        first_run["retention"]["games"] = True
+        first_run_checkpoint(policy, first_run)
     check_mount(policy, "nfs")
     games_config = verify_repository(policy, "games")
     nfs_config = verify_repository(policy, "nfs")
     if nfs_config["chunker_polynomial"] != games_config["chunker_polynomial"]:
         raise WorkflowError("repository_chunker_nfs")
-    nfs_snapshot = copy_snapshot(policy, "games", "nfs", snapshot)
+    nfs_snapshot = first_run["snapshots"]["nfs"] if first_run and first_run["snapshots"]["nfs"] else None
+    if nfs_snapshot is None:
+        nfs_snapshot = adopt_or_copy_snapshot(
+            policy, "games", "nfs", snapshot, "first_run_nfs_mapping" if first_run else "nfs_mapping",
+        )
     check_repository(policy, "nfs")
     entry = {"source_snapshot": snapshot, "nfs_snapshot": nfs_snapshot, "policy": policy_hash, "artifact": current_artifact, "accepted_at": int(time.time())}
     evidence_value["pending"] = [item for item in existing if item["source_snapshot"] != snapshot] + [entry]
     atomic_json(accepted_path(policy), evidence_value, 0o660)
     retention(policy, "nfs", {item["nfs_snapshot"] for item in evidence_value["pending"]})
+    if first_run:
+        first_run["snapshots"]["nfs"] = nfs_snapshot
+        first_run["checks"]["nfs"] = True
+        first_run["retention"]["nfs"] = True
+        first_run["stage"] = "nfs_completed"
+        first_run_checkpoint(policy, first_run)
+        publish_first_run_proton_token(policy, policy_hash, first_run)
     print(f"restic_backup=accepted source_snapshot={snapshot} nfs_snapshot={nfs_snapshot}")
 
 
@@ -569,8 +788,14 @@ def quota(policy: dict[str, Any], required_headroom: int = 0) -> dict[str, int]:
     return {"used": used, "free": free, "total": total, "active": active, "warning": int(used >= warning_threshold)}
 
 
-def daily_proton(policy: dict[str, Any], policy_hash: str) -> None:
+def daily_proton(policy: dict[str, Any], policy_hash: str, first_run: dict[str, Any] | None = None) -> None:
+    if first_run and first_run["stage"] == "nfs_completed":
+        consume_first_run_proton_token(policy, policy_hash, first_run)
     preflight(policy, proton=True, include_nfs=False, verify_source_paths=False)
+    if first_run and first_run["stage"] == "complete":
+        check_repository(policy, "proton")
+        print("restic_backup=proton copied=0 expired=0 pending=0 used=0 free=0 active=0 quota_warning=0")
+        return
     value = read_json(accepted_path(policy), {"version": 1, "pending": []})
     if not isinstance(value, dict) or value.get("version") != 1 or not isinstance(value.get("pending"), list):
         raise WorkflowError("accepted_schema")
@@ -581,6 +806,14 @@ def daily_proton(policy: dict[str, Any], policy_hash: str) -> None:
         raise WorkflowError("pending_current_acceptance_missing")
     copied: dict[str, str] = {}
     selected = current[: policy["proton"]["backlog_limit"]]
+    if first_run:
+        source = first_run["snapshots"]["games"]
+        existing_mappings = snapshot_mappings(policy, "proton", source)
+        if len(existing_mappings) > 1:
+            raise WorkflowError("first_run_proton_mapping")
+        if existing_mappings:
+            copied[source] = existing_mappings[0]
+            selected = [entry for entry in selected if entry["source_snapshot"] != source]
     for entry in selected:
         source = entry["source_snapshot"]
         quota(policy, snapshot_copy_bound(policy, source))
@@ -602,6 +835,17 @@ def daily_proton(policy: dict[str, Any], policy_hash: str) -> None:
     atomic_json(accepted_path(policy), value, 0o660)
     retention(policy, "proton", set(copied.values()))
     quota_value = quota(policy)
+    if first_run:
+        source = first_run["snapshots"]["games"]
+        if source not in copied:
+            raise WorkflowError("first_run_proton_copy")
+        first_run["snapshots"]["proton"] = copied[source]
+        first_run["checks"]["proton"] = True
+        first_run["retention"]["proton"] = True
+        first_run["quota"] = quota_value
+        first_run["completed_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        first_run["stage"] = "complete"
+        first_run_checkpoint(policy, first_run)
     print(f"restic_backup=proton copied={len(copied)} expired={expired} pending={len(remaining)} used={quota_value['used']} free={quota_value['free']} active={quota_value['active']} quota_warning={quota_value['warning']}")
 
 
@@ -669,20 +913,16 @@ def main() -> None:
                 fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError as error:
                 raise WorkflowError("concurrent_operation") from error
-            deploy_lock = rooted(policy["runner"]["deploy_lock_path"])
-            if deploy_lock.exists():
-                if deploy_lock.is_symlink() or not deploy_lock.is_dir():
-                    raise WorkflowError("deploy_lock_type")
-                raise WorkflowError("concurrent_deploy")
             command = sys.argv[1]
+            first_run = first_run_context(policy, policy_hash, command) if rooted(policy["runner"]["deploy_lock_path"]).exists() else None
             if command == "preflight":
                 recover_interruption(policy)
                 preflight(policy)
                 print("restic_backup=preflight_passed")
             elif command == "daily-local":
-                daily_local(policy, policy_hash)
+                daily_local(policy, policy_hash, first_run)
             elif command == "daily-proton":
-                daily_proton(policy, policy_hash)
+                daily_proton(policy, policy_hash, first_run)
             elif command == "maintenance":
                 maintenance(policy)
             else:

@@ -1,0 +1,427 @@
+#!/usr/bin/env python3
+"""Owner-bound supervisor for the first games -> NFS -> Proton recovery point."""
+from __future__ import annotations
+
+import datetime as dt
+import hashlib
+import json
+import os
+import pwd
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+ACTIONS = {"run", "resume", "verify"}
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+TIMESTAMP = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+OPERATION = "restic-first-run"
+
+class FirstRunError(RuntimeError):
+    pass
+
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+def fail(reason: str) -> None:
+    print(f"restic_first_run=failed reason={reason}", file=sys.stderr)
+    raise SystemExit(1)
+
+def regular(path: Path, modes: set[int], owners: set[int] | None = None) -> bytes:
+    if owners is None: owners = {0}
+    try: meta = path.lstat()
+    except OSError as error: raise FirstRunError("protected_file_missing") from error
+    if stat.S_ISLNK(meta.st_mode) or not stat.S_ISREG(meta.st_mode) or meta.st_nlink != 1 or stat.S_IMODE(meta.st_mode) not in modes or meta.st_uid not in owners:
+        raise FirstRunError("protected_file_metadata")
+    return path.read_bytes()
+
+def load(path: Path, modes: set[int] | None = None, owners: set[int] | None = None) -> tuple[dict[str, Any], bytes]:
+    raw = regular(path, {0o600} if modes is None else modes, {0} if owners is None else owners)
+    try: value = json.loads(raw)
+    except json.JSONDecodeError as error: raise FirstRunError("protected_json") from error
+    if not isinstance(value, dict): raise FirstRunError("protected_json_shape")
+    return value, raw
+
+def fsync_dir(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try: os.fsync(descriptor)
+    finally: os.close(descriptor)
+
+def canonical(value: object) -> bytes:
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+def atomic(path: Path, raw: bytes) -> None:
+    meta = path.parent.lstat()
+    if path.parent.is_symlink() or not path.parent.is_dir() or meta.st_uid != 0 or stat.S_IMODE(meta.st_mode) & 0o022:
+        raise FirstRunError("evidence_parent")
+    if path.exists() and regular(path, {0o600}, {0}) != raw:
+        raise FirstRunError("retained_evidence_mismatch")
+    if path.exists(): return
+    replace_root_file(path, raw)
+
+
+def replace_root_file(path: Path, raw: bytes) -> None:
+    """Durably replace a root evidence file after its caller proves replacement is safe."""
+    meta = path.parent.lstat()
+    if path.parent.is_symlink() or not path.parent.is_dir() or meta.st_uid != 0 or stat.S_IMODE(meta.st_mode) & 0o022:
+        raise FirstRunError("evidence_parent")
+    if path.exists():
+        regular(path, {0o600}, {0})
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(raw); stream.flush(); os.fsync(stream.fileno())
+        temporary.replace(path); fsync_dir(path.parent)
+    finally: temporary.unlink(missing_ok=True)
+
+def atomic_journal(path: Path, raw: bytes) -> None:
+    meta = path.parent.lstat()
+    service = pwd.getpwnam("restic-proton")
+    if path.parent.is_symlink() or not path.parent.is_dir() or meta.st_uid != 0 or meta.st_gid != service.pw_gid or stat.S_IMODE(meta.st_mode) != 0o2770:
+        raise FirstRunError("journal_parent")
+    if path.exists():
+        regular(path, {0o660}, {0, service.pw_uid})
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(name)
+    try:
+        os.fchmod(descriptor, 0o660); os.fchown(descriptor, -1, service.pw_gid)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(raw); stream.flush(); os.fsync(stream.fileno())
+        temporary.replace(path); fsync_dir(path.parent)
+    finally: temporary.unlink(missing_ok=True)
+
+
+def publish_authorization(path: Path, value: dict[str, Any]) -> None:
+    raw=canonical(value); service=pwd.getpwnam("restic-proton")
+    meta=path.parent.lstat()
+    if path.parent.is_symlink() or not path.parent.is_dir() or meta.st_uid!=0 or stat.S_IMODE(meta.st_mode)&0o022:
+        raise FirstRunError("authorization_parent")
+    if path.exists():
+        if regular(path,{0o440},{0})!=raw or path.lstat().st_gid!=service.pw_gid:
+            raise FirstRunError("authorization_binding")
+        return
+    descriptor,name=tempfile.mkstemp(prefix=f".{path.name}.",dir=path.parent); temporary=Path(name)
+    try:
+        os.fchmod(descriptor,0o440);os.fchown(descriptor,-1,service.pw_gid)
+        with os.fdopen(descriptor,"wb") as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
+        temporary.replace(path);fsync_dir(path.parent)
+    finally:temporary.unlink(missing_ok=True)
+
+
+def environment(extra: dict[str, str] | None = None) -> dict[str, str]:
+    value = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/var/empty", "LC_ALL": "C", "TZ": "UTC"}
+    if extra: value.update(extra)
+    return value
+
+def command(arguments: list[str], *, env: dict[str, str] | None = None, timeout: int = 43200) -> subprocess.CompletedProcess[bytes]:
+    try:
+        result = subprocess.run(arguments, stdin=subprocess.DEVNULL, capture_output=True,
+                                env=environment(env), timeout=timeout, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error: raise FirstRunError("command_execution") from error
+    if result.returncode:
+        raise FirstRunError(f"command_failed_rc_{result.returncode}_stderr_sha256_{digest(result.stderr)}")
+    return result
+
+def owner_hash(policy: dict[str, Any]) -> str:
+    lock = Path(policy["runner"]["deploy_lock_path"])
+    meta = lock.lstat()
+    if lock.is_symlink() or not lock.is_dir() or meta.st_uid != 0 or stat.S_IMODE(meta.st_mode) != 0o700:
+        raise FirstRunError("production_lock")
+    raw = regular(lock / "owner", {0o600}, {0})
+    lines = raw.decode().splitlines()
+    if f"operation={OPERATION}" not in lines or "controller=ansible-deploy" not in lines or len(lines) != 3:
+        raise FirstRunError("production_lock_owner")
+    return digest(raw)
+
+def restic(
+    policy: dict[str, Any], repository: str, arguments: list[str], *, read_only: bool = False,
+) -> subprocess.CompletedProcess[bytes]:
+    definition = policy["repositories"][repository]
+    password = "/etc/home-lab/restic/credentials/proton-password" if repository == "proton" else "/etc/home-lab/restic/credentials/local-password"
+    env = {"RESTIC_PASSWORD_FILE": password, "RESTIC_CACHE_DIR": policy["runner"]["proton_cache_path"] if repository == "proton" else policy["runner"]["local_cache_path"]}
+    global_arguments = ["--no-lock", "--no-cache"] if read_only else []
+    cmd = [policy["tools"]["restic"]["installed_path"], *global_arguments, "-r", definition["path"], *arguments]
+    if repository == "proton":
+        env.update({"RCLONE_CONFIG": "/var/lib/restic-proton/rclone.conf", "HOME": "/var/lib/restic-proton"})
+        cmd = ["/usr/sbin/runuser", "--user", "restic-proton", "--", "/usr/bin/env", "-i", *[f"{k}={v}" for k,v in environment(env).items()], *cmd]
+        return command(cmd)
+    return command(cmd, env=env)
+
+def snapshots(policy: dict[str, Any], repository: str, *, read_only: bool = False) -> list[dict[str, Any]]:
+    try: value = json.loads(restic(policy, repository, ["snapshots", "--json"], read_only=read_only).stdout)
+    except json.JSONDecodeError as error: raise FirstRunError("snapshot_json") from error
+    if not isinstance(value, list) or any(not isinstance(item, dict) or not HEX64.fullmatch(item.get("id", "")) for item in value):
+        raise FirstRunError("snapshot_shape")
+    return value
+
+def timer_state(policy: dict[str, Any]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key in ("daily_timer", "maintenance_timer"):
+        unit = policy["runner"]["units"][key]
+        active = subprocess.run(["/usr/bin/systemctl", "is-active", unit], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=environment(), check=False).stdout.decode().strip()
+        enabled = subprocess.run(["/usr/bin/systemctl", "is-enabled", unit], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=environment(), check=False).stdout.decode().strip()
+        if active != "inactive" or enabled != "disabled": raise FirstRunError("timer_state")
+        result[key] = "disabled-inactive"
+    return result
+
+def validate_journal(journal: dict[str, Any], policy: dict[str, Any], policy_hash: str, lock_hash: str) -> None:
+    required = {"version","operation","stage","lock_owner_sha256","source_policy_sha256","artifact_sha256","runner_sha256","aws_evidence_sha256","started_at","completed_at","baseline","initially_running_writers","stopped_writers","restarted_writers","snapshots","checks","retention","quota"}
+    if set(journal) != required or journal.get("version") != 1 or journal.get("operation") != OPERATION:
+        raise FirstRunError("journal_schema")
+    if journal["lock_owner_sha256"] != lock_hash or journal["source_policy_sha256"] != policy_hash or journal["runner_sha256"] != policy["runner"]["sha256"]:
+        raise FirstRunError("journal_binding")
+    if journal["artifact_sha256"] != Path(policy["runner"]["artifact_hash_path"]).read_text().strip() or not TIMESTAMP.fullmatch(journal["started_at"]):
+        raise FirstRunError("journal_binding")
+    if journal["stage"] not in {"baseline","preflight_passed","games_committed","writers_restarted","nfs_completed","complete"}:
+        raise FirstRunError("journal_stage")
+    if journal["baseline"] != policy["first_run"]["baseline"]:
+        raise FirstRunError("journal_baseline")
+    if (not isinstance(journal["snapshots"], dict) or set(journal["snapshots"]) != {"games", "nfs", "proton"}
+            or any(value is not None and (not isinstance(value, str) or HEX64.fullmatch(value) is None)
+                   for value in journal["snapshots"].values())):
+        raise FirstRunError("journal_snapshots")
+    if (not isinstance(journal["checks"], dict) or set(journal["checks"]) != {"games", "nfs", "proton"}
+            or any(not isinstance(value, bool) for value in journal["checks"].values())
+            or not isinstance(journal["retention"], dict) or set(journal["retention"]) != {"games", "nfs", "proton"}
+            or any(not isinstance(value, bool) for value in journal["retention"].values())):
+        raise FirstRunError("journal_acceptance")
+    if journal["stage"] == "complete":
+        if not isinstance(journal["completed_at"], str) or not TIMESTAMP.fullmatch(journal["completed_at"]):
+            raise FirstRunError("journal_completed_at")
+    elif journal["completed_at"] is not None:
+        raise FirstRunError("journal_completed_at")
+
+
+def validate_aws_proof(raw: bytes, expected_principal_hash: str, expected_version_hash: str) -> dict[str, Any]:
+    try:
+        proof = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise FirstRunError("aws_proof_json") from error
+    expected_keys = {
+        "version", "state", "principal_arn_sha256", "versioning", "lifecycle_rule_id",
+        "delete_marker_rule_id", "current_days", "noncurrent_days", "multipart_days", "delete_marker_cleanup",
+        "object_key", "object_size", "object_last_modified", "object_storage_class", "version_id_sha256", "verified_at",
+    }
+    if not isinstance(proof, dict) or set(proof) != expected_keys:
+        raise FirstRunError("aws_proof_shape")
+    expected = {
+        "version": 1, "state": "verified", "versioning": "enabled",
+        "lifecycle_rule_id": "critical-backup-retention", "delete_marker_rule_id": "expired-delete-marker-cleanup",
+        "current_days": 365, "noncurrent_days": 1, "multipart_days": 1, "delete_marker_cleanup": True,
+        "object_key": "weekly-backup-2026-08-23T06-00-00.tar.gz.gpg", "object_size": 2399491160,
+        "object_last_modified": "2026-08-23T13:03:53Z", "object_storage_class": "STANDARD",
+        "version_id_sha256": expected_version_hash,
+    }
+    if any(proof.get(key) != value for key, value in expected.items()):
+        raise FirstRunError("aws_proof")
+    if (proof.get("principal_arn_sha256") != expected_principal_hash
+            or not TIMESTAMP.fullmatch(proof.get("verified_at", ""))):
+        raise FirstRunError("aws_proof")
+    if canonical(proof) != raw:
+        raise FirstRunError("aws_proof_canonical")
+    return proof
+
+
+def current_writers(policy: dict[str, Any]) -> list[str]:
+    writers = [*policy["stop_groups"]["applications"], *policy["stop_groups"]["databases"]]
+    running=[]
+    for name in writers:
+        result = command(["/usr/bin/docker", "inspect", "--format", "{{.State.Running}}", name], timeout=30)
+        if result.stdout.strip() == b"true": running.append(name)
+        elif result.stdout.strip() != b"false": raise FirstRunError("writer_state")
+    return running
+
+def pre_journal_baseline(policy: dict[str, Any]) -> dict[str, list[str]]:
+    first = policy["first_run"]
+    prohibited = [
+        first["result_path"], first["host_evidence_path"], first["authorization_path"],
+        first["proton_token_path"], first["proton_consumed_token_path"],
+        policy["runner"]["accepted_path"], policy["runner"]["journal_path"],
+    ]
+    if any(Path(value).exists() for value in prohibited):
+        raise FirstRunError("pre_journal_state")
+    if first["baseline"] != {"games": [], "nfs": [], "proton": []}:
+        raise FirstRunError("pre_journal_baseline")
+    observed = {name: sorted(item["id"] for item in snapshots(policy, name)) for name in ("games", "nfs", "proton")}
+    if observed != first["baseline"]:
+        raise FirstRunError("pre_journal_repository_state")
+    return observed
+
+
+def create_journal(
+    policy: dict[str, Any], raw_policy: bytes, lock_hash: str, aws_hash: str,
+    baseline: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
+    artifact = regular(Path(policy["runner"]["artifact_hash_path"]), {0o440,0o600,0o640,0o644}, {0}).decode().strip()
+    if not HEX64.fullmatch(artifact): raise FirstRunError("artifact_hash")
+    if baseline is None:
+        baseline = pre_journal_baseline(policy)
+    running = current_writers(policy)
+    return {"version":1,"operation":OPERATION,"stage":"baseline","lock_owner_sha256":lock_hash,"source_policy_sha256":digest(raw_policy),
+            "artifact_sha256":artifact,"runner_sha256":policy["runner"]["sha256"],"aws_evidence_sha256":aws_hash,
+            "started_at":dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00","Z"),"completed_at":None,
+            "baseline":baseline,"initially_running_writers":running,"stopped_writers":[],"restarted_writers":[],
+            "snapshots":{"games":None,"nfs":None,"proton":None},"checks":{"games":False,"nfs":False,"proton":False},
+            "retention":{"games":False,"nfs":False,"proton":False},"quota":None}
+
+def run_or_resume(action: str, policy: dict[str, Any], raw_policy: bytes) -> None:
+    first = policy["first_run"]
+    lock_hash = owner_hash(policy)
+    helper_raw = regular(Path("/usr/local/libexec/home-lab/run-first-restic-backup"), {0o750}, {0})
+    runner_raw = regular(Path(policy["runner"]["path"]), {0o755}, {0})
+    if digest(helper_raw) != first["helper_sha256"] or digest(runner_raw) != policy["runner"]["sha256"]:
+        raise FirstRunError("tool_hash")
+    for name in ("restic", "rclone"):
+        tool = policy["tools"][name]
+        if digest(regular(Path(tool["installed_path"]),{0o755},{0})) != tool["installed_sha256"]:
+            raise FirstRunError(f"{name}_hash")
+    service = pwd.getpwnam("restic-proton")
+    if service.pw_uid != 60000 or service.pw_gid != 60000:
+        raise FirstRunError("proton_identity")
+    for process in ("restic", "rclone"):
+        observed = subprocess.run(["/usr/bin/pgrep","--exact",process],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env=environment(),check=False)
+        if observed.returncode != 1:
+            raise FirstRunError("external_backup_operation")
+    current_aws_raw = regular(Path(first["aws_proof_path"]), {0o600}, {0})
+    validate_aws_proof(current_aws_raw, first["aws_principal_arn_sha256"], first["aws_version_id_sha256"])
+    journal_path=Path(first["journal_path"])
+    pre_journal_resume = action == "resume" and not journal_path.exists()
+    adopted_baseline = None
+    if pre_journal_resume:
+        adopted_baseline = pre_journal_baseline(policy)
+        # No first-run mutation can precede the journal. Under the exact retained
+        # owner, an empty committed baseline therefore permits publication replay.
+        durable_path = Path(first["aws_evidence_path"])
+        replace_root_file(durable_path, current_aws_raw)
+        durable_aws_raw = regular(durable_path, {0o600}, {0})
+    else:
+        durable_aws_raw = regular(Path(first["aws_evidence_path"]), {0o600}, {0})
+    validate_aws_proof(durable_aws_raw, first["aws_principal_arn_sha256"], first["aws_version_id_sha256"])
+    durable_aws_hash = digest(durable_aws_raw)
+    if action == "run":
+        if (current_aws_raw != durable_aws_raw or journal_path.exists() or Path(first["result_path"]).exists()
+                or Path(first["host_evidence_path"]).exists() or Path(first["authorization_path"]).exists()
+                or Path(first["proton_token_path"]).exists() or Path(first["proton_consumed_token_path"]).exists()
+                or Path(policy["runner"]["accepted_path"]).exists() or Path(policy["runner"]["journal_path"]).exists()):
+            raise FirstRunError("fresh_state_required")
+        journal=create_journal(policy,raw_policy,lock_hash,durable_aws_hash); atomic_journal(journal_path,canonical(journal))
+    elif pre_journal_resume:
+        journal=create_journal(policy,raw_policy,lock_hash,durable_aws_hash,adopted_baseline); atomic_journal(journal_path,canonical(journal))
+    else:
+        service_uid = pwd.getpwnam("restic-proton").pw_uid
+        journal,_=load(journal_path,{0o660},{0,service_uid}); validate_journal(journal,policy,digest(raw_policy),lock_hash)
+        if journal["aws_evidence_sha256"] != durable_aws_hash:
+            raise FirstRunError("aws_evidence_binding")
+    expected_authorization={"version":1,"operation":OPERATION,"lock_owner_sha256":lock_hash,"source_policy_sha256":digest(raw_policy),
+                            "artifact_sha256":journal["artifact_sha256"],"runner_sha256":policy["runner"]["sha256"]}
+    authorization_path=Path(first["authorization_path"])
+    publish_authorization(authorization_path, expected_authorization)
+    if authorization_path.lstat().st_gid!=pwd.getpwnam("restic-proton").pw_gid:raise FirstRunError("authorization_metadata")
+    authorization,_=load(authorization_path,{0o440},{0})
+    if authorization!=expected_authorization:raise FirstRunError("authorization_binding")
+    if journal["stage"] == "baseline":
+        command([policy["runner"]["path"],"preflight"])
+        journal["stage"]="preflight_passed"; atomic_replace(journal_path,canonical(journal))
+    if journal["stage"] != "complete":
+        target = policy["runner"]["units"]["daily_target"]
+        target_state = subprocess.run(["/usr/bin/systemctl","is-active",target],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,env=environment(),check=False).stdout.decode().strip()
+        if target_state not in {"inactive","failed"}:
+            raise FirstRunError("daily_target_state")
+        for unit in (target,policy["runner"]["units"]["daily_local"],policy["runner"]["units"]["daily_proton"]):
+            subprocess.run(["/usr/bin/systemctl","reset-failed",unit],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,env=environment(),check=False)
+        command(["/usr/bin/systemctl","start","--wait",target])
+    service_uid = pwd.getpwnam("restic-proton").pw_uid
+    journal,_=load(journal_path,{0o660},{0,service_uid}); validate_journal(journal,policy,digest(raw_policy),lock_hash)
+    if journal["stage"] != "complete": raise FirstRunError("chain_incomplete")
+    observed={name:snapshots(policy,name) for name in ("games","nfs","proton")}
+    for name in observed:
+        delta={item["id"] for item in observed[name]}-set(journal["baseline"][name])
+        if delta != {journal["snapshots"][name]}: raise FirstRunError("snapshot_delta")
+    games=next(item for item in observed["games"] if item["id"]==journal["snapshots"]["games"])
+    tags=set(games.get("tags") or [])
+    if {"cadence=daily",f"policy={digest(raw_policy)}",f"artifact={journal['artifact_sha256']}"} - tags: raise FirstRunError("snapshot_tags")
+    if any(next(item for item in observed[name] if item["id"]==journal["snapshots"][name]).get("original") != journal["snapshots"]["games"] for name in ("nfs","proton")):
+        raise FirstRunError("snapshot_original")
+    if current_writers(policy) != journal["initially_running_writers"]: raise FirstRunError("writer_recovery")
+    if journal["stopped_writers"] != journal["initially_running_writers"] or journal["restarted_writers"] != journal["initially_running_writers"]:
+        raise FirstRunError("writer_evidence")
+    if journal["checks"] != {"games":True,"nfs":True,"proton":True} or journal["retention"] != {"games":True,"nfs":True,"proton":True}:
+        raise FirstRunError("acceptance_evidence")
+    quota_value=journal["quota"]
+    if (not isinstance(quota_value,dict) or quota_value.get("total",0)<policy["repositories"]["proton"]["minimum_allocated_bytes"]
+            or quota_value.get("free",0)<policy["proton"]["minimum_free_bytes"]):
+        raise FirstRunError("quota_evidence")
+    timers=timer_state(policy)
+    completed=journal["completed_at"]
+    evidence={"version":1,"type":OPERATION,"state":"completed","lock_owner_sha256":lock_hash,"source_policy_sha256":digest(raw_policy),
+              "artifact_sha256":journal["artifact_sha256"],"aws_evidence_sha256":journal["aws_evidence_sha256"],"helper_sha256":first["helper_sha256"],
+              "runner_sha256":policy["runner"]["sha256"],"restic_sha256":policy["tools"]["restic"]["installed_sha256"],"rclone_sha256":policy["tools"]["rclone"]["installed_sha256"],
+              "initialization_evidence_sha256":policy["initialization"]["evidence_sha256"],"qualification_evidence_sha256":policy["qualification"]["evidence_sha256"],
+              "repository_ids":{name:policy["repositories"][name]["id"] for name in ("games","nfs","proton")},"snapshots":journal["snapshots"],
+              "initially_running_writers":journal["initially_running_writers"],"stopped_writers":journal["stopped_writers"],"restarted_writers":journal["restarted_writers"],
+              "writers_healthy":"pass","repository_checks":journal["checks"],"retention":journal["retention"],"quota":journal["quota"],"timers":timers,
+              "started_at":journal["started_at"],"completed_at":completed}
+    raw=canonical(evidence); atomic(Path(first["result_path"]),raw); atomic(Path(first["host_evidence_path"]),raw)
+    print(f"restic_first_run=passed evidence_sha256={digest(raw)}")
+
+def atomic_replace(path: Path, raw: bytes) -> None:
+    atomic_journal(path, raw)
+
+def verify(policy: dict[str, Any], raw_policy: bytes) -> None:
+    first=policy["first_run"]
+    if digest(regular(Path("/usr/local/libexec/home-lab/run-first-restic-backup"),{0o750},{0})) != first["helper_sha256"]:
+        raise FirstRunError("helper_hash")
+    if digest(regular(Path(policy["runner"]["path"]),{0o755},{0})) != policy["runner"]["sha256"]:
+        raise FirstRunError("runner_hash")
+    for name in ("restic","rclone"):
+        if digest(regular(Path(policy["tools"][name]["installed_path"]),{0o755},{0})) != policy["tools"][name]["installed_sha256"]:
+            raise FirstRunError(f"{name}_hash")
+    evidence,raw=load(Path(first["host_evidence_path"]))
+    if first["state"]!="completed" or digest(raw)!=first["evidence_sha256"] or evidence.get("source_policy_sha256")!=first["source_policy_sha256"] or evidence.get("snapshots")!=first["snapshots"]:
+        raise FirstRunError("evidence_binding")
+    if owner_hash(policy)!=evidence["lock_owner_sha256"]: raise FirstRunError("owner_binding")
+    for name in ("games","nfs","proton"):
+        found=[item for item in snapshots(policy,name,read_only=True) if item["id"]==first["snapshots"][name]]
+        if len(found)!=1: raise FirstRunError("snapshot_identity")
+        restic(policy,name,["check","--json"],read_only=True)
+    print(f"restic_first_run=verified evidence_sha256={digest(raw)}")
+
+def pending_verify_policy() -> tuple[dict[str, Any], bytes] | None:
+    expected = os.environ.get("HOME_LAB_RESTIC_PENDING_POLICY_SHA256")
+    if expected is None:
+        return None
+    if HEX64.fullmatch(expected) is None:
+        raise FirstRunError("pending_policy_hash")
+    raw = sys.stdin.buffer.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024 or digest(raw) != expected:
+        raise FirstRunError("pending_policy_binding")
+    try:
+        policy = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise FirstRunError("pending_policy_json") from error
+    if not isinstance(policy, dict):
+        raise FirstRunError("pending_policy_shape")
+    return policy, raw
+
+
+def main() -> None:
+    if len(sys.argv)!=2 or sys.argv[1] not in ACTIONS: fail("usage")
+    try:
+        if os.geteuid()!=0: raise FirstRunError("root_required")
+        action=sys.argv[1]
+        pending = pending_verify_policy() if action == "verify" else None
+        if pending is None:
+            policy,raw=load(Path("/etc/home-lab/restic-policy.json"),{0o440},{0})
+        else:
+            policy,raw=pending
+        if action=="verify": verify(policy,raw)
+        else: run_or_resume(action,policy,raw)
+    except (FirstRunError,OSError,KeyError,TypeError,ValueError) as error:
+        fail(str(error) if isinstance(error,FirstRunError) else "unexpected_state")
+
+if __name__=="__main__": main()

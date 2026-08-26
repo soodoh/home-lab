@@ -70,6 +70,25 @@ function validateResticInitializationEvidence(policy, evidence, rawEvidence) {
   return failures;
 }
 
+function validateResticFirstRunEvidence(policy, evidence, rawEvidence) {
+  const failures = [];
+  const firstRun = policy.first_run;
+  if (firstRun.state !== "completed") return failures;
+  const hash = crypto.createHash("sha256").update(rawEvidence).digest("hex");
+  if (hash !== firstRun.evidence_sha256) failures.push("Restic first-run evidence SHA-256 differs from the contract");
+  if (evidence.source_policy_sha256 !== firstRun.source_policy_sha256
+      || evidence.artifact_sha256 !== firstRun.artifact_sha256
+      || evidence.aws_evidence_sha256 !== firstRun.aws_evidence_sha256
+      || evidence.completed_at !== firstRun.completed_at) failures.push("Restic first-run evidence bindings differ from the contract");
+  for (const name of ["games", "nfs", "proton"]) {
+    if (evidence.snapshots[name] !== firstRun.snapshots[name]) failures.push(`Restic first-run ${name} snapshot differs from the contract`);
+    if (evidence.repository_ids[name] !== policy.repositories[name].id) failures.push(`Restic first-run ${name} repository differs from the contract`);
+  }
+  if (evidence.helper_sha256 !== firstRun.helper_sha256 || evidence.runner_sha256 !== policy.runner.sha256) failures.push("Restic first-run helper or runner hash differs");
+  if (evidence.quota.total < policy.repositories.proton.minimum_allocated_bytes || evidence.quota.free < policy.proton.minimum_free_bytes) failures.push("Restic first-run quota crossed a threshold");
+  return failures;
+}
+
 function validateResticPolicy(policy) {
   const failures = [];
   const stoppedApplications = policy.stop_groups.applications;
@@ -197,7 +216,20 @@ function validateResticPolicy(policy) {
     || new Set(repositoryIds).size !== 3
     || !initializedEvidence
   )) failures.push("initialized repository state requires three distinct IDs and bound evidence");
+  if (!/^[0-9a-f]{64}$/.test(policy.runner.sha256)) failures.push("Restic runner hash must be contract-backed");
+  const firstRun = policy.first_run;
+  const firstRunFields = [firstRun.source_policy_sha256, firstRun.artifact_sha256, firstRun.aws_evidence_sha256, firstRun.evidence_sha256, firstRun.completed_at];
+  const firstRunSnapshots = Object.values(firstRun.snapshots);
+  if (JSON.stringify(firstRun.baseline) !== JSON.stringify({ games: [], nfs: [], proton: [] })) {
+    failures.push("Restic first-run baseline must commit three empty repositories");
+  }
+  if (firstRun.state === "ready" && (initialization.state !== "initialized" || firstRunFields.some((value) => value !== null) || firstRunSnapshots.some((value) => value !== null))) {
+    failures.push("ready Restic first run requires initialized repositories and null evidence");
+  }
+  if (firstRun.state === "completed" && (firstRunFields.some((value) => typeof value !== "string")
+      || firstRunSnapshots.some((value) => typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value))
+      || new Set(firstRunSnapshots).size !== 3)) failures.push("completed Restic first run requires exact distinct snapshots and evidence");
   return failures;
 }
 
-module.exports = { globRegex, validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticPolicy };
+module.exports = { globRegex, validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticFirstRunEvidence, validateResticPolicy };

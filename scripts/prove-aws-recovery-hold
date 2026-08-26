@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Emit a bounded, credential-free proof of the retained Offen AWS recovery hold."""
+from __future__ import annotations
+
+import datetime as dt
+import hashlib
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+ACCOUNT_ID = re.compile(r"^[0-9]{12}$")
+VERSION_ID = re.compile(r"^[^\x00-\x1f\x7f]+$")
+
+
+def fail(reason: str, stderr: bytes = b"") -> None:
+    suffix = f" stderr_sha256={hashlib.sha256(stderr).hexdigest()}" if stderr else ""
+    print(f"aws_recovery_hold=failed reason={reason}{suffix}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def command(arguments: list[str], environment: dict[str, str]) -> bytes:
+    try:
+        result = subprocess.run(
+            arguments,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            env=environment,
+            timeout=120,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        fail("command_execution")
+    if result.returncode != 0:
+        fail("provider_request", result.stderr)
+    return result.stdout
+
+
+def json_command(arguments: list[str], environment: dict[str, str]) -> dict[str, Any]:
+    try:
+        value = json.loads(command(arguments, environment))
+    except json.JSONDecodeError:
+        fail("provider_json")
+    if not isinstance(value, dict):
+        fail("provider_shape")
+    return value
+
+
+def applicable(rule: dict[str, Any], key: str) -> bool:
+    """Evaluate only filters whose applicability can be proven without object reads."""
+    if rule.get("Status") != "Enabled":
+        return False
+    if "Filter" in rule:
+        filter_value = rule["Filter"]
+        if filter_value == {}:
+            return True
+        if not isinstance(filter_value, dict) or set(filter_value) != {"Prefix"} or not isinstance(filter_value["Prefix"], str):
+            fail("lifecycle_filter")
+        return key.startswith(filter_value["Prefix"])
+    prefix = rule.get("Prefix", "")
+    if not isinstance(prefix, str):
+        fail("lifecycle_filter")
+    return key.startswith(prefix)
+
+
+def exact_lifecycle(lifecycle: dict[str, Any], hold: dict[str, Any], key: str) -> None:
+    rules = lifecycle.get("Rules")
+    if not isinstance(rules, list) or any(not isinstance(rule, dict) for rule in rules):
+        fail("lifecycle_shape")
+    selected = [rule for rule in rules if applicable(rule, key)]
+    retention = [rule for rule in selected if any(field in rule for field in (
+        "Expiration", "NoncurrentVersionExpiration", "AbortIncompleteMultipartUpload", "Transitions", "NoncurrentVersionTransitions",
+    ))]
+    expected_retention = [rule for rule in retention if rule.get("ID") == hold["lifecycle_rule_id"]]
+    expected_marker = [rule for rule in retention if rule.get("ID") == hold["delete_marker_rule_id"]]
+    if len(expected_retention) != 1 or len(expected_marker) != 1 or len(retention) != 2:
+        fail("lifecycle_applicability")
+    retention_rule = expected_retention[0]
+    marker_rule = expected_marker[0]
+    if (
+        retention_rule.get("Expiration") != {"Days": hold["current_object_retention_days"]}
+        or retention_rule.get("NoncurrentVersionExpiration") != {"NoncurrentDays": 1}
+        or retention_rule.get("AbortIncompleteMultipartUpload") != {"DaysAfterInitiation": 1}
+        or "Transitions" in retention_rule
+        or "NoncurrentVersionTransitions" in retention_rule
+        or marker_rule.get("Expiration") != {"ExpiredObjectDeleteMarker": True}
+        or any(field in marker_rule for field in (
+            "NoncurrentVersionExpiration", "AbortIncompleteMultipartUpload", "Transitions", "NoncurrentVersionTransitions",
+        ))
+    ):
+        fail("retention_state")
+
+
+def exact_recovery_version(versions: dict[str, Any], hold: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    key = hold["recovery_object_key"]
+    values = versions.get("Versions", [])
+    markers = versions.get("DeleteMarkers", [])
+    if not isinstance(values, list) or not isinstance(markers, list):
+        fail("recovery_object_shape")
+    latest_versions = [item for item in values if isinstance(item, dict) and item.get("Key") == key and item.get("IsLatest") is True]
+    latest_markers = [item for item in markers if isinstance(item, dict) and item.get("Key") == key and item.get("IsLatest") is True]
+    if len(latest_versions) != 1 or latest_markers:
+        fail("recovery_object_latest")
+    item = latest_versions[0]
+    version_id = item.get("VersionId")
+    if not isinstance(version_id, str) or VERSION_ID.fullmatch(version_id) is None:
+        fail("recovery_object_version")
+    expected = {
+        "Key": key,
+        "Size": hold["recovery_object_bytes"],
+        "LastModified": hold["recovery_object_last_modified"].replace("Z", "+00:00"),
+        "StorageClass": hold["recovery_object_storage_class"],
+        "IsLatest": True,
+    }
+    observed = {field: item.get(field) for field in expected}
+    if observed != expected:
+        fail("recovery_object_identity")
+    version_hash = hashlib.sha256(version_id.encode()).hexdigest()
+    if version_hash != hold["recovery_object_version_id_sha256"]:
+        fail("recovery_object_version")
+    return item, version_hash
+
+
+def main() -> None:
+    if len(sys.argv) != 2:
+        fail("usage")
+    contract_path = Path(sys.argv[1])
+    contract = json_command([
+        "node", "-e",
+        "const fs=require('fs'),y=require('js-yaml');process.stdout.write(JSON.stringify(y.load(fs.readFileSync(process.argv[1],'utf8'))))",
+        str(contract_path),
+    ], {"PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"), "HOME": os.environ.get("HOME", "/var/empty")})
+    try:
+        hold = contract["backups"]["legacy_offen"]["migration_retention_hold"]
+        final = contract["backups"]["legacy_offen"]["final_archive"]
+    except (KeyError, TypeError):
+        fail("contract_shape")
+    sops = Path(os.environ.get("HOME_LAB_SOPS_BINARY", "/usr/local/bin/sops"))
+    aws = Path(os.environ.get("HOME_LAB_AWS_BINARY", "/usr/local/bin/aws"))
+    secret = os.environ.get("HOME_LAB_SOPS_FILE", "secrets/production.sops.env")
+    age_key = os.environ.get("SOPS_AGE_KEY_FILE", "")
+    if not age_key:
+        fail("age_key_required")
+    for binary in (sops, aws):
+        try:
+            metadata = binary.lstat()
+        except OSError:
+            fail("operator_binary")
+        if (binary.is_symlink() or not binary.is_file() or metadata.st_nlink != 1
+                or metadata.st_uid not in {0, os.geteuid()} or stat.S_IMODE(metadata.st_mode) & 0o022):
+            fail("operator_binary")
+    controlled = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": os.environ.get("HOME", "/var/empty"),
+        "SOPS_AGE_KEY_FILE": age_key, "LC_ALL": "C", "TZ": "UTC",
+    }
+    plaintext = command([str(sops), "--decrypt", "--output-type", "dotenv", secret], controlled).decode()
+    values = dict(line.split("=", 1) for line in plaintext.splitlines() if "=" in line)
+    required = {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_S3_BUCKET_NAME"}
+    if not required <= set(values):
+        fail("credential_shape")
+    environment = {
+        "PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/var/empty",
+        "AWS_ACCESS_KEY_ID": values["AWS_ACCESS_KEY_ID"], "AWS_SECRET_ACCESS_KEY": values["AWS_SECRET_ACCESS_KEY"],
+        "AWS_DEFAULT_REGION": values.get("AWS_REGION", "us-west-2"), "AWS_PAGER": "", "LC_ALL": "C", "TZ": "UTC",
+    }
+    bucket = values["AWS_S3_BUCKET_NAME"]
+
+    def call(*arguments: str) -> dict[str, Any]:
+        return json_command([str(aws), *arguments], environment)
+
+    identity = call("sts", "get-caller-identity")
+    account = identity.get("Account")
+    caller_arn = identity.get("Arn")
+    if ACCOUNT_ID.fullmatch(account if isinstance(account, str) else "") is None:
+        fail("principal_identity")
+    expected_shape = re.compile(rf"^arn:aws:iam::{re.escape(account)}:(?:user|role)/[^\x00-\x1f\x7f]+$")
+    if not isinstance(caller_arn, str) or expected_shape.fullmatch(caller_arn) is None:
+        fail("principal_identity")
+    if hashlib.sha256(caller_arn.encode()).hexdigest() != hold["expected_principal_arn_sha256"]:
+        fail("principal_identity")
+    if not isinstance(identity.get("UserId"), str) or not identity["UserId"]:
+        fail("principal_identity")
+
+    versioning = call("s3api", "get-bucket-versioning", "--bucket", bucket)
+    if versioning != {"Status": "Enabled"}:
+        fail("versioning_state")
+    key = hold["recovery_object_key"]
+    lifecycle = call("s3api", "get-bucket-lifecycle-configuration", "--bucket", bucket)
+    exact_lifecycle(lifecycle, hold, key)
+    versions = call("s3api", "list-object-versions", "--bucket", bucket, "--prefix", key)
+    _, version_hash = exact_recovery_version(versions, hold)
+    if final["sha256"] != "8034bcf7a03d19c446a23c30a56c1b9a8c4ffdd2d829557a5a16e39c0aab1f08":
+        fail("recovery_identity")
+    proof = {
+        "version": 1, "state": "verified",
+        "principal_arn_sha256": hashlib.sha256(caller_arn.encode()).hexdigest(), "versioning": "enabled",
+        "lifecycle_rule_id": hold["lifecycle_rule_id"], "delete_marker_rule_id": hold["delete_marker_rule_id"],
+        "current_days": hold["current_object_retention_days"], "noncurrent_days": 1, "multipart_days": 1,
+        "delete_marker_cleanup": True, "object_key": key, "object_size": hold["recovery_object_bytes"],
+        "object_last_modified": hold["recovery_object_last_modified"], "object_storage_class": hold["recovery_object_storage_class"],
+        "version_id_sha256": version_hash,
+        "verified_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+    }
+    print(json.dumps(proof, sort_keys=True, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()

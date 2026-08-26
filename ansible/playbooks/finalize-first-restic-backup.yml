@@ -1,0 +1,212 @@
+---
+- name: Finalize only committed first Restic chain evidence
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  tasks:
+    - name: Require exact finalization state and approval
+      ansible.builtin.assert:
+        that:
+          - restic_first_run_finalize_confirmed | default(false) | bool
+          - restic_first_run_finalize_confirmation | default('') == 'finalize-owner-bound-first-restic-chain'
+          - restic_first_run_expected_owner_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - restic_first_run_reviewed_commit | default('') is match('^[0-9a-f]{40}$')
+          - restic_first_run_sops_binary | default('') is match('^/')
+          - restic_first_run_aws_binary | default('') is match('^/')
+          - restic_first_run_sops_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - restic_first_run_aws_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - backups.restic.first_run.state == 'completed'
+          - backups.restic.first_run.snapshots.values() | select('match', '^[0-9a-f]{64}$') | list | length == 3
+          - backups.restic.migration_state == 'inert'
+          - backups.legacy_offen.scheduler_state == 'quiesced'
+          - backups.legacy_offen.migration_archive_preservation.state == 'applied'
+          - backups.legacy_offen.migration_retention_hold.review_deadline > now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')
+
+    - name: Inspect controller commit and cleanliness
+      ansible.builtin.command:
+        argv: "{{ ['/usr/bin/git', '-C', playbook_dir ~ '/../..'] + item }}"
+      loop:
+        - [rev-parse, HEAD]
+        - [status, --porcelain]
+      delegate_to: localhost
+      become: false
+      register: restic_first_run_finalize_git
+      changed_when: false
+      check_mode: false
+
+    - name: Require exact clean reviewed commit
+      ansible.builtin.assert:
+        that:
+          - restic_first_run_finalize_git.results[0].stdout == restic_first_run_reviewed_commit
+          - restic_first_run_finalize_git.results[1].stdout == ''
+
+    - name: Read committed evidence and retained transaction inputs
+      ansible.builtin.slurp:
+        src: "{{ item.path }}"
+      loop:
+        - {path: "{{ playbook_dir }}/../../{{ backups.restic.first_run.evidence_file }}", local: true}
+        - {path: "{{ apply_lock_path }}/owner", local: false}
+        - {path: "{{ backups.restic.first_run.journal_path }}", local: false}
+        - {path: "{{ backups.restic.first_run.host_evidence_path }}", local: false}
+        - {path: /etc/home-lab/restic-policy.json, local: false}
+        - {path: "{{ playbook_dir }}/../../{{ backups.restic.first_run.aws_evidence_file }}", local: true}
+        - {path: "{{ backups.restic.first_run.aws_evidence_path }}", local: false}
+      delegate_to: "{{ 'localhost' if item.local else inventory_hostname }}"
+      become: "{{ not item.local }}"
+      register: restic_first_run_finalize_inputs
+      no_log: true
+
+    - name: Require exact evidence, owner, policy, and snapshot bindings
+      ansible.builtin.assert:
+        that:
+          - (restic_first_run_finalize_inputs.results[1].content | b64decode | hash('sha256')) == restic_first_run_expected_owner_sha256
+          - "'operation=restic-first-run' in (restic_first_run_finalize_inputs.results[1].content | b64decode).splitlines()"
+          - restic_first_run_finalize_inputs.results[0].content == restic_first_run_finalize_inputs.results[3].content
+          - (restic_first_run_finalize_inputs.results[0].content | b64decode | hash('sha256')) == backups.restic.first_run.evidence_sha256
+          - evidence.source_policy_sha256 == backups.restic.first_run.source_policy_sha256
+          - evidence.artifact_sha256 == backups.restic.first_run.artifact_sha256
+          - evidence.aws_evidence_sha256 == backups.restic.first_run.aws_evidence_sha256
+          - evidence.completed_at == backups.restic.first_run.completed_at
+          - evidence.snapshots == backups.restic.first_run.snapshots
+          - evidence.lock_owner_sha256 == restic_first_run_expected_owner_sha256
+          - journal.snapshots == backups.restic.first_run.snapshots
+          - journal.stage == 'complete'
+          - journal.completed_at == evidence.completed_at
+          - restic_first_run_finalize_inputs.results[5].content == restic_first_run_finalize_inputs.results[6].content
+          - (restic_first_run_finalize_inputs.results[5].content | b64decode | hash('sha256')) == evidence.aws_evidence_sha256
+          - journal.aws_evidence_sha256 == evidence.aws_evidence_sha256
+          - (restic_first_run_finalize_inputs.results[4].content | b64decode | hash('sha256')) == backups.restic.first_run.source_policy_sha256
+      vars:
+        evidence: "{{ restic_first_run_finalize_inputs.results[0].content | b64decode | from_json }}"
+        journal: "{{ restic_first_run_finalize_inputs.results[2].content | b64decode | from_json }}"
+      no_log: true
+
+    - name: Converge completed first-run policy while owner lock remains held
+      ansible.builtin.import_role:
+        name: restic_backup
+
+    - name: Verify committed snapshots and all repositories against the pending policy
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/home-lab/run-first-restic-backup, verify]
+        stdin: "{{ pending_policy }}"
+        stdin_add_newline: false
+      environment:
+        HOME_LAB_RESTIC_PENDING_POLICY_SHA256: "{{ pending_policy | hash('sha256') }}"
+      vars:
+        pending_policy: "{{ backups.restic | to_json }}"
+      become: true
+      register: restic_first_run_finalize_verify
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require exact bounded final verification
+      ansible.builtin.assert:
+        that:
+          - restic_first_run_finalize_verify.stdout == 'restic_first_run=verified evidence_sha256=' ~ backups.restic.first_run.evidence_sha256
+      no_log: true
+
+    - name: Inspect repository-backed AWS proof helper before release
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../../scripts/prove-aws-recovery-hold"
+        checksum_algorithm: sha256
+      delegate_to: localhost
+      become: false
+      register: restic_first_run_finalize_aws_helper
+
+    - name: Require exact AWS proof helper before release
+      ansible.builtin.assert:
+        that:
+          - restic_first_run_finalize_aws_helper.stat.isreg | default(false)
+          - restic_first_run_finalize_aws_helper.stat.checksum == backups.restic.first_run.aws_proof_helper_sha256
+
+    - name: Inspect pinned operator credential and AWS binaries before release proof
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - {path: "{{ restic_first_run_sops_binary }}", checksum: "{{ restic_first_run_sops_sha256 }}"}
+        - {path: "{{ restic_first_run_aws_binary }}", checksum: "{{ restic_first_run_aws_sha256 }}"}
+      delegate_to: localhost
+      become: false
+      register: restic_first_run_finalize_operator_binaries
+
+    - name: Require pinned operator binaries before release credential access
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.checksum == item.item.checksum
+          - (item.stat.nlink | default(0) | int) == 1
+          - item.stat.pw_name == 'root'
+          - not (item.stat.wgrp | default(true))
+          - not (item.stat.woth | default(true))
+      loop: "{{ restic_first_run_finalize_operator_binaries.results }}"
+
+    - name: Re-prove current AWS recovery hold before release
+      ansible.builtin.command:
+        argv: ["{{ playbook_dir }}/../../scripts/prove-aws-recovery-hold", "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"]
+      environment:
+        HOME_LAB_SOPS_BINARY: "{{ restic_first_run_sops_binary }}"
+        HOME_LAB_AWS_BINARY: "{{ restic_first_run_aws_binary }}"
+        HOME_LAB_SOPS_FILE: "{{ playbook_dir }}/../../secrets/production.sops.env"
+        SOPS_AGE_KEY_FILE: "{{ restic_first_run_age_key_file }}"
+      delegate_to: localhost
+      become: false
+      register: restic_first_run_finalize_aws
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require current AWS protection before release
+      ansible.builtin.assert:
+        that:
+          - aws.state == 'verified'
+          - aws.principal_arn_sha256 == backups.legacy_offen.migration_retention_hold.expected_principal_arn_sha256
+          - aws.lifecycle_rule_id == backups.legacy_offen.migration_retention_hold.lifecycle_rule_id
+          - aws.delete_marker_rule_id == backups.legacy_offen.migration_retention_hold.delete_marker_rule_id
+          - aws.current_days == 365
+          - aws.noncurrent_days == 1
+          - aws.multipart_days == 1
+          - aws.delete_marker_cleanup | bool
+          - aws.object_key == backups.legacy_offen.migration_retention_hold.recovery_object_key
+          - aws.object_size == backups.legacy_offen.migration_retention_hold.recovery_object_bytes
+          - aws.object_last_modified == backups.legacy_offen.migration_retention_hold.recovery_object_last_modified
+          - aws.object_storage_class == backups.legacy_offen.migration_retention_hold.recovery_object_storage_class
+          - aws.version_id_sha256 == backups.restic.first_run.aws_version_id_sha256
+      vars:
+        aws: "{{ restic_first_run_finalize_aws.stdout | from_json }}"
+      no_log: true
+
+    - name: Re-audit quiesced source state before release
+      ansible.builtin.import_role:
+        name: audit
+      vars:
+        audit_expected_stopped_compose_services: "{{ backups.legacy_offen.scheduler_services }}"
+        audit_expected_running_compose_service_count: "{{ audit_expected_compose_service_count - (backups.legacy_offen.scheduler_services | length) }}"
+
+    - name: Remove only finalized transient first-run state
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ backups.restic.first_run.journal_path }}"
+        - "{{ backups.restic.first_run.result_path }}"
+        - "{{ backups.restic.first_run.aws_proof_path }}"
+        - "{{ backups.restic.first_run.authorization_path }}"
+        - "{{ backups.restic.first_run.proton_token_path }}"
+        - "{{ backups.restic.first_run.proton_consumed_token_path }}"
+      become: true
+      when: not ansible_check_mode
+
+    - name: Release exact owner-bound first-run lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: restic-first-run
+        apply_lock_expected_owner_sha256: "{{ restic_first_run_expected_owner_sha256 }}"

@@ -1282,6 +1282,13 @@ backups:
     migration_retention_hold:
       state: applied
       current_object_retention_days: 365
+      lifecycle_rule_id: critical-backup-retention
+      delete_marker_rule_id: expired-delete-marker-cleanup
+      expected_principal_arn_sha256: cbfd4986207c28758c6d4561f6636cbaf31bbeca8972891d347ed25180be2ac7
+      recovery_object_key: weekly-backup-2026-08-23T06-00-00.tar.gz.gpg
+      recovery_object_bytes: 2399491160
+      recovery_object_last_modified: "2026-08-23T13:03:53Z"
+      recovery_object_storage_class: STANDARD
       plan_sha256: 6239f3c0a67c66d2a3b23ca7dfa84853391fca98bf8b5b9d116004925d6684ae
       recovery_object_version_id_sha256: 3e42bf4017bedaaac231ce234cc8be64536a87da0ba8e401b90967864c73a8c0
       verified_at: "2026-08-24T16:48:02Z"
@@ -1473,12 +1480,44 @@ backups:
       source_policy_sha256: 7ec54b69a21e118f5b6ef6c9d3a73cdbb8c16cbe0629491fcad0c782227e2501
       evidence_sha256: b8ac8cd34a3d8259ef6aa2273a97b6b4ace601d9116a0bd1886beb1e666b9e7e
       verified_at: "2026-08-26T01:36:31Z"
+    first_run:
+      state: ready
+      helper_sha256: 260b568a7c4fb5bed2017b09795b4398d4221a72ce0e0427fc4860b890b8e781
+      aws_proof_helper_sha256: f74007f0ff45c752dcaf88aca480af7a9cc2eae297ea2e77690f90d90c9baa80
+      confirmation: run-one-reviewed-games-nfs-proton-chain
+      exclusive_client_confirmation: proton-exclusive-client-closed
+      journal_path: /var/lib/home-lab-restic/replication/first-run.json
+      result_path: /var/lib/home-lab-restic/first-run-result.json
+      host_evidence_path: /var/lib/home-lab-restic/first-run.json
+      evidence_file: infrastructure/evidence/restic-first-run.json
+      aws_evidence_path: /var/lib/home-lab-restic/first-run-aws.json
+      aws_evidence_file: infrastructure/evidence/restic-first-run-aws.json
+      aws_proof_path: /run/home-lab-restic-first-run-aws.json
+      authorization_path: /run/home-lab-restic-first-run-authorization.json
+      proton_token_path: /var/lib/home-lab-restic/replication/first-run.proton-token.json
+      proton_consumed_token_path: /var/lib/home-lab-restic/replication/.first-run.proton-token.json.consumed
+      aws_principal_arn_sha256: cbfd4986207c28758c6d4561f6636cbaf31bbeca8972891d347ed25180be2ac7
+      aws_version_id_sha256: 3e42bf4017bedaaac231ce234cc8be64536a87da0ba8e401b90967864c73a8c0
+      source_policy_sha256: null
+      artifact_sha256: null
+      aws_evidence_sha256: null
+      evidence_sha256: null
+      completed_at: null
+      baseline:
+        games: []
+        nfs: []
+        proton: []
+      snapshots:
+        games: null
+        nfs: null
+        proton: null
     schedule:
       daily_calendar: "*-*-* 05:00:00"
       maintenance_calendar: monthly
       proton_independent_timer: false
     runner:
       path: /usr/local/libexec/home-lab/restic-backup
+      sha256: 920a43e0fbd80ee17e36848661e8ad8b125853ea69fcda141003ffc05f73307c
       identity_local: root
       identity_proton: restic-proton
       policy_path: /etc/home-lab/restic-policy.json

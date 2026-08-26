@@ -1,0 +1,256 @@
+---
+- name: Resume only an exact owner-bound first Restic chain
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  tasks:
+    - name: Require exact resume approval and owner
+      ansible.builtin.assert:
+        that:
+          - restic_first_run_resume_confirmed | default(false) | bool
+          - restic_first_run_resume_confirmation | default('') == 'resume-owner-bound-first-restic-chain'
+          - restic_first_run_exclusive_client_confirmation | default('') == backups.restic.first_run.exclusive_client_confirmation
+          - restic_first_run_expected_owner_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - restic_first_run_sops_binary | default('') is match('^/')
+          - restic_first_run_aws_binary | default('') is match('^/')
+          - restic_first_run_sops_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - restic_first_run_aws_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - backups.restic.first_run.state == 'ready'
+          - backups.restic.initialization.state == 'initialized'
+          - backups.legacy_offen.scheduler_state == 'quiesced'
+          - backups.legacy_offen.migration_retention_hold.review_deadline > now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')
+
+    - name: Inspect optional retained first-run publication state
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ backups.restic.first_run.journal_path }}"
+        - "{{ backups.restic.first_run.aws_evidence_path }}"
+      become: true
+      register: restic_first_run_resume_state
+
+    - name: Read retained lock owner and installed policy
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - "{{ apply_lock_path }}/owner"
+        - /etc/home-lab/restic-policy.json
+      become: true
+      register: restic_first_run_resume_core
+      no_log: true
+
+    - name: Read retained first-run journal when publication reached it
+      ansible.builtin.slurp:
+        src: "{{ backups.restic.first_run.journal_path }}"
+      become: true
+      register: restic_first_run_resume_journal
+      no_log: true
+      when: restic_first_run_resume_state.results[0].stat.exists
+
+    - name: Read durable AWS proof when already published
+      ansible.builtin.slurp:
+        src: "{{ backups.restic.first_run.aws_evidence_path }}"
+      become: true
+      register: restic_first_run_resume_durable_aws
+      no_log: true
+      when: restic_first_run_resume_state.results[1].stat.exists
+
+    - name: Require exact retained owner and installed policy
+      ansible.builtin.assert:
+        that:
+          - (restic_first_run_resume_core.results[0].content | b64decode | hash('sha256')) == restic_first_run_expected_owner_sha256
+          - "'operation=restic-first-run' in (restic_first_run_resume_core.results[0].content | b64decode).splitlines()"
+          - (restic_first_run_resume_core.results[1].content | b64decode | from_json) == backups.restic
+      no_log: true
+
+    - name: Require exact retained journal binding when present
+      ansible.builtin.assert:
+        that:
+          - restic_first_run_resume_state.results[1].stat.exists
+          - journal.operation == 'restic-first-run'
+          - journal.lock_owner_sha256 == restic_first_run_expected_owner_sha256
+          - journal.source_policy_sha256 == (restic_first_run_resume_core.results[1].content | b64decode | hash('sha256'))
+          - journal.aws_evidence_sha256 == (restic_first_run_resume_durable_aws.content | b64decode | hash('sha256'))
+      vars:
+        journal: "{{ restic_first_run_resume_journal.content | b64decode | from_json }}"
+      no_log: true
+      when: restic_first_run_resume_state.results[0].stat.exists
+
+    - name: Inspect repository-backed AWS proof helper for resume
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../../scripts/prove-aws-recovery-hold"
+        checksum_algorithm: sha256
+      delegate_to: localhost
+      become: false
+      register: restic_first_run_resume_aws_helper
+
+    - name: Require exact AWS proof helper for resume
+      ansible.builtin.assert:
+        that:
+          - restic_first_run_resume_aws_helper.stat.isreg | default(false)
+          - restic_first_run_resume_aws_helper.stat.checksum == backups.restic.first_run.aws_proof_helper_sha256
+
+    - name: Inspect the optional controller-preserved AWS proof artifact
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../../{{ backups.restic.first_run.aws_evidence_file }}"
+        follow: false
+      delegate_to: localhost
+      become: false
+      register: restic_first_run_resume_controller_aws_state
+
+    - name: Read the controller-preserved AWS proof for an existing journal
+      ansible.builtin.slurp:
+        src: "{{ playbook_dir }}/../../{{ backups.restic.first_run.aws_evidence_file }}"
+      delegate_to: localhost
+      become: false
+      register: restic_first_run_resume_controller_aws
+      no_log: true
+      when: restic_first_run_resume_state.results[0].stat.exists
+
+    - name: Require exact durable and controller AWS proof bytes for an existing journal
+      ansible.builtin.assert:
+        that:
+          - restic_first_run_resume_controller_aws_state.stat.isreg | default(false)
+          - restic_first_run_resume_controller_aws.content == restic_first_run_resume_durable_aws.content
+          - (restic_first_run_resume_controller_aws.content | b64decode | hash('sha256')) == journal.aws_evidence_sha256
+      vars:
+        journal: "{{ restic_first_run_resume_journal.content | b64decode | from_json }}"
+      no_log: true
+      when: restic_first_run_resume_state.results[0].stat.exists
+
+    - name: Inspect pinned operator credential and AWS binaries for resume
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - {path: "{{ restic_first_run_sops_binary }}", checksum: "{{ restic_first_run_sops_sha256 }}"}
+        - {path: "{{ restic_first_run_aws_binary }}", checksum: "{{ restic_first_run_aws_sha256 }}"}
+      delegate_to: localhost
+      become: false
+      register: restic_first_run_resume_operator_binaries
+
+    - name: Require pinned operator binaries before resume credential access
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.checksum == item.item.checksum
+          - (item.stat.nlink | default(0) | int) == 1
+          - item.stat.pw_name == 'root'
+          - not (item.stat.wgrp | default(true))
+          - not (item.stat.woth | default(true))
+      loop: "{{ restic_first_run_resume_operator_binaries.results }}"
+
+    - name: Produce fresh bounded AWS recovery-hold proof for resume
+      ansible.builtin.command:
+        argv: ["{{ playbook_dir }}/../../scripts/prove-aws-recovery-hold", "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"]
+      environment:
+        HOME_LAB_SOPS_BINARY: "{{ restic_first_run_sops_binary }}"
+        HOME_LAB_AWS_BINARY: "{{ restic_first_run_aws_binary }}"
+        HOME_LAB_SOPS_FILE: "{{ playbook_dir }}/../../secrets/production.sops.env"
+        SOPS_AGE_KEY_FILE: "{{ restic_first_run_age_key_file }}"
+      delegate_to: localhost
+      become: false
+      register: restic_first_run_resume_aws
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require current AWS proof before resume
+      ansible.builtin.assert:
+        that:
+          - aws.state == 'verified'
+          - aws.principal_arn_sha256 == backups.legacy_offen.migration_retention_hold.expected_principal_arn_sha256
+          - aws.lifecycle_rule_id == backups.legacy_offen.migration_retention_hold.lifecycle_rule_id
+          - aws.delete_marker_rule_id == backups.legacy_offen.migration_retention_hold.delete_marker_rule_id
+          - aws.current_days == 365
+          - aws.noncurrent_days == 1
+          - aws.multipart_days == 1
+          - aws.delete_marker_cleanup | bool
+          - aws.object_key == backups.legacy_offen.migration_retention_hold.recovery_object_key
+          - aws.object_size == backups.legacy_offen.migration_retention_hold.recovery_object_bytes
+          - aws.object_last_modified == backups.legacy_offen.migration_retention_hold.recovery_object_last_modified
+          - aws.object_storage_class == backups.legacy_offen.migration_retention_hold.recovery_object_storage_class
+          - aws.version_id_sha256 == backups.restic.first_run.aws_version_id_sha256
+      vars:
+        aws: "{{ restic_first_run_resume_aws.stdout | from_json }}"
+      no_log: true
+
+    - name: Require complete quiesced source-state audit before resume
+      ansible.builtin.import_role:
+        name: audit
+      vars:
+        audit_expected_stopped_compose_services: "{{ backups.legacy_offen.scheduler_services }}"
+        audit_expected_running_compose_service_count: "{{ audit_expected_compose_service_count - (backups.legacy_offen.scheduler_services | length) }}"
+
+    - name: Refresh transaction-only AWS proof
+      ansible.builtin.copy:
+        content: "{{ restic_first_run_resume_aws.stdout }}\n"
+        dest: "{{ backups.restic.first_run.aws_proof_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Replay durable AWS publication only before the first journal
+      ansible.builtin.copy:
+        content: "{{ restic_first_run_resume_aws.stdout }}\n"
+        dest: "{{ backups.restic.first_run.aws_evidence_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      no_log: true
+      when:
+        - not ansible_check_mode
+        - not restic_first_run_resume_state.results[0].stat.exists
+
+    - name: Replay controller AWS publication only before the first journal
+      ansible.builtin.fetch:
+        src: "{{ backups.restic.first_run.aws_evidence_path }}"
+        dest: "{{ playbook_dir }}/../../{{ backups.restic.first_run.aws_evidence_file }}"
+        flat: true
+        validate_checksum: true
+      become: true
+      no_log: true
+      when:
+        - not ansible_check_mode
+        - not restic_first_run_resume_state.results[0].stat.exists
+
+    - name: Resume the exact first-run chain
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/home-lab/run-first-restic-backup, resume]
+      become: true
+      register: restic_first_run_resume_result
+      changed_when: true
+      failed_when: false
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Require controlled resume success
+      ansible.builtin.assert:
+        that:
+          - restic_first_run_resume_result.rc == 0
+          - restic_first_run_resume_result.stdout is match('^restic_first_run=passed evidence_sha256=[0-9a-f]{64}$')
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Fetch resumed bounded evidence and re-fetch exact durable AWS proof
+      ansible.builtin.fetch:
+        src: "{{ item.src }}"
+        dest: "{{ playbook_dir }}/../../{{ item.dest }}"
+        flat: true
+        validate_checksum: true
+      loop:
+        - {src: "{{ backups.restic.first_run.host_evidence_path }}", dest: "{{ backups.restic.first_run.evidence_file }}"}
+        - {src: "{{ backups.restic.first_run.aws_evidence_path }}", dest: "{{ backups.restic.first_run.aws_evidence_file }}"}
+      become: true
+      no_log: true
+      when: not ansible_check_mode

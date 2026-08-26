@@ -35,6 +35,13 @@ def main() -> None:
     assert offen["migration_retention_hold"] == {
         "state": "applied",
         "current_object_retention_days": 365,
+        "lifecycle_rule_id": "critical-backup-retention",
+        "delete_marker_rule_id": "expired-delete-marker-cleanup",
+        "expected_principal_arn_sha256": "cbfd4986207c28758c6d4561f6636cbaf31bbeca8972891d347ed25180be2ac7",
+        "recovery_object_key": "weekly-backup-2026-08-23T06-00-00.tar.gz.gpg",
+        "recovery_object_bytes": 2_399_491_160,
+        "recovery_object_last_modified": "2026-08-23T13:03:53Z",
+        "recovery_object_storage_class": "STANDARD",
         "plan_sha256": "6239f3c0a67c66d2a3b23ca7dfa84853391fca98bf8b5b9d116004925d6684ae",
         "recovery_object_version_id_sha256": "3e42bf4017bedaaac231ce234cc8be64536a87da0ba8e401b90967864c73a8c0",
         "verified_at": "2026-08-24T16:48:02Z",
@@ -114,6 +121,10 @@ def main() -> None:
     assert policy["initialization"]["verified_at"] == "2026-08-26T01:36:31Z"
     assert len({repository["id"] for repository in policy["repositories"].values()}) == 3
     assert policy["qualification"]["remote_directory"] == "Backups/.home-lab-rclone-qualification"
+    assert policy["runner"]["sha256"] == hashlib.sha256((ROOT / "scripts/restic-backup").read_bytes()).hexdigest()
+    assert policy["first_run"]["state"] == "ready"
+    assert all(value is None for value in policy["first_run"]["snapshots"].values())
+    assert policy["first_run"]["evidence_sha256"] is None
 
     files_from = (ROOT / "services/data/restic/files-from").read_text().splitlines()
     excludes = (ROOT / "services/data/restic/excludes").read_text().splitlines()
@@ -1894,7 +1905,7 @@ def main() -> None:
     assert clear_detach < clear_owner < clear_tombstone
     assert "Remove only the inspected owner record" not in clear_failed_lock
     assert '"{{ backups.restic.runner.lock_path }}"' in clear_failed_lock
-    assert "iac_failed_lock_expected_operation not in ['proton-qualification', 'restic-repository-initialization']" in clear_failed_lock
+    assert "iac_failed_lock_expected_operation not in ['proton-qualification', 'restic-repository-initialization', 'restic-first-run']" in clear_failed_lock
     initialization_playbook = (ROOT / "ansible/playbooks/initialize-restic-repositories.yml").read_text()
     initialization_resume = (ROOT / "ansible/playbooks/resume-restic-repository-initialization.yml").read_text()
     initialization_finalize = (ROOT / "ansible/playbooks/finalize-restic-repository-initialization.yml").read_text()
