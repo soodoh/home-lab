@@ -1043,12 +1043,9 @@ def disk_prepare_script(allow_existing: bool, format_allowed: bool = True) -> st
 allow_existing={allowed}
 format_allowed={formatting}
 device=$(python3 - <<'PY'
-from pathlib import Path
-matches=[]
-for serial in Path('/sys/block').glob('*/device/serial'):
- try:
-  if serial.read_text().strip() == 'RESTIC-RECOVERY-128G': matches.append('/dev/'+serial.parts[-3])
- except OSError: pass
+import json,subprocess
+value=json.loads(subprocess.run(['/usr/bin/lsblk','--json','--bytes','--nodeps','--output','PATH,SIZE,SERIAL,TYPE'],check=True,text=True,stdout=subprocess.PIPE).stdout)
+matches=[item['path'] for item in value.get('blockdevices',[]) if item.get('type')=='disk' and item.get('size')==137438953472 and item.get('serial')=='RESTIC-RECOVERY-128G']
 if len(matches) != 1: raise SystemExit(1)
 print(matches[0])
 PY
