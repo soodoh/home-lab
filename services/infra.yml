@@ -21,8 +21,6 @@ services:
       - type: bind
         source: /srv/home-lab-state/omada-data/logs
         target: /opt/tplink/EAPController/logs
-    labels:
-      docker-volume-backup.stop-during-backup: true
 
   ddns-updater:
     image: ghcr.io/qdm12/ddns-updater:v2.10.0@sha256:3e2aa558946b5a293def4d73008fa4651c072b2c12932cecd02126fb23979831
@@ -68,8 +66,6 @@ services:
     container_name: pihole
     restart: always
     logging: *default-logging
-    labels:
-      docker-volume-backup.stop-during-backup: true
     ports:
       - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:53:53/tcp
       - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:53:53/udp
