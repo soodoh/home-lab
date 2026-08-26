@@ -41,6 +41,7 @@
       loop:
         - "{{ backups.restic.first_run.proton_token_path }}"
         - /var/lib/home-lab-restic
+        - /var/lib/docker-compose
       become: true
       register: post_nfs_repair_state
 
@@ -53,6 +54,12 @@
           - post_nfs_repair_state.results[1].stat.mode == '0750'
           - post_nfs_repair_state.results[1].stat.gr_name in ['root', 'restic-proton']
           - post_nfs_repair_state.results[0].stat.exists or post_nfs_repair_state.results[1].stat.gr_name == 'restic-proton'
+          - post_nfs_repair_state.results[2].stat.isdir | default(false)
+          - not (post_nfs_repair_state.results[2].stat.islnk | default(false))
+          - post_nfs_repair_state.results[2].stat.pw_name == 'root'
+          - post_nfs_repair_state.results[2].stat.gr_name == 'root'
+          - post_nfs_repair_state.results[2].stat.mode in ['0700', '0711']
+          - post_nfs_repair_state.results[0].stat.exists or post_nfs_repair_state.results[2].stat.mode == '0711'
 
     - name: Read retained owner, policy, journal, authorization, and accepted state
       ansible.builtin.slurp:
@@ -218,13 +225,21 @@
             parent_metadata.st_uid==0 or sys.exit(1);
             parent_metadata.st_gid in {0,60000} or sys.exit(1);
             stat.S_IMODE(parent_metadata.st_mode)==0o750 or sys.exit(1);
+            compose_descriptor=os.open('/var/lib/docker-compose',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW);
+            compose_metadata=os.fstat(compose_descriptor);
+            stat.S_ISDIR(compose_metadata.st_mode) or sys.exit(1);
+            compose_metadata.st_uid==0 or sys.exit(1);
+            compose_metadata.st_gid==0 or sys.exit(1);
+            stat.S_IMODE(compose_metadata.st_mode) in {0o700,0o711} or sys.exit(1);
+            os.fchmod(compose_descriptor,0o711);
             os.fchown(parent_descriptor,0,60000);
             os.fchmod(parent_descriptor,0o750);
             token.unlink();
             descriptor=os.open(token.parent,os.O_RDONLY|os.O_DIRECTORY);
             os.fsync(descriptor);
             os.close(descriptor);
-            os.close(parent_descriptor)
+            os.close(parent_descriptor);
+            os.close(compose_descriptor)
           - "{{ post_nfs_token.content | b64decode | hash('sha256') }}"
       become: true
       changed_when: true

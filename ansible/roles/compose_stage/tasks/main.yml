@@ -69,7 +69,7 @@
             {'path': compose_staging_root, 'mode': '0755'},
             {'path': '/etc/docker-compose', 'mode': '0700'},
             {'path': compose_staged_env_root, 'mode': '0700'},
-            {'path': '/var/lib/docker-compose', 'mode': '0700'}
+            {'path': '/var/lib/docker-compose', 'mode': '0711'}
           ]
           + (
             [] if (compose_stage_fresh_recovery | default(false) | bool)

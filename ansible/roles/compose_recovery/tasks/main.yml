@@ -120,7 +120,7 @@
     state: directory
     owner: root
     group: root
-    mode: "0700"
+    mode: "0711"
 
 - name: Publish the staged runtime model
   ansible.builtin.copy:
@@ -346,7 +346,7 @@
     state: directory
     owner: root
     group: root
-    mode: "0700"
+    mode: "0711"
 
 - name: Capture the recovered image set
   ansible.builtin.command:

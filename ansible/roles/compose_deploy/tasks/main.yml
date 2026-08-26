@@ -579,7 +579,7 @@
         state: directory
         owner: root
         group: root
-        mode: "0700"
+        mode: "0711"
       become: true
 
     - name: Retain the exact pre-deployment image set
