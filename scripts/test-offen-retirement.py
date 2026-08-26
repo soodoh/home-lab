@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "infrastructure/retirement/offen-retirement-manifest.json"
-EXPECTED = "367ac03804d32b79b9e1568a11e94151ec6784c5e60ba71249068efbf286f114"
+EXPECTED = "8c390d9d14414a40bfa01947089104ad78379436e73f30487032ed1cf7589191"
 
 raw = MANIFEST.read_bytes()
 assert hashlib.sha256(raw).hexdigest() == EXPECTED
@@ -404,9 +404,14 @@ with tempfile.TemporaryDirectory() as temporary:
     assert subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode != 0
 
 assert "--page-size 100" in aws_source and "delete_response_lost" in aws_source
-assert "OFFEN_RETIREMENT_LOCAL_OWNER_FILE" in aws_source and "OFFEN_RETIREMENT_LOCAL_OWNER_SHA256" not in aws_source
-assert "[[ $OFFEN_RETIREMENT_LOCAL_OWNER_FILE == /var/lib/iac-ansible-production.lock/owner ]]" in aws_source
-assert aws_source.index("local_owner_path_differs") < aws_source.index("command -v sops")
+assert "OFFEN_RETIREMENT_LOCAL_OWNER_FILE" in aws_source and "OFFEN_RETIREMENT_LOCAL_OWNER_SHA256" in aws_source
+assert "/var/lib/iac-ansible-production.lock/owner" not in aws_source
+assert aws_source.index("local_owner_binding_invalid") < aws_source.index("command -v sops")
+assert "local_owner_hash_differs" in aws_source
+assert "sha256sum() {" in aws_source and "sync() {" in aws_source and "stat -c" not in aws_source
+assert "event['local_owner_sha256']=local_owner" in aws_source
+assert "ensure_transaction" in aws_source and "transaction_journal_metadata_invalid" in aws_source
+assert "local_owner_record_invalid" in aws_source
 assert '"local_owner_sha256":"%s"' in aws_source and "verify_owner; verify_terminal_journal" in aws_source
 assert "offen-retirement-local" in (ROOT / "ansible/playbooks/clear-failed-apply-lock.yml").read_text()
 assert "apply_lock_action: \"{{ 'acquire' if offen_retirement_action == 'apply' else 'adopt' }}\"" in (ROOT / "ansible/playbooks/retire-offen-local.yml").read_text()
