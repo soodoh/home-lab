@@ -20,6 +20,16 @@ ROOTS = ("aws-foundation", "proxmox-legacy", "proxmox", "tailscale")
 POLICY = '{"grants":[]}\n'
 
 
+def offen_retirement_operation() -> str:
+    script = """
+import fs from 'node:fs';
+import { load } from 'js-yaml';
+const state = load(fs.readFileSync('infrastructure/contract/home-lab.yml', 'utf8')).backups.legacy_offen.retirement.state;
+console.log(state === 'retirement-planned' ? 'grant' : state === 'retirement-finalizing' ? 'finalize' : '');
+"""
+    return subprocess.check_output(["node", "--input-type=module", "-e", script], cwd=REPOSITORY, text=True).strip()
+
+
 def write_executable(path: Path, content: str) -> None:
     path.write_text(content)
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
@@ -125,7 +135,7 @@ class ManifestVerificationTests(unittest.TestCase):
                 "ansible_extra_vars_file_sha256": "",
                 "recovery_backup_identity_sha256": "",
                 "recovery_expectations_sha256": "",
-                "offen_retirement_operation": "grant",
+                "offen_retirement_operation": offen_retirement_operation(),
                 "compose_artifact_sha256": compose_hash,
                 "proxmox_host_plan": {"actions": 0, "external_owner_only": False, "prerequisite": "none", "status": "ready", "file": ".reconcile/plans/" + "f" * 64 + ".json", "file_sha256": "e" * 64, "plan_sha256": "f" * 64},
                 "plans": plans,
@@ -163,7 +173,7 @@ case "$operation" in
 {"resource_changes":[{"address":"terraform_data.tailscale_policy[0]","type":"terraform_data","change":{"actions":["no-op"],"before":{"input":{"policy_json":"{\\"grants\\":[]}"}},"after":{"input":{"policy_json":"{\\"grants\\":[]}"}}}}]}
 JSON
     elif [[ $root == aws-foundation ]]; then
-      cat "$OFFEN_RETIREMENT_GRANT_FIXTURE"
+      cat "$OFFEN_RETIREMENT_FIXTURE"
     else
       printf '{"resource_changes":[]}\\n'
     fi
@@ -206,7 +216,7 @@ exit 86
                 "TF_PLUGIN_CACHE_DIR": str(provider_cache),
                 "TOFU_TEST_LOG": str(log),
                 "MOCK_GIT_COMMIT": commit,
-                "OFFEN_RETIREMENT_GRANT_FIXTURE": str(REPOSITORY / "infrastructure/policy/fixtures/offen-retirement-aws-grant.json"),
+                "OFFEN_RETIREMENT_FIXTURE": str(REPOSITORY / f"infrastructure/policy/fixtures/offen-retirement-aws-{offen_retirement_operation() or 'grant'}.json"),
             }
             command = [
                 str(RECONCILER),
