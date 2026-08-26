@@ -342,7 +342,7 @@ def api_recovery_exact(values: dict[str, str], state_vm: dict[str, object] | Non
             and config.get("cicustom") == "user=local:snippets/home-lab-restic-recovery-cloud-init.yaml"
             and agent_exact and set(network_options) == {"bridge", "firewall"}
             and network_options.get("bridge") == "vmbr0" and network_options.get("firewall") == "1"
-            and disk_matches("scsi0", "RESTIC-RECOVERY-ROOT-32G")
+            and disk_matches("scsi0", "RESTIC-ROOT-32G")
             and disk_matches("scsi1", "RESTIC-RECOVERY-128G"))
 
 
@@ -860,7 +860,7 @@ def fresh_recovery_observation(directory: Path, values: dict[str, str]) -> tuple
     if (item is None or item.get("name") != "home-lab-restic-recovery" or item.get("status") != "running"
             or not isinstance(config, dict) or config.get("name") != "home-lab-restic-recovery"
             or config.get("protection") not in (0, False, "0") or config.get("onboot") not in (0, False, "0")
-            or "RESTIC-RECOVERY-ROOT-32G" not in str(config.get("scsi0"))
+            or "RESTIC-ROOT-32G" not in str(config.get("scsi0"))
             or "RESTIC-RECOVERY-128G" not in str(config.get("scsi1"))):
         fail("fresh_vm_9900_configuration_differs")
     candidates = []

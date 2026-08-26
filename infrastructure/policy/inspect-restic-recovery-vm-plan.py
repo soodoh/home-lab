@@ -15,7 +15,6 @@ CLOUD_INIT = "proxmox_virtual_environment_file.recovery_cloud_init[0]"
 VM = "proxmox_virtual_environment_vm.recovery[0]"
 VM_BLOCK = "proxmox_virtual_environment_vm.recovery"
 ALLOWED = {
-    IMAGE: "proxmox_download_file",
     CLOUD_INIT: "proxmox_virtual_environment_file",
     VM: "proxmox_virtual_environment_vm",
 }
@@ -122,7 +121,7 @@ def validate_vm(value: dict[str, Any], operation: str) -> None:
     if not isinstance(disks, list) or len(disks) != 2: fail("disk_count_differs")
     by_interface = {item.get("interface"): item for item in disks if isinstance(item, dict)}
     if set(by_interface) != {"scsi0", "scsi1"}: fail("disk_interfaces_differ")
-    validate_disk(by_interface["scsi0"], "scsi0", "RESTIC-RECOVERY-ROOT-32G", 32, True, operation)
+    validate_disk(by_interface["scsi0"], "scsi0", "RESTIC-ROOT-32G", 32, True, operation)
     validate_disk(by_interface["scsi1"], "scsi1", "RESTIC-RECOVERY-128G", 128, False, operation)
     network = one(value.get("network_device"), "network")
     expected_network = {"bridge": "vmbr0", "disconnected": None, "enabled": True, "firewall": True, "model": "virtio", "mtu": 0, "queues": 0, "rate_limit": 0, "trunks": None, "vlan_id": 0}
@@ -219,7 +218,7 @@ def main() -> None:
             validate_vm(value, args.operation)
         observed.add(address)
     if args.operation == "create":
-        if VM not in mutated or not {VM, CLOUD_INIT} <= observed or IMAGE not in observed:
+        if VM not in mutated or not {VM, CLOUD_INIT} <= observed:
             fail("required_create_scope_absent")
     elif not mutated:
         fail("required_destroy_change_absent")

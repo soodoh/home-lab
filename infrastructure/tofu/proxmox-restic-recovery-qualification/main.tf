@@ -31,17 +31,6 @@ provider "proxmox" {
   insecure = false
 }
 
-resource "proxmox_download_file" "recovery_image" {
-  count = var.enable_qualification ? 1 : 0
-
-  content_type       = "import"
-  datastore_id       = "local"
-  node_name          = local.node
-  url                = local.image.url
-  checksum           = local.image.sha512
-  checksum_algorithm = "sha512"
-  file_name          = "home-lab-restic-recovery-debian-${local.contract.debian.build_id}.qcow2"
-}
 
 resource "proxmox_virtual_environment_file" "recovery_cloud_init" {
   count = var.enable_qualification ? 1 : 0
@@ -97,9 +86,9 @@ resource "proxmox_virtual_environment_vm" "recovery" {
 
   disk {
     datastore_id = "local-lvm"
-    import_from  = proxmox_download_file.recovery_image[0].id
+    import_from  = "local:import/home-lab-restic-recovery-debian-${local.contract.debian.build_id}.qcow2"
     interface    = "scsi0"
-    serial       = "RESTIC-RECOVERY-ROOT-32G"
+    serial       = "RESTIC-ROOT-32G"
     size         = 32
     iothread     = true
     backup       = false
