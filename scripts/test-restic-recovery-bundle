@@ -8,6 +8,7 @@ mkdir -m 0700 "$work/out"
 for name in restic rclone; do
   cat >"$work/$name" <<SH
 #!/usr/bin/env bash
+if [[ \${1:-} == obscure ]]; then cat >/dev/null; printf 'obscured-fixture\\n'; exit 0; fi
 echo $name
 SH
   chmod 0755 "$work/$name"

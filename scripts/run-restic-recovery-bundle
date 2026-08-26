@@ -171,6 +171,16 @@ def main() -> None:
                     os.fsync(descriptor)
             finally:
                 os.close(descriptor)
+        login_password = contents["private/proton-login-password"].decode().rstrip("\n")
+        if re.fullmatch(r"[A-Za-z0-9]{40,}", login_password) is None:
+            fail("Proton recovery login password differs")
+        obscure_environment = {"HOME": str(workspace), "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"}
+        obscured = subprocess.run(
+            [str(workspace / "bin/rclone"), "obscure", "-"], input=login_password + "\n", check=True,
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=obscure_environment,
+        ).stdout.strip()
+        if not obscured or "\n" in obscured:
+            fail("Proton obscured recovery credential differs")
         environment = {
             "HOME": str(workspace),
             "LANG": "C.UTF-8",
@@ -187,7 +197,7 @@ def main() -> None:
             "RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID": metadata["original_snapshot_id"],
             "RCLONE_CONFIG_PROTON_BACKUP_TYPE": "protondrive",
             "RCLONE_CONFIG_PROTON_BACKUP_USERNAME": contents["private/proton-username"].decode().rstrip("\n"),
-            "RCLONE_CONFIG_PROTON_BACKUP_PASSWORD": contents["private/proton-login-password"].decode().rstrip("\n"),
+            "RCLONE_CONFIG_PROTON_BACKUP_PASSWORD": obscured,
             "RCLONE_CONFIG_PROTON_BACKUP_REPLACE_EXISTING_DRAFT": "true",
             "RCLONE_CONFIG_PROTON_BACKUP_ENABLE_CACHING": "false",
         }
@@ -204,9 +214,20 @@ def main() -> None:
             )
         finally:
             signal.pthread_sigmask(signal.SIG_UNBLOCK, blocked_signals)
-        stdout, _ = child.communicate()
+        stdout, stderr = child.communicate()
         if child.returncode != 0 or stdout != f"recovery_restore=verified backend=restic snapshot={metadata['snapshot_id']}\n":
-            fail("isolated Restic restore failed")
+            reasons = {
+                "Pinned Restic version identity failed": "restic-version",
+                "Pinned rclone version identity failed": "rclone-version",
+                "Restic repository identity failed": "repository-identity",
+                "Restic snapshot selection failed": "snapshot-selection",
+                "exact Restic repository identity was not found": "repository-mismatch",
+                "exact Restic snapshot identity was not found": "snapshot-mismatch",
+                "Restic copied snapshot ancestry differs": "snapshot-ancestry",
+                "Restic snapshot policy or artifact identity differs": "snapshot-policy",
+            }
+            reason = next((code for message, code in reasons.items() if message in stderr), "controlled-command")
+            fail(f"isolated Restic restore failed reason={reason}")
         file_count = 0
         byte_count = 0
         for directory, names, files in os.walk(target, followlinks=False):
