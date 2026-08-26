@@ -234,6 +234,94 @@ def verify_containers(manifest: dict, manifest_hash: str, allow_renamed: bool, a
             fail("offen_image_identity_differs")
 
 
+def image_override_state(manifest: dict) -> tuple[Path, dict, str]:
+    expected = manifest["compose"]["image_override"]
+    path = Path(expected["path"])
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or path.is_symlink() or info.st_uid != 0
+            or info.st_gid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o644):
+        fail("image_override_metadata_invalid")
+    raw = path.read_bytes()
+    value = json.loads(raw)
+    if raw != canonical(value):
+        fail("image_override_not_canonical")
+    return path, value, hashlib.sha256(raw).hexdigest()
+
+
+def write_image_override(path: Path, raw: bytes, temporary: Path) -> None:
+    if temporary.exists() or temporary.is_symlink():
+        info = temporary.lstat()
+        if (not stat.S_ISREG(info.st_mode) or temporary.is_symlink() or info.st_uid != 0
+                or info.st_gid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o644
+                or temporary.read_bytes() != raw):
+            fail("image_override_temporary_invalid")
+    else:
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        os.fchown(descriptor, 0, 0)
+        os.fchmod(descriptor, 0o644)
+        with os.fdopen(descriptor, "wb", buffering=0) as target:
+            target.write(raw)
+            os.fsync(target.fileno())
+    os.replace(temporary, path)
+    descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def converge_image_override(manifest: dict, manifest_hash: str, retired: bool) -> None:
+    expected = manifest["compose"]["image_override"]
+    path, value, observed = image_override_state(manifest)
+    before, after = expected["before_sha256"], expected["after_sha256"]
+    removed = expected["removed_services"]
+    services = value.get("services")
+    if not isinstance(services, dict):
+        fail("image_override_services_invalid")
+    target = json.loads(json.dumps(value))
+    if retired:
+        if observed == after:
+            if not any(item.get("event") == "image_override_filter_started" for item in journal_events()):
+                fail("image_override_unjournaled")
+            if not any(item.get("event") == "image_override_filtered" for item in journal_events()):
+                append({"event": "image_override_filtered_adopted", "after_sha256": after})
+                append({"event": "image_override_filtered", "after_sha256": after})
+            return
+        if observed != before or any(services.get(name) != entry for name, entry in removed.items()):
+            fail("image_override_before_invalid")
+        for name in removed:
+            del target["services"][name]
+        target_raw = canonical(target)
+        if hashlib.sha256(target_raw).hexdigest() != after:
+            fail("image_override_after_hash_differs")
+        if not any(item.get("event") == "image_override_filter_started" for item in journal_events()):
+            append({"event": "image_override_filter_started", "before_sha256": before, "after_sha256": after})
+        temporary = path.with_name(f".{path.name}.offen-retirement-{manifest_hash[:16]}")
+        write_image_override(path, target_raw, temporary)
+        append({"event": "image_override_filtered", "after_sha256": after})
+        return
+    if observed == before:
+        return
+    if observed != after or any(name in services for name in removed):
+        fail("image_override_rollback_state_invalid")
+    target["services"].update(removed)
+    target_raw = canonical(target)
+    if hashlib.sha256(target_raw).hexdigest() != before:
+        fail("image_override_rollback_hash_differs")
+    append({"event": "image_override_rollback_started", "before_sha256": before})
+    temporary = path.with_name(f".{path.name}.offen-rollback-{manifest_hash[:16]}")
+    write_image_override(path, target_raw, temporary)
+    append({"event": "image_override_rolled_back", "before_sha256": before})
+
+
+def require_image_override(manifest: dict, retired: bool) -> None:
+    expected = manifest["compose"]["image_override"]
+    _path, _value, observed = image_override_state(manifest)
+    required = expected["after_sha256"] if retired else expected["before_sha256"]
+    if observed != required:
+        fail("image_override_state_differs")
+
+
 def action_plan(manifest: dict, manifest_hash: str) -> dict:
     return {
         "version": 1,
@@ -247,6 +335,7 @@ def action_plan(manifest: dict, manifest_hash: str) -> dict:
             for service in manifest["compose"]["services"]
         ],
         "file_renames": [{"kind": item["kind"], "from": item["path"], "to": str(tombstone(Path(item["path"]), manifest_hash))} for item in retirement_files(manifest)],
+        "image_override": manifest["compose"]["image_override"],
     }
 
 
@@ -308,9 +397,11 @@ def load_saved_transaction(manifest: dict, manifest_hash: str) -> tuple[dict, st
         for item in retirement_files(manifest)
     ]
     containers = plan.get("container_renames")
-    if (set(plan) != {"version", "manifest_sha256", "container_renames", "file_renames"}
+    if (set(plan) != {"version", "manifest_sha256", "container_renames", "file_renames", "image_override"}
             or plan.get("version") != 1 or plan.get("manifest_sha256") != manifest_hash
-            or plan.get("file_renames") != expected_files or not isinstance(containers, list)
+            or plan.get("file_renames") != expected_files
+            or plan.get("image_override") != manifest["compose"]["image_override"]
+            or not isinstance(containers, list)
             or len(containers) != len(manifest["compose"]["services"])):
         fail("saved_action_plan_scope_invalid")
     for service, change in zip(manifest["compose"]["services"], containers, strict=True):
@@ -380,7 +471,9 @@ def mutate_apply(manifest: dict, manifest_hash: str) -> None:
             source.rename(target)
             descriptor = os.open(target.parent, os.O_RDONLY | os.O_DIRECTORY); os.fsync(descriptor); os.close(descriptor)
             append({"event": "file_renamed", **change})
+    converge_image_override(manifest, manifest_hash, True)
     verify_archives(manifest, manifest_hash, True); verify_containers(manifest, manifest_hash, True)
+    require_image_override(manifest, True)
     verify_every_item_tombstoned(manifest, manifest_hash, plan)
     if not any(item.get("event") == "apply_complete" for item in journal_events()):
         append({"event": "apply_complete", "action_plan_sha256": plan_hash})
@@ -393,24 +486,40 @@ def rollback(manifest: dict, manifest_hash: str) -> None:
         fail("rollback_forbidden")
     plan, plan_hash, _owner_hash = load_saved_transaction(manifest, manifest_hash)
     require_apply_complete(plan_hash)
-    verify_every_item_tombstoned(manifest, manifest_hash, plan)
+    converge_image_override(manifest, manifest_hash, False)
     files_by_path = {item["path"]: item for item in retirement_files(manifest)}
     for change in reversed(plan["file_renames"]):
         source, target = Path(change["from"]), Path(change["to"])
-        if source.exists() or source.is_symlink() or not target.exists() or target.is_symlink():
+        source_present = source.exists() or source.is_symlink()
+        target_present = target.exists() or target.is_symlink()
+        if source_present == target_present:
             fail("rollback_file_state_invalid")
-        verify_file(target, files_by_path[change["from"]])
-        append({"event": "file_rollback_started", **change}); target.rename(source); append({"event": "file_rolled_back", **change})
+        if target_present:
+            verify_file(target, files_by_path[change["from"]])
+            append({"event": "file_rollback_started", **change})
+            target.rename(source)
+            descriptor = os.open(source.parent, os.O_RDONLY | os.O_DIRECTORY); os.fsync(descriptor); os.close(descriptor)
+            append({"event": "file_rolled_back", **change})
+        else:
+            verify_file(source, files_by_path[change["from"]])
     for change in reversed(plan["container_renames"]):
-        if subprocess.run(["docker", "inspect", change["from"]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+        original = subprocess.run(["docker", "inspect", "--format", "{{.Id}}", change["from"]], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        renamed = subprocess.run(["docker", "inspect", "--format", "{{.Id}}", change["to"]], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        if (original.returncode == 0) == (renamed.returncode == 0):
             fail("rollback_container_state_invalid")
-        inspected = subprocess.run(["docker", "inspect", "--format", "{{.Id}}", change["to"]], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-        if inspected.returncode != 0 or inspected.stdout.strip() != change["container_id"]:
+        if renamed.returncode == 0:
+            if renamed.stdout.strip() != change["container_id"]:
+                fail("rollback_container_identity_differs")
+            append({"event": "container_rollback_started", **change})
+            run(["docker", "rename", change["to"], change["from"]])
+            append({"event": "container_rolled_back", **change})
+        elif original.stdout.strip() != change["container_id"]:
             fail("rollback_container_identity_differs")
-        append({"event": "container_rollback_started", **change}); run(["docker", "rename", change["to"], change["from"]]); append({"event": "container_rolled_back", **change})
     verify_archives(manifest, manifest_hash, False)
     verify_containers(manifest, manifest_hash, False)
-    append({"event": "rollback_complete", "action_plan_sha256": plan_hash})
+    require_image_override(manifest, False)
+    if not any(item.get("event") == "rollback_complete" for item in journal_events()):
+        append({"event": "rollback_complete", "action_plan_sha256": plan_hash})
     print("offen_retirement_local=rolled-back")
 
 
@@ -466,6 +575,7 @@ def finalize(manifest: dict, manifest_hash: str, evidence_hash: str) -> None:
         fail("irreversible_authorization_differs")
     irreversible = bool(irreversible_events)
     verify_status_under_lock(manifest); verify_mounts(manifest)
+    require_image_override(manifest, True)
     verify_archives(manifest, manifest_hash, True, irreversible)
     verify_containers(manifest, manifest_hash, True, irreversible)
     if not irreversible:
@@ -588,6 +698,7 @@ def main() -> None:
         verify_status_under_lock(manifest)
         if args.action == "plan":
             verify_mounts(manifest); verify_archives(manifest, manifest_hash, False); verify_containers(manifest, manifest_hash, False)
+            require_image_override(manifest, False)
             plan_hash = hashlib.sha256(canonical(action_plan(manifest, manifest_hash))).hexdigest()
             print(f"offen_retirement_local=planned action_plan_sha256={plan_hash}")
         elif args.action in ("apply", "resume"):

@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "infrastructure/retirement/offen-retirement-manifest.json"
-EXPECTED = "d864caf2459c0e5c6ec2b5b31de920018d187eb7a4905a079e7bb80db146a4a4"
+EXPECTED = "73da02cd3917f2aa3f5a0eee6c355b825456d3f825f9b0c087c8b322c18b012e"
 
 raw = MANIFEST.read_bytes()
 assert hashlib.sha256(raw).hexdigest() == EXPECTED
@@ -61,6 +61,8 @@ spec = importlib.util.spec_from_loader("retire_offen_local", SourceFileLoader("r
 assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+REAL_CONVERGE_IMAGE_OVERRIDE = module.converge_image_override
+REAL_FCHOWN = module.os.fchown
 module.container_state = lambda service, _manifest_hash: (service, "sha256:image", "container-" + service)
 plan = module.action_plan(value, EXPECTED)
 assert len(plan["file_renames"]) == 20 and len(plan["container_renames"]) == 2
@@ -75,6 +77,7 @@ assert "s3api list-object-versions" in aws_source
 assert "DeleteObjects" not in aws_source and "--recursive" not in aws_source
 assert all(forbidden not in aws_source for forbidden in ("rclone purge", "rclone cleanup", "aws s3 rm"))
 local_source = (ROOT / "scripts/retire-offen-local").read_text()
+assert 'stat.S_IMODE(info.st_mode) != 0o644' in local_source
 assert 'observed_ids != expected_ids' in local_source
 assert 'expected_ids = manifest.get("restic_repositories", {})' in local_source
 assert local_source.index("file_rename_started") < local_source.index("irreversible_unlink_started")
@@ -164,7 +167,7 @@ with tempfile.TemporaryDirectory() as temporary:
     metadata_file.write_text(f"{archive_hash}  archive.gpg\n")
     protected_one = root / "protected-one"; protected_one.mkdir()
     protected_two = root / "protected-two"; protected_two.mkdir()
-    fixture_manifest = {"local": {"archives": [{"path": str(archive), "bytes": archive.stat().st_size, "sha256": archive_hash}], "metadata_files": [{"path": str(metadata_file), "archive_path": str(archive), "bytes": metadata_file.stat().st_size, "sha256": hashlib.sha256(metadata_file.read_bytes()).hexdigest(), "expected_archive_sha256": archive_hash}], "protected_directories": [{"path": str(protected_one)}, {"path": str(protected_two)}]}, "compose": {"services": [], "image": "example.invalid/offen@sha256:" + "b" * 64}}
+    fixture_manifest = {"local": {"archives": [{"path": str(archive), "bytes": archive.stat().st_size, "sha256": archive_hash}], "metadata_files": [{"path": str(metadata_file), "archive_path": str(archive), "bytes": metadata_file.stat().st_size, "sha256": hashlib.sha256(metadata_file.read_bytes()).hexdigest(), "expected_archive_sha256": archive_hash}], "protected_directories": [{"path": str(protected_one)}, {"path": str(protected_two)}]}, "compose": {"services": [], "image": "example.invalid/offen@sha256:" + "b" * 64, "image_override": {"path": str(root / "override.json"), "before_sha256": "1" * 64, "after_sha256": "2" * 64, "removed_services": {}}}}
     plan = module.action_plan(fixture_manifest, manifest_hash)
     plan_raw = module.canonical(plan)
     module.ACTION_PLAN.write_bytes(plan_raw)
@@ -185,6 +188,7 @@ with tempfile.TemporaryDirectory() as temporary:
     module.verify_mounts = lambda _manifest: None
     module.verify_archives = lambda *_args, **_kwargs: None
     module.verify_containers = lambda *_args, **_kwargs: None
+    module.require_image_override = lambda *_args, **_kwargs: None
     module.run = lambda _args: ""
     module.subprocess.run = lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout="")
     authoritative_journal = module.JOURNAL.read_bytes()
@@ -227,7 +231,9 @@ with tempfile.TemporaryDirectory() as temporary:
     manifest_hash = "c" * 64
     source = root / "archive.gpg"; source.write_bytes(b"rollback")
     item = {"path": str(source), "bytes": source.stat().st_size, "sha256": hashlib.sha256(source.read_bytes()).hexdigest()}
-    rollback_manifest = {"local": {"archives": [item], "metadata_files": [], "protected_directories": []}, "compose": {"services": [], "image": "example.invalid/offen@sha256:" + "d" * 64}}
+    rollback_manifest = {"local": {"archives": [item], "metadata_files": [], "protected_directories": []}, "compose": {"services": [], "image": "example.invalid/offen@sha256:" + "d" * 64, "image_override": {"path": str(root / "override.json"), "before_sha256": "3" * 64, "after_sha256": "4" * 64, "removed_services": {}}}}
+    module.converge_image_override = lambda *_args, **_kwargs: None
+    module.require_image_override = lambda *_args, **_kwargs: None
     plan = module.action_plan(rollback_manifest, manifest_hash)
     plan_raw = module.canonical(plan); plan_hash = hashlib.sha256(plan_raw).hexdigest()
     owner_raw = module.canonical({"operation": "offen-retirement-local", "manifest_sha256": manifest_hash, "action_plan_sha256": plan_hash})
@@ -250,6 +256,29 @@ with tempfile.TemporaryDirectory() as temporary:
     module.OWNER.write_bytes(owner_raw)
     module.rollback(rollback_manifest, manifest_hash)
     assert source.read_bytes() == b"rollback"
+module.converge_image_override = REAL_CONVERGE_IMAGE_OVERRIDE
+
+# The production image override transition is exact, idempotent, and reversible.
+with tempfile.TemporaryDirectory() as temporary:
+    root = Path(temporary)
+    override = root / "override.json"
+    before_value = {"services": {"daily-local-backup": {"image": "sha256:" + "a" * 64}, "weekly-remote-backup": {"image": "sha256:" + "a" * 64}, "keep": {"image": "sha256:" + "b" * 64}}}
+    before_raw = module.canonical(before_value); override.write_bytes(before_raw)
+    after_value = json.loads(json.dumps(before_value))
+    del after_value["services"]["daily-local-backup"]; del after_value["services"]["weekly-remote-backup"]
+    after_raw = module.canonical(after_value)
+    override_manifest = {"compose": {"image_override": {"path": str(override), "before_sha256": hashlib.sha256(before_raw).hexdigest(), "after_sha256": hashlib.sha256(after_raw).hexdigest(), "removed_services": {"daily-local-backup": {"image": "sha256:" + "a" * 64}, "weekly-remote-backup": {"image": "sha256:" + "a" * 64}}}}}
+    module.TRANSACTION = root; module.JOURNAL = root / "journal.jsonl"
+    module._regular_private = lambda path: path.read_bytes()
+    module.image_override_state = lambda _manifest: (override, json.loads(override.read_text()), hashlib.sha256(override.read_bytes()).hexdigest())
+    module.os.fchown = lambda *_args: None
+    module.converge_image_override(override_manifest, "e" * 64, True)
+    assert override.read_bytes() == after_raw
+    module.converge_image_override(override_manifest, "e" * 64, True)
+    module.converge_image_override(override_manifest, "e" * 64, False)
+    assert override.read_bytes() == before_raw
+    module.converge_image_override(override_manifest, "e" * 64, False)
+module.os.fchown = REAL_FCHOWN
 
 # The terminal evidence validator accepts a schema-complete canonical shape and
 # rejects altered manifest/bundle semantics before any release path can clean up.
