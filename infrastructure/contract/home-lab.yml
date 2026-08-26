@@ -1482,7 +1482,7 @@ backups:
       verified_at: "2026-08-26T01:36:31Z"
     first_run:
       state: ready
-      helper_sha256: 9fdac0382533a1dfc2fc529f591d606138b4a222215af1ea69fdbd766c6aef80
+      helper_sha256: 260b568a7c4fb5bed2017b09795b4398d4221a72ce0e0427fc4860b890b8e781
       aws_proof_helper_sha256: bded70eb916e8af276332ebdcced8b2251df23a1452d7e3b3409da7428d4f1eb
       confirmation: run-one-reviewed-games-nfs-proton-chain
       exclusive_client_confirmation: proton-exclusive-client-closed

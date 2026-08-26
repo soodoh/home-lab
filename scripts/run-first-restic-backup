@@ -257,7 +257,7 @@ def create_journal(
     policy: dict[str, Any], raw_policy: bytes, lock_hash: str, aws_hash: str,
     baseline: dict[str, list[str]] | None = None,
 ) -> dict[str, Any]:
-    artifact = regular(Path(policy["runner"]["artifact_hash_path"]), {0o440,0o444,0o600,0o640,0o644}, {0}).decode().strip()
+    artifact = regular(Path(policy["runner"]["artifact_hash_path"]), {0o440,0o600,0o640,0o644}, {0}).decode().strip()
     if not HEX64.fullmatch(artifact): raise FirstRunError("artifact_hash")
     if baseline is None:
         baseline = pre_journal_baseline(policy)

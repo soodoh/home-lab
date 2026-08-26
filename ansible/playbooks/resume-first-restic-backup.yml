@@ -94,7 +94,7 @@
         dest: "{{ backups.restic.runner.artifact_hash_path }}"
         owner: root
         group: root
-        mode: "0444"
+        mode: "0644"
       become: true
       no_log: true
 
