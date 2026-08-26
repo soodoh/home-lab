@@ -283,10 +283,13 @@
 - name: Derive services outside the ordered Nextcloud startup set
   ansible.builtin.set_fact:
     compose_recovery_other_services: >-
-      {{ compose_recovery_declared_services.stdout_lines |
-         difference([nextcloud.database_service, nextcloud.redis_service,
-                     nextcloud.web_service, nextcloud.cron_service,
-                     'daily-local-backup', 'weekly-remote-backup']) | sort }}
+      {{
+        compose_recovery_declared_services.stdout_lines |
+        difference(
+          [nextcloud.database_service, nextcloud.redis_service, nextcloud.web_service, nextcloud.cron_service] +
+          (backups.legacy_offen.scheduler_services if backups.legacy_offen.scheduler_state != 'retired' else [])
+        ) | sort
+      }}
   no_log: true
 
 - name: Start recovered services outside Nextcloud without builds or pulls
@@ -333,12 +336,15 @@
 - name: Start recovered backup schedulers only after all Nextcloud state is available
   ansible.builtin.command:
     argv: >-
-      {{ compose_runtime_cli + ['up', '--detach', '--no-build', '--pull', 'never', '--no-deps',
-         'daily-local-backup', 'weekly-remote-backup'] }}
+      {{
+        compose_runtime_cli + ['up', '--detach', '--no-build', '--pull', 'never', '--no-deps'] +
+        backups.legacy_offen.scheduler_services
+      }}
   environment:
     HOME: "{{ compose_home_dir }}"
   changed_when: true
   no_log: true
+  when: backups.legacy_offen.scheduler_state != 'retired'
 
 - name: Create protected image-lock directory
   ansible.builtin.file:

@@ -28,7 +28,7 @@
 - name: Assert the adopted Compose model counts remain unchanged
   ansible.builtin.assert:
     that:
-      - compose_declared_services.stdout_lines | length == audit_expected_compose_service_count
+      - compose_declared_services.stdout_lines | length in audit_allowed_declared_compose_service_counts
       - compose_declared_volumes.stdout_lines | length == audit_expected_declared_volume_count
     fail_msg: "Compose model counts changed; refusing adoption."
 

@@ -241,15 +241,30 @@
     "legacyOffenPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["scheduler_state", "scheduler_services", "migration_retention_hold", "migration_archive_preservation", "local_schedule", "local_paths", "estimated_archive_bytes", "local_retention_days", "remote_frequency", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "remote_noncurrent_retention_days", "incomplete_multipart_abort_days", "gpg_public_key_ring_file", "stateful_services", "excluded_classes", "final_archive"],
+      "required": ["scheduler_state", "scheduler_services", "retirement", "migration_retention_hold", "migration_archive_preservation", "local_schedule", "local_paths", "estimated_archive_bytes", "local_retention_days", "remote_frequency", "remote_schedule", "remote_rpo_hours", "remote_retention_days", "remote_noncurrent_retention_days", "incomplete_multipart_abort_days", "gpg_public_key_ring_file", "stateful_services", "excluded_classes", "final_archive"],
       "properties": {
-        "scheduler_state": { "enum": ["active", "quiesced"] },
+        "scheduler_state": { "enum": ["active", "quiesced", "retired"] },
         "scheduler_services": { "const": ["daily-local-backup", "weekly-remote-backup"] },
+        "retirement": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "manifest_file", "manifest_sha256", "acceptance", "materialized_service_count_before", "planned_source_service_count", "evidence_file", "evidence_sha256"],
+          "properties": {
+            "state": { "enum": ["preserved", "retirement-planned", "retirement-finalizing", "retired"] },
+            "manifest_file": { "const": "infrastructure/retirement/offen-retirement-manifest.json" },
+            "manifest_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "acceptance": { "const": "retire-offen-now-with-first-chain-and-isolated-restic-restore-proof" },
+            "materialized_service_count_before": { "const": 42 },
+            "planned_source_service_count": { "const": 40 },
+            "evidence_file": { "type": ["string", "null"], "pattern": "^infrastructure/evidence/offen-retirement(?:-finalizing)?\\.json$" },
+            "evidence_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+          }
+        },
         "migration_retention_hold": {
           "type": "object", "additionalProperties": false,
           "required": ["state", "current_object_retention_days", "plan_sha256", "recovery_object_version_id_sha256", "verified_at", "review_deadline"],
           "properties": {
-            "state": { "enum": ["absent", "planned", "applied"] },
+            "state": { "enum": ["absent", "planned", "applied", "retired"] },
             "current_object_retention_days": { "type": "integer", "minimum": 14, "maximum": 3650 },
             "lifecycle_rule_id": { "const": "critical-backup-retention" },
             "delete_marker_rule_id": { "const": "expired-delete-marker-cleanup" },
@@ -282,7 +297,7 @@
           "additionalProperties": false,
           "required": ["state", "protected_subdirectory", "replica_roots", "archives", "verified_at"],
           "properties": {
-            "state": { "enum": ["planned", "applied"] },
+            "state": { "enum": ["planned", "applied", "retirement-finalizing", "retired"] },
             "protected_subdirectory": { "const": ".migration-preserved-offen" },
             "replica_roots": { "const": ["/mnt/games/backups", "/mnt/storage/backups"] },
             "archives": {
@@ -412,6 +427,45 @@
         {
           "if": { "properties": { "scheduler_state": { "const": "quiesced" } }, "required": ["scheduler_state"] },
           "then": { "properties": { "migration_retention_hold": { "type": "object", "properties": { "state": { "const": "applied" } } } } }
+        },
+        {
+          "if": { "properties": { "retirement": { "type": "object", "properties": { "state": { "const": "retirement-planned" } }, "required": ["state"] } } },
+          "then": {
+            "properties": {
+              "scheduler_state": { "const": "quiesced" },
+              "migration_archive_preservation": { "type": "object", "properties": { "state": { "const": "applied" } } },
+              "migration_retention_hold": { "type": "object", "properties": { "state": { "const": "applied" } } },
+              "retirement": { "type": "object", "properties": { "evidence_file": { "const": null }, "evidence_sha256": { "const": null } } }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "retirement": { "type": "object", "properties": { "state": { "const": "retirement-finalizing" } }, "required": ["state"] } } },
+          "then": {
+            "properties": {
+              "scheduler_state": { "const": "retired" },
+              "migration_archive_preservation": { "type": "object", "properties": { "state": { "const": "retirement-finalizing" } } },
+              "migration_retention_hold": { "type": "object", "properties": { "state": { "const": "retired" } } },
+              "retirement": {
+                "type": "object",
+                "oneOf": [
+                  { "properties": { "evidence_file": { "const": null }, "evidence_sha256": { "const": null } } },
+                  { "properties": { "evidence_file": { "const": "infrastructure/evidence/offen-retirement-finalizing.json" }, "evidence_sha256": { "type": "string" } } }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "retirement": { "type": "object", "properties": { "state": { "const": "retired" } }, "required": ["state"] } } },
+          "then": {
+            "properties": {
+              "scheduler_state": { "const": "retired" },
+              "migration_archive_preservation": { "type": "object", "properties": { "state": { "const": "retired" } } },
+              "migration_retention_hold": { "type": "object", "properties": { "state": { "const": "retired" } } },
+              "retirement": { "type": "object", "properties": { "evidence_file": { "const": "infrastructure/evidence/offen-retirement.json" }, "evidence_sha256": { "type": "string" } } }
+            }
+          }
         }
       ]
     },
@@ -530,9 +584,9 @@
           "prefixItems": [{ "const": "nextcloud-cron" }, { "const": "nextcloud" }, { "const": "nextcloud-db" }],
           "items": false, "minItems": 3, "maxItems": 3, "uniqueItems": true
         },
-        "expected_compose_service_count": { "const": 42 },
-        "expected_image_reference_count": { "const": 36 },
-        "expected_image_lock_service_count": { "const": 42 },
+        "expected_compose_service_count": { "const": 40 },
+        "expected_image_reference_count": { "const": 35 },
+        "expected_image_lock_service_count": { "const": 39 },
         "rollback_window_days": { "const": 7 },
         "old_path_cleanup_gate": { "const": "nextcloud-old-paths-reviewed-after-recovery-proof" }
       }

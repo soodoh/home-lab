@@ -48,6 +48,7 @@ invalidQuiescedWithoutRetentionHold.backups.legacy_offen.migration_retention_hol
 check(invalidQuiescedWithoutRetentionHold, false, "Offen quiescence requires an applied AWS retention hold");
 
 const plannedRetentionHold = structuredClone(contract);
+plannedRetentionHold.backups.legacy_offen.retirement.state = "preserved";
 plannedRetentionHold.backups.legacy_offen.scheduler_state = "active";
 plannedRetentionHold.backups.legacy_offen.migration_retention_hold = {
   state: "planned",
@@ -117,6 +118,31 @@ appliedArchivePreservation.backups.legacy_offen.final_archive = {
   },
 };
 check(appliedArchivePreservation, true, "Offen quiescence accepts applied retention and archive preservation evidence");
+
+const finalizingOffen = structuredClone(contract);
+finalizingOffen.backups.legacy_offen.scheduler_state = "retired";
+finalizingOffen.backups.legacy_offen.migration_retention_hold.state = "retired";
+finalizingOffen.backups.legacy_offen.migration_archive_preservation.state = "retirement-finalizing";
+finalizingOffen.backups.legacy_offen.retirement.state = "retirement-finalizing";
+check(finalizingOffen, true, "non-circular Offen finalizing state accepts pending evidence");
+finalizingOffen.backups.legacy_offen.retirement.evidence_file = "infrastructure/evidence/offen-retirement-finalizing.json";
+finalizingOffen.backups.legacy_offen.retirement.evidence_sha256 = "b".repeat(64);
+check(finalizingOffen, true, "Offen finalizing state accepts exact staged evidence binding");
+const invalidFinalizingOffen = structuredClone(finalizingOffen);
+invalidFinalizingOffen.backups.legacy_offen.migration_archive_preservation.state = "applied";
+check(invalidFinalizingOffen, false, "Offen finalizing state rejects unstaged local archives");
+
+const retiredOffen = structuredClone(contract);
+retiredOffen.backups.legacy_offen.scheduler_state = "retired";
+retiredOffen.backups.legacy_offen.migration_retention_hold.state = "retired";
+retiredOffen.backups.legacy_offen.migration_archive_preservation.state = "retired";
+retiredOffen.backups.legacy_offen.retirement.state = "retired";
+retiredOffen.backups.legacy_offen.retirement.evidence_file = "infrastructure/evidence/offen-retirement.json";
+retiredOffen.backups.legacy_offen.retirement.evidence_sha256 = "a".repeat(64);
+check(retiredOffen, true, "attested Offen retirement accepts exact retired state");
+const invalidRetiredOffen = structuredClone(retiredOffen);
+invalidRetiredOffen.backups.legacy_offen.retirement.evidence_sha256 = null;
+check(invalidRetiredOffen, false, "retired Offen requires attested evidence hash");
 if (!contract.tailscale.required_endpoints.includes("docker-host:22") ||
     !contract.tailscale.required_endpoints.includes("docker-host:8043") ||
     !productionInventory.includes("ansible_host: docker-host") ||

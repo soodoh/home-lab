@@ -14,10 +14,6 @@
         apply_lock_action: acquire
         apply_lock_operation: nextcloud-five-mount-migration
 
-    - name: Verify fail-closed backup temporary storage
-      ansible.builtin.import_role:
-        name: backup_temp_preflight
-
     - name: Install the declared metadata-preserving copy dependency when absent
       ansible.builtin.import_role:
         name: apt_packages

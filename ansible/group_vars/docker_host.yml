@@ -46,11 +46,18 @@ audit_expected_tailscale_daemon_sha256: "{{ tailscale.docker_host_client.daemon_
 audit_expected_tailscale_auto_update_apply: "{{ tailscale.docker_host_client.auto_update_apply }}"
 audit_expected_tailscale_run_ssh: "{{ tailscale.docker_host_client.run_ssh }}"
 audit_expected_tailscale_update_check: "{{ tailscale.docker_host_client.update_check }}"
-audit_expected_compose_service_count: 42
+audit_expected_compose_service_count: "{{ backups.legacy_offen.retirement.planned_source_service_count }}"
+audit_allowed_declared_compose_service_counts: >-
+  {{
+    [backups.legacy_offen.retirement.materialized_service_count_before,
+     backups.legacy_offen.retirement.planned_source_service_count]
+    if backups.legacy_offen.retirement.state in ['retirement-planned', 'retirement-finalizing']
+    else [backups.legacy_offen.retirement.planned_source_service_count]
+  }}
+audit_allowed_materialized_compose_service_counts: "{{ audit_allowed_declared_compose_service_counts }}"
 audit_expected_stopped_compose_services: >-
   {{ backups.legacy_offen.scheduler_services if backups.legacy_offen.scheduler_state == 'quiesced' else [] }}
-audit_expected_running_compose_service_count: >-
-  {{ audit_expected_compose_service_count - (audit_expected_stopped_compose_services | length) }}
+audit_expected_running_compose_service_count: "{{ backups.legacy_offen.retirement.planned_source_service_count }}"
 
 # Pinned standalone SOPS and age tooling. No package transaction is used.
 sops_version: 3.13.3

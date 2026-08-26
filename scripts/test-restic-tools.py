@@ -32,6 +32,21 @@ def main() -> None:
     offen = value["backups"]["legacy_offen"]
     assert offen["scheduler_state"] == "quiesced"
     assert offen["scheduler_services"] == ["daily-local-backup", "weekly-remote-backup"]
+    retirement = offen["retirement"]
+    manifest_path = ROOT / retirement["manifest_file"]
+    manifest_bytes = manifest_path.read_bytes()
+    manifest = json.loads(manifest_bytes)
+    assert retirement["state"] == "retirement-planned"
+    assert retirement["manifest_sha256"] == hashlib.sha256(manifest_bytes).hexdigest()
+    assert retirement["acceptance"] == manifest["acceptance"]
+    assert retirement["materialized_service_count_before"] == 42
+    assert retirement["planned_source_service_count"] == 40
+    assert retirement["evidence_file"] is retirement["evidence_sha256"] is None
+    assert len(manifest["local"]["archives"]) == 12
+    assert len(manifest["local"]["metadata_files"]) == 8
+    assert manifest["aws"]["version_id_sha256"] == "3e42bf4017bedaaac231ce234cc8be64536a87da0ba8e401b90967864c73a8c0"
+    assert "restic-recovery-bundle-b" in manifest["preserve"]
+    assert "proton-trash" in manifest["preserve"]
     assert offen["migration_retention_hold"] == {
         "state": "applied",
         "current_object_retention_days": 365,
@@ -68,7 +83,6 @@ def main() -> None:
     evidence_bytes = evidence_path.read_bytes()
     evidence = json.loads(evidence_bytes)
     assert hashlib.sha256(evidence_bytes).hexdigest() == "89712ec78f8724730d2e3eeb07c3929db0b7c2fad7cb30410d517cc115f7eff1"
-    assert hashlib.sha256((ROOT / "scripts/verify-backup-archive.py").read_bytes()).hexdigest() == "e78f1f009d89af872fe2d48b2f091597c66a309f657842f1e522c221f643ac5c"
     assert evidence["archive_integrity"] == "pass" and evidence["safe_paths"] == "pass"
     assert len(evidence["required_state_classes"]) == 39
     assert all(item["status"] == "present" for item in evidence["required_state_classes"].values())
@@ -86,7 +100,7 @@ def main() -> None:
         assert final_archive["basename"] == preservation["archives"][1]["basename"]
         assert hashlib.sha256(evidence_bytes).hexdigest() == restore_proof["evidence_sha256"]
         assert final_archive["replica_paths"] == ["/mnt/games/backups/.migration-preserved-offen", "/mnt/storage/backups/.migration-preserved-offen"]
-        assert restore_proof["verifier_sha256"] == hashlib.sha256((ROOT / "scripts/verify-backup-archive.py").read_bytes()).hexdigest()
+        assert restore_proof["verifier_sha256"] == "e78f1f009d89af872fe2d48b2f091597c66a309f657842f1e522c221f643ac5c"
         assert restore_proof["restore_pipeline"] == restore_proof["decrypted_cleanup"] == "pass"
         assert restore_proof["archive_integrity"] == evidence["archive_integrity"] == "pass"
         assert restore_proof["safe_paths"] == evidence["safe_paths"] == "pass"
@@ -1788,36 +1802,21 @@ def main() -> None:
     compose_deploy = (ROOT / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
     compose_rollback = (ROOT / "ansible/roles/compose_rollback/tasks/main.yml").read_text()
     assert "current-artifact.sha256" in compose_deploy
-    offen_transition = (ROOT / "ansible/playbooks/quiesce-offen-backups.yml").read_text()
-    assert "stop-offen-keep-definitions-and-archives" in offen_transition
-    assert "resume-offen-existing-definitions" in offen_transition
-    assert "Refuse to stop an Offen scheduler with an active child process" in offen_transition
-    assert "sha256sum" in offen_transition and "state: absent" not in offen_transition
-    assert "dockervolumebackup.lock" in offen_transition
-    assert "Require exact declared, materialized, and non-Offen running service sets" in offen_transition
-    assert "backup-root-wide non-deletion" in offen_transition
-    assert "offen_scheduler_expected_aws_hold_plan_sha256" in offen_transition
-    assert ".total_seconds() <= 2592000" in offen_transition
-    assert "Require a complete source-state audit before an initial Offen quiescence" in offen_transition
-    assert "migration_archive_preservation.state == 'applied'" in offen_transition
-    assert "every protected Offen archive replica" in offen_transition
-    offen_preservation = (ROOT / "ansible/playbooks/preserve-offen-archives.yml").read_text()
-    assert "copy-both-offen-generations-to-protected-replicas" in offen_preservation
-    assert "apply_lock_operation: offen-archive-preservation" in offen_preservation
-    assert "/usr/bin/cp --reflink=never" in offen_preservation
-    assert "offen_archive_preservation=verified" in offen_preservation
-    assert "exec /bin/sleep 1800" in offen_preservation
-    assert "async: 1200" in offen_preservation
-    assert offen_preservation.index("Inspect free bytes on each protected replica filesystem") < offen_preservation.index("Acquire each Offen scheduler internal lock")
-    assert offen_preservation.index("Recheck preservation locks immediately before the bounded copy") < offen_preservation.index("Create and verify independent protected archive copies")
-    assert "force_handlers: true" in offen_preservation
-    assert "ansible.builtin.meta: flush_handlers" in offen_preservation
-    assert "listen: Release Offen internal preservation locks" in offen_preservation
-    assert offen_preservation.index('test "$matches" -eq 1;') < offen_preservation.index('kill "$candidate";')
-    assert offen_preservation.count(".offen-archive-preservation-lock.{{ item }}.pid") == 2
-    assert ".offen-archive-preservation-lock.pid" not in offen_preservation
-    assert "/usr/bin/rm -f -- \"$temporary\"" in offen_preservation
-    assert "rm -rf" not in offen_preservation
+    local_retirement = (ROOT / "scripts/retire-offen-local").read_text()
+    aws_retirement = (ROOT / "scripts/retire-offen-aws-object").read_text()
+    retirement_playbook = (ROOT / "ansible/playbooks/retire-offen-local.yml").read_text()
+    assert all(action in local_retirement for action in ('"plan"', '"apply"', '"resume"', '"rollback"', '"finalize"'))
+    assert "irreversible_unlink_started" in local_retirement
+    assert "archive_state_ambiguous" in local_retirement
+    assert "protected_directory_has_unexpected_entry" in local_retirement
+    assert "docker\", \"rename" in local_retirement
+    assert "s3api delete-object" in aws_retirement
+    assert "s3:DeleteObjectVersion" in (ROOT / "infrastructure/tofu/aws-foundation/iam.tf").read_text()
+    assert "OFFEN_RETIREMENT_BUNDLE_B_EXPECTED_HEAD_SHA256" not in aws_retirement
+    assert "OFFEN_RETIREMENT_LOCAL_OWNER_FILE" in aws_retirement
+    assert "bundle_b_head_sha256" in aws_retirement and "restore_evidence_hash_differs" in aws_retirement
+    assert "apply_lock_operation: offen-retirement-local" in retirement_playbook
+    assert "intentionally retains" in retirement_playbook
     health = (ROOT / "ansible/roles/health/tasks/main.yml").read_text()
     audit = (ROOT / "ansible/roles/audit/tasks/main.yml").read_text()
     assert "audit_expected_stopped_compose_services" in health
@@ -1831,16 +1830,6 @@ def main() -> None:
     assert "preserved_migration_token" in migration and ".home-lab-migration-owner" in migration
     assert all(name in migration for name in ("preserved_migration_findmnt", "preserved_migration_active_findmnt", "preserved_migration_activation_findmnt"))
     assert "current-artifact.sha256" in compose_rollback
-
-    offen_proof = (ROOT / "scripts/run-backup-restore-proof.fish").read_text()
-    assert "'a/archive=' 's/sha256=' 'b/bytes='" in offen_proof
-    assert "archive_identity=invalid" in offen_proof
-    assert "archive_sha256=invalid" in offen_proof
-    assert "archive_bytes=invalid" in offen_proof
-    assert "test (count $argv) -ne 0" in offen_proof
-    assert "0b46561cf52c15bfababef0f75fe3bbe2cf1f7e1305eb1f7cfe4c1ca0db5c431" not in offen_proof
-    verifier_sha256 = hashlib.sha256((ROOT / "scripts/verify-backup-archive.py").read_bytes()).hexdigest()
-    assert f'test "$ACTUAL_SHA256" = {verifier_sha256}' in offen_proof
 
     restore = (ROOT / "scripts/restore-critical-backup").read_text()
     assert '"$restic_path" restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify' in restore
@@ -1856,7 +1845,9 @@ def main() -> None:
     assert '$(stat -c %a "$RECOVERY_TARGET") == 700' in restore
     assert policy["restore"]["activation"]["replace-tree"] == "unavailable"
     assert policy["restore"]["activation"]["replace-entries"] == "unavailable"
-    assert "/srv/home-lab-state" not in restore.split("if [[ -n $restic_snapshot_id ]]", 1)[1].split("fi", 1)[0]
+    assert "remote_backup_id" not in restore
+    assert "RECOVERY_GPG_KEY_FILE" not in restore
+    assert "home-lab-restore-critical-archive" not in restore
 
     apps = (ROOT / "services/apps.yml").read_text()
     servarr = (ROOT / "services/servarr.yml").read_text()
@@ -1928,7 +1919,7 @@ def main() -> None:
     assert clear_detach < clear_owner < clear_tombstone
     assert "Remove only the inspected owner record" not in clear_failed_lock
     assert '"{{ backups.restic.runner.lock_path }}"' in clear_failed_lock
-    assert "iac_failed_lock_expected_operation not in ['proton-qualification', 'restic-repository-initialization', 'restic-first-run']" in clear_failed_lock
+    assert all(operation in clear_failed_lock for operation in ('proton-qualification', 'restic-repository-initialization', 'restic-first-run', 'offen-retirement-local'))
     initialization_playbook = (ROOT / "ansible/playbooks/initialize-restic-repositories.yml").read_text()
     initialization_resume = (ROOT / "ansible/playbooks/resume-restic-repository-initialization.yml").read_text()
     initialization_finalize = (ROOT / "ansible/playbooks/finalize-restic-repository-initialization.yml").read_text()
@@ -1947,8 +1938,8 @@ def main() -> None:
 
     restic_documentation = (ROOT / "docs/restic-backups.md").read_text()
     assert "iac_failed_lock_expected_operation=restic_backup" in restic_documentation
-    assert "atomically publishes it under the shared backup mutex" in restic_documentation
-    assert "Recovery from a partial inert deployment is forward convergence" in restic_documentation
+    assert "operation-specific owner lock must remain until exact R2 evidence authorizes finalize" in restic_documentation
+    assert "Proton Trash cleanup are forbidden recovery actions" in restic_documentation
 
     foundation = (ROOT / "infrastructure/tofu/aws-foundation/main.tf").read_text()
     assert "resource \"aws_s3_bucket\" \"state\"" in foundation

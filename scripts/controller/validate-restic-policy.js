@@ -156,12 +156,12 @@ function validateResticPolicy(policy) {
   ]) {
     if (classByPath.get(requiredPath) !== requiredClass) failures.push(`Restic path ${requiredPath} must be ${requiredClass}`);
   }
-  if (policy.migration_state === "inert" && (
-    JSON.stringify(policy.restore.modes) !== JSON.stringify(["staging"])
-    || policy.restore.activation_status !== "unavailable-pending-isolated-proofs"
-    || policy.restore.activation["replace-tree"] !== "unavailable"
-    || policy.restore.activation["replace-entries"] !== "unavailable"
-  )) failures.push("inert Restic policy must not advertise unavailable activation modes");
+  if (JSON.stringify(policy.restore.modes) !== JSON.stringify(["staging"])
+      || policy.restore.activation_status !== "unavailable-pending-isolated-proofs"
+      || policy.restore.activation["replace-tree"] !== "unavailable"
+      || policy.restore.activation["replace-entries"] !== "unavailable") {
+    failures.push("Restic policy must not advertise unavailable activation modes");
+  }
   if (policy.schedule.proton_independent_timer !== false
       || policy.retention.keep_daily !== 7
       || policy.retention.keep_weekly !== 5

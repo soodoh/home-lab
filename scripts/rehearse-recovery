@@ -13,10 +13,10 @@ done
 
 scripts/validate-contract
 scripts/validate-provider-locks
-scripts/test-recovery-tools
+scripts/test-restic-recovery-bundle
+scripts/test-restic-recovery-vm
 (
   cd ansible
-  ansible-playbook --syntax-check -i inventory/infrastructure.yml playbooks/disaster-recovery.yml
   ansible-playbook --syntax-check -i inventory/arch-recovery.yml playbooks/recover-compose.yml
 )
 

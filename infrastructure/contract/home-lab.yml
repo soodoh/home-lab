@@ -1264,9 +1264,9 @@ nextcloud:
     - nextcloud-cron
     - nextcloud
     - nextcloud-db
-  expected_compose_service_count: 42
-  expected_image_reference_count: 36
-  expected_image_lock_service_count: 42
+  expected_compose_service_count: 40
+  expected_image_reference_count: 35
+  expected_image_lock_service_count: 39
   rollback_window_days: 7
   old_path_cleanup_gate: nextcloud-old-paths-reviewed-after-recovery-proof
 backups:
@@ -1275,6 +1275,15 @@ backups:
     scheduler_services:
       - daily-local-backup
       - weekly-remote-backup
+    retirement:
+      state: retirement-planned
+      manifest_file: infrastructure/retirement/offen-retirement-manifest.json
+      manifest_sha256: f41d0ae852c3aed6e9fbb0c8ecd17323f959bd646d00b71926009711cbacd71f
+      acceptance: retire-offen-now-with-first-chain-and-isolated-restic-restore-proof
+      materialized_service_count_before: 42
+      planned_source_service_count: 40
+      evidence_file: null
+      evidence_sha256: null
     local_schedule: "0 5 * * *"
     local_paths:
       - /mnt/games/backups

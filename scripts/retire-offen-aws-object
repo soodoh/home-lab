@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+fail() { printf 'offen_retirement_aws=failed reason=%s\n' "$1" >&2; exit 1; }
+[[ $# -eq 4 && $1 == --action && $3 == --manifest-sha256 ]] || fail usage
+action=$2
+case "$action" in plan|delete|prove-absent|finalize|release) ;; *) fail action_invalid ;; esac
+expected_manifest=$4
+[[ $expected_manifest =~ ^[0-9a-f]{64}$ ]] || fail manifest_confirmation_invalid
+[[ $EUID -eq 0 ]] || fail root_required
+repo_root=$(cd "$(dirname "$0")/.." && pwd -P)
+manifest=$repo_root/infrastructure/retirement/offen-retirement-manifest.json
+[[ -f $manifest && ! -L $manifest && $(sha256sum "$manifest" | awk '{print $1}') == "$expected_manifest" ]] || fail manifest_identity_invalid
+: "${OFFEN_RETIREMENT_SOPS_FILE:?OFFEN_RETIREMENT_SOPS_FILE is required}"
+: "${SOPS_AGE_KEY_FILE:?SOPS_AGE_KEY_FILE is required}"
+: "${OFFEN_RETIREMENT_EXPECTED_AWS_SHA256:?OFFEN_RETIREMENT_EXPECTED_AWS_SHA256 is required}"
+: "${OFFEN_RETIREMENT_EXPECTED_SOPS_SHA256:?OFFEN_RETIREMENT_EXPECTED_SOPS_SHA256 is required}"
+: "${OFFEN_RETIREMENT_LOCAL_OWNER_FILE:?OFFEN_RETIREMENT_LOCAL_OWNER_FILE is required}"
+[[ $OFFEN_RETIREMENT_LOCAL_OWNER_FILE == /var/lib/iac-ansible-production.lock/owner ]] || fail local_owner_path_differs
+[[ $(readlink -f -- "$OFFEN_RETIREMENT_LOCAL_OWNER_FILE") == /var/lib/iac-ansible-production.lock/owner ]] || fail local_owner_resolution_differs
+[[ $(stat -c '%U:%G:%a:%F' /var/lib/iac-ansible-production.lock) == 'root:root:700:directory' ]] || fail local_owner_directory_invalid
+[[ $(find /var/lib/iac-ansible-production.lock -mindepth 1 -maxdepth 1 -printf x | wc -c) -eq 1 ]] || fail local_owner_directory_entries_differ
+: "${OFFEN_RETIREMENT_BUNDLE_B_KEY:?OFFEN_RETIREMENT_BUNDLE_B_KEY is required}"
+: "${OFFEN_RETIREMENT_BUNDLE_B_VERSION_ID:?OFFEN_RETIREMENT_BUNDLE_B_VERSION_ID is required}"
+[[ $OFFEN_RETIREMENT_EXPECTED_AWS_SHA256 =~ ^[0-9a-f]{64}$ && $OFFEN_RETIREMENT_EXPECTED_SOPS_SHA256 =~ ^[0-9a-f]{64}$ ]] || fail hash_invalid
+sops=$(command -v sops) || fail sops_absent
+aws=$(command -v aws) || fail aws_absent
+restore_evidence=$repo_root/infrastructure/evidence/restic-restore-proof.json
+aws_state_helper=$repo_root/scripts/controller/offen-retirement-aws-state.py
+evidence_validator=$repo_root/scripts/controller/validate-offen-retirement-evidence.js
+evidence_schema=$repo_root/infrastructure/evidence/offen-retirement.schema.json
+python3 - "$sops" "$aws" "$OFFEN_RETIREMENT_SOPS_FILE" "$SOPS_AGE_KEY_FILE" "$OFFEN_RETIREMENT_LOCAL_OWNER_FILE" "$restore_evidence" <<'PY' || fail protected_input_metadata_invalid
+import os,stat,sys
+for index,path in enumerate(sys.argv[1:]):
+    value=os.lstat(path)
+    if not stat.S_ISREG(value.st_mode) or value.st_nlink != 1 or stat.S_ISLNK(value.st_mode): raise SystemExit(1)
+    mode=stat.S_IMODE(value.st_mode)
+    if index < 2:
+        if value.st_uid != 0 or mode != 0o755: raise SystemExit(1)
+    elif index < 5:
+        if value.st_uid != 0 or mode not in (0o400,0o600): raise SystemExit(1)
+    elif mode & 0o022: raise SystemExit(1)
+PY
+[[ $(sha256sum "$sops" | awk '{print $1}') == "$OFFEN_RETIREMENT_EXPECTED_SOPS_SHA256" ]] || fail sops_hash_differs
+[[ $(sha256sum "$aws" | awk '{print $1}') == "$OFFEN_RETIREMENT_EXPECTED_AWS_SHA256" ]] || fail aws_hash_differs
+transaction=/var/tmp/home-lab-offen-retirement/aws
+owner=$transaction/owner.json
+journal=$transaction/journal.jsonl
+workspace=$(mktemp -d /var/tmp/offen-retirement-aws.XXXXXX)
+cleanup() {
+  status=$?
+  trap - EXIT INT TERM
+  if [[ -d $workspace && ! -L $workspace && $workspace == /var/tmp/offen-retirement-aws.* ]]; then
+    while IFS= read -r -d '' entry; do
+      if [[ -f $entry && ! -L $entry ]]; then rm -f -- "$entry"; else status=1; fi
+    done < <(find "$workspace" -mindepth 1 -maxdepth 1 -print0)
+    rmdir -- "$workspace" || status=1
+  else
+    status=1
+  fi
+  exit "$status"
+}
+trap cleanup EXIT INT TERM
+
+read_manifest() {
+  python3 - "$manifest" "$1" <<'PY'
+import json,sys
+value=json.load(open(sys.argv[1]))
+current=value
+for item in sys.argv[2].split('.'):
+    current=current[item]
+if isinstance(current,bool): print(str(current).lower())
+else: print(current)
+PY
+}
+[[ $(sha256sum "$0" | awk '{print $1}') == "$(read_manifest tools.aws_helper_sha256)" ]] || fail helper_hash_differs
+[[ $OFFEN_RETIREMENT_EXPECTED_AWS_SHA256 == "$(read_manifest tools.aws_cli_sha256)" ]] || fail aws_manifest_hash_differs
+[[ $OFFEN_RETIREMENT_EXPECTED_SOPS_SHA256 == "$(read_manifest tools.sops_sha256)" ]] || fail sops_manifest_hash_differs
+[[ $("$aws" --version 2>&1) == aws-cli/$(read_manifest tools.aws_cli_version)* ]] || fail aws_version_differs
+[[ $(sha256sum "$restore_evidence" | awk '{print $1}') == "$(read_manifest restic_evidence.restore_proof_sha256)" ]] || fail restore_evidence_hash_differs
+[[ $(sha256sum "$aws_state_helper" | awk '{print $1}') == "$(read_manifest tools.aws_state_helper_sha256)" ]] || fail aws_state_helper_hash_differs
+[[ $(sha256sum "$evidence_validator" | awk '{print $1}') == "$(read_manifest tools.evidence_validator_sha256)" ]] || fail evidence_validator_hash_differs
+local_owner_sha256=$(sha256sum "$OFFEN_RETIREMENT_LOCAL_OWNER_FILE" | awk '{print $1}')
+[[ $(grep -c '^operation=offen-retirement-local$' "$OFFEN_RETIREMENT_LOCAL_OWNER_FILE") -eq 1 ]] || fail local_owner_operation_differs
+[[ $(grep -c '^controller=ansible-deploy$' "$OFFEN_RETIREMENT_LOCAL_OWNER_FILE") -eq 1 ]] || fail local_owner_controller_differs
+[[ $(grep -Ec '^started=[0-9]{4}-[0-9]{2}-[0-9]{2}T' "$OFFEN_RETIREMENT_LOCAL_OWNER_FILE") -eq 1 ]] || fail local_owner_started_invalid
+read -r bundle_key_hash bundle_version_hash bundle_bytes < <(python3 - "$restore_evidence" <<'PY'
+import json,sys
+v=json.load(open(sys.argv[1]))['bundles']['b']['publication']
+print(v['object_key_sha256'],v['version_id_sha256'],v['bytes'])
+PY
+)
+[[ $(printf %s "$OFFEN_RETIREMENT_BUNDLE_B_KEY" | sha256sum | awk '{print $1}') == "$bundle_key_hash" ]] || fail bundle_b_key_differs
+[[ $(printf %s "$OFFEN_RETIREMENT_BUNDLE_B_VERSION_ID" | sha256sum | awk '{print $1}') == "$bundle_version_hash" ]] || fail bundle_b_version_differs
+SOPS_AGE_KEY_FILE="$SOPS_AGE_KEY_FILE" "$sops" --decrypt --output-type dotenv "$OFFEN_RETIREMENT_SOPS_FILE" >"$workspace/production.env" 2>/dev/null || fail sops_decrypt_failed
+encoded_values=$(python3 - "$workspace/production.env" <<'PY'
+import base64,sys
+wanted=('AWS_S3_BUCKET_NAME','AWS_ACCESS_KEY_ID','AWS_SECRET_ACCESS_KEY'); values={}
+for line in open(sys.argv[1]):
+    if '=' not in line: continue
+    key,value=line.rstrip('\n').split('=',1)
+    if key in wanted: values[key]=value
+if set(values)!=set(wanted): raise SystemExit(1)
+print(' '.join(base64.b64encode(values[key].encode()).decode() for key in wanted))
+PY
+) || fail sops_fields_invalid
+read -r bucket_value access_value secret_value extra_value <<<"$encoded_values"
+[[ -n $bucket_value && -n $access_value && -n $secret_value && -z ${extra_value:-} ]] || fail sops_fields_invalid
+AWS_S3_BUCKET_NAME=$(python3 -c 'import base64,sys;print(base64.b64decode(sys.argv[1]).decode())' "$bucket_value")
+AWS_ACCESS_KEY_ID=$(python3 -c 'import base64,sys;print(base64.b64decode(sys.argv[1]).decode())' "$access_value")
+AWS_SECRET_ACCESS_KEY=$(python3 -c 'import base64,sys;print(base64.b64decode(sys.argv[1]).decode())' "$secret_value")
+export AWS_S3_BUCKET_NAME AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY
+rm -f -- "$workspace/production.env"
+unset encoded_values bucket_value access_value secret_value extra_value
+object_key=$(read_manifest aws.object_key)
+object_bytes=$(read_manifest aws.object_bytes)
+version_hash=$(read_manifest aws.version_id_sha256)
+
+aws_json() {
+  local input=$1 output=$2
+  shift 2
+  "$aws" "$@" --cli-input-json "file://$input" --output json >"$output" 2>/dev/null || fail provider_operation_failed
+}
+list_versions() {
+  python3 - "$workspace/list-input.json" "$AWS_S3_BUCKET_NAME" "$object_key" <<'PY'
+import json,sys
+json.dump({'Bucket':sys.argv[2],'Prefix':sys.argv[3]},open(sys.argv[1],'w'),separators=(',',':'))
+PY
+  aws_json "$workspace/list-input.json" "$workspace/list.json" s3api list-object-versions --page-size 100
+}
+select_version() {
+  python3 "$aws_state_helper" select --input "$workspace/list.json" --key "$object_key" \
+    --bytes "$object_bytes" --version-id-sha256 "$version_hash" --output "$workspace/list.json.selected" >/dev/null
+}
+prove_absent() {
+  list_versions
+  python3 "$aws_state_helper" prove-absent --input "$workspace/list.json" --key "$object_key" >/dev/null
+}
+prove_bundle() {
+  python3 - "$workspace/bundle-input.json" "$AWS_S3_BUCKET_NAME" "$OFFEN_RETIREMENT_BUNDLE_B_KEY" "$OFFEN_RETIREMENT_BUNDLE_B_VERSION_ID" <<'PY'
+import json,sys
+json.dump({'Bucket':sys.argv[2],'Key':sys.argv[3],'VersionId':sys.argv[4]},open(sys.argv[1],'w'),separators=(',',':'))
+PY
+  aws_json "$workspace/bundle-input.json" "$workspace/bundle-head.json" s3api head-object
+  observed=$(python3 - "$workspace/bundle-head.json" <<'PY'
+import hashlib,json,sys
+v=json.load(open(sys.argv[1])); allowed={k:v.get(k) for k in ('ContentLength','ETag','ServerSideEncryption','SSEKMSKeyId','VersionId')}
+if not isinstance(allowed['ETag'],str) or not allowed['ETag'] or allowed['ServerSideEncryption']!='aws:kms' or not allowed['SSEKMSKeyId']: raise SystemExit(1)
+print(hashlib.sha256(json.dumps(allowed,sort_keys=True,separators=(',',':')).encode()).hexdigest())
+PY
+)
+  semantic=$(python3 - "$workspace/bundle-head.json" "$bundle_bytes" "$bundle_version_hash" <<'PY'
+import hashlib,json,sys
+v=json.load(open(sys.argv[1]))
+if v.get('ContentLength')!=int(sys.argv[2]) or hashlib.sha256(v.get('VersionId','').encode()).hexdigest()!=sys.argv[3]: raise SystemExit(1)
+print('ok')
+PY
+  ) || fail bundle_b_identity_differs
+  [[ $semantic == ok ]] || fail bundle_b_identity_differs
+  bundle_head_hash=$observed
+}
+append() {
+  install -d -m 0700 "$transaction"
+  printf '%s\n' "$1" >>"$journal"
+  sync -f "$journal"
+}
+create_owner() {
+  install -d -m 0700 "$transaction"
+  expected=$(printf '{"bundle_b_head_sha256":"%s","local_owner_sha256":"%s","manifest_sha256":"%s","operation":"offen-retirement-aws"}\n' "$bundle_head_hash" "$local_owner_sha256" "$expected_manifest")
+  if [[ -e $owner ]]; then [[ $(cat "$owner") == "$expected" ]] || fail transaction_owner_differs
+  else printf '%s\n' "$expected" >"$owner"; chmod 0600 "$owner"; sync -f "$owner"; fi
+}
+verify_owner() {
+  [[ -f $owner && ! -L $owner && $(stat -c '%U:%G:%a:%h:%F' "$owner") == 'root:root:600:1:regular file' ]] || fail transaction_owner_metadata_invalid
+  expected=$(printf '{"bundle_b_head_sha256":"%s","local_owner_sha256":"%s","manifest_sha256":"%s","operation":"offen-retirement-aws"}\n' "$bundle_head_hash" "$local_owner_sha256" "$expected_manifest")
+  [[ $(cat "$owner") == "$expected" ]] || fail transaction_owner_differs
+}
+verify_terminal_journal() {
+  [[ $(stat -c '%U:%G:%a:%F' "$transaction") == 'root:root:700:directory' ]] || fail transaction_directory_invalid
+  [[ -f $journal && ! -L $journal && $(stat -c '%U:%G:%a:%h:%F' "$journal") == 'root:root:600:1:regular file' ]] || fail transaction_journal_metadata_invalid
+  python3 - "$journal" "$expected_manifest" "$bundle_head_hash" <<'PY' || fail transaction_journal_invalid
+import json,sys
+items=[json.loads(line) for line in open(sys.argv[1]) if line.strip()]
+manifest,bundle=sys.argv[2:]
+def exact(event): return [x for x in items if x.get('event')==event]
+started=exact('delete_started'); completed=exact('delete_complete'); finalized=exact('finalize_verified')
+if len(started)!=1 or len(completed)!=1 or len(finalized)!=1: raise SystemExit(1)
+for item in started+completed+finalized:
+    if item.get('manifest_sha256')!=manifest: raise SystemExit(1)
+for item in started+completed+finalized:
+    if 'bundle_b_head_sha256' in item and item['bundle_b_head_sha256']!=bundle: raise SystemExit(1)
+if len(exact('delete_response_lost'))>1: raise SystemExit(1)
+PY
+}
+
+case "$action" in
+  plan)
+    prove_bundle; list_versions; select_version
+    printf 'offen_retirement_aws=planned bundle_b_head_sha256=%s\n' "$bundle_head_hash"
+    ;;
+  delete)
+    prove_bundle; create_owner; list_versions
+    if select_version; then
+      version=$(cat "$workspace/list.json.selected")
+      if ! grep -q '"event":"delete_started"' "$journal" 2>/dev/null; then
+        append "{\"event\":\"delete_started\",\"manifest_sha256\":\"$expected_manifest\",\"bundle_b_head_sha256\":\"$bundle_head_hash\"}"
+      fi
+      python3 - "$workspace/delete-input.json" "$AWS_S3_BUCKET_NAME" "$object_key" "$version" <<'PY'
+import json,sys
+json.dump({'Bucket':sys.argv[2],'Key':sys.argv[3],'VersionId':sys.argv[4]},open(sys.argv[1],'w'),separators=(',',':'))
+PY
+      set +e
+      "$aws" s3api delete-object --cli-input-json "file://$workspace/delete-input.json" --output json >"$workspace/delete.json" 2>/dev/null
+      delete_rc=$?
+      set -e
+      if [[ $delete_rc -ne 0 ]] && ! grep -q '"event":"delete_response_lost"' "$journal" 2>/dev/null; then
+        append "{\"event\":\"delete_response_lost\",\"manifest_sha256\":\"$expected_manifest\"}"
+      fi
+    elif ! grep -q '"event":"delete_started"' "$journal" 2>/dev/null; then
+      fail object_state_invalid
+    fi
+    prove_absent; prove_bundle
+    [[ $(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["bundle_b_head_sha256"])' "$owner") == "$bundle_head_hash" ]] || fail bundle_b_changed
+    if ! grep -q '"event":"delete_complete"' "$journal" 2>/dev/null; then
+      append "{\"event\":\"delete_complete\",\"manifest_sha256\":\"$expected_manifest\",\"bundle_b_head_sha256\":\"$bundle_head_hash\"}"
+    fi
+    printf 'offen_retirement_aws=deleted bundle_b_head_sha256=%s\n' "$bundle_head_hash"
+    ;;
+  prove-absent)
+    prove_absent; prove_bundle; verify_owner
+    printf 'offen_retirement_aws=absent-verified bundle_b_head_sha256=%s\n' "$bundle_head_hash"
+    ;;
+  finalize)
+    [[ -f $owner && -f $journal ]] || fail transaction_absent
+    prove_absent; prove_bundle; verify_owner
+    if ! grep -q '"event":"finalize_verified"' "$journal"; then
+      append "{\"event\":\"finalize_verified\",\"manifest_sha256\":\"$expected_manifest\",\"bundle_b_head_sha256\":\"$bundle_head_hash\"}"
+    fi
+    verify_terminal_journal
+    printf 'offen_retirement_aws=finalized bundle_b_head_sha256=%s owner_sha256=%s journal_sha256=%s\n' "$bundle_head_hash" "$(sha256sum "$owner" | awk '{print $1}')" "$(sha256sum "$journal" | awk '{print $1}')"
+    ;;
+  release)
+    : "${OFFEN_RETIREMENT_FINAL_EVIDENCE_FILE:?OFFEN_RETIREMENT_FINAL_EVIDENCE_FILE is required}"
+    [[ $OFFEN_RETIREMENT_FINAL_EVIDENCE_FILE == "$repo_root/infrastructure/evidence/offen-retirement.json" ]] || fail final_evidence_path_differs
+    [[ -f $owner && -f $journal && -f $OFFEN_RETIREMENT_FINAL_EVIDENCE_FILE && ! -L $OFFEN_RETIREMENT_FINAL_EVIDENCE_FILE ]] || fail release_inputs_invalid
+    read -r contract_state contract_manifest_hash contract_evidence_file contract_evidence_hash < <(node --input-type=module - "$repo_root/infrastructure/contract/home-lab.yml" <<'NODE'
+import fs from 'node:fs'; import {load} from 'js-yaml';
+const value=load(fs.readFileSync(process.argv[2],'utf8')).backups.legacy_offen.retirement;
+console.log(value.state,value.manifest_sha256,value.evidence_file,value.evidence_sha256);
+NODE
+    )
+    [[ $contract_state == retired && $contract_manifest_hash == "$expected_manifest" && $contract_evidence_file == infrastructure/evidence/offen-retirement.json && $(sha256sum "$OFFEN_RETIREMENT_FINAL_EVIDENCE_FILE" | awk '{print $1}') == "$contract_evidence_hash" ]] || fail committed_final_evidence_binding_differs
+    [[ $(stat -c '%u:%a:%h' "$OFFEN_RETIREMENT_FINAL_EVIDENCE_FILE") == '0:600:1' || $(stat -c '%u:%a:%h' "$OFFEN_RETIREMENT_FINAL_EVIDENCE_FILE") == '0:400:1' ]] || fail final_evidence_metadata_invalid
+    prove_absent; prove_bundle; verify_owner; verify_terminal_journal
+    node "$evidence_validator" "$evidence_schema" "$OFFEN_RETIREMENT_FINAL_EVIDENCE_FILE" "$manifest" \
+      --aws-owner "$owner" --aws-journal "$journal" >/dev/null || fail final_evidence_schema_or_binding_invalid
+    python3 - "$OFFEN_RETIREMENT_FINAL_EVIDENCE_FILE" "$owner" "$journal" "$expected_manifest" "$bundle_head_hash" <<'PY' || fail final_evidence_differs
+import hashlib,json,sys
+v=json.load(open(sys.argv[1])); sha=lambda p:hashlib.sha256(open(p,'rb').read()).hexdigest()
+if (v.get('state')!='retired' or v.get('manifest_sha256')!=sys.argv[4]
+    or v.get('aws',{}).get('transaction_owner_sha256')!=sha(sys.argv[2])
+    or v.get('aws',{}).get('journal_sha256')!=sha(sys.argv[3])
+    or v.get('aws',{}).get('bundle_b_after_head_sha256')!=sys.argv[5]): raise SystemExit(1)
+PY
+    # Retain the exact owner and journal as immutable terminal evidence. Removing
+    # either here would make an interrupted release impossible to re-verify.
+    printf 'offen_retirement_aws=released-retained\n'
+    ;;
+esac

@@ -1,51 +1,31 @@
 # Home lab disaster recovery
 
-Recovery assets in this repository restore application data and guarded production services on the Debian Docker host. They do not recreate a retired operating system, repartition disks, format protected storage, or bypass the steady infrastructure controller.
+Recovery assets restore exact Restic snapshots into fresh staging roots and activate reviewed Compose artifacts through the guarded recovery roles. They never format protected storage, restore directly over production state, or bypass the steady infrastructure controller.
 
-## Preserved recovery capabilities
+## Preserved capabilities
 
-- encrypted local and remote backup verification;
-- SOPS/age key and credential recovery;
-- restore into inventoried fresh target directories;
-- exact Compose artifact staging and rollback;
-- Proxmox firewall transaction rollback;
-- VFIO and hardware-mapping recovery; and
-- ZFS/import assertions that never create or overwrite storage.
+- exact games, NFS, or Proton Restic snapshot restoration with native `restic restore --verify`;
+- independently encrypted recovery bundles and SOPS/age access recovery;
+- exact Compose artifact staging, activation, and rollback;
+- Proxmox firewall and infrastructure rollback; and
+- mount, ZFS, VFIO, and hardware-identity assertions.
 
 ## Required inputs
 
-Use an ignored, owner-only mode-`0600` extra-vars file based on `recovery/extra-vars.example.yml`. Keep backup passphrases, age identities, object-store credentials, and provider tokens outside the repository and shell history.
+Copy `recovery/extra-vars.example.yml` to an ignored owner-only mode-`0600` file. Keep repository passwords, age identities, Proton credentials, provider tokens, and recovery remote fields outside Git and shell history.
 
-Before restoration, verify:
-
-Restic migration and its still-inert/live gates are documented in [`../docs/restic-backups.md`](../docs/restic-backups.md). Until the Proton fresh and isolated in-place proofs pass, the known-good Offen archive remains a supported fallback. Restic recovery must select an exact snapshot ID, restore with native verification only into a fresh `/srv/home-lab-recovery/restic-*` staging root, and must not use the legacy archive activator on that Restic tree.
-
-1. VM 100 is the Debian `docker-host` and production guards are active;
-2. `/srv/home-lab-state`, `/mnt/games`, and `/mnt/storage` resolve to their exact expected filesystems;
-3. no infrastructure or Ansible apply lock is active;
-4. the selected archive identity and checksum match reviewed evidence; and
-5. the exact Compose artifact and local image override are available without registry pulls.
+Before restoration, verify the exact repository ID, snapshot ID, source-policy hash, Compose artifact hash, pinned tool hashes, repository mount or environment-only Proton remote, and an empty private `/srv/home-lab-recovery/restic-*` target. No production apply lock or backup transaction may conflict with recovery.
 
 ## Procedure
 
-1. Build and inspect the recovery bundle with `scripts/build-recovery-bundle`.
-2. Verify candidate archives with `scripts/verify-backup-archive.py`.
-3. Rehearse restoration into fresh isolated targets using `scripts/rehearse-recovery` and the Ansible recovery planning playbooks.
-4. Restore only the reviewed archive with `scripts/restore-critical-backup` or `scripts/restore-critical-archive.py`.
-5. Stage and review the exact Compose artifact with `ansible/playbooks/plan-compose-recovery.yml` and `review-compose-stage.yml`.
-6. Activate through `ansible/playbooks/recover-compose.yml`; builds and pulls remain disabled.
-7. Run the Debian production audit, Compose simulation, backup checks, and service health checks.
+1. Select one exact snapshot and repository from reviewed evidence.
+2. Build or retrieve an independently encrypted recovery bundle when the host installation is unavailable.
+3. Run `scripts/restore-critical-backup --restic-snapshot-id <64-hex-id> --confirmed-empty-target` with the protected variables in `extra-vars.example.yml`.
+4. Require native restore verification and inspect the restored service/database state without starting applications.
+5. Generate and review the Compose recovery plan, then stage the exact artifact with builds and pulls disabled.
+6. Activate only through the guarded Compose recovery role; preserve retained external user-data boundaries.
+7. Run the production audit, Compose simulation, Restic status, and service health checks.
 
-## Nextcloud recovery boundary
+Nextcloud external user data under `/mnt/storage/media/nextcloud/data` is retained and never populated, replaced, or recursively deleted by application-state recovery. For infrastructure or VM hardware drift, return to `scripts/local-controller plan steady`; destructive host work remains a separate reviewed transaction.
 
-Nextcloud recovery treats the five mounts independently:
-
-- `/srv/home-lab-state/nextcloud-html` is regenerable application code reconstructed from the exact pinned image;
-- `/srv/home-lab-state/nextcloud-config`, `/srv/home-lab-state/nextcloud-custom-apps`, and `/srv/home-lab-state/nextcloud-themes` are restored application state;
-- `/mnt/storage/media/nextcloud/data` is retained external user data and is never populated, replaced, recursively deleted, or treated as a child of application-state recovery.
-
-Stage Compose first so SOPS recreates the root-owned mode-`0600` files under `/etc/docker-compose/credentials`. Fresh recovery must find the external data directory on its expected NFS filesystem before creating Nextcloud containers. It reconstructs the application tree, restores the three managed boundaries, restores MariaDB, then starts MariaDB and Redis before the web and cron services. Any archive containing an old parent-style `backup/nextcloud` or `backup/nextcloud-data` tree is rejected rather than merged.
-
-For infrastructure drift or VM hardware changes, return to steady `scripts/local-controller plan steady`. Disk, boot, passthrough, and host-reboot work still requires a separate reviewed plan and physical-console boundary.
-
-Record only secret-free commit, artifact, archive, and health evidence.
+Record only secret-free commit, repository, snapshot, artifact, and health evidence.

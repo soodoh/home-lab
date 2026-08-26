@@ -1,0 +1,138 @@
+---
+- name: Attest and release the completed Offen retirement transaction
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  pre_tasks:
+    - name: Require exact retired contract and retained production owner
+      ansible.builtin.assert:
+        that:
+          - not ansible_check_mode
+          - backups.legacy_offen.retirement.state == 'retired'
+          - backups.legacy_offen.scheduler_state == 'retired'
+          - backups.legacy_offen.migration_archive_preservation.state == 'retired'
+          - backups.legacy_offen.migration_retention_hold.state == 'retired'
+          - offen_retirement_expected_production_owner_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - offen_retirement_confirmation | default('') == 'finalize-retired-offen-' ~ backups.legacy_offen.retirement.evidence_sha256
+          - >-
+            (lookup('ansible.builtin.file', playbook_dir + '/../../' + backups.legacy_offen.retirement.evidence_file) + '\n') |
+            hash('sha256') == backups.legacy_offen.retirement.evidence_sha256
+        fail_msg: Final retirement release requires the committed R3 evidence and exact retained production owner.
+
+    - name: Adopt the exact retained production transaction lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: adopt
+        apply_lock_operation: offen-retirement-local
+        apply_lock_expected_owner_sha256: "{{ offen_retirement_expected_production_owner_sha256 }}"
+
+  tasks:
+    - name: Schema-validate committed terminal retirement evidence on the controller
+      ansible.builtin.command:
+        argv:
+          - node
+          - "{{ playbook_dir }}/../../scripts/controller/validate-offen-retirement-evidence.js"
+          - "{{ playbook_dir }}/../../infrastructure/evidence/offen-retirement.schema.json"
+          - "{{ playbook_dir }}/../../{{ backups.legacy_offen.retirement.evidence_file }}"
+          - "{{ playbook_dir }}/../../infrastructure/retirement/offen-retirement-manifest.json"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+
+    - name: Load committed terminal retirement evidence
+      ansible.builtin.set_fact:
+        offen_retirement_terminal_evidence: >-
+          {{ lookup('ansible.builtin.file', playbook_dir + '/../../' + backups.legacy_offen.retirement.evidence_file) | from_json }}
+      no_log: true
+
+    - name: Re-verify terminal local absence and authoritative transaction journal
+      ansible.builtin.command:
+        argv:
+          - /usr/local/libexec/home-lab/retire-offen-local
+          - finalize
+          - --manifest-sha256
+          - "{{ backups.legacy_offen.retirement.manifest_sha256 }}"
+          - --evidence-sha256
+          - "{{ offen_retirement_terminal_evidence.local.finalizing_evidence_sha256 }}"
+      become: true
+      register: offen_retirement_terminal_recheck
+      changed_when: false
+
+    - name: Require exact terminal local recheck result
+      ansible.builtin.assert:
+        that:
+          - offen_retirement_terminal_recheck.stdout is match('^offen_retirement_local=finalized final_result_sha256=[0-9a-f]{64}$')
+
+    - name: Inspect retained local transaction artifacts
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+      become: true
+      register: offen_retirement_local_artifacts
+      loop:
+        - /var/lib/home-lab-restic/offen-retirement/local/owner.json
+        - /var/lib/home-lab-restic/offen-retirement/local/action-plan.json
+        - /var/lib/home-lab-restic/offen-retirement/local/journal.jsonl
+        - /var/lib/home-lab-restic/offen-retirement/local-final-result.json
+
+    - name: Load exact terminal local result
+      ansible.builtin.slurp:
+        src: /var/lib/home-lab-restic/offen-retirement/local-final-result.json
+      become: true
+      register: offen_retirement_local_final_result_raw
+      no_log: true
+
+    - name: Decode exact terminal local result
+      ansible.builtin.set_fact:
+        offen_retirement_local_final_result: >-
+          {{ offen_retirement_local_final_result_raw.content | b64decode | from_json }}
+      no_log: true
+
+    - name: Require exact terminal local evidence bindings
+      ansible.builtin.assert:
+        that:
+          - offen_retirement_terminal_evidence.state == 'retired'
+          - offen_retirement_terminal_evidence.manifest_sha256 == backups.legacy_offen.retirement.manifest_sha256
+          - offen_retirement_terminal_evidence.production_lock_owner_sha256 == offen_retirement_expected_production_owner_sha256
+          - offen_retirement_local_artifacts.results | map(attribute='stat.exists') | min | bool
+          - offen_retirement_local_artifacts.results | map(attribute='stat.isreg') | min | bool
+          - offen_retirement_local_artifacts.results | map(attribute='stat.islnk') | max == false
+          - offen_retirement_local_artifacts.results | map(attribute='stat.nlink') | min | int == 1
+          - offen_retirement_local_artifacts.results | map(attribute='stat.pw_name') | unique | list == ['root']
+          - offen_retirement_local_artifacts.results | map(attribute='stat.mode') | unique | list == ['0600']
+          - offen_retirement_local_artifacts.results[0].stat.checksum == offen_retirement_terminal_evidence.local.transaction_owner_sha256
+          - offen_retirement_local_artifacts.results[1].stat.checksum == offen_retirement_terminal_evidence.local.action_plan_sha256
+          - offen_retirement_local_artifacts.results[2].stat.checksum == offen_retirement_terminal_evidence.local.journal_sha256
+          - offen_retirement_local_artifacts.results[3].stat.checksum == offen_retirement_terminal_evidence.local.final_result_sha256
+          - offen_retirement_local_final_result.phase == 'local-finalized'
+          - offen_retirement_local_final_result.manifest_sha256 == backups.legacy_offen.retirement.manifest_sha256
+          - offen_retirement_local_final_result.action_plan_sha256 == offen_retirement_terminal_evidence.local.action_plan_sha256
+          - offen_retirement_local_final_result.transaction_owner_sha256 == offen_retirement_terminal_evidence.local.transaction_owner_sha256
+          - offen_retirement_local_final_result.finalizing_evidence_sha256 == offen_retirement_terminal_evidence.local.finalizing_evidence_sha256
+          - offen_retirement_local_final_result.archive_files_removed == offen_retirement_terminal_evidence.local.archive_files_removed
+          - offen_retirement_local_final_result.metadata_files_removed == offen_retirement_terminal_evidence.local.metadata_files_removed
+          - offen_retirement_local_final_result.containers_removed == offen_retirement_terminal_evidence.local.containers_removed
+          - offen_retirement_local_final_result.protected_directories_removed == offen_retirement_terminal_evidence.local.protected_directories_removed
+          - offen_retirement_local_final_result.image_removed == offen_retirement_terminal_evidence.local.image_removed
+          - offen_retirement_terminal_evidence.aws.delete_authorization_removed | bool
+          - offen_retirement_terminal_evidence.aws.no_current_expiration | bool
+          - offen_retirement_terminal_evidence.aws.no_noncurrent_expiration | bool
+          - offen_retirement_terminal_evidence.aws.bundle_b_before_head_sha256 == offen_retirement_terminal_evidence.aws.bundle_b_after_head_sha256
+        fail_msg: Local or AWS terminal retirement evidence differs.
+      no_log: true
+
+    # Retain the exact local owner, action plan, journal, final result, and staged
+    # evidence as immutable terminal evidence. Deleting them before releasing the
+    # production lock would make interruption recovery impossible.
+  post_tasks:
+    - name: Release only the exact retained production transaction lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: offen-retirement-local
+        apply_lock_expected_owner_sha256: "{{ offen_retirement_expected_production_owner_sha256 }}"

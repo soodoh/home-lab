@@ -1,29 +1,22 @@
 ---
-# Copy to an ignored, root-only file. Replace placeholders without committing it.
-# Proxmox host apply gates are supplied separately through the fixed Nix controller
-# environment and are never Ansible extra-vars.
-
-# Permit removing cloud-image DHCP only while console/LAN rollback remains available.
-arch_network_restart_confirmed: false
-
-# Recovery automatically tries the newest decryptable local archive across
-# /mnt/games/backups, then /mnt/storage/backups (path order breaks ties).
-# Supply the independently reviewed latest weekly S3 object as the final fallback.
-recovery_remote_backup_id: ""
-recovery_remote_backup_sha256: ""
-recovery_backup_url: ""
-recovery_backup_version_id: ""
-recovery_remote_backup_latest_confirmed: false
-# Hash the reviewed exact local selection (or remote fallback) with
-# scripts/derive-recovery-backup-identity.py before the apply.
-recovery_expected_backup_identity_sha256: ""
-recovery_target: ""
-recovery_gpg_key_file: ""
-recovery_gpg_passphrase_file: ""
-recovery_restore_confirmed: false
+# Copy to an ignored owner-only mode-0600 file. Never commit populated values.
+recovery_target: /srv/home-lab-recovery/restic-reviewed
+recovery_restic_snapshot_id: ""
+recovery_restic_repository: ""
+recovery_restic_password_file: ""
+recovery_expected_restic_repository_id: ""
+recovery_expected_policy_sha256: ""
+recovery_expected_compose_artifact_sha256: ""
+recovery_expected_restic_sha256: ""
+recovery_expected_rclone_sha256: ""
+recovery_expected_original_snapshot_id: ""
 recovery_target_approved_empty: false
+recovery_restore_confirmed: false
 recovery_retain_existing_bind_data: false
 recovery_retained_bind_review_confirmed: false
+
+# Environment-only Proton recovery fields are supplied separately as protected
+# RCLONE_CONFIG_PROTON_BACKUP_* values; never put them in this example or Git.
 
 # Enable only after reviewing the first recovered running image set.
 maintenance_image_lock_bootstrap_confirmed: false

@@ -33,9 +33,6 @@
     - role: storage
       tags:
         - storage
-    - role: backup_storage
-      tags:
-        - storage
     - role: docker
       tags:
         - docker

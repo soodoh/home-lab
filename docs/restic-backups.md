@@ -2,7 +2,7 @@
 
 ## Current state
 
-The checked-in Restic implementation remains **inert**. Offen’s two scheduler containers are quiesced but remain defined, both protected Offen archive generations remain intact, and the AWS recovery hold remains managed at 365-day current-object retention. Bounded Proton qualification and owner-bound initialization of the three native Restic repositories have completed with committed redacted evidence and exact repository IDs. All Restic timers plus reboot recovery remain disabled, and no snapshot has run. This state does not authorize a repeat Proton login, qualification, or repository initialization, nor an ad-hoc snapshot.
+Restic is **active**. The daily and maintenance timers are enabled, active, and non-persistent; interrupted-backup recovery is enabled. The first games → NFS → Proton chain and isolated Proton `restore --verify` proof passed. Offen retirement is now planned by the immutable manifest at `infrastructure/retirement/offen-retirement-manifest.json`, but no archive, container, image, or AWS object has yet been mutated under that plan.
 
 The final accepted Offen recovery point is:
 
@@ -12,7 +12,7 @@ The final accepted Offen recovery point is:
 - protected replicas under `/mnt/games/backups/.migration-preserved-offen` and `/mnt/storage/backups/.migration-preserved-offen`; and
 - successful full-stream restore proof recorded in `infrastructure/evidence/offen-final-archive-2026-08-23-restore-proof.json` (SHA-256 `89712ec78f8724730d2e3eeb07c3929db0b7c2fad7cb30410d517cc115f7eff1`).
 
-The proof verified archive integrity, safe paths, all 39 required state classes, absence of all 17 excluded classes, and integrity of all six selected SQLite databases. The 7,019,884,389-byte expanded restore completed in 41 seconds and decrypted staging was removed. Both the 2026-08-21 historical fallback and 2026-08-23 final archive are independently copied and verified under each protected directory; their original top-level copies also remained exact at acceptance.
+The historical proof verified archive integrity, safe paths, all 39 required state classes, absence of all 17 excluded classes, and integrity of all six selected SQLite databases. The 7,019,884,389-byte expanded restore completed in 41 seconds and decrypted staging was removed. At retirement planning, both the 2026-08-21 historical fallback and 2026-08-23 final archive still have exact original and protected copies on both local filesystems.
 
 ## Policy authority
 
@@ -260,7 +260,7 @@ Create and destroy write owner-preserving checkpoints before saved-plan apply. E
 
 The live proof completed on 2026-08-26. Bundle A remains in protected local recovery storage; bundle B was published as a new checksum-verified, KMS-encrypted version in protected AWS recovery storage and its local staging ciphertext was removed. The disposable VM restored Proton snapshot `95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e` with native `restic restore --verify`: 22,031 files and 6,982,221,998 bytes. Service configuration and database integrity passed, service/process observations stayed at zero, external user data remained explicitly pending, and the isolated activation/rollback fixture passed. Plaintext workspaces were removed and VMID `9900` was destroyed. Evidence is `infrastructure/evidence/restic-restore-proof.json` with SHA-256 `b68550eb34e3c8b3832ae9ddf64857364b54538a719cc9501620cb3fd0735f0f`.
 
-The active schedule transition completed on 2026-08-26. The daily and maintenance timers are enabled, active, non-persistent, and have future trigger times; the conditional interruption-recovery service is enabled and inactive. Runner `status` reports active migration, all repository identities ready, no pending copy, and no interruption. A complete read-only host audit passed with zero changes. There remains no independent Proton timer. Evidence is `infrastructure/evidence/restic-schedule-activation.json` with SHA-256 `7ee44bf6b4ab5e146f820e14212852b2b7788af2432f6021c4df108e38256e72`. Offen definitions and both protected archive generations remain preserved.
+The active schedule transition completed on 2026-08-26. The daily and maintenance timers are enabled, active, non-persistent, and have future trigger times; the conditional interruption-recovery service is enabled and inactive. Runner `status` reports active migration, all repository identities ready, no pending copy, and no interruption. A complete read-only host audit passed with zero changes. There remains no independent Proton timer. Evidence is `infrastructure/evidence/restic-schedule-activation.json` with SHA-256 `7ee44bf6b4ab5e146f820e14212852b2b7788af2432f6021c4df108e38256e72`.
 
 ## Live gates not satisfied by Git
 
@@ -274,13 +274,13 @@ Repository validation does not satisfy these operator gates:
 6. One complete chained migration snapshot and exact NFS/Proton copy proof.
 7. Full fresh Proton restore on an isolated recovery system.
 8. Isolated in-place preservation and interrupted-activation rollback proof.
-9. A separately approved Offen retirement manifest and later two-stage AWS retirement transaction.
+9. The approved Offen retirement manifest, followed by its separately reviewed local and two-stage AWS transactions.
 
 No automated workflow may empty Proton Trash. The warning threshold is 100 GB used or ten times active repository size, whichever is greater. New Proton copies hard-fail before their bounded size would reduce free space below the 100 GB reserve; increasing the account allocation does not invalidate qualification or waste the added capacity.
 
-## Inert deployment failure recovery
+## Failed convergence recovery
 
-A failed `restic_backup` convergence deliberately retains `/var/lib/iac-ansible-production.lock` and its exact owner record. Do not remove the directory manually and do not delete partially installed inert artifacts. First prove that no `restic` or `rclone` process exists, both Offen schedulers remain defined and match the committed scheduler state, the games and NFS mount identities remain exact, repository `config` files match the contract, credential and qualification paths match the committed credential state, and every installed Restic unit is inactive and disabled or static. Inspect the lock as operation `restic_backup`, then plan and separately confirm only its exact clearance:
+A failed `restic_backup` convergence deliberately retains `/var/lib/iac-ansible-production.lock` and its exact owner record. Do not remove it manually or delete repository or retirement artifacts. Inspect the lock as operation `restic_backup`, then plan and separately confirm only its exact clearance:
 
 ```sh
 cd ansible
@@ -291,7 +291,7 @@ ansible-playbook -i inventory/production.yml playbooks/clear-failed-apply-lock.y
   -e iac_lock_clear_confirmed=true
 ```
 
-After clearance, rerun check mode and review its complete scope before separately authorizing the same single-tag idempotent convergence. Lock acquisition prepares an exact owner-bearing directory off-path and atomically publishes it under the shared backup mutex; interruption cannot create an ownerless blocking lock. Successful release and failed-lock clearance revalidate and atomically detach that exact directory under the same mutex before cleanup. Recovery from a partial inert deployment is forward convergence—not repository initialization or artifact deletion. Postconditions require pinned binary hashes and versions, safe fixed ancestors, no cleartext credentials, absent repository configs, zero Restic/rclone processes, all nine units inactive and disabled/static, Offen unchanged, the production lock absent, and a complete read-only audit no-op.
+After clearance, rerun check mode and review its complete scope before authorizing the same single-tag convergence. A retirement transaction is different: its operation-specific owner lock must remain until exact R2 evidence authorizes finalize. Generic lock clearance, archive deletion, AWS version deletion, and Proton Trash cleanup are forbidden recovery actions.
 
 ## Static validation
 
@@ -300,7 +300,8 @@ After clearance, rerun check mode and review its complete scope before separatel
 ./scripts/validate-contract
 python3 scripts/test-restic-tools.py
 python3 scripts/test-proton-qualification.py
-./scripts/test-recovery-tools
+python3 scripts/test-offen-retirement.py
+./scripts/test-restic-recovery-bundle
 docker compose config --no-interpolate --quiet
 cd ansible && ansible-playbook -i inventory/infrastructure.yml --syntax-check playbooks/site.yml
 ```

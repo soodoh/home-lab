@@ -1,0 +1,159 @@
+---
+- name: Stage the exact reviewed local Offen retirement
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  pre_tasks:
+    - name: Require exact planned retirement authorization
+      ansible.builtin.assert:
+        that:
+          - not ansible_check_mode
+          - offen_retirement_action | default('') in ['plan', 'apply', 'resume', 'rollback', 'finalize']
+          - >-
+            (offen_retirement_confirmation | default('')) ==
+            'retire-offen-reviewed-' ~ backups.legacy_offen.retirement.manifest_sha256
+          - >-
+            (
+              offen_retirement_action != 'finalize' and
+              backups.legacy_offen.retirement.state == 'retirement-planned' and
+              backups.legacy_offen.scheduler_state == 'quiesced' and
+              backups.legacy_offen.migration_archive_preservation.state == 'applied' and
+              backups.legacy_offen.migration_retention_hold.state == 'applied'
+            ) or (
+              offen_retirement_action == 'finalize' and
+              backups.legacy_offen.retirement.state == 'retirement-finalizing' and
+              backups.legacy_offen.scheduler_state == 'retired' and
+              backups.legacy_offen.migration_archive_preservation.state == 'retirement-finalizing' and
+              backups.legacy_offen.migration_retention_hold.state == 'retired' and
+              backups.legacy_offen.retirement.evidence_file == 'infrastructure/evidence/offen-retirement-finalizing.json' and
+              backups.legacy_offen.retirement.evidence_sha256 == offen_retirement_staged_evidence_sha256
+            )
+          - backups.restic.migration_state == 'active'
+          - >-
+            offen_retirement_action in ['plan', 'rollback', 'finalize'] or (
+              compose_deploy_confirmed | default(false) | bool and
+              compose_artifact_hash | default('') is match('^[0-9a-f]{64}$')
+            )
+          - >-
+            offen_retirement_action == 'apply' or
+            offen_retirement_expected_production_owner_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - >-
+            offen_retirement_action != 'finalize' or
+            offen_retirement_staged_evidence_file | default('') | length > 0
+          - >-
+            offen_retirement_action != 'finalize' or
+            offen_retirement_staged_evidence_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - >-
+            offen_retirement_action != 'finalize' or
+            (lookup('ansible.builtin.file', offen_retirement_staged_evidence_file) + '\n') |
+            hash('sha256') == offen_retirement_staged_evidence_sha256
+        fail_msg: Offen retirement requires the exact planned contract, staged Compose artifact, and manifest-bound confirmation.
+
+    - name: Acquire the retained production transaction lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: "{{ 'acquire' if offen_retirement_action == 'apply' else 'adopt' }}"
+        apply_lock_operation: offen-retirement-local
+        apply_lock_expected_owner_sha256: >-
+          {{ offen_retirement_expected_production_owner_sha256 | default('') }}
+      when: offen_retirement_action in ['apply', 'resume', 'rollback', 'finalize']
+
+  tasks:
+    - name: Schema-validate the committed R2 finalizing evidence
+      ansible.builtin.command:
+        argv:
+          - node
+          - "{{ playbook_dir }}/../../scripts/controller/validate-offen-retirement-evidence.js"
+          - "{{ playbook_dir }}/../../infrastructure/evidence/offen-retirement-staged.schema.json"
+          - "{{ offen_retirement_staged_evidence_file }}"
+          - "{{ playbook_dir }}/../../infrastructure/retirement/offen-retirement-manifest.json"
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      when: offen_retirement_action == 'finalize'
+
+    - name: Inspect retained local transaction artifacts before irreversible finalize
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        checksum_algorithm: sha256
+      become: true
+      register: offen_retirement_staged_local_artifacts
+      loop:
+        - /var/lib/home-lab-restic/offen-retirement/local/owner.json
+        - /var/lib/home-lab-restic/offen-retirement/local/action-plan.json
+        - /var/lib/home-lab-restic/offen-retirement/local/journal.jsonl
+      when: offen_retirement_action == 'finalize'
+
+    - name: Load the staged R2 evidence only for irreversible finalize
+      ansible.builtin.set_fact:
+        offen_retirement_staged_evidence: >-
+          {{ lookup('ansible.builtin.file', offen_retirement_staged_evidence_file) | from_json }}
+      no_log: true
+      when: offen_retirement_action == 'finalize'
+
+    - name: Require truthful staged R2 evidence semantics
+      ansible.builtin.assert:
+        that:
+          - offen_retirement_staged_evidence.version == 1
+          - offen_retirement_staged_evidence.phase == 'retirement-finalizing'
+          - offen_retirement_staged_evidence.manifest_sha256 == backups.legacy_offen.retirement.manifest_sha256
+          - offen_retirement_staged_evidence.aws_object_absent | bool
+          - offen_retirement_staged_evidence.bundle_b_preserved | bool
+          - offen_retirement_staged_evidence.bundle_b_before_head_sha256 == offen_retirement_staged_evidence.bundle_b_after_head_sha256
+          - offen_retirement_staged_evidence.delete_authorization_removed | bool
+          - offen_retirement_staged_evidence.lifecycle_converged | bool
+          - offen_retirement_staged_local_artifacts.results[0].stat.exists | bool
+          - offen_retirement_staged_local_artifacts.results[1].stat.exists | bool
+          - offen_retirement_staged_local_artifacts.results[2].stat.exists | bool
+          - offen_retirement_staged_local_artifacts.results[0].stat.checksum == offen_retirement_staged_evidence.local_transaction_owner_sha256
+          - offen_retirement_staged_local_artifacts.results[1].stat.checksum == offen_retirement_staged_evidence.local_action_plan_sha256
+          - offen_retirement_staged_local_artifacts.results[2].stat.checksum == offen_retirement_staged_evidence.local_journal_sha256
+        fail_msg: Staged R2 evidence cannot claim irreversible local completion.
+      no_log: true
+      when: offen_retirement_action == 'finalize'
+
+    - name: Install the exact staged R2 evidence before irreversible finalize
+      ansible.builtin.copy:
+        src: "{{ offen_retirement_staged_evidence_file }}"
+        dest: /etc/home-lab/offen-retirement-staged-evidence.json
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      when: offen_retirement_action == 'finalize'
+
+    - name: Run the guarded local Offen retirement action
+      ansible.builtin.command:
+        argv:
+          - /usr/local/libexec/home-lab/retire-offen-local
+          - "{{ offen_retirement_action }}"
+          - --manifest-sha256
+          - "{{ backups.legacy_offen.retirement.manifest_sha256 }}"
+          - --evidence-sha256
+          - "{{ offen_retirement_staged_evidence_sha256 | default('') }}"
+      register: offen_retirement_local_result
+      changed_when: offen_retirement_action in ['apply', 'resume', 'rollback', 'finalize']
+      check_mode: false
+
+    - name: Require bounded local retirement result
+      ansible.builtin.assert:
+        that:
+          - >-
+            offen_retirement_local_result.stdout is match(
+              '^offen_retirement_local=(planned|staged|rolled-back|finalized)'
+            )
+
+    - name: Publish the exact reviewed forty-service Compose source
+      ansible.builtin.include_role:
+        name: compose_deploy
+      vars:
+        compose_deploy_offen_retirement_confirmation: >-
+          retire-offen-reviewed-{{ backups.legacy_offen.retirement.manifest_sha256 }}
+      when: offen_retirement_action in ['apply', 'resume']
+
+# A successful apply/resume intentionally retains both the production owner lock
+# and the helper transaction owner. R2 attestation is required before finalize.

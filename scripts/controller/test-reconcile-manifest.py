@@ -125,6 +125,7 @@ class ManifestVerificationTests(unittest.TestCase):
                 "ansible_extra_vars_file_sha256": "",
                 "recovery_backup_identity_sha256": "",
                 "recovery_expectations_sha256": "",
+                "offen_retirement_operation": "grant",
                 "compose_artifact_sha256": compose_hash,
                 "proxmox_host_plan": {"actions": 0, "external_owner_only": False, "prerequisite": "none", "status": "ready", "file": ".reconcile/plans/" + "f" * 64 + ".json", "file_sha256": "e" * 64, "plan_sha256": "f" * 64},
                 "plans": plans,
@@ -161,6 +162,8 @@ case "$operation" in
       cat <<'JSON'
 {"resource_changes":[{"address":"terraform_data.tailscale_policy[0]","type":"terraform_data","change":{"actions":["no-op"],"before":{"input":{"policy_json":"{\\"grants\\":[]}"}},"after":{"input":{"policy_json":"{\\"grants\\":[]}"}}}}]}
 JSON
+    elif [[ $root == aws-foundation ]]; then
+      cat "$OFFEN_RETIREMENT_GRANT_FIXTURE"
     else
       printf '{"resource_changes":[]}\\n'
     fi
@@ -203,6 +206,7 @@ exit 86
                 "TF_PLUGIN_CACHE_DIR": str(provider_cache),
                 "TOFU_TEST_LOG": str(log),
                 "MOCK_GIT_COMMIT": commit,
+                "OFFEN_RETIREMENT_GRANT_FIXTURE": str(REPOSITORY / "infrastructure/policy/fixtures/offen-retirement-aws-grant.json"),
             }
             command = [
                 str(RECONCILER),

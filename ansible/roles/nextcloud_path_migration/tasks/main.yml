@@ -126,10 +126,12 @@
 
 - name: Stop backup schedulers for the bounded activation window
   ansible.builtin.command:
-    argv: "{{ compose_runtime_cli + ['stop', 'daily-local-backup', 'weekly-remote-backup'] }}"
+    argv: "{{ compose_runtime_cli + ['stop'] + backups.legacy_offen.scheduler_services }}"
   environment:
     HOME: "{{ compose_home_dir }}"
-  when: not ansible_check_mode
+  when:
+    - not ansible_check_mode
+    - backups.legacy_offen.scheduler_state != 'retired'
   changed_when: true
   no_log: true
 

@@ -11,3 +11,5 @@ aws_s3_bucket_ownership_controls.recovery
 aws_s3_bucket_public_access_block.recovery
 aws_s3_bucket_policy.state
 aws_s3_bucket_policy.recovery
+aws_iam_user_policy.recovery
+aws_s3_bucket_lifecycle_configuration.recovery

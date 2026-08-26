@@ -211,31 +211,25 @@
           compose_deploy_plan.missing_runtime_services | length == 0 and
           compose_deploy_plan.unexpected_runtime_services | length == 0 and
           compose_deploy_plan.forbidden_actions | length == 0 and
-          (
-            compose_deploy_plan.manual_only_paths | length == 0 or
-            (
-              (compose_deploy_manual_paths_confirmation | default('')) == 'deploy-reviewed-two-path-backups' and
-              compose_deploy_plan.manual_only_paths == ['services/data/replicate-local-backup'] and
-              'daily-local-backup' in compose_deploy_plan.recreate_services
-            )
-          )
-        ) or compose_deploy_nextcloud_migration
+          compose_deploy_plan.manual_only_paths | length == 0
+        ) or compose_deploy_nextcloud_migration or (
+          backups.legacy_offen.retirement.state == 'retirement-planned' and
+          (compose_deploy_offen_retirement_confirmation | default('')) ==
+            'retire-offen-reviewed-' ~ backups.legacy_offen.retirement.manifest_sha256 and
+          compose_deploy_plan.missing_runtime_services | length == 0 and
+          compose_deploy_plan.unexpected_runtime_services == (backups.legacy_offen.scheduler_services | sort) and
+          compose_deploy_plan.forbidden_actions | length == 0 and
+          compose_deploy_plan.manual_only_paths | length == 0 and
+          compose_deploy_plan.recreate_services | length == 0
+        )
     fail_msg: >-
       Deployment refuses service additions/removals, forbidden Compose actions, and data-file changes
-      without their exact operation-specific restart approval.
+      without their exact operation-specific approval.
 
-- name: Preserve dependencies for the exact two-path backup rollout
+- name: Preserve ordinary no-dependency deployment isolation
   ansible.builtin.set_fact:
-    compose_deploy_dependency_args: >-
-      {{
-        []
-        if (
-          (compose_deploy_manual_paths_confirmation | default('')) == 'deploy-reviewed-two-path-backups' and
-          compose_deploy_plan.manual_only_paths == ['services/data/replicate-local-backup'] and
-          'daily-local-backup' in compose_deploy_plan.recreate_services
-        )
-        else ['--no-deps']
-      }}
+    compose_deploy_dependency_args:
+      - --no-deps
 - name: Report the check-mode deployment boundary
   ansible.builtin.debug:
     msg:
@@ -435,8 +429,10 @@
         that:
           - >-
             compose_deploy_plan.recreate_services |
-            difference([nextcloud.database_service, nextcloud.web_service,
-                        'daily-local-backup', 'weekly-remote-backup']) | length == 0
+            difference(
+              [nextcloud.database_service, nextcloud.web_service] +
+              (backups.legacy_offen.scheduler_services if backups.legacy_offen.scheduler_state != 'retired' else [])
+            ) | length == 0
           - nextcloud.database_service in compose_deploy_plan.recreate_services
           - nextcloud.web_service in compose_deploy_plan.recreate_services
         fail_msg: "Nextcloud migration proposes an unexpected service recreation set."
@@ -473,9 +469,12 @@
     - name: Derive stopped services for the bounded Nextcloud migration
       ansible.builtin.set_fact:
         compose_deploy_nextcloud_migration_stopped_services: >-
-          {{ ([nextcloud.cron_service] +
+          {{
+            ([nextcloud.cron_service] +
               (compose_deploy_plan.recreate_services |
-               intersect(['daily-local-backup', 'weekly-remote-backup']))) | unique | sort }}
+               intersect(backups.legacy_offen.scheduler_services if backups.legacy_offen.scheduler_state != 'retired' else []))) |
+            unique | sort
+          }}
       when: compose_deploy_nextcloud_migration
       no_log: true
 

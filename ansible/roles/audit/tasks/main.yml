@@ -257,13 +257,17 @@
 - name: Assert Compose service and declared-volume counts
   ansible.builtin.assert:
     that:
-      - audit_declared_services.stdout_lines | length == audit_expected_compose_service_count
+      - audit_declared_services.stdout_lines | length in audit_allowed_declared_compose_service_counts
       - audit_running_services.stdout_lines | length == audit_expected_running_compose_service_count | int
-      - audit_container_ids.stdout_lines | length == audit_expected_compose_service_count
+      - audit_container_ids.stdout_lines | length in audit_allowed_materialized_compose_service_counts
       - audit_declared_volumes.stdout_lines | length == audit_expected_declared_volume_count
       - >-
         (audit_declared_services.stdout_lines | difference(audit_running_services.stdout_lines) | sort) ==
         (audit_expected_stopped_compose_services | sort)
+        or (
+          backups.legacy_offen.retirement.state in ['retirement-planned', 'retirement-finalizing'] and
+          (audit_declared_services.stdout_lines | difference(audit_running_services.stdout_lines) | length) == 0
+        )
     fail_msg: Compose definitions, materialized containers, or contract scheduler state changed.
 
 - name: Inspect required container health without exposing configuration
@@ -494,6 +498,7 @@
   changed_when: false
   check_mode: false
   register: audit_local_backup_replicas
+  when: backups.legacy_offen.retirement.state not in ['retirement-finalizing', 'retired']
 
 - name: Assert the required local backup replica audit passed
   ansible.builtin.assert:
@@ -501,6 +506,41 @@
       - audit_local_backup_replicas.stdout == 'local_backup_replica_audit=verified replicas=' ~ (audit_local_backup_replica_paths | length | string)
     fail_msg: >-
       The newest common local backup is absent, invalid, or inconsistent across required Debian-accessible replicas.
+  when: backups.legacy_offen.retirement.state not in ['retirement-finalizing', 'retired']
+
+- name: Require exact Offen retirement absence after attestation
+  ansible.builtin.shell:
+    executable: /bin/bash
+    cmd: |
+      set -euo pipefail
+      test "$(systemctl is-active home-lab-restic-daily.timer)" = active
+      test "$(systemctl is-active home-lab-restic-maintenance.timer)" = active
+      for service in daily-local-backup weekly-remote-backup; do
+        ! docker inspect "$service" >/dev/null 2>&1
+      done
+      {% for item in offen_retirement_manifest.local.archives + offen_retirement_manifest.local.metadata_files %}
+      test ! -e {{ item.path | quote }}
+      test ! -L {{ item.path | quote }}
+      {% endfor %}
+      {% for directory in offen_retirement_manifest.local.protected_directories %}
+      test ! -e {{ directory.path | quote }}
+      test ! -L {{ directory.path | quote }}
+      {% endfor %}
+      ! docker image inspect {{ offen_retirement_manifest.compose.image | quote }} >/dev/null 2>&1
+      echo offen_retirement_absence=verified
+  vars:
+    offen_retirement_manifest: >-
+      {{ lookup('ansible.builtin.file', playbook_dir + '/../../infrastructure/retirement/offen-retirement-manifest.json') | from_json }}
+  changed_when: false
+  check_mode: false
+  register: audit_offen_retirement_absence
+  when: backups.legacy_offen.retirement.state == 'retired'
+
+- name: Assert exact Offen retirement absence passed
+  ansible.builtin.assert:
+    that:
+      - audit_offen_retirement_absence.stdout == 'offen_retirement_absence=verified'
+  when: backups.legacy_offen.retirement.state == 'retired'
 
 - name: Simulate active Compose create without builds, pulls, or changes
   ansible.builtin.command:

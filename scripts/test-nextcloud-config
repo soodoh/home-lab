@@ -13,6 +13,7 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 CONTRACT_PATH = ROOT / "infrastructure/contract/home-lab.yml"
 CADDYFILE_PATH = ROOT / "services/data/Caddyfile"
+IMAGE_LOCK_PATH = ROOT / "infrastructure/debian/production-image-lock.json"
 
 
 def fail(message: str) -> None:
@@ -81,6 +82,11 @@ def main() -> None:
         fail("compose_service_count")
     if len({service["image"] for service in services.values()}) != policy["expected_image_reference_count"]:
         fail("compose_image_reference_count")
+    image_lock_services = {item["service"] for item in json.loads(IMAGE_LOCK_PATH.read_text())["images"]}
+    if len(image_lock_services) != policy["expected_image_lock_service_count"]:
+        fail("image_lock_service_count")
+    if image_lock_services != set(services) - {policy["cron_service"]}:
+        fail("image_lock_service_set")
 
     web = services[policy["web_service"]]
     cron = services[policy["cron_service"]]

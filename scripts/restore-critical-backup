@@ -2,7 +2,6 @@
 set -euo pipefail
 umask 077
 
-remote_backup_id=
 restic_snapshot_id=
 confirmed_empty=false
 while (($#)); do
@@ -12,11 +11,6 @@ while (($#)); do
       restic_snapshot_id=$2
       shift 2
       ;;
-    --remote-backup-id)
-      (($# >= 2)) || exit 64
-      remote_backup_id=$2
-      shift 2
-      ;;
     --confirmed-empty-target)
       confirmed_empty=true
       shift
@@ -24,14 +18,14 @@ while (($#)); do
     *) exit 64 ;;
   esac
 done
+[[ $restic_snapshot_id =~ ^[0-9a-f]{64}$ ]] || exit 64
+: "${RECOVERY_TARGET:?RECOVERY_TARGET is required}"
 
 [[ $confirmed_empty == true ]]
-: "${RECOVERY_TARGET:?RECOVERY_TARGET is required}"
 [[ -d $RECOVERY_TARGET && ! -L $RECOVERY_TARGET ]]
 [[ -z $(find "$RECOVERY_TARGET" -mindepth 1 -maxdepth 1 -print -quit) ]]
 
-if [[ -n $restic_snapshot_id ]]; then
-  recovery_parent=/srv/home-lab-recovery
+recovery_parent=/srv/home-lab-recovery
   recovery_target_canonical=$(realpath --canonicalize-existing -- "$RECOVERY_TARGET")
   recovery_parent_canonical=$(realpath --canonicalize-existing -- "$recovery_parent")
   [[ $recovery_target_canonical == "$RECOVERY_TARGET" ]]
@@ -59,6 +53,7 @@ if [[ -n $restic_snapshot_id ]]; then
   restore_lock="$RECOVERY_TARGET.proof-lock"
   [[ ! -e $restore_lock && ! -L $restore_lock ]] || exit 1
   mkdir -m 0700 -- "$restore_lock"
+  status=0
   trap 'status=$?; trap - EXIT INT TERM; rmdir -- "$restore_lock" || true; exit "$status"' EXIT INT TERM
   verify_recovery_binary() {
     local path=$1 expected_sha256=$2
@@ -156,201 +151,3 @@ PY
   "$restic_path" restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify
   printf 'recovery_restore=verified backend=restic snapshot=%s\n' "$restic_snapshot_id"
   exit 0
-fi
-
-: "${RECOVERY_GPG_KEY_FILE:?RECOVERY_GPG_KEY_FILE is required}"
-: "${RECOVERY_EXPECTED_BACKUP_IDENTITY_SHA256:?RECOVERY_EXPECTED_BACKUP_IDENTITY_SHA256 is required}"
-[[ $RECOVERY_EXPECTED_BACKUP_IDENTITY_SHA256 =~ ^[0-9a-f]{64}$ ]]
-[[ -r $RECOVERY_GPG_KEY_FILE ]]
-[[ -x /usr/local/libexec/home-lab-restore-critical-archive.py ]]
-
-status_file=${RECOVERY_STATUS_FILE:-}
-if [[ -n $status_file ]]; then
-  [[ $status_file =~ ^/run/home-lab-recovery-[a-z0-9-]+$ ]]
-fi
-identity_file=${RECOVERY_BACKUP_IDENTITY_FILE:-}
-[[ $identity_file == /run/home-lab-recovery-backup-identity.json ]]
-stage=workspace
-workspace_parent=${RECOVERY_TARGET%/*}
-[[ $workspace_parent == /srv/home-lab-recovery ]]
-workspace=$(mktemp -d "$workspace_parent/.restore-staging.XXXXXX")
-cleanup() {
-  local status=$?
-  rm -rf "$workspace"
-  if ((status != 0)); then
-    rm -f -- "$identity_file"
-  fi
-  if [[ -n $status_file ]]; then
-    if ((status == 0)); then
-      printf 'recovery_restore=verified stage=complete\n' >"$status_file" || true
-    else
-      if [[ ! -f $status_file ]] || ! grep -Eq '^recovery_restore=failed stage=extract reason=[a-z_]+$' "$status_file"; then
-        printf 'recovery_restore=failed stage=%s\n' "$stage" >"$status_file" || true
-      fi
-    fi
-    chmod 0600 "$status_file" 2>/dev/null || true
-  fi
-  return "$status"
-}
-trap cleanup EXIT INT TERM
-chmod 0700 "$workspace"
-export GNUPGHOME="$workspace/gnupg"
-install -d -m 0700 "$GNUPGHOME"
-
-stage=key-import
-gpg --batch --quiet --import "$RECOVERY_GPG_KEY_FILE" >/dev/null 2>&1
-
-decrypt_args=(--batch --yes --quiet --decrypt)
-if [[ -n ${RECOVERY_GPG_PASSPHRASE_FILE:-} ]]; then
-  [[ -r $RECOVERY_GPG_PASSPHRASE_FILE ]]
-  decrypt_args+=(--pinentry-mode loopback --passphrase-file "$RECOVERY_GPG_PASSPHRASE_FILE")
-fi
-
-local_roots=(/mnt/games/backups /mnt/storage/backups)
-candidate_file="$workspace/local-candidates"
-python3 - "${local_roots[@]}" >"$candidate_file" <<'PY'
-from pathlib import Path
-import re
-import sys
-
-pattern = re.compile(r"^(daily-local-backup|daily-backup)-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.tar\.gz\.gpg$")
-candidates = []
-for priority, raw_root in enumerate(sys.argv[1:]):
-    root = Path(raw_root)
-    try:
-        if not root.is_dir() or root.is_symlink():
-            continue
-        items = list(root.iterdir())
-    except OSError:
-        continue
-    for item in items:
-        try:
-            if item.is_file() and not item.is_symlink() and pattern.fullmatch(item.name):
-                candidates.append((item.name, priority, str(item)))
-        except OSError:
-            continue
-candidates.sort(key=lambda candidate: candidate[1])
-candidates.sort(key=lambda candidate: candidate[0], reverse=True)
-for _, _, path in candidates:
-    sys.stdout.buffer.write(path.encode() + b"\0")
-PY
-local_candidates=()
-while IFS= read -r -d '' local_candidate; do local_candidates+=("$local_candidate"); done <"$candidate_file"
-unset local_candidate
-rm -f -- "$candidate_file"
-
-selected_source=
-selected_backup_id=
-selected_backup_sha256=
-selected_version=
-if ((${#local_candidates[@]})); then
-for local_source in "${local_candidates[@]}"; do
-  stage=local-snapshot
-  archive_basename=${local_source##*/}
-  encrypted_source="$workspace/candidate.tar.gz.gpg"
-  decrypted_candidate="$workspace/candidate.tar.gz"
-  rm -f -- "$encrypted_source" "$decrypted_candidate"
-  cp --reflink=auto --sparse=always -- "$local_source" "$encrypted_source" || continue
-  actual_sha256=$(sha256sum "$encrypted_source" | awk '{print $1}')
-
-  checksum_file="$local_source.sha256"
-  if [[ -e $checksum_file || -L $checksum_file ]]; then
-    [[ -f $checksum_file && ! -L $checksum_file ]] || continue
-    expected_sha256=$(awk -v name="$archive_basename" '
-      NF == 2 && $1 ~ /^[0-9a-f]{64}$/ && $2 == name { print $1 }
-    ' "$checksum_file")
-    [[ $expected_sha256 =~ ^[0-9a-f]{64}$ && $expected_sha256 == "$actual_sha256" ]] || continue
-  fi
-
-  stage=decrypt
-  if gpg "${decrypt_args[@]}" --output "$decrypted_candidate" "$encrypted_source" >/dev/null 2>&1; then
-    mv -- "$decrypted_candidate" "$workspace/critical.tar.gz"
-    selected_source=local
-    selected_backup_id=$archive_basename
-    selected_backup_sha256=$actual_sha256
-    selected_version=
-    rm -f -- "$encrypted_source"
-    break
-  fi
-done
-fi
-
-if [[ -z $selected_source ]]; then
-  stage=remote-validation
-  : "${RECOVERY_BACKUP_URL:?RECOVERY_BACKUP_URL is required when no valid local backup is available}"
-  : "${RECOVERY_BACKUP_VERSION_ID:?RECOVERY_BACKUP_VERSION_ID is required when no valid local backup is available}"
-  : "${RECOVERY_REMOTE_BACKUP_SHA256:?RECOVERY_REMOTE_BACKUP_SHA256 is required when no valid local backup is available}"
-  [[ ${RECOVERY_REMOTE_BACKUP_LATEST_CONFIRMED:-} == true ]] || { echo "remote backup latest-version confirmation is required" >&2; exit 1; }
-  [[ $remote_backup_id =~ ^weekly-backup-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}\.tar\.gz\.gpg$ ]] || { echo "remote backup ID is invalid" >&2; exit 1; }
-  [[ $RECOVERY_REMOTE_BACKUP_SHA256 =~ ^[0-9a-f]{64}$ ]] || { echo "remote backup SHA-256 is invalid" >&2; exit 1; }
-  [[ $RECOVERY_BACKUP_VERSION_ID =~ ^[A-Za-z0-9._~+-]{1,1024}$ ]] || { echo "remote backup version ID is invalid" >&2; exit 1; }
-  [[ $RECOVERY_BACKUP_URL == https://* ]] || { echo "remote backup URL must use HTTPS" >&2; exit 1; }
-  url_path=${RECOVERY_BACKUP_URL%%\?*}
-  url_name=${url_path##*/}
-  [[ $url_name == "$remote_backup_id" ]] || { echo "remote backup URL does not match the approved backup ID" >&2; exit 1; }
-  RECOVERY_URL="$RECOVERY_BACKUP_URL" RECOVERY_VERSION="$RECOVERY_BACKUP_VERSION_ID" python3 - <<'PY'
-import os
-from urllib.parse import parse_qs, urlsplit
-
-versions = parse_qs(urlsplit(os.environ["RECOVERY_URL"]).query).get("versionId", [])
-if versions != [os.environ["RECOVERY_VERSION"]]:
-    raise SystemExit("signed backup URL is not bound to the approved object version")
-PY
-
-  stage=download
-  encrypted_source="$workspace/$remote_backup_id"
-  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-    --retry 8 --retry-all-errors --retry-delay 10 --continue-at - \
-    "$RECOVERY_BACKUP_URL" --output "$encrypted_source"
-  printf '%s  %s\n' "$RECOVERY_REMOTE_BACKUP_SHA256" "$encrypted_source" \
-    | sha256sum --check --status
-  stage=decrypt
-  gpg "${decrypt_args[@]}" --output "$workspace/critical.tar.gz" "$encrypted_source"
-  rm -f -- "$encrypted_source"
-  selected_source=remote
-  selected_backup_id=$remote_backup_id
-  selected_backup_sha256=$RECOVERY_REMOTE_BACKUP_SHA256
-  selected_version=$RECOVERY_BACKUP_VERSION_ID
-fi
-
-IDENTITY_FILE="$identity_file" SELECTED_SOURCE="$selected_source" SELECTED_BACKUP_ID="$selected_backup_id" \
-  SELECTED_BACKUP_SHA256="$selected_backup_sha256" SELECTED_VERSION="$selected_version" \
-  EXPECTED_IDENTITY_SHA256="$RECOVERY_EXPECTED_BACKUP_IDENTITY_SHA256" python3 - <<'PY'
-import hashlib
-import json
-import os
-from pathlib import Path
-import tempfile
-
-
-def digest(value: str) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()
-
-
-source = os.environ["SELECTED_SOURCE"]
-version = os.environ["SELECTED_VERSION"]
-identity = {
-    "backup_id_sha256": digest(os.environ["SELECTED_BACKUP_ID"]),
-    "ciphertext_sha256": os.environ["SELECTED_BACKUP_SHA256"],
-    "remote_version_id_sha256": digest(version) if source == "remote" else None,
-    "source": source,
-    "version": 1,
-}
-encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"))
-if digest(encoded) != os.environ["EXPECTED_IDENTITY_SHA256"]:
-    raise SystemExit("selected backup identity does not match the reviewed identity")
-target = Path(os.environ["IDENTITY_FILE"])
-with tempfile.NamedTemporaryFile(
-    mode="w", dir=target.parent, prefix=f".{target.name}.", delete=False
-) as stream:
-    stream.write(encoded + "\n")
-    temporary = Path(stream.name)
-temporary.chmod(0o600)
-temporary.replace(target)
-PY
-
-stage=extract
-/usr/local/libexec/home-lab-restore-critical-archive.py \
-  --archive "$workspace/critical.tar.gz" \
-  --target "$RECOVERY_TARGET"
-stage=complete

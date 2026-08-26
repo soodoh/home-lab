@@ -125,14 +125,16 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-protected-file.py
   python3 scripts/controller/test-reconcile-manifest.py
   python3 scripts/controller/test-reconcile-security.py
-  scripts/test-recovery-tools
-  python3 -m py_compile scripts/*.py scripts/controller/*.py scripts/activate-restic-staging-fixture scripts/build-restic-recovery-bundle scripts/run-restic-recovery-bundle
+  scripts/test-restic-recovery-bundle
+  python3 scripts/test-restic-tools.py
+  python3 scripts/test-offen-retirement.py
+  python3 -m py_compile scripts/*.py scripts/controller/*.py scripts/activate-restic-staging-fixture scripts/build-restic-recovery-bundle scripts/run-restic-recovery-bundle scripts/retire-offen-local infrastructure/policy/inspect-offen-retirement-aws-plan.py
   shellcheck scripts/reconcile-infrastructure scripts/local-controller \
     scripts/build-recovery-bundle scripts/configure-local-controller-aws \
     scripts/configure-local-provider-credentials \
     scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack scripts/validate-proxmox-bootstrap-keys \
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
-    scripts/restore-critical-backup scripts/test-recovery-tools scripts/test-restic-activation-fixture scripts/test-restic-recovery-bundle scripts/test-restic-restore-branch
+    scripts/restore-critical-backup scripts/retire-offen-aws-object scripts/test-restic-activation-fixture scripts/test-restic-recovery-bundle scripts/test-restic-restore-branch
   tofu fmt -check -recursive infrastructure/tofu
   for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
     (
@@ -178,6 +180,15 @@ for (const segment of process.env.EXPRESSION.split(".")) value = value?.[segment
 if (value === null || value === undefined || value === "") process.exit(1);
 process.stdout.write(String(value));
 NODE
+}
+
+offen_retirement_operation() {
+  case "$(contract_value backups.legacy_offen.retirement.state)" in
+    retirement-planned) printf 'grant\n' ;;
+    retirement-finalizing) printf 'finalize\n' ;;
+    preserved|retired) printf '\n' ;;
+    *) echo 'unsupported Offen retirement contract state' >&2; return 1 ;;
+  esac
 }
 
 require_protected_regular_file() {
@@ -588,6 +599,17 @@ plan_all() {
       while IFS= read -r -d '' argument; do inspect_args+=("$argument"); done < <(policy_args "$root")
     fi
     TOFU_PLAN_CHDIR="infrastructure/tofu/$root" ./scripts/inspect-tofu-plan "$plan" "${inspect_args[@]}"
+    retirement_operation=$(offen_retirement_operation)
+    if [[ $root == aws-foundation && -n $retirement_operation ]]; then
+      retirement_plan_json=$(mktemp "$plan_dir/offen-retirement-plan.XXXXXX.json")
+      chmod 0600 "$retirement_plan_json"
+      tofu -chdir="infrastructure/tofu/$root" show -json "$plan" >"$retirement_plan_json"
+      python3 infrastructure/policy/inspect-offen-retirement-aws-plan.py \
+        --operation "$retirement_operation" \
+        --manifest infrastructure/retirement/offen-retirement-manifest.json \
+        --plan "$retirement_plan_json"
+      rm -f "$retirement_plan_json"
+    fi
     jq -cn \
       --arg root "$root" \
       --arg file "$(basename "$plan")" \
@@ -613,6 +635,7 @@ plan_all() {
     --arg compose_hash "$compose_hash" \
     --arg recovery_backup_identity_sha256 "$recovery_backup_identity_sha256" \
     --arg recovery_expectations_sha256 "$recovery_expectations_sha256" \
+    --arg offen_retirement_operation "$(offen_retirement_operation)" \
     --arg ansible_extra_vars_file_sha256 "$ansible_extra_vars_file_sha256" \
     --argjson proxmox_host_plan "$proxmox_host_plan" \
     --arg stage "$(jq -r 'if .prerequisite == "vm-start" then "vm-start-prerequisite" elif .external_owner_only then "external-owner-prerequisite" else "converge" end' <<<"$proxmox_host_plan")" \
@@ -621,6 +644,7 @@ plan_all() {
       ansible_extra_vars_file_sha256: $ansible_extra_vars_file_sha256,
       recovery_backup_identity_sha256: $recovery_backup_identity_sha256,
       recovery_expectations_sha256: $recovery_expectations_sha256,
+      offen_retirement_operation: $offen_retirement_operation,
       compose_artifact_sha256: $compose_hash, proxmox_host_plan: $proxmox_host_plan, plans: .}' \
     "$records" >"$plan_dir/manifest.json"
   rm -f "$records"
@@ -644,6 +668,7 @@ verify_manifest() {
     (.ansible_extra_vars_file_sha256 | type) == "string" and
     (.recovery_backup_identity_sha256 | type) == "string" and
     (.recovery_expectations_sha256 | type) == "string" and
+    (.offen_retirement_operation == "" or .offen_retirement_operation == "grant" or .offen_retirement_operation == "finalize") and
     (if .phase == "recovery" then
       (.ansible_extra_vars_file_sha256 | test("^[0-9a-f]{64}$")) and
       (.recovery_expectations_sha256 | test("^[0-9a-f]{64}$"))
@@ -660,9 +685,13 @@ verify_manifest() {
     (.proxmox_host_plan.external_owner_only == (.stage != "converge")) and
     (.proxmox_host_plan.prerequisite == (if .stage == "converge" then "none" elif .stage == "vm-start-prerequisite" then "vm-start" else "recovery-opentofu" end)) and
     (.proxmox_host_plan.status == (if .stage == "converge" then "ready" else "blocked" end)) and
-    ((keys | sort) == (["ansible_extra_vars_file_sha256", "backend_bucket", "commit", "compose_artifact_sha256", "phase", "plans", "proxmox_host_plan", "recovery_backup_identity_sha256", "recovery_expectations_sha256", "stage", "version"] | sort))
+    ((keys | sort) == (["ansible_extra_vars_file_sha256", "backend_bucket", "commit", "compose_artifact_sha256", "offen_retirement_operation", "phase", "plans", "proxmox_host_plan", "recovery_backup_identity_sha256", "recovery_expectations_sha256", "stage", "version"] | sort))
   ' "$manifest" >/dev/null || {
     echo "saved-plan manifest metadata is invalid" >&2
+    exit 66
+  }
+  [[ $(jq -r .offen_retirement_operation "$manifest") == "$(offen_retirement_operation)" ]] || {
+    echo "saved-plan Offen retirement operation differs from the current contract state" >&2
     exit 66
   }
   [[ $(jq -r .commit "$manifest") == "$commit" ]]
@@ -756,6 +785,17 @@ verify_manifest() {
       while IFS= read -r -d '' argument; do inspect_args+=("$argument"); done < <(policy_args "$root")
     fi
     TOFU_PLAN_CHDIR="infrastructure/tofu/$root" ./scripts/inspect-tofu-plan "$plan_dir/$file" "${inspect_args[@]}"
+    retirement_operation=$(offen_retirement_operation)
+    if [[ $root == aws-foundation && -n $retirement_operation ]]; then
+      retirement_plan_json=$(mktemp "$plan_dir/offen-retirement-verify.XXXXXX.json")
+      chmod 0600 "$retirement_plan_json"
+      tofu -chdir="infrastructure/tofu/$root" show -json "$plan_dir/$file" >"$retirement_plan_json"
+      python3 infrastructure/policy/inspect-offen-retirement-aws-plan.py \
+        --operation "$retirement_operation" \
+        --manifest infrastructure/retirement/offen-retirement-manifest.json \
+        --plan "$retirement_plan_json"
+      rm -f "$retirement_plan_json"
+    fi
   done < <(jq -r '.plans[] | [.root, .file, .sha256] | @tsv' "$manifest")
 }
 
@@ -920,43 +960,6 @@ compose_apply() {
     | jq -e '.changed == 0 and .unreachable == 0 and .failed == 0' >/dev/null
   popd >/dev/null
   rm -rf "$artifact_root" "$plan_log" "$repeat_log" "$postcheck_log"
-}
-
-compose_recovery_apply() {
-  local artifact_root artifact_hash first_log second_log first_hash second_hash
-  artifact_root=$(mktemp -d)
-  first_log=$(mktemp)
-  second_log=$(mktemp)
-  artifact_hash=$(python3 scripts/compose-artifact.py copy "$artifact_root")
-  pushd ansible >/dev/null
-  ansible-playbook -i "$production_inventory" playbooks/stage-compose.yml \
-    "${ansible_extra_args[@]}" \
-    -e "compose_artifact_hash=$artifact_hash" \
-    -e "compose_artifact_controller_dir=$artifact_root" \
-    -e compose_stage_confirmed=true \
-    -e compose_stage_fresh_recovery=true
-  ansible-playbook -i "$production_inventory" playbooks/disaster-recovery.yml \
-    "${ansible_extra_args[@]}"
-  ansible-playbook -i "$production_inventory" playbooks/plan-compose-recovery.yml \
-    "${ansible_extra_args[@]}" -e "compose_artifact_hash=$artifact_hash" | tee "$first_log"
-  ansible-playbook -i "$production_inventory" playbooks/plan-compose-recovery.yml \
-    "${ansible_extra_args[@]}" -e "compose_artifact_hash=$artifact_hash" | tee "$second_log"
-  first_hash=$(grep -oE 'compose_recovery_plan_sha256=[0-9a-f]{64}' "$first_log" | cut -d= -f2 | sort -u)
-  second_hash=$(grep -oE 'compose_recovery_plan_sha256=[0-9a-f]{64}' "$second_log" | cut -d= -f2 | sort -u)
-  [[ $first_hash =~ ^[0-9a-f]{64}$ && $first_hash == "$second_hash" ]]
-  ansible-playbook -i "$production_inventory" playbooks/recover-compose.yml \
-    "${ansible_extra_args[@]}" \
-    -e "compose_artifact_hash=$artifact_hash" \
-    -e "compose_recovery_expected_plan_sha256=$first_hash" \
-    -e compose_recovery_confirmed=true
-  postcheck_log=$(mktemp)
-  ansible-playbook -i "$production_inventory" playbooks/deploy-compose.yml --check --diff \
-    "${ansible_extra_args[@]}" -e "compose_artifact_hash=$artifact_hash" | tee "$postcheck_log"
-  python3 "$repo_root/scripts/controller/parse-ansible-recap.py" "$postcheck_log" docker-host-production \
-    | jq -e '.changed == 0 and .unreachable == 0 and .failed == 0' >/dev/null
-  rm -f "$postcheck_log"
-  popd >/dev/null
-  rm -rf "$artifact_root" "$first_log" "$second_log"
 }
 
 verify_all() {

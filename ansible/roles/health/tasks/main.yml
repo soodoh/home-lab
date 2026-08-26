@@ -23,12 +23,14 @@
 - name: Assert adopted Compose services remain in the contract scheduler state
   ansible.builtin.assert:
     that:
-      - ansible_check_mode or health_materialized_services.stdout_lines | length == audit_expected_compose_service_count
+      - ansible_check_mode or health_materialized_services.stdout_lines | length in audit_allowed_materialized_compose_service_counts
       - ansible_check_mode or health_running_services.stdout_lines | length == audit_expected_running_compose_service_count | int
       - >-
         ansible_check_mode or
         (health_materialized_services.stdout_lines | difference(health_running_services.stdout_lines) | sort) ==
-        (audit_expected_stopped_compose_services | sort)
+        (audit_expected_stopped_compose_services | sort) or
+        (backups.legacy_offen.retirement.state in ['retirement-planned', 'retirement-finalizing'] and
+         (health_materialized_services.stdout_lines | difference(health_running_services.stdout_lines) | length) == 0)
     fail_msg: One or more adopted Compose services differ from the contract scheduler state.
 
 - name: Inspect required container health without exposing container configuration

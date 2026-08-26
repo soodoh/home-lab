@@ -78,10 +78,11 @@
       - --format
       - "{% raw %}{{.State.Status}}{% endraw %}"
       - "{{ item }}"
-  loop:
-    - "{{ nextcloud.cron_service }}"
-    - daily-local-backup
-    - weekly-remote-backup
+  loop: >-
+    {{
+      [nextcloud.cron_service] +
+      (backups.legacy_offen.scheduler_services if backups.legacy_offen.scheduler_state != 'retired' else [])
+    }}
   register: nextcloud_configuration_stopped_services
   changed_when: false
 

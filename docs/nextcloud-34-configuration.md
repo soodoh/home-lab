@@ -134,7 +134,7 @@ The bounded rollback stops cron/web/backup writers, removes only the new cron co
 
 Before old-path deletion:
 
-- run `./scripts/test-recovery-tools`;
+- run `./scripts/test-restic-recovery-bundle` and `./scripts/test-restic-restore-branch`;
 - rehearse a fresh restore of config, custom apps/themes, MariaDB, SOPS-backed secret files, and pinned application code while retaining external data;
 - prove the previous-artifact rollback;
 - confirm representative user-file counts and hashes are unchanged;

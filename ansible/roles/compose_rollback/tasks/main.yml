@@ -365,13 +365,11 @@
 
     - name: Stop Nextcloud writers and backup schedulers before migration rollback
       ansible.builtin.command:
-        argv:
-          - /usr/bin/docker
-          - stop
-          - "{{ nextcloud.cron_service }}"
-          - "{{ nextcloud.web_service }}"
-          - daily-local-backup
-          - weekly-remote-backup
+        argv: >-
+          {{
+            ['/usr/bin/docker', 'stop', nextcloud.cron_service, nextcloud.web_service] +
+            (backups.legacy_offen.scheduler_services if backups.legacy_offen.scheduler_state != 'retired' else [])
+          }}
       when: compose_rollback_nextcloud_migration
       changed_when: true
       no_log: true

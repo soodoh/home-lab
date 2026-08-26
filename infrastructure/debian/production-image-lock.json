@@ -68,14 +68,6 @@
       "service": "caro-tachidesk"
     },
     {
-      "image_id": "sha256:5338efad1fe49f81265bb1c43ff87cb14d5e5dc8e16955a4c2416141efc88616",
-      "reference": "ghcr.io/offen/docker-volume-backup:v2.48.2@sha256:19102d8e59eb1d598cf8c647c2b21100abaadc5a1c808ac643fa612e323c3013",
-      "repo_digests": [
-        "ghcr.io/offen/docker-volume-backup@sha256:19102d8e59eb1d598cf8c647c2b21100abaadc5a1c808ac643fa612e323c3013"
-      ],
-      "service": "daily-local-backup"
-    },
-    {
       "image_id": "sha256:e0df6d17c782b78837b258a066040943382c18c42f893ceba0665e644e321ec8",
       "reference": "ghcr.io/qdm12/ddns-updater:v2.10.0@sha256:3e2aa558946b5a293def4d73008fa4651c072b2c12932cecd02126fb23979831",
       "repo_digests": [
@@ -306,14 +298,6 @@
         "ghcr.io/go-vikunja/vikunja@sha256:1a5dd2d410b5359f689c77bbd1c66742cde1993f82d4adfe9aefa400ff1dd833"
       ],
       "service": "vikunja"
-    },
-    {
-      "image_id": "sha256:5338efad1fe49f81265bb1c43ff87cb14d5e5dc8e16955a4c2416141efc88616",
-      "reference": "ghcr.io/offen/docker-volume-backup:v2.48.2@sha256:19102d8e59eb1d598cf8c647c2b21100abaadc5a1c808ac643fa612e323c3013",
-      "repo_digests": [
-        "ghcr.io/offen/docker-volume-backup@sha256:19102d8e59eb1d598cf8c647c2b21100abaadc5a1c808ac643fa612e323c3013"
-      ],
-      "service": "weekly-remote-backup"
     },
     {
       "image_id": "sha256:75e04a64b30005cd998c4f94eab10f329e23995af7495aba02f9b81d88531677",

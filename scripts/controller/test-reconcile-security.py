@@ -169,8 +169,6 @@ class ReconcileSecurityTests(unittest.TestCase):
         for playbook in (
             "playbooks/stage-compose.yml",
             "playbooks/deploy-compose.yml",
-            "playbooks/plan-compose-recovery.yml",
-            "playbooks/recover-compose.yml",
         ):
             start = self.reconciler.index(playbook)
             next_command = self.reconciler.find("ansible-playbook", start + len(playbook))

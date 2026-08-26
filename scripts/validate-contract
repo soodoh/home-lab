@@ -26,6 +26,10 @@ const qualificationValidatorPath = path.join(root, "scripts/controller/validate-
 const protonQualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proton-qualification.schema.json");
 const resticInitializationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/restic-repository-initialization.schema.json");
 const resticFirstRunEvidenceSchemaPath = path.join(root, "infrastructure/evidence/restic-first-run.schema.json");
+const offenRetirementManifestPath = path.join(root, "infrastructure/retirement/offen-retirement-manifest.json");
+const offenRetirementManifestSchemaPath = path.join(root, "infrastructure/retirement/offen-retirement-manifest.schema.json");
+const offenRetirementEvidenceSchemaPath = path.join(root, "infrastructure/evidence/offen-retirement.schema.json");
+const offenRetirementStagedEvidenceSchemaPath = path.join(root, "infrastructure/evidence/offen-retirement-staged.schema.json");
 const operational = process.argv.includes("--operational");
 
 const contract = load(fs.readFileSync(contractPath, "utf8"));
@@ -37,6 +41,11 @@ const qualificationEvidenceSchema = JSON.parse(fs.readFileSync(qualificationEvid
 const protonQualificationEvidenceSchema = JSON.parse(fs.readFileSync(protonQualificationEvidenceSchemaPath, "utf8"));
 const resticInitializationEvidenceSchema = JSON.parse(fs.readFileSync(resticInitializationEvidenceSchemaPath, "utf8"));
 const resticFirstRunEvidenceSchema = JSON.parse(fs.readFileSync(resticFirstRunEvidenceSchemaPath, "utf8"));
+const offenRetirementManifestRaw = fs.readFileSync(offenRetirementManifestPath);
+const offenRetirementManifest = JSON.parse(offenRetirementManifestRaw);
+const offenRetirementManifestSchema = JSON.parse(fs.readFileSync(offenRetirementManifestSchemaPath, "utf8"));
+const offenRetirementEvidenceSchema = JSON.parse(fs.readFileSync(offenRetirementEvidenceSchemaPath, "utf8"));
+const offenRetirementStagedEvidenceSchema = JSON.parse(fs.readFileSync(offenRetirementStagedEvidenceSchemaPath, "utf8"));
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validate = ajv.compile(schema);
 const validatePackageManifest = ajv.compile(packageManifestSchema);
@@ -44,6 +53,9 @@ const validateQualificationEvidence = ajv.compile(qualificationEvidenceSchema);
 const validateProtonQualificationSchema = ajv.compile(protonQualificationEvidenceSchema);
 const validateResticInitializationSchema = ajv.compile(resticInitializationEvidenceSchema);
 const validateResticFirstRunSchema = ajv.compile(resticFirstRunEvidenceSchema);
+const validateOffenRetirementManifest = ajv.compile(offenRetirementManifestSchema);
+const validateOffenRetirementEvidence = ajv.compile(offenRetirementEvidenceSchema);
+const validateOffenRetirementStagedEvidence = ajv.compile(offenRetirementStagedEvidenceSchema);
 
 if (!validate(contract)) {
   for (const error of validate.errors || []) {
@@ -53,6 +65,79 @@ if (!validate(contract)) {
 }
 
 const failures = [];
+if (!validateOffenRetirementManifest(offenRetirementManifest)) {
+  failures.push("Offen retirement manifest does not match its exact schema");
+}
+const offenRetirement = contract.backups.legacy_offen.retirement;
+const offenRetirementManifestSha256 = crypto.createHash("sha256").update(offenRetirementManifestRaw).digest("hex");
+if (offenRetirement.manifest_file !== path.relative(root, offenRetirementManifestPath)
+    || offenRetirement.manifest_sha256 !== offenRetirementManifestSha256
+    || offenRetirementManifest.acceptance !== offenRetirement.acceptance) {
+  failures.push("Offen retirement contract and immutable manifest binding differ");
+}
+if (offenRetirement.state === "retirement-finalizing" && offenRetirement.evidence_file !== null) {
+  const evidencePath = path.join(root, offenRetirement.evidence_file || "");
+  if (offenRetirement.evidence_file !== "infrastructure/evidence/offen-retirement-finalizing.json" || !fs.existsSync(evidencePath)) {
+    failures.push("Finalizing Offen contract evidence path is invalid");
+  } else {
+    const evidenceRaw = fs.readFileSync(evidencePath);
+    const evidence = JSON.parse(evidenceRaw);
+    const evidenceSha256 = crypto.createHash("sha256").update(evidenceRaw).digest("hex");
+    if (!validateOffenRetirementStagedEvidence(evidence)) {
+      failures.push(`Offen finalizing evidence schema failed: ${JSON.stringify(validateOffenRetirementStagedEvidence.errors)}`);
+    }
+    if (evidenceSha256 !== offenRetirement.evidence_sha256
+        || evidence.manifest_sha256 !== offenRetirement.manifest_sha256
+        || evidence.phase !== "retirement-finalizing"
+        || evidence.bundle_b_before_head_sha256 !== evidence.bundle_b_after_head_sha256) {
+      failures.push("Offen finalizing evidence semantic binding differs");
+    }
+  }
+}
+if (offenRetirement.state === "retired") {
+  const evidencePath = path.join(root, offenRetirement.evidence_file || "");
+  if (!offenRetirement.evidence_file || !fs.existsSync(evidencePath)) {
+    failures.push("Retired Offen contract requires committed retirement evidence");
+  } else {
+    const evidenceRaw = fs.readFileSync(evidencePath);
+    const evidence = JSON.parse(evidenceRaw);
+    const evidenceSha256 = crypto.createHash("sha256").update(evidenceRaw).digest("hex");
+    if (!validateOffenRetirementEvidence(evidence)) {
+      failures.push(`Offen retirement evidence schema failed: ${JSON.stringify(validateOffenRetirementEvidence.errors)}`);
+    }
+    if (evidenceSha256 !== offenRetirement.evidence_sha256
+        || evidence.manifest_sha256 !== offenRetirement.manifest_sha256
+        || evidence.state !== "retired"
+        || evidence.aws.bundle_b_before_head_sha256 !== evidence.aws.bundle_b_after_head_sha256
+        || JSON.stringify(evidence.preserved) !== JSON.stringify(offenRetirementManifest.preserve)) {
+      failures.push("Offen retirement evidence semantic binding differs");
+    }
+  }
+}
+const legacyOffen = contract.backups.legacy_offen;
+if (JSON.stringify(offenRetirementManifest.compose.services) !== JSON.stringify(legacyOffen.scheduler_services)
+    || offenRetirementManifest.compose.planned_source_service_count !== contract.nextcloud.expected_compose_service_count
+    || offenRetirementManifest.compose.materialized_service_count_before !== offenRetirement.materialized_service_count_before) {
+  failures.push("Offen retirement service scope differs from the contract");
+}
+const retirementPaths = new Set(offenRetirementManifest.local.archives.map((entry) => entry.path));
+for (const archive of legacyOffen.migration_archive_preservation.archives) {
+  for (const rootPath of legacyOffen.local_paths) {
+    for (const subdirectory of ["", `/${legacyOffen.migration_archive_preservation.protected_subdirectory}`]) {
+      if (!retirementPaths.has(`${rootPath}${subdirectory}/${archive.basename}`)) {
+        failures.push(`Offen retirement manifest omits reviewed archive ${archive.basename}`);
+      }
+    }
+  }
+}
+for (const [field, evidencePath] of [
+  ["first_run_sha256", "infrastructure/evidence/restic-first-run.json"],
+  ["restore_proof_sha256", "infrastructure/evidence/restic-restore-proof.json"],
+  ["schedule_activation_sha256", "infrastructure/evidence/restic-schedule-activation.json"],
+]) {
+  const observed = crypto.createHash("sha256").update(fs.readFileSync(path.join(root, evidencePath))).digest("hex");
+  if (offenRetirementManifest.restic_evidence[field] !== observed) failures.push(`Offen retirement ${field} differs`);
+}
 const proxmoxTofuRoot = path.join(root, "infrastructure/tofu/proxmox");
 const proxmoxSource = fs.readdirSync(proxmoxTofuRoot)
   .filter((name) => name.endsWith(".tf"))
