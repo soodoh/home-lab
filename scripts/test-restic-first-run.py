@@ -335,6 +335,9 @@ def main() -> None:
     retained_update = (ROOT / "ansible/playbooks/update-retained-first-run-tools.yml").read_text()
     for protected_path in ("authorization_path", "proton_token_path", "proton_consumed_token_path"):
         assert f"first_run.{protected_path}" in retained_update
+    post_nfs_recovery = (ROOT / "ansible/playbooks/recover-post-nfs-first-run.yml").read_text()
+    for safety_check in ("os.O_NOFOLLOW", "os.fstat(parent_descriptor)", "parent_metadata.st_gid in {0,60000}", "stat.S_IMODE(parent_metadata.st_mode)==0o750", "stat.gr_name == 'restic-proton'"):
+        assert safety_check in post_nfs_recovery
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         aws_proof_fixtures(root / "aws")

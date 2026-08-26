@@ -1,0 +1,234 @@
+---
+- name: Recover only the exact post-NFS first-run seam
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  tasks:
+    - name: Require exact post-NFS recovery approval
+      ansible.builtin.assert:
+        that:
+          - restic_first_run_post_nfs_recovery_confirmed | default(false) | bool
+          - restic_first_run_post_nfs_recovery_confirmation | default('') == 'recover-exact-post-nfs-first-run-seam'
+          - restic_first_run_expected_owner_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - restic_first_run_reviewed_commit | default('') is match('^[0-9a-f]{40}$')
+          - backups.restic.first_run.state == 'ready'
+
+    - name: Inspect exact clean reviewed controller state
+      ansible.builtin.command:
+        argv: "{{ ['/usr/bin/git', '-C', playbook_dir ~ '/../..'] + item }}"
+      loop:
+        - [rev-parse, HEAD]
+        - [status, --porcelain]
+      delegate_to: localhost
+      become: false
+      register: post_nfs_git
+      changed_when: false
+      check_mode: false
+
+    - name: Require exact clean reviewed commit
+      ansible.builtin.assert:
+        that:
+          - post_nfs_git.results[0].stdout == restic_first_run_reviewed_commit
+          - post_nfs_git.results[1].stdout == ''
+
+    - name: Inspect replayable post-NFS repair state
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ backups.restic.first_run.proton_token_path }}"
+        - /var/lib/home-lab-restic
+      become: true
+      register: post_nfs_repair_state
+
+    - name: Require exact replayable parent and token state
+      ansible.builtin.assert:
+        that:
+          - post_nfs_repair_state.results[1].stat.isdir | default(false)
+          - not (post_nfs_repair_state.results[1].stat.islnk | default(false))
+          - post_nfs_repair_state.results[1].stat.pw_name == 'root'
+          - post_nfs_repair_state.results[1].stat.mode == '0750'
+          - post_nfs_repair_state.results[1].stat.gr_name in ['root', 'restic-proton']
+          - post_nfs_repair_state.results[0].stat.exists or post_nfs_repair_state.results[1].stat.gr_name == 'restic-proton'
+
+    - name: Read retained owner, policy, journal, authorization, and accepted state
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - "{{ apply_lock_path }}/owner"
+        - /etc/home-lab/restic-policy.json
+        - "{{ backups.restic.first_run.journal_path }}"
+        - "{{ backups.restic.first_run.authorization_path }}"
+        - "{{ backups.restic.runner.accepted_path }}"
+      become: true
+      register: post_nfs_inputs
+      no_log: true
+
+    - name: Read retained pending token when repair remains incomplete
+      ansible.builtin.slurp:
+        src: "{{ backups.restic.first_run.proton_token_path }}"
+      become: true
+      register: post_nfs_token
+      no_log: true
+      when: post_nfs_repair_state.results[0].stat.exists
+
+    - name: Inspect exact installed runner and supervisor
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - {path: /usr/local/libexec/home-lab/restic-backup, checksum: "{{ backups.restic.runner.sha256 }}"}
+        - {path: /usr/local/libexec/home-lab/run-first-restic-backup, checksum: "{{ backups.restic.first_run.helper_sha256 }}"}
+      become: true
+      register: post_nfs_tools
+
+    - name: Require exact installed runner and supervisor
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.nlink == 1
+          - item.stat.pw_name == 'root'
+          - item.stat.checksum == item.item.checksum
+      loop: "{{ post_nfs_tools.results }}"
+
+    - name: Require exact retained post-NFS bindings
+      ansible.builtin.assert:
+        that:
+          - (post_nfs_inputs.results[0].content | b64decode | hash('sha256')) == restic_first_run_expected_owner_sha256
+          - "'operation=restic-first-run' in (post_nfs_inputs.results[0].content | b64decode).splitlines()"
+          - installed_policy == backups.restic
+          - journal.operation == 'restic-first-run'
+          - journal.stage == 'nfs_completed'
+          - journal.lock_owner_sha256 == restic_first_run_expected_owner_sha256
+          - journal.source_policy_sha256 == (post_nfs_inputs.results[1].content | b64decode | hash('sha256'))
+          - journal.runner_sha256 == backups.restic.runner.sha256
+          - journal.snapshots.games is match('^[0-9a-f]{64}$')
+          - journal.snapshots.nfs is match('^[0-9a-f]{64}$')
+          - journal.snapshots.proton is none
+          - "journal.checks == {'games': true, 'nfs': true, 'proton': false}"
+          - "journal.retention == {'games': true, 'nfs': true, 'proton': false}"
+          - authorization.operation == 'restic-first-run'
+          - authorization.lock_owner_sha256 == restic_first_run_expected_owner_sha256
+          - authorization.source_policy_sha256 == journal.source_policy_sha256
+          - authorization.runner_sha256 == journal.runner_sha256
+          - accepted.version == 1
+          - accepted.pending | length == 1
+          - accepted.pending[0].source_snapshot == journal.snapshots.games
+          - accepted.pending[0].nfs_snapshot == journal.snapshots.nfs
+          - accepted.pending[0].policy == journal.source_policy_sha256
+          - accepted.pending[0].artifact == journal.artifact_sha256
+        fail_msg: Retained first-run state is not the exact post-NFS seam.
+      vars:
+        installed_policy: "{{ post_nfs_inputs.results[1].content | b64decode | from_json }}"
+        journal: "{{ post_nfs_inputs.results[2].content | b64decode | from_json }}"
+        authorization: "{{ post_nfs_inputs.results[3].content | b64decode | from_json }}"
+        accepted: "{{ post_nfs_inputs.results[4].content | b64decode | from_json }}"
+      no_log: true
+
+    - name: Inspect forbidden post-NFS residue
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ backups.restic.first_run.result_path }}"
+        - "{{ backups.restic.first_run.host_evidence_path }}"
+        - "{{ backups.restic.first_run.proton_consumed_token_path }}"
+        - "{{ backups.restic.runner.journal_path }}"
+      become: true
+      register: post_nfs_forbidden
+
+    - name: Require no ambiguous post-NFS residue
+      ansible.builtin.assert:
+        that:
+          - not item.stat.exists
+      loop: "{{ post_nfs_forbidden.results }}"
+
+    - name: Require no concurrent Restic or rclone process
+      ansible.builtin.command:
+        argv: [/usr/bin/pgrep, --exact, "{{ item }}"]
+      loop: [restic, rclone]
+      register: post_nfs_processes
+      changed_when: false
+      failed_when: post_nfs_processes.rc != 1
+      check_mode: false
+
+    - name: Inspect inactive first-run unit jobs
+      ansible.builtin.command:
+        argv: [/usr/bin/systemctl, show, --property=ActiveState, --property=Job, "{{ item }}"]
+      loop:
+        - "{{ backups.restic.runner.units.daily_target }}"
+        - "{{ backups.restic.runner.units.daily_local }}"
+        - "{{ backups.restic.runner.units.daily_proton }}"
+      become: true
+      register: post_nfs_units
+      changed_when: false
+      check_mode: false
+
+    - name: Require inactive first-run units with no queued jobs
+      ansible.builtin.assert:
+        that:
+          - "'ActiveState=inactive' in item.stdout_lines or 'ActiveState=failed' in item.stdout_lines"
+          - "'Job=' in item.stdout_lines"
+      loop: "{{ post_nfs_units.results }}"
+    - name: Validate exact root-minted token against live owner and journal
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - >-
+            import json,runpy;
+            from pathlib import Path;
+            n=runpy.run_path('/usr/local/libexec/home-lab/restic-backup');
+            p,h=n['load_policy']();
+            j=json.loads(Path(p['first_run']['journal_path']).read_bytes());
+            n['validate_first_run_proton_token'](p,h,j,Path(p['first_run']['proton_token_path']))
+      become: true
+      changed_when: false
+      check_mode: false
+      no_log: true
+      when: post_nfs_repair_state.results[0].stat.exists
+
+    - name: Repair traversal and remove the exact token under the backup mutex
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/flock
+          - --exclusive
+          - --nonblock
+          - --
+          - "{{ backups.restic.runner.lock_path }}"
+          - /usr/bin/python3
+          - -c
+          - >-
+            import hashlib,json,os,runpy,stat,sys;
+            from pathlib import Path;
+            n=runpy.run_path('/usr/local/libexec/home-lab/restic-backup');
+            policy,policy_hash=n['load_policy']();
+            journal=json.loads(Path(policy['first_run']['journal_path']).read_bytes());
+            token=Path(policy['first_run']['proton_token_path']);
+            n['validate_first_run_proton_token'](policy,policy_hash,journal,token);
+            hashlib.sha256(token.read_bytes()).hexdigest()==sys.argv[1] or sys.exit(1);
+            parent_descriptor=os.open('/var/lib/home-lab-restic',os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW);
+            parent_metadata=os.fstat(parent_descriptor);
+            stat.S_ISDIR(parent_metadata.st_mode) or sys.exit(1);
+            parent_metadata.st_uid==0 or sys.exit(1);
+            parent_metadata.st_gid in {0,60000} or sys.exit(1);
+            stat.S_IMODE(parent_metadata.st_mode)==0o750 or sys.exit(1);
+            os.fchown(parent_descriptor,0,60000);
+            os.fchmod(parent_descriptor,0o750);
+            token.unlink();
+            descriptor=os.open(token.parent,os.O_RDONLY|os.O_DIRECTORY);
+            os.fsync(descriptor);
+            os.close(descriptor);
+            os.close(parent_descriptor)
+          - "{{ post_nfs_token.content | b64decode | hash('sha256') }}"
+      become: true
+      changed_when: true
+      when:
+        - not ansible_check_mode
+        - post_nfs_repair_state.results[0].stat.exists
+      no_log: true

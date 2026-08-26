@@ -102,6 +102,15 @@
           - item.stat.checksum == item.item.checksum
       loop: "{{ retained_first_run_sources.results }}"
 
+    - name: Permit only the confined service group to traverse shared Restic state
+      ansible.builtin.file:
+        path: /var/lib/home-lab-restic
+        state: directory
+        owner: root
+        group: restic-proton
+        mode: "0750"
+      become: true
+      when: not ansible_check_mode
     - name: Install exact reviewed first-run tools while retaining owner lock
       ansible.builtin.copy:
         src: "{{ item.src }}"

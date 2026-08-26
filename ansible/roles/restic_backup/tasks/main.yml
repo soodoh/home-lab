@@ -360,7 +360,7 @@
     - { path: /usr/local/libexec/home-lab, owner: root, group: root, mode: '0755' }
     - { path: /etc/home-lab/restic, owner: root, group: restic-proton, mode: '0750' }
     - { path: /etc/home-lab/restic/credentials, owner: root, group: restic-proton, mode: '0750' }
-    - { path: /var/lib/home-lab-restic, owner: root, group: root, mode: '0750' }
+    - { path: /var/lib/home-lab-restic, owner: root, group: restic-proton, mode: '0750' }
     - { path: /var/lib/home-lab-restic/replication, owner: root, group: restic-proton, mode: '2770' }
     - { path: /var/cache/home-lab-restic, owner: root, group: root, mode: '0700' }
     - { path: /var/lib/restic-proton, owner: restic-proton, group: restic-proton, mode: '0700' }
