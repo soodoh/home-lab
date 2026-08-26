@@ -1482,7 +1482,7 @@ backups:
       verified_at: "2026-08-26T01:36:31Z"
     first_run:
       state: ready
-      helper_sha256: 260b568a7c4fb5bed2017b09795b4398d4221a72ce0e0427fc4860b890b8e781
+      helper_sha256: b06b08303b1b85b13d25d2c62719770cd3bef664a5d3afc925c751a5c7529093
       aws_proof_helper_sha256: bded70eb916e8af276332ebdcced8b2251df23a1452d7e3b3409da7428d4f1eb
       confirmation: run-one-reviewed-games-nfs-proton-chain
       exclusive_client_confirmation: proton-exclusive-client-closed
@@ -1517,7 +1517,7 @@ backups:
       proton_independent_timer: false
     runner:
       path: /usr/local/libexec/home-lab/restic-backup
-      sha256: 920a43e0fbd80ee17e36848661e8ad8b125853ea69fcda141003ffc05f73307c
+      sha256: b493ff6837daead63a2b6ddf1f4734cea8e74ccf839bb7e5e561020ed7bf72e4
       identity_local: root
       identity_proton: restic-proton
       policy_path: /etc/home-lab/restic-policy.json

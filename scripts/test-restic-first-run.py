@@ -332,6 +332,9 @@ def main() -> None:
     assert 'SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "maintenance", "status"}' in source
     assert '["/usr/bin/systemctl","start","--wait",target]' in supervisor
     assert not any(term in supervisor for term in ('"sync"', '"bisync"', '"purge"', '"cleanup"', '"mount"'))
+    retained_update = (ROOT / "ansible/playbooks/update-retained-first-run-tools.yml").read_text()
+    for protected_path in ("authorization_path", "proton_token_path", "proton_consumed_token_path"):
+        assert f"first_run.{protected_path}" in retained_update
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         aws_proof_fixtures(root / "aws")

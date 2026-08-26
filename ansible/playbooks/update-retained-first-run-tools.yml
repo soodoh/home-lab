@@ -1,0 +1,148 @@
+---
+- name: Update only reviewed first-run tools under the exact retained lock
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  tasks:
+    - name: Require exact retained-tool update approval
+      ansible.builtin.assert:
+        that:
+          - restic_first_run_tool_update_confirmed | default(false) | bool
+          - restic_first_run_tool_update_confirmation | default('') == 'update-reviewed-tools-under-retained-first-run-lock'
+          - restic_first_run_expected_owner_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - restic_first_run_reviewed_commit | default('') is match('^[0-9a-f]{40}$')
+          - backups.restic.first_run.state == 'ready'
+          - backups.restic.migration_state == 'inert'
+
+    - name: Inspect exact clean reviewed controller commit
+      ansible.builtin.command:
+        argv: "{{ ['/usr/bin/git', '-C', playbook_dir ~ '/../..'] + item }}"
+      loop:
+        - [rev-parse, HEAD]
+        - [status, --porcelain]
+      delegate_to: localhost
+      become: false
+      register: retained_first_run_git
+      changed_when: false
+      check_mode: false
+
+    - name: Require exact clean reviewed controller state
+      ansible.builtin.assert:
+        that:
+          - retained_first_run_git.results[0].stdout == restic_first_run_reviewed_commit
+          - retained_first_run_git.results[1].stdout == ''
+
+    - name: Read exact retained owner bytes
+      ansible.builtin.slurp:
+        src: "{{ apply_lock_path }}/owner"
+      become: true
+      register: retained_first_run_owner
+      no_log: true
+
+    - name: Require exact retained first-run owner
+      ansible.builtin.assert:
+        that:
+          - (retained_first_run_owner.content | b64decode | hash('sha256')) == restic_first_run_expected_owner_sha256
+          - "'controller=ansible-deploy' in (retained_first_run_owner.content | b64decode).splitlines()"
+          - "'operation=restic-first-run' in (retained_first_run_owner.content | b64decode).splitlines()"
+      no_log: true
+
+    - name: Inspect retained pre-journal transaction paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ backups.restic.first_run.journal_path }}"
+        - "{{ backups.restic.first_run.result_path }}"
+        - "{{ backups.restic.first_run.host_evidence_path }}"
+        - "{{ backups.restic.first_run.authorization_path }}"
+        - "{{ backups.restic.first_run.proton_token_path }}"
+        - "{{ backups.restic.first_run.proton_consumed_token_path }}"
+        - "{{ backups.restic.runner.accepted_path }}"
+        - "{{ backups.restic.runner.journal_path }}"
+      become: true
+      register: retained_first_run_paths
+
+    - name: Require retained transaction to remain pre-journal
+      ansible.builtin.assert:
+        that:
+          - not item.stat.exists
+      loop: "{{ retained_first_run_paths.results }}"
+
+    - name: Require no concurrent Restic or rclone process
+      ansible.builtin.command:
+        argv: [/usr/bin/pgrep, --exact, "{{ item }}"]
+      loop: [restic, rclone]
+      register: retained_first_run_processes
+      changed_when: false
+      failed_when: retained_first_run_processes.rc != 1
+      check_mode: false
+
+    - name: Inspect exact reviewed tool sources
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - {path: "{{ playbook_dir }}/../../scripts/restic-backup", checksum: "{{ backups.restic.runner.sha256 }}"}
+        - {path: "{{ playbook_dir }}/../../scripts/run-first-restic-backup", checksum: "{{ backups.restic.first_run.helper_sha256 }}"}
+      delegate_to: localhost
+      become: false
+      register: retained_first_run_sources
+
+    - name: Require exact reviewed tool source hashes
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.nlink == 1
+          - item.stat.checksum == item.item.checksum
+      loop: "{{ retained_first_run_sources.results }}"
+
+    - name: Install exact reviewed first-run tools while retaining owner lock
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+      loop:
+        - {src: "{{ playbook_dir }}/../../scripts/restic-backup", dest: /usr/local/libexec/home-lab/restic-backup, mode: "0755"}
+        - {src: "{{ playbook_dir }}/../../scripts/run-first-restic-backup", dest: /usr/local/libexec/home-lab/run-first-restic-backup, mode: "0750"}
+      become: true
+      when: not ansible_check_mode
+
+    - name: Converge exact reviewed policy while retaining owner lock
+      ansible.builtin.copy:
+        content: "{{ backups.restic | to_nice_json }}\n"
+        dest: /etc/home-lab/restic-policy.json
+        owner: root
+        group: restic-proton
+        mode: "0440"
+      become: true
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Verify installed retained-tool hashes
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - {path: /usr/local/libexec/home-lab/restic-backup, checksum: "{{ backups.restic.runner.sha256 }}"}
+        - {path: /usr/local/libexec/home-lab/run-first-restic-backup, checksum: "{{ backups.restic.first_run.helper_sha256 }}"}
+      become: true
+      register: retained_first_run_installed
+      when: not ansible_check_mode
+
+    - name: Require exact installed retained-tool hashes
+      ansible.builtin.assert:
+        that:
+          - item.stat.checksum == item.item.checksum
+          - item.stat.pw_name == 'root'
+          - item.stat.nlink == 1
+      loop: "{{ retained_first_run_installed.results }}"
+      when: not ansible_check_mode

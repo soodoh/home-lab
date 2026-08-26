@@ -332,8 +332,17 @@ def compose(policy: dict[str, Any], arguments: list[str]) -> subprocess.Complete
     return run([*command, *arguments], timeout=300)
 
 
-def service_running(service: str) -> bool:
-    result = run(["/usr/bin/docker", "inspect", "--format", "{{.State.Running}}", service], timeout=30)
+def service_container(policy: dict[str, Any], service: str) -> str:
+    result = compose(policy, ["ps", "--all", "--quiet", service])
+    require_success(result, "service_inventory")
+    containers = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    if len(containers) != 1 or re.fullmatch(r"[0-9a-f]{64}", containers[0]) is None:
+        raise WorkflowError("service_inventory_output")
+    return containers[0]
+
+
+def service_running(policy: dict[str, Any], service: str) -> bool:
+    result = run(["/usr/bin/docker", "inspect", "--format", "{{.State.Running}}", service_container(policy, service)], timeout=30)
     require_success(result, "service_inventory")
     value = result.stdout.strip()
     if value not in {"true", "false"}:
@@ -341,8 +350,12 @@ def service_running(service: str) -> bool:
     return value == "true"
 
 
-def service_healthy(service: str) -> bool:
-    result = run(["/usr/bin/docker", "inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", service], timeout=30)
+def service_healthy(policy: dict[str, Any], service: str) -> bool:
+    try:
+        container = service_container(policy, service)
+    except WorkflowError:
+        return False
+    result = run(["/usr/bin/docker", "inspect", "--format", "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}", container], timeout=30)
     return result.returncode == 0 and result.stdout.strip() in {"healthy", "running"}
 
 
@@ -358,7 +371,7 @@ def restart_recorded(policy: dict[str, Any], journal: dict[str, Any]) -> None:
         require_success(compose(policy, ["start", service]), "service_restart")
     deadline = time.monotonic() + (3 if testing() else 300)
     while time.monotonic() < deadline:
-        if all(service_healthy(service) for service in running):
+        if all(service_healthy(policy, service) for service in running):
             durable_unlink(journal_path(policy))
             return
         time.sleep(0.1 if testing() else 5)
@@ -686,7 +699,7 @@ def daily_local(policy: dict[str, Any], policy_hash: str, first_run: dict[str, A
         return
     if snapshot is None:
         stop_order = [*policy["stop_groups"]["applications"], *policy["stop_groups"]["databases"]]
-        running = [service for service in stop_order if service_running(service)]
+        running = [service for service in stop_order if service_running(policy, service)]
         if first_run and running != first_run["initially_running_writers"]:
             raise WorkflowError("first_run_writer_baseline")
         journal = {"version": 1, "stage": "stopping", "running_services": running, "stopped_services": [], "started_at": int(time.time())}
@@ -696,7 +709,7 @@ def daily_local(policy: dict[str, Any], policy_hash: str, first_run: dict[str, A
                 if service not in running:
                     continue
                 require_success(compose(policy, ["stop", "--timeout", "120", service]), "service_stop")
-                if service_running(service):
+                if service_running(policy, service):
                     raise WorkflowError("service_still_running")
                 journal["stopped_services"].append(service)
                 atomic_json(journal_path(policy), journal, 0o600)
@@ -719,7 +732,7 @@ def daily_local(policy: dict[str, Any], policy_hash: str, first_run: dict[str, A
     if snapshot is None:
         raise WorkflowError("snapshot_not_committed")
     if first_run:
-        restarted = [service for service in first_run["initially_running_writers"] if service_healthy(service)]
+        restarted = [service for service in first_run["initially_running_writers"] if service_healthy(policy, service)]
         if restarted != first_run["initially_running_writers"]:
             raise WorkflowError("first_run_writer_recovery")
         first_run["restarted_writers"] = restarted

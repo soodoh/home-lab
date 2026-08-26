@@ -227,11 +227,24 @@ def validate_aws_proof(raw: bytes, expected_principal_hash: str, expected_versio
     return proof
 
 
+def compose_container(policy: dict[str, Any], service: str) -> str:
+    compose_command = policy["runner"].get("compose_command") or [
+        "/usr/bin/docker", "compose", "--project-name", "docker-compose",
+        "--project-directory", "/srv/docker-compose/current", "--env-file", "/etc/docker-compose/production.env",
+        "--file", "/srv/docker-compose/current/docker-compose.yml",
+    ]
+    result = command([*compose_command, "ps", "--all", "--quiet", service], timeout=30)
+    containers = [line.strip().decode() for line in result.stdout.splitlines() if line.strip()]
+    if len(containers) != 1 or re.fullmatch(r"[0-9a-f]{64}", containers[0]) is None:
+        raise FirstRunError("writer_inventory")
+    return containers[0]
+
+
 def current_writers(policy: dict[str, Any]) -> list[str]:
     writers = [*policy["stop_groups"]["applications"], *policy["stop_groups"]["databases"]]
     running=[]
     for name in writers:
-        result = command(["/usr/bin/docker", "inspect", "--format", "{{.State.Running}}", name], timeout=30)
+        result = command(["/usr/bin/docker", "inspect", "--format", "{{.State.Running}}", compose_container(policy, name)], timeout=30)
         if result.stdout.strip() == b"true": running.append(name)
         elif result.stdout.strip() != b"false": raise FirstRunError("writer_state")
     return running

@@ -173,14 +173,15 @@ def main() -> None:
         runner_globals["testing"] = lambda: True
         runner_globals["rooted"] = lambda path: root / path.lstrip("/")
         runner_globals["compose"] = lambda _policy, arguments: (started.append(arguments[-1]) or subprocess.CompletedProcess(arguments, 0, "", ""))
-        runner_globals["service_healthy"] = lambda _service: True
+        runner_globals["service_healthy"] = lambda _policy, _service: True
         module["restart_recorded"](test_policy, {"running_services": ["application", "database"]})
         assert started == ["database", "application"]
         assert not stopped.exists()
 
+    runner_globals["service_container"] = lambda _policy, _service: "a" * 64
     runner_globals["run"] = lambda *_args, **_kwargs: subprocess.CompletedProcess([], 1, "", "secret provider failure")
     try:
-        module["service_running"]("database")
+        module["service_running"](policy, "database")
     except module["WorkflowError"] as error:
         assert str(error) == "service_inventory"
     else:
