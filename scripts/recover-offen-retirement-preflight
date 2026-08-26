@@ -13,7 +13,7 @@ import stat
 import subprocess
 import sys
 
-OLD_MANIFEST_SHA256 = "d864caf2459c0e5c6ec2b5b31de920018d187eb7a4905a079e7bb80db146a4a4"
+OLD_MANIFEST_SHA256 = "73da02cd3917f2aa3f5a0eee6c355b825456d3f825f9b0c087c8b322c18b012e"
 HELPER = Path("/usr/local/libexec/home-lab/retire-offen-local")
 MANIFEST = Path("/etc/home-lab/offen-retirement-manifest.json")
 TRANSACTION = Path("/var/lib/home-lab-restic/offen-retirement/local")
