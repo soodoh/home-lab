@@ -774,6 +774,14 @@ def adopt_prior_transaction_state(directory: Path, values: dict[str, str], cloud
     if len(candidates) != 1: fail("prior_transaction_state_identity_differs")
     source_directory = candidates[0]
     source = source_directory / "tofu.tfstate"
+    prior_journal_path = source_directory / "journal.json"
+    if prior_journal_path.exists():
+        prior_journal = read_protected_json(prior_journal_path)
+        if any(isinstance(point, dict) and point.get("detail") == "serial-disk-prepared" for point in prior_journal.get("checkpoints", [])):
+            atomic_json(directory / "prior-disk-authorization.json", {
+                "version": 1, "prior_journal_sha256": digest(prior_journal_path),
+                "state_sha256": digest(source), "serial_sha256": sha_bytes(b"RESTIC-RECOVERY-128G"),
+            }, exclusive=True)
     for name in ("ssh-key", "ssh-key.pub", "ssh-host-key", "ssh-host-key.pub", "cloud-init.yaml"):
         source_key, target_key = source_directory / name, directory / name
         if source_key.exists():
@@ -785,6 +793,18 @@ def adopt_prior_transaction_state(directory: Path, values: dict[str, str], cloud
         try: os.fsync(descriptor)
         finally: os.close(descriptor)
     checkpoint(directory, transaction_journal, "create-replanning", "prior-transaction-state-adopted")
+
+
+def prior_disk_authorized(directory: Path) -> bool:
+    path = directory / "prior-disk-authorization.json"
+    if not path.exists(): return False
+    value = read_protected_json(path)
+    return (set(value) == {"version", "prior_journal_sha256", "state_sha256", "serial_sha256"}
+            and value.get("version") == 1
+            and all(isinstance(value.get(key), str) and HEX.fullmatch(value[key]) is not None
+                    for key in ("prior_journal_sha256", "state_sha256", "serial_sha256"))
+            and value["state_sha256"] == state_hash(directory)
+            and value["serial_sha256"] == sha_bytes(b"RESTIC-RECOVERY-128G"))
 
 
 def plan(operation: str) -> None:
@@ -997,17 +1017,17 @@ def remote(directory: Path, ip: str, script: str, *, capture=False, input_text=N
 def remote_cleanup(directory: Path, ip: str) -> bool:
     cleanup = (
         "set -euo pipefail; "
-        "if test -r /run/restic-recovery-input/restore.pgid; then "
-        "p=$(cat /run/restic-recovery-input/restore.pgid); "
+        "if test -r /var/tmp/restic-recovery-input/restore.pgid; then "
+        "p=$(cat /var/tmp/restic-recovery-input/restore.pgid); "
         "case $p in (*[!0-9]*|'') exit 1;; esac; "
         "kill -TERM -- -$p 2>/dev/null || true; "
         "i=0; while kill -0 -- -$p 2>/dev/null && test $i -lt 50; do sleep 0.2; i=$((i+1)); done; "
         "kill -KILL -- -$p 2>/dev/null || true; "
         "fi; "
-        "rm -rf /run/restic-recovery-input /run/restic-recovery/bundle.* /run/restic-fixture /tmp/restic-recovery-transfer; "
+        "rm -rf /var/tmp/restic-recovery-input /run/restic-recovery/bundle.* /run/restic-fixture /tmp/restic-recovery-transfer; "
         "rm -rf /srv/home-lab-recovery/restic-proton-proof; "
         "if mountpoint -q /srv/home-lab-recovery; then umount /srv/home-lab-recovery; fi; "
-        "test ! -e /run/restic-recovery-input && test ! -e /run/restic-fixture && "
+        "test ! -e /var/tmp/restic-recovery-input && test ! -e /run/restic-fixture && "
         "test ! -e /tmp/restic-recovery-transfer && test ! -e /srv/home-lab-recovery/restic-proton-proof && "
         "{ test ! -e /run/restic-recovery || test -z \"$(find /run/restic-recovery -maxdepth 1 -name 'bundle.*' -print -quit)\"; }"
     )
@@ -1127,14 +1147,14 @@ def restore_remote_command(values_hex: list[str]) -> str:
     if len(values_hex) != 6 or any(HEX.fullmatch(item) is None for item in values_hex):
         fail("restore_argument_identity_differs")
     inner = (
-        "set -euo pipefail; /run/restic-recovery-input/age --decrypt --identity /run/restic-recovery-input/identity.agekey /run/restic-recovery-input/bundle.age | "
-        "env RECOVERY_DISPOSABLE_VM_CONFIRMED=fresh-disposable-vm-without-host-tokens /run/restic-recovery-input/run-restic-recovery-bundle "
+        "set -euo pipefail; /var/tmp/restic-recovery-input/age --decrypt --identity /var/tmp/restic-recovery-input/identity.agekey /var/tmp/restic-recovery-input/bundle.age | "
+        "env RECOVERY_DISPOSABLE_VM_CONFIRMED=fresh-disposable-vm-without-host-tokens python3 /var/tmp/restic-recovery-input/run-restic-recovery-bundle "
         "--expected-plaintext-sha256 \"$1\" --expected-snapshot-id \"$2\" --expected-original-snapshot-id \"$3\" "
         "--expected-repository-id \"$4\" --expected-policy-sha256 \"$5\" --expected-artifact-sha256 \"$6\" --target /srv/home-lab-recovery/restic-proton-proof"
     )
     supervisor = (
         "setsid bash -c \"$1\" restore \"$2\" \"$3\" \"$4\" \"$5\" \"$6\" \"$7\" & "
-        "p=$!; echo $p >/run/restic-recovery-input/restore.pgid; wait $p"
+        "p=$!; echo $p >/var/tmp/restic-recovery-input/restore.pgid; wait $p"
     )
     quoted = " ".join(shlex.quote(item) for item in values_hex)
     return "sudo bash -c " + shlex.quote(supervisor) + " supervise " + shlex.quote(inner) + " " + quoted
@@ -1190,19 +1210,20 @@ def run_restore() -> None:
         for source, name in transfers:
             command(["scp", "-q", "-i", str(directory / "ssh-key"), "-o", f"UserKnownHostsFile={directory / 'known_hosts'}", "-o", "StrictHostKeyChecking=yes", str(source), f"root@{ip}:/tmp/restic-recovery-transfer/{name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         prepare = r'''set -euo pipefail
-sudo install -d -o root -g root -m 0700 /run/restic-recovery-input /run/restic-recovery /srv/home-lab-recovery
-sudo install -o root -g root -m 0600 /tmp/restic-recovery-transfer/bundle.age /run/restic-recovery-input/bundle.age
-sudo install -o root -g root -m 0600 /tmp/restic-recovery-transfer/identity.agekey /run/restic-recovery-input/identity.agekey
-sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/run-restic-recovery-bundle /run/restic-recovery-input/run-restic-recovery-bundle
-sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/age /run/restic-recovery-input/age
+sudo install -d -o root -g root -m 0700 /var/tmp/restic-recovery-input /run/restic-recovery /srv/home-lab-recovery
+sudo install -o root -g root -m 0600 /tmp/restic-recovery-transfer/bundle.age /var/tmp/restic-recovery-input/bundle.age
+sudo install -o root -g root -m 0600 /tmp/restic-recovery-transfer/identity.agekey /var/tmp/restic-recovery-input/identity.agekey
+sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/run-restic-recovery-bundle /var/tmp/restic-recovery-input/run-restic-recovery-bundle
+sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/age /var/tmp/restic-recovery-input/age
 sudo install -d -o root -g root -m 0755 /run/restic-fixture/scripts
 sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/test-restic-activation-fixture /run/restic-fixture/scripts/test-restic-activation-fixture
 sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/activate-restic-staging-fixture /run/restic-fixture/scripts/activate-restic-staging-fixture
 rm -rf /tmp/restic-recovery-transfer
 '''
         remote(directory, ip, prepare)
-        authorized = any(point.get("detail") in {"serial-blank-disk-validated", "serial-disk-prepared"}
-                         for point in transaction_journal.get("checkpoints", []) if isinstance(point, dict))
+        authorized = (prior_disk_authorized(directory)
+                      or any(point.get("detail") in {"serial-blank-disk-validated", "serial-disk-prepared"}
+                             for point in transaction_journal.get("checkpoints", []) if isinstance(point, dict)))
         if not authorized:
             blank_evidence = json.loads(remote(directory, ip, disk_prepare_script(False, False), capture=True).stdout)
             if (set(blank_evidence) != {"blank_sample_sha256", "device_bytes", "edge_samples", "serial_sha256", "state"}
