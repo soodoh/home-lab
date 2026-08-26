@@ -95,7 +95,7 @@ def secure_directory(path: Path, *, create: bool = False) -> None:
         path.mkdir(mode=0o700, parents=True, exist_ok=True)
     item = path.lstat()
     if (path.is_symlink() or not stat.S_ISDIR(item.st_mode) or stat.S_IMODE(item.st_mode) != 0o700
-            or item.st_uid != os.getuid() or item.st_nlink != 1):
+            or item.st_uid != os.getuid()):
         fail("transaction_directory_metadata_differs")
 
 
