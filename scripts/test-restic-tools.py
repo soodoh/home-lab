@@ -307,6 +307,19 @@ def main() -> None:
             assert str(error) == "qualification_directory_rc_3_object"
         else:
             raise AssertionError("unexpected missing-directory output passed")
+        invalid_inventory = b"protected provider output"
+        qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 3, invalid_inventory, b"directory not found")
+        try:
+            qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification")
+        except qualification_module["QualificationError"] as error:
+            controlled = str(error)
+            assert invalid_inventory.decode() not in controlled
+            assert controlled == (
+                f"qualification_directory_rc_3_invalid_json_bytes_{len(invalid_inventory)}_sha256_"
+                f"{hashlib.sha256(invalid_inventory).hexdigest()}"
+            )
+        else:
+            raise AssertionError("invalid Proton inventory output passed")
     finally:
         qualification_globals["rclone"] = saved_qualification_rclone
     invalidate_auth_cache = qualification_module["invalidate_auth_cache"]
