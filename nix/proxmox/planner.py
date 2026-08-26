@@ -30,7 +30,7 @@ def fixed_ssh_command(capability: str, remote_command: str) -> tuple[str, ...]:
     identity = Path.home() / ".ssh" / f"home-lab-proxmox-{capability}"
     return (
         "ssh", "-F", "/dev/null", "-T", "-i", str(identity), "-o", "IdentitiesOnly=yes",
-        "-o", "ProxyCommand=/usr/bin/nc %h %p", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes",
+        "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes",
         "-o", "PermitLocalCommand=no", "-o", "RequestTTY=no", "-o", "StrictHostKeyChecking=yes",
         "-o", "UpdateHostKeys=no", f"tofu-{capability}@192.168.0.123", remote_command,
     )

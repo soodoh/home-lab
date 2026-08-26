@@ -307,10 +307,11 @@ class ProxmoxNixApplyTests(unittest.TestCase):
             "tofu-apply@192.168.0.123", "sudo -n -- /usr/local/libexec/home-lab/proxmox-activator session"))
         self.assertEqual(guarded_apply.SSH_APPLY_COMMAND[1:3], ("-F", "/dev/null"))
         self.assertIn(str(Path.home() / ".ssh/home-lab-proxmox-apply"), guarded_apply.SSH_APPLY_COMMAND)
-        for option in ("IdentitiesOnly=yes", "ProxyCommand=/usr/bin/nc %h %p", "BatchMode=yes",
+        for option in ("IdentitiesOnly=yes", "BatchMode=yes",
                        "ClearAllForwardings=yes", "PermitLocalCommand=no", "RequestTTY=no",
                        "StrictHostKeyChecking=yes", "UpdateHostKeys=no"):
             self.assertIn(option, guarded_apply.SSH_APPLY_COMMAND)
+        self.assertFalse(any(value.startswith("ProxyCommand=") for value in guarded_apply.SSH_APPLY_COMMAND))
         old = list(sys.argv)
         try:
             for rejected in (("--plan", "/tmp/x"), ("--target", "root@other"), ("--helper", "/tmp/x")):

@@ -348,10 +348,11 @@ class ProxmoxNixPlanTests(unittest.TestCase):
             "tofu-plan@192.168.0.123", "sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe"))
         self.assertEqual(planner.SSH_COMMAND[1:3], ("-F", "/dev/null"))
         self.assertIn(str(Path.home() / ".ssh/home-lab-proxmox-plan"), planner.SSH_COMMAND)
-        for option in ("IdentitiesOnly=yes", "ProxyCommand=/usr/bin/nc %h %p", "BatchMode=yes",
+        for option in ("IdentitiesOnly=yes", "BatchMode=yes",
                        "ClearAllForwardings=yes", "PermitLocalCommand=no", "RequestTTY=no",
                        "StrictHostKeyChecking=yes", "UpdateHostKeys=no"):
             self.assertIn(option, planner.SSH_COMMAND)
+        self.assertFalse(any(value.startswith("ProxyCommand=") for value in planner.SSH_COMMAND))
         with self.assertRaisesRegex(ValueError, "capability"):
             planner.fixed_ssh_command("admin", "id")
         source = (NIX / "flake.nix").read_text(encoding="utf-8")
