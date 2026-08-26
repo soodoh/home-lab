@@ -92,9 +92,9 @@ def main() -> None:
     assert [policy["retention"][key] for key in ("keep_daily", "keep_weekly", "keep_monthly")] == [7, 5, 12]
     assert policy["schedule"]["proton_independent_timer"] is False
     assert policy["proton"]["trash_cleanup"] == "manual-only"
-    assert policy["repositories"]["games"]["id"] is None
-    assert policy["repositories"]["nfs"]["id"] is None
-    assert policy["repositories"]["proton"]["id"] is None
+    assert policy["repositories"]["games"]["id"] == "b15627185df9b10a95b5dffe7d194dbccdba6ba4eb8a038ee03e750fedbde08f"
+    assert policy["repositories"]["nfs"]["id"] == "61d50fa782d194374deb24f354a07b0f11634721afa1b268963e4d017b93bb95"
+    assert policy["repositories"]["proton"]["id"] == "d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e"
     assert policy["repositories"]["nfs"]["copy_chunker_params_from"] == "games"
     assert policy["repositories"]["proton"]["copy_chunker_params_from"] == "games"
     assert policy["repositories"]["proton"]["minimum_allocated_bytes"] == 1_000_000_000_000
@@ -108,10 +108,11 @@ def main() -> None:
     assert policy["qualification"]["username_sha256"] == "809cd2b0e14ad028438ad5a0a7af801dce013a86a3f1d62926a605177198389b"
     assert policy["qualification"]["evidence_sha256"] == "81f93aca27a87fe38d90137f33da60d823ed5e391296c95cb7ab1be867dfc679"
     assert policy["qualification"]["verified_at"] == "2026-08-26T00:42:08Z"
-    assert policy["initialization"]["state"] == "ready"
-    assert policy["initialization"]["source_policy_sha256"] is None
-    assert policy["initialization"]["evidence_sha256"] is None
-    assert all(repository["id"] is None for repository in policy["repositories"].values())
+    assert policy["initialization"]["state"] == "initialized"
+    assert policy["initialization"]["source_policy_sha256"] == "7ec54b69a21e118f5b6ef6c9d3a73cdbb8c16cbe0629491fcad0c782227e2501"
+    assert policy["initialization"]["evidence_sha256"] == "b8ac8cd34a3d8259ef6aa2273a97b6b4ace601d9116a0bd1886beb1e666b9e7e"
+    assert policy["initialization"]["verified_at"] == "2026-08-26T01:36:31Z"
+    assert len({repository["id"] for repository in policy["repositories"].values()}) == 3
     assert policy["qualification"]["remote_directory"] == "Backups/.home-lab-rclone-qualification"
 
     files_from = (ROOT / "services/data/restic/files-from").read_text().splitlines()

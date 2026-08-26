@@ -14,6 +14,13 @@ const initializationEvidenceSchema = JSON.parse(fs.readFileSync("infrastructure/
 const validateQualificationEvidenceSchema = new Ajv2020({ allErrors: true, strict: true }).compile(qualificationEvidenceSchema);
 new Ajv2020({ allErrors: true, strict: true }).compile(initializationEvidenceSchema);
 const clone = () => structuredClone(base);
+const resetInitializationReady = (value) => {
+  value.initialization.state = "ready";
+  value.initialization.source_policy_sha256 = null;
+  value.initialization.evidence_sha256 = null;
+  value.initialization.verified_at = null;
+  for (const repository of Object.values(value.repositories)) repository.id = null;
+};
 assert.deepEqual(validateResticPolicy(base), []);
 assert(globRegex("/srv/**/cache/**").test("/srv/cache/value"));
 assert(globRegex("/srv/**/cache/**").test("/srv/app/nested/cache/value"));
@@ -70,6 +77,7 @@ fixture.proton.minimum_free_bytes = 107374182400;
 assert(validateResticPolicy(fixture).some((failure) => failure.includes("decimal")));
 
 fixture = clone();
+resetInitializationReady(fixture);
 fixture.credentials = { bootstrap_enabled: true, state: "provisioned" };
 fixture.qualification.state = "ready";
 fixture.qualification.username_sha256 = "a".repeat(64);
@@ -123,6 +131,7 @@ assert(validateProtonQualificationEvidence(fixture, qualificationEvidence, Buffe
   .some((failure) => failure.includes("SHA-256")));
 
 fixture = clone();
+resetInitializationReady(fixture);
 fixture.repositories.games.id = "a".repeat(64);
 assert(validateResticPolicy(fixture).some((failure) => failure.includes("three absent repositories")));
 fixture = clone();

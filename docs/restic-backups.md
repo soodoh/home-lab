@@ -2,7 +2,7 @@
 
 ## Current state
 
-The checked-in Restic implementation is **inert**. Offen’s two scheduler containers are quiesced but remain defined, both protected Offen archive generations remain intact, and the AWS recovery hold remains managed at 365-day current-object retention. Restic repository IDs are deliberately `null`, credential provisioning is contract-backed, bounded Proton qualification has completed with committed redacted evidence, and the guarded repository-initialization transaction is ready but has not run. All Restic timers plus reboot recovery remain disabled. This state does not authorize a repeat Proton login or qualification, repository initialization, or snapshot.
+The checked-in Restic implementation remains **inert**. Offen’s two scheduler containers are quiesced but remain defined, both protected Offen archive generations remain intact, and the AWS recovery hold remains managed at 365-day current-object retention. Bounded Proton qualification and owner-bound initialization of the three native Restic repositories have completed with committed redacted evidence and exact repository IDs. All Restic timers plus reboot recovery remain disabled, and no snapshot has run. This state does not authorize a repeat Proton login, qualification, or repository initialization, nor an ad-hoc snapshot.
 
 The final accepted Offen recovery point is:
 
@@ -230,7 +230,7 @@ One fixed-subcommand runner accepts only `preflight`, `daily-local`, `daily-prot
 
 The only daily timer starts `home-lab-restic-daily.target` at 05:00. The target requires local snapshot/NFS acceptance before the `restic-proton` service can run. There is no independent Proton or weekly timer. The monthly target runs bounded local maintenance before confined Proton maintenance. Both timers are non-persistent so enabling them outside a trigger window cannot immediately replay a missed run; all units remain disabled in inert state.
 
-Repository initialization is a later operator-approved operation. Games, NFS, and Proton are independent repositories; NFS and Proton must be initialized from games using `init --from-repo ... --copy-chunker-params`. Record the full non-secret repository IDs in the contract before any runner mutation can pass preflight. Never copy repository directories with rclone and never use `rclone sync`.
+Games, NFS, and Proton are independent repositories. Their guarded owner-bound initialization completed with NFS and Proton created from games using `init --from-repo ... --copy-chunker-params`; the full non-secret repository IDs are recorded in the contract. Never copy repository directories with rclone and never use `rclone sync`.
 
 ## Restore boundary
 

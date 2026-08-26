@@ -106,6 +106,9 @@ else:
         write(rclone, rclone_script, 0o755)
         rendered = subprocess.run(["node", "-e", "const fs=require('fs'),y=require('js-yaml'); process.stdout.write(JSON.stringify(y.load(fs.readFileSync(process.argv[1],'utf8')).backups.restic))", str(ROOT / "infrastructure/contract/home-lab.yml")], capture_output=True, text=True, check=True)
         policy = json.loads(rendered.stdout)
+        policy["initialization"].update({"state": "ready", "source_policy_sha256": None, "evidence_sha256": None, "verified_at": None})
+        for repository in policy["repositories"].values():
+            repository["id"] = None
         policy["tools"]["restic"]["installed_sha256"] = digest(restic_script)
         policy["tools"]["restic"]["version_output"] = "restic fixture"
         policy["tools"]["rclone"]["installed_sha256"] = digest(rclone_script)

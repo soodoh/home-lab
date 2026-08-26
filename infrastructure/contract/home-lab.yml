@@ -1403,14 +1403,14 @@ backups:
     repositories:
       games:
         path: /mnt/games/restic/home-lab
-        id: null
+        id: b15627185df9b10a95b5dffe7d194dbccdba6ba4eb8a038ee03e750fedbde08f
         filesystem: ext4
         filesystem_uuid: 31602ce7-0054-498a-9f24-f51ca491e7b3
         mountpoint: /mnt/games
         password: local
       nfs:
         path: /mnt/storage/restic/home-lab
-        id: null
+        id: 61d50fa782d194374deb24f354a07b0f11634721afa1b268963e4d017b93bb95
         filesystem: nfs4
         mount_source: 192.168.0.123:/storage/docker
         mountpoint: /mnt/storage
@@ -1418,7 +1418,7 @@ backups:
         copy_chunker_params_from: games
       proton:
         path: rclone:proton-backup:Backups/home-lab-restic
-        id: null
+        id: d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e
         remote: proton-backup
         remote_path: Backups/home-lab-restic
         account_ref: dedicated-proton-family-backup-member
@@ -1462,7 +1462,7 @@ backups:
       evidence_sha256: 81f93aca27a87fe38d90137f33da60d823ed5e391296c95cb7ab1be867dfc679
       verified_at: "2026-08-26T00:42:08Z"
     initialization:
-      state: ready
+      state: initialized
       helper_sha256: 80b7fb8e7dd3ff0e2afd7bb91b668281c426256a70c37a8e9b1b3ff75a602694
       confirmation: initialize-three-native-restic-repositories
       exclusive_client_confirmation: proton-exclusive-client-closed
@@ -1470,9 +1470,9 @@ backups:
       result_path: /var/lib/home-lab-restic/repository-initialization-result.json
       host_evidence_path: /var/lib/home-lab-restic/repository-initialization.json
       evidence_file: infrastructure/evidence/restic-repository-initialization.json
-      source_policy_sha256: null
-      evidence_sha256: null
-      verified_at: null
+      source_policy_sha256: 7ec54b69a21e118f5b6ef6c9d3a73cdbb8c16cbe0629491fcad0c782227e2501
+      evidence_sha256: b8ac8cd34a3d8259ef6aa2273a97b6b4ace601d9116a0bd1886beb1e666b9e7e
+      verified_at: "2026-08-26T01:36:31Z"
     schedule:
       daily_calendar: "*-*-* 05:00:00"
       maintenance_calendar: monthly
