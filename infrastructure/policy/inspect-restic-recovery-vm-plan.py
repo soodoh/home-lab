@@ -120,7 +120,8 @@ def validate_vm(value: dict[str, Any], operation: str) -> None:
     expected_cpu = {"affinity": None, "architecture": None, "cores": 8, "flags": None, "hotplugged": 0, "limit": 0, "numa": False, "sockets": 1, "type": "host"}
     expected_memory = {"dedicated": 16384, "floating": 0, "hugepages": None, "keep_hugepages": False, "shared": 0}
     if operation == "destroy":
-        expected_cpu |= {"affinity": "", "architecture": "", "flags": [], "units": 0}
+        if cpu.get("flags") not in (None, []): fail("compute_identity_differs")
+        expected_cpu |= {"affinity": "", "architecture": "", "flags": cpu.get("flags"), "units": 0}
         expected_memory["hugepages"] = ""
     if cpu != expected_cpu: fail("compute_identity_differs")
     if memory != expected_memory: fail("memory_identity_differs")
