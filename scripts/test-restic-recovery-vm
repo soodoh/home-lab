@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+REPO_ROOT="$repo_root" WORK="$work" python3 - <<'PY'
+import copy,hashlib,json,os,signal,stat,subprocess,sys,time
+from importlib.machinery import SourceFileLoader
+from pathlib import Path
+repo=Path(os.environ['REPO_ROOT']); work=Path(os.environ['WORK']); work.chmod(0o700)
+validator=repo/'infrastructure/policy/inspect-restic-recovery-vm-plan.py'
+fixture=repo/'infrastructure/policy/fixtures/restic-recovery-vm-create-provider-0.111.1.json'
+base=json.loads(fixture.read_text())
+cloud=base['resource_changes'][1]['change']['after']['source_raw'][0]['data']
+cloud_hash=hashlib.sha256(cloud.encode()).hexdigest()
+def invoke(value,operation,ok):
+ path=work/f'{operation}-{len(list(work.iterdir()))}.json'; path.write_text(json.dumps(value,sort_keys=True,separators=(',',':'))+'\n'); path.chmod(0o600)
+ result=subprocess.run([sys.executable,str(validator),str(path),'--operation',operation,'--expected-cloud-init-sha256',cloud_hash],stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
+ if (result.returncode==0)!=ok: raise SystemExit(f'validator expectation failed {operation}: {result.stdout!r} {result.stderr!r}')
+invoke(base,'create',True)
+noop_dependencies=copy.deepcopy(base)
+noop_dependencies['resource_changes'][0]['change']['actions']=['no-op']
+noop_dependencies['resource_changes'][1]['change']['actions']=['no-op']
+invoke(noop_dependencies,'create',True)
+destroy=copy.deepcopy(base); destroy.pop('configuration',None)
+for change in destroy['resource_changes']:
+ change['change']['actions']=['delete']; change['change']['before']=change['change'].pop('after'); change['change'].pop('after_unknown',None)
+ if change['address'].endswith('recovery[0]'):
+  change['change']['before']['disk'][0]['file_id']='local-lvm:vm-9900-disk-0'; change['change']['before']['disk'][1]['file_id']='local-lvm:vm-9900-disk-1'
+  change['change']['before']['initialization'][0]['user_data_file_id']='local:snippets/home-lab-restic-recovery-cloud-init.yaml'
+  change['change']['before']['network_device'][0]['mac_address']='BC:24:11:00:00:01'
+invoke(destroy,'destroy',True)
+partial=copy.deepcopy(destroy); partial['resource_changes']=partial['resource_changes'][1:]; invoke(partial,'destroy',True)
+mutations=[]
+extra=copy.deepcopy(base); extra['resource_changes'].append({'address':'proxmox_virtual_environment_vm.production','type':'proxmox_virtual_environment_vm','change':{'actions':['create'],'after':copy.deepcopy(base['resource_changes'][2]['change']['after'])}}); mutations.append(extra)
+for path,value in [
+ (('resource_changes',2,'change','actions'),['update']),
+ (('resource_changes',2,'change','after','vm_id'),100),
+ (('resource_changes',2,'change','after','disk',1,'serial'),'WRONG'),
+ (('resource_changes',2,'change','after','disk',1,'backup'),True),
+ (('resource_changes',2,'change','after','hostpci'),[{'mapping':'gpu'}]),
+ (('resource_changes',2,'change','after','network_device',0,'bridge'),'production-other'),
+ (('resource_changes',2,'change','after','on_boot'),True),
+ (('resource_changes',2,'change','after','args'),'-device dangerous'),
+ (('resource_changes',2,'change','after','hookscript'),'local:snippets/unsafe'),
+ (('resource_changes',2,'change','after','agent',0,'enabled'),False),
+ (('resource_changes',2,'change','after','agent',0,'trim'),True),
+ (('resource_changes',2,'change','after','disk',1,'aio'),'threads'),
+ (('resource_changes',2,'change','after','disk',1,'queues'),4),
+ (('resource_changes',2,'change','after','network_device',0,'mac_address'),'BC:24:11:00:00:01'),
+ (('resource_changes',2,'change','after','network_device',0,'vlan_id'),100),
+ (('resource_changes',2,'change','after_unknown','protection'),True),
+ (('resource_changes',2,'change','after_unknown','args'),True),
+ (('resource_changes',2,'change','after_unknown','ide2'),True),
+ (('resource_changes',2,'change','after_unknown','disk',0,'file_id'),True),
+ (('resource_changes',2,'change','after_unknown','disk',0,'import_from'),True),
+ (('resource_changes',2,'change','after_unknown','initialization',0,'ip_config',0,'ipv4',0,'address'),True),
+ (('resource_changes',1,'change','after','source_raw',0,'data'),'tampered'),
+]:
+ item=copy.deepcopy(base); cursor=item
+ for part in path[:-1]: cursor=cursor[part]
+ cursor[path[-1]]=value; mutations.append(item)
+missing_image=copy.deepcopy(base); missing_image['resource_changes']=missing_image['resource_changes'][1:]; mutations.append(missing_image)
+wrong_reference=copy.deepcopy(base); wrong_reference['configuration']['root_module']['resources'][0]['expressions']={}; mutations.append(wrong_reference)
+for item in mutations: invoke(item,'create',False)
+module=SourceFileLoader('prove_restic_recovery_vm',str(repo/'scripts/prove-restic-recovery-vm')).load_module()
+protected=work/'protected'; protected.mkdir(mode=0o700); value={'a':1}; module.atomic_json(protected/'value.json',value,exclusive=True); assert module.read_protected_json(protected/'value.json')==value
+journal={'version':1,'commit':'a'*40,'owner':'b'*64,'state':'new','checkpoints':[],'replans':[]}; module.atomic_json(protected/'journal.json',journal,exclusive=True); module.checkpoint(protected,journal,'create-applying','before-saved-plan-apply'); assert module.read_protected_json(protected/'journal.json')['state']=='create-applying'
+(protected/'duplicate.json').write_text('{"a":1,"a":2}\n'); (protected/'duplicate.json').chmod(0o600)
+try: module.read_protected_json(protected/'duplicate.json')
+except SystemExit: pass
+else: raise SystemExit('duplicate protected JSON unexpectedly passed')
+(protected/'wrong-mode.json').write_text('{}\n'); (protected/'wrong-mode.json').chmod(0o644)
+try: module.read_protected_json(protected/'wrong-mode.json')
+except SystemExit: pass
+else: raise SystemExit('wrong-mode protected JSON unexpectedly passed')
+class Child:
+ pid=4242
+ def __init__(self): self.waits=[]
+ def poll(self): return None
+ def wait(self,timeout=None): self.waits.append(timeout); return 0
+child=Child(); calls=[]; original=module.os.killpg; module.os.killpg=lambda pid,sig:calls.append((pid,sig))
+try: module.terminate_process_group(child)
+finally: module.os.killpg=original
+assert calls==[(4242,signal.SIGTERM)] and child.waits==[10]
+restore_command=module.restore_remote_command([character*64 for character in '123456'])
+assert subprocess.run(['bash','-n','-c',restore_command],check=False).returncode==0
+try: module.restore_remote_command(['$(unsafe)']*6)
+except SystemExit: pass
+else: raise SystemExit('unsafe restore arguments unexpectedly passed')
+assert subprocess.run(['bash','-n','-c',module.disk_prepare_script(False)],check=False).returncode==0
+assert subprocess.run(['bash','-n','-c',module.service_observation_script()],check=False).returncode==0
+compile(module.validate_service_script(),'restored-service-validation','exec')
+state_root=work/'state'; state_root.mkdir(mode=0o700); state=state_root/'tofu.tfstate'; state.write_text('{}\n'); state.chmod(0o600)
+owner='d'*64
+module.atomic_json(state_root/'journal.json',{'version':1,'commit':'a'*40,'owner':owner,'state':'new','checkpoints':[],'replans':[]},exclusive=True)
+marker={'version':1,'operation':'create','owner':owner,'production_vm_after_sha256':'a'*64,'state_after_sha256':module.digest(state)}
+module.atomic_json(state_root/'create-applied.json',marker,exclusive=True); module.validate_marker(state_root,'create','a'*64)
+state.write_text('{"changed":true}\n')
+try: module.validate_marker(state_root,'create','a'*64)
+except SystemExit: pass
+else: raise SystemExit('marker with changed current state unexpectedly passed')
+illegal={'version':1,'commit':'a'*40,'owner':owner,'state':'destroy-applied','checkpoints':[{'state':'destroy-applied','detail':'serial-disk-prepared','time':1}],'replans':[]}
+(state_root/'journal.json').unlink(); module.atomic_json(state_root/'journal.json',illegal,exclusive=True)
+try: module.journal(state_root,'a'*40)
+except SystemExit: pass
+else: raise SystemExit('illegal journal transition unexpectedly passed')
+metadata_root=work/'metadata'; metadata_root.mkdir(mode=0o700)
+metadata={'version':1,'repository':'rclone:proton_backup:Backups/home-lab-restic','artifact_sha256':'1'*64,'first_run_evidence_sha256':'2'*64,'original_snapshot_id':'3'*64,'policy_sha256':'4'*64,'qualification_evidence_sha256':'5'*64,'rclone_sha256':'6'*64,'repository_id':'7'*64,'restic_sha256':'8'*64,'restore_runner_sha256':'9'*64,'snapshot_id':'a'*64}
+bundle=metadata_root/'bundle'; bundle.write_bytes(b'ciphertext'); bundle.chmod(0o600)
+result={'version':1,'state':'encrypted','ciphertext_sha256':module.digest(bundle),'plaintext_sha256':'b'*64,'recipient_sha256':'c'*64}
+module.atomic_json(metadata_root/'metadata.json',metadata,exclusive=True); module.atomic_json(metadata_root/'result.json',result,exclusive=True)
+module.recovery_metadata({'metadata':metadata_root/'metadata.json','bundle_result':metadata_root/'result.json','bundle':bundle})
+result['plaintext_sha256']='wrong'; (metadata_root/'result.json').unlink(); module.atomic_json(metadata_root/'result.json',result,exclusive=True)
+try: module.recovery_metadata({'metadata':metadata_root/'metadata.json','bundle_result':metadata_root/'result.json','bundle':bundle})
+except SystemExit: pass
+else: raise SystemExit('non-hex bundle metadata unexpectedly passed')
+endpoint={'TF_VAR_proxmox_endpoint':'https://PROXMOX:8006/api2/json/','PROXMOX_CA_PEM':'ca'}
+assert module.provider_hashes(endpoint)==module.provider_hashes({'TF_VAR_proxmox_endpoint':'https://proxmox:8006/api2/json','PROXMOX_CA_PEM':'ca'})
+assert module.provider_hashes(endpoint)!=module.provider_hashes({'TF_VAR_proxmox_endpoint':'https://proxmox:8006/api2/json','PROXMOX_CA_PEM':'other'})
+controller=(repo/'scripts/prove-restic-recovery-vm').read_text(); tofu=(repo/'infrastructure/tofu/proxmox-restic-recovery-qualification/main.tf').read_text()
+for command_name in ('plan-create','apply-create','status','run','plan-destroy','apply-destroy'): assert command_name in controller
+for required in ('vm_id    = 9900','RESTIC-RECOVERY-ROOT-32G','RESTIC-RECOVERY-128G','proxmox_virtual_environment_file','qualification_cloud_init_user_data','started       = true','on_boot       = false','protection    = false'): assert required in tofu,required
+for required in ('StrictHostKeyChecking=yes','fresh_recovery_observation','pretransfer_vm_observation_drift','provider_transport_binding_drift','partial_apply_requires_exact_replan','exact-partial-create-adopted','exact-partial-destroy-adopted','read_protected_json','terminate_process_group','remote_cleanup(directory, ip)','signal.SIGINT','signal.SIGTERM','before-saved-plan-apply','serial-disk-prepared','wipefs','sfdisk','os.pread','blank_sample_sha256','service_observation_before','database_integrity','configuration_structure','sudo python3 -','/run/restic-fixture/scripts/test-restic-activation-fixture','sudo chmod 0700 /srv/home-lab-recovery'): assert required in controller,required
+assert 'StrictHostKeyChecking=accept-new' not in controller
+assert 'backend "s3"' not in ''.join(path.read_text() for path in (repo/'infrastructure/tofu/proxmox-restic-recovery-qualification').glob('*.tf'))
+assert fixture.stat().st_size > 1000
+print('restic recovery VM safety fixtures passed')
+PY

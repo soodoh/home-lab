@@ -238,6 +238,26 @@ Games, NFS, and Proton are independent repositories. Their guarded owner-bound i
 
 The contract intentionally advertises only verified staging while migration state is `inert`. Whole-tree and selective in-place activation remain unavailable until implementation plus the isolated Phase 16 fixtures prove preserve/regenerate/retain behavior and rollback. External-data-dependent services must remain `state-restored-user-data-pending`; the old archive activator must never be used on a Restic staging tree.
 
+### Disposable Proton recovery VM
+
+`scripts/prove-restic-recovery-vm` owns the separate local-state transaction for disposable VMID `9900`. Its committed OpenTofu root cannot address VM `100`, production disks, passthrough devices, NFS, or production state. The dedicated plan inspector accepts only creation or deletion of the exact checksum-pinned Debian image and VMID `9900`; updates, replacements, imports, additional resources, and altered lifecycle, disk, or network values fail closed.
+
+Run only from the clean pushed revision used to build bundle B:
+
+```sh
+scripts/prove-restic-recovery-vm plan-create
+RESTIC_RECOVERY_VM_CONFIRMATION=apply-reviewed-disposable-restic-recovery-vm-9900 scripts/prove-restic-recovery-vm apply-create
+RESTIC_RECOVERY_VM_CONFIRMATION=run-reviewed-proton-restore-in-disposable-vm-9900 scripts/prove-restic-recovery-vm run
+scripts/prove-restic-recovery-vm plan-destroy
+RESTIC_RECOVERY_VM_CONFIRMATION=destroy-reviewed-disposable-restic-recovery-vm-9900 scripts/prove-restic-recovery-vm apply-destroy
+```
+
+The run transfers bundle B ciphertext, its independent age identity, the reviewed consumer, the checksum-pinned Linux age binary, and the reviewed activation fixture pair. Cloud-init installs a transaction-generated deterministic VM SSH host key; its public-key and cloud-init hashes are manifest-bound, and SSH never learns an arbitrary key. A fresh VMID `9900` API configuration plus QEMU-agent address observation is repeated immediately before transfer. Decryption occurs inside the VM.
+
+The exact serial-bound 128 GiB disk is formatted only after its full-device signatures are absent and bounded first/last/evenly distributed samples prove zero data; a retained filesystem is accepted only after its local preparation checkpoint. No service is started. Process, container-runtime, and container observations bracket native `restic restore --verify`; representative SQLite, PostgreSQL, MariaDB, and configuration state is validated structurally while external user data remains pending. SIGINT and SIGTERM supervise the local and remote restore process groups and run the same mandatory plaintext cleanup path as ordinary failure.
+
+Create and destroy write owner-preserving checkpoints before saved-plan apply. Exact completed state can be adopted after interruption; partial or expired state must be replanned through the same dedicated root and exact inspector. Input credentials and all `bundle.*` plaintext workspaces are removed before evidence is accepted. Destroy remains available after a failed run or partial destroy and must prove VMID `9900` absent and the normalized VM `100` hash unchanged. Retain the transaction directory when any cleanup phase fails.
+
 ## Live gates not satisfied by Git
 
 Repository validation does not satisfy these operator gates:

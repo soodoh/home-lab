@@ -1,0 +1,1188 @@
+#!/usr/bin/env python3
+"""Guarded saved-plan lifecycle for disposable Restic recovery VM 9900."""
+from __future__ import annotations
+
+import fcntl
+import hashlib
+import ipaddress
+import json
+import os
+import re
+import shlex
+import signal
+import ssl
+import stat
+import subprocess
+import sys
+import time
+import urllib.parse
+import urllib.request
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+TF_ROOT = ROOT / "infrastructure/tofu/proxmox-restic-recovery-qualification"
+VALIDATOR = ROOT / "infrastructure/policy/inspect-restic-recovery-vm-plan.py"
+CONSUMER = ROOT / "scripts/run-restic-recovery-bundle"
+ACTIVATION_TEST = ROOT / "scripts/test-restic-activation-fixture"
+ACTIVATION_ENGINE = ROOT / "scripts/activate-restic-staging-fixture"
+BUNDLE_ROOT = ROOT / ".local/restic-recovery-proof"
+VMID = 9900
+AGE_SHA256 = "2e305637f2a0555305e21c17fb74446acbb39b53135d43d4b744e50c287133a5"
+HEX = re.compile(r"^[0-9a-f]{64}$")
+SSH_PUBLIC = re.compile(r"^ssh-ed25519 [A-Za-z0-9+/]+={0,3}(?: [A-Za-z0-9._@-]+)?$")
+os.umask(0o077)
+CONFIRMATIONS = {
+    "apply-create": "apply-reviewed-disposable-restic-recovery-vm-9900",
+    "run": "run-reviewed-proton-restore-in-disposable-vm-9900",
+    "apply-destroy": "destroy-reviewed-disposable-restic-recovery-vm-9900",
+}
+ACTIVE_CHILD: subprocess.Popen[str] | None = None
+
+
+def canonical(value: object) -> bytes:
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def fail(reason: str) -> None:
+    raise SystemExit(f"restic_recovery_vm=failed reason={reason}")
+
+
+def sha_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def digest(path: Path) -> str:
+    return sha_bytes(path.read_bytes())
+
+
+def command(arguments: list[str], *, env=None, stdout=None, stderr=None, check=True, input_text=None):
+    global ACTIVE_CHILD
+    child = subprocess.Popen(
+        arguments, env=env, stdout=stdout, stderr=stderr, text=True,
+        stdin=subprocess.PIPE if input_text is not None else None,
+        start_new_session=True,
+    )
+    ACTIVE_CHILD = child
+    try:
+        captured_stdout, captured_stderr = child.communicate(input=input_text)
+    finally:
+        if ACTIVE_CHILD is child:
+            ACTIVE_CHILD = None
+    result = subprocess.CompletedProcess(arguments, child.returncode, captured_stdout, captured_stderr)
+    if check and child.returncode != 0:
+        fail("controlled_command_failed")
+    return result
+
+
+def git(*arguments: str) -> str:
+    return subprocess.run(
+        ["git", *arguments], cwd=ROOT, check=True, text=True,
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    ).stdout.strip()
+
+
+def require_revision() -> str:
+    if git("status", "--porcelain", "--untracked-files=all"):
+        fail("working_tree_not_clean")
+    commit = git("rev-parse", "HEAD")
+    if commit != git("rev-parse", "origin/main"):
+        fail("commit_not_pushed")
+    return commit
+
+
+def secure_directory(path: Path, *, create: bool = False) -> None:
+    if create:
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    item = path.lstat()
+    if (path.is_symlink() or not stat.S_ISDIR(item.st_mode) or stat.S_IMODE(item.st_mode) != 0o700
+            or item.st_uid != os.getuid() or item.st_nlink != 1):
+        fail("transaction_directory_metadata_differs")
+
+
+def parse_json_no_duplicates(raw: bytes) -> object:
+    def pairs(values):
+        result = {}
+        for key, value in values:
+            if key in result:
+                fail("protected_json_duplicate_key")
+            result[key] = value
+        return result
+    try:
+        return json.loads(raw, object_pairs_hook=pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        fail("protected_json_invalid")
+
+
+def read_protected_json(path: Path, *, canonical_required: bool = True) -> dict[str, object]:
+    parent = path.parent.lstat()
+    if path.parent.is_symlink() or not stat.S_ISDIR(parent.st_mode) or stat.S_IMODE(parent.st_mode) != 0o700 or parent.st_uid != os.getuid():
+        fail("protected_json_parent_differs")
+    before = path.lstat()
+    if (path.is_symlink() or not stat.S_ISREG(before.st_mode) or stat.S_IMODE(before.st_mode) != 0o600
+            or before.st_uid != os.getuid() or before.st_nlink != 1 or before.st_size > 16 * 1024 * 1024):
+        fail("protected_json_metadata_differs")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        opened = os.fstat(descriptor)
+        if (opened.st_dev, opened.st_ino, opened.st_mode, opened.st_nlink) != (before.st_dev, before.st_ino, before.st_mode, 1):
+            fail("protected_json_identity_changed")
+        raw = b""
+        while chunk := os.read(descriptor, 1024 * 1024):
+            raw += chunk
+            if len(raw) > 16 * 1024 * 1024:
+                fail("protected_json_too_large")
+    finally:
+        os.close(descriptor)
+    value = parse_json_no_duplicates(raw)
+    if not isinstance(value, dict) or (canonical_required and raw != canonical(value)):
+        fail("protected_json_encoding_differs")
+    return value
+
+
+def atomic_json(path: Path, value: dict[str, object], *, exclusive: bool = False) -> None:
+    encoded = canonical(value)
+    if exclusive:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        temporary = None
+    else:
+        temporary = path.parent / f".{path.name}.{os.getpid()}.{time.time_ns()}"
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            if stream.write(encoded) != len(encoded):
+                fail("protected_json_short_write")
+            stream.flush()
+            os.fchmod(descriptor, 0o600)
+            os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    if temporary is not None:
+        os.replace(temporary, path)
+    directory = os.open(path.parent, os.O_RDONLY)
+    try: os.fsync(directory)
+    finally: os.close(directory)
+
+
+def credentials(capability: str) -> dict[str, str]:
+    config = Path(os.environ.get("HOME_LAB_CONTROLLER_CONFIG_DIR", Path.home() / ".config/home-lab/controller"))
+    value = read_protected_json(config / f"{capability}-credentials.json", canonical_required=False)
+    if not all(isinstance(key, str) and isinstance(item, str) for key, item in value.items()):
+        fail("credential_structure_differs")
+    values = {key: item for key, item in value.items() if isinstance(item, str)}
+    token_key = "PROXMOX_PLAN_API_TOKEN" if capability == "plan" else "PROXMOX_APPLY_API_TOKEN"
+    for key in (token_key, "TF_VAR_proxmox_endpoint", "PROXMOX_CA_PEM"):
+        if not values.get(key): fail("required_provider_credential_absent")
+    values["selected_token"] = values[token_key]
+    return values
+
+
+def normalized_endpoint(value: str) -> str:
+    parsed = urllib.parse.urlsplit(value.rstrip("/"))
+    if parsed.scheme != "https" or not parsed.hostname or parsed.query or parsed.fragment:
+        fail("provider_endpoint_differs")
+    host = parsed.hostname.lower()
+    port = f":{parsed.port}" if parsed.port else ""
+    path = parsed.path.rstrip("/")
+    if path != "/api2/json": fail("provider_endpoint_differs")
+    return f"https://{host}{port}{path}"
+
+
+def provider_hashes(values: dict[str, str]) -> tuple[str, str]:
+    return sha_bytes(normalized_endpoint(values["TF_VAR_proxmox_endpoint"]).encode()), sha_bytes(values["PROXMOX_CA_PEM"].encode())
+
+
+def api(values: dict[str, str], path: str) -> object:
+    context = ssl.create_default_context(cadata=values["PROXMOX_CA_PEM"])
+    context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    request = urllib.request.Request(
+        normalized_endpoint(values["TF_VAR_proxmox_endpoint"]) + path,
+        headers={"Authorization": f"PVEAPIToken={values['selected_token']}"},
+    )
+    try:
+        with urllib.request.urlopen(request, context=context, timeout=20) as response:
+            return json.load(response)["data"]
+    except (KeyError, OSError, ValueError):
+        fail("provider_observation_failed")
+
+
+def api_mutation(values: dict[str, str], path: str, method: str) -> None:
+    context = ssl.create_default_context(cadata=values["PROXMOX_CA_PEM"])
+    context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    request = urllib.request.Request(
+        normalized_endpoint(values["TF_VAR_proxmox_endpoint"]) + path,
+        headers={"Authorization": f"PVEAPIToken={values['selected_token']}"},
+        data=b"" if method == "POST" else None,
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(request, context=context, timeout=20) as response:
+            upid = json.load(response)["data"]
+    except (KeyError, OSError, ValueError):
+        fail("provider_mutation_failed")
+    if not isinstance(upid, str) or not upid.startswith("UPID:"):
+        fail("provider_task_identity_differs")
+    task = urllib.parse.quote(upid, safe="")
+    for _ in range(300):
+        status_value = api(values, f"/nodes/proxmox/tasks/{task}/status")
+        if isinstance(status_value, dict) and status_value.get("status") == "stopped":
+            if status_value.get("exitstatus") != "OK": fail("provider_task_failed")
+            return
+        time.sleep(0.2)
+    fail("provider_task_timeout")
+
+
+def remove_exact_untracked_vm(directory: Path, values: dict[str, str], transaction_journal: dict[str, object]) -> None:
+    item = recovery_resource(values)
+    if (state_resource_map(directory, values) is not None or item is None
+            or not api_recovery_exact(values, allowed_status={"running", "stopped"})):
+        fail("untracked_vm_not_exact")
+    if item.get("status") == "running":
+        api_mutation(values, "/nodes/proxmox/qemu/9900/status/stop", "POST")
+    api_mutation(values, "/nodes/proxmox/qemu/9900?purge=1&destroy-unreferenced-disks=1", "DELETE")
+    require_recovery_presence(values, "absent")
+    checkpoint(directory, transaction_journal, "create-replanning", "exact-api-untracked-vm-deleted")
+    fail("untracked_vm_removed_exact_replan_required")
+
+
+def production_hash(values: dict[str, str]) -> str:
+    resources = api(values, "/cluster/resources?type=vm")
+    config = api(values, "/nodes/proxmox/qemu/100/config")
+    production = [item for item in resources if item.get("vmid") == 100] if isinstance(resources, list) else []
+    if (len(production) != 1 or production[0].get("name") != "docker-host" or production[0].get("status") != "running"
+            or not isinstance(config, dict) or config.get("name") != "docker-host" or config.get("protection") not in (1, True, "1")):
+        fail("production_vm_identity_differs")
+    normalized = {key: item for key, item in config.items() if key not in {"digest", "lock", "pending"}}
+    return sha_bytes(canonical({"configuration": normalized, "vmid": 100}))
+
+
+def recovery_resource(values: dict[str, str]) -> dict[str, object] | None:
+    resources = api(values, "/cluster/resources?type=vm")
+    if not isinstance(resources, list): fail("provider_inventory_differs")
+    matches = [item for item in resources if item.get("vmid") == VMID]
+    if len(matches) > 1: fail("vm_9900_identity_differs")
+    return matches[0] if matches else None
+
+
+def require_recovery_presence(values: dict[str, str], expected: str) -> None:
+    item = recovery_resource(values)
+    if expected == "absent" and item is not None: fail("vm_9900_not_absent")
+    if expected == "present" and (item is None or item.get("name") != "home-lab-restic-recovery"):
+        fail("vm_9900_not_present")
+
+
+def api_recovery_exact(values: dict[str, str], state_vm: dict[str, object] | None = None, *, allowed_status: set[str] | None = None) -> bool:
+    statuses = {"running"} if allowed_status is None else allowed_status
+    item = recovery_resource(values)
+    if item is None or item.get("name") != "home-lab-restic-recovery" or item.get("status") not in statuses:
+        return False
+    config = api(values, "/nodes/proxmox/qemu/9900/config")
+    if not isinstance(config, dict):
+        return False
+    allowed_keys = {
+        "agent", "balloon", "boot", "cicustom", "cores", "cpu", "description", "digest", "ide2",
+        "machine", "memory", "meta", "name", "net0", "numa", "onboot", "ostype", "protection",
+        "scsi0", "scsi1", "scsihw", "serial0", "smbios1", "sockets", "tags", "vga", "vmgenid",
+    }
+    if set(config) - allowed_keys:
+        return False
+    expected_disks: dict[str, str] = {}
+    state_mac = None
+    if state_vm is not None:
+        disks = state_vm.get("disk")
+        network = state_vm.get("network_device")
+        if not isinstance(disks, list) or not isinstance(network, list) or len(network) != 1 or not isinstance(network[0], dict):
+            return False
+        by_interface = {disk.get("interface"): disk for disk in disks if isinstance(disk, dict)}
+        if set(by_interface) != {"scsi0", "scsi1"}:
+            return False
+        if any(not isinstance(by_interface[name].get("file_id"), str) for name in by_interface):
+            return False
+        expected_disks = {name: by_interface[name]["file_id"] for name in by_interface}
+        state_mac = network[0].get("mac_address")
+    def disk_matches(name: str, serial: str) -> bool:
+        raw = config.get(name)
+        if not isinstance(raw, str):
+            return False
+        parts = raw.split(",")
+        options = dict(part.split("=", 1) for part in parts[1:] if "=" in part)
+        allowed = {"backup", "cache", "discard", "iothread", "replicate", "serial", "size", "ssd"}
+        volume_ok = parts[0] == expected_disks[name] if expected_disks else re.fullmatch(r"local-lvm:vm-9900-disk-[0-9]+", parts[0]) is not None
+        return (volume_ok and set(options) <= allowed and options.get("serial") == serial
+                and options.get("backup", "0") == "0" and options.get("replicate", "0") == "0"
+                and options.get("iothread", "1") == "1" and options.get("discard", "on") == "on"
+                and options.get("cache", "none") == "none" and options.get("ssd", "0") == "0")
+    raw_network = config.get("net0")
+    if not isinstance(raw_network, str):
+        return False
+    network_parts = raw_network.split(",")
+    model_parts = network_parts[0].split("=", 1)
+    network_options = dict(part.split("=", 1) for part in network_parts[1:] if "=" in part)
+    if len(model_parts) != 2 or model_parts[0] != "virtio" or re.fullmatch(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", model_parts[1]) is None:
+        return False
+    if state_mac is not None and (not isinstance(state_mac, str) or model_parts[1].lower() != state_mac.lower()):
+        return False
+    agent_raw = str(config.get("agent", ""))
+    agent_parts = dict(part.split("=", 1) for part in agent_raw.split(",") if "=" in part)
+    agent_enabled = agent_raw == "1" or agent_parts.get("enabled") == "1"
+    ide_parts = str(config.get("ide2", "")).split(",")
+    ide_options = dict(part.split("=", 1) for part in ide_parts[1:] if "=" in part)
+    ide_exact = (len(ide_parts) == 2 and re.fullmatch(r"local-lvm:vm-9900-cloudinit", ide_parts[0]) is not None
+                 and ide_options == {"media": "cdrom"})
+    agent_exact = (agent_enabled and set(agent_parts) <= {"enabled", "fstrim_cloned_disks", "type"}
+                   and agent_parts.get("fstrim_cloned_disks", "0") == "0"
+                   and agent_parts.get("type", "virtio") == "virtio")
+    return (config.get("name") == "home-lab-restic-recovery" and config.get("protection") in (0, False, "0")
+            and config.get("onboot") in (0, False, "0") and config.get("cores") == 8
+            and config.get("memory") == 16384 and config.get("machine") == "q35"
+            and config.get("cpu") == "host" and config.get("balloon") == 0
+            and config.get("sockets") == 1 and config.get("numa") == 0
+            and config.get("vga") == "serial0" and config.get("scsihw") == "virtio-scsi-single"
+            and config.get("boot") == "order=scsi0" and config.get("ostype") == "l26"
+            and config.get("serial0") == "socket" and ide_exact
+            and config.get("cicustom") == "user=local:snippets/home-lab-restic-recovery-cloud-init.yaml"
+            and agent_exact and set(network_options) == {"bridge", "firewall"}
+            and network_options.get("bridge") == "vmbr0" and network_options.get("firewall") == "1"
+            and disk_matches("scsi0", "RESTIC-RECOVERY-ROOT-32G")
+            and disk_matches("scsi1", "RESTIC-RECOVERY-128G"))
+
+
+def recovery_created_exact(directory: Path, values: dict[str, str]) -> bool:
+    state = state_resource_map(directory, values)
+    return state is not None and api_recovery_exact(values, state["proxmox_virtual_environment_vm.recovery[0]"])
+
+
+def transaction(commit: str) -> Path:
+    parent = ROOT / ".reconcile/restic-recovery-vm"
+    secure_directory(ROOT / ".reconcile")
+    secure_directory(parent, create=True)
+    path = parent / commit
+    secure_directory(path, create=True)
+    return path
+
+
+def regular_source(path: Path, mode: int, name: str) -> None:
+    item = path.lstat()
+    if (path.is_symlink() or not stat.S_ISREG(item.st_mode) or stat.S_IMODE(item.st_mode) != mode
+            or item.st_uid != os.getuid() or item.st_nlink != 1):
+        fail(f"{name}_source_absent")
+
+
+def recovery_metadata(paths: dict[str, Path]) -> tuple[dict[str, object], dict[str, object]]:
+    metadata = read_protected_json(paths["metadata"])
+    result = read_protected_json(paths["bundle_result"])
+    metadata_keys = {
+        "artifact_sha256", "first_run_evidence_sha256", "original_snapshot_id", "policy_sha256",
+        "qualification_evidence_sha256", "rclone_sha256", "repository", "repository_id", "restic_sha256",
+        "restore_runner_sha256", "snapshot_id", "version",
+    }
+    result_keys = {"ciphertext_sha256", "plaintext_sha256", "recipient_sha256", "state", "version"}
+    if (set(metadata) != metadata_keys or metadata.get("version") != 1
+            or metadata.get("repository") != "rclone:proton_backup:Backups/home-lab-restic"):
+        fail("recovery_metadata_schema_differs")
+    if set(result) != result_keys or result.get("version") != 1 or result.get("state") != "encrypted":
+        fail("bundle_result_schema_differs")
+    for key, value in metadata.items():
+        if key not in {"repository", "version"} and (not isinstance(value, str) or HEX.fullmatch(value) is None):
+            fail("recovery_metadata_hex_differs")
+    for key in ("ciphertext_sha256", "plaintext_sha256", "recipient_sha256"):
+        if not isinstance(result.get(key), str) or HEX.fullmatch(result[key]) is None:
+            fail("bundle_result_hex_differs")
+    if digest(paths["bundle"]) != result["ciphertext_sha256"]:
+        fail("bundle_ciphertext_differs")
+    return metadata, result
+
+
+def sources(require_bundle: bool = True) -> dict[str, Path]:
+    paths = {"validator": VALIDATOR, "runner": Path(__file__).resolve()}
+    if require_bundle:
+        paths |= {
+            "bundle": BUNDLE_ROOT / "bundle-b-staging/home-lab-restic-recovery.age",
+            "bundle_result": BUNDLE_ROOT / "bundle-b-result.json", "metadata": BUNDLE_ROOT / "metadata.json",
+            "age": BUNDLE_ROOT / "tools/age",
+            "identity": Path.home() / ".config/sops/home-lab-recovery/independent-recovery.agekey",
+            "consumer": CONSUMER, "activation_test": ACTIVATION_TEST, "activation_engine": ACTIVATION_ENGINE,
+        }
+    protected = {"bundle", "bundle_result", "metadata", "identity"}
+    for name, path in paths.items():
+        regular_source(path, 0o600 if name in protected else 0o755, name)
+    if require_bundle:
+        if digest(paths["age"]) != AGE_SHA256: fail("linux_age_identity_differs")
+        recovery_metadata(paths)
+    return paths
+
+
+def tofu_environment(values: dict[str, str], directory: Path) -> dict[str, str]:
+    ca = directory / "provider-ca.pem"
+    if ca.exists():
+        regular_source(ca, 0o600, "provider_ca")
+        if digest(ca) != sha_bytes(values["PROXMOX_CA_PEM"].encode()): fail("provider_ca_drift")
+    else:
+        descriptor = os.open(ca, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "w") as stream:
+            stream.write(values["PROXMOX_CA_PEM"]); stream.flush(); os.fsync(stream.fileno())
+    return {
+        "HOME": os.environ["HOME"], "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": os.environ["PATH"],
+        "SSL_CERT_FILE": str(ca), "TF_DATA_DIR": str(directory / "tf-data"),
+        "TF_VAR_proxmox_endpoint": normalized_endpoint(values["TF_VAR_proxmox_endpoint"]),
+        "PROXMOX_VE_API_TOKEN": values["selected_token"],
+    }
+
+
+def ensure_key_pair(directory: Path, name: str, comment: str) -> tuple[Path, Path]:
+    private, public = directory / name, directory / f"{name}.pub"
+    if not private.exists():
+        command(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", comment, "-f", str(private)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    regular_source(private, 0o600, name)
+    regular_source(public, 0o644, f"{name}_public")
+    if SSH_PUBLIC.fullmatch(public.read_text().strip()) is None:
+        fail("ssh_public_key_format_differs")
+    return private, public
+
+
+def cloud_init_data(directory: Path) -> tuple[str, Path, Path]:
+    user_private, user_public = ensure_key_pair(directory, "ssh-key", "restic-recovery-vm-9900")
+    del user_private
+    host_private, host_public = ensure_key_pair(directory, "ssh-host-key", "restic-recovery-host-vm-9900")
+    private_lines = "\n".join(f"    {line}" for line in host_private.read_text().splitlines())
+    user_key = user_public.read_text().strip()
+    host_key = " ".join(host_public.read_text().strip().split()[:2])
+    data = (
+        "#cloud-config\ndisable_root: true\nssh_pwauth: false\nssh_deletekeys: true\nssh_genkeytypes: []\nssh_keys:\n"
+        f"  ed25519_private: |\n{private_lines}\n  ed25519_public: {host_key}\n"
+        "users:\n  - name: recovery\n    groups: [sudo]\n    shell: /bin/bash\n"
+        "    sudo: ALL=(ALL) NOPASSWD:ALL\n    ssh_authorized_keys:\n"
+        f"      - {user_key}\n"
+    )
+    return data, user_public, host_public
+
+
+def state_hash(directory: Path) -> str:
+    state = directory / "tofu.tfstate"
+    if not state.exists(): return sha_bytes(b"")
+    regular_source(state, 0o600, "tofu_state")
+    return digest(state)
+
+
+def bindings(paths: dict[str, Path]) -> dict[str, str]:
+    result = {f"{name}_sha256": digest(path) for name, path in paths.items()}
+    for path in sorted(TF_ROOT.glob("*")):
+        if path.is_file(): result[f"tofu_{path.name}_sha256"] = digest(path)
+    return result
+
+
+def journal(directory: Path, commit: str) -> dict[str, object]:
+    path = directory / "journal.json"
+    if path.exists():
+        value = read_protected_json(path)
+        required = {"checkpoints", "commit", "owner", "replans", "state", "version"}
+        states = {
+            "new", "create-replanning", "create-planned", "create-applying", "create-applied",
+            "run-observed", "run-pretransfer-observed", "run-disk-format-authorized", "run-disk-prepared", "run-complete",
+            "destroy-replanning", "destroy-planned", "destroy-applying", "destroy-applied",
+        }
+        details = {
+            "expired-or-partial-plan-retained", "saved-plan-reviewed", "before-saved-plan-apply",
+            "exact-completed-create-adopted", "exact-completed-destroy-adopted",
+            "exact-partial-create-adopted", "exact-partial-destroy-adopted", "saved-plan-apply-complete",
+            "fresh-api-agent-vm9900-bound", "immediate-api-agent-vm9900-bound", "serial-blank-disk-validated", "serial-disk-prepared",
+            "plaintext-cleanup-and-evidence-complete", "exact-api-untracked-vm-deleted",
+        }
+        points, replans = value.get("checkpoints"), value.get("replans")
+        if (set(value) != required or value.get("version") != 1 or value.get("commit") != commit
+                or not isinstance(value.get("owner"), str) or HEX.fullmatch(value["owner"]) is None
+                or value.get("state") not in states or not isinstance(points, list) or not isinstance(replans, list)):
+            fail("transaction_journal_identity_differs")
+        detail_states = {
+            "expired-or-partial-plan-retained": {"create-replanning", "destroy-replanning"},
+            "exact-api-untracked-vm-deleted": {"create-replanning"},
+            "saved-plan-reviewed": {"create-planned", "destroy-planned"},
+            "before-saved-plan-apply": {"create-applying", "destroy-applying"},
+            "exact-completed-create-adopted": {"create-applied"},
+            "exact-partial-create-adopted": {"create-applied"},
+            "exact-completed-destroy-adopted": {"destroy-applied"},
+            "exact-partial-destroy-adopted": {"destroy-applied"},
+            "saved-plan-apply-complete": {"create-applied", "destroy-applied"},
+            "fresh-api-agent-vm9900-bound": {"run-observed"},
+            "immediate-api-agent-vm9900-bound": {"run-pretransfer-observed"},
+            "serial-blank-disk-validated": {"run-disk-format-authorized"},
+            "serial-disk-prepared": {"run-disk-prepared"},
+            "plaintext-cleanup-and-evidence-complete": {"run-complete"},
+        }
+        allowed_transitions = {
+            "new": {"create-planned"},
+            "create-replanning": {"create-replanning", "create-planned"},
+            "create-planned": {"create-replanning", "create-applying"},
+            "create-applying": {"create-replanning", "create-applied", "destroy-planned"},
+            "create-applied": {"run-observed", "destroy-planned"},
+            "run-observed": {"run-observed", "run-pretransfer-observed", "destroy-planned"},
+            "run-pretransfer-observed": {"run-observed", "run-disk-format-authorized", "destroy-planned"},
+            "run-disk-format-authorized": {"run-observed", "run-disk-prepared", "destroy-planned"},
+            "run-disk-prepared": {"run-observed", "run-disk-prepared", "run-complete", "destroy-planned"},
+            "run-complete": {"destroy-planned"},
+            "destroy-replanning": {"destroy-planned"},
+            "destroy-planned": {"destroy-replanning", "destroy-applying"},
+            "destroy-applying": {"destroy-replanning", "destroy-applied"},
+            "destroy-applied": set(),
+        }
+        previous = "new"
+        for point in points:
+            if (not isinstance(point, dict) or set(point) != {"detail", "state", "time"}
+                    or point.get("state") not in states or point.get("detail") not in details
+                    or point.get("state") not in detail_states.get(point.get("detail"), set())
+                    or point.get("state") not in allowed_transitions[previous]
+                    or type(point.get("time")) is not int or point["time"] <= 0):
+                fail("transaction_journal_structure_differs")
+            previous = point["state"]
+        for replan in replans:
+            if (not isinstance(replan, dict) or set(replan) != {"operation", "prior_manifest_sha256"}
+                    or replan.get("operation") not in {"create", "destroy"}
+                    or not isinstance(replan.get("prior_manifest_sha256"), str)
+                    or HEX.fullmatch(replan["prior_manifest_sha256"]) is None):
+                fail("transaction_journal_structure_differs")
+        if (points and value["state"] != points[-1]["state"]) or (not points and value["state"] != "new"):
+            fail("transaction_journal_state_differs")
+        return value
+    value = {"version": 1, "commit": commit, "owner": sha_bytes(os.urandom(32)), "state": "new", "checkpoints": [], "replans": []}
+    atomic_json(path, value, exclusive=True)
+    return value
+
+
+def checkpoint(directory: Path, value: dict[str, object], state: str, detail: str) -> None:
+    value["state"] = state
+    points = value["checkpoints"]
+    if not isinstance(points, list): fail("transaction_journal_structure_differs")
+    points.append({"detail": detail, "state": state, "time": int(time.time())})
+    atomic_json(directory / "journal.json", value)
+
+
+def validator_args(plan_json: Path, operation: str, cloud_sha256: str) -> list[str]:
+    return [sys.executable, str(VALIDATOR), str(plan_json), "--operation", operation, "--expected-cloud-init-sha256", cloud_sha256]
+
+
+def state_resource_map(directory: Path, values: dict[str, str]) -> dict[str, dict[str, object]] | None:
+    state = directory / "tofu.tfstate"
+    if not state.exists(): return None
+    env = tofu_environment(values, directory)
+    shown = command(["tofu", f"-chdir={TF_ROOT}", "show", "-json", str(state)], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try:
+        resources = json.loads(shown.stdout)["values"]["root_module"].get("resources", [])
+        mapped = {resource["address"]: resource["values"] for resource in resources}
+    except (KeyError, TypeError, json.JSONDecodeError):
+        return None
+    expected = {
+        "proxmox_download_file.recovery_image[0]",
+        "proxmox_virtual_environment_file.recovery_cloud_init[0]",
+        "proxmox_virtual_environment_vm.recovery[0]",
+    }
+    if set(mapped) != expected or not all(isinstance(value, dict) for value in mapped.values()):
+        return None
+    return mapped
+
+
+def current_state_exact(directory: Path, values: dict[str, str], cloud_sha256: str) -> bool:
+    mapped = state_resource_map(directory, values)
+    if mapped is None: return False
+    changes = []
+    types = {
+        "proxmox_download_file.recovery_image[0]": "proxmox_download_file",
+        "proxmox_virtual_environment_file.recovery_cloud_init[0]": "proxmox_virtual_environment_file",
+        "proxmox_virtual_environment_vm.recovery[0]": "proxmox_virtual_environment_vm",
+    }
+    for address, resource_values in mapped.items():
+        changes.append({"address": address, "type": types[address], "change": {"actions": ["delete"], "before": resource_values}})
+    temporary = directory / f".state-validation.{os.getpid()}.json"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            stream.write(canonical({"resource_changes": changes})); stream.flush(); os.fsync(descriptor)
+    finally: os.close(descriptor)
+    result = command(validator_args(temporary, "destroy", cloud_sha256), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    temporary.unlink()
+    return result.returncode == 0
+
+
+def state_empty(directory: Path, values: dict[str, str]) -> bool:
+    state = directory / "tofu.tfstate"
+    if not state.exists(): return True
+    env = tofu_environment(values, directory)
+    shown = command(["tofu", f"-chdir={TF_ROOT}", "show", "-json", str(state)], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try: return not json.loads(shown.stdout).get("values", {}).get("root_module", {}).get("resources", [])
+    except (TypeError, json.JSONDecodeError): return False
+
+
+def validate_marker(directory: Path, operation: str, expected_production: str, *, require_current_state: bool = True) -> dict[str, object]:
+    value = read_protected_json(directory / f"{operation}-applied.json")
+    transaction_journal = read_protected_json(directory / "journal.json")
+    required = {"operation", "owner", "production_vm_after_sha256", "state_after_sha256", "version"}
+    if (set(value) != required or value.get("version") != 1 or value.get("operation") != operation
+            or value.get("owner") != transaction_journal.get("owner")
+            or value.get("production_vm_after_sha256") != expected_production
+            or not isinstance(value.get("state_after_sha256"), str) or HEX.fullmatch(value["state_after_sha256"]) is None
+            or (require_current_state and state_hash(directory) != value["state_after_sha256"])):
+        fail("applied_marker_identity_differs")
+    return value
+
+
+def read_manifest(directory: Path, operation: str, commit: str, *, allow_expired: bool = False) -> dict[str, object]:
+    value = read_protected_json(directory / f"{operation}-manifest.json")
+    transaction_journal = journal(directory, commit)
+    required = {
+        "bindings", "ca_sha256", "cloud_init_sha256", "commit", "created_at", "endpoint_sha256", "expires_at",
+        "host_public_key_sha256", "operation", "owner", "plan", "plan_json", "production_vm_before_sha256",
+        "ssh_public_key_sha256", "state_before_sha256", "version", "vmid",
+    }
+    if operation == "create": required |= {"bundle", "restore"}
+    if (set(value) != required or value.get("version") != 1 or value.get("operation") != operation or value.get("commit") != commit
+            or value.get("owner") != transaction_journal.get("owner") or value.get("vmid") != VMID
+            or type(value.get("created_at")) is not int or type(value.get("expires_at")) is not int):
+        fail("saved_manifest_identity_differs")
+    if not allow_expired and time.time() > value["expires_at"]: fail("saved_manifest_expired")
+    for key in ("ca_sha256", "cloud_init_sha256", "endpoint_sha256", "host_public_key_sha256", "production_vm_before_sha256", "ssh_public_key_sha256", "state_before_sha256"):
+        if not isinstance(value.get(key), str) or HEX.fullmatch(value[key]) is None: fail("saved_manifest_hash_differs")
+    if operation == "create":
+        bundle = value.get("bundle"); restore = value.get("restore")
+        if (not isinstance(bundle, dict) or set(bundle) != {"ciphertext_sha256", "plaintext_sha256"}
+                or not isinstance(restore, dict) or set(restore) != {"snapshot_id", "original_snapshot_id", "repository_id", "policy_sha256", "artifact_sha256"}
+                or any(not isinstance(item, str) or HEX.fullmatch(item) is None for item in [*bundle.values(), *restore.values()])):
+            fail("saved_restore_binding_differs")
+    expected_files = {"plan": f"{operation}.tfplan", "plan_json": f"{operation}-plan.json"}
+    for name in ("plan", "plan_json"):
+        binding = value.get(name)
+        if (not isinstance(binding, dict) or set(binding) != {"file", "sha256"}
+                or binding.get("file") != expected_files[name] or HEX.fullmatch(str(binding.get("sha256"))) is None):
+            fail("saved_plan_binding_differs")
+        saved = directory / str(binding["file"])
+        regular_source(saved, 0o600, "saved_plan")
+        if digest(saved) != binding["sha256"]: fail("saved_plan_hash_differs")
+    paths = sources(operation == "create")
+    if bindings(paths) != value["bindings"]: fail("saved_manifest_bindings_differ")
+    cloud, user_public, host_public = cloud_init_data(directory)
+    if (sha_bytes(cloud.encode()) != value["cloud_init_sha256"] or digest(user_public) != value["ssh_public_key_sha256"]
+            or digest(host_public) != value["host_public_key_sha256"]):
+        fail("saved_ssh_binding_differs")
+    command(validator_args(directory / str(value["plan_json"]["file"]), operation, value["cloud_init_sha256"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return value
+
+
+def archive_old_plan(directory: Path, operation: str, value: dict[str, object], transaction_journal: dict[str, object]) -> None:
+    history = directory / "history"
+    secure_directory(history, create=True)
+    identity = digest(directory / f"{operation}-manifest.json")
+    for name in (f"{operation}-manifest.json", str(value["plan"]["file"]), str(value["plan_json"]["file"])):
+        source = directory / name
+        if source.exists(): os.replace(source, history / f"{identity}.{Path(name).name}")
+    replans = transaction_journal["replans"]
+    if not isinstance(replans, list): fail("transaction_journal_structure_differs")
+    replans.append({"operation": operation, "prior_manifest_sha256": identity})
+    checkpoint(directory, transaction_journal, f"{operation}-replanning", "expired-or-partial-plan-retained")
+
+
+def plan(operation: str) -> None:
+    commit = require_revision(); directory = transaction(commit); paths = sources(operation == "create")
+    transaction_journal = journal(directory, commit)
+    values = credentials("plan"); production = production_hash(values)
+    cloud, user_public, host_public = cloud_init_data(directory); cloud_sha = sha_bytes(cloud.encode())
+    present = recovery_resource(values) is not None
+    if operation == "create" and present and recovery_created_exact(directory, values) and current_state_exact(directory, values, cloud_sha):
+        fail("exact_create_already_applied_use_apply_create")
+    if operation == "destroy":
+        create = read_manifest(directory, "create", commit, allow_expired=True)
+        if create["production_vm_before_sha256"] != production:
+            fail("production_vm_transaction_identity_drift")
+        marker_path = directory / "create-applied.json"
+        if marker_path.exists():
+            validate_marker(
+                directory, "create", production,
+                require_current_state=not str(transaction_journal.get("state", "")).startswith("destroy-"),
+            )
+        elif not (transaction_journal.get("state") == "create-applying" and current_state_exact(directory, values, cloud_sha)):
+            fail("create_apply_evidence_absent")
+    manifest_path = directory / f"{operation}-manifest.json"
+    if manifest_path.exists():
+        prior = read_manifest(directory, operation, commit, allow_expired=True)
+        recoverable = time.time() > prior["expires_at"] or str(transaction_journal.get("state", "")).startswith(f"{operation}-")
+        if not recoverable: fail("saved_manifest_already_exists")
+        archive_old_plan(directory, operation, prior, transaction_journal)
+    env = tofu_environment(values, directory)
+    env["TF_VAR_qualification_ssh_public_key"] = user_public.read_text().strip()
+    env["TF_VAR_qualification_cloud_init_user_data"] = cloud
+    command(["tofu", f"-chdir={TF_ROOT}", "init", "-backend=false", "-input=false"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    plan_file, plan_json = directory / f"{operation}.tfplan", directory / f"{operation}-plan.json"
+    enabled = "true" if operation == "create" else "false"
+    command([
+        "tofu", f"-chdir={TF_ROOT}", "plan", "-input=false", "-lock=true", f"-state={directory / 'tofu.tfstate'}",
+        f"-var=enable_qualification={enabled}", "-out", str(plan_file),
+    ], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    with plan_json.open("w") as output:
+        command(["tofu", f"-chdir={TF_ROOT}", "show", "-json", str(plan_file)], env=env, stdout=output, stderr=subprocess.DEVNULL)
+    command(validator_args(plan_json, operation, cloud_sha), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    endpoint_sha, ca_sha = provider_hashes(values)
+    manifest: dict[str, object] = {
+        "version": 1, "operation": operation, "commit": commit, "owner": transaction_journal["owner"], "vmid": VMID,
+        "created_at": int(time.time()), "expires_at": int(time.time()) + 7200,
+        "production_vm_before_sha256": production, "state_before_sha256": state_hash(directory),
+        "ssh_public_key_sha256": digest(user_public), "host_public_key_sha256": digest(host_public),
+        "cloud_init_sha256": cloud_sha, "endpoint_sha256": endpoint_sha, "ca_sha256": ca_sha,
+        "bindings": bindings(paths), "plan": {"file": plan_file.name, "sha256": digest(plan_file)},
+        "plan_json": {"file": plan_json.name, "sha256": digest(plan_json)},
+    }
+    if operation == "create":
+        metadata, result = recovery_metadata(paths)
+        manifest["bundle"] = {key: result[key] for key in ("ciphertext_sha256", "plaintext_sha256")}
+        manifest["restore"] = {key: metadata[key] for key in ("snapshot_id", "original_snapshot_id", "repository_id", "policy_sha256", "artifact_sha256")}
+    atomic_json(manifest_path, manifest, exclusive=True)
+    checkpoint(directory, transaction_journal, f"{operation}-planned", "saved-plan-reviewed")
+    print(f"restic_recovery_vm=planned operation={operation} vmid={VMID}")
+
+
+def apply(operation: str) -> None:
+    commit = require_revision(); directory = transaction(commit); transaction_journal = journal(directory, commit)
+    if os.environ.get("RESTIC_RECOVERY_VM_CONFIRMATION") != CONFIRMATIONS[f"apply-{operation}"]:
+        fail("exact_confirmation_required")
+    values = credentials("apply")
+    prior = read_protected_json(directory / f"{operation}-manifest.json")
+    cloud_hash = prior.get("cloud_init_sha256")
+    intended_exact = (
+        operation == "destroy" and recovery_resource(values) is None and state_empty(directory, values)
+    ) or (
+        operation == "create" and recovery_created_exact(directory, values)
+        and isinstance(cloud_hash, str) and HEX.fullmatch(cloud_hash) is not None
+        and current_state_exact(directory, values, cloud_hash)
+    )
+    allow_expired = transaction_journal.get("state") == f"{operation}-applying" or intended_exact
+    manifest = read_manifest(directory, operation, commit, allow_expired=allow_expired)
+    production = production_hash(values)
+    endpoint_sha, ca_sha = provider_hashes(values)
+    if endpoint_sha != manifest["endpoint_sha256"] or ca_sha != manifest["ca_sha256"]:
+        fail("provider_transport_binding_drift")
+    if production != manifest["production_vm_before_sha256"]: fail("production_vm_identity_drift")
+    marker_path = directory / f"{operation}-applied.json"
+    if marker_path.exists():
+        validate_marker(directory, operation, production)
+        require_recovery_presence(values, "present" if operation == "create" else "absent")
+        print(f"restic_recovery_vm=already_applied operation={operation} vmid={VMID}")
+        return
+    present = recovery_resource(values) is not None
+    if intended_exact:
+        marker = {"version": 1, "operation": operation, "owner": transaction_journal["owner"], "production_vm_after_sha256": production, "state_after_sha256": state_hash(directory)}
+        atomic_json(marker_path, marker, exclusive=True)
+        checkpoint(directory, transaction_journal, f"{operation}-applied", f"exact-completed-{operation}-adopted")
+        print(f"restic_recovery_vm=adopted operation={operation} vmid=9900")
+        return
+    if transaction_journal.get("state") == f"{operation}-applying":
+        if operation == "create" and present and state_resource_map(directory, values) is None:
+            remove_exact_untracked_vm(directory, values, transaction_journal)
+        if operation == "create" and present and recovery_created_exact(directory, values) and current_state_exact(directory, values, manifest["cloud_init_sha256"]):
+            marker = {"version": 1, "operation": operation, "owner": transaction_journal["owner"], "production_vm_after_sha256": production, "state_after_sha256": state_hash(directory)}
+            atomic_json(marker_path, marker, exclusive=True); checkpoint(directory, transaction_journal, "create-applied", "exact-partial-create-adopted")
+            print("restic_recovery_vm=adopted operation=create vmid=9900"); return
+        if operation == "destroy" and not present and state_empty(directory, values):
+            marker = {"version": 1, "operation": operation, "owner": transaction_journal["owner"], "production_vm_after_sha256": production, "state_after_sha256": state_hash(directory)}
+            atomic_json(marker_path, marker, exclusive=True); checkpoint(directory, transaction_journal, "destroy-applied", "exact-partial-destroy-adopted")
+            print("restic_recovery_vm=adopted operation=destroy vmid=9900"); return
+        if state_hash(directory) != manifest["state_before_sha256"]:
+            fail("partial_apply_requires_exact_replan")
+    if state_hash(directory) != manifest["state_before_sha256"]: fail("transaction_state_drift")
+    if operation == "create":
+        require_recovery_presence(values, "absent")
+    elif recovery_resource(values) is None and state_empty(directory, values):
+        fail("destroy_already_complete_requires_adoption")
+    checkpoint(directory, transaction_journal, f"{operation}-applying", "before-saved-plan-apply")
+    env = tofu_environment(values, directory)
+    command(["tofu", f"-chdir={TF_ROOT}", "apply", "-input=false", "-auto-approve", str(directory / manifest["plan"]["file"])], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    require_recovery_presence(values, "present" if operation == "create" else "absent")
+    if operation == "create" and (not recovery_created_exact(directory, values) or not current_state_exact(directory, values, manifest["cloud_init_sha256"])):
+        fail("created_state_identity_differs")
+    if operation == "destroy" and not state_empty(directory, values): fail("destroyed_state_not_empty")
+    if production_hash(values) != production: fail("production_vm_identity_changed")
+    marker = {"version": 1, "operation": operation, "owner": transaction_journal["owner"], "production_vm_after_sha256": production, "state_after_sha256": state_hash(directory)}
+    atomic_json(marker_path, marker, exclusive=True)
+    checkpoint(directory, transaction_journal, f"{operation}-applied", "saved-plan-apply-complete")
+    print(f"restic_recovery_vm=applied operation={operation} vmid={VMID}")
+
+
+def flatten(value: object) -> list[str]:
+    if isinstance(value, str): return [value]
+    if isinstance(value, list): return [item for child in value for item in flatten(child)]
+    if isinstance(value, dict): return [item for child in value.values() for item in flatten(child)]
+    return []
+
+
+def state_ip(directory: Path, values: dict[str, str]) -> str:
+    env = tofu_environment(values, directory)
+    result = command(["tofu", f"-chdir={TF_ROOT}", "output", f"-state={directory / 'tofu.tfstate'}", "-json", "qualification"], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    addresses = []
+    for raw in flatten(json.loads(result.stdout).get("ipv4")):
+        try: address = ipaddress.ip_address(raw.split("/", 1)[0])
+        except ValueError: continue
+        if address in ipaddress.ip_network("192.168.0.0/24") and str(address) not in {"192.168.0.1", "192.168.0.100", "192.168.0.123", "192.168.0.255"}:
+            addresses.append(str(address))
+    if len(set(addresses)) != 1: fail("qemu_agent_ipv4_identity_differs")
+    return addresses[0]
+
+
+def fresh_recovery_observation(directory: Path, values: dict[str, str]) -> tuple[str, str]:
+    if not recovery_created_exact(directory, values):
+        fail("fresh_vm_9900_exact_identity_differs")
+    item = recovery_resource(values)
+    config = api(values, "/nodes/proxmox/qemu/9900/config")
+    interfaces = api(values, "/nodes/proxmox/qemu/9900/agent/network-get-interfaces")
+    if (item is None or item.get("name") != "home-lab-restic-recovery" or item.get("status") != "running"
+            or not isinstance(config, dict) or config.get("name") != "home-lab-restic-recovery"
+            or config.get("protection") not in (0, False, "0") or config.get("onboot") not in (0, False, "0")
+            or "RESTIC-RECOVERY-ROOT-32G" not in str(config.get("scsi0"))
+            or "RESTIC-RECOVERY-128G" not in str(config.get("scsi1"))):
+        fail("fresh_vm_9900_configuration_differs")
+    candidates = []
+    for raw in flatten(interfaces):
+        try: address = ipaddress.ip_address(raw.split("/", 1)[0])
+        except ValueError: continue
+        if address in ipaddress.ip_network("192.168.0.0/24") and str(address) not in {"192.168.0.1", "192.168.0.100", "192.168.0.123", "192.168.0.255"}:
+            candidates.append(str(address))
+    if len(set(candidates)) != 1: fail("fresh_qemu_agent_ip_differs")
+    ip = candidates[0]
+    if ip != state_ip(directory, values): fail("state_and_api_ip_differ")
+    normalized = {key: value for key, value in config.items() if key not in {"digest", "lock", "pending"}}
+    return ip, sha_bytes(canonical({"config": normalized, "ip": ip, "vmid": VMID}))
+
+
+def known_hosts(directory: Path, ip: str, host_public: Path) -> Path:
+    key_parts = host_public.read_text().strip().split()
+    if len(key_parts) < 2 or key_parts[0] != "ssh-ed25519": fail("host_public_key_format_differs")
+    path = directory / "known_hosts"
+    value = f"{ip} {key_parts[0]} {key_parts[1]}\n".encode()
+    if path.exists(): path.unlink()
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "wb") as stream: stream.write(value); stream.flush(); os.fsync(stream.fileno())
+    return path
+
+
+def ssh_base(directory: Path, ip: str) -> list[str]:
+    return ["ssh", "-i", str(directory / "ssh-key"), "-o", f"UserKnownHostsFile={directory / 'known_hosts'}",
+            "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", f"recovery@{ip}"]
+
+
+def remote(directory: Path, ip: str, script: str, *, capture=False, input_text=None):
+    return command(ssh_base(directory, ip) + [script], stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+                   stderr=subprocess.DEVNULL, input_text=input_text)
+
+
+def remote_cleanup(directory: Path, ip: str) -> bool:
+    cleanup = (
+        "set -euo pipefail; "
+        "if test -r /run/restic-recovery-input/restore.pgid; then "
+        "p=$(cat /run/restic-recovery-input/restore.pgid); "
+        "case $p in (*[!0-9]*|'') exit 1;; esac; "
+        "kill -TERM -- -$p 2>/dev/null || true; "
+        "i=0; while kill -0 -- -$p 2>/dev/null && test $i -lt 50; do sleep 0.2; i=$((i+1)); done; "
+        "kill -KILL -- -$p 2>/dev/null || true; "
+        "fi; "
+        "rm -rf /run/restic-recovery-input /run/restic-recovery/bundle.* /run/restic-fixture /tmp/restic-recovery-transfer; "
+        "rm -rf /srv/home-lab-recovery/restic-proton-proof; "
+        "if mountpoint -q /srv/home-lab-recovery; then umount /srv/home-lab-recovery; fi; "
+        "test ! -e /run/restic-recovery-input && test ! -e /run/restic-fixture && "
+        "test ! -e /tmp/restic-recovery-transfer && test ! -e /srv/home-lab-recovery/restic-proton-proof && "
+        "test -z \"$(find /run/restic-recovery -maxdepth 1 -name 'bundle.*' -print -quit)\""
+    )
+    script = "sudo bash -c " + shlex.quote(cleanup)
+    return subprocess.run(
+        ssh_base(directory, ip) + [script], stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, check=False,
+    ).returncode == 0
+
+
+def service_observation_script() -> str:
+    return r'''python3 - <<'PY'
+import hashlib,json,subprocess
+blocked={'docker','dockerd','containerd','podman','authentik','homeassistant','nextcloud','postgres','mariadbd','mysqld','vaultwarden','vikunja'}
+processes=subprocess.run(['ps','-eo','comm='],check=True,text=True,stdout=subprocess.PIPE).stdout.splitlines()
+active=[]
+for unit in ('docker.service','containerd.service','podman.service'):
+ if subprocess.run(['systemctl','is-active','--quiet',unit],check=False).returncode==0: active.append(unit)
+containers=0
+for tool,args in (('docker',['docker','ps','-q']),('podman',['podman','ps','-q'])):
+ try:
+  result=subprocess.run(args,check=False,text=True,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+  if result.returncode==0: containers+=sum(bool(line) for line in result.stdout.splitlines())
+ except FileNotFoundError: pass
+print(json.dumps({'application_processes':sum(name.strip() in blocked for name in processes),'container_runtime_services':len(active),'containers':containers,'observation_sha256':hashlib.sha256(('\n'.join(sorted(processes))).encode()).hexdigest()},sort_keys=True,separators=(',',':')))
+PY'''
+
+
+def disk_prepare_script(allow_existing: bool, format_allowed: bool = True) -> str:
+    allowed = "1" if allow_existing else "0"
+    formatting = "1" if format_allowed else "0"
+    return rf'''set -euo pipefail
+allow_existing={allowed}
+format_allowed={formatting}
+device=$(python3 - <<'PY'
+from pathlib import Path
+matches=[]
+for serial in Path('/sys/block').glob('*/device/serial'):
+ try:
+  if serial.read_text().strip() == 'RESTIC-RECOVERY-128G': matches.append('/dev/'+serial.parts[-3])
+ except OSError: pass
+if len(matches) != 1: raise SystemExit(1)
+print(matches[0])
+PY
+)
+size=$(sudo blockdev --getsize64 "$device")
+[[ $size == 137438953472 ]]
+if sudo blkid -p "$device" >/dev/null 2>&1; then
+  [[ $allow_existing == 1 ]]
+  [[ $(sudo blkid -s TYPE -o value "$device") == ext4 && $(sudo blkid -s LABEL -o value "$device") == restic-recovery ]]
+  state=retained-exact-filesystem
+  sample_sha=$(printf retained-exact-filesystem|sha256sum|awk '{{print $1}}')
+else
+  [[ -z $(sudo wipefs --noheadings --output TYPE "$device") ]]
+  if sudo sfdisk --dump "$device" >/dev/null 2>&1; then exit 1; fi
+  sample_sha=$(sudo env DEVICE="$device" SIZE="$size" python3 - <<'PY'
+import hashlib,os
+path=os.environ['DEVICE']; size=int(os.environ['SIZE']); digest=hashlib.sha256()
+fd=os.open(path,os.O_RDONLY|os.O_CLOEXEC)
+try:
+ offsets=sorted({{0,max(0,size-1048576),*(i*(size-1048576)//65 for i in range(66))}})
+ if len(offsets) != 66: raise SystemExit(1)
+ for offset in offsets:
+  sample=os.pread(fd,1048576,offset)
+  if len(sample)!=1048576 or any(sample): raise SystemExit(1)
+  digest.update(sample)
+finally: os.close(fd)
+print(digest.hexdigest())
+PY
+)
+  if [[ $format_allowed == 1 ]]; then
+    sudo mkfs.ext4 -q -L restic-recovery "$device"
+    state=formatted-proven-blank
+  else
+    state=proven-blank
+  fi
+fi
+if [[ $format_allowed == 0 ]]; then
+  printf '{{"blank_sample_sha256":"%s","device_bytes":137438953472,"edge_samples":66,"serial_sha256":"%s","state":"%s"}}\n' "$sample_sha" "$(printf RESTIC-RECOVERY-128G|sha256sum|awk '{{print $1}}')" "$state"
+  exit 0
+fi
+sudo install -d -o root -g root -m 0700 /srv/home-lab-recovery
+sudo mountpoint -q /srv/home-lab-recovery || sudo mount -o nosuid,nodev "$device" /srv/home-lab-recovery
+sudo chown root:root /srv/home-lab-recovery; sudo chmod 0700 /srv/home-lab-recovery
+sudo install -d -o root -g root -m 0700 /srv/home-lab-recovery/restic-proton-proof
+[[ -z $(sudo find /srv/home-lab-recovery/restic-proton-proof -mindepth 1 -maxdepth 1 -print -quit) ]]
+printf '{{"blank_sample_sha256":"%s","device_bytes":137438953472,"edge_samples":66,"serial_sha256":"%s","state":"%s"}}\n' "$sample_sha" "$(printf RESTIC-RECOVERY-128G|sha256sum|awk '{{print $1}}')" "$state"
+'''
+
+
+def validate_service_script() -> str:
+    return r'''import json,os,sqlite3
+from pathlib import Path
+root=Path('/srv/home-lab-recovery/restic-proton-proof')
+required=['srv/home-lab-state/authentik-data/postgresql','srv/home-lab-state/nextcloud-db-data','srv/home-lab-state/nextcloud-config/config.php','mnt/games/wolf/cfg','etc/docker-compose/production.env','home/docker/.ssh']
+if not all((root/path).exists() and not (root/path).is_symlink() for path in required): raise SystemExit(1)
+external=['srv/home-lab-state/nextcloud-data','mnt/games/roms','srv/home-lab-state/calibre-data/books']
+if any((root/path).exists() for path in external): raise SystemExit(1)
+dbs=['srv/home-lab-state/hass-data/home-assistant_v2.db','srv/home-lab-state/vaultwarden-data/db.sqlite3','srv/home-lab-state/vikunja-data/vikunja.db']
+for relative in dbs:
+ path=root/relative
+ if not path.is_file() or path.is_symlink(): raise SystemExit(1)
+ connection=sqlite3.connect(f'file:{path}?mode=ro',uri=True)
+ try:
+  if connection.execute('PRAGMA integrity_check').fetchone() != ('ok',): raise SystemExit(1)
+ finally: connection.close()
+pg=list((root/'srv/home-lab-state/authentik-data/postgresql').rglob('PG_VERSION'))
+if len(pg)!=1 or not pg[0].is_file() or not pg[0].read_text().strip().isdigit(): raise SystemExit(1)
+maria=root/'srv/home-lab-state/nextcloud-db-data'
+if not any(path.is_file() and (path.name=='ibdata1' or path.suffix=='.ibd') for path in maria.rglob('*')): raise SystemExit(1)
+env_file=root/'etc/docker-compose/production.env'; config_php=root/'srv/home-lab-state/nextcloud-config/config.php'
+if not env_file.is_file() or not any('=' in line and not line.startswith('#') for line in env_file.read_text(errors='strict').splitlines()): raise SystemExit(1)
+if not config_php.is_file() or not config_php.read_text(errors='strict').lstrip().startswith('<?php'): raise SystemExit(1)
+files=sum(len(names) for _,_,names in os.walk(root,followlinks=False))
+print(json.dumps({'configuration_structure':'pass','database_integrity':'pass','external_user_data':'pending','representative_classes':len(required),'restored_files':files,'services_started':False,'state':'validated'},sort_keys=True,separators=(',',':')))
+'''
+
+
+def restore_remote_command(values_hex: list[str]) -> str:
+    if len(values_hex) != 6 or any(HEX.fullmatch(item) is None for item in values_hex):
+        fail("restore_argument_identity_differs")
+    inner = (
+        "set -euo pipefail; /run/restic-recovery-input/age --decrypt --identity /run/restic-recovery-input/identity.agekey /run/restic-recovery-input/bundle.age | "
+        "env RECOVERY_DISPOSABLE_VM_CONFIRMED=fresh-disposable-vm-without-host-tokens /run/restic-recovery-input/run-restic-recovery-bundle "
+        "--expected-plaintext-sha256 \"$1\" --expected-snapshot-id \"$2\" --expected-original-snapshot-id \"$3\" "
+        "--expected-repository-id \"$4\" --expected-policy-sha256 \"$5\" --expected-artifact-sha256 \"$6\" --target /srv/home-lab-recovery/restic-proton-proof"
+    )
+    supervisor = (
+        "setsid bash -c \"$1\" restore \"$2\" \"$3\" \"$4\" \"$5\" \"$6\" \"$7\" & "
+        "p=$!; echo $p >/run/restic-recovery-input/restore.pgid; wait $p"
+    )
+    quoted = " ".join(shlex.quote(item) for item in values_hex)
+    return "sudo bash -c " + shlex.quote(supervisor) + " supervise " + shlex.quote(inner) + " " + quoted
+
+
+def terminate_process_group(child: subprocess.Popen[str] | None) -> None:
+    if child is None or child.poll() is not None:
+        return
+    os.killpg(child.pid, signal.SIGTERM)
+    try:
+        child.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        os.killpg(child.pid, signal.SIGKILL)
+        child.wait()
+
+
+def run_restore() -> None:
+    commit = require_revision(); directory = transaction(commit); transaction_journal = journal(directory, commit); paths = sources()
+    if os.environ.get("RESTIC_RECOVERY_VM_CONFIRMATION") != CONFIRMATIONS["run"]: fail("exact_confirmation_required")
+    create = read_manifest(directory, "create", commit, allow_expired=True)
+    values = credentials("plan"); production = production_hash(values)
+    validate_marker(directory, "create", production)
+    if production != create["production_vm_before_sha256"]: fail("production_vm_identity_drift")
+    if (directory / "run-evidence.json").exists(): fail("restore_run_already_completed")
+    metadata, result = recovery_metadata(paths)
+    ip, observation_sha = fresh_recovery_observation(directory, values)
+    _cloud, _user_public, host_public = cloud_init_data(directory)
+    known_hosts(directory, ip, host_public)
+    checkpoint(directory, transaction_journal, "run-observed", "fresh-api-agent-vm9900-bound")
+    prior_handlers = {}
+    def interrupt(signum: int, _frame: object) -> None:
+        terminate_process_group(ACTIVE_CHILD)
+        remote_cleanup(directory, ip)
+        raise SystemExit(128 + signum)
+    for signum in (signal.SIGINT, signal.SIGTERM): prior_handlers[signum] = signal.signal(signum, interrupt)
+    evidence: dict[str, object]
+    try:
+        for _ in range(36):
+            attempt = command(ssh_base(directory, ip) + ["true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            if attempt.returncode == 0: break
+            time.sleep(5)
+        else: fail("recovery_vm_ssh_unavailable")
+        before_services = json.loads(remote(directory, ip, service_observation_script(), capture=True).stdout)
+        if before_services.get("application_processes") != 0 or before_services.get("container_runtime_services") != 0:
+            fail("recovery_vm_not_service_isolated")
+        transfer_ip, transfer_observation_sha = fresh_recovery_observation(directory, values)
+        if transfer_ip != ip or transfer_observation_sha != observation_sha:
+            fail("pretransfer_vm_observation_drift")
+        checkpoint(directory, transaction_journal, "run-pretransfer-observed", "immediate-api-agent-vm9900-bound")
+        remote(directory, ip, "umask 077; install -d -m 0700 /tmp/restic-recovery-transfer")
+        transfers = [(paths["bundle"], "bundle.age"), (paths["identity"], "identity.agekey"), (paths["consumer"], "run-restic-recovery-bundle"), (paths["age"], "age"), (paths["activation_test"], "test-restic-activation-fixture"), (paths["activation_engine"], "activate-restic-staging-fixture")]
+        for source, name in transfers:
+            command(["scp", "-q", "-i", str(directory / "ssh-key"), "-o", f"UserKnownHostsFile={directory / 'known_hosts'}", "-o", "StrictHostKeyChecking=yes", str(source), f"recovery@{ip}:/tmp/restic-recovery-transfer/{name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        prepare = r'''set -euo pipefail
+sudo install -d -o root -g root -m 0700 /run/restic-recovery-input /run/restic-recovery /srv/home-lab-recovery
+sudo install -o root -g root -m 0600 /tmp/restic-recovery-transfer/bundle.age /run/restic-recovery-input/bundle.age
+sudo install -o root -g root -m 0600 /tmp/restic-recovery-transfer/identity.agekey /run/restic-recovery-input/identity.agekey
+sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/run-restic-recovery-bundle /run/restic-recovery-input/run-restic-recovery-bundle
+sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/age /run/restic-recovery-input/age
+sudo install -d -o root -g root -m 0755 /run/restic-fixture/scripts
+sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/test-restic-activation-fixture /run/restic-fixture/scripts/test-restic-activation-fixture
+sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/activate-restic-staging-fixture /run/restic-fixture/scripts/activate-restic-staging-fixture
+rm -rf /tmp/restic-recovery-transfer
+'''
+        remote(directory, ip, prepare)
+        authorized = any(point.get("detail") in {"serial-blank-disk-validated", "serial-disk-prepared"}
+                         for point in transaction_journal.get("checkpoints", []) if isinstance(point, dict))
+        if not authorized:
+            blank_evidence = json.loads(remote(directory, ip, disk_prepare_script(False, False), capture=True).stdout)
+            if (set(blank_evidence) != {"blank_sample_sha256", "device_bytes", "edge_samples", "serial_sha256", "state"}
+                    or blank_evidence["device_bytes"] != 137438953472 or blank_evidence["edge_samples"] != 66
+                    or blank_evidence.get("state") != "proven-blank"
+                    or HEX.fullmatch(str(blank_evidence["serial_sha256"])) is None
+                    or HEX.fullmatch(str(blank_evidence["blank_sample_sha256"])) is None):
+                fail("blank_disk_authorization_evidence_differs")
+        checkpoint(directory, transaction_journal, "run-disk-format-authorized", "serial-blank-disk-validated")
+        disk_evidence = json.loads(remote(directory, ip, disk_prepare_script(True, True), capture=True).stdout)
+        if (set(disk_evidence) != {"blank_sample_sha256", "device_bytes", "edge_samples", "serial_sha256", "state"}
+                or disk_evidence["device_bytes"] != 137438953472 or disk_evidence["edge_samples"] != 66
+                or disk_evidence.get("state") not in {"formatted-proven-blank", "retained-exact-filesystem"}
+                or HEX.fullmatch(str(disk_evidence["serial_sha256"])) is None
+                or HEX.fullmatch(str(disk_evidence["blank_sample_sha256"])) is None):
+            fail("disk_provenance_evidence_differs")
+        checkpoint(directory, transaction_journal, "run-disk-prepared", "serial-disk-prepared")
+        values_hex = [result["plaintext_sha256"], metadata["snapshot_id"], metadata["original_snapshot_id"], metadata["repository_id"], metadata["policy_sha256"], metadata["artifact_sha256"]]
+        restore_script = restore_remote_command([str(item) for item in values_hex])
+        restore_result = command(ssh_base(directory, ip) + [restore_script], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        stdout = restore_result.stdout
+        if restore_result.returncode != 0: fail("isolated_restore_failed")
+        restored = parse_json_no_duplicates(stdout.encode())
+        restore_keys = {"bytes", "files", "original_snapshot_id", "plaintext_sha256", "repository_id", "snapshot_id", "state", "version"}
+        if (not isinstance(restored, dict) or set(restored) != restore_keys or restored.get("state") != "restored-verified"
+                or restored.get("version") != 1 or type(restored.get("bytes")) is not int or restored["bytes"] <= 0
+                or type(restored.get("files")) is not int or restored["files"] <= 0
+                or any(not isinstance(restored.get(key), str) or HEX.fullmatch(restored[key]) is None
+                       for key in ("original_snapshot_id", "plaintext_sha256", "repository_id", "snapshot_id"))):
+            fail("restore_evidence_differs")
+        service = parse_json_no_duplicates(remote(directory, ip, "sudo python3 -", capture=True, input_text=validate_service_script()).stdout.encode())
+        service_keys = {"configuration_structure", "database_integrity", "external_user_data", "representative_classes", "restored_files", "services_started", "state"}
+        if (not isinstance(service, dict) or set(service) != service_keys or service.get("configuration_structure") != "pass"
+                or service.get("database_integrity") != "pass" or service.get("external_user_data") != "pending"
+                or service.get("services_started") is not False or service.get("state") != "validated"
+                or type(service.get("representative_classes")) is not int or service["representative_classes"] < 1
+                or type(service.get("restored_files")) is not int or service["restored_files"] < 1):
+            fail("service_validation_evidence_differs")
+        activation = remote(directory, ip, "/run/restic-fixture/scripts/test-restic-activation-fixture", capture=True).stdout.strip()
+        if activation != "restic isolated activation fixtures passed": fail("activation_fixture_evidence_differs")
+        after_services = json.loads(remote(directory, ip, service_observation_script(), capture=True).stdout)
+        observation_keys = {"application_processes", "container_runtime_services", "containers", "observation_sha256"}
+        if (set(before_services) != observation_keys or set(after_services) != observation_keys
+                or any(type(item.get(key)) is not int or item[key] != 0 for item in (before_services, after_services)
+                       for key in ("application_processes", "container_runtime_services", "containers"))
+                or any(not isinstance(item.get("observation_sha256"), str) or HEX.fullmatch(item["observation_sha256"]) is None
+                       for item in (before_services, after_services))):
+            fail("service_process_isolation_changed")
+        evidence = {
+            "version": 1, "state": "restored-verified", "vmid": VMID, "production_vm_sha256": production,
+            "vm_observation_sha256": observation_sha, "restore": restored, "service_validation": service,
+            "service_observation_before": before_services, "service_observation_after": after_services,
+            "disk_provenance": disk_evidence, "activation_fixture": activation,
+            "bundle_ciphertext_sha256": digest(paths["bundle"]), "external_user_data": "pending",
+        }
+    finally:
+        cleanup_ok = remote_cleanup(directory, ip)
+        for signum, handler in prior_handlers.items(): signal.signal(signum, handler)
+        if not cleanup_ok: fail("recovery_plaintext_cleanup_failed")
+    atomic_json(directory / "run-evidence.json", evidence, exclusive=True)
+    checkpoint(directory, transaction_journal, "run-complete", "plaintext-cleanup-and-evidence-complete")
+    print("restic_recovery_vm=restored_verified activation=passed external_user_data=pending")
+
+
+def status() -> None:
+    values = credentials("plan"); item = recovery_resource(values)
+    print(f"restic_recovery_vm=status vmid={VMID} state={'absent' if item is None else item.get('status', 'unknown')}")
+
+
+def main() -> None:
+    allowed = {"plan-create", "apply-create", "status", "run", "plan-destroy", "apply-destroy"}
+    if len(sys.argv) != 2 or sys.argv[1] not in allowed:
+        raise SystemExit("usage: scripts/prove-restic-recovery-vm <plan-create|apply-create|status|run|plan-destroy|apply-destroy>")
+    secure_directory(ROOT / ".reconcile", create=True)
+    lock_parent = ROOT / ".reconcile/restic-recovery-vm"
+    secure_directory(lock_parent, create=True)
+    lock_path = lock_parent / "transaction.lock"
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    prior_handlers = {}
+    def interrupt(signum: int, _frame: object) -> None:
+        terminate_process_group(ACTIVE_CHILD)
+        raise SystemExit(128 + signum)
+    try:
+        os.fchmod(descriptor, 0o600); os.fsync(descriptor)
+        item = os.fstat(descriptor)
+        if (not stat.S_ISREG(item.st_mode) or stat.S_IMODE(item.st_mode) != 0o600
+                or item.st_uid != os.getuid() or item.st_nlink != 1):
+            fail("transaction_lock_metadata_differs")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            fail("transaction_lock_held")
+        for signum in (signal.SIGINT, signal.SIGTERM):
+            prior_handlers[signum] = signal.signal(signum, interrupt)
+        action = sys.argv[1]
+        if action == "plan-create": plan("create")
+        elif action == "apply-create": apply("create")
+        elif action == "status": status()
+        elif action == "run": run_restore()
+        elif action == "plan-destroy": plan("destroy")
+        else: apply("destroy")
+    finally:
+        for signum, handler in prior_handlers.items():
+            signal.signal(signum, handler)
+        os.close(descriptor)
+
+
+if __name__ == "__main__": main()
