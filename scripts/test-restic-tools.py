@@ -296,6 +296,8 @@ def main() -> None:
         assert qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification") == (False, [])
         qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 3, b"null", b"directory not found")
         assert qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification") == (False, [])
+        qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 3, b" \n\t", b"directory not found")
+        assert qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification") == (False, [])
         qualification_globals["rclone"] = lambda *_args: subprocess.CompletedProcess([], 3, b"{}\n", b"directory not found")
         try:
             qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification")
