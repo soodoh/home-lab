@@ -151,7 +151,7 @@ def sensitive_unknown(unknown: Any) -> bool:
         "initialization": [{
             "dns": [], "file_format": True, "ip_config": [{"ipv4": [{}], "ipv6": []}],
             "meta_data_file_id": True, "network_data_file_id": True, "type": True,
-            "user_account": [], "user_data_file_id": True, "vendor_data_file_id": True,
+            "user_account": [], "vendor_data_file_id": True,
         }],
         "ipv4_addresses": True, "ipv6_addresses": True, "mac_addresses": True,
         "memory": [{}], "network_device": [{"mac_address": True}], "network_interface_names": True,
