@@ -77,7 +77,7 @@ def main() -> None:
             or stat.S_IMODE(target_metadata.st_mode) != 0o700 or target.is_symlink()
             or any(target.iterdir())):
         fail("recovery proof target metadata differs")
-    workspace_parent = Path("/run/restic-recovery")
+    workspace_parent = Path("/var/tmp/restic-recovery")
     workspace_parent_metadata = workspace_parent.lstat()
     if (not stat.S_ISDIR(workspace_parent_metadata.st_mode)
             or workspace_parent_metadata.st_uid != os.geteuid()

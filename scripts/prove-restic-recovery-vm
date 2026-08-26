@@ -1024,12 +1024,12 @@ def remote_cleanup(directory: Path, ip: str) -> bool:
         "i=0; while kill -0 -- -$p 2>/dev/null && test $i -lt 50; do sleep 0.2; i=$((i+1)); done; "
         "kill -KILL -- -$p 2>/dev/null || true; "
         "fi; "
-        "rm -rf /var/tmp/restic-recovery-input /run/restic-recovery/bundle.* /run/restic-fixture /tmp/restic-recovery-transfer; "
+        "rm -rf /var/tmp/restic-recovery-input /var/tmp/restic-recovery/bundle.* /run/restic-fixture /tmp/restic-recovery-transfer; "
         "rm -rf /srv/home-lab-recovery/restic-proton-proof; "
         "if mountpoint -q /srv/home-lab-recovery; then umount /srv/home-lab-recovery; fi; "
         "test ! -e /var/tmp/restic-recovery-input && test ! -e /run/restic-fixture && "
         "test ! -e /tmp/restic-recovery-transfer && test ! -e /srv/home-lab-recovery/restic-proton-proof && "
-        "{ test ! -e /run/restic-recovery || test -z \"$(find /run/restic-recovery -maxdepth 1 -name 'bundle.*' -print -quit)\"; }"
+        "{ test ! -e /var/tmp/restic-recovery || test -z \"$(find /var/tmp/restic-recovery -maxdepth 1 -name 'bundle.*' -print -quit)\"; }"
     )
     script = "sudo bash -c " + shlex.quote(cleanup)
     return subprocess.run(
@@ -1210,7 +1210,7 @@ def run_restore() -> None:
         for source, name in transfers:
             command(["scp", "-q", "-i", str(directory / "ssh-key"), "-o", f"UserKnownHostsFile={directory / 'known_hosts'}", "-o", "StrictHostKeyChecking=yes", str(source), f"root@{ip}:/tmp/restic-recovery-transfer/{name}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         prepare = r'''set -euo pipefail
-sudo install -d -o root -g root -m 0700 /var/tmp/restic-recovery-input /run/restic-recovery /srv/home-lab-recovery
+sudo install -d -o root -g root -m 0700 /var/tmp/restic-recovery-input /var/tmp/restic-recovery /srv/home-lab-recovery
 sudo install -o root -g root -m 0600 /tmp/restic-recovery-transfer/bundle.age /var/tmp/restic-recovery-input/bundle.age
 sudo install -o root -g root -m 0600 /tmp/restic-recovery-transfer/identity.agekey /var/tmp/restic-recovery-input/identity.agekey
 sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/run-restic-recovery-bundle /var/tmp/restic-recovery-input/run-restic-recovery-bundle

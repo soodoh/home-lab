@@ -92,7 +92,7 @@ import os
 from pathlib import Path
 source=Path(os.environ["CONSUMER_SOURCE"]).read_text()
 source=source.replace("/srv/home-lab-recovery/restic-proton-proof", os.environ["RECOVERY_TARGET"])
-source=source.replace("/run/restic-recovery", os.environ["WORKSPACE_PARENT"])
+source=source.replace("/var/tmp/restic-recovery", os.environ["WORKSPACE_PARENT"])
 target=Path(os.environ["CONSUMER_TARGET"])
 target.write_text(source)
 target.chmod(0o755)
@@ -124,7 +124,7 @@ import os
 from pathlib import Path
 source=Path(os.environ["CONSUMER_SOURCE"]).read_text()
 source=source.replace("/srv/home-lab-recovery/restic-proton-proof", os.environ["RECOVERY_TARGET"])
-source=source.replace("/run/restic-recovery", os.environ["WORKSPACE_PARENT"])
+source=source.replace("/var/tmp/restic-recovery", os.environ["WORKSPACE_PARENT"])
 target=Path(os.environ["CONSUMER_TARGET"])
 target.write_text(source)
 target.chmod(0o755)
