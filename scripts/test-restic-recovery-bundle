@@ -12,7 +12,16 @@ echo $name
 SH
   chmod 0755 "$work/$name"
 done
-cp "$repo_root/scripts/restore-critical-backup" "$work/restore-critical-backup"
+cat >"$work/restore-critical-backup" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $1 == --restic-snapshot-id && $3 == --confirmed-empty-target ]]
+[[ $RECOVERY_RESTIC_REPOSITORY == rclone:proton_backup:Backups/home-lab-restic ]]
+if [[ $RECOVERY_TARGET == *interrupt* ]]; then sleep 60; fi
+mkdir -p "$RECOVERY_TARGET/srv/home-lab-state"
+printf verified >"$RECOVERY_TARGET/srv/home-lab-state/fixture"
+printf 'recovery_restore=verified backend=restic snapshot=%s\n' "$2"
+SH
 chmod 0755 "$work/restore-critical-backup"
 cat >"$work/age" <<'SH'
 #!/usr/bin/env bash
@@ -72,6 +81,74 @@ with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
         assert hashlib.sha256(content).hexdigest() == expected["sha256"]
 PY
 [[ $(stat -f '%Lp' "$work/out/a.age" 2>/dev/null || stat -c '%a' "$work/out/a.age") == 600 ]]
+
+recovery_parent="$work/recovery"
+recovery_target="$recovery_parent/restic-proton-proof"
+workspace_parent="$work/run-restic-recovery"
+mkdir -m 0700 "$recovery_parent" "$recovery_target" "$workspace_parent"
+CONSUMER_SOURCE="$repo_root/scripts/run-restic-recovery-bundle" CONSUMER_TARGET="$work/run-restic-recovery-bundle" \
+  RECOVERY_TARGET="$recovery_target" WORKSPACE_PARENT="$workspace_parent" python3 - <<'PY'
+import os
+from pathlib import Path
+source=Path(os.environ["CONSUMER_SOURCE"]).read_text()
+source=source.replace("/srv/home-lab-recovery/restic-proton-proof", os.environ["RECOVERY_TARGET"])
+source=source.replace("/run/restic-recovery", os.environ["WORKSPACE_PARENT"])
+target=Path(os.environ["CONSUMER_TARGET"])
+target.write_text(source)
+target.chmod(0o755)
+PY
+tail -n +2 "$work/out/a.age" >"$work/plaintext.tar"
+plaintext_sha=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$work/plaintext.tar")
+consumer_output=$(umask 077; RECOVERY_DISPOSABLE_VM_CONFIRMED=fresh-disposable-vm-without-host-tokens \
+  "$work/run-restic-recovery-bundle" --expected-plaintext-sha256 "$plaintext_sha" \
+  --expected-snapshot-id 95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e \
+  --expected-original-snapshot-id edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2 \
+  --expected-repository-id d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e \
+  --expected-policy-sha256 09f86d94190f0020488bad8285d60ef42f26a4e285992be1973e38fd3387e5a6 \
+  --expected-artifact-sha256 "$(printf 'a%.0s' {1..64})" --target "$recovery_target" <"$work/plaintext.tar")
+CONSUMER_OUTPUT="$consumer_output" python3 - <<'PY'
+import json,os
+value=json.loads(os.environ["CONSUMER_OUTPUT"])
+assert value["state"] == "restored-verified" and value["files"] == 1
+PY
+[[ $(cat "$recovery_target/srv/home-lab-state/fixture") == verified ]]
+[[ -z $(find "$workspace_parent" -mindepth 1 -print -quit) ]]
+
+interrupt_parent="$work/interrupt-recovery"
+interrupt_target="$interrupt_parent/restic-proton-proof"
+interrupt_workspace="$work/interrupt-run-restic-recovery"
+mkdir -m 0700 "$interrupt_parent" "$interrupt_target" "$interrupt_workspace"
+CONSUMER_SOURCE="$repo_root/scripts/run-restic-recovery-bundle" CONSUMER_TARGET="$work/run-interrupted-restic-recovery-bundle" \
+  RECOVERY_TARGET="$interrupt_target" WORKSPACE_PARENT="$interrupt_workspace" python3 - <<'PY'
+import os
+from pathlib import Path
+source=Path(os.environ["CONSUMER_SOURCE"]).read_text()
+source=source.replace("/srv/home-lab-recovery/restic-proton-proof", os.environ["RECOVERY_TARGET"])
+source=source.replace("/run/restic-recovery", os.environ["WORKSPACE_PARENT"])
+target=Path(os.environ["CONSUMER_TARGET"])
+target.write_text(source)
+target.chmod(0o755)
+PY
+RECOVERY_DISPOSABLE_VM_CONFIRMED=fresh-disposable-vm-without-host-tokens \
+  "$work/run-interrupted-restic-recovery-bundle" --expected-plaintext-sha256 "$plaintext_sha" \
+  --expected-snapshot-id 95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e \
+  --expected-original-snapshot-id edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2 \
+  --expected-repository-id d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e \
+  --expected-policy-sha256 09f86d94190f0020488bad8285d60ef42f26a4e285992be1973e38fd3387e5a6 \
+  --expected-artifact-sha256 "$(printf 'a%.0s' {1..64})" --target "$interrupt_target" \
+  <"$work/plaintext.tar" >/dev/null 2>&1 &
+consumer_pid=$!
+for _ in {1..100}; do
+  find "$interrupt_workspace" -path '*/private/restic-password' -print -quit | grep -q . && break
+  sleep 0.05
+done
+find "$interrupt_workspace" -path '*/private/restic-password' -print -quit | grep -q .
+kill -TERM "$consumer_pid"
+if wait "$consumer_pid"; then
+  echo 'interrupted recovery consumer unexpectedly passed' >&2
+  exit 1
+fi
+[[ -z $(find "$interrupt_workspace" -mindepth 1 -print -quit) ]]
 
 if env "${common[@]}" RECOVERY_BUNDLE_PROTON_MAILBOX_PASSWORD=forbidden \
   "$repo_root/scripts/build-restic-recovery-bundle" --metadata "$work/metadata.json" \
