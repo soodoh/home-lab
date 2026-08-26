@@ -104,10 +104,10 @@ def main() -> None:
     assert policy["restore"]["modes"] == ["staging"]
     assert policy["restore"]["activation_status"] == "unavailable-pending-isolated-proofs"
     assert policy["credentials"] == {"bootstrap_enabled": True, "state": "provisioned"}
-    assert policy["qualification"]["state"] == "ready"
+    assert policy["qualification"]["state"] == "qualified"
     assert policy["qualification"]["username_sha256"] == "809cd2b0e14ad028438ad5a0a7af801dce013a86a3f1d62926a605177198389b"
-    assert policy["qualification"]["evidence_sha256"] is None
-    assert policy["qualification"]["verified_at"] is None
+    assert policy["qualification"]["evidence_sha256"] == "81f93aca27a87fe38d90137f33da60d823ed5e391296c95cb7ab1be867dfc679"
+    assert policy["qualification"]["verified_at"] == "2026-08-26T00:42:08Z"
     assert policy["qualification"]["remote_directory"] == "Backups/.home-lab-rclone-qualification"
 
     files_from = (ROOT / "services/data/restic/files-from").read_text().splitlines()

@@ -71,6 +71,8 @@ fixture = clone();
 fixture.credentials = { bootstrap_enabled: true, state: "provisioned" };
 fixture.qualification.state = "ready";
 fixture.qualification.username_sha256 = "a".repeat(64);
+fixture.qualification.evidence_sha256 = null;
+fixture.qualification.verified_at = null;
 assert.deepEqual(validateResticPolicy(fixture), []);
 
 fixture = clone();

@@ -1447,7 +1447,7 @@ backups:
       minimum_free_bytes: 100000000000
       backlog_limit: 7
     qualification:
-      state: ready
+      state: qualified
       username_sha256: 809cd2b0e14ad028438ad5a0a7af801dce013a86a3f1d62926a605177198389b
       helper_sha256: 081416b7d0b51aec8e906abf77767bfb1eed1e8040eb9c12730ac5128c35a9e7
       remote_directory: Backups/.home-lab-rclone-qualification
@@ -1458,8 +1458,8 @@ backups:
       range_offset: 1024
       range_count: 1024
       confirmation: qualify-proton-bounded-operations
-      evidence_sha256: null
-      verified_at: null
+      evidence_sha256: 81f93aca27a87fe38d90137f33da60d823ed5e391296c95cb7ab1be867dfc679
+      verified_at: "2026-08-26T00:42:08Z"
     schedule:
       daily_calendar: "*-*-* 05:00:00"
       maintenance_calendar: monthly
