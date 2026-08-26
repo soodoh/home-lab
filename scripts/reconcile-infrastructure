@@ -126,13 +126,13 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-reconcile-manifest.py
   python3 scripts/controller/test-reconcile-security.py
   scripts/test-recovery-tools
-  python3 -m py_compile scripts/*.py scripts/controller/*.py
+  python3 -m py_compile scripts/*.py scripts/controller/*.py scripts/build-restic-recovery-bundle
   shellcheck scripts/reconcile-infrastructure scripts/local-controller \
     scripts/build-recovery-bundle scripts/configure-local-controller-aws \
     scripts/configure-local-provider-credentials \
     scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack scripts/validate-proxmox-bootstrap-keys \
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
-    scripts/restore-critical-backup scripts/test-recovery-tools scripts/test-restic-restore-branch
+    scripts/restore-critical-backup scripts/test-recovery-tools scripts/test-restic-recovery-bundle scripts/test-restic-restore-branch
   tofu fmt -check -recursive infrastructure/tofu
   for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
     (

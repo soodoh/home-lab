@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+mkdir -m 0700 "$work/out"
+
+for name in restic rclone; do
+  cat >"$work/$name" <<SH
+#!/usr/bin/env bash
+echo $name
+SH
+  chmod 0755 "$work/$name"
+done
+cp "$repo_root/scripts/restore-critical-backup" "$work/restore-critical-backup"
+chmod 0755 "$work/restore-critical-backup"
+cat >"$work/age" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $1 == --encrypt && $2 == --recipient && $# == 3 ]]
+[[ ${FAIL_AGE:-false} != true ]] || exit 1
+printf '%s\n' "$3"
+cat
+SH
+chmod 0755 "$work/age"
+
+sha() { sha256sum "$1" | awk '{print $1}'; }
+restic_sha=$(sha "$work/restic")
+rclone_sha=$(sha "$work/rclone")
+runner_sha=$(sha "$work/restore-critical-backup")
+age_sha=$(sha "$work/age")
+cat >"$work/metadata.json" <<JSON
+{"artifact_sha256":"$(printf 'a%.0s' {1..64})","first_run_evidence_sha256":"$(printf 'b%.0s' {1..64})","original_snapshot_id":"edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2","policy_sha256":"09f86d94190f0020488bad8285d60ef42f26a4e285992be1973e38fd3387e5a6","qualification_evidence_sha256":"$(printf 'c%.0s' {1..64})","rclone_sha256":"$rclone_sha","repository":"rclone:proton_backup:Backups/home-lab-restic","repository_id":"d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e","restic_sha256":"$restic_sha","restore_runner_sha256":"$runner_sha","snapshot_id":"95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e","version":1}
+JSON
+chmod 0600 "$work/metadata.json"
+recipient_a=age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq
+recipient_b=age1pppppppppppppppppppppppppppppppppppppppppppppppppppppppp
+common=(
+  RECOVERY_BUNDLE_RESTIC_PASSWORD=fixture-restic-password-longer-than-thirty-two-bytes
+  RECOVERY_BUNDLE_PROTON_USERNAME=fixture-user
+  RECOVERY_BUNDLE_PROTON_LOGIN_PASSWORD=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn1234567890
+)
+build() {
+  local recipient=$1 output=$2
+  env "${common[@]}" "$repo_root/scripts/build-restic-recovery-bundle" \
+    --metadata "$work/metadata.json" --restic "$work/restic" --rclone "$work/rclone" \
+    --restore-runner "$work/restore-critical-backup" --age "$work/age" --age-sha256 "$age_sha" \
+    --recipient "$recipient" --output "$output"
+}
+result_a=$(build "$recipient_a" "$work/out/a.age")
+result_b=$(build "$recipient_b" "$work/out/b.age")
+RESULT_A="$result_a" RESULT_B="$result_b" CIPHERTEXT_A="$work/out/a.age" python3 - <<'PY'
+import hashlib
+import io
+import json
+import os
+import tarfile
+a=json.loads(os.environ["RESULT_A"]); b=json.loads(os.environ["RESULT_B"])
+assert a["state"] == b["state"] == "encrypted"
+assert a["plaintext_sha256"] == b["plaintext_sha256"]
+assert a["ciphertext_sha256"] != b["ciphertext_sha256"]
+assert a["recipient_sha256"] != b["recipient_sha256"]
+raw=open(os.environ["CIPHERTEXT_A"], "rb").read().split(b"\n", 1)[1]
+with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
+    members=archive.getmembers()
+    assert [member.name for member in members] == sorted(member.name for member in members)
+    assert all(member.uid == member.gid == member.mtime == 0 and member.isfile() for member in members)
+    manifest=json.load(archive.extractfile("MANIFEST.json"))
+    for name, expected in manifest.items():
+        content=archive.extractfile(name).read()
+        assert len(content) == expected["size"]
+        assert hashlib.sha256(content).hexdigest() == expected["sha256"]
+PY
+[[ $(stat -f '%Lp' "$work/out/a.age" 2>/dev/null || stat -c '%a' "$work/out/a.age") == 600 ]]
+
+if env "${common[@]}" RECOVERY_BUNDLE_PROTON_MAILBOX_PASSWORD=forbidden \
+  "$repo_root/scripts/build-restic-recovery-bundle" --metadata "$work/metadata.json" \
+  --restic "$work/restic" --rclone "$work/rclone" --restore-runner "$work/restore-critical-backup" \
+  --age "$work/age" --age-sha256 "$age_sha" --recipient "$recipient_a" --output "$work/out/forbidden.age" >/dev/null 2>&1; then
+  echo 'forbidden recovery bundle field unexpectedly passed' >&2
+  exit 1
+fi
+[[ ! -e $work/out/forbidden.age ]]
+
+if env "${common[@]}" FAIL_AGE=true "$repo_root/scripts/build-restic-recovery-bundle" \
+  --metadata "$work/metadata.json" --restic "$work/restic" --rclone "$work/rclone" \
+  --restore-runner "$work/restore-critical-backup" --age "$work/age" --age-sha256 "$age_sha" \
+  --recipient "$recipient_a" --output "$work/out/failed.age" >/dev/null 2>&1; then
+  echo 'failed age encryption unexpectedly passed' >&2
+  exit 1
+fi
+[[ ! -e $work/out/failed.age ]]
+
+cp "$work/out/a.age" "$work/out/existing.age"
+existing_sha=$(sha "$work/out/existing.age")
+if build "$recipient_b" "$work/out/existing.age" >/dev/null 2>&1; then
+  echo 'existing bundle destination unexpectedly replaced' >&2
+  exit 1
+fi
+[[ $(sha "$work/out/existing.age") == "$existing_sha" ]]
+
+printf 'restic recovery bundle fixtures passed\n'

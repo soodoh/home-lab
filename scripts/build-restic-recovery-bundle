@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import secrets as secure_random
+import stat
+import subprocess
+import sys
+import tarfile
+
+HEX = re.compile(r"^[0-9a-f]{64}$")
+RECIPIENT = re.compile(r"^age1[023456789acdefghjklmnpqrstuvwxyz]{20,100}$")
+SECRET_KEYS = {
+    "RECOVERY_BUNDLE_RESTIC_PASSWORD",
+    "RECOVERY_BUNDLE_PROTON_USERNAME",
+    "RECOVERY_BUNDLE_PROTON_LOGIN_PASSWORD",
+}
+FORBIDDEN_FRAGMENTS = ("2FA", "CLIENT_", "MAILBOX", "OTP", "TOKEN")
+
+
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def secure_source(path: Path, expected: str, executable: bool) -> bytes:
+    metadata = path.lstat()
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or path.is_symlink():
+        raise ValueError("bundle source metadata differs")
+    mode = stat.S_IMODE(metadata.st_mode)
+    if executable and mode != 0o755:
+        raise ValueError("bundle executable mode differs")
+    if not executable and mode not in {0o400, 0o600}:
+        raise ValueError("bundle protected source mode differs")
+    content = path.read_bytes()
+    if digest(content) != expected:
+        raise ValueError("bundle source hash differs")
+    return content
+
+
+def canonical(value: object) -> bytes:
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def add_file(archive: tarfile.TarFile, name: str, content: bytes, mode: int) -> None:
+    member = tarfile.TarInfo(name)
+    member.size = len(content)
+    member.mode = mode
+    member.uid = 0
+    member.gid = 0
+    member.uname = "root"
+    member.gname = "root"
+    member.mtime = 0
+    archive.addfile(member, io.BytesIO(content))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--metadata", required=True)
+    parser.add_argument("--restic", required=True)
+    parser.add_argument("--rclone", required=True)
+    parser.add_argument("--restore-runner", required=True)
+    parser.add_argument("--age", required=True)
+    parser.add_argument("--age-sha256", required=True)
+    parser.add_argument("--recipient", required=True)
+    parser.add_argument("--output", required=True)
+    arguments = parser.parse_args()
+
+    if not RECIPIENT.fullmatch(arguments.recipient) or not HEX.fullmatch(arguments.age_sha256):
+        raise ValueError("bundle encryption identity differs")
+    unexpected = {
+        key for key in os.environ
+        if key.startswith("RECOVERY_BUNDLE_") and key not in SECRET_KEYS
+    }
+    if unexpected or any(fragment in key for key in os.environ for fragment in FORBIDDEN_FRAGMENTS if key.startswith("RECOVERY_BUNDLE_")):
+        raise ValueError("forbidden recovery bundle credential field")
+    secrets = {key: os.environ.get(key, "") for key in SECRET_KEYS}
+    if len(secrets["RECOVERY_BUNDLE_RESTIC_PASSWORD"].encode()) < 32:
+        raise ValueError("Restic recovery password is too short")
+    if not re.fullmatch(r"[A-Za-z0-9]{40,}", secrets["RECOVERY_BUNDLE_PROTON_LOGIN_PASSWORD"]):
+        raise ValueError("Proton recovery login password differs")
+    if not secrets["RECOVERY_BUNDLE_PROTON_USERNAME"]:
+        raise ValueError("Proton recovery username is absent")
+
+    metadata_path = Path(arguments.metadata)
+    metadata = json.loads(secure_source(metadata_path, digest(metadata_path.read_bytes()), False))
+    required = {
+        "artifact_sha256", "first_run_evidence_sha256", "original_snapshot_id",
+        "policy_sha256", "qualification_evidence_sha256", "rclone_sha256",
+        "repository", "repository_id", "restic_sha256", "restore_runner_sha256",
+        "snapshot_id", "version",
+    }
+    if set(metadata) != required or type(metadata["version"]) is not int or metadata["version"] != 1:
+        raise ValueError("bundle metadata keys differ")
+    for key in required - {"repository", "version"}:
+        if not HEX.fullmatch(metadata[key]):
+            raise ValueError("bundle metadata hash differs")
+    if metadata["repository"] != "rclone:proton_backup:Backups/home-lab-restic":
+        raise ValueError("bundle repository differs")
+
+    restic = secure_source(Path(arguments.restic), metadata["restic_sha256"], True)
+    rclone = secure_source(Path(arguments.rclone), metadata["rclone_sha256"], True)
+    runner = secure_source(Path(arguments.restore_runner), metadata["restore_runner_sha256"], True)
+    age_path = Path(arguments.age)
+    age_parent = age_path.parent.lstat()
+    if (not stat.S_ISDIR(age_parent.st_mode) or age_parent.st_uid != os.geteuid()
+            or stat.S_IMODE(age_parent.st_mode) & 0o022):
+        raise ValueError("bundle age parent metadata differs")
+    age_fd = os.open(age_path, os.O_RDONLY | os.O_NOFOLLOW)
+    age_metadata = os.fstat(age_fd)
+    if (not stat.S_ISREG(age_metadata.st_mode) or age_metadata.st_uid != os.geteuid()
+            or stat.S_IMODE(age_metadata.st_mode) != 0o755 or age_metadata.st_nlink != 1):
+        os.close(age_fd)
+        raise ValueError("bundle age executable metadata differs")
+    age_content = b""
+    while chunk := os.read(age_fd, 1024 * 1024):
+        age_content += chunk
+    if digest(age_content) != arguments.age_sha256:
+        os.close(age_fd)
+        raise ValueError("bundle age executable hash differs")
+    os.lseek(age_fd, 0, os.SEEK_SET)
+
+    files = {
+        "bin/rclone": (rclone, 0o755),
+        "bin/restic": (restic, 0o755),
+        "bin/restore-critical-backup": (runner, 0o755),
+        "metadata.json": (canonical(metadata), 0o600),
+        "private/proton-login-password": (secrets["RECOVERY_BUNDLE_PROTON_LOGIN_PASSWORD"].encode() + b"\n", 0o600),
+        "private/proton-username": (secrets["RECOVERY_BUNDLE_PROTON_USERNAME"].encode() + b"\n", 0o600),
+        "private/restic-password": (secrets["RECOVERY_BUNDLE_RESTIC_PASSWORD"].encode() + b"\n", 0o600),
+        "README": (b"Decrypt only into private tmpfs on the reviewed disposable recovery VM.\n", 0o600),
+    }
+    manifest = {
+        name: {"mode": format(mode, "04o"), "sha256": digest(content), "size": len(content)}
+        for name, (content, mode) in sorted(files.items())
+    }
+    files["MANIFEST.json"] = (canonical(manifest), 0o600)
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w:") as archive:
+        for name, (content, mode) in sorted(files.items()):
+            add_file(archive, name, content, mode)
+    plaintext = buffer.getvalue()
+
+    output = Path(arguments.output)
+    output_parent = output.parent.lstat()
+    if (output.exists() or output.is_symlink() or not stat.S_ISDIR(output_parent.st_mode)
+            or output.parent.is_symlink() or output_parent.st_uid != os.geteuid()
+            or stat.S_IMODE(output_parent.st_mode) != 0o700):
+        os.close(age_fd)
+        raise ValueError("bundle output is not a new private destination")
+    age_copy = None
+    if sys.platform == "linux":
+        age_executable = f"/proc/self/fd/{age_fd}"
+        age_pass_fds = (age_fd,)
+    else:
+        age_copy = output.parent / f".age.{secure_random.token_hex(16)}"
+        age_copy_fd = os.open(age_copy, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o700)
+        try:
+            with os.fdopen(age_copy_fd, "wb", closefd=False) as age_stream:
+                if age_stream.write(age_content) != len(age_content):
+                    raise OSError("short age executable write")
+                age_stream.flush()
+                os.fsync(age_copy_fd)
+        except Exception:
+            age_copy.unlink(missing_ok=True)
+            os.close(age_fd)
+            raise
+        finally:
+            os.close(age_copy_fd)
+        age_executable = str(age_copy)
+        age_pass_fds = ()
+    temporary = output.parent / f".{output.name}.{secure_random.token_hex(16)}"
+    temporary_fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(temporary_fd, "wb", closefd=False) as ciphertext:
+            subprocess.run(
+                [age_executable, "--encrypt", "--recipient", arguments.recipient],
+                input=plaintext,
+                check=True,
+                stdout=ciphertext,
+                stderr=subprocess.DEVNULL,
+                pass_fds=age_pass_fds,
+            )
+            ciphertext.flush()
+            os.fsync(temporary_fd)
+        encrypted_metadata = os.fstat(temporary_fd)
+        if encrypted_metadata.st_size == 0 or stat.S_IMODE(encrypted_metadata.st_mode) != 0o600:
+            raise ValueError("bundle encryption produced no ciphertext")
+        observed = temporary.lstat()
+        if observed.st_ino != encrypted_metadata.st_ino or observed.st_dev != encrypted_metadata.st_dev:
+            raise ValueError("bundle temporary output identity differs")
+        os.link(temporary, output, follow_symlinks=False)
+        temporary.unlink()
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
+    finally:
+        os.close(temporary_fd)
+        os.close(age_fd)
+        if age_copy is not None:
+            age_copy.unlink(missing_ok=True)
+    result = {
+        "ciphertext_sha256": digest(output.read_bytes()),
+        "plaintext_sha256": digest(plaintext),
+        "recipient_sha256": digest(arguments.recipient.encode()),
+        "state": "encrypted",
+        "version": 1,
+    }
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    main()
