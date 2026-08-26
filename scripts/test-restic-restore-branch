@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+recovery_root="$work/recovery"
+bin_root="$work/bin"
+mkdir -m 0700 "$recovery_root" "$bin_root"
+
+snapshot=95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e
+original=edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2
+repository=d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e
+policy=09f86d94190f0020488bad8285d60ef42f26a4e285992be1973e38fd3387e5a6
+artifact=722252e11e15cf315a5ade5cc1f5708eaacf636ecea4706a00ff5670d86ebd74
+
+cat >"$bin_root/restic" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  version)
+    echo 'restic 0.19.1 compiled with go1.26.4 on linux/amd64'
+    ;;
+  cat)
+    [[ ${2:-} == config ]]
+    printf '{"id":"%s"}\n' "$FIXTURE_REPOSITORY"
+    ;;
+  snapshots)
+    [[ ${2:-} == --json && ${3:-} == "$FIXTURE_SNAPSHOT" ]]
+    printf '[{"id":"%s","original":"%s","tags":["cadence=daily","policy=%s","artifact=%s"]}]\n' \
+      "$FIXTURE_SNAPSHOT" "$FIXTURE_ORIGINAL" "$FIXTURE_POLICY" "$FIXTURE_ARTIFACT"
+    ;;
+  restore)
+    [[ ${2:-} == "$FIXTURE_SNAPSHOT" && ${3:-} == --target && ${5:-} == --verify ]]
+    mkdir -p "$4/srv/home-lab-state"
+    printf verified >"$4/srv/home-lab-state/fixture"
+    ;;
+  *) exit 64 ;;
+esac
+SH
+cat >"$bin_root/rclone" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ ${1:-} == version ]]
+echo 'rclone v1.75.0'
+SH
+cat >"$bin_root/realpath" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ ${1:-} == --canonicalize-existing && ${2:-} == -- ]]
+python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$3"
+SH
+cat >"$bin_root/stat" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ ${1:-} == -c ]]
+python3 - "$2" "$3" <<'PY'
+import os
+import stat
+import sys
+value = os.lstat(sys.argv[2])
+outputs = {"%a": format(stat.S_IMODE(value.st_mode), "o"), "%h": str(value.st_nlink), "%u": str(value.st_uid)}
+print(outputs[sys.argv[1]])
+PY
+SH
+chmod 0755 "$bin_root/restic" "$bin_root/rclone" "$bin_root/realpath" "$bin_root/stat"
+
+RESTORE_SOURCE="$repo_root/scripts/restore-critical-backup" RESTORE_TARGET="$work/restore-critical-backup" RECOVERY_ROOT="$recovery_root" python3 - <<'PY'
+import os
+from pathlib import Path
+source = Path(os.environ["RESTORE_SOURCE"]).read_text()
+source = source.replace("/srv/home-lab-recovery", os.environ["RECOVERY_ROOT"])
+target = Path(os.environ["RESTORE_TARGET"])
+target.write_text(source)
+target.chmod(0o755)
+PY
+
+password="$work/restic-password"
+printf '%s\n' 'fixture-password-that-is-longer-than-thirty-two-bytes' >"$password"
+chmod 0600 "$password"
+restic_sha=$(sha256sum "$bin_root/restic" | awk '{print $1}')
+rclone_sha=$(sha256sum "$bin_root/rclone" | awk '{print $1}')
+
+sha256sum_root=$(dirname "$(command -v sha256sum)")
+common_env=(
+  PATH="$bin_root:$sha256sum_root:/usr/bin:/bin"
+  FIXTURE_REPOSITORY="$repository"
+  FIXTURE_SNAPSHOT="$snapshot"
+  FIXTURE_ORIGINAL="$original"
+  FIXTURE_POLICY="$policy"
+  FIXTURE_ARTIFACT="$artifact"
+  RECOVERY_RESTIC_REPOSITORY='rclone:proton_backup:Backups/home-lab-restic'
+  RECOVERY_RESTIC_PASSWORD_FILE="$password"
+  RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID="$repository"
+  RECOVERY_EXPECTED_POLICY_SHA256="$policy"
+  RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256="$artifact"
+  RECOVERY_EXPECTED_RESTIC_SHA256="$restic_sha"
+  RECOVERY_EXPECTED_RCLONE_SHA256="$rclone_sha"
+  RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID="$original"
+  RCLONE_CONFIG_PROTON_BACKUP_TYPE=protondrive
+  RCLONE_CONFIG_PROTON_BACKUP_USERNAME=fixture-user
+  RCLONE_CONFIG_PROTON_BACKUP_PASSWORD=fixture-login-password
+  RCLONE_CONFIG_PROTON_BACKUP_REPLACE_EXISTING_DRAFT=true
+  RCLONE_CONFIG_PROTON_BACKUP_ENABLE_CACHING=false
+)
+
+run_restore() {
+  local target=$1
+  mkdir -m 0700 "$target"
+  env -u RCLONE_CONFIG "${common_env[@]}" RECOVERY_TARGET="$target" \
+    "$work/restore-critical-backup" --restic-snapshot-id "$snapshot" --confirmed-empty-target
+}
+
+success="$recovery_root/restic-success"
+output=$(run_restore "$success")
+grep -q "^recovery_restore=verified backend=restic snapshot=$snapshot$" <<<"$output"
+[[ $(cat "$success/srv/home-lab-state/fixture") == verified ]]
+[[ ! -e $success.proof-lock ]]
+
+reject() {
+  local name=$1
+  shift
+  local target="$recovery_root/restic-$name"
+  mkdir -m 0700 "$target"
+  if env -u RCLONE_CONFIG "${common_env[@]}" RECOVERY_TARGET="$target" "$@" \
+    "$work/restore-critical-backup" --restic-snapshot-id "$snapshot" --confirmed-empty-target >/dev/null 2>&1; then
+    echo "unsafe Restic restore fixture unexpectedly passed: $name" >&2
+    exit 1
+  fi
+  [[ ! -e $target.proof-lock ]]
+}
+
+reject wrong-original env RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID="$(printf 'a%.0s' {1..64})"
+reject wrong-restic-hash env RECOVERY_EXPECTED_RESTIC_SHA256="$(printf 'b%.0s' {1..64})"
+reject forbidden-client-cache env RCLONE_CONFIG_PROTON_BACKUP_CLIENT_UID=forbidden
+reject host-config env RCLONE_CONFIG="$work/host-rclone.conf"
+reject wrong-rclone-hash env RECOVERY_EXPECTED_RCLONE_SHA256="$(printf 'c%.0s' {1..64})"
+reject backend-override env RCLONE_PROTONDRIVE_ENABLE_CACHING=true
+bad_password="$work/bad-password"
+cp "$password" "$bad_password"
+chmod 0644 "$bad_password"
+reject password-mode env RECOVERY_RESTIC_PASSWORD_FILE="$bad_password"
+
+locked="$recovery_root/restic-locked"
+mkdir -m 0700 "$locked" "$locked.proof-lock"
+if env -u RCLONE_CONFIG "${common_env[@]}" RECOVERY_TARGET="$locked" \
+  "$work/restore-critical-backup" --restic-snapshot-id "$snapshot" --confirmed-empty-target >/dev/null 2>&1; then
+  echo 'concurrent restore lock unexpectedly passed' >&2
+  exit 1
+fi
+rmdir "$locked.proof-lock"
+
+printf 'restic restore branch safety fixtures passed\n'

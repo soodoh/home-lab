@@ -1840,11 +1840,14 @@ def main() -> None:
     assert f'test "$ACTUAL_SHA256" = {verifier_sha256}' in offen_proof
 
     restore = (ROOT / "scripts/restore-critical-backup").read_text()
-    assert 'restic restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify' in restore
+    assert '"$restic_path" restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify' in restore
     assert "restore --delete" not in restore
     assert "RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID" in restore
     assert "RECOVERY_EXPECTED_POLICY_SHA256" in restore
     assert "RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256" in restore
+    assert "RCLONE_CONFIG_PROTON_BACKUP_CLIENT_UID" not in restore
+    assert "for variable in ${!RCLONE_@}" in restore
+    assert "RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID" in restore
     assert "realpath --canonicalize-existing" in restore
     assert '$(stat -c %u "$RECOVERY_TARGET") == 0' in restore
     assert '$(stat -c %a "$RECOVERY_TARGET") == 700' in restore

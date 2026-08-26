@@ -41,51 +41,97 @@ if [[ -n $restic_snapshot_id ]]; then
   [[ -d $recovery_parent && ! -L $recovery_parent && $(stat -c %u "$recovery_parent") == 0 ]]
   [[ $(stat -c %a "$recovery_parent") == 700 || $(stat -c %a "$recovery_parent") == 750 ]]
   [[ $(stat -c %u "$RECOVERY_TARGET") == 0 && $(stat -c %a "$RECOVERY_TARGET") == 700 ]]
-  [[ $restic_snapshot_id =~ ^[0-9a-f]{64}$ ]]
+  [[ $restic_snapshot_id =~ ^[0-9a-f]{64}$ ]] || exit 1
   : "${RECOVERY_RESTIC_REPOSITORY:?RECOVERY_RESTIC_REPOSITORY is required}"
   : "${RECOVERY_RESTIC_PASSWORD_FILE:?RECOVERY_RESTIC_PASSWORD_FILE is required}"
   : "${RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID:?RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID is required}"
   : "${RECOVERY_EXPECTED_POLICY_SHA256:?RECOVERY_EXPECTED_POLICY_SHA256 is required}"
   : "${RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256:?RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256 is required}"
-  [[ $RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID =~ ^[0-9a-f]{64}$ ]]
-  [[ $RECOVERY_EXPECTED_POLICY_SHA256 =~ ^[0-9a-f]{64}$ ]]
-  [[ $RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256 =~ ^[0-9a-f]{64}$ ]]
-  [[ -f $RECOVERY_RESTIC_PASSWORD_FILE && ! -L $RECOVERY_RESTIC_PASSWORD_FILE ]]
-  [[ $(stat -c %a "$RECOVERY_RESTIC_PASSWORD_FILE") == 400 || $(stat -c %a "$RECOVERY_RESTIC_PASSWORD_FILE") == 440 || $(stat -c %a "$RECOVERY_RESTIC_PASSWORD_FILE") == 600 ]]
+  : "${RECOVERY_EXPECTED_RESTIC_SHA256:?RECOVERY_EXPECTED_RESTIC_SHA256 is required}"
+  [[ $RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID =~ ^[0-9a-f]{64}$ ]] || exit 1
+  [[ $RECOVERY_EXPECTED_POLICY_SHA256 =~ ^[0-9a-f]{64}$ ]] || exit 1
+  [[ $RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256 =~ ^[0-9a-f]{64}$ ]] || exit 1
+  [[ $RECOVERY_EXPECTED_RESTIC_SHA256 =~ ^[0-9a-f]{64}$ ]] || exit 1
+  [[ -f $RECOVERY_RESTIC_PASSWORD_FILE && ! -L $RECOVERY_RESTIC_PASSWORD_FILE ]] || exit 1
+  [[ $(stat -c %a "$RECOVERY_RESTIC_PASSWORD_FILE") == 400 || $(stat -c %a "$RECOVERY_RESTIC_PASSWORD_FILE") == 600 ]] || exit 1
+  [[ $(stat -c %u "$RECOVERY_RESTIC_PASSWORD_FILE") == "$EUID" ]] || exit 1
+  [[ $(stat -c %h "$RECOVERY_RESTIC_PASSWORD_FILE") == 1 ]] || exit 1
+  restore_lock="$RECOVERY_TARGET.proof-lock"
+  [[ ! -e $restore_lock && ! -L $restore_lock ]] || exit 1
+  mkdir -m 0700 -- "$restore_lock"
+  trap 'status=$?; trap - EXIT INT TERM; rmdir -- "$restore_lock" || true; exit "$status"' EXIT INT TERM
+  verify_recovery_binary() {
+    local path=$1 expected_sha256=$2
+    [[ -f $path && ! -L $path ]] || exit 1
+    [[ $(stat -c %u "$path") == "$EUID" ]] || exit 1
+    [[ $(stat -c %a "$path") == 755 ]] || exit 1
+    [[ $(stat -c %h "$path") == 1 ]] || exit 1
+    [[ $(sha256sum "$path" | awk '{print $1}') == "$expected_sha256" ]] || exit 1
+  }
   case "$RECOVERY_RESTIC_REPOSITORY" in
-    /mnt/games/restic/home-lab|/mnt/storage/restic/home-lab|rclone:proton-backup:Backups/home-lab-restic) ;;
+    /mnt/games/restic/home-lab|/mnt/storage/restic/home-lab) ;;
+    rclone:proton-backup:Backups/home-lab-restic)
+      : "${RCLONE_CONFIG:?RCLONE_CONFIG is required for installed Proton recovery}"
+      [[ -f $RCLONE_CONFIG && ! -L $RCLONE_CONFIG && $(stat -c %a "$RCLONE_CONFIG") == 600 ]] || exit 1
+      for variable in ${!RCLONE_@}; do
+        [[ $variable == RCLONE_CONFIG ]] || exit 1
+      done
+      ;;
+    rclone:proton_backup:Backups/home-lab-restic)
+      : "${RECOVERY_EXPECTED_RCLONE_SHA256:?RECOVERY_EXPECTED_RCLONE_SHA256 is required}"
+      : "${RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID:?RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID is required}"
+      [[ $RECOVERY_EXPECTED_RCLONE_SHA256 =~ ^[0-9a-f]{64}$ ]] || exit 1
+      [[ $RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID =~ ^[0-9a-f]{64}$ ]] || exit 1
+      [[ -z ${RCLONE_CONFIG:-} ]] || exit 1
+      required_recovery_remote_fields=(TYPE USERNAME PASSWORD REPLACE_EXISTING_DRAFT ENABLE_CACHING)
+      allowed_recovery_remote_variables=()
+      for field in "${required_recovery_remote_fields[@]}"; do
+        variable="RCLONE_CONFIG_PROTON_BACKUP_$field"
+        [[ -n ${!variable:-} ]] || exit 1
+        allowed_recovery_remote_variables+=("$variable")
+      done
+      for variable in ${!RCLONE_@}; do
+        [[ " ${allowed_recovery_remote_variables[*]} " == *" $variable "* ]] || exit 1
+      done
+      [[ $RCLONE_CONFIG_PROTON_BACKUP_TYPE == protondrive ]] || exit 1
+      [[ $RCLONE_CONFIG_PROTON_BACKUP_REPLACE_EXISTING_DRAFT == true ]] || exit 1
+      [[ $RCLONE_CONFIG_PROTON_BACKUP_ENABLE_CACHING == false ]] || exit 1
+      export RCLONE_CONFIG=/dev/null
+      ;;
     *) echo "Restic repository identity is outside the recovery contract" >&2; exit 1 ;;
   esac
   export RESTIC_REPOSITORY="$RECOVERY_RESTIC_REPOSITORY"
   export RESTIC_PASSWORD_FILE="$RECOVERY_RESTIC_PASSWORD_FILE"
-  if [[ $RECOVERY_RESTIC_REPOSITORY == rclone:* ]]; then
-    : "${RCLONE_CONFIG:?RCLONE_CONFIG is required for Proton recovery}"
-    [[ -f $RCLONE_CONFIG && ! -L $RCLONE_CONFIG && $(stat -c %a "$RCLONE_CONFIG") == 600 ]]
-  fi
-  restic_version=$(restic version 2>/dev/null)
+  restic_path=$(command -v restic) || exit 1
+  verify_recovery_binary "$restic_path" "$RECOVERY_EXPECTED_RESTIC_SHA256"
+  restic_version=$("$restic_path" version 2>/dev/null)
   [[ $restic_version == 'restic 0.19.1 '* ]] || {
     echo "Pinned Restic version identity failed" >&2
     exit 1
   }
   if [[ $RECOVERY_RESTIC_REPOSITORY == rclone:* ]]; then
-    rclone_version=$(rclone version 2>/dev/null | head -n 1)
+    : "${RECOVERY_EXPECTED_RCLONE_SHA256:?RECOVERY_EXPECTED_RCLONE_SHA256 is required}"
+    rclone_path=$(command -v rclone) || exit 1
+    verify_recovery_binary "$rclone_path" "$RECOVERY_EXPECTED_RCLONE_SHA256"
+    rclone_version=$("$rclone_path" version 2>/dev/null | head -n 1)
     [[ $rclone_version == 'rclone v1.75.0' ]] || {
       echo "Pinned rclone version identity failed" >&2
       exit 1
     }
   fi
-  repository_json=$(restic cat config 2>/dev/null) || {
+  repository_json=$("$restic_path" cat config 2>/dev/null) || {
     echo "Restic repository identity failed" >&2
     exit 1
   }
-  snapshot_json=$(restic snapshots --json "$restic_snapshot_id" 2>/dev/null) || {
+  snapshot_json=$("$restic_path" snapshots --json "$restic_snapshot_id" 2>/dev/null) || {
     echo "Restic snapshot selection failed" >&2
     exit 1
   }
   REPOSITORY_JSON="$repository_json" SNAPSHOT_JSON="$snapshot_json" SNAPSHOT_ID="$restic_snapshot_id" \
     EXPECTED_REPOSITORY_ID="$RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID" \
     EXPECTED_POLICY="$RECOVERY_EXPECTED_POLICY_SHA256" \
-    EXPECTED_ARTIFACT="$RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256" python3 - <<'PY'
+    EXPECTED_ARTIFACT="$RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256" \
+    EXPECTED_ORIGINAL="${RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID:-}" python3 - <<'PY'
 import json
 import os
 
@@ -95,6 +141,9 @@ if repository.get("id") != os.environ["EXPECTED_REPOSITORY_ID"]:
 value = json.loads(os.environ["SNAPSHOT_JSON"])
 if len(value) != 1 or value[0].get("id") != os.environ["SNAPSHOT_ID"]:
     raise SystemExit("exact Restic snapshot identity was not found")
+expected_original = os.environ["EXPECTED_ORIGINAL"]
+if expected_original and value[0].get("original") != expected_original:
+    raise SystemExit("Restic copied snapshot ancestry differs")
 tags = set(value[0].get("tags") or [])
 required = {
     "cadence=daily",
@@ -104,7 +153,7 @@ required = {
 if not required <= tags:
     raise SystemExit("Restic snapshot policy or artifact identity differs")
 PY
-  restic restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify
+  "$restic_path" restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify
   printf 'recovery_restore=verified backend=restic snapshot=%s\n' "$restic_snapshot_id"
   exit 0
 fi

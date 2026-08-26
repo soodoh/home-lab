@@ -132,7 +132,7 @@ if [[ $action == validate ]]; then
     scripts/configure-local-provider-credentials \
     scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack scripts/validate-proxmox-bootstrap-keys \
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
-    scripts/restore-critical-backup scripts/test-recovery-tools
+    scripts/restore-critical-backup scripts/test-recovery-tools scripts/test-restic-restore-branch
   tofu fmt -check -recursive infrastructure/tofu
   for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
     (
