@@ -116,6 +116,8 @@ for command_name in ('plan-create','apply-create','status','run','plan-destroy',
 for required in ('vm_id    = 9900','RESTIC-ROOT-32G','RESTIC-RECOVERY-128G','local:snippets/home-lab-restic-recovery-cloud-init.yaml','started       = true','on_boot       = false','protection    = false'): assert required in tofu,required
 for required in ('StrictHostKeyChecking=yes','fresh_recovery_observation','pretransfer_vm_observation_drift','provider_transport_binding_drift','partial_apply_requires_exact_replan','exact-partial-create-adopted','exact-partial-destroy-adopted','read_protected_json','terminate_process_group','remote_cleanup(directory, ip)','signal.SIGINT','signal.SIGTERM','before-saved-plan-apply','serial-disk-prepared','wipefs','sfdisk','os.pread','blank_sample_sha256','service_observation_before','database_integrity','configuration_structure','sudo python3 -','/run/restic-fixture/scripts/test-restic-activation-fixture','sudo chmod 0700 /srv/home-lab-recovery'): assert required in controller,required
 assert 'StrictHostKeyChecking=accept-new' not in controller
+assert 'f"root@{ip}"' in controller
+assert '/usr/local/bin/sudo' in controller and 'exec \\"$@\\"' in controller
 assert 'backend "s3"' not in ''.join(path.read_text() for path in (repo/'infrastructure/tofu/proxmox-restic-recovery-qualification').glob('*.tf'))
 assert fixture.stat().st_size > 1000
 print('restic recovery VM safety fixtures passed')
