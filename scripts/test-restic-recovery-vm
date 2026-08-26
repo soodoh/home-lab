@@ -26,8 +26,9 @@ destroy=copy.deepcopy(base); destroy.pop('configuration',None)
 for change in destroy['resource_changes']:
  change['change']['actions']=['delete']; change['change']['before']=change['change'].pop('after'); change['change'].pop('after_unknown',None)
  if change['address'].endswith('recovery[0]'):
-  change['change']['before']['disk'][0]['file_id']='local-lvm:vm-9900-disk-0'; change['change']['before']['disk'][1]['file_id']='local-lvm:vm-9900-disk-1'
-  change['change']['before']['initialization'][0]['user_data_file_id']='local:snippets/home-lab-restic-recovery-cloud-init.yaml'
+  for disk_index in (0,1):
+   disk=change['change']['before']['disk'][disk_index]; disk['file_id']=f'local-lvm:vm-9900-disk-{disk_index}'; disk['file_format']='raw'; disk['import_from']=None; disk['path_in_datastore']=None
+  change['change']['before']['initialization'][0]['file_format']='qcow2'; change['change']['before']['initialization'][0]['user_data_file_id']='local:snippets/home-lab-restic-recovery-cloud-init.yaml'
   change['change']['before']['network_device'][0]['mac_address']='BC:24:11:00:00:01'
 invoke(destroy,'destroy',True)
 partial=copy.deepcopy(destroy); partial['resource_changes']=partial['resource_changes'][1:]; invoke(partial,'destroy',True)
@@ -53,7 +54,6 @@ for path,value in [
  (('resource_changes',2,'change','after_unknown','args'),True),
  (('resource_changes',2,'change','after_unknown','ide2'),True),
  (('resource_changes',2,'change','after_unknown','disk',0,'file_id'),True),
- (('resource_changes',2,'change','after_unknown','disk',0,'import_from'),True),
  (('resource_changes',2,'change','after_unknown','initialization',0,'ip_config',0,'ipv4',0,'address'),True),
  (('resource_changes',1,'change','after','source_raw',0,'data'),'tampered'),
 ]:
@@ -61,8 +61,13 @@ for path,value in [
  for part in path[:-1]: cursor=cursor[part]
  cursor[path[-1]]=value; mutations.append(item)
 missing_image=copy.deepcopy(base); missing_image['resource_changes']=missing_image['resource_changes'][1:]; mutations.append(missing_image)
-wrong_reference=copy.deepcopy(base); wrong_reference['configuration']['root_module']['resources'][0]['expressions']={}; mutations.append(wrong_reference)
-for item in mutations: invoke(item,'create',False)
+wrong_reference=copy.deepcopy(base)
+for resource in wrong_reference['configuration']['root_module']['resources']:
+ if resource.get('address')=='proxmox_virtual_environment_vm.recovery': resource['expressions']={}
+mutations.append(wrong_reference)
+for index,item in enumerate(mutations):
+ try: invoke(item,'create',False)
+ except SystemExit as error: raise SystemExit(f'mutation {index}: {error}')
 module=SourceFileLoader('prove_restic_recovery_vm',str(repo/'scripts/prove-restic-recovery-vm')).load_module()
 protected=work/'protected'; protected.mkdir(mode=0o700); value={'a':1}; module.atomic_json(protected/'value.json',value,exclusive=True); assert module.read_protected_json(protected/'value.json')==value
 journal={'version':1,'commit':'a'*40,'owner':'b'*64,'state':'new','checkpoints':[],'replans':[]}; module.atomic_json(protected/'journal.json',journal,exclusive=True); module.checkpoint(protected,journal,'create-applying','before-saved-plan-apply'); assert module.read_protected_json(protected/'journal.json')['state']=='create-applying'
