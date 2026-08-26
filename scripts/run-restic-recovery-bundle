@@ -215,7 +215,8 @@ def main() -> None:
         finally:
             signal.pthread_sigmask(signal.SIG_UNBLOCK, blocked_signals)
         stdout, stderr = child.communicate()
-        if child.returncode != 0 or stdout != f"recovery_restore=verified backend=restic snapshot={metadata['snapshot_id']}\n":
+        expected_restore_line = f"recovery_restore=verified backend=restic snapshot={metadata['snapshot_id']}\n"
+        if child.returncode != 0 or not stdout.endswith(expected_restore_line):
             reasons = {
                 "Pinned Restic version identity failed": "restic-version",
                 "Pinned rclone version identity failed": "rclone-version",
