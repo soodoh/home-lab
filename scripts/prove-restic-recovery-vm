@@ -99,6 +99,12 @@ def proxmox_root_ssh() -> list[str]:
     return ["ssh", "-i", str(key), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "root@proxmox"]
 
 
+def proxmox_guest_interfaces() -> object:
+    result = command(proxmox_root_ssh() + ["/usr/sbin/qm guest cmd 9900 network-get-interfaces"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try: return json.loads(result.stdout)
+    except json.JSONDecodeError: fail("proxmox_guest_interface_observation_failed")
+
+
 def install_cloud_snippet(directory: Path, cloud: str, expected_sha256: str) -> None:
     if HEX.fullmatch(expected_sha256) is None or sha_bytes(cloud.encode()) != expected_sha256: fail("cloud_snippet_identity_differs")
     source = directory / "cloud-init.yaml"
@@ -764,7 +770,13 @@ def adopt_prior_transaction_state(directory: Path, values: dict[str, str], cloud
         state = candidate / "tofu.tfstate"
         if state.exists() and current_state_exact(candidate, values, cloud_sha256): candidates.append(candidate)
     if len(candidates) != 1: fail("prior_transaction_state_identity_differs")
-    source = candidates[0] / "tofu.tfstate"
+    source_directory = candidates[0]
+    source = source_directory / "tofu.tfstate"
+    for name in ("ssh-key", "ssh-key.pub", "ssh-host-key", "ssh-host-key.pub", "cloud-init.yaml"):
+        source_key, target_key = source_directory / name, directory / name
+        if source_key.exists():
+            if target_key.exists() or target_key.is_symlink(): fail("prior_transaction_key_target_exists")
+            os.replace(source_key, target_key)
     os.replace(source, target)
     for path in (candidates[0], directory):
         descriptor = os.open(path, os.O_RDONLY)
@@ -778,8 +790,8 @@ def plan(operation: str) -> None:
     transaction_journal = journal(directory, commit)
     values = credentials("apply"); production = production_hash(values)
     if operation == "create": adopt_legacy_local_state(directory, values, transaction_journal)
+    if operation == "create": adopt_prior_transaction_state(directory, values, "0" * 64, transaction_journal)
     cloud, user_public, host_public = cloud_init_data(directory); cloud_sha = sha_bytes(cloud.encode())
-    if operation == "create": adopt_prior_transaction_state(directory, values, cloud_sha, transaction_journal)
     present = recovery_resource(values) is not None
     if operation == "destroy":
         create = read_manifest(directory, "create", commit, allow_expired=True)
@@ -917,10 +929,10 @@ def flatten(value: object) -> list[str]:
 
 
 def state_ip(directory: Path, values: dict[str, str]) -> str:
-    env = tofu_environment(values, directory)
-    result = command(["tofu", f"-chdir={TF_ROOT}", "output", f"-state={directory / 'tofu.tfstate'}", "-json", "qualification"], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    del directory, values
+    interfaces = proxmox_guest_interfaces()
     addresses = []
-    for raw in flatten(json.loads(result.stdout).get("ipv4")):
+    for raw in flatten(interfaces):
         try: address = ipaddress.ip_address(raw.split("/", 1)[0])
         except ValueError: continue
         if address in ipaddress.ip_network("192.168.0.0/24") and str(address) not in {"192.168.0.1", "192.168.0.100", "192.168.0.123", "192.168.0.255"}:
@@ -934,7 +946,7 @@ def fresh_recovery_observation(directory: Path, values: dict[str, str]) -> tuple
         fail("fresh_vm_9900_exact_identity_differs")
     item = recovery_resource(values)
     config = api(values, "/nodes/proxmox/qemu/9900/config")
-    interfaces = api(values, "/nodes/proxmox/qemu/9900/agent/network-get-interfaces")
+    interfaces = proxmox_guest_interfaces()
     if (item is None or item.get("name") != "home-lab-restic-recovery" or item.get("status") != "running"
             or not isinstance(config, dict) or config.get("name") != "home-lab-restic-recovery"
             or config.get("protection") not in (0, False, "0") or config.get("onboot") not in (0, False, "0")
