@@ -602,13 +602,23 @@ plan_all() {
     retirement_operation=$(offen_retirement_operation)
     if [[ $root == aws-foundation && -n $retirement_operation ]]; then
       retirement_plan_json=$(mktemp "$plan_dir/offen-retirement-plan.XXXXXX.json")
-      chmod 0600 "$retirement_plan_json"
+      retirement_normalized_json=$(mktemp "$plan_dir/offen-retirement-normalized.XXXXXX.json")
+      chmod 0600 "$retirement_plan_json" "$retirement_normalized_json"
+      rm -f "$retirement_normalized_json"
       tofu -chdir="infrastructure/tofu/$root" show -json "$plan" >"$retirement_plan_json"
-      python3 infrastructure/policy/inspect-offen-retirement-aws-plan.py \
+      if ! python3 scripts/controller/normalize-offen-retirement-aws-plan.py \
+        --input "$retirement_plan_json" --output "$retirement_normalized_json"; then
+        rm -f "$retirement_plan_json" "$retirement_normalized_json"
+        exit 1
+      fi
+      if ! python3 infrastructure/policy/inspect-offen-retirement-aws-plan.py \
         --operation "$retirement_operation" \
         --manifest infrastructure/retirement/offen-retirement-manifest.json \
-        --plan "$retirement_plan_json"
-      rm -f "$retirement_plan_json"
+        --plan "$retirement_normalized_json"; then
+        rm -f "$retirement_plan_json" "$retirement_normalized_json"
+        exit 1
+      fi
+      rm -f "$retirement_plan_json" "$retirement_normalized_json"
     fi
     jq -cn \
       --arg root "$root" \
@@ -788,13 +798,23 @@ verify_manifest() {
     retirement_operation=$(offen_retirement_operation)
     if [[ $root == aws-foundation && -n $retirement_operation ]]; then
       retirement_plan_json=$(mktemp "$plan_dir/offen-retirement-verify.XXXXXX.json")
-      chmod 0600 "$retirement_plan_json"
+      retirement_normalized_json=$(mktemp "$plan_dir/offen-retirement-verify-normalized.XXXXXX.json")
+      chmod 0600 "$retirement_plan_json" "$retirement_normalized_json"
+      rm -f "$retirement_normalized_json"
       tofu -chdir="infrastructure/tofu/$root" show -json "$plan_dir/$file" >"$retirement_plan_json"
-      python3 infrastructure/policy/inspect-offen-retirement-aws-plan.py \
+      if ! python3 scripts/controller/normalize-offen-retirement-aws-plan.py \
+        --input "$retirement_plan_json" --output "$retirement_normalized_json"; then
+        rm -f "$retirement_plan_json" "$retirement_normalized_json"
+        exit 1
+      fi
+      if ! python3 infrastructure/policy/inspect-offen-retirement-aws-plan.py \
         --operation "$retirement_operation" \
         --manifest infrastructure/retirement/offen-retirement-manifest.json \
-        --plan "$retirement_plan_json"
-      rm -f "$retirement_plan_json"
+        --plan "$retirement_normalized_json"; then
+        rm -f "$retirement_plan_json" "$retirement_normalized_json"
+        exit 1
+      fi
+      rm -f "$retirement_plan_json" "$retirement_normalized_json"
     fi
   done < <(jq -r '.plans[] | [.root, .file, .sha256] | @tsv' "$manifest")
 }

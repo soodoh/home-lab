@@ -147,6 +147,47 @@ for operation in ("grant", "finalize"):
             result = subprocess.run(["python3", str(inspector), "--operation", operation, "--manifest", str(MANIFEST), "--plan", target.name], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             assert result.returncode != 0
 
+normalizer = ROOT / "scripts/controller/normalize-offen-retirement-aws-plan.py"
+provider_plan = json.loads((ROOT / "infrastructure/policy/fixtures/offen-retirement-aws-grant.json").read_text())
+lifecycle_change = next(item for item in provider_plan["resource_changes"] if item["address"] == "aws_s3_bucket_lifecycle_configuration.recovery")
+concise = lifecycle_change["change"]["after"]
+expanded_rules = []
+for rule in concise["rule"]:
+    expanded = {"id": rule["id"], "status": rule["status"], "filter": [{"and": [], "object_size_greater_than": None, "object_size_less_than": None, "prefix": "", "tag": []}], "transition": [], "noncurrent_version_transition": [], "abort_incomplete_multipart_upload": rule.get("abort_incomplete_multipart_upload", [])}
+    if rule["id"] == "critical-backup-retention":
+        expanded["expiration"] = [{"date": None, "days": rule["expiration"][0]["days"], "expired_object_delete_marker": False}]
+        expanded["noncurrent_version_expiration"] = [{"newer_noncurrent_versions": None, "noncurrent_days": 1}]
+    else:
+        expanded["expiration"] = [{"date": None, "days": 0, "expired_object_delete_marker": True}]
+        expanded["noncurrent_version_expiration"] = []
+    expanded_rules.append(expanded)
+lifecycle_change["change"]["after"] = {"bucket": concise["bucket"], "expected_bucket_owner": "", "id": concise["bucket"], "region": "us-west-2", "rule": expanded_rules, "timeouts": None, "transition_default_minimum_object_size": "all_storage_classes_128K"}
+with tempfile.TemporaryDirectory() as temporary:
+    source = Path(temporary) / "provider.json"; target = Path(temporary) / "normalized.json"
+    source.write_text(json.dumps(provider_plan))
+    subprocess.run(["python3", str(normalizer), "--input", str(source), "--output", str(target)], check=True)
+    subprocess.run(["python3", str(inspector), "--operation", "grant", "--manifest", str(MANIFEST), "--plan", str(target)], check=True, stdout=subprocess.PIPE)
+    hostile_provider = json.loads(source.read_text())
+    hostile_rule = next(item for item in hostile_provider["resource_changes"] if item["address"] == "aws_s3_bucket_lifecycle_configuration.recovery")["change"]["after"]["rule"][0]
+    hostile_rule["filter"][0]["prefix"] = "offen/"
+    source.write_text(json.dumps(hostile_provider)); target.unlink()
+    assert subprocess.run(["python3", str(normalizer), "--input", str(source), "--output", str(target)], stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode != 0
+    for mutation in ("multipart-bool", "noncurrent-bool", "marker-bool"):
+        hostile_provider = json.loads(json.dumps(provider_plan))
+        rules = next(item for item in hostile_provider["resource_changes"] if item["address"] == "aws_s3_bucket_lifecycle_configuration.recovery")["change"]["after"]["rule"]
+        if mutation == "multipart-bool": rules[0]["abort_incomplete_multipart_upload"][0]["days_after_initiation"] = True
+        elif mutation == "noncurrent-bool": rules[0]["noncurrent_version_expiration"][0]["noncurrent_days"] = True
+        else: rules[1]["expiration"][0]["expired_object_delete_marker"] = 1
+        source.write_text(json.dumps(hostile_provider))
+        if target.exists(): target.unlink()
+        assert subprocess.run(["python3", str(normalizer), "--input", str(source), "--output", str(target)], stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode != 0
+    hostile_concise = json.loads((ROOT / "infrastructure/policy/fixtures/offen-retirement-aws-grant.json").read_text())
+    concise_rules = next(item for item in hostile_concise["resource_changes"] if item["address"] == "aws_s3_bucket_lifecycle_configuration.recovery")["change"]["after"]["rule"]
+    concise_rules[0]["abort_incomplete_multipart_upload"][0]["days_after_initiation"] = True
+    source.write_text(json.dumps(hostile_concise))
+    if target.exists(): target.unlink()
+    assert subprocess.run(["python3", str(normalizer), "--input", str(source), "--output", str(target)], stdout=subprocess.PIPE, stderr=subprocess.PIPE).returncode != 0
+
 # Exercise auto-paginated aggregate classification, truncation rejection, and
 # response-loss adoption of an already absent exact version.
 state_helper = ROOT / "scripts/controller/offen-retirement-aws-state.py"
@@ -375,6 +416,7 @@ assert "offen_retirement_operation" in controller and "OFFEN_RETIREMENT_OPERATIO
 assert "retirement-finalizing) printf 'finalize" in controller
 assert "OFFEN_RETIREMENT_OPERATION" not in controller
 assert controller.count("inspect-offen-retirement-aws-plan.py") >= 2
+assert controller.count("normalize-offen-retirement-aws-plan.py") >= 2
 finalizer = (ROOT / "ansible/playbooks/finalize-offen-retirement.yml").read_text()
 assert "apply_lock_action: adopt" in finalizer and "apply_lock_action: release" in finalizer
 assert "final_result_sha256" in finalizer and "action_plan_sha256" in finalizer
