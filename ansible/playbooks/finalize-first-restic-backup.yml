@@ -142,7 +142,7 @@
           - not (item.stat.islnk | default(false))
           - item.stat.checksum == item.item.checksum
           - (item.stat.nlink | default(0) | int) == 1
-          - item.stat.pw_name == 'root'
+          - item.stat.pw_name in ['root', lookup('env', 'USER')]
           - not (item.stat.wgrp | default(true))
           - not (item.stat.woth | default(true))
       loop: "{{ restic_first_run_finalize_operator_binaries.results }}"
