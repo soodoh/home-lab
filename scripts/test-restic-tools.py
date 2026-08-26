@@ -1367,6 +1367,78 @@ def main() -> None:
             artifact, reviewed_hash, True, os.getuid(), os.getgid()
         )
         assert not artifact.exists()
+    staged_finalizer_path = ROOT / "scripts/finalize-staged-proton-recovery"
+    staged_finalizer = staged_finalizer_path.read_text()
+    assert "os.O_EXCL" in staged_finalizer
+    assert "signal.pthread_sigmask" in staged_finalizer
+    assert "fcntl.LOCK_EX | fcntl.LOCK_NB" in staged_finalizer
+    assert staged_finalizer.index("mutex_descriptor = acquire_mutex()") < staged_finalizer.index("publish(destination, result_raw)")
+    assert "if not result_present and not evidence_present:" in staged_finalizer
+    assert staged_finalizer.index("publish(destination, result_raw)") < staged_finalizer.index("RESULT.unlink()")
+    assert staged_finalizer.index("RESULT.unlink()") < staged_finalizer.index('(APPLY_LOCK / "owner").unlink()')
+    assert staged_finalizer.index('(APPLY_LOCK / "owner").unlink()') < staged_finalizer.index("APPLY_LOCK.rmdir()")
+    staged_finalizer_module = runpy.run_path(
+        str(staged_finalizer_path),
+        run_name="finalize_staged_proton_recovery_test_module",
+    )
+    finalizer_globals = staged_finalizer_module["acquire_mutex"].__globals__
+    saved_finalizer_mutex = finalizer_globals["MUTEX"]
+    with tempfile.TemporaryDirectory() as finalizer_state_directory:
+        finalizer_root = Path(finalizer_state_directory)
+        test_mutex = finalizer_root / "backup.lock"
+        test_mutex.touch(mode=0o660)
+        test_mutex.chmod(0o660)
+        finalizer_globals["MUTEX"] = test_mutex
+        mutex_descriptor = staged_finalizer_module["acquire_mutex"](os.getuid(), os.getgid())
+        try:
+            try:
+                staged_finalizer_module["acquire_mutex"](os.getuid(), os.getgid())
+            except staged_finalizer_module["FinalizationError"] as error:
+                assert str(error) == "mutex_busy"
+            else:
+                raise AssertionError("concurrent staged finalization acquired the mutex")
+        finally:
+            os.close(mutex_descriptor)
+            finalizer_globals["MUTEX"] = saved_finalizer_mutex
+        resumed_evidence = finalizer_root / "recovery.json"
+        recovery_bytes = b'{"state":"recovered"}\n'
+        staged_finalizer_module["publish"](
+            resumed_evidence, recovery_bytes, os.getuid(), os.getgid()
+        )
+        staged_finalizer_module["publish"](
+            resumed_evidence, recovery_bytes, os.getuid(), os.getgid()
+        )
+        try:
+            staged_finalizer_module["publish"](
+                resumed_evidence, b"different\n", os.getuid(), os.getgid()
+            )
+        except staged_finalizer_module["FinalizationError"] as error:
+            assert str(error) == "prior_recovery_evidence"
+        else:
+            raise AssertionError("differing resumed recovery evidence passed")
+    transaction = "d" * 64
+    username_hash = "e" * 64
+    valid_recovery = {
+        "account_username_sha256": username_hash,
+        "recovered_at": "2026-08-26T00:00:00Z",
+        "recovered_files": [],
+        "remote_cleanup": "pass",
+        "state": "recovered",
+        "transaction_sha256": transaction,
+        "version": 1,
+    }
+    staged_finalizer_module["validate_evidence"](
+        (json.dumps(valid_recovery) + "\n").encode(), transaction, username_hash
+    )
+    invalid_recovery = {**valid_recovery, "recovered_files": ["unexpected.bin"]}
+    try:
+        staged_finalizer_module["validate_evidence"](
+            (json.dumps(invalid_recovery) + "\n").encode(), transaction, username_hash
+        )
+    except staged_finalizer_module["FinalizationError"] as error:
+        assert str(error) == "result_shape"
+    else:
+        raise AssertionError("out-of-scope staged recovery result passed")
     post_reset_playbook = (ROOT / "ansible/playbooks/diagnose-proton-post-reset.yml").read_text()
     assert f"proton_post_reset_script_sha256: {auth_diagnostic_sha256}" in post_reset_playbook
     assert "diagnose-one-post-reset-proton-lsjson-v4-corrected-environment-remote" in post_reset_playbook

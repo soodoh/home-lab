@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+"""Publish one staged Proton recovery and release only its exact retained lock."""
+
+from datetime import datetime
+import fcntl
+import grp
+import hashlib
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import signal
+import stat
+import subprocess
+import sys
+
+APPLY_LOCK = Path("/var/lib/iac-ansible-production.lock")
+CACHE = Path("/var/lib/restic-proton/cache")
+CONFIG = Path("/var/lib/restic-proton/rclone.conf")
+EVIDENCE_PARENT = Path("/var/lib/home-lab-restic")
+MUTEX = Path("/run/lock/home-lab-backup.lock")
+POLICY = Path("/etc/home-lab/restic-policy.json")
+RESULT = Path("/var/lib/restic-proton/proton-qualification-result.json")
+SERVICE_UID = 60000
+SERVICE_GID = 60000
+
+
+class FinalizationError(RuntimeError):
+    """A controlled local finalization failure."""
+
+
+def fail(reason: str) -> None:
+    if re.fullmatch(r"[a-z0-9_.-]+", reason) is None:
+        reason = "invalid_failure_reason"
+    raise FinalizationError(reason)
+
+
+def digest(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def require_regular(path: Path, uid: int, gid: int, mode: int) -> bytes:
+    try:
+        metadata = path.lstat()
+        content = path.read_bytes()
+    except OSError:
+        fail(f"{path.name}_absent")
+    if path.is_symlink() or not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        fail(f"{path.name}_type")
+    if metadata.st_uid != uid or metadata.st_gid != gid or stat.S_IMODE(metadata.st_mode) != mode:
+        fail(f"{path.name}_metadata")
+    return content
+
+
+def require_directory(path: Path, uid: int, gid: int, mode: int) -> None:
+    try:
+        metadata = path.lstat()
+    except OSError:
+        fail(f"{path.name}_absent")
+    if path.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+        fail(f"{path.name}_type")
+    if metadata.st_uid != uid or metadata.st_gid != gid or stat.S_IMODE(metadata.st_mode) != mode:
+        fail(f"{path.name}_metadata")
+
+
+def fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def write_all(descriptor: int, content: bytes) -> None:
+    remaining = memoryview(content)
+    while remaining:
+        written = os.write(descriptor, remaining)
+        if written <= 0:
+            fail("evidence_write")
+        remaining = remaining[written:]
+
+
+def publish(path: Path, content: bytes, uid: int = 0, gid: int = 0) -> None:
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    except FileExistsError:
+        if require_regular(path, uid, gid, 0o600) != content:
+            fail("prior_recovery_evidence")
+        return
+    complete = False
+    try:
+        os.fchown(descriptor, uid, gid)
+        os.fchmod(descriptor, 0o600)
+        write_all(descriptor, content)
+        os.fsync(descriptor)
+        complete = True
+    finally:
+        os.close(descriptor)
+        if not complete:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+    fsync_directory(path.parent)
+    if require_regular(path, uid, gid, 0o600) != content:
+        fail("evidence_drift")
+
+
+def acquire_mutex(uid: int = 0, gid: int = SERVICE_GID) -> int:
+    descriptor: int | None = None
+    try:
+        before = MUTEX.lstat()
+        descriptor = os.open(MUTEX, os.O_RDWR | os.O_NOFOLLOW)
+        after = os.fstat(descriptor)
+    except OSError:
+        if descriptor is not None:
+            os.close(descriptor)
+        fail("mutex_absent")
+    if descriptor is None:
+        fail("mutex_absent")
+    if (
+        not stat.S_ISREG(before.st_mode)
+        or before.st_nlink != 1
+        or before.st_uid != uid
+        or before.st_gid != gid
+        or stat.S_IMODE(before.st_mode) != 0o660
+        or (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
+    ):
+        os.close(descriptor)
+        fail("mutex_metadata")
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(descriptor)
+        fail("mutex_busy")
+    return descriptor
+
+
+def require_no_processes() -> None:
+    for process in ("restic", "rclone"):
+        result = subprocess.run(
+            ["/usr/bin/pgrep", "--exact", process],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            env={"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"},
+        )
+        if result.returncode not in {0, 1}:
+            fail("process_inspection")
+        if result.returncode == 0:
+            fail("backup_process_present")
+
+
+def validate_evidence(raw: bytes, transaction: str, username_hash: str) -> None:
+    try:
+        evidence = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        fail("result_shape")
+    if not isinstance(evidence, dict) or set(evidence) != {
+        "account_username_sha256",
+        "recovered_at",
+        "recovered_files",
+        "remote_cleanup",
+        "state",
+        "transaction_sha256",
+        "version",
+    }:
+        fail("result_shape")
+    recovered = evidence.get("recovered_files")
+    if (
+        evidence.get("account_username_sha256") != username_hash
+        or evidence.get("state") != "recovered"
+        or evidence.get("version") != 1
+        or evidence.get("transaction_sha256") != transaction
+        or evidence.get("remote_cleanup") != "pass"
+        or not isinstance(recovered, list)
+        or len(recovered) != len(set(recovered))
+        or not set(recovered) <= {"fixture.bin", "fixture-renamed.bin"}
+        or not isinstance(evidence.get("recovered_at"), str)
+    ):
+        fail("result_shape")
+    try:
+        datetime.strptime(evidence["recovered_at"], "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        fail("result_shape")
+
+
+def main() -> None:
+    mutex_descriptor: int | None = None
+    try:
+        if len(sys.argv) != 6 or os.getuid() != 0 or os.getgid() != 0:
+            fail("usage")
+        transaction, expected_script, expected_result, expected_policy, expected_config = sys.argv[1:]
+        if any(re.fullmatch(r"[0-9a-f]{64}", value) is None for value in sys.argv[1:]):
+            fail("usage")
+        if digest(require_regular(Path(__file__), 0, 0, 0o700)) != expected_script:
+            fail("script_hash")
+        service = pwd.getpwnam("restic-proton")
+        service_group = grp.getgrnam("restic-proton")
+        if service.pw_uid != SERVICE_UID or service.pw_gid != SERVICE_GID or service_group.gr_gid != SERVICE_GID:
+            fail("service_identity")
+        require_directory(APPLY_LOCK, 0, 0, 0o700)
+        entries = list(APPLY_LOCK.iterdir())
+        if len(entries) != 1 or entries[0].name != "owner":
+            fail("lock_contents")
+        owner = require_regular(APPLY_LOCK / "owner", 0, 0, 0o600)
+        try:
+            owner_lines = owner.decode("utf-8").splitlines()
+        except UnicodeDecodeError:
+            fail("lock_owner")
+        if (
+            digest(owner) != transaction
+            or owner_lines.count("controller=ansible-deploy") != 1
+            or owner_lines.count("operation=proton-qualification") != 1
+            or len(owner_lines) != 3
+        ):
+            fail("lock_owner")
+        mutex_descriptor = acquire_mutex()
+        require_no_processes()
+        require_directory(POLICY.parent, 0, 0, 0o755)
+        policy_raw = require_regular(POLICY, 0, SERVICE_GID, 0o440)
+        if digest(policy_raw) != expected_policy:
+            fail("policy_hash")
+        try:
+            policy = json.loads(policy_raw)
+            username_hash = policy["qualification"]["username_sha256"]
+        except (UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError):
+            fail("policy_shape")
+        if not isinstance(username_hash, str) or re.fullmatch(r"[0-9a-f]{64}", username_hash) is None:
+            fail("policy_shape")
+        require_directory(CONFIG.parent, SERVICE_UID, SERVICE_GID, 0o700)
+        config_raw = require_regular(CONFIG, SERVICE_UID, SERVICE_GID, 0o600)
+        if digest(config_raw) != expected_config:
+            fail("config_hash")
+        require_directory(CACHE, SERVICE_UID, SERVICE_GID, 0o700)
+        if any(CACHE.iterdir()):
+            fail("cache_not_empty")
+        require_directory(EVIDENCE_PARENT, 0, 0, 0o750)
+        destination = EVIDENCE_PARENT / f"proton-qualification-recovery-{transaction}.json"
+        if RESULT.is_symlink() or destination.is_symlink():
+            fail("result_type")
+        result_present = RESULT.exists()
+        evidence_present = destination.exists()
+        if not result_present and not evidence_present:
+            fail("result_absent")
+        result_raw = (
+            require_regular(RESULT, SERVICE_UID, SERVICE_GID, 0o600)
+            if result_present
+            else require_regular(destination, 0, 0, 0o600)
+        )
+        if digest(result_raw) != expected_result:
+            fail("result_hash")
+        if evidence_present and require_regular(destination, 0, 0, 0o600) != result_raw:
+            fail("evidence_drift")
+        validate_evidence(result_raw, transaction, username_hash)
+        publish(destination, result_raw)
+        if (
+            (result_present and require_regular(RESULT, SERVICE_UID, SERVICE_GID, 0o600) != result_raw)
+            or require_regular(destination, 0, 0, 0o600) != result_raw
+            or require_regular(CONFIG, SERVICE_UID, SERVICE_GID, 0o600) != config_raw
+            or any(CACHE.iterdir())
+            or require_regular(APPLY_LOCK / "owner", 0, 0, 0o600) != owner
+        ):
+            fail("artifact_drift")
+        require_no_processes()
+        if result_present:
+            RESULT.unlink()
+            fsync_directory(RESULT.parent)
+        blocked = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGHUP, signal.SIGINT, signal.SIGTERM})
+        try:
+            if require_regular(APPLY_LOCK / "owner", 0, 0, 0o600) != owner or list(APPLY_LOCK.iterdir()) != [APPLY_LOCK / "owner"]:
+                fail("lock_drift")
+            (APPLY_LOCK / "owner").unlink()
+            APPLY_LOCK.rmdir()
+            fsync_directory(APPLY_LOCK.parent)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, blocked)
+        print(f"proton_staged_recovery_finalized=passed evidence_sha256={digest(result_raw)}")
+    except FinalizationError as error:
+        print(f"proton_staged_recovery_finalized=failed reason={error}", file=sys.stderr)
+        raise SystemExit(1) from None
+    except (OSError, KeyError, subprocess.SubprocessError):
+        print("proton_staged_recovery_finalized=failed reason=local_operation", file=sys.stderr)
+        raise SystemExit(1) from None
+    finally:
+        if mutex_descriptor is not None:
+            os.close(mutex_descriptor)
+
+
+if __name__ == "__main__":
+    main()
