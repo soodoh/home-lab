@@ -433,7 +433,7 @@ def ensure_key_pair(directory: Path, name: str, comment: str) -> tuple[Path, Pat
     if not private.exists():
         command(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", comment, "-f", str(private)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     regular_source(private, 0o600, name)
-    regular_source(public, 0o644, f"{name}_public")
+    regular_source(public, 0o600, f"{name}_public")
     if SSH_PUBLIC.fullmatch(public.read_text().strip()) is None:
         fail("ssh_public_key_format_differs")
     return private, public
