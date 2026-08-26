@@ -15,7 +15,6 @@ CLOUD_INIT = "proxmox_virtual_environment_file.recovery_cloud_init[0]"
 VM = "proxmox_virtual_environment_vm.recovery[0]"
 VM_BLOCK = "proxmox_virtual_environment_vm.recovery"
 ALLOWED = {
-    CLOUD_INIT: "proxmox_virtual_environment_file",
     VM: "proxmox_virtual_environment_vm",
 }
 IMAGE_URL = "https://cloud.debian.org/images/cloud/trixie/20260810-2566/debian-13-generic-amd64-20260810-2566.qcow2"
@@ -132,14 +131,12 @@ def validate_vm(value: dict[str, Any], operation: str) -> None:
         expected_network["mac_address"] = mac
     if network != expected_network: fail("network_identity_differs")
     initialization = one(value.get("initialization"), "initialization")
-    common_initialization = {"datastore_id": "local-lvm", "dns": [], "interface": None, "ip_config": [{"ipv4": [{"address": "dhcp", "gateway": None}], "ipv6": []}], "upgrade": False, "user_account": []}
+    common_initialization = {"datastore_id": "local-lvm", "dns": [], "interface": None, "ip_config": [{"ipv4": [{"address": "dhcp", "gateway": None}], "ipv6": []}], "upgrade": False, "user_account": [], "user_data_file_id": "local:snippets/home-lab-restic-recovery-cloud-init.yaml"}
     if operation == "create":
         if initialization != common_initialization: fail("cloud_init_identity_differs")
     else:
-        allowed = set(common_initialization) | {"file_format", "user_data_file_id"}
-        if (set(initialization) != allowed or any(initialization.get(key) != val for key, val in common_initialization.items())
-                or not isinstance(initialization.get("user_data_file_id"), str)
-                or "home-lab-restic-recovery-cloud-init.yaml" not in initialization["user_data_file_id"]): fail("cloud_init_identity_differs")
+        allowed = set(common_initialization) | {"file_format"}
+        if set(initialization) != allowed or any(initialization.get(key) != val for key, val in common_initialization.items()): fail("cloud_init_identity_differs")
 
 
 def sensitive_unknown(unknown: Any) -> bool:
@@ -168,10 +165,10 @@ def sensitive_unknown(unknown: Any) -> bool:
 def validate_configuration(plan: dict[str, Any]) -> None:
     resources = plan.get("configuration", {}).get("root_module", {}).get("resources", [])
     vm = [item for item in resources if item.get("address") == VM_BLOCK]
-    if len(vm) != 1:
-        fail("vm_configuration_absent")
+    if len(vm) != 1: fail("vm_configuration_absent")
     encoded = json.dumps(vm[0].get("expressions", {}), sort_keys=True)
-    if CLOUD_INIT not in encoded or "qualification_cloud_init_user_data" not in json.dumps(plan.get("configuration", {}), sort_keys=True):
+    if ("home-lab-restic-recovery-cloud-init.yaml" not in encoded
+            or "proxmox_virtual_environment_file" in encoded):
         fail("cloud_init_reference_differs")
 
 
@@ -219,7 +216,7 @@ def main() -> None:
             validate_vm(value, args.operation)
         observed.add(address)
     if args.operation == "create":
-        if VM not in mutated or not {VM, CLOUD_INIT} <= observed:
+        if VM not in mutated or VM not in observed:
             fail("required_create_scope_absent")
     elif not mutated:
         fail("required_destroy_change_absent")

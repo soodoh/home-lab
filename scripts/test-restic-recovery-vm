@@ -11,16 +11,13 @@ repo=Path(os.environ['REPO_ROOT']); work=Path(os.environ['WORK']); work.chmod(0o
 validator=repo/'infrastructure/policy/inspect-restic-recovery-vm-plan.py'
 fixture=repo/'infrastructure/policy/fixtures/restic-recovery-vm-create-provider-0.111.1.json'
 base=json.loads(fixture.read_text())
-cloud=base['resource_changes'][0]['change']['after']['source_raw'][0]['data']
+cloud='#cloud-config\nfixture\n'
 cloud_hash=hashlib.sha256(cloud.encode()).hexdigest()
 def invoke(value,operation,ok):
  path=work/f'{operation}-{len(list(work.iterdir()))}.json'; path.write_text(json.dumps(value,sort_keys=True,separators=(',',':'))+'\n'); path.chmod(0o600)
  result=subprocess.run([sys.executable,str(validator),str(path),'--operation',operation,'--expected-cloud-init-sha256',cloud_hash],stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
  if (result.returncode==0)!=ok: raise SystemExit(f'validator expectation failed {operation}: {result.stdout!r} {result.stderr!r}')
 invoke(base,'create',True)
-noop_dependencies=copy.deepcopy(base)
-noop_dependencies['resource_changes'][0]['change']['actions']=['no-op']
-invoke(noop_dependencies,'create',True)
 destroy=copy.deepcopy(base); destroy.pop('configuration',None)
 for change in destroy['resource_changes']:
  change['change']['actions']=['delete']; change['change']['before']=change['change'].pop('after'); change['change'].pop('after_unknown',None)
@@ -30,36 +27,34 @@ for change in destroy['resource_changes']:
   change['change']['before']['initialization'][0]['file_format']='qcow2'; change['change']['before']['initialization'][0]['user_data_file_id']='local:snippets/home-lab-restic-recovery-cloud-init.yaml'
   change['change']['before']['network_device'][0]['mac_address']='BC:24:11:00:00:01'
 invoke(destroy,'destroy',True)
-partial=copy.deepcopy(destroy); partial['resource_changes']=partial['resource_changes'][1:]; invoke(partial,'destroy',True)
 mutations=[]
-extra=copy.deepcopy(base); extra['resource_changes'].append({'address':'proxmox_virtual_environment_vm.production','type':'proxmox_virtual_environment_vm','change':{'actions':['create'],'after':copy.deepcopy(base['resource_changes'][1]['change']['after'])}}); mutations.append(extra)
+extra=copy.deepcopy(base); extra['resource_changes'].append({'address':'proxmox_virtual_environment_vm.production','type':'proxmox_virtual_environment_vm','change':{'actions':['create'],'after':copy.deepcopy(base['resource_changes'][0]['change']['after'])}}); mutations.append(extra)
 for path,value in [
- (('resource_changes',1,'change','actions'),['update']),
- (('resource_changes',1,'change','after','vm_id'),100),
- (('resource_changes',1,'change','after','disk',1,'serial'),'WRONG'),
- (('resource_changes',1,'change','after','disk',1,'backup'),True),
- (('resource_changes',1,'change','after','hostpci'),[{'mapping':'gpu'}]),
- (('resource_changes',1,'change','after','network_device',0,'bridge'),'production-other'),
- (('resource_changes',1,'change','after','on_boot'),True),
- (('resource_changes',1,'change','after','args'),'-device dangerous'),
- (('resource_changes',1,'change','after','hookscript'),'local:snippets/unsafe'),
- (('resource_changes',1,'change','after','agent',0,'enabled'),False),
- (('resource_changes',1,'change','after','agent',0,'trim'),True),
- (('resource_changes',1,'change','after','disk',1,'aio'),'threads'),
- (('resource_changes',1,'change','after','disk',1,'queues'),4),
- (('resource_changes',1,'change','after','network_device',0,'mac_address'),'BC:24:11:00:00:01'),
- (('resource_changes',1,'change','after','network_device',0,'vlan_id'),100),
- (('resource_changes',1,'change','after_unknown','protection'),True),
- (('resource_changes',1,'change','after_unknown','args'),True),
- (('resource_changes',1,'change','after_unknown','ide2'),True),
- (('resource_changes',1,'change','after_unknown','disk',0,'file_id'),True),
- (('resource_changes',1,'change','after_unknown','initialization',0,'ip_config',0,'ipv4',0,'address'),True),
- (('resource_changes',0,'change','after','source_raw',0,'data'),'tampered'),
+ (('resource_changes',0,'change','actions'),['update']),
+ (('resource_changes',0,'change','after','vm_id'),100),
+ (('resource_changes',0,'change','after','disk',1,'serial'),'WRONG'),
+ (('resource_changes',0,'change','after','disk',1,'backup'),True),
+ (('resource_changes',0,'change','after','hostpci'),[{'mapping':'gpu'}]),
+ (('resource_changes',0,'change','after','network_device',0,'bridge'),'production-other'),
+ (('resource_changes',0,'change','after','on_boot'),True),
+ (('resource_changes',0,'change','after','args'),'-device dangerous'),
+ (('resource_changes',0,'change','after','hookscript'),'local:snippets/unsafe'),
+ (('resource_changes',0,'change','after','agent',0,'enabled'),False),
+ (('resource_changes',0,'change','after','agent',0,'trim'),True),
+ (('resource_changes',0,'change','after','disk',1,'aio'),'threads'),
+ (('resource_changes',0,'change','after','disk',1,'queues'),4),
+ (('resource_changes',0,'change','after','network_device',0,'mac_address'),'BC:24:11:00:00:01'),
+ (('resource_changes',0,'change','after','network_device',0,'vlan_id'),100),
+ (('resource_changes',0,'change','after_unknown','protection'),True),
+ (('resource_changes',0,'change','after_unknown','args'),True),
+ (('resource_changes',0,'change','after_unknown','ide2'),True),
+ (('resource_changes',0,'change','after_unknown','disk',0,'file_id'),True),
+ (('resource_changes',0,'change','after_unknown','initialization',0,'ip_config',0,'ipv4',0,'address'),True),
 ]:
  item=copy.deepcopy(base); cursor=item
  for part in path[:-1]: cursor=cursor[part]
  cursor[path[-1]]=value; mutations.append(item)
-missing_cloud=copy.deepcopy(base); missing_cloud['resource_changes']=missing_cloud['resource_changes'][1:]; mutations.append(missing_cloud)
+missing_vm=copy.deepcopy(base); missing_vm['resource_changes']=[]; mutations.append(missing_vm)
 wrong_reference=copy.deepcopy(base)
 for resource in wrong_reference['configuration']['root_module']['resources']:
  if resource.get('address')=='proxmox_virtual_environment_vm.recovery': resource['expressions']={}
@@ -124,7 +119,7 @@ assert module.provider_hashes(endpoint)==module.provider_hashes({'TF_VAR_proxmox
 assert module.provider_hashes(endpoint)!=module.provider_hashes({'TF_VAR_proxmox_endpoint':'https://proxmox:8006/api2/json','PROXMOX_CA_PEM':'other'})
 controller=(repo/'scripts/prove-restic-recovery-vm').read_text(); tofu=(repo/'infrastructure/tofu/proxmox-restic-recovery-qualification/main.tf').read_text()
 for command_name in ('plan-create','apply-create','status','run','plan-destroy','apply-destroy'): assert command_name in controller
-for required in ('vm_id    = 9900','RESTIC-ROOT-32G','RESTIC-RECOVERY-128G','proxmox_virtual_environment_file','qualification_cloud_init_user_data','started       = true','on_boot       = false','protection    = false'): assert required in tofu,required
+for required in ('vm_id    = 9900','RESTIC-ROOT-32G','RESTIC-RECOVERY-128G','local:snippets/home-lab-restic-recovery-cloud-init.yaml','started       = true','on_boot       = false','protection    = false'): assert required in tofu,required
 for required in ('StrictHostKeyChecking=yes','fresh_recovery_observation','pretransfer_vm_observation_drift','provider_transport_binding_drift','partial_apply_requires_exact_replan','exact-partial-create-adopted','exact-partial-destroy-adopted','read_protected_json','terminate_process_group','remote_cleanup(directory, ip)','signal.SIGINT','signal.SIGTERM','before-saved-plan-apply','serial-disk-prepared','wipefs','sfdisk','os.pread','blank_sample_sha256','service_observation_before','database_integrity','configuration_structure','sudo python3 -','/run/restic-fixture/scripts/test-restic-activation-fixture','sudo chmod 0700 /srv/home-lab-recovery'): assert required in controller,required
 assert 'StrictHostKeyChecking=accept-new' not in controller
 assert 'backend "s3"' not in ''.join(path.read_text() for path in (repo/'infrastructure/tofu/proxmox-restic-recovery-qualification').glob('*.tf'))

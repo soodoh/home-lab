@@ -13,12 +13,6 @@ variable "qualification_ssh_public_key" {
   default   = ""
 }
 
-variable "qualification_cloud_init_user_data" {
-  type      = string
-  sensitive = true
-  default   = ""
-}
-
 locals {
   contract = yamldecode(file("${path.module}/../../contract/home-lab.yml"))
   node     = local.contract.proxmox.node
@@ -41,19 +35,6 @@ provider "proxmox" {
   }
 }
 
-
-resource "proxmox_virtual_environment_file" "recovery_cloud_init" {
-  count = var.enable_qualification ? 1 : 0
-
-  content_type = "snippets"
-  datastore_id = "local"
-  node_name    = local.node
-
-  source_raw {
-    data      = var.qualification_cloud_init_user_data
-    file_name = "home-lab-restic-recovery-cloud-init.yaml"
-  }
-}
 
 resource "proxmox_virtual_environment_vm" "recovery" {
   count = var.enable_qualification ? 1 : 0
@@ -122,7 +103,7 @@ resource "proxmox_virtual_environment_vm" "recovery" {
   initialization {
     datastore_id      = "local-lvm"
     upgrade           = false
-    user_data_file_id = proxmox_virtual_environment_file.recovery_cloud_init[0].id
+    user_data_file_id = "local:snippets/home-lab-restic-recovery-cloud-init.yaml"
 
     ip_config {
       ipv4 {
@@ -147,7 +128,7 @@ resource "proxmox_virtual_environment_vm" "recovery" {
 
   lifecycle {
     precondition {
-      condition     = var.qualification_ssh_public_key != "" && var.qualification_cloud_init_user_data != ""
+      condition     = var.qualification_ssh_public_key != ""
       error_message = "Qualification requires dedicated SSH user and host keys."
     }
     precondition {
