@@ -10,6 +10,7 @@ import os
 import re
 import shlex
 import signal
+import socket
 import ssl
 import stat
 import subprocess
@@ -928,17 +929,29 @@ def flatten(value: object) -> list[str]:
     return []
 
 
+def discover_recovery_ip(directory: Path) -> str:
+    sweep = "for i in $(seq 2 254); do ping -c 1 -W 200 192.168.0.$i >/dev/null 2>&1 & done; wait"
+    command(["bash", "-c", sweep], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    observed = command(["arp", "-a"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    candidates = sorted(set(re.findall(r"\((192\.168\.0\.[0-9]+)\)", observed.stdout or "")))
+    _cloud, _user_public, host_public = cloud_init_data(directory)
+    matches = []
+    for ip in candidates:
+        if ip in {"192.168.0.1", "192.168.0.100", "192.168.0.123", "192.168.0.255"}: continue
+        try:
+            with socket.create_connection((ip, 22), timeout=0.2): pass
+        except OSError:
+            continue
+        known_hosts(directory, ip, host_public)
+        result = command(ssh_base(directory, ip) + ["true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if result.returncode == 0: matches.append(ip)
+    if len(matches) != 1: fail("pinned_recovery_vm_ip_identity_differs")
+    return matches[0]
+
+
 def state_ip(directory: Path, values: dict[str, str]) -> str:
-    del directory, values
-    interfaces = proxmox_guest_interfaces()
-    addresses = []
-    for raw in flatten(interfaces):
-        try: address = ipaddress.ip_address(raw.split("/", 1)[0])
-        except ValueError: continue
-        if address in ipaddress.ip_network("192.168.0.0/24") and str(address) not in {"192.168.0.1", "192.168.0.100", "192.168.0.123", "192.168.0.255"}:
-            addresses.append(str(address))
-    if len(set(addresses)) != 1: fail("qemu_agent_ipv4_identity_differs")
-    return addresses[0]
+    del values
+    return discover_recovery_ip(directory)
 
 
 def fresh_recovery_observation(directory: Path, values: dict[str, str]) -> tuple[str, str]:
@@ -946,21 +959,14 @@ def fresh_recovery_observation(directory: Path, values: dict[str, str]) -> tuple
         fail("fresh_vm_9900_exact_identity_differs")
     item = recovery_resource(values)
     config = api(values, "/nodes/proxmox/qemu/9900/config")
-    interfaces = proxmox_guest_interfaces()
+    ip = discover_recovery_ip(directory)
     if (item is None or item.get("name") != "home-lab-restic-recovery" or item.get("status") != "running"
             or not isinstance(config, dict) or config.get("name") != "home-lab-restic-recovery"
             or config.get("protection") not in (0, False, "0") or config.get("onboot") not in (0, False, "0")
             or "RESTIC-ROOT-32G" not in str(config.get("scsi0"))
             or "RESTIC-RECOVERY-128G" not in str(config.get("scsi1"))):
         fail("fresh_vm_9900_configuration_differs")
-    candidates = []
-    for raw in flatten(interfaces):
-        try: address = ipaddress.ip_address(raw.split("/", 1)[0])
-        except ValueError: continue
-        if address in ipaddress.ip_network("192.168.0.0/24") and str(address) not in {"192.168.0.1", "192.168.0.100", "192.168.0.123", "192.168.0.255"}:
-            candidates.append(str(address))
-    if len(set(candidates)) != 1: fail("fresh_qemu_agent_ip_differs")
-    ip = candidates[0]
+    if ip != state_ip(directory, values): fail("pinned_recovery_vm_ip_drift")
     if ip != state_ip(directory, values): fail("state_and_api_ip_differ")
     normalized = {key: value for key, value in config.items() if key not in {"digest", "lock", "pending"}}
     return ip, sha_bytes(canonical({"config": normalized, "ip": ip, "vmid": VMID}))
