@@ -97,11 +97,19 @@ def verify_status_under_lock(manifest: dict) -> None:
     accepted_path = Path(runner.get("accepted_path", ""))
     journal_path = Path(runner.get("journal_path", ""))
     if (not accepted_path.is_absolute() or not accepted_path.is_file()
-            or accepted_path.is_symlink() or not journal_path.is_absolute() or journal_path.exists()):
+            or accepted_path.is_symlink() or not journal_path.is_absolute()
+            or journal_path.exists() or journal_path.is_symlink()):
         fail("restic_transaction_state_invalid")
     accepted = json.loads(accepted_path.read_text())
     if not isinstance(accepted, dict) or accepted.get("version") != 1 or accepted.get("pending") != []:
         fail("restic_pending_state_invalid")
+    for unit in ("home-lab-restic-daily.timer", "home-lab-restic-maintenance.timer"):
+        if run(["systemctl", "is-active", unit]) != "active" or run(["systemctl", "is-enabled", unit]) != "enabled":
+            fail("restic_timer_invalid")
+        if run(["systemctl", "show", "-p", "Persistent", "--value", unit]) != "no":
+            fail("persistent_timer_forbidden")
+    if run(["systemctl", "is-enabled", "home-lab-restic-recover.service"]) != "enabled":
+        fail("recovery_service_invalid")
 
 
 def verify_mounts(manifest: dict) -> None:
@@ -568,9 +576,12 @@ def main() -> None:
     if os.geteuid() != 0:
         fail("root_required")
     manifest, manifest_hash = load_manifest(args.manifest_sha256)
-    # The runner's status command takes this same mutex non-blockingly, so prove
-    # status immediately before acquisition and re-check its files after locking.
-    verify_status()
+    # Plan has no production lock, so also exercise the runner's public status.
+    # Mutating actions run beneath the retained production lock and must use the
+    # authoritative direct state check below instead of status (which rejects a
+    # concurrent deployment by design).
+    if args.action == "plan":
+        verify_status()
     MUTEX.parent.mkdir(parents=True, exist_ok=True)
     with MUTEX.open("a+") as mutex:
         fcntl.flock(mutex, fcntl.LOCK_EX)
