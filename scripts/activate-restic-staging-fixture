@@ -1,0 +1,689 @@
+#!/usr/bin/env python3
+import argparse
+import errno
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import stat
+import tempfile
+
+CLASSES = {"external", "preserve", "regenerate", "replace-entries", "replace-tree", "retain"}
+XATTR_UNSUPPORTED = {errno.ENOTSUP, getattr(errno, "EOPNOTSUPP", errno.ENOTSUP)}
+
+
+def canonical(value: object) -> bytes:
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def fsync_dir(path: Path) -> None:
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def publish(path: Path, value: object) -> None:
+    encoded = canonical(value)
+    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(name)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "wb", closefd=False) as stream:
+            if stream.write(encoded) != len(encoded):
+                raise OSError("short journal write")
+            stream.flush()
+            os.fsync(fd)
+        os.close(fd)
+        temporary.replace(path)
+        fsync_dir(path.parent)
+    except Exception:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        temporary.unlink(missing_ok=True)
+        raise
+
+
+def parse_json(encoded: bytes) -> object:
+    def unique(pairs: list[tuple[str, object]]) -> dict:
+        value = {}
+        for key, item in pairs:
+            if key in value:
+                raise ValueError("duplicate JSON key")
+            value[key] = item
+        return value
+    return json.loads(encoded, object_pairs_hook=unique)
+
+
+def read_regular_json(path: Path, mode: int) -> object:
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != mode or info.st_nlink != 1 or path.is_symlink():
+        raise ValueError("protected JSON metadata differs")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        opened = os.fstat(fd)
+        if (opened.st_ino != info.st_ino or opened.st_dev != info.st_dev
+                or not stat.S_ISREG(opened.st_mode) or stat.S_IMODE(opened.st_mode) != mode
+                or opened.st_nlink != 1):
+            raise ValueError("protected JSON identity changed")
+        chunks = []
+        size = 0
+        while True:
+            chunk = os.read(fd, min(1024 * 1024, 16 * 1024 * 1024 + 1 - size))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+            if size > 16 * 1024 * 1024:
+                raise ValueError("protected JSON is too large")
+        return parse_json(b"".join(chunks))
+    finally:
+        os.close(fd)
+
+
+def write_once(path: Path, value: object, mode: int) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+    try:
+        encoded = canonical(value)
+        with os.fdopen(fd, "wb", closefd=False) as stream:
+            if stream.write(encoded) != len(encoded):
+                raise OSError("short immutable identity write")
+            stream.flush()
+            os.fchmod(fd, mode)
+            os.fsync(fd)
+    finally:
+        os.close(fd)
+    fsync_dir(path.parent)
+
+
+def safe_relative(raw: object) -> Path:
+    if not isinstance(raw, str):
+        raise ValueError("path is not a string")
+    value = Path(raw)
+    if value.is_absolute() or not value.parts or "." in value.parts or ".." in value.parts:
+        raise ValueError("path escapes fixture")
+    return value
+
+
+def exists(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def read_xattrs(path: Path, supported: bool) -> dict[str, str]:
+    if not supported:
+        return {}
+    try:
+        return {name: os.getxattr(path, name, follow_symlinks=False).hex() for name in sorted(os.listxattr(path, follow_symlinks=False))}
+    except OSError as error:
+        if error.errno in XATTR_UNSUPPORTED:
+            raise ValueError("xattr support changed during transaction") from error
+        raise
+
+
+def detect_xattrs(path: Path) -> bool:
+    if not all(hasattr(os, name) for name in ("getxattr", "listxattr", "removexattr", "setxattr")):
+        return False
+    try:
+        os.listxattr(path, follow_symlinks=False)
+        return True
+    except OSError as error:
+        if error.errno in XATTR_UNSUPPORTED:
+            return False
+        raise
+
+
+def node_identity(path: Path, xattrs_supported: bool) -> dict:
+    info = path.lstat()
+    if stat.S_ISLNK(info.st_mode):
+        raise ValueError("symlink identity is forbidden")
+    common = {
+        "gid": info.st_gid,
+        "nlink": info.st_nlink,
+        "mode": stat.S_IMODE(info.st_mode),
+        "mtime_ns": info.st_mtime_ns,
+        "uid": info.st_uid,
+        "xattrs": read_xattrs(path, xattrs_supported),
+    }
+    if stat.S_ISREG(info.st_mode):
+        if info.st_nlink != 1:
+            raise ValueError("hard link identity is forbidden")
+        return {**common, "bytes": info.st_size, "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "type": "file"}
+    if stat.S_ISDIR(info.st_mode):
+        children = []
+        for child in sorted(path.iterdir(), key=lambda item: item.name):
+            children.append({"identity": node_identity(child, xattrs_supported), "name": child.name})
+        return {**common, "children_sha256": hashlib.sha256(canonical(children)).hexdigest(), "type": "directory"}
+    raise ValueError("special identity is forbidden")
+
+
+def validate_tree(root: Path) -> None:
+    root_info = root.lstat()
+    if not stat.S_ISDIR(root_info.st_mode) or root.is_symlink():
+        raise ValueError("tree root differs")
+    for directory, names, files in os.walk(root, followlinks=False):
+        current = Path(directory)
+        info = current.lstat()
+        if not stat.S_ISDIR(info.st_mode) or current.is_symlink():
+            raise ValueError("unsafe directory")
+        for name in names + files:
+            path = current / name
+            item = path.lstat()
+            if stat.S_ISLNK(item.st_mode):
+                raise ValueError("symlink is forbidden")
+            if stat.S_ISREG(item.st_mode):
+                if item.st_nlink != 1:
+                    raise ValueError("hard link is forbidden")
+            elif not stat.S_ISDIR(item.st_mode):
+                raise ValueError("special file is forbidden")
+
+
+def ensure_ancestors(path: Path, boundary: Path) -> None:
+    current = path.parent
+    while current != boundary:
+        if not current.is_relative_to(boundary):
+            raise ValueError("action escapes fixture")
+        info = current.lstat()
+        if not stat.S_ISDIR(info.st_mode) or current.is_symlink():
+            raise ValueError("action ancestor differs")
+        current = current.parent
+
+
+def mutate_mkdir(path: Path, workspace: Path) -> None:
+    ensure_ancestors(path, workspace)
+    os.mkdir(path, 0o700)
+    fsync_dir(path.parent)
+
+
+def mutate_rename(source: Path, destination: Path, workspace: Path) -> None:
+    ensure_ancestors(source, workspace)
+    ensure_ancestors(destination, workspace)
+    if source.is_symlink() or destination.is_symlink() or not exists(source) or exists(destination):
+        raise ValueError("rename boundary differs")
+    os.rename(source, destination)
+    fsync_dir(source.parent)
+    if source.parent != destination.parent:
+        fsync_dir(destination.parent)
+
+
+def checkpoint(journal_path: Path, journal: dict, phase: str) -> None:
+    counts = journal.setdefault("checkpoints", {})
+    counts[phase] = counts.get(phase, 0) + 1
+    publish(journal_path, journal)
+    wanted_phase = os.environ.get("RESTIC_ACTIVATION_INTERRUPT_PHASE")
+    wanted_after = int(os.environ.get("RESTIC_ACTIVATION_INTERRUPT_AFTER", "0"))
+    if wanted_phase == phase and wanted_after == counts[phase]:
+        raise SystemExit(75)
+
+
+def static_action(action: dict) -> dict:
+    return {key: value for key, value in action.items() if key != "state"}
+
+
+def add_action(journal_path: Path, journal: dict, action: dict) -> None:
+    action["state"] = "prepared"
+    journal["actions"].append(action)
+    checkpoint(journal_path, journal, "apply")
+
+
+def apply_action(workspace: Path, action: dict, xattrs_supported: bool) -> None:
+    path = workspace / safe_relative(action["path"])
+    if action["kind"] == "metadata":
+        return
+    if action["kind"] == "mkdir":
+        if exists(path):
+            raise ValueError("mkdir destination exists")
+        mutate_mkdir(path, workspace)
+    elif action["kind"] == "rename":
+        destination = workspace / safe_relative(action["destination"])
+        if node_identity(path, xattrs_supported) != action["identity"]:
+            raise ValueError("rename source identity differs")
+        mutate_rename(path, destination, workspace)
+    else:
+        raise ValueError("action kind differs")
+
+
+def plan_parent_actions(workspace: Path, target_parent: Path, virtual_dirs: set[str]) -> list[dict]:
+    missing = []
+    current = target_parent
+    while current != workspace and str(current.relative_to(workspace)) not in virtual_dirs:
+        if exists(current):
+            info = current.lstat()
+            if not stat.S_ISDIR(info.st_mode) or current.is_symlink():
+                raise ValueError("planned parent differs")
+            virtual_dirs.add(str(current.relative_to(workspace)))
+            break
+        missing.append(current)
+        current = current.parent
+    actions = []
+    for path in reversed(missing):
+        relative = str(path.relative_to(workspace))
+        virtual_dirs.add(relative)
+        actions.append({"kind": "mkdir", "path": relative})
+    return actions
+
+
+def plan_actions(workspace: Path, entries: list[dict], xattrs_supported: bool) -> list[dict]:
+    live = workspace / "live"
+    staging = workspace / "staging"
+    rollback = workspace / "rollback"
+    virtual_dirs = {"", "live", "staging"}
+    for directory, names, _ in os.walk(live):
+        names.sort()
+        current = Path(directory)
+        virtual_dirs.add(str(current.relative_to(workspace)))
+        for name in names:
+            path = current / name
+            if path.is_dir() and not path.is_symlink():
+                virtual_dirs.add(str(path.relative_to(workspace)))
+    actions = []
+    for root in (live, staging):
+        for directory, names, _ in os.walk(root, followlinks=False):
+            names.sort()
+            path = Path(directory)
+            info = path.lstat()
+            xattrs = read_xattrs(path, xattrs_supported)
+            actions.append({
+                "gid": info.st_gid,
+                "kind": "metadata",
+                "mode": stat.S_IMODE(info.st_mode),
+                "mtime_ns": info.st_mtime_ns,
+                "path": str(path.relative_to(workspace)),
+                "uid": info.st_uid,
+                "xattrs": xattrs,
+            })
+    actions.append({"kind": "mkdir", "path": "rollback"})
+    virtual_dirs.add("rollback")
+    for entry in entries:
+        relative = safe_relative(entry["path"])
+        category = entry["class"]
+        live_path = live / relative
+        staged_path = staging / relative
+        if category in {"preserve", "regenerate", "retain", "external"} and exists(staged_path):
+            raise ValueError("non-restorable class appeared in staging")
+        if category in {"preserve", "retain", "external"}:
+            continue
+        if category == "regenerate":
+            if exists(live_path):
+                backup = rollback / "live" / relative
+                actions.extend(plan_parent_actions(workspace, backup.parent, virtual_dirs))
+                actions.append({"identity": node_identity(live_path, xattrs_supported), "kind": "rename", "path": str(live_path.relative_to(workspace)), "destination": str(backup.relative_to(workspace))})
+        elif category == "replace-tree":
+            if not staged_path.is_dir() or staged_path.is_symlink():
+                raise ValueError("replace-tree staging differs")
+            if exists(live_path):
+                backup = rollback / "live" / relative
+                actions.extend(plan_parent_actions(workspace, backup.parent, virtual_dirs))
+                actions.append({"identity": node_identity(live_path, xattrs_supported), "kind": "rename", "path": str(live_path.relative_to(workspace)), "destination": str(backup.relative_to(workspace))})
+            actions.extend(plan_parent_actions(workspace, live_path.parent, virtual_dirs))
+            actions.append({"identity": node_identity(staged_path, xattrs_supported), "kind": "rename", "path": str(staged_path.relative_to(workspace)), "destination": str(live_path.relative_to(workspace))})
+            virtual_dirs.add(str(live_path.relative_to(workspace)))
+        elif category == "replace-entries":
+            if not staged_path.is_dir() or staged_path.is_symlink():
+                raise ValueError("replace-entries staging differs")
+            if not exists(live_path):
+                actions.extend(plan_parent_actions(workspace, live_path.parent, virtual_dirs))
+                actions.append({"kind": "mkdir", "path": str(live_path.relative_to(workspace))})
+                virtual_dirs.add(str(live_path.relative_to(workspace)))
+            elif not live_path.is_dir() or live_path.is_symlink():
+                raise ValueError("replace-entries live target differs")
+            for child in sorted(staged_path.iterdir(), key=lambda item: item.name):
+                destination = live_path / child.name
+                if exists(destination):
+                    backup = rollback / "live" / relative / child.name
+                    actions.extend(plan_parent_actions(workspace, backup.parent, virtual_dirs))
+                    actions.append({"identity": node_identity(destination, xattrs_supported), "kind": "rename", "path": str(destination.relative_to(workspace)), "destination": str(backup.relative_to(workspace))})
+                actions.append({"identity": node_identity(child, xattrs_supported), "kind": "rename", "path": str(child.relative_to(workspace)), "destination": str(destination.relative_to(workspace))})
+    return actions
+
+
+def inspect_forward(workspace: Path, action: dict, xattrs_supported: bool) -> str:
+    source = workspace / safe_relative(action["path"])
+    if action["kind"] == "metadata":
+        return "done"
+    if action["kind"] == "mkdir":
+        return "done" if source.is_dir() and not source.is_symlink() else "pending" if not exists(source) else "invalid"
+    destination = workspace / safe_relative(action["destination"])
+    source_exists = exists(source) and not source.is_symlink()
+    destination_exists = exists(destination) and not destination.is_symlink()
+    if source_exists and not destination_exists:
+        return "pending" if node_identity(source, xattrs_supported) == action["identity"] else "invalid"
+    if not source_exists and destination_exists:
+        return "done" if node_identity(destination, xattrs_supported) == action["identity"] else "invalid"
+    return "invalid"
+
+
+def reverse_action(workspace: Path, action: dict, xattrs_supported: bool) -> None:
+    path = workspace / safe_relative(action["path"])
+    if action["kind"] == "metadata":
+        if not path.is_dir() or path.is_symlink():
+            raise ValueError("rollback metadata path differs")
+        os.chmod(path, action["mode"], follow_symlinks=False)
+        if path.stat().st_uid != action["uid"] or path.stat().st_gid != action["gid"]:
+            os.chown(path, action["uid"], action["gid"], follow_symlinks=False)
+        if xattrs_supported:
+            current_xattrs = read_xattrs(path, True)
+            for name in current_xattrs:
+                if name not in action["xattrs"]:
+                    os.removexattr(path, name, follow_symlinks=False)
+            for name, value in action["xattrs"].items():
+                os.setxattr(path, name, bytes.fromhex(value), follow_symlinks=False)
+        elif action["xattrs"]:
+            raise ValueError("unsupported xattrs appeared in journal")
+        # atime is intentionally excluded because identity validation reads can mutate it.
+        os.utime(path, ns=(path.stat().st_atime_ns, action["mtime_ns"]), follow_symlinks=False)
+        fsync_dir(path)
+        fsync_dir(path.parent)
+    elif action["kind"] == "mkdir":
+        if path.is_dir() and not path.is_symlink():
+            os.rmdir(path)
+            fsync_dir(path.parent)
+        elif exists(path):
+            raise ValueError("rollback mkdir boundary differs")
+    else:
+        destination = workspace / safe_relative(action["destination"])
+        forward = inspect_forward(workspace, action, xattrs_supported)
+        if forward == "done":
+            mutate_rename(destination, path, workspace)
+        elif forward != "pending":
+            raise ValueError("rollback rename boundary differs")
+
+
+def validate_identity_record(identity: object) -> None:
+    if not isinstance(identity, dict) or identity.get("type") not in {"directory", "file"}:
+        raise ValueError("identity record type differs")
+    common = {"gid", "mode", "mtime_ns", "nlink", "type", "uid", "xattrs"}
+    expected = common | ({"bytes", "sha256"} if identity["type"] == "file" else {"children_sha256"})
+    if set(identity) != expected:
+        raise ValueError("identity record keys differ")
+    if any(type(identity[key]) is not int or identity[key] < 0 for key in ("gid", "mode", "mtime_ns", "nlink", "uid")):
+        raise ValueError("identity record metadata differs")
+    if not isinstance(identity["xattrs"], dict) or any(not isinstance(key, str) or not isinstance(value, str) for key, value in identity["xattrs"].items()):
+        raise ValueError("identity record xattrs differ")
+    hash_value = identity["sha256"] if identity["type"] == "file" else identity["children_sha256"]
+    if not isinstance(hash_value, str) or len(hash_value) != 64 or any(character not in "0123456789abcdef" for character in hash_value):
+        raise ValueError("identity record hash differs")
+    if identity["type"] == "file" and (type(identity["bytes"]) is not int or identity["bytes"] < 0 or identity["nlink"] != 1):
+        raise ValueError("file identity differs")
+
+
+def validate_planned_action(action: object) -> None:
+    if not isinstance(action, dict) or action.get("kind") not in {"metadata", "mkdir", "rename"}:
+        raise ValueError("planned action kind differs")
+    path = safe_relative(action.get("path"))
+    if path.parts[0] not in {"live", "rollback", "staging"}:
+        raise ValueError("planned action root differs")
+    if action["kind"] == "metadata":
+        expected = {"gid", "kind", "mode", "mtime_ns", "path", "uid", "xattrs"}
+        if (path.parts[0] not in {"live", "staging"}
+                or any(type(action[key]) is not int for key in ("gid", "mode", "mtime_ns", "uid"))
+                or not isinstance(action["xattrs"], dict)):
+            raise ValueError("planned metadata action differs")
+    elif action["kind"] == "mkdir":
+        expected = {"kind", "path"}
+        if path.parts[0] not in {"live", "rollback"}:
+            raise ValueError("planned mkdir route differs")
+    else:
+        expected = {"destination", "identity", "kind", "path"}
+        destination = safe_relative(action["destination"])
+        if ((path.parts[0], destination.parts[0]) not in {("live", "rollback"), ("staging", "live")}
+                or path == destination or path.is_relative_to(destination) or destination.is_relative_to(path)):
+            raise ValueError("planned rename route differs")
+        validate_identity_record(action["identity"])
+    if set(action) != expected:
+        raise ValueError("planned action keys differ")
+
+
+def validate_rollback_structure(workspace: Path, journal: dict) -> None:
+    rollback = workspace / "rollback"
+    if not exists(rollback):
+        return
+    allowed_roots = []
+    allowed_exact = {Path("rollback")}
+    for action in journal["planned_actions"]:
+        if action["kind"] == "mkdir" and safe_relative(action["path"]).parts[0] == "rollback":
+            allowed_exact.add(safe_relative(action["path"]))
+        if action["kind"] == "rename":
+            destination = safe_relative(action["destination"])
+            if destination.parts[0] == "rollback":
+                allowed_roots.append(destination)
+    for path in [rollback, *sorted(rollback.rglob("*"))]:
+        relative = path.relative_to(workspace)
+        if relative in allowed_exact or any(relative == root or relative.is_relative_to(root) for root in allowed_roots):
+            continue
+        raise ValueError("rollback tree contains an unrelated entry")
+
+
+def validate_journal(journal: dict, plan_hash: str) -> None:
+    if set(journal) != {"actions", "apply_completed", "checkpoints", "cleanup", "plan_sha256", "planned_actions", "planned_actions_sha256", "state", "version", "xattrs_supported"}:
+        raise ValueError("journal keys differ")
+    if (type(journal["version"]) is not int or journal["version"] != 1 or journal["plan_sha256"] != plan_hash
+            or type(journal["xattrs_supported"]) is not bool or type(journal["apply_completed"]) is not bool
+            or not isinstance(journal["planned_actions"], list)
+            or journal["planned_actions_sha256"] != hashlib.sha256(canonical(journal["planned_actions"])).hexdigest()):
+        raise ValueError("journal identity differs")
+    if journal["state"] not in {"applying", "applied", "rolling-back", "rolled-back", "committing", "committed"}:
+        raise ValueError("journal state differs")
+    if journal["cleanup"] not in {"present", "absent"}:
+        raise ValueError("journal cleanup differs")
+    if (not isinstance(journal["actions"], list) or not isinstance(journal["checkpoints"], dict)
+            or any(not isinstance(key, str) or type(value) is not int or value < 0 for key, value in journal["checkpoints"].items())):
+        raise ValueError("journal structure differs")
+    for planned_action in journal["planned_actions"]:
+        validate_planned_action(planned_action)
+    if len(journal["actions"]) > len(journal["planned_actions"]):
+        raise ValueError("journal action prefix is too long")
+    for index, action in enumerate(journal["actions"]):
+        if static_action(action) != journal["planned_actions"][index]:
+            raise ValueError("journal action plan differs")
+        if action.get("kind") not in {"metadata", "mkdir", "rename"}:
+            raise ValueError("journal action kind differs")
+        if action["kind"] == "metadata":
+            expected = {"gid", "kind", "mode", "mtime_ns", "path", "state", "uid", "xattrs"}
+            if (any(type(action[key]) is not int for key in ("gid", "mode", "mtime_ns", "uid"))
+                    or not isinstance(action["xattrs"], dict)):
+                raise ValueError("journal metadata action differs")
+        elif action["kind"] == "mkdir":
+            expected = {"kind", "path", "state"}
+        else:
+            expected = {"destination", "identity", "kind", "path", "state"}
+        if set(action) != expected or action["state"] not in {"prepared", "done", "reversing", "reversed"}:
+            raise ValueError("journal action differs")
+        safe_relative(action["path"])
+        if action["kind"] == "rename":
+            safe_relative(action["destination"])
+            if not isinstance(action["identity"], dict):
+                raise ValueError("journal rename identity differs")
+    states = [action["state"] for action in journal["actions"]]
+    forward_valid = all(state == "done" for state in states[:-1]) and (not states or states[-1] in {"done", "prepared"})
+    reverse_boundary = next((index for index, state in enumerate(states) if state in {"reversing", "reversed"}), len(states))
+    rollback_progress_valid = (all(state == "done" for state in states[:reverse_boundary])
+                               and states[reverse_boundary:].count("reversing") <= 1
+                               and all(state in {"reversing", "reversed"} for state in states[reverse_boundary:])
+                               and states[reverse_boundary:] == sorted(states[reverse_boundary:], key=lambda value: value == "reversed"))
+    rollback_valid = forward_valid or rollback_progress_valid
+    if journal["state"] == "applying" and (journal["apply_completed"] or not forward_valid or journal["cleanup"] != "present"):
+        raise ValueError("applying journal state model differs")
+    if journal["state"] in {"applied", "committing", "committed"} and (not journal["apply_completed"] or len(states) != len(journal["planned_actions"]) or any(state != "done" for state in states)):
+        raise ValueError("completed journal state model differs")
+    if journal["state"] == "rolling-back" and not rollback_valid:
+        raise ValueError("rollback journal state model differs")
+    if journal["state"] == "rolled-back" and any(state != "reversed" for state in states):
+        raise ValueError("rolled-back journal state model differs")
+    if journal["state"] not in {"rolled-back", "committed"} and journal["cleanup"] != "present":
+        raise ValueError("premature journal cleanup state")
+    if set(journal["checkpoints"]) - {"apply", "commit", "rollback"}:
+        raise ValueError("unknown journal checkpoint phase")
+    done = states.count("done")
+    prepared = states.count("prepared")
+    observed_apply = journal["checkpoints"].get("apply")
+    if journal["apply_completed"]:
+        if len(states) != len(journal["planned_actions"]) or observed_apply != 2 * len(states) + 2:
+            raise ValueError("completed apply checkpoint model differs")
+    elif journal["state"] == "applying":
+        if observed_apply != 1 + 2 * done + prepared:
+            raise ValueError("active apply checkpoint model differs")
+    elif observed_apply not in {2 * len(states), 1 + 2 * len(states)}:
+        raise ValueError("interrupted apply checkpoint model differs")
+    reversed_count = states.count("reversed")
+    reversing_count = states.count("reversing")
+    if journal["state"] in {"rolling-back", "rolled-back"}:
+        expected_rollback = 1 + 2 * reversed_count + reversing_count
+        if journal["state"] == "rolled-back":
+            expected_rollback += 1 + (journal["cleanup"] == "absent")
+        if journal["checkpoints"].get("rollback") != expected_rollback:
+            raise ValueError("rollback checkpoint model differs")
+    elif "rollback" in journal["checkpoints"]:
+        raise ValueError("unexpected rollback checkpoints")
+    if journal["state"] == "committing":
+        expected_commit = 1
+    elif journal["state"] == "committed":
+        expected_commit = 2 + (journal["cleanup"] == "absent")
+    else:
+        expected_commit = 0
+    if journal["checkpoints"].get("commit", 0) != expected_commit:
+        raise ValueError("commit checkpoint model differs")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("mode", choices=("apply", "rollback", "commit", "counts"))
+    parser.add_argument("--workspace", required=True)
+    parser.add_argument("--plan", required=True)
+    parser.add_argument("--confirmed-isolated-fixture", action="store_true")
+    args = parser.parse_args()
+    if not args.confirmed_isolated_fixture:
+        raise ValueError("isolated fixture confirmation required")
+    workspace = Path(args.workspace).resolve(strict=True)
+    if workspace.parent not in {Path("/tmp"), Path("/private/tmp")} or not workspace.name.startswith("restic-activation-fixture-"):
+        raise ValueError("fixture workspace differs")
+    info = workspace.lstat()
+    if not stat.S_ISDIR(info.st_mode) or workspace.is_symlink() or stat.S_IMODE(info.st_mode) != 0o700:
+        raise ValueError("fixture workspace metadata differs")
+    plan_path = Path(args.plan)
+    plan = read_regular_json(plan_path, 0o600)
+    resolved_plan_path = plan_path.resolve(strict=True)
+    if resolved_plan_path.parent != workspace or resolved_plan_path.name != "plan.json":
+        raise ValueError("fixture plan path differs")
+    if set(plan) != {"entries", "version"} or type(plan["version"]) is not int or plan["version"] != 1 or not isinstance(plan["entries"], list):
+        raise ValueError("fixture plan differs")
+    seen = []
+    for entry in plan["entries"]:
+        if not isinstance(entry, dict) or set(entry) != {"class", "path"} or entry["class"] not in CLASSES:
+            raise ValueError("fixture class differs")
+        path = safe_relative(entry["path"])
+        if any(path == prior or path.is_relative_to(prior) or prior.is_relative_to(path) for prior in seen):
+            raise ValueError("classified paths overlap")
+        seen.append(path)
+    validate_tree(workspace / "live")
+    validate_tree(workspace / "staging")
+    plan_hash = hashlib.sha256(canonical(plan)).hexdigest()
+    journal_path = workspace / "journal.json"
+    action_plan_path = workspace / "action-plan.json"
+    rollback = workspace / "rollback"
+    if args.mode == "apply":
+        if exists(journal_path) or exists(action_plan_path) or exists(rollback):
+            raise ValueError("transaction residue exists")
+        xattrs_supported = detect_xattrs(workspace)
+        actions = plan_actions(workspace, plan["entries"], xattrs_supported)
+        planned_actions = json.loads(canonical(actions))
+        planned_actions_sha256 = hashlib.sha256(canonical(planned_actions)).hexdigest()
+        action_plan = {"plan_sha256": plan_hash, "planned_actions": planned_actions, "planned_actions_sha256": planned_actions_sha256, "version": 1, "xattrs_supported": xattrs_supported}
+        write_once(action_plan_path, action_plan, 0o400)
+        journal = {"actions": [], "apply_completed": False, "checkpoints": {}, "cleanup": "present", "plan_sha256": plan_hash, "planned_actions": planned_actions, "planned_actions_sha256": planned_actions_sha256, "state": "applying", "version": 1, "xattrs_supported": xattrs_supported}
+        checkpoint(journal_path, journal, "apply")
+        for planned_action in planned_actions:
+            action = json.loads(canonical(planned_action))
+            add_action(journal_path, journal, action)
+            apply_action(workspace, action, xattrs_supported)
+            action["state"] = "done"
+            checkpoint(journal_path, journal, "apply")
+        journal["apply_completed"] = True
+        journal["state"] = "applied"
+        checkpoint(journal_path, journal, "apply")
+        print(json.dumps({"apply_checkpoints": journal["checkpoints"]["apply"], "external_readiness": "pending", "state": "applied"}, sort_keys=True))
+        return
+    if not exists(journal_path):
+        if not exists(rollback):
+            if exists(action_plan_path):
+                read_regular_json(action_plan_path, 0o400)
+                action_plan_path.unlink()
+                fsync_dir(workspace)
+            print(json.dumps({"state": "already-finalized"}, sort_keys=True))
+            return
+        raise ValueError("rollback exists without journal")
+    action_plan = read_regular_json(action_plan_path, 0o400)
+    if (set(action_plan) != {"plan_sha256", "planned_actions", "planned_actions_sha256", "version", "xattrs_supported"}
+            or type(action_plan["version"]) is not int or action_plan["version"] != 1
+            or action_plan["plan_sha256"] != plan_hash or type(action_plan["xattrs_supported"]) is not bool
+            or action_plan["planned_actions_sha256"] != hashlib.sha256(canonical(action_plan["planned_actions"])).hexdigest()
+            or action_plan["xattrs_supported"] != detect_xattrs(workspace)):
+        raise ValueError("immutable action plan identity differs")
+    journal = read_regular_json(journal_path, 0o600)
+    validate_journal(journal, plan_hash)
+    if (journal["planned_actions"] != action_plan["planned_actions"]
+            or journal["planned_actions_sha256"] != action_plan["planned_actions_sha256"]
+            or journal["xattrs_supported"] != action_plan["xattrs_supported"]):
+        raise ValueError("journal action plan binding differs")
+    if exists(rollback):
+        validate_tree(rollback)
+        validate_rollback_structure(workspace, journal)
+    if args.mode == "counts":
+        action_count = len(journal["actions"])
+        print(json.dumps({"commit_checkpoints": 3, "rollback_checkpoints": 2 * action_count + 3}, sort_keys=True))
+        return
+    if args.mode == "rollback":
+        if journal["state"] in {"committing", "committed"}:
+            raise ValueError("committed activation cannot roll back")
+        if journal["state"] != "rolled-back":
+            journal["state"] = "rolling-back"
+            checkpoint(journal_path, journal, "rollback")
+            for action in reversed(journal["actions"]):
+                if action["state"] == "reversed":
+                    continue
+                if action["state"] != "reversing":
+                    action["state"] = "reversing"
+                    checkpoint(journal_path, journal, "rollback")
+                reverse_action(workspace, action, journal["xattrs_supported"])
+                action["state"] = "reversed"
+                checkpoint(journal_path, journal, "rollback")
+            journal["state"] = "rolled-back"
+            checkpoint(journal_path, journal, "rollback")
+        if exists(rollback):
+            os.rmdir(rollback)
+            fsync_dir(workspace)
+        if journal["cleanup"] != "absent":
+            journal["cleanup"] = "absent"
+            checkpoint(journal_path, journal, "rollback")
+        journal_path.unlink()
+        fsync_dir(workspace)
+        action_plan_path.unlink()
+        fsync_dir(workspace)
+        print(json.dumps({"external_readiness": "pending", "state": "rolled-back"}, sort_keys=True))
+        return
+    if journal["state"] not in {"applied", "committing", "committed"}:
+        raise ValueError("incomplete activation cannot commit")
+    if journal["state"] == "applied":
+        journal["state"] = "committing"
+        checkpoint(journal_path, journal, "commit")
+    if journal["state"] == "committing":
+        journal["state"] = "committed"
+        checkpoint(journal_path, journal, "commit")
+    if exists(rollback):
+        shutil.rmtree(rollback)
+        fsync_dir(workspace)
+    if journal["cleanup"] != "absent":
+        journal["cleanup"] = "absent"
+        checkpoint(journal_path, journal, "commit")
+    journal_path.unlink()
+    fsync_dir(workspace)
+    action_plan_path.unlink()
+    fsync_dir(workspace)
+    print(json.dumps({"external_readiness": "pending", "state": "committed"}, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

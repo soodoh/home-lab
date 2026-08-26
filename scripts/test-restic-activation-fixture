@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+set -euo pipefail
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+workspaces=()
+cleanup() { for workspace in "${workspaces[@]}"; do rm -rf "$workspace"; done; }
+trap cleanup EXIT
+
+new_fixture() {
+  workspace=$(mktemp -d /tmp/restic-activation-fixture-XXXXXX)
+  chmod 0700 "$workspace"
+  workspaces+=("$workspace")
+  mkdir -m 0700 "$workspace/live" "$workspace/staging"
+  cat >"$workspace/plan.json" <<'JSON'
+{"entries":[{"class":"preserve","path":"preserve"},{"class":"retain","path":"retain"},{"class":"external","path":"external"},{"class":"regenerate","path":"regenerate"},{"class":"replace-tree","path":"replace-tree"},{"class":"replace-entries","path":"replace-entries"}],"version":1}
+JSON
+  chmod 0600 "$workspace/plan.json"
+  mkdir "$workspace/live/preserve" "$workspace/live/retain" "$workspace/live/external" "$workspace/live/regenerate" "$workspace/live/replace-tree"
+  printf preserve >"$workspace/live/preserve/value"
+  printf retain >"$workspace/live/retain/value"
+  printf external >"$workspace/live/external/value"
+  printf transient >"$workspace/live/regenerate/cache"
+  printf old >"$workspace/live/replace-tree/old"
+  mkdir "$workspace/staging/replace-tree" "$workspace/staging/replace-entries"
+  printf new >"$workspace/staging/replace-tree/new"
+  printf managed >"$workspace/staging/replace-entries/managed"
+  WORKSPACE="$workspace" python3 - <<'PY'
+import errno,os
+from pathlib import Path
+root=Path(os.environ["WORKSPACE"]); path=root/"live/preserve/value"; directory=root/"live/preserve"
+try:
+ os.setxattr(path,"user.fixture",b"preserved"); os.setxattr(directory,"user.fixture-directory",b"original")
+ (root/".xattrs-supported").write_text("yes")
+except AttributeError: pass
+except OSError as error:
+ if error.errno not in {errno.ENOTSUP,getattr(errno,"EOPNOTSUPP",errno.ENOTSUP)}: raise
+PY
+}
+
+manifest() {
+  WORKSPACE="$1" python3 - <<'PY'
+import errno,hashlib,json,os,stat
+from pathlib import Path
+root=Path(os.environ["WORKSPACE"]); values=[]
+for base in (root/"live",root/"staging"):
+ for path in [base, *sorted(base.rglob("*"))]:
+  item=path.lstat(); kind="directory" if stat.S_ISDIR(item.st_mode) else "file"
+  content=hashlib.sha256(path.read_bytes()).hexdigest() if kind=="file" else None
+  try: xattrs={name:os.getxattr(path,name).hex() for name in sorted(os.listxattr(path))}
+  except AttributeError: xattrs={}
+  except OSError as error:
+   if error.errno not in {errno.ENOTSUP,getattr(errno,"EOPNOTSUPP",errno.ENOTSUP)}: raise
+   xattrs={}
+  values.append({"content":content,"gid":item.st_gid,"kind":kind,"mode":stat.S_IMODE(item.st_mode),"mtime_ns":item.st_mtime_ns,"path":str(path.relative_to(root)),"uid":item.st_uid,"xattrs":xattrs})
+print(hashlib.sha256(json.dumps(values,sort_keys=True,separators=(",",":")).encode()).hexdigest())
+PY
+}
+
+activate() {
+  local mode=$1
+  "$repo_root/scripts/activate-restic-staging-fixture" "$mode" --workspace "$workspace" --plan "$workspace/plan.json" --confirmed-isolated-fixture
+}
+
+no_residue() {
+  [[ ! -e $workspace/journal.json && ! -e $workspace/action-plan.json && ! -e $workspace/rollback ]]
+}
+
+new_fixture
+before=$(manifest "$workspace")
+apply_output=$(activate apply)
+apply_count=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["apply_checkpoints"])' "$apply_output")
+[[ $(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["external_readiness"])' "$apply_output") == pending ]]
+[[ $(cat "$workspace/live/preserve/value") == preserve && $(cat "$workspace/live/retain/value") == retain ]]
+[[ $(cat "$workspace/live/external/value") == external && ! -e $workspace/live/regenerate ]]
+[[ $(cat "$workspace/live/replace-tree/new") == new && ! -e $workspace/live/replace-tree/old ]]
+[[ $(cat "$workspace/live/replace-entries/managed") == managed ]]
+if [[ -f $workspace/.xattrs-supported ]]; then
+  WORKSPACE="$workspace" python3 - <<'PY'
+import os
+from pathlib import Path
+os.setxattr(Path(os.environ["WORKSPACE"],"live/preserve"),"user.fixture-directory",b"mutated")
+PY
+fi
+counts=$(activate counts)
+rollback_count=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["rollback_checkpoints"])' "$counts")
+commit_count=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["commit_checkpoints"])' "$counts")
+activate rollback >/dev/null
+[[ $(manifest "$workspace") == "$before" ]] && no_residue
+
+for checkpoint in $(seq 1 "$apply_count"); do
+  new_fixture; before=$(manifest "$workspace")
+  if RESTIC_ACTIVATION_INTERRUPT_PHASE=apply RESTIC_ACTIVATION_INTERRUPT_AFTER=$checkpoint activate apply >/dev/null 2>&1; then
+    echo "apply interruption passed at $checkpoint" >&2; exit 1
+  fi
+  activate rollback >/dev/null
+  [[ $(manifest "$workspace") == "$before" ]] && no_residue
+done
+
+for checkpoint in $(seq 1 "$rollback_count"); do
+  new_fixture; before=$(manifest "$workspace"); activate apply >/dev/null
+  if RESTIC_ACTIVATION_INTERRUPT_PHASE=rollback RESTIC_ACTIVATION_INTERRUPT_AFTER=$checkpoint activate rollback >/dev/null 2>&1; then
+    echo "rollback interruption passed at $checkpoint" >&2; exit 1
+  fi
+  activate rollback >/dev/null
+  [[ $(manifest "$workspace") == "$before" ]] && no_residue
+done
+
+for checkpoint in $(seq 1 "$commit_count"); do
+  new_fixture; activate apply >/dev/null
+  if RESTIC_ACTIVATION_INTERRUPT_PHASE=commit RESTIC_ACTIVATION_INTERRUPT_AFTER=$checkpoint activate commit >/dev/null 2>&1; then
+    echo "commit interruption passed at $checkpoint" >&2; exit 1
+  fi
+  activate commit >/dev/null
+  no_residue
+  [[ $(cat "$workspace/live/replace-tree/new") == new && $(cat "$workspace/live/replace-entries/managed") == managed ]]
+done
+
+for class in preserve regenerate retain external; do
+  new_fixture
+  mkdir "$workspace/staging/$class"
+  printf forbidden >"$workspace/staging/$class/value"
+  if activate apply >/dev/null 2>&1; then echo "staging violation passed: $class" >&2; exit 1; fi
+  no_residue
+done
+
+new_fixture
+python3 - "$workspace/plan.json" <<'PY'
+import json,sys
+path=sys.argv[1]; value=json.load(open(path)); value["entries"].append({"class":"retain","path":"preserve/child"}); open(path,"w").write(json.dumps(value))
+PY
+if activate apply >/dev/null 2>&1; then echo 'overlap passed' >&2; exit 1; fi
+
+for unsafe in symlink hardlink fifo socket; do
+  new_fixture
+  case "$unsafe" in
+    symlink) ln -s /tmp "$workspace/live/unsafe" ;;
+    hardlink) ln "$workspace/live/preserve/value" "$workspace/live/preserve/hardlink" ;;
+    fifo) mkfifo "$workspace/live/fifo" ;;
+    socket) WORKSPACE="$workspace" python3 - <<'PY'
+import os,socket
+value=socket.socket(socket.AF_UNIX); value.bind(os.path.join(os.environ["WORKSPACE"],"live/socket")); value.close()
+PY
+      ;;
+  esac
+  if activate apply >/dev/null 2>&1; then echo "unsafe entry passed: $unsafe" >&2; exit 1; fi
+done
+
+for metadata_case in symlink hardlink fifo mode; do
+  new_fixture
+  case "$metadata_case" in
+    symlink) mv "$workspace/plan.json" "$workspace/real-plan.json"; ln -s real-plan.json "$workspace/plan.json" ;;
+    hardlink) ln "$workspace/plan.json" "$workspace/plan-link.json" ;;
+    fifo) rm "$workspace/plan.json"; mkfifo "$workspace/plan.json" ;;
+    mode) chmod 0644 "$workspace/plan.json" ;;
+  esac
+  if activate apply >/dev/null 2>&1; then echo "unsafe plan metadata passed: $metadata_case" >&2; exit 1; fi
+done
+
+for metadata_case in symlink hardlink fifo mode; do
+  new_fixture; activate apply >/dev/null
+  case "$metadata_case" in
+    symlink) mv "$workspace/action-plan.json" "$workspace/real-action-plan.json"; ln -s real-action-plan.json "$workspace/action-plan.json" ;;
+    hardlink) ln "$workspace/action-plan.json" "$workspace/action-plan-link.json" ;;
+    fifo) rm "$workspace/action-plan.json"; mkfifo "$workspace/action-plan.json" ;;
+    mode) chmod 0600 "$workspace/action-plan.json" ;;
+  esac
+  if activate counts >/dev/null 2>&1; then echo "unsafe action plan metadata passed: $metadata_case" >&2; exit 1; fi
+done
+
+for metadata_case in symlink hardlink fifo mode; do
+  new_fixture; activate apply >/dev/null
+  case "$metadata_case" in
+    symlink) mv "$workspace/journal.json" "$workspace/real-journal.json"; ln -s real-journal.json "$workspace/journal.json" ;;
+    hardlink) ln "$workspace/journal.json" "$workspace/journal-link.json" ;;
+    fifo) rm "$workspace/journal.json"; mkfifo "$workspace/journal.json" ;;
+    mode) chmod 0644 "$workspace/journal.json" ;;
+  esac
+  if activate counts >/dev/null 2>&1; then echo "unsafe journal metadata passed: $metadata_case" >&2; exit 1; fi
+done
+
+new_fixture; activate apply >/dev/null
+JOURNAL="$workspace/journal.json" python3 - <<'PY'
+import hashlib,json,os
+path=os.environ["JOURNAL"]; value=json.load(open(path)); value["planned_actions"][0]["path"]="live/forged"; encoded=json.dumps(value["planned_actions"],sort_keys=True,separators=(",",":"))+"\n"; value["planned_actions_sha256"]=hashlib.sha256(encoded.encode()).hexdigest(); open(path,"w").write(json.dumps(value))
+PY
+if activate counts >/dev/null 2>&1; then echo 'semantic planned-action tamper passed' >&2; exit 1; fi
+
+new_fixture; activate apply >/dev/null
+JOURNAL="$workspace/journal.json" python3 - <<'PY'
+import json,os
+path=os.environ["JOURNAL"]; value=json.load(open(path)); action=next(item for item in value["actions"] if item["kind"]=="rename"); action["destination"]=action["path"]+"/overlap"; open(path,"w").write(json.dumps(value))
+PY
+if activate rollback >/dev/null 2>&1; then echo 'reverse overlap tamper passed' >&2; exit 1; fi
+
+new_fixture
+if RESTIC_ACTIVATION_INTERRUPT_PHASE=apply RESTIC_ACTIVATION_INTERRUPT_AFTER=2 activate apply >/dev/null 2>&1; then exit 1; fi
+JOURNAL="$workspace/journal.json" python3 - <<'PY'
+import json,os
+path=os.environ["JOURNAL"]; value=json.load(open(path)); value["state"]="applied"; value["apply_completed"]=True; open(path,"w").write(json.dumps(value))
+PY
+if activate commit >/dev/null 2>&1; then echo 'forged applied state passed' >&2; exit 1; fi
+
+new_fixture; activate apply >/dev/null
+printf unrelated >"$workspace/rollback/unrelated"
+if activate rollback >/dev/null 2>&1; then echo 'unrelated rollback entry passed' >&2; exit 1; fi
+
+for substitution in bytes fifo hardlink; do
+  new_fixture
+  mkdir "$workspace/live/replace-entries"
+  printf old-managed >"$workspace/live/replace-entries/managed"
+  activate apply >/dev/null
+  endpoint=$(JOURNAL="$workspace/journal.json" python3 - <<'PY'
+import json,os
+value=json.load(open(os.environ["JOURNAL"]))
+print(next(action["destination"] for action in value["actions"] if action["kind"]=="rename" and action["destination"].startswith("rollback/") and action["identity"]["type"]=="file"))
+PY
+)
+  rm "$workspace/$endpoint"
+  case "$substitution" in
+    bytes) printf unrelated >"$workspace/$endpoint" ;;
+    fifo) mkfifo "$workspace/$endpoint" ;;
+    hardlink) ln "$workspace/live/preserve/value" "$workspace/$endpoint" ;;
+  esac
+  if activate rollback >/dev/null 2>&1; then echo "rollback substitution passed: $substitution" >&2; exit 1; fi
+done
+
+new_fixture
+mkdir "$workspace/live/replace-entries"
+printf old-managed >"$workspace/live/replace-entries/managed"
+printf unmanaged >"$workspace/live/replace-entries/unmanaged"
+before=$(manifest "$workspace"); activate apply >/dev/null
+[[ $(cat "$workspace/live/replace-entries/managed") == managed && $(cat "$workspace/live/replace-entries/unmanaged") == unmanaged ]]
+activate rollback >/dev/null
+[[ $(manifest "$workspace") == "$before" ]] && no_residue
+
+new_fixture
+PLAN="$workspace/plan.json" WORKSPACE="$workspace" python3 - <<'PY'
+import json,os
+path=os.environ["PLAN"]; value=json.load(open(path)); value["entries"]=[entry for entry in value["entries"] if entry["path"]!="replace-tree"]; value["entries"].append({"class":"replace-tree","path":"deep/one/tree"}); open(path,"w").write(json.dumps(value)); root=os.environ["WORKSPACE"]; os.makedirs(root+"/staging/deep/one/tree"); open(root+"/staging/deep/one/tree/value","w").write("deep")
+PY
+before=$(manifest "$workspace")
+activate apply >/dev/null
+[[ $(cat "$workspace/live/deep/one/tree/value") == deep ]]
+activate rollback >/dev/null
+[[ $(manifest "$workspace") == "$before" ]] && no_residue
+
+combined_apply_checkpoint=$((apply_count / 2))
+new_fixture
+if RESTIC_ACTIVATION_INTERRUPT_PHASE=apply RESTIC_ACTIVATION_INTERRUPT_AFTER=$combined_apply_checkpoint activate apply >/dev/null 2>&1; then exit 1; fi
+partial_counts=$(activate counts)
+partial_rollback_count=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["rollback_checkpoints"])' "$partial_counts")
+activate rollback >/dev/null
+for checkpoint in $(seq 1 "$partial_rollback_count"); do
+  new_fixture; before=$(manifest "$workspace")
+  if RESTIC_ACTIVATION_INTERRUPT_PHASE=apply RESTIC_ACTIVATION_INTERRUPT_AFTER=$combined_apply_checkpoint activate apply >/dev/null 2>&1; then exit 1; fi
+  if RESTIC_ACTIVATION_INTERRUPT_PHASE=rollback RESTIC_ACTIVATION_INTERRUPT_AFTER=$checkpoint activate rollback >/dev/null 2>&1; then
+    echo "combined rollback interruption passed at $checkpoint" >&2; exit 1
+  fi
+  activate rollback >/dev/null
+  [[ $(manifest "$workspace") == "$before" ]] && no_residue
+done
+
+new_fixture
+chmod 0750 "$workspace"
+if activate apply >/dev/null 2>&1; then echo 'wrong workspace mode passed' >&2; exit 1; fi
+chmod 0700 "$workspace"
+if "$repo_root/scripts/activate-restic-staging-fixture" apply --workspace /srv/home-lab-state --plan "$workspace/plan.json" --confirmed-isolated-fixture >/dev/null 2>&1; then
+  echo 'production path passed' >&2; exit 1
+fi
+
+printf 'restic isolated activation fixtures passed\n'
