@@ -76,10 +76,10 @@ def validate_disk(value: dict[str, Any], interface: str, serial: str, size: int,
             fail("create_disk_identity_differs")
     else:
         expected_keys = set(common) | {"file_format", "file_id", "import_from", "path_in_datastore"}
-        file_id = value.get("file_id")
-        if (set(value) != expected_keys or value.get("import_from") not in (None, "")
-                or not isinstance(file_id, str) or re.fullmatch(r"local-lvm:vm-9900-disk-[0-9]+", file_id) is None
-                or value.get("path_in_datastore") not in (None, "")):
+        expected_path = "vm-9900-disk-0" if interface == "scsi0" else "vm-9900-disk-1"
+        expected_import = "local:import/home-lab-restic-recovery-debian-20260810-2566.qcow2" if imported else ""
+        if (set(value) != expected_keys or value.get("file_format") != "raw" or value.get("file_id") != ""
+                or value.get("import_from") != expected_import or value.get("path_in_datastore") != expected_path):
             fail("destroy_disk_identity_differs")
 
 
@@ -94,6 +94,8 @@ def validate_vm(value: dict[str, Any], operation: str) -> None:
         "template", "timeout_clone", "timeout_create", "timeout_migrate", "timeout_move_disk", "timeout_reboot",
         "timeout_shutdown_vm", "timeout_start_vm", "timeout_stop_vm", "tpm_state", "usb", "virtiofs", "vm_id", "watchdog",
     }
+    if operation == "destroy":
+        expected_fields |= {"hotplug", "id", "ipv4_addresses", "ipv6_addresses", "mac_addresses", "network_interface_names", "vga"}
     if set(value) != expected_fields: fail("vm_fields_differ")
     expected = {
         "acpi": True, "bios": "seabios", "boot_order": ["scsi0"], "delete_unreferenced_disks_on_destroy": True,
@@ -106,6 +108,7 @@ def validate_vm(value: dict[str, Any], operation: str) -> None:
         "timeout_move_disk": 1800, "timeout_reboot": 1800, "timeout_shutdown_vm": 1800,
         "timeout_start_vm": 1800, "timeout_stop_vm": 300, "vm_id": 9900,
     }
+    if operation == "destroy": expected["kvm_arguments"] = ""; expected["pool_id"] = ""
     if any(value.get(key) != expected_value for key, expected_value in expected.items()): fail("vm_identity_or_lifecycle_differs")
     empty = ("amd_sev", "audio_device", "cdrom", "clone", "efi_disk", "hostpci", "numa", "rng", "smbios", "startup", "tpm_state", "usb", "virtiofs", "watchdog")
     if not absent_or_empty(value, empty) or value.get("hook_script_file_id") not in (None, ""): fail("host_or_passthrough_attachment_forbidden")
@@ -114,8 +117,13 @@ def validate_vm(value: dict[str, Any], operation: str) -> None:
     if (agent != {"enabled": True, "timeout": "15m", "trim": False, "type": "virtio", "wait_for_ip": [wait_for_ip]}
             or wait_for_ip != {"disabled": False, "ipv4": True, "ipv6": False}): fail("qemu_agent_identity_differs")
     cpu = one(value.get("cpu"), "cpu"); memory = one(value.get("memory"), "memory")
-    if cpu != {"affinity": None, "architecture": None, "cores": 8, "flags": None, "hotplugged": 0, "limit": 0, "numa": False, "sockets": 1, "type": "host"}: fail("compute_identity_differs")
-    if memory != {"dedicated": 16384, "floating": 0, "hugepages": None, "keep_hugepages": False, "shared": 0}: fail("memory_identity_differs")
+    expected_cpu = {"affinity": None, "architecture": None, "cores": 8, "flags": None, "hotplugged": 0, "limit": 0, "numa": False, "sockets": 1, "type": "host"}
+    expected_memory = {"dedicated": 16384, "floating": 0, "hugepages": None, "keep_hugepages": False, "shared": 0}
+    if operation == "destroy":
+        expected_cpu |= {"affinity": "", "architecture": "", "units": 0}
+        expected_memory["hugepages"] = ""
+    if cpu != expected_cpu: fail("compute_identity_differs")
+    if memory != expected_memory: fail("memory_identity_differs")
     if one(value.get("operating_system"), "operating_system") != {"type": "l26"} or one(value.get("serial_device"), "serial_device") != {"device": "socket"}: fail("guest_platform_identity_differs")
     disks = value.get("disk")
     if not isinstance(disks, list) or len(disks) != 2: fail("disk_count_differs")
@@ -126,6 +134,7 @@ def validate_vm(value: dict[str, Any], operation: str) -> None:
     network = one(value.get("network_device"), "network")
     expected_network = {"bridge": "vmbr0", "disconnected": None, "enabled": True, "firewall": True, "model": "virtio", "mtu": 0, "queues": 0, "rate_limit": 0, "trunks": None, "vlan_id": 0}
     if operation == "destroy":
+        expected_network["disconnected"] = False; expected_network["trunks"] = ""
         mac = network.get("mac_address")
         if not isinstance(mac, str) or re.fullmatch(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", mac) is None: fail("network_mac_differs")
         expected_network["mac_address"] = mac
@@ -135,8 +144,14 @@ def validate_vm(value: dict[str, Any], operation: str) -> None:
     if operation == "create":
         if initialization != common_initialization: fail("cloud_init_identity_differs")
     else:
-        allowed = set(common_initialization) | {"file_format"}
-        if set(initialization) != allowed or any(initialization.get(key) != val for key, val in common_initialization.items()): fail("cloud_init_identity_differs")
+        expected_initialization = {
+            "datastore_id": "local-lvm", "dns": [], "file_format": "", "interface": "ide2",
+            "ip_config": [{"ipv4": [{"address": "dhcp", "gateway": ""}], "ipv6": []}],
+            "meta_data_file_id": "", "network_data_file_id": "", "type": "", "upgrade": False,
+            "user_account": [], "user_data_file_id": "local:snippets/home-lab-restic-recovery-cloud-init.yaml",
+            "vendor_data_file_id": "",
+        }
+        if initialization != expected_initialization: fail("cloud_init_identity_differs")
 
 
 def sensitive_unknown(unknown: Any) -> bool:
@@ -213,10 +228,10 @@ def main() -> None:
         elif address == CLOUD_INIT:
             validate_cloud_init(value, args.expected_cloud_init_sha256)
         else:
-            validate_vm(value, args.operation)
+            validate_vm(value, "destroy" if actions == ["no-op"] else args.operation)
         observed.add(address)
     if args.operation == "create":
-        if VM not in mutated or VM not in observed:
+        if VM not in observed:
             fail("required_create_scope_absent")
     elif not mutated:
         fail("required_destroy_change_absent")

@@ -331,6 +331,7 @@ def api_recovery_exact(values: dict[str, str], state_vm: dict[str, object] | Non
         "agent", "balloon", "boot", "cicustom", "cores", "cpu", "description", "digest", "ide2",
         "machine", "memory", "meta", "name", "net0", "numa", "onboot", "ostype", "protection",
         "scsi0", "scsi1", "scsihw", "serial0", "smbios1", "sockets", "tags", "vga", "vmgenid",
+        "acpi", "bios", "ciupgrade", "ipconfig0", "keyboard", "tablet", "template",
     }
     if set(config) - allowed_keys:
         return False
@@ -344,9 +345,9 @@ def api_recovery_exact(values: dict[str, str], state_vm: dict[str, object] | Non
         by_interface = {disk.get("interface"): disk for disk in disks if isinstance(disk, dict)}
         if set(by_interface) != {"scsi0", "scsi1"}:
             return False
-        if any(not isinstance(by_interface[name].get("file_id"), str) for name in by_interface):
+        if any(not isinstance(by_interface[name].get("path_in_datastore"), str) for name in by_interface):
             return False
-        expected_disks = {name: by_interface[name]["file_id"] for name in by_interface}
+        expected_disks = {name: f"local-lvm:{by_interface[name]['path_in_datastore']}" for name in by_interface}
         state_mac = network[0].get("mac_address")
     def disk_matches(name: str, serial: str) -> bool:
         raw = config.get(name)
@@ -354,12 +355,13 @@ def api_recovery_exact(values: dict[str, str], state_vm: dict[str, object] | Non
             return False
         parts = raw.split(",")
         options = dict(part.split("=", 1) for part in parts[1:] if "=" in part)
-        allowed = {"backup", "cache", "discard", "iothread", "replicate", "serial", "size", "ssd"}
+        allowed = {"aio", "backup", "cache", "discard", "iothread", "replicate", "serial", "size", "ssd"}
         volume_ok = parts[0] == expected_disks[name] if expected_disks else re.fullmatch(r"local-lvm:vm-9900-disk-[0-9]+", parts[0]) is not None
         return (volume_ok and set(options) <= allowed and options.get("serial") == serial
                 and options.get("backup", "0") == "0" and options.get("replicate", "0") == "0"
-                and options.get("iothread", "1") == "1" and options.get("discard", "on") == "on"
-                and options.get("cache", "none") == "none" and options.get("ssd", "0") == "0")
+                and options.get("aio", "io_uring") == "io_uring" and options.get("iothread", "1") == "1"
+                and options.get("discard", "on") == "on" and options.get("cache", "none") == "none"
+                and options.get("ssd", "0") == "0")
     raw_network = config.get("net0")
     if not isinstance(raw_network, str):
         return False
@@ -382,10 +384,14 @@ def api_recovery_exact(values: dict[str, str], state_vm: dict[str, object] | Non
                    and agent_parts.get("type", "virtio") == "virtio")
     return (config.get("name") == "home-lab-restic-recovery" and config.get("protection") in (0, False, "0")
             and config.get("onboot") in (0, False, "0") and config.get("cores") == 8
-            and config.get("memory") == 16384 and config.get("machine") == "q35"
+            and str(config.get("memory")) == "16384" and config.get("machine") == "q35"
             and config.get("cpu") == "host" and config.get("balloon") == 0
             and config.get("sockets") == 1 and config.get("numa") == 0
-            and config.get("vga") == "serial0" and config.get("scsihw") == "virtio-scsi-single"
+            and config.get("vga") in (None, "serial0") and config.get("acpi") == 1
+            and config.get("bios") == "seabios" and config.get("ciupgrade") == 0
+            and config.get("ipconfig0") == "ip=dhcp" and config.get("keyboard") == "en-us"
+            and config.get("tablet") == 1 and config.get("template") == 0
+            and config.get("scsihw") == "virtio-scsi-single"
             and config.get("boot") == "order=scsi0" and config.get("ostype") == "l26"
             and config.get("serial0") == "socket" and ide_exact
             and config.get("cicustom") == "user=local:snippets/home-lab-restic-recovery-cloud-init.yaml"
@@ -534,7 +540,7 @@ def journal(directory: Path, commit: str) -> dict[str, object]:
             "exact-completed-create-adopted", "exact-completed-destroy-adopted",
             "exact-partial-create-adopted", "exact-partial-destroy-adopted", "saved-plan-apply-complete",
             "fresh-api-agent-vm9900-bound", "immediate-api-agent-vm9900-bound", "serial-blank-disk-validated", "serial-disk-prepared",
-            "plaintext-cleanup-and-evidence-complete", "exact-api-untracked-vm-deleted", "legacy-local-state-adopted",
+            "plaintext-cleanup-and-evidence-complete", "exact-api-untracked-vm-deleted", "legacy-local-state-adopted", "prior-transaction-state-adopted",
         }
         points, replans = value.get("checkpoints"), value.get("replans")
         if (set(value) != required or value.get("version") != 1 or value.get("commit") != commit
@@ -545,6 +551,7 @@ def journal(directory: Path, commit: str) -> dict[str, object]:
             "expired-or-partial-plan-retained": {"create-replanning", "destroy-replanning"},
             "exact-api-untracked-vm-deleted": {"create-replanning"},
             "legacy-local-state-adopted": {"create-replanning"},
+            "prior-transaction-state-adopted": {"create-replanning"},
             "saved-plan-reviewed": {"create-planned", "destroy-planned"},
             "before-saved-plan-apply": {"create-applying", "destroy-applying"},
             "exact-completed-create-adopted": {"create-applied"},
@@ -747,15 +754,33 @@ def adopt_legacy_local_state(directory: Path, values: dict[str, str], transactio
     checkpoint(directory, transaction_journal, "create-replanning", "legacy-local-state-adopted")
 
 
+def adopt_prior_transaction_state(directory: Path, values: dict[str, str], cloud_sha256: str, transaction_journal: dict[str, object]) -> None:
+    target = directory / "tofu.tfstate"
+    if target.exists() or recovery_resource(values) is None: return
+    parent = directory.parent
+    candidates = []
+    for candidate in parent.iterdir():
+        if candidate == directory or not candidate.is_dir() or candidate.is_symlink(): continue
+        state = candidate / "tofu.tfstate"
+        if state.exists() and current_state_exact(candidate, values, cloud_sha256): candidates.append(candidate)
+    if len(candidates) != 1: fail("prior_transaction_state_identity_differs")
+    source = candidates[0] / "tofu.tfstate"
+    os.replace(source, target)
+    for path in (candidates[0], directory):
+        descriptor = os.open(path, os.O_RDONLY)
+        try: os.fsync(descriptor)
+        finally: os.close(descriptor)
+    checkpoint(directory, transaction_journal, "create-replanning", "prior-transaction-state-adopted")
+
+
 def plan(operation: str) -> None:
     commit = require_revision(); directory = transaction(commit); paths = sources(operation == "create")
     transaction_journal = journal(directory, commit)
     values = credentials("plan"); production = production_hash(values)
     if operation == "create": adopt_legacy_local_state(directory, values, transaction_journal)
     cloud, user_public, host_public = cloud_init_data(directory); cloud_sha = sha_bytes(cloud.encode())
+    if operation == "create": adopt_prior_transaction_state(directory, values, cloud_sha, transaction_journal)
     present = recovery_resource(values) is not None
-    if operation == "create" and present and recovery_created_exact(directory, values) and current_state_exact(directory, values, cloud_sha):
-        fail("exact_create_already_applied_use_apply_create")
     if operation == "destroy":
         create = read_manifest(directory, "create", commit, allow_expired=True)
         if create["production_vm_before_sha256"] != production:

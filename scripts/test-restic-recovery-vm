@@ -18,14 +18,8 @@ def invoke(value,operation,ok):
  result=subprocess.run([sys.executable,str(validator),str(path),'--operation',operation,'--expected-cloud-init-sha256',cloud_hash],stdout=subprocess.PIPE,stderr=subprocess.PIPE,check=False)
  if (result.returncode==0)!=ok: raise SystemExit(f'validator expectation failed {operation}: {result.stdout!r} {result.stderr!r}')
 invoke(base,'create',True)
-destroy=copy.deepcopy(base); destroy.pop('configuration',None)
-for change in destroy['resource_changes']:
- change['change']['actions']=['delete']; change['change']['before']=change['change'].pop('after'); change['change'].pop('after_unknown',None)
- if change['address'].endswith('recovery[0]'):
-  for disk_index in (0,1):
-   disk=change['change']['before']['disk'][disk_index]; disk['file_id']=f'local-lvm:vm-9900-disk-{disk_index}'; disk['file_format']='raw'; disk['import_from']=None; disk['path_in_datastore']=None
-  change['change']['before']['initialization'][0]['file_format']='qcow2'; change['change']['before']['initialization'][0]['user_data_file_id']='local:snippets/home-lab-restic-recovery-cloud-init.yaml'
-  change['change']['before']['network_device'][0]['mac_address']='BC:24:11:00:00:01'
+destroy_fixture=repo/'infrastructure/policy/fixtures/restic-recovery-vm-destroy-provider-0.111.1.json'
+destroy=json.loads(destroy_fixture.read_text())
 invoke(destroy,'destroy',True)
 mutations=[]
 extra=copy.deepcopy(base); extra['resource_changes'].append({'address':'proxmox_virtual_environment_vm.production','type':'proxmox_virtual_environment_vm','change':{'actions':['create'],'after':copy.deepcopy(base['resource_changes'][0]['change']['after'])}}); mutations.append(extra)
