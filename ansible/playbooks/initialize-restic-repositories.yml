@@ -1,0 +1,244 @@
+---
+- name: Guardedly initialize the three native Restic repositories
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  pre_tasks:
+    - name: Require exact repository initialization approvals and ready state
+      ansible.builtin.assert:
+        that:
+          - restic_repository_initialization_confirmed | default(false) | bool
+          - restic_repository_initialization_confirmation | default('') == backups.restic.initialization.confirmation
+          - restic_repository_exclusive_client_confirmation | default('') == backups.restic.initialization.exclusive_client_confirmation
+          - backups.restic.migration_state == 'inert'
+          - backups.restic.initialization.state == 'ready'
+          - backups.restic.qualification.state == 'qualified'
+          - backups.restic.repositories.values() | map(attribute='id') | select('ne', none) | list | length == 0
+          - backups.restic.initialization.source_policy_sha256 is none
+          - backups.restic.initialization.evidence_sha256 is none
+          - backups.restic.initialization.verified_at is none
+          - backups.legacy_offen.scheduler_state == 'quiesced'
+          - backups.legacy_offen.migration_archive_preservation.state == 'applied'
+          - backups.legacy_offen.migration_retention_hold.state == 'applied'
+          - backups.legacy_offen.migration_retention_hold.current_object_retention_days >= 365
+          - backups.legacy_offen.migration_retention_hold.review_deadline > now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')
+        fail_msg: Repository initialization requires the exact reviewed ready state and both confirmations.
+
+    - name: Inspect exact initialization artifacts
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      loop:
+        - path: /usr/local/libexec/home-lab/initialize-restic-repositories
+          owner: root
+          group: root
+          mode: "0750"
+          checksum: "{{ backups.restic.initialization.helper_sha256 }}"
+        - path: /usr/local/bin/restic
+          owner: root
+          group: root
+          mode: "0755"
+          checksum: "{{ backups.restic.tools.restic.installed_sha256 }}"
+        - path: /usr/local/bin/rclone
+          owner: root
+          group: root
+          mode: "0755"
+          checksum: "{{ backups.restic.tools.rclone.installed_sha256 }}"
+      become: true
+      register: restic_initialization_artifacts
+
+    - name: Require exact initialization artifact metadata and hashes
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.nlink == 1
+          - item.stat.pw_name == item.item.owner
+          - item.stat.gr_name == item.item.group
+          - item.stat.mode == item.item.mode
+          - item.stat.checksum == item.item.checksum
+      loop: "{{ restic_initialization_artifacts.results }}"
+
+    - name: Read installed policy and qualification evidence
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - /etc/home-lab/restic-policy.json
+        - "{{ backups.restic.qualification.host_evidence_path }}"
+      become: true
+      register: restic_initialization_protected_inputs
+      no_log: true
+
+    - name: Require installed policy and qualification evidence bindings
+      ansible.builtin.assert:
+        that:
+          - (restic_initialization_protected_inputs.results[0].content | b64decode | from_json) == backups.restic
+          - (restic_initialization_protected_inputs.results[1].content | b64decode | hash('sha256')) == backups.restic.qualification.evidence_sha256
+      no_log: true
+
+    - name: Inspect fresh repository initialization paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      loop:
+        - "{{ backups.restic.repositories.games.path }}"
+        - "{{ backups.restic.repositories.nfs.path }}"
+        - "{{ backups.restic.initialization.journal_path }}"
+        - "{{ backups.restic.initialization.result_path }}"
+        - "{{ backups.restic.initialization.host_evidence_path }}"
+      become: true
+      register: restic_initialization_paths
+
+    - name: Require a fresh local initialization transaction
+      ansible.builtin.assert:
+        that: [not item.stat.exists]
+        fail_msg: Existing initialization state requires the owner-bound resume path.
+      loop: "{{ restic_initialization_paths.results }}"
+
+    - name: Inspect inert Restic unit activity
+      ansible.builtin.command:
+        argv: [/usr/bin/systemctl, is-active, "{{ item }}"]
+      loop: "{{ restic_audit_inert_units.keys() }}"
+      register: restic_initialization_units
+      changed_when: false
+      failed_when: restic_initialization_units.rc not in [0, 3]
+      check_mode: false
+
+    - name: Require all Restic units inactive
+      ansible.builtin.assert:
+        that: [item.stdout == 'inactive']
+      loop: "{{ restic_initialization_units.results }}"
+
+    - name: Acquire owner-bearing repository initialization lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: restic-repository-initialization
+
+  tasks:
+    - name: Require a complete quiesced source-state audit before repository initialization
+      ansible.builtin.import_role:
+        name: audit
+      vars:
+        audit_expected_stopped_compose_services: "{{ backups.legacy_offen.scheduler_services }}"
+        audit_expected_running_compose_service_count: "{{ audit_expected_compose_service_count - (backups.legacy_offen.scheduler_services | length) }}"
+    - name: Run repository initialization under the helper-owned backup mutex
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/home-lab/initialize-restic-repositories, initialize]
+      become: true
+      register: restic_initialization_run
+      changed_when: true
+      failed_when: false
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Capture only a controlled repository initialization failure
+      ansible.builtin.set_fact:
+        restic_initialization_failure: >-
+          {{ controlled_failure if controlled_failure | length > 0 else
+             'restic_repository_initialization=failed reason=unclassified_stderr_sha256_'
+             ~ (initialization_stderr | hash('sha256')) }}
+      vars:
+        initialization_stderr: "{{ restic_initialization_run.stderr | default('') }}"
+        controlled_failure: >-
+          {{ initialization_stderr
+             | regex_search('(?m)^restic_repository_initialization=failed reason=[a-z0-9_.-]+\r?$')
+             | default('', true) | trim }}
+      no_log: true
+      when: not ansible_check_mode and restic_initialization_run.rc != 0
+
+    - name: Require controlled repository initialization success
+      ansible.builtin.assert:
+        that: [restic_initialization_run.rc == 0]
+        fail_msg: "{{ restic_initialization_failure | default('restic_repository_initialization=failed reason=unclassified') }}"
+      when: not ansible_check_mode
+
+    - name: Read byte-identical initialization result and host evidence
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - "{{ backups.restic.initialization.result_path }}"
+        - "{{ backups.restic.initialization.host_evidence_path }}"
+      become: true
+      register: restic_initialization_results
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Require bounded byte-identical initialization evidence
+      ansible.builtin.assert:
+        that:
+          - restic_initialization_results.results[0].content == restic_initialization_results.results[1].content
+          - evidence.keys() | sort == expected_evidence_keys | sort
+          - evidence.repository_ids.keys() | sort == ['games', 'nfs', 'proton']
+          - evidence.type == 'restic-repository-initialization'
+          - evidence.state == 'initialized'
+          - >-
+            evidence.source_policy_sha256 ==
+            (restic_initialization_protected_inputs.results[0].content | b64decode | hash('sha256'))
+          - evidence.lock_owner_sha256 is match('^[0-9a-f]{64}$')
+          - evidence.helper_sha256 == backups.restic.initialization.helper_sha256
+          - evidence.restic_sha256 == backups.restic.tools.restic.installed_sha256
+          - evidence.rclone_sha256 == backups.restic.tools.rclone.installed_sha256
+          - evidence.qualification_evidence_sha256 == backups.restic.qualification.evidence_sha256
+          - evidence.repository_ids.values() | unique | list | length == 3
+          - evidence.repository_ids.values() | select('match', '^[0-9a-f]{64}$') | list | length == 3
+          - evidence.started_at is match('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')
+          - evidence.completed_at is match('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$')
+          - >-
+            evidence.operations ==
+            ['init-games', 'init-nfs-from-games-copy-chunker-params',
+             'normalize-games-access', 'init-proton-from-games-copy-chunker-params']
+          - >-
+            restic_initialization_run.stdout ==
+            'restic_repository_initialization=passed evidence_sha256='
+            ~ (restic_initialization_results.results[0].content | b64decode | hash('sha256'))
+        fail_msg: Initialization evidence differs from the reviewed bounded schema.
+      vars:
+        evidence: "{{ restic_initialization_results.results[0].content | b64decode | from_json }}"
+        expected_evidence_keys:
+          - account_username_sha256
+          - chunker_polynomial
+          - completed_at
+          - helper_sha256
+          - lock_owner_sha256
+          - mounts
+          - operations
+          - proton_minimum_allocated_bytes
+          - proton_minimum_free_bytes
+          - proton_observed_free_bytes
+          - proton_observed_total_bytes
+          - qualification_evidence_sha256
+          - repository_ids
+          - restic_sha256
+          - rclone_sha256
+          - source_policy_sha256
+          - started_at
+          - state
+          - type
+          - version
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Fetch initialization evidence for reviewed contract attestation
+      ansible.builtin.fetch:
+        src: "{{ backups.restic.initialization.host_evidence_path }}"
+        dest: "{{ playbook_dir }}/../../{{ backups.restic.initialization.evidence_file }}"
+        flat: true
+        validate_checksum: true
+      become: true
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Report retained owner-bound initialization seam
+      ansible.builtin.debug:
+        msg: Repository evidence is ready for contract attestation; the production lock intentionally remains held.
+      changed_when: true

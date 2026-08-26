@@ -268,11 +268,11 @@ restic -r rclone:proton-backup:Backups/home-lab-restic init \
   --from-repo /mnt/games/restic/home-lab --copy-chunker-params
 ```
 
-The actual guarded tool must also set each destination password file, verify empty destinations, reject symlinks/hard links, fsync local evidence, and stop on any nonzero status.
+The implemented `initialize-restic-repositories` helper exposes only `initialize`, `resume`, and `verify`. `initialize-restic-repositories.yml` requires the exact initialization and exclusive-client confirmations, exact installed policy/helper/binary hashes, qualified evidence, fresh destinations, quiesced Offen, current AWS hold, and inactive units. It retains `operation=restic-repository-initialization` after success. The helper owns the shared backup mutex, writes and fsyncs a durable marker before each native init, initializes games and NFS as root, safely normalizes the games tree, and runs Proton Restic only via `runuser --user restic-proton`. Raw provider output is never exposed.
 
-Read each full ID and chunker polynomial with `restic cat config`. Require three distinct 64-character IDs and equal chunker polynomials. Record the IDs in the contract immediately, commit, rerun the inert role to normalize games-repository permissions, and require exact wrong-ID failures before any snapshot.
+Read each full ID and chunker polynomial with `restic cat config`. Require three distinct 64-character IDs and equal chunker polynomials. Commit the fetched bounded evidence together with the IDs, exact source-policy hash, evidence hash, and completion time. Then use `finalize-restic-repository-initialization.yml` from that exact clean reviewed commit. It converges the ID-bearing policy and normalizes permissions while the retained owner-bound lock still exists, verifies the three exact IDs/common polynomial, removes only transient journal/result files, and releases only the matching lock.
 
-Repository initialization is not rolled back by deletion. On failure, keep all units disabled, preserve every created repository for forensic review, and restart Offen only through the scheduler rollback transition.
+Repository initialization is not rolled back by deletion. On failure, keep all units disabled and preserve every created repository. Only `resume-restic-repository-initialization.yml` may adopt a repository, and only when the exact retained owner, source-policy hash, and durable pre-init marker bind it. A partial tree without a valid config or a repository appearing before its marker remains preserved and fails closed for separate review. Generic failed-lock clearance rejects this operation.
 
 ## Phase 7 — create the first chained recovery point through an exact gate
 

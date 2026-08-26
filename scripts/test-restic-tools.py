@@ -108,6 +108,10 @@ def main() -> None:
     assert policy["qualification"]["username_sha256"] == "809cd2b0e14ad028438ad5a0a7af801dce013a86a3f1d62926a605177198389b"
     assert policy["qualification"]["evidence_sha256"] == "81f93aca27a87fe38d90137f33da60d823ed5e391296c95cb7ab1be867dfc679"
     assert policy["qualification"]["verified_at"] == "2026-08-26T00:42:08Z"
+    assert policy["initialization"]["state"] == "ready"
+    assert policy["initialization"]["source_policy_sha256"] is None
+    assert policy["initialization"]["evidence_sha256"] is None
+    assert all(repository["id"] is None for repository in policy["repositories"].values())
     assert policy["qualification"]["remote_directory"] == "Backups/.home-lab-rclone-qualification"
 
     files_from = (ROOT / "services/data/restic/files-from").read_text().splitlines()
@@ -364,8 +368,11 @@ def main() -> None:
     assert 'rclone_archive_sha256: "{{ backups.restic.tools.rclone.archive_sha256 }}"' in group_vars
     assert 'restic_credentials_bootstrap_enabled: "{{ backups.restic.credentials.bootstrap_enabled }}"' in group_vars
     assert 'rclone_binary_sha256: "{{ backups.restic.tools.rclone.installed_sha256 }}"' in group_vars
+    assert 'restic_binary_sha256: "{{ backups.restic.tools.restic.installed_sha256 }}"' in group_vars
+    assert policy["tools"]["restic"]["installed_sha256"] == "20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639"
     assert policy["tools"]["rclone"]["installed_sha256"] == "f3f9aff817f9766029e50adf9a7963c169e475b8f10c7927823568a0d9443db7"
     assert policy["qualification"]["helper_sha256"] == hashlib.sha256((ROOT / "scripts/qualify-proton-backup").read_bytes()).hexdigest()
+    assert policy["initialization"]["helper_sha256"] == hashlib.sha256((ROOT / "scripts/initialize-restic-repositories").read_bytes()).hexdigest()
     assert policy["tools"]["restic"]["archive_sha256"] == "f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c"
     assert policy["tools"]["rclone"]["archive_sha256"] == "aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa"
     assert "ansible_facts.architecture == 'x86_64'" in role
@@ -1886,7 +1893,22 @@ def main() -> None:
     assert clear_detach < clear_owner < clear_tombstone
     assert "Remove only the inspected owner record" not in clear_failed_lock
     assert '"{{ backups.restic.runner.lock_path }}"' in clear_failed_lock
-    assert "iac_failed_lock_expected_operation != 'proton-qualification'" in clear_failed_lock
+    assert "iac_failed_lock_expected_operation not in ['proton-qualification', 'restic-repository-initialization']" in clear_failed_lock
+    initialization_playbook = (ROOT / "ansible/playbooks/initialize-restic-repositories.yml").read_text()
+    initialization_resume = (ROOT / "ansible/playbooks/resume-restic-repository-initialization.yml").read_text()
+    initialization_finalize = (ROOT / "ansible/playbooks/finalize-restic-repository-initialization.yml").read_text()
+    assert "apply_lock_operation: restic-repository-initialization" in initialization_playbook
+    assert "the production lock intentionally remains held" in initialization_playbook
+    assert "resume-owner-bound-restic-repository-initialization" in initialization_resume
+    assert "restic_repository_exclusive_client_confirmation" in initialization_resume
+    assert "current_object_retention_days >= 365" in initialization_resume
+    assert "migration_retention_hold.review_deadline > now" in initialization_resume
+    initialization_helper = (ROOT / "scripts/initialize-restic-repositories").read_text()
+    assert "PROTON_ID = 60000" in initialization_helper
+    assert 'os.getgrouplist("restic-proton", service.pw_gid)' in initialization_helper
+    assert "sorted(set(groups)) != [PROTON_ID]" in initialization_helper
+    assert "finalize-owner-bound-restic-repository-initialization" in initialization_finalize
+    assert "apply_lock_expected_owner_sha256" in initialization_finalize
 
     restic_documentation = (ROOT / "docs/restic-backups.md").read_text()
     assert "iac_failed_lock_expected_operation=restic_backup" in restic_documentation

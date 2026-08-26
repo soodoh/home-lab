@@ -540,7 +540,7 @@
     group: restic-proton
     mode: "0440"
 
-- name: Install Restic runner and guarded credential or qualification helpers
+- name: Install Restic runner and guarded transition helpers
   ansible.builtin.copy:
     src: "{{ item.src }}"
     dest: "{{ item.dest }}"
@@ -550,6 +550,7 @@
   loop:
     - { src: "{{ playbook_dir }}/../../scripts/restic-backup", dest: /usr/local/libexec/home-lab/restic-backup, mode: '0755' }
     - { src: "{{ playbook_dir }}/../../scripts/bootstrap-restic-credentials", dest: /usr/local/libexec/home-lab/bootstrap-restic-credentials, mode: '0750' }
+    - { src: "{{ playbook_dir }}/../../scripts/initialize-restic-repositories", dest: /usr/local/libexec/home-lab/initialize-restic-repositories, mode: '0750' }
     - src: "{{ playbook_dir }}/../../scripts/qualify-proton-backup"
       dest: /usr/local/libexec/home-lab/qualify-proton-backup
       group: restic-proton

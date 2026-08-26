@@ -9,7 +9,7 @@ const { load } = require("js-yaml");
 const Ajv2020 = require("ajv/dist/2020");
 const { validateVmArtifactReferences } = require("./controller/validate-vm-artifact-references");
 const { validateProxmoxHostPolicy } = require("./controller/validate-proxmox-host-policy");
-const { validateProtonQualificationEvidence, validateResticPolicy } = require("./controller/validate-restic-policy");
+const { validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticPolicy } = require("./controller/validate-restic-policy");
 const {
   validateProxmoxPackageArtifactBinding,
   validateProxmoxPackagePolicy,
@@ -24,6 +24,7 @@ const qualificationEvidencePath = path.join(root, "infrastructure/evidence/proxm
 const qualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.schema.json");
 const qualificationValidatorPath = path.join(root, "scripts/controller/validate-lxc-qualification-evidence.py");
 const protonQualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proton-qualification.schema.json");
+const resticInitializationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/restic-repository-initialization.schema.json");
 const operational = process.argv.includes("--operational");
 
 const contract = load(fs.readFileSync(contractPath, "utf8"));
@@ -33,11 +34,13 @@ const packageManifest = JSON.parse(packageManifestRaw);
 const packageManifestSchema = JSON.parse(fs.readFileSync(packageManifestSchemaPath, "utf8"));
 const qualificationEvidenceSchema = JSON.parse(fs.readFileSync(qualificationEvidenceSchemaPath, "utf8"));
 const protonQualificationEvidenceSchema = JSON.parse(fs.readFileSync(protonQualificationEvidenceSchemaPath, "utf8"));
+const resticInitializationEvidenceSchema = JSON.parse(fs.readFileSync(resticInitializationEvidenceSchemaPath, "utf8"));
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validate = ajv.compile(schema);
 const validatePackageManifest = ajv.compile(packageManifestSchema);
 const validateQualificationEvidence = ajv.compile(qualificationEvidenceSchema);
 const validateProtonQualificationSchema = ajv.compile(protonQualificationEvidenceSchema);
+const validateResticInitializationSchema = ajv.compile(resticInitializationEvidenceSchema);
 
 if (!validate(contract)) {
   for (const error of validate.errors || []) {
@@ -156,6 +159,31 @@ if (protonQualification.state === "qualified") {
   }
 } else if (fs.existsSync(protonEvidencePath)) {
   failures.push("pending or ready Proton qualification must not retain committed evidence");
+}
+const resticInitialization = resticPolicy.initialization;
+const resticInitializationHelperPath = path.join(root, "scripts/initialize-restic-repositories");
+const resticInitializationHelperSha256 = crypto.createHash("sha256").update(fs.readFileSync(resticInitializationHelperPath)).digest("hex");
+if (resticInitializationHelperSha256 !== resticInitialization.helper_sha256) {
+  failures.push("Restic initialization helper SHA-256 differs from the contract");
+}
+const resticInitializationEvidencePath = path.join(root, resticInitialization.evidence_file);
+if (resticInitialization.state === "initialized") {
+  if (!fs.existsSync(resticInitializationEvidencePath)) failures.push("initialized Restic state requires retained evidence");
+  else {
+    const rawInitializationEvidence = fs.readFileSync(resticInitializationEvidencePath);
+    let initializationEvidence;
+    try {
+      initializationEvidence = JSON.parse(rawInitializationEvidence);
+    } catch {
+      failures.push("Restic initialization evidence is not valid JSON");
+    }
+    if (initializationEvidence) {
+      if (!validateResticInitializationSchema(initializationEvidence)) failures.push("Restic initialization evidence does not match its schema");
+      else failures.push(...validateResticInitializationEvidence(resticPolicy, initializationEvidence, rawInitializationEvidence));
+    }
+  }
+} else if (fs.existsSync(resticInitializationEvidencePath)) {
+  failures.push("ready Restic initialization must not retain committed evidence");
 }
 const sourcePaths = resticPolicy.sources.map((entry) => entry.path);
 const renderedFilesFrom = `${sourcePaths.join("\n")}\n`;

@@ -1,0 +1,115 @@
+---
+- name: Resume only an exact owner-bound Restic repository initialization
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  tasks:
+    - name: Require exact initialization resume approval and owner hash
+      ansible.builtin.assert:
+        that:
+          - restic_repository_initialization_resume_confirmed | default(false) | bool
+          - restic_repository_initialization_resume_confirmation | default('') == 'resume-owner-bound-restic-repository-initialization'
+          - restic_repository_exclusive_client_confirmation | default('') == backups.restic.initialization.exclusive_client_confirmation
+          - restic_repository_initialization_expected_owner_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - backups.restic.initialization.state == 'ready'
+          - backups.restic.qualification.state == 'qualified'
+          - backups.restic.repositories.values() | map(attribute='id') | select('ne', none) | list | length == 0
+          - backups.legacy_offen.scheduler_state == 'quiesced'
+          - backups.legacy_offen.migration_archive_preservation.state == 'applied'
+          - backups.legacy_offen.migration_retention_hold.state == 'applied'
+          - backups.legacy_offen.migration_retention_hold.current_object_retention_days >= 365
+          - backups.legacy_offen.migration_retention_hold.review_deadline > now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ')
+        fail_msg: Resume requires the exact retained initialization transaction and approval.
+
+    - name: Inspect retained initialization lock paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      loop: ["{{ apply_lock_path }}", "{{ apply_lock_path }}/owner", "{{ backups.restic.initialization.journal_path }}"]
+      become: true
+      register: restic_initialization_resume_paths
+
+    - name: Read retained initialization owner and journal
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop: ["{{ apply_lock_path }}/owner", "{{ backups.restic.initialization.journal_path }}", /etc/home-lab/restic-policy.json]
+      become: true
+      register: restic_initialization_resume_inputs
+      no_log: true
+
+    - name: Require exact retained owner, journal, and installed policy bindings
+      ansible.builtin.assert:
+        that:
+          - restic_initialization_resume_paths.results[0].stat.isdir | default(false)
+          - restic_initialization_resume_paths.results[0].stat.pw_name == 'root'
+          - restic_initialization_resume_paths.results[0].stat.mode == '0700'
+          - restic_initialization_resume_paths.results[1].stat.isreg | default(false)
+          - restic_initialization_resume_paths.results[1].stat.pw_name == 'root'
+          - restic_initialization_resume_paths.results[1].stat.mode == '0600'
+          - (restic_initialization_resume_inputs.results[0].content | b64decode | hash('sha256')) == restic_repository_initialization_expected_owner_sha256
+          - "'controller=ansible-deploy' in (restic_initialization_resume_inputs.results[0].content | b64decode).splitlines()"
+          - "'operation=restic-repository-initialization' in (restic_initialization_resume_inputs.results[0].content | b64decode).splitlines()"
+          - journal.operation == 'restic-repository-initialization'
+          - journal.lock_owner_sha256 == restic_repository_initialization_expected_owner_sha256
+          - journal.source_policy_sha256 == (restic_initialization_resume_inputs.results[2].content | b64decode | hash('sha256'))
+          - (restic_initialization_resume_inputs.results[2].content | b64decode | from_json) == backups.restic
+        fail_msg: Retained initialization transaction binding differs.
+      vars:
+        journal: "{{ restic_initialization_resume_inputs.results[1].content | b64decode | from_json }}"
+      no_log: true
+
+    - name: Require a complete quiesced source-state audit before initialization resume
+      ansible.builtin.import_role:
+        name: audit
+      vars:
+        audit_expected_stopped_compose_services: "{{ backups.legacy_offen.scheduler_services }}"
+        audit_expected_running_compose_service_count: "{{ audit_expected_compose_service_count - (backups.legacy_offen.scheduler_services | length) }}"
+    - name: Resume repository initialization under its backup mutex
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/home-lab/initialize-restic-repositories, resume]
+      become: true
+      register: restic_initialization_resume_run
+      changed_when: true
+      failed_when: false
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Require controlled resume success
+      ansible.builtin.assert:
+        that:
+          - restic_initialization_resume_run.rc == 0
+          - >-
+            restic_initialization_resume_run.stdout is
+            match('^restic_repository_initialization=passed evidence_sha256=[0-9a-f]{64}$')
+        fail_msg: >-
+          {{ controlled_failure if controlled_failure | length > 0 else
+             'restic_repository_initialization=failed reason=unclassified_stderr_sha256_'
+             ~ (resume_stderr | hash('sha256')) }}
+      vars:
+        resume_stderr: "{{ restic_initialization_resume_run.stderr | default('') }}"
+        controlled_failure: >-
+          {{ resume_stderr
+             | regex_search('(?m)^restic_repository_initialization=failed reason=[a-z0-9_.-]+\r?$')
+             | default('', true) | trim }}
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Fetch resumed initialization evidence
+      ansible.builtin.fetch:
+        src: "{{ backups.restic.initialization.host_evidence_path }}"
+        dest: "{{ playbook_dir }}/../../{{ backups.restic.initialization.evidence_file }}"
+        flat: true
+        validate_checksum: true
+      become: true
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Report retained owner-bound initialization seam after resume
+      ansible.builtin.debug:
+        msg: Resumed evidence is ready for contract attestation; the exact production lock remains held.
+      changed_when: true

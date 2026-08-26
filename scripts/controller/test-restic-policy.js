@@ -6,11 +6,13 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const Ajv2020 = require("ajv/dist/2020");
 const { load } = require("js-yaml");
-const { globRegex, validateProtonQualificationEvidence, validateResticPolicy } = require("./validate-restic-policy");
+const { globRegex, validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticPolicy } = require("./validate-restic-policy");
 
 const base = load(fs.readFileSync("infrastructure/contract/home-lab.yml", "utf8")).backups.restic;
 const qualificationEvidenceSchema = JSON.parse(fs.readFileSync("infrastructure/evidence/proton-qualification.schema.json", "utf8"));
+const initializationEvidenceSchema = JSON.parse(fs.readFileSync("infrastructure/evidence/restic-repository-initialization.schema.json", "utf8"));
 const validateQualificationEvidenceSchema = new Ajv2020({ allErrors: true, strict: true }).compile(qualificationEvidenceSchema);
+new Ajv2020({ allErrors: true, strict: true }).compile(initializationEvidenceSchema);
 const clone = () => structuredClone(base);
 assert.deepEqual(validateResticPolicy(base), []);
 assert(globRegex("/srv/**/cache/**").test("/srv/cache/value"));
@@ -73,7 +75,7 @@ fixture.qualification.state = "ready";
 fixture.qualification.username_sha256 = "a".repeat(64);
 fixture.qualification.evidence_sha256 = null;
 fixture.qualification.verified_at = null;
-assert.deepEqual(validateResticPolicy(fixture), []);
+assert(validateResticPolicy(fixture).some((failure) => failure.includes("ready repository initialization")));
 
 fixture = clone();
 fixture.credentials = { bootstrap_enabled: true, state: "provisioned" };
@@ -119,5 +121,38 @@ assert.deepEqual(validateResticPolicy(fixture), []);
 assert.deepEqual(validateProtonQualificationEvidence(fixture, qualificationEvidence, rawQualificationEvidence), []);
 assert(validateProtonQualificationEvidence(fixture, qualificationEvidence, Buffer.from("{}\n"))
   .some((failure) => failure.includes("SHA-256")));
+
+fixture = clone();
+fixture.repositories.games.id = "a".repeat(64);
+assert(validateResticPolicy(fixture).some((failure) => failure.includes("three absent repositories")));
+fixture = clone();
+fixture.initialization.state = "initialized";
+fixture.repositories.games.id = "a".repeat(64);
+fixture.repositories.nfs.id = "b".repeat(64);
+fixture.repositories.proton.id = "c".repeat(64);
+fixture.initialization.source_policy_sha256 = "d".repeat(64);
+fixture.initialization.evidence_sha256 = "e".repeat(64);
+fixture.initialization.verified_at = "2026-08-26T01:00:00Z";
+assert.deepEqual(validateResticPolicy(fixture), []);
+const initializationEvidence = {
+  version: 1, type: "restic-repository-initialization", state: "initialized",
+  source_policy_sha256: fixture.initialization.source_policy_sha256,
+  lock_owner_sha256: "f".repeat(64), helper_sha256: fixture.initialization.helper_sha256,
+  restic_sha256: fixture.tools.restic.installed_sha256, rclone_sha256: fixture.tools.rclone.installed_sha256,
+  qualification_evidence_sha256: fixture.qualification.evidence_sha256,
+  account_username_sha256: fixture.qualification.username_sha256,
+  repository_ids: { games: fixture.repositories.games.id, nfs: fixture.repositories.nfs.id, proton: fixture.repositories.proton.id },
+  chunker_polynomial: "1234abcd",
+  operations: ["init-games", "init-nfs-from-games-copy-chunker-params", "normalize-games-access", "init-proton-from-games-copy-chunker-params"],
+  mounts: { games: "pass", nfs: "pass" }, proton_minimum_allocated_bytes: 1000000000000,
+  proton_minimum_free_bytes: 100000000000, proton_observed_total_bytes: 1073741824000,
+  proton_observed_free_bytes: 1073741824000, started_at: "2026-08-26T00:59:00Z", completed_at: fixture.initialization.verified_at,
+};
+assert(new Ajv2020({ allErrors: true, strict: true }).compile(initializationEvidenceSchema)(initializationEvidence));
+const rawInitializationEvidence = Buffer.from(`${JSON.stringify(initializationEvidence)}\n`);
+fixture.initialization.evidence_sha256 = crypto.createHash("sha256").update(rawInitializationEvidence).digest("hex");
+assert.deepEqual(validateResticInitializationEvidence(fixture, initializationEvidence, rawInitializationEvidence), []);
+fixture.repositories.proton.id = fixture.repositories.nfs.id;
+assert(validateResticPolicy(fixture).some((failure) => failure.includes("three distinct IDs")));
 
 console.log("restic_policy_semantics=verified");

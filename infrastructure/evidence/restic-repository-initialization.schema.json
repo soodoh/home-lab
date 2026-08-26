@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "type", "state", "source_policy_sha256", "lock_owner_sha256", "helper_sha256", "restic_sha256", "rclone_sha256", "qualification_evidence_sha256", "account_username_sha256", "repository_ids", "chunker_polynomial", "operations", "mounts", "proton_minimum_allocated_bytes", "proton_minimum_free_bytes", "proton_observed_total_bytes", "proton_observed_free_bytes", "started_at", "completed_at"],
+  "properties": {
+    "version": { "const": 1 },
+    "type": { "const": "restic-repository-initialization" },
+    "state": { "const": "initialized" },
+    "source_policy_sha256": { "$ref": "#/$defs/sha256" },
+    "lock_owner_sha256": { "$ref": "#/$defs/sha256" },
+    "helper_sha256": { "$ref": "#/$defs/sha256" },
+    "restic_sha256": { "$ref": "#/$defs/sha256" },
+    "rclone_sha256": { "$ref": "#/$defs/sha256" },
+    "qualification_evidence_sha256": { "$ref": "#/$defs/sha256" },
+    "account_username_sha256": { "$ref": "#/$defs/sha256" },
+    "repository_ids": {
+      "type": "object", "additionalProperties": false, "required": ["games", "nfs", "proton"],
+      "properties": { "games": { "$ref": "#/$defs/sha256" }, "nfs": { "$ref": "#/$defs/sha256" }, "proton": { "$ref": "#/$defs/sha256" } }
+    },
+    "chunker_polynomial": { "type": "string", "pattern": "^[0-9a-f]+$" },
+    "operations": { "const": ["init-games", "init-nfs-from-games-copy-chunker-params", "normalize-games-access", "init-proton-from-games-copy-chunker-params"] },
+    "mounts": { "type": "object", "additionalProperties": false, "required": ["games", "nfs"], "properties": { "games": { "const": "pass" }, "nfs": { "const": "pass" } } },
+    "proton_minimum_allocated_bytes": { "const": 1000000000000 },
+    "proton_minimum_free_bytes": { "const": 100000000000 },
+    "proton_observed_total_bytes": { "type": "integer", "minimum": 1000000000000 },
+    "proton_observed_free_bytes": { "type": "integer", "minimum": 100000000000 },
+    "started_at": { "$ref": "#/$defs/timestamp" },
+    "completed_at": { "$ref": "#/$defs/timestamp" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" }
+  }
+}

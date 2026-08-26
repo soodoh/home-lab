@@ -1389,6 +1389,7 @@ backups:
         architecture: linux_amd64
         url: https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_amd64.bz2
         archive_sha256: f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c
+        installed_sha256: 20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639
         installed_path: /usr/local/bin/restic
         version_output: restic 0.19.1 compiled with go1.26.4 on linux/amd64
       rclone:
@@ -1460,6 +1461,18 @@ backups:
       confirmation: qualify-proton-bounded-operations
       evidence_sha256: 81f93aca27a87fe38d90137f33da60d823ed5e391296c95cb7ab1be867dfc679
       verified_at: "2026-08-26T00:42:08Z"
+    initialization:
+      state: ready
+      helper_sha256: 80b7fb8e7dd3ff0e2afd7bb91b668281c426256a70c37a8e9b1b3ff75a602694
+      confirmation: initialize-three-native-restic-repositories
+      exclusive_client_confirmation: proton-exclusive-client-closed
+      journal_path: /var/lib/home-lab-restic/repository-initialization-journal.json
+      result_path: /var/lib/home-lab-restic/repository-initialization-result.json
+      host_evidence_path: /var/lib/home-lab-restic/repository-initialization.json
+      evidence_file: infrastructure/evidence/restic-repository-initialization.json
+      source_policy_sha256: null
+      evidence_sha256: null
+      verified_at: null
     schedule:
       daily_calendar: "*-*-* 05:00:00"
       maintenance_calendar: monthly

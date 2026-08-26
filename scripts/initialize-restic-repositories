@@ -1,0 +1,569 @@
+#!/usr/bin/env python3
+"""Owner-bound, resumable initialization of the three native Restic repositories."""
+from __future__ import annotations
+
+import configparser
+import datetime as dt
+import fcntl
+import grp
+import hashlib
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+from typing import Any
+
+ACTIONS = {"initialize", "resume", "verify"}
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+TIMESTAMP = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+PROTON_ID = 60000
+OPERATION = "restic-repository-initialization"
+PHASES = ["started", "games_init_started", "games_initialized", "nfs_init_started", "nfs_initialized", "proton_init_started", "complete"]
+
+class InitializationError(RuntimeError):
+    pass
+
+def testing() -> bool:
+    return os.environ.get("HOME_LAB_RESTIC_INITIALIZATION_TESTING") == "1"
+
+def rooted(value: str) -> Path:
+    path = Path(value)
+    if testing():
+        return Path(os.environ["HOME_LAB_RESTIC_INITIALIZATION_TEST_ROOT"]) / path.relative_to("/")
+    return path
+
+def fail(reason: str) -> None:
+    print(f"restic_repository_initialization=failed reason={reason}", file=sys.stderr)
+    raise SystemExit(1)
+
+def sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+def fsync_dir(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+def path_entry_exists(path: Path) -> bool:
+    try:
+        path.lstat()
+        return True
+    except FileNotFoundError:
+        return False
+
+
+def safe_output_parent(path: Path) -> None:
+    if testing():
+        path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        metadata = path.parent.lstat()
+    except OSError as error:
+        raise InitializationError("output_parent_missing") from error
+    expected_owner = os.getuid() if testing() else 0
+    if (path.parent.is_symlink() or not path.parent.is_dir() or metadata.st_uid != expected_owner
+            or stat.S_IMODE(metadata.st_mode) & 0o022):
+        raise InitializationError("output_parent_metadata")
+    if not testing():
+        for ancestor in path.parent.parents:
+            if ancestor == Path("/"):
+                break
+            if ancestor.is_symlink():
+                raise InitializationError("output_parent_symlink")
+
+
+def atomic_bytes(path: Path, data: bytes, mode: int = 0o600) -> None:
+    safe_output_parent(path)
+    if path_entry_exists(path):
+        read_regular(path, {mode}, {os.getuid()} if testing() else {0})
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(name)
+    try:
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.replace(path)
+        fsync_dir(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def publish_bytes(path: Path, data: bytes, mode: int = 0o600) -> None:
+    safe_output_parent(path)
+    if path_entry_exists(path):
+        if read_regular(path, {mode}, {os.getuid()} if testing() else {0}) != data:
+            raise InitializationError("retained_evidence_mismatch")
+        return
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(name)
+    try:
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, path, follow_symlinks=False)
+        except FileExistsError:
+            if read_regular(path, {mode}, {os.getuid()} if testing() else {0}) != data:
+                raise InitializationError("retained_evidence_mismatch")
+        fsync_dir(path.parent)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+def canonical(value: object) -> bytes:
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+def read_regular(path: Path, modes: set[int], owners: set[int] | None = None) -> bytes:
+    try:
+        metadata = path.lstat()
+    except OSError as error:
+        raise InitializationError("protected_file_missing") from error
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+        raise InitializationError("protected_file_type")
+    if stat.S_IMODE(metadata.st_mode) not in modes:
+        raise InitializationError("protected_file_mode")
+    if owners is not None and metadata.st_uid not in owners:
+        raise InitializationError("protected_file_owner")
+    return path.read_bytes()
+
+def load_json(path: Path, modes: set[int], owners: set[int] | None = None) -> tuple[dict[str, Any], bytes]:
+    raw = read_regular(path, modes, owners)
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise InitializationError("protected_json") from error
+    if not isinstance(value, dict):
+        raise InitializationError("protected_json_shape")
+    return value, raw
+
+def controlled_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    value = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/var/empty", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "TZ": "UTC"}
+    if extra:
+        value.update(extra)
+    return value
+
+def run_checked(arguments: list[str], environment: dict[str, str] | None = None, timeout: int = 7200) -> subprocess.CompletedProcess[bytes]:
+    try:
+        result = subprocess.run(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                env=controlled_env(environment), timeout=timeout, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise InitializationError("command_execution") from error
+    if result.returncode != 0:
+        raise InitializationError(f"command_failed_rc_{result.returncode}_stderr_sha256_{sha256(result.stderr)}")
+    return result
+
+def check_hash(path: Path, expected: str, reason: str) -> None:
+    if not HEX64.fullmatch(expected) or sha256(read_regular(path, {0o750, 0o755}, {0} if not testing() else None)) != expected:
+        raise InitializationError(reason)
+
+def lock_owner(policy: dict[str, Any]) -> tuple[bytes, str]:
+    path = rooted(policy["runner"]["deploy_lock_path"]) / "owner"
+    raw = read_regular(path, {0o600}, {0} if not testing() else None)
+    lines = raw.decode("utf-8").splitlines()
+    if "controller=ansible-deploy" not in lines or f"operation={OPERATION}" not in lines:
+        raise InitializationError("production_lock_owner")
+    if len([line for line in lines if line.startswith("started=")]) != 1:
+        raise InitializationError("production_lock_owner")
+    return raw, sha256(raw)
+
+def require_proton_identity() -> None:
+    if testing():
+        return
+    try:
+        service = pwd.getpwnam("restic-proton")
+        group = grp.getgrgid(PROTON_ID)
+        groups = os.getgrouplist("restic-proton", service.pw_gid)
+    except (KeyError, OSError) as error:
+        raise InitializationError("proton_identity") from error
+    if (service.pw_uid != PROTON_ID or service.pw_gid != PROTON_ID or group.gr_name != "restic-proton"
+            or sorted(set(groups)) != [PROTON_ID]):
+        raise InitializationError("proton_identity")
+
+
+def check_mount(definition: dict[str, Any]) -> None:
+    if testing():
+        return
+    result = run_checked(["/usr/bin/findmnt", "--json", "--target", definition["mountpoint"], "--output", "TARGET,SOURCE,FSTYPE,UUID"], timeout=30)
+    try:
+        entries = json.loads(result.stdout)["filesystems"]
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        raise InitializationError("mount_json") from error
+    if len(entries) != 1 or entries[0].get("target") != definition["mountpoint"] or entries[0].get("fstype") != definition["filesystem"]:
+        raise InitializationError("mount_identity")
+    if definition.get("filesystem_uuid") and entries[0].get("uuid") != definition["filesystem_uuid"]:
+        raise InitializationError("mount_identity")
+    if definition.get("mount_source") and entries[0].get("source") != definition["mount_source"]:
+        raise InitializationError("mount_identity")
+
+def password(path: Path) -> bytes:
+    raw = read_regular(path, {0o440}, {0} if not testing() else None).rstrip(b"\r\n")
+    try:
+        raw.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise InitializationError("password_utf8") from error
+    if len(raw) < 32:
+        raise InitializationError("password_length")
+    return raw
+
+def repository_path(policy: dict[str, Any], name: str) -> str:
+    value = policy["repositories"][name]["path"]
+    return str(rooted(value)) if value.startswith("/") else value
+
+def restic_command(policy: dict[str, Any], name: str, arguments: list[str], source: str | None = None) -> subprocess.CompletedProcess[bytes]:
+    credentials = rooted("/etc/home-lab/restic/credentials")
+    selected = credentials / ("proton-password" if name == "proton" else "local-password")
+    environment = {"RESTIC_PASSWORD_FILE": str(selected), "RESTIC_CACHE_DIR": str(rooted(policy["runner"]["proton_cache_path"] if name == "proton" else policy["runner"]["local_cache_path"]))}
+    if source:
+        environment["RESTIC_FROM_PASSWORD_FILE"] = str(credentials / "local-password")
+        environment["RESTIC_FROM_REPOSITORY"] = repository_path(policy, source)
+    restic_path = str(rooted(policy["tools"]["restic"]["installed_path"])) if testing() else policy["tools"]["restic"]["installed_path"]
+    command = [restic_path, "-r", repository_path(policy, name), *arguments]
+    if name == "proton":
+        environment.update({"RCLONE_CONFIG": str(rooted("/var/lib/restic-proton/rclone.conf")), "HOME": str(rooted("/var/lib/restic-proton"))})
+        if testing():
+            return run_checked(command, environment)
+        command = ["/usr/sbin/runuser", "--user", "restic-proton", "--", "/usr/bin/env", "-i", *[f"{key}={value}" for key, value in controlled_env(environment).items()], *command]
+        return run_checked(command, None)
+    return run_checked(command, environment)
+
+def repository_config(policy: dict[str, Any], name: str) -> dict[str, Any]:
+    result = restic_command(policy, name, ["cat", "config"])
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise InitializationError(f"repository_config_{name}") from error
+    if not isinstance(value, dict) or not HEX64.fullmatch(value.get("id", "")) or not isinstance(value.get("chunker_polynomial"), str):
+        raise InitializationError(f"repository_config_{name}")
+    return value
+
+def write_journal(path: Path, journal: dict[str, Any]) -> None:
+    atomic_bytes(path, canonical(journal))
+
+
+def validate_journal(journal: dict[str, Any], policy: dict[str, Any], policy_hash: str, owner_hash: str) -> None:
+    base_keys = {
+        "version", "operation", "source_policy_sha256", "lock_owner_sha256", "started_at", "phase",
+        "repositories", "proton_observed_total_bytes", "proton_observed_free_bytes",
+    }
+    allowed_keys = base_keys | ({"completed_at"} if journal.get("phase") == "complete" else set())
+    if (set(journal) != allowed_keys or type(journal.get("version")) is not int or journal["version"] != 1
+            or journal.get("operation") != OPERATION or journal.get("source_policy_sha256") != policy_hash
+            or journal.get("lock_owner_sha256") != owner_hash or journal.get("phase") not in PHASES
+            or not TIMESTAMP.fullmatch(journal.get("started_at", ""))):
+        raise InitializationError("journal_binding")
+    total = journal.get("proton_observed_total_bytes")
+    free = journal.get("proton_observed_free_bytes")
+    if (type(total) is not int or type(free) is not int
+            or total < policy["repositories"]["proton"]["minimum_allocated_bytes"]
+            or free < policy["proton"]["minimum_free_bytes"]):
+        raise InitializationError("journal_quota")
+    repositories = journal.get("repositories")
+    if not isinstance(repositories, dict) or not set(repositories) <= {"games", "nfs", "proton"}:
+        raise InitializationError("journal_repositories")
+    for name, repository in repositories.items():
+        if (not isinstance(repository, dict) or set(repository) != {"id", "chunker_polynomial"}
+                or not HEX64.fullmatch(repository.get("id", ""))
+                or not isinstance(repository.get("chunker_polynomial"), str) or not repository["chunker_polynomial"]):
+            raise InitializationError(f"journal_repository_{name}")
+    phase_index = PHASES.index(journal["phase"])
+    required_repositories = ({"games"} if phase_index >= PHASES.index("games_initialized") else set())
+    required_repositories |= ({"nfs"} if phase_index >= PHASES.index("nfs_initialized") else set())
+    required_repositories |= ({"proton"} if phase_index >= PHASES.index("complete") else set())
+    permitted_repositories = ({"games"} if phase_index >= PHASES.index("games_init_started") else set())
+    permitted_repositories |= ({"nfs"} if phase_index >= PHASES.index("nfs_init_started") else set())
+    permitted_repositories |= ({"proton"} if phase_index >= PHASES.index("proton_init_started") else set())
+    if not required_repositories <= set(repositories) or not set(repositories) <= permitted_repositories:
+        raise InitializationError("journal_repository_phase")
+    if journal["phase"] == "complete":
+        completed_at = journal.get("completed_at")
+        if not isinstance(completed_at, str) or not TIMESTAMP.fullmatch(completed_at):
+            raise InitializationError("journal_completed_at")
+    elif "completed_at" in journal:
+        raise InitializationError("journal_completed_at")
+
+
+def validate_local_tree(path: Path, name: str) -> None:
+    if path.is_symlink() or not path.is_dir():
+        raise InitializationError(f"{name}_repository_tree")
+    if not testing():
+        nested = run_checked(["/usr/bin/findmnt", "--raw", "--noheadings", "--output", "TARGET"])
+        prefix = f"{path}/"
+        if any(line.decode().startswith(prefix) for line in nested.stdout.splitlines()):
+            raise InitializationError(f"{name}_repository_nested_mount")
+    for root, directories, files in os.walk(path, followlinks=False):
+        current = Path(root)
+        metadata = current.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise InitializationError(f"{name}_repository_tree")
+        for entry in directories + files:
+            item = current / entry
+            details = item.lstat()
+            if stat.S_ISLNK(details.st_mode) or (stat.S_ISREG(details.st_mode) and details.st_nlink != 1) or not (stat.S_ISREG(details.st_mode) or stat.S_ISDIR(details.st_mode)):
+                raise InitializationError(f"{name}_repository_tree")
+
+
+def safe_games_permissions(path: Path) -> None:
+    validate_local_tree(path, "games")
+    gid = os.getgid() if testing() else pwd.getpwnam("restic-proton").pw_gid
+    for root, directories, files in os.walk(path, followlinks=False):
+        current = Path(root)
+        os.chown(current, -1, gid)
+        os.chmod(current, 0o2770 if current.name == "locks" else 0o2750)
+        for name in files:
+            item = current / name
+            os.chown(item, -1, gid)
+            os.chmod(item, 0o440)
+
+def validate_rclone(policy: dict[str, Any]) -> None:
+    path = rooted("/var/lib/restic-proton/rclone.conf")
+    service = None if testing() else pwd.getpwnam("restic-proton")
+    service_uid = os.getuid() if testing() else service.pw_uid
+    raw = read_regular(path, {0o600}, {service_uid})
+    if not testing() and path.lstat().st_gid != service.pw_gid:
+        raise InitializationError("rclone_config_owner")
+    parser = configparser.ConfigParser(interpolation=None)
+    parser.read_string(raw.decode("utf-8"))
+    if parser.sections() != ["proton-backup"]:
+        raise InitializationError("rclone_config_shape")
+    section = parser["proton-backup"]
+    static = {"type", "username", "password", "replace_existing_draft", "enable_caching", "original_file_size"}
+    cache = {"client_uid", "client_access_token", "client_refresh_token", "client_salted_key_pass"}
+    keys = set(section)
+    cache_present = keys & cache
+    if (not static <= keys or not keys <= static | cache or (cache_present and cache_present != cache)
+            or any(not value or "\x00" in value or "\n" in value for value in section.values())
+            or section.get("type") != "protondrive" or section.get("replace_existing_draft") != "true"
+            or section.get("enable_caching") != "true" or section.get("original_file_size") != "true"):
+        raise InitializationError("rclone_config_shape")
+    if sha256(section.get("username", "").encode()) != policy["qualification"]["username_sha256"]:
+        raise InitializationError("rclone_account_identity")
+
+def provider_rclone(policy: dict[str, Any], arguments: list[str], *, allow_missing: bool = False) -> subprocess.CompletedProcess[bytes]:
+    rclone_path = str(rooted(policy["tools"]["rclone"]["installed_path"])) if testing() else policy["tools"]["rclone"]["installed_path"]
+    environment = {"RCLONE_CONFIG": str(rooted("/var/lib/restic-proton/rclone.conf")), "HOME": str(rooted("/var/lib/restic-proton")), "RCLONE_CONFIG_PASS": ""}
+    command = [rclone_path, *arguments]
+    if not testing():
+        command = ["/usr/sbin/runuser", "--user", "restic-proton", "--", "/usr/bin/env", "-i", *[f"{key}={value}" for key, value in controlled_env(environment).items()], *command]
+        environment = None
+    try:
+        result = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                env=controlled_env(environment), timeout=300, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise InitializationError("command_execution") from error
+    if result.returncode == 0:
+        return result
+    if allow_missing and result.returncode == 3 and (not result.stdout.strip() or result.stdout == b"[\n"):
+        return subprocess.CompletedProcess(command, 3, result.stdout, b"")
+    raise InitializationError(f"command_failed_rc_{result.returncode}_stderr_sha256_{sha256(result.stderr)}")
+
+
+def proton_target_absent(policy: dict[str, Any]) -> bool:
+    result = provider_rclone(policy, ["lsjson", f"proton-backup:{policy['repositories']['proton']['remote_path']}", "--stat", "--max-depth", "1"], allow_missing=True)
+    if result.returncode == 3:
+        return True
+    try:
+        observed = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise InitializationError("proton_target_inventory") from error
+    return observed in (None, [])
+
+
+def require_proton_target_absent(policy: dict[str, Any]) -> None:
+    if not proton_target_absent(policy):
+        raise InitializationError("repository_target_exists_proton")
+
+
+def proton_quota(policy: dict[str, Any]) -> tuple[int, int]:
+    result = provider_rclone(policy, ["about", "proton-backup:", "--json"])
+    try:
+        observed = json.loads(result.stdout)
+        total, free = observed["total"], observed["free"]
+    except (json.JSONDecodeError, KeyError, TypeError) as error:
+        raise InitializationError("proton_quota") from error
+    if not isinstance(total, int) or not isinstance(free, int) or total < policy["repositories"]["proton"]["minimum_allocated_bytes"] or free < policy["proton"]["minimum_free_bytes"]:
+        raise InitializationError("proton_quota")
+    return total, free
+
+
+def preflight(policy: dict[str, Any], raw_policy: bytes) -> tuple[str, str, int, int]:
+    if not testing() and os.geteuid() != 0:
+        raise InitializationError("root_required")
+    if policy.get("migration_state") != "inert" or policy.get("qualification", {}).get("state") != "qualified":
+        raise InitializationError("policy_state")
+    require_proton_identity()
+    check_hash(rooted("/usr/local/libexec/home-lab/initialize-restic-repositories"), policy["initialization"]["helper_sha256"], "helper_hash")
+    check_hash(rooted(policy["tools"]["restic"]["installed_path"]), policy["tools"]["restic"]["installed_sha256"], "restic_hash")
+    check_hash(rooted(policy["tools"]["rclone"]["installed_path"]), policy["tools"]["rclone"]["installed_sha256"], "rclone_hash")
+    restic_version = run_checked([str(rooted(policy["tools"]["restic"]["installed_path"])) if testing() else policy["tools"]["restic"]["installed_path"], "version"], timeout=30)
+    rclone_version = provider_rclone(policy, ["version"])
+    if restic_version.stdout.decode().splitlines()[0] != policy["tools"]["restic"]["version_output"] or not rclone_version.stdout.decode().startswith(policy["tools"]["rclone"]["version_output_prefix"] + "\n"):
+        raise InitializationError("tool_version")
+    for process in ("restic", "rclone"):
+        if not testing():
+            result = subprocess.run(["/usr/bin/pgrep", "--exact", process], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            if result.returncode != 1:
+                raise InitializationError("external_backup_operation")
+    check_mount(policy["repositories"]["games"])
+    check_mount(policy["repositories"]["nfs"])
+    credentials = rooted("/etc/home-lab/restic/credentials")
+    local = password(credentials / "local-password")
+    proton = password(credentials / "proton-password")
+    if local == proton:
+        raise InitializationError("password_reuse")
+    validate_rclone(policy)
+    if not testing():
+        service = pwd.getpwnam("restic-proton")
+        for path, owner in ((rooted(policy["runner"]["local_cache_path"]), 0), (rooted(policy["runner"]["proton_cache_path"]), service.pw_uid)):
+            metadata = path.lstat()
+            if path.is_symlink() or not path.is_dir() or metadata.st_uid != owner or stat.S_IMODE(metadata.st_mode) != 0o700:
+                raise InitializationError("cache_metadata")
+        for unit in policy["runner"]["units"].values():
+            state = subprocess.run(["/usr/bin/systemctl", "is-active", unit], stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30, check=False,
+                                   env=controlled_env())
+            if state.returncode != 3 or state.stdout.strip() != b"inactive":
+                raise InitializationError("restic_unit_active")
+    qualification_raw = read_regular(
+        rooted(policy["qualification"]["host_evidence_path"]), {0o600},
+        {os.getuid()} if testing() else {0},
+    )
+    if sha256(qualification_raw) != policy["qualification"]["evidence_sha256"]:
+        raise InitializationError("qualification_evidence_hash")
+    _, owner_hash = lock_owner(policy)
+    total, free = proton_quota(policy)
+    return sha256(raw_policy), owner_hash, total, free
+
+def initialize_or_resume(action: str, policy: dict[str, Any], raw_policy: bytes) -> dict[str, Any]:
+    policy_hash, owner_hash, observed_total, observed_free = preflight(policy, raw_policy)
+    definition = policy["initialization"]
+    journal_path = rooted(definition["journal_path"])
+    if action == "initialize":
+        if journal_path.exists() or any(policy["repositories"][name]["id"] is not None for name in ("games", "nfs", "proton")):
+            raise InitializationError("fresh_state_required")
+        for name in ("games", "nfs"):
+            target = Path(repository_path(policy, name))
+            parent = target.parent.lstat()
+            if target.parent.is_symlink() or not target.parent.is_dir() or parent.st_uid != (os.getuid() if testing() else 0) or parent.st_mode & 0o002:
+                raise InitializationError(f"repository_parent_{name}")
+            if target.exists():
+                raise InitializationError(f"repository_target_exists_{name}")
+        require_proton_target_absent(policy)
+        journal = {
+            "version": 1, "operation": OPERATION, "source_policy_sha256": policy_hash,
+            "lock_owner_sha256": owner_hash,
+            "started_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "phase": "started", "repositories": {}, "proton_observed_total_bytes": observed_total,
+            "proton_observed_free_bytes": observed_free,
+        }
+        write_journal(journal_path, journal)
+    else:
+        journal, _ = load_json(journal_path, {0o600}, {0} if not testing() else None)
+    validate_journal(journal, policy, policy_hash, owner_hash)
+    for name in ("games", "nfs", "proton"):
+        started_phase = f"{name}_init_started"
+        complete_phase = f"{name}_initialized" if name != "proton" else "complete"
+        current = PHASES.index(journal["phase"])
+        should_initialize = current < PHASES.index(started_phase)
+        if should_initialize:
+            if name in ("games", "nfs") and Path(repository_path(policy, name)).exists():
+                raise InitializationError(f"unadoptable_repository_{name}")
+            if name == "proton":
+                # This observation is deliberately adjacent to the durable marker: a target cannot
+                # appear between the earlier fresh-state inventory and become adoptable on replay.
+                require_proton_target_absent(policy)
+            journal["phase"] = started_phase
+            write_journal(journal_path, journal)
+        elif current == PHASES.index(started_phase):
+            should_initialize = (not Path(repository_path(policy, name)).exists()) if name != "proton" else proton_target_absent(policy)
+        if should_initialize:
+            args = ["init"] if name == "games" else ["init", "--from-repo", repository_path(policy, "games"), "--copy-chunker-params"]
+            restic_command(policy, name, args, "games" if name != "games" else None)
+        if name in ("games", "nfs"):
+            validate_local_tree(Path(repository_path(policy, name)), name)
+        config = repository_config(policy, name)
+        existing = journal["repositories"].get(name)
+        observed = {"id": config["id"], "chunker_polynomial": config["chunker_polynomial"]}
+        if existing is not None and existing != observed:
+            raise InitializationError(f"journal_repository_{name}")
+        journal["repositories"][name] = observed
+        if name == "games":
+            safe_games_permissions(Path(repository_path(policy, "games")))
+        if PHASES.index(journal["phase"]) < PHASES.index(complete_phase):
+            journal["phase"] = complete_phase
+            if complete_phase == "complete":
+                journal["completed_at"] = dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+            write_journal(journal_path, journal)
+    configs = journal["repositories"]
+    ids = [configs[name]["id"] for name in ("games", "nfs", "proton")]
+    polynomials = [configs[name]["chunker_polynomial"] for name in ("games", "nfs", "proton")]
+    if len(set(ids)) != 3 or len(set(polynomials)) != 1:
+        raise InitializationError("repository_identity_set")
+    validate_journal(journal, policy, policy_hash, owner_hash)
+    completed = journal["completed_at"]
+    evidence = {"version": 1, "type": OPERATION, "state": "initialized", "source_policy_sha256": policy_hash,
+                "lock_owner_sha256": owner_hash, "helper_sha256": policy["initialization"]["helper_sha256"],
+                "restic_sha256": policy["tools"]["restic"]["installed_sha256"], "rclone_sha256": policy["tools"]["rclone"]["installed_sha256"],
+                "qualification_evidence_sha256": policy["qualification"]["evidence_sha256"], "account_username_sha256": policy["qualification"]["username_sha256"],
+                "repository_ids": {name: configs[name]["id"] for name in ("games", "nfs", "proton")},
+                "chunker_polynomial": polynomials[0], "operations": ["init-games", "init-nfs-from-games-copy-chunker-params", "normalize-games-access", "init-proton-from-games-copy-chunker-params"],
+                "mounts": {"games": "pass", "nfs": "pass"}, "proton_minimum_allocated_bytes": policy["repositories"]["proton"]["minimum_allocated_bytes"],
+                "proton_minimum_free_bytes": policy["proton"]["minimum_free_bytes"],
+                "proton_observed_total_bytes": journal["proton_observed_total_bytes"],
+                "proton_observed_free_bytes": journal["proton_observed_free_bytes"],
+                "started_at": journal["started_at"], "completed_at": completed}
+    raw = canonical(evidence)
+    publish_bytes(rooted(definition["result_path"]), raw)
+    publish_bytes(rooted(definition["host_evidence_path"]), raw)
+    print(f"restic_repository_initialization=passed evidence_sha256={sha256(raw)}")
+    return evidence
+
+def verify(policy: dict[str, Any], raw_policy: bytes) -> None:
+    preflight(policy, raw_policy)
+    definition = policy["initialization"]
+    evidence, raw = load_json(rooted(definition["host_evidence_path"]), {0o600}, {0} if not testing() else None)
+    if definition["state"] != "initialized" or sha256(raw) != definition["evidence_sha256"] or evidence.get("source_policy_sha256") != definition["source_policy_sha256"]:
+        raise InitializationError("initialization_evidence_binding")
+    configs = {name: repository_config(policy, name) for name in ("games", "nfs", "proton")}
+    if any(configs[name]["id"] != policy["repositories"][name]["id"] for name in configs):
+        raise InitializationError("repository_contract_identity")
+    if len({config["chunker_polynomial"] for config in configs.values()}) != 1:
+        raise InitializationError("repository_chunker_identity")
+    print(f"restic_repository_initialization=verified evidence_sha256={sha256(raw)}")
+
+def main() -> None:
+    if len(sys.argv) != 2 or sys.argv[1] not in ACTIONS:
+        fail("usage")
+    try:
+        policy, raw = load_json(rooted("/etc/home-lab/restic-policy.json"), {0o440}, {0} if not testing() else None)
+        lock_path = rooted(policy["runner"]["lock_path"])
+        if testing():
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o660)
+        else:
+            metadata = lock_path.lstat()
+            service_gid = pwd.getpwnam("restic-proton").pw_gid
+            if (lock_path.is_symlink() or not lock_path.is_file() or metadata.st_nlink != 1
+                    or metadata.st_uid != 0 or metadata.st_gid != service_gid or stat.S_IMODE(metadata.st_mode) != 0o660):
+                raise InitializationError("backup_lock_metadata")
+            descriptor = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, "r+b") as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if sys.argv[1] == "verify":
+                verify(policy, raw)
+            else:
+                initialize_or_resume(sys.argv[1], policy, raw)
+    except (InitializationError, OSError, KeyError, ValueError) as error:
+        reason = str(error) if isinstance(error, InitializationError) else "unexpected_state"
+        fail(reason)
+
+if __name__ == "__main__":
+    main()

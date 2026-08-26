@@ -12,9 +12,9 @@
         that:
           - ansible_check_mode or (iac_lock_clear_confirmed | default(false) | ansible.builtin.bool)
           - iac_failed_lock_expected_operation | default('') is match('^[a-z0-9_-]+$')
-          - iac_failed_lock_expected_operation != 'proton-qualification'
+          - iac_failed_lock_expected_operation not in ['proton-qualification', 'restic-repository-initialization']
         fail_msg: >-
-          Failed production lock clearance requires confirmation and the exact inspected operation.
+          Failed production lock clearance requires confirmation and the exact inspected non-transactional operation.
 
     - name: Inspect the failed production apply lock
       ansible.builtin.stat:

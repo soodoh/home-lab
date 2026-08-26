@@ -66,7 +66,7 @@ age_keygen_binary_sha256: c56ef69834e18ca4d3b953117f4481522c35fb6862a5d2871685aa
 restic_version: "{{ backups.restic.tools.restic.version }}"
 restic_download_url: "{{ backups.restic.tools.restic.url }}"
 restic_archive_sha256: "{{ backups.restic.tools.restic.archive_sha256 }}"
-restic_binary_sha256: 20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639
+restic_binary_sha256: "{{ backups.restic.tools.restic.installed_sha256 }}"
 rclone_version: "{{ backups.restic.tools.rclone.version }}"
 rclone_download_url: "{{ backups.restic.tools.rclone.url }}"
 rclone_archive_sha256: "{{ backups.restic.tools.rclone.archive_sha256 }}"

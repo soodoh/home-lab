@@ -49,6 +49,27 @@ function validateProtonQualificationEvidence(policy, evidence, rawEvidence) {
   return failures;
 }
 
+function validateResticInitializationEvidence(policy, evidence, rawEvidence) {
+  const failures = [];
+  const initialization = policy.initialization;
+  if (initialization.state !== "initialized") return failures;
+  const evidenceSha256 = crypto.createHash("sha256").update(rawEvidence).digest("hex");
+  if (evidenceSha256 !== initialization.evidence_sha256) failures.push("Restic initialization evidence SHA-256 differs from the contract");
+  if (evidence.source_policy_sha256 !== initialization.source_policy_sha256) failures.push("Restic initialization source policy hash differs from the contract");
+  if (evidence.completed_at !== initialization.verified_at) failures.push("Restic initialization timestamp differs from the contract");
+  for (const name of ["games", "nfs", "proton"]) {
+    if (evidence.repository_ids[name] !== policy.repositories[name].id) failures.push(`Restic initialization ${name} repository ID differs from the contract`);
+  }
+  if (evidence.helper_sha256 !== initialization.helper_sha256
+      || evidence.restic_sha256 !== policy.tools.restic.installed_sha256
+      || evidence.rclone_sha256 !== policy.tools.rclone.installed_sha256) failures.push("Restic initialization tool hashes differ from the contract");
+  if (evidence.qualification_evidence_sha256 !== policy.qualification.evidence_sha256
+      || evidence.account_username_sha256 !== policy.qualification.username_sha256) failures.push("Restic initialization Proton identity differs from qualified evidence");
+  if (evidence.proton_observed_total_bytes < policy.repositories.proton.minimum_allocated_bytes
+      || evidence.proton_observed_free_bytes < policy.proton.minimum_free_bytes) failures.push("Restic initialization Proton quota crossed a contract threshold");
+  return failures;
+}
+
 function validateResticPolicy(policy) {
   const failures = [];
   const stoppedApplications = policy.stop_groups.applications;
@@ -158,7 +179,25 @@ function validateResticPolicy(policy) {
     || !usernameRecorded
     || !evidenceRecorded
   )) failures.push("qualified Proton state requires bound account and evidence hashes");
+  if (!/^[0-9a-f]{64}$/.test(policy.tools.restic.installed_sha256)) failures.push("installed Restic hash must be contract-backed");
+  const initialization = policy.initialization;
+  const repositoryIds = Object.values(policy.repositories).map((repository) => repository.id);
+  const initializedEvidence = typeof initialization.source_policy_sha256 === "string"
+    && typeof initialization.evidence_sha256 === "string"
+    && typeof initialization.verified_at === "string";
+  if (initialization.state === "ready" && (
+    qualification.state !== "qualified"
+    || repositoryIds.some((id) => id !== null)
+    || initialization.source_policy_sha256 !== null
+    || initialization.evidence_sha256 !== null
+    || initialization.verified_at !== null
+  )) failures.push("ready repository initialization requires qualified Proton and three absent repositories");
+  if (initialization.state === "initialized" && (
+    repositoryIds.some((id) => typeof id !== "string" || !/^[0-9a-f]{64}$/.test(id))
+    || new Set(repositoryIds).size !== 3
+    || !initializedEvidence
+  )) failures.push("initialized repository state requires three distinct IDs and bound evidence");
   return failures;
 }
 
-module.exports = { globRegex, validateProtonQualificationEvidence, validateResticPolicy };
+module.exports = { globRegex, validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticPolicy };
