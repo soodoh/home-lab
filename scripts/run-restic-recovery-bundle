@@ -226,7 +226,19 @@ def main() -> None:
                 "Restic copied snapshot ancestry differs": "snapshot-ancestry",
                 "Restic snapshot policy or artifact identity differs": "snapshot-policy",
             }
-            reason = next((code for message, code in reasons.items() if message in stderr), "controlled-command")
+            reason = next((code for message, code in reasons.items() if message in stderr), "")
+            if not reason:
+                lowered = stderr.lower()
+                controlled = {
+                    "repository": ("unable to open config file", "repository does not exist", "repository not found"),
+                    "password": ("wrong password", "no key found"),
+                    "backend": ("rclone", "backend"),
+                    "network": ("connection", "timeout", "dial tcp", "network"),
+                    "capacity": ("no space left", "not enough space"),
+                    "permission": ("permission denied",),
+                    "lock": ("unable to create lock", "repository is already locked"),
+                }
+                reason = next((code for code, fragments in controlled.items() if any(fragment in lowered for fragment in fragments)), "controlled-command")
             fail(f"isolated Restic restore failed reason={reason}")
         file_count = 0
         byte_count = 0
