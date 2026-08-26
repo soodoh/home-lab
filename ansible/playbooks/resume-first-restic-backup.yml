@@ -220,6 +220,10 @@
         - "{{ backups.restic.runner.units.daily_local }}"
         - "{{ backups.restic.runner.units.daily_proton }}"
       become: true
+      register: restic_first_run_reset_failed
+      failed_when: >-
+        restic_first_run_reset_failed.rc != 0 and
+        not (restic_first_run_reset_failed.stderr is match('^Failed to reset failed state of unit [a-z0-9@_.-]+: Unit [a-z0-9@_.-]+ not loaded\\.$'))
       changed_when: false
       check_mode: false
     - name: Require complete quiesced source-state audit before resume
