@@ -2,17 +2,17 @@
 
 ## Current state
 
-Restic is **active**. The daily and maintenance timers are enabled, active, and non-persistent; interrupted-backup recovery is enabled. The first games → NFS → Proton chain and isolated Proton `restore --verify` proof passed. Offen retirement is now planned by the immutable manifest at `infrastructure/retirement/offen-retirement-manifest.json`, but no archive, container, image, or AWS object has yet been mutated under that plan.
+Restic is **active**. The daily and maintenance timers are enabled, active, and non-persistent; interrupted-backup recovery is enabled. The first games → NFS → Proton chain and isolated Proton `restore --verify` proof passed. Offen is fully retired: its Compose definitions and stopped containers are absent, all twelve manifest-bound local archives and eight checksum sidecars were removed, the exact AWS Offen version is absent, and the temporary bucket-wide expiration hold was replaced with multipart-only and expired-marker cleanup. Terminal evidence is `infrastructure/evidence/offen-retirement.json` with SHA-256 `5bd285796ab04d9cc7370768fae2ed284215492c76791cd75b01d22950fde2d0`.
 
-The final accepted Offen recovery point is:
+The final retired Offen recovery point was:
 
 - basename `daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg`;
 - 2,411,062,883 bytes;
 - SHA-256 `8034bcf7a03d19c446a23c30a56c1b9a8c4ffdd2d829557a5a16e39c0aab1f08`;
-- protected replicas under `/mnt/games/backups/.migration-preserved-offen` and `/mnt/storage/backups/.migration-preserved-offen`; and
+- formerly protected replicas under `/mnt/games/backups/.migration-preserved-offen` and `/mnt/storage/backups/.migration-preserved-offen`, now removed by the terminal retirement transaction; and
 - successful full-stream restore proof recorded in `infrastructure/evidence/offen-final-archive-2026-08-23-restore-proof.json` (SHA-256 `89712ec78f8724730d2e3eeb07c3929db0b7c2fad7cb30410d517cc115f7eff1`).
 
-The historical proof verified archive integrity, safe paths, all 39 required state classes, absence of all 17 excluded classes, and integrity of all six selected SQLite databases. The 7,019,884,389-byte expanded restore completed in 41 seconds and decrypted staging was removed. At retirement planning, both the 2026-08-21 historical fallback and 2026-08-23 final archive still have exact original and protected copies on both local filesystems.
+The historical proof verified archive integrity, safe paths, all 39 required state classes, absence of all 17 excluded classes, and integrity of all six selected SQLite databases. The 7,019,884,389-byte expanded restore completed in 41 seconds and decrypted staging was removed. Historical archive identities and proof evidence remain committed even though every manifest-bound local copy has been retired.
 
 ## Policy authority
 
