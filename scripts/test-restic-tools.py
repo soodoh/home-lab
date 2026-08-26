@@ -95,7 +95,7 @@ def main() -> None:
         assert int((finished_at - started_at).total_seconds()) == restore_proof["elapsed_seconds"]
         for key in ("member_count", "regular_file_count", "total_uncompressed_bytes", "member_path_stream_sha256"):
             assert evidence[key] == restore_proof[key]
-    assert policy["migration_state"] == "inert"
+    assert policy["migration_state"] == "active"
     assert [policy["retention"][key] for key in ("keep_daily", "keep_weekly", "keep_monthly")] == [7, 5, 12]
     assert policy["schedule"]["proton_independent_timer"] is False
     assert policy["proton"]["trash_cleanup"] == "manual-only"
@@ -1763,6 +1763,7 @@ def main() -> None:
     post_nfs_recovery = (ROOT / "ansible/playbooks/recover-post-nfs-first-run.yml").read_text()
     first_run_finalize = (ROOT / "ansible/playbooks/finalize-first-restic-backup.yml").read_text()
     timers = list((ROOT / "ansible/roles/restic_backup/templates").glob("*.timer.j2"))
+    restic_role_tasks = (ROOT / "ansible/roles/restic_backup/tasks/main.yml").read_text()
     assert "daily-local.service home-lab-restic-daily-proton.service" in daily_target
     assert "Requires=home-lab-restic-daily-local.service" in proton_service
     assert "User=restic-proton" in proton_service
@@ -1781,6 +1782,8 @@ def main() -> None:
     assert len(timers) == 2
     assert all("proton" not in path.name for path in timers)
     assert all("Persistent=false" in path.read_text() for path in timers)
+    assert "pgrep -x restic" not in restic_role_tasks
+    assert "Require no interrupted backup before scheduling convergence" not in restic_role_tasks
 
     compose_deploy = (ROOT / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
     compose_rollback = (ROOT / "ansible/roles/compose_rollback/tasks/main.yml").read_text()

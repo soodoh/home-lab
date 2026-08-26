@@ -1388,7 +1388,7 @@ backups:
         total_uncompressed_bytes: 7019884389
         member_path_stream_sha256: 7aa862a8adb7f26a76e4a6ca234ea363380f7f9d10b1b15ad326d4b4bb7e4865
   restic:
-    migration_state: inert
+    migration_state: active
     policy_version: 1
     tools:
       restic:

@@ -598,7 +598,7 @@
   ansible.builtin.assert:
     that:
       - backups.legacy_offen.scheduler_state == 'quiesced'
-      - backups.restic.migration_state == 'inert'
+      - backups.restic.migration_state in ['inert', 'active']
       - >-
         backups.restic.credentials ==
         {'bootstrap_enabled': true, 'state': 'provisioned'}
@@ -698,4 +698,41 @@
     enabled: false
     state: stopped
   loop: "{{ restic_backup_inert_unit_states.results }}"
-  when: item.stdout_lines != ['inactive', item.item.value]
+  when:
+    - backups.restic.migration_state == 'inert'
+    - item.stdout_lines != ['inactive', item.item.value]
+
+- name: Require completed restore proof before active scheduling
+  ansible.builtin.assert:
+    that:
+      - backups.restic.first_run.state == 'completed'
+      - backups.restic.initialization.state == 'initialized'
+      - backups.restic.qualification.state == 'qualified'
+      - >-
+        (lookup('ansible.builtin.file', playbook_dir + '/../../infrastructure/evidence/restic-restore-proof.json') + '\n') |
+        hash('sha256') == 'b68550eb34e3c8b3832ae9ddf64857364b54538a719cc9501620cb3fd0735f0f'
+      - backups.legacy_offen.scheduler_state == 'quiesced'
+      - backups.legacy_offen.migration_archive_preservation.state == 'applied'
+      - backups.legacy_offen.migration_retention_hold.state == 'applied'
+    fail_msg: Active Restic scheduling requires the exact completed restore proof and preserved rollback state.
+  when: backups.restic.migration_state == 'active'
+
+- name: Enable boot-time interrupted backup recovery
+  ansible.builtin.systemd_service:
+    name: home-lab-restic-recover.service
+    enabled: true
+  when:
+    - backups.restic.migration_state == 'active'
+    - not ansible_check_mode
+
+- name: Enable and start approved Restic timers
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - home-lab-restic-daily.timer
+    - home-lab-restic-maintenance.timer
+  when:
+    - backups.restic.migration_state == 'active'
+    - not ansible_check_mode
