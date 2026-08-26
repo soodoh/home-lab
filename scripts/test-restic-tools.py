@@ -1755,13 +1755,20 @@ def main() -> None:
     assert "repositories.games.mountpoint" in local_mount_requirement
     assert "repositories.nfs.mountpoint" not in local_mount_requirement
     proton_service = (ROOT / "ansible/roles/restic_backup/templates/home-lab-restic-daily-proton.service.j2").read_text()
+    post_nfs_recovery = (ROOT / "ansible/playbooks/recover-post-nfs-first-run.yml").read_text()
     timers = list((ROOT / "ansible/roles/restic_backup/templates").glob("*.timer.j2"))
     assert "daily-local.service home-lab-restic-daily-proton.service" in daily_target
     assert "Requires=home-lab-restic-daily-local.service" in proton_service
     assert "User=restic-proton" in proton_service
-    assert "InaccessiblePaths=/srv/home-lab-state" in proton_service
+    inaccessible_paths = next(line for line in proton_service.splitlines() if line.startswith("InaccessiblePaths="))
+    assert "/mnt/games" not in inaccessible_paths.removeprefix("InaccessiblePaths=").split()
+    assert "TemporaryFileSystem=/mnt/games:ro" in proton_service
     assert "BindReadOnlyPaths={{ backups.restic.repositories.games.path }}" in proton_service
     assert "ReadWritePaths=/var/lib/home-lab-restic/replication /var/lib/restic-proton {{ backups.restic.runner.lock_path }}" in proton_service
+    assert "Converge the confined Proton mount namespace repair" in post_nfs_recovery
+    assert "Reload systemd unconditionally after the confined namespace repair" in post_nfs_recovery
+    assert "daemon_reload: true" in post_nfs_recovery
+    assert "post_nfs_proton_unit.changed" not in post_nfs_recovery
     assert len(timers) == 2
     assert all("proton" not in path.name for path in timers)
     assert all("Persistent=false" in path.read_text() for path in timers)

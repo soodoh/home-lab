@@ -182,6 +182,38 @@
           - "'ActiveState=inactive' in item.stdout_lines or 'ActiveState=failed' in item.stdout_lines"
           - "'Job=' in item.stdout_lines"
       loop: "{{ post_nfs_units.results }}"
+
+    - name: Converge the confined Proton mount namespace repair
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../roles/restic_backup/templates/home-lab-restic-daily-proton.service.j2"
+        dest: "/etc/systemd/system/{{ backups.restic.runner.units.daily_proton }}"
+        owner: root
+        group: root
+        mode: "0644"
+      become: true
+      when: not ansible_check_mode
+
+    - name: Reload systemd unconditionally after the confined namespace repair
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+      become: true
+      when: not ansible_check_mode
+
+    - name: Read the installed confined Proton unit
+      ansible.builtin.slurp:
+        src: "/etc/systemd/system/{{ backups.restic.runner.units.daily_proton }}"
+      become: true
+      register: post_nfs_installed_proton_unit
+      when: not ansible_check_mode
+
+    - name: Require the exact reviewed confined Proton unit
+      ansible.builtin.assert:
+        that:
+          - >-
+            (post_nfs_installed_proton_unit.content | b64decode)
+            == lookup('ansible.builtin.template',
+                      playbook_dir ~ '/../roles/restic_backup/templates/home-lab-restic-daily-proton.service.j2')
+      when: not ansible_check_mode
     - name: Validate exact root-minted token against live owner and journal
       ansible.builtin.command:
         argv:
