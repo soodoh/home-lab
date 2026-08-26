@@ -414,7 +414,7 @@ def rollback_compose_source(manifest: dict, manifest_hash: str) -> None:
         fail("compose_rollback_previous_invalid")
     if not started:
         append({"event": "compose_source_rollback_started", "from_sha256": compose["retirement_artifact_sha256"], "to_sha256": compose["base_artifact_sha256"]})
-    run(["/usr/bin/mv", "--exchange", "--", str(current), str(previous)])
+    run(["/usr/bin/mv", "--exchange", "--no-target-directory", "--", str(current), str(previous)])
     fsync_compose_parent(current)
     require_compose_source(manifest, False)
     if compose_artifact_identity(previous) != compose["retirement_artifact_sha256"]:

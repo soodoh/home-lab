@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "infrastructure/retirement/offen-retirement-manifest.json"
-EXPECTED = "c67d0351b26fddaa7fdb4057a85511b8a3359b40851a9df542c532f8abc00d2c"
+EXPECTED = "367ac03804d32b79b9e1568a11e94151ec6784c5e60ba71249068efbf286f114"
 
 raw = MANIFEST.read_bytes()
 assert hashlib.sha256(raw).hexdigest() == EXPECTED

@@ -4,7 +4,7 @@
   gather_facts: false
   any_errors_fatal: true
   vars:
-    offen_preflight_manifest_sha256: 73da02cd3917f2aa3f5a0eee6c355b825456d3f825f9b0c087c8b322c18b012e
+    offen_preflight_manifest_sha256: c67d0351b26fddaa7fdb4057a85511b8a3359b40851a9df542c532f8abc00d2c
   pre_tasks:
     - name: Require exact rollback-recovery authorization
       ansible.builtin.assert:

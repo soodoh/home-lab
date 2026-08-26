@@ -1278,7 +1278,7 @@ backups:
     retirement:
       state: retirement-planned
       manifest_file: infrastructure/retirement/offen-retirement-manifest.json
-      manifest_sha256: c67d0351b26fddaa7fdb4057a85511b8a3359b40851a9df542c532f8abc00d2c
+      manifest_sha256: 367ac03804d32b79b9e1568a11e94151ec6784c5e60ba71249068efbf286f114
       acceptance: retire-offen-now-with-first-chain-and-isolated-restic-restore-proof
       materialized_service_count_before: 42
       planned_source_service_count: 40
