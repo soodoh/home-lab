@@ -43,29 +43,37 @@
           - restic_first_run_finalize_git.results[0].stdout == restic_first_run_reviewed_commit
           - restic_first_run_finalize_git.results[1].stdout == ''
 
-    - name: Read committed evidence and retained transaction inputs
+    - name: Read committed controller evidence inputs
       ansible.builtin.slurp:
-        src: "{{ item.path }}"
+        src: "{{ item }}"
       loop:
-        - {path: "{{ playbook_dir }}/../../{{ backups.restic.first_run.evidence_file }}", local: true}
-        - {path: "{{ apply_lock_path }}/owner", local: false}
-        - {path: "{{ backups.restic.first_run.journal_path }}", local: false}
-        - {path: "{{ backups.restic.first_run.host_evidence_path }}", local: false}
-        - {path: /etc/home-lab/restic-policy.json, local: false}
-        - {path: "{{ playbook_dir }}/../../{{ backups.restic.first_run.aws_evidence_file }}", local: true}
-        - {path: "{{ backups.restic.first_run.aws_evidence_path }}", local: false}
-      delegate_to: "{{ 'localhost' if item.local else inventory_hostname }}"
-      become: "{{ not item.local }}"
-      register: restic_first_run_finalize_inputs
+        - "{{ playbook_dir }}/../../{{ backups.restic.first_run.evidence_file }}"
+        - "{{ playbook_dir }}/../../{{ backups.restic.first_run.aws_evidence_file }}"
+      delegate_to: localhost
+      become: false
+      register: restic_first_run_finalize_controller_inputs
+      no_log: true
+
+    - name: Read retained host transaction inputs
+      ansible.builtin.slurp:
+        src: "{{ item }}"
+      loop:
+        - "{{ apply_lock_path }}/owner"
+        - "{{ backups.restic.first_run.journal_path }}"
+        - "{{ backups.restic.first_run.host_evidence_path }}"
+        - /etc/home-lab/restic-policy.json
+        - "{{ backups.restic.first_run.aws_evidence_path }}"
+      become: true
+      register: restic_first_run_finalize_host_inputs
       no_log: true
 
     - name: Require exact evidence, owner, policy, and snapshot bindings
       ansible.builtin.assert:
         that:
-          - (restic_first_run_finalize_inputs.results[1].content | b64decode | hash('sha256')) == restic_first_run_expected_owner_sha256
-          - "'operation=restic-first-run' in (restic_first_run_finalize_inputs.results[1].content | b64decode).splitlines()"
-          - restic_first_run_finalize_inputs.results[0].content == restic_first_run_finalize_inputs.results[3].content
-          - (restic_first_run_finalize_inputs.results[0].content | b64decode | hash('sha256')) == backups.restic.first_run.evidence_sha256
+          - (restic_first_run_finalize_host_inputs.results[0].content | b64decode | hash('sha256')) == restic_first_run_expected_owner_sha256
+          - "'operation=restic-first-run' in (restic_first_run_finalize_host_inputs.results[0].content | b64decode).splitlines()"
+          - restic_first_run_finalize_controller_inputs.results[0].content == restic_first_run_finalize_host_inputs.results[2].content
+          - (restic_first_run_finalize_controller_inputs.results[0].content | b64decode | hash('sha256')) == backups.restic.first_run.evidence_sha256
           - evidence.source_policy_sha256 == backups.restic.first_run.source_policy_sha256
           - evidence.artifact_sha256 == backups.restic.first_run.artifact_sha256
           - evidence.aws_evidence_sha256 == backups.restic.first_run.aws_evidence_sha256
@@ -75,13 +83,13 @@
           - journal.snapshots == backups.restic.first_run.snapshots
           - journal.stage == 'complete'
           - journal.completed_at == evidence.completed_at
-          - restic_first_run_finalize_inputs.results[5].content == restic_first_run_finalize_inputs.results[6].content
-          - (restic_first_run_finalize_inputs.results[5].content | b64decode | hash('sha256')) == evidence.aws_evidence_sha256
+          - restic_first_run_finalize_controller_inputs.results[1].content == restic_first_run_finalize_host_inputs.results[4].content
+          - (restic_first_run_finalize_controller_inputs.results[1].content | b64decode | hash('sha256')) == evidence.aws_evidence_sha256
           - journal.aws_evidence_sha256 == evidence.aws_evidence_sha256
-          - (restic_first_run_finalize_inputs.results[4].content | b64decode | hash('sha256')) == backups.restic.first_run.source_policy_sha256
+          - (restic_first_run_finalize_host_inputs.results[3].content | b64decode | hash('sha256')) == backups.restic.first_run.source_policy_sha256
       vars:
-        evidence: "{{ restic_first_run_finalize_inputs.results[0].content | b64decode | from_json }}"
-        journal: "{{ restic_first_run_finalize_inputs.results[2].content | b64decode | from_json }}"
+        evidence: "{{ restic_first_run_finalize_controller_inputs.results[0].content | b64decode | from_json }}"
+        journal: "{{ restic_first_run_finalize_host_inputs.results[1].content | b64decode | from_json }}"
       no_log: true
 
     - name: Converge completed first-run policy while owner lock remains held

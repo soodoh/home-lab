@@ -1761,6 +1761,7 @@ def main() -> None:
     assert "repositories.nfs.mountpoint" not in local_mount_requirement
     proton_service = (ROOT / "ansible/roles/restic_backup/templates/home-lab-restic-daily-proton.service.j2").read_text()
     post_nfs_recovery = (ROOT / "ansible/playbooks/recover-post-nfs-first-run.yml").read_text()
+    first_run_finalize = (ROOT / "ansible/playbooks/finalize-first-restic-backup.yml").read_text()
     timers = list((ROOT / "ansible/roles/restic_backup/templates").glob("*.timer.j2"))
     assert "daily-local.service home-lab-restic-daily-proton.service" in daily_target
     assert "Requires=home-lab-restic-daily-local.service" in proton_service
@@ -1774,6 +1775,9 @@ def main() -> None:
     assert "Reload systemd unconditionally after the confined namespace repair" in post_nfs_recovery
     assert "daemon_reload: true" in post_nfs_recovery
     assert "post_nfs_proton_unit.changed" not in post_nfs_recovery
+    assert "Read committed controller evidence inputs" in first_run_finalize
+    assert "Read retained host transaction inputs" in first_run_finalize
+    assert "'localhost' if item.local else inventory_hostname" not in first_run_finalize
     assert len(timers) == 2
     assert all("proton" not in path.name for path in timers)
     assert all("Persistent=false" in path.read_text() for path in timers)
