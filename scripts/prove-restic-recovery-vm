@@ -75,15 +75,15 @@ def command(arguments: list[str], *, env=None, stdout=None, stderr=None, check=T
 
 
 def provider_ssh_environment(environment: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:
-    key = Path.home() / ".ssh/home-lab-proxmox-apply"
-    regular_source(key, 0o600, "proxmox_apply_ssh_key")
+    key = Path.home() / ".ssh/home-lab-arch-ansible"
+    regular_source(key, 0o600, "proxmox_root_ssh_key")
     started = command(["ssh-agent", "-s"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     socket = re.search(r"SSH_AUTH_SOCK=([^;]+);", started.stdout or "")
     process = re.search(r"SSH_AGENT_PID=([0-9]+);", started.stdout or "")
     if socket is None or process is None: fail("provider_ssh_agent_start_failed")
     agent = {"SSH_AUTH_SOCK": socket.group(1), "SSH_AGENT_PID": process.group(1)}
     result = dict(environment); result.update(agent)
-    result["PROXMOX_VE_SSH_USERNAME"] = "tofu-apply"
+    result["PROXMOX_VE_SSH_USERNAME"] = "root"
     command(["ssh-add", str(key)], env=result, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return result, agent
 
