@@ -776,7 +776,7 @@ def adopt_prior_transaction_state(directory: Path, values: dict[str, str], cloud
 def plan(operation: str) -> None:
     commit = require_revision(); directory = transaction(commit); paths = sources(operation == "create")
     transaction_journal = journal(directory, commit)
-    values = credentials("plan"); production = production_hash(values)
+    values = credentials("apply"); production = production_hash(values)
     if operation == "create": adopt_legacy_local_state(directory, values, transaction_journal)
     cloud, user_public, host_public = cloud_init_data(directory); cloud_sha = sha_bytes(cloud.encode())
     if operation == "create": adopt_prior_transaction_state(directory, values, cloud_sha, transaction_journal)
@@ -1139,7 +1139,7 @@ def run_restore() -> None:
     commit = require_revision(); directory = transaction(commit); transaction_journal = journal(directory, commit); paths = sources()
     if os.environ.get("RESTIC_RECOVERY_VM_CONFIRMATION") != CONFIRMATIONS["run"]: fail("exact_confirmation_required")
     create = read_manifest(directory, "create", commit, allow_expired=True)
-    values = credentials("plan"); production = production_hash(values)
+    values = credentials("apply"); production = production_hash(values)
     validate_marker(directory, "create", production)
     if production != create["production_vm_before_sha256"]: fail("production_vm_identity_drift")
     if (directory / "run-evidence.json").exists(): fail("restore_run_already_completed")
