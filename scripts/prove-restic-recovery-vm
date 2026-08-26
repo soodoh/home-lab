@@ -1183,6 +1183,7 @@ def run_restore() -> None:
         transfer_ip, transfer_observation_sha = fresh_recovery_observation(directory, values)
         if transfer_ip != ip or transfer_observation_sha != observation_sha:
             fail("pretransfer_vm_observation_drift")
+        known_hosts(directory, ip, host_public)
         checkpoint(directory, transaction_journal, "run-pretransfer-observed", "immediate-api-agent-vm9900-bound")
         remote(directory, ip, "umask 077; install -d -m 0700 /tmp/restic-recovery-transfer")
         transfers = [(paths["bundle"], "bundle.age"), (paths["identity"], "identity.agekey"), (paths["consumer"], "run-restic-recovery-bundle"), (paths["age"], "age"), (paths["activation_test"], "test-restic-activation-fixture"), (paths["activation_engine"], "activate-restic-staging-fixture")]
