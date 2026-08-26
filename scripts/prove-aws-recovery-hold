@@ -186,7 +186,7 @@ def main() -> None:
         fail("principal_identity")
 
     versioning = call("s3api", "get-bucket-versioning", "--bucket", bucket)
-    if versioning != {"Status": "Enabled"}:
+    if versioning.get("Status") != "Enabled" or versioning.get("MFADelete") not in {None, "Disabled"} or not set(versioning) <= {"Status", "MFADelete"}:
         fail("versioning_state")
     key = hold["recovery_object_key"]
     lifecycle = call("s3api", "get-bucket-lifecycle-configuration", "--bucket", bucket)
