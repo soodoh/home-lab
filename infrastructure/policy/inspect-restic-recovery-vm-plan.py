@@ -71,8 +71,9 @@ def validate_disk(value: dict[str, Any], interface: str, serial: str, size: int,
     if any(value.get(key) != expected for key, expected in common.items()):
         fail(f"disk_{interface}_differs")
     if operation == "create":
-        expected_keys = set(common) | {"file_id"} | ({"import_from"} if not imported else set())
-        if set(value) != expected_keys or value.get("file_id") is not None or (not imported and value.get("import_from") is not None):
+        expected_keys = set(common) | {"file_id", "import_from"}
+        expected_import = "local:import/home-lab-restic-recovery-debian-20260810-2566.qcow2" if imported else None
+        if set(value) != expected_keys or value.get("file_id") is not None or value.get("import_from") != expected_import:
             fail("create_disk_identity_differs")
     else:
         expected_keys = set(common) | {"file_format", "file_id", "import_from", "path_in_datastore"}
@@ -146,7 +147,7 @@ def sensitive_unknown(unknown: Any) -> bool:
         "agent": [{"wait_for_ip": [{}]}], "amd_sev": [], "audio_device": [], "boot_order": [False],
         "cdrom": [], "clone": [], "cpu": [{"units": True}],
         "disk": [
-            {"file_format": True, "import_from": True, "path_in_datastore": True, "speed": []},
+            {"file_format": True, "path_in_datastore": True, "speed": []},
             {"file_format": True, "path_in_datastore": True, "speed": []},
         ],
         "efi_disk": [], "hostpci": [], "hotplug": True, "id": True,
