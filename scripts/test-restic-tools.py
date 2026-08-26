@@ -30,25 +30,33 @@ def main() -> None:
     value = contract()
     policy = value["backups"]["restic"]
     offen = value["backups"]["legacy_offen"]
-    assert offen["scheduler_state"] == "quiesced"
-    assert offen["scheduler_services"] == ["daily-local-backup", "weekly-remote-backup"]
     retirement = offen["retirement"]
+    assert retirement["state"] in {"retirement-planned", "retirement-finalizing", "retired"}
+    assert offen["scheduler_state"] == ("quiesced" if retirement["state"] == "retirement-planned" else "retired")
+    assert offen["scheduler_services"] == ["daily-local-backup", "weekly-remote-backup"]
     manifest_path = ROOT / retirement["manifest_file"]
     manifest_bytes = manifest_path.read_bytes()
     manifest = json.loads(manifest_bytes)
-    assert retirement["state"] == "retirement-planned"
     assert retirement["manifest_sha256"] == hashlib.sha256(manifest_bytes).hexdigest()
     assert retirement["acceptance"] == manifest["acceptance"]
     assert retirement["materialized_service_count_before"] == 42
     assert retirement["planned_source_service_count"] == 40
-    assert retirement["evidence_file"] is retirement["evidence_sha256"] is None
+    if retirement["state"] == "retirement-planned":
+        assert retirement["evidence_file"] is retirement["evidence_sha256"] is None
+    elif retirement["state"] == "retired":
+        assert retirement["evidence_file"] == "infrastructure/evidence/offen-retirement.json"
+        assert isinstance(retirement["evidence_sha256"], str) and len(retirement["evidence_sha256"]) == 64
+    else:
+        assert (retirement["evidence_file"] is retirement["evidence_sha256"] is None) or (
+            retirement["evidence_file"] == "infrastructure/evidence/offen-retirement-finalizing.json"
+            and isinstance(retirement["evidence_sha256"], str) and len(retirement["evidence_sha256"]) == 64)
     assert len(manifest["local"]["archives"]) == 12
     assert len(manifest["local"]["metadata_files"]) == 8
     assert manifest["aws"]["version_id_sha256"] == "3e42bf4017bedaaac231ce234cc8be64536a87da0ba8e401b90967864c73a8c0"
     assert "restic-recovery-bundle-b" in manifest["preserve"]
     assert "proton-trash" in manifest["preserve"]
     assert offen["migration_retention_hold"] == {
-        "state": "applied",
+        "state": "applied" if retirement["state"] == "retirement-planned" else "retired",
         "current_object_retention_days": 365,
         "lifecycle_rule_id": "critical-backup-retention",
         "delete_marker_rule_id": "expired-delete-marker-cleanup",
@@ -63,7 +71,7 @@ def main() -> None:
         "review_deadline": "2026-09-23T16:48:02Z",
     }
     preservation = offen["migration_archive_preservation"]
-    assert preservation["state"] in {"planned", "applied"}
+    assert preservation["state"] == ({"retirement-planned": "applied", "retirement-finalizing": "retirement-finalizing", "retired": "retired"}[retirement["state"]])
     assert preservation["protected_subdirectory"] == ".migration-preserved-offen"
     assert preservation["replica_roots"] == ["/mnt/games/backups", "/mnt/storage/backups"]
     assert preservation["archives"] == [

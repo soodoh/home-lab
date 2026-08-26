@@ -1271,12 +1271,12 @@ nextcloud:
   old_path_cleanup_gate: nextcloud-old-paths-reviewed-after-recovery-proof
 backups:
   legacy_offen:
-    scheduler_state: quiesced
+    scheduler_state: retired
     scheduler_services:
       - daily-local-backup
       - weekly-remote-backup
     retirement:
-      state: retirement-planned
+      state: retirement-finalizing
       manifest_file: infrastructure/retirement/offen-retirement-manifest.json
       manifest_sha256: 8c390d9d14414a40bfa01947089104ad78379436e73f30487032ed1cf7589191
       acceptance: retire-offen-now-with-first-chain-and-isolated-restic-restore-proof
@@ -1291,7 +1291,7 @@ backups:
       - /mnt/games/backups
       - /mnt/storage/backups
     migration_retention_hold:
-      state: applied
+      state: retired
       current_object_retention_days: 365
       lifecycle_rule_id: critical-backup-retention
       delete_marker_rule_id: expired-delete-marker-cleanup
@@ -1362,7 +1362,7 @@ backups:
       - bios-files
       - scraped-gaming-media
     migration_archive_preservation:
-      state: applied
+      state: retirement-finalizing
       protected_subdirectory: .migration-preserved-offen
       replica_roots:
         - /mnt/games/backups
