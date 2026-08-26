@@ -261,6 +261,24 @@ def parsed_json(result: subprocess.CompletedProcess[bytes], label: str) -> objec
         fail(f"{label}_output")
 
 
+def json_type(value: object) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    return "unknown"
+
+
 def require_remote_absent(path: str, label: str) -> None:
     result = rclone(["cat", path], label, EXPECTED_MISSING_CODES)
     if result.stdout:
@@ -275,7 +293,7 @@ def qualification_inventory(path: str) -> tuple[bool, list[str]]:
     if value is None:
         return False, []
     if result.returncode == 3 or not isinstance(value, list):
-        fail("qualification_directory_output")
+        fail(f"qualification_directory_rc_{result.returncode}_{json_type(value)}")
     entries: list[str] = []
     for item in value:
         if not isinstance(item, dict) or not isinstance(item.get("Path"), str) or item.get("IsDir") is not False:

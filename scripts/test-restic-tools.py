@@ -287,6 +287,8 @@ def main() -> None:
         run_name="qualify_proton_backup_test_module",
     )
     qualification_inventory = qualification_module["qualification_inventory"]
+    assert qualification_module["json_type"]({"protected": "value"}) == "object"
+    assert qualification_module["json_type"]("protected") == "string"
     qualification_globals = qualification_inventory.__globals__
     saved_qualification_rclone = qualification_globals["rclone"]
     try:
@@ -302,7 +304,7 @@ def main() -> None:
         try:
             qualification_inventory("proton-backup:Backups/.home-lab-rclone-qualification")
         except qualification_module["QualificationError"] as error:
-            assert str(error) == "qualification_directory_output"
+            assert str(error) == "qualification_directory_rc_3_object"
         else:
             raise AssertionError("unexpected missing-directory output passed")
     finally:
