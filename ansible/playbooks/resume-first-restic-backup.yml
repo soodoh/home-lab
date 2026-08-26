@@ -212,6 +212,16 @@
         aws: "{{ restic_first_run_resume_aws.stdout | from_json }}"
       no_log: true
 
+    - name: Clear only retained first-run failed unit states before audit
+      ansible.builtin.command:
+        argv: [/usr/bin/systemctl, reset-failed, "{{ item }}"]
+      loop:
+        - "{{ backups.restic.runner.units.daily_target }}"
+        - "{{ backups.restic.runner.units.daily_local }}"
+        - "{{ backups.restic.runner.units.daily_proton }}"
+      become: true
+      changed_when: false
+      check_mode: false
     - name: Require complete quiesced source-state audit before resume
       ansible.builtin.import_role:
         name: audit
