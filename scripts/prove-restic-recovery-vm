@@ -1243,9 +1243,11 @@ rm -rf /tmp/restic-recovery-transfer
         checkpoint(directory, transaction_journal, "run-disk-prepared", "serial-disk-prepared")
         values_hex = [result["plaintext_sha256"], metadata["snapshot_id"], metadata["original_snapshot_id"], metadata["repository_id"], metadata["policy_sha256"], metadata["artifact_sha256"]]
         restore_script = restore_remote_command([str(item) for item in values_hex])
-        restore_result = command(ssh_base(directory, ip) + [restore_script], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        restore_result = command(ssh_base(directory, ip) + [restore_script], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
         stdout = restore_result.stdout
-        if restore_result.returncode != 0: fail("isolated_restore_failed")
+        if restore_result.returncode != 0:
+            match = re.search(r"isolated Restic restore failed reason=([a-z-]+)", restore_result.stderr or "")
+            fail(f"isolated_restore_{match.group(1) if match else 'controlled-command'}")
         restored = parse_json_no_duplicates(stdout.encode())
         restore_keys = {"bytes", "files", "original_snapshot_id", "plaintext_sha256", "repository_id", "snapshot_id", "state", "version"}
         if (not isinstance(restored, dict) or set(restored) != restore_keys or restored.get("state") != "restored-verified"
