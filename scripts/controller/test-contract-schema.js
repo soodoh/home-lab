@@ -124,6 +124,8 @@ finalizingOffen.backups.legacy_offen.scheduler_state = "retired";
 finalizingOffen.backups.legacy_offen.migration_retention_hold.state = "retired";
 finalizingOffen.backups.legacy_offen.migration_archive_preservation.state = "retirement-finalizing";
 finalizingOffen.backups.legacy_offen.retirement.state = "retirement-finalizing";
+finalizingOffen.backups.legacy_offen.retirement.evidence_file = null;
+finalizingOffen.backups.legacy_offen.retirement.evidence_sha256 = null;
 check(finalizingOffen, true, "non-circular Offen finalizing state accepts pending evidence");
 finalizingOffen.backups.legacy_offen.retirement.evidence_file = "infrastructure/evidence/offen-retirement-finalizing.json";
 finalizingOffen.backups.legacy_offen.retirement.evidence_sha256 = "b".repeat(64);
