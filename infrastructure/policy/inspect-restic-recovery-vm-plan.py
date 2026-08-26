@@ -120,7 +120,7 @@ def validate_vm(value: dict[str, Any], operation: str) -> None:
     expected_cpu = {"affinity": None, "architecture": None, "cores": 8, "flags": None, "hotplugged": 0, "limit": 0, "numa": False, "sockets": 1, "type": "host"}
     expected_memory = {"dedicated": 16384, "floating": 0, "hugepages": None, "keep_hugepages": False, "shared": 0}
     if operation == "destroy":
-        expected_cpu |= {"affinity": "", "architecture": "", "units": 0}
+        expected_cpu |= {"affinity": "", "architecture": "", "flags": [], "units": 0}
         expected_memory["hugepages"] = ""
     if cpu != expected_cpu: fail("compute_identity_differs")
     if memory != expected_memory: fail("memory_identity_differs")
@@ -221,7 +221,7 @@ def main() -> None:
         value = change["change"].get("after" if args.operation == "create" else "before")
         if not isinstance(value, dict):
             fail("resource_value_absent")
-        if args.operation == "create" and address == VM and sensitive_unknown(change["change"].get("after_unknown", {})):
+        if actions == ["create"] and address == VM and sensitive_unknown(change["change"].get("after_unknown", {})):
             fail("security_sensitive_value_unknown")
         if address == IMAGE:
             validate_image(value)
