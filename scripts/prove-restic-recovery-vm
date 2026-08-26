@@ -1024,10 +1024,10 @@ def remote_cleanup(directory: Path, ip: str) -> bool:
         "i=0; while kill -0 -- -$p 2>/dev/null && test $i -lt 50; do sleep 0.2; i=$((i+1)); done; "
         "kill -KILL -- -$p 2>/dev/null || true; "
         "fi; "
-        "rm -rf /var/tmp/restic-recovery-input /var/tmp/restic-recovery/bundle.* /run/restic-fixture /tmp/restic-recovery-transfer; "
+        "rm -rf /var/tmp/restic-recovery-input /var/tmp/restic-recovery/bundle.* /var/tmp/restic-fixture /tmp/restic-recovery-transfer; "
         "rm -rf /srv/home-lab-recovery/restic-proton-proof; "
         "if mountpoint -q /srv/home-lab-recovery; then umount /srv/home-lab-recovery; fi; "
-        "test ! -e /var/tmp/restic-recovery-input && test ! -e /run/restic-fixture && "
+        "test ! -e /var/tmp/restic-recovery-input && test ! -e /var/tmp/restic-fixture && "
         "test ! -e /tmp/restic-recovery-transfer && test ! -e /srv/home-lab-recovery/restic-proton-proof && "
         "{ test ! -e /var/tmp/restic-recovery || test -z \"$(find /var/tmp/restic-recovery -maxdepth 1 -name 'bundle.*' -print -quit)\"; }"
     )
@@ -1215,9 +1215,9 @@ sudo install -o root -g root -m 0600 /tmp/restic-recovery-transfer/bundle.age /v
 sudo install -o root -g root -m 0600 /tmp/restic-recovery-transfer/identity.agekey /var/tmp/restic-recovery-input/identity.agekey
 sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/run-restic-recovery-bundle /var/tmp/restic-recovery-input/run-restic-recovery-bundle
 sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/age /var/tmp/restic-recovery-input/age
-sudo install -d -o root -g root -m 0755 /run/restic-fixture/scripts
-sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/test-restic-activation-fixture /run/restic-fixture/scripts/test-restic-activation-fixture
-sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/activate-restic-staging-fixture /run/restic-fixture/scripts/activate-restic-staging-fixture
+sudo install -d -o root -g root -m 0755 /var/tmp/restic-fixture/scripts
+sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/test-restic-activation-fixture /var/tmp/restic-fixture/scripts/test-restic-activation-fixture
+sudo install -o root -g root -m 0755 /tmp/restic-recovery-transfer/activate-restic-staging-fixture /var/tmp/restic-fixture/scripts/activate-restic-staging-fixture
 rm -rf /tmp/restic-recovery-transfer
 '''
         remote(directory, ip, prepare)
@@ -1264,7 +1264,7 @@ rm -rf /tmp/restic-recovery-transfer
                 or type(service.get("representative_classes")) is not int or service["representative_classes"] < 1
                 or type(service.get("restored_files")) is not int or service["restored_files"] < 1):
             fail("service_validation_evidence_differs")
-        activation = remote(directory, ip, "/run/restic-fixture/scripts/test-restic-activation-fixture", capture=True).stdout.strip()
+        activation = remote(directory, ip, "/var/tmp/restic-fixture/scripts/test-restic-activation-fixture", capture=True).stdout.strip()
         if activation != "restic isolated activation fixtures passed": fail("activation_fixture_evidence_differs")
         after_services = json.loads(remote(directory, ip, service_observation_script(), capture=True).stdout)
         observation_keys = {"application_processes", "container_runtime_services", "containers", "observation_sha256"}
