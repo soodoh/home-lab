@@ -1132,7 +1132,7 @@ for relative in dbs:
   if connection.execute('PRAGMA integrity_check').fetchone() != ('ok',): raise SystemExit(1)
  finally: connection.close()
 pg=list((root/'srv/home-lab-state/authentik-data/postgresql').rglob('PG_VERSION'))
-if len(pg)!=1 or not pg[0].is_file() or not pg[0].read_text().strip().isdigit(): raise SystemExit(1)
+if not pg or any(not path.is_file() or not path.read_text().strip().isdigit() for path in pg) or len({path.read_text().strip() for path in pg}) != 1: raise SystemExit(1)
 maria=root/'srv/home-lab-state/nextcloud-db-data'
 if not any(path.is_file() and (path.name=='ibdata1' or path.suffix=='.ibd') for path in maria.rglob('*')): raise SystemExit(1)
 env_file=root/'etc/docker-compose/production.env'; config_php=root/'srv/home-lab-state/nextcloud-config/config.php'
