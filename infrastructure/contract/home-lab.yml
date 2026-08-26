@@ -1481,7 +1481,7 @@ backups:
       evidence_sha256: b8ac8cd34a3d8259ef6aa2273a97b6b4ace601d9116a0bd1886beb1e666b9e7e
       verified_at: "2026-08-26T01:36:31Z"
     first_run:
-      state: ready
+      state: completed
       helper_sha256: b06b08303b1b85b13d25d2c62719770cd3bef664a5d3afc925c751a5c7529093
       aws_proof_helper_sha256: bded70eb916e8af276332ebdcced8b2251df23a1452d7e3b3409da7428d4f1eb
       confirmation: run-one-reviewed-games-nfs-proton-chain
@@ -1498,19 +1498,19 @@ backups:
       proton_consumed_token_path: /var/lib/home-lab-restic/replication/.first-run.proton-token.json.consumed
       aws_principal_arn_sha256: cbfd4986207c28758c6d4561f6636cbaf31bbeca8972891d347ed25180be2ac7
       aws_version_id_sha256: 3e42bf4017bedaaac231ce234cc8be64536a87da0ba8e401b90967864c73a8c0
-      source_policy_sha256: null
-      artifact_sha256: null
-      aws_evidence_sha256: null
-      evidence_sha256: null
-      completed_at: null
+      source_policy_sha256: 09f86d94190f0020488bad8285d60ef42f26a4e285992be1973e38fd3387e5a6
+      artifact_sha256: 722252e11e15cf315a5ade5cc1f5708eaacf636ecea4706a00ff5670d86ebd74
+      aws_evidence_sha256: 203651f97fd599a095ec973aabb799ef8c4f62d93e8ef82ff60111ca4796983f
+      evidence_sha256: fea8502382d2b1dc8f3330a03d28f3bff52395942ca219332f722bca32559c6e
+      completed_at: "2026-08-26T05:15:38Z"
       baseline:
         games: []
         nfs: []
         proton: []
       snapshots:
-        games: null
-        nfs: null
-        proton: null
+        games: edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2
+        nfs: d64f24f17b7cfb2b5aaefe0f2ff625837b9ab198061470269f15f2026651b88d
+        proton: 95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e
     schedule:
       daily_calendar: "*-*-* 05:00:00"
       maintenance_calendar: monthly

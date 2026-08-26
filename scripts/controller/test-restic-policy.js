@@ -23,6 +23,16 @@ const resetInitializationReady = (value) => {
   value.initialization.verified_at = null;
   for (const repository of Object.values(value.repositories)) repository.id = null;
 };
+const resetFirstRunReady = (value) => {
+  value.first_run.state = "ready";
+  value.first_run.source_policy_sha256 = null;
+  value.first_run.artifact_sha256 = null;
+  value.first_run.aws_evidence_sha256 = null;
+  value.first_run.evidence_sha256 = null;
+  value.first_run.completed_at = null;
+  value.first_run.baseline = { games: [], nfs: [], proton: [] };
+  value.first_run.snapshots = { games: null, nfs: null, proton: null };
+};
 assert.deepEqual(validateResticPolicy(base), []);
 assert(globRegex("/srv/**/cache/**").test("/srv/cache/value"));
 assert(globRegex("/srv/**/cache/**").test("/srv/app/nested/cache/value"));
@@ -170,6 +180,7 @@ fixture = clone();
 fixture.first_run.baseline.games = ["a".repeat(64)];
 assert(validateResticPolicy(fixture).some((failure) => failure.includes("three empty repositories")));
 fixture = clone();
+resetFirstRunReady(fixture);
 fixture.first_run.snapshots.games = "a".repeat(64);
 assert(validateResticPolicy(fixture).some((failure) => failure.includes("ready Restic first run")));
 fixture = clone();

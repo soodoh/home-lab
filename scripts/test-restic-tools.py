@@ -122,9 +122,14 @@ def main() -> None:
     assert len({repository["id"] for repository in policy["repositories"].values()}) == 3
     assert policy["qualification"]["remote_directory"] == "Backups/.home-lab-rclone-qualification"
     assert policy["runner"]["sha256"] == hashlib.sha256((ROOT / "scripts/restic-backup").read_bytes()).hexdigest()
-    assert policy["first_run"]["state"] == "ready"
-    assert all(value is None for value in policy["first_run"]["snapshots"].values())
-    assert policy["first_run"]["evidence_sha256"] is None
+    assert policy["first_run"]["state"] == "completed"
+    assert policy["first_run"]["snapshots"] == {
+        "games": "edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2",
+        "nfs": "d64f24f17b7cfb2b5aaefe0f2ff625837b9ab198061470269f15f2026651b88d",
+        "proton": "95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e",
+    }
+    assert policy["first_run"]["evidence_sha256"] == "fea8502382d2b1dc8f3330a03d28f3bff52395942ca219332f722bca32559c6e"
+    assert policy["first_run"]["aws_evidence_sha256"] == "203651f97fd599a095ec973aabb799ef8c4f62d93e8ef82ff60111ca4796983f"
 
     files_from = (ROOT / "services/data/restic/files-from").read_text().splitlines()
     excludes = (ROOT / "services/data/restic/excludes").read_text().splitlines()
