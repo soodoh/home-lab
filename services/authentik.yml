@@ -22,8 +22,6 @@ services:
         # PostgreSQL 18+ stores versioned clusters below this mount.
         # See docs/authentik-postgres-18-migration.md before changing major versions.
         target: /var/lib/postgresql
-    labels:
-      docker-volume-backup.stop-during-backup: true
     environment:
       TZ: $TZ
       POSTGRES_USER: $POSTGRES_USER
@@ -93,8 +91,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    labels:
-      docker-volume-backup.stop-during-backup: true
     networks:
       - authentik
       - proxy
@@ -121,8 +117,6 @@ services:
       AUTHENTIK_EMAIL__USE_TLS: $AUTHENTIK_EMAIL__USE_TLS
       AUTHENTIK_EMAIL__USE_SSL: $AUTHENTIK_EMAIL__USE_SSL
       AUTHENTIK_EMAIL__TIMEOUT: $AUTHENTIK_EMAIL__TIMEOUT
-    labels:
-      docker-volume-backup.stop-during-backup: true
     volumes:
       - type: bind
         source: /srv/home-lab-state/authentik-data/media

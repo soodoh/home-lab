@@ -54,8 +54,6 @@ services:
       PHP_MEMORY_LIMIT: 1G
     secrets:
       - nextcloud_mysql_password
-    labels:
-      docker-volume-backup.stop-during-backup: true
     depends_on:
       - nextcloud-db
       - nextcloud-redis
@@ -72,8 +70,6 @@ services:
     environment:
       PHP_MEMORY_LIMIT: 1G
     volumes: *nextcloud-volumes
-    labels:
-      docker-volume-backup.stop-during-backup: true
     depends_on:
       - nextcloud-db
       - nextcloud-redis
@@ -101,8 +97,6 @@ services:
     secrets:
       - nextcloud_mariadb_root_password
       - nextcloud_mysql_password
-    labels:
-      docker-volume-backup.stop-during-backup: true
     networks:
       - nextcloud
 
