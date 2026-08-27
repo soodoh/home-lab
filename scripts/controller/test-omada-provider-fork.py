@@ -11,7 +11,7 @@ import unittest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 SCRIPT = REPOSITORY / "scripts" / "prepare-omada-provider-fork"
-PINNED_COMMIT = "6d81edfd9f160c02eb53f5dc056dde857d8e5f8d"
+PINNED_COMMIT = "11ba9d9bddbc017239cc79e006315e7be9267925"
 
 
 class OmadaProviderForkTests(unittest.TestCase):

@@ -4,8 +4,8 @@ umask 077
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 fork_url=https://github.com/soodoh/terraform-provider-omada.git
-fork_commit=6d81edfd9f160c02eb53f5dc056dde857d8e5f8d
-fork_version=0.10.4-fork.3
+fork_commit=11ba9d9bddbc017239cc79e006315e7be9267925
+fork_version=0.10.4-fork.4
 work_dir=$repo_root/.local/omada-provider-fork
 source_dir=${OMADA_PROVIDER_FORK_SOURCE:-$work_dir/source}
 bin_dir=$work_dir/bin
