@@ -59,7 +59,7 @@ locals {
         action = "accept"
         src    = ["autogroup:owner"]
         dst    = ["autogroup:self"]
-        users  = ["pauldiloreto"]
+        users  = ["pauldiloreto", "paul.diloreto"]
       },
       {
         action = "accept"
@@ -88,9 +88,12 @@ locals {
         ]
       },
       {
-        src    = local.owner_identity
-        proto  = "tcp"
-        accept = ["${local.tags.docker_host}:8043"]
+        src   = local.owner_identity
+        proto = "tcp"
+        accept = [
+          "${local.owner_identity}:22",
+          "${local.tags.docker_host}:8043",
+        ]
       },
     ]
 
@@ -100,6 +103,12 @@ locals {
         dst    = [local.tags.docker_host]
         accept = ["docker", "ansible-deploy"]
         deny   = ["proxmox", "root"]
+      },
+      {
+        src    = local.owner_identity
+        dst    = [local.owner_identity]
+        accept = ["pauldiloreto", "paul.diloreto"]
+        deny   = ["root"]
       },
       {
         src    = local.owner_identity
