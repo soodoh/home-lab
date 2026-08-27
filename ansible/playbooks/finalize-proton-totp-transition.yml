@@ -1,0 +1,92 @@
+---
+- name: Release only the qualified Proton TOTP transition lock
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  vars:
+    apply_lock_action: release
+    apply_lock_operation: proton-totp-transition
+    apply_lock_expected_owner_sha256: "{{ proton_totp_expected_owner_sha256 | default('') }}"
+    proton_totp_transition_evidence_path: >-
+      /var/lib/home-lab-restic/proton-totp-transition-{{ proton_totp_expected_owner_sha256 | default('invalid') }}.json
+  tasks:
+    - name: Require exact TOTP finalization authorization
+      ansible.builtin.assert:
+        that:
+          - proton_totp_finalize_confirmed | default(false) | bool
+          - proton_totp_finalize_confirmation | default('') == 'release-qualified-proton-totp-transition-lock'
+          - proton_totp_expected_owner_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_totp_expected_transition_evidence_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - backups.restic.proton.authentication_mode == 'totp'
+          - backups.restic.credential_refs.proton_totp_secret == 'PROTON_BACKUP_TOTP_SECRET'
+        fail_msg: Proton TOTP finalization is not exactly authorized.
+
+    - name: Inspect retained local transition evidence
+      ansible.builtin.stat:
+        path: "{{ proton_totp_transition_evidence_path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      become: true
+      register: proton_totp_finalize_evidence
+
+    - name: Require exact completed local transition evidence
+      ansible.builtin.assert:
+        that:
+          - proton_totp_finalize_evidence.stat.isreg | default(false)
+          - not (proton_totp_finalize_evidence.stat.islnk | default(false))
+          - proton_totp_finalize_evidence.stat.nlink == 1
+          - proton_totp_finalize_evidence.stat.pw_name == 'root'
+          - proton_totp_finalize_evidence.stat.gr_name == 'root'
+          - proton_totp_finalize_evidence.stat.mode == '0600'
+          - proton_totp_finalize_evidence.stat.checksum == proton_totp_expected_transition_evidence_sha256
+        fail_msg: Retained Proton TOTP transition evidence differs.
+
+    - name: Verify TOTP field and complete refreshed client cache without values
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - |
+            from configparser import ConfigParser, Error as ConfigError
+            from pathlib import Path
+            try:
+                parser = ConfigParser(interpolation=None)
+                parser.read(Path('/var/lib/restic-proton/rclone.conf'), encoding='utf-8')
+                remote = parser['proton-backup']
+            except (OSError, KeyError, ConfigError):
+                raise SystemExit(1)
+            cache = {'client_uid', 'client_access_token', 'client_refresh_token', 'client_salted_key_pass'}
+            static = {'type', 'username', 'password', 'otp_secret_key', 'replace_existing_draft', 'enable_caching', 'original_file_size'}
+            optional = {'mailbox_password'}
+            fields = set(remote)
+            if not static <= fields or fields & cache != cache or not fields <= static | cache | optional:
+                raise SystemExit(1)
+            if not all(remote.get(key) for key in static | cache):
+                raise SystemExit(1)
+            print('proton_totp_config=qualified')
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require both shared timers to remain stopped
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/systemctl
+          - is-active
+          - "{{ item }}"
+      changed_when: false
+      failed_when: proton_totp_finalize_timer_state.stdout | trim != 'inactive'
+      check_mode: false
+      loop:
+        - "{{ backups.restic.runner.units.daily_timer }}"
+        - "{{ backups.restic.runner.units.maintenance_timer }}"
+      register: proton_totp_finalize_timer_state
+
+    - name: Release only the exact retained Proton TOTP production lock
+      ansible.builtin.include_role:
+        name: apply_lock

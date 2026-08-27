@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "built_at",
+    "bundle_a_ciphertext_sha256",
+    "bundle_a_state",
+    "bundle_b_bytes",
+    "bundle_b_ciphertext_sha256",
+    "bundle_b_encryption",
+    "bundle_b_object_key_sha256",
+    "bundle_b_publication_evidence_sha256",
+    "bundle_b_state",
+    "bundle_b_version_id_sha256",
+    "independent_ciphertexts",
+    "plaintext_sha256",
+    "source_commit",
+    "totp_secret_included",
+    "version"
+  ],
+  "properties": {
+    "built_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "bundle_a_ciphertext_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "bundle_a_state": { "const": "protected-local" },
+    "bundle_b_bytes": { "type": "integer", "minimum": 1 },
+    "bundle_b_ciphertext_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "bundle_b_encryption": { "const": "aws:kms" },
+    "bundle_b_object_key_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "bundle_b_publication_evidence_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "bundle_b_state": { "const": "published-verified" },
+    "bundle_b_version_id_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "independent_ciphertexts": { "const": true },
+    "plaintext_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "source_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "totp_secret_included": { "const": true },
+    "version": { "const": 1 }
+  }
+}
