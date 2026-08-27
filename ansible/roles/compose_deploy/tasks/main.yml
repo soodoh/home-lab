@@ -186,6 +186,64 @@
       }}
   no_log: true
 
+- name: Identify an interrupted Calibre local rollback retry
+  ansible.builtin.set_fact:
+    compose_deploy_calibre_local_rollback_resume: >-
+      {{
+        compose_deploy_plan.changed_paths == [] and
+        compose_deploy_artifact_hashes.results[1].stdout == compose_artifact_hash and
+        compose_deploy_plan.recreate_services == [
+          'bookshelf',
+          'calibre',
+          'calibre-web-automated'
+        ] and
+        compose_deploy_plan.image_services == [] and
+        compose_deploy_plan.stateful_recreate_services == []
+      }}
+  no_log: true
+
+- name: Identify the exact reviewed Calibre local rollback lane
+  ansible.builtin.set_fact:
+    compose_deploy_calibre_local_rollback: >-
+      {{
+        (compose_deploy_calibre_local_rollback_confirmation | default('')) ==
+          'rollback-calibre-to-local:' ~ compose_artifact_hash and
+        (
+          (compose_deploy_restic_policy_artifact and
+           compose_deploy_plan.changed_paths == [
+             'services/apps.yml',
+             'services/data/restic/excludes',
+             'services/data/restic/files-from',
+             'services/servarr.yml'
+           ]) or
+          compose_deploy_calibre_local_rollback_resume
+        ) and
+        compose_deploy_plan.recreate_services == [
+          'bookshelf',
+          'calibre',
+          'calibre-web-automated'
+        ] and
+        compose_deploy_plan.image_services == [] and
+        compose_deploy_plan.stateful_recreate_services == []
+      }}
+  no_log: true
+
+- name: Require exact Calibre rollback authorization for the local mount transition
+  ansible.builtin.assert:
+    that:
+      - >-
+        compose_deploy_calibre_local_rollback or (
+          compose_deploy_plan.changed_paths != [
+            'services/apps.yml',
+            'services/data/restic/excludes',
+            'services/data/restic/files-from',
+            'services/servarr.yml'
+          ] and
+          not compose_deploy_calibre_local_rollback_resume
+        )
+    fail_msg: "The Calibre local mount transition requires exact artifact-bound rollback authorization."
+  no_log: true
+
 - name: Remove root-only deployment plan files
   ansible.builtin.file:
     path: "{{ item }}"
@@ -428,6 +486,237 @@
         mode: "0600"
       become: true
       no_log: true
+
+    - name: Verify the live Calibre rollback boundary
+      ansible.builtin.shell:
+        executable: /bin/bash
+        cmd: |
+          set -euo pipefail
+          nfs_path=/mnt/storage/media/calibre/books
+          local_path=/srv/home-lab-state/calibre-data/books
+          test "$(/usr/bin/realpath --canonicalize-existing -- "$nfs_path")" = "$nfs_path"
+          test "$(/usr/bin/realpath --canonicalize-existing -- "$local_path")" = "$local_path"
+          test "$nfs_path" != "$local_path"
+          read -r nfs_target nfs_source nfs_fstype < <(/usr/bin/findmnt --raw --noheadings --target "$nfs_path" --output TARGET,SOURCE,FSTYPE)
+          test "$nfs_target" = {{ backups.restic.repositories.nfs.mountpoint | quote }}
+          test "$nfs_source" = {{ backups.restic.repositories.nfs.mount_source | quote }}
+          test "$nfs_fstype" = {{ backups.restic.repositories.nfs.filesystem | quote }}
+          read -r local_target local_source local_fstype local_uuid < <(
+            /usr/bin/findmnt --raw --noheadings --target "$local_path" \
+              --output TARGET,SOURCE,FSTYPE,UUID
+          )
+          test "$local_target" = {{ proxmox.vm.state_disk.mountpoint | quote }}
+          test "$local_fstype" = {{ proxmox.vm.state_disk.filesystem | quote }}
+          test "$local_uuid" = {{ proxmox.vm.state_disk.filesystem_uuid | quote }}
+          test "$local_source" != "$nfs_source"
+          test "$(/usr/bin/stat --format=%d -- "$nfs_path")" != "$(/usr/bin/stat --format=%d -- "$local_path")"
+          for path in "$nfs_path" "$local_path"; do
+            test -d "$path"
+            test ! -L "$path"
+          done
+          source_bytes=$(/usr/bin/du --bytes --summarize /mnt/storage/media/calibre/books | /usr/bin/cut -f1)
+          free_bytes=$(/usr/bin/df --output=avail --block-size=1 /srv/home-lab-state/calibre-data/books | /usr/bin/tail -1 | /usr/bin/tr -d ' ')
+          test "$source_bytes" -gt 0
+          test "$free_bytes" -ge "$((source_bytes + 1073741824))"
+          /usr/bin/docker inspect calibre calibre-web-automated bookshelf |
+            /usr/bin/python3 -c '
+          import json, sys
+          expected = {
+              "calibre": ("/books", "/mnt/storage/media/calibre/books"),
+              "calibre-web-automated": ("/calibre-library", "/mnt/storage/media/calibre/books"),
+              "bookshelf": ("/books", "/mnt/storage/media/calibre/books"),
+          }
+          expected_running = {{ (not compose_deploy_calibre_local_rollback_resume) | ternary('True', 'False') }}
+          rows = json.load(sys.stdin)
+          if {row["Name"].lstrip("/") for row in rows} != set(expected): raise SystemExit(1)
+          for row in rows:
+              name = row["Name"].lstrip("/")
+              if bool(row["State"]["Running"]) != expected_running: raise SystemExit(1)
+              target, source = expected[name]
+              mounts = [entry for entry in row["Mounts"] if entry["Destination"] == target]
+              if len(mounts) != 1 or mounts[0]["Source"] != source: raise SystemExit(1)
+          '
+          echo calibre_local_rollback_boundary=verified
+      become: true
+      changed_when: false
+      no_log: true
+      when: compose_deploy_calibre_local_rollback
+
+    - name: Stop Restic timers during Calibre authority reconciliation
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+      become: true
+      loop:
+        - home-lab-restic-daily.timer
+        - home-lab-restic-maintenance.timer
+      when: compose_deploy_calibre_local_rollback
+
+    - name: Require the Restic operation mutex to be idle
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/flock
+          - --exclusive
+          - --nonblock
+          - --
+          - "{{ backups.restic.runner.lock_path }}"
+          - /usr/bin/true
+      become: true
+      changed_when: false
+      no_log: true
+      when: compose_deploy_calibre_local_rollback
+
+    - name: Stop exact Calibre library writers before local reconciliation
+      ansible.builtin.command:
+        argv: [/usr/bin/docker, stop, calibre-web-automated, calibre, bookshelf]
+      become: true
+      changed_when: true
+      no_log: true
+      when: compose_deploy_calibre_local_rollback
+
+    - name: Require exact Calibre writers to be stopped
+      ansible.builtin.command:
+        argv: [/usr/bin/docker, inspect, --format, "{{ '{{.State.Running}}' }}", "{{ item }}"]
+      become: true
+      register: compose_deploy_calibre_stopped
+      changed_when: false
+      failed_when: compose_deploy_calibre_stopped.rc != 0 or compose_deploy_calibre_stopped.stdout != 'false'
+      loop: [calibre-web-automated, calibre, bookshelf]
+      no_log: true
+      when: compose_deploy_calibre_local_rollback
+
+    - name: Reconcile the authoritative NFS Calibre library into retained local storage
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/flock
+          - --exclusive
+          - --nonblock
+          - --
+          - "{{ backups.restic.runner.lock_path }}"
+          - /usr/bin/rsync
+          - --archive
+          - --hard-links
+          - --acls
+          - --xattrs
+          - --numeric-ids
+          - --one-file-system
+          - --checksum
+          - --delete
+          - /mnt/storage/media/calibre/books/
+          - /srv/home-lab-state/calibre-data/books/
+      become: true
+      changed_when: true
+      no_log: true
+      when: compose_deploy_calibre_local_rollback
+
+    - name: Verify complete local Calibre reconciliation
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/flock
+          - --exclusive
+          - --nonblock
+          - --
+          - "{{ backups.restic.runner.lock_path }}"
+          - /usr/bin/rsync
+          - --archive
+          - --hard-links
+          - --acls
+          - --xattrs
+          - --numeric-ids
+          - --one-file-system
+          - --checksum
+          - --no-times
+          - --delete
+          - --dry-run
+          - --itemize-changes
+          - /mnt/storage/media/calibre/books/
+          - /srv/home-lab-state/calibre-data/books/
+      become: true
+      register: compose_deploy_calibre_verify
+      changed_when: false
+      failed_when: compose_deploy_calibre_verify.rc != 0 or compose_deploy_calibre_verify.stdout | length > 0
+      no_log: true
+      when: compose_deploy_calibre_local_rollback
+
+    - name: Verify the reconciled local Calibre SQLite database
+      ansible.builtin.shell:
+        executable: /bin/bash
+        cmd: |
+          set -euo pipefail
+          /usr/bin/python3 - <<'PY'
+          import os
+          import sqlite3
+
+          path = "/srv/home-lab-state/calibre-data/books/metadata.db"
+          info = os.lstat(path)
+          if not os.path.isfile(path) or os.path.islink(path) or info.st_nlink != 1:
+              raise SystemExit(1)
+          connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+          try:
+              result = connection.execute("PRAGMA integrity_check").fetchall()
+          finally:
+              connection.close()
+          if result != [("ok",)]:
+              raise SystemExit(1)
+          print("calibre_sqlite_integrity=verified")
+          PY
+      become: true
+      changed_when: false
+      no_log: true
+      when: compose_deploy_calibre_local_rollback
+
+    - name: Install reconciled Restic source policy files
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        owner: root
+        group: restic-proton
+        mode: "0440"
+        remote_src: true
+      become: true
+      loop:
+        - src: "{{ compose_current_dir }}/services/data/restic/files-from"
+          dest: /etc/home-lab/restic/files-from
+        - src: "{{ compose_current_dir }}/services/data/restic/excludes"
+          dest: /etc/home-lab/restic/excludes
+      no_log: true
+      when: compose_deploy_calibre_local_rollback
+
+    - name: Install reconciled Restic policy JSON
+      ansible.builtin.copy:
+        content: "{{ backups.restic | to_nice_json }}\n"
+        dest: /etc/home-lab/restic-policy.json
+        owner: root
+        group: restic-proton
+        mode: "0440"
+      become: true
+      no_log: true
+      when: compose_deploy_calibre_local_rollback
+
+    - name: Verify reconciled Restic status before restarting timers
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/home-lab/restic-backup, status]
+      become: true
+      register: compose_deploy_calibre_restic_status
+      changed_when: false
+      failed_when: >-
+        compose_deploy_calibre_restic_status.rc != 0 or
+        'repositories_ready=true' not in compose_deploy_calibre_restic_status.stdout or
+        'pending=0' not in compose_deploy_calibre_restic_status.stdout or
+        'interruption=false' not in compose_deploy_calibre_restic_status.stdout
+      no_log: true
+      when: compose_deploy_calibre_local_rollback
+
+    - name: Restart Restic timers after local policy activation
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      become: true
+      loop:
+        - home-lab-restic-daily.timer
+        - home-lab-restic-maintenance.timer
+      when: compose_deploy_calibre_local_rollback
 
     - name: Require the bounded Nextcloud migration service set
       ansible.builtin.assert:

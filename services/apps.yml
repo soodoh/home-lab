@@ -74,7 +74,7 @@ services:
         source: /srv/home-lab-state/calibre-data/plugins
         target: /plugins
       - type: bind
-        source: ${MEDIA_PATH}/calibre/books
+        source: /srv/home-lab-state/calibre-data/books
         target: /books
         bind:
           create_host_path: false
@@ -100,7 +100,7 @@ services:
     volumes:
       - /srv/home-lab-state/calibre-web-data:/config
       - type: bind
-        source: ${MEDIA_PATH}/calibre/books
+        source: /srv/home-lab-state/calibre-data/books
         target: /calibre-library
         bind:
           create_host_path: false

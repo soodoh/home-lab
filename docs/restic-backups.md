@@ -27,7 +27,7 @@ Path classes have these activation meanings:
 - `retain`: operational state remains in place during in-place recovery and is absent on fresh recovery; and
 - `external`: readiness remains gated until the independently managed data is mounted or restored.
 
-Nextcloud data remains at `${MEDIA_PATH}/nextcloud/data`. The active Compose artifact uses `${MEDIA_PATH}/calibre/books` and `${MEDIA_PATH}/caro-tachidesk` for Calibre books and Caro downloads. The guarded preserved-data migration verified capacity, copied through private NFS staging, verified complete file hashes/counts/bytes, atomically activated only absent destinations, restarted previously running services, and retained the old source trees. Old sources require a later explicit cleanup approval.
+Nextcloud data remains at `${MEDIA_PATH}/nextcloud/data`. The complete live Calibre library—including `metadata.db`, book files, and covers—resides at `/srv/home-lab-state/calibre-data/books` and is included in the Restic source policy. The NFS Calibre copy is retained only as a rollback source after the guarded NFS-to-local reconciliation. Caro remains deliberately split: its application/database tree stays under `/srv/home-lab-state/caro-tachidesk-data`, while only downloads use `${MEDIA_PATH}/caro-tachidesk`.
 
 ## Pinned tools and credentials
 

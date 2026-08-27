@@ -1670,6 +1670,10 @@ backups:
         class: replace-tree
         writers: [calibre]
         mutable_database: false
+      - path: /srv/home-lab-state/calibre-data/books
+        class: replace-entries
+        writers: [calibre, calibre-web-automated, bookshelf]
+        mutable_database: true
       - path: /srv/home-lab-state/calibre-web-data
         class: replace-entries
         writers: [calibre-web-automated]
@@ -1826,9 +1830,6 @@ backups:
       - path: /mnt/storage/media/caro-tachidesk
         class: external
         owner_services: [caro-tachidesk]
-      - path: /mnt/storage/media/calibre/books
-        class: external
-        owner_services: [calibre, calibre-web-automated, bookshelf]
       - path: /mnt/storage/media/nextcloud/data
         class: external
         owner_services: [nextcloud, nextcloud-cron]
@@ -1838,9 +1839,6 @@ backups:
       - path: /srv/home-lab-state/caro-tachidesk-data/downloads
         class: preserve
         owner_services: [caro-tachidesk]
-      - path: /srv/home-lab-state/calibre-data/books
-        class: preserve
-        owner_services: [calibre, calibre-web-automated, bookshelf]
       - path: /srv/home-lab-state/calibre-web-ingest
         class: preserve
         owner_services: [calibre-web-automated]
@@ -1883,20 +1881,10 @@ backups:
     excludes:
       - /mnt/games/restic/**
       - /mnt/storage/restic/**
-      - /srv/home-lab-state/calibre-data/books/**
       - /srv/home-lab-state/caro-tachidesk-data/downloads/**
       - /srv/home-lab-state/tachidesk-data/downloads/**
-      - /srv/home-lab-state/**/[Cc]ache/**
       - /srv/home-lab-state/hass-data/.cache/**
       - /srv/home-lab-state/qbittorrent-data/.cache/**
-      - /srv/home-lab-state/**/[Ll]og/**
-      - /srv/home-lab-state/**/[Ll]ogs/**
-      - /srv/home-lab-state/**/*.log
-      - /srv/home-lab-state/**/*.log.*
-      - /srv/home-lab-state/**/logs.db*
-      - /srv/home-lab-state/**/Backups/**
-      - /srv/home-lab-state/**/MediaCover/**
-      - /srv/home-lab-state/**/Sentry/**
       - /srv/home-lab-state/calibre-data/config/.cache/**
       - /srv/home-lab-state/calibre-web-data/.cwa_conversion_tmp/**
       - /srv/home-lab-state/calibre-web-data/.cwa_db_debug/**
@@ -1969,6 +1957,7 @@ backups:
       - /srv/home-lab-state/nextcloud-db-data/mysql/db.frm
       - /srv/home-lab-state/vaultwarden-data/db.sqlite3
       - /srv/home-lab-state/hass-data/home-assistant_v2.db
+      - /srv/home-lab-state/calibre-data/books/metadata.db
       - /etc/docker-compose/production.env
     restore:
       staging_root: /srv/home-lab-recovery/restic

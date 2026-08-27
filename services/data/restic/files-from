@@ -7,6 +7,7 @@
 /srv/home-lab-state/bookshelf-data
 /srv/home-lab-state/calibre-data/config
 /srv/home-lab-state/calibre-data/plugins
+/srv/home-lab-state/calibre-data/books
 /srv/home-lab-state/calibre-web-data
 /srv/home-lab-state/caro-tachidesk-data
 /srv/home-lab-state/ddns-updater-data

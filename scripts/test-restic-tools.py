@@ -1849,6 +1849,22 @@ def main() -> None:
     assert "deploy-reviewed-restic-policy:" in compose_deploy
     assert "services/data/restic/excludes" in compose_deploy
     assert "services/data/restic/files-from" in compose_deploy
+    assert "rollback-calibre-to-local:" in compose_deploy
+    assert "Verify the live Calibre rollback boundary" in compose_deploy
+    assert "Reconcile the authoritative NFS Calibre library into retained local storage" in compose_deploy
+    assert "Verify the reconciled local Calibre SQLite database" in compose_deploy
+    assert "/mnt/storage/media/calibre/books/" in compose_deploy
+    assert "/srv/home-lab-state/calibre-data/books/" in compose_deploy
+    assert "compose_deploy_calibre_local_rollback_resume" in compose_deploy
+    assert "compose_deploy_plan.changed_paths == []" in compose_deploy
+    assert "compose_deploy_artifact_hashes.results[1].stdout == compose_artifact_hash" in compose_deploy
+    assert "not compose_deploy_calibre_local_rollback_resume" in compose_deploy
+    assert "expected_running = {{ (not compose_deploy_calibre_local_rollback_resume)" in compose_deploy
+    assert "--output TARGET,SOURCE,FSTYPE,UUID" in compose_deploy
+    assert "proxmox.vm.state_disk.filesystem_uuid" in compose_deploy
+    assert "Stop Restic timers during Calibre authority reconciliation" in compose_deploy
+    assert "Install reconciled Restic source policy files" in compose_deploy
+    assert "Verify reconciled Restic status before restarting timers" in compose_deploy
     assert "compose_deploy_dependency_args" not in compose_deploy
     assert "current-artifact.sha256" in compose_rollback
 
@@ -1873,10 +1889,19 @@ def main() -> None:
     apps = (ROOT / "services/apps.yml").read_text()
     servarr = (ROOT / "services/servarr.yml").read_text()
     nextcloud = (ROOT / "services/nextcloud.yml").read_text()
-    assert apps.count("${MEDIA_PATH}/calibre/books") == 2
+    assert apps.count("/srv/home-lab-state/calibre-data/books") == 2
+    assert "NETWORK_SHARE_MODE: false" in apps
     assert "${MEDIA_PATH}/caro-tachidesk" in servarr
-    assert "${MEDIA_PATH}/calibre/books" in servarr
+    assert "/srv/home-lab-state/calibre-data/books" in servarr
+    assert "${MEDIA_PATH}/calibre/books" not in apps + servarr
     assert "${MEDIA_PATH}/nextcloud/data" in nextcloud
+    calibre_source = next(entry for entry in policy["sources"] if entry["path"] == "/srv/home-lab-state/calibre-data/books")
+    assert calibre_source["class"] == "replace-entries"
+    assert calibre_source["mutable_database"] is True
+    assert calibre_source["writers"] == ["calibre", "calibre-web-automated", "bookshelf"]
+    assert "/srv/home-lab-state/calibre-data/books/**" not in policy["excludes"]
+    assert not any(pattern.startswith("/srv/home-lab-state/**") for pattern in policy["excludes"])
+    assert "/srv/home-lab-state/calibre-data/books/metadata.db" in policy["critical_fixtures"]
 
     restic_role = (ROOT / "ansible/roles/restic_backup/tasks/main.yml").read_text()
     assert "Inspect fixed Restic deployment ancestors" in restic_role

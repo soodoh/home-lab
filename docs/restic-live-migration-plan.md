@@ -168,13 +168,14 @@ Then use the existing staged Compose deployment transaction: generate one exact 
 
 Postconditions:
 
-- Calibre, Calibre Web Automated, and Bookshelf mount `/mnt/storage/media/calibre/books`;
-- Caro mounts `/mnt/storage/media/caro-tachidesk` at its downloads subpath;
-- owner services are healthy;
-- Offen remains stopped but declared; and
-- legacy source trees remain untouched.
+- Calibre, Calibre Web Automated, and Bookshelf mount `/srv/home-lab-state/calibre-data/books`;
+- the complete local Calibre library, including `metadata.db`, is a Restic source;
+- the verified NFS Calibre tree remains untouched as a rollback input;
+- Caro mounts `/mnt/storage/media/caro-tachidesk` only at its downloads subpath;
+- owner services are healthy; and
+- Offen remains retired.
 
-Rollback: run the exact previous-artifact `rollback-compose.yml` transaction and verify the services again use the retained legacy source trees. Do not delete the new NFS copies during rollback.
+Rollback from the corrective Calibre transition requires separately guarded quiescence and synchronization before activating the retained NFS artifact. Do not point writers at an older copy or delete either tree during rollback.
 
 ## Phase 5 — provision credentials and qualify Proton
 

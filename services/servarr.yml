@@ -255,7 +255,7 @@ services:
       - /srv/home-lab-state/bookshelf-data:/config
       - ${MEDIA_PATH}:/data
       - type: bind
-        source: ${MEDIA_PATH}/calibre/books
+        source: /srv/home-lab-state/calibre-data/books
         target: /books
         bind:
           create_host_path: false

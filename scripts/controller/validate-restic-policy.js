@@ -150,7 +150,6 @@ function validateResticPolicy(policy) {
   const classByPath = new Map(classified.map((entry) => [entry.path, entry.class]));
   for (const [requiredPath, requiredClass] of [
     ["/mnt/storage/media/caro-tachidesk", "external"],
-    ["/mnt/storage/media/calibre/books", "external"],
     ["/mnt/storage/media/nextcloud/data", "external"],
     ["/mnt/storage/media/tachidesk", "external"],
   ]) {
