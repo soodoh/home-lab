@@ -143,6 +143,19 @@ prepare_steady_omada_input() {
   fi
 }
 
+prepare_steady_authentik_input() {
+  if [[ $operation == steady ]]; then
+    scripts/prepare-authentik-plan-input
+    if [[ ${TF_VAR_authentik_enable_management:-false} == true ]]; then
+      export TF_VAR_authentik_url=$AUTHENTIK_URL
+      export TF_VAR_authentik_token=$AUTHENTIK_TOKEN
+      export TF_VAR_authentik_client_secrets_path="$repo_root/.local/authentik/client-secrets.json"
+    else
+      unset TF_VAR_authentik_url TF_VAR_authentik_token TF_VAR_authentik_client_secrets_path
+    fi
+  fi
+}
+
 
 verify_proxmox_host_plan() {
   local relative path expected_file_sha expected_plan_sha expected_actions actual_file_sha
@@ -275,6 +288,7 @@ case "$action" in
     load_credentials plan
     prepare_provider_tls
     prepare_omada_provider_fork
+    prepare_steady_authentik_input
     run_validation
     prepare_steady_omada_input
     scripts/reconcile-infrastructure plan --plan-dir "$plan_dir" "${operation_args[@]}"
@@ -290,6 +304,7 @@ case "$action" in
     confirm_apply
     load_credentials apply
     prepare_provider_tls
+    prepare_steady_authentik_input
     prepare_steady_omada_input
     scripts/reconcile-infrastructure apply --plan-dir "$plan_dir" "${operation_args[@]}"
     printf 'local_controller=applied operation=%s recovery_stage=%s commit=%s\n' \

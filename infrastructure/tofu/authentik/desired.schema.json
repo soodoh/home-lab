@@ -1,0 +1,861 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/schemas/authentik-desired.schema.json",
+  "title": "Import-first Authentik desired state",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "sourceInventory",
+    "applications",
+    "applicationPolicyBindings",
+    "authenticatorValidateStages",
+    "customBlueprints",
+    "customFlows",
+    "flowStageBindings",
+    "oauthProviders",
+    "proxyProviders",
+    "scopeMappings"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "./desired.schema.json"
+    },
+    "schemaVersion": {
+      "const": 2
+    },
+    "sourceInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "capturedAt",
+        "complete",
+        "applicationsSha256",
+        "proxyProvidersSha256",
+        "oauthProvidersSha256",
+        "applicationPolicyBindingsSha256",
+        "customConfigurationSha256"
+      ],
+      "properties": {
+        "capturedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "complete": {
+          "type": "boolean"
+        },
+        "applicationsSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "proxyProvidersSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "oauthProvidersSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "applicationPolicyBindingsSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "customConfigurationSha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "applications": {
+      "type": "object",
+      "minProperties": 25,
+      "maxProperties": 25,
+      "additionalProperties": {
+        "$ref": "#/$defs/application"
+      }
+    },
+    "proxyProviders": {
+      "type": "object",
+      "minProperties": 19,
+      "maxProperties": 19,
+      "propertyNames": {
+        "pattern": "^[1-9][0-9]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/proxyProvider"
+      }
+    },
+    "oauthProviders": {
+      "type": "object",
+      "maxProperties": 6,
+      "propertyNames": {
+        "pattern": "^[1-9][0-9]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/oauthProvider"
+      }
+    },
+    "customBlueprints": {
+      "type": "object",
+      "maxProperties": 1,
+      "propertyNames": {
+        "const": "custom-configuration"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/customBlueprint"
+      }
+    },
+    "applicationPolicyBindings": {
+      "type": "object",
+      "minProperties": 30,
+      "maxProperties": 30,
+      "propertyNames": {
+        "$ref": "#/$defs/uuid"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/applicationPolicyBinding"
+      }
+    },
+    "authenticatorValidateStages": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "propertyNames": {
+        "const": "passwordless-webauthn"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/authenticatorValidateStage"
+      }
+    },
+    "customFlows": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "propertyNames": {
+        "const": "passwordless-authentication"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/customFlow"
+      }
+    },
+    "flowStageBindings": {
+      "type": "object",
+      "minProperties": 2,
+      "maxProperties": 2,
+      "propertyNames": {
+        "$ref": "#/$defs/uuid"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/flowStageBinding"
+      }
+    },
+    "scopeMappings": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "propertyNames": {
+        "const": "vaultwarden-email"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/scopeMapping"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    },
+    "uuidArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/uuid"
+      }
+    },
+    "numberArray": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "slug",
+        "uuid",
+        "group",
+        "provider_id",
+        "provider_type",
+        "backchannel_provider_ids",
+        "meta_launch_url",
+        "meta_icon",
+        "meta_description",
+        "meta_publisher",
+        "policy_engine_mode",
+        "open_in_new_tab",
+        "meta_hide"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "uuid": {
+          "$ref": "#/$defs/uuid"
+        },
+        "group": {
+          "type": "string"
+        },
+        "provider_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "provider_type": {
+          "enum": [
+            "oauth2",
+            "proxy"
+          ]
+        },
+        "backchannel_provider_ids": {
+          "$ref": "#/$defs/numberArray"
+        },
+        "meta_launch_url": {
+          "type": "string"
+        },
+        "meta_icon": {
+          "type": "string"
+        },
+        "meta_description": {
+          "type": "string"
+        },
+        "meta_publisher": {
+          "type": "string"
+        },
+        "policy_engine_mode": {
+          "enum": [
+            "all",
+            "any"
+          ]
+        },
+        "open_in_new_tab": {
+          "type": "boolean"
+        },
+        "meta_hide": {
+          "type": "boolean"
+        }
+      }
+    },
+    "proxyProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pk",
+        "name",
+        "authentication_flow",
+        "authorization_flow",
+        "invalidation_flow",
+        "internal_host",
+        "external_host",
+        "internal_host_ssl_validation",
+        "skip_path_regex",
+        "basic_auth_enabled",
+        "basic_auth_user_attribute",
+        "basic_auth_password_attribute",
+        "intercept_header_auth",
+        "mode",
+        "cookie_domain",
+        "access_token_validity",
+        "refresh_token_validity",
+        "property_mappings",
+        "jwt_federation_sources",
+        "jwt_federation_providers"
+      ],
+      "properties": {
+        "pk": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authentication_flow": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "authorization_flow": {
+          "$ref": "#/$defs/uuid"
+        },
+        "invalidation_flow": {
+          "$ref": "#/$defs/uuid"
+        },
+        "internal_host": {
+          "type": "string",
+          "pattern": "^https?://"
+        },
+        "external_host": {
+          "type": "string",
+          "pattern": "^https://"
+        },
+        "internal_host_ssl_validation": {
+          "type": "boolean"
+        },
+        "skip_path_regex": {
+          "type": "string"
+        },
+        "basic_auth_enabled": {
+          "type": "boolean"
+        },
+        "basic_auth_user_attribute": {
+          "type": "string"
+        },
+        "basic_auth_password_attribute": {
+          "type": "string"
+        },
+        "intercept_header_auth": {
+          "type": "boolean"
+        },
+        "mode": {
+          "enum": [
+            "proxy",
+            "forward_single",
+            "forward_domain"
+          ]
+        },
+        "cookie_domain": {
+          "type": "string"
+        },
+        "access_token_validity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "refresh_token_validity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "property_mappings": {
+          "$ref": "#/$defs/uuidArray"
+        },
+        "jwt_federation_sources": {
+          "$ref": "#/$defs/uuidArray"
+        },
+        "jwt_federation_providers": {
+          "$ref": "#/$defs/numberArray"
+        }
+      }
+    },
+    "oauthProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pk",
+        "name",
+        "authentication_flow",
+        "authorization_flow",
+        "invalidation_flow",
+        "client_id",
+        "client_type",
+        "allowed_redirect_uris",
+        "access_code_validity",
+        "access_token_validity",
+        "refresh_token_validity",
+        "refresh_token_threshold",
+        "include_claims_in_id_token",
+        "issuer_mode",
+        "sub_mode",
+        "property_mappings",
+        "signing_key",
+        "encryption_key",
+        "grant_types",
+        "logout_method",
+        "logout_uri",
+        "jwt_federation_sources",
+        "jwt_federation_providers"
+      ],
+      "properties": {
+        "pk": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "authentication_flow": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "authorization_flow": {
+          "$ref": "#/$defs/uuid"
+        },
+        "invalidation_flow": {
+          "$ref": "#/$defs/uuid"
+        },
+        "client_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "client_type": {
+          "enum": [
+            "confidential",
+            "public"
+          ]
+        },
+        "allowed_redirect_uris": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "matching_mode",
+              "url"
+            ],
+            "properties": {
+              "matching_mode": {
+                "enum": [
+                  "strict",
+                  "regex"
+                ]
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "access_code_validity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "access_token_validity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "refresh_token_validity": {
+          "type": "string",
+          "minLength": 1
+        },
+        "refresh_token_threshold": {
+          "type": "string",
+          "minLength": 1
+        },
+        "include_claims_in_id_token": {
+          "type": "boolean"
+        },
+        "issuer_mode": {
+          "enum": [
+            "global",
+            "per_provider"
+          ]
+        },
+        "sub_mode": {
+          "enum": [
+            "hashed_user_id",
+            "user_id",
+            "user_uuid",
+            "user_username",
+            "user_email",
+            "user_upn"
+          ]
+        },
+        "property_mappings": {
+          "$ref": "#/$defs/uuidArray"
+        },
+        "signing_key": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "encryption_key": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "grant_types": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "logout_method": {
+          "enum": [
+            "backchannel",
+            "frontchannel"
+          ]
+        },
+        "logout_uri": {
+          "type": "string"
+        },
+        "jwt_federation_sources": {
+          "$ref": "#/$defs/uuidArray"
+        },
+        "jwt_federation_providers": {
+          "$ref": "#/$defs/numberArray"
+        }
+      }
+    },
+    "customBlueprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "content_file",
+        "context",
+        "enabled"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "content_file": {
+          "type": "string",
+          "pattern": "^blueprints/[a-z0-9][a-z0-9-]*\\.yaml$"
+        },
+        "context": {
+          "type": "object"
+        },
+        "enabled": {
+          "const": true
+        }
+      }
+    },
+    "nullableUuid": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/uuid"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "applicationPolicyBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application_slug",
+        "enabled",
+        "failure_result",
+        "group",
+        "negate",
+        "order",
+        "pk",
+        "policy",
+        "timeout",
+        "user"
+      ],
+      "properties": {
+        "application_slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "failure_result": {
+          "type": "boolean"
+        },
+        "group": {
+          "$ref": "#/$defs/nullableUuid"
+        },
+        "negate": {
+          "type": "boolean"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "policy": {
+          "$ref": "#/$defs/nullableUuid"
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "user": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "authenticatorValidateStage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pk",
+        "name",
+        "not_configured_action",
+        "configuration_stages",
+        "device_classes",
+        "email_otp_throttling_factor",
+        "last_auth_threshold",
+        "sms_otp_throttling_factor",
+        "static_otp_throttling_factor",
+        "totp_otp_throttling_factor",
+        "webauthn_allowed_device_types",
+        "webauthn_hints",
+        "webauthn_user_verification"
+      ],
+      "properties": {
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "name": {
+          "const": "Passwordless WebAuthn"
+        },
+        "not_configured_action": {
+          "enum": [
+            "skip",
+            "deny",
+            "configure"
+          ]
+        },
+        "configuration_stages": {
+          "$ref": "#/$defs/uuidArray"
+        },
+        "device_classes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "email_otp_throttling_factor": {
+          "type": "number",
+          "minimum": 0
+        },
+        "last_auth_threshold": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sms_otp_throttling_factor": {
+          "type": "number",
+          "minimum": 0
+        },
+        "static_otp_throttling_factor": {
+          "type": "number",
+          "minimum": 0
+        },
+        "totp_otp_throttling_factor": {
+          "type": "number",
+          "minimum": 0
+        },
+        "webauthn_allowed_device_types": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "webauthn_hints": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "webauthn_user_verification": {
+          "enum": [
+            "required",
+            "preferred",
+            "discouraged"
+          ]
+        }
+      }
+    },
+    "customFlow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pk",
+        "name",
+        "title",
+        "slug",
+        "designation",
+        "authentication",
+        "background",
+        "compatibility_mode",
+        "denied_action",
+        "layout",
+        "policy_engine_mode"
+      ],
+      "properties": {
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "slug": {
+          "const": "passwordless-authentication-flow"
+        },
+        "designation": {
+          "enum": [
+            "authentication",
+            "authorization",
+            "invalidation",
+            "enrollment",
+            "unenrollment",
+            "recovery",
+            "stage_configuration"
+          ]
+        },
+        "authentication": {
+          "type": "string",
+          "minLength": 1
+        },
+        "background": {
+          "type": "string"
+        },
+        "compatibility_mode": {
+          "type": "boolean"
+        },
+        "denied_action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "layout": {
+          "type": "string",
+          "minLength": 1
+        },
+        "policy_engine_mode": {
+          "enum": [
+            "all",
+            "any"
+          ]
+        }
+      }
+    },
+    "flowStageBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pk",
+        "stage_ref",
+        "order",
+        "evaluate_on_plan",
+        "invalid_response_action",
+        "policy_engine_mode",
+        "re_evaluate_policies"
+      ],
+      "properties": {
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "stage_ref": {
+          "enum": [
+            "passwordless-webauthn",
+            "default-authentication-login"
+          ]
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "evaluate_on_plan": {
+          "type": "boolean"
+        },
+        "invalid_response_action": {
+          "enum": [
+            "retry",
+            "restart",
+            "restart_with_context"
+          ]
+        },
+        "policy_engine_mode": {
+          "enum": [
+            "all",
+            "any"
+          ]
+        },
+        "re_evaluate_policies": {
+          "type": "boolean"
+        }
+      }
+    },
+    "scopeMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pk",
+        "name",
+        "scope_name",
+        "description",
+        "expression"
+      ],
+      "properties": {
+        "pk": {
+          "$ref": "#/$defs/uuid"
+        },
+        "name": {
+          "const": "Vaultwarden Email Scope"
+        },
+        "scope_name": {
+          "const": "email"
+        },
+        "description": {
+          "type": "string"
+        },
+        "expression": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

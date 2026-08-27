@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_root"
+
+[[ ${TF_VAR_authentik_enable_management:-false} == true ]] || exit 0
+: "${AUTHENTIK_URL:?AUTHENTIK_URL is required when Authentik management is enabled}"
+: "${AUTHENTIK_TOKEN:?AUTHENTIK_TOKEN is required when Authentik management is enabled}"
+: "${SOPS_AGE_KEY_FILE:?SOPS_AGE_KEY_FILE is required when Authentik management is enabled}"
+[[ $AUTHENTIK_URL == https://auth.diloreto.com ]]
+for command in jq python3 sops; do
+  command -v "$command" >/dev/null || { echo "missing command: $command" >&2; exit 69; }
+done
+
+SOPS_KEY_FILE=$SOPS_AGE_KEY_FILE python3 - <<'PY'
+import os
+import stat
+from pathlib import Path
+
+path = Path(os.environ["SOPS_KEY_FILE"])
+if not path.is_file() or path.is_symlink():
+    raise SystemExit("SOPS age identity must be a regular file")
+metadata = path.stat()
+if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o600:
+    raise SystemExit("SOPS age identity must be owned by the controller user with mode 0600")
+PY
+
+install -d -m 0700 .local/authentik
+client_secrets=$(mktemp .local/authentik/client-secrets.XXXXXX)
+trap 'rm -f "$client_secrets"' EXIT
+SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE sops --decrypt --output-type json \
+  infrastructure/tofu/authentik/client-secrets.sops.json >"$client_secrets"
+jq -e '
+  .schemaVersion == 1 and
+  (.oauthProviders | type == "object" and (keys | sort) == ["15", "16", "21", "37", "47", "49"]) and
+  all(.oauthProviders[];
+    type == "object" and
+    (keys == ["client_secret"]) and
+    (.client_secret | type == "string" and length > 0 and . != "REPLACE-DURING-BOOTSTRAP"))
+' "$client_secrets" >/dev/null
+chmod 0600 "$client_secrets"
+mv -f "$client_secrets" .local/authentik/client-secrets.json
+trap - EXIT

@@ -211,6 +211,7 @@ exit 86
                 "AWS_REGION": "us-east-1",
                 "TF_VAR_tailscale_enable_management": "true",
                 "TF_VAR_omada_enable_management": "false",
+                "TF_VAR_authentik_enable_management": "false",
                 "TF_PLUGIN_CACHE_DIR": str(provider_cache),
                 "TOFU_TEST_LOG": str(log),
                 "MOCK_GIT_COMMIT": commit,

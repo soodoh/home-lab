@@ -22,8 +22,9 @@ The production order is:
 3. Proxmox OpenTofu;
 4. bounded Debian Ansible tags;
 5. Omada and Tailscale OpenTofu;
-6. exact Compose artifact activation; and
-7. full zero-change verification.
+6. exact Compose artifact activation;
+7. Authentik API configuration OpenTofu; and
+8. full zero-change verification.
 
 VM 100 is Debian-authoritative. Retired Arch, Flatcar, inert-qualification, migration cutover, and infrastructure-recovery modes are not supported controller paths.
 
@@ -34,6 +35,6 @@ VM 100 is Debian-authoritative. Retired Arch, Flatcar, inert-qualification, migr
 - VM protection, disk topology, hardware mappings, and boot changes remain protected fields.
 - Registry pulls and Compose builds remain disabled.
 - Ansible normal runs require one approved tag and matching confirmation.
-- Success requires all five OpenTofu roots, the Proxmox host plan, the Debian audit, and Compose simulation to be no-op.
+- Success requires every enabled OpenTofu root, the Proxmox host plan, the Debian audit, and Compose simulation to be no-op. Authentik remains disabled until the import-first bootstrap in [`authentik-opentofu.md`](./authentik-opentofu.md) is complete.
 
 Generic encrypted backup restoration, Compose rollback, SOPS/age recovery, firewall recovery, and hardware-mapping recovery remain separate procedures under [`recovery/`](../recovery/) and the dedicated recovery documentation.

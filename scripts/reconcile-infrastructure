@@ -134,18 +134,20 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-reconcile-manifest.py
   python3 scripts/controller/test-reconcile-security.py
   python3 scripts/controller/test-omada-provider-fork.py
+  python3 scripts/controller/test-authentik-tofu-foundation.py
   scripts/test-restic-recovery-bundle
   python3 scripts/test-compose-action-plan.py
   python3 scripts/test-restic-tools.py
   python3 -m py_compile scripts/*.py scripts/controller/*.py scripts/activate-restic-staging-fixture scripts/build-restic-recovery-bundle scripts/run-restic-recovery-bundle
+  node --check scripts/controller/authentik-normalize-inventory.mjs
   shellcheck scripts/reconcile-infrastructure scripts/local-controller \
     scripts/build-recovery-bundle scripts/configure-local-controller-aws \
-    scripts/configure-local-provider-credentials \
+    scripts/configure-local-provider-credentials scripts/prepare-authentik-plan-input \
     scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack scripts/validate-proxmox-bootstrap-keys \
     scripts/prepare-omada-plan-input scripts/prepare-omada-provider-fork scripts/rehearse-recovery \
     scripts/restore-critical-backup scripts/test-restic-activation-fixture scripts/test-restic-recovery-bundle scripts/test-restic-restore-branch
   tofu fmt -check -recursive infrastructure/tofu
-  for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
+  for root in aws-foundation authentik proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
     (
       validation_data=$(mktemp -d)
       trap 'rm -rf "$validation_data"' EXIT
@@ -231,13 +233,14 @@ commit=$(git rev-parse HEAD)
 
 roots=(aws-foundation proxmox omada tailscale)
 if [[ $phase == steady ]]; then
-  roots=(aws-foundation proxmox-legacy proxmox omada tailscale)
+  roots=(aws-foundation proxmox-legacy proxmox omada tailscale authentik)
 fi
 enabled_roots=()
 for root in "${roots[@]}"; do
   case "$root" in
     omada) [[ ${TF_VAR_omada_enable_management:-false} == true ]] || continue ;;
     tailscale) [[ ${TF_VAR_tailscale_enable_management:-false} == true ]] || continue ;;
+    authentik) [[ ${TF_VAR_authentik_enable_management:-false} == true ]] || continue ;;
   esac
   enabled_roots+=("$root")
 done
@@ -509,7 +512,7 @@ tailscale_verify_state_policy() {
 assert_plan_excludes_credentials() {
   local plan=$1 variable value
   for variable in AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN PROXMOX_VE_API_TOKEN \
-    OMADA_PASSWORD TAILSCALE_OAUTH_CLIENT_SECRET; do
+    AUTHENTIK_TOKEN OMADA_PASSWORD TAILSCALE_OAUTH_CLIENT_SECRET; do
     value=${!variable:-}
     [[ -z $value ]] && continue
     PLAN_FILE="$plan" SECRET_VALUE="$value" python3 - <<'PY'
@@ -1021,6 +1024,7 @@ case "$action" in
     apply_root omada
     apply_root tailscale
     compose_apply
+    apply_root authentik
     verify_all
     ;;
   verify)

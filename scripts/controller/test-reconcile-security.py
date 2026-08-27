@@ -142,17 +142,26 @@ class ReconcileSecurityTests(unittest.TestCase):
         gate_block = self.reconciler[self.reconciler.rfind("if [[ $action ==", 0, reconcile_gate):backend_setup]
         self.assertIn("$action == apply", gate_block)
 
-    def test_application_adoption_paths_are_absent(self) -> None:
-        for retired in (
-            "application-api-tunnels",
-            "TF_VAR_authentik_token",
-            "TF_VAR_authentik_enable_management",
-            "TF_VAR_media_apps_enable_management",
-            "apply_root authentik",
-            "apply_root media-apps",
-        ):
-            self.assertNotIn(retired, self.controller)
-            self.assertNotIn(retired, self.reconciler)
+    def test_authentik_management_is_guarded_and_ordered(self) -> None:
+        self.assertIn("prepare_steady_authentik_input", self.controller)
+        self.assertIn("scripts/prepare-authentik-plan-input", self.controller)
+        self.assertIn("TF_VAR_authentik_enable_management", self.reconciler)
+        self.assertIn("AUTHENTIK_TOKEN", self.reconciler)
+        self.assertIn("TF_VAR_authentik_token", self.controller)
+        self.assertNotIn("TF_VAR_authentik_token", self.reconciler)
+        self.assertNotIn("application-api-tunnels", self.controller)
+        self.assertNotIn("TF_VAR_media_apps_enable_management", self.reconciler)
+
+        dispatch = self.reconciler.index('case "$action" in', self.reconciler.index("acquire_apply_lock()"))
+        compose = self.reconciler.index("compose_apply", dispatch)
+        authentik = self.reconciler.index("apply_root authentik", compose)
+        verify = self.reconciler.index("verify_all", authentik)
+        self.assertLess(compose, authentik)
+        self.assertLess(authentik, verify)
+
+        self.assertIn("Authentik plan API token", self.credential_configurator)
+        self.assertIn("Authentik apply API token", self.credential_configurator)
+        self.assertIn('[[ $authentik_plan_token != "$authentik_apply_token" ]]', self.credential_configurator)
     def test_reconciler_owns_and_verifies_one_inherited_apply_lock(self) -> None:
         self.assertIn("controller-apply-lock.py run", self.reconciler)
         self.assertIn("controller-apply-lock.py verify", self.reconciler)
