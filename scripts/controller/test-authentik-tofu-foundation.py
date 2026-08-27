@@ -122,6 +122,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             self.assertIn(f'resource "{resource}"', main)
         self.assertEqual(main.count("prevent_destroy = true"), 9)
         self.assertEqual(main.count("import {"), 9)
+        self.assertIn("to       = authentik_flow.custom[each.key]\n  id       = each.value.slug", main)
         self.assertIn("length(local.desired.applicationPolicyBindings) == 30", main)
         self.assertIn("data.authentik_stage.default_authentication_login", main)
         self.assertIn("data.authentik_stage.default_authenticator_webauthn_setup", main)

@@ -58,7 +58,7 @@ check "oauth_client_secrets" {
   assert {
     condition = !var.authentik_enable_management || (
       local.client_secrets.schemaVersion == 1 &&
-      setequals(toset(keys(local.client_secrets.oauthProviders)), toset(keys(local.oauth_providers))) &&
+      toset(keys(local.client_secrets.oauthProviders)) == toset(keys(local.oauth_providers)) &&
       alltrue([
         for provider in values(local.client_secrets.oauthProviders) :
         trimspace(provider.client_secret) != "" && provider.client_secret != "REPLACE-DURING-BOOTSTRAP"
@@ -306,7 +306,7 @@ import {
 import {
   for_each = local.custom_flows
   to       = authentik_flow.custom[each.key]
-  id       = each.value.pk
+  id       = each.value.slug
 }
 
 import {
