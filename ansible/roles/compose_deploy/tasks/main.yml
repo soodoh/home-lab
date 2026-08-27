@@ -693,20 +693,35 @@
       no_log: true
       when: compose_deploy_calibre_local_rollback
 
-    - name: Verify reconciled Restic status before restarting timers
+    - name: Verify installed Restic source policy file identities
       ansible.builtin.command:
-        argv: [/usr/local/libexec/home-lab/restic-backup, status]
+        argv: [/usr/bin/cmp, --silent, --, "{{ item.src }}", "{{ item.dest }}"]
       become: true
-      register: compose_deploy_calibre_restic_status
       changed_when: false
-      failed_when: >-
-        compose_deploy_calibre_restic_status.rc != 0 or
-        'repositories_ready=true' not in compose_deploy_calibre_restic_status.stdout or
-        'pending=0' not in compose_deploy_calibre_restic_status.stdout or
-        'interruption=false' not in compose_deploy_calibre_restic_status.stdout
+      loop:
+        - src: "{{ compose_current_dir }}/services/data/restic/files-from"
+          dest: /etc/home-lab/restic/files-from
+        - src: "{{ compose_current_dir }}/services/data/restic/excludes"
+          dest: /etc/home-lab/restic/excludes
       no_log: true
       when: compose_deploy_calibre_local_rollback
 
+    - name: Read installed reconciled Restic policy JSON
+      ansible.builtin.slurp:
+        src: /etc/home-lab/restic-policy.json
+      become: true
+      register: compose_deploy_calibre_restic_policy_file
+      changed_when: false
+      no_log: true
+      when: compose_deploy_calibre_local_rollback
+
+    - name: Verify installed reconciled Restic policy semantics
+      ansible.builtin.assert:
+        that:
+          - (compose_deploy_calibre_restic_policy_file.content | b64decode | from_json) == backups.restic
+        fail_msg: "Installed Restic policy differs after Calibre authority reconciliation."
+      no_log: true
+      when: compose_deploy_calibre_local_rollback
     - name: Restart Restic timers after local policy activation
       ansible.builtin.systemd_service:
         name: "{{ item }}"

@@ -1864,7 +1864,7 @@ def main() -> None:
     assert "proxmox.vm.state_disk.filesystem_uuid" in compose_deploy
     assert "Stop Restic timers during Calibre authority reconciliation" in compose_deploy
     assert "Install reconciled Restic source policy files" in compose_deploy
-    assert "Verify reconciled Restic status before restarting timers" in compose_deploy
+    assert "Verify installed reconciled Restic policy semantics" in compose_deploy
     assert "compose_deploy_dependency_args" not in compose_deploy
     assert "current-artifact.sha256" in compose_rollback
 
