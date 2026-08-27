@@ -29,6 +29,8 @@ Path classes have these activation meanings:
 
 Nextcloud data remains at `${MEDIA_PATH}/nextcloud/data`. The complete live Calibre library—including `metadata.db`, book files, and covers—resides at `/srv/home-lab-state/calibre-data/books` and is included in the Restic source policy. The NFS Calibre copy is retained only as a rollback source after the guarded NFS-to-local reconciliation. Caro remains deliberately split: its application/database tree stays under `/srv/home-lab-state/caro-tachidesk-data`, while only downloads use `${MEDIA_PATH}/caro-tachidesk`.
 
+The corrective local transition completed on 2026-08-27 with active artifact `2468c26a15c921877da3d1ca6887cd9c2e81be1f467873d9f9edc1386782c6db`. All three Calibre consumers use the local state disk, SQLite integrity passed, the NFS rollback tree remains untouched, and a complete chained backup proved 2,195 files, 8,004,800,651 bytes, 1,063 ebook files, and `metadata.db` in games snapshot `91e4e2378de3ae97efa075468ac0334fec80b324c7c8df664b05089f1254390f`, NFS snapshot `32f2e3c378df0238c3e99da59701dc7e33fe73a13f88eda01b02f0c1e2f4e9ed`, and Proton snapshot `41f4fac702126014bb6989b09dd158a2f9a3c56e4a99440df799bb55e4a28d55`.
+
 ## Pinned tools and credentials
 
 The Ansible `restic_backup` role installs official Linux amd64 binaries only:
