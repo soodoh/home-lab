@@ -147,6 +147,7 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertIn("scripts/prepare-authentik-plan-input", self.controller)
         self.assertIn("TF_VAR_authentik_enable_management", self.reconciler)
         self.assertIn("AUTHENTIK_TOKEN", self.reconciler)
+        self.assertIn("PROXMOX|AUTHENTIK|OMADA", self.controller)
         self.assertIn("TF_VAR_authentik_token", self.controller)
         self.assertNotIn("TF_VAR_authentik_token", self.reconciler)
         self.assertNotIn("application-api-tunnels", self.controller)

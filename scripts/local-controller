@@ -74,7 +74,7 @@ except json.JSONDecodeError as error:
     raise SystemExit("controller credential JSON is invalid") from error
 if not isinstance(values, dict) or not values:
     raise SystemExit("controller credential JSON must be a non-empty object")
-allowed = re.compile(r"^(AWS|TF|PROXMOX|OMADA|TAILSCALE|RECONCILE|ANSIBLE|SOPS|AGE|HOMELAB)_[A-Za-z0-9_]+$")
+allowed = re.compile(r"^(AWS|TF|PROXMOX|AUTHENTIK|OMADA|TAILSCALE|RECONCILE|ANSIBLE|SOPS|AGE|HOMELAB)_[A-Za-z0-9_]+$")
 blocked = {"BASH_ENV", "ENV", "PATH", "HOME", "SHELLOPTS"}
 for key, value in sorted(values.items()):
     if not isinstance(key, str) or allowed.fullmatch(key) is None or key in blocked:
