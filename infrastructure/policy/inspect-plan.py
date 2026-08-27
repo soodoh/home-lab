@@ -656,8 +656,6 @@ def main() -> int:
         } and "create" in actions:
             failures.append(f"{address}: creating or recreating compute is forbidden in steady state")
             continue
-        if actions == ["delete"] and resource_type == "omada_client_alias":
-            continue
         if "delete" in actions:
             failures.append(f"{address}: delete or replacement is forbidden")
             continue

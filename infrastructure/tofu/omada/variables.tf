@@ -4,7 +4,7 @@ variable "omada_export_path" {
 }
 
 
-variable "omada_client_config_path" {
+variable "omada_reservation_config_path" {
   type    = string
   default = ""
 }

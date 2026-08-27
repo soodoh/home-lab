@@ -118,12 +118,6 @@ PY
 }
 
 
-prepare_omada_provider_fork() {
-  local config_file
-  config_file=$(scripts/prepare-omada-provider-fork)
-  [[ $config_file == "$repo_root/.local/omada-provider-fork/tofurc" && -f $config_file && ! -L $config_file ]]
-  export TF_CLI_CONFIG_FILE=$config_file
-}
 
 run_validation() {
   scripts/reconcile-infrastructure validate
@@ -287,7 +281,6 @@ case "$action" in
   plan)
     load_credentials plan
     prepare_provider_tls
-    prepare_omada_provider_fork
     prepare_steady_authentik_input
     run_validation
     prepare_steady_omada_input
@@ -299,7 +292,6 @@ case "$action" in
   apply)
     require_ordinary_mutation_authority
     use_prepared_provider_tls
-    prepare_omada_provider_fork
     run_validation
     confirm_apply
     load_credentials apply

@@ -19,7 +19,6 @@ python3 "$policy" "$fixtures/custom-rom-removal.json"
 python3 "$policy" "$fixtures/hardware-mapping-transition.json"
 python3 "$policy" "$fixtures/vm-start-prerequisite.json" --mode vm-start-prerequisite
 python3 "$policy" "$fixtures/candidate-disk-attach.json"
-python3 "$policy" "$fixtures/omada-client-alias-delete.json"
 expect_rejection tailscale-policy-update normal
 python3 "$policy" "$fixtures/tailscale-policy-update.json" \
   --allow-change-file "$root/allow/tailscale.txt"
@@ -36,10 +35,10 @@ if python3 "$policy" "$fixtures/vm-cutover-forward-safe.json" --mode vm-cutover-
 fi
 rm -f "$import_allow"
 trap - EXIT
-for fixture in noop protection-enable custom-rom-removal hardware-mapping-transition delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial omada-client-alias-delete; do
+for fixture in noop protection-enable custom-rom-removal hardware-mapping-transition delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial; do
   expect_rejection "$fixture" vm-start-prerequisite
 done
-for fixture in delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial candidate-disk-unsafe boot-order-change vm-lifecycle-change omada-client-alias-replace; do
+for fixture in delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial candidate-disk-unsafe boot-order-change vm-lifecycle-change; do
   expect_rejection "$fixture" normal
 done
 python3 "$root/../../scripts/controller/test-tailscale-gateway-policy.py"

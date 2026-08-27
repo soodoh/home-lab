@@ -12,19 +12,14 @@ locals {
     for reservation in local.export.reservations : lower(replace(reservation.mac, "-", ":")) => reservation
     if lower(replace(reservation.mac, "-", ":")) != local.legacy_gateway_mac
   }
-  client_config = var.omada_enable_management ? jsondecode(file(var.omada_client_config_path)) : {
-    client_aliases         = []
+  reservation_config = var.omada_enable_management ? jsondecode(file(var.omada_reservation_config_path)) : {
     requested_reservations = []
   }
   requested_reservations = {
-    for reservation in local.client_config.requested_reservations :
+    for reservation in local.reservation_config.requested_reservations :
     lower(replace(reservation.mac, "-", ":")) => reservation
   }
   reservations = var.omada_enable_management ? merge(local.exported_reservations, local.requested_reservations) : {}
-  client_aliases = {
-    for client in local.client_config.client_aliases :
-    upper(replace(client.mac, ":", "-")) => client.alias
-  }
 }
 
 provider "omada" {
@@ -48,16 +43,17 @@ check "export_identity" {
 }
 
 
-check "client_config" {
+check "reservation_config" {
   assert {
     condition = !var.omada_enable_management || (
-      length(local.client_aliases) == length(local.client_config.client_aliases) &&
+      length(local.requested_reservations) == length(local.reservation_config.requested_reservations) &&
       alltrue([
-        for client in local.client_config.client_aliases :
-        can(regex("^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$", client.mac)) && trimspace(client.alias) != ""
+        for reservation in local.reservation_config.requested_reservations :
+        can(regex("^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$", reservation.mac)) &&
+        trimspace(reservation.ip) != "" && trimspace(reservation.name) != ""
       ])
     )
-    error_message = "The decrypted Omada client configuration must contain unique six-octet MAC addresses and non-empty aliases."
+    error_message = "The decrypted Omada reservation configuration must contain unique six-octet MAC addresses and non-empty IP addresses and names."
   }
 }
 
@@ -87,13 +83,4 @@ resource "omada_dhcp_reservation" "reservation" {
   ip         = each.value.ip
   name       = each.value.name
   enable     = each.value.enable
-}
-
-
-resource "omada_client_alias" "client" {
-  for_each = local.client_aliases
-
-  site  = local.export.site.name
-  mac   = each.key
-  alias = each.value
 }
