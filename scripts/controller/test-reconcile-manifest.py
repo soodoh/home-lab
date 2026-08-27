@@ -172,8 +172,6 @@ case "$operation" in
       cat <<'JSON'
 {"resource_changes":[{"address":"terraform_data.tailscale_policy[0]","type":"terraform_data","change":{"actions":["no-op"],"before":{"input":{"policy_json":"{\\"grants\\":[]}"}},"after":{"input":{"policy_json":"{\\"grants\\":[]}"}}}}]}
 JSON
-    elif [[ $root == aws-foundation ]]; then
-      cat "$OFFEN_RETIREMENT_FIXTURE"
     else
       printf '{"resource_changes":[]}\\n'
     fi
@@ -216,7 +214,6 @@ exit 86
                 "TF_PLUGIN_CACHE_DIR": str(provider_cache),
                 "TOFU_TEST_LOG": str(log),
                 "MOCK_GIT_COMMIT": commit,
-                "OFFEN_RETIREMENT_FIXTURE": str(REPOSITORY / f"infrastructure/policy/fixtures/offen-retirement-aws-{offen_retirement_operation() or 'grant'}.json"),
             }
             command = [
                 str(RECONCILER),

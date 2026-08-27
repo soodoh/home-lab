@@ -128,14 +128,13 @@ if [[ $action == validate ]]; then
   scripts/test-restic-recovery-bundle
   python3 scripts/test-compose-action-plan.py
   python3 scripts/test-restic-tools.py
-  python3 scripts/test-offen-retirement.py
-  python3 -m py_compile scripts/*.py scripts/controller/*.py scripts/activate-restic-staging-fixture scripts/build-restic-recovery-bundle scripts/run-restic-recovery-bundle scripts/retire-offen-local infrastructure/policy/inspect-offen-retirement-aws-plan.py
+  python3 -m py_compile scripts/*.py scripts/controller/*.py scripts/activate-restic-staging-fixture scripts/build-restic-recovery-bundle scripts/run-restic-recovery-bundle
   shellcheck scripts/reconcile-infrastructure scripts/local-controller \
     scripts/build-recovery-bundle scripts/configure-local-controller-aws \
     scripts/configure-local-provider-credentials \
     scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack scripts/validate-proxmox-bootstrap-keys \
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
-    scripts/restore-critical-backup scripts/retire-offen-aws-object scripts/test-restic-activation-fixture scripts/test-restic-recovery-bundle scripts/test-restic-restore-branch
+    scripts/restore-critical-backup scripts/test-restic-activation-fixture scripts/test-restic-recovery-bundle scripts/test-restic-restore-branch
   tofu fmt -check -recursive infrastructure/tofu
   for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
     (
@@ -184,12 +183,11 @@ NODE
 }
 
 offen_retirement_operation() {
-  case "$(contract_value backups.legacy_offen.retirement.state)" in
-    retirement-planned) printf 'grant\n' ;;
-    retirement-finalizing) printf 'finalize\n' ;;
-    preserved|retired) printf '\n' ;;
-    *) echo 'unsupported Offen retirement contract state' >&2; return 1 ;;
-  esac
+  [[ $(contract_value backups.legacy_offen.retirement.state) == retired ]] || {
+    echo 'non-terminal Offen retirement is no longer supported' >&2
+    return 1
+  }
+  printf '\n'
 }
 
 require_protected_regular_file() {
@@ -600,27 +598,6 @@ plan_all() {
       while IFS= read -r -d '' argument; do inspect_args+=("$argument"); done < <(policy_args "$root")
     fi
     TOFU_PLAN_CHDIR="infrastructure/tofu/$root" ./scripts/inspect-tofu-plan "$plan" "${inspect_args[@]}"
-    retirement_operation=$(offen_retirement_operation)
-    if [[ $root == aws-foundation && -n $retirement_operation ]]; then
-      retirement_plan_json=$(mktemp "$plan_dir/offen-retirement-plan.XXXXXX.json")
-      retirement_normalized_json=$(mktemp "$plan_dir/offen-retirement-normalized.XXXXXX.json")
-      chmod 0600 "$retirement_plan_json" "$retirement_normalized_json"
-      rm -f "$retirement_normalized_json"
-      tofu -chdir="infrastructure/tofu/$root" show -json "$plan" >"$retirement_plan_json"
-      if ! python3 scripts/controller/normalize-offen-retirement-aws-plan.py \
-        --input "$retirement_plan_json" --output "$retirement_normalized_json"; then
-        rm -f "$retirement_plan_json" "$retirement_normalized_json"
-        exit 1
-      fi
-      if ! python3 infrastructure/policy/inspect-offen-retirement-aws-plan.py \
-        --operation "$retirement_operation" \
-        --manifest infrastructure/retirement/offen-retirement-manifest.json \
-        --plan "$retirement_normalized_json"; then
-        rm -f "$retirement_plan_json" "$retirement_normalized_json"
-        exit 1
-      fi
-      rm -f "$retirement_plan_json" "$retirement_normalized_json"
-    fi
     jq -cn \
       --arg root "$root" \
       --arg file "$(basename "$plan")" \
@@ -796,27 +773,6 @@ verify_manifest() {
       while IFS= read -r -d '' argument; do inspect_args+=("$argument"); done < <(policy_args "$root")
     fi
     TOFU_PLAN_CHDIR="infrastructure/tofu/$root" ./scripts/inspect-tofu-plan "$plan_dir/$file" "${inspect_args[@]}"
-    retirement_operation=$(offen_retirement_operation)
-    if [[ $root == aws-foundation && -n $retirement_operation ]]; then
-      retirement_plan_json=$(mktemp "$plan_dir/offen-retirement-verify.XXXXXX.json")
-      retirement_normalized_json=$(mktemp "$plan_dir/offen-retirement-verify-normalized.XXXXXX.json")
-      chmod 0600 "$retirement_plan_json" "$retirement_normalized_json"
-      rm -f "$retirement_normalized_json"
-      tofu -chdir="infrastructure/tofu/$root" show -json "$plan_dir/$file" >"$retirement_plan_json"
-      if ! python3 scripts/controller/normalize-offen-retirement-aws-plan.py \
-        --input "$retirement_plan_json" --output "$retirement_normalized_json"; then
-        rm -f "$retirement_plan_json" "$retirement_normalized_json"
-        exit 1
-      fi
-      if ! python3 infrastructure/policy/inspect-offen-retirement-aws-plan.py \
-        --operation "$retirement_operation" \
-        --manifest infrastructure/retirement/offen-retirement-manifest.json \
-        --plan "$retirement_normalized_json"; then
-        rm -f "$retirement_plan_json" "$retirement_normalized_json"
-        exit 1
-      fi
-      rm -f "$retirement_plan_json" "$retirement_normalized_json"
-    fi
   done < <(jq -r '.plans[] | [.root, .file, .sha256] | @tsv' "$manifest")
 }
 

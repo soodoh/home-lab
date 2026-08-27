@@ -303,15 +303,6 @@ data "aws_iam_policy_document" "recovery" {
       "${aws_s3_bucket.state.arn}/*",
     ]
   }
-  dynamic "statement" {
-    for_each = local.contract.backups.legacy_offen.retirement.state == "retirement-planned" ? [1] : []
-    content {
-      actions = ["s3:DeleteObjectVersion"]
-      resources = [
-        "${aws_s3_bucket.recovery.arn}/${local.contract.backups.legacy_offen.migration_retention_hold.recovery_object_key}",
-      ]
-    }
-  }
   statement {
     actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
     resources = [aws_kms_key.opentofu.arn, aws_kms_key.recovery.arn]

@@ -84,12 +84,6 @@
   ansible.builtin.assert:
     that:
       - compose_deploy_artifact_hashes.results[0].stdout == compose_artifact_hash
-      - >-
-        (compose_deploy_offen_retirement_confirmation | default('')) !=
-        'retire-offen-reviewed-' ~ backups.legacy_offen.retirement.manifest_sha256 or
-        compose_deploy_artifact_hashes.results[1].stdout == backups.legacy_offen.retirement.compose_base_artifact_sha256 or
-        (offen_retirement_action | default('')) == 'resume' and
-        compose_deploy_artifact_hashes.results[1].stdout == compose_artifact_hash
     fail_msg: "Candidate artifact identity differs from the reviewed state."
   no_log: true
 
@@ -236,16 +230,7 @@
           compose_deploy_plan.unexpected_runtime_services | length == 0 and
           compose_deploy_plan.forbidden_actions | length == 0 and
           compose_deploy_plan.manual_only_paths | length == 0
-        ) or compose_deploy_nextcloud_migration or compose_deploy_restic_policy_artifact or (
-          backups.legacy_offen.retirement.state == 'retirement-planned' and
-          (compose_deploy_offen_retirement_confirmation | default('')) ==
-            'retire-offen-reviewed-' ~ backups.legacy_offen.retirement.manifest_sha256 and
-          compose_deploy_plan.missing_runtime_services | length == 0 and
-          compose_deploy_plan.unexpected_runtime_services in [[], (backups.legacy_offen.scheduler_services | sort)] and
-          compose_deploy_plan.forbidden_actions | length == 0 and
-          compose_deploy_plan.manual_only_paths == ['services/data/replicate-local-backup'] and
-          compose_deploy_plan.recreate_services | length == 0
-        )
+        ) or compose_deploy_nextcloud_migration or compose_deploy_restic_policy_artifact
     fail_msg: >-
       Deployment refuses service additions/removals, forbidden Compose actions, and data-file changes
       without their exact operation-specific approval.
@@ -449,10 +434,8 @@
         that:
           - >-
             compose_deploy_plan.recreate_services |
-            difference(
-              [nextcloud.database_service, nextcloud.web_service] +
-              (backups.legacy_offen.scheduler_services if backups.legacy_offen.scheduler_state != 'retired' else [])
-            ) | length == 0
+            difference([nextcloud.database_service, nextcloud.web_service]) |
+            length == 0
           - nextcloud.database_service in compose_deploy_plan.recreate_services
           - nextcloud.web_service in compose_deploy_plan.recreate_services
         fail_msg: "Nextcloud migration proposes an unexpected service recreation set."
@@ -488,17 +471,12 @@
 
     - name: Derive stopped services for the bounded Nextcloud migration
       ansible.builtin.set_fact:
-        compose_deploy_nextcloud_migration_stopped_services: >-
-          {{
-            ([nextcloud.cron_service] +
-              (compose_deploy_plan.recreate_services |
-               intersect(backups.legacy_offen.scheduler_services if backups.legacy_offen.scheduler_state != 'retired' else []))) |
-            unique | sort
-          }}
+        compose_deploy_nextcloud_migration_stopped_services:
+          - "{{ nextcloud.cron_service }}"
       when: compose_deploy_nextcloud_migration
       no_log: true
 
-    - name: Converge changed backup schedulers and Nextcloud cron without starting them
+    - name: Converge changed Nextcloud cron without starting it
       ansible.builtin.command:
         argv: >-
           {{ compose_runtime_cli + ['up', '--no-start', '--no-build', '--pull', 'never', '--no-deps'] +

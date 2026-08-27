@@ -124,17 +124,6 @@
   changed_when: true
   no_log: true
 
-- name: Stop backup schedulers for the bounded activation window
-  ansible.builtin.command:
-    argv: "{{ compose_runtime_cli + ['stop'] + backups.legacy_offen.scheduler_services }}"
-  environment:
-    HOME: "{{ compose_home_dir }}"
-  when:
-    - not ansible_check_mode
-    - backups.legacy_offen.scheduler_state != 'retired'
-  changed_when: true
-  no_log: true
-
 - name: Enable native Nextcloud maintenance mode before final synchronization
   ansible.builtin.command:
     argv: "{{ compose_runtime_cli + ['exec', '--user', 'www-data', nextcloud.web_service, 'php', 'occ', 'maintenance:mode', '--on'] }}"

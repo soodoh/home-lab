@@ -363,13 +363,9 @@
         fail_msg: "Apply-time rollback actions differ from the reviewed plan."
       no_log: true
 
-    - name: Stop Nextcloud writers and backup schedulers before migration rollback
+    - name: Stop Nextcloud writers before migration rollback
       ansible.builtin.command:
-        argv: >-
-          {{
-            ['/usr/bin/docker', 'stop', nextcloud.cron_service, nextcloud.web_service] +
-            (backups.legacy_offen.scheduler_services if backups.legacy_offen.scheduler_state != 'retired' else [])
-          }}
+        argv: [/usr/bin/docker, stop, "{{ nextcloud.cron_service }}", "{{ nextcloud.web_service }}"]
       when: compose_rollback_nextcloud_migration
       changed_when: true
       no_log: true

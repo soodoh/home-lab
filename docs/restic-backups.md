@@ -300,7 +300,6 @@ After clearance, rerun check mode and review its complete scope before authorizi
 ./scripts/validate-contract
 python3 scripts/test-restic-tools.py
 python3 scripts/test-proton-qualification.py
-python3 scripts/test-offen-retirement.py
 ./scripts/test-restic-recovery-bundle
 docker compose config --no-interpolate --quiet
 cd ansible && ansible-playbook -i inventory/infrastructure.yml --syntax-check playbooks/site.yml

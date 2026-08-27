@@ -1810,21 +1810,23 @@ def main() -> None:
     compose_deploy = (ROOT / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
     compose_rollback = (ROOT / "ansible/roles/compose_rollback/tasks/main.yml").read_text()
     assert "current-artifact.sha256" in compose_deploy
-    local_retirement = (ROOT / "scripts/retire-offen-local").read_text()
-    aws_retirement = (ROOT / "scripts/retire-offen-aws-object").read_text()
-    retirement_playbook = (ROOT / "ansible/playbooks/retire-offen-local.yml").read_text()
-    assert all(action in local_retirement for action in ('"plan"', '"apply"', '"resume"', '"rollback"', '"finalize"'))
-    assert "irreversible_unlink_started" in local_retirement
-    assert "archive_state_ambiguous" in local_retirement
-    assert "protected_directory_has_unexpected_entry" in local_retirement
-    assert "docker\", \"rename" in local_retirement
-    assert "s3api delete-object" in aws_retirement
-    assert "s3:DeleteObjectVersion" in (ROOT / "infrastructure/tofu/aws-foundation/iam.tf").read_text()
-    assert "OFFEN_RETIREMENT_BUNDLE_B_EXPECTED_HEAD_SHA256" not in aws_retirement
-    assert "OFFEN_RETIREMENT_LOCAL_OWNER_FILE" in aws_retirement
-    assert "bundle_b_head_sha256" in aws_retirement and "restore_evidence_hash_differs" in aws_retirement
-    assert "apply_lock_operation: offen-retirement-local" in retirement_playbook
-    assert "intentionally retains" in retirement_playbook
+    retired_offen_tooling = [
+        ROOT / "scripts/retire-offen-local",
+        ROOT / "scripts/retire-offen-aws-object",
+        ROOT / "scripts/recover-offen-retirement-preflight",
+        ROOT / "scripts/test-offen-retirement.py",
+        ROOT / "scripts/controller/normalize-offen-retirement-aws-plan.py",
+        ROOT / "scripts/controller/offen-retirement-aws-state.py",
+        ROOT / "infrastructure/policy/inspect-offen-retirement-aws-plan.py",
+        ROOT / "ansible/playbooks/retire-offen-local.yml",
+        ROOT / "ansible/playbooks/recover-offen-retirement-preflight.yml",
+        ROOT / "ansible/playbooks/finalize-offen-retirement.yml",
+    ]
+    assert all(not path.exists() for path in retired_offen_tooling)
+    assert "s3:DeleteObjectVersion" not in (ROOT / "infrastructure/tofu/aws-foundation/iam.tf").read_text()
+    assert "/usr/local/libexec/home-lab/retire-offen-local" in restic_role_tasks
+    assert "/etc/home-lab/offen-retirement-manifest.json" in restic_role_tasks
+    assert "state: absent" in restic_role_tasks
     health = (ROOT / "ansible/roles/health/tasks/main.yml").read_text()
     audit = (ROOT / "ansible/roles/audit/tasks/main.yml").read_text()
     assert "audit_expected_stopped_compose_services" in health
@@ -1963,7 +1965,11 @@ def main() -> None:
     foundation = (ROOT / "infrastructure/tofu/aws-foundation/main.tf").read_text()
     assert "resource \"aws_s3_bucket\" \"state\"" in foundation
     assert "prevent_destroy = true" in foundation
-    assert "migration_retention_hold.current_object_retention_days" in foundation
+    assert "critical-backup-retention" not in foundation
+    assert "current_object_retention_days" not in foundation
+    assert "noncurrent_version_expiration" not in foundation
+    assert 'id     = "incomplete-multipart-cleanup"' in foundation
+    assert 'id     = "expired-delete-marker-cleanup"' in foundation
     assert "force_destroy" not in foundation
 
     print("restic static safety fixtures passed")

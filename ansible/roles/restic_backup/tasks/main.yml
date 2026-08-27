@@ -568,7 +568,7 @@
     group: restic-proton
     mode: "0440"
 
-- name: Install Restic runner and guarded transition helpers
+- name: Install Restic runner and active helpers
   ansible.builtin.copy:
     src: "{{ item.src }}"
     dest: "{{ item.dest }}"
@@ -584,12 +584,6 @@
       dest: /usr/local/libexec/home-lab/qualify-proton-backup
       group: restic-proton
       mode: "0750"
-    - src: "{{ playbook_dir }}/../../scripts/retire-offen-local"
-      dest: /usr/local/libexec/home-lab/retire-offen-local
-      mode: "0750"
-    - src: "{{ playbook_dir }}/../../infrastructure/retirement/offen-retirement-manifest.json"
-      dest: /etc/home-lab/offen-retirement-manifest.json
-      mode: "0400"
 
 - name: Install canonical SOPS ciphertext for host-side credential bootstrap
   ansible.builtin.copy:
@@ -603,33 +597,30 @@
 - name: Require contract-backed credential materialization state
   ansible.builtin.assert:
     that:
+      - backups.legacy_offen.scheduler_state == 'retired'
+      - backups.legacy_offen.migration_archive_preservation.state == 'retired'
+      - backups.legacy_offen.migration_retention_hold.state == 'retired'
+      - backups.legacy_offen.retirement.state == 'retired'
+      - backups.legacy_offen.retirement.evidence_file is string
+      - backups.legacy_offen.retirement.evidence_sha256 is string
       - >-
-        (
-          backups.legacy_offen.scheduler_state == 'quiesced' and
-          backups.legacy_offen.migration_archive_preservation.state == 'applied' and
-          backups.legacy_offen.migration_retention_hold.state == 'applied'
-        ) or (
-          backups.legacy_offen.scheduler_state == 'retired' and
-          backups.legacy_offen.migration_archive_preservation.state == 'retirement-finalizing' and
-          backups.legacy_offen.migration_retention_hold.state == 'retired' and
-          backups.legacy_offen.retirement.state == 'retirement-finalizing'
-        ) or (
-          backups.legacy_offen.scheduler_state == 'retired' and
-          backups.legacy_offen.migration_archive_preservation.state == 'retired' and
-          backups.legacy_offen.migration_retention_hold.state == 'retired' and
-          backups.legacy_offen.retirement.state == 'retired' and
-          backups.legacy_offen.retirement.evidence_file is string and
-          backups.legacy_offen.retirement.evidence_sha256 is string and
-          (lookup('ansible.builtin.file', playbook_dir + '/../../' + backups.legacy_offen.retirement.evidence_file) + '\n') |
-          hash('sha256') == backups.legacy_offen.retirement.evidence_sha256
-        )
+        (lookup('ansible.builtin.file', playbook_dir + '/../../' + backups.legacy_offen.retirement.evidence_file) + '\n') |
+        hash('sha256') == backups.legacy_offen.retirement.evidence_sha256
       - backups.restic.migration_state in ['inert', 'active']
       - >-
         backups.restic.credentials ==
         {'bootstrap_enabled': true, 'state': 'provisioned'}
       - backups.restic.qualification.state in ['ready', 'qualified']
-    fail_msg: Restic credential materialization requires the reviewed quiesced migration state.
+    fail_msg: Restic credential materialization requires terminal Offen retirement evidence.
   when: restic_credentials_bootstrap_enabled
+
+- name: Remove retired Offen transaction inputs after terminal evidence validation
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /usr/local/libexec/home-lab/retire-offen-local
+    - /etc/home-lab/offen-retirement-manifest.json
 - name: Gather confined Restic identity records
   ansible.builtin.getent:
     database: "{{ item }}"
@@ -734,27 +725,16 @@
       - >-
         (lookup('ansible.builtin.file', playbook_dir + '/../../infrastructure/evidence/restic-restore-proof.json') + '\n') |
         hash('sha256') == 'b68550eb34e3c8b3832ae9ddf64857364b54538a719cc9501620cb3fd0735f0f'
+      - backups.legacy_offen.scheduler_state == 'retired'
+      - backups.legacy_offen.migration_archive_preservation.state == 'retired'
+      - backups.legacy_offen.migration_retention_hold.state == 'retired'
+      - backups.legacy_offen.retirement.state == 'retired'
+      - backups.legacy_offen.retirement.evidence_file is string
+      - backups.legacy_offen.retirement.evidence_sha256 is string
       - >-
-        (
-          backups.legacy_offen.scheduler_state == 'quiesced' and
-          backups.legacy_offen.migration_archive_preservation.state == 'applied' and
-          backups.legacy_offen.migration_retention_hold.state == 'applied'
-        ) or (
-          backups.legacy_offen.scheduler_state == 'retired' and
-          backups.legacy_offen.migration_archive_preservation.state == 'retirement-finalizing' and
-          backups.legacy_offen.migration_retention_hold.state == 'retired' and
-          backups.legacy_offen.retirement.state == 'retirement-finalizing'
-        ) or (
-          backups.legacy_offen.scheduler_state == 'retired' and
-          backups.legacy_offen.migration_archive_preservation.state == 'retired' and
-          backups.legacy_offen.migration_retention_hold.state == 'retired' and
-          backups.legacy_offen.retirement.state == 'retired' and
-          backups.legacy_offen.retirement.evidence_file is string and
-          backups.legacy_offen.retirement.evidence_sha256 is string and
-          (lookup('ansible.builtin.file', playbook_dir + '/../../' + backups.legacy_offen.retirement.evidence_file) + '\n') |
-          hash('sha256') == backups.legacy_offen.retirement.evidence_sha256
-        )
-    fail_msg: Active Restic scheduling requires the exact restore proof and either preserved or attested retired Offen state.
+        (lookup('ansible.builtin.file', playbook_dir + '/../../' + backups.legacy_offen.retirement.evidence_file) + '\n') |
+        hash('sha256') == backups.legacy_offen.retirement.evidence_sha256
+    fail_msg: Active Restic scheduling requires the exact restore proof and terminal Offen retirement evidence.
   when: backups.restic.migration_state == 'active'
 
 - name: Enable boot-time interrupted backup recovery

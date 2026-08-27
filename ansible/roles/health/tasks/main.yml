@@ -28,9 +28,7 @@
       - >-
         ansible_check_mode or
         (health_materialized_services.stdout_lines | difference(health_running_services.stdout_lines) | sort) ==
-        (audit_expected_stopped_compose_services | sort) or
-        (backups.legacy_offen.retirement.state in ['retirement-planned', 'retirement-finalizing'] and
-         (health_materialized_services.stdout_lines | difference(health_running_services.stdout_lines) | length) == 0)
+        (audit_expected_stopped_compose_services | sort)
     fail_msg: One or more adopted Compose services differ from the contract scheduler state.
 
 - name: Inspect required container health without exposing container configuration

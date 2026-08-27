@@ -70,7 +70,7 @@
   no_log: true
   when: not ansible_check_mode
 
-- name: Inspect intentionally stopped cron and backup scheduler containers
+- name: Inspect intentionally stopped Nextcloud cron container
   ansible.builtin.command:
     argv:
       - /usr/bin/docker
@@ -78,15 +78,12 @@
       - --format
       - "{% raw %}{{.State.Status}}{% endraw %}"
       - "{{ item }}"
-  loop: >-
-    {{
-      [nextcloud.cron_service] +
-      (backups.legacy_offen.scheduler_services if backups.legacy_offen.scheduler_state != 'retired' else [])
-    }}
+  loop:
+    - "{{ nextcloud.cron_service }}"
   register: nextcloud_configuration_stopped_services
   changed_when: false
 
-- name: Require cron and backup schedulers to remain stopped through web validation
+- name: Require Nextcloud cron to remain stopped through web validation
   ansible.builtin.assert:
     that:
       - item.stdout == 'created' or item.stdout == 'exited'

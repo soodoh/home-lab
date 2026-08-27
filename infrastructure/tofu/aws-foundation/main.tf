@@ -206,39 +206,14 @@ resource "aws_s3_bucket_lifecycle_configuration" "recovery" {
   provider = aws.recovery
   bucket   = aws_s3_bucket.recovery.id
 
-  dynamic "rule" {
-    for_each = local.contract.backups.legacy_offen.migration_retention_hold.state == "retired" ? [] : [1]
-    content {
-      id     = "critical-backup-retention"
-      status = "Enabled"
+  rule {
+    id     = "incomplete-multipart-cleanup"
+    status = "Enabled"
 
-      filter {}
+    filter {}
 
-      expiration {
-        days = local.contract.backups.legacy_offen.migration_retention_hold.state == "absent" ? local.contract.backups.legacy_offen.remote_retention_days : local.contract.backups.legacy_offen.migration_retention_hold.current_object_retention_days
-      }
-
-      noncurrent_version_expiration {
-        noncurrent_days = local.contract.backups.legacy_offen.remote_noncurrent_retention_days
-      }
-
-      abort_incomplete_multipart_upload {
-        days_after_initiation = local.contract.backups.legacy_offen.incomplete_multipart_abort_days
-      }
-    }
-  }
-
-  dynamic "rule" {
-    for_each = local.contract.backups.legacy_offen.migration_retention_hold.state == "retired" ? [1] : []
-    content {
-      id     = "incomplete-multipart-cleanup"
-      status = "Enabled"
-
-      filter {}
-
-      abort_incomplete_multipart_upload {
-        days_after_initiation = local.contract.backups.legacy_offen.incomplete_multipart_abort_days
-      }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = local.contract.backups.legacy_offen.incomplete_multipart_abort_days
     }
   }
 
