@@ -4,7 +4,6 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
 import re
 import shutil
 import signal
@@ -12,6 +11,9 @@ import stat
 import subprocess
 import tarfile
 import tempfile
+from base64 import b32decode, b32encode
+from binascii import Error as Base32Error
+from pathlib import Path
 
 HEX = re.compile(r"^[0-9a-f]{64}$")
 EXPECTED_MODES = {
@@ -25,7 +27,9 @@ EXPECTED_MODES = {
     "private/proton-username": 0o600,
     "private/restic-password": 0o600,
 }
-ALLOWED = set(EXPECTED_MODES)
+OPTIONAL_MODES = {"private/proton-totp-seed": 0o600}
+ALLOWED_BASE = set(EXPECTED_MODES)
+ALLOWED_TOTP = ALLOWED_BASE | set(OPTIONAL_MODES)
 
 
 def digest(value: bytes) -> str:
@@ -34,6 +38,17 @@ def digest(value: bytes) -> str:
 
 def canonical(value: object) -> bytes:
     return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def canonical_unpadded_base32(value: str) -> bool:
+    if "=" in value:
+        return False
+    padded = value + "=" * ((8 - len(value) % 8) % 8)
+    try:
+        decoded = b32decode(padded, casefold=False)
+    except (Base32Error, ValueError):
+        return False
+    return b32encode(decoded).decode("ascii").rstrip("=") == value
 
 
 def fail(message: str) -> None:
@@ -119,7 +134,8 @@ def main() -> None:
     try:
         with tarfile.open(fileobj=io.BytesIO(plaintext), mode="r:") as archive:
             members = archive.getmembers()
-            if {member.name for member in members} != ALLOWED or len(members) != len(ALLOWED):
+            member_names = {member.name for member in members}
+            if member_names not in {frozenset(ALLOWED_BASE), frozenset(ALLOWED_TOTP)} or len(members) != len(member_names):
                 fail("recovery bundle members differ")
             contents = {}
             modes = {}
@@ -127,7 +143,7 @@ def main() -> None:
                 if (not member.isfile() or member.uid != 0 or member.gid != 0
                         or member.uname != "root" or member.gname != "root"
                         or member.mtime != 0 or member.name.startswith("/")
-                        or member.mode != EXPECTED_MODES.get(member.name)
+                        or member.mode != (EXPECTED_MODES | OPTIONAL_MODES).get(member.name)
                         or ".." in Path(member.name).parts):
                     fail("recovery bundle member metadata differs")
                 stream = archive.extractfile(member)
@@ -136,7 +152,7 @@ def main() -> None:
                 contents[member.name] = stream.read()
                 modes[member.name] = member.mode
         manifest = json.loads(contents["MANIFEST.json"])
-        if set(manifest) != ALLOWED - {"MANIFEST.json"}:
+        if set(manifest) != member_names - {"MANIFEST.json"}:
             fail("recovery bundle manifest differs")
         for name, expected in manifest.items():
             if set(expected) != {"mode", "sha256", "size"}:
@@ -158,7 +174,7 @@ def main() -> None:
         }
         if any(metadata.get(key) != value for key, value in bindings.items()):
             fail("recovery bundle bindings differ")
-        for name in sorted(ALLOWED):
+        for name in sorted(member_names):
             destination = workspace / name
             destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, modes[name])
@@ -181,6 +197,17 @@ def main() -> None:
         ).stdout.strip()
         if not obscured or "\n" in obscured:
             fail("Proton obscured recovery credential differs")
+        obscured_totp = None
+        if "private/proton-totp-seed" in contents:
+            totp_seed = contents["private/proton-totp-seed"].decode().rstrip("\n")
+            if len(totp_seed) < 16 or not canonical_unpadded_base32(totp_seed):
+                fail("Proton recovery TOTP seed differs")
+            obscured_totp = subprocess.run(
+                [str(workspace / "bin/rclone"), "obscure", "-"], input=totp_seed + "\n", check=True,
+                text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=obscure_environment,
+            ).stdout.strip()
+            if not obscured_totp or "\n" in obscured_totp:
+                fail("Proton obscured recovery TOTP seed differs")
         environment = {
             "HOME": str(workspace),
             "LANG": "C.UTF-8",
@@ -201,6 +228,8 @@ def main() -> None:
             "RCLONE_CONFIG_PROTON_BACKUP_REPLACE_EXISTING_DRAFT": "true",
             "RCLONE_CONFIG_PROTON_BACKUP_ENABLE_CACHING": "false",
         }
+        if obscured_totp is not None:
+            environment["RCLONE_CONFIG_PROTON_BACKUP_OTP_SECRET_KEY"] = obscured_totp
         blocked_signals = {signal.SIGINT, signal.SIGTERM}
         signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
         try:

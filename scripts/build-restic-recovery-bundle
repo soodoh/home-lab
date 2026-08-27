@@ -4,13 +4,15 @@ import hashlib
 import io
 import json
 import os
-from pathlib import Path
 import re
 import secrets as secure_random
 import stat
 import subprocess
 import sys
 import tarfile
+from base64 import b32decode, b32encode
+from binascii import Error as Base32Error
+from pathlib import Path
 
 HEX = re.compile(r"^[0-9a-f]{64}$")
 RECIPIENT = re.compile(r"^age1[023456789acdefghjklmnpqrstuvwxyz]{20,100}$")
@@ -18,12 +20,24 @@ SECRET_KEYS = {
     "RECOVERY_BUNDLE_RESTIC_PASSWORD",
     "RECOVERY_BUNDLE_PROTON_USERNAME",
     "RECOVERY_BUNDLE_PROTON_LOGIN_PASSWORD",
+    "RECOVERY_BUNDLE_PROTON_TOTP_SECRET",
 }
-FORBIDDEN_FRAGMENTS = ("2FA", "CLIENT_", "MAILBOX", "OTP", "TOKEN")
+FORBIDDEN_FRAGMENTS = ("2FA", "CLIENT_", "MAILBOX", "TOKEN")
 
 
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def canonical_unpadded_base32(value: str) -> bool:
+    if "=" in value:
+        return False
+    padded = value + "=" * ((8 - len(value) % 8) % 8)
+    try:
+        decoded = b32decode(padded, casefold=False)
+    except (Base32Error, ValueError):
+        return False
+    return b32encode(decoded).decode("ascii").rstrip("=") == value
 
 
 def secure_source(path: Path, expected: str, executable: bool) -> bytes:
@@ -84,6 +98,9 @@ def main() -> None:
         raise ValueError("Proton recovery login password differs")
     if not secrets["RECOVERY_BUNDLE_PROTON_USERNAME"]:
         raise ValueError("Proton recovery username is absent")
+    totp_seed = secrets["RECOVERY_BUNDLE_PROTON_TOTP_SECRET"]
+    if totp_seed and (len(totp_seed) < 16 or not canonical_unpadded_base32(totp_seed)):
+        raise ValueError("Proton recovery TOTP seed differs")
 
     metadata_path = Path(arguments.metadata)
     metadata = json.loads(secure_source(metadata_path, digest(metadata_path.read_bytes()), False))
@@ -133,6 +150,8 @@ def main() -> None:
         "private/restic-password": (secrets["RECOVERY_BUNDLE_RESTIC_PASSWORD"].encode() + b"\n", 0o600),
         "README": (b"Decrypt only into private tmpfs on the reviewed disposable recovery VM.\n", 0o600),
     }
+    if totp_seed:
+        files["private/proton-totp-seed"] = (totp_seed.encode() + b"\n", 0o600)
     manifest = {
         name: {"mode": format(mode, "04o"), "sha256": digest(content), "size": len(content)}
         for name, (content, mode) in sorted(files.items())

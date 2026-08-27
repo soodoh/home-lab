@@ -1,0 +1,88 @@
+---
+- name: Prepare the guarded Proton TOTP transition boundary
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  vars:
+    apply_lock_action: acquire
+    apply_lock_operation: proton-totp-transition
+  pre_tasks:
+    - name: Require explicit TOTP preparation confirmation
+      ansible.builtin.assert:
+        that:
+          - proton_totp_prepare_confirmed | default(false) | bool
+          - proton_totp_prepare_confirmation | default('') == 'stop-restic-and-retain-proton-totp-lock'
+          - backups.restic.proton.authentication_mode == 'password-only'
+          - backups.restic.schedule.proton_independent_timer | bool == false
+        fail_msg: Proton TOTP preparation is not explicitly authorized or the pre-cutover contract differs.
+
+    - name: Acquire the exact Proton TOTP production lock
+      ansible.builtin.include_role:
+        name: apply_lock
+
+  tasks:
+    - name: Stop both shared Restic timers
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+      become: true
+      loop:
+        - "{{ backups.restic.runner.units.daily_timer }}"
+        - "{{ backups.restic.runner.units.maintenance_timer }}"
+      when: not ansible_check_mode
+
+    - name: Inspect all Restic units after preparation
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/systemctl
+          - is-active
+          - "{{ item }}"
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      loop:
+        - "{{ backups.restic.runner.units.daily_timer }}"
+        - "{{ backups.restic.runner.units.maintenance_timer }}"
+        - "{{ backups.restic.runner.units.daily_target }}"
+        - "{{ backups.restic.runner.units.maintenance_target }}"
+        - "{{ backups.restic.runner.units.daily_local }}"
+        - "{{ backups.restic.runner.units.daily_proton }}"
+        - "{{ backups.restic.runner.units.maintenance_local }}"
+        - "{{ backups.restic.runner.units.maintenance_proton }}"
+        - "{{ backups.restic.runner.units.interruption_recovery }}"
+      register: proton_totp_prepare_units
+
+    - name: Require all Restic units inactive before provider cutover
+      ansible.builtin.assert:
+        that:
+          - item.stdout | trim in ['inactive', 'failed']
+        fail_msg: "Restic unit {{ item.item }} is still active; the retained lock must not be released."
+      loop: "{{ proton_totp_prepare_units.results }}"
+
+    - name: Require no Restic or rclone process before provider cutover
+      ansible.builtin.shell:
+        cmd: >-
+          set -o pipefail;
+          ! /usr/bin/pgrep --exact restic >/dev/null &&
+          ! /usr/bin/pgrep --exact rclone >/dev/null
+        executable: /bin/bash
+      changed_when: false
+      check_mode: false
+
+    - name: Read retained TOTP lock owner without exposing it
+      ansible.builtin.slurp:
+        src: "{{ apply_lock_path }}/owner"
+      become: true
+      register: proton_totp_prepare_owner
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Report retained owner identity for the cutover transaction
+      ansible.builtin.debug:
+        msg: >-
+          proton_totp_prepare=ready owner_sha256={{ proton_totp_prepare_owner.content | b64decode | hash('sha256') }}
+          timers=stopped lock=retained
+      when: not ansible_check_mode

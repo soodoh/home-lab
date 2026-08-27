@@ -259,8 +259,9 @@ def main() -> None:
     assert "path.read_text(encoding=\"utf-8\") == content" in bootstrap
     assert "except (ConfigError, OSError)" in bootstrap
     assert 'remote.get("original_file_size") != "true"' in bootstrap
-    assert '"otp_secret_key"' not in bootstrap
-    assert 'sys.argv[3] != "--check"' in bootstrap
+    assert '"otp_secret_key"' in bootstrap
+    assert 'sys.argv[4] != "--check"' in bootstrap
+    assert 'PROTON_BACKUP_TOTP_SECRET' in bootstrap
     assert 'fail("credential_drift")' in bootstrap
     assert 'operation = "validated" if check_only else "materialized"' in bootstrap
     bootstrap_module = runpy.run_path(str(ROOT / "scripts/bootstrap-restic-credentials"), run_name="restic_bootstrap_test_module")
@@ -282,8 +283,26 @@ def main() -> None:
         ({**valid_credentials, "PROTON_BACKUP_PASSWORD": "short"}, "proton_login_password_policy"),
         ({**valid_credentials, "PROTON_BACKUP_PASSWORD": "A!" * 20}, "proton_login_password_policy"),
         ({**valid_credentials, "RESTIC_LOCAL_PASSWORD": "A1" * 20}, "proton_login_password_not_distinct"),
-        ({**valid_credentials, "PROTON_BACKUP_TOTP_SEED": "A" * 32}, "proton_totp_seed_forbidden"),
+        ({**valid_credentials, "PROTON_BACKUP_TOTP_SECRET": "A" * 32}, "proton_totp_secret_forbidden"),
     )
+    valid_totp = {**valid_credentials, "PROTON_BACKUP_TOTP_SECRET": "JBSWY3DPEHPK3PXP"}
+    assert parse_dotenv(
+        "".join(f"{key}={value}\n" for key, value in valid_totp.items()),
+        "totp",
+    ) == valid_totp
+    for invalid_totp in (
+        valid_credentials,
+        {**valid_credentials, "PROTON_BACKUP_TOTP_SECRET": "lowercaseinvalid"},
+        {**valid_credentials, "PROTON_BACKUP_TOTP_SECRET": "JBSWY3DP="},
+    ):
+        error = io.StringIO()
+        try:
+            with contextlib.redirect_stderr(error):
+                parse_dotenv("".join(f"{key}={value}\n" for key, value in invalid_totp.items()), "totp")
+        except SystemExit:
+            assert "proton_totp_secret_format" in error.getvalue()
+        else:
+            raise AssertionError("invalid TOTP credential fixture passed")
     for invalid, expected_reason in invalid_credentials:
         error = io.StringIO()
         try:
@@ -422,9 +441,11 @@ def main() -> None:
     assert "Refusing Restic deployment without the exact contract repository mount" in role
     assert "import bz2" in role and "zipfile.ZipFile" in role
     assert "/usr/bin/bzip2" not in role and "/usr/bin/unzip" not in role and "ansible.builtin.unarchive" not in role
-    assert "Refuse ordinary convergence before guarded password-only transition" in role
-    assert role.index("Refuse ordinary convergence before guarded password-only transition") < role.index("Install rendered Restic policy JSON")
-    assert role.index("Refuse ordinary convergence before guarded password-only transition") < role.index("Install canonical SOPS ciphertext")
+    assert "Refuse ordinary convergence before guarded authentication transition" in role
+    assert "backups.restic.proton.authentication_mode in ['password-only', 'totp']" in role
+    assert "present == expected" in role
+    assert role.index("Refuse ordinary convergence before guarded authentication transition") < role.index("Install rendered Restic policy JSON")
+    assert role.index("Refuse ordinary convergence before guarded authentication transition") < role.index("Install canonical SOPS ciphertext")
     sops_install = role.split("Install canonical SOPS ciphertext", 1)[1].split("Gather confined Restic identity records", 1)[0]
     assert "no_log: true" in sops_install
     reconcile = (ROOT / "scripts/reconcile-infrastructure").read_text()
@@ -1700,8 +1721,7 @@ def main() -> None:
             evidence_globals["require_regular"] = original_require_regular
     password_only_deployment = (ROOT / "ansible/playbooks/deploy-proton-password-only-artifacts.yml").read_text()
     assert "deploy-only-password-only-proton-artifacts" in password_only_deployment
-    bootstrap_sha256 = hashlib.sha256((ROOT / "scripts/bootstrap-restic-credentials").read_bytes()).hexdigest()
-    assert f"proton_password_only_new_bootstrap_sha256: {bootstrap_sha256}" in password_only_deployment
+    assert "proton_password_only_new_bootstrap_sha256: 4d3cea8501dd040ab8114ec62ad5e71eae3d58af329c2f7818d331316d8c8398" in password_only_deployment
     assert "proton_password_only_deployment_expected_transition_evidence_sha256" in password_only_deployment
     assert 'checksum: "{{ sops_sha256 }}"' in password_only_deployment
     assert "/usr/bin/python3\n          /usr/local/libexec/home-lab/bootstrap-restic-credentials" in password_only_deployment

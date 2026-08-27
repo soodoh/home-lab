@@ -35,6 +35,17 @@ if (validateProxmoxHostPolicy(contract).length) {
   throw new Error(`current Proxmox host policy failed semantics: ${JSON.stringify(validateProxmoxHostPolicy(contract))}`);
 }
 
+const totpWithoutCredentialRef = structuredClone(contract);
+delete totpWithoutCredentialRef.backups.restic.credential_refs.proton_totp_secret;
+check(totpWithoutCredentialRef, false, "TOTP mode rejects an absent credential ref");
+const passwordOnlyContract = structuredClone(contract);
+passwordOnlyContract.backups.restic.proton.authentication_mode = "password-only";
+delete passwordOnlyContract.backups.restic.credential_refs.proton_totp_secret;
+check(passwordOnlyContract, true, "password-only mode omits the TOTP credential ref");
+const passwordOnlyWithTotpCredentialRef = structuredClone(passwordOnlyContract);
+passwordOnlyWithTotpCredentialRef.backups.restic.credential_refs.proton_totp_secret = "PROTON_BACKUP_TOTP_SECRET";
+check(passwordOnlyWithTotpCredentialRef, false, "password-only mode rejects a TOTP credential ref");
+
 const invalidQuiescedWithoutRetentionHold = structuredClone(contract);
 invalidQuiescedWithoutRetentionHold.backups.legacy_offen.scheduler_state = "quiesced";
 invalidQuiescedWithoutRetentionHold.backups.legacy_offen.migration_retention_hold = {

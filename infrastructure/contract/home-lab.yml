@@ -1456,7 +1456,7 @@ backups:
       read_data_subsets: 12
     proton:
       backend_status: beta-unpublished-api
-      authentication_mode: password-only
+      authentication_mode: totp
       exclusive_client: true
       replace_existing_draft: true
       enable_caching: true
@@ -1561,6 +1561,7 @@ backups:
       proton_username: PROTON_BACKUP_USERNAME
       proton_login_password: PROTON_BACKUP_PASSWORD
       proton_mailbox_password: PROTON_BACKUP_MAILBOX_PASSWORD
+      proton_totp_secret: PROTON_BACKUP_TOTP_SECRET
     stop_groups:
       applications:
         - nextcloud-cron

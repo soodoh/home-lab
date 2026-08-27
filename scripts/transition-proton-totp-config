@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""Atomically add Proton TOTP authentication without making provider requests."""
+
+import fcntl
+import hashlib
+import hmac
+import io
+import json
+import os
+import pwd
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+from base64 import b32decode, b32encode
+from binascii import Error as Base32Error
+from collections.abc import Callable
+from configparser import ConfigParser
+from configparser import Error as ConfigError
+from pathlib import Path
+
+CACHE_FIELDS = {
+    "client_uid",
+    "client_access_token",
+    "client_refresh_token",
+    "client_salted_key_pass",
+}
+STATIC_FIELDS = {
+    "type",
+    "username",
+    "password",
+    "replace_existing_draft",
+    "enable_caching",
+    "original_file_size",
+}
+OPTIONAL_FIELDS = {"mailbox_password"}
+TOTP_FIELD = "otp_secret_key"
+HEX = re.compile(r"^[0-9a-f]{64}$")
+TIMERS_AND_SERVICES = (
+    "home-lab-restic-daily.timer",
+    "home-lab-restic-maintenance.timer",
+    "home-lab-restic-daily.target",
+    "home-lab-restic-maintenance.target",
+    "home-lab-restic-daily-local.service",
+    "home-lab-restic-daily-proton.service",
+    "home-lab-restic-maintenance-local.service",
+    "home-lab-restic-maintenance-proton.service",
+    "home-lab-restic-recover.service",
+)
+
+
+def fail(reason: str) -> None:
+    print(f"proton_totp_transition=failed reason={reason}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def canonical(value: object) -> bytes:
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def secret_binding(secret: str, transaction: str) -> str:
+    return hmac.new(bytes.fromhex(transaction), secret.encode(), hashlib.sha256).hexdigest()
+
+
+def canonical_unpadded_base32(value: str) -> bool:
+    if "=" in value:
+        return False
+    padded = value + "=" * ((8 - len(value) % 8) % 8)
+    try:
+        decoded = b32decode(padded, casefold=False)
+    except (Base32Error, ValueError):
+        return False
+    return b32encode(decoded).decode("ascii").rstrip("=") == value
+
+
+def parse_secret(raw: str) -> str:
+    found: list[str] = []
+    for line in raw.splitlines():
+        if not line or line.lstrip().startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        if key != "PROTON_BACKUP_TOTP_SECRET":
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        found.append(value)
+    if len(found) != 1 or len(found[0]) < 16 or not canonical_unpadded_base32(found[0]):
+        fail("totp_secret_format")
+    return found[0]
+
+
+def require_regular(path: Path, uid: int, gid: int, mode: int) -> os.stat_result:
+    try:
+        metadata = path.lstat()
+    except OSError:
+        fail("protected_file_absent")
+    if (
+        path.is_symlink()
+        or not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_nlink != 1
+        or metadata.st_uid != uid
+        or metadata.st_gid != gid
+        or stat.S_IMODE(metadata.st_mode) != mode
+    ):
+        fail("protected_file_metadata")
+    return metadata
+
+
+def parser_from_bytes(content: bytes) -> ConfigParser:
+    parser = ConfigParser(interpolation=None)
+    try:
+        parser.read_file(io.StringIO(content.decode("utf-8")))
+    except (UnicodeDecodeError, ConfigError):
+        fail("rclone_config_invalid")
+    if parser.sections() != ["proton-backup"]:
+        fail("rclone_config_identity")
+    return parser
+
+
+def config_bytes(parser: ConfigParser) -> bytes:
+    stream = io.StringIO()
+    parser.write(stream, space_around_delimiters=True)
+    return stream.getvalue().encode("utf-8")
+
+
+def validate_remote(remote: ConfigParser, *, totp_required: bool) -> None:
+    fields = set(remote["proton-backup"])
+    cache = fields & CACHE_FIELDS
+    if cache and cache != CACHE_FIELDS:
+        fail("partial_client_cache")
+    expected = STATIC_FIELDS | OPTIONAL_FIELDS | CACHE_FIELDS | {TOTP_FIELD}
+    if not fields <= expected or not STATIC_FIELDS <= fields:
+        fail("rclone_config_fields")
+    if remote["proton-backup"].get("type") != "protondrive":
+        fail("rclone_config_identity")
+    if remote["proton-backup"].get("replace_existing_draft") != "true":
+        fail("rclone_config_identity")
+    if remote["proton-backup"].get("enable_caching") != "true":
+        fail("rclone_config_identity")
+    if remote["proton-backup"].get("original_file_size") != "true":
+        fail("rclone_config_identity")
+    if not remote["proton-backup"].get("username") or not remote["proton-backup"].get("password"):
+        fail("rclone_config_identity")
+    if bool(remote["proton-backup"].get(TOTP_FIELD)) != totp_required:
+        fail("rclone_authentication_mode")
+
+
+def atomic_write(path: Path, content: bytes, uid: int, gid: int, mode: int) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, mode)
+        os.fchown(descriptor, uid, gid)
+        with os.fdopen(descriptor, "wb", closefd=False) as stream:
+            if stream.write(content) != len(content):
+                fail("atomic_write")
+            stream.flush()
+            os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+
+
+def transition_config(
+    config_path: Path,
+    evidence_path: Path,
+    secret: str,
+    transaction: str,
+    uid: int,
+    gid: int,
+    obscure: Callable[[str], str],
+) -> dict[str, object]:
+    require_regular(config_path, uid, gid, 0o600)
+    prior_content = config_path.read_bytes()
+    parser = parser_from_bytes(prior_content)
+    fields = set(parser["proton-backup"])
+    resuming = evidence_path.exists()
+    marker: dict[str, object] | None = None
+    if resuming:
+        require_regular(evidence_path, 0, 0, 0o600)
+        try:
+            marker = json.loads(evidence_path.read_bytes())
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+            fail("transition_evidence_invalid")
+        if not isinstance(marker, dict) or marker.get("version") != 1 or marker.get("transaction_sha256") != transaction:
+            fail("transition_evidence_invalid")
+        if marker.get("state") == "completed":
+            if set(marker) != {
+                "version", "state", "transaction_sha256", "prior_config_sha256", "config_sha256",
+                "totp_secret_binding_sha256", "username_sha256", "provider_requests",
+            }:
+                fail("transition_evidence_invalid")
+            validate_remote(parser, totp_required=True)
+            if (
+                fields & CACHE_FIELDS
+                or marker.get("provider_requests") != 0
+                or marker.get("config_sha256") != digest(prior_content)
+                or marker.get("totp_secret_binding_sha256") != secret_binding(secret, transaction)
+                or marker.get("username_sha256") != digest(parser["proton-backup"]["username"].encode())
+            ):
+                fail("transition_evidence_invalid")
+            return marker
+        if (
+            marker.get("state") != "started"
+            or set(marker) != {"version", "state", "transaction_sha256", "prior_config_sha256", "totp_secret_binding_sha256", "username_sha256"}
+        ):
+            fail("transition_evidence_invalid")
+    if TOTP_FIELD in fields:
+        validate_remote(parser, totp_required=True)
+        if fields & CACHE_FIELDS:
+            fail("totp_cache_present")
+        if marker is None or marker.get("totp_secret_binding_sha256") != secret_binding(secret, transaction):
+            fail("totp_secret_mismatch")
+        prior_sha = str(marker["prior_config_sha256"])
+    else:
+        validate_remote(parser, totp_required=False)
+        prior_sha = digest(prior_content)
+        username_sha = digest(parser["proton-backup"]["username"].encode())
+        expected_marker = {
+            "prior_config_sha256": prior_sha,
+            "state": "started",
+            "transaction_sha256": transaction,
+            "totp_secret_binding_sha256": secret_binding(secret, transaction),
+            "username_sha256": username_sha,
+            "version": 1,
+        }
+        if marker is not None and marker != expected_marker:
+            fail("transition_evidence_invalid")
+        if marker is None:
+            atomic_write(evidence_path, canonical(expected_marker), 0, 0, 0o600)
+        obscured = obscure(secret)
+        if not obscured or "\n" in obscured:
+            fail("totp_secret_obscure")
+        for key in CACHE_FIELDS:
+            parser["proton-backup"].pop(key, None)
+        parser["proton-backup"][TOTP_FIELD] = obscured
+        atomic_write(config_path, config_bytes(parser), uid, gid, 0o600)
+        parser = parser_from_bytes(config_path.read_bytes())
+        validate_remote(parser, totp_required=True)
+        if set(parser["proton-backup"]) & CACHE_FIELDS:
+            fail("totp_cache_present")
+    final_content = config_path.read_bytes()
+    final = {
+        "config_sha256": digest(final_content),
+        "prior_config_sha256": prior_sha,
+        "provider_requests": 0,
+        "state": "completed",
+        "transaction_sha256": transaction,
+        "totp_secret_binding_sha256": secret_binding(secret, transaction),
+        "username_sha256": digest(parser["proton-backup"]["username"].encode()),
+        "version": 1,
+    }
+    atomic_write(evidence_path, canonical(final), 0, 0, 0o600)
+    return final
+
+
+def rclone_secret(arguments: list[str], value: str) -> str:
+    result = subprocess.run(
+        ["/usr/local/bin/rclone", *arguments, "-"],
+        input=value + "\n",
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        env={"HOME": "/var/lib/restic-proton", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/bin:/bin"},
+        check=False,
+    )
+    if result.returncode != 0:
+        fail("rclone_secret_transform")
+    return result.stdout.strip()
+
+
+def require_quiesced() -> None:
+    for unit in TIMERS_AND_SERVICES:
+        result = subprocess.run(["/usr/bin/systemctl", "is-active", unit], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=False)
+        if result.stdout.strip() not in {"inactive", "failed"}:
+            fail("restic_units_active")
+    for process in ("restic", "rclone"):
+        if subprocess.run(["/usr/bin/pgrep", "-x", process], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode == 0:
+            fail("backup_process_active")
+
+
+def main() -> None:
+    if os.geteuid() != 0 or len(sys.argv) != 2 or not HEX.fullmatch(sys.argv[1]):
+        fail("usage")
+    transaction = sys.argv[1]
+    lock_directory = Path("/var/lib/iac-ansible-production.lock")
+    lock_metadata = lock_directory.lstat()
+    if (
+        lock_directory.is_symlink()
+        or not stat.S_ISDIR(lock_metadata.st_mode)
+        or lock_metadata.st_uid != 0
+        or lock_metadata.st_gid != 0
+        or stat.S_IMODE(lock_metadata.st_mode) != 0o700
+        or len(list(lock_directory.iterdir())) != 1
+    ):
+        fail("apply_lock_metadata")
+    lock_owner_path = lock_directory / "owner"
+    require_regular(lock_owner_path, 0, 0, 0o600)
+    owner = lock_owner_path.read_bytes()
+    if digest(owner) != transaction:
+        fail("apply_lock_owner")
+    service = pwd.getpwnam("restic-proton")
+    config_path = Path("/var/lib/restic-proton/rclone.conf")
+    evidence_parent = Path("/var/lib/home-lab-restic")
+    evidence_path = evidence_parent / f"proton-totp-transition-{transaction}.json"
+    parent_metadata = evidence_parent.lstat()
+    if not stat.S_ISDIR(parent_metadata.st_mode) or parent_metadata.st_uid != 0 or parent_metadata.st_gid != service.pw_gid or stat.S_IMODE(parent_metadata.st_mode) != 0o750:
+        fail("evidence_parent_metadata")
+    require_quiesced()
+    secret = parse_secret(sys.stdin.read())
+    mutex_path = Path("/run/lock/home-lab-backup.lock")
+    require_regular(mutex_path, 0, service.pw_gid, 0o660)
+    with mutex_path.open("r+b", buffering=0) as mutex:
+        try:
+            fcntl.flock(mutex, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            fail("backup_mutex_busy")
+        final = transition_config(
+            config_path,
+            evidence_path,
+            secret,
+            transaction,
+            service.pw_uid,
+            service.pw_gid,
+            lambda value: rclone_secret(["obscure"], value),
+        )
+        if digest(lock_owner_path.read_bytes()) != transaction:
+            fail("apply_lock_owner_drift")
+    print(f"proton_totp_transition=passed evidence_sha256={digest(canonical(final))}")
+
+
+if __name__ == "__main__":
+    main()

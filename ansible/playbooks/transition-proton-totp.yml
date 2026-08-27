@@ -1,0 +1,212 @@
+---
+- name: Atomically activate local Proton TOTP configuration
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  vars:
+    apply_lock_action: adopt
+    apply_lock_operation: proton-totp-transition
+    apply_lock_expected_owner_sha256: "{{ proton_totp_expected_owner_sha256 | default('') }}"
+    proton_totp_transition_script: "{{ playbook_dir }}/../../scripts/transition-proton-totp-config"
+    proton_totp_transition_script_sha256: "{{ lookup('file', proton_totp_transition_script, rstrip=false) | hash('sha256') }}"
+    proton_totp_transition_remote: "/run/proton-totp-transition-{{ proton_totp_expected_owner_sha256 | default('invalid') }}"
+    proton_totp_ciphertext_remote: "/run/proton-totp-secrets-{{ proton_totp_expected_owner_sha256 | default('invalid') }}.sops.env"
+    proton_totp_candidate_ciphertext_sha256: >-
+      {{ lookup('file', restic_sops_ciphertext_source, rstrip=false) | hash('sha256') }}
+  pre_tasks:
+    - name: Require exact TOTP transition authorization
+      ansible.builtin.assert:
+        that:
+          - proton_totp_transition_confirmed | default(false) | bool
+          - proton_totp_transition_confirmation | default('') == 'add-proton-totp-and-invalidate-exact-client-cache'
+          - proton_totp_expected_owner_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - proton_totp_expected_script_sha256 | default('') == proton_totp_transition_script_sha256
+          - proton_totp_expected_ciphertext_sha256 | default('') == proton_totp_candidate_ciphertext_sha256
+          - backups.restic.proton.authentication_mode == 'totp'
+          - backups.restic.credential_refs.proton_totp_secret == 'PROTON_BACKUP_TOTP_SECRET'
+          - backups.restic.schedule.proton_independent_timer | bool == false
+        fail_msg: Proton TOTP transition is not exactly authorized or the candidate contract differs.
+
+    - name: Adopt only the exact retained Proton TOTP production lock
+      ansible.builtin.include_role:
+        name: apply_lock
+
+  tasks:
+    - name: Require synchronized host time before future TOTP authentication
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/timedatectl
+          - show
+          - --property=NTPSynchronized
+          - --value
+      changed_when: false
+      check_mode: false
+      register: proton_totp_ntp
+
+    - name: Require the host clock to be synchronized
+      ansible.builtin.assert:
+        that:
+          - proton_totp_ntp.stdout | trim == 'yes'
+        fail_msg: Host time is not synchronized; retain the lock and do not attempt TOTP authentication.
+
+    - name: Inspect all Restic units before local TOTP activation
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/systemctl
+          - is-active
+          - "{{ item }}"
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      loop:
+        - "{{ backups.restic.runner.units.daily_timer }}"
+        - "{{ backups.restic.runner.units.maintenance_timer }}"
+        - "{{ backups.restic.runner.units.daily_target }}"
+        - "{{ backups.restic.runner.units.maintenance_target }}"
+        - "{{ backups.restic.runner.units.daily_local }}"
+        - "{{ backups.restic.runner.units.daily_proton }}"
+        - "{{ backups.restic.runner.units.maintenance_local }}"
+        - "{{ backups.restic.runner.units.maintenance_proton }}"
+        - "{{ backups.restic.runner.units.interruption_recovery }}"
+      register: proton_totp_transition_units
+
+    - name: Require all Restic units inactive before local TOTP activation
+      ansible.builtin.assert:
+        that:
+          - item.stdout | trim in ['inactive', 'failed']
+        fail_msg: "Restic unit {{ item.item }} is active; retain the production lock."
+      loop: "{{ proton_totp_transition_units.results }}"
+
+    - name: Inspect pinned rclone binary
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: true
+        checksum_algorithm: sha256
+        get_mime: false
+      loop:
+        - { name: rclone, path: /usr/local/bin/rclone, owner: root, group: root, mode: '0755', checksum: "{{ backups.restic.tools.rclone.installed_sha256 }}" }
+      become: true
+      register: proton_totp_transition_prerequisites
+      no_log: true
+
+    - name: Require exact protected TOTP transition prerequisites
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.nlink == 1
+          - item.stat.pw_name == item.item.owner
+          - item.stat.gr_name == item.item.group
+          - item.stat.mode == item.item.mode
+          - item.item.checksum is not defined or item.stat.checksum == item.item.checksum
+        fail_msg: "Protected TOTP prerequisite {{ item.item.name }} differs."
+      loop: "{{ proton_totp_transition_prerequisites.results }}"
+      no_log: true
+
+    - name: Report exact local-only TOTP transition in check mode
+      ansible.builtin.debug:
+        msg: >-
+          Would stage helper sha256={{ proton_totp_transition_script_sha256 }}, decrypt the canonical SOPS
+          ciphertext only into helper stdin, acquire the backup mutex, atomically add only otp_secret_key,
+          remove either all four client cache fields or none, write redacted resumable evidence, make zero
+          provider requests, and retain both stopped timers and the production lock.
+      changed_when: true
+      when: ansible_check_mode
+
+    - name: Stage and execute the local-only TOTP transition
+      when: not ansible_check_mode
+      block:
+        - name: Stage exact root-only candidate SOPS ciphertext
+          ansible.builtin.copy:
+            src: "{{ restic_sops_ciphertext_source }}"
+            dest: "{{ proton_totp_ciphertext_remote }}"
+            owner: root
+            group: root
+            mode: "0600"
+          become: true
+          no_log: true
+
+        - name: Stage exact root-only TOTP transition helper
+          ansible.builtin.copy:
+            src: "{{ proton_totp_transition_script }}"
+            dest: "{{ proton_totp_transition_remote }}"
+            owner: root
+            group: root
+            mode: "0700"
+          become: true
+          no_log: true
+
+        - name: Verify staged TOTP transition inputs
+          ansible.builtin.stat:
+            path: "{{ item }}"
+            follow: false
+            get_checksum: true
+            checksum_algorithm: sha256
+            get_mime: false
+          become: true
+          loop:
+            - "{{ proton_totp_transition_remote }}"
+            - "{{ proton_totp_ciphertext_remote }}"
+          register: proton_totp_staged_inputs
+          no_log: true
+
+        - name: Require exact staged candidate SOPS ciphertext
+          ansible.builtin.assert:
+            that:
+              - proton_totp_staged_inputs.results[1].stat.isreg | default(false)
+              - not (proton_totp_staged_inputs.results[1].stat.islnk | default(false))
+              - proton_totp_staged_inputs.results[1].stat.nlink == 1
+              - proton_totp_staged_inputs.results[1].stat.pw_name == 'root'
+              - proton_totp_staged_inputs.results[1].stat.gr_name == 'root'
+              - proton_totp_staged_inputs.results[1].stat.mode == '0600'
+              - proton_totp_staged_inputs.results[1].stat.checksum == proton_totp_expected_ciphertext_sha256
+            fail_msg: Staged candidate SOPS ciphertext differs from the reviewed input.
+          no_log: true
+
+        - name: Require exact staged TOTP transition helper
+          ansible.builtin.assert:
+            that:
+              - proton_totp_staged_inputs.results[0].stat.isreg | default(false)
+              - not (proton_totp_staged_inputs.results[0].stat.islnk | default(false))
+              - proton_totp_staged_inputs.results[0].stat.nlink == 1
+              - proton_totp_staged_inputs.results[0].stat.pw_name == 'root'
+              - proton_totp_staged_inputs.results[0].stat.gr_name == 'root'
+              - proton_totp_staged_inputs.results[0].stat.mode == '0700'
+              - proton_totp_staged_inputs.results[0].stat.checksum == proton_totp_expected_script_sha256
+            fail_msg: Staged TOTP transition helper differs from the reviewed candidate.
+          no_log: true
+
+        - name: Add TOTP and atomically invalidate the complete client cache
+          ansible.builtin.shell:
+            cmd: >-
+              set -o pipefail &&
+              SOPS_AGE_KEY_FILE={{ compose_age_identity_path | quote }} /usr/local/bin/sops --decrypt
+              {{ proton_totp_ciphertext_remote | quote }} |
+              /usr/bin/python3 {{ proton_totp_transition_remote | quote }}
+              {{ proton_totp_expected_owner_sha256 | quote }}
+            executable: /bin/bash
+          become: true
+          register: proton_totp_transition_run
+          changed_when: true
+          no_log: true
+      always:
+        - name: Remove only the ephemeral TOTP transition inputs
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          become: true
+          loop:
+            - "{{ proton_totp_transition_remote }}"
+            - "{{ proton_totp_ciphertext_remote }}"
+          no_log: true
+
+    - name: Report completed redacted local TOTP transition
+      ansible.builtin.debug:
+        msg: >-
+          proton_totp_transition=local-complete evidence=/var/lib/home-lab-restic/proton-totp-transition-{{ proton_totp_expected_owner_sha256 }}.json
+          provider_requests=0 timers=stopped lock=retained
+      when: not ansible_check_mode

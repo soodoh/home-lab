@@ -484,30 +484,33 @@
     fail_msg: restic-proton unexpectedly has supplementary group access.
   when: not ansible_check_mode
 
-- name: Inspect installed rclone config before password-only seam updates
+- name: Require a supported Proton authentication mode
+  ansible.builtin.assert:
+    that:
+      - backups.restic.proton.authentication_mode in ['password-only', 'totp']
+    fail_msg: Proton authentication mode is unsupported.
+
+- name: Inspect installed rclone config before authentication seam updates
   ansible.builtin.stat:
     path: /var/lib/restic-proton/rclone.conf
     follow: false
     get_checksum: false
     get_mime: false
-  register: restic_backup_password_only_config
-  when: backups.restic.proton.authentication_mode | default('') == 'password-only'
+  register: restic_backup_auth_config
 
-- name: Require protected installed rclone config before password-only seam updates
+- name: Require protected installed rclone config before authentication seam updates
   ansible.builtin.assert:
     that:
-      - restic_backup_password_only_config.stat.isreg | default(false)
-      - not (restic_backup_password_only_config.stat.islnk | default(false))
-      - restic_backup_password_only_config.stat.nlink == 1
-      - restic_backup_password_only_config.stat.pw_name == 'restic-proton'
-      - restic_backup_password_only_config.stat.gr_name == 'restic-proton'
-      - restic_backup_password_only_config.stat.mode == '0600'
-    fail_msg: Existing rclone config is not protected before the password-only seam guard.
-  when:
-    - backups.restic.proton.authentication_mode | default('') == 'password-only'
-    - restic_backup_password_only_config.stat.exists | default(false)
+      - restic_backup_auth_config.stat.isreg | default(false)
+      - not (restic_backup_auth_config.stat.islnk | default(false))
+      - restic_backup_auth_config.stat.nlink == 1
+      - restic_backup_auth_config.stat.pw_name == 'restic-proton'
+      - restic_backup_auth_config.stat.gr_name == 'restic-proton'
+      - restic_backup_auth_config.stat.mode == '0600'
+    fail_msg: Existing rclone config is not protected before the authentication seam guard.
+  when: restic_backup_auth_config.stat.exists | default(false)
 
-- name: Inspect only installed rclone field names before password-only seam updates
+- name: Inspect only installed rclone authentication field names
   ansible.builtin.command:
     argv:
       - /usr/bin/python3
@@ -525,27 +528,25 @@
             raise SystemExit(1)
         if parser.sections() != ["proton-backup"]:
             raise SystemExit(1)
-        state = "transition-required" if "otp_secret_key" in parser["proton-backup"] else "ready"
-        print(f"password_only_config={state}")
+        present = "otp_secret_key" in parser["proton-backup"]
+        expected = sys.argv[2] == "totp"
+        print(f"proton_auth_config={'ready' if present == expected else 'transition-required'}")
       - /var/lib/restic-proton/rclone.conf
-  register: restic_backup_password_only_config_fields
+      - "{{ backups.restic.proton.authentication_mode }}"
+  register: restic_backup_auth_config_fields
   changed_when: false
   check_mode: false
   no_log: true
-  when:
-    - backups.restic.proton.authentication_mode | default('') == 'password-only'
-    - restic_backup_password_only_config.stat.exists | default(false)
+  when: restic_backup_auth_config.stat.exists | default(false)
 
-- name: Refuse ordinary convergence before guarded password-only transition
+- name: Refuse ordinary convergence before guarded authentication transition
   ansible.builtin.assert:
     that:
-      - restic_backup_password_only_config_fields.stdout == 'password_only_config=ready'
+      - restic_backup_auth_config_fields.stdout == 'proton_auth_config=ready'
     fail_msg: >-
-      The protected rclone config still contains the legacy TOTP field. Run the separately reviewed
-      transition-proton-password-only.yml transaction before ordinary Restic convergence.
-  when:
-    - backups.restic.proton.authentication_mode | default('') == 'password-only'
-    - restic_backup_password_only_config.stat.exists | default(false)
+      The protected rclone config does not match the declared authentication mode. Run the separately
+      reviewed Proton authentication transition before ordinary Restic convergence.
+  when: restic_backup_auth_config.stat.exists | default(false)
 
 - name: Install generated Restic inputs
   ansible.builtin.copy:
@@ -641,6 +642,7 @@
       /usr/local/libexec/home-lab/bootstrap-restic-credentials
       {{ ansible_facts.getent_passwd['restic-proton'][1] | quote }}
       {{ ansible_facts.getent_group['restic-proton'][1] | quote }}
+      {{ backups.restic.proton.authentication_mode | quote }}
     executable: /bin/bash
   changed_when: "'state=changed' in restic_backup_credentials.stdout"
   register: restic_backup_credentials
