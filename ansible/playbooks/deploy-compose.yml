@@ -7,12 +7,13 @@
     - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
     - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   pre_tasks:
-    - name: Acquire the host-side production apply lock
+    - name: Acquire or adopt the exact host-side production apply lock
       ansible.builtin.import_role:
         name: apply_lock
       vars:
-        apply_lock_action: acquire
+        apply_lock_action: "{{ 'adopt' if compose_deploy_resume | default(false) | bool else 'acquire' }}"
         apply_lock_operation: compose-deploy
+        apply_lock_expected_owner_sha256: "{{ compose_deploy_expected_owner_sha256 | default('') }}"
   roles:
     - role: compose_deploy
   post_tasks:
@@ -26,3 +27,4 @@
       vars:
         apply_lock_action: release
         apply_lock_operation: compose-deploy
+        apply_lock_expected_owner_sha256: "{{ compose_deploy_expected_owner_sha256 | default('') }}"

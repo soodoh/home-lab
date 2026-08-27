@@ -202,6 +202,13 @@
       }}
   no_log: true
 
+- name: Restrict Compose deployment resume to the exact interrupted Calibre transaction
+  ansible.builtin.assert:
+    that:
+      - not (compose_deploy_resume | default(false) | bool) or compose_deploy_calibre_local_rollback_resume
+    fail_msg: "Compose deployment resume is valid only for the exact interrupted Calibre rollback state."
+  no_log: true
+
 - name: Identify the exact reviewed Calibre local rollback lane
   ansible.builtin.set_fact:
     compose_deploy_calibre_local_rollback: >-

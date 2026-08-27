@@ -1808,6 +1808,7 @@ def main() -> None:
     assert "Require no interrupted backup before scheduling convergence" not in restic_role_tasks
 
     compose_deploy = (ROOT / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
+    compose_deploy_playbook = (ROOT / "ansible/playbooks/deploy-compose.yml").read_text()
     compose_rollback = (ROOT / "ansible/roles/compose_rollback/tasks/main.yml").read_text()
     assert "current-artifact.sha256" in compose_deploy
     retired_offen_tooling = [
@@ -1865,6 +1866,9 @@ def main() -> None:
     assert "Stop Restic timers during Calibre authority reconciliation" in compose_deploy
     assert "Install reconciled Restic source policy files" in compose_deploy
     assert "Verify installed reconciled Restic policy semantics" in compose_deploy
+    assert "'adopt' if compose_deploy_resume" in compose_deploy_playbook
+    assert "compose_deploy_expected_owner_sha256" in compose_deploy_playbook
+    assert "Restrict Compose deployment resume to the exact interrupted Calibre transaction" in compose_deploy
     assert "compose_deploy_dependency_args" not in compose_deploy
     assert "current-artifact.sha256" in compose_rollback
 
