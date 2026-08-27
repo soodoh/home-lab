@@ -8,18 +8,10 @@ locals {
     network            = { id = "", name = "", vlan_id = 1, gateway_subnet = "", dhcp_enabled = false, dhcp_start = "", dhcp_end = "" }
     reservations       = []
   }
-  exported_reservations = {
+  reservations = var.omada_enable_management ? {
     for reservation in local.export.reservations : lower(replace(reservation.mac, "-", ":")) => reservation
     if lower(replace(reservation.mac, "-", ":")) != local.legacy_gateway_mac
-  }
-  reservation_config = var.omada_enable_management ? jsondecode(file(var.omada_reservation_config_path)) : {
-    requested_reservations = []
-  }
-  requested_reservations = {
-    for reservation in local.reservation_config.requested_reservations :
-    lower(replace(reservation.mac, "-", ":")) => reservation
-  }
-  reservations = var.omada_enable_management ? merge(local.exported_reservations, local.requested_reservations) : {}
+  } : {}
 }
 
 provider "omada" {
@@ -39,21 +31,6 @@ check "export_identity" {
       length(local.export.reservations) > 0
     )
     error_message = "The ignored Omada export is incomplete or does not match the contracted controller version."
-  }
-}
-
-
-check "reservation_config" {
-  assert {
-    condition = !var.omada_enable_management || (
-      length(local.requested_reservations) == length(local.reservation_config.requested_reservations) &&
-      alltrue([
-        for reservation in local.reservation_config.requested_reservations :
-        can(regex("^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$", reservation.mac)) &&
-        trimspace(reservation.ip) != "" && trimspace(reservation.name) != ""
-      ])
-    )
-    error_message = "The decrypted Omada reservation configuration must contain unique six-octet MAC addresses and non-empty IP addresses and names."
   }
 }
 
