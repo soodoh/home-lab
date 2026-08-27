@@ -13,6 +13,8 @@ The `infrastructure/tofu/authentik` root is an import-first root for the product
 
 The inventory found no other eligible custom flow, stage, policy, mapping, brand, certificate, source, or outpost. Authentik-managed and factory blueprint objects remain outside OpenTofu and are referenced by stable data-source names or IDs. `customBlueprints` is therefore empty; a blueprint must never overlap typed resources.
 
+Proxy provider property-mapping membership is intentionally observed in `desired.json` but omitted from the resource blocks. Authentik automatically injects those five factory mappings, and provider 2026.5.1 cannot import that computed membership without proposing a redundant update. No custom proxy mapping membership exists.
+
 OpenTofu owns Authentik API configuration only. Compose continues to own the server, worker, PostgreSQL, Redis, networks, mounts, and images. Users, groups, service accounts, roles, sessions, events, notifications, schedules, tokens, WebAuthn devices, and other identity/runtime records remain database-owned.
 
 The root remains disabled by default until the backend authorization, provider identities, imports, and zero-change proof are complete.

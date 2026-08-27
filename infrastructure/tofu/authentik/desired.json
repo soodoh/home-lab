@@ -829,6 +829,7 @@
       "allowed_redirect_uris": [
         {
           "matching_mode": "strict",
+          "redirect_uri_type": "authorization",
           "url": "https://watch.diloreto.com/sso/OID/redirect/authentik"
         }
       ],
@@ -871,10 +872,12 @@
       "allowed_redirect_uris": [
         {
           "matching_mode": "strict",
+          "redirect_uri_type": "authorization",
           "url": "https://audiobookshelf.diloreto.com/auth/openid/callback"
         },
         {
           "matching_mode": "strict",
+          "redirect_uri_type": "authorization",
           "url": "https://audiobookshelf.diloreto.com/auth/openid/mobile-redirect"
         }
       ],
@@ -917,10 +920,12 @@
       "allowed_redirect_uris": [
         {
           "matching_mode": "strict",
+          "redirect_uri_type": "authorization",
           "url": "http://192.168.0.100:8123/auth/openid/callback"
         },
         {
           "matching_mode": "strict",
+          "redirect_uri_type": "authorization",
           "url": "https://hass.diloreto.com/auth/openid/callback"
         }
       ],
@@ -963,6 +968,7 @@
       "allowed_redirect_uris": [
         {
           "matching_mode": "strict",
+          "redirect_uri_type": "authorization",
           "url": "https://books.diloreto.com/login/generic/authorized"
         }
       ],
@@ -1005,6 +1011,7 @@
       "allowed_redirect_uris": [
         {
           "matching_mode": "strict",
+          "redirect_uri_type": "authorization",
           "url": "https://vaultwarden.diloreto.com/identity/connect/oidc-signin"
         }
       ],
@@ -1048,6 +1055,7 @@
       "allowed_redirect_uris": [
         {
           "matching_mode": "strict",
+          "redirect_uri_type": "authorization",
           "url": "https://todo.diloreto.com/auth/openid/authentik"
         }
       ],
@@ -1086,146 +1094,6 @@
     }
   },
   "proxyProviders": {
-    "2": {
-      "access_token_validity": "hours=24",
-      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
-      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
-      "basic_auth_enabled": false,
-      "basic_auth_password_attribute": "",
-      "basic_auth_user_attribute": "",
-      "cookie_domain": "",
-      "external_host": "https://frigate.diloreto.com",
-      "intercept_header_auth": true,
-      "internal_host": "http://frigate:5000",
-      "internal_host_ssl_validation": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "mode": "proxy",
-      "name": "Frigate",
-      "pk": 2,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
-        "8f00714d-dbb0-472a-9a78-8b755baa7915",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_validity": "days=30",
-      "skip_path_regex": ""
-    },
-    "3": {
-      "access_token_validity": "hours=24",
-      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
-      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
-      "basic_auth_enabled": false,
-      "basic_auth_password_attribute": "",
-      "basic_auth_user_attribute": "",
-      "cookie_domain": "",
-      "external_host": "https://readarr.diloreto.com",
-      "intercept_header_auth": true,
-      "internal_host": "http://gluetun:8787",
-      "internal_host_ssl_validation": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "mode": "proxy",
-      "name": "Readarr",
-      "pk": 3,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
-        "8f00714d-dbb0-472a-9a78-8b755baa7915",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_validity": "days=30",
-      "skip_path_regex": ""
-    },
-    "5": {
-      "access_token_validity": "hours=24",
-      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
-      "authorization_flow": "0fdc5d70-555d-4627-867e-9f0d6da9a3c0",
-      "basic_auth_enabled": false,
-      "basic_auth_password_attribute": "",
-      "basic_auth_user_attribute": "",
-      "cookie_domain": "",
-      "external_host": "https://comics.diloreto.com",
-      "intercept_header_auth": true,
-      "internal_host": "http://gluetun:4567",
-      "internal_host_ssl_validation": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "mode": "proxy",
-      "name": "Tachidesk",
-      "pk": 5,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
-        "8f00714d-dbb0-472a-9a78-8b755baa7915",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_validity": "days=30",
-      "skip_path_regex": ""
-    },
-    "7": {
-      "access_token_validity": "hours=24",
-      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
-      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
-      "basic_auth_enabled": false,
-      "basic_auth_password_attribute": "",
-      "basic_auth_user_attribute": "",
-      "cookie_domain": "",
-      "external_host": "https://sonarr.diloreto.com",
-      "intercept_header_auth": true,
-      "internal_host": "http://gluetun:8989",
-      "internal_host_ssl_validation": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "mode": "proxy",
-      "name": "Sonarr",
-      "pk": 7,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
-        "8f00714d-dbb0-472a-9a78-8b755baa7915",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_validity": "days=30",
-      "skip_path_regex": ""
-    },
-    "8": {
-      "access_token_validity": "hours=24",
-      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
-      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
-      "basic_auth_enabled": false,
-      "basic_auth_password_attribute": "",
-      "basic_auth_user_attribute": "",
-      "cookie_domain": "",
-      "external_host": "https://radarr-4k.diloreto.com/",
-      "intercept_header_auth": true,
-      "internal_host": "http://gluetun:7879",
-      "internal_host_ssl_validation": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "mode": "proxy",
-      "name": "Radarr 4k",
-      "pk": 8,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
-        "8f00714d-dbb0-472a-9a78-8b755baa7915",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_validity": "days=30",
-      "skip_path_regex": ""
-    },
     "11": {
       "access_token_validity": "hours=24",
       "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
@@ -1394,6 +1262,34 @@
       "refresh_token_validity": "days=30",
       "skip_path_regex": ""
     },
+    "2": {
+      "access_token_validity": "hours=24",
+      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
+      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
+      "basic_auth_enabled": false,
+      "basic_auth_password_attribute": "",
+      "basic_auth_user_attribute": "",
+      "cookie_domain": "",
+      "external_host": "https://frigate.diloreto.com",
+      "intercept_header_auth": true,
+      "internal_host": "http://frigate:5000",
+      "internal_host_ssl_validation": true,
+      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
+      "jwt_federation_providers": [],
+      "jwt_federation_sources": [],
+      "mode": "proxy",
+      "name": "Frigate",
+      "pk": 2,
+      "property_mappings": [
+        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
+        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
+        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
+        "8f00714d-dbb0-472a-9a78-8b755baa7915",
+        "f371dd37-1069-4154-823e-01efd372eb06"
+      ],
+      "refresh_token_validity": "days=30",
+      "skip_path_regex": ""
+    },
     "20": {
       "access_token_validity": "hours=24",
       "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
@@ -1496,6 +1392,34 @@
       "mode": "proxy",
       "name": "Karaoke Eternal",
       "pk": 29,
+      "property_mappings": [
+        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
+        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
+        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
+        "8f00714d-dbb0-472a-9a78-8b755baa7915",
+        "f371dd37-1069-4154-823e-01efd372eb06"
+      ],
+      "refresh_token_validity": "days=30",
+      "skip_path_regex": ""
+    },
+    "3": {
+      "access_token_validity": "hours=24",
+      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
+      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
+      "basic_auth_enabled": false,
+      "basic_auth_password_attribute": "",
+      "basic_auth_user_attribute": "",
+      "cookie_domain": "",
+      "external_host": "https://readarr.diloreto.com",
+      "intercept_header_auth": true,
+      "internal_host": "http://gluetun:8787",
+      "internal_host_ssl_validation": true,
+      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
+      "jwt_federation_providers": [],
+      "jwt_federation_sources": [],
+      "mode": "proxy",
+      "name": "Readarr",
+      "pk": 3,
       "property_mappings": [
         "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
         "e72b12d8-ef3e-4b73-b172-0df830d666d7",
@@ -1617,6 +1541,90 @@
       ],
       "refresh_token_validity": "days=30",
       "skip_path_regex": ""
+    },
+    "5": {
+      "access_token_validity": "hours=24",
+      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
+      "authorization_flow": "0fdc5d70-555d-4627-867e-9f0d6da9a3c0",
+      "basic_auth_enabled": false,
+      "basic_auth_password_attribute": "",
+      "basic_auth_user_attribute": "",
+      "cookie_domain": "",
+      "external_host": "https://comics.diloreto.com",
+      "intercept_header_auth": true,
+      "internal_host": "http://gluetun:4567",
+      "internal_host_ssl_validation": true,
+      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
+      "jwt_federation_providers": [],
+      "jwt_federation_sources": [],
+      "mode": "proxy",
+      "name": "Tachidesk",
+      "pk": 5,
+      "property_mappings": [
+        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
+        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
+        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
+        "8f00714d-dbb0-472a-9a78-8b755baa7915",
+        "f371dd37-1069-4154-823e-01efd372eb06"
+      ],
+      "refresh_token_validity": "days=30",
+      "skip_path_regex": ""
+    },
+    "7": {
+      "access_token_validity": "hours=24",
+      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
+      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
+      "basic_auth_enabled": false,
+      "basic_auth_password_attribute": "",
+      "basic_auth_user_attribute": "",
+      "cookie_domain": "",
+      "external_host": "https://sonarr.diloreto.com",
+      "intercept_header_auth": true,
+      "internal_host": "http://gluetun:8989",
+      "internal_host_ssl_validation": true,
+      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
+      "jwt_federation_providers": [],
+      "jwt_federation_sources": [],
+      "mode": "proxy",
+      "name": "Sonarr",
+      "pk": 7,
+      "property_mappings": [
+        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
+        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
+        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
+        "8f00714d-dbb0-472a-9a78-8b755baa7915",
+        "f371dd37-1069-4154-823e-01efd372eb06"
+      ],
+      "refresh_token_validity": "days=30",
+      "skip_path_regex": ""
+    },
+    "8": {
+      "access_token_validity": "hours=24",
+      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
+      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
+      "basic_auth_enabled": false,
+      "basic_auth_password_attribute": "",
+      "basic_auth_user_attribute": "",
+      "cookie_domain": "",
+      "external_host": "https://radarr-4k.diloreto.com/",
+      "intercept_header_auth": true,
+      "internal_host": "http://gluetun:7879",
+      "internal_host_ssl_validation": true,
+      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
+      "jwt_federation_providers": [],
+      "jwt_federation_sources": [],
+      "mode": "proxy",
+      "name": "Radarr 4k",
+      "pk": 8,
+      "property_mappings": [
+        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
+        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
+        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
+        "8f00714d-dbb0-472a-9a78-8b755baa7915",
+        "f371dd37-1069-4154-823e-01efd372eb06"
+      ],
+      "refresh_token_validity": "days=30",
+      "skip_path_regex": ""
     }
   },
   "schemaVersion": 2,
@@ -1635,7 +1643,7 @@
     "capturedAt": "2026-08-27T18:16:12Z",
     "complete": true,
     "customConfigurationSha256": "325690bd24ce0e639574150549497e10e117aa6f1a70e5bf4603422aa7c02fe1",
-    "oauthProvidersSha256": "cc36b41c496370c69dfbb737d1e80e350bce55cab831dd1a7a7f565a2d398eea",
+    "oauthProvidersSha256": "4e2210a5709ad94e5e22ecf6fa401ba66203b7db247c0bfe546e52ba5bdaeb0c",
     "proxyProvidersSha256": "c188de1b1db8eb0d4285b2ad3d382c5e37e4500fa7b721960fae7cbc82dd6d1e"
   }
 }

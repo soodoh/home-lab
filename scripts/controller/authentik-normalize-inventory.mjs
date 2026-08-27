@@ -93,7 +93,7 @@ const proxyProviders = sortObject(Object.fromEntries(api.proxyProviders.map((ite
 const oauthProviders = sortObject(Object.fromEntries(api.oauthProviders.map((item) => [String(item.pk), {
   access_code_validity: item.access_code_validity,
   access_token_validity: item.access_token_validity,
-  allowed_redirect_uris: item.redirect_uris.map(({ matching_mode, url }) => ({ matching_mode, url })),
+  allowed_redirect_uris: item.redirect_uris.map(({ matching_mode, redirect_uri_type, url }) => ({ matching_mode, redirect_uri_type, url })),
   authentication_flow: item.authentication_flow,
   authorization_flow: item.authorization_flow,
   client_id: item.client_id,

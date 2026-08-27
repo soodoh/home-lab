@@ -429,6 +429,7 @@
             "additionalProperties": false,
             "required": [
               "matching_mode",
+              "redirect_uri_type",
               "url"
             ],
             "properties": {
@@ -436,6 +437,12 @@
                 "enum": [
                   "strict",
                   "regex"
+                ]
+              },
+              "redirect_uri_type": {
+                "enum": [
+                  "authorization",
+                  "logout"
                 ]
               },
               "url": {
