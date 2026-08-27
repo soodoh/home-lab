@@ -126,6 +126,7 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-reconcile-manifest.py
   python3 scripts/controller/test-reconcile-security.py
   scripts/test-restic-recovery-bundle
+  python3 scripts/test-compose-action-plan.py
   python3 scripts/test-restic-tools.py
   python3 scripts/test-offen-retirement.py
   python3 -m py_compile scripts/*.py scripts/controller/*.py scripts/activate-restic-staging-fixture scripts/build-restic-recovery-bundle scripts/run-restic-recovery-bundle scripts/retire-offen-local infrastructure/policy/inspect-offen-retirement-aws-plan.py

@@ -38,6 +38,21 @@ def canonical_actions(raw_actions: list[tuple[str, str]]) -> list[tuple[str, str
     return sorted({(container, ACTION_CANONICAL_NAMES[action]) for container, action in raw_actions})
 
 
+def compose_operation_arguments(
+    operation: str, no_deps: bool, requested_services: list[str]
+) -> list[str]:
+    if operation == "up":
+        if not requested_services:
+            raise RuntimeError("--operation up requires at least one exact --service")
+        arguments = ["up", "--detach", "--no-build", "--pull", "never"]
+        if no_deps:
+            arguments.append("--no-deps")
+        return [*arguments, *requested_services]
+    if no_deps:
+        raise RuntimeError("--no-deps is valid only with --operation up")
+    return ["create", "--no-build", "--pull", "never", *requested_services]
+
+
 def compose_model(
     project_name: str,
     project_directory: Path,
@@ -180,6 +195,9 @@ def main() -> None:
     parser.add_argument("--override-file", type=Path)
     parser.add_argument("--bind-root-override", type=Path)
     parser.add_argument("--normalized-output", type=Path)
+    parser.add_argument("--operation", choices=["create", "up"], default="create")
+    parser.add_argument("--no-deps", action="store_true")
+    parser.add_argument("--service", action="append", default=[])
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
@@ -190,6 +208,13 @@ def main() -> None:
         args.compose_file,
         args.override_file,
         args.bind_root_override,
+    )
+    requested_services = sorted(set(args.service))
+    unknown_services = sorted(set(requested_services) - set(model.get("services") or {}))
+    if unknown_services:
+        raise RuntimeError(f"Unknown requested Compose services: {len(unknown_services)}")
+    operation_arguments = compose_operation_arguments(
+        args.operation, args.no_deps, requested_services
     )
     dry_run_file = args.compose_file
     dry_run_project_directory = args.project_directory
@@ -223,7 +248,7 @@ def main() -> None:
         ]
         if args.override_file is not None and normalized_input is None:
             dry_run_command.extend(["--file", str(args.override_file)])
-        dry_run_command.extend(["create", "--no-build", "--pull", "never"])
+        dry_run_command.extend(operation_arguments)
         result = subprocess.run(
             dry_run_command,
             check=False,
@@ -265,6 +290,16 @@ def main() -> None:
             entry for entry in actions if entry["action"] in {"Create", "Remove"}
         ],
         "action_count": len(actions),
+        "action_services": sorted({entry["service"] for entry in actions}),
+        "start_services": sorted(
+            {entry["service"] for entry in actions if entry["action"] == "Start"}
+        ),
+        "stop_services": sorted(
+            {entry["service"] for entry in actions if entry["action"] == "Stop"}
+        ),
+        "operation": args.operation,
+        "dependency_mode": "isolated" if args.no_deps else "complete",
+        "requested_services": requested_services,
     }
     write_private_new_file(
         args.output,

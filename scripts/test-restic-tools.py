@@ -1831,12 +1831,20 @@ def main() -> None:
     assert "audit_expected_stopped_compose_services" in audit
     assert "['ps', '--quiet', '--all']" in audit
     migration = (ROOT / "ansible/playbooks/migrate-preserved-backup-data.yml").read_text()
+    assert "gather_facts: true" in migration
+    assert migration.count("apply_lock_operation: preserved-data-migration") == 2
     assert "/usr/bin/findmnt" in migration and "mount_source" in migration
-    assert "--checksum" in migration and "--itemize-changes" in migration
+    assert "--checksum" in migration and "--itemize-changes" in migration and "--no-times" in migration
     assert "Remove only current-run paths after revalidating the destination mount" in migration
     assert "Require restarted migration owners to become healthy or running" in migration
     assert "preserved_migration_token" in migration and ".home-lab-migration-owner" in migration
     assert all(name in migration for name in ("preserved_migration_findmnt", "preserved_migration_active_findmnt", "preserved_migration_activation_findmnt"))
+    assert "--operation up" in compose_deploy
+    assert "action_services | difference(compose_deploy_plan.recreate_services)" in compose_deploy
+    assert "start_services | difference(compose_deploy_plan.recreate_services)" in compose_deploy
+    assert "stop_services | difference(compose_deploy_plan.recreate_services)" in compose_deploy
+    assert "compose_deploy_post_plan.action_count == 0" in compose_deploy
+    assert "compose_deploy_dependency_args" not in compose_deploy
     assert "current-artifact.sha256" in compose_rollback
 
     restore = (ROOT / "scripts/restore-critical-backup").read_text()

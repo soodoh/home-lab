@@ -232,10 +232,6 @@
       Deployment refuses service additions/removals, forbidden Compose actions, and data-file changes
       without their exact operation-specific approval.
 
-- name: Preserve ordinary no-dependency deployment isolation
-  ansible.builtin.set_fact:
-    compose_deploy_dependency_args:
-      - --no-deps
 - name: Report the check-mode deployment boundary
   ansible.builtin.debug:
     msg:
@@ -495,11 +491,90 @@
       when: compose_deploy_nextcloud_migration
       changed_when: true
       no_log: true
+
+    - name: Remove any stale dependency-aware apply plan
+      ansible.builtin.file:
+        path: /run/docker-compose-deploy-apply.json
+        state: absent
+      become: true
+      changed_when: false
+      no_log: true
+      when:
+        - not compose_deploy_nextcloud_migration
+        - compose_deploy_plan.recreate_services | length > 0
+
+    - name: Plan the exact dependency-aware convergence command
+      ansible.builtin.script:
+        cmd: >-
+          {{ role_path }}/../../../scripts/compose-action-plan.py
+          --project-name {{ compose_project_name }}
+          --project-directory {{ compose_current_dir }}
+          --env-file {{ compose_runtime_env_path }}
+          --compose-file {{ compose_current_dir }}/docker-compose.yml
+          --override-file {{ compose_image_override_path }}
+          --operation up
+          --service {{ compose_deploy_plan.recreate_services | sort | join(' --service ') }}
+          --output /run/docker-compose-deploy-apply.json
+        executable: "{{ ansible_python_interpreter }}"
+      become: true
+      environment:
+        HOME: "{{ compose_home_dir }}"
+      changed_when: false
+      no_log: true
+      when:
+        - not compose_deploy_nextcloud_migration
+        - compose_deploy_plan.recreate_services | length > 0
+
+    - name: Read the dependency-aware apply plan
+      ansible.builtin.slurp:
+        src: /run/docker-compose-deploy-apply.json
+      become: true
+      register: compose_deploy_apply_plan_file
+      changed_when: false
+      no_log: true
+      when:
+        - not compose_deploy_nextcloud_migration
+        - compose_deploy_plan.recreate_services | length > 0
+
+    - name: Parse the dependency-aware apply plan
+      ansible.builtin.set_fact:
+        compose_deploy_apply_plan: "{{ compose_deploy_apply_plan_file.content | b64decode | from_json }}"
+      no_log: true
+      when:
+        - not compose_deploy_nextcloud_migration
+        - compose_deploy_plan.recreate_services | length > 0
+
+    - name: Remove the dependency-aware apply plan
+      ansible.builtin.file:
+        path: /run/docker-compose-deploy-apply.json
+        state: absent
+      become: true
+      changed_when: false
+      no_log: true
+      when:
+        - not compose_deploy_nextcloud_migration
+        - compose_deploy_plan.recreate_services | length > 0
+
+    - name: Require the exact dependency-aware apply boundary
+      ansible.builtin.assert:
+        that:
+          - compose_deploy_apply_plan.operation == 'up'
+          - compose_deploy_apply_plan.dependency_mode == 'complete'
+          - compose_deploy_apply_plan.requested_services == compose_deploy_plan.recreate_services | sort
+          - compose_deploy_apply_plan.recreate_services == compose_deploy_plan.recreate_services | sort
+          - compose_deploy_apply_plan.forbidden_actions | length == 0
+          - compose_deploy_apply_plan.action_services | difference(compose_deploy_plan.recreate_services) | length == 0
+          - compose_deploy_apply_plan.start_services | difference(compose_deploy_plan.recreate_services) | length == 0
+          - compose_deploy_apply_plan.stop_services | difference(compose_deploy_plan.recreate_services) | length == 0
+        fail_msg: "Dependency-aware Compose convergence differs from the complete reviewed service boundary."
+      no_log: true
+      when:
+        - not compose_deploy_nextcloud_migration
+        - compose_deploy_plan.recreate_services | length > 0
     - name: Converge only the reviewed services without builds, removal, or orphan removal
       ansible.builtin.command:
         argv: >-
           {{ compose_runtime_cli + ['up', '--detach', '--no-build', '--pull', 'never']
-             + compose_deploy_dependency_args
              + (compose_deploy_plan.recreate_services | sort) }}
       become: true
       environment:
@@ -573,6 +648,7 @@
     - name: Require an idempotent post-deployment action plan
       ansible.builtin.assert:
         that:
+          - compose_deploy_post_plan.action_count == 0
           - compose_deploy_post_plan.recreate_services | length == 0
           - compose_deploy_post_plan.forbidden_actions | length == 0
         fail_msg: "Post-deployment Compose plan still proposes convergence."
