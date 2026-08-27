@@ -17,7 +17,7 @@ Proxy provider property-mapping membership is intentionally observed in `desired
 
 OpenTofu owns Authentik API configuration only. Compose continues to own the server, worker, PostgreSQL, Redis, networks, mounts, and images. Users, groups, service accounts, roles, sessions, events, notifications, schedules, tokens, WebAuthn devices, and other identity/runtime records remain database-owned.
 
-The root remains disabled by default until the backend authorization, provider identities, imports, and zero-change proof are complete.
+The root remains disabled by default for secret-free validation. The trusted local controller enables it with protected plan/apply credentials.
 
 ## Secret architecture
 
@@ -28,48 +28,19 @@ Two encrypted layers are required:
 
 The trusted local controller decrypts the SOPS file into `.local/authentik/client-secrets.json` with mode `0600`. The plaintext file and saved plans stay under ignored, mode-restricted paths. Protected controller credentials enter as `AUTHENTIK_URL` and `AUTHENTIK_TOKEN`; the controller maps them into an ephemeral, sensitive provider variable. The reconciler rejects the API token if it appears in a saved plan.
 
-## Adoption plan
+## Adoption record
 
-### 1. Apply backend authorization
+Production adoption completed on 2026-08-27:
 
-The AWS foundation now grants plan/apply roles access to the Authentik state and lock keys. Run the ordinary guarded plan/apply while Authentik management is still disabled:
+- the AWS foundation granted plan/apply access to the retained Authentik state and lock keys;
+- separate `home-lab-opentofu-plan` and `home-lab-opentofu-apply` identities were created with 12 read-only and 36 read/add/change permissions respectively;
+- both provider tokens expire at `2026-11-25T19:16:43Z`;
+- the reviewed plan imported all 85 objects with zero add, change, replace, or destroy actions; and
+- remote state serial `3` contains 85 managed instances plus two read-only stage data-source instances.
 
-```bash
-scripts/local-controller plan steady
-scripts/local-controller apply steady
-```
+The guarded controller apply encountered an unrelated Compose dotenv-layout staging failure before reaching the Authentik root. The exact commit-bound Authentik saved plan was therefore applied separately under the controller-wide lock after its manifest hash and import-only actions were reverified. A fresh post-import plan reported no Authentik changes.
 
-Inspect the existing S3 object versions before reusing the key. Historical Authentik state was deliberately emptied during retirement; retain those versions.
-
-### 2. Bootstrap separate provider identities
-
-`scripts/controller/authentik-bootstrap-service-account.py` creates two service accounts atomically:
-
-- **plan**: view-only access to the exact application, provider, property-mapping, flow, stage, binding, and optional blueprint models;
-- **apply**: view/add/change access to those models, without delete permissions.
-
-Run the script only through `ak shell --no-imports` in the production server container. Supply a reviewed ISO-8601 expiry, run `inspect`, capture the emitted request hash, then rerun with operation `create`, the exact hash, and confirmation `create-reviewed-home-lab-opentofu-authentik-identities`. Capture the two token marker lines into protected local files without logging stdout. The helper refuses any pre-existing account, role, or token object.
-
-### 3. Configure the trusted local controller
-
-Run:
-
-```bash
-scripts/configure-local-provider-credentials
-```
-
-Enter the distinct plan/apply tokens. The credential files must remain mode `0600` inside the mode `0700` controller directory and retain the existing `SOPS_AGE_KEY_FILE` entry.
-
-### 4. Import and prove zero change
-
-The root contains declarative import blocks for all 85 managed objects. The first guarded plan must contain imports only. Any create, update, replace, or delete of a production object is a blocker.
-
-```bash
-scripts/local-controller plan steady
-scripts/local-controller apply steady
-```
-
-The reconciler applies Compose before the Authentik saved plan so the API is healthy, consumes only the commit-bound reviewed plan, and immediately runs a fresh no-op verification. Every managed resource class uses `prevent_destroy`.
+All managed Authentik resource classes use `prevent_destroy`. Historical empty state versions remain retained in S3.
 
 ## Inventory refresh
 
