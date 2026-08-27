@@ -647,8 +647,8 @@ def main() -> int:
         if actions in ([], ["no-op"], ["read"]):
             continue
         observed_actions += 1
-        if address == "terraform_data.tailscale_policy[0]":
-            failures.append(f"{address}: Tailscale policy mutation is forbidden in steady state")
+        if address == "terraform_data.tailscale_policy[0]" and address not in allow:
+            failures.append(f"{address}: Tailscale policy mutation requires an explicit reviewed allowlist")
             continue
         if resource_type in {
             "proxmox_virtual_environment_vm",

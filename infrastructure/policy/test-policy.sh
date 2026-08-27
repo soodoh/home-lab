@@ -20,6 +20,9 @@ python3 "$policy" "$fixtures/hardware-mapping-transition.json"
 python3 "$policy" "$fixtures/vm-start-prerequisite.json" --mode vm-start-prerequisite
 python3 "$policy" "$fixtures/candidate-disk-attach.json"
 python3 "$policy" "$fixtures/omada-client-alias-delete.json"
+expect_rejection tailscale-policy-update normal
+python3 "$policy" "$fixtures/tailscale-policy-update.json" \
+  --allow-change-file "$root/allow/tailscale.txt"
 expect_rejection vm-cutover-forward-safe vm-cutover-forward
 expect_rejection vm-cutover-reverse-safe vm-cutover-reverse
 expect_rejection import normal

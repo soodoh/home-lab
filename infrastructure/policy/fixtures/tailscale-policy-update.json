@@ -1,0 +1,1 @@
+{"format_version":"1.2","resource_changes":[{"address":"terraform_data.tailscale_policy[0]","type":"terraform_data","change":{"actions":["update"],"before":{"input":{"policy_json":"{\"ssh\":[]}"}},"after":{"input":{"policy_json":"{\"ssh\":[{\"action\":\"accept\"}]}"}}}}]}
