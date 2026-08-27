@@ -1844,6 +1844,9 @@ def main() -> None:
     assert "start_services | difference(compose_deploy_plan.recreate_services)" in compose_deploy
     assert "stop_services | difference(compose_deploy_plan.recreate_services)" in compose_deploy
     assert "compose_deploy_post_plan.action_count == 0" in compose_deploy
+    assert "deploy-reviewed-restic-policy:" in compose_deploy
+    assert "services/data/restic/excludes" in compose_deploy
+    assert "services/data/restic/files-from" in compose_deploy
     assert "compose_deploy_dependency_args" not in compose_deploy
     assert "current-artifact.sha256" in compose_rollback
 
