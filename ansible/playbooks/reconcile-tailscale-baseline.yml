@@ -15,7 +15,7 @@
           - tailscale_baseline_reconciliation_confirmation | default('') == 'adopt-official-tailscale-1.102.3-disable-auto-apply'
           - lan_ssh_recovery_confirmed | default(false) | bool
           - proxmox_console_recovery_confirmed | default(false) | bool
-          - tailscale_transport_ssh_confirmed | default(false) | bool
+          - tailscale_ssh_access_confirmed | default(false) | bool
           - tailscale.docker_host_client.version == '1.102.3'
           - tailscale.docker_host_client.auto_update_apply == false
           - tailscale.docker_host_client.update_check == true

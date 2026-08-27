@@ -31,10 +31,10 @@
           - lan_ssh_recovery_confirmed | default(false) | ansible.builtin.bool
           - proxmox_console_recovery_confirmed | default(false) | ansible.builtin.bool
           - tailscale_gateway_recovery_confirmed | default(false) | ansible.builtin.bool
-          - tailscale_transport_ssh_confirmed | default(false) | ansible.builtin.bool
+          - tailscale_ssh_access_confirmed | default(false) | ansible.builtin.bool
         fail_msg: >-
           Refusing Docker bootstrap. First verify fresh LAN SSH, the Proxmox serial console, the dedicated
-          Tailscale gateway LXC route, and tailnet authorization for OpenSSH over the Tailscale transport; then pass all four confirmations.
+          Tailscale gateway LXC route, and tailnet authorization for Tailscale SSH; then pass all four confirmations.
       when: not ansible_check_mode
       tags:
         - management_plane
@@ -55,7 +55,7 @@
       ansible.builtin.debug:
         msg: >-
           After an approved bootstrap apply, keep the current LAN session open and verify Tailscale status,
-          OpenSSH over the Tailscale transport as ansible-deploy, passwordless sudo, a fresh LAN SSH login, Proxmox console access,
+          Tailscale SSH as ansible-deploy, passwordless sudo, a fresh LAN SSH login, Proxmox console access,
           and the complete audit before changing inventory/production.yml.
       tags:
         - management_plane

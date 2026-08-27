@@ -226,5 +226,5 @@
   ansible.builtin.debug:
     msg: >-
       Check mode never starts tailscaled, consumes an auth key, enrolls the host, or enables Tailscale SSH.
-      Those management-plane changes require a separately approved normal bootstrap.
+      Those management-plane changes require separately approved normal convergence.
   when: ansible_check_mode

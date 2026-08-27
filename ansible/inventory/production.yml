@@ -1,6 +1,6 @@
 ---
-# Direct Tailscale endpoint for the protected local controller.
-# Planning and deployment use separately constrained credentials and host identities.
+# Direct Tailscale SSH endpoint for the protected local controller.
+# Planning and deployment use separately constrained tailnet identities.
 all:
   children:
     docker_host:
@@ -9,8 +9,8 @@ all:
           ansible_host: docker-host
           ansible_user: ansible-deploy
           ansible_python_interpreter: /usr/bin/python3
-          # The controller reaches this host through the authenticated tailnet path
-          # and keeps normal Ansible host-key verification enabled.
+          # The controller authenticates through Tailscale SSH while retaining
+          # strict SSH host-key verification for the Tailscale SSH endpoint.
           ansible_ssh_common_args: >-
             -o ConnectTimeout=10
             -o ServerAliveInterval=15

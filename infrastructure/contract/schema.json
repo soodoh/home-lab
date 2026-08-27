@@ -198,7 +198,7 @@
             "daemon_path": { "const": "/usr/sbin/tailscaled" },
             "daemon_sha256": { "const": "ce4770bbe6fc9dbcf47d8a2ccc5efad73e3f975460b01738dd0b059879d01221" },
             "auto_update_apply": { "const": false },
-            "run_ssh": { "const": false },
+            "run_ssh": { "const": true },
             "update_check": { "const": true }
           }
         },

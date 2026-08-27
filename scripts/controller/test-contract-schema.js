@@ -605,7 +605,7 @@ if (dockerHostTailscale.version !== "1.102.3" ||
     dockerHostTailscale.archive_sha256 !== "36ddd9b51be57ffc2990cf76323cfa13643bfbb1b8a969f6183fa164741cdef5" ||
     dockerHostTailscale.client_sha256 !== "d6ffcba02fa07728f0c4847fc06d61f239f763478bd59156abf3591bdb1a3ad1" ||
     dockerHostTailscale.daemon_sha256 !== "ce4770bbe6fc9dbcf47d8a2ccc5efad73e3f975460b01738dd0b059879d01221" ||
-    dockerHostTailscale.auto_update_apply !== false || dockerHostTailscale.run_ssh !== false || dockerHostTailscale.update_check !== true) {
+    dockerHostTailscale.auto_update_apply !== false || dockerHostTailscale.run_ssh !== true || dockerHostTailscale.update_check !== true) {
   throw new Error("Docker-host Tailscale must retain the adopted official pinned baseline");
 }
 const tailscaleBinaryAssertion = parsedTask("ansible/roles/tailscale/tasks/main.yml", "Require exact pinned standalone Tailscale binaries");
@@ -622,13 +622,13 @@ if (tailscalePreferenceArgs.some((value) => value.includes("--auto-update=") || 
   throw new Error("Ordinary Tailscale convergence must not mutate access-critical update policy");
 }
 const tailscaleReconciliationPlaybook = fs.readFileSync(path.join(root, "ansible/playbooks/reconcile-tailscale-baseline.yml"), "utf8");
-for (const required of ["adopt-official-tailscale-1.102.3-disable-auto-apply", "lan_ssh_recovery_confirmed", "proxmox_console_recovery_confirmed", "tailscale_transport_ssh_confirmed", "ActiveEnterTimestampMonotonic"]) {
+for (const required of ["adopt-official-tailscale-1.102.3-disable-auto-apply", "lan_ssh_recovery_confirmed", "proxmox_console_recovery_confirmed", "tailscale_ssh_access_confirmed", "ActiveEnterTimestampMonotonic"]) {
   if (!tailscaleReconciliationPlaybook.includes(required)) throw new Error(`Tailscale reconciliation omits ${required}`);
 }
 const tailscaleBootstrapGuard = parsedPlayTask("ansible/playbooks/bootstrap.yml", "Require dual-path recovery and tailnet-policy confirmations before a normal bootstrap");
-if (!tailscaleBootstrapGuard["ansible.builtin.assert"].that.some((condition) => condition.includes("tailscale_transport_ssh_confirmed")) ||
-    !tailscaleBootstrapGuard["ansible.builtin.assert"].fail_msg.includes("OpenSSH over the Tailscale transport")) {
-  throw new Error("Docker bootstrap must confirm the actual OpenSSH-over-Tailscale access mechanism");
+if (!tailscaleBootstrapGuard["ansible.builtin.assert"].that.some((condition) => condition.includes("tailscale_ssh_access_confirmed")) ||
+    !tailscaleBootstrapGuard["ansible.builtin.assert"].fail_msg.includes("Tailscale SSH")) {
+  throw new Error("Docker bootstrap must confirm Tailscale SSH access");
 }
 const tailscaleReconciliationPreflight = parsedPlayTask("ansible/playbooks/reconcile-tailscale-baseline.yml", "Require the exact official running Tailscale baseline before preference mutation");
 if (!tailscaleReconciliationPreflight["ansible.builtin.assert"].that.some((condition) => condition.includes("docker_host_client.run_ssh"))) {
