@@ -17,7 +17,7 @@ Apply accepts only a clean checkout at the manifest commit. It verifies every sa
 
 The production order is:
 
-1. AWS foundation and legacy tombstone verification;
+1. AWS foundation;
 2. guarded Proxmox Nix preparation;
 3. Proxmox OpenTofu;
 4. bounded Debian Ansible tags;
@@ -31,6 +31,7 @@ VM 100 is Debian-authoritative. Retired Arch, Flatcar, inert-qualification, migr
 ## Safety boundaries
 
 - S3 native lockfiles and `-lock-timeout=5m` protect each OpenTofu backend.
+- Exact state-object allowlists and lifecycle cleanup for retired prefixes are documented in [`opentofu-state-cleanup.md`](./opentofu-state-cleanup.md).
 - A controller-wide lock spans all providers, Nix, Ansible, and Compose work.
 - VM protection, disk topology, hardware mappings, and boot changes remain protected fields.
 - Registry pulls and Compose builds remain disabled.

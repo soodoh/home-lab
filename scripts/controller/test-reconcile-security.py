@@ -89,9 +89,9 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertNotIn("if [[ $phase == recovery ]]", self.reconciler)
         self.assertIn("--mode vm-start-prerequisite", self.reconciler)
         self.assertIn('prerequisite == "vm-start"', self.reconciler)
-        self.assertIn("roots=(aws-foundation proxmox-legacy proxmox)", self.reconciler)
+        self.assertIn("roots=(aws-foundation proxmox)", self.reconciler)
         self.assertIn("if [[ $manifest_stage == vm-start-prerequisite ]]", self.reconciler)
-        self.assertIn("printf '%s\\n' aws-foundation proxmox-legacy proxmox", self.reconciler)
+        self.assertIn("printf '%s\\n' aws-foundation proxmox", self.reconciler)
         self.assertIn("verify_fresh_proxmox_host_noop", self.reconciler)
         self.assertIn("if jq -e '.actions == [] and .status == \"ready\" and .applyEligible == true'", self.reconciler)
 

@@ -6,16 +6,11 @@ Run the non-mutating static rehearsal from a clean controller:
 scripts/rehearse-recovery --static
 ```
 
-It validates the contract and provider locks, exercises hostile archive and volume fixtures, checks the completed LXC qualification evidence, and syntax-checks the retained recovery playbooks. A pass proves only static control flow; it performs no provider mutation, restore, or service activation.
+It validates the contract and provider locks, exercises hostile archive and volume fixtures, and syntax-checks the retained recovery playbooks. A pass proves only static control flow; it performs no provider mutation, restore, or service activation.
 
 ## Live qualification
 
-A live qualification must use an isolated Proxmox host and disposable recovery targets. Prepare the protected mode-`0600` recovery extra-vars file and follow the exact controller workflow:
-
-```sh
-scripts/local-controller plan recovery
-scripts/local-controller apply recovery
-```
+A live qualification is not currently exposed by `scripts/local-controller`. It must use an isolated Proxmox host, disposable recovery targets, and a separately reviewed procedure before any provider mutation or restore.
 
 The qualification must demonstrate:
 

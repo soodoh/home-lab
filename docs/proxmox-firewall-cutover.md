@@ -14,7 +14,7 @@ Current live qualification has established a disabled firewall, default options 
 - inbound default `DROP`;
 - outbound default `ACCEPT`;
 - LAN SSH and PVE UI access;
-- NFS from the fixed Arch host address only;
+- NFS from the fixed Docker host address only;
 - tailnet SSH and PVE UI access; and
 - UDP 41641 from `0.0.0.0/0`, because direct WireGuard packets arrive from peer underlay addresses rather than tailnet source addresses.
 
@@ -30,7 +30,7 @@ The console Nix host bootstrap installs and byte-verifies these fixed assets fro
 - `home-lab-proxmox-firewall-rollback.service`;
 - `home-lab-proxmox-firewall-rollback.timer`;
 - a boot-recovery service ordered after `pve-cluster.service`; and
-- the fixed Arch NFS canary helper.
+- the fixed Docker host NFS canary helper.
 
 The helper embeds the projected reviewed firewall policy. It accepts no caller-selected host, path, command, rule, endpoint, or policy payload. Installation does not activate the firewall.
 
@@ -138,7 +138,7 @@ Required post-activation canaries are:
 2. a TLS-validated PVE API request through the fixed LAN endpoint;
 3. authenticated SSH through the distinct fixed tailnet endpoint;
 4. a TLS-validated PVE API request through the fixed tailnet endpoint;
-5. an Arch-host fixed fresh TCP connection to the PVE NFS port followed by an NFSv4 read-only mount to a fixed empty runtime mountpoint, read/stat, and clean unmount; and
+5. a Docker-host fixed fresh TCP connection to the PVE NFS port followed by an NFSv4 read-only mount to a fixed empty runtime mountpoint, read/stat, and clean unmount; and
 6. a Tailscale direct-path probe that must remain direct; DERP fallback, ambiguity, or timeout fails the canary and prevents commit.
 
 All six canaries launch concurrently under the fixed attempt and aggregate budgets above. The canary result contains only booleans, bounded timing/status categories, the random configuration identifier, the session identifier, and the reviewed plan SHA. It contains no endpoints, addresses, identity values, paths from protected configuration, or stable hashes of protected data.
@@ -195,7 +195,7 @@ Repository and subprocess tests must cover:
 - controller plan freshness, exact-hash approval, and no-replan behavior;
 - a new connection for every canary;
 - rollback on each individual canary failure;
-- Arch NFS mount cleanup on success, failure, timeout, and interruption;
+- Docker host NFS mount cleanup on success, failure, timeout, and interruption;
 - mandatory direct-path baseline and rejection of DERP before and after activation;
 - boot configuration-recovery/post-verification/timer ordering, persistent missed firings, boot-owned state rejection, indefinite readiness cycles, queued backend starts, failure-stop handling, postcondition retry, and release-state fixtures; and
 - scans proving protected values and stable protected hashes do not enter plans, logs, fixtures, or shareable evidence.

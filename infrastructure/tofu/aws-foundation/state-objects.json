@@ -1,0 +1,18 @@
+{
+  "active": [
+    "home-lab/authentik/tofu.tfstate",
+    "home-lab/aws-foundation/tofu.tfstate",
+    "home-lab/omada/tofu.tfstate",
+    "home-lab/proxmox/tofu.tfstate",
+    "home-lab/tailscale/tofu.tfstate"
+  ],
+  "retired": [
+    "home-lab/github/tofu.tfstate",
+    "home-lab/media-apps/tofu.tfstate",
+    "home-lab/proxmox-legacy/tofu.tfstate",
+    "home-lab/proxmox-lxc-qualification/tofu.tfstate",
+    "home-lab/proxmox-vm-qualification/tofu.tfstate"
+  ],
+  "noncurrent_lock_retention_days": 1,
+  "retired_object_expiration_days": 1
+}

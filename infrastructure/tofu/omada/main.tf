@@ -1,6 +1,5 @@
 locals {
-  contract           = yamldecode(file("${path.module}/../../contract/home-lab.yml"))
-  legacy_gateway_mac = lower(replace(local.contract.proxmox.legacy_container.mac, "-", ":"))
+  contract = yamldecode(file("${path.module}/../../contract/home-lab.yml"))
   export = var.omada_enable_management ? jsondecode(file(var.omada_export_path)) : {
     exported_at        = ""
     controller_version = ""
@@ -10,7 +9,6 @@ locals {
   }
   reservations = var.omada_enable_management ? {
     for reservation in local.export.reservations : lower(replace(reservation.mac, "-", ":")) => reservation
-    if lower(replace(reservation.mac, "-", ":")) != local.legacy_gateway_mac
   } : {}
 }
 

@@ -8,7 +8,7 @@ The repository contains only:
 
 - SOPS dotenv ciphertext at `secrets/production.sops.env`;
 - its sorted 94-name and non-secret blank-line manifests; and
-- three public age recipients in `.sops.yaml`: active Debian production, retained Arch rollback, and independent recovery.
+- two public age recipients in `.sops.yaml`: active Debian production and independent recovery.
 
 No production age identity is present in Git or repository files.
 
@@ -25,7 +25,7 @@ Standalone binaries were installed without a package transaction:
 
 The versions, release URLs, and checksums are also recorded in `ansible/group_vars/docker_host.yml`. `scripts/install-sops-age.sh` verifies the release archives and installed binaries before reporting success.
 
-## Production and retained rollback identities
+## Production and recovery identities
 
 The active Debian identity was generated directly on the server and was never exported:
 
@@ -34,15 +34,14 @@ The active Debian identity was generated directly on the server and was never ex
 /etc/sops/age/keys.txt    root:root 0600
 ```
 
-Its public recipient is `age1atumjua6hxyls6z8v20tsgy72304x72lqjstwmwzqy5ma4txyfsse7xakv`; the generation and recipient transition are bound to `infrastructure/evidence/vm-100-debian-age-identity.json` and `infrastructure/evidence/vm-100-debian-sops-recipient.json`.
+Its public recipient is `age1atumjua6hxyls6z8v20tsgy72304x72lqjstwmwzqy5ma4txyfsse7xakv`.
 
-The retained Arch rollback recipient is `age1vvzm5pczjum52v5alall8euucjen9q4v9xa5g0xmswhna5vare9qwv9rq6`. Its private identity was encrypted to the existing backup GPG recipient before transfer. The external recovery copy and its GPG ciphertext are stored on `Paul's MacBook` under `~/.config/sops/age-recovery`, both mode `0600` inside a mode `0700` directory. External `age-keygen -y` matched the retained recipient, and an independent age encrypt/decrypt round trip passed. Private-key and passphrase content was never printed or placed in command arguments.
 
 ## Independent recovery identity
 
 The independent recovery recipient is `age1ddk0qtwjclc2za5afrz5pl4j5kley02rqv2vh0s07c27a8t5u58sph58qm`. Its private identity and GPG escrow are controller-local under `~/.config/sops/home-lab-recovery`, mode `0600` in a mode `0700` directory. The GPG ciphertext also has a byte-identical external recovery copy.
 
-The cancelled NixOS runtime recipient was removed from `.sops.yaml` and the ciphertext with `sops updatekeys`. Decryption with the retained Arch recovery identity and secret-free two-recipient validation passed before the NixOS private identity and escrow were deleted; the active Debian recipient was added later through its separately attested transition.
+Retired runtime and rollback recipients were removed from `.sops.yaml` and both current ciphertext documents with `sops updatekeys`. Independent-recovery decryption and secret-free recipient validation passed after the final removal.
 
 ## Encryption and exact reconstruction
 
@@ -70,7 +69,7 @@ The credential-ready transition increases the current manifest to 94 names and t
 Secret-free validation runs locally without an age identity and cannot decrypt production secrets. It:
 
 1. rejects tracked plaintext production environment files;
-2. requires the exact single-file `.sops.yaml` rule and all three distinct public recipients;
+2. requires the exact single-file `.sops.yaml` rule and both distinct public recipients;
 3. requires every application value and comment to use SOPS AES-GCM ciphertext;
 4. validates SOPS age, MAC, version, and recipient metadata;
 5. rejects missing, duplicate, or unexpected variable names;

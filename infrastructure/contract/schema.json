@@ -11,12 +11,11 @@
     "recovery": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["evidence_max_age_days", "critical_rpo_hours", "critical_rto_hours", "recovery_age_recipient"],
+      "required": ["evidence_max_age_days", "critical_rpo_hours", "critical_rto_hours"],
       "properties": {
         "evidence_max_age_days": { "type": "integer", "minimum": 1, "maximum": 365 },
         "critical_rpo_hours": { "type": "integer", "maximum": 24 },
-        "critical_rto_hours": { "type": "integer", "maximum": 8 },
-        "recovery_age_recipient": { "$ref": "#/$defs/ageRecipient" }
+        "critical_rto_hours": { "type": "integer", "maximum": 8 }
       }
     },
     "vm_100": { "$ref": "#/$defs/vm100Scaffold" },
@@ -38,7 +37,7 @@
     "proxmox": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["node", "api_endpoint", "grub", "vfio", "apt", "services", "access", "ssh", "tailscale", "health", "planning_policy", "firewall", "packages", "kernels", "root_cleanup", "vm", "legacy_container"],
+      "required": ["node", "api_endpoint", "grub", "vfio", "apt", "services", "access", "ssh", "tailscale", "health", "planning_policy", "firewall", "packages", "kernels", "root_cleanup", "vm"],
       "properties": {
         "node": { "type": "string", "minLength": 1 },
         "api_endpoint": { "type": "string", "pattern": "^https://" },
@@ -55,8 +54,7 @@
         "packages": { "$ref": "#/$defs/hostPackagePolicy" },
         "kernels": { "$ref": "#/$defs/kernelPolicy" },
         "root_cleanup": { "$ref": "#/$defs/rootCleanupPolicy" },
-        "vm": { "$ref": "#/$defs/vm" },
-        "legacy_container": { "$ref": "#/$defs/legacyContainer" }
+        "vm": { "$ref": "#/$defs/vm" }
       }
     },
     "storage": {
@@ -71,13 +69,12 @@
     "debian": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["release", "version", "point_release", "build_id", "qualification_stage", "image", "cloud_init", "os_disk", "qualification"],
+      "required": ["release", "version", "point_release", "build_id", "image", "cloud_init", "os_disk", "qualification"],
       "properties": {
         "release": { "const": "trixie" },
         "version": { "const": "13" },
         "point_release": { "const": "13.6" },
         "build_id": { "const": "20260810-2566" },
-        "qualification_stage": { "enum": ["design", "cloud-init-staged", "ready-for-first-boot", "debian-inert", "debian-qualified", "hardware-blocked"] },
         "image": {
           "type": "object",
           "additionalProperties": false,
@@ -902,7 +899,6 @@
     "mac": { "type": "string", "pattern": "^([0-9A-F]{2}:){5}[0-9A-F]{2}$" },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "sha256Digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-    "ageRecipient": { "type": "string", "pattern": "^age1[0-9a-z]{50,}$" },
     "bucket": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$" },
     "packageName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9+.-]+$" },
     "debianVersion": {
@@ -1527,17 +1523,6 @@
         "games_disk": { "$ref": "#/$defs/gamesDisk" },
         "pci": { "type": "object", "additionalProperties": false, "required": ["gpu", "gpu_audio", "host_igpu"], "properties": { "gpu": { "$ref": "#/$defs/pciDevice" }, "gpu_audio": { "$ref": "#/$defs/pciDevice" }, "host_igpu": { "$ref": "#/$defs/pciDevice" } } },
         "usb": { "type": "object", "additionalProperties": false, "required": ["zigbee", "zwave", "bluetooth"], "properties": { "zigbee": { "$ref": "#/$defs/serialUsbDevice" }, "zwave": { "$ref": "#/$defs/serialUsbDevice" }, "bluetooth": { "$ref": "#/$defs/usbDevice" } } }
-      }
-    },
-    "legacyContainer": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["vmid", "name", "mac", "retired"],
-      "properties": {
-        "vmid": { "const": 101 },
-        "name": { "const": "tailscale-gateway" },
-        "mac": { "$ref": "#/$defs/mac" },
-        "retired": { "const": true }
       }
     },
     "zfsMember01": { "$ref": "#/$defs/zfsMember", "type": "object", "properties": { "secret_ref": { "const": "HOMELAB_ZFS_MEMBER_01_BY_ID" }, "mirror": { "const": 0 } } },

@@ -154,7 +154,7 @@
     - item.0.authorized_keys.state == 'absent'
     - not ansible_check_mode or item.0.name in human_access_existing_accounts
 
-- name: Preserve legacy Arch authorized-key removal behavior
+- name: Preserve authorized-key absence for accounts without key declarations
   ansible.builtin.file:
     path: "{{ item.0.home }}/.ssh/{{ item.1 }}"
     state: absent

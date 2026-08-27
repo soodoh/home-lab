@@ -22,7 +22,6 @@ The committed cloud-init files contain no private keys, passwords, runtime envir
 | `scsi3` | Debian system disk | Preserve its exact volume, serial, and size |
 | `ide2` | Debian cloud-init drive | Render only from the committed snippets |
 
-The former Arch `scsi0` volume was detached, validated through a physical reboot, and permanently deleted after separate operator confirmation. Evidence is recorded in `infrastructure/evidence/vm-100-arch-disk-retirement.json`.
 
 ## Production invariants
 

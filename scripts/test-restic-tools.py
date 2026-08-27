@@ -2012,13 +2012,19 @@ def main() -> None:
     assert "Proton Trash cleanup are forbidden recovery actions" in restic_documentation
 
     foundation = (ROOT / "infrastructure/tofu/aws-foundation/main.tf").read_text()
+    state_manifest = json.loads((ROOT / "infrastructure/tofu/aws-foundation/state-objects.json").read_text())
     assert "resource \"aws_s3_bucket\" \"state\"" in foundation
     assert "prevent_destroy = true" in foundation
     assert "critical-backup-retention" not in foundation
     assert "current_object_retention_days" not in foundation
-    assert "noncurrent_version_expiration" not in foundation
-    assert 'id     = "incomplete-multipart-cleanup"' in foundation
-    assert 'id     = "expired-delete-marker-cleanup"' in foundation
+    assert 'resource "aws_s3_bucket_lifecycle_configuration" "state"' in foundation
+    assert "noncurrent_version_expiration" in foundation
+    assert state_manifest["noncurrent_lock_retention_days"] == 1
+    assert state_manifest["retired_object_expiration_days"] == 1
+    recovery_lifecycle = foundation[foundation.index('resource "aws_s3_bucket_lifecycle_configuration" "recovery"'):]
+    assert "noncurrent_version_expiration" not in recovery_lifecycle
+    assert 'id     = "incomplete-multipart-cleanup"' in recovery_lifecycle
+    assert 'id     = "expired-delete-marker-cleanup"' in recovery_lifecycle
     assert "force_destroy" not in foundation
 
     print("restic static safety fixtures passed")

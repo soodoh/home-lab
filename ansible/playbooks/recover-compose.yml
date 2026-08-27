@@ -1,5 +1,5 @@
 ---
-- name: Deploy the first exact Compose artifact on a recovered Arch host
+- name: Deploy the first exact Compose artifact on a recovered Debian host
   hosts: docker_host
   gather_facts: true
   any_errors_fatal: true

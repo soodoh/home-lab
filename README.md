@@ -6,7 +6,7 @@ The authoritative desired-state contract is [`infrastructure/contract/home-lab.y
 
 [`scripts/local-controller`](scripts/local-controller) exposes only `plan` and `apply`. Both require a clean committed revision and run validation; plan uses protected read-only credentials and displays policy-inspected, manifest-bound saved plans, while apply requires interactive confirmation before loading separate mutation credentials. Apply executes the exact saved OpenTofu and Proxmox Nix host plans without replanning, preserves controller-wide and native S3 locks plus host and Tailscale concurrency checks, deploys the exact Compose artifact, and finishes with fresh Nix/OpenTofu no-op verification and a Debian Ansible audit.
 
-Steady reconciliation covers AWS foundation, the empty legacy-CT tombstone, Proxmox VM 100, Omada, and Tailscale. Generic encrypted data restoration and Compose rollback remain separate guarded procedures. See [`docs/infrastructure-reconciliation.md`](docs/infrastructure-reconciliation.md) and [`recovery/README.md`](recovery/README.md).
+Steady reconciliation covers AWS foundation, Proxmox VM 100, Omada, and Tailscale. Generic encrypted data restoration and Compose rollback remain separate guarded procedures. See [`docs/infrastructure-reconciliation.md`](docs/infrastructure-reconciliation.md) and [`recovery/README.md`](recovery/README.md).
 
 The PostgreSQL 18 image and storage-layout change for Authentik requires the guarded [`docs/authentik-postgres-18-migration.md`](docs/authentik-postgres-18-migration.md) dump-and-restore procedure before Compose convergence.
 

@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_root"
+
+profile=home-lab-plan
+require_retired_empty=false
+while (($#)); do
+  case "$1" in
+    --profile)
+      (($# >= 2)) || exit 64
+      profile=$2
+      shift 2
+      ;;
+    --require-retired-empty)
+      require_retired_empty=true
+      shift
+      ;;
+    *)
+      echo "usage: scripts/audit-opentofu-state-objects [--profile PROFILE] [--require-retired-empty]" >&2
+      exit 64
+      ;;
+  esac
+done
+
+manifest=infrastructure/tofu/aws-foundation/state-objects.json
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT INT TERM
+
+AWS_PROFILE=$profile tofu -chdir=infrastructure/tofu/aws-foundation output -raw state_bucket >"$work/bucket"
+bucket=$(<"$work/bucket")
+[[ $bucket =~ ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$ ]]
+AWS_PROFILE=$profile aws s3api list-object-versions \
+  --bucket "$bucket" \
+  --prefix home-lab/ \
+  --output json >"$work/inventory.json"
+
+jq -e --slurpfile manifest "$manifest" '
+  ($manifest[0].active + $manifest[0].retired) as $states |
+  ($states + ($states | map(. + ".tflock"))) as $allowed |
+  [(.Versions // [])[]?.Key, (.DeleteMarkers // [])[]?.Key] |
+  all(.[]; . as $key | any($allowed[]; . == $key))
+' "$work/inventory.json" >/dev/null || {
+  jq -r --slurpfile manifest "$manifest" '
+    ($manifest[0].active + $manifest[0].retired) as $states |
+    ($states + ($states | map(. + ".tflock"))) as $allowed |
+    [(.Versions // [])[]?.Key, (.DeleteMarkers // [])[]?.Key] | unique[] as $key |
+    select(all($allowed[]; . != $key)) | $key
+  ' "$work/inventory.json" >&2
+  echo "unexpected OpenTofu state-bucket key" >&2
+  exit 1
+}
+
+jq -r --slurpfile manifest "$manifest" '
+  def entries: [(.Versions // [])[], (.DeleteMarkers // [])[]];
+  ($manifest[0].active[] as $state | ["active", $state, (entries | map(select(.Key == $state or .Key == ($state + ".tflock"))) | length)]),
+  ($manifest[0].retired[] as $state | ["retired", $state, (entries | map(select(.Key == $state or .Key == ($state + ".tflock"))) | length)]) |
+  @tsv
+' "$work/inventory.json"
+
+retired_count=$(jq --slurpfile manifest "$manifest" '
+  ($manifest[0].retired + ($manifest[0].retired | map(. + ".tflock"))) as $retired |
+  [(.Versions // [])[]?, (.DeleteMarkers // [])[]?] |
+  map(select(.Key as $key | any($retired[]; . == $key))) |
+  length
+' "$work/inventory.json")
+
+if [[ $require_retired_empty == true && $retired_count != 0 ]]; then
+  echo "retired OpenTofu state objects still have $retired_count versions or delete markers" >&2
+  exit 1
+fi
+
+echo "opentofu_state_inventory=verified retired_versions_and_markers=$retired_count"

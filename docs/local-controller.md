@@ -14,7 +14,7 @@ The controller accepts only clean, committed revisions. Plan loads read-only cre
 Plans are stored under `.reconcile/plans/<commit>/steady/`. The manifest binds:
 
 - the commit and backend identity;
-- all five OpenTofu plan files and SHA-256 values;
+- every enabled OpenTofu plan file and SHA-256 value;
 - the canonical Proxmox Nix host plan and internal digest;
 - the Compose artifact hash;
 - protected input hashes when present; and
@@ -30,7 +30,7 @@ VM 100 accepts only Debian deployment authority. The controller no longer expose
 
 Success requires:
 
-- all five enabled OpenTofu roots at no-op;
+- every enabled OpenTofu root at no-op;
 - a fresh zero-action Proxmox host plan;
 - live Tailscale policy/state equality;
 - a zero-change Debian production audit; and

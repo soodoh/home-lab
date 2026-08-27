@@ -1,13 +1,5 @@
 locals {
-  state_keys = [
-    "home-lab/aws-foundation/tofu.tfstate",
-    "home-lab/authentik/tofu.tfstate",
-    "home-lab/proxmox/tofu.tfstate",
-    "home-lab/proxmox-legacy/tofu.tfstate",
-    "home-lab/proxmox-lxc-qualification/tofu.tfstate",
-    "home-lab/omada/tofu.tfstate",
-    "home-lab/tailscale/tofu.tfstate",
-  ]
+  state_keys = local.active_state_keys
   state_arns = [for key in local.state_keys : "${aws_s3_bucket.state.arn}/${key}"]
   lock_arns  = [for key in local.state_keys : "${aws_s3_bucket.state.arn}/${key}.tflock"]
 }

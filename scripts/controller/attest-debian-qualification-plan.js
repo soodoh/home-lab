@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
-const expectedRoots = ["aws-foundation", "omada", "proxmox", "proxmox-legacy", "tailscale"];
+const expectedRoots = ["aws-foundation", "omada", "proxmox", "tailscale"];
 
 function sha256(body) {
   return crypto.createHash("sha256").update(body).digest("hex");

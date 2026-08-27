@@ -17,7 +17,7 @@ scripts/test-restic-recovery-bundle
 scripts/test-restic-recovery-vm
 (
   cd ansible
-  ansible-playbook --syntax-check -i inventory/arch-recovery.yml playbooks/recover-compose.yml
+  ansible-playbook --syntax-check -i inventory/production.yml playbooks/recover-compose.yml
 )
 
 

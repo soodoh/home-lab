@@ -3,7 +3,6 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const { load } = require("js-yaml");
 const Ajv2020 = require("ajv/dist/2020");
@@ -20,9 +19,6 @@ const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
 const schemaPath = path.join(root, "infrastructure/contract/schema.json");
 const packageManifestPath = path.join(root, "nix/proxmox/package-manifest.json");
 const packageManifestSchemaPath = path.join(root, "nix/proxmox/package-manifest.schema.json");
-const qualificationEvidencePath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.json");
-const qualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proxmox-lxc-qualification.schema.json");
-const qualificationValidatorPath = path.join(root, "scripts/controller/validate-lxc-qualification-evidence.py");
 const protonQualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proton-qualification.schema.json");
 const resticInitializationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/restic-repository-initialization.schema.json");
 const resticFirstRunEvidenceSchemaPath = path.join(root, "infrastructure/evidence/restic-first-run.schema.json");
@@ -37,7 +33,6 @@ const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
 const packageManifestRaw = fs.readFileSync(packageManifestPath, "utf8");
 const packageManifest = JSON.parse(packageManifestRaw);
 const packageManifestSchema = JSON.parse(fs.readFileSync(packageManifestSchemaPath, "utf8"));
-const qualificationEvidenceSchema = JSON.parse(fs.readFileSync(qualificationEvidenceSchemaPath, "utf8"));
 const protonQualificationEvidenceSchema = JSON.parse(fs.readFileSync(protonQualificationEvidenceSchemaPath, "utf8"));
 const resticInitializationEvidenceSchema = JSON.parse(fs.readFileSync(resticInitializationEvidenceSchemaPath, "utf8"));
 const resticFirstRunEvidenceSchema = JSON.parse(fs.readFileSync(resticFirstRunEvidenceSchemaPath, "utf8"));
@@ -49,7 +44,6 @@ const offenRetirementStagedEvidenceSchema = JSON.parse(fs.readFileSync(offenReti
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validate = ajv.compile(schema);
 const validatePackageManifest = ajv.compile(packageManifestSchema);
-const validateQualificationEvidence = ajv.compile(qualificationEvidenceSchema);
 const validateProtonQualificationSchema = ajv.compile(protonQualificationEvidenceSchema);
 const validateResticInitializationSchema = ajv.compile(resticInitializationEvidenceSchema);
 const validateResticFirstRunSchema = ajv.compile(resticFirstRunEvidenceSchema);
@@ -187,7 +181,7 @@ if (contract.proxmox.kernels.require_boot_history_proof !== distinctFallback) {
   failures.push("boot-history proof must be enabled exactly when a distinct fallback kernel is retained");
 }
 const dockerHostAddress = contract.network.docker_host.ipv4.split("/")[0];
-if (contract.storage.nfs.client !== `${dockerHostAddress}/32`) failures.push("NFS client must be the Arch VM /32 address");
+if (contract.storage.nfs.client !== `${dockerHostAddress}/32`) failures.push("NFS client must be the Docker host /32 address");
 if (contract.storage.nfs.client_vmid !== contract.proxmox.vm.vmid) failures.push("NFS client VMID must identify VM 100");
 const pveStorage = contract.storage.zfs.pve_storage;
 if (pveStorage.pool !== contract.storage.zfs.pool || pveStorage.nodes[0] !== contract.proxmox.node) {
@@ -316,18 +310,6 @@ if (!fs.existsSync(excludesPath) || fs.readFileSync(excludesPath, "utf8") !== re
   failures.push("generated Restic excludes differs from the contract");
 }
 
-if (!fs.existsSync(qualificationEvidencePath)) {
-  failures.push("retired CT 101 requires infrastructure/evidence/proxmox-lxc-qualification.json");
-} else {
-  const evidence = JSON.parse(fs.readFileSync(qualificationEvidencePath, "utf8"));
-  if (!validateQualificationEvidence(evidence)) failures.push("LXC qualification evidence does not match its schema");
-  const result = spawnSync(
-    "python3",
-    [qualificationValidatorPath, "--evidence-json", qualificationEvidencePath],
-    { cwd: root, encoding: "utf8" },
-  );
-  if (result.status !== 0) failures.push("LXC qualification evidence validator rejected the tracked evidence");
-}
 
 if (operational) {
   const required = [

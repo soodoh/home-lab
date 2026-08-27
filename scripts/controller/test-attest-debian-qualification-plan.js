@@ -18,7 +18,6 @@ const manifest = {
     { root: "proxmox", file: "proxmox.tfplan", sha256: "2".repeat(64), changed: false },
     { root: "aws-foundation", file: "aws-foundation.tfplan", sha256: "3".repeat(64), changed: false },
     { root: "omada", file: "omada.tfplan", sha256: "4".repeat(64), changed: false },
-    { root: "proxmox-legacy", file: "proxmox-legacy.tfplan", sha256: "5".repeat(64), changed: false },
   ],
 };
 const body = Buffer.from(`${JSON.stringify(manifest)}\n`);
@@ -26,7 +25,7 @@ const attestation = buildAttestation(body, commit, "2026-08-17T18:00:00.000Z");
 assert.equal(attestation.commit, commit);
 assert.equal(attestation.allActionsZero, true);
 assert.equal(attestation.proxmoxHostActions, 0);
-assert.deepEqual(attestation.roots.map((plan) => plan.root), ["aws-foundation", "omada", "proxmox", "proxmox-legacy", "tailscale"]);
+assert.deepEqual(attestation.roots.map((plan) => plan.root), ["aws-foundation", "omada", "proxmox", "tailscale"]);
 assert.match(attestation.manifestSha256, /^[0-9a-f]{64}$/);
 assert.equal(attestation.roots.every((plan) => /^[0-9a-f]{64}$/.test(plan.sha256)), true);
 

@@ -16,7 +16,7 @@ import unittest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
 RECONCILER = REPOSITORY / "scripts/reconcile-infrastructure"
-ROOTS = ("aws-foundation", "proxmox-legacy", "proxmox", "tailscale")
+ROOTS = ("aws-foundation", "proxmox", "tailscale")
 POLICY = '{"grants":[]}\n'
 
 

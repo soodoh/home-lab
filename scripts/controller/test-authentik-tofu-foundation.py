@@ -98,7 +98,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             self.assertEqual(set(provider), {"client_secret"})
             self.assertRegex(provider["client_secret"], r"^ENC\[AES256_GCM,")
         self.assertIn("sops", encrypted)
-        self.assertEqual(len(encrypted["sops"]["age"]), 3)
+        self.assertEqual(len(encrypted["sops"]["age"]), 2)
 
     def test_root_is_import_first_and_secret_aware(self) -> None:
         versions = (ROOT / "versions.tf").read_text()

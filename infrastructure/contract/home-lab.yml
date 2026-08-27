@@ -5,7 +5,6 @@ recovery:
   evidence_max_age_days: 90
   critical_rpo_hours: 24
   critical_rto_hours: 8
-  recovery_age_recipient: age1vvzm5pczjum52v5alall8euucjen9q4v9xa5g0xmswhna5vare9qwv9rq6
 vm_100:
   vmid: 100
   host_name: docker-host
@@ -1014,11 +1013,6 @@ proxmox:
         vendor_device: 0bda:a729
         mapping: realtek-bluetooth
         usb3: true
-  legacy_container:
-    vmid: 101
-    name: tailscale-gateway
-    mac: BC:24:11:FD:4C:5C
-    retired: true
 storage:
   zfs:
     pool: storage
@@ -1100,7 +1094,6 @@ debian:
   version: "13"
   point_release: "13.6"
   build_id: "20260810-2566"
-  qualification_stage: debian-qualified
   image:
     variant: generic
     format: qcow2

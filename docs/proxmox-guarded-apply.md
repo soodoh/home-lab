@@ -1,6 +1,6 @@
 # Proxmox guarded apply
 
-Protocol v4 is the Proxmox host production authority after the local Nix bootstrap. `scripts/local-controller plan` runs the fixed Nix host planner, binds the exact ready plan SHA-256, repository-relative path, file SHA-256, and action count into the saved controller manifest, and displays the canonical plan for review. Apply verifies those bindings and consumes that same plan through `prepare` and `apply`; it never replans. Steady runs guarded Nix before Proxmox OpenTofu. Fresh recovery runs Tailscale and Proxmox OpenTofu owner steps first so VM 100 and mappings exist, then runs guarded Nix before all Arch and Compose recovery. Final verification requires a fresh zero-action Nix host plan.
+Protocol v4 is the Proxmox host production authority after the local Nix bootstrap. `scripts/local-controller plan` runs the fixed Nix host planner, binds the exact ready plan SHA-256, repository-relative path, file SHA-256, and action count into the saved controller manifest, and displays the canonical plan for review. Apply verifies those bindings and consumes that same plan through `prepare` and `apply`; it never replans. Steady runs guarded Nix before Proxmox OpenTofu. Recovery remains a separate procedure that must restore Debian authority before Compose activation. Final verification requires a fresh zero-action Nix host plan.
 
 ```sh
 nix run --no-update-lock-file --no-write-lock-file 'path:./nix#proxmox-host' -- apply \

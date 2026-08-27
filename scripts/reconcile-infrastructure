@@ -122,7 +122,6 @@ if [[ $action == validate ]]; then
   echo "proxmox_nix_sanitized_source=$proxmox_nix_source"
   python3 scripts/controller/test-zpool-status-parser.py
   python3 scripts/controller/test-root-local-audit.py
-  python3 scripts/controller/test-lxc-qualification-evidence.py
   python3 scripts/controller/test-protected-file.py
   python3 scripts/controller/test-reconcile-manifest.py
   python3 scripts/controller/test-reconcile-security.py
@@ -133,13 +132,13 @@ if [[ $action == validate ]]; then
   python3 -m py_compile scripts/*.py scripts/controller/*.py scripts/activate-restic-staging-fixture scripts/build-restic-recovery-bundle scripts/run-restic-recovery-bundle
   node --check scripts/controller/authentik-normalize-inventory.mjs
   shellcheck scripts/reconcile-infrastructure scripts/local-controller \
-    scripts/build-recovery-bundle scripts/configure-local-controller-aws \
+    scripts/audit-opentofu-state-objects scripts/configure-local-controller-aws \
     scripts/configure-local-provider-credentials scripts/prepare-authentik-plan-input \
     scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack scripts/validate-proxmox-bootstrap-keys \
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
     scripts/restore-critical-backup scripts/test-restic-activation-fixture scripts/test-restic-recovery-bundle scripts/test-restic-restore-branch
   tofu fmt -check -recursive infrastructure/tofu
-  for root in aws-foundation authentik proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
+  for root in aws-foundation authentik proxmox omada tailscale; do
     (
       validation_data=$(mktemp -d)
       trap 'rm -rf "$validation_data"' EXIT
@@ -222,7 +221,7 @@ commit=$(git rev-parse HEAD)
 
 roots=(aws-foundation proxmox omada tailscale)
 if [[ $phase == steady ]]; then
-  roots=(aws-foundation proxmox-legacy proxmox omada tailscale authentik)
+  roots=(aws-foundation proxmox omada tailscale authentik)
 fi
 enabled_roots=()
 for root in "${roots[@]}"; do
@@ -386,7 +385,7 @@ tailscale_policy_identity() {
     -H 'Accept: application/json' \
     "https://api.tailscale.com/api/v2/tailnet/${TAILSCALE_TAILNET:--}/acl" \
     -o "$body"
-  python3 scripts/controller/tailscale-gateway-policy.py canonicalize-policy \
+  python3 scripts/controller/tailscale-policy.py canonicalize-policy \
     --policy "$body" >"$canonical"
   etag=$(awk 'tolower($1) == "etag:" {gsub(/\r/, ""); sub(/^[^:]+:[[:space:]]*/, ""); print; exit}' "$headers")
   [[ $etag =~ ^(W/)?\"[^\"[:cntrl:]]+\"$ ]] || {
@@ -403,7 +402,7 @@ tailscale_policy_identity() {
 tailscale_planned_policy() {
   local plan=$1 side=$2 destination=$3
   tofu -chdir=infrastructure/tofu/tailscale show -json "$plan" |
-    python3 scripts/controller/tailscale-gateway-policy.py extract-plan-policy \
+    python3 scripts/controller/tailscale-policy.py extract-plan-policy \
       --plan-json - --side "$side" >"$destination"
 }
 
@@ -437,7 +436,7 @@ tailscale_apply_planned_policy() {
   [[ $expected_etag =~ ^(W/)?\"[^\"[:cntrl:]]+\"$ ]]
   [[ $desired_sha == "$expected_after_sha" && $expected_before_sha != "$expected_after_sha" ]]
   IFS=$'\t' read -r current_sha current_etag < <(tailscale_policy_identity)
-  disposition=$(python3 scripts/controller/tailscale-gateway-policy.py apply-disposition \
+  disposition=$(python3 scripts/controller/tailscale-policy.py apply-disposition \
     --current-sha "$current_sha" \
     --current-etag "$current_etag" \
     --planned-before-sha "$expected_before_sha" \
@@ -453,7 +452,7 @@ tailscale_apply_planned_policy() {
       -o "$response"
     jq -e '((.errors // []) | length) == 0 and ((.warnings // []) | length) == 0' "$response" >/dev/null
     IFS=$'\t' read -r current_sha current_etag < <(tailscale_policy_identity)
-    disposition=$(python3 scripts/controller/tailscale-gateway-policy.py apply-disposition \
+    disposition=$(python3 scripts/controller/tailscale-policy.py apply-disposition \
       --current-sha "$current_sha" \
       --current-etag "$current_etag" \
       --planned-before-sha "$expected_before_sha" \
@@ -552,7 +551,7 @@ plan_all() {
   local planned_before_policy planned_after_policy compose_hash recovery_backup_identity_sha256 recovery_expectations_sha256 ansible_extra_vars_file_sha256 proxmox_host_plan
   proxmox_host_plan=$(plan_proxmox_host true)
   if [[ $(jq -r .prerequisite <<<"$proxmox_host_plan") == vm-start ]]; then
-    roots=(aws-foundation proxmox-legacy proxmox)
+    roots=(aws-foundation proxmox)
   fi
   for root in "${roots[@]}"; do
     echo "Planning OpenTofu root: $root"
@@ -590,7 +589,7 @@ plan_all() {
       tailscale_policy_before_sha256=$(sha256_file "$planned_before_policy")
       tailscale_policy_after_sha256=$(sha256_file "$planned_after_policy")
       rm -f "$planned_before_policy" "$planned_after_policy"
-      python3 scripts/controller/tailscale-gateway-policy.py validate-before-identity \
+      python3 scripts/controller/tailscale-policy.py validate-before-identity \
         --planned-before-sha "$tailscale_policy_before_sha256" \
         --live-before-sha "$tailscale_live_policy_sha256"
       [[ $tailscale_policy_after_sha256 == "$tailscale_policy_before_sha256" ]] || tailscale_policy_changed=true
@@ -724,7 +723,7 @@ verify_manifest() {
   local expected_roots manifest_stage
   manifest_stage=$(jq -r .stage "$manifest")
   if [[ $manifest_stage == vm-start-prerequisite ]]; then
-    expected_roots=$(printf '%s\n' aws-foundation proxmox-legacy proxmox | jq -R . | jq -s 'sort')
+    expected_roots=$(printf '%s\n' aws-foundation proxmox | jq -R . | jq -s 'sort')
   else
     expected_roots=$(printf '%s\n' "${roots[@]}" | jq -R . | jq -s 'sort')
   fi
@@ -751,10 +750,9 @@ verify_manifest() {
   if [[ $(jq -r .stage "$manifest") == vm-start-prerequisite ]]; then
     jq -e '
       (.plans[] | select(.root == "aws-foundation") | .changed) == false and
-      (.plans[] | select(.root == "proxmox-legacy") | .changed) == false and
       (.plans[] | select(.root == "proxmox") | .changed) == true
     ' "$manifest" >/dev/null || {
-      echo "VM-start prerequisite requires AWS and legacy Proxmox no-ops plus one Proxmox change." >&2
+      echo "VM-start prerequisite requires an AWS no-op plus one Proxmox change." >&2
       exit 66
     }
   fi
@@ -793,7 +791,7 @@ apply_root() {
   changed=$(jq -r --arg root "$root" '.plans[] | select(.root == $root) | .changed' "$plan_dir/manifest.json")
   backend_init "$root"
   case "$root" in
-    proxmox|proxmox-legacy)
+    proxmox)
       [[ $changed == false || -n ${PROXMOX_APPLY_API_TOKEN:-} ]] || {
         echo "The separated Proxmox apply API token is required." >&2
         exit 66
@@ -903,7 +901,6 @@ ansible_require_noop() {
 
 apply_debian_steady() {
   local tag
-  echo "Deferring the separately gated Arch network migration during routine steady convergence."
   for tag in base tailscale ssh storage docker sops_age restic_backup hardware host_files compose; do
     ansible_checked_apply "$production_inventory" playbooks/site.yml "Debian/$tag" docker-host-production \
       --tags "$tag" -e iac_apply_confirmed=true -e "iac_apply_tag=$tag" \
@@ -997,7 +994,6 @@ case "$action" in
     acquire_apply_lock
     verify_manifest
     apply_root aws-foundation
-    apply_root proxmox-legacy
     if [[ $(jq -r .stage "$plan_dir/manifest.json") == vm-start-prerequisite ]]; then
       apply_root proxmox
       echo "steady_stage=vm-start-prerequisite status=applied requires_new_reviewed_plan=true"

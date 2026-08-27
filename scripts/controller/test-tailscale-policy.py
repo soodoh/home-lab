@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import unittest
 
-HELPER = Path(__file__).with_name("tailscale-gateway-policy.py")
+HELPER = Path(__file__).with_name("tailscale-policy.py")
 
 
 def load_helper():
