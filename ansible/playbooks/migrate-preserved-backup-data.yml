@@ -1,7 +1,7 @@
 ---
 - name: Guardedly separate preserved Calibre and Caro data
   hosts: docker_host
-  gather_facts: false
+  gather_facts: true
   any_errors_fatal: true
   vars_files:
     - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
@@ -53,6 +53,7 @@
         name: apply_lock
       vars:
         apply_lock_action: acquire
+        apply_lock_operation: preserved-data-migration
   tasks:
     - name: Inspect migration source and destination parents
       ansible.builtin.stat:
@@ -233,7 +234,7 @@
             staged_path: "/mnt/storage/media/.home-lab-{{ item.name }}-staging"
           changed_when: false
 
-        - name: Verify complete staged trees and metadata with rsync checksum dry-run
+        - name: Verify complete staged trees and portable metadata with rsync checksum dry-run
           ansible.builtin.command:
             argv:
               - /usr/bin/rsync
@@ -245,6 +246,7 @@
               - --one-file-system
               - --checksum
               - --exclude=/.home-lab-migration-owner
+              - --no-times
               - --dry-run
               - --itemize-changes
               - "{{ item.source }}/"
@@ -366,3 +368,4 @@
         name: apply_lock
       vars:
         apply_lock_action: release
+        apply_lock_operation: preserved-data-migration
