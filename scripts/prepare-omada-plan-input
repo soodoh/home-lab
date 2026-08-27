@@ -33,14 +33,40 @@ esac
 : "${OMADA_EXPORT_JSON:?OMADA_EXPORT_JSON is required when Omada management is enabled}"
 : "${OMADA_CA_PEM:?OMADA_CA_PEM is required when Omada management is enabled}"
 : "${OMADA_URL:?OMADA_URL is required when Omada management is enabled}"
+: "${SOPS_AGE_KEY_FILE:?SOPS_AGE_KEY_FILE is required when Omada management is enabled}"
 [[ $OMADA_URL == https://Omada:8043 ]]
-for command in openssl python3; do
+for command in jq openssl python3 sops; do
   command -v "$command" >/dev/null || { echo "missing command: $command" >&2; exit 69; }
 done
 
+SOPS_KEY_FILE=$SOPS_AGE_KEY_FILE python3 - <<'PY'
+import os
+from pathlib import Path
+import stat
+
+path = Path(os.environ["SOPS_KEY_FILE"])
+if not path.is_file() or path.is_symlink():
+    raise SystemExit("SOPS age identity must be a regular file")
+metadata = path.stat()
+if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o600:
+    raise SystemExit("SOPS age identity must be owned by the controller user with mode 0600")
+PY
+
 install -d -m 0700 .local/omada
+client_config=$(mktemp .local/omada/client-config.XXXXXX)
+trap 'rm -f "$client_config"' EXIT
+SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE sops --decrypt --output-type json \
+  infrastructure/tofu/omada/client-config.sops.json >"$client_config"
+jq -e '
+  (.client_aliases | type == "array" and length > 0 and
+    all(.[]; type == "object" and (keys | sort) == ["alias", "mac"])) and
+  (.requested_reservations | type == "array" and
+    all(.[]; type == "object" and (keys | sort) == ["enable", "ip", "mac", "name"]))
+' "$client_config" >/dev/null
 printf '%s' "$OMADA_EXPORT_JSON" >.local/omada/export.json
 printf '%s' "$OMADA_CA_PEM" >.local/omada/controller-ca.pem
-chmod 0600 .local/omada/export.json .local/omada/controller-ca.pem
+chmod 0600 "$client_config" .local/omada/export.json .local/omada/controller-ca.pem
+mv -f "$client_config" .local/omada/client-config.json
+trap - EXIT
 openssl verify -CAfile .local/omada/controller-ca.pem .local/omada/controller-ca.pem >/dev/null
 python3 "$alias_helper" verify

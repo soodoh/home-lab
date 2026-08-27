@@ -61,13 +61,21 @@ if [[ $action == apply ]]; then
   node scripts/controller/check-vm-100-authority.js --require-ordinary-mutation
 fi
 
+prepare_omada_provider_fork() {
+  local config_file
+  config_file=$(scripts/prepare-omada-provider-fork)
+  [[ $config_file == "$repo_root/.local/omada-provider-fork/tofurc" && -f $config_file && ! -L $config_file ]]
+  export TF_CLI_CONFIG_FILE=$config_file
+}
+
 if [[ $action == validate ]]; then
-  for command in tofu node jq python3 shellcheck ansible-lint ansible-playbook docker nix nix-store; do
+  for command in tofu node jq python3 shellcheck ansible-lint ansible-playbook docker nix nix-store git go; do
     command -v "$command" >/dev/null || {
       echo "required validation command is unavailable: $command" >&2
       exit 69
     }
   done
+  prepare_omada_provider_fork
   scripts/validate-contract
   scripts/validate-provider-locks
   infrastructure/policy/test-policy.sh
@@ -125,6 +133,7 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-protected-file.py
   python3 scripts/controller/test-reconcile-manifest.py
   python3 scripts/controller/test-reconcile-security.py
+  python3 scripts/controller/test-omada-provider-fork.py
   scripts/test-restic-recovery-bundle
   python3 scripts/test-compose-action-plan.py
   python3 scripts/test-restic-tools.py
@@ -133,7 +142,7 @@ if [[ $action == validate ]]; then
     scripts/build-recovery-bundle scripts/configure-local-controller-aws \
     scripts/configure-local-provider-credentials \
     scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack scripts/validate-proxmox-bootstrap-keys \
-    scripts/prepare-omada-plan-input scripts/rehearse-recovery \
+    scripts/prepare-omada-plan-input scripts/prepare-omada-provider-fork scripts/rehearse-recovery \
     scripts/restore-critical-backup scripts/test-restic-activation-fixture scripts/test-restic-recovery-bundle scripts/test-restic-restore-branch
   tofu fmt -check -recursive infrastructure/tofu
   for root in aws-foundation proxmox-legacy proxmox proxmox-lxc-qualification omada tailscale; do
@@ -159,12 +168,15 @@ if [[ $action == validate ]]; then
   exit 0
 fi
 
-for command in tofu node python3 jq git ansible ansible-playbook curl cmp; do
+for command in tofu node python3 jq git go ansible ansible-playbook curl cmp; do
   command -v "$command" >/dev/null || {
     echo "required command is unavailable: $command" >&2
     exit 69
   }
 done
+if [[ ${TF_VAR_omada_enable_management:-false} == true ]]; then
+  prepare_omada_provider_fork
+fi
 
 export TF_IN_AUTOMATION=1
 export TF_INPUT=0
@@ -531,6 +543,7 @@ root_plan_args() {
   local root=$1
   if [[ $root == omada && ${TF_VAR_omada_enable_management:-false} == true ]]; then
     printf '%s\0' -var="omada_export_path=$repo_root/.local/omada/export.json"
+    printf '%s\0' -var="omada_client_config_path=$repo_root/.local/omada/client-config.json"
   fi
 }
 
