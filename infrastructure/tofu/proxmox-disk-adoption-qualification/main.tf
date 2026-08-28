@@ -44,8 +44,8 @@ variable "qualification_candidate_volume" {
   default = ""
 
   validation {
-    condition     = !var.qualification_adopt_scsi3 || can(regex("^[0-9]+/vm-[0-9]+-disk-[0-9]+\\.raw$", var.qualification_candidate_volume))
-    error_message = "scsi3 adoption requires an exact qualification-only raw volume path."
+    condition     = !var.qualification_adopt_scsi3 || can(regex("^(?:[0-9]+/vm-[0-9]+-disk-[0-9]+\\.raw|vm-[0-9]+-disk-[0-9]+)$", var.qualification_candidate_volume))
+    error_message = "scsi3 adoption requires an exact qualification-only directory or LVM-thin volume path."
   }
 }
 
@@ -152,7 +152,7 @@ resource "proxmox_virtual_environment_vm" "disk_adoption" {
       error_message = "An enabled qualification requires a dedicated qual-* datastore identifier."
     }
     precondition {
-      condition     = !var.qualification_adopt_scsi3 || startswith(var.qualification_candidate_volume, "${var.qualification_vmid}/vm-${var.qualification_vmid}-")
+      condition     = !var.qualification_adopt_scsi3 || startswith(var.qualification_candidate_volume, "${var.qualification_vmid}/vm-${var.qualification_vmid}-") || startswith(var.qualification_candidate_volume, "vm-${var.qualification_vmid}-")
       error_message = "The candidate volume path must be bound to the disposable qualification VMID."
     }
   }

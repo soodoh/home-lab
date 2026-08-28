@@ -11,7 +11,8 @@ from typing import Any
 
 QUAL_SERIAL = re.compile(r"^QUAL-DISK-[A-Z0-9-]+$")
 QUAL_DATASTORE = re.compile(r"^qual-[a-z0-9-]+$")
-QUAL_VOLUME = re.compile(r"^(?P<vmid>[0-9]+)/vm-(?P=vmid)-disk-[0-9]+\.raw$")
+QUAL_DIRECTORY_VOLUME = re.compile(r"^(?P<vmid>[0-9]+)/vm-(?P=vmid)-disk-[0-9]+\.raw$")
+QUAL_LVMTHIN_VOLUME = re.compile(r"^vm-(?P<vmid>[0-9]+)-disk-[0-9]+$")
 
 
 def fail(reason: str) -> None:
@@ -96,7 +97,9 @@ def inspect(plan: Any) -> None:
     volume = candidate.get("path_in_datastore")
     if not isinstance(datastore, str) or QUAL_DATASTORE.fullmatch(datastore) is None:
         fail("candidate_datastore")
-    match = QUAL_VOLUME.fullmatch(volume) if isinstance(volume, str) else None
+    directory_match = QUAL_DIRECTORY_VOLUME.fullmatch(volume) if isinstance(volume, str) else None
+    lvmthin_match = QUAL_LVMTHIN_VOLUME.fullmatch(volume) if isinstance(volume, str) else None
+    match = directory_match or lvmthin_match
     if match is None or int(match.group("vmid")) != vmid:
         fail("candidate_volume")
     raw = json.dumps(plan, sort_keys=True, separators=(",", ":"))

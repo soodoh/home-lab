@@ -79,6 +79,16 @@ def main() -> None:
         inspect(valid_plan())
     assert output.getvalue() == "disk_adoption_plan=accepted\n"
 
+    lvmthin_plan = valid_plan()
+    change = lvmthin_plan["resource_changes"][0]["change"]
+    for state in (change["before"], change["after"]):
+        for index, disk_value in enumerate(state["disk"]):
+            disk_value["datastore_id"] = "qual-lvmthin"
+            disk_value["path_in_datastore"] = f"vm-9951-disk-{index}"
+    with contextlib.redirect_stdout(io.StringIO()) as lvmthin_output:
+        inspect(lvmthin_plan)
+    assert lvmthin_output.getvalue() == "disk_adoption_plan=accepted\n"
+
     mutations = []
     plan = valid_plan(); plan["resource_changes"][0]["change"]["actions"] = ["delete", "create"]; mutations.append((plan, "actions"))
     plan = valid_plan(); plan["resource_changes"][0]["change"]["after_unknown"] = {"disk": [False, False, False, True]}; mutations.append((plan, "unknown_values"))
