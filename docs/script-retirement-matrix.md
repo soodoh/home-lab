@@ -57,6 +57,7 @@
 | `scripts/controller/proxmox-access-cutover.js` | `transition-with-nix` | 1 | `scripts/controller/test-proxmox-access-cutover.js` |
 | `scripts/controller/proxmox-access-identity-stage.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-identity-stage.py` |
 | `scripts/controller/proxmox-plan-capability.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-transports.py` |
+| `scripts/controller/proxmox-deploy-capability.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-transports.py` |
 | `scripts/controller/proxmox-firewall.py` | `retain-firewall-boundary` | 2 | `docs/proxmox-firewall-cutover.md`, `scripts/controller/test-proxmox-firewall-controller.py` |
 | `scripts/controller/proxmox-nix-projection.js` | `transition-with-nix` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/proxmox-timezone-handoff.js` | `transition-with-nix` | 1 | `scripts/controller/test-proxmox-timezone-handoff.js` |
@@ -78,6 +79,7 @@
 | `scripts/controller/test-proxmox-access-cutover.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-access-identity-stage.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-access-transports.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
+| `scripts/controller/test-proxmox-ansible-deploy-activator.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-disk-adoption-plan.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-firewall-controller.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-firewall-nfs-canary.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |

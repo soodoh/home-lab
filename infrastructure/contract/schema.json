@@ -1061,7 +1061,7 @@
           }
         },
         "managed_file_policies": {
-          "type": "array", "minItems": 17, "maxItems": 17,
+          "type": "array", "minItems": 18, "maxItems": 18,
           "items": {
             "type": "object", "additionalProperties": false,
             "required": ["path", "safety_class", "automatic", "requires_approval", "requires_reboot", "requires_watchdog"],

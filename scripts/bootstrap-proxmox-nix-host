@@ -55,6 +55,8 @@ FIREWALL_TARGETS = {
     HELPER_ROOT / "proxmox-firewall-transport": (FIREWALL_SOURCE / "proxmox-firewall-transport", 0o755),
     HELPER_ROOT / "proxmox-apply-transport": (FIREWALL_SOURCE / "proxmox-apply-transport", 0o755),
     HELPER_ROOT / "proxmox-ansible-plan-transport": (ACCESS_SOURCE / "proxmox-ansible-plan-transport", 0o755),
+    HELPER_ROOT / "proxmox-ansible-deploy-transport": (ACCESS_SOURCE / "proxmox-ansible-deploy-transport", 0o755),
+    HELPER_ROOT / "proxmox-ansible-deploy-activator": (ACCESS_SOURCE / "proxmox-ansible-deploy-activator", 0o755),
     HELPER_ROOT / "proxmox-firewall-boot-recovery": (FIREWALL_SOURCE / "proxmox-firewall-boot-recovery", 0o755),
     **{SYSTEMD_ROOT / name: (FIREWALL_SOURCE / name, 0o644) for name in FIREWALL_UNITS},
     SHARE_ROOT / FIREWALL_POLICY: (FIREWALL_SOURCE / FIREWALL_POLICY, 0o644),

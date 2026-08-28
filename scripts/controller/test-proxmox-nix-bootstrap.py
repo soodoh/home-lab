@@ -811,9 +811,10 @@ a.runtime.atomic(target,b"journal",0o600)
         self.assertEqual(result.returncode,1); self.assertEqual(len(calls),1)
         self.assertIn(installer.pending_path(installer.FIREWALL_KEY),installer.pending_targets())
 
-    def test_firewall_assets_are_in_fixed_transactional_bootstrap_surface(self):
+    def test_fixed_access_and_firewall_assets_are_in_transactional_bootstrap_surface(self):
         installer=load_installer()
-        expected={"proxmox-firewall-transaction.py","proxmox-firewall-transport","proxmox-apply-transport","proxmox-ansible-plan-transport","proxmox-firewall-boot-recovery",
+        expected={"proxmox-firewall-transaction.py","proxmox-firewall-transport","proxmox-apply-transport","proxmox-ansible-plan-transport",
+                  "proxmox-ansible-deploy-transport","proxmox-ansible-deploy-activator","proxmox-firewall-boot-recovery",
                   "proxmox-firewall-policy.json","50-home-lab-firewall-recovery.conf",
                   *installer.FIREWALL_UNITS}
         self.assertEqual({source.name for source, _ in installer.FIREWALL_TARGETS.values()},expected)

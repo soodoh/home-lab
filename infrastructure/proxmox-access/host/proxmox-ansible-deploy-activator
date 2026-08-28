@@ -1,0 +1,178 @@
+#!/usr/bin/python3
+"""Apply one immutable lifecycle-marker plan through the fixed deploy transport."""
+
+import datetime as dt
+import hashlib
+import json
+import os
+from pathlib import Path
+import pwd
+import re
+import stat
+import subprocess
+import sys
+
+REPO = Path("/root/home-lab")
+INBOX = Path("/home/ansible-deploy/.home-lab-plan-inbox")
+MARKER = Path("/var/lib/home-lab/lifecycle-state.json")
+LOCKS = (
+    Path("/var/lib/home-lab/reconciliation/apply.lock"),
+    Path("/var/lib/iac-ansible-production.lock"),
+    Path("/var/lib/home-lab/firewall-transaction/active.json"),
+)
+HEX64 = re.compile(r"[0-9a-f]{64}")
+HEX40 = re.compile(r"[0-9a-f]{40}")
+TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
+FINGERPRINT = "SHA256:uaxG9uESfphESCqWx3ialKjK0doHnVcFoUIGWMGcaYQ"
+
+
+def canonical(value):
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def fail(message):
+    raise ValueError(message)
+
+
+def read_bounded_stdin(limit):
+    raw = sys.stdin.buffer.read(limit + 1)
+    if len(raw) > limit:
+        fail("request exceeds bound")
+    value = json.loads(raw)
+    if raw != canonical(value):
+        fail("request is not canonical")
+    return value
+
+
+def read_fixed(path, expected_uid, expected_gid, expected_mode, limit):
+    info = os.lstat(path)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != expected_uid or info.st_gid != expected_gid or \
+            stat.S_IMODE(info.st_mode) != expected_mode or info.st_nlink != 1 or info.st_size > limit:
+        fail("staged plan metadata differs")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        raw = os.read(fd, limit + 1)
+        if os.read(fd, 1):
+            fail("staged plan exceeds bound")
+    finally:
+        os.close(fd)
+    return raw
+
+
+def parse_time(value):
+    if not isinstance(value, str) or TIME.fullmatch(value) is None:
+        fail("plan timestamp is invalid")
+    return dt.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+
+
+def file_hash(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def git(*args):
+    result = subprocess.run(("/usr/bin/git", "-C", str(REPO), *args), stdin=subprocess.DEVNULL,
+                            capture_output=True, text=True, timeout=15, check=True)
+    if result.stderr or len(result.stdout) > 65536:
+        fail("repository binding command differs")
+    return result.stdout.strip()
+
+
+def validate_plan(value, digest):
+    expected_keys = {"authorized", "commit", "contract_sha256", "created_at", "expires_at", "format",
+                     "host", "host_key_fingerprint", "inventory_sha256", "marker"}
+    if not isinstance(value, dict) or set(value) != expected_keys or value["format"] != "home-lab-lifecycle-marker-plan-v1" or \
+            value["authorized"] is not False or value["host"] != "proxmox" or value["host_key_fingerprint"] != FINGERPRINT:
+        fail("plan envelope differs")
+    if not isinstance(value["commit"], str) or HEX40.fullmatch(value["commit"]) is None:
+        fail("plan commit is invalid")
+    if any(not isinstance(value[key], str) or HEX64.fullmatch(value[key]) is None for key in ("contract_sha256", "inventory_sha256")):
+        fail("plan source hash is invalid")
+    marker = value["marker"]
+    if not isinstance(marker, dict) or set(marker) != {"after", "before", "path"} or marker["path"] != str(MARKER) or marker["before"] != {"exists": False}:
+        fail("marker before-state differs")
+    after = marker["after"]
+    if not isinstance(after, dict) or set(after) != {"source_commit", "state", "updated_at", "version"} or \
+            after["version"] != 1 or after["state"] != "production" or after["source_commit"] != value["commit"] or \
+            after["updated_at"] != value["created_at"]:
+        fail("marker after-state differs")
+    created, expires = parse_time(value["created_at"]), parse_time(value["expires_at"])
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    if created > now or now > expires or (expires - created).total_seconds() != 1800:
+        fail("plan freshness differs")
+    if hashlib.sha256(canonical(value)).hexdigest() != digest:
+        fail("plan content hash differs")
+    return after
+
+
+def verify_repo(plan):
+    if git("rev-parse", "HEAD") != plan["commit"] or git("rev-parse", "origin/main") != plan["commit"] or \
+            git("status", "--porcelain=v1", "--untracked-files=all"):
+        fail("repository commit or cleanliness differs")
+    if file_hash(REPO / "infrastructure/contract/home-lab.yml") != plan["contract_sha256"] or \
+            file_hash(REPO / "ansible/inventory/production.yml") != plan["inventory_sha256"]:
+        fail("contract or inventory binding differs")
+
+
+def install_marker(after):
+    content = canonical(after)
+    try:
+        existing = os.lstat(MARKER)
+    except FileNotFoundError:
+        existing = None
+    if existing is not None:
+        if stat.S_ISREG(existing.st_mode) and existing.st_uid == 0 and existing.st_gid == 0 and \
+                stat.S_IMODE(existing.st_mode) == 0o600 and existing.st_nlink == 1 and MARKER.read_bytes() == content:
+            return "already-applied"
+        fail("marker no longer matches absent before-state")
+    parent = MARKER.parent
+    parent_info = os.lstat(parent)
+    if not stat.S_ISDIR(parent_info.st_mode) or parent_info.st_uid != 0 or parent_info.st_gid != 0 or stat.S_IMODE(parent_info.st_mode) & 0o022:
+        fail("marker parent is unsafe")
+    temporary = parent / f".{MARKER.name}.{os.getpid()}.tmp"
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(fd, content); os.fsync(fd)
+    finally:
+        os.close(fd)
+    try:
+        os.chown(temporary, 0, 0); os.chmod(temporary, 0o600); os.replace(temporary, MARKER)
+        directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+        try: os.fsync(directory)
+        finally: os.close(directory)
+        info = os.lstat(MARKER)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1 or MARKER.read_bytes() != content:
+            fail("marker postcondition failed")
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        if MARKER.exists() and MARKER.read_bytes() != content:
+            MARKER.unlink(missing_ok=True)
+        raise
+    return "applied"
+
+
+def main():
+    request = read_bounded_stdin(1024)
+    if not isinstance(request, dict) or set(request) != {"operation", "plan_sha256"} or \
+            request["operation"] != "apply-lifecycle-marker" or not isinstance(request["plan_sha256"], str) or \
+            HEX64.fullmatch(request["plan_sha256"]) is None:
+        fail("deploy request differs")
+    if any(os.path.lexists(path) for path in LOCKS):
+        fail("conflicting lifecycle lock is active")
+    digest = request["plan_sha256"]
+    deploy_account = pwd.getpwnam("ansible-deploy")
+    path = INBOX / f"{digest}.json"
+    raw = read_fixed(path, deploy_account.pw_uid, deploy_account.pw_gid, 0o600, 16384)
+    value = json.loads(raw)
+    if raw != canonical(value):
+        fail("staged plan is not canonical")
+    after = validate_plan(value, digest)
+    verify_repo(value)
+    result = install_marker(after)
+    print(json.dumps({"lifecycle_marker": result, "plan_sha256": digest}, sort_keys=True, separators=(",", ":")))
+
+
+try:
+    main()
+except (KeyError, OSError, ValueError, json.JSONDecodeError, subprocess.SubprocessError) as error:
+    print(f"proxmox-ansible-deploy-activator: {error}", file=sys.stderr)
+    raise SystemExit(65)

@@ -128,7 +128,7 @@ function validateProxmoxHostPolicy(contract) {
     const expectedShell = account.name === "firewall-apply" ? "/usr/local/libexec/home-lab/proxmox-firewall-transport" :
       account.name === "tofu-apply" ? "/usr/local/libexec/home-lab/proxmox-apply-transport" :
       account.name === "ansible-plan" ? "/usr/local/libexec/home-lab/proxmox-ansible-plan-transport" :
-      account.name === "ansible-deploy" ? "/usr/sbin/nologin" : "/bin/bash";
+      account.name === "ansible-deploy" ? "/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport" : "/bin/bash";
     if (account.shell !== expectedShell || !account.create_home || !account.password_lock) {
       failures.push(`service account ${account.name} must retain its locked login identity`);
     }
@@ -167,10 +167,12 @@ function validateProxmoxHostPolicy(contract) {
     failures.push("ansible-plan must expose only the fixed Tailscale observer transport");
   }
   const ansibleDeployAccount = serviceAccounts.find((account) => account.name === "ansible-deploy");
-  if (ansibleDeployAccount && (ansibleDeployAccount.groups.length || ansibleDeployAccount.sudo?.kind !== "audit-absence" ||
-      ansibleDeployAccount.sudo?.absence !== "file" || ansibleDeployAccount.sudo?.path !== "/etc/sudoers.d/ansible-deploy" ||
+  const deployActivator = "/usr/local/libexec/home-lab/proxmox-ansible-deploy-activator";
+  if (ansibleDeployAccount && (ansibleDeployAccount.groups.length || ansibleDeployAccount.sudo?.state !== "present" ||
+      ansibleDeployAccount.sudo?.file?.path !== "/etc/sudoers.d/ansible-deploy" ||
+      ansibleDeployAccount.sudo?.rule !== `ansible-deploy ALL=(root) NOPASSWD: ${deployActivator}` ||
       ansibleDeployAccount.authorized_keys?.state !== "absent")) {
-    failures.push("ansible-deploy must remain inert until its saved-plan transport handoff");
+    failures.push("ansible-deploy must expose only the fixed saved-plan activator transport");
   }
 
   const humanNames = proxmox.access.human_accounts.map((account) => account.name);

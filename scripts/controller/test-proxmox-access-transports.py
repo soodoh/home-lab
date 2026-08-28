@@ -10,8 +10,11 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 PLAN = ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-plan-transport"
+DEPLOY = ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-deploy-transport"
+DEPLOY_ACTIVATOR = ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator"
 FIREWALL = ROOT / "infrastructure/proxmox-firewall/host/proxmox-firewall-transport"
 CAPABILITY = ROOT / "scripts/controller/proxmox-plan-capability.py"
+DEPLOY_CAPABILITY = ROOT / "scripts/controller/proxmox-deploy-capability.py"
 
 
 def invoke(path: Path, *args: str, original: str | None = None) -> int:
@@ -23,7 +26,7 @@ def invoke(path: Path, *args: str, original: str | None = None) -> int:
 
 
 def main() -> None:
-    for path in (PLAN, FIREWALL):
+    for path in (PLAN, DEPLOY, DEPLOY_ACTIVATOR, FIREWALL):
         assert stat.S_IMODE(path.stat().st_mode) == 0o755
         assert not path.is_symlink()
 
@@ -41,6 +44,23 @@ def main() -> None:
         assert invoke(FIREWALL, "-c", command) == 64
     assert invoke(FIREWALL, "-c", "inspect", original="inspect") == 64
 
+    digest = "a" * 64
+    for command in (f"stage lifecycle-marker {digest}", f"inspect lifecycle-marker {digest}", f"apply lifecycle-marker {digest}"):
+        assert invoke(DEPLOY, "-c", command) != 64
+    for args, original in (
+        ((), None), (("-c", "apply lifecycle-marker a;id"), None),
+        (("-c", f"apply lifecycle-marker {digest} extra"), None),
+        (("-c", "/bin/sh"), None), (("-c", f"inspect lifecycle-marker {digest}"), "inspect"),
+    ):
+        assert invoke(DEPLOY, *args, original=original) == 64
+    deploy_source = DEPLOY.read_text()
+    activator_source = DEPLOY_ACTIVATOR.read_text()
+    assert "eval" not in deploy_source and "sh -c" not in deploy_source
+    assert "sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator" in deploy_source
+    for required in ("os.O_NOFOLLOW", "os.O_EXCL", "origin/main", "apply-lifecycle-marker"):
+        assert required in activator_source
+    assert "shell=True" not in activator_source and "NOPASSWD: ALL" not in activator_source
+
     plan_source = PLAN.read_text()
     assert "proxmox-observer observe" in plan_source
     assert "SSH_ORIGINAL_COMMAND" in plan_source
@@ -49,6 +69,10 @@ def main() -> None:
     for required in ("PROXMOX_PLAN_CAPABILITY_CONFIRMED", "os.O_EXCL", "os.O_NOFOLLOW", "ansible-plan ALL=(root) NOPASSWD"):
         assert required in capability_source
     assert "NOPASSWD: ALL" not in capability_source and "authorized_keys\", \"w" not in capability_source
+    deploy_capability_source = DEPLOY_CAPABILITY.read_text()
+    for required in ("PROXMOX_DEPLOY_CAPABILITY_CONFIRMED", "os.O_EXCL", "os.O_NOFOLLOW", "saved-lifecycle-marker-plans-only"):
+        assert required in deploy_capability_source
+    assert "authorized_keys\", \"w" not in deploy_capability_source
     print("proxmox_access_transports=verified")
 
 

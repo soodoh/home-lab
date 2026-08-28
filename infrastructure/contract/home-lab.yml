@@ -541,7 +541,7 @@ proxmox:
           rule: "ansible-plan ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-observer observe"
       - name: ansible-deploy
         home: /home/ansible-deploy
-        shell: /usr/sbin/nologin
+        shell: /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport
         create_home: true
         password_lock: true
         groups: []
@@ -571,10 +571,15 @@ proxmox:
               group: ansible-deploy
               mode: "0600"
         sudo:
-          kind: audit-absence
-          projectable: true
-          absence: file
-          path: /etc/sudoers.d/ansible-deploy
+          state: present
+          file:
+            kind: managed-file
+            projectable: true
+            path: /etc/sudoers.d/ansible-deploy
+            owner: root
+            group: root
+            mode: "0440"
+          rule: "ansible-deploy ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator"
     human_accounts:
       - name: proxmox
         comment: Home Lab Proxmox Administrator
@@ -773,6 +778,7 @@ proxmox:
       - { path: /etc/network/interfaces, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/ssh/sshd_config.d/60-home-lab.conf, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/ansible-plan, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
+      - { path: /etc/sudoers.d/ansible-deploy, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/firewall-apply, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/proxmox, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/tofu-apply, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }

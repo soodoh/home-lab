@@ -63,7 +63,7 @@ def main() -> None:
     projection = json.loads((ROOT / "nix/proxmox/projection.json").read_text())
     accounts = {account["name"]: account for account in projection["accounts"]["service"]}
     assert accounts["ansible-plan"]["shell"] == "/usr/local/libexec/home-lab/proxmox-ansible-plan-transport"
-    assert accounts["ansible-deploy"]["shell"] == "/usr/sbin/nologin"
+    assert accounts["ansible-deploy"]["shell"] == "/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport"
     for name in ("ansible-plan", "ansible-deploy"):
         assert accounts[name]["groups"] == [] and accounts[name]["passwordLock"] is True
     contract_source = (ROOT / "infrastructure/contract/home-lab.yml").read_text()
