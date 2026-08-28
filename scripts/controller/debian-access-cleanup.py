@@ -119,10 +119,31 @@ def plan() -> tuple[Path, str]:
     return target, digest
 
 
+def attest_recovery(path: Path, method: str) -> None:
+    info = path.lstat(); raw = path.read_bytes(); value = json.loads(raw); digest = sha(raw)
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != os.getuid() or info.st_nlink != 1 or path.name != f"manifest-{digest}.json" or raw != canonical(value):
+        raise SystemExit("Debian access cleanup manifest metadata differs")
+    if value.get("commit") != clean_pushed_commit() or datetime.now(timezone.utc) > datetime.fromisoformat(value["expires_at"].replace("Z", "+00:00")):
+        raise SystemExit("Debian access cleanup manifest binding or freshness differs")
+    if method not in {"localhost", "physical-console"}:
+        raise SystemExit("Debian recovery attestation method is invalid")
+    expected = f"attest-debian-{method}-recovery-{digest}"
+    if os.environ.get("DEBIAN_RECOVERY_ATTESTATION_CONFIRMED") != expected:
+        raise SystemExit(f"exact confirmation required: {expected}")
+    receipt = {"format": "home-lab-debian-access-recovery-attestation-v1", "manifest_sha256": digest,
+               "commit": value["commit"], "method": method,
+               "attested_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")}
+    receipt_raw = canonical(receipt); receipt_digest = sha(receipt_raw); target = OUTPUT / f"recovery-{receipt_digest}.json"
+    fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as handle: handle.write(receipt_raw); handle.flush(); os.fsync(handle.fileno())
+    print(json.dumps({"attestation_sha256": receipt_digest, "method": method, "path": str(target)}, sort_keys=True))
+
+
 def main() -> None:
-    parser=argparse.ArgumentParser(); parser.add_argument("command",choices=("plan",)); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); commands=parser.add_subparsers(dest="command",required=True); commands.add_parser("plan"); attested=commands.add_parser("attest-recovery"); attested.add_argument("manifest",type=Path); attested.add_argument("--method",choices=("localhost","physical-console"),required=True); args=parser.parse_args()
     if args.command == "plan":
         path,digest=plan(); print(json.dumps({"authorized":False,"manifest_sha256":digest,"path":str(path)},sort_keys=True))
+    else: attest_recovery(args.manifest.resolve(), args.method)
 
 
 if __name__ == "__main__": main()

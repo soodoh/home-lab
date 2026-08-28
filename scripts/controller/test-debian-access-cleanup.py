@@ -19,9 +19,10 @@ def main() -> None:
         "os.O_EXCL",
         "os.O_NOFOLLOW",
         "StrictHostKeyChecking=yes",
+        "DEBIAN_RECOVERY_ATTESTATION_CONFIRMED",
     ):
         assert required in source, required
-    assert 'choices=("plan",)' in source
+    assert 'add_parser("plan")' in source and 'add_parser("attest-recovery")' in source
     assert "StrictHostKeyChecking=no" not in source and "shell=True" not in source
     remote = source.split("program = r'''", 1)[1].split("'''", 1)[0]
     for forbidden in ("unlink(", "remove(", 'open(path,"w', "usermod", "sshd_config"):
