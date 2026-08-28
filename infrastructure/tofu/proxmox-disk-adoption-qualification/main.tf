@@ -131,7 +131,7 @@ resource "proxmox_virtual_environment_vm" "disk_adoption" {
       datastore_id      = var.qualification_datastore
       path_in_datastore = disk.value
       interface         = "scsi3"
-      serial            = "QUAL-DISK-CANDIDATE-3"
+      serial            = "QUAL-DISK-CAND-3"
       size              = 1
       backup            = false
       cache             = "none"

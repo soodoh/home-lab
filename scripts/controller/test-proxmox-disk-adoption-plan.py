@@ -51,7 +51,7 @@ def valid_plan() -> dict:
         "boot_order": ["scsi0"],
     }
     before = {**fixed, "disk": before_disks}
-    after = {**copy.deepcopy(fixed), "disk": [*copy.deepcopy(before_disks), disk("scsi3", "QUAL-DISK-CANDIDATE-3", path="9951/vm-9951-disk-3.raw")]}
+    after = {**copy.deepcopy(fixed), "disk": [*copy.deepcopy(before_disks), disk("scsi3", "QUAL-DISK-CAND-3", path="9951/vm-9951-disk-3.raw")]}
     return {
         "format_version": "1.2",
         "resource_changes": [{
@@ -102,7 +102,7 @@ def main() -> None:
         "delete_unreferenced_disks_on_destroy = false", 'serial       = "QUAL-DISK-BASE-0"',
         'serial       = "QUAL-DISK-BASE-1"', 'serial       = "QUAL-DISK-BASE-2"',
         'var.qualification_adopt_scsi3 ? [var.qualification_candidate_volume] : []',
-        'path_in_datastore = disk.value', 'serial            = "QUAL-DISK-CANDIDATE-3"',
+        'path_in_datastore = disk.value', 'serial            = "QUAL-DISK-CAND-3"',
     ):
         assert required in main_tf, required
     combined = main_tf + versions
