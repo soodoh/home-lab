@@ -601,7 +601,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["source_secret_ref", "compose_name", "destination", "container_path", "owner", "group", "mode"],
       "properties": {
-        "source_secret_ref": { "enum": ["MYSQL_PASSWORD", "MYSQL_ROOT_PASSWORD"] },
+        "source_secret_ref": { "enum": ["NEXTCLOUD_DB_PASSWORD", "NEXTCLOUD_DB_ROOT_PASSWORD"] },
         "compose_name": { "enum": ["nextcloud_mysql_password", "nextcloud_mariadb_root_password"] },
         "destination": { "type": "string", "pattern": "^/etc/docker-compose/credentials/nextcloud-[a-z-]+$" },
         "container_path": { "type": "string", "pattern": "^/run/secrets/nextcloud_[a-z_]+$" },

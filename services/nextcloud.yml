@@ -46,8 +46,8 @@ services:
       REDIS_HOST_PORT: 6379
       MYSQL_HOST: nextcloud-db
       MYSQL_PASSWORD_FILE: /run/secrets/nextcloud_mysql_password
-      MYSQL_DATABASE: $MYSQL_DATABASE
-      MYSQL_USER: $MYSQL_USER
+      MYSQL_DATABASE: $NEXTCLOUD_DB
+      MYSQL_USER: $NEXTCLOUD_DB_USER
       APACHE_DISABLE_REWRITE_IP: "1"
       TRUSTED_PROXIES: 172.23.0.250
       NEXTCLOUD_INIT_HTACCESS: "true"
@@ -92,8 +92,8 @@ services:
       MARIADB_DISABLE_UPGRADE_BACKUP: "1"
       MYSQL_ROOT_PASSWORD_FILE: /run/secrets/nextcloud_mariadb_root_password
       MYSQL_PASSWORD_FILE: /run/secrets/nextcloud_mysql_password
-      MYSQL_DATABASE: $MYSQL_DATABASE
-      MYSQL_USER: $MYSQL_USER
+      MYSQL_DATABASE: $NEXTCLOUD_DB
+      MYSQL_USER: $NEXTCLOUD_DB_USER
     secrets:
       - nextcloud_mariadb_root_password
       - nextcloud_mysql_password

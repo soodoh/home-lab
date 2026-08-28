@@ -112,8 +112,8 @@ def main() -> None:
         fail("cron_networks")
     if cron.get("ports") or cron.get("expose"):
         fail("cron_exposure")
-    if str(cron.get("labels", {}).get("docker-volume-backup.stop-during-backup", "")).lower() != "true":
-        fail("cron_writer_stop_label")
+    if any("docker-volume-backup.stop-during-backup" in service.get("labels", {}) for service in services.values()):
+        fail("legacy_backup_label")
     if environment(cron).get("PHP_MEMORY_LIMIT") != policy["php_memory_limit"]:
         fail("cron_php_memory_limit")
 

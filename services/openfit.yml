@@ -14,10 +14,10 @@ services:
       - /srv/home-lab-state/openfit-data:/app/data
     environment:
       TZ: $TZ
-      BETTER_AUTH_BASE_URL: $BETTER_AUTH_BASE_URL
-      BETTER_AUTH_SECRET: $BETTER_AUTH_SECRET
-      ADMIN_USER: $ADMIN_USER
-      ADMIN_PASSWORD: $ADMIN_PASSWORD
+      BETTER_AUTH_BASE_URL: $OPENFIT_BASE_URL
+      BETTER_AUTH_SECRET: $OPENFIT_SECRET
+      ADMIN_USER: $OPENFIT_ADMIN_USER
+      ADMIN_PASSWORD: $OPENFIT_ADMIN_PASSWORD
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
       interval: 30s

@@ -31,7 +31,7 @@ services:
       - /srv/home-lab-state/ddns-updater-data:/updater/data
     environment:
       TZ: $TZ
-      RESOLVER_ADDRESS: $RESOLVER_ADDRESS
+      RESOLVER_ADDRESS: $DDNS_RESOLVER_ADDRESS
       # See: https://pkg.go.dev/time#ParseDuration
       PERIOD: 5m
     networks:

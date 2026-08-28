@@ -1202,7 +1202,7 @@ nextcloud:
     query: false
   secrets:
     application_password:
-      source_secret_ref: MYSQL_PASSWORD
+      source_secret_ref: NEXTCLOUD_DB_PASSWORD
       compose_name: nextcloud_mysql_password
       destination: /etc/docker-compose/credentials/nextcloud-mysql-password
       container_path: /run/secrets/nextcloud_mysql_password
@@ -1210,7 +1210,7 @@ nextcloud:
       group: root
       mode: "0600"
     root_password:
-      source_secret_ref: MYSQL_ROOT_PASSWORD
+      source_secret_ref: NEXTCLOUD_DB_ROOT_PASSWORD
       compose_name: nextcloud_mariadb_root_password
       destination: /etc/docker-compose/credentials/nextcloud-mariadb-root-password
       container_path: /run/secrets/nextcloud_mariadb_root_password
