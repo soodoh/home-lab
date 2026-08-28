@@ -1,0 +1,6 @@
+---
+lifecycle_transition_plan_from_state: ""
+lifecycle_transition_plan_to_state: ""
+lifecycle_transition_plan_backup_attested: false
+lifecycle_transition_plan_console_attested: false
+lifecycle_transition_plan_emit: true

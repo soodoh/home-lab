@@ -1,0 +1,411 @@
+---
+- name: Validate the lifecycle contract selector
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host is string
+      - lifecycle_contract_host in lifecycle.hosts
+      - lifecycle.states == ['inert', 'bootstrap', 'production', 'maintenance', 'recovery', 'retired']
+    fail_msg: Lifecycle observation requires an exact host selector from the infrastructure contract.
+
+- name: Select the lifecycle contract for this host
+  ansible.builtin.set_fact:
+    lifecycle_state_policy: "{{ lifecycle.hosts[lifecycle_contract_host] }}"
+    lifecycle_state_required_tag: >-
+      {{ tailscale.tags.proxmox if lifecycle_contract_host == 'proxmox' else tailscale.tags.docker_host }}
+
+- name: Inspect and validate the lifecycle marker without changing it
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import datetime
+        import json
+        import os
+        import re
+        import stat
+        import sys
+
+        path = sys.argv[1]
+        states = set(sys.argv[2].split(','))
+        result = {"exists": False, "valid": False}
+        try:
+            metadata = os.lstat(path)
+        except FileNotFoundError:
+            print(json.dumps(result, separators=(",", ":"), sort_keys=True))
+            raise SystemExit(0)
+        result["exists"] = True
+        result["mode"] = format(stat.S_IMODE(metadata.st_mode), "04o")
+        result["owner_uid"] = metadata.st_uid
+        result["group_gid"] = metadata.st_gid
+        result["size"] = metadata.st_size
+        result["regular"] = stat.S_ISREG(metadata.st_mode)
+        if not result["regular"] or metadata.st_nlink != 1 or metadata.st_size > 4096:
+            print(json.dumps(result, separators=(",", ":"), sort_keys=True))
+            raise SystemExit(0)
+        try:
+            raw = open(path, "rb").read()
+            value = json.loads(raw)
+            expected_keys = {"source_commit", "state", "updated_at", "version"}
+            canonical = (json.dumps(value, separators=(",", ":"), sort_keys=True) + "\n").encode()
+            datetime.datetime.fromisoformat(value["updated_at"].replace("Z", "+00:00"))
+            content_valid = (
+                isinstance(value, dict)
+                and set(value) == expected_keys
+                and value["version"] == 1
+                and value["state"] in states
+                and re.fullmatch(r"[0-9a-f]{40}", value["source_commit"]) is not None
+                and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", value["updated_at"]) is not None
+                and raw == canonical
+            )
+        except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError):
+            content_valid = False
+            value = {}
+        result["state"] = value.get("state") if isinstance(value, dict) else None
+        result["source_commit"] = value.get("source_commit") if isinstance(value, dict) else None
+        result["updated_at"] = value.get("updated_at") if isinstance(value, dict) else None
+        result["valid"] = (
+            content_valid
+            and metadata.st_uid == 0
+            and metadata.st_gid == 0
+            and stat.S_IMODE(metadata.st_mode) == 0o600
+        )
+        print(json.dumps(result, separators=(",", ":"), sort_keys=True))
+      - "{{ lifecycle_state_policy.marker.path }}"
+      - "{{ lifecycle.states | join(',') }}"
+  become: true
+  register: lifecycle_state_marker_command
+  changed_when: false
+  check_mode: false
+
+- name: Discover conventional authorized-key files
+  ansible.builtin.find:
+    paths: "{{ lifecycle_state_authorized_key_search_paths }}"
+    patterns:
+      - authorized_keys
+      - authorized_keys2
+    file_type: any
+    recurse: true
+    follow: false
+    get_checksum: false
+    hidden: true
+  become: true
+  register: lifecycle_state_authorized_key_discovery
+
+- name: Initialize reduced conventional key evidence
+  ansible.builtin.set_fact:
+    lifecycle_state_authorized_key_files: []
+
+- name: Reduce conventional key evidence to metadata
+  ansible.builtin.set_fact:
+    lifecycle_state_authorized_key_files: >-
+      {{
+        lifecycle_state_authorized_key_files +
+        [{
+          'path': item.path,
+          'mode': item.mode,
+          'owner': item.pw_name | default(item.uid),
+          'group': item.gr_name | default(item.gid),
+          'size': item.size,
+          'is_regular': item.isreg | default(false),
+          'is_symlink': item.islnk | default(false),
+          'link_target': item.lnk_source | default(none)
+        }]
+      }}
+  loop: "{{ lifecycle_state_authorized_key_discovery.files | sort(attribute='path') }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Inspect effective OpenSSH authentication policy
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import json
+        import subprocess
+
+        completed = subprocess.run(
+            ["/usr/sbin/sshd", "-T"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        selected = {
+            "allow_users": [],
+            "authorized_keys_file": [],
+            "kbd_interactive_authentication": None,
+            "password_authentication": None,
+            "permit_root_login": None,
+            "pubkey_authentication": None,
+        }
+        singular = {
+            "kbdinteractiveauthentication": "kbd_interactive_authentication",
+            "passwordauthentication": "password_authentication",
+            "permitrootlogin": "permit_root_login",
+            "pubkeyauthentication": "pubkey_authentication",
+        }
+        for line in completed.stdout.splitlines():
+            key, _, value = line.partition(" ")
+            if key == "allowusers":
+                selected["allow_users"].append(value)
+            elif key == "authorizedkeysfile":
+                selected["authorized_keys_file"] = value.split()
+            elif key in singular:
+                selected[singular[key]] = value
+        print(json.dumps(selected, separators=(",", ":"), sort_keys=True))
+  become: true
+  register: lifecycle_state_sshd_command
+  changed_when: false
+  check_mode: false
+
+- name: Inspect reduced Tailscale node state and preferences
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import json
+        import subprocess
+
+        def run(arguments):
+            completed = subprocess.run(
+                arguments,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            return json.loads(completed.stdout)
+
+        status = run(["/usr/bin/tailscale", "status", "--json"])
+        preferences = run(["/usr/bin/tailscale", "debug", "prefs"])
+        self_state = status.get("Self") or {}
+        result = {
+            "advertise_tags": preferences.get("AdvertiseTags") or [],
+            "backend_state": status.get("BackendState"),
+            "dns_name": self_state.get("DNSName"),
+            "hostname": preferences.get("Hostname"),
+            "run_ssh": preferences.get("RunSSH"),
+            "tags": self_state.get("Tags") or [],
+            "want_running": preferences.get("WantRunning"),
+        }
+        print(json.dumps(result, separators=(",", ":"), sort_keys=True))
+  become: true
+  register: lifecycle_state_tailscale_command
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Inspect lifecycle lock conflicts
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import json
+        import os
+        import subprocess
+        import sys
+
+        retained_paths = json.loads(sys.argv[1])
+        monitored_paths = set(json.loads(sys.argv[2]))
+        retained = sorted(path for path in retained_paths if os.path.lexists(path))
+        completed = subprocess.run(
+            ["/usr/bin/lslocks", "--json", "--output", "PATH,PID,COMMAND"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        value = json.loads(completed.stdout)
+        active = []
+        for record in value.get("locks", []):
+            normalized = {str(key).lower(): item for key, item in record.items()}
+            path = normalized.get("path")
+            if path in monitored_paths:
+                active.append({
+                    "command": normalized.get("command"),
+                    "path": path,
+                    "pid": normalized.get("pid"),
+                })
+        result = {"active": sorted(active, key=lambda item: item["path"]), "retained": retained}
+        print(json.dumps(result, separators=(",", ":"), sort_keys=True))
+      - >-
+        {{
+          [
+            lifecycle_state_deploy_lock_path,
+            lifecycle_state_nix_owner_lock_path,
+            lifecycle_state_nix_lock_path
+          ] | to_json
+        }}
+      - >-
+        {{
+          [
+            lifecycle_state_deploy_lock_path,
+            lifecycle_state_backup_lock_path,
+            lifecycle_state_nix_owner_lock_path,
+            lifecycle_state_nix_lock_path,
+            lifecycle_state_operation_lock_path,
+            lifecycle_state_vfio_lock_path
+          ] | to_json
+        }}
+  become: true
+  register: lifecycle_state_lock_command
+  changed_when: false
+  check_mode: false
+
+- name: Inspect Debian lifecycle seam files
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  become: true
+  loop:
+    - "{{ lifecycle_state_debian_storage_activation_path }}"
+    - "{{ lifecycle_state_debian_legacy_inert_marker_path }}"
+  register: lifecycle_state_debian_seams
+  when: lifecycle_contract_host == 'debian'
+
+- name: Parse reduced lifecycle observations
+  ansible.builtin.set_fact:
+    lifecycle_state_marker: "{{ lifecycle_state_marker_command.stdout | from_json }}"
+    lifecycle_state_sshd: "{{ lifecycle_state_sshd_command.stdout | from_json }}"
+    lifecycle_state_tailscale: "{{ lifecycle_state_tailscale_command.stdout | from_json }}"
+    lifecycle_state_locks: "{{ lifecycle_state_lock_command.stdout | from_json }}"
+    lifecycle_state_storage_activation_exists: >-
+      {{
+        lifecycle_contract_host != 'debian' or
+        (lifecycle_state_debian_seams.results[0].stat.exists | default(false))
+      }}
+    lifecycle_state_legacy_inert_marker_exists: >-
+      {{
+        lifecycle_contract_host == 'debian' and
+        (lifecycle_state_debian_seams.results[1].stat.exists | default(false))
+      }}
+
+- name: Evaluate lifecycle invariants
+  ansible.builtin.set_fact:
+    lifecycle_state_marker_matches: >-
+      {{
+        (lifecycle_state_policy.marker.adoption_state == 'pending' and not lifecycle_state_marker.exists) or
+        (lifecycle_state_policy.marker.adoption_state == 'complete' and lifecycle_state_marker.valid and
+         lifecycle_state_marker.state == lifecycle_state_policy.desired_state)
+      }}
+    lifecycle_state_tailnet_matches: >-
+      {{
+        lifecycle_state_tailscale.backend_state == 'Running' and
+        lifecycle_state_tailscale.want_running == true and
+        lifecycle_state_tailscale.run_ssh == true and
+        lifecycle_state_required_tag in lifecycle_state_tailscale.tags
+      }}
+    lifecycle_state_conventional_keys_match: >-
+      {{
+        lifecycle_state_policy.current_mutation_owner != 'ansible' or
+        lifecycle_state_authorized_key_files | length == 0
+      }}
+    lifecycle_state_sshd_matches: >-
+      {{
+        lifecycle_state_policy.current_mutation_owner != 'ansible' or
+        (lifecycle_state_sshd.pubkey_authentication == 'no' and lifecycle_state_sshd.permit_root_login == 'no')
+      }}
+    lifecycle_state_locks_match: >-
+      {{ lifecycle_state_locks.active | length == 0 and lifecycle_state_locks.retained | length == 0 }}
+    lifecycle_state_storage_activation_matches: >-
+      {{
+        lifecycle_contract_host != 'debian' or
+        lifecycle_state_policy.desired_state != 'production' or
+        lifecycle_state_storage_activation_exists
+      }}
+    lifecycle_state_legacy_marker_matches: >-
+      {{
+        lifecycle_contract_host != 'debian' or
+        lifecycle_state_policy.marker.adoption_state == 'pending' or
+        not lifecycle_state_legacy_inert_marker_exists
+      }}
+    lifecycle_state_target_marker_matches: >-
+      {{
+        lifecycle_state_policy.marker.adoption_state == 'complete' and
+        lifecycle_state_marker.valid and
+        lifecycle_state_marker.state == lifecycle_state_policy.desired_state
+      }}
+    lifecycle_state_target_conventional_keys_match: "{{ lifecycle_state_authorized_key_files | length == 0 }}"
+    lifecycle_state_target_sshd_matches: >-
+      {{ lifecycle_state_sshd.pubkey_authentication == 'no' and lifecycle_state_sshd.permit_root_login == 'no' }}
+    lifecycle_state_target_legacy_marker_matches: >-
+      {{ lifecycle_contract_host != 'debian' or not lifecycle_state_legacy_inert_marker_exists }}
+
+- name: Summarize current and target lifecycle compliance
+  ansible.builtin.set_fact:
+    lifecycle_state_current_compliant: >-
+      {{
+        lifecycle_state_marker_matches and
+        lifecycle_state_tailnet_matches and
+        lifecycle_state_conventional_keys_match and
+        lifecycle_state_sshd_matches and
+        lifecycle_state_locks_match and
+        lifecycle_state_storage_activation_matches and
+        lifecycle_state_legacy_marker_matches
+      }}
+    lifecycle_state_target_compliant: >-
+      {{
+        lifecycle_state_target_marker_matches and
+        lifecycle_state_tailnet_matches and
+        lifecycle_state_target_conventional_keys_match and
+        lifecycle_state_target_sshd_matches and
+        lifecycle_state_locks_match and
+        lifecycle_state_storage_activation_matches and
+        lifecycle_state_target_legacy_marker_matches
+      }}
+
+- name: Publish the reduced lifecycle observation
+  ansible.builtin.set_fact:
+    lifecycle_state_observation:
+      version: 1
+      contract_host: "{{ lifecycle_contract_host }}"
+      desired_state: "{{ lifecycle_state_policy.desired_state }}"
+      current_mutation_owner: "{{ lifecycle_state_policy.current_mutation_owner }}"
+      target_mutation_owner: "{{ lifecycle_state_policy.target_mutation_owner }}"
+      marker: "{{ lifecycle_state_marker }}"
+      marker_adoption_required: "{{ lifecycle_state_policy.marker.adoption_state == 'pending' }}"
+      conventional_authorized_key_files: "{{ lifecycle_state_authorized_key_files }}"
+      sshd: "{{ lifecycle_state_sshd }}"
+      tailscale: "{{ lifecycle_state_tailscale }}"
+      locks: "{{ lifecycle_state_locks }}"
+      debian_storage_activation_exists: "{{ lifecycle_state_storage_activation_exists }}"
+      debian_legacy_inert_marker_exists: "{{ lifecycle_state_legacy_inert_marker_exists }}"
+      invariants:
+        marker: "{{ lifecycle_state_marker_matches }}"
+        tailnet: "{{ lifecycle_state_tailnet_matches }}"
+        conventional_keys: "{{ lifecycle_state_conventional_keys_match }}"
+        sshd: "{{ lifecycle_state_sshd_matches }}"
+        locks: "{{ lifecycle_state_locks_match }}"
+        storage_activation: "{{ lifecycle_state_storage_activation_matches }}"
+        legacy_marker: "{{ lifecycle_state_legacy_marker_matches }}"
+      target_invariants:
+        marker: "{{ lifecycle_state_target_marker_matches }}"
+        tailnet: "{{ lifecycle_state_tailnet_matches }}"
+        conventional_keys: "{{ lifecycle_state_target_conventional_keys_match }}"
+        sshd: "{{ lifecycle_state_target_sshd_matches }}"
+        locks: "{{ lifecycle_state_locks_match }}"
+        storage_activation: "{{ lifecycle_state_storage_activation_matches }}"
+        legacy_marker: "{{ lifecycle_state_target_legacy_marker_matches }}"
+      current_compliant: "{{ lifecycle_state_current_compliant }}"
+      target_compliant: "{{ lifecycle_state_target_compliant }}"
+      compliant: "{{ lifecycle_state_current_compliant }}"
+
+- name: Emit the reduced lifecycle observation
+  ansible.builtin.debug:
+    var: lifecycle_state_observation
+  when: lifecycle_state_emit_observation | bool
+
+- name: Enforce lifecycle invariants when explicitly requested
+  ansible.builtin.assert:
+    that:
+      - lifecycle_state_observation.compliant
+    fail_msg: >-
+      Lifecycle invariants do not match the declared state. Observation:
+      {{ lifecycle_state_observation | to_json }}
+  when: lifecycle_state_enforce | bool

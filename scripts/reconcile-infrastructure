@@ -72,9 +72,17 @@ if [[ $action == validate ]]; then
   scripts/validate-contract
   scripts/validate-provider-locks
   infrastructure/policy/test-policy.sh
+  node scripts/controller/test-ansible-collections.js
   node scripts/controller/test-contract-schema.js
+  node scripts/controller/test-lifecycle-state.js
+  node scripts/controller/test-lifecycle-transition-plan.js
+  node scripts/controller/test-maintenance-planning.js
+  node scripts/controller/test-save-host-maintenance-plan.js
+  node scripts/controller/test-proxmox-timezone-handoff.js
+  node scripts/controller/test-proxmox-access-cutover.js
   node scripts/controller/test-restic-policy.js
   node scripts/controller/test-attest-debian-qualification-plan.js
+  python3 scripts/controller/test-proxmox-disk-adoption-plan.py
   node scripts/controller/test-proxmox-package-manifest.js
   node scripts/controller/test-proxmox-nix-projection.js
   python3 scripts/controller/test-vfio-recover.py

@@ -9,13 +9,39 @@ all:
           ansible_host: docker-host
           ansible_user: ansible-deploy
           ansible_python_interpreter: /usr/bin/python3
+          lifecycle_contract_host: debian
           # The controller authenticates through Tailscale SSH while retaining
           # strict SSH host-key verification for the Tailscale SSH endpoint.
           ansible_ssh_common_args: >-
+            -F /dev/null
+            -o StrictHostKeyChecking=yes
+            -o UpdateHostKeys=no
+            -o ClearAllForwardings=yes
+            -o PermitLocalCommand=no
             -o ConnectTimeout=10
             -o ServerAliveInterval=15
             -o ServerAliveCountMax=2
           # Debian production retains the dedicated controller account outside the Docker
           # group and its separately validated passwordless sudo policy.
+          ansible_become: true
+          ansible_become_method: sudo
+    proxmox_host:
+      hosts:
+        proxmox-host-production:
+          ansible_host: proxmox
+          # Transitional read-only lifecycle observation uses the existing Tailscale-only
+          # human account until the reviewed ansible-plan identity is installed and proven.
+          ansible_user: proxmox
+          ansible_python_interpreter: /usr/bin/python3
+          lifecycle_contract_host: proxmox
+          ansible_ssh_common_args: >-
+            -F /dev/null
+            -o StrictHostKeyChecking=yes
+            -o UpdateHostKeys=no
+            -o ClearAllForwardings=yes
+            -o PermitLocalCommand=no
+            -o ConnectTimeout=10
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=2
           ansible_become: true
           ansible_become_method: sudo

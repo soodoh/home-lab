@@ -20,8 +20,21 @@ function outsideCapabilityCeiling(privileges, allowed) {
 
 function validateProxmoxHostPolicy(contract) {
   const failures = [];
-  const { proxmox } = contract;
-
+  const { lifecycle, proxmox } = contract;
+  const proxmoxLifecycle = lifecycle.hosts.proxmox;
+  const debianLifecycle = lifecycle.hosts.debian;
+  if (proxmoxLifecycle.desired_state !== "production" || proxmoxLifecycle.current_mutation_owner !== "nix" ||
+      proxmoxLifecycle.target_mutation_owner !== "ansible" || proxmoxLifecycle.bootstrap_authority !== "physical-console") {
+    failures.push("Proxmox lifecycle ownership must remain Nix-to-Ansible migration from physical console");
+  }
+  if (debianLifecycle.desired_state !== "production" || debianLifecycle.current_mutation_owner !== "ansible" ||
+      debianLifecycle.target_mutation_owner !== "ansible" || debianLifecycle.bootstrap_authority !== "physical-console-or-localhost") {
+    failures.push("Debian lifecycle ownership must remain Ansible with console-or-localhost bootstrap");
+  }
+  if (proxmoxLifecycle.marker.path !== debianLifecycle.marker.path ||
+      proxmoxLifecycle.marker.path !== "/var/lib/home-lab/lifecycle-state.json") {
+    failures.push("host lifecycle markers must use the shared fixed path");
+  }
   const repositoryNames = proxmox.apt.repositories.map((repository) => repository.name);
   const repositoryFiles = proxmox.apt.repositories.map((repository) => repository.file);
   const keyringNames = proxmox.apt.permitted_keyrings.map((keyring) => keyring.name);

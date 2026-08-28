@@ -2,6 +2,112 @@
 version: 1
 system_name: home-lab
 system_timezone: America/Los_Angeles
+lifecycle:
+  version: 1
+  states:
+    - inert
+    - bootstrap
+    - production
+    - maintenance
+    - recovery
+    - retired
+  transitions:
+    inert: [bootstrap]
+    bootstrap: [production, recovery]
+    production: [maintenance, recovery, retired]
+    maintenance: [production, recovery]
+    recovery: [production, retired]
+    retired: []
+  maintenance:
+    package_plan:
+      metadata_refresh: explicit-reviewed-operation
+      max_metadata_age_seconds: 86400
+      resolver: apt-get-simulate
+      installed_inventory: dpkg-query-status-tsv-v1
+      save_exact_versions: true
+      apply_time_replan: false
+      hosts:
+        debian:
+          candidate_scope: all-upgrades
+          allowed_apply_scope: security-updates-only
+          apply_authority: reviewed-ansible-transaction
+          automatic_reboot: false
+        proxmox:
+          candidate_scope: all-upgrades
+          allowed_apply_scope: reviewed-exact-set
+          apply_authority: protected-session
+          automatic_reboot: false
+    reboot_plan:
+      automatic: false
+      one_host_per_transaction: true
+      backup_max_age_hours: 24
+      expected_current_kernel_required: true
+      expected_target_kernel_required: true
+      expected_boot_id_required: true
+      console_required_hosts:
+        - proxmox
+  hosts:
+    proxmox:
+      desired_state: production
+      current_mutation_owner: nix
+      target_mutation_owner: ansible
+      bootstrap_authority: physical-console
+      steady_transport: tailscale-ssh
+      break_glass: physical-console
+      marker:
+        path: /var/lib/home-lab/lifecycle-state.json
+        owner: root
+        group: root
+        mode: "0600"
+        adoption_state: pending
+      domain_handoffs:
+        timezone:
+          current_owner: nix
+          target_owner: ansible
+          state: pending
+          parity_required: true
+          single_writer: true
+      access_cutover:
+        state: pending
+        target_identities:
+          human: proxmox
+          plan: ansible-plan
+          apply: ansible-deploy
+          firewall: firewall-apply
+        retire_identities:
+          - tofu-plan
+          - tofu-apply
+        required_tailnet_users:
+          - proxmox
+          - ansible-plan
+          - ansible-deploy
+          - firewall-apply
+        forbidden_tailnet_users:
+          - root
+          - tofu-plan
+          - tofu-apply
+        plan_privilege_model: fixed-reduced-observer
+        apply_privilege_model: saved-plan-bound
+        firewall_privilege_model: fixed-transaction-transport
+        firewall_magicdns_target: firewall-apply@proxmox
+        conventional_keys_target: absent
+        pubkey_authentication_target: false
+        permit_root_login_target: false
+        remove_conventional_keys_last: true
+        physical_console_required: true
+    debian:
+      desired_state: production
+      current_mutation_owner: ansible
+      target_mutation_owner: ansible
+      bootstrap_authority: physical-console-or-localhost
+      steady_transport: tailscale-ssh
+      break_glass: physical-console
+      marker:
+        path: /var/lib/home-lab/lifecycle-state.json
+        owner: root
+        group: root
+        mode: "0600"
+        adoption_state: pending
 recovery:
   evidence_max_age_days: 90
   critical_rpo_hours: 24

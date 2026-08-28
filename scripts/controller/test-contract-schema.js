@@ -35,6 +35,49 @@ if (validateProxmoxHostPolicy(contract).length) {
   throw new Error(`current Proxmox host policy failed semantics: ${JSON.stringify(validateProxmoxHostPolicy(contract))}`);
 }
 
+const invalidProxmoxLifecycleOwner = structuredClone(contract);
+invalidProxmoxLifecycleOwner.lifecycle.hosts.proxmox.current_mutation_owner = "ansible";
+checkSemantic(invalidProxmoxLifecycleOwner, "Proxmox lifecycle ownership", "Proxmox lifecycle owner changes only at reviewed handoff");
+const invalidDebianBootstrapAuthority = structuredClone(contract);
+invalidDebianBootstrapAuthority.lifecycle.hosts.debian.bootstrap_authority = "physical-console";
+checkSemantic(invalidDebianBootstrapAuthority, "Debian lifecycle ownership", "Debian lifecycle bootstrap authority remains explicit");
+const divergentLifecycleMarker = structuredClone(contract);
+divergentLifecycleMarker.lifecycle.hosts.debian.marker.path = "/var/lib/home-lab/other-lifecycle-state.json";
+check(divergentLifecycleMarker, false, "host lifecycle markers use one fixed path");
+const invalidPackageReplan = structuredClone(contract);
+invalidPackageReplan.lifecycle.maintenance.package_plan.apply_time_replan = true;
+check(invalidPackageReplan, false, "package apply cannot replan");
+const invalidMetadataAge = structuredClone(contract);
+invalidMetadataAge.lifecycle.maintenance.package_plan.max_metadata_age_seconds = 172800;
+check(invalidMetadataAge, false, "package metadata freshness remains bounded");
+const invalidDebianPackageScope = structuredClone(contract);
+invalidDebianPackageScope.lifecycle.maintenance.package_plan.hosts.debian.allowed_apply_scope = "reviewed-exact-set";
+check(invalidDebianPackageScope, false, "Debian package apply remains security-only");
+const invalidAutomaticReboot = structuredClone(contract);
+invalidAutomaticReboot.lifecycle.maintenance.reboot_plan.automatic = true;
+check(invalidAutomaticReboot, false, "host reboot cannot be automatic");
+const invalidPendingTimezoneOwner = structuredClone(contract);
+invalidPendingTimezoneOwner.lifecycle.hosts.proxmox.domain_handoffs.timezone.current_owner = "ansible";
+check(invalidPendingTimezoneOwner, false, "pending timezone handoff retains Nix ownership");
+const invalidTransferredTimezoneOwner = structuredClone(contract);
+invalidTransferredTimezoneOwner.lifecycle.hosts.proxmox.domain_handoffs.timezone.state = "transferred";
+check(invalidTransferredTimezoneOwner, false, "transferred timezone handoff requires Ansible ownership");
+const missingProxmoxHandoff = structuredClone(contract);
+delete missingProxmoxHandoff.lifecycle.hosts.proxmox.domain_handoffs;
+check(missingProxmoxHandoff, false, "Proxmox timezone handoff policy is required");
+const invalidDebianHandoff = structuredClone(contract);
+invalidDebianHandoff.lifecycle.hosts.debian.domain_handoffs = structuredClone(contract.lifecycle.hosts.proxmox.domain_handoffs);
+check(invalidDebianHandoff, false, "Debian cannot inherit Proxmox domain handoffs");
+const missingAccessCutover = structuredClone(contract);
+delete missingAccessCutover.lifecycle.hosts.proxmox.access_cutover;
+check(missingAccessCutover, false, "Proxmox access cutover policy is required");
+const invalidRootTailnetAccess = structuredClone(contract);
+invalidRootTailnetAccess.lifecycle.hosts.proxmox.access_cutover.forbidden_tailnet_users = ["tofu-plan", "tofu-apply"];
+check(invalidRootTailnetAccess, false, "root must remain denied by tailnet SSH policy");
+const invalidDebianAccessCutover = structuredClone(contract);
+invalidDebianAccessCutover.lifecycle.hosts.debian.access_cutover = structuredClone(contract.lifecycle.hosts.proxmox.access_cutover);
+check(invalidDebianAccessCutover, false, "Debian cannot inherit Proxmox access cutover policy");
+
 const totpWithoutCredentialRef = structuredClone(contract);
 delete totpWithoutCredentialRef.backups.restic.credential_refs.proton_totp_secret;
 check(totpWithoutCredentialRef, false, "TOTP mode rejects an absent credential ref");
@@ -207,6 +250,23 @@ function valueAt(document, dottedPath) {
 
 const closedRequiredPolicyObjects = [
   "vm_100",
+  "lifecycle",
+  "lifecycle.transitions",
+  "lifecycle.hosts",
+  "lifecycle.maintenance",
+  "lifecycle.maintenance.package_plan",
+  "lifecycle.maintenance.package_plan.hosts",
+  "lifecycle.maintenance.package_plan.hosts.debian",
+  "lifecycle.maintenance.package_plan.hosts.proxmox",
+  "lifecycle.maintenance.reboot_plan",
+  "lifecycle.hosts.proxmox",
+  "lifecycle.hosts.proxmox.marker",
+  "lifecycle.hosts.proxmox.domain_handoffs",
+  "lifecycle.hosts.proxmox.domain_handoffs.timezone",
+  "lifecycle.hosts.proxmox.access_cutover",
+  "lifecycle.hosts.proxmox.access_cutover.target_identities",
+  "lifecycle.hosts.debian",
+  "lifecycle.hosts.debian.marker",
   "backups",
   "vm_100.workload_identity",
   "vm_100.access",

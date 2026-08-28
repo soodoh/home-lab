@@ -1,0 +1,161 @@
+---
+- name: Require Proxmox lifecycle context for parity planning
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'proxmox'
+      - lifecycle is defined
+      - proxmox is defined
+      - system_timezone is defined
+      - lifecycle_state_observation is defined
+    fail_msg: Proxmox parity requires the contracted Proxmox lifecycle observation context.
+
+- name: Observe timezone and reduced installed Nix domain evidence
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import hashlib
+        import json
+        import os
+        import stat
+        import subprocess
+        import sys
+
+        expected_timezone = sys.argv[1]
+        observer_path = "/usr/local/libexec/home-lab/proxmox-observer"
+        environment = {"LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+
+        timezone_result = subprocess.run(
+            ["/usr/bin/timedatectl", "show", "--property=Timezone", "--value"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            env=environment,
+            timeout=30,
+        )
+        timezone = timezone_result.stdout.strip() if timezone_result.returncode == 0 else None
+        localtime = {"exists": False, "is_symlink": False, "resolved": None}
+        try:
+            metadata = os.lstat("/etc/localtime")
+            localtime = {
+                "exists": True,
+                "is_symlink": stat.S_ISLNK(metadata.st_mode),
+                "resolved": os.path.realpath("/etc/localtime"),
+            }
+        except FileNotFoundError:
+            pass
+
+        observer = {
+            "domains": {},
+            "format": None,
+            "observer_sha256": None,
+            "protocol": None,
+            "returncode": None,
+            "stderr_sha256": None,
+            "stdout_sha256": None,
+            "timezone_domain": None,
+        }
+        try:
+            result = subprocess.run(
+                [observer_path, "observe"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                env=environment,
+                timeout=120,
+            )
+            observer["returncode"] = result.returncode
+            observer["stdout_sha256"] = hashlib.sha256(result.stdout).hexdigest()
+            observer["stderr_sha256"] = hashlib.sha256(result.stderr).hexdigest()
+            if result.returncode == 0 and len(result.stdout) <= 1024 * 1024:
+                value = json.loads(result.stdout)
+                if isinstance(value, dict) and isinstance(value.get("domains"), dict):
+                    observer["format"] = value.get("format")
+                    observer["protocol"] = value.get("protocol")
+                    observer["observer_sha256"] = value.get("observerSha256")
+                    observer["domains"] = {
+                        name: domain.get("status") if isinstance(domain, dict) else None
+                        for name, domain in sorted(value["domains"].items())
+                    }
+                    timezone_domain = value["domains"].get("timezone")
+                    if isinstance(timezone_domain, dict):
+                        observer["timezone_domain"] = {
+                            "records": timezone_domain.get("records"),
+                            "status": timezone_domain.get("status"),
+                            "unexpected_count": timezone_domain.get("unexpectedCount"),
+                        }
+        except (FileNotFoundError, json.JSONDecodeError, subprocess.TimeoutExpired):
+            observer["returncode"] = -1
+
+        evidence = {
+            "version": 1,
+            "expected_timezone": expected_timezone,
+            "timezone": timezone,
+            "timezone_matches": timezone == expected_timezone,
+            "localtime": localtime,
+            "localtime_matches": localtime["resolved"] == "/usr/share/zoneinfo/" + expected_timezone,
+            "nix_observer": observer,
+        }
+        digest_material = json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()
+        evidence["evidence_sha256"] = hashlib.sha256(digest_material).hexdigest()
+        print(json.dumps(evidence, sort_keys=True, separators=(",", ":")))
+      - "{{ system_timezone }}"
+  register: proxmox_parity_raw
+  changed_when: false
+  check_mode: false
+
+- name: Decode Proxmox parity evidence
+  ansible.builtin.set_fact:
+    proxmox_parity_evidence: "{{ proxmox_parity_raw.stdout | from_json }}"
+    proxmox_parity_timezone_handoff_policy: "{{ lifecycle.hosts.proxmox.domain_handoffs.timezone }}"
+    proxmox_parity_nix_declares_timezone_domain: >-
+      {{
+        'timezone' in
+        (proxmox.planning_policy.domains | map(attribute='domain') | list)
+      }}
+
+- name: Publish pending timezone handoff readiness
+  ansible.builtin.set_fact:
+    proxmox_parity_timezone_handoff_observation:
+      version: 1
+      domain: timezone
+      handoff_policy: "{{ proxmox_parity_timezone_handoff_policy }}"
+      ansible_parity: >-
+        {{
+          proxmox_parity_evidence.timezone_matches and
+          proxmox_parity_evidence.localtime_matches
+        }}
+      nix_declares_domain: "{{ proxmox_parity_nix_declares_timezone_domain }}"
+      nix_runtime_parity: >-
+        {{
+          proxmox_parity_evidence.nix_observer.returncode == 0 and
+          proxmox_parity_evidence.nix_observer.timezone_domain is not none and
+          proxmox_parity_evidence.nix_observer.timezone_domain.status == 'complete' and
+          proxmox_parity_evidence.nix_observer.timezone_domain.unexpected_count == 0
+        }}
+      evidence: "{{ proxmox_parity_evidence }}"
+      handoff_ready: false
+      handoff_authorized: false
+      blockers: >-
+        {{
+          (
+            ([] if proxmox_parity_evidence.timezone_matches and proxmox_parity_evidence.localtime_matches else ['ansible-timezone-parity-failed']) +
+            ([] if not proxmox_parity_nix_declares_timezone_domain else ['nix-planning-domain-present']) +
+            (
+              [] if
+                proxmox_parity_evidence.nix_observer.returncode == 0 and
+                proxmox_parity_evidence.nix_observer.timezone_domain is not none and
+                proxmox_parity_evidence.nix_observer.timezone_domain.status == 'complete' and
+                proxmox_parity_evidence.nix_observer.timezone_domain.unexpected_count == 0
+              else ['installed-nix-timezone-parity-unavailable']
+            ) +
+            ([] if proxmox_parity_timezone_handoff_policy.state == 'ready' else ['handoff-state-not-ready']) +
+            ['nix-source-exclusion-proof-required', 'saved-handoff-plan-required', 'separate-handoff-authorization-required']
+          ) | unique | list
+        }}
+
+- name: Emit pending timezone handoff readiness
+  ansible.builtin.debug:
+    var: proxmox_parity_timezone_handoff_observation
+  when: proxmox_parity_emit | bool

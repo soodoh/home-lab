@@ -4,11 +4,12 @@
   "title": "Home lab infrastructure contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "system_name", "system_timezone", "recovery", "vm_100", "network", "proxmox", "storage", "debian", "omada", "tailscale", "aws", "nextcloud", "backups"],
+  "required": ["version", "system_name", "system_timezone", "lifecycle", "recovery", "vm_100", "network", "proxmox", "storage", "debian", "omada", "tailscale", "aws", "nextcloud", "backups"],
   "properties": {
     "version": { "const": 1 },
     "system_name": { "const": "home-lab" },
     "system_timezone": { "const": "America/Los_Angeles" },
+    "lifecycle": { "$ref": "#/$defs/lifecyclePolicy" },
     "recovery": {
       "type": "object",
       "additionalProperties": false,
@@ -236,6 +237,198 @@
     }
   },
   "$defs": {
+    "lifecycleState": {
+      "enum": ["inert", "bootstrap", "production", "maintenance", "recovery", "retired"]
+    },
+    "lifecycleMarkerPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "owner", "group", "mode", "adoption_state"],
+      "properties": {
+        "path": { "const": "/var/lib/home-lab/lifecycle-state.json" },
+        "owner": { "const": "root" },
+        "group": { "const": "root" },
+        "mode": { "const": "0600" },
+        "adoption_state": { "enum": ["pending", "complete"] }
+      }
+    },
+    "lifecycleDomainHandoffPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current_owner", "target_owner", "state", "parity_required", "single_writer"],
+      "properties": {
+        "current_owner": { "enum": ["nix", "ansible"] },
+        "target_owner": { "const": "ansible" },
+        "state": { "enum": ["pending", "ready", "transferred"] },
+        "parity_required": { "const": true },
+        "single_writer": { "const": true }
+      },
+      "allOf": [{
+        "if": { "properties": { "state": { "const": "transferred" } }, "required": ["state"] },
+        "then": { "properties": { "current_owner": { "const": "ansible" } } },
+        "else": { "properties": { "current_owner": { "const": "nix" } } }
+      }]
+    },
+    "lifecycleDomainHandoffs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["timezone"],
+      "properties": {
+        "timezone": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
+      }
+    },
+    "lifecycleAccessCutoverPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "target_identities", "retire_identities", "required_tailnet_users", "forbidden_tailnet_users", "plan_privilege_model", "apply_privilege_model", "firewall_privilege_model", "firewall_magicdns_target", "conventional_keys_target", "pubkey_authentication_target", "permit_root_login_target", "remove_conventional_keys_last", "physical_console_required"],
+      "properties": {
+        "state": { "enum": ["pending", "ready", "cutover", "complete"] },
+        "target_identities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["human", "plan", "apply", "firewall"],
+          "properties": {
+            "human": { "const": "proxmox" },
+            "plan": { "const": "ansible-plan" },
+            "apply": { "const": "ansible-deploy" },
+            "firewall": { "const": "firewall-apply" }
+          }
+        },
+        "retire_identities": { "const": ["tofu-plan", "tofu-apply"] },
+        "required_tailnet_users": { "const": ["proxmox", "ansible-plan", "ansible-deploy", "firewall-apply"] },
+        "forbidden_tailnet_users": { "const": ["root", "tofu-plan", "tofu-apply"] },
+        "plan_privilege_model": { "const": "fixed-reduced-observer" },
+        "apply_privilege_model": { "const": "saved-plan-bound" },
+        "firewall_privilege_model": { "const": "fixed-transaction-transport" },
+        "firewall_magicdns_target": { "const": "firewall-apply@proxmox" },
+        "conventional_keys_target": { "const": "absent" },
+        "pubkey_authentication_target": { "const": false },
+        "permit_root_login_target": { "const": false },
+        "remove_conventional_keys_last": { "const": true },
+        "physical_console_required": { "const": true }
+      }
+    },
+    "lifecycleHostPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["desired_state", "current_mutation_owner", "target_mutation_owner", "bootstrap_authority", "steady_transport", "break_glass", "marker"],
+      "properties": {
+        "desired_state": { "$ref": "#/$defs/lifecycleState" },
+        "current_mutation_owner": { "enum": ["ansible", "nix"] },
+        "target_mutation_owner": { "const": "ansible" },
+        "bootstrap_authority": { "enum": ["physical-console", "physical-console-or-localhost"] },
+        "steady_transport": { "const": "tailscale-ssh" },
+        "break_glass": { "const": "physical-console" },
+        "marker": { "$ref": "#/$defs/lifecycleMarkerPolicy" },
+        "domain_handoffs": { "$ref": "#/$defs/lifecycleDomainHandoffs" },
+        "access_cutover": { "$ref": "#/$defs/lifecycleAccessCutoverPolicy" }
+      }
+    },
+    "lifecycleTransitions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inert", "bootstrap", "production", "maintenance", "recovery", "retired"],
+      "properties": {
+        "inert": { "const": ["bootstrap"] },
+        "bootstrap": { "const": ["production", "recovery"] },
+        "production": { "const": ["maintenance", "recovery", "retired"] },
+        "maintenance": { "const": ["production", "recovery"] },
+        "recovery": { "const": ["production", "retired"] },
+        "retired": { "const": [] }
+      }
+    },
+    "lifecyclePackagePlanPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metadata_refresh", "max_metadata_age_seconds", "resolver", "installed_inventory", "save_exact_versions", "apply_time_replan", "hosts"],
+      "properties": {
+        "metadata_refresh": { "const": "explicit-reviewed-operation" },
+        "max_metadata_age_seconds": { "const": 86400 },
+        "resolver": { "const": "apt-get-simulate" },
+        "installed_inventory": { "const": "dpkg-query-status-tsv-v1" },
+        "save_exact_versions": { "const": true },
+        "apply_time_replan": { "const": false },
+        "hosts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["debian", "proxmox"],
+          "properties": {
+            "debian": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["candidate_scope", "allowed_apply_scope", "apply_authority", "automatic_reboot"],
+              "properties": {
+                "candidate_scope": { "const": "all-upgrades" },
+                "allowed_apply_scope": { "const": "security-updates-only" },
+                "apply_authority": { "const": "reviewed-ansible-transaction" },
+                "automatic_reboot": { "const": false }
+              }
+            },
+            "proxmox": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["candidate_scope", "allowed_apply_scope", "apply_authority", "automatic_reboot"],
+              "properties": {
+                "candidate_scope": { "const": "all-upgrades" },
+                "allowed_apply_scope": { "const": "reviewed-exact-set" },
+                "apply_authority": { "const": "protected-session" },
+                "automatic_reboot": { "const": false }
+              }
+            }
+          }
+        }
+      }
+    },
+    "lifecycleRebootPlanPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["automatic", "one_host_per_transaction", "backup_max_age_hours", "expected_current_kernel_required", "expected_target_kernel_required", "expected_boot_id_required", "console_required_hosts"],
+      "properties": {
+        "automatic": { "const": false },
+        "one_host_per_transaction": { "const": true },
+        "backup_max_age_hours": { "const": 24 },
+        "expected_current_kernel_required": { "const": true },
+        "expected_target_kernel_required": { "const": true },
+        "expected_boot_id_required": { "const": true },
+        "console_required_hosts": { "const": ["proxmox"] }
+      }
+    },
+    "lifecycleMaintenancePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package_plan", "reboot_plan"],
+      "properties": {
+        "package_plan": { "$ref": "#/$defs/lifecyclePackagePlanPolicy" },
+        "reboot_plan": { "$ref": "#/$defs/lifecycleRebootPlanPolicy" }
+      }
+    },
+    "lifecyclePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "states", "transitions", "maintenance", "hosts"],
+      "properties": {
+        "version": { "const": 1 },
+        "states": { "const": ["inert", "bootstrap", "production", "maintenance", "recovery", "retired"] },
+        "transitions": { "$ref": "#/$defs/lifecycleTransitions" },
+        "maintenance": { "$ref": "#/$defs/lifecycleMaintenancePolicy" },
+        "hosts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["proxmox", "debian"],
+          "properties": {
+            "proxmox": { "allOf": [
+              { "$ref": "#/$defs/lifecycleHostPolicy" },
+              { "type": "object", "properties": { "domain_handoffs": {}, "access_cutover": {} }, "required": ["domain_handoffs", "access_cutover"] }
+            ] },
+            "debian": { "allOf": [
+              { "$ref": "#/$defs/lifecycleHostPolicy" },
+              { "not": { "type": "object", "properties": { "domain_handoffs": {} }, "required": ["domain_handoffs"] } },
+              { "not": { "type": "object", "properties": { "access_cutover": {} }, "required": ["access_cutover"] } }
+            ] }
+          }
+        }
+      }
+    },
     "legacyOffenPolicy": {
       "type": "object",
       "additionalProperties": false,

@@ -1,0 +1,15 @@
+---
+- name: Assert declared host lifecycle invariants without changing the host
+  hosts: docker_host:proxmox_host
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+  roles:
+    - role: lifecycle_state
+      vars:
+        lifecycle_state_enforce: true
+        lifecycle_state_emit_observation: true
+      tags:
+        - lifecycle
+        - audit

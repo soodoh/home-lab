@@ -1,0 +1,14 @@
+---
+lifecycle_state_enforce: false
+lifecycle_state_emit_observation: true
+lifecycle_state_authorized_key_search_paths:
+  - /root
+  - /home
+lifecycle_state_deploy_lock_path: /var/lib/iac-ansible-production.lock
+lifecycle_state_backup_lock_path: /run/lock/home-lab-backup.lock
+lifecycle_state_nix_owner_lock_path: /var/lib/home-lab/reconciliation/owner.lock
+lifecycle_state_nix_lock_path: /var/lib/home-lab/reconciliation/nix.lock
+lifecycle_state_operation_lock_path: /var/lib/home-lab/reconciliation/operation.lock
+lifecycle_state_vfio_lock_path: /run/lock/home-lab-vfio-recovery.lock
+lifecycle_state_debian_storage_activation_path: /etc/home-lab/allow-storage-activation
+lifecycle_state_debian_legacy_inert_marker_path: /var/lib/home-lab/debian-inert-provisioned

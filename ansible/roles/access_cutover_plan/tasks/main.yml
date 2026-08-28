@@ -1,0 +1,162 @@
+---
+- name: Require Proxmox lifecycle context for access planning
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'proxmox'
+      - lifecycle.hosts.proxmox.access_cutover is defined
+      - lifecycle_state_observation is defined
+    fail_msg: Access cutover planning requires the contracted Proxmox lifecycle observation context.
+
+- name: Observe reduced Proxmox account and transport metadata
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import grp
+        import hashlib
+        import json
+        import os
+        import pwd
+        import stat
+        import subprocess
+        import sys
+
+        policy = json.loads(sys.argv[1])
+        names = sorted(set([
+            *policy["target_identities"].values(),
+            *policy["retire_identities"],
+            "root",
+        ]))
+        environment = {"LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+
+        def metadata(path):
+            try:
+                value = os.lstat(path)
+            except FileNotFoundError:
+                return {"exists": False}
+            result = {
+                "exists": True,
+                "group_gid": value.st_gid,
+                "is_regular": stat.S_ISREG(value.st_mode),
+                "is_symlink": stat.S_ISLNK(value.st_mode),
+                "mode": format(stat.S_IMODE(value.st_mode), "04o"),
+                "owner_uid": value.st_uid,
+                "size": value.st_size,
+            }
+            if result["is_regular"] and value.st_size <= 1024 * 1024:
+                with open(path, "rb") as handle:
+                    result["sha256"] = hashlib.sha256(handle.read()).hexdigest()
+            return result
+
+        accounts = []
+        for name in names:
+            try:
+                account = pwd.getpwnam(name)
+            except KeyError:
+                accounts.append({"exists": False, "name": name})
+                continue
+            status = subprocess.run(
+                ["/usr/bin/passwd", "--status", name],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                env=environment,
+                timeout=10,
+            )
+            fields = status.stdout.split()
+            groups = sorted({grp.getgrgid(gid).gr_name for gid in os.getgrouplist(name, account.pw_gid)})
+            accounts.append({
+                "exists": True,
+                "gid": account.pw_gid,
+                "groups": groups,
+                "home": account.pw_dir,
+                "name": name,
+                "password_locked": status.returncode == 0 and len(fields) > 1 and fields[1] in {"L", "LK"},
+                "shell": account.pw_shell,
+                "uid": account.pw_uid,
+            })
+
+        sudoers = {
+            name: metadata("/etc/sudoers.d/" + name)
+            for name in sorted(set(policy["target_identities"].values()) - {"proxmox"})
+        }
+        transport_path = "/usr/local/libexec/home-lab/proxmox-firewall-transport"
+        evidence = {
+            "version": 1,
+            "accounts": accounts,
+            "firewall_transport": metadata(transport_path),
+            "sudoers": sudoers,
+        }
+        canonical = json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()
+        evidence["evidence_sha256"] = hashlib.sha256(canonical).hexdigest()
+        print(json.dumps(evidence, sort_keys=True, separators=(",", ":")))
+      - "{{ lifecycle.hosts.proxmox.access_cutover | to_json }}"
+  register: access_cutover_plan_raw
+  changed_when: false
+  check_mode: false
+
+- name: Decode reduced access evidence
+  ansible.builtin.set_fact:
+    access_cutover_plan_evidence: "{{ access_cutover_plan_raw.stdout | from_json }}"
+    access_cutover_plan_policy: "{{ lifecycle.hosts.proxmox.access_cutover }}"
+
+- name: Publish pending access cutover readiness
+  ansible.builtin.set_fact:
+    access_cutover_plan_observation:
+      version: 1
+      policy: "{{ access_cutover_plan_policy }}"
+      evidence: "{{ access_cutover_plan_evidence }}"
+      conventional_key_files: "{{ lifecycle_state_observation.conventional_authorized_key_files }}"
+      sshd: "{{ lifecycle_state_observation.sshd }}"
+      target_compliant: "{{ lifecycle_state_observation.target_compliant }}"
+      ready: false
+      authorized: false
+      blockers: >-
+        {{
+          (
+            (
+              ['ansible-plan-account-absent'] if
+                access_cutover_plan_evidence.accounts |
+                selectattr('name', 'equalto', access_cutover_plan_policy.target_identities.plan) |
+                selectattr('exists', 'equalto', false) | list | length == 1
+              else []
+            ) +
+            (
+              ['ansible-deploy-account-absent'] if
+                access_cutover_plan_evidence.accounts |
+                selectattr('name', 'equalto', access_cutover_plan_policy.target_identities.apply) |
+                selectattr('exists', 'equalto', false) | list | length == 1
+              else []
+            ) +
+            ([] if lifecycle_state_observation.conventional_authorized_key_files | length == 0 else ['conventional-authorized-keys-present']) +
+            ([] if lifecycle_state_observation.sshd.pubkey_authentication == 'no' else ['openssh-pubkey-authentication-enabled']) +
+            ([] if lifecycle_state_observation.sshd.permit_root_login == 'no' else ['openssh-root-login-enabled']) +
+            (
+              ['unexpected-root-supplementary-groups'] if
+                (
+                  access_cutover_plan_evidence.accounts |
+                  selectattr('name', 'equalto', 'root') |
+                  map(attribute='groups') | first | difference(['root']) | length
+                ) > 0
+              else []
+            ) +
+            ([] if access_cutover_plan_policy.state == 'ready' else ['access-cutover-state-not-ready']) +
+            [
+              'plan-fixed-observer-helper-required',
+              'tailnet-ssh-policy-and-tests-required',
+              'firewall-magicdns-transport-proof-required',
+              'root-key-owner-attribution-required',
+              'independent-live-session-canaries-required',
+              'physical-console-attestation-required',
+              'saved-access-cutover-plan-required',
+              'separate-access-cutover-authorization-required'
+            ]
+          ) | unique | list
+        }}
+
+- name: Emit pending access cutover readiness
+  ansible.builtin.debug:
+    var: access_cutover_plan_observation
+  when: access_cutover_plan_emit | bool

@@ -1,0 +1,23 @@
+---
+- name: Build read-only lifecycle transition readiness
+  hosts: docker_host:proxmox_host
+  gather_facts: false
+  any_errors_fatal: true
+  serial: 1
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+  pre_tasks:
+    - name: Require explicit lifecycle transition arguments
+      ansible.builtin.assert:
+        that:
+          - lifecycle_transition_plan_from_state | default('') | length > 0
+          - lifecycle_transition_plan_to_state | default('') | length > 0
+        fail_msg: Pass exact lifecycle_transition_plan_from_state and lifecycle_transition_plan_to_state values.
+  roles:
+    - role: lifecycle_state
+      vars:
+        lifecycle_state_enforce: false
+        lifecycle_state_emit_observation: false
+    - role: lifecycle_transition_plan
+      vars:
+        lifecycle_transition_plan_emit: true

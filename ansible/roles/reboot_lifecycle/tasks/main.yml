@@ -1,0 +1,218 @@
+---
+- name: Require lifecycle observation context for reboot planning
+  ansible.builtin.assert:
+    that:
+      - lifecycle is defined
+      - lifecycle_contract_host in ['debian', 'proxmox']
+      - lifecycle_state_observation is defined
+    fail_msg: Reboot planning requires the lifecycle_state role and a contracted host identity.
+
+- name: Build reduced read-only reboot evidence
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import datetime
+        import functools
+        import glob
+        import hashlib
+        import json
+        import os
+        import subprocess
+        import sys
+
+        host = sys.argv[1]
+        accepted_path = sys.argv[2]
+        backup_max_age_hours = int(sys.argv[3])
+        environment = {"LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+
+        def run(arguments, timeout=30):
+            return subprocess.run(
+                arguments,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                env=environment,
+                timeout=timeout,
+            )
+
+        def compare_versions(left, right):
+            if run(["/usr/bin/dpkg", "--compare-versions", left, "lt", right]).returncode == 0:
+                return -1
+            if run(["/usr/bin/dpkg", "--compare-versions", left, "gt", right]).returncode == 0:
+                return 1
+            return 0
+
+        now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+        current_kernel = os.uname().release
+        boot_id = open("/proc/sys/kernel/random/boot_id", encoding="utf-8").read().strip()
+        uptime_seconds = int(float(open("/proc/uptime", encoding="utf-8").read().split()[0]))
+        kernel_pattern = "/boot/vmlinuz-*-pve" if host == "proxmox" else "/boot/vmlinuz-*+deb13-amd64"
+        installed_kernels = sorted(
+            (os.path.basename(path).removeprefix("vmlinuz-") for path in glob.glob(kernel_pattern)),
+            key=functools.cmp_to_key(compare_versions),
+        )
+        target_kernel = installed_kernels[-1] if installed_kernels else None
+
+        reboot_required_packages = []
+        reboot_required_packages_path = "/var/run/reboot-required.pkgs"
+        if os.path.isfile(reboot_required_packages_path):
+            reboot_required_packages = sorted({
+                line.strip() for line in open(reboot_required_packages_path, encoding="utf-8") if line.strip()
+            })
+
+        health = {}
+        if host == "debian":
+            compose = run(["/usr/bin/systemctl", "is-active", "home-lab-compose.service"])
+            health["compose_service"] = compose.stdout.strip() or "unknown"
+            mounts = {}
+            for mountpoint in ("/srv/home-lab-state", "/mnt/games", "/mnt/storage"):
+                result = run(["/usr/bin/findmnt", "--noheadings", "--output", "TARGET", "--target", mountpoint])
+                mounts[mountpoint] = result.returncode == 0 and result.stdout.strip() == mountpoint
+            health["mounts"] = mounts
+        else:
+            zpool = run(["/usr/sbin/zpool", "status", "-x", "storage"])
+            vm = run(["/usr/sbin/qm", "status", "100"])
+            health["zpool_storage"] = zpool.returncode == 0 and "is healthy" in zpool.stdout
+            health["vm_100"] = vm.stdout.strip()
+
+        backup = {
+            "accepted_path": accepted_path,
+            "age_seconds": None,
+            "durable_chain_clear": False,
+            "exists": False,
+            "pending_records": None,
+            "proton_copy_records": None,
+            "service_results": {},
+        }
+        if host == "debian":
+            for unit in ("home-lab-restic-daily-local.service", "home-lab-restic-daily-proton.service"):
+                result = run([
+                    "/usr/bin/systemctl", "show", unit,
+                    "--property=Result", "--property=ExecMainExitTimestamp",
+                ])
+                values = dict(
+                    line.split("=", 1) for line in result.stdout.splitlines() if "=" in line
+                )
+                backup["service_results"][unit] = {
+                    "result": values.get("Result", ""),
+                    "exit_timestamp": values.get("ExecMainExitTimestamp", ""),
+                }
+            try:
+                metadata = os.lstat(accepted_path)
+                if not os.path.isfile(accepted_path) or os.path.islink(accepted_path) or metadata.st_size > 1024 * 1024:
+                    raise ValueError("accepted_metadata")
+                value = json.loads(open(accepted_path, encoding="utf-8").read())
+                if set(value) - {"version", "pending", "proton_copies"} or value.get("version") != 1:
+                    raise ValueError("accepted_schema")
+                pending = value.get("pending")
+                proton_copies = value.get("proton_copies", {})
+                if not isinstance(pending, list) or not isinstance(proton_copies, dict):
+                    raise ValueError("accepted_schema")
+                backup["exists"] = True
+                backup["age_seconds"] = max(0, now - int(metadata.st_mtime))
+                backup["pending_records"] = len(pending)
+                backup["proton_copy_records"] = len(proton_copies)
+                backup["durable_chain_clear"] = (
+                    not pending and
+                    bool(proton_copies) and
+                    backup["age_seconds"] <= backup_max_age_hours * 3600 and
+                    all(item["result"] == "success" for item in backup["service_results"].values())
+                )
+            except (FileNotFoundError, json.JSONDecodeError, OSError, TypeError, ValueError):
+                pass
+
+        evidence_material = {
+            "host": host,
+            "boot_id": boot_id,
+            "current_kernel": current_kernel,
+            "installed_kernels": installed_kernels,
+            "target_kernel": target_kernel,
+            "reboot_required_file": os.path.isfile("/var/run/reboot-required"),
+            "reboot_required_packages": reboot_required_packages,
+            "health": health,
+            "backup": backup,
+        }
+        canonical = json.dumps(evidence_material, sort_keys=True, separators=(",", ":")).encode()
+        evidence_material.update({
+            "version": 1,
+            "observed_at": datetime.datetime.fromtimestamp(now, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "uptime_seconds": uptime_seconds,
+            "reboot_indicated": os.path.isfile("/var/run/reboot-required") or (
+                target_kernel is not None and target_kernel != current_kernel
+            ),
+            "evidence_sha256": hashlib.sha256(canonical).hexdigest(),
+        })
+        print(json.dumps(evidence_material, sort_keys=True, separators=(",", ":")))
+      - "{{ lifecycle_contract_host }}"
+      - "{{ backups.restic.runner.accepted_path }}"
+      - "{{ lifecycle.maintenance.reboot_plan.backup_max_age_hours | string }}"
+  register: reboot_lifecycle_raw
+  changed_when: false
+  check_mode: false
+
+- name: Decode reduced reboot evidence
+  ansible.builtin.set_fact:
+    reboot_lifecycle_evidence: "{{ reboot_lifecycle_raw.stdout | from_json }}"
+    reboot_lifecycle_policy: "{{ lifecycle.maintenance.reboot_plan }}"
+
+- name: Publish reboot plan readiness without authorizing reboot
+  ansible.builtin.set_fact:
+    reboot_lifecycle_observation:
+      version: 1
+      contract_host: "{{ lifecycle_contract_host }}"
+      policy: "{{ reboot_lifecycle_policy }}"
+      evidence: "{{ reboot_lifecycle_evidence }}"
+      expected:
+        current_kernel: "{{ reboot_lifecycle_expected_current_kernel }}"
+        target_kernel: "{{ reboot_lifecycle_expected_target_kernel }}"
+        boot_id: "{{ reboot_lifecycle_expected_boot_id }}"
+      console_attested: "{{ reboot_lifecycle_console_attested | bool }}"
+      backup_attested: "{{ reboot_lifecycle_backup_attested | bool }}"
+      active_lifecycle_locks: "{{ lifecycle_state_observation.locks.active }}"
+      plan_inputs_complete: >-
+        {{
+          reboot_lifecycle_expected_current_kernel | length > 0 and
+          reboot_lifecycle_expected_target_kernel | length > 0 and
+          reboot_lifecycle_expected_boot_id | length > 0
+        }}
+      preconditions_met: >-
+        {{
+          lifecycle_state_observation.current_compliant and
+          lifecycle_state_observation.locks.active | length == 0 and
+          (
+            reboot_lifecycle_evidence.backup.durable_chain_clear or
+            reboot_lifecycle_backup_attested | bool
+          ) and
+          (
+            lifecycle_contract_host != 'proxmox' or
+            reboot_lifecycle_console_attested | bool
+          )
+        }}
+      reboot_authorized: false
+      blockers: >-
+        {{
+          (
+            ([] if lifecycle_state_observation.current_compliant else ['lifecycle-noncompliant']) +
+            ([] if lifecycle_state_observation.locks.active | length == 0 else ['active-lifecycle-lock']) +
+            ([] if reboot_lifecycle_expected_current_kernel | length > 0 else ['expected-current-kernel-missing']) +
+            ([] if reboot_lifecycle_expected_target_kernel | length > 0 else ['expected-target-kernel-missing']) +
+            ([] if reboot_lifecycle_expected_boot_id | length > 0 else ['expected-boot-id-missing']) +
+            (
+              [] if reboot_lifecycle_evidence.backup.durable_chain_clear or reboot_lifecycle_backup_attested | bool
+              else ['recent-backup-unproven']
+            ) +
+            (
+              [] if lifecycle_contract_host != 'proxmox' or reboot_lifecycle_console_attested | bool
+              else ['console-unattested']
+            ) +
+            ['saved-reviewed-plan-required', 'separate-reboot-authorization-required']
+          ) | unique | list
+        }}
+
+- name: Emit reduced reboot plan readiness
+  ansible.builtin.debug:
+    var: reboot_lifecycle_observation
+  when: reboot_lifecycle_emit | bool

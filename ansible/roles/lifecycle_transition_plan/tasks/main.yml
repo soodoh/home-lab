@@ -1,0 +1,50 @@
+---
+- name: Validate requested lifecycle transition
+  ansible.builtin.assert:
+    that:
+      - lifecycle_state_observation is defined
+      - lifecycle_transition_plan_from_state in lifecycle.states
+      - lifecycle_transition_plan_to_state in lifecycle.states
+      - lifecycle_transition_plan_to_state in lifecycle.transitions[lifecycle_transition_plan_from_state]
+    fail_msg: Requested lifecycle transition is not allowed by the infrastructure contract.
+
+- name: Publish lifecycle transition readiness without authorizing mutation
+  ansible.builtin.set_fact:
+    lifecycle_transition_plan_observation:
+      version: 1
+      contract_host: "{{ lifecycle_contract_host }}"
+      from_state: "{{ lifecycle_transition_plan_from_state }}"
+      to_state: "{{ lifecycle_transition_plan_to_state }}"
+      marker: "{{ lifecycle_state_observation.marker }}"
+      active_lifecycle_locks: "{{ lifecycle_state_observation.locks.active }}"
+      backup_attested: "{{ lifecycle_transition_plan_backup_attested | bool }}"
+      console_attested: "{{ lifecycle_transition_plan_console_attested | bool }}"
+      ready: false
+      authorized: false
+      blockers: >-
+        {{
+          (
+            (
+              [] if
+                lifecycle_state_observation.marker.valid and
+                lifecycle_state_observation.marker.state == lifecycle_transition_plan_from_state
+              else ['valid-from-state-marker-required']
+            ) +
+            ([] if lifecycle_state_observation.current_compliant else ['current-lifecycle-noncompliant']) +
+            ([] if lifecycle_state_observation.locks.active | length == 0 else ['active-lifecycle-lock']) +
+            (
+              [] if lifecycle_transition_plan_to_state not in ['maintenance', 'recovery'] or lifecycle_transition_plan_backup_attested | bool
+              else ['recent-backup-attestation-required']
+            ) +
+            (
+              [] if lifecycle_contract_host != 'proxmox' or lifecycle_transition_plan_console_attested | bool
+              else ['physical-console-attestation-required']
+            ) +
+            ['saved-transition-plan-required', 'separate-transition-authorization-required']
+          ) | unique | list
+        }}
+
+- name: Emit lifecycle transition readiness
+  ansible.builtin.debug:
+    var: lifecycle_transition_plan_observation
+  when: lifecycle_transition_plan_emit | bool

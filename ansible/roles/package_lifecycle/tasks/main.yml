@@ -1,0 +1,207 @@
+---
+- name: Require lifecycle observation context for package planning
+  ansible.builtin.assert:
+    that:
+      - lifecycle is defined
+      - lifecycle_contract_host in ['debian', 'proxmox']
+      - lifecycle_state_observation is defined
+    fail_msg: Package planning requires the lifecycle_state role and a contracted host identity.
+
+- name: Build a reduced read-only package proposal from existing APT metadata
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import datetime
+        import hashlib
+        import json
+        import os
+        import re
+        import subprocess
+        import sys
+
+        host = sys.argv[1]
+        environment = {
+            "DEBIAN_FRONTEND": "noninteractive",
+            "LC_ALL": "C",
+            "PATH": "/usr/sbin:/usr/bin:/sbin:/bin",
+        }
+
+        def run(arguments):
+            return subprocess.run(
+                arguments,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                env=environment,
+                timeout=300,
+            )
+
+        installed_result = run([
+            "/usr/bin/dpkg-query", "--show", "--showformat=${binary:Package}\\t${Version}\\n",
+        ])
+        if installed_result.returncode != 0:
+            raise SystemExit("dpkg_query_failed")
+        installed_lines = sorted(line for line in installed_result.stdout.splitlines() if line)
+        installed_raw = ("\n".join(installed_lines) + "\n").encode()
+
+        hold_result = run(["/usr/bin/apt-mark", "showhold"])
+        if hold_result.returncode != 0:
+            raise SystemExit("apt_mark_failed")
+        holds = sorted(line for line in hold_result.stdout.splitlines() if line)
+
+        newest_metadata = None
+        newest_metadata_mtime = 0
+        for directory, subdirectories, files in os.walk("/var/lib/apt/lists"):
+            subdirectories[:] = [name for name in subdirectories if name != "partial"]
+            for name in files:
+                path = os.path.join(directory, name)
+                try:
+                    metadata = os.stat(path, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                if not os.path.isfile(path) or metadata.st_mtime <= newest_metadata_mtime:
+                    continue
+                newest_metadata = path
+                newest_metadata_mtime = int(metadata.st_mtime)
+
+        solver_result = run([
+            "/usr/bin/apt-get",
+            "--simulate",
+            "--option", "Debug::NoLocking=1",
+            "--option", "APT::Get::Show-Upgraded=true",
+            "dist-upgrade",
+        ])
+        changes = []
+        install_pattern = re.compile(r"^Inst (\S+)(?: \[([^]]+)\])? \((\S+)(?: (.*))?\)$")
+        remove_pattern = re.compile(r"^Remv (\S+)(?: \[([^]]+)\])?")
+        for line in solver_result.stdout.splitlines():
+            install_match = install_pattern.match(line)
+            if install_match:
+                name, previous, candidate, origin = install_match.groups()
+                action = "install" if previous is None else "upgrade"
+                if previous is not None:
+                    comparison = run(["/usr/bin/dpkg", "--compare-versions", candidate, "lt", previous])
+                    if comparison.returncode == 0:
+                        action = "downgrade"
+                    elif comparison.returncode not in (1,):
+                        raise SystemExit("dpkg_version_compare_failed")
+                changes.append({
+                    "action": action,
+                    "candidate_version": candidate,
+                    "name": name,
+                    "origin": origin or "",
+                    "previous_version": previous,
+                    "security": "security" in (origin or "").lower(),
+                })
+                continue
+            remove_match = remove_pattern.match(line)
+            if remove_match:
+                name, previous = remove_match.groups()
+                changes.append({
+                    "action": "remove",
+                    "candidate_version": None,
+                    "name": name,
+                    "origin": "",
+                    "previous_version": previous,
+                    "security": False,
+                })
+
+        changes.sort(key=lambda item: (item["name"], item["action"], item["candidate_version"] or ""))
+        now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+        proposal_material = {
+            "host": host,
+            "installed_inventory_sha256": hashlib.sha256(installed_raw).hexdigest(),
+            "metadata_mtime_epoch": newest_metadata_mtime or None,
+            "holds": holds,
+            "solver_stdout_sha256": hashlib.sha256(solver_result.stdout.encode()).hexdigest(),
+            "changes": changes,
+        }
+        canonical = json.dumps(proposal_material, sort_keys=True, separators=(",", ":")).encode()
+        result = {
+            "version": 1,
+            "host": host,
+            "observed_at": datetime.datetime.fromtimestamp(now, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "metadata_refresh_performed": False,
+            "metadata_newest_path": newest_metadata,
+            "metadata_mtime_epoch": newest_metadata_mtime or None,
+            "metadata_age_seconds": now - newest_metadata_mtime if newest_metadata_mtime else None,
+            "installed_inventory_format": "dpkg-query-status-tsv-v1",
+            "installed_records": len(installed_lines),
+            "installed_inventory_sha256": proposal_material["installed_inventory_sha256"],
+            "holds": holds,
+            "solver": {
+                "command": "apt-get-simulate",
+                "returncode": solver_result.returncode,
+                "stdout_sha256": proposal_material["solver_stdout_sha256"],
+                "stderr_sha256": hashlib.sha256(solver_result.stderr.encode()).hexdigest(),
+            },
+            "changes": changes,
+            "change_counts": {
+                action: sum(1 for item in changes if item["action"] == action)
+                for action in ("install", "upgrade", "downgrade", "remove")
+            },
+            "security_changes": sum(1 for item in changes if item["security"]),
+            "proposal_sha256": hashlib.sha256(canonical).hexdigest(),
+        }
+        print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+      - "{{ lifecycle_contract_host }}"
+  register: package_lifecycle_raw
+  changed_when: false
+  check_mode: false
+
+- name: Decode the reduced package proposal
+  ansible.builtin.set_fact:
+    package_lifecycle_proposal: "{{ package_lifecycle_raw.stdout | from_json }}"
+    package_lifecycle_policy: "{{ lifecycle.maintenance.package_plan }}"
+    package_lifecycle_host_policy: "{{ lifecycle.maintenance.package_plan.hosts[lifecycle_contract_host] }}"
+
+- name: Publish package proposal readiness without authorizing apply
+  ansible.builtin.set_fact:
+    package_lifecycle_observation:
+      version: 1
+      contract_host: "{{ lifecycle_contract_host }}"
+      policy: "{{ package_lifecycle_host_policy }}"
+      metadata_refresh_policy: "{{ package_lifecycle_policy.metadata_refresh }}"
+      metadata_fresh: >-
+        {{
+          package_lifecycle_proposal.metadata_age_seconds is not none and
+          package_lifecycle_proposal.metadata_age_seconds <= package_lifecycle_policy.max_metadata_age_seconds
+        }}
+      proposal: "{{ package_lifecycle_proposal }}"
+      active_lifecycle_locks: "{{ lifecycle_state_observation.locks.active }}"
+      proposal_valid: >-
+        {{
+          package_lifecycle_proposal.solver.returncode == 0 and
+          package_lifecycle_proposal.metadata_age_seconds is not none and
+          package_lifecycle_proposal.metadata_age_seconds <= package_lifecycle_policy.max_metadata_age_seconds and
+          package_lifecycle_proposal.holds | length == 0 and
+          package_lifecycle_proposal.change_counts.remove == 0 and
+          package_lifecycle_proposal.change_counts.downgrade == 0 and
+          lifecycle_state_observation.locks.active | length == 0
+        }}
+      apply_authorized: false
+      apply_blockers: >-
+        {{
+          (
+            ([] if package_lifecycle_proposal.solver.returncode == 0 else ['solver-failed']) +
+            (
+              [] if
+                package_lifecycle_proposal.metadata_age_seconds is not none and
+                package_lifecycle_proposal.metadata_age_seconds <= package_lifecycle_policy.max_metadata_age_seconds
+              else ['apt-metadata-stale']
+            ) +
+            ([] if package_lifecycle_proposal.holds | length == 0 else ['held-packages']) +
+            ([] if package_lifecycle_proposal.change_counts.remove == 0 else ['package-removal']) +
+            ([] if package_lifecycle_proposal.change_counts.downgrade == 0 else ['package-downgrade']) +
+            ([] if lifecycle_state_observation.locks.active | length == 0 else ['active-lifecycle-lock']) +
+            ['saved-reviewed-plan-required']
+          ) | unique | list
+        }}
+
+- name: Emit the reduced package proposal
+  ansible.builtin.debug:
+    var: package_lifecycle_observation
+  when: package_lifecycle_emit | bool
