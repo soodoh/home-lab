@@ -175,7 +175,7 @@ resource "authentik_application" "applications" {
   meta_hide             = each.value.meta_hide
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 }
 
