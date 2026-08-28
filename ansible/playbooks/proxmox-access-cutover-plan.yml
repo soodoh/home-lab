@@ -14,3 +14,51 @@
     - role: access_cutover_plan
       vars:
         access_cutover_plan_emit: true
+        access_cutover_plan_expected_capabilities:
+          plan:
+            account: ansible-plan
+            shell: /usr/local/libexec/home-lab/proxmox-ansible-plan-transport
+            helpers:
+              /usr/local/libexec/home-lab/proxmox-ansible-plan-transport: >-
+                {{
+                  lookup(
+                    'ansible.builtin.file',
+                    playbook_dir + '/../../infrastructure/proxmox-access/host/proxmox-ansible-plan-transport',
+                    rstrip=False
+                  ) | hash('sha256')
+                }}
+            sudo_path: /etc/sudoers.d/ansible-plan
+          deploy:
+            account: ansible-deploy
+            shell: /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport
+            helpers:
+              /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport: >-
+                {{
+                  lookup(
+                    'ansible.builtin.file',
+                    playbook_dir + '/../../infrastructure/proxmox-access/host/proxmox-ansible-deploy-transport',
+                    rstrip=False
+                  ) | hash('sha256')
+                }}
+              /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator: >-
+                {{
+                  lookup(
+                    'ansible.builtin.file',
+                    playbook_dir + '/../../infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator',
+                    rstrip=False
+                  ) | hash('sha256')
+                }}
+            sudo_path: /etc/sudoers.d/ansible-deploy
+          firewall:
+            account: firewall-apply
+            shell: /usr/local/libexec/home-lab/proxmox-firewall-transport
+            helpers:
+              /usr/local/libexec/home-lab/proxmox-firewall-transport: >-
+                {{
+                  lookup(
+                    'ansible.builtin.file',
+                    playbook_dir + '/../../infrastructure/proxmox-firewall/host/proxmox-firewall-transport',
+                    rstrip=False
+                  ) | hash('sha256')
+                }}
+            sudo_path: /etc/sudoers.d/firewall-apply

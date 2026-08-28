@@ -24,6 +24,8 @@
         import sys
 
         policy = json.loads(sys.argv[1])
+        expected = json.loads(sys.argv[2])
+        contracted_accounts = {item["name"]: item for item in json.loads(sys.argv[3])}
         names = sorted(set([
             *policy["target_identities"].values(),
             *policy["retire_identities"],
@@ -82,17 +84,60 @@
             name: metadata("/etc/sudoers.d/" + name)
             for name in sorted(set(policy["target_identities"].values()) - {"proxmox"})
         }
-        transport_path = "/usr/local/libexec/home-lab/proxmox-firewall-transport"
+        account_by_name = {item["name"]: item for item in accounts}
+        capabilities = {}
+        for name, specification in sorted(expected.items()):
+            helpers = {path: metadata(path) for path in sorted(specification["helpers"])}
+            helper_matches = all(
+                helpers[path].get("exists") is True
+                and helpers[path].get("is_regular") is True
+                and helpers[path].get("is_symlink") is False
+                and helpers[path].get("owner_uid") == 0
+                and helpers[path].get("group_gid") == 0
+                and helpers[path].get("mode") == "0755"
+                and helpers[path].get("sha256") == expected_sha256.strip()
+                for path, expected_sha256 in specification["helpers"].items()
+            )
+            sudo = metadata(specification["sudo_path"])
+            contracted_rule = contracted_accounts[specification["account"]]["sudo"]["rule"]
+            expected_sudo_sha256 = hashlib.sha256((contracted_rule + "\n").encode()).hexdigest()
+            sudo_matches = (
+                sudo.get("exists") is True
+                and sudo.get("is_regular") is True
+                and sudo.get("is_symlink") is False
+                and sudo.get("owner_uid") == 0
+                and sudo.get("group_gid") == 0
+                and sudo.get("mode") == "0440"
+                and sudo.get("sha256") == expected_sudo_sha256
+            )
+            account = account_by_name.get(specification["account"], {})
+            account_matches = (
+                account.get("exists") is True
+                and account.get("password_locked") is True
+                and account.get("shell") == specification["shell"]
+                and account.get("groups") == [specification["account"]]
+            )
+            capabilities[name] = {
+                "account_matches": account_matches,
+                "helpers": helpers,
+                "expected_helper_sha256": {path: value.strip() for path, value in specification["helpers"].items()},
+                "helpers_match": helper_matches,
+                "sudo": sudo,
+                "sudo_matches": sudo_matches,
+                "verified": account_matches and helper_matches and sudo_matches,
+            }
         evidence = {
-            "version": 1,
+            "version": 2,
             "accounts": accounts,
-            "firewall_transport": metadata(transport_path),
+            "capabilities": capabilities,
             "sudoers": sudoers,
         }
         canonical = json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode()
         evidence["evidence_sha256"] = hashlib.sha256(canonical).hexdigest()
         print(json.dumps(evidence, sort_keys=True, separators=(",", ":")))
       - "{{ lifecycle.hosts.proxmox.access_cutover | to_json }}"
+      - "{{ access_cutover_plan_expected_capabilities | to_json }}"
+      - "{{ proxmox.access.service_accounts | to_json }}"
   register: access_cutover_plan_raw
   changed_when: false
   check_mode: false
@@ -111,6 +156,7 @@
       conventional_key_files: "{{ lifecycle_state_observation.conventional_authorized_key_files }}"
       sshd: "{{ lifecycle_state_observation.sshd }}"
       target_compliant: "{{ lifecycle_state_observation.target_compliant }}"
+      capabilities: "{{ access_cutover_plan_evidence.capabilities }}"
       ready: false
       authorized: false
       blockers: >-
@@ -143,10 +189,11 @@
               else []
             ) +
             ([] if access_cutover_plan_policy.state == 'ready' else ['access-cutover-state-not-ready']) +
+            ([] if access_cutover_plan_evidence.capabilities.plan.verified else ['plan-fixed-observer-helper-required']) +
+            ([] if access_cutover_plan_evidence.capabilities.deploy.verified else ['deploy-saved-plan-helper-required']) +
+            ([] if access_cutover_plan_evidence.capabilities.firewall.verified else ['firewall-fixed-transport-helper-required']) +
             [
-              'plan-fixed-observer-helper-required',
               'tailnet-ssh-policy-and-tests-required',
-              'firewall-magicdns-transport-proof-required',
               'root-key-owner-attribution-required',
               'independent-live-session-canaries-required',
               'physical-console-attestation-required',

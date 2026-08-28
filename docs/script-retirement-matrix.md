@@ -55,7 +55,9 @@
 | `scripts/controller/parse-ansible-recap.py` | `retain-validation` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/parse-zpool-status.py` | `retain-validation` | 1 | `scripts/controller/test-zpool-status-parser.py` |
 | `scripts/controller/protected_execution.py` | `retain-controller` | 1 | `scripts/controller/lifecycle-marker-transaction.py` |
-| `scripts/controller/proxmox-access-cutover.js` | `transition-with-nix` | 1 | `scripts/controller/test-proxmox-access-cutover.js` |
+| `scripts/controller/proxmox-access-cutover.js` | `transition-with-nix` | 2 | `scripts/controller/proxmox-access-readiness.js`, `scripts/controller/test-proxmox-access-cutover.js` |
+| `scripts/controller/proxmox-access-evidence.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-cutover.js` |
+| `scripts/controller/proxmox-access-readiness.js` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-cutover.js` |
 | `scripts/controller/proxmox-access-identity-stage.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-identity-stage.py` |
 | `scripts/controller/proxmox-plan-capability.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-transports.py` |
 | `scripts/controller/proxmox-deploy-capability.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-transports.py` |

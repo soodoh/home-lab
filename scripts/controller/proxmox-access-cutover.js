@@ -27,7 +27,7 @@ function planProxmoxAccessCutover(contract, sources, hostEvidence) {
   if (!contract || !sources || !hostEvidence) throw new Error("access cutover inputs are required");
   const policy = contract.lifecycle?.hosts?.proxmox?.access_cutover;
   if (!policy || policy.state === "complete") throw new Error("pending access cutover policy is required");
-  for (const name of ["tailnet", "inventory", "firewallController", "firewallTransport"]) {
+  for (const name of ["tailnet", "inventory", "firewallController", "firewallTransport", "planTransport"]) {
     if (typeof sources[name] !== "string") throw new Error(`access cutover source ${name} is required`);
   }
   if (!Array.isArray(hostEvidence.accounts) || !Array.isArray(hostEvidence.conventional_key_files)) {

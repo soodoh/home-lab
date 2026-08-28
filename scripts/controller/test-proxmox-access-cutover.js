@@ -141,4 +141,15 @@ assert.equal(policy.plan_privilege_model, "fixed-reduced-observer");
 assert.equal(policy.firewall_magicdns_target, "firewall-apply@proxmox");
 assert.equal(policy.remove_conventional_keys_last, true);
 
+const accessEvidence = read("scripts/controller/proxmox-access-evidence.py");
+for (const required of ["PROXMOX_CONSOLE_ATTESTATION_CONFIRMED", "StrictHostKeyChecking=yes", "live_plan_noop", "root_keys", "os.O_EXCL", "os.O_NOFOLLOW"]) {
+  assert(accessEvidence.includes(required), `access evidence capture omits ${required}`);
+}
+assert(!accessEvidence.includes("StrictHostKeyChecking=no"));
+const readinessSource = read("scripts/controller/proxmox-access-readiness.js");
+for (const required of ["home-lab-proxmox-access-evidence-v1", "planProxmoxAccessCutover", "receipt_sha256", "live_evidence_sha256", "O_EXCL"]) {
+  assert(readinessSource.includes(required), `access readiness planner omits ${required}`);
+}
+assert(read("ansible/playbooks/proxmox-access-cutover-plan.yml").includes("rstrip=False"));
+
 console.log("proxmox_access_cutover=verified");
