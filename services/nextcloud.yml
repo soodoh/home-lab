@@ -6,6 +6,16 @@ x-logging: &default-logging
 
 x-nextcloud-image: &nextcloud-image nextcloud:34.0.2-apache@sha256:d7666d54d87c58d52869ddda36d1acbd4a7f53faf8ab6b91293daf204f3434e8
 
+x-nextcloud-smtp-environment: &nextcloud-smtp-environment
+  SMTP_HOST: $NEXTCLOUD_SMTP_HOST
+  SMTP_PORT: $NEXTCLOUD_SMTP_PORT
+  SMTP_SECURE: $NEXTCLOUD_SMTP_SECURE
+  SMTP_AUTHTYPE: $NEXTCLOUD_SMTP_AUTHTYPE
+  SMTP_NAME: $NEXTCLOUD_SMTP_USERNAME
+  SMTP_PASSWORD: $NEXTCLOUD_SMTP_PASSWORD
+  MAIL_FROM_ADDRESS: $NEXTCLOUD_MAIL_FROM_ADDRESS
+  MAIL_DOMAIN: $NEXTCLOUD_MAIL_DOMAIN
+
 x-nextcloud-volumes: &nextcloud-volumes
   - type: bind
     source: /srv/home-lab-state/nextcloud-html
@@ -41,6 +51,7 @@ services:
     logging: *default-logging
     volumes: *nextcloud-volumes
     environment:
+      <<: *nextcloud-smtp-environment
       TZ: $TZ
       REDIS_HOST: nextcloud-redis
       REDIS_HOST_PORT: 6379
@@ -68,6 +79,7 @@ services:
     entrypoint: /cron.sh
     logging: *default-logging
     environment:
+      <<: *nextcloud-smtp-environment
       PHP_MEMORY_LIMIT: 1G
     volumes: *nextcloud-volumes
     depends_on:
