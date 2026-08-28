@@ -60,7 +60,10 @@ print(json.dumps({"account":{"groups":sorted(grp.getgrgid(g).gr_name for g in os
 
 
 def validate_inert(value: dict) -> None:
-    if value.get("account") != {"groups": ["ansible-deploy"], "home": "/home/ansible-deploy", "password_locked": True, "shell": "/usr/sbin/nologin"} or value.get("locks") != [] or any(value.get("paths", {}).values()):
+    paths = value.get("paths", {})
+    denied = ("/home/ansible-deploy/.ssh/authorized_keys", "/home/ansible-deploy/.ssh/authorized_keys2", "/etc/sudoers.d/ansible-deploy")
+    helpers = (TRANSPORT, ACTIVATOR)
+    if value.get("account") != {"groups": ["ansible-deploy"], "home": "/home/ansible-deploy", "password_locked": True, "shell": "/usr/sbin/nologin"} or value.get("locks") != [] or any(paths.get(name) is not False for name in denied) or len({paths.get(name) for name in helpers}) != 1:
         raise SystemExit("ansible-deploy is not in the exact inert state")
 
 
