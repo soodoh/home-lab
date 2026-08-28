@@ -19,6 +19,7 @@ TRANSPORT = "/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport"
 ACTIVATOR = "/usr/local/libexec/home-lab/proxmox-ansible-deploy-activator"
 RULE = f"ansible-deploy ALL=(root) NOPASSWD: {ACTIVATOR}"
 SSH = ("ssh", "-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "proxmox@proxmox", "sudo -n -- /usr/bin/python3 -")
+SSH_BASE = ("ssh", "-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "proxmox@proxmox")
 
 
 def canonical(value: object) -> bytes:
@@ -107,11 +108,43 @@ def authorize(path: Path) -> None:
     print(json.dumps({"authorization": "recorded", "plan_sha256": digest, "receipt": str(receipt_path)}, sort_keys=True))
 
 
+def apply_capability(path: Path, receipt_path: Path) -> None:
+    info = path.lstat(); raw = path.read_bytes(); digest = sha(raw); plan = json.loads(raw)
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != os.getuid() or info.st_nlink != 1 or path.name != f"{digest}.json" or raw != canonical(plan):
+        raise SystemExit("deploy capability plan metadata or hash differs")
+    receipt_info = receipt_path.lstat(); receipt_raw = receipt_path.read_bytes(); receipt = json.loads(receipt_raw)
+    if not stat.S_ISREG(receipt_info.st_mode) or stat.S_IMODE(receipt_info.st_mode) != 0o600 or receipt_info.st_uid != os.getuid() or receipt_info.st_nlink != 1 or receipt_raw != canonical(receipt) or receipt != {"format": "home-lab-proxmox-deploy-capability-authorization-v1", "plan_sha256": digest, "commit": plan["commit"], "authorized_at": receipt.get("authorized_at")}:
+        raise SystemExit("deploy capability authorization receipt differs")
+    if plan.get("commit") != clean_pushed_commit() or plan.get("contract_sha256") != file_sha(ROOT / "infrastructure/contract/home-lab.yml") or plan.get("inventory_sha256") != file_sha(ROOT / "ansible/inventory/production.yml") or plan.get("source_proof") != source_proof() or datetime.now(timezone.utc) > datetime.fromisoformat(plan["expires_at"].replace("Z", "+00:00")):
+        raise SystemExit("deploy capability apply binding or freshness differs")
+    expected = f"authorize-proxmox-deploy-capability-{digest}"
+    if os.environ.get("PROXMOX_DEPLOY_CAPABILITY_CONFIRMED") != expected:
+        raise SystemExit(f"exact confirmation required: {expected}")
+    current = observe(); account = current.get("account", {}); paths = current.get("paths", {})
+    if account != {"groups": ["ansible-deploy"], "home": "/home/ansible-deploy", "password_locked": True, "shell": "/usr/sbin/nologin"} or current.get("locks") != []:
+        raise SystemExit("ansible-deploy inert account changed before apply")
+    for name in ("/home/ansible-deploy/.ssh/authorized_keys", "/home/ansible-deploy/.ssh/authorized_keys2", "/etc/sudoers.d/ansible-deploy"):
+        if paths.get(name) is not False: raise SystemExit("ansible-deploy key or sudo state changed before apply")
+    for name in (TRANSPORT, ACTIVATOR):
+        if paths.get(name) is not True: raise SystemExit("deploy helper is not installed")
+    verify_program = f'''import hashlib,json,os,stat\npaths={{}}\nfor p in ({TRANSPORT!r},{ACTIVATOR!r}):\n s=os.lstat(p); paths[p]={{"sha256":hashlib.sha256(open(p,"rb").read()).hexdigest(),"uid":s.st_uid,"gid":s.st_gid,"mode":format(stat.S_IMODE(s.st_mode),"04o"),"regular":stat.S_ISREG(s.st_mode),"nlink":s.st_nlink}}\nprint(json.dumps(paths,sort_keys=True,separators=(",",":")))\n'''
+    checked = subprocess.run(SSH, input=verify_program, text=True, capture_output=True, timeout=60)
+    installed = json.loads(checked.stdout) if checked.returncode == 0 and not checked.stderr else {}
+    proof = plan["source_proof"]
+    if installed != {TRANSPORT: {"sha256": proof["transport_sha256"], "uid": 0, "gid": 0, "mode": "0755", "regular": True, "nlink": 1}, ACTIVATOR: {"sha256": proof["activator_sha256"], "uid": 0, "gid": 0, "mode": "0755", "regular": True, "nlink": 1}}:
+        raise SystemExit("installed deploy helpers differ from reviewed sources")
+    remote = f'''set -euo pipefail\n[[ ! -e /var/lib/home-lab/reconciliation/apply.lock && ! -e /var/lib/iac-ansible-production.lock && ! -e /var/lib/home-lab/firewall-transaction/active.json ]]\n[[ $(getent passwd ansible-deploy | cut -d: -f7) == /usr/sbin/nologin ]]\n[[ ! -e /etc/sudoers.d/ansible-deploy && ! -e /home/ansible-deploy/.ssh/authorized_keys && ! -e /home/ansible-deploy/.ssh/authorized_keys2 ]]\ntmp=$(mktemp /etc/sudoers.d/.ansible-deploy.XXXXXX); trap 'rm -f "$tmp"; usermod --shell /usr/sbin/nologin ansible-deploy >/dev/null 2>&1 || true; rm -f /etc/sudoers.d/ansible-deploy' ERR\nprintf '%s\\n' '{RULE}' >"$tmp"; chown root:root "$tmp"; chmod 0440 "$tmp"; /usr/sbin/visudo --check --file="$tmp" >/dev/null\ninstall -o root -g root -m 0440 "$tmp" /etc/sudoers.d/ansible-deploy; rm -f "$tmp"; usermod --shell {TRANSPORT} ansible-deploy\n'''
+    result = subprocess.run((*SSH_BASE, "sudo -n -- /bin/bash -s"), input=remote, text=True, timeout=120)
+    if result.returncode: raise SystemExit("deploy capability transaction failed")
+    print(json.dumps({"deploy_capability": "enabled", "plan_sha256": digest}, sort_keys=True))
+
+
 def main() -> None:
-    parser=argparse.ArgumentParser(); commands=parser.add_subparsers(dest="command",required=True); commands.add_parser("plan"); auth=commands.add_parser("authorize"); auth.add_argument("plan",type=Path); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); commands=parser.add_subparsers(dest="command",required=True); commands.add_parser("plan"); auth=commands.add_parser("authorize"); auth.add_argument("plan",type=Path); apply_parser=commands.add_parser("apply"); apply_parser.add_argument("plan",type=Path); apply_parser.add_argument("receipt",type=Path); args=parser.parse_args()
     if args.command == "plan":
         path,digest=save_plan(); print(json.dumps({"authorized":False,"path":str(path),"plan_sha256":digest},sort_keys=True))
-    else: authorize(args.plan.resolve())
+    elif args.command == "authorize": authorize(args.plan.resolve())
+    else: apply_capability(args.plan.resolve(), args.receipt.resolve())
 
 
 if __name__ == "__main__": main()
