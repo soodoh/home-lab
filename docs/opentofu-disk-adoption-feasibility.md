@@ -35,7 +35,11 @@ The isolated root now exists at `infrastructure/tofu/proxmox-disk-adoption-quali
 
 `infrastructure/policy/inspect-proxmox-disk-adoption-plan.py` and its negative fixtures enforce an update-only fourth `scsi3` entry, unchanged indexes 0–2, known volume/datastore/size/serial, unchanged boot/start/protection/destruction policy, no copy/import, no unknowns, no extra resources, and no production identifiers. Provider schema inspection confirms `disk` remains `nesting_mode=list`, `max_items=31`.
 
-Offline phase 1 is complete. The reviewed live fixture uses VMID 9951, a dedicated `qual-disk-adoption` directory datastore, and a privilege-separated qualification token. The root first creates only `scsi0`–`scsi2`; a separately allocated `9951/vm-9951-disk-3.raw` volume is then attached through the opt-in `qualification_adopt_scsi3` block and the update-only inspector. Exact create, volume-allocation, adoption, and destroy plans remain separate authorizations. No disposable or production VM has yet been created.
+Offline phase 1 and the reviewed directory-storage rehearsal are complete. The live fixture used VMID 9951, dedicated `qual-disk-adoption` directory storage, and a privilege-separated token. It created `scsi0`–`scsi2`, allocated an unattached `9951/vm-9951-disk-3.raw`, applied the inspected append-only `scsi3` plan, proved a subsequent no-op, and destroyed the VM and all four volumes. VM identity, indexes 0–2, boot order, stopped state, and VM 100 configuration remained byte-for-byte stable. The datastore, ACLs, user, role, token, local credential, and directory were then retired.
+
+### Qualification conclusion
+
+The rehearsal proves provider `TypeList` append ordering and identity preservation for an existing volume on directory storage. It does **not** establish storage-type parity for production `local-lvm`, whose existing `vm-100-disk-2` is LVM-thin rather than a directory-backed raw file. Production `scsi3` therefore remains audit-only. Declaration requires one more disposable rehearsal on an isolated LVM-thin datastore, or equally strong provider evidence for existing LVM-thin volume attachment, followed by a separate saved production plan with `reboot_after_update = false`. Reusing or aliasing the production thin pool is not accepted as isolation.
 ## Test phases
 
 ### 1. Offline schema and policy fixtures
