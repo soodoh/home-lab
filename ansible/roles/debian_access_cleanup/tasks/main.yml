@@ -1,0 +1,82 @@
+---
+- name: Validate the exact legacy marker removal plan
+  ansible.builtin.assert:
+    that:
+      - debian_access_cleanup_plan.format == 'home-lab-debian-access-cleanup-plan-v1'
+      - debian_access_cleanup_plan.host == 'debian'
+      - debian_access_cleanup_plan.kind == 'legacy-marker-removal'
+      - debian_access_cleanup_plan.sequence == 1
+      - debian_access_cleanup_plan.authorized == false
+      - debian_access_cleanup_plan.action.path == lifecycle.hosts.debian.access_cleanup.legacy_marker_path
+      - not debian_access_cleanup_plan.action.after.exists
+      - debian_access_cleanup_plan.action.after | length == 1
+      - debian_access_cleanup_plan.action.before.exists
+      - debian_access_cleanup_plan.action.before.regular
+      - not debian_access_cleanup_plan.action.before.symlink
+      - debian_access_cleanup_plan.action.before.size == 0
+    fail_msg: Legacy marker removal differs from its exact saved plan.
+  tags:
+    - debian_legacy_marker
+
+- name: Inspect the legacy marker before removal
+  ansible.builtin.stat:
+    path: "{{ debian_access_cleanup_plan.action.path }}"
+    follow: false
+    checksum_algorithm: sha256
+  register: debian_access_cleanup_legacy_marker_before
+  tags:
+    - debian_legacy_marker
+
+- name: Require the exact legacy marker before-state
+  ansible.builtin.assert:
+    that:
+      - debian_access_cleanup_legacy_marker_before.stat.exists
+      - debian_access_cleanup_legacy_marker_before.stat.isreg
+      - not debian_access_cleanup_legacy_marker_before.stat.islnk
+      - debian_access_cleanup_legacy_marker_before.stat.uid == debian_access_cleanup_plan.action.before.uid
+      - debian_access_cleanup_legacy_marker_before.stat.gid == debian_access_cleanup_plan.action.before.gid
+      - debian_access_cleanup_legacy_marker_before.stat.mode == debian_access_cleanup_plan.action.before.mode
+      - debian_access_cleanup_legacy_marker_before.stat.nlink == debian_access_cleanup_plan.action.before.nlink
+      - debian_access_cleanup_legacy_marker_before.stat.size == 0
+      - debian_access_cleanup_legacy_marker_before.stat.checksum == debian_access_cleanup_plan.action.before.sha256
+    fail_msg: Legacy marker changed after planning.
+  tags:
+    - debian_legacy_marker
+
+- name: Remove only the reviewed legacy marker
+  tags:
+    - debian_legacy_marker
+  block:
+    - name: Remove the empty legacy marker
+      ansible.builtin.file:
+        path: "{{ debian_access_cleanup_plan.action.path }}"
+        state: absent
+      become: true
+      register: debian_access_cleanup_legacy_marker_removed
+
+    - name: Verify the legacy marker is absent
+      ansible.builtin.stat:
+        path: "{{ debian_access_cleanup_plan.action.path }}"
+        follow: false
+      register: debian_access_cleanup_legacy_marker_after
+
+    - name: Require one marker removal and its postcondition
+      ansible.builtin.assert:
+        that:
+          - debian_access_cleanup_legacy_marker_removed.changed
+          - not debian_access_cleanup_legacy_marker_after.stat.exists
+        fail_msg: Legacy marker removal postcondition failed.
+  rescue:
+    - name: Restore the exact empty legacy marker after failure
+      ansible.builtin.copy:
+        content: ""
+        dest: "{{ debian_access_cleanup_plan.action.path }}"
+        owner: root
+        group: root
+        mode: "{{ debian_access_cleanup_plan.action.before.mode }}"
+        force: true
+      become: true
+
+    - name: Stop after restoring the legacy marker
+      ansible.builtin.fail:
+        msg: Legacy marker removal failed and its exact empty before-state was restored.

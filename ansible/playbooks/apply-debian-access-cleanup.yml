@@ -1,0 +1,10 @@
+---
+- name: Apply one exact Debian access cleanup action
+  hosts: docker_host
+  gather_facts: false
+  any_errors_fatal: true
+  serial: 1
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+  roles:
+    - role: debian_access_cleanup

@@ -11,12 +11,15 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import tempfile
 
+from protected_execution import acquire_transfer_lock
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / ".local/debian-access-cleanup"
 FINGERPRINT = "SHA256:7GYR95H1ybocMXsvjw0qAaiDiW3OQXcaZDU+oO5cOsQ"
 TARGET = "ansible-deploy@docker-host"
 SSH = ("ssh", "-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "-o", "ClearAllForwardings=yes")
+LOCK = ROOT / ".local/debian-access-cleanup.lock"
 
 
 def canonical(value: object) -> bytes:
@@ -139,11 +142,61 @@ def attest_recovery(path: Path, method: str) -> None:
     print(json.dumps({"attestation_sha256": receipt_digest, "method": method, "path": str(target)}, sort_keys=True))
 
 
+def load_private(path: Path, label: str) -> tuple[dict, bytes]:
+    info = path.lstat(); raw = path.read_bytes(); value = json.loads(raw)
+    if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != os.getuid() or info.st_nlink != 1 or raw != canonical(value):
+        raise SystemExit(f"{label} metadata or canonical content differs")
+    return value, raw
+
+
+def apply_legacy_marker(plan_path: Path, manifest_path: Path, recovery_path: Path) -> None:
+    plan_value, plan_raw = load_private(plan_path, "Debian access cleanup plan")
+    manifest, manifest_raw = load_private(manifest_path, "Debian access cleanup manifest")
+    recovery, _ = load_private(recovery_path, "Debian recovery attestation")
+    plan_digest = sha(plan_raw); manifest_digest = sha(manifest_raw)
+    if plan_path.name != f"1-legacy-marker-removal-{plan_digest}.json" or manifest_path.name != f"manifest-{manifest_digest}.json":
+        raise SystemExit("Debian cleanup artifact filename binding differs")
+    if plan_value.get("kind") != "legacy-marker-removal" or plan_value.get("sequence") != 1 or plan_value.get("authorized") is not False or plan_value.get("commit") != clean_pushed_commit() or plan_value.get("contract_sha256") != file_sha(ROOT / "infrastructure/contract/home-lab.yml") or plan_value.get("inventory_sha256") != file_sha(ROOT / "ansible/inventory/production.yml"):
+        raise SystemExit("Debian legacy marker plan binding differs")
+    reference = next((item for item in manifest.get("plans", []) if item.get("plan_sha256") == plan_digest), None)
+    if manifest.get("commit") != plan_value["commit"] or reference is None or reference.get("kind") != "legacy-marker-removal":
+        raise SystemExit("Debian cleanup manifest does not bind the marker plan")
+    if recovery != {"format": "home-lab-debian-access-recovery-attestation-v1", "manifest_sha256": manifest_digest, "commit": manifest["commit"], "method": "localhost", "attested_at": recovery.get("attested_at")}:
+        raise SystemExit("Debian localhost recovery receipt differs")
+    if datetime.now(timezone.utc) > datetime.fromisoformat(plan_value["expires_at"].replace("Z", "+00:00")):
+        raise SystemExit("Debian legacy marker plan expired")
+    expected = f"apply-debian-legacy-marker-removal-{plan_digest}"
+    if os.environ.get("DEBIAN_ACCESS_CLEANUP_CONFIRMED") != expected:
+        raise SystemExit(f"exact confirmation required: {expected}")
+    current = observe(); marker_path = plan_value["action"]["path"]
+    if current["paths"].get(marker_path) != plan_value["action"]["before"]:
+        raise SystemExit("Debian legacy marker changed after planning")
+    extra = {"debian_access_cleanup_plan": plan_value}
+    lock_descriptor = acquire_transfer_lock(LOCK)
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", dir=OUTPUT, prefix="legacy-marker-extra-", suffix=".json", delete=False) as handle:
+            extra_path = Path(handle.name); os.chmod(extra_path, 0o600); handle.write(canonical(extra)); handle.flush(); os.fsync(handle.fileno())
+        try:
+            command = ("ansible-playbook", "-i", "inventory/production.yml", "playbooks/apply-debian-access-cleanup.yml", "--limit", "docker-host-production", "--tags", "debian_legacy_marker", "--extra-vars", f"@{extra_path}")
+            applied = subprocess.run(command, cwd=ROOT / "ansible", timeout=300)
+            if applied.returncode:
+                raise SystemExit("Debian legacy marker one-tag apply failed")
+        finally:
+            extra_path.unlink(missing_ok=True)
+    finally:
+        os.close(lock_descriptor)
+    after = observe()
+    if after["paths"].get(marker_path) != {"exists": False}:
+        raise SystemExit("Debian legacy marker postcondition differs")
+    print(json.dumps({"action": "legacy-marker-removal", "plan_sha256": plan_digest, "status": "applied"}, sort_keys=True))
+
+
 def main() -> None:
-    parser=argparse.ArgumentParser(); commands=parser.add_subparsers(dest="command",required=True); commands.add_parser("plan"); attested=commands.add_parser("attest-recovery"); attested.add_argument("manifest",type=Path); attested.add_argument("--method",choices=("localhost","physical-console"),required=True); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); commands=parser.add_subparsers(dest="command",required=True); commands.add_parser("plan"); attested=commands.add_parser("attest-recovery"); attested.add_argument("manifest",type=Path); attested.add_argument("--method",choices=("localhost","physical-console"),required=True); applied=commands.add_parser("apply-legacy-marker"); applied.add_argument("plan",type=Path); applied.add_argument("manifest",type=Path); applied.add_argument("recovery",type=Path); args=parser.parse_args()
     if args.command == "plan":
         path,digest=plan(); print(json.dumps({"authorized":False,"manifest_sha256":digest,"path":str(path)},sort_keys=True))
-    else: attest_recovery(args.manifest.resolve(), args.method)
+    elif args.command == "attest-recovery": attest_recovery(args.manifest.resolve(), args.method)
+    else: apply_legacy_marker(args.plan.resolve(), args.manifest.resolve(), args.recovery.resolve())
 
 
 if __name__ == "__main__": main()
