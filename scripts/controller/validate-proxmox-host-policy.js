@@ -127,7 +127,8 @@ function validateProxmoxHostPolicy(contract) {
     }
     const expectedShell = account.name === "firewall-apply" ? "/usr/local/libexec/home-lab/proxmox-firewall-transport" :
       account.name === "tofu-apply" ? "/usr/local/libexec/home-lab/proxmox-apply-transport" :
-      account.name.startsWith("ansible-") ? "/usr/sbin/nologin" : "/bin/bash";
+      account.name === "ansible-plan" ? "/usr/local/libexec/home-lab/proxmox-ansible-plan-transport" :
+      account.name === "ansible-deploy" ? "/usr/sbin/nologin" : "/bin/bash";
     if (account.shell !== expectedShell || !account.create_home || !account.password_lock) {
       failures.push(`service account ${account.name} must retain its locked login identity`);
     }
@@ -158,13 +159,18 @@ function validateProxmoxHostPolicy(contract) {
       firewallAccount.authorized_keys?.forced_command !== 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport"')) {
     failures.push("firewall-apply must have only the fixed firewall transport capability");
   }
-  for (const name of ["ansible-plan", "ansible-deploy"]) {
-    const account = serviceAccounts.find((candidate) => candidate.name === name);
-    if (account && (account.groups.length || account.sudo?.kind !== "audit-absence" ||
-        account.sudo?.absence !== "file" || account.sudo?.path !== `/etc/sudoers.d/${name}` ||
-        account.authorized_keys?.state !== "absent")) {
-      failures.push(`${name} must remain inert until its fixed transport handoff`);
-    }
+  const ansiblePlanAccount = serviceAccounts.find((account) => account.name === "ansible-plan");
+  if (ansiblePlanAccount && (ansiblePlanAccount.groups.length || ansiblePlanAccount.sudo?.state !== "present" ||
+      ansiblePlanAccount.sudo?.file?.path !== "/etc/sudoers.d/ansible-plan" ||
+      ansiblePlanAccount.sudo?.rule !== `ansible-plan ALL=(root) NOPASSWD: ${observerCommand}` ||
+      ansiblePlanAccount.authorized_keys?.state !== "absent")) {
+    failures.push("ansible-plan must expose only the fixed Tailscale observer transport");
+  }
+  const ansibleDeployAccount = serviceAccounts.find((account) => account.name === "ansible-deploy");
+  if (ansibleDeployAccount && (ansibleDeployAccount.groups.length || ansibleDeployAccount.sudo?.kind !== "audit-absence" ||
+      ansibleDeployAccount.sudo?.absence !== "file" || ansibleDeployAccount.sudo?.path !== "/etc/sudoers.d/ansible-deploy" ||
+      ansibleDeployAccount.authorized_keys?.state !== "absent")) {
+    failures.push("ansible-deploy must remain inert until its saved-plan transport handoff");
   }
 
   const humanNames = proxmox.access.human_accounts.map((account) => account.name);

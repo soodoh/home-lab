@@ -57,6 +57,13 @@ class ProxmoxNixApplyTests(unittest.TestCase):
             {"count": 0, "target": absence["path"], "type": absence["absence"]}
             for absence in cls.projection["auditAbsence"]
         ]
+        managed_records = cls.before_observation["domains"]["managedFiles"]["records"]
+        managed_targets = {record["target"] for record in managed_records}
+        for managed in cls.projection["managedFiles"]:
+            if managed["path"] not in managed_targets:
+                managed_records.append({"contentMatches": True, "groupMatches": True, "mode": managed["mode"],
+                                        "ownerMatches": True, "target": managed["path"], "type": "file"})
+        managed_records.sort(key=lambda record: record["target"])
         cls.bindings = {
             "activationEnvelopeSchemaSha256": "7" * 64, "activatorSha256": "8" * 64,
             "bundleContentSha256": "1" * 64, "bundleFormat": planner.BUNDLE_FORMAT,

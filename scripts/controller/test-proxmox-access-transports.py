@@ -11,6 +11,7 @@ import subprocess
 ROOT = Path(__file__).resolve().parents[2]
 PLAN = ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-plan-transport"
 FIREWALL = ROOT / "infrastructure/proxmox-firewall/host/proxmox-firewall-transport"
+CAPABILITY = ROOT / "scripts/controller/proxmox-plan-capability.py"
 
 
 def invoke(path: Path, *args: str, original: str | None = None) -> int:
@@ -44,6 +45,10 @@ def main() -> None:
     assert "proxmox-observer observe" in plan_source
     assert "SSH_ORIGINAL_COMMAND" in plan_source
     assert "eval" not in plan_source and "sh -c" not in plan_source
+    capability_source = CAPABILITY.read_text()
+    for required in ("PROXMOX_PLAN_CAPABILITY_CONFIRMED", "os.O_EXCL", "os.O_NOFOLLOW", "ansible-plan ALL=(root) NOPASSWD"):
+        assert required in capability_source
+    assert "NOPASSWD: ALL" not in capability_source and "authorized_keys\", \"w" not in capability_source
     print("proxmox_access_transports=verified")
 
 
