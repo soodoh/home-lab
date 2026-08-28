@@ -120,9 +120,9 @@ def capture() -> tuple[Path, str]:
         raise SystemExit("fixed deploy inspect canary differs")
     run_ssh("ansible-deploy@proxmox", "apply lifecycle-marker a;id", expected=64)
     run_ssh("proxmox@proxmox", "true")
-    tailnet = subprocess.run(("tofu", "-chdir=infrastructure/tofu/tailscale", "plan", "-detailed-exitcode", "-lock=false", "-input=false", "-no-color"), cwd=ROOT, capture_output=True, timeout=600)
-    if tailnet.returncode != 0 or b"No changes" not in tailnet.stdout:
-        raise SystemExit("tailnet policy is not a verified no-op")
+    controller = subprocess.run((ROOT / "scripts/local-controller", "plan", "steady"), cwd=ROOT, capture_output=True, timeout=1800)
+    if controller.returncode != 0 or b"[tailscale]" not in controller.stdout or b"No changes" not in controller.stdout:
+        raise SystemExit("controller did not prove a steady tailnet no-op")
     now = datetime.now(timezone.utc).replace(microsecond=0)
     evidence = {
         "format": "home-lab-proxmox-access-evidence-draft-v1", "commit": commit,
@@ -136,7 +136,7 @@ def capture() -> tuple[Path, str]:
             "firewall_transport": {"positive": True, "injection_rejected": True, "inspect_sha256": sha(firewall.stdout)},
             "deploy_transport": {"positive": True, "injection_rejected": True, "marker_plan_sha256": marker_digest},
             "human_session": {"positive": True},
-            "tailnet_policy": {"tests_present": True, "live_plan_noop": True, "plan_stdout_sha256": sha(tailnet.stdout)},
+            "tailnet_policy": {"tests_present": True, "live_plan_noop": True, "controller_plan_stdout_sha256": sha(controller.stdout)},
             "root_keys": root_key_evidence(),
             "console": {"attested": False},
         },
