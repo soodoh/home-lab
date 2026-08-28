@@ -59,7 +59,7 @@ lifecycle:
         owner: root
         group: root
         mode: "0600"
-        adoption_state: pending
+        adoption_state: complete
       domain_handoffs:
         timezone:
           current_owner: ansible
@@ -107,7 +107,7 @@ lifecycle:
         owner: root
         group: root
         mode: "0600"
-        adoption_state: pending
+        adoption_state: complete
 recovery:
   evidence_max_age_days: 90
   critical_rpo_hours: 24

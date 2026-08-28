@@ -94,7 +94,7 @@ for (const host of Object.values(contract.lifecycle.hosts)) {
   assert.equal(host.steady_transport, "tailscale-ssh");
   assert.equal(host.break_glass, "physical-console");
   assert.equal(host.marker.path, "/var/lib/home-lab/lifecycle-state.json");
-  assert.equal(host.marker.adoption_state, "pending");
+  assert.equal(host.marker.adoption_state, "complete");
 }
 
 console.log("lifecycle_state=verified");
