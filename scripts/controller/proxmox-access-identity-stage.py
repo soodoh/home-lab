@@ -68,7 +68,7 @@ for name in names:
 locks=[path for path in ("/var/lib/home-lab/reconciliation/apply.lock","/var/lib/iac-ansible-production.lock","/var/lib/home-lab/firewall-transaction/active.json") if os.path.lexists(path)]
 print(json.dumps({"accounts":accounts,"paths":paths,"locks":locks},sort_keys=True,separators=(",",":")))
 '''
-    result = subprocess.run((*SSH, HOST, "sudo -n -- /usr/bin/python3 -c " + json.dumps(program)), cwd=ROOT,
+    result = subprocess.run((*SSH, HOST, "sudo -n -- /usr/bin/python3 -"), cwd=ROOT, input=program,
                             capture_output=True, text=True, timeout=60)
     if result.returncode:
         raise SystemExit("access identity observation failed")
