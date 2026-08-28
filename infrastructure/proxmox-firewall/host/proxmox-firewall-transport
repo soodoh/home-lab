@@ -1,13 +1,22 @@
 #!/bin/sh
 set -eu
 self=/usr/local/libexec/home-lab/proxmox-firewall-transport
-if [ "$#" -ne 2 ] || [ "$1" != -c ] || [ "$2" != "$self" ]; then
+if [ "$#" -ne 2 ] || [ "$1" != -c ]; then
   echo "proxmox-firewall-transport: fixed invocation rejected" >&2
   exit 64
 fi
-case "${SSH_ORIGINAL_COMMAND-}" in
+command=
+if [ "$2" = "$self" ] && [ -n "${SSH_ORIGINAL_COMMAND-}" ]; then
+  command=$SSH_ORIGINAL_COMMAND
+elif [ -z "${SSH_ORIGINAL_COMMAND-}" ]; then
+  command=$2
+else
+  echo "proxmox-firewall-transport: mixed transport rejected" >&2
+  exit 64
+fi
+case "$command" in
   inspect|begin|status|commit|rollback)
-    exec /usr/bin/sudo -n -- /usr/local/libexec/home-lab/proxmox-firewall-transaction "$SSH_ORIGINAL_COMMAND"
+    exec /usr/bin/sudo -n -- /usr/local/libexec/home-lab/proxmox-firewall-transaction "$command"
     ;;
   *)
     echo "proxmox-firewall-transport: fixed command rejected" >&2

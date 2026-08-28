@@ -31,6 +31,7 @@ PROTECTED_MAC = RUNTIME / "protected-inputs.mac"
 SESSION_KEY = RUNTIME / "session.key"
 INSTALL_MANIFEST = RUNTIME / "install-manifest.json"
 FIREWALL_SOURCE = REPO / "infrastructure/proxmox-firewall/host"
+ACCESS_SOURCE = REPO / "infrastructure/proxmox-access/host"
 FIREWALL_LIBEXEC = ("proxmox-firewall-transaction", "proxmox-firewall-transport", "proxmox-apply-transport", "proxmox-firewall-boot-recovery")
 FIREWALL_UNITS = ("home-lab-proxmox-firewall-rollback.service", "home-lab-proxmox-firewall-rollback.timer",
                   "home-lab-proxmox-firewall-config-recovery.service", "home-lab-proxmox-firewall-post-recovery.service",
@@ -53,6 +54,7 @@ FIREWALL_TARGETS = {
     HELPER_ROOT / "proxmox-firewall-transaction": (FIREWALL_SOURCE / "proxmox-firewall-transaction.py", 0o755),
     HELPER_ROOT / "proxmox-firewall-transport": (FIREWALL_SOURCE / "proxmox-firewall-transport", 0o755),
     HELPER_ROOT / "proxmox-apply-transport": (FIREWALL_SOURCE / "proxmox-apply-transport", 0o755),
+    HELPER_ROOT / "proxmox-ansible-plan-transport": (ACCESS_SOURCE / "proxmox-ansible-plan-transport", 0o755),
     HELPER_ROOT / "proxmox-firewall-boot-recovery": (FIREWALL_SOURCE / "proxmox-firewall-boot-recovery", 0o755),
     **{SYSTEMD_ROOT / name: (FIREWALL_SOURCE / name, 0o644) for name in FIREWALL_UNITS},
     SHARE_ROOT / FIREWALL_POLICY: (FIREWALL_SOURCE / FIREWALL_POLICY, 0o644),

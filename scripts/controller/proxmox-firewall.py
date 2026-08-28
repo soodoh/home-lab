@@ -40,7 +40,7 @@ SSH = "/usr/bin/ssh"
 SSH_CONFIG = "/dev/null"
 KNOWN_HOSTS = str(Path.home() / ".ssh/known_hosts")
 PVE_IDENTITY = str(Path.home() / ".ssh/home-lab-proxmox-firewall")
-PVE_SSH_TARGET = "firewall-apply@192.168.0.123"
+PVE_SSH_TARGET = "firewall-apply@proxmox"
 LAN_CANARY_IDENTITY = str(Path.home() / ".ssh/home-lab-proxmox-lan-canary")
 TAILNET_CANARY_IDENTITY = str(Path.home() / ".ssh/home-lab-proxmox-tailnet-canary")
 ARCH_IDENTITY = str(Path.home() / ".ssh/home-lab-arch-ansible")
@@ -215,8 +215,8 @@ def host(command: str, request: dict[str, Any] | None = None) -> dict[str, Any]:
     if command not in {"inspect", "begin", "status", "commit", "rollback"}:
         raise ValueError("host command differs")
     argv = (SSH, "-F", SSH_CONFIG, "-T", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no",
-            "-o", "RequestTTY=no", "-o", "IdentitiesOnly=yes", "-o", f"UserKnownHostsFile={KNOWN_HOSTS}", "-i", PVE_IDENTITY,
-            PVE_SSH_TARGET, command)
+            "-o", "RequestTTY=no", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "-o", "IdentitiesOnly=yes",
+            "-o", f"UserKnownHostsFile={KNOWN_HOSTS}", "-i", PVE_IDENTITY, PVE_SSH_TARGET, command)
     result = run(argv, stdin=None if request is None else canonical(request), timeout=75)
     value = json.loads(result.stdout)
     if result.stdout != canonical(value) or not isinstance(value, dict):

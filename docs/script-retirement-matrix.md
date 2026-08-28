@@ -75,6 +75,7 @@
 | `scripts/controller/test-protected-file.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-access-cutover.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-access-identity-stage.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
+| `scripts/controller/test-proxmox-access-transports.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-disk-adoption-plan.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-firewall-controller.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-firewall-nfs-canary.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
@@ -173,6 +174,7 @@
 | `infrastructure/proxmox-firewall/host/proxmox-firewall-boot-recovery` | `retain-firewall-boundary` | Boot rollback/recovery helper |
 | `infrastructure/proxmox-firewall/host/proxmox-firewall-transaction.py` | `retain-firewall-boundary` | Firewall mutation authority |
 | `infrastructure/proxmox-firewall/host/proxmox-firewall-transport` | `retain-firewall-boundary` | Fixed remote transaction transport |
+| `infrastructure/proxmox-access/host/proxmox-ansible-plan-transport` | `retain-controller` | Fixed Tailscale SSH observer transport; never a normal Ansible shell |
 | `nix/proxmox/activator-template.py` | `transition-with-nix` | Retain until Ansible transaction parity and rollback closure |
 | `nix/proxmox/apply.py` | `transition-with-nix` | Retain until controller handoff |
 | `nix/proxmox/bundle.py` | `transition-with-nix` | Retain until reproducible Ansible artifact replacement |

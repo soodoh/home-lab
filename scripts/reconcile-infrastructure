@@ -81,6 +81,7 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-proxmox-timezone-handoff.js
   node scripts/controller/test-proxmox-access-cutover.js
   python3 scripts/controller/test-proxmox-access-identity-stage.py
+  python3 scripts/controller/test-proxmox-access-transports.py
   node scripts/controller/test-restic-policy.js
   node scripts/controller/test-attest-debian-qualification-plan.js
   python3 scripts/controller/test-proxmox-disk-adoption-plan.py

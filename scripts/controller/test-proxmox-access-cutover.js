@@ -15,6 +15,7 @@ const sources = {
   inventory: read("ansible/inventory/production.yml"),
   firewallController: read("scripts/controller/proxmox-firewall.py"),
   firewallTransport: read("infrastructure/proxmox-firewall/host/proxmox-firewall-transport"),
+  planTransport: read("infrastructure/proxmox-access/host/proxmox-ansible-plan-transport"),
 };
 const currentEvidence = {
   accounts: [
@@ -23,8 +24,8 @@ const currentEvidence = {
     { name: "firewall-apply", exists: true },
     { name: "tofu-plan", exists: true },
     { name: "tofu-apply", exists: true },
-    { name: "ansible-plan", exists: false },
-    { name: "ansible-deploy", exists: false },
+    { name: "ansible-plan", exists: true },
+    { name: "ansible-deploy", exists: true },
   ],
   conventional_key_files: ["tofu-plan", "tofu-apply", "firewall-apply", "root"],
   pubkey_authentication: "yes",
@@ -40,13 +41,7 @@ assert.equal(current.ready, false);
 assert.equal(current.authorized, false);
 for (const blocker of [
   "access-cutover-state-not-ready",
-  "ansible-plan-account-absent",
-  "ansible-deploy-account-absent",
-  "tailnet-required-user-grants-missing",
   "tailnet-ssh-tests-incomplete",
-  "plan-inventory-identity-not-cut-over",
-  "firewall-controller-still-uses-lan-target",
-  "firewall-transport-not-tailscale-compatible",
   "conventional-authorized-keys-present",
   "openssh-pubkey-authentication-enabled",
   "openssh-root-login-enabled",
@@ -98,7 +93,8 @@ const ready = planProxmoxAccessCutover(readyContract, {
   tailnet: readyTailnet,
   inventory: "ansible_user: ansible-plan\n",
   firewallController: 'PVE_SSH_TARGET = "firewall-apply@proxmox"\n',
-  firewallTransport: "fixed tailscale command adapter\n",
+  firewallTransport: sources.firewallTransport,
+  planTransport: sources.planTransport,
 }, readyEvidence);
 assert.equal(ready.ready, true);
 assert.equal(ready.authorized, false);

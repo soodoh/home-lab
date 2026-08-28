@@ -55,9 +55,13 @@ function planProxmoxAccessCutover(contract, sources, hostEvidence) {
   };
   const sourceChecks = {
     firewall_magicdns_target_present: sources.firewallController.includes(`PVE_SSH_TARGET = "${policy.firewall_magicdns_target}"`),
-    firewall_transport_tailscale_compatible: !sources.firewallTransport.includes('[ "$2" != "$self" ]') &&
-      !sources.firewallTransport.includes("SSH_ORIGINAL_COMMAND"),
-    plan_inventory_identity_present: /ansible_user:\s*ansible-plan/.test(sources.inventory),
+    firewall_transport_tailscale_compatible: sources.firewallTransport.includes('elif [ -z "${SSH_ORIGINAL_COMMAND-}" ]; then') &&
+      sources.firewallTransport.includes('echo "proxmox-firewall-transport: mixed transport rejected"') &&
+      sources.firewallTransport.includes('case "$command" in') &&
+      sources.firewallTransport.includes('proxmox-firewall-transaction "$command"'),
+    plan_fixed_observer_transport_present: sources.planTransport.includes('[ "$2" != observe ]') &&
+      sources.planTransport.includes('[ -n "${SSH_ORIGINAL_COMMAND-}" ]') &&
+      sources.planTransport.includes('proxmox-observer observe'),
   };
   const account = (name) => hostEvidence.accounts.find((item) => item.name === name);
   const targetAccounts = Object.fromEntries(Object.entries(policy.target_identities).map(([kind, name]) => [
@@ -75,7 +79,7 @@ function planProxmoxAccessCutover(contract, sources, hostEvidence) {
   if (!targetAccounts.apply) blockers.push("ansible-deploy-account-absent");
   if (!tailnet.required_grants_present) blockers.push("tailnet-required-user-grants-missing");
   if (!tailnet.required_test_accepts_present || !tailnet.forbidden_test_denies_present) blockers.push("tailnet-ssh-tests-incomplete");
-  if (!sourceChecks.plan_inventory_identity_present) blockers.push("plan-inventory-identity-not-cut-over");
+  if (!sourceChecks.plan_fixed_observer_transport_present) blockers.push("plan-fixed-observer-transport-missing");
   if (!sourceChecks.firewall_magicdns_target_present) blockers.push("firewall-controller-still-uses-lan-target");
   if (!sourceChecks.firewall_transport_tailscale_compatible) blockers.push("firewall-transport-not-tailscale-compatible");
   if (hostEvidence.conventional_key_files.length) blockers.push("conventional-authorized-keys-present");
@@ -107,7 +111,7 @@ function planProxmoxAccessCutover(contract, sources, hostEvidence) {
       console_attested: hostEvidence.console_attested,
     },
     blockers,
-    ready: blockers.length === 2,
+    ready: blockers.every((blocker) => ["saved-access-cutover-plan-required", "separate-access-cutover-authorization-required"].includes(blocker)),
     authorized: false,
   };
   return {

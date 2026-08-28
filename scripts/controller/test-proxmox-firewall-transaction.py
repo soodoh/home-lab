@@ -431,6 +431,12 @@ plan=json.load(open({str(plan_file)!r}));m.begin({{'format':m.FORMAT_BEGIN,'plan
             self.assertEqual(subprocess.run((transport_path,*arguments),capture_output=True,env={**os.environ,"SSH_ORIGINAL_COMMAND":"inspect"}).returncode,64)
         forced=subprocess.run((transport_path,"-c","/usr/local/libexec/home-lab/proxmox-firewall-transport"),capture_output=True,env={**os.environ,"SSH_ORIGINAL_COMMAND":"inspect"})
         self.assertNotEqual(forced.returncode,64)
+        tailscale_env={key:value for key,value in os.environ.items() if key != "SSH_ORIGINAL_COMMAND"}
+        tailscale=subprocess.run((transport_path,"-c","inspect"),capture_output=True,env=tailscale_env)
+        self.assertNotEqual(tailscale.returncode,64)
+        for command in ("inspect;id","/bin/sh","begin extra","authorize"):
+            rejected=subprocess.run((transport_path,"-c",command),capture_output=True,env=tailscale_env)
+            self.assertEqual(rejected.returncode,64)
     def test_real_runner_enforces_attempt_and_aggregate_deadlines(self):
         runner=self.m.Runner(); command=("/usr/bin/pvesh","get","/cluster/firewall/options")
         failed=mock.Mock(returncode=1,stderr=b"",stdout=b"")
