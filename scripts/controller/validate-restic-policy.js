@@ -29,6 +29,30 @@ function globRegex(pattern) {
   return new RegExp(`${expression}(?:/.*)?$`);
 }
 
+function validateSharedNetworkStopOrder(policy, services) {
+  const failures = [];
+  const stopOrder = [...policy.stop_groups.applications, ...policy.stop_groups.databases];
+  const startOrder = policy.stop_groups.start_order;
+  const stopped = new Set(stopOrder);
+  for (const [service, definition] of Object.entries(services)) {
+    const networkMode = definition?.network_mode;
+    if (typeof networkMode !== "string" || !networkMode.startsWith("service:")) continue;
+    const provider = networkMode.slice("service:".length);
+    if (!stopped.has(provider)) continue;
+    if (!stopped.has(service)) {
+      failures.push(`stopped network namespace provider ${provider} leaves ${service} running`);
+      continue;
+    }
+    if (stopOrder.indexOf(service) > stopOrder.indexOf(provider)) {
+      failures.push(`network namespace consumer ${service} must stop before provider ${provider}`);
+    }
+    if (startOrder.indexOf(provider) > startOrder.indexOf(service)) {
+      failures.push(`network namespace provider ${provider} must start before consumer ${service}`);
+    }
+  }
+  return failures;
+}
+
 function validateProtonQualificationEvidence(policy, evidence, rawEvidence) {
   const failures = [];
   const qualification = policy.qualification;
@@ -231,4 +255,4 @@ function validateResticPolicy(policy) {
   return failures;
 }
 
-module.exports = { globRegex, validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticFirstRunEvidence, validateResticPolicy };
+module.exports = { globRegex, validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticFirstRunEvidence, validateResticPolicy, validateSharedNetworkStopOrder };

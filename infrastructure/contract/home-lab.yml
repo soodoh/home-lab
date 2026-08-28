@@ -1586,14 +1586,12 @@ backups:
         - wolf
         - zwave
         - ddns-updater
-        - gluetun
       databases:
         - nextcloud-db
         - postgres
       start_order:
         - postgres
         - nextcloud-db
-        - gluetun
         - ddns-updater
         - zwave
         - wolf

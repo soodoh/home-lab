@@ -6,9 +6,10 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const Ajv2020 = require("ajv/dist/2020");
 const { load } = require("js-yaml");
-const { globRegex, validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticFirstRunEvidence, validateResticPolicy } = require("./validate-restic-policy");
+const { globRegex, validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticFirstRunEvidence, validateResticPolicy, validateSharedNetworkStopOrder } = require("./validate-restic-policy");
 
 const base = load(fs.readFileSync("infrastructure/contract/home-lab.yml", "utf8")).backups.restic;
+const servarrServices = load(fs.readFileSync("services/servarr.yml", "utf8")).services;
 const qualificationEvidenceSchema = JSON.parse(fs.readFileSync("infrastructure/evidence/proton-qualification.schema.json", "utf8"));
 const initializationEvidenceSchema = JSON.parse(fs.readFileSync("infrastructure/evidence/restic-repository-initialization.schema.json", "utf8"));
 const firstRunEvidenceSchema = JSON.parse(fs.readFileSync("infrastructure/evidence/restic-first-run.schema.json", "utf8"));
@@ -36,6 +37,19 @@ const resetFirstRunReady = (value) => {
 assert.deepEqual(validateResticPolicy(base), []);
 assert(globRegex("/srv/**/cache/**").test("/srv/cache/value"));
 assert(globRegex("/srv/**/cache/**").test("/srv/app/nested/cache/value"));
+assert.deepEqual(validateSharedNetworkStopOrder(base, servarrServices), []);
+for (const definition of Object.values(servarrServices)) {
+  const networkMode = definition?.network_mode;
+  if (typeof networkMode !== "string" || !networkMode.startsWith("service:")) continue;
+  const provider = networkMode.slice("service:".length);
+  assert.deepEqual(definition.depends_on?.[provider], { condition: "service_healthy", restart: true });
+}
+
+let networkFixture = clone();
+networkFixture.stop_groups.applications.push("gluetun");
+networkFixture.stop_groups.start_order.unshift("gluetun");
+const networkFailures = validateSharedNetworkStopOrder(networkFixture, servarrServices);
+assert(networkFailures.some((failure) => failure.includes("leaves flaresolverr running")));
 
 let fixture = clone();
 fixture.classified_paths.push({ path: fixture.sources[0].path, class: "preserve", owner_services: ["fixture"] });

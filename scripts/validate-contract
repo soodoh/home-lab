@@ -8,7 +8,7 @@ const { load } = require("js-yaml");
 const Ajv2020 = require("ajv/dist/2020");
 const { validateVmArtifactReferences } = require("./controller/validate-vm-artifact-references");
 const { validateProxmoxHostPolicy } = require("./controller/validate-proxmox-host-policy");
-const { validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticFirstRunEvidence, validateResticPolicy } = require("./controller/validate-restic-policy");
+const { validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticFirstRunEvidence, validateResticPolicy, validateSharedNetworkStopOrder } = require("./controller/validate-restic-policy");
 const {
   validateProxmoxPackageArtifactBinding,
   validateProxmoxPackagePolicy,
@@ -17,6 +17,7 @@ const {
 const root = path.resolve(__dirname, "..");
 const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
 const schemaPath = path.join(root, "infrastructure/contract/schema.json");
+const servarrPath = path.join(root, "services/servarr.yml");
 const packageManifestPath = path.join(root, "nix/proxmox/package-manifest.json");
 const packageManifestSchemaPath = path.join(root, "nix/proxmox/package-manifest.schema.json");
 const protonQualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proton-qualification.schema.json");
@@ -30,6 +31,7 @@ const operational = process.argv.includes("--operational");
 
 const contract = load(fs.readFileSync(contractPath, "utf8"));
 const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+const servarrServices = load(fs.readFileSync(servarrPath, "utf8")).services;
 const packageManifestRaw = fs.readFileSync(packageManifestPath, "utf8");
 const packageManifest = JSON.parse(packageManifestRaw);
 const packageManifestSchema = JSON.parse(fs.readFileSync(packageManifestSchemaPath, "utf8"));
@@ -217,6 +219,7 @@ if (contract.nextcloud.writer_stop_order[0] !== contract.nextcloud.cron_service
   failures.push("Nextcloud writer stop order and Restic stop set must include cron before web");
 }
 failures.push(...validateResticPolicy(resticPolicy));
+failures.push(...validateSharedNetworkStopOrder(resticPolicy, servarrServices));
 const protonQualification = resticPolicy.qualification;
 const protonQualificationHelperPath = path.join(root, "scripts/qualify-proton-backup");
 const protonQualificationHelperSha256 = crypto.createHash("sha256").update(fs.readFileSync(protonQualificationHelperPath)).digest("hex");
