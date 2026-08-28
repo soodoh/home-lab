@@ -83,8 +83,10 @@ function validateProxmoxHostPolicy(contract) {
   const serviceAccounts = proxmox.access.service_accounts;
   const serviceAccountNames = serviceAccounts.map((account) => account.name);
   const serviceAccountHomes = serviceAccounts.map((account) => account.home);
-  const serviceAccountKeyRefs = serviceAccounts.map((account) => account.authorized_keys.secret_ref);
-  const sudoersPaths = serviceAccounts.map((account) => account.sudo?.file?.path).filter((value) => value !== undefined);
+  const serviceAccountKeyRefs = serviceAccounts.map((account) => account.authorized_keys.secret_ref)
+    .filter((value) => value !== undefined);
+  const sudoersPaths = serviceAccounts.map((account) => account.sudo?.file?.path ?? account.sudo?.path)
+    .filter((value) => value !== undefined);
   if (duplicates(serviceAccountNames).length) failures.push("Proxmox service-account names must be unique");
   if (duplicates(serviceAccountHomes).length) failures.push("Proxmox service-account homes must be unique");
   if (duplicates(serviceAccountKeyRefs).length) failures.push("Proxmox service-account key references must be unique");
@@ -93,25 +95,39 @@ function validateProxmoxHostPolicy(contract) {
     ["tofu-plan", "PROXMOX_PLAN_SSH_PUBLIC_KEYS"],
     ["tofu-apply", "PROXMOX_APPLY_SSH_PUBLIC_KEYS"],
     ["firewall-apply", "PROXMOX_FIREWALL_SSH_PUBLIC_KEYS"],
+    ["ansible-plan", null],
+    ["ansible-deploy", null],
   ]);
-  if (serviceAccounts.length !== expectedServiceAccounts.size) failures.push("exactly three Proxmox service accounts are required");
+  if (serviceAccounts.length !== expectedServiceAccounts.size) failures.push("exactly five Proxmox service accounts are required");
   for (const account of serviceAccounts) {
-    if (expectedServiceAccounts.get(account.name) !== account.authorized_keys.secret_ref) {
+    const expectedKeyReference = expectedServiceAccounts.get(account.name);
+    if (expectedKeyReference === undefined || (expectedKeyReference !== null && expectedKeyReference !== account.authorized_keys.secret_ref)) {
       failures.push(`service account ${account.name} uses an unexpected authorized-key reference`);
     }
     if (account.home !== `/home/${account.name}`) failures.push(`service account ${account.name} home must match its name`);
     if (account.ssh_directory.path !== `${account.home}/.ssh` ||
         account.ssh_directory.owner !== account.name || account.ssh_directory.group !== account.name ||
         account.ssh_directory.mode !== "0700" || account.ssh_directory.kind !== "runtime-protected-directory" ||
-        account.ssh_directory.projectable || account.ssh_directory.materialization !== "metadata-only" ||
-        account.authorized_keys.file.path !== `${account.home}/.ssh/authorized_keys` ||
+        account.ssh_directory.projectable || account.ssh_directory.materialization !== "metadata-only") {
+      failures.push(`service account ${account.name} authorized-keys path must stay under its home`);
+    }
+    if (expectedKeyReference === null) {
+      const expectedPaths = [`${account.home}/.ssh/authorized_keys`, `${account.home}/.ssh/authorized_keys2`];
+      const files = account.authorized_keys?.state === "absent" ? account.authorized_keys.files : [];
+      if (files.length !== 2 || files.some((file, index) => file.path !== expectedPaths[index] ||
+          file.owner !== account.name || file.group !== account.name || file.mode !== "0600" ||
+          file.kind !== "runtime-protected-file" || file.projectable || file.materialization !== "metadata-only")) {
+        failures.push(`staged service account ${account.name} must forbid conventional authorized keys`);
+      }
+    } else if (account.authorized_keys.file.path !== `${account.home}/.ssh/authorized_keys` ||
         account.authorized_keys.file.owner !== account.name || account.authorized_keys.file.group !== account.name ||
         account.authorized_keys.file.mode !== "0600" || account.authorized_keys.file.kind !== "runtime-protected-file" ||
         account.authorized_keys.file.projectable || account.authorized_keys.file.materialization !== "metadata-only") {
       failures.push(`service account ${account.name} authorized-keys path must stay under its home`);
     }
     const expectedShell = account.name === "firewall-apply" ? "/usr/local/libexec/home-lab/proxmox-firewall-transport" :
-      account.name === "tofu-apply" ? "/usr/local/libexec/home-lab/proxmox-apply-transport" : "/bin/bash";
+      account.name === "tofu-apply" ? "/usr/local/libexec/home-lab/proxmox-apply-transport" :
+      account.name.startsWith("ansible-") ? "/usr/sbin/nologin" : "/bin/bash";
     if (account.shell !== expectedShell || !account.create_home || !account.password_lock) {
       failures.push(`service account ${account.name} must retain its locked login identity`);
     }
@@ -141,6 +157,14 @@ function validateProxmoxHostPolicy(contract) {
       firewallAccount.sudo?.file?.path !== "/etc/sudoers.d/firewall-apply" || firewallAccount.sudo?.rule !== firewallSudo ||
       firewallAccount.authorized_keys?.forced_command !== 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport"')) {
     failures.push("firewall-apply must have only the fixed firewall transport capability");
+  }
+  for (const name of ["ansible-plan", "ansible-deploy"]) {
+    const account = serviceAccounts.find((candidate) => candidate.name === name);
+    if (account && (account.groups.length || account.sudo?.kind !== "audit-absence" ||
+        account.sudo?.absence !== "file" || account.sudo?.path !== `/etc/sudoers.d/${name}` ||
+        account.authorized_keys?.state !== "absent")) {
+      failures.push(`${name} must remain inert until its fixed transport handoff`);
+    }
   }
 
   const humanNames = proxmox.access.human_accounts.map((account) => account.name);
@@ -240,9 +264,9 @@ function validateProxmoxHostPolicy(contract) {
     }
   }
 
-  const expectedAllowUsers = ["root", ...serviceAccountNames];
+  const expectedAllowUsers = ["root", ...serviceAccounts.filter((account) => account.authorized_keys.secret_ref).map((account) => account.name)];
   if (JSON.stringify(proxmox.ssh.allow_users) !== JSON.stringify(expectedAllowUsers)) {
-    failures.push("SSH allow-users must be root followed by the declared service accounts");
+    failures.push("SSH allow-users must contain only root and conventional-key service accounts");
   }
   if (!proxmox.ssh.pubkey_authentication || proxmox.ssh.password_authentication || proxmox.ssh.kbd_interactive_authentication) {
     failures.push("Proxmox SSH authentication policy must remain key-only");

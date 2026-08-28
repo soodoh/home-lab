@@ -38,12 +38,25 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         cls.projection = json.loads((NIX / "proxmox/projection.json").read_bytes())
         cls.manifest = json.loads((NIX / "proxmox/package-manifest.json").read_bytes())
         cls.before_observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
-        cls.before_observation["domains"]["protectedAccess"] = {"expectedCount": 6, "matches": True, "observedCount": 6, "status": "complete"}
+        cls.before_observation["domains"]["protectedAccess"] = {"expectedCount": 8, "matches": True, "observedCount": 8, "status": "complete"}
         cls.before_observation["domains"]["protectedHardware"] = {"expectedCount": 3, "matches": True, "observedCount": 3, "status": "complete"}
         for record in cls.before_observation["domains"]["accounts"]["records"]:
             if record["name"] == "tofu-apply":
                 record["shell"] = "/usr/local/libexec/home-lab/proxmox-apply-transport"
                 record["expectedGroupsMatch"] = True
+        observed_names = {record["name"] for record in cls.before_observation["domains"]["accounts"]["records"]}
+        for account in cls.projection["accounts"]["service"]:
+            if account["name"] not in observed_names:
+                cls.before_observation["domains"]["accounts"]["records"].append({
+                    "commentMatches": True, "exists": True, "expectedGroupsMatch": True,
+                    "home": account["home"], "name": account["name"], "passwordLocked": True,
+                    "primaryGroupMatches": True, "shell": account["shell"],
+                })
+        cls.before_observation["domains"]["accounts"]["records"].sort(key=lambda record: record["name"])
+        cls.before_observation["domains"]["auditAbsence"]["records"] = [
+            {"count": 0, "target": absence["path"], "type": absence["absence"]}
+            for absence in cls.projection["auditAbsence"]
+        ]
         cls.bindings = {
             "activationEnvelopeSchemaSha256": "7" * 64, "activatorSha256": "8" * 64,
             "bundleContentSha256": "1" * 64, "bundleFormat": planner.BUNDLE_FORMAT,
@@ -81,7 +94,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         return {
             "actionManifestSha256": planner.digest(self.plan["actions"]),
             "attestations": {
-                "protectedAccess": {"expectedCount": 6, "keyedAttestation": "b" * 64, "matches": True},
+                "protectedAccess": {"expectedCount": 8, "keyedAttestation": "b" * 64, "matches": True},
                 "protectedHardware": {"expectedCount": 3, "keyedAttestation": "c" * 64, "matches": True},
             },
             "bindings": {

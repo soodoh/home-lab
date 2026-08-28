@@ -55,6 +55,7 @@
 | `scripts/controller/parse-zpool-status.py` | `retain-validation` | 1 | `scripts/controller/test-zpool-status-parser.py` |
 | `scripts/controller/protected_execution.py` | `retain-controller` | 0 | none found in tracked files |
 | `scripts/controller/proxmox-access-cutover.js` | `transition-with-nix` | 1 | `scripts/controller/test-proxmox-access-cutover.js` |
+| `scripts/controller/proxmox-access-identity-stage.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-identity-stage.py` |
 | `scripts/controller/proxmox-firewall.py` | `retain-firewall-boundary` | 2 | `docs/proxmox-firewall-cutover.md`, `scripts/controller/test-proxmox-firewall-controller.py` |
 | `scripts/controller/proxmox-nix-projection.js` | `transition-with-nix` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/proxmox-timezone-handoff.js` | `transition-with-nix` | 1 | `scripts/controller/test-proxmox-timezone-handoff.js` |
@@ -73,6 +74,7 @@
 | `scripts/controller/test-omada-host-alias.py` | `retain-test` | 1 | `infrastructure/policy/test-policy.sh` |
 | `scripts/controller/test-protected-file.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-access-cutover.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
+| `scripts/controller/test-proxmox-access-identity-stage.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-disk-adoption-plan.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-firewall-controller.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-firewall-nfs-canary.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |

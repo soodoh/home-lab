@@ -54,12 +54,25 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
         cls.projection = json.loads((NIX / "proxmox/projection.json").read_bytes())
         cls.manifest = json.loads((NIX / "proxmox/package-manifest.json").read_bytes())
         cls.observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
-        cls.observation["domains"]["protectedAccess"] = {"expectedCount": 5, "matches": True, "observedCount": 5, "status": "complete"}
+        cls.observation["domains"]["protectedAccess"] = {"expectedCount": 8, "matches": True, "observedCount": 8, "status": "complete"}
         cls.observation["domains"]["protectedHardware"] = {"expectedCount": 3, "matches": True, "observedCount": 3, "status": "complete"}
         for record in cls.observation["domains"]["accounts"]["records"]:
             if record["name"] == "tofu-apply":
                 record["shell"] = "/usr/local/libexec/home-lab/proxmox-apply-transport"
                 record["expectedGroupsMatch"] = True
+        observed_names = {record["name"] for record in cls.observation["domains"]["accounts"]["records"]}
+        for account in cls.projection["accounts"]["service"]:
+            if account["name"] not in observed_names:
+                cls.observation["domains"]["accounts"]["records"].append({
+                    "commentMatches": True, "exists": True, "expectedGroupsMatch": True,
+                    "home": account["home"], "name": account["name"], "passwordLocked": True,
+                    "primaryGroupMatches": True, "shell": account["shell"],
+                })
+        cls.observation["domains"]["accounts"]["records"].sort(key=lambda record: record["name"])
+        cls.observation["domains"]["auditAbsence"]["records"] = [
+            {"count": 0, "target": absence["path"], "type": absence["absence"]}
+            for absence in cls.projection["auditAbsence"]
+        ]
         cls.bindings = {"activationEnvelopeSchemaSha256": "1"*64, "activatorSha256": "2"*64,
             "bundleContentSha256": "3"*64, "bundleFormat": planner.BUNDLE_FORMAT, "flakeLockSha256": "4"*64,
             "gitCommit": "5"*40, "gitTree": "6"*40, "observerProtocol": 4,

@@ -22,8 +22,8 @@ Proxmox bootstrap remains console-led. Debian cloud-init may establish only iner
 | Entry point | Connection/authority | Behavior |
 |---|---|---|
 | `inventory/bootstrap.yml` | localhost/console or explicitly attested first-contact endpoint | Only inert/bootstrap observation and transition roles; no Compose or broad package upgrade |
-| `inventory/production.yml` | Tailscale MagicDNS, strict host keys, `ansible-plan` for check | Read-only audit and deterministic plan |
-| apply inventory/capability | Tailscale MagicDNS, strict host keys, `ansible-deploy` | Mutation only after controller loads a saved plan and exact confirmation |
+| `inventory/production.yml` | Transitional `proxmox` identity over Tailscale MagicDNS with strict host keys | Ordinary Ansible check-mode remains transitional; `ansible-plan` is a purpose-built fixed observer endpoint, not a normal Ansible shell |
+| saved apply transport | Tailscale MagicDNS, strict host keys, fixed `ansible-deploy` activator | Consumes one immutable saved plan; it never exposes an ordinary shell or generic Ansible sudo |
 | `playbooks/lifecycle-observe.yml` | Any state, read-only | Emits normalized lifecycle, access, lock, package/reboot, storage and service evidence |
 | `playbooks/lifecycle-transition.yml` | One host, one transition | Requires exact from/to state, transition plan SHA, console/access gates and host owner lock |
 | `playbooks/site.yml` | Production | Keeps the existing exactly-one-approved-tag rule; no implicit all-role mutation |
@@ -88,7 +88,7 @@ Cloud-init should be reduced to immutable first-contact facts: hostname/instance
 The bootstrap transition must:
 
 1. verify console and independently recorded host keys;
-2. create `ansible-plan`, then `ansible-deploy`, with separate sudo policies;
+2. create inert `ansible-plan` and `ansible-deploy` accounts with `nologin`, no keys, and no sudo; enable their separate fixed transports only after saved-plan fixtures pass;
 3. enroll Tailscale with SSH disabled;
 4. apply and verify the saved tailnet policy;
 5. enable Tailscale SSH and prove plan/apply/human access from independent sessions;

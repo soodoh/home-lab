@@ -1407,7 +1407,7 @@
         "password_lock": { "type": "boolean" },
         "groups": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/unixIdentity" } },
         "ssh_directory": { "$ref": "#/$defs/runtimeProtectedDirectoryPolicy" },
-        "authorized_keys": { "$ref": "#/$defs/authorizedKeysPolicy" },
+        "authorized_keys": { "oneOf": [{ "$ref": "#/$defs/authorizedKeysPolicy" }, { "$ref": "#/$defs/absentAuthorizedKeysPolicy" }] },
         "sudo": { "$ref": "#/$defs/sudoPolicy" }
       }
     },
@@ -1479,7 +1479,7 @@
       "required": ["sudo_validation", "service_accounts", "human_accounts", "pve"],
       "properties": {
         "sudo_validation": { "$ref": "#/$defs/sudoValidationPolicy" },
-        "service_accounts": { "type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": { "$ref": "#/$defs/unixServiceAccount" } },
+        "service_accounts": { "type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true, "items": { "$ref": "#/$defs/unixServiceAccount" } },
         "human_accounts": { "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/humanAccessAccount" } },
         "pve": {
           "type": "object",

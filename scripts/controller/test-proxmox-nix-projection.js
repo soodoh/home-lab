@@ -53,8 +53,10 @@ function mutateExcludedInputs(value) {
   value.proxmox.access.sudo_validation.executable = "/protected/controller/validator";
   for (const account of value.proxmox.access.service_accounts) {
     account.ssh_directory.path = `/protected/${account.name}/ssh-directory`;
-    account.authorized_keys.file.path = `/protected/${account.name}/authorized-keys`;
-    account.authorized_keys.secret_ref = `MUTATED_${account.name.toUpperCase().replace("-", "_")}_KEY_REF`;
+    if (account.authorized_keys.state !== "absent") {
+      account.authorized_keys.file.path = `/protected/${account.name}/authorized-keys`;
+      account.authorized_keys.secret_ref = `MUTATED_${account.name.toUpperCase().replace("-", "_")}_KEY_REF`;
+    }
   }
   for (const account of value.proxmox.access.human_accounts) {
     account.ssh_directory.path = "/protected/human/ssh-directory";

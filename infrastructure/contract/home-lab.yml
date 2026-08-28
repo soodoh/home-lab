@@ -498,6 +498,78 @@ proxmox:
             group: root
             mode: "0440"
           rule: "firewall-apply ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-firewall-transaction inspect, /usr/local/libexec/home-lab/proxmox-firewall-transaction begin, /usr/local/libexec/home-lab/proxmox-firewall-transaction status, /usr/local/libexec/home-lab/proxmox-firewall-transaction commit, /usr/local/libexec/home-lab/proxmox-firewall-transaction rollback"
+      - name: ansible-plan
+        home: /home/ansible-plan
+        shell: /usr/sbin/nologin
+        create_home: true
+        password_lock: true
+        groups: []
+        ssh_directory:
+          kind: runtime-protected-directory
+          projectable: false
+          materialization: metadata-only
+          path: /home/ansible-plan/.ssh
+          owner: ansible-plan
+          group: ansible-plan
+          mode: "0700"
+        authorized_keys:
+          state: absent
+          files:
+            - kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /home/ansible-plan/.ssh/authorized_keys
+              owner: ansible-plan
+              group: ansible-plan
+              mode: "0600"
+            - kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /home/ansible-plan/.ssh/authorized_keys2
+              owner: ansible-plan
+              group: ansible-plan
+              mode: "0600"
+        sudo:
+          kind: audit-absence
+          projectable: true
+          absence: file
+          path: /etc/sudoers.d/ansible-plan
+      - name: ansible-deploy
+        home: /home/ansible-deploy
+        shell: /usr/sbin/nologin
+        create_home: true
+        password_lock: true
+        groups: []
+        ssh_directory:
+          kind: runtime-protected-directory
+          projectable: false
+          materialization: metadata-only
+          path: /home/ansible-deploy/.ssh
+          owner: ansible-deploy
+          group: ansible-deploy
+          mode: "0700"
+        authorized_keys:
+          state: absent
+          files:
+            - kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /home/ansible-deploy/.ssh/authorized_keys
+              owner: ansible-deploy
+              group: ansible-deploy
+              mode: "0600"
+            - kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /home/ansible-deploy/.ssh/authorized_keys2
+              owner: ansible-deploy
+              group: ansible-deploy
+              mode: "0600"
+        sudo:
+          kind: audit-absence
+          projectable: true
+          absence: file
+          path: /etc/sudoers.d/ansible-deploy
     human_accounts:
       - name: proxmox
         comment: Home Lab Proxmox Administrator
