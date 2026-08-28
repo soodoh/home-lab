@@ -193,7 +193,7 @@ resource "authentik_policy_binding" "application_access" {
   timeout        = each.value.timeout
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 }
 
