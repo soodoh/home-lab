@@ -51,6 +51,7 @@
 | `scripts/controller/fixtures/zpool-status-resilver-cache.txt` | `retain-test-fixture` | 1 | `scripts/controller/test-zpool-status-parser.py` |
 | `scripts/controller/normalize-ansible-plan.py` | `retain-validation` | 3 | `infrastructure/policy/test-policy.sh`, `scripts/controller/test-normalize-ansible-plan.py`, `scripts/reconcile-infrastructure` |
 | `scripts/controller/lifecycle-marker-transaction.py` | `retain-controller` | 1 | `scripts/controller/test-lifecycle-marker-transaction.py` |
+| `scripts/controller/debian-access-cleanup.py` | `retain-controller` | 1 | `scripts/controller/test-debian-access-cleanup.py` |
 | `scripts/controller/omada-host-alias.py` | `retain-controller` | 3 | `infrastructure/policy/test-policy.sh`, `scripts/controller/test-omada-host-alias.py`, `scripts/prepare-omada-plan-input` |
 | `scripts/controller/parse-ansible-recap.py` | `retain-validation` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/parse-zpool-status.py` | `retain-validation` | 1 | `scripts/controller/test-zpool-status-parser.py` |
@@ -73,6 +74,7 @@
 | `scripts/controller/test-authentik-tofu-foundation.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-contract-schema.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-controller-apply-lock.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
+| `scripts/controller/test-debian-access-cleanup.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-lifecycle-state.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-lifecycle-marker-transaction.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-lifecycle-transition-plan.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |

@@ -68,6 +68,15 @@ check(missingProxmoxHandoff, false, "Proxmox timezone handoff policy is required
 const invalidDebianHandoff = structuredClone(contract);
 invalidDebianHandoff.lifecycle.hosts.debian.domain_handoffs = structuredClone(contract.lifecycle.hosts.proxmox.domain_handoffs);
 check(invalidDebianHandoff, false, "Debian cannot inherit Proxmox domain handoffs");
+const missingDebianAccessCleanup = structuredClone(contract);
+delete missingDebianAccessCleanup.lifecycle.hosts.debian.access_cleanup;
+check(missingDebianAccessCleanup, false, "Debian access cleanup policy is required");
+const invalidProxmoxAccessCleanup = structuredClone(contract);
+invalidProxmoxAccessCleanup.lifecycle.hosts.proxmox.access_cleanup = structuredClone(contract.lifecycle.hosts.debian.access_cleanup);
+check(invalidProxmoxAccessCleanup, false, "Proxmox cannot inherit Debian access cleanup policy");
+const invalidDebianCleanupOrder = structuredClone(contract);
+invalidDebianCleanupOrder.lifecycle.hosts.debian.access_cleanup.remove_keys_before_tightening = false;
+check(invalidDebianCleanupOrder, false, "Debian conventional keys are removed before OpenSSH tightening");
 const missingAccessCutover = structuredClone(contract);
 delete missingAccessCutover.lifecycle.hosts.proxmox.access_cutover;
 check(missingAccessCutover, false, "Proxmox access cutover policy is required");

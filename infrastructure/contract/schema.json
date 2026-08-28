@@ -308,6 +308,23 @@
         "physical_console_required": { "const": true }
       }
     },
+    "lifecycleDebianAccessCleanupPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "identity", "steady_transport", "legacy_marker_path", "conventional_key_paths", "target_pubkey_authentication", "target_permit_root_login", "remove_keys_before_tightening", "physical_console_required", "one_change_class_per_transaction"],
+      "properties": {
+        "state": { "enum": ["pending", "ready", "complete"] },
+        "identity": { "const": "ansible-deploy" },
+        "steady_transport": { "const": "tailscale-ssh" },
+        "legacy_marker_path": { "const": "/var/lib/home-lab/debian-inert-provisioned" },
+        "conventional_key_paths": { "const": ["/home/ansible-deploy/.ssh/authorized_keys", "/root/.ssh/authorized_keys"] },
+        "target_pubkey_authentication": { "const": false },
+        "target_permit_root_login": { "const": false },
+        "remove_keys_before_tightening": { "const": true },
+        "physical_console_required": { "const": true },
+        "one_change_class_per_transaction": { "const": true }
+      }
+    },
     "lifecycleHostPolicy": {
       "type": "object",
       "additionalProperties": false,
@@ -321,7 +338,8 @@
         "break_glass": { "const": "physical-console" },
         "marker": { "$ref": "#/$defs/lifecycleMarkerPolicy" },
         "domain_handoffs": { "$ref": "#/$defs/lifecycleDomainHandoffs" },
-        "access_cutover": { "$ref": "#/$defs/lifecycleAccessCutoverPolicy" }
+        "access_cutover": { "$ref": "#/$defs/lifecycleAccessCutoverPolicy" },
+        "access_cleanup": { "$ref": "#/$defs/lifecycleDebianAccessCleanupPolicy" }
       }
     },
     "lifecycleTransitions": {
@@ -418,10 +436,12 @@
           "properties": {
             "proxmox": { "allOf": [
               { "$ref": "#/$defs/lifecycleHostPolicy" },
-              { "type": "object", "properties": { "domain_handoffs": {}, "access_cutover": {} }, "required": ["domain_handoffs", "access_cutover"] }
+              { "type": "object", "properties": { "domain_handoffs": {}, "access_cutover": {} }, "required": ["domain_handoffs", "access_cutover"] },
+              { "not": { "type": "object", "properties": { "access_cleanup": {} }, "required": ["access_cleanup"] } }
             ] },
             "debian": { "allOf": [
               { "$ref": "#/$defs/lifecycleHostPolicy" },
+              { "type": "object", "properties": { "access_cleanup": {} }, "required": ["access_cleanup"] },
               { "not": { "type": "object", "properties": { "domain_handoffs": {} }, "required": ["domain_handoffs"] } },
               { "not": { "type": "object", "properties": { "access_cutover": {} }, "required": ["access_cutover"] } }
             ] }

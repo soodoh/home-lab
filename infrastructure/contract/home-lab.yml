@@ -108,6 +108,19 @@ lifecycle:
         group: root
         mode: "0600"
         adoption_state: complete
+      access_cleanup:
+        state: pending
+        identity: ansible-deploy
+        steady_transport: tailscale-ssh
+        legacy_marker_path: /var/lib/home-lab/debian-inert-provisioned
+        conventional_key_paths:
+          - /home/ansible-deploy/.ssh/authorized_keys
+          - /root/.ssh/authorized_keys
+        target_pubkey_authentication: false
+        target_permit_root_login: false
+        remove_keys_before_tightening: true
+        physical_console_required: true
+        one_change_class_per_transaction: true
 recovery:
   evidence_max_age_days: 90
   critical_rpo_hours: 24
