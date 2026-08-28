@@ -39,20 +39,21 @@ def fixed_ssh_command(capability: str, remote_command: str) -> tuple[str, ...]:
 SSH_COMMAND = fixed_ssh_command("plan", "sudo -n -- " + _OBSERVER_REMOTE + " observe")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+TIMEZONE = re.compile(r"^[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*$")
 DOMAIN_ORDER = {
     name: index for index, name in enumerate((
         "identity", "managed-artifacts", "managed-files", "managed-fragments", "packages", "accounts",
-        "services", "tailscale", "pve-access", "pve-storage", "storage", "pve-firewall", "health",
+        "services", "timezone", "tailscale", "pve-access", "pve-storage", "storage", "pve-firewall", "health",
         "audit-absence", "protected-access", "opentofu", "protected-hardware",
     ))
 }
 ACTION_KINDS = {
     "managed-files": "replace-file", "managed-fragments": "ensure-fragment", "managed-artifacts": "install-artifact",
-    "packages": "reconcile-package-set", "services": "reconcile-service",
+    "packages": "reconcile-package-set", "services": "reconcile-service", "timezone": "set-timezone",
 }
 TARGET_TYPES = {
     "managed-files": "file", "managed-fragments": "file-fragment", "managed-artifacts": "artifact",
-    "packages": "package-set", "services": "service",
+    "packages": "package-set", "services": "service", "timezone": "timezone",
 }
 FORBIDDEN_KEYS = {"argv", "command", "executable", "payload", "script"}
 APPROVED_SOURCE_FILES = {
@@ -172,7 +173,7 @@ def validate_observation(value: Any) -> None:
         raise ValueError("host contains invalid or protected data")
     domains = exact_object(value["domains"], {
         "accounts", "auditAbsence", "health", "managedArtifacts", "managedFiles", "managedFragments", "packages",
-        "protectedAccess", "protectedHardware", "pveAccess", "pveFirewall", "pveStorage", "services", "storage", "tailscale", "vm",
+        "protectedAccess", "protectedHardware", "pveAccess", "pveFirewall", "pveStorage", "services", "storage", "tailscale", "timezone", "vm",
     }, "domains")
     file_types = {"file", "symlink", "other", "absent"}
     mode = lambda item: isinstance(item, str) and re.fullmatch(r"0[0-7]{3}", item) is not None
@@ -189,6 +190,10 @@ def validate_observation(value: Any) -> None:
         lambda r: valid_nonempty_string(r["name"]) and valid_nonempty_string(r["version"]))
     validate_records_domain(domains["services"], {"active", "enabled", "name"}, "services", "name",
         lambda r: valid_nonempty_string(r["name"]) and boolean(r["active"]) and boolean(r["enabled"]))
+    validate_records_domain(domains["timezone"], {"name", "timezone"}, "timezone", "name",
+        lambda r: r["name"] == "system" and isinstance(r["timezone"], str) and len(r["timezone"]) <= 128 and TIMEZONE.fullmatch(r["timezone"]) is not None)
+    if domains["timezone"]["status"] == "complete" and (len(domains["timezone"]["records"]) != 1 or domains["timezone"]["unexpectedCount"] != 0):
+        raise ValueError("timezone domain must contain exactly one system record")
     validate_records_domain(domains["accounts"], {"commentMatches", "exists", "expectedGroupsMatch", "home", "name", "passwordLocked", "primaryGroupMatches", "shell"}, "accounts", "name",
         lambda r: valid_nonempty_string(r["name"]) and valid_safe_path(r["home"]) and valid_safe_path(r["shell"]) and all(boolean(r[k]) for k in ("commentMatches", "exists", "expectedGroupsMatch", "passwordLocked", "primaryGroupMatches")))
     for name in ("tailscale", "pveAccess", "pveFirewall", "pveStorage", "storage", "health", "vm", "protectedAccess", "protectedHardware"):
@@ -258,6 +263,7 @@ def desired_records(projection: dict[str, Any], manifest: dict[str, Any]) -> dic
         "packages": [{"name": item["name"], "version": item["version"]} for item in manifest["packages"]],
         "services": [{"name": item["name"], "enabled": item["enabled"], "active": item["state"] == "started"}
                      for item in projection["nativeServices"]],
+        "timezone": [{"name": "system", "timezone": projection["timezone"]}],
         "accounts": [{"name": item["name"], "commentMatches": True, "exists": True, "home": item["home"],
                       "shell": item["shell"], "passwordLocked": item["passwordLock"],
                       "primaryGroupMatches": True, "expectedGroupsMatch": True}
@@ -322,7 +328,7 @@ def build_plan(bindings: dict[str, Any], projection: dict[str, Any], manifest: d
     desired = desired_records(projection, manifest)
     observed_names = {
         "managed-files": "managedFiles", "managed-fragments": "managedFragments", "managed-artifacts": "managedArtifacts",
-        "packages": "packages", "services": "services", "accounts": "accounts",
+        "packages": "packages", "services": "services", "timezone": "timezone", "accounts": "accounts",
     }
     for domain, domain_desired in desired.items():
         observed_domain = observation["domains"][observed_names[domain]]
@@ -455,7 +461,7 @@ def validate_plan(plan: Any, projection: dict[str, Any], manifest: dict[str, Any
     observed_state = exact_object(plan["observedState"], {"domainStatuses", "sha256"}, "observedState")
     expected_status_names = {"accounts", "auditAbsence", "health", "managedArtifacts", "managedFiles",
                              "managedFragments", "packages", "protectedAccess", "protectedHardware", "pveAccess",
-                             "pveFirewall", "pveStorage", "services", "storage", "tailscale", "vm"}
+                             "pveFirewall", "pveStorage", "services", "storage", "tailscale", "timezone", "vm"}
     exact_object(observed_state["domainStatuses"], expected_status_names, "observedState.domainStatuses")
     if not HEX64.fullmatch(observed_state["sha256"]) or \
             any(value not in {"complete", "unavailable"} for value in observed_state["domainStatuses"].values()):

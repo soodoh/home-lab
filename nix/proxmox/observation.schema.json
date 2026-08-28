@@ -397,6 +397,27 @@
       ],
       "type": "object"
     },
+    "timezone": {
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "additionalProperties": false,
+            "type": "object",
+            "properties": {
+              "name": { "const": "system" },
+              "timezone": { "type": "string", "pattern": "^[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*$", "maxLength": 128 }
+            },
+            "required": ["name", "timezone"]
+          }
+        },
+        "status": { "$ref": "#/$defs/status" },
+        "unexpectedCount": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "required": ["status", "records", "unexpectedCount"],
+      "type": "object"
+    },
     "sha256": {
       "pattern": "^[0-9a-f]{64}$",
       "type": "string"
@@ -491,6 +512,9 @@
         "tailscale": {
           "$ref": "#/$defs/summary"
         },
+        "timezone": {
+          "$ref": "#/$defs/timezone"
+        },
         "vm": {
           "$ref": "#/$defs/summary"
         }
@@ -511,6 +535,7 @@
         "services",
         "storage",
         "tailscale",
+        "timezone",
         "vm"
       ],
       "type": "object"

@@ -175,6 +175,22 @@ def services():
     return records_domain(records)
 
 
+def timezone():
+    raw = run(("/usr/bin/timedatectl", "show", "--property=Timezone", "--value"))
+    if raw is None or len(raw) > 256:
+        return records_domain(None)
+    try:
+        value = raw.decode("utf-8", "strict").strip()
+        zone_root = Path("/usr/share/zoneinfo").resolve(strict=True)
+        zone_path = (zone_root / value).resolve(strict=True)
+    except (OSError, UnicodeError):
+        return records_domain(None)
+    if raw != (value + "\n").encode() or not value or re.fullmatch(r"[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*", value) is None or \
+            zone_root not in zone_path.parents or not zone_path.is_file():
+        return records_domain(None)
+    return records_domain([{"name": "system", "timezone": value}])
+
+
 def accounts():
     records = []
     for item in SPEC["accounts"]:
@@ -550,7 +566,7 @@ def observe():
         "packages": packages(), "protectedAccess": protected["protectedAccess"],
         "protectedHardware": protected["protectedHardware"], "pveAccess": access,
         "pveFirewall": firewall, "pveStorage": registration, "services": services(), "storage": storage,
-        "tailscale": tailscale, "vm": vm}, "format": "home-lab-proxmox-observation-v1", "host": host(),
+        "tailscale": tailscale, "timezone": timezone(), "vm": vm}, "format": "home-lab-proxmox-observation-v1", "host": host(),
         "observerSha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "protocol": PROTOCOL}
     output = canonical(value)
     if len(output) > 1024 * 1024:

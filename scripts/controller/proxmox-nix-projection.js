@@ -34,7 +34,7 @@ function managedFile(file, content) {
 }
 
 function projectProxmoxPolicy(contract, packageManifest) {
-  const { network, proxmox, storage } = contract;
+  const { network, proxmox, storage, system_timezone: systemTimezone } = contract;
   if (packageManifest.architecture !== proxmox.packages.architecture || !Array.isArray(packageManifest.packages) ||
       packageManifest.packages.length < 1 || !Number.isInteger(packageManifest.provenance?.installedInventory?.installedRecords) ||
       packageManifest.provenance.installedInventory.installedRecords < 1 ||
@@ -162,6 +162,7 @@ function projectProxmoxPolicy(contract, packageManifest) {
   return {
     version: 1,
     architecture: proxmox.packages.architecture,
+    timezone: systemTimezone,
     hostNetworking: {
       cidr: network.cidr,
       gateway: network.gateway,

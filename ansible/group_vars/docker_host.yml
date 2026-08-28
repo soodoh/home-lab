@@ -3,6 +3,7 @@ audit_home_dir: /home/docker
 
 audit_expected_distribution: Debian
 audit_expected_running_kernel: "{{ debian.qualification.kernel_release }}"
+audit_expected_timezone: "{{ system_timezone }}"
 audit_expected_packages:
   linux-image-amd64: 6.12.105-1
   docker.io: 26.1.5+dfsg1-9+deb13u1

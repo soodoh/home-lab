@@ -250,7 +250,7 @@ def send_transition(envelope: dict[str, Any], expected: dict[str, Any], action_m
 
 def affected_state(observation: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
     domain_name = {"managed-files": "managedFiles", "managed-fragments": "managedFragments",
-                   "managed-artifacts": "managedArtifacts", "services": "services"}.get(action["domain"])
+                   "managed-artifacts": "managedArtifacts", "services": "services", "timezone": "timezone"}.get(action["domain"])
     if domain_name is None:
         raise ValueError("action domain is not representable by guarded apply")
     domain = observation["domains"][domain_name]
@@ -288,7 +288,7 @@ def verify_final_observation(observation: dict[str, Any], projection: dict[str, 
     desired = planner.desired_records(projection, manifest)
     observed_names = {"managed-files": "managedFiles", "managed-fragments": "managedFragments",
                       "managed-artifacts": "managedArtifacts", "packages": "packages", "services": "services",
-                      "accounts": "accounts"}
+                      "timezone": "timezone", "accounts": "accounts"}
     for domain, records in desired.items():
         observed = observation["domains"][observed_names[domain]]
         if observed["status"] != "complete" or observed["unexpectedCount"] != 0 or observed["records"] != sorted(records, key=planner.record_target):

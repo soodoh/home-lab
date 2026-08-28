@@ -1,6 +1,7 @@
 ---
 version: 1
 system_name: home-lab
+system_timezone: America/Los_Angeles
 recovery:
   evidence_max_age_days: 90
   critical_rpo_hours: 24
@@ -599,6 +600,7 @@ proxmox:
       - { domain: managed-artifacts, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { domain: packages, safety_class: protected-session, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { domain: services, safety_class: guarded, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
+      - { domain: timezone, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { domain: accounts, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { domain: tailscale, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { domain: pve-access, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
@@ -1108,8 +1110,8 @@ debian:
     user_data:
       source_path: infrastructure/debian/cloud-init/user-data
       snippet_path: /var/lib/vz/snippets/vm-100-debian-user.yaml
-      sha256: a93c27b74c55f2caf649dc2413070115e459e2bfd3885967b4aa6d376c7d694e
-      size: 4350
+      sha256: ccfa0ded4bfcd1359263813532cc0944a6216bc0ab37e6ad0e53650c6643452e
+      size: 4380
     network_data:
       source_path: infrastructure/debian/cloud-init/network-data
       snippet_path: /var/lib/vz/snippets/vm-100-debian-network.yaml

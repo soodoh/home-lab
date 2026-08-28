@@ -1,5 +1,6 @@
 #cloud-config
 hostname: docker-host
+timezone: America/Los_Angeles
 manage_etc_hosts: true
 disable_root: true
 ssh_pwauth: false

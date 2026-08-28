@@ -7,6 +7,23 @@
     fail_msg: >-
       Phase 0 stop gate: observed OS or running kernel differs from the authoritative infrastructure contract.
 
+- name: Inspect the configured system timezone
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/timedatectl
+      - show
+      - --property=Timezone
+      - --value
+  register: audit_timezone
+  changed_when: false
+  check_mode: false
+
+- name: Assert the configured system timezone
+  ansible.builtin.assert:
+    that:
+      - audit_timezone.stdout == audit_expected_timezone
+    fail_msg: "Phase 0 stop gate: system timezone differs from the authoritative infrastructure contract."
+
 - name: Gather installed package facts
   ansible.builtin.package_facts:
     manager: auto

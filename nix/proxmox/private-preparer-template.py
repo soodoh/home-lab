@@ -33,13 +33,14 @@ MAX_OUTPUT = 256 * 1024
 HEX = re.compile(r"^[0-9a-f]{64}$")
 HEX64 = HEX
 TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+TIMEZONE = re.compile(r"^[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*$")
 ENV = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
 DOMAIN_ORDER = {name: index for index, name in enumerate(("identity", "managed-artifacts", "managed-files",
-    "managed-fragments", "packages", "accounts", "services", "tailscale", "pve-access", "pve-storage",
+    "managed-fragments", "packages", "accounts", "services", "timezone", "tailscale", "pve-access", "pve-storage",
     "storage", "pve-firewall", "health", "audit-absence", "protected-access", "opentofu", "protected-hardware"))}
 OBSERVED_DOMAINS = {"accounts", "auditAbsence", "health", "managedArtifacts", "managedFiles", "managedFragments",
     "packages", "protectedAccess", "protectedHardware", "pveAccess", "pveFirewall", "pveStorage", "services",
-    "storage", "tailscale", "vm"}
+    "storage", "tailscale", "timezone", "vm"}
 
 
 def canonical(value):
@@ -515,6 +516,8 @@ def valid_state(domain, value, expected_keys):
         return False
     if "matchCount" in value and (not isinstance(value["matchCount"], int) or isinstance(value["matchCount"], bool) or value["matchCount"] < 0):
         return False
+    if "timezone" in value and (not isinstance(value["timezone"], str) or len(value["timezone"]) > 128 or TIMEZONE.fullmatch(value["timezone"]) is None):
+        return False
     types = {"managed-files": {"file", "symlink", "other", "absent"},
              "managed-fragments": {"file", "symlink", "other", "absent"},
              "managed-artifacts": {"file", "symlink", "other", "absent"}}
@@ -527,7 +530,7 @@ def catalog_action(action):
     exact(action, keys, "action")
     if not isinstance(action["domain"], str) or not isinstance(action["target"], dict):
         raise ValueError("action target differs")
-    target_key = "name" if action["domain"] == "services" else "path"
+    target_key = "name" if action["domain"] in {"services", "timezone"} else "path"
     exact(action["target"], {target_key, "type"}, "action target")
     target = action["target"][target_key]
     item = SPEC["catalog"].get(action["domain"] + "\0" + target)

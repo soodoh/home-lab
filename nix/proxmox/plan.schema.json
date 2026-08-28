@@ -25,7 +25,8 @@
             "managed-fragments",
             "managed-artifacts",
             "packages",
-            "services"
+            "services",
+            "timezone"
           ]
         },
         "id": {
@@ -37,7 +38,8 @@
             "ensure-fragment",
             "install-artifact",
             "reconcile-package-set",
-            "reconcile-service"
+            "reconcile-service",
+            "set-timezone"
           ]
         },
         "postconditions": {
@@ -167,6 +169,7 @@
         "managed-artifacts",
         "packages",
         "services",
+        "timezone",
         "accounts",
         "tailscale",
         "pve-access",
@@ -297,6 +300,9 @@
             "tailscale": {
               "$ref": "#/$defs/status"
             },
+            "timezone": {
+              "$ref": "#/$defs/status"
+            },
             "vm": {
               "$ref": "#/$defs/status"
             }
@@ -317,6 +323,7 @@
             "services",
             "storage",
             "tailscale",
+            "timezone",
             "vm"
           ],
           "type": "object"
@@ -406,6 +413,11 @@
         "symlinkTargetMatches": {
           "type": "boolean"
         },
+        "timezone": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*$",
+          "maxLength": 128
+        },
         "type": {
           "type": "string"
         },
@@ -456,7 +468,8 @@
             "type": {
               "enum": [
                 "package-set",
-                "service"
+                "service",
+                "timezone"
               ]
             }
           },

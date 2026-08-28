@@ -4,10 +4,11 @@
   "title": "Home lab infrastructure contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "system_name", "recovery", "vm_100", "network", "proxmox", "storage", "debian", "omada", "tailscale", "aws", "nextcloud", "backups"],
+  "required": ["version", "system_name", "system_timezone", "recovery", "vm_100", "network", "proxmox", "storage", "debian", "omada", "tailscale", "aws", "nextcloud", "backups"],
   "properties": {
     "version": { "const": 1 },
     "system_name": { "const": "home-lab" },
+    "system_timezone": { "const": "America/Los_Angeles" },
     "recovery": {
       "type": "object",
       "additionalProperties": false,
@@ -104,7 +105,7 @@
                 "source_path": { "const": "infrastructure/debian/cloud-init/user-data" },
                 "snippet_path": { "const": "/var/lib/vz/snippets/vm-100-debian-user.yaml" },
                 "sha256": { "$ref": "#/$defs/sha256" },
-                "size": { "const": 4350 }
+                "size": { "const": 4380 }
               }
             },
             "network_data": {
@@ -880,12 +881,12 @@
           }
         },
         "domains": {
-          "type": "array", "minItems": 10, "maxItems": 10,
+          "type": "array", "minItems": 11, "maxItems": 11,
           "items": {
             "type": "object", "additionalProperties": false,
             "required": ["domain", "safety_class", "automatic", "requires_approval", "requires_reboot", "requires_watchdog"],
             "properties": {
-              "domain": { "enum": ["managed-files", "managed-fragments", "managed-artifacts", "packages", "services", "accounts", "tailscale", "pve-access", "pve-firewall", "pve-storage"] },
+              "domain": { "enum": ["managed-files", "managed-fragments", "managed-artifacts", "packages", "services", "timezone", "accounts", "tailscale", "pve-access", "pve-firewall", "pve-storage"] },
               "safety_class": { "enum": ["guarded", "reboot-bound", "protected-session", "access-critical", "data-critical"] },
               "automatic": { "type": "boolean" }, "requires_approval": { "type": "boolean" },
               "requires_reboot": { "type": "boolean" }, "requires_watchdog": { "type": "boolean" }

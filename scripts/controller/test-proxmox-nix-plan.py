@@ -140,6 +140,27 @@ class ProxmoxNixPlanTests(unittest.TestCase):
             self.assertEqual(action["dependsOn"], [] if action["sequence"] == 1 else [first["actions"][action["sequence"] - 2]["id"]])
             self.assertFalse(set(action) & planner.FORBIDDEN_KEYS)
 
+    def test_timezone_drift_is_one_typed_action_and_malformed_values_fail_closed(self) -> None:
+        observation = copy.deepcopy(self.observation)
+        observation["domains"]["timezone"]["records"][0]["timezone"] = "Etc/UTC"
+        plan = self.make_plan(observation)
+        actions = [action for action in plan["actions"] if action["domain"] == "timezone"]
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions[0]["kind"], "set-timezone")
+        self.assertEqual(actions[0]["target"], {"name": "system", "type": "timezone"})
+        self.assertEqual(actions[0]["before"], {"state": "present", "timezone": "Etc/UTC"})
+        self.assertEqual(actions[0]["after"], {"state": "present", "timezone": "America/Los_Angeles"})
+
+        malformed = copy.deepcopy(self.observation)
+        malformed["domains"]["timezone"]["records"][0]["timezone"] = "../UTC"
+        with self.assertRaisesRegex(ValueError, "timezone"):
+            self.make_plan(malformed)
+        unavailable = copy.deepcopy(self.observation)
+        unavailable["domains"]["timezone"] = {"records": [], "status": "unavailable", "unexpectedCount": None}
+        blocked = self.make_plan(unavailable)
+        self.assertEqual([action for action in blocked["actions"] if action["domain"] == "timezone"], [])
+        self.assertTrue(any(item["domain"] == "timezone" and item["code"] == "observation-unavailable" for item in blocked["blockers"]))
+
     def test_service_overrides_allow_only_chrony_and_block_access_or_data_critical_services(self) -> None:
         expected = {
             "chrony.service": ("guarded", True, False),

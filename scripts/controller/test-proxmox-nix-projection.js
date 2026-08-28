@@ -84,6 +84,14 @@ const mutatedRendered = canonicalJson(projectProxmoxPolicy(
 if (mutatedRendered !== rendered) {
   throw new Error("runtime-only secret, non-projected hardware, compatibility, cleanup, or controller-location mutation changed projection");
 }
+if (projected.timezone !== contract.system_timezone) {
+  throw new Error("projected timezone differs from the shared infrastructure contract");
+}
+const timezonePolicy = projected.planningPolicy.domains.find((policy) => policy.domain === "timezone");
+if (!timezonePolicy || timezonePolicy.safetyClass !== "guarded" || !timezonePolicy.automatic ||
+    !timezonePolicy.requiresApproval || timezonePolicy.requiresReboot || timezonePolicy.requiresWatchdog) {
+  throw new Error("projected timezone policy is not guarded and automatic");
+}
 const vfioRecovery = contract.proxmox.vfio.recovery;
 const vfioPolicyFile = projected.managedFiles.find((file) => file.path === vfioRecovery.policy_file.path);
 const vfioScriptFile = projected.managedFiles.find((file) => file.path === vfioRecovery.executable_file.path);
