@@ -24,10 +24,13 @@ python3 "$policy" "$fixtures/tailscale-policy-update.json" \
   --allow-change-file "$root/allow/tailscale.txt"
 expect_rejection import normal
 import_allow=$(mktemp)
-trap 'rm -f "$import_allow"' EXIT
+delete_allow=$(mktemp)
+trap 'rm -f "$import_allow" "$delete_allow"' EXIT
 printf 'example.imported\n' >"$import_allow"
 python3 "$policy" "$fixtures/import.json" --allow-change-file "$import_allow"
-rm -f "$import_allow"
+printf 'proxmox_virtual_environment_vm.debian\n' >"$delete_allow"
+python3 "$policy" "$fixtures/delete.json" --allow-delete-file "$delete_allow"
+rm -f "$import_allow" "$delete_allow"
 trap - EXIT
 for fixture in noop protection-enable custom-rom-removal hardware-mapping-transition delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial; do
   expect_rejection "$fixture" vm-start-prerequisite

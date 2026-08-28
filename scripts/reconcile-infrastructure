@@ -528,6 +528,9 @@ policy_args() {
   if [[ -f infrastructure/policy/allow/$root.txt ]]; then
     printf '%s\0' --allow-change-file "$repo_root/infrastructure/policy/allow/$root.txt"
   fi
+  if [[ -f infrastructure/policy/delete/$root.txt ]]; then
+    printf '%s\0' --allow-delete-file "$repo_root/infrastructure/policy/delete/$root.txt"
+  fi
 }
 
 root_plan_args() {
