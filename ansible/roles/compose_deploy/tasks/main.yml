@@ -193,7 +193,7 @@
         (compose_deploy_unused_service_retirement_confirmation | default('')) ==
           'retire-unused-services:' ~ compose_artifact_hash and
         compose_deploy_plan.missing_runtime_services | length == 0 and
-        compose_deploy_plan.unexpected_runtime_services | length == 0 and
+        compose_deploy_plan.unexpected_runtime_services == ['audiobookshelf', 'pihole'] and
         compose_deploy_plan.forbidden_actions | length == 0 and
         compose_deploy_plan.changed_paths == [
           'secrets/production.env.keys',
@@ -210,9 +210,9 @@
           'services/data/restic/excludes',
           'services/data/restic/files-from'
         ] and
-        compose_deploy_plan.recreate_services == ['caddy'] and
+        compose_deploy_plan.recreate_services == [] and
         compose_deploy_plan.image_services == [] and
-        compose_deploy_plan.stateful_recreate_services == ['caddy']
+        compose_deploy_plan.stateful_recreate_services == []
       }}
   no_log: true
 
