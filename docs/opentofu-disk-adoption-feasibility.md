@@ -35,7 +35,7 @@ The isolated root now exists at `infrastructure/tofu/proxmox-disk-adoption-quali
 
 `infrastructure/policy/inspect-proxmox-disk-adoption-plan.py` and its negative fixtures enforce an update-only fourth `scsi3` entry, unchanged indexes 0–2, known volume/datastore/size/serial, unchanged boot/start/protection/destruction policy, no copy/import, no unknowns, no extra resources, and no production identifiers. Provider schema inspection confirms `disk` remains `nesting_mode=list`, `max_items=31`.
 
-Offline phase 1 is complete. Live phases 2–5 remain blocked until a dedicated `qual-*` datastore, disposable VMID, qualification API token, before/after VM 100 observation procedure, and exact create/attach/adopt/destroy authorizations are reviewed. No disposable or production resource has been created.
+Offline phase 1 is complete. The reviewed live fixture uses VMID 9951, a dedicated `qual-disk-adoption` directory datastore, and a privilege-separated qualification token. The root first creates only `scsi0`–`scsi2`; a separately allocated `9951/vm-9951-disk-3.raw` volume is then attached through the opt-in `qualification_adopt_scsi3` block and the update-only inspector. Exact create, volume-allocation, adoption, and destroy plans remain separate authorizations. No disposable or production VM has yet been created.
 ## Test phases
 
 ### 1. Offline schema and policy fixtures

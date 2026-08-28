@@ -34,6 +34,21 @@ variable "qualification_datastore" {
   }
 }
 
+variable "qualification_adopt_scsi3" {
+  type    = bool
+  default = false
+}
+
+variable "qualification_candidate_volume" {
+  type    = string
+  default = ""
+
+  validation {
+    condition     = !var.qualification_adopt_scsi3 || can(regex("^[0-9]+/vm-[0-9]+-disk-[0-9]+\\.raw$", var.qualification_candidate_volume))
+    error_message = "scsi3 adoption requires an exact qualification-only raw volume path."
+  }
+}
+
 provider "proxmox" {
   endpoint = var.proxmox_endpoint
   insecure = false
@@ -109,6 +124,24 @@ resource "proxmox_virtual_environment_vm" "disk_adoption" {
     ssd          = false
   }
 
+  dynamic "disk" {
+    for_each = var.qualification_adopt_scsi3 ? [var.qualification_candidate_volume] : []
+
+    content {
+      datastore_id      = var.qualification_datastore
+      path_in_datastore = disk.value
+      interface         = "scsi3"
+      serial            = "QUAL-DISK-CANDIDATE-3"
+      size              = 1
+      backup            = false
+      cache             = "none"
+      discard           = "ignore"
+      iothread          = false
+      replicate         = false
+      ssd               = false
+    }
+  }
+
   lifecycle {
     precondition {
       condition     = var.qualification_vmid != 100 && var.qualification_vmid != 9900
@@ -117,6 +150,10 @@ resource "proxmox_virtual_environment_vm" "disk_adoption" {
     precondition {
       condition     = !var.qualification_enabled || startswith(var.qualification_datastore, "qual-")
       error_message = "An enabled qualification requires a dedicated qual-* datastore identifier."
+    }
+    precondition {
+      condition     = !var.qualification_adopt_scsi3 || startswith(var.qualification_candidate_volume, "${var.qualification_vmid}/vm-${var.qualification_vmid}-")
+      error_message = "The candidate volume path must be bound to the disposable qualification VMID."
     }
   }
 }

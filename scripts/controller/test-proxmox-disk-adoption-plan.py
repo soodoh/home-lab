@@ -35,9 +35,9 @@ def disk(interface: str, serial: str, datastore: str = "qual-disks", path: str |
 
 def valid_plan() -> dict:
     before_disks = [
-        disk("scsi0", "QUAL-DISK-BASE-0", path="vm-9951-disk-0"),
-        disk("scsi1", "QUAL-DISK-BASE-1", path="vm-9951-disk-1"),
-        disk("scsi2", "QUAL-DISK-BASE-2", path="vm-9951-disk-2"),
+        disk("scsi0", "QUAL-DISK-BASE-0", path="9951/vm-9951-disk-0.raw"),
+        disk("scsi1", "QUAL-DISK-BASE-1", path="9951/vm-9951-disk-1.raw"),
+        disk("scsi2", "QUAL-DISK-BASE-2", path="9951/vm-9951-disk-2.raw"),
     ]
     fixed = {
         "vm_id": 9951,
@@ -51,7 +51,7 @@ def valid_plan() -> dict:
         "boot_order": ["scsi0"],
     }
     before = {**fixed, "disk": before_disks}
-    after = {**copy.deepcopy(fixed), "disk": [*copy.deepcopy(before_disks), disk("scsi3", "QUAL-DISK-CANDIDATE-3", path="vm-9951-disk-3")]}
+    after = {**copy.deepcopy(fixed), "disk": [*copy.deepcopy(before_disks), disk("scsi3", "QUAL-DISK-CANDIDATE-3", path="9951/vm-9951-disk-3.raw")]}
     return {
         "format_version": "1.2",
         "resource_changes": [{
@@ -85,7 +85,7 @@ def main() -> None:
     plan = valid_plan(); plan["resource_changes"][0]["change"]["after"]["disk"][0:2] = reversed(plan["resource_changes"][0]["change"]["after"]["disk"][0:2]); mutations.append((plan, "disk_index_or_identity_change"))
     plan = valid_plan(); plan["resource_changes"][0]["change"]["after"]["disk"][3]["datastore_id"] = "local-lvm"; mutations.append((plan, "candidate_datastore"))
     plan = valid_plan(); plan["resource_changes"][0]["change"]["after"]["disk"][3]["import_from"] = "qual:import/image.qcow2"; mutations.append((plan, "copy_or_import"))
-    plan = valid_plan(); plan["resource_changes"][0]["change"]["after"]["disk"][3]["path_in_datastore"] = "vm-100-disk-2"; mutations.append((plan, "candidate_volume"))
+    plan = valid_plan(); plan["resource_changes"][0]["change"]["after"]["disk"][3]["path_in_datastore"] = "100/vm-100-disk-2.raw"; mutations.append((plan, "candidate_volume"))
     plan = valid_plan(); plan["resource_changes"][0]["change"]["after"]["boot_order"] = ["scsi3"]; mutations.append((plan, "boot_order"))
     plan = valid_plan(); plan["resource_changes"].append(copy.deepcopy(plan["resource_changes"][0])); mutations.append((plan, "resource_count"))
     for plan, reason in mutations:
@@ -101,6 +101,8 @@ def main() -> None:
         "started       = false", "on_boot       = false", "protection    = false",
         "delete_unreferenced_disks_on_destroy = false", 'serial       = "QUAL-DISK-BASE-0"',
         'serial       = "QUAL-DISK-BASE-1"', 'serial       = "QUAL-DISK-BASE-2"',
+        'var.qualification_adopt_scsi3 ? [var.qualification_candidate_volume] : []',
+        'path_in_datastore = disk.value', 'serial            = "QUAL-DISK-CANDIDATE-3"',
     ):
         assert required in main_tf, required
     combined = main_tf + versions

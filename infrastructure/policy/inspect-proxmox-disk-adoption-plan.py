@@ -9,10 +9,9 @@ import sys
 from typing import Any
 
 
-HEX64 = re.compile(r"^[0-9a-f]{64}$")
 QUAL_SERIAL = re.compile(r"^QUAL-DISK-[A-Z0-9-]+$")
 QUAL_DATASTORE = re.compile(r"^qual-[a-z0-9-]+$")
-QUAL_VOLUME = re.compile(r"^vm-[0-9]+-disk-[0-9]+$")
+QUAL_VOLUME = re.compile(r"^(?P<vmid>[0-9]+)/vm-(?P=vmid)-disk-[0-9]+\.raw$")
 
 
 def fail(reason: str) -> None:
@@ -97,7 +96,8 @@ def inspect(plan: Any) -> None:
     volume = candidate.get("path_in_datastore")
     if not isinstance(datastore, str) or QUAL_DATASTORE.fullmatch(datastore) is None:
         fail("candidate_datastore")
-    if not isinstance(volume, str) or QUAL_VOLUME.fullmatch(volume) is None or not volume.startswith(f"vm-{vmid}-"):
+    match = QUAL_VOLUME.fullmatch(volume) if isinstance(volume, str) else None
+    if match is None or int(match.group("vmid")) != vmid:
         fail("candidate_volume")
     raw = json.dumps(plan, sort_keys=True, separators=(",", ":"))
     for prohibited in (
