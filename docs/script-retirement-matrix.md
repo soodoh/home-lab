@@ -50,10 +50,11 @@
 | `scripts/controller/fixtures/zpool-status-online.txt` | `retain-test-fixture` | 1 | `scripts/controller/test-zpool-status-parser.py` |
 | `scripts/controller/fixtures/zpool-status-resilver-cache.txt` | `retain-test-fixture` | 1 | `scripts/controller/test-zpool-status-parser.py` |
 | `scripts/controller/normalize-ansible-plan.py` | `retain-validation` | 3 | `infrastructure/policy/test-policy.sh`, `scripts/controller/test-normalize-ansible-plan.py`, `scripts/reconcile-infrastructure` |
+| `scripts/controller/lifecycle-marker-transaction.py` | `retain-controller` | 1 | `scripts/controller/test-lifecycle-marker-transaction.py` |
 | `scripts/controller/omada-host-alias.py` | `retain-controller` | 3 | `infrastructure/policy/test-policy.sh`, `scripts/controller/test-omada-host-alias.py`, `scripts/prepare-omada-plan-input` |
 | `scripts/controller/parse-ansible-recap.py` | `retain-validation` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/parse-zpool-status.py` | `retain-validation` | 1 | `scripts/controller/test-zpool-status-parser.py` |
-| `scripts/controller/protected_execution.py` | `retain-controller` | 0 | none found in tracked files |
+| `scripts/controller/protected_execution.py` | `retain-controller` | 1 | `scripts/controller/lifecycle-marker-transaction.py` |
 | `scripts/controller/proxmox-access-cutover.js` | `transition-with-nix` | 1 | `scripts/controller/test-proxmox-access-cutover.js` |
 | `scripts/controller/proxmox-access-identity-stage.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-identity-stage.py` |
 | `scripts/controller/proxmox-plan-capability.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-transports.py` |
@@ -71,6 +72,7 @@
 | `scripts/controller/test-contract-schema.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-controller-apply-lock.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-lifecycle-state.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
+| `scripts/controller/test-lifecycle-marker-transaction.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-lifecycle-transition-plan.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-maintenance-planning.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-normalize-ansible-plan.py` | `retain-test` | 1 | `infrastructure/policy/test-policy.sh` |

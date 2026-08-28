@@ -1,0 +1,57 @@
+---
+- name: Validate the exact lifecycle marker action
+  ansible.builtin.assert:
+    that:
+      - lifecycle_marker_plan is mapping
+      - lifecycle_marker_plan.format == 'home-lab-lifecycle-marker-plan-v1'
+      - lifecycle_marker_plan.authorized == false
+      - lifecycle_marker_plan.host == lifecycle_contract_host
+      - lifecycle_marker_plan.marker.path == lifecycle.hosts[lifecycle_contract_host].marker.path
+      - lifecycle_marker_plan.marker.before == {'exists': false}
+      - lifecycle_marker_plan.marker.after.version == 1
+      - lifecycle_marker_plan.marker.after.state == 'production'
+      - lifecycle_marker_plan.marker.after.source_commit == lifecycle_marker_plan.commit
+      - lifecycle_marker_plan.marker.after.updated_at == lifecycle_marker_plan.created_at
+      - lifecycle.hosts[lifecycle_contract_host].marker.adoption_state == 'pending'
+    fail_msg: Lifecycle marker action differs from its saved plan or contract.
+  tags:
+    - lifecycle_marker
+
+- name: Inspect the lifecycle marker before adoption
+  ansible.builtin.stat:
+    path: "{{ lifecycle_marker_plan.marker.path }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  register: lifecycle_marker_before
+  tags:
+    - lifecycle_marker
+
+- name: Require the reviewed absent marker before-state
+  ansible.builtin.assert:
+    that:
+      - not lifecycle_marker_before.stat.exists
+    fail_msg: Lifecycle marker no longer has the reviewed absent before-state.
+  tags:
+    - lifecycle_marker
+
+- name: Adopt the exact production lifecycle marker
+  ansible.builtin.copy:
+    content: "{{ lifecycle_marker_plan.marker.after | to_json(sort_keys=true, separators=(',', ':')) }}\n"
+    dest: "{{ lifecycle_marker_plan.marker.path }}"
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+  become: true
+  register: lifecycle_marker_install
+  tags:
+    - lifecycle_marker
+
+- name: Require one lifecycle marker creation
+  ansible.builtin.assert:
+    that:
+      - lifecycle_marker_install.changed
+    fail_msg: Lifecycle marker transaction did not perform exactly one creation.
+  tags:
+    - lifecycle_marker

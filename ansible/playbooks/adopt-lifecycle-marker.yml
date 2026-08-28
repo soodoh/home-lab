@@ -1,0 +1,12 @@
+---
+- name: Adopt one exact saved production lifecycle marker
+  hosts: all
+  gather_facts: false
+  any_errors_fatal: true
+  serial: 1
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+  roles:
+    - role: lifecycle_marker
+      tags:
+        - lifecycle_marker
