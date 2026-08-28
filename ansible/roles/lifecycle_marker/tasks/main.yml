@@ -7,7 +7,8 @@
       - lifecycle_marker_plan.authorized == false
       - lifecycle_marker_plan.host == lifecycle_contract_host
       - lifecycle_marker_plan.marker.path == lifecycle.hosts[lifecycle_contract_host].marker.path
-      - lifecycle_marker_plan.marker.before == {'exists': false}
+      - not lifecycle_marker_plan.marker.before.exists
+      - lifecycle_marker_plan.marker.before | length == 1
       - lifecycle_marker_plan.marker.after.version == 1
       - lifecycle_marker_plan.marker.after.state == 'production'
       - lifecycle_marker_plan.marker.after.source_commit == lifecycle_marker_plan.commit
