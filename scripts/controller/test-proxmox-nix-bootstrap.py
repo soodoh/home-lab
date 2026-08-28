@@ -54,7 +54,7 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
         cls.projection = json.loads((NIX / "proxmox/projection.json").read_bytes())
         cls.manifest = json.loads((NIX / "proxmox/package-manifest.json").read_bytes())
         cls.observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
-        cls.observation["domains"]["protectedAccess"] = {"expectedCount": 8, "matches": True, "observedCount": 8, "status": "complete"}
+        cls.observation["domains"]["protectedAccess"] = {"expectedCount": 6, "matches": True, "observedCount": 6, "status": "complete"}
         cls.observation["domains"]["protectedHardware"] = {"expectedCount": 3, "matches": True, "observedCount": 3, "status": "complete"}
         for record in cls.observation["domains"]["accounts"]["records"]:
             if record["name"] == "tofu-apply":

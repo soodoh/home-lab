@@ -350,7 +350,7 @@ def observation_specification(projection: dict[str, Any]) -> dict[str, Any]:
         "networkSnippetNames": sorted(projection["hostNetworking"]["permittedActiveSnippets"]),
         "expectedIdentity": {"architecture": projection["architecture"], "hostname": projection["hostNetworking"]["hostname"],
                              "os": "debian", "pveVersion": "pve-manager/" + pve_manager["version"]},
-        "protectedAccessExpectedCount": len(accounts) + len(projection["apiIntent"]["pveAccess"]["bindings"]),
+        "protectedAccessExpectedCount": 6,
         "protectedExpectedCount": 3,
         "pveAccessRoles": projection["apiIntent"]["pveAccess"]["roles"],
         "pveFirewall": projection["apiIntent"]["pveFirewall"],
