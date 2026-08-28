@@ -32,8 +32,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:rw
       - /dev:/dev:rw
       - /run/udev:/run/udev:rw
-    tmpfs:
-      - /run/user/wolf
+    # Do not override the image-declared /run/user/wolf volume with tmpfs:
+    # guest containers need its host-visible Wayland sockets.
     devices:
       - /dev/dri:/dev/dri
       - /dev/uinput:/dev/uinput
