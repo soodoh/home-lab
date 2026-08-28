@@ -1,4 +1,3 @@
-/srv/home-lab-state/audiobookshelf-data/config
 /srv/home-lab-state/authentik-data/postgresql
 /srv/home-lab-state/authentik-data/media
 /srv/home-lab-state/authentik-data/custom-templates
@@ -25,7 +24,6 @@
 /srv/home-lab-state/nextcloud-themes
 /srv/home-lab-state/omada-data/data
 /srv/home-lab-state/openfit-data
-/srv/home-lab-state/pihole-data
 /srv/home-lab-state/prowlarr-data
 /srv/home-lab-state/qbittorrent-data
 /srv/home-lab-state/radarr-4k-data

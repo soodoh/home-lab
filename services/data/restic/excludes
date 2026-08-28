@@ -42,12 +42,6 @@
 /srv/home-lab-state/nextcloud-db-data/system_mysql_backup_*
 /srv/home-lab-state/omada-data/data/device-firmware/**
 /srv/home-lab-state/omada-data/data/mongodb-preupgrade.tar
-/srv/home-lab-state/pihole-data/config_backups/**
-/srv/home-lab-state/pihole-data/gravity_backups/**
-/srv/home-lab-state/pihole-data/listsCache/**
-/srv/home-lab-state/pihole-data/migration_backup/**
-/srv/home-lab-state/pihole-data/gravity_old.db
-/srv/home-lab-state/pihole-data/pihole-FTL.db*
 /srv/home-lab-state/qbittorrent-data/qBittorrent/GeoDB/**
 /srv/home-lab-state/recyclarr-data/repositories/**
 /srv/home-lab-state/recyclarr-data/resources/**

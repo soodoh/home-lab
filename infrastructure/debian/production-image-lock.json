@@ -2,14 +2,6 @@
   "captured_at": "2026-08-19T19:10:51.784884+00:00",
   "images": [
     {
-      "image_id": "sha256:66b24f73e543959d5df7e57bc0edbeab5e759730ec356656198b5da123468c15",
-      "reference": "ghcr.io/advplyr/audiobookshelf:2.36.0@sha256:180acad33d69c99ed208676465d8edcb268fa46967735579a7810859885b1a8e",
-      "repo_digests": [
-        "ghcr.io/advplyr/audiobookshelf@sha256:180acad33d69c99ed208676465d8edcb268fa46967735579a7810859885b1a8e"
-      ],
-      "service": "audiobookshelf"
-    },
-    {
       "image_id": "sha256:9163dd9965e0c74f7f0015cf0bfa2a657e43c4d86dbd8c090b3bcdf6ee88504e",
       "reference": "ghcr.io/goauthentik/server:2026.5.6@sha256:ed120caf710ccf82ef0026f0bc74e51615bc95ebff228a7a2d6fc60c441c3868",
       "repo_digests": [
@@ -178,14 +170,6 @@
         "ghcr.io/soodoh/openfit@sha256:5ce56f1db33881ec5216aaaeff89fa7eeba281e5e1c497e27c5afc78b3c79778"
       ],
       "service": "openfit"
-    },
-    {
-      "image_id": "sha256:27b410ff85b3449158c1ed568b4078c6037463952ad9939b673b28ba13bd9aa7",
-      "reference": "pihole/pihole:2026.07.2@sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b",
-      "repo_digests": [
-        "pihole/pihole@sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b"
-      ],
-      "service": "pihole"
     },
     {
       "image_id": "sha256:bd1890816ae0b8ad4644f05728570d4be774e1f1490d7232f5084b52ea335183",

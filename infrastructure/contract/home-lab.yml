@@ -1307,7 +1307,6 @@ backups:
     incomplete_multipart_abort_days: 1
     gpg_public_key_ring_file: /etc/docker-volume-backup/gpg-public.asc
     stateful_services:
-      - audiobookshelf
       - authentik-server
       - authentik-worker
       - bookshelf
@@ -1325,7 +1324,6 @@ backups:
       - nextcloud-db
       - omada
       - openfit
-      - pihole
       - postgres
       - prowlarr
       - qbittorrent
@@ -1565,7 +1563,6 @@ backups:
         - calibre
         - caro-tachidesk
         - tachidesk
-        - audiobookshelf
         - bookshelf
         - frigate
         - homeassistant
@@ -1575,7 +1572,6 @@ backups:
         - mosquitto
         - omada
         - openfit
-        - pihole
         - prowlarr
         - qbittorrent
         - radarr
@@ -1608,7 +1604,6 @@ backups:
         - radarr
         - qbittorrent
         - prowlarr
-        - pihole
         - openfit
         - omada
         - mosquitto
@@ -1618,7 +1613,6 @@ backups:
         - homeassistant
         - frigate
         - bookshelf
-        - audiobookshelf
         - tachidesk
         - caro-tachidesk
         - calibre
@@ -1628,10 +1622,6 @@ backups:
         - nextcloud
         - nextcloud-cron
     sources:
-      - path: /srv/home-lab-state/audiobookshelf-data/config
-        class: replace-tree
-        writers: [audiobookshelf]
-        mutable_database: false
       - path: /srv/home-lab-state/authentik-data/postgresql
         class: replace-tree
         writers: [postgres]
@@ -1735,10 +1725,6 @@ backups:
       - path: /srv/home-lab-state/openfit-data
         class: replace-tree
         writers: [openfit]
-        mutable_database: true
-      - path: /srv/home-lab-state/pihole-data
-        class: replace-entries
-        writers: [pihole]
         mutable_database: true
       - path: /srv/home-lab-state/prowlarr-data
         class: replace-entries
@@ -1848,9 +1834,6 @@ backups:
       - path: /srv/home-lab-state/qbittorrent-data/.cache
         class: regenerate
         owner_services: [qbittorrent]
-      - path: /srv/home-lab-state/audiobookshelf-data/metadata
-        class: regenerate
-        owner_services: [audiobookshelf]
       - path: /srv/home-lab-state/caddy-data
         class: regenerate
         owner_services: [caddy]
@@ -1917,12 +1900,6 @@ backups:
       - /srv/home-lab-state/nextcloud-db-data/system_mysql_backup_*
       - /srv/home-lab-state/omada-data/data/device-firmware/**
       - /srv/home-lab-state/omada-data/data/mongodb-preupgrade.tar
-      - /srv/home-lab-state/pihole-data/config_backups/**
-      - /srv/home-lab-state/pihole-data/gravity_backups/**
-      - /srv/home-lab-state/pihole-data/listsCache/**
-      - /srv/home-lab-state/pihole-data/migration_backup/**
-      - /srv/home-lab-state/pihole-data/gravity_old.db
-      - /srv/home-lab-state/pihole-data/pihole-FTL.db*
       - /srv/home-lab-state/qbittorrent-data/qBittorrent/GeoDB/**
       - /srv/home-lab-state/recyclarr-data/repositories/**
       - /srv/home-lab-state/recyclarr-data/resources/**

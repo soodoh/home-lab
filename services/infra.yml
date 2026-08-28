@@ -61,27 +61,6 @@ services:
         # Must match Home Assistant's trusted_proxies entry.
         ipv4_address: 172.23.0.250
 
-  pihole:
-    image: pihole/pihole:2026.07.2@sha256:f7d1be836e3bc608b56d82fc9904f5a831cdfbc0dc9c6d58f94e4c985c70038b
-    container_name: pihole
-    restart: always
-    logging: *default-logging
-    ports:
-      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:53:53/tcp
-      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:53:53/udp
-      # - 81:80
-    environment:
-      TZ: $TZ
-      DNSMASQ_USER: $DNSMASQ_USER
-      PIHOLE_PRIMARY_URL: $PIHOLE_PRIMARY_URL
-      PIHOLE_PRIMARY_PW: $PIHOLE_PRIMARY_PW
-      PIHOLE_SECONDARY_URL: $PIHOLE_SECONDARY_URL
-      PIHOLE_SECONDARY_PW: $PIHOLE_SECONDARY_PW
-    volumes:
-      - /srv/home-lab-state/pihole-data:/etc/pihole
-    networks:
-      - proxy
-
 networks:
   infra:
     ipam:

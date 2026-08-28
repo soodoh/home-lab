@@ -193,18 +193,6 @@
       "timeout": 30,
       "user": 8
     },
-    "5155df86-17a1-4883-8008-226699d4adb5": {
-      "application_slug": "audiobookshelf",
-      "enabled": true,
-      "failure_result": false,
-      "group": "2b247c3f-fe19-4565-8f59-82f2c2429eb2",
-      "negate": false,
-      "order": 0,
-      "pk": "5155df86-17a1-4883-8008-226699d4adb5",
-      "policy": null,
-      "timeout": 30,
-      "user": null
-    },
     "51edd5fa-d699-4811-b67e-6d85356fc452": {
       "application_slug": "openfit",
       "enabled": true,
@@ -301,18 +289,6 @@
       "timeout": 30,
       "user": null
     },
-    "cf97d3aa-55c4-4169-a82d-660f1554e74c": {
-      "application_slug": "pihole",
-      "enabled": true,
-      "failure_result": false,
-      "group": "2b247c3f-fe19-4565-8f59-82f2c2429eb2",
-      "negate": false,
-      "order": 0,
-      "pk": "cf97d3aa-55c4-4169-a82d-660f1554e74c",
-      "policy": null,
-      "timeout": 30,
-      "user": null
-    },
     "d10e3ec4-1aae-4df9-901b-807cc08eb100": {
       "application_slug": "sabnzbd",
       "enabled": true,
@@ -363,22 +339,6 @@
     }
   },
   "applications": {
-    "audiobookshelf": {
-      "backchannel_provider_ids": [],
-      "group": "Media",
-      "meta_description": "",
-      "meta_hide": false,
-      "meta_icon": "application-icons/audiobookshelf.png",
-      "meta_launch_url": "https://audiobookshelf.diloreto.com/",
-      "meta_publisher": "",
-      "name": "Audiobookshelf",
-      "open_in_new_tab": false,
-      "policy_engine_mode": "any",
-      "provider_id": 16,
-      "provider_type": "oauth2",
-      "slug": "audiobookshelf",
-      "uuid": "b81a2d3a-b475-47aa-8a1c-eef5a1f5b29a"
-    },
     "calibre": {
       "backchannel_provider_ids": [],
       "group": "Media",
@@ -538,22 +498,6 @@
       "provider_type": "proxy",
       "slug": "openfit",
       "uuid": "6ff4499f-5c30-4c3c-8f54-b947ede9dc14"
-    },
-    "pihole": {
-      "backchannel_provider_ids": [],
-      "group": "Home",
-      "meta_description": "",
-      "meta_hide": false,
-      "meta_icon": "application-icons/Pi-hole_Logo.png",
-      "meta_launch_url": "https://pihole.diloreto.com/admin",
-      "meta_publisher": "",
-      "name": "Pihole",
-      "open_in_new_tab": false,
-      "policy_engine_mode": "any",
-      "provider_id": 31,
-      "provider_type": "proxy",
-      "slug": "pihole",
-      "uuid": "555a9e11-ceb5-44bd-8879-432ccce3048e"
     },
     "prowlarr": {
       "backchannel_provider_ids": [],
@@ -856,54 +800,6 @@
       "logout_uri": "",
       "name": "Jellyfin OIDC",
       "pk": 15,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_threshold": "seconds=0",
-      "refresh_token_validity": "days=30",
-      "signing_key": "d5259cb9-db22-467a-9d72-6911b16a459f",
-      "sub_mode": "hashed_user_id"
-    },
-    "16": {
-      "access_code_validity": "minutes=1",
-      "access_token_validity": "minutes=5",
-      "allowed_redirect_uris": [
-        {
-          "matching_mode": "strict",
-          "redirect_uri_type": "authorization",
-          "url": "https://audiobookshelf.diloreto.com/auth/openid/callback"
-        },
-        {
-          "matching_mode": "strict",
-          "redirect_uri_type": "authorization",
-          "url": "https://audiobookshelf.diloreto.com/auth/openid/mobile-redirect"
-        }
-      ],
-      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
-      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
-      "client_id": "7EPvMr7uv1yPbd2xAeQGj6SLwYh98ba8Kql9N86C",
-      "client_type": "confidential",
-      "encryption_key": null,
-      "grant_types": [
-        "authorization_code",
-        "hybrid",
-        "implicit",
-        "client_credentials",
-        "password",
-        "urn:ietf:params:oauth:grant-type:device_code",
-        "refresh_token"
-      ],
-      "include_claims_in_id_token": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "issuer_mode": "per_provider",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "logout_method": "backchannel",
-      "logout_uri": "",
-      "name": "Audiobookshelf OIDC",
-      "pk": 16,
       "property_mappings": [
         "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
         "e72b12d8-ef3e-4b73-b172-0df830d666d7",
@@ -1430,34 +1326,6 @@
       "refresh_token_validity": "days=30",
       "skip_path_regex": ""
     },
-    "31": {
-      "access_token_validity": "hours=24",
-      "authentication_flow": null,
-      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
-      "basic_auth_enabled": false,
-      "basic_auth_password_attribute": "",
-      "basic_auth_user_attribute": "",
-      "cookie_domain": "",
-      "external_host": "https://pihole.diloreto.com",
-      "intercept_header_auth": true,
-      "internal_host": "http://pihole:80",
-      "internal_host_ssl_validation": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "mode": "proxy",
-      "name": "Pihole",
-      "pk": 31,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
-        "8f00714d-dbb0-472a-9a78-8b755baa7915",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_validity": "days=30",
-      "skip_path_regex": ""
-    },
     "39": {
       "access_token_validity": "hours=24",
       "authentication_flow": null,
@@ -1638,12 +1506,12 @@
     }
   },
   "sourceInventory": {
-    "applicationPolicyBindingsSha256": "3ed70041953b7aa549dfb61ea215232c48b8ad62154b79940be5f81b44a5b7c9",
-    "applicationsSha256": "8c74d121204cbdeae5ede6c7daad35aab62c4434f33c9ae1cba76903d4877941",
+    "applicationPolicyBindingsSha256": "5da858e95d6f54858a2bd411a83f7c25b5f7fbdcb275d48e2afcebf73d7f2ef6",
+    "applicationsSha256": "29e4984d8c7744d1fce1b350e86bf21ce94d382b58183fd4d0a689c614a90e1e",
     "capturedAt": "2026-08-27T18:16:12Z",
     "complete": true,
     "customConfigurationSha256": "325690bd24ce0e639574150549497e10e117aa6f1a70e5bf4603422aa7c02fe1",
-    "oauthProvidersSha256": "4e2210a5709ad94e5e22ecf6fa401ba66203b7db247c0bfe546e52ba5bdaeb0c",
-    "proxyProvidersSha256": "c188de1b1db8eb0d4285b2ad3d382c5e37e4500fa7b721960fae7cbc82dd6d1e"
+    "oauthProvidersSha256": "8d526eac6322b6ff9f0e28cc55ecb43615cad999cf1bdace0e1399e25c5c3c90",
+    "proxyProvidersSha256": "d0e46d471126599c276d6f65403a04030c4fabf910ad8f24561811a295c07652"
   }
 }

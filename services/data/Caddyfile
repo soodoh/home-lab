@@ -6,7 +6,6 @@ ddns.diloreto.com,
 frigate.diloreto.com,
 omada.diloreto.com,
 openfit.diloreto.com,
-pihole.diloreto.com,
 prowlarr.diloreto.com,
 proxmox.diloreto.com,
 qb.diloreto.com,
@@ -31,10 +30,6 @@ vaultwarden.diloreto.com {
 
 watch.diloreto.com {
 	reverse_proxy jellyfin:8096
-}
-
-audiobookshelf.diloreto.com {
-	reverse_proxy audiobookshelf:80
 }
 
 books.diloreto.com {

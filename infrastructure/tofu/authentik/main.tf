@@ -26,12 +26,12 @@ check "desired_inventory" {
   assert {
     condition = (
       local.desired.schemaVersion == 2 &&
-      length(local.desired.applications) == 25 &&
-      length(local.desired.proxyProviders) == 19 &&
+      length(local.desired.applications) == 23 &&
+      length(local.desired.proxyProviders) == 18 &&
       (!var.authentik_enable_management || (
         local.desired.sourceInventory.complete &&
-        length(local.desired.oauthProviders) == 6 &&
-        length(local.desired.applicationPolicyBindings) == 30 &&
+        length(local.desired.oauthProviders) == 5 &&
+        length(local.desired.applicationPolicyBindings) == 28 &&
         length(local.desired.authenticatorValidateStages) == 1 &&
         length(local.desired.customFlows) == 1 &&
         length(local.desired.flowStageBindings) == 2 &&

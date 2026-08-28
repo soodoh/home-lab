@@ -7,7 +7,7 @@ The foundation is active for Compose. The trusted local controller stages the ex
 The repository contains only:
 
 - SOPS dotenv ciphertext at `secrets/production.sops.env`;
-- its sorted 94-name and non-secret blank-line manifests; and
+- its sorted 89-name and non-secret blank-line manifests; and
 - two public age recipients in `.sops.yaml`: active Debian production and independent recovery.
 
 No production age identity is present in Git or repository files.
@@ -62,7 +62,7 @@ variable_name_sets=pass count=90
 
 The migrated source checksum and metadata were unchanged during encryption. Production now uses only the root-owned reconstructed environment.
 
-The credential-ready transition increases the current manifest to 94 names and the layout to 138 source lines with the same 20 blank-line positions; the additional six content lines are five variables plus one encrypted section comment. Protected local verification matched all decrypted key names to that exact manifest; the historical 90-variable byte-match evidence remains unchanged.
+Retiring five obsolete service variables and their encrypted section comment reduces the current manifest from 94 to 89 names and the reconstructed layout from 138 to 131 source lines with 19 blank-line positions. Protected local verification matches all decrypted key names to that exact manifest; the historical 90-variable byte-match evidence remains unchanged.
 
 ## Secret-free validation
 

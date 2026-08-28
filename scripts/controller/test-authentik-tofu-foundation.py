@@ -10,17 +10,17 @@ import unittest
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "infrastructure" / "tofu" / "authentik"
 DESIRED = json.loads((ROOT / "desired.json").read_text())
-OAUTH_PROVIDER_IDS = {"15", "16", "21", "37", "47", "49"}
+OAUTH_PROVIDER_IDS = {"15", "21", "37", "47", "49"}
 
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_live_inventory_is_complete(self) -> None:
         self.assertEqual(DESIRED["schemaVersion"], 2)
         self.assertTrue(DESIRED["sourceInventory"]["complete"])
-        self.assertEqual(len(DESIRED["applications"]), 25)
-        self.assertEqual(len(DESIRED["proxyProviders"]), 19)
+        self.assertEqual(len(DESIRED["applications"]), 23)
+        self.assertEqual(len(DESIRED["proxyProviders"]), 18)
         self.assertEqual(set(DESIRED["oauthProviders"]), OAUTH_PROVIDER_IDS)
-        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 30)
+        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 28)
         self.assertEqual(set(DESIRED["authenticatorValidateStages"]), {"passwordless-webauthn"})
         self.assertEqual(set(DESIRED["customFlows"]), {"passwordless-authentication"})
         self.assertEqual(len(DESIRED["flowStageBindings"]), 2)
@@ -123,7 +123,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(main.count("prevent_destroy = true"), 9)
         self.assertEqual(main.count("import {"), 9)
         self.assertIn("to       = authentik_flow.custom[each.key]\n  id       = each.value.slug", main)
-        self.assertIn("length(local.desired.applicationPolicyBindings) == 30", main)
+        self.assertIn("length(local.desired.applicationPolicyBindings) == 28", main)
         self.assertIn("data.authentik_stage.default_authentication_login", main)
         self.assertIn("data.authentik_stage.default_authenticator_webauthn_setup", main)
         self.assertIn("local.client_secrets.oauthProviders[each.key].client_secret", main)
@@ -149,7 +149,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             *(f'authentik_property_mapping_provider_scope.scope_mappings["{key}"]' for key in DESIRED["scopeMappings"]),
         }
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 85)
+        self.assertEqual(len(allow), 79)
 
     def test_prepare_and_normalize_steps_protect_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()
@@ -160,7 +160,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertIn("stat.S_IMODE(metadata.st_mode) != 0o600", prepare)
         self.assertIn('assert(!serializedDesired.includes("client_secret")', normalizer)
         self.assertIn('writeFileSync(secretsPath', normalizer)
-        self.assertIn('expected 30 application access bindings', normalizer)
+        self.assertIn('expected 28 application access bindings', normalizer)
 
     def test_bootstrap_separates_read_only_plan_and_apply_identities(self) -> None:
         bootstrap = (REPO / "scripts" / "controller" / "authentik-bootstrap-service-account.py").read_text()

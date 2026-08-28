@@ -14,7 +14,7 @@ const api = JSON.parse(readFileSync(apiPath, "utf8"));
 const graph = JSON.parse(readFileSync(graphPath, "utf8"));
 const failureResults = JSON.parse(readFileSync(failureResultsPath, "utf8"));
 const blueprint = load(readFileSync(blueprintPath, "utf8"));
-const oauthIds = new Set(["15", "16", "21", "37", "47", "49"]);
+const oauthIds = new Set(["15", "21", "37", "47", "49"]);
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -37,11 +37,11 @@ function hash(value) {
   return createHash("sha256").update(`${JSON.stringify(deepCanonical(value))}\n`).digest("hex");
 }
 
-assert(api.counts.applications === 25, "expected 25 applications");
-assert(api.counts.providers === 25, "expected 25 total providers");
-assert(api.counts.proxyProviders === 19, "expected 19 proxy providers");
-assert(api.counts.oauthProviders === 6, "expected 6 direct OAuth2 providers");
-assert(new Set(api.oauthProviders.map((item) => String(item.pk))).size === 6, "OAuth2 provider IDs must be unique");
+assert(api.counts.applications === 23, "expected 23 applications");
+assert(api.counts.providers === 23, "expected 23 total providers");
+assert(api.counts.proxyProviders === 18, "expected 18 proxy providers");
+assert(api.counts.oauthProviders === 5, "expected 5 direct OAuth2 providers");
+assert(new Set(api.oauthProviders.map((item) => String(item.pk))).size === 5, "OAuth2 provider IDs must be unique");
 assert(api.oauthProviders.every((item) => oauthIds.has(String(item.pk))), "unexpected OAuth2 provider ID");
 assert(oauthIds.size === api.oauthProviders.length, "an expected OAuth2 provider is absent");
 
@@ -177,7 +177,7 @@ const flowStageBindings = sortObject(Object.fromEntries(selectedFlowBindings.map
 
 const applicationIds = new Map(Object.values(applications).map((item) => [item.uuid, item.slug]));
 const selectedPolicyBindings = graph.policyBindings.filter((item) => applicationIds.has(item.target));
-assert(selectedPolicyBindings.length === 30, "expected 30 application access bindings");
+assert(selectedPolicyBindings.length === 28, "expected 28 application access bindings");
 const applicationPolicyBindings = sortObject(Object.fromEntries(selectedPolicyBindings.map((item) => [item.pk, {
   application_slug: applicationIds.get(item.target),
   enabled: item.enabled,
