@@ -1,6 +1,0 @@
-authentik_application.applications["audiobookshelf"]
-authentik_application.applications["pihole"]
-authentik_policy_binding.application_access["5155df86-17a1-4883-8008-226699d4adb5"]
-authentik_policy_binding.application_access["cf97d3aa-55c4-4169-a82d-660f1554e74c"]
-authentik_provider_oauth2.providers["16"]
-authentik_provider_proxy.providers["31"]

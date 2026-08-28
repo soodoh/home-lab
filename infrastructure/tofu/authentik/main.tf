@@ -114,7 +114,7 @@ resource "authentik_provider_proxy" "providers" {
   jwt_federation_providers      = each.value.jwt_federation_providers
 
   lifecycle {
-    prevent_destroy = false
+    prevent_destroy = true
   }
 }
 
@@ -150,7 +150,7 @@ resource "authentik_provider_oauth2" "providers" {
   jwt_federation_providers = each.value.jwt_federation_providers
 
   lifecycle {
-    prevent_destroy = false
+    prevent_destroy = true
   }
 }
 
@@ -175,7 +175,7 @@ resource "authentik_application" "applications" {
   meta_hide             = each.value.meta_hide
 
   lifecycle {
-    prevent_destroy = false
+    prevent_destroy = true
   }
 }
 
@@ -193,7 +193,7 @@ resource "authentik_policy_binding" "application_access" {
   timeout        = each.value.timeout
 
   lifecycle {
-    prevent_destroy = false
+    prevent_destroy = true
   }
 }
 

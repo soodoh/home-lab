@@ -186,36 +186,6 @@
       }}
   no_log: true
 
-- name: Identify the exact reviewed unused-service retirement lane
-  ansible.builtin.set_fact:
-    compose_deploy_unused_service_retirement: >-
-      {{
-        (compose_deploy_unused_service_retirement_confirmation | default('')) ==
-          'retire-unused-services:' ~ compose_artifact_hash and
-        compose_deploy_plan.missing_runtime_services | length == 0 and
-        compose_deploy_plan.unexpected_runtime_services == ['audiobookshelf', 'pihole'] and
-        compose_deploy_plan.forbidden_actions | length == 0 and
-        compose_deploy_plan.changed_paths == [
-          'secrets/production.env.keys',
-          'secrets/production.env.layout.json',
-          'secrets/production.sops.env',
-          'services/apps.yml',
-          'services/data/Caddyfile',
-          'services/data/restic/excludes',
-          'services/data/restic/files-from',
-          'services/infra.yml'
-        ] and
-        compose_deploy_plan.manual_only_paths == [
-          'services/data/Caddyfile',
-          'services/data/restic/excludes',
-          'services/data/restic/files-from'
-        ] and
-        compose_deploy_plan.recreate_services == [] and
-        compose_deploy_plan.image_services == [] and
-        compose_deploy_plan.stateful_recreate_services == []
-      }}
-  no_log: true
-
 - name: Identify an interrupted Calibre local rollback retry
   ansible.builtin.set_fact:
     compose_deploy_calibre_local_rollback_resume: >-
@@ -325,8 +295,7 @@
           compose_deploy_plan.unexpected_runtime_services | length == 0 and
           compose_deploy_plan.forbidden_actions | length == 0 and
           compose_deploy_plan.manual_only_paths | length == 0
-        ) or compose_deploy_nextcloud_migration or compose_deploy_restic_policy_artifact or
-        compose_deploy_unused_service_retirement
+        ) or compose_deploy_nextcloud_migration or compose_deploy_restic_policy_artifact
     fail_msg: >-
       Deployment refuses service additions/removals, forbidden Compose actions, and data-file changes
       without their exact operation-specific approval.
@@ -524,40 +493,6 @@
         mode: "0600"
       become: true
       no_log: true
-
-    - name: Inspect retired service containers before deletion
-      ansible.builtin.command:
-        argv: [/usr/bin/docker, container, inspect, "{{ item }}"]
-      become: true
-      register: compose_deploy_retired_containers
-      changed_when: false
-      failed_when: compose_deploy_retired_containers.rc not in [0, 1]
-      loop:
-        - audiobookshelf
-        - pihole
-      when: compose_deploy_unused_service_retirement
-
-    - name: Remove retired service containers
-      ansible.builtin.command:
-        argv: [/usr/bin/docker, container, rm, --force, "{{ item.item }}"]
-      become: true
-      changed_when: true
-      loop: "{{ compose_deploy_retired_containers.results }}"
-      loop_control:
-        label: "{{ item.item }}"
-      when:
-        - compose_deploy_unused_service_retirement
-        - item.rc == 0
-
-    - name: Delete retired service state roots
-      ansible.builtin.file:
-        path: "{{ item }}"
-        state: absent
-      become: true
-      loop:
-        - /srv/home-lab-state/audiobookshelf-data
-        - /srv/home-lab-state/pihole-data
-      when: compose_deploy_unused_service_retirement
 
     - name: Verify the live Calibre rollback boundary
       ansible.builtin.shell:

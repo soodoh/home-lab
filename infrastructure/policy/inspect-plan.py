@@ -80,7 +80,6 @@ def parse_args() -> argparse.Namespace:
         default="normal",
     )
     parser.add_argument("--allow-change-file", type=Path)
-    parser.add_argument("--allow-delete-file", type=Path)
     return parser.parse_args()
 
 
@@ -268,7 +267,6 @@ def main() -> int:
         print("plan policy passed: mode=vm-start-prerequisite actions=1")
         return 0
     allow = set()
-    allow_delete = set()
     mapping_resources: dict[str, list[dict[str, Any]]] = {}
     for resource in plan.get("resource_changes", []):
         if resource.get("type") not in {"proxmox_hardware_mapping_pci", "proxmox_hardware_mapping_usb"}:
@@ -283,12 +281,6 @@ def main() -> int:
         allow = {
             line.strip()
             for line in args.allow_change_file.read_text().splitlines()
-            if line.strip() and not line.startswith("#")
-        }
-    if args.allow_delete_file:
-        allow_delete = {
-            line.strip()
-            for line in args.allow_delete_file.read_text().splitlines()
             if line.strip() and not line.startswith("#")
         }
 
@@ -321,8 +313,6 @@ def main() -> int:
             failures.append(f"{address}: creating or recreating compute is forbidden in steady state")
             continue
         if "delete" in actions:
-            if actions == ["delete"] and address in allow_delete:
-                continue
             failures.append(f"{address}: delete or replacement is forbidden")
             continue
         before = change.get("before")
