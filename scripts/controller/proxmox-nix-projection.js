@@ -162,7 +162,7 @@ function projectProxmoxPolicy(contract, packageManifest) {
   return {
     version: 1,
     architecture: proxmox.packages.architecture,
-    timezone: systemTimezone,
+    timezoneAuditExpected: systemTimezone,
     hostNetworking: {
       cidr: network.cidr,
       gateway: network.gateway,

@@ -574,43 +574,16 @@ class ProxmoxNixApplyTests(unittest.TestCase):
             self.activator["replace_fixed"] = old_replace
             self.activator["run_native"] = old_run
 
-    def test_timezone_action_uses_fixed_argv_and_restores_captured_zone(self) -> None:
+    def test_transferred_timezone_has_no_nix_activation_or_rollback_surface(self) -> None:
         observation = copy.deepcopy(self.after_observation)
         observation["domains"]["timezone"]["records"][0]["timezone"] = "Etc/UTC"
         start = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
         plan = planner.build_plan(self.bindings, self.projection, self.manifest, observation,
                                   planner.format_time(start), planner.format_time(start + dt.timedelta(seconds=1)), False)
-        self.assertEqual(len(plan["actions"]), 1)
-        action = plan["actions"][0]
-        self.assertEqual((action["domain"], action["kind"], action["target"]),
-                         ("timezone", "set-timezone", {"name": "system", "type": "timezone"}))
-        item = self.activator["catalog_item"](action)
-        current = {"timezone": "Etc/UTC"}
-        commands = []
-
-        def run_native(argv, accepted=(0,)):
-            commands.append(argv)
-            if argv[1] == "show":
-                return (current["timezone"] + "\n").encode()
-            if argv[1] == "set-timezone":
-                current["timezone"] = argv[2]
-                return b""
-            raise AssertionError(argv)
-
-        manifest = {"entries": []}
-        substitutions = {"run_native": run_native, "read_manifest": lambda _plan: manifest,
-                         "save_manifest": lambda _plan, _manifest: None}
-        with patch.dict(self.activator, substitutions):
-            identity, captured = self.activator["capture_once"]("a" * 64, action, item)
-            self.assertIsNone(identity)
-            self.assertEqual(captured, {"state": "present", "timezone": "Etc/UTC"})
-            self.assertEqual(manifest["entries"][0]["targetType"], "timezone")
-            self.activator["mutate_item"](item)
-            self.assertEqual(current["timezone"], "America/Los_Angeles")
-            self.assertTrue(self.activator["restore_entry"](manifest["entries"][0], item))
-            self.assertEqual(current["timezone"], "Etc/UTC")
-        self.assertIn(("/usr/bin/timedatectl", "set-timezone", "America/Los_Angeles"), commands)
-        self.assertIn(("/usr/bin/timedatectl", "set-timezone", "Etc/UTC"), commands)
+        self.assertEqual([action for action in plan["actions"] if action["domain"] == "timezone"], [])
+        self.assertNotIn("timezone_state", self.activator)
+        self.assertNotIn("set_timezone", self.activator)
+        self.assertFalse(any(item["domain"] == "timezone" for item in self.activator["SPEC"]["catalog"].values()))
 
     def test_rollback_is_reverse_verified_and_failure_retains_lock(self) -> None:
         keys = list(self.activator["SPEC"]["catalog"])[0:2]
@@ -874,7 +847,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         self.assertNotIn("systemctl\", \"reboot", source)
         self.assertNotIn("/sbin/reboot", source)
         catalog_domains = {item["domain"] for item in self.activator["SPEC"]["catalog"].values()}
-        self.assertEqual(catalog_domains, {"managed-artifacts", "managed-files", "managed-fragments", "services", "timezone"})
+        self.assertEqual(catalog_domains, {"managed-artifacts", "managed-files", "managed-fragments", "services"})
         service_names = {item["name"] for item in self.activator["SPEC"]["catalog"].values() if item["domain"] == "services"}
         self.assertEqual(service_names, {"chrony.service"})
 

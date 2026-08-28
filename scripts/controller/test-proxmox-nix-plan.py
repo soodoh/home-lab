@@ -140,16 +140,14 @@ class ProxmoxNixPlanTests(unittest.TestCase):
             self.assertEqual(action["dependsOn"], [] if action["sequence"] == 1 else [first["actions"][action["sequence"] - 2]["id"]])
             self.assertFalse(set(action) & planner.FORBIDDEN_KEYS)
 
-    def test_timezone_drift_is_one_typed_action_and_malformed_values_fail_closed(self) -> None:
+    def test_transferred_timezone_is_audited_but_never_planned_by_nix(self) -> None:
         observation = copy.deepcopy(self.observation)
         observation["domains"]["timezone"]["records"][0]["timezone"] = "Etc/UTC"
         plan = self.make_plan(observation)
         actions = [action for action in plan["actions"] if action["domain"] == "timezone"]
-        self.assertEqual(len(actions), 1)
-        self.assertEqual(actions[0]["kind"], "set-timezone")
-        self.assertEqual(actions[0]["target"], {"name": "system", "type": "timezone"})
-        self.assertEqual(actions[0]["before"], {"state": "present", "timezone": "Etc/UTC"})
-        self.assertEqual(actions[0]["after"], {"state": "present", "timezone": "America/Los_Angeles"})
+        self.assertEqual(actions, [])
+        self.assertNotIn("timezone", planner.ACTION_KINDS)
+        self.assertNotIn("timezone", planner.TARGET_TYPES)
 
         malformed = copy.deepcopy(self.observation)
         malformed["domains"]["timezone"]["records"][0]["timezone"] = "../UTC"

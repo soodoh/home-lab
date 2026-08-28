@@ -2,11 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "architecture", "timezone", "hostNetworking", "managedFiles", "managedFileFragments", "managedArtifacts", "managedFileMetadata", "auditAbsence", "nativeServices", "accounts", "ssh", "tailscale", "healthExpectations", "planningPolicy", "packagePolicy", "kernelPolicy", "storagePolicy", "apiIntent"],
+  "required": ["version", "architecture", "timezoneAuditExpected", "hostNetworking", "managedFiles", "managedFileFragments", "managedArtifacts", "managedFileMetadata", "auditAbsence", "nativeServices", "accounts", "ssh", "tailscale", "healthExpectations", "planningPolicy", "packagePolicy", "kernelPolicy", "storagePolicy", "apiIntent"],
   "properties": {
     "version": { "const": 1 },
     "architecture": { "const": "amd64" },
-    "timezone": { "const": "America/Los_Angeles" },
+    "timezoneAuditExpected": { "const": "America/Los_Angeles" },
     "hostNetworking": {
       "type": "object", "additionalProperties": false,
       "required": ["cidr", "gateway", "dns", "bridge", "bridgePort", "hostname", "magicDnsName", "ipv4", "permittedActiveSnippets"],
@@ -90,12 +90,12 @@
           }
         },
         "domains": {
-          "type": "array", "minItems": 11, "maxItems": 11,
+          "type": "array", "minItems": 10, "maxItems": 10,
           "items": {
             "type": "object", "additionalProperties": false,
             "required": ["domain", "safetyClass", "automatic", "requiresApproval", "requiresReboot", "requiresWatchdog"],
             "properties": {
-              "domain": { "enum": ["managed-files", "managed-fragments", "managed-artifacts", "packages", "services", "timezone", "accounts", "tailscale", "pve-access", "pve-firewall", "pve-storage"] },
+              "domain": { "enum": ["managed-files", "managed-fragments", "managed-artifacts", "packages", "services", "accounts", "tailscale", "pve-access", "pve-firewall", "pve-storage"] },
               "safetyClass": { "enum": ["guarded", "reboot-bound", "protected-session", "access-critical", "data-critical"] },
               "automatic": { "type": "boolean" }, "requiresApproval": { "type": "boolean" },
               "requiresReboot": { "type": "boolean" }, "requiresWatchdog": { "type": "boolean" }

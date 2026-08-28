@@ -62,9 +62,9 @@ lifecycle:
         adoption_state: pending
       domain_handoffs:
         timezone:
-          current_owner: nix
+          current_owner: ansible
           target_owner: ansible
-          state: pending
+          state: transferred
           parity_required: true
           single_writer: true
       access_cutover:
@@ -784,7 +784,6 @@ proxmox:
       - { domain: managed-artifacts, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { domain: packages, safety_class: protected-session, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { domain: services, safety_class: guarded, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
-      - { domain: timezone, safety_class: guarded, automatic: true, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { domain: accounts, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { domain: tailscale, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { domain: pve-access, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }

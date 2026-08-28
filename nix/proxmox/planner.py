@@ -49,11 +49,11 @@ DOMAIN_ORDER = {
 }
 ACTION_KINDS = {
     "managed-files": "replace-file", "managed-fragments": "ensure-fragment", "managed-artifacts": "install-artifact",
-    "packages": "reconcile-package-set", "services": "reconcile-service", "timezone": "set-timezone",
+    "packages": "reconcile-package-set", "services": "reconcile-service",
 }
 TARGET_TYPES = {
     "managed-files": "file", "managed-fragments": "file-fragment", "managed-artifacts": "artifact",
-    "packages": "package-set", "services": "service", "timezone": "timezone",
+    "packages": "package-set", "services": "service",
 }
 FORBIDDEN_KEYS = {"argv", "command", "executable", "payload", "script"}
 APPROVED_SOURCE_FILES = {
@@ -263,7 +263,6 @@ def desired_records(projection: dict[str, Any], manifest: dict[str, Any]) -> dic
         "packages": [{"name": item["name"], "version": item["version"]} for item in manifest["packages"]],
         "services": [{"name": item["name"], "enabled": item["enabled"], "active": item["state"] == "started"}
                      for item in projection["nativeServices"]],
-        "timezone": [{"name": "system", "timezone": projection["timezone"]}],
         "accounts": [{"name": item["name"], "commentMatches": True, "exists": True, "home": item["home"],
                       "shell": item["shell"], "passwordLocked": item["passwordLock"],
                       "primaryGroupMatches": True, "expectedGroupsMatch": True}
@@ -326,6 +325,16 @@ def build_plan(bindings: dict[str, Any], projection: dict[str, Any], manifest: d
         blockers.append(make_issue("blocker", "identity", "wrong-target", "host",
                                    "refusing actions for a host that does not match the bound target identity"))
     desired = desired_records(projection, manifest)
+    timezone_audit = observation["domains"]["timezone"]
+    expected_timezone_audit = [{"name": "system", "timezone": projection["timezoneAuditExpected"]}]
+    if timezone_audit["status"] != "complete":
+        blockers.append(make_issue("blocker", "timezone", "observation-unavailable", "system",
+                                   "transferred timezone audit is unavailable"))
+    elif timezone_audit["records"] != expected_timezone_audit or timezone_audit["unexpectedCount"]:
+        findings.append(make_issue("drift", "timezone", "ansible-owned-drift", "system",
+                                   "Ansible-owned timezone differs from its audit expectation"))
+        blockers.append(make_issue("blocker", "timezone", "ansible-owner-reconciliation-required", "system",
+                                   "Nix observes but cannot mutate the transferred timezone domain"))
     observed_names = {
         "managed-files": "managedFiles", "managed-fragments": "managedFragments", "managed-artifacts": "managedArtifacts",
         "packages": "packages", "services": "services", "timezone": "timezone", "accounts": "accounts",

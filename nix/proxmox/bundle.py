@@ -26,7 +26,7 @@ PREPARER_TEMPLATE_PATH = Path(__file__).with_name("private-preparer-template.py"
 EXPECTED_PROJECTION_KEYS = {
     "accounts", "apiIntent", "architecture", "auditAbsence", "healthExpectations", "hostNetworking",
     "kernelPolicy", "managedArtifacts", "managedFileFragments", "managedFileMetadata", "managedFiles",
-    "nativeServices", "packagePolicy", "planningPolicy", "ssh", "storagePolicy", "tailscale", "timezone", "version",
+    "nativeServices", "packagePolicy", "planningPolicy", "ssh", "storagePolicy", "tailscale", "timezoneAuditExpected", "version",
 }
 FORBIDDEN_PROJECTION_KEYS = {
     "api_endpoint", "auth_key_secret_ref", "bdf", "by_id_secret_ref", "compatibility_config_path",
@@ -230,8 +230,8 @@ def validate_projection(projection: Any, package_count: int, package_manifest_sh
     if not isinstance(projection, dict) or set(projection) != EXPECTED_PROJECTION_KEYS:
         raise ValueError("projection top-level shape is invalid")
     if projection["version"] != 1 or projection["architecture"] != "amd64" or \
-            projection["timezone"] != "America/Los_Angeles":
-        raise ValueError("projection version, architecture, or timezone is invalid")
+            projection["timezoneAuditExpected"] != "America/Los_Angeles":
+        raise ValueError("projection version, architecture, or timezone audit expectation is invalid")
     package_policy = projection.get("packagePolicy")
     if not isinstance(package_policy, dict) or package_policy.get("manifestPackageCount") != package_count or \
             package_policy.get("manifestSha256") != package_manifest_sha256:
@@ -264,7 +264,7 @@ def validate_projection(projection: Any, package_count: int, package_manifest_sh
         raise ValueError("PVE semantic API intent is malformed")
     planning = projection.get("planningPolicy")
     expected_domains = {
-        "managed-files", "managed-fragments", "managed-artifacts", "packages", "services", "timezone", "accounts",
+        "managed-files", "managed-fragments", "managed-artifacts", "packages", "services", "accounts",
         "tailscale", "pve-access", "pve-firewall", "pve-storage",
     }
     if not isinstance(planning, dict) or set(planning) != {"domains", "managedFilePolicies", "maxAgeSeconds", "servicePolicies"} or \
@@ -279,9 +279,6 @@ def validate_projection(projection: Any, package_count: int, package_manifest_sh
             raise ValueError("planning policy domain classification is malformed")
         if item["domain"] == "packages" and (item["automatic"] or item["safetyClass"] != "protected-session"):
             raise ValueError("package policy must remain a nonautomatic protected session")
-        if item["domain"] == "timezone" and (not item["automatic"] or not item["requiresApproval"] or
-                item["requiresReboot"] or item["requiresWatchdog"] or item["safetyClass"] != "guarded"):
-            raise ValueError("timezone policy must remain automatic and guarded")
     service_policy_keys = {"automatic", "name", "requiresApproval", "requiresReboot", "requiresWatchdog", "safetyClass"}
     service_names = {item["name"] for item in projection["nativeServices"]}
     service_policies = planning["servicePolicies"]
@@ -346,7 +343,7 @@ def observation_specification(projection: dict[str, Any]) -> dict[str, Any]:
                               "group": item["group"], "owner": item["owner"], "target": item["path"]}
                              for item in projection["managedFileFragments"]],
         "health": projection["healthExpectations"],
-        "timezone": projection["timezone"],
+        "timezone": projection["timezoneAuditExpected"],
         "networkSnippetNames": sorted(projection["hostNetworking"]["permittedActiveSnippets"]),
         "expectedIdentity": {"architecture": projection["architecture"], "hostname": projection["hostNetworking"]["hostname"],
                              "os": "debian", "pveVersion": "pve-manager/" + pve_manager["version"]},
@@ -415,10 +412,6 @@ def activation_specification(projection: dict[str, Any], flake_lock_sha256: str,
             {"active": item["state"] == "started", "enabled": item["enabled"]},
             {"active": item["state"] == "started", "enabled": item["enabled"], "name": item["name"]},
             service_policies[item["name"]])
-    add("timezone", "system", "set-timezone", "timezone",
-        {"timezone": projection["timezone"]},
-        {"name": "system", "timezone": projection["timezone"]},
-        policies["timezone"])
     ordered_catalog = dict(sorted(catalog.items()))
     if not include_bindings:
         return {"catalog": ordered_catalog, "catalogOrder": list(ordered_catalog)}

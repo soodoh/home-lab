@@ -115,7 +115,7 @@
         (proxmox.planning_policy.domains | map(attribute='domain') | list)
       }}
 
-- name: Publish pending timezone handoff readiness
+- name: Publish timezone handoff status
   ansible.builtin.set_fact:
     proxmox_parity_timezone_handoff_observation:
       version: 1
@@ -135,8 +135,23 @@
           proxmox_parity_evidence.nix_observer.timezone_domain.unexpected_count == 0
         }}
       evidence: "{{ proxmox_parity_evidence }}"
-      handoff_ready: false
-      handoff_authorized: false
+      handoff_ready: >-
+        {{
+          proxmox_parity_timezone_handoff_policy.current_owner == 'ansible' and
+          proxmox_parity_timezone_handoff_policy.state == 'transferred' and
+          not proxmox_parity_nix_declares_timezone_domain and
+          proxmox_parity_evidence.timezone_matches and
+          proxmox_parity_evidence.localtime_matches and
+          proxmox_parity_evidence.nix_observer.returncode == 0 and
+          proxmox_parity_evidence.nix_observer.timezone_domain is not none and
+          proxmox_parity_evidence.nix_observer.timezone_domain.status == 'complete' and
+          proxmox_parity_evidence.nix_observer.timezone_domain.unexpected_count == 0
+        }}
+      handoff_authorized: >-
+        {{
+          proxmox_parity_timezone_handoff_policy.current_owner == 'ansible' and
+          proxmox_parity_timezone_handoff_policy.state == 'transferred'
+        }}
       blockers: >-
         {{
           (
@@ -150,12 +165,12 @@
                 proxmox_parity_evidence.nix_observer.timezone_domain.unexpected_count == 0
               else ['installed-nix-timezone-parity-unavailable']
             ) +
-            ([] if proxmox_parity_timezone_handoff_policy.state == 'ready' else ['handoff-state-not-ready']) +
-            ['nix-source-exclusion-proof-required', 'saved-handoff-plan-required', 'separate-handoff-authorization-required']
+            ([] if proxmox_parity_timezone_handoff_policy.state == 'transferred' else ['handoff-state-not-transferred']) +
+            ([] if proxmox_parity_timezone_handoff_policy.current_owner == 'ansible' else ['ansible-not-current-owner'])
           ) | unique | list
         }}
 
-- name: Emit pending timezone handoff readiness
+- name: Emit timezone handoff status
   ansible.builtin.debug:
     var: proxmox_parity_timezone_handoff_observation
   when: proxmox_parity_emit | bool

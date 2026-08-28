@@ -60,6 +60,7 @@
 | `scripts/controller/proxmox-firewall.py` | `retain-firewall-boundary` | 2 | `docs/proxmox-firewall-cutover.md`, `scripts/controller/test-proxmox-firewall-controller.py` |
 | `scripts/controller/proxmox-nix-projection.js` | `transition-with-nix` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/proxmox-timezone-handoff.js` | `transition-with-nix` | 1 | `scripts/controller/test-proxmox-timezone-handoff.js` |
+| `scripts/controller/proxmox-timezone-handoff-transaction.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-timezone-handoff.js` |
 | `scripts/controller/proxmox-package-manifest.js` | `transition-with-nix` | 5 | `nix/proxmox/bundle.py`, `nix/proxmox/planner.py`, `scripts/bootstrap-proxmox-nix-host` (+2) |
 | `scripts/controller/save-host-maintenance-plan.js` | `retain-controller` | 1 | `scripts/controller/test-save-host-maintenance-plan.js` |
 | `scripts/controller/tailscale-policy.py` | `retain-controller` | 3 | `infrastructure/policy/test-policy.sh`, `scripts/controller/test-tailscale-policy.py`, `scripts/reconcile-infrastructure` |

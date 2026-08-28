@@ -43,7 +43,6 @@ TOKEN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
 HEX40_64 = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
-TIMEZONE = re.compile(r"^[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*$")
 
 
 def canonical(value):
@@ -184,7 +183,7 @@ def read_fixed_file(path, maximum=MAX_CAPTURE_BYTES):
 
 def catalog_key(domain, target):
     name = target.get("path") if isinstance(target, dict) else None
-    if domain in {"services", "timezone"} and isinstance(target, dict):
+    if domain == "services" and isinstance(target, dict):
         name = target.get("name")
     if not isinstance(name, str):
         raise ValueError("action target is invalid")
@@ -204,16 +203,11 @@ def catalog_item(action):
         raise ValueError("action differs from the fixed catalog")
     if action["watchdogRequired"] or action["safetyClass"] in {"access-critical", "data-critical", "protected-session"}:
         raise ValueError("protected or watchdog action is closed until bootstrap qualification")
-    if action["domain"] not in {"managed-files", "managed-fragments", "managed-artifacts", "services", "timezone"}:
+    if action["domain"] not in {"managed-files", "managed-fragments", "managed-artifacts", "services"}:
         raise ValueError("action domain is not dispatchable")
     before = action["before"]
     if not isinstance(before, dict) or before.get("state") not in {"absent", "present"}:
         raise ValueError("action before-state is invalid")
-    if action["domain"] == "timezone":
-        exact(before, {"state", "timezone"}, "timezone before-state")
-        if before["state"] != "present":
-            raise ValueError("timezone before-state must be present")
-        validate_timezone(before["timezone"])
     target_name = action["target"].get("path", action["target"].get("name"))
     expected_precondition = hashlib.sha256(canonical({"before": before, "domain": action["domain"], "target": target_name})).hexdigest()
     expected_id = hashlib.sha256(canonical({"after": action["after"], "before": before, "domain": action["domain"],
@@ -283,34 +277,6 @@ def run_native(arguments, accepted=(0,)):
     return result.stdout
 
 
-def validate_timezone(value):
-    if not isinstance(value, str) or len(value) > 128 or TIMEZONE.fullmatch(value) is None:
-        raise ValueError("timezone is invalid")
-    try:
-        zone_root = Path("/usr/share/zoneinfo").resolve(strict=True)
-        zone_path = (zone_root / value).resolve(strict=True)
-    except OSError as error:
-        raise ValueError("timezone definition is unavailable") from error
-    if zone_root not in zone_path.parents or not zone_path.is_file():
-        raise ValueError("timezone definition is unsafe")
-    return value
-
-
-def timezone_state(_item=None):
-    raw = run_native(("/usr/bin/timedatectl", "show", "--property=Timezone", "--value"))
-    try:
-        value = raw.decode("utf-8", "strict").strip()
-    except UnicodeError as error:
-        raise ValueError("timezone output is invalid") from error
-    if raw != (value + "\n").encode():
-        raise ValueError("timezone output is not canonical")
-    return {"state": "present", "timezone": validate_timezone(value)}
-
-
-def set_timezone(value):
-    run_native(("/usr/bin/timedatectl", "set-timezone", validate_timezone(value)))
-
-
 def service_state(item):
     enabled = run_native(("/usr/bin/systemctl", "is-enabled", item["name"]), (0, 1, 3, 4)).strip() == b"enabled"
     active = run_native(("/usr/bin/systemctl", "is-active", item["name"]), (0, 3, 4)).strip() == b"active"
@@ -322,8 +288,6 @@ def observe_item(item):
         return fragment_state(item)
     if item["domain"] == "services":
         return service_state(item)
-    if item["domain"] == "timezone":
-        return timezone_state(item)
     return file_state(item)
 
 
@@ -441,7 +405,7 @@ def validate_manifest(value, plan_sha):
             raise ValueError("rollback entry shape is invalid")
         action = value["actions"][index - 1] if index <= len(value["actions"]) else None
         expected_identity = None if action is None else catalog_key(action["domain"], action["target"])
-        expected_target_type = None if action is None else "service" if action["domain"] == "services" else "timezone" if action["domain"] == "timezone" else "path"
+        expected_target_type = None if action is None else "service" if action["domain"] == "services" else "path"
         if action is None or entry["sequence"] != index or entry["actionId"] != action["id"] or \
                 entry["identity"] != expected_identity or entry["targetType"] != expected_target_type:
             raise ValueError("rollback entry action binding is invalid")
@@ -451,12 +415,6 @@ def validate_manifest(value, plan_sha):
                     entry["original"]["state"] != "present" or \
                     any(not isinstance(entry["original"][key], bool) for key in ("active", "enabled")):
                 raise ValueError("service rollback entry is invalid")
-        elif entry["targetType"] == "timezone":
-            if set(entry) != common or entry["capturedFingerprint"] is not None or \
-                    not isinstance(entry["original"], dict) or set(entry["original"]) != {"state", "timezone"} or \
-                    entry["original"]["state"] != "present":
-                raise ValueError("timezone rollback entry is invalid")
-            validate_timezone(entry["original"]["timezone"])
         else:
             if set(entry) != common | {"path"} or entry["path"] != action["target"].get("path"):
                 raise ValueError("path rollback entry is invalid")
@@ -648,10 +606,6 @@ def capture_once(plan_sha, action, item):
         captured_state = observe_item(item)
         entry = {"actionId": action["id"], "capturedFingerprint": None, "identity": identity,
                  "original": captured_state, "sequence": action["sequence"], "targetType": "service"}
-    elif item["domain"] == "timezone":
-        captured_state = timezone_state(item)
-        entry = {"actionId": action["id"], "capturedFingerprint": None, "identity": identity,
-                 "original": captured_state, "sequence": action["sequence"], "targetType": "timezone"}
     else:
         path = Path(item["path"])
         try:
@@ -745,8 +699,6 @@ def mutate_item(item, expected_identity=None):
     elif item["domain"] == "services":
         run_native(("/usr/bin/systemctl", "--quiet", "enable" if item["enabled"] else "disable", item["name"]))
         run_native(("/usr/bin/systemctl", "--quiet", "start" if item["active"] else "stop", item["name"]))
-    elif item["domain"] == "timezone":
-        set_timezone(item["timezone"])
     else:
         raise ValueError("closed dispatcher rejected action")
 
@@ -765,9 +717,6 @@ def restore_entry(entry, item):
         run_native(("/usr/bin/systemctl", "--quiet", "enable" if original["enabled"] else "disable", item["name"]))
         run_native(("/usr/bin/systemctl", "--quiet", "start" if original["active"] else "stop", item["name"]))
         return observe_item(item) == original
-    if entry["targetType"] == "timezone":
-        set_timezone(original["timezone"])
-        return timezone_state(item) == original
     path = Path(entry["path"])
     if original["type"] == "absent":
         expected_identity = current_identity(path)

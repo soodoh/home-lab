@@ -14,7 +14,7 @@ A domain can move only when the replacement:
 6. preserves strict host-key verification and excludes protected values from plans/logs; and
 7. disables the same Nix mutation domain in the same reviewed change, so dual writers never exist.
 
-The installed observer currently proves all pre-timezone domains match. Its only schema mismatch is the explicitly waived timezone addition at `38c0163`. Five retained rollback sessions are terminal `released-committed`; none has a pending transition or active lock.
+The installed observer proves every currently retained Nix domain and the transferred timezone audit domain. Retained rollback sessions remain terminal `released-committed`; none has a pending transition or active lock.
 
 ## Domain matrix
 
@@ -31,7 +31,7 @@ The installed observer currently proves all pre-timezone domains match. Its only
 | Managed artifacts | Debian, Proxmox, and Tailscale archive keyrings | Checksum-pinned Ansible artifacts | Source/checksum/provenance and installed bytes match; no network fetch during apply unless present in reviewed plan |
 | Packages | Exact 1,353-record manifest and solver provenance; apply currently nonautomatic | Ansible package-plan/apply roles with a reviewed candidate manifest | Never use a generic `state: latest`; preserve installed/candidate delta, repo identity, holds, PVE/ZFS compatibility, saved plan, and separate reboot |
 | Services | chrony, NFS server, OpenSSH, tailscaled | Shared systemd role with safety-class handlers | Ordinary services first; NFS and access services require data/access canaries and rollback/watchdog |
-| Timezone | Repository Nix mutation domain exists but the installed observer predates it | Shared Ansible timezone ownership after handoff | Ansible read-only parity passes for `America/Los_Angeles`; handoff remains `pending` until Nix planning, projection, planner, and activator mutation surfaces are removed, Nix audit parity is proven, and a saved separately authorized handoff is reviewed |
+| Timezone | Nix retains read-only observer parity but no projection, planner, catalog, activator, or rollback mutation surface | Shared Ansible base role, gated on transferred contract ownership | Saved handoff authorization binds exact live parity and source exclusion; `America/Los_Angeles` remains unchanged while Ansible becomes the sole writer |
 | Accounts | `tofu-plan`, `tofu-apply`, `firewall-apply`, human `proxmox` | Human `proxmox`, automation `ansible-plan` and `ansible-deploy`; keep `firewall-apply` isolated | Create/prove replacements before retiring tofu accounts; password locks, groups, shells, sudo and session termination are checked |
 | Conventional SSH keys | Three forced-command files, the root symlink to the six-key PVE authorized-key set, and controller private keys | Tailscale SSH only; conventional files absent; OpenSSH pubkey auth/root login disabled | Attribute every root key, replace recovery/provider consumers, pass tailnet positive/negative tests, use MagicDNS transports with strict host keys, preserve console recovery, and close the rollback window |
 | Tailscale host | Nix package/config/health domain | Shared Ansible Tailscale role | Never restart during access cutover; prove node ID, tag, MagicDNS, SSH preference, version, and a second live session |

@@ -5,6 +5,18 @@
   vars:
     apt_packages_requested: "{{ base_packages }}"
 
+- name: Resolve timezone mutation ownership
+  ansible.builtin.set_fact:
+    base_timezone_mutation_authorized: >-
+      {{
+        inventory_hostname not in (groups.get('proxmox_host', [])) or
+        (
+          lifecycle.hosts.proxmox.domain_handoffs.timezone.current_owner == 'ansible' and
+          lifecycle.hosts.proxmox.domain_handoffs.timezone.state == 'transferred'
+        )
+      }}
+  changed_when: false
+
 - name: Inspect the configured system timezone
   ansible.builtin.command:
     argv:
@@ -47,6 +59,7 @@
   changed_when: true
   when:
     - not ansible_check_mode
+    - base_timezone_mutation_authorized | bool
     - base_timezone.stdout != system_timezone
 
 - name: Verify the configured system timezone

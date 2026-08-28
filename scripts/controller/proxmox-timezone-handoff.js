@@ -35,15 +35,15 @@ function planProxmoxTimezoneHandoff(contract, sources, parity) {
     activator_dispatch_present: /set_timezone\(|"timezone"\}.*dispatchable|action\["domain"\] == "timezone"/s.test(sources.activator),
     planner_action_present: /"timezone"\s*:\s*"set-timezone"/.test(sources.planner),
     planner_desired_state_present: /"timezone"\s*:\s*\[\{"name":\s*"system",\s*"timezone":\s*projection\["timezone"\]\}\]/.test(sources.planner),
-    projection_desired_state_present: /timezone:\s*systemTimezone/.test(sources.projection),
+    projection_desired_state_present: /\n\s+timezone:\s*systemTimezone/.test(sources.projection),
   };
   const blockers = [];
-  if (policy.state !== "ready") blockers.push("handoff-state-not-ready");
+  if (!new Set(["ready", "transferred"]).has(policy.state)) blockers.push("handoff-state-not-ready");
   if (!parity.ansible_parity) blockers.push("ansible-timezone-parity-unproven");
   if (!parity.nix_runtime_parity) blockers.push("nix-timezone-parity-unproven");
   if (planningDomainPresent) blockers.push("nix-planning-domain-present");
   if (Object.values(mutationSources).some(Boolean)) blockers.push("nix-mutation-source-present");
-  blockers.push("saved-handoff-plan-required", "separate-handoff-authorization-required");
+  if (policy.state !== "transferred") blockers.push("saved-handoff-plan-required", "separate-handoff-authorization-required");
 
   const planMaterial = {
     version: 1,
@@ -56,8 +56,8 @@ function planProxmoxTimezoneHandoff(contract, sources, parity) {
     planning_domain_present: planningDomainPresent,
     mutation_sources: mutationSources,
     blockers,
-    ready: blockers.length === 2,
-    authorized: false,
+    ready: blockers.every((blocker) => new Set(["saved-handoff-plan-required", "separate-handoff-authorization-required"]).has(blocker)),
+    authorized: policy.state === "transferred",
   };
   return {
     ...planMaterial,

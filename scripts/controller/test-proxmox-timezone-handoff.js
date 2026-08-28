@@ -16,6 +16,7 @@ const sources = {
   activator: read("nix/proxmox/activator-template.py"),
 };
 const tasks = load(read("ansible/roles/proxmox_parity/tasks/main.yml"));
+const baseTasks = load(read("ansible/roles/base/tasks/main.yml"));
 const playbook = load(read("ansible/playbooks/proxmox-timezone-handoff-plan.yml"))[0];
 
 const current = planProxmoxTimezoneHandoff(contract, sources, {
@@ -23,21 +24,13 @@ const current = planProxmoxTimezoneHandoff(contract, sources, {
   nix_runtime_parity: false,
 });
 assert.equal(current.ready, false);
-assert.equal(current.authorized, false);
-for (const blocker of [
-  "handoff-state-not-ready",
-  "nix-timezone-parity-unproven",
-  "nix-planning-domain-present",
-  "nix-mutation-source-present",
-  "saved-handoff-plan-required",
-  "separate-handoff-authorization-required",
-]) {
-  assert(current.blockers.includes(blocker), `current handoff omits blocker ${blocker}`);
-}
+assert.equal(current.authorized, true);
+assert.deepEqual(current.blockers, ["nix-timezone-parity-unproven"]);
 assert.match(current.plan_sha256, /^[0-9a-f]{64}$/);
 
 const readyContract = structuredClone(contract);
 readyContract.lifecycle.hosts.proxmox.domain_handoffs.timezone.state = "ready";
+readyContract.lifecycle.hosts.proxmox.domain_handoffs.timezone.current_owner = "nix";
 readyContract.proxmox.planning_policy.domains = readyContract.proxmox.planning_policy.domains.filter(
   (entry) => entry.domain !== "timezone",
 );
@@ -51,7 +44,7 @@ assert.equal(ready.authorized, false);
 assert.deepEqual(ready.blockers, ["saved-handoff-plan-required", "separate-handoff-authorization-required"]);
 
 const invalidOwner = structuredClone(contract);
-invalidOwner.lifecycle.hosts.proxmox.domain_handoffs.timezone.current_owner = "ansible";
+invalidOwner.lifecycle.hosts.proxmox.domain_handoffs.timezone.current_owner = "nix";
 assert.throws(
   () => planProxmoxTimezoneHandoff(invalidOwner, sources, { ansible_parity: true, nix_runtime_parity: true }),
   /owner and state disagree/,
@@ -84,9 +77,16 @@ for (const required of [
 for (const forbidden of ["set-timezone", 'observer_path, "apply"', 'observer_path, "prepare"']) {
   assert(!observerScript.includes(forbidden), `Proxmox parity observer contains mutation path ${forbidden}`);
 }
-const publish = tasks.find((item) => item.name === "Publish pending timezone handoff readiness");
-assert.equal(publish["ansible.builtin.set_fact"].proxmox_parity_timezone_handoff_observation.handoff_ready, false);
-assert.equal(publish["ansible.builtin.set_fact"].proxmox_parity_timezone_handoff_observation.handoff_authorized, false);
+const timezoneMutation = baseTasks.find((item) => item.name === "Converge the system timezone outside check mode");
+assert(timezoneMutation, "Ansible timezone convergence task is required");
+assert(timezoneMutation.when.includes("base_timezone_mutation_authorized | bool"));
+const ownership = baseTasks.find((item) => item.name === "Resolve timezone mutation ownership");
+assert.match(ownership["ansible.builtin.set_fact"].base_timezone_mutation_authorized, /state == 'transferred'/);
+const publish = tasks.find((item) => item.name === "Publish timezone handoff status");
+assert(publish, "timezone handoff status task is required");
+const published = publish["ansible.builtin.set_fact"].proxmox_parity_timezone_handoff_observation;
+assert.match(published.handoff_ready, /state == 'transferred'/);
+assert.match(published.handoff_authorized, /current_owner == 'ansible'/);
 
 assert.equal(playbook.hosts, "proxmox_host");
 assert.equal(playbook.gather_facts, false);
@@ -98,11 +98,17 @@ assert.equal(playbook.roles[1].role, "proxmox_parity");
 
 const handoff = contract.lifecycle.hosts.proxmox.domain_handoffs.timezone;
 assert.deepEqual(handoff, {
-  current_owner: "nix",
+  current_owner: "ansible",
   target_owner: "ansible",
-  state: "pending",
+  state: "transferred",
   parity_required: true,
   single_writer: true,
 });
+
+const transaction = read("scripts/controller/proxmox-timezone-handoff-transaction.py");
+for (const required of ["PROXMOX_TIMEZONE_HANDOFF_CONFIRMED", "os.O_EXCL", "os.O_NOFOLLOW", "ansible-plan@proxmox", "host_mutation\": False"]) {
+  assert(transaction.includes(required), `timezone transaction omits ${required}`);
+}
+assert(!transaction.includes("StrictHostKeyChecking=no"));
 
 console.log("proxmox_timezone_handoff=verified");
