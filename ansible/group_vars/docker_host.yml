@@ -49,7 +49,9 @@ audit_expected_tailscale_update_check: "{{ tailscale.docker_host_client.update_c
 audit_expected_compose_service_count: "{{ nextcloud.expected_compose_service_count }}"
 audit_allowed_declared_compose_service_counts:
   - "{{ audit_expected_compose_service_count }}"
-audit_allowed_materialized_compose_service_counts: "{{ audit_allowed_declared_compose_service_counts }}"
+  - "{{ backups.legacy_offen.retirement.planned_source_service_count }}"
+audit_allowed_materialized_compose_service_counts:
+  - "{{ audit_expected_compose_service_count }}"
 audit_expected_stopped_compose_services: []
 audit_expected_running_compose_service_count: "{{ audit_expected_compose_service_count }}"
 
