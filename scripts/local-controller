@@ -120,7 +120,7 @@ PY
 
 
 run_validation() {
-  scripts/reconcile-infrastructure validate
+  env -u RECONCILE_ANSIBLE_EXTRA_VARS_FILE scripts/reconcile-infrastructure validate
 }
 
 require_ordinary_mutation_authority() {
