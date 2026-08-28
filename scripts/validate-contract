@@ -110,7 +110,7 @@ if (offenRetirement.state === "retired") {
 }
 const legacyOffen = contract.backups.legacy_offen;
 if (JSON.stringify(offenRetirementManifest.compose.services) !== JSON.stringify(legacyOffen.scheduler_services)
-    || offenRetirementManifest.compose.planned_source_service_count !== contract.nextcloud.expected_compose_service_count
+    || offenRetirementManifest.compose.planned_source_service_count !== offenRetirement.planned_source_service_count
     || offenRetirementManifest.compose.materialized_service_count_before !== offenRetirement.materialized_service_count_before) {
   failures.push("Offen retirement service scope differs from the contract");
 }

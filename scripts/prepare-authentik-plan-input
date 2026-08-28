@@ -34,7 +34,7 @@ SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE sops --decrypt --output-type json \
   infrastructure/tofu/authentik/client-secrets.sops.json >"$client_secrets"
 jq -e '
   .schemaVersion == 1 and
-  (.oauthProviders | type == "object" and (keys | sort) == ["15", "16", "21", "37", "47", "49"]) and
+  (.oauthProviders | type == "object" and (keys | sort) == ["15", "21", "37", "47", "49"]) and
   all(.oauthProviders[];
     type == "object" and
     (keys == ["client_secret"]) and

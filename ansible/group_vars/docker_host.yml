@@ -46,7 +46,7 @@ audit_expected_tailscale_daemon_sha256: "{{ tailscale.docker_host_client.daemon_
 audit_expected_tailscale_auto_update_apply: "{{ tailscale.docker_host_client.auto_update_apply }}"
 audit_expected_tailscale_run_ssh: "{{ tailscale.docker_host_client.run_ssh }}"
 audit_expected_tailscale_update_check: "{{ tailscale.docker_host_client.update_check }}"
-audit_expected_compose_service_count: "{{ backups.legacy_offen.retirement.planned_source_service_count }}"
+audit_expected_compose_service_count: "{{ nextcloud.expected_compose_service_count }}"
 audit_allowed_declared_compose_service_counts:
   - "{{ audit_expected_compose_service_count }}"
 audit_allowed_materialized_compose_service_counts: "{{ audit_allowed_declared_compose_service_counts }}"

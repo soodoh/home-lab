@@ -590,9 +590,9 @@
           "prefixItems": [{ "const": "nextcloud-cron" }, { "const": "nextcloud" }, { "const": "nextcloud-db" }],
           "items": false, "minItems": 3, "maxItems": 3, "uniqueItems": true
         },
-        "expected_compose_service_count": { "const": 40 },
-        "expected_image_reference_count": { "const": 35 },
-        "expected_image_lock_service_count": { "const": 39 },
+        "expected_compose_service_count": { "const": 38 },
+        "expected_image_reference_count": { "const": 33 },
+        "expected_image_lock_service_count": { "const": 37 },
         "rollback_window_days": { "const": 7 },
         "old_path_cleanup_gate": { "const": "nextcloud-old-paths-reviewed-after-recovery-proof" }
       }

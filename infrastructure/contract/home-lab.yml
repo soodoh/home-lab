@@ -1257,9 +1257,9 @@ nextcloud:
     - nextcloud-cron
     - nextcloud
     - nextcloud-db
-  expected_compose_service_count: 40
-  expected_image_reference_count: 35
-  expected_image_lock_service_count: 39
+  expected_compose_service_count: 38
+  expected_image_reference_count: 33
+  expected_image_lock_service_count: 37
   rollback_window_days: 7
   old_path_cleanup_gate: nextcloud-old-paths-reviewed-after-recovery-proof
 backups:
