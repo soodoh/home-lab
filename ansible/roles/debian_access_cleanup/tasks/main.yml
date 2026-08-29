@@ -122,7 +122,7 @@
         ]
         if paths != expected_paths or operation not in {"apply", "rollback"}:
             raise SystemExit(65)
-        lock_path = "/var/lib/iac-ansible-production.lock"
+        lock_path = "/run/lock/home-lab-debian-access-cleanup.lock"
         lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
         fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         rollback_root = Path("/var/lib/home-lab/access-rollback")

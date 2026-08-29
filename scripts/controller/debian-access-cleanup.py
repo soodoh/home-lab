@@ -238,7 +238,7 @@ def apply_conventional_keys(plan_path: Path, manifest_path: Path, recovery_path:
             after = observe()
             if any(after["paths"].get(path) != {"exists": False} for path in plan_value["action"]["paths"]):
                 raise ValueError("Debian conventional key postcondition differs")
-        except Exception:
+        except (Exception, SystemExit):
             if invoke("rollback"):
                 raise SystemExit("Debian conventional key canary failed and rollback failed")
             raise SystemExit("Debian conventional key canary failed; rollback restored exact keys")
