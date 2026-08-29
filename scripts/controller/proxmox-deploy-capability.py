@@ -87,7 +87,7 @@ def save_plan() -> tuple[Path, str]:
             "created_at": now.isoformat().replace("+00:00", "Z"), "expires_at": (now + timedelta(seconds=1800)).isoformat().replace("+00:00", "Z"),
             "observation": evidence, "observation_sha256": sha(canonical(evidence)), "source_proof": source_proof(),
             "action": {"account": "ansible-deploy", "shell": TRANSPORT, "sudo_rule": RULE,
-                       "capability": "saved-lifecycle-marker-plans-only", "authorized_keys": "absent"}, "authorized": False}
+                       "capability": "saved-action-plans-only", "authorized_keys": "absent"}, "authorized": False}
     raw = canonical(plan); digest = sha(raw); PLAN_DIR.mkdir(parents=True, exist_ok=True, mode=0o700); os.chmod(PLAN_DIR, 0o700)
     path = PLAN_DIR / f"{digest}.json"; fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "wb") as handle: handle.write(raw); handle.flush(); os.fsync(handle.fileno())

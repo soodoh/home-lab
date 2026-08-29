@@ -1,7 +1,8 @@
 #!/usr/bin/python3
-"""Apply one immutable lifecycle-marker plan through the fixed deploy transport."""
+"""Apply immutable lifecycle-marker and exact package plans through the fixed deploy transport."""
 
 import datetime as dt
+import fcntl
 import hashlib
 import json
 import os
@@ -150,10 +151,189 @@ def install_marker(after):
     return "applied"
 
 
+def native(arguments, accepted=(0,), timeout=300):
+    environment = {"DEBIAN_FRONTEND": "noninteractive", "LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+    result = subprocess.run(arguments, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=environment, timeout=timeout)
+    if result.returncode not in accepted or len(result.stdout) > 16 * 1024 * 1024 or len(result.stderr) > 1024 * 1024:
+        fail("fixed package command failed")
+    return result
+
+
+def installed_inventory():
+    result = native(("/usr/bin/dpkg-query", "--show", "--showformat=${binary:Package}\\t${Version}\\n"))
+    lines = sorted(line for line in result.stdout.splitlines() if line)
+    raw = ("\n".join(lines) + "\n").encode()
+    return lines, hashlib.sha256(raw).hexdigest()
+
+
+def apt_metadata():
+    newest_path = None
+    newest_mtime = 0
+    for directory, subdirectories, files in os.walk("/var/lib/apt/lists"):
+        subdirectories[:] = [name for name in subdirectories if name != "partial"]
+        for name in files:
+            path = os.path.join(directory, name)
+            try:
+                metadata = os.stat(path, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(metadata.st_mode) or int(metadata.st_mtime) <= newest_mtime:
+                continue
+            newest_path = path
+            newest_mtime = int(metadata.st_mtime)
+    return newest_path, newest_mtime
+
+
+def solver_changes():
+    result = native(("/usr/bin/apt-get", "--simulate", "--option", "Debug::NoLocking=1", "--option", "APT::Get::Show-Upgraded=true", "dist-upgrade"))
+    install_pattern = re.compile(r"^Inst (\S+)(?: \[([^]]+)\])? \((\S+)(?: (.*))?\)$")
+    remove_pattern = re.compile(r"^Remv (\S+)(?: \[([^]]+)\])?")
+    changes = []
+    for line in result.stdout.splitlines():
+        match = install_pattern.match(line)
+        if match:
+            name, previous, candidate, origin = match.groups()
+            action = "install" if previous is None else "upgrade"
+            if previous is not None:
+                comparison = native(("/usr/bin/dpkg", "--compare-versions", candidate, "lt", previous), accepted=(0, 1))
+                if comparison.returncode == 0:
+                    action = "downgrade"
+            changes.append({"action": action, "candidate_version": candidate, "name": name, "origin": origin or "",
+                            "previous_version": previous, "security": "security" in (origin or "").lower()})
+            continue
+        match = remove_pattern.match(line)
+        if match:
+            name, previous = match.groups()
+            changes.append({"action": "remove", "candidate_version": None, "name": name, "origin": "",
+                            "previous_version": previous, "security": False})
+    changes.sort(key=lambda item: (item["name"], item["action"], item["candidate_version"] or ""))
+    return changes, hashlib.sha256(result.stdout.encode()).hexdigest()
+
+
+def validate_package_plan(value, digest):
+    expected_keys = {"access_evidence_sha256", "authorized", "automatic_reboot", "commit", "console_attested",
+                     "contract_sha256", "created_at", "expires_at", "format", "host_key_fingerprint", "inventory_sha256",
+                     "maintenance_plan_sha256", "proposal"}
+    if not isinstance(value, dict) or set(value) != expected_keys or value["format"] != "home-lab-proxmox-package-activation-v1" or \
+            value["authorized"] is not False or value["automatic_reboot"] is not False or value["console_attested"] is not True or \
+            value["host_key_fingerprint"] != FINGERPRINT:
+        fail("package activation envelope differs")
+    if HEX40.fullmatch(value.get("commit", "")) is None or any(HEX64.fullmatch(value.get(key, "")) is None for key in ("access_evidence_sha256", "contract_sha256", "inventory_sha256", "maintenance_plan_sha256")):
+        fail("package activation binding is invalid")
+    created, expires = parse_time(value["created_at"]), parse_time(value["expires_at"])
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    if created > now or now > expires or (expires - created).total_seconds() != 1800:
+        fail("package activation freshness differs")
+    if hashlib.sha256(canonical(value)).hexdigest() != digest:
+        fail("package activation content hash differs")
+    proposal = value["proposal"]
+    required = {"change_counts", "changes", "holds", "host", "installed_inventory_sha256", "metadata_mtime_epoch",
+                "metadata_newest_path", "proposal_sha256", "solver"}
+    if not isinstance(proposal, dict) or not required.issubset(proposal) or proposal["host"] != "proxmox" or proposal["holds"] != [] or \
+            proposal["change_counts"].get("remove") != 0 or proposal["change_counts"].get("downgrade") != 0 or not proposal["changes"]:
+        fail("package proposal is not an exact safe set")
+    names = set()
+    for item in proposal["changes"]:
+        if set(item) != {"action", "candidate_version", "name", "origin", "previous_version", "security"} or \
+                item["action"] not in {"install", "upgrade"} or not isinstance(item["candidate_version"], str) or \
+                re.fullmatch(r"[a-z0-9][a-z0-9+.-]*(?::[a-z0-9]+)?", item["name"]) is None or item["name"] in names:
+            fail("package change set is malformed")
+        names.add(item["name"])
+    if proposal["changes"] != sorted(proposal["changes"], key=lambda item: (item["name"], item["action"], item["candidate_version"] or "")):
+        fail("package change set is not sorted")
+    return proposal
+
+
+def package_journal_path(digest):
+    root = Path("/var/lib/home-lab/package-transactions")
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    info = os.lstat(root)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o700:
+        fail("package transaction root is unsafe")
+    return root / f"{digest}.json"
+
+
+def save_package_journal(path, value, exclusive=False):
+    raw = canonical(value)
+    if exclusive:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            os.write(fd, raw); os.fsync(fd)
+        finally:
+            os.close(fd)
+        return
+    temporary = path.parent / f".{path.name}.{os.getpid()}.tmp"
+    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(fd, raw); os.fsync(fd)
+    finally:
+        os.close(fd)
+    os.replace(temporary, path)
+
+
+def verify_package_preconditions(proposal):
+    _, inventory_sha256 = installed_inventory()
+    if inventory_sha256 != proposal["installed_inventory_sha256"]:
+        fail("installed package inventory changed after planning")
+    metadata_path, metadata_mtime = apt_metadata()
+    if metadata_path != proposal["metadata_newest_path"] or metadata_mtime != proposal["metadata_mtime_epoch"]:
+        fail("APT metadata changed after planning")
+    now = int(dt.datetime.now(dt.timezone.utc).timestamp())
+    if metadata_mtime < 1 or now - metadata_mtime > 86400:
+        fail("APT metadata is stale")
+    changes, solver_sha256 = solver_changes()
+    if changes != proposal["changes"] or solver_sha256 != proposal["solver"]["stdout_sha256"]:
+        fail("apply-time solver differs from the saved exact proposal")
+
+
+def package_operation(value, digest, operation):
+    proposal = validate_package_plan(value, digest)
+    verify_repo(value)
+    lock_path = "/run/lock/home-lab-proxmox-package.lock"
+    lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    journal_path = package_journal_path(digest)
+    journal = json.loads(journal_path.read_bytes()) if journal_path.exists() else None
+    if operation == "prepare-package":
+        if journal is not None:
+            if journal.get("status") == "prepared":
+                return {"package_transaction": "already-prepared", "plan_sha256": digest}
+            fail("package transaction journal already exists")
+        verify_package_preconditions(proposal)
+        save_package_journal(journal_path, {"format": "home-lab-proxmox-package-journal-v1", "plan_sha256": digest,
+                                            "status": "preparing", "automatic_reboot": False}, exclusive=True)
+        native(("/usr/bin/apt-get", "--yes", "--no-remove", "--download-only", "--option", "APT::Get::Show-Upgraded=true", "dist-upgrade"), timeout=1800)
+        journal = {"format": "home-lab-proxmox-package-journal-v1", "plan_sha256": digest,
+                   "status": "prepared", "automatic_reboot": False}
+        save_package_journal(journal_path, journal)
+        return {"package_transaction": "prepared", "plan_sha256": digest}
+    if journal is None or journal.get("status") not in {"prepared", "committed"} or journal.get("plan_sha256") != digest:
+        fail("package transaction is not prepared")
+    if journal["status"] == "committed":
+        return {"package_transaction": "already-committed", "plan_sha256": digest}
+    verify_package_preconditions(proposal)
+    journal["status"] = "applying"; save_package_journal(journal_path, journal)
+    native(("/usr/bin/apt-get", "--yes", "--no-remove", "--no-download", "--option", "Dpkg::Options::=--force-confold",
+            "--option", "APT::Get::Show-Upgraded=true", "dist-upgrade"), timeout=3600)
+    for item in proposal["changes"]:
+        result = native(("/usr/bin/dpkg-query", "--show", "--showformat=${Version}", item["name"]))
+        if result.stdout != item["candidate_version"]:
+            fail("package postcondition differs")
+    audit = native(("/usr/bin/dpkg", "--audit"))
+    if audit.stdout or audit.stderr:
+        fail("dpkg audit is not clean")
+    remaining, _ = solver_changes()
+    if remaining:
+        fail("package solver is not empty after apply")
+    journal["status"] = "committed"; save_package_journal(journal_path, journal)
+    return {"automatic_reboot": False, "package_transaction": "committed", "plan_sha256": digest}
+
+
 def main():
     request = read_bounded_stdin(1024)
+    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package"}
     if not isinstance(request, dict) or set(request) != {"operation", "plan_sha256"} or \
-            request["operation"] != "apply-lifecycle-marker" or not isinstance(request["plan_sha256"], str) or \
+            request.get("operation") not in operations or not isinstance(request.get("plan_sha256"), str) or \
             HEX64.fullmatch(request["plan_sha256"]) is None:
         fail("deploy request differs")
     if any(os.path.lexists(path) for path in LOCKS):
@@ -161,14 +341,18 @@ def main():
     digest = request["plan_sha256"]
     deploy_account = pwd.getpwnam("ansible-deploy")
     path = INBOX / f"{digest}.json"
-    raw = read_fixed(path, deploy_account.pw_uid, deploy_account.pw_gid, 0o600, 16384)
+    limit = 16384 if request["operation"] == "apply-lifecycle-marker" else 262144
+    raw = read_fixed(path, deploy_account.pw_uid, deploy_account.pw_gid, 0o600, limit)
     value = json.loads(raw)
     if raw != canonical(value):
         fail("staged plan is not canonical")
-    after = validate_plan(value, digest)
-    verify_repo(value)
-    result = install_marker(after)
-    print(json.dumps({"lifecycle_marker": result, "plan_sha256": digest}, sort_keys=True, separators=(",", ":")))
+    if request["operation"] == "apply-lifecycle-marker":
+        after = validate_plan(value, digest)
+        verify_repo(value)
+        output = {"lifecycle_marker": install_marker(after), "plan_sha256": digest}
+    else:
+        output = package_operation(value, digest, request["operation"])
+    print(json.dumps(output, sort_keys=True, separators=(",", ":")))
 
 
 try:

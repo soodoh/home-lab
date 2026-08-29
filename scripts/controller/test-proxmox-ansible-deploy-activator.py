@@ -60,6 +60,35 @@ def main() -> None:
     except ValueError:
         pass
 
+    proposal = {
+        "host": "proxmox",
+        "holds": [],
+        "change_counts": {"install": 0, "upgrade": 1, "downgrade": 0, "remove": 0},
+        "changes": [{"action": "upgrade", "candidate_version": "2", "name": "example-package", "origin": "Example [amd64]", "previous_version": "1", "security": False}],
+        "installed_inventory_sha256": "4" * 64,
+        "metadata_mtime_epoch": 1,
+        "metadata_newest_path": "/var/lib/apt/lists/example",
+        "proposal_sha256": "5" * 64,
+        "solver": {"command": "apt-get-simulate", "returncode": 0, "stdout_sha256": "6" * 64, "stderr_sha256": "7" * 64},
+    }
+    package = {
+        "access_evidence_sha256": "9" * 64, "authorized": False, "automatic_reboot": False, "commit": commit,
+        "console_attested": True,
+        "contract_sha256": "2" * 64, "inventory_sha256": "3" * 64,
+        "created_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "expires_at": (now + dt.timedelta(seconds=1800)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "format": "home-lab-proxmox-package-activation-v1", "host_key_fingerprint": module["FINGERPRINT"],
+        "maintenance_plan_sha256": "8" * 64, "proposal": proposal,
+    }
+    package_digest = hashlib.sha256(canonical(package)).hexdigest()
+    assert module["validate_package_plan"](package, package_digest) == proposal
+    unsafe_package = json.loads(json.dumps(package)); unsafe_package["proposal"]["change_counts"]["remove"] = 1
+    try:
+        module["validate_package_plan"](unsafe_package, hashlib.sha256(canonical(unsafe_package)).hexdigest())
+        raise AssertionError("package removal was accepted")
+    except ValueError:
+        pass
+
     with tempfile.TemporaryDirectory() as temporary:
         parent = Path(temporary)
         parent.chmod(0o700)
