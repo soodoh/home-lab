@@ -108,6 +108,9 @@
                     "previous_version": previous,
                     "security": False,
                 })
+                continue
+            if line.startswith(("Inst ", "Remv ")):
+                raise SystemExit("unrecognized_apt_solver_transition")
 
         changes.sort(key=lambda item: (item["name"], item["action"], item["candidate_version"] or ""))
         now = int(datetime.datetime.now(datetime.timezone.utc).timestamp())

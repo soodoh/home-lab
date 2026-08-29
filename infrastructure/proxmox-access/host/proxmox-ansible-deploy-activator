@@ -206,6 +206,9 @@ def solver_changes():
             name, previous = match.groups()
             changes.append({"action": "remove", "candidate_version": None, "name": name, "origin": "",
                             "previous_version": previous, "security": False})
+            continue
+        if line.startswith(("Inst ", "Remv ")):
+            fail("unrecognized APT solver transition")
     changes.sort(key=lambda item: (item["name"], item["action"], item["candidate_version"] or ""))
     return changes, hashlib.sha256(result.stdout.encode()).hexdigest()
 

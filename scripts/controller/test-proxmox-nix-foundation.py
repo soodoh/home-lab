@@ -138,7 +138,7 @@ class ProxmoxNixFoundationTests(unittest.TestCase):
             )
             self.assertEqual(metadata["packageCount"], len(manifest["packages"]))
             self.assertEqual(len(manifest["packages"]), installed_delta)
-            self.assertEqual(len(manifest["packages"]), 1353)
+            self.assertEqual(len(manifest["packages"]), 1355)
             self.assertFalse(metadata["target"]["requiresNix"])
             self.assertEqual(metadata["helperInstall"], {
                 "deployment": "copy-out-of-store", "owner": "root", "group": "root", "mode": "0755",

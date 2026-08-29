@@ -9,31 +9,931 @@
     },
     "solverResult": {
       "format": "apt-get-simulate-v1",
-      "sha256": "71139de84e966336cb6fee12d740a85b57475c56f6e2e6a46b44abbc206ad680",
+      "sha256": "083d842e7bda76e8415500c345f11d9cdc69caef6d10456a74281bcd1d232c19",
       "changes": [
         {
           "action": "upgrade",
+          "name": "base-files",
+          "previousVersion": "13.8+deb13u5",
+          "version": "13.8+deb13u6"
+        },
+        {
+          "action": "upgrade",
+          "name": "bind9-dnsutils",
+          "previousVersion": "1:9.20.23-1~deb13u1",
+          "version": "1:9.20.26-1~deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "bind9-host",
+          "previousVersion": "1:9.20.23-1~deb13u1",
+          "version": "1:9.20.26-1~deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "bind9-libs:amd64",
+          "previousVersion": "1:9.20.23-1~deb13u1",
+          "version": "1:9.20.26-1~deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "bsdextrautils",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "bsdutils",
+          "previousVersion": "1:2.41-5",
+          "version": "1:2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
           "name": "chrony",
-          "previousVersion": "4.6.1-3+deb13u1",
-          "version": "4.6.1-3+deb13u2"
+          "previousVersion": "4.6.1-3+deb13u2",
+          "version": "4.8-4~bpo13+2"
         },
         {
           "action": "upgrade",
-          "name": "curl",
-          "previousVersion": "8.14.1-2+deb13u3",
-          "version": "8.14.1-2+deb13u4"
+          "name": "corosync",
+          "previousVersion": "3.1.10-pve2",
+          "version": "3.1.10-pve3"
         },
         {
           "action": "upgrade",
-          "name": "libcurl3t64-gnutls:amd64",
-          "previousVersion": "8.14.1-2+deb13u3",
-          "version": "8.14.1-2+deb13u4"
+          "name": "dirmngr",
+          "previousVersion": "2.4.7-21+deb13u1+b3",
+          "version": "2.4.7-21+deb13u1+b4"
         },
         {
           "action": "upgrade",
-          "name": "libcurl4t64:amd64",
-          "previousVersion": "8.14.1-2+deb13u3",
-          "version": "8.14.1-2+deb13u4"
+          "name": "eject",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "fdisk",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "frr",
+          "previousVersion": "10.6.1-1+pve2",
+          "version": "10.6.1-1+pve3"
+        },
+        {
+          "action": "upgrade",
+          "name": "frr-pythontools",
+          "previousVersion": "10.6.1-1+pve2",
+          "version": "10.6.1-1+pve3"
+        },
+        {
+          "action": "upgrade",
+          "name": "gnupg-utils",
+          "previousVersion": "2.4.7-21+deb13u1+b3",
+          "version": "2.4.7-21+deb13u1+b4"
+        },
+        {
+          "action": "upgrade",
+          "name": "gpg",
+          "previousVersion": "2.4.7-21+deb13u1+b3",
+          "version": "2.4.7-21+deb13u1+b4"
+        },
+        {
+          "action": "upgrade",
+          "name": "gpg-agent",
+          "previousVersion": "2.4.7-21+deb13u1+b3",
+          "version": "2.4.7-21+deb13u1+b4"
+        },
+        {
+          "action": "upgrade",
+          "name": "gpg-wks-client",
+          "previousVersion": "2.4.7-21+deb13u1+b3",
+          "version": "2.4.7-21+deb13u1+b4"
+        },
+        {
+          "action": "upgrade",
+          "name": "gpg-wks-server",
+          "previousVersion": "2.4.7-21+deb13u1+b3",
+          "version": "2.4.7-21+deb13u1+b4"
+        },
+        {
+          "action": "upgrade",
+          "name": "gpgconf",
+          "previousVersion": "2.4.7-21+deb13u1+b3",
+          "version": "2.4.7-21+deb13u1+b4"
+        },
+        {
+          "action": "upgrade",
+          "name": "gpgsm",
+          "previousVersion": "2.4.7-21+deb13u1+b3",
+          "version": "2.4.7-21+deb13u1+b4"
+        },
+        {
+          "action": "upgrade",
+          "name": "gpgv",
+          "previousVersion": "2.4.7-21+deb13u1+b3",
+          "version": "2.4.7-21+deb13u1+b4"
+        },
+        {
+          "action": "upgrade",
+          "name": "imagemagick-7-common",
+          "previousVersion": "8:7.1.1.43+dfsg1-1+deb13u9",
+          "version": "8:7.1.1.43+dfsg1-1+deb13u11"
+        },
+        {
+          "action": "upgrade",
+          "name": "imagemagick-7.q16",
+          "previousVersion": "8:7.1.1.43+dfsg1-1+deb13u9",
+          "version": "8:7.1.1.43+dfsg1-1+deb13u11"
+        },
+        {
+          "action": "upgrade",
+          "name": "jq",
+          "previousVersion": "1.7.1-6+deb13u2",
+          "version": "1.7.1-6+deb13u3"
+        },
+        {
+          "action": "upgrade",
+          "name": "libaom3:amd64",
+          "previousVersion": "3.12.1-1",
+          "version": "3.12.1-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libblkid1:amd64",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libbytes-random-secure-perl",
+          "previousVersion": "0.29-3",
+          "version": "0.29-4~deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libcfg7:amd64",
+          "previousVersion": "3.1.10-pve2",
+          "version": "3.1.10-pve3"
+        },
+        {
+          "action": "upgrade",
+          "name": "libcmap4:amd64",
+          "previousVersion": "3.1.10-pve2",
+          "version": "3.1.10-pve3"
+        },
+        {
+          "action": "upgrade",
+          "name": "libcorosync-common4:amd64",
+          "previousVersion": "3.1.10-pve2",
+          "version": "3.1.10-pve3"
+        },
+        {
+          "action": "upgrade",
+          "name": "libcpg4:amd64",
+          "previousVersion": "3.1.10-pve2",
+          "version": "3.1.10-pve3"
+        },
+        {
+          "action": "upgrade",
+          "name": "libde265-0:amd64",
+          "previousVersion": "1.0.15-1+b3",
+          "version": "1.0.15-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libegl-mesa0:amd64",
+          "previousVersion": "25.0.7-2",
+          "version": "25.0.7-2+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libexpat1-dev:amd64",
+          "previousVersion": "2.7.1-2",
+          "version": "2.8.3-1~deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libexpat1:amd64",
+          "previousVersion": "2.7.1-2",
+          "version": "2.8.3-1~deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libfdisk1:amd64",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libgbm1:amd64",
+          "previousVersion": "25.0.7-2",
+          "version": "25.0.7-2+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libgd3:amd64",
+          "previousVersion": "2.3.3-13",
+          "version": "2.3.3-14~deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libgl1-mesa-dri:amd64",
+          "previousVersion": "25.0.7-2",
+          "version": "25.0.7-2+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libglx-mesa0:amd64",
+          "previousVersion": "25.0.7-2",
+          "version": "25.0.7-2+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libgraphite2-3:amd64",
+          "previousVersion": "1.3.14-2+b1",
+          "version": "1.3.14-2+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libheif-plugin-aomenc:amd64",
+          "previousVersion": "1.19.8-1",
+          "version": "1.19.8-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libheif-plugin-dav1d:amd64",
+          "previousVersion": "1.19.8-1",
+          "version": "1.19.8-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libheif-plugin-libde265:amd64",
+          "previousVersion": "1.19.8-1",
+          "version": "1.19.8-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libheif-plugin-x265:amd64",
+          "previousVersion": "1.19.8-1",
+          "version": "1.19.8-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libheif1:amd64",
+          "previousVersion": "1.19.8-1",
+          "version": "1.19.8-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libhtml-parser-perl:amd64",
+          "previousVersion": "3.83-1+b2",
+          "version": "3.83-2~deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libhttp-daemon-perl",
+          "previousVersion": "6.16-1",
+          "version": "6.16-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libjq1:amd64",
+          "previousVersion": "1.7.1-6+deb13u2",
+          "version": "1.7.1-6+deb13u3"
+        },
+        {
+          "action": "upgrade",
+          "name": "libjs-extjs",
+          "previousVersion": "7.0.0-5",
+          "version": "7.0.0-7"
+        },
+        {
+          "action": "upgrade",
+          "name": "libknet1t64:amd64",
+          "previousVersion": "1.31-pve1",
+          "version": "1.35-pve1"
+        },
+        {
+          "action": "upgrade",
+          "name": "liblastlog2-2:amd64",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libldb2:amd64",
+          "previousVersion": "2:2.11.0+samba4.22.8+dfsg-0+deb13u2",
+          "version": "2:2.11.0+samba4.22.10+dfsg-0+deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "liblzma5:amd64",
+          "previousVersion": "5.8.1-1",
+          "version": "5.8.1-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libmagickcore-7.q16-10-extra:amd64",
+          "previousVersion": "8:7.1.1.43+dfsg1-1+deb13u9",
+          "version": "8:7.1.1.43+dfsg1-1+deb13u11"
+        },
+        {
+          "action": "upgrade",
+          "name": "libmagickcore-7.q16-10:amd64",
+          "previousVersion": "8:7.1.1.43+dfsg1-1+deb13u9",
+          "version": "8:7.1.1.43+dfsg1-1+deb13u11"
+        },
+        {
+          "action": "upgrade",
+          "name": "libmagickwand-7.q16-10:amd64",
+          "previousVersion": "8:7.1.1.43+dfsg1-1+deb13u9",
+          "version": "8:7.1.1.43+dfsg1-1+deb13u11"
+        },
+        {
+          "action": "upgrade",
+          "name": "libmount1:amd64",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libnet-dns-perl",
+          "previousVersion": "1.50-1",
+          "version": "1.56-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libnozzle1t64:amd64",
+          "previousVersion": "1.31-pve1",
+          "version": "1.35-pve1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libnss3-dev:amd64",
+          "previousVersion": "2:3.110-1+deb13u2",
+          "version": "2:3.110-1+deb13u4"
+        },
+        {
+          "action": "upgrade",
+          "name": "libnss3:amd64",
+          "previousVersion": "2:3.110-1+deb13u2",
+          "version": "2:3.110-1+deb13u4"
+        },
+        {
+          "action": "upgrade",
+          "name": "libnvpair3linux:amd64",
+          "previousVersion": "2.4.3-pve1",
+          "version": "2.4.4-pve1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libprotobuf32t64:amd64",
+          "previousVersion": "3.21.12-11",
+          "version": "3.21.12-11+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libproxmox-acme-perl",
+          "previousVersion": "1.7.1",
+          "version": "1.7.2"
+        },
+        {
+          "action": "upgrade",
+          "name": "libproxmox-acme-plugins",
+          "previousVersion": "1.7.1",
+          "version": "1.7.2"
+        },
+        {
+          "action": "upgrade",
+          "name": "libpve-common-perl",
+          "previousVersion": "9.1.13",
+          "version": "9.2.1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libpve-guest-common-perl",
+          "previousVersion": "6.0.3",
+          "version": "6.0.5"
+        },
+        {
+          "action": "upgrade",
+          "name": "libpve-network-api-perl",
+          "previousVersion": "1.6.6",
+          "version": "1.6.7"
+        },
+        {
+          "action": "upgrade",
+          "name": "libpve-network-perl",
+          "previousVersion": "1.6.6",
+          "version": "1.6.7"
+        },
+        {
+          "action": "upgrade",
+          "name": "libpve-storage-perl",
+          "previousVersion": "9.1.0",
+          "version": "9.1.9"
+        },
+        {
+          "action": "upgrade",
+          "name": "libpython3.13-minimal:amd64",
+          "previousVersion": "3.13.5-2+deb13u2",
+          "version": "3.13.5-2+deb13u4"
+        },
+        {
+          "action": "upgrade",
+          "name": "libpython3.13-stdlib:amd64",
+          "previousVersion": "3.13.5-2+deb13u2",
+          "version": "3.13.5-2+deb13u4"
+        },
+        {
+          "action": "upgrade",
+          "name": "libquorum5:amd64",
+          "previousVersion": "3.1.10-pve2",
+          "version": "3.1.10-pve3"
+        },
+        {
+          "action": "upgrade",
+          "name": "librabbitmq4:amd64",
+          "previousVersion": "0.15.0-1+deb13u1",
+          "version": "0.15.0-1+deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "librados2-perl",
+          "previousVersion": "1.5.0",
+          "version": "1.5.1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libslirp0:amd64",
+          "previousVersion": "4.8.0-1+b1",
+          "version": "4.8.0-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libsmartcols1:amd64",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libsmbclient0:amd64",
+          "previousVersion": "2:4.22.8+dfsg-0+deb13u2",
+          "version": "2:4.22.10+dfsg-0+deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "libssh2-1t64:amd64",
+          "previousVersion": "1.11.1-1",
+          "version": "1.11.1-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libssl3t64:amd64",
+          "previousVersion": "3.5.6-1~deb13u2",
+          "version": "3.5.7-1~deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "libtalloc2:amd64",
+          "previousVersion": "2:2.4.3+samba4.22.8+dfsg-0+deb13u2",
+          "version": "2:2.4.3+samba4.22.10+dfsg-0+deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "libtasn1-6-dev:amd64",
+          "previousVersion": "4.20.0-2",
+          "version": "4.20.0-2+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libtasn1-6:amd64",
+          "previousVersion": "4.20.0-2",
+          "version": "4.20.0-2+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libtasn1-doc",
+          "previousVersion": "4.20.0-2",
+          "version": "4.20.0-2+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libtdb1:amd64",
+          "previousVersion": "2:1.4.13+samba4.22.8+dfsg-0+deb13u2",
+          "version": "2:1.4.13+samba4.22.10+dfsg-0+deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "libtevent0t64:amd64",
+          "previousVersion": "2:0.16.2+samba4.22.8+dfsg-0+deb13u2",
+          "version": "2:0.16.2+samba4.22.10+dfsg-0+deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "libtiff6:amd64",
+          "previousVersion": "4.7.0-3+deb13u2",
+          "version": "4.7.0-3+deb13u3"
+        },
+        {
+          "action": "upgrade",
+          "name": "libuuid1:amd64",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libuutil3linux:amd64",
+          "previousVersion": "2.4.3-pve1",
+          "version": "2.4.4-pve1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libvotequorum8:amd64",
+          "previousVersion": "3.1.10-pve2",
+          "version": "3.1.10-pve3"
+        },
+        {
+          "action": "upgrade",
+          "name": "libwbclient0:amd64",
+          "previousVersion": "2:4.22.8+dfsg-0+deb13u2",
+          "version": "2:4.22.10+dfsg-0+deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "libxml-libxml-perl",
+          "previousVersion": "2.0207+dfsg+really+2.0134-5+b2",
+          "version": "2.0207+dfsg+really+2.0134-5+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libxml2:amd64",
+          "previousVersion": "2.12.7+dfsg+really2.9.14-2.1+deb13u2",
+          "version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3"
+        },
+        {
+          "action": "upgrade",
+          "name": "libxpm4:amd64",
+          "previousVersion": "1:3.5.17-1+b3",
+          "version": "1:3.5.17-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libzfs7linux:amd64",
+          "previousVersion": "2.4.3-pve1",
+          "version": "2.4.4-pve1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libzpool6linux:amd64",
+          "previousVersion": "2.3.4-pve1",
+          "version": "2.3.9-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "libzpool7linux:amd64",
+          "previousVersion": "2.4.3-pve1",
+          "version": "2.4.4-pve1"
+        },
+        {
+          "action": "upgrade",
+          "name": "linux-libc-dev",
+          "previousVersion": "6.12.90-2",
+          "version": "6.12.105-1"
+        },
+        {
+          "action": "upgrade",
+          "name": "login",
+          "previousVersion": "1:4.16.0-2+really2.41-5",
+          "version": "1:4.16.0-2+really2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "mesa-libgallium:amd64",
+          "previousVersion": "25.0.7-2",
+          "version": "25.0.7-2+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "mount",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "novnc-pve",
+          "previousVersion": "1.7.0-1",
+          "version": "1.7.0-2"
+        },
+        {
+          "action": "upgrade",
+          "name": "openssl",
+          "previousVersion": "3.5.6-1~deb13u2",
+          "version": "3.5.7-1~deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "openssl-provider-legacy",
+          "previousVersion": "3.5.6-1~deb13u2",
+          "version": "3.5.7-1~deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "postfix",
+          "previousVersion": "3.10.5-1~deb13u1",
+          "version": "3.10.13-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "proxmox-backup-client",
+          "previousVersion": "4.2.1-1",
+          "version": "4.2.5-1"
+        },
+        {
+          "action": "upgrade",
+          "name": "proxmox-backup-file-restore",
+          "previousVersion": "4.2.1-1",
+          "version": "4.2.5-1"
+        },
+        {
+          "action": "upgrade",
+          "name": "proxmox-enterprise-support-keyring",
+          "previousVersion": "1.0",
+          "version": "1.1"
+        },
+        {
+          "action": "upgrade",
+          "name": "proxmox-headers-7.0",
+          "previousVersion": "7.0.14-8",
+          "version": "7.0.14-14"
+        },
+        {
+          "action": "install",
+          "name": "proxmox-headers-7.0.14-14-pve",
+          "previousVersion": null,
+          "version": "7.0.14-14"
+        },
+        {
+          "action": "upgrade",
+          "name": "proxmox-kernel-7.0",
+          "previousVersion": "7.0.14-8",
+          "version": "7.0.14-14"
+        },
+        {
+          "action": "install",
+          "name": "proxmox-kernel-7.0.14-14-pve-signed",
+          "previousVersion": null,
+          "version": "7.0.14-14"
+        },
+        {
+          "action": "upgrade",
+          "name": "proxmox-mini-journalreader",
+          "previousVersion": "1.6",
+          "version": "1.7"
+        },
+        {
+          "action": "upgrade",
+          "name": "proxmox-widget-toolkit",
+          "previousVersion": "5.2.3",
+          "version": "5.2.8"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-container",
+          "previousVersion": "6.1.10",
+          "version": "6.1.13"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-docs",
+          "previousVersion": "9.2.2",
+          "version": "9.2.4"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-edk2-firmware",
+          "previousVersion": "4.2025.05-2",
+          "version": "4.2025.05-3"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-edk2-firmware-legacy",
+          "previousVersion": "4.2025.05-2",
+          "version": "4.2025.05-3"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-edk2-firmware-ovmf",
+          "previousVersion": "4.2025.05-2",
+          "version": "4.2025.05-3"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-firewall",
+          "previousVersion": "6.0.4",
+          "version": "6.0.5"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-firmware",
+          "previousVersion": "3.18-4",
+          "version": "3.18-6"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-ha-manager",
+          "previousVersion": "5.2.4",
+          "version": "5.2.5"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-i18n",
+          "previousVersion": "3.7.5",
+          "version": "3.10.0"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-manager",
+          "previousVersion": "9.2.3",
+          "version": "9.2.11"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-qemu-kvm",
+          "previousVersion": "11.0.0-4",
+          "version": "11.0.3-3"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-xtermjs",
+          "previousVersion": "6.0.0-1",
+          "version": "6.0.0-2"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-yew-mobile-gui",
+          "previousVersion": "0.7.0",
+          "version": "0.8.0"
+        },
+        {
+          "action": "upgrade",
+          "name": "pve-yew-mobile-i18n",
+          "previousVersion": "3.7.5",
+          "version": "3.10.0"
+        },
+        {
+          "action": "upgrade",
+          "name": "python3-httplib2",
+          "previousVersion": "0.22.0-1",
+          "version": "0.22.0-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "python3-idna",
+          "previousVersion": "3.10-1",
+          "version": "3.10-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "python3-protobuf",
+          "previousVersion": "3.21.12-11",
+          "version": "3.21.12-11+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "python3-urllib3",
+          "previousVersion": "2.3.0-3+deb13u1",
+          "version": "2.3.0-3+deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "python3.13",
+          "previousVersion": "3.13.5-2+deb13u2",
+          "version": "3.13.5-2+deb13u4"
+        },
+        {
+          "action": "upgrade",
+          "name": "python3.13-minimal",
+          "previousVersion": "3.13.5-2+deb13u2",
+          "version": "3.13.5-2+deb13u4"
+        },
+        {
+          "action": "upgrade",
+          "name": "python3.13-venv",
+          "previousVersion": "3.13.5-2+deb13u2",
+          "version": "3.13.5-2+deb13u4"
+        },
+        {
+          "action": "upgrade",
+          "name": "qemu-server",
+          "previousVersion": "9.1.16",
+          "version": "9.2.7"
+        },
+        {
+          "action": "upgrade",
+          "name": "rsync",
+          "previousVersion": "3.4.1+ds1-5+deb13u3",
+          "version": "3.4.1+ds1-5+deb13u4"
+        },
+        {
+          "action": "upgrade",
+          "name": "samba-common",
+          "previousVersion": "2:4.22.8+dfsg-0+deb13u2",
+          "version": "2:4.22.10+dfsg-0+deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "samba-libs:amd64",
+          "previousVersion": "2:4.22.8+dfsg-0+deb13u2",
+          "version": "2:4.22.10+dfsg-0+deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "shim-helpers-amd64-signed",
+          "previousVersion": "1+16.1+1+pmx1",
+          "version": "1+16.1+2+pmx1"
+        },
+        {
+          "action": "upgrade",
+          "name": "shim-signed-common",
+          "previousVersion": "1.48+pmx1+16.1-1+pmx1",
+          "version": "1.51+pmx1+16.1-2+pmx1"
+        },
+        {
+          "action": "upgrade",
+          "name": "shim-signed:amd64",
+          "previousVersion": "1.48+pmx1+16.1-1+pmx1",
+          "version": "1.51+pmx1+16.1-2+pmx1"
+        },
+        {
+          "action": "upgrade",
+          "name": "shim-unsigned:amd64",
+          "previousVersion": "16.1-1+pmx1",
+          "version": "16.1-2+pmx1"
+        },
+        {
+          "action": "upgrade",
+          "name": "smbclient",
+          "previousVersion": "2:4.22.8+dfsg-0+deb13u2",
+          "version": "2:4.22.10+dfsg-0+deb13u2"
+        },
+        {
+          "action": "upgrade",
+          "name": "tailscale",
+          "previousVersion": "1.102.2",
+          "version": "1.102.3"
+        },
+        {
+          "action": "upgrade",
+          "name": "unzip",
+          "previousVersion": "6.0-29",
+          "version": "6.0-29+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "util-linux",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "util-linux-extra",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "uuid-dev:amd64",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "uuid-runtime",
+          "previousVersion": "2.41-5",
+          "version": "2.41.5-0+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "xz-utils",
+          "previousVersion": "5.8.1-1",
+          "version": "5.8.1-1+deb13u1"
+        },
+        {
+          "action": "upgrade",
+          "name": "zfs-zed",
+          "previousVersion": "2.4.3-pve1",
+          "version": "2.4.4-pve1"
+        },
+        {
+          "action": "upgrade",
+          "name": "zfsutils-linux",
+          "previousVersion": "2.4.3-pve1",
+          "version": "2.4.4-pve1"
         }
       ]
     }
@@ -105,7 +1005,7 @@
     },
     {
       "name": "base-files",
-      "version": "13.8+deb13u5"
+      "version": "13.8+deb13u6"
     },
     {
       "name": "base-passwd",
@@ -125,15 +1025,15 @@
     },
     {
       "name": "bind9-dnsutils",
-      "version": "1:9.20.23-1~deb13u1"
+      "version": "1:9.20.26-1~deb13u1"
     },
     {
       "name": "bind9-host",
-      "version": "1:9.20.23-1~deb13u1"
+      "version": "1:9.20.26-1~deb13u1"
     },
     {
       "name": "bind9-libs:amd64",
-      "version": "1:9.20.23-1~deb13u1"
+      "version": "1:9.20.26-1~deb13u1"
     },
     {
       "name": "binutils",
@@ -157,11 +1057,11 @@
     },
     {
       "name": "bsdextrautils",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "bsdutils",
-      "version": "1:2.41-5"
+      "version": "1:2.41.5-0+deb13u1"
     },
     {
       "name": "btrfs-progs",
@@ -193,7 +1093,7 @@
     },
     {
       "name": "chrony",
-      "version": "4.6.1-3+deb13u2"
+      "version": "4.8-4~bpo13+2"
     },
     {
       "name": "cifs-utils",
@@ -225,7 +1125,7 @@
     },
     {
       "name": "corosync",
-      "version": "3.1.10-pve2"
+      "version": "3.1.10-pve3"
     },
     {
       "name": "cpio",
@@ -357,7 +1257,7 @@
     },
     {
       "name": "dirmngr",
-      "version": "2.4.7-21+deb13u1+b3"
+      "version": "2.4.7-21+deb13u1+b4"
     },
     {
       "name": "distro-info-data",
@@ -417,7 +1317,7 @@
     },
     {
       "name": "eject",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "equivs",
@@ -437,7 +1337,7 @@
     },
     {
       "name": "fdisk",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "fdutils",
@@ -497,11 +1397,11 @@
     },
     {
       "name": "frr",
-      "version": "10.6.1-1+pve2"
+      "version": "10.6.1-1+pve3"
     },
     {
       "name": "frr-pythontools",
-      "version": "10.6.1-1+pve2"
+      "version": "10.6.1-1+pve3"
     },
     {
       "name": "fuse",
@@ -629,7 +1529,7 @@
     },
     {
       "name": "gnupg-utils",
-      "version": "2.4.7-21+deb13u1+b3"
+      "version": "2.4.7-21+deb13u1+b4"
     },
     {
       "name": "gnutls-bin",
@@ -673,31 +1573,31 @@
     },
     {
       "name": "gpg",
-      "version": "2.4.7-21+deb13u1+b3"
+      "version": "2.4.7-21+deb13u1+b4"
     },
     {
       "name": "gpg-agent",
-      "version": "2.4.7-21+deb13u1+b3"
+      "version": "2.4.7-21+deb13u1+b4"
     },
     {
       "name": "gpg-wks-client",
-      "version": "2.4.7-21+deb13u1+b3"
+      "version": "2.4.7-21+deb13u1+b4"
     },
     {
       "name": "gpg-wks-server",
-      "version": "2.4.7-21+deb13u1+b3"
+      "version": "2.4.7-21+deb13u1+b4"
     },
     {
       "name": "gpgconf",
-      "version": "2.4.7-21+deb13u1+b3"
+      "version": "2.4.7-21+deb13u1+b4"
     },
     {
       "name": "gpgsm",
-      "version": "2.4.7-21+deb13u1+b3"
+      "version": "2.4.7-21+deb13u1+b4"
     },
     {
       "name": "gpgv",
-      "version": "2.4.7-21+deb13u1+b3"
+      "version": "2.4.7-21+deb13u1+b4"
     },
     {
       "name": "grep",
@@ -773,11 +1673,11 @@
     },
     {
       "name": "imagemagick-7-common",
-      "version": "8:7.1.1.43+dfsg1-1+deb13u9"
+      "version": "8:7.1.1.43+dfsg1-1+deb13u11"
     },
     {
       "name": "imagemagick-7.q16",
-      "version": "8:7.1.1.43+dfsg1-1+deb13u9"
+      "version": "8:7.1.1.43+dfsg1-1+deb13u11"
     },
     {
       "name": "init",
@@ -837,7 +1737,7 @@
     },
     {
       "name": "jq",
-      "version": "1.7.1-6+deb13u2"
+      "version": "1.7.1-6+deb13u3"
     },
     {
       "name": "kbd",
@@ -913,7 +1813,7 @@
     },
     {
       "name": "libaom3:amd64",
-      "version": "3.12.1-1"
+      "version": "3.12.1-1+deb13u1"
     },
     {
       "name": "libapparmor1:amd64",
@@ -1061,7 +1961,7 @@
     },
     {
       "name": "libblkid1:amd64",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "libbpf1:amd64",
@@ -1081,7 +1981,7 @@
     },
     {
       "name": "libbytes-random-secure-perl",
-      "version": "0.29-3"
+      "version": "0.29-4~deb13u1"
     },
     {
       "name": "libbz2-1.0:amd64",
@@ -1161,7 +2061,7 @@
     },
     {
       "name": "libcfg7:amd64",
-      "version": "3.1.10-pve2"
+      "version": "3.1.10-pve3"
     },
     {
       "name": "libcgi-fast-perl",
@@ -1205,7 +2105,7 @@
     },
     {
       "name": "libcmap4:amd64",
-      "version": "3.1.10-pve2"
+      "version": "3.1.10-pve3"
     },
     {
       "name": "libcolord2:amd64",
@@ -1245,7 +2145,7 @@
     },
     {
       "name": "libcorosync-common4:amd64",
-      "version": "3.1.10-pve2"
+      "version": "3.1.10-pve3"
     },
     {
       "name": "libcpanel-json-xs-perl:amd64",
@@ -1253,7 +2153,7 @@
     },
     {
       "name": "libcpg4:amd64",
-      "version": "3.1.10-pve2"
+      "version": "3.1.10-pve3"
     },
     {
       "name": "libcrypt-dev:amd64",
@@ -1357,7 +2257,7 @@
     },
     {
       "name": "libde265-0:amd64",
-      "version": "1.0.15-1+b3"
+      "version": "1.0.15-1+deb13u1"
     },
     {
       "name": "libdebconfclient0:amd64",
@@ -1461,7 +2361,7 @@
     },
     {
       "name": "libegl-mesa0:amd64",
-      "version": "25.0.7-2"
+      "version": "25.0.7-2+deb13u1"
     },
     {
       "name": "libegl1:amd64",
@@ -1501,11 +2401,11 @@
     },
     {
       "name": "libexpat1-dev:amd64",
-      "version": "2.7.1-2"
+      "version": "2.8.3-1~deb13u1"
     },
     {
       "name": "libexpat1:amd64",
-      "version": "2.7.1-2"
+      "version": "2.8.3-1~deb13u1"
     },
     {
       "name": "libexporter-tiny-perl",
@@ -1537,7 +2437,7 @@
     },
     {
       "name": "libfdisk1:amd64",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "libfdt1:amd64",
@@ -1673,7 +2573,7 @@
     },
     {
       "name": "libgbm1:amd64",
-      "version": "25.0.7-2"
+      "version": "25.0.7-2+deb13u1"
     },
     {
       "name": "libgcc-12-dev:amd64",
@@ -1717,7 +2617,7 @@
     },
     {
       "name": "libgd3:amd64",
-      "version": "2.3.3-13"
+      "version": "2.3.3-14~deb13u1"
     },
     {
       "name": "libgdbm-compat4t64:amd64",
@@ -1769,7 +2669,7 @@
     },
     {
       "name": "libgl1-mesa-dri:amd64",
-      "version": "25.0.7-2"
+      "version": "25.0.7-2+deb13u1"
     },
     {
       "name": "libgl1:amd64",
@@ -1805,7 +2705,7 @@
     },
     {
       "name": "libglx-mesa0:amd64",
-      "version": "25.0.7-2"
+      "version": "25.0.7-2+deb13u1"
     },
     {
       "name": "libglx0:amd64",
@@ -1869,7 +2769,7 @@
     },
     {
       "name": "libgraphite2-3:amd64",
-      "version": "1.3.14-2+b1"
+      "version": "1.3.14-2+deb13u1"
     },
     {
       "name": "libgs-common",
@@ -1941,23 +2841,23 @@
     },
     {
       "name": "libheif-plugin-aomenc:amd64",
-      "version": "1.19.8-1"
+      "version": "1.19.8-1+deb13u1"
     },
     {
       "name": "libheif-plugin-dav1d:amd64",
-      "version": "1.19.8-1"
+      "version": "1.19.8-1+deb13u1"
     },
     {
       "name": "libheif-plugin-libde265:amd64",
-      "version": "1.19.8-1"
+      "version": "1.19.8-1+deb13u1"
     },
     {
       "name": "libheif-plugin-x265:amd64",
-      "version": "1.19.8-1"
+      "version": "1.19.8-1+deb13u1"
     },
     {
       "name": "libheif1:amd64",
-      "version": "1.19.8-1"
+      "version": "1.19.8-1+deb13u1"
     },
     {
       "name": "libhogweed6t64:amd64",
@@ -1973,7 +2873,7 @@
     },
     {
       "name": "libhtml-parser-perl:amd64",
-      "version": "3.83-1+b2"
+      "version": "3.83-2~deb13u1"
     },
     {
       "name": "libhtml-tagset-perl",
@@ -1993,7 +2893,7 @@
     },
     {
       "name": "libhttp-daemon-perl",
-      "version": "6.16-1"
+      "version": "6.16-1+deb13u1"
     },
     {
       "name": "libhttp-date-perl",
@@ -2169,7 +3069,7 @@
     },
     {
       "name": "libjq1:amd64",
-      "version": "1.7.1-6+deb13u2"
+      "version": "1.7.1-6+deb13u3"
     },
     {
       "name": "libjs-bootstrap",
@@ -2181,7 +3081,7 @@
     },
     {
       "name": "libjs-extjs",
-      "version": "7.0.0-5"
+      "version": "7.0.0-7"
     },
     {
       "name": "libjs-inherits",
@@ -2253,7 +3153,7 @@
     },
     {
       "name": "libknet1t64:amd64",
-      "version": "1.31-pve1"
+      "version": "1.35-pve1"
     },
     {
       "name": "libkrb5-3:amd64",
@@ -2269,7 +3169,7 @@
     },
     {
       "name": "liblastlog2-2:amd64",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "liblcms2-2:amd64",
@@ -2289,7 +3189,7 @@
     },
     {
       "name": "libldb2:amd64",
-      "version": "2:2.11.0+samba4.22.8+dfsg-0+deb13u2"
+      "version": "2:2.11.0+samba4.22.10+dfsg-0+deb13u2"
     },
     {
       "name": "liblerc4:amd64",
@@ -2425,7 +3325,7 @@
     },
     {
       "name": "liblzma5:amd64",
-      "version": "5.8.1-1"
+      "version": "5.8.1-1+deb13u1"
     },
     {
       "name": "liblzo2-2:amd64",
@@ -2441,15 +3341,15 @@
     },
     {
       "name": "libmagickcore-7.q16-10-extra:amd64",
-      "version": "8:7.1.1.43+dfsg1-1+deb13u9"
+      "version": "8:7.1.1.43+dfsg1-1+deb13u11"
     },
     {
       "name": "libmagickcore-7.q16-10:amd64",
-      "version": "8:7.1.1.43+dfsg1-1+deb13u9"
+      "version": "8:7.1.1.43+dfsg1-1+deb13u11"
     },
     {
       "name": "libmagickwand-7.q16-10:amd64",
-      "version": "8:7.1.1.43+dfsg1-1+deb13u9"
+      "version": "8:7.1.1.43+dfsg1-1+deb13u11"
     },
     {
       "name": "libmail-sendmail-perl",
@@ -2521,7 +3421,7 @@
     },
     {
       "name": "libmount1:amd64",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "libmouse-perl:amd64",
@@ -2569,7 +3469,7 @@
     },
     {
       "name": "libnet-dns-perl",
-      "version": "1.50-1"
+      "version": "1.56-0+deb13u1"
     },
     {
       "name": "libnet-domain-tld-perl",
@@ -2681,7 +3581,7 @@
     },
     {
       "name": "libnozzle1t64:amd64",
-      "version": "1.31-pve1"
+      "version": "1.35-pve1"
     },
     {
       "name": "libnpth0t64:amd64",
@@ -2705,11 +3605,11 @@
     },
     {
       "name": "libnss3-dev:amd64",
-      "version": "2:3.110-1+deb13u2"
+      "version": "2:3.110-1+deb13u4"
     },
     {
       "name": "libnss3:amd64",
-      "version": "2:3.110-1+deb13u2"
+      "version": "2:3.110-1+deb13u4"
     },
     {
       "name": "libnuma1:amd64",
@@ -2725,7 +3625,7 @@
     },
     {
       "name": "libnvpair3linux:amd64",
-      "version": "2.4.3-pve1"
+      "version": "2.4.4-pve1"
     },
     {
       "name": "liboath0t64:amd64",
@@ -2953,15 +3853,15 @@
     },
     {
       "name": "libprotobuf32t64:amd64",
-      "version": "3.21.12-11"
+      "version": "3.21.12-11+deb13u1"
     },
     {
       "name": "libproxmox-acme-perl",
-      "version": "1.7.1"
+      "version": "1.7.2"
     },
     {
       "name": "libproxmox-acme-plugins",
-      "version": "1.7.1"
+      "version": "1.7.2"
     },
     {
       "name": "libproxmox-backup-qemu0",
@@ -2997,11 +3897,11 @@
     },
     {
       "name": "libpve-common-perl",
-      "version": "9.1.13"
+      "version": "9.2.1"
     },
     {
       "name": "libpve-guest-common-perl",
-      "version": "6.0.3"
+      "version": "6.0.5"
     },
     {
       "name": "libpve-http-server-perl",
@@ -3009,11 +3909,11 @@
     },
     {
       "name": "libpve-network-api-perl",
-      "version": "1.6.6"
+      "version": "1.6.7"
     },
     {
       "name": "libpve-network-perl",
-      "version": "1.6.6"
+      "version": "1.6.7"
     },
     {
       "name": "libpve-notify-perl",
@@ -3025,7 +3925,7 @@
     },
     {
       "name": "libpve-storage-perl",
-      "version": "9.1.0"
+      "version": "9.1.9"
     },
     {
       "name": "libpve-u2f-server-perl",
@@ -3045,11 +3945,11 @@
     },
     {
       "name": "libpython3.13-minimal:amd64",
-      "version": "3.13.5-2+deb13u2"
+      "version": "3.13.5-2+deb13u4"
     },
     {
       "name": "libpython3.13-stdlib:amd64",
-      "version": "3.13.5-2+deb13u2"
+      "version": "3.13.5-2+deb13u4"
     },
     {
       "name": "libqb-tools",
@@ -3081,11 +3981,11 @@
     },
     {
       "name": "libquorum5:amd64",
-      "version": "3.1.10-pve2"
+      "version": "3.1.10-pve3"
     },
     {
       "name": "librabbitmq4:amd64",
-      "version": "0.15.0-1+deb13u1"
+      "version": "0.15.0-1+deb13u2"
     },
     {
       "name": "librados2",
@@ -3093,7 +3993,7 @@
     },
     {
       "name": "librados2-perl",
-      "version": "1.5.0"
+      "version": "1.5.1"
     },
     {
       "name": "libradosstriper1",
@@ -3265,7 +4165,7 @@
     },
     {
       "name": "libslirp0:amd64",
-      "version": "4.8.0-1+b1"
+      "version": "4.8.0-1+deb13u1"
     },
     {
       "name": "libsm6:amd64",
@@ -3273,11 +4173,11 @@
     },
     {
       "name": "libsmartcols1:amd64",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "libsmbclient0:amd64",
-      "version": "2:4.22.8+dfsg-0+deb13u2"
+      "version": "2:4.22.10+dfsg-0+deb13u2"
     },
     {
       "name": "libsnappy1v5:amd64",
@@ -3317,11 +4217,11 @@
     },
     {
       "name": "libssh2-1t64:amd64",
-      "version": "1.11.1-1"
+      "version": "1.11.1-1+deb13u1"
     },
     {
       "name": "libssl3t64:amd64",
-      "version": "3.5.6-1~deb13u2"
+      "version": "3.5.7-1~deb13u2"
     },
     {
       "name": "libstatgrab10t64",
@@ -3421,7 +4321,7 @@
     },
     {
       "name": "libtalloc2:amd64",
-      "version": "2:2.4.3+samba4.22.8+dfsg-0+deb13u2"
+      "version": "2:2.4.3+samba4.22.10+dfsg-0+deb13u2"
     },
     {
       "name": "libtask-weaken-perl",
@@ -3429,15 +4329,15 @@
     },
     {
       "name": "libtasn1-6-dev:amd64",
-      "version": "4.20.0-2"
+      "version": "4.20.0-2+deb13u1"
     },
     {
       "name": "libtasn1-6:amd64",
-      "version": "4.20.0-2"
+      "version": "4.20.0-2+deb13u1"
     },
     {
       "name": "libtasn1-doc",
-      "version": "4.20.0-2"
+      "version": "4.20.0-2+deb13u1"
     },
     {
       "name": "libtcl8.6:amd64",
@@ -3449,7 +4349,7 @@
     },
     {
       "name": "libtdb1:amd64",
-      "version": "2:1.4.13+samba4.22.8+dfsg-0+deb13u2"
+      "version": "2:1.4.13+samba4.22.10+dfsg-0+deb13u2"
     },
     {
       "name": "libtemplate-perl",
@@ -3465,7 +4365,7 @@
     },
     {
       "name": "libtevent0t64:amd64",
-      "version": "2:0.16.2+samba4.22.8+dfsg-0+deb13u2"
+      "version": "2:0.16.2+samba4.22.10+dfsg-0+deb13u2"
     },
     {
       "name": "libtext-charwidth-perl:amd64",
@@ -3513,7 +4413,7 @@
     },
     {
       "name": "libtiff6:amd64",
-      "version": "4.7.0-3+deb13u2"
+      "version": "4.7.0-3+deb13u3"
     },
     {
       "name": "libtime-duration-perl",
@@ -3637,11 +4537,11 @@
     },
     {
       "name": "libuuid1:amd64",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "libuutil3linux:amd64",
-      "version": "2.4.3-pve1"
+      "version": "2.4.4-pve1"
     },
     {
       "name": "libuv1-dev:amd64",
@@ -3677,7 +4577,7 @@
     },
     {
       "name": "libvotequorum8:amd64",
-      "version": "3.1.10-pve2"
+      "version": "3.1.10-pve3"
     },
     {
       "name": "libvulkan1:amd64",
@@ -3705,7 +4605,7 @@
     },
     {
       "name": "libwbclient0:amd64",
-      "version": "2:4.22.8+dfsg-0+deb13u2"
+      "version": "2:4.22.10+dfsg-0+deb13u2"
     },
     {
       "name": "libwebp7:amd64",
@@ -3865,7 +4765,7 @@
     },
     {
       "name": "libxml-libxml-perl",
-      "version": "2.0207+dfsg+really+2.0134-5+b2"
+      "version": "2.0207+dfsg+really+2.0134-5+deb13u1"
     },
     {
       "name": "libxml-namespacesupport-perl",
@@ -3889,7 +4789,7 @@
     },
     {
       "name": "libxml2:amd64",
-      "version": "2.12.7+dfsg+really2.9.14-2.1+deb13u2"
+      "version": "2.12.7+dfsg+really2.9.14-2.1+deb13u3"
     },
     {
       "name": "libxmlb2:amd64",
@@ -3925,7 +4825,7 @@
     },
     {
       "name": "libxpm4:amd64",
-      "version": "1:3.5.17-1+b3"
+      "version": "1:3.5.17-1+deb13u1"
     },
     {
       "name": "libxrandr2:amd64",
@@ -4013,15 +4913,15 @@
     },
     {
       "name": "libzfs7linux:amd64",
-      "version": "2.4.3-pve1"
+      "version": "2.4.4-pve1"
     },
     {
       "name": "libzpool6linux:amd64",
-      "version": "2.3.4-pve1"
+      "version": "2.3.9-0+deb13u1"
     },
     {
       "name": "libzpool7linux:amd64",
-      "version": "2.4.3-pve1"
+      "version": "2.4.4-pve1"
     },
     {
       "name": "libzstd1:amd64",
@@ -4057,7 +4957,7 @@
     },
     {
       "name": "linux-libc-dev",
-      "version": "6.12.90-2"
+      "version": "6.12.105-1"
     },
     {
       "name": "linux-sysctl-defaults",
@@ -4093,7 +4993,7 @@
     },
     {
       "name": "login",
-      "version": "1:4.16.0-2+really2.41-5"
+      "version": "1:4.16.0-2+really2.41.5-0+deb13u1"
     },
     {
       "name": "login.defs",
@@ -4177,7 +5077,7 @@
     },
     {
       "name": "mesa-libgallium:amd64",
-      "version": "25.0.7-2"
+      "version": "25.0.7-2+deb13u1"
     },
     {
       "name": "mime-support",
@@ -4189,7 +5089,7 @@
     },
     {
       "name": "mount",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "ncurses-base",
@@ -4437,7 +5337,7 @@
     },
     {
       "name": "novnc-pve",
-      "version": "1.7.0-1"
+      "version": "1.7.0-2"
     },
     {
       "name": "nvme-cli",
@@ -4461,11 +5361,11 @@
     },
     {
       "name": "openssl",
-      "version": "3.5.6-1~deb13u2"
+      "version": "3.5.7-1~deb13u2"
     },
     {
       "name": "openssl-provider-legacy",
-      "version": "3.5.6-1~deb13u2"
+      "version": "3.5.7-1~deb13u2"
     },
     {
       "name": "p11-kit",
@@ -4573,7 +5473,7 @@
     },
     {
       "name": "postfix",
-      "version": "3.10.5-1~deb13u1"
+      "version": "3.10.13-0+deb13u1"
     },
     {
       "name": "pristine-tar",
@@ -4593,11 +5493,11 @@
     },
     {
       "name": "proxmox-backup-client",
-      "version": "4.2.1-1"
+      "version": "4.2.5-1"
     },
     {
       "name": "proxmox-backup-file-restore",
-      "version": "4.2.1-1"
+      "version": "4.2.5-1"
     },
     {
       "name": "proxmox-backup-restore-image",
@@ -4613,7 +5513,7 @@
     },
     {
       "name": "proxmox-enterprise-support-keyring",
-      "version": "1.0"
+      "version": "1.1"
     },
     {
       "name": "proxmox-firewall",
@@ -4629,7 +5529,11 @@
     },
     {
       "name": "proxmox-headers-7.0",
-      "version": "7.0.14-8"
+      "version": "7.0.14-14"
+    },
+    {
+      "name": "proxmox-headers-7.0.14-14-pve",
+      "version": "7.0.14-14"
     },
     {
       "name": "proxmox-headers-7.0.14-8-pve",
@@ -4637,7 +5541,11 @@
     },
     {
       "name": "proxmox-kernel-7.0",
-      "version": "7.0.14-8"
+      "version": "7.0.14-14"
+    },
+    {
+      "name": "proxmox-kernel-7.0.14-14-pve-signed",
+      "version": "7.0.14-14"
     },
     {
       "name": "proxmox-kernel-7.0.14-8-pve-signed",
@@ -4653,7 +5561,7 @@
     },
     {
       "name": "proxmox-mini-journalreader",
-      "version": "1.6"
+      "version": "1.7"
     },
     {
       "name": "proxmox-offline-mirror-docs",
@@ -4677,7 +5585,7 @@
     },
     {
       "name": "proxmox-widget-toolkit",
-      "version": "5.2.3"
+      "version": "5.2.8"
     },
     {
       "name": "psmisc",
@@ -4693,23 +5601,23 @@
     },
     {
       "name": "pve-container",
-      "version": "6.1.10"
+      "version": "6.1.13"
     },
     {
       "name": "pve-docs",
-      "version": "9.2.2"
+      "version": "9.2.4"
     },
     {
       "name": "pve-edk2-firmware",
-      "version": "4.2025.05-2"
+      "version": "4.2025.05-3"
     },
     {
       "name": "pve-edk2-firmware-legacy",
-      "version": "4.2025.05-2"
+      "version": "4.2025.05-3"
     },
     {
       "name": "pve-edk2-firmware-ovmf",
-      "version": "4.2025.05-2"
+      "version": "4.2025.05-3"
     },
     {
       "name": "pve-esxi-import-tools",
@@ -4717,15 +5625,15 @@
     },
     {
       "name": "pve-firewall",
-      "version": "6.0.4"
+      "version": "6.0.5"
     },
     {
       "name": "pve-firmware",
-      "version": "3.18-4"
+      "version": "3.18-6"
     },
     {
       "name": "pve-ha-manager",
-      "version": "5.2.4"
+      "version": "5.2.5"
     },
     {
       "name": "pve-headers",
@@ -4733,7 +5641,7 @@
     },
     {
       "name": "pve-i18n",
-      "version": "3.7.5"
+      "version": "3.10.0"
     },
     {
       "name": "pve-lxc-syscalld",
@@ -4741,7 +5649,7 @@
     },
     {
       "name": "pve-manager",
-      "version": "9.2.3"
+      "version": "9.2.11"
     },
     {
       "name": "pve-nvidia-vgpu-helper",
@@ -4749,19 +5657,19 @@
     },
     {
       "name": "pve-qemu-kvm",
-      "version": "11.0.0-4"
+      "version": "11.0.3-3"
     },
     {
       "name": "pve-xtermjs",
-      "version": "6.0.0-1"
+      "version": "6.0.0-2"
     },
     {
       "name": "pve-yew-mobile-gui",
-      "version": "0.7.0"
+      "version": "0.8.0"
     },
     {
       "name": "pve-yew-mobile-i18n",
-      "version": "3.7.5"
+      "version": "3.10.0"
     },
     {
       "name": "python-apt-common",
@@ -4853,11 +5761,11 @@
     },
     {
       "name": "python3-httplib2",
-      "version": "0.22.0-1"
+      "version": "0.22.0-1+deb13u1"
     },
     {
       "name": "python3-idna",
-      "version": "3.10-1"
+      "version": "3.10-1+deb13u1"
     },
     {
       "name": "python3-importlib-metadata",
@@ -4953,7 +5861,7 @@
     },
     {
       "name": "python3-protobuf",
-      "version": "3.21.12-11"
+      "version": "3.21.12-11+deb13u1"
     },
     {
       "name": "python3-pycriu",
@@ -5041,7 +5949,7 @@
     },
     {
       "name": "python3-urllib3",
-      "version": "2.3.0-3+deb13u1"
+      "version": "2.3.0-3+deb13u2"
     },
     {
       "name": "python3-venv",
@@ -5081,19 +5989,19 @@
     },
     {
       "name": "python3.13",
-      "version": "3.13.5-2+deb13u2"
+      "version": "3.13.5-2+deb13u4"
     },
     {
       "name": "python3.13-minimal",
-      "version": "3.13.5-2+deb13u2"
+      "version": "3.13.5-2+deb13u4"
     },
     {
       "name": "python3.13-venv",
-      "version": "3.13.5-2+deb13u2"
+      "version": "3.13.5-2+deb13u4"
     },
     {
       "name": "qemu-server",
-      "version": "9.1.16"
+      "version": "9.2.7"
     },
     {
       "name": "qrencode",
@@ -5121,7 +6029,7 @@
     },
     {
       "name": "rsync",
-      "version": "3.4.1+ds1-5+deb13u3"
+      "version": "3.4.1+ds1-5+deb13u4"
     },
     {
       "name": "runit-helper",
@@ -5129,11 +6037,11 @@
     },
     {
       "name": "samba-common",
-      "version": "2:4.22.8+dfsg-0+deb13u2"
+      "version": "2:4.22.10+dfsg-0+deb13u2"
     },
     {
       "name": "samba-libs:amd64",
-      "version": "2:4.22.8+dfsg-0+deb13u2"
+      "version": "2:4.22.10+dfsg-0+deb13u2"
     },
     {
       "name": "sed",
@@ -5153,19 +6061,19 @@
     },
     {
       "name": "shim-helpers-amd64-signed",
-      "version": "1+16.1+1+pmx1"
+      "version": "1+16.1+2+pmx1"
     },
     {
       "name": "shim-signed-common",
-      "version": "1.48+pmx1+16.1-1+pmx1"
+      "version": "1.51+pmx1+16.1-2+pmx1"
     },
     {
       "name": "shim-signed:amd64",
-      "version": "1.48+pmx1+16.1-1+pmx1"
+      "version": "1.51+pmx1+16.1-2+pmx1"
     },
     {
       "name": "shim-unsigned:amd64",
-      "version": "16.1-1+pmx1"
+      "version": "16.1-2+pmx1"
     },
     {
       "name": "skopeo",
@@ -5177,7 +6085,7 @@
     },
     {
       "name": "smbclient",
-      "version": "2:4.22.8+dfsg-0+deb13u2"
+      "version": "2:4.22.10+dfsg-0+deb13u2"
     },
     {
       "name": "socat",
@@ -5249,7 +6157,7 @@
     },
     {
       "name": "tailscale",
-      "version": "1.102.2"
+      "version": "1.102.3"
     },
     {
       "name": "tailscale-archive-keyring",
@@ -5305,7 +6213,7 @@
     },
     {
       "name": "unzip",
-      "version": "6.0-29"
+      "version": "6.0-29+deb13u1"
     },
     {
       "name": "usrmerge",
@@ -5313,19 +6221,19 @@
     },
     {
       "name": "util-linux",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "util-linux-extra",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "uuid-dev:amd64",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "uuid-runtime",
-      "version": "2.41-5"
+      "version": "2.41.5-0+deb13u1"
     },
     {
       "name": "vim-common",
@@ -5429,15 +6337,15 @@
     },
     {
       "name": "xz-utils",
-      "version": "5.8.1-1"
+      "version": "5.8.1-1+deb13u1"
     },
     {
       "name": "zfs-zed",
-      "version": "2.4.3-pve1"
+      "version": "2.4.4-pve1"
     },
     {
       "name": "zfsutils-linux",
-      "version": "2.4.3-pve1"
+      "version": "2.4.4-pve1"
     },
     {
       "name": "zlib1g:amd64",

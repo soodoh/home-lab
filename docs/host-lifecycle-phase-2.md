@@ -5,7 +5,7 @@ Phase 2 remains additive. No conventional key, legacy tofu identity, token escro
 ## Completed
 
 - Created locked `ansible-plan` and `ansible-deploy` accounts with private primary groups and no conventional keys.
-- Enabled `ansible-deploy` only through a fixed transport that stages, inspects, and applies immutable lifecycle-marker plans through one exact no-argument sudo activator.
+- Enabled `ansible-deploy` only through a fixed transport that stages, inspects, prepares, applies, and recovers explicitly supported immutable lifecycle-marker or package plans through one exact no-argument sudo activator.
 - Installed a fixed `ansible-plan` Tailscale SSH transport accepting only `observe` and delegating only to `proxmox-observer observe`.
 - Installed a dual-mode fixed firewall transport that preserves the existing forced-command grammar and accepts only the same five commands under Tailscale SSH.
 - Applied the saved tailnet policy adding `proxmox`, `ansible-plan`, `ansible-deploy`, and `firewall-apply` grants while retaining transitional tofu grants.
@@ -28,6 +28,12 @@ Saved handoff plan `f529536ffaccca6216b0f98e74b79af6c841db8e9772c33a88631c03bd45
 
 Proxmox marker plan `ffafc5f3523375957609f3bdd7e7c5da8e0924edde1e2a0f04123b01d9f1cae2` and corrected Debian marker plan `a61cd61ae5f0a43767d47206392972afbbdaf5be869df02b5f11d09a37f9b5f3` created only root-owned mode-0600 production lifecycle markers. Debian then retired its empty legacy marker under plan `4803d787fe890183bd3df3f35ccbb0f90965a545651ef5d5abb7fa6b3a4bbf03`, removed its personal-laptop deploy key and empty root key file under plan `2cb63cbe15a52849a97afa5a66cff9c8d18d552601c9649cd97403d2f8b18c58`, and disabled conventional public-key authentication under watchdog-backed plan `fd59fc1b7f586cea87f4af66e524817dc370d86f4695c6770c5455f680c33733`. Independent deploy and human Tailscale sessions passed; root-only key and SSH rollback material remains retained on-host. A final read-only audit reported Debian current and target lifecycle compliance with `changed=0`.
 
+## Exact package activation
+
+Package activation `e08202fbf348eaedc13513a2032256f8d59d1c1233f6fdbd9117e9e0be1b06a2` bound commit `aa36a313a805efe1028d1d6881f86c1086f05da0`, current access/console evidence, unchanged APT metadata, the pre-apply package inventory, and solver stdout SHA-256 `083d842e7bda76e8415500c345f11d9cdc69caef6d10456a74281bcd1d232c19`. Preparation downloaded packages without refreshing metadata or installing packages. The separately authorized apply used `--no-download`, `--no-remove`, retained existing configuration files, and never rebooted.
+
+The first parser surfaced 2 installs and 94 upgrades but silently skipped solver transition lines it did not recognize. The exact saved solver subsequently performed 2 installs and 152 upgrades. Tailscale was one of those upgrades and interrupted the SSH response after APT had completed successfully, leaving the durable journal in `applying`. Independent evidence showed no active APT/dpkg process, all surfaced candidate versions installed, a clean `dpkg --audit`, an empty post-apply solver, healthy services, and intact plan/observer sessions. Recovery support now refuses unrecognized `Inst` or `Remv` lines and can only promote an existing `applying` journal after read-only package-version, dpkg-audit, and empty-solver postconditions; it never invokes APT.
+
 ## Remaining gate
 
-The saved-plan deploy identity currently accepts lifecycle-marker plans only; adding another action type requires its own reviewed schema and fixed activator support. Tofu retirement, conventional-key removal, OpenSSH tightening, the two unattributed historical RSA keys, and stale `apex` membership remain blocked on separate access-cutover review and authorization.
+The saved-plan deploy identity accepts lifecycle-marker plans and the fixed package prepare/apply/recovery schema only; any additional action type requires its own reviewed schema and activator support. Tofu retirement, conventional-key removal, OpenSSH tightening, the two unattributed historical RSA keys, and stale `apex` membership remain blocked on separate access-cutover review and authorization.

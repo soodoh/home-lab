@@ -149,7 +149,7 @@ const installedDelta = packageManifest.provenance.solverResult.changes.reduce(
   packageManifest.provenance.installedInventory.installedRecords,
 );
 if (projected.packagePolicy.manifestPackageCount !== packageManifest.packages.length ||
-    packageManifest.packages.length !== installedDelta || packageManifest.packages.length !== 1353) {
+    packageManifest.packages.length !== installedDelta || packageManifest.packages.length !== 1355) {
   throw new Error("derived projection package count differs from manifest, provenance, or current expected content");
 }
 

@@ -255,7 +255,7 @@ class ProxmoxNixPlanTests(unittest.TestCase):
         namespace = {"__name__": "observer_normalizer_test", "__file__": "/tmp/fixed-observer"}
         exec(compile(rendered, "fixed-observer", "exec"), namespace)
         self.assertEqual(namespace["SPEC"]["expectedIdentity"], {
-            "architecture": "amd64", "hostname": "proxmox", "os": "debian", "pveVersion": "pve-manager/9.2.3",
+            "architecture": "amd64", "hostname": "proxmox", "os": "debian", "pveVersion": "pve-manager/9.2.11",
         })
         self.assertEqual(namespace["SPEC"]["tailscale"]["hostname"], "proxmox")
         self.assertEqual(namespace["SPEC"]["tailscale"]["advertiseTags"], ["tag:proxmox"])

@@ -859,7 +859,7 @@ proxmox:
     architecture: amd64
     direct:
       - name: chrony
-        version: 4.6.1-3+deb13u2
+        version: 4.8-4~bpo13+2
       - name: curl
         version: 8.14.1-2+deb13u4
       - name: git
@@ -867,7 +867,7 @@ proxmox:
       - name: ifupdown2
         version: 3.3.0-1+pmx12
       - name: jq
-        version: 1.7.1-6+deb13u2
+        version: 1.7.1-6+deb13u3
       - name: nfs-kernel-server
         version: 1:2.8.3-1
       - name: nvme-cli
@@ -885,7 +885,7 @@ proxmox:
       - name: sudo
         version: 1.9.16p2-3+deb13u2
       - name: tailscale
-        version: 1.102.2
+        version: 1.102.3
     critical:
       - role: debian-archive-keyring
         name: debian-archive-keyring
@@ -895,7 +895,7 @@ proxmox:
         version: "4.0"
       - role: pve-manager
         name: pve-manager
-        version: 9.2.3
+        version: 9.2.11
       - role: default-kernel
         name: proxmox-default-kernel
         version: 2.1.0
@@ -910,19 +910,19 @@ proxmox:
         version: 9.2.0
       - role: zfs-daemon
         name: zfs-zed
-        version: 2.4.3-pve1
+        version: 2.4.4-pve1
       - role: zfs-tools
         name: zfsutils-linux
-        version: 2.4.3-pve1
+        version: 2.4.4-pve1
       - role: legacy-firewall
         name: pve-firewall
-        version: 6.0.4
+        version: 6.0.5
       - role: firewall
         name: proxmox-firewall
         version: 1.2.3
     manifest:
       path: nix/proxmox/package-manifest.json
-      sha256: 3c01cffe3446433ca419390d75180d7c4c6cb08b73e6ca7a04eeaa832d0e36fb
+      sha256: 8ea912194c7f0c211608dc10e7e52c403bf45fbcb71a8cd203fc762d29ef0bf2
     prohibited:
       - build-essential
       - cargo
