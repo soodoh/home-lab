@@ -1,0 +1,192 @@
+---
+- name: Require Proxmox lifecycle context for low-risk handoff planning
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'proxmox'
+      - lifecycle_state_observation is defined
+      - lifecycle.hosts.proxmox.domain_handoffs.apt_repositories is defined
+      - lifecycle.hosts.proxmox.domain_handoffs.chrony_service is defined
+    fail_msg: Low-risk handoff planning requires the Proxmox lifecycle contract and lifecycle observation.
+
+- name: Build reduced read-only repository and chrony evidence
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import hashlib
+        import json
+        import os
+        import stat
+        import subprocess
+        import sys
+
+        policy = json.loads(sys.argv[1])
+        expected_sources = {}
+        expected_sources[policy["inactive_sources_list"]["file"]["path"]] = policy["inactive_sources_list"]["notice"] + "\n"
+        for repository in policy["repositories"]:
+            lines = [
+                "Types: " + " ".join(repository["types"]),
+                "URIs: " + " ".join(repository["uris"]),
+                "Suites: " + " ".join(repository["suites"]),
+                "Components: " + " ".join(repository["components"]),
+                "Signed-By: " + repository["signed_by"],
+            ]
+            expected_sources[repository["file"]] = "\n".join(lines) + "\n"
+
+        source_records = []
+        for path, expected_content in sorted(expected_sources.items()):
+            try:
+                metadata = os.lstat(path)
+                regular = stat.S_ISREG(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode)
+                content = open(path, "rb").read() if regular else b""
+            except FileNotFoundError:
+                metadata = None
+                regular = False
+                content = b""
+            expected = expected_content.encode()
+            source_records.append({
+                "content_matches": regular and content == expected,
+                "expected_sha256": hashlib.sha256(expected).hexdigest(),
+                "gid": metadata.st_gid if metadata else None,
+                "mode": format(stat.S_IMODE(metadata.st_mode), "04o") if metadata else None,
+                "nlink": metadata.st_nlink if metadata else None,
+                "path": path,
+                "regular": regular,
+                "sha256": hashlib.sha256(content).hexdigest() if regular else None,
+                "uid": metadata.st_uid if metadata else None,
+            })
+
+        source_directory = "/etc/apt/sources.list.d"
+        expected_names = {os.path.basename(path) for path in expected_sources if os.path.dirname(path) == source_directory}
+        try:
+            unknown_sources = sorted(
+                name for name in os.listdir(source_directory)
+                if stat.S_ISREG(os.lstat(os.path.join(source_directory, name)).st_mode) and name not in expected_names
+            )
+        except (FileNotFoundError, PermissionError):
+            unknown_sources = ["unavailable"]
+
+        keyring_records = []
+        for keyring in policy["permitted_keyrings"]:
+            item = keyring["file"]
+            path = item["path"]
+            try:
+                metadata = os.lstat(path)
+                symlink = stat.S_ISLNK(metadata.st_mode)
+                regular = stat.S_ISREG(metadata.st_mode)
+                target = os.readlink(path) if symlink else None
+                content = open(path, "rb").read() if regular or symlink else b""
+            except (FileNotFoundError, OSError):
+                metadata = None
+                symlink = False
+                regular = False
+                target = None
+                content = b""
+            expected_target = keyring["symlink_target"]
+            type_matches = (expected_target is not None and symlink and target == expected_target) or (expected_target is None and regular)
+            keyring_records.append({
+                "gid": metadata.st_gid if metadata else None,
+                "mode": format(stat.S_IMODE(metadata.st_mode), "04o") if metadata and not symlink else item["mode"],
+                "name": keyring["name"],
+                "path": path,
+                "sha256": hashlib.sha256(content).hexdigest() if content else None,
+                "sha256_matches": bool(content) and hashlib.sha256(content).hexdigest() == keyring["sha256"],
+                "target": target,
+                "type_matches": type_matches,
+                "uid": metadata.st_uid if metadata else None,
+            })
+
+        def run(arguments):
+            return subprocess.run(arguments, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+
+        active = run(["/usr/bin/systemctl", "is-active", "chrony.service"])
+        enabled = run(["/usr/bin/systemctl", "is-enabled", "chrony.service"])
+        unit = run([
+            "/usr/bin/systemctl", "show", "chrony.service",
+            "--property=ActiveState", "--property=DropInPaths",
+            "--property=FragmentPath", "--property=UnitFileState",
+        ])
+        tracking = run(["/usr/bin/chronyc", "tracking"])
+        tracking_values = {}
+        for line in tracking.stdout.splitlines():
+            if ":" in line:
+                key, value = line.split(":", 1)
+                tracking_values[key.strip()] = value.strip()
+        try:
+            stratum = int(tracking_values.get("Stratum", "0"))
+        except ValueError:
+            stratum = 0
+
+        source_parity = not unknown_sources and all(
+            item["regular"] and item["uid"] == 0 and item["gid"] == 0 and item["mode"] == "0644" and
+            item["nlink"] == 1 and item["content_matches"] for item in source_records
+        )
+        keyring_parity = all(
+            item["uid"] == 0 and item["gid"] == 0 and item["mode"] == "0644" and
+            item["type_matches"] and item["sha256_matches"] for item in keyring_records
+        )
+        chrony_parity = (
+            active.returncode == 0 and active.stdout.strip() == "active" and
+            enabled.returncode == 0 and enabled.stdout.strip() == "enabled" and
+            tracking.returncode == 0 and tracking_values.get("Leap status") == "Normal" and 1 <= stratum <= 15
+        )
+        result = {
+            "version": 1,
+            "repositories": {
+                "exact_parity": source_parity and keyring_parity,
+                "keyrings": keyring_records,
+                "records": source_records,
+                "unknown_source_files": unknown_sources,
+            },
+            "chrony": {
+                "active": active.stdout.strip(),
+                "enabled": enabled.stdout.strip(),
+                "exact_parity": chrony_parity,
+                "leap_status": tracking_values.get("Leap status"),
+                "reference_id": tracking_values.get("Reference ID"),
+                "stratum": stratum,
+                "unit": dict(line.split("=", 1) for line in unit.stdout.splitlines() if "=" in line),
+            },
+        }
+        print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+      - "{{ proxmox.apt | to_json }}"
+  register: proxmox_low_risk_lifecycle_raw
+  changed_when: false
+  check_mode: false
+
+- name: Decode reduced repository and chrony evidence
+  ansible.builtin.set_fact:
+    proxmox_low_risk_lifecycle_evidence: "{{ proxmox_low_risk_lifecycle_raw.stdout | from_json }}"
+
+- name: Publish low-risk handoff readiness without authorizing mutation
+  ansible.builtin.set_fact:
+    proxmox_low_risk_lifecycle_observation:
+      version: 1
+      contract_host: proxmox
+      ownership:
+        apt_repositories: "{{ lifecycle.hosts.proxmox.domain_handoffs.apt_repositories }}"
+        chrony_service: "{{ lifecycle.hosts.proxmox.domain_handoffs.chrony_service }}"
+      evidence: "{{ proxmox_low_risk_lifecycle_evidence }}"
+      active_lifecycle_locks: "{{ lifecycle_state_observation.locks.active }}"
+      parity_complete: >-
+        {{
+          proxmox_low_risk_lifecycle_evidence.repositories.exact_parity and
+          proxmox_low_risk_lifecycle_evidence.chrony.exact_parity
+        }}
+      mutation_authorized: false
+      blockers: >-
+        {{
+          (
+            ([] if proxmox_low_risk_lifecycle_evidence.repositories.exact_parity else ['apt-repository-parity-incomplete']) +
+            ([] if proxmox_low_risk_lifecycle_evidence.chrony.exact_parity else ['chrony-parity-incomplete']) +
+            ([] if lifecycle_state_observation.locks.active | length == 0 else ['active-lifecycle-lock']) +
+            ['nix-remains-current-writer', 'saved-reviewed-handoff-required', 'separate-domain-authorization-required']
+          ) | unique | list
+        }}
+
+- name: Emit reduced low-risk handoff readiness
+  ansible.builtin.debug:
+    var: proxmox_low_risk_lifecycle_observation
+  when: proxmox_low_risk_lifecycle_emit | bool

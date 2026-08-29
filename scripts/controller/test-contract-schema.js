@@ -62,6 +62,15 @@ check(invalidPendingTimezoneOwner, false, "pending timezone handoff retains Nix 
 const invalidTransferredTimezoneOwner = structuredClone(contract);
 invalidTransferredTimezoneOwner.lifecycle.hosts.proxmox.domain_handoffs.timezone.current_owner = "nix";
 check(invalidTransferredTimezoneOwner, false, "transferred timezone handoff requires Ansible ownership");
+const invalidPendingAptOwner = structuredClone(contract);
+invalidPendingAptOwner.lifecycle.hosts.proxmox.domain_handoffs.apt_repositories.current_owner = "ansible";
+check(invalidPendingAptOwner, false, "pending APT repository handoff retains Nix ownership");
+const invalidTransferredChronyOwner = structuredClone(contract);
+invalidTransferredChronyOwner.lifecycle.hosts.proxmox.domain_handoffs.chrony_service.state = "transferred";
+check(invalidTransferredChronyOwner, false, "transferred chrony handoff requires Ansible ownership");
+const missingAptHandoff = structuredClone(contract);
+delete missingAptHandoff.lifecycle.hosts.proxmox.domain_handoffs.apt_repositories;
+check(missingAptHandoff, false, "Proxmox APT repository handoff policy is required");
 const missingProxmoxHandoff = structuredClone(contract);
 delete missingProxmoxHandoff.lifecycle.hosts.proxmox.domain_handoffs;
 check(missingProxmoxHandoff, false, "Proxmox timezone handoff policy is required");
@@ -272,6 +281,8 @@ const closedRequiredPolicyObjects = [
   "lifecycle.hosts.proxmox.marker",
   "lifecycle.hosts.proxmox.domain_handoffs",
   "lifecycle.hosts.proxmox.domain_handoffs.timezone",
+  "lifecycle.hosts.proxmox.domain_handoffs.apt_repositories",
+  "lifecycle.hosts.proxmox.domain_handoffs.chrony_service",
   "lifecycle.hosts.proxmox.access_cutover",
   "lifecycle.hosts.proxmox.access_cutover.target_identities",
   "lifecycle.hosts.debian",

@@ -272,9 +272,11 @@
     "lifecycleDomainHandoffs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["timezone"],
+      "required": ["timezone", "apt_repositories", "chrony_service"],
       "properties": {
-        "timezone": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
+        "timezone": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
+        "apt_repositories": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
+        "chrony_service": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
       }
     },
     "lifecycleAccessCutoverPolicy": {
