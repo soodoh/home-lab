@@ -158,7 +158,10 @@ def apply(path: Path, receipt_path: Path) -> None:
         deadline = time.monotonic() + 900
         while time.monotonic() < deadline:
             time.sleep(10)
-            verified = subprocess.run((*SSH, f"verify reboot {digest}"), capture_output=True, timeout=60)
+            try:
+                verified = subprocess.run((*SSH, f"verify reboot {digest}"), capture_output=True, timeout=60)
+            except subprocess.TimeoutExpired:
+                continue
             if verified.returncode != 0:
                 continue
             output = json.loads(verified.stdout)

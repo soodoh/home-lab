@@ -900,11 +900,11 @@ proxmox:
         name: proxmox-default-kernel
         version: 2.1.0
       - role: retained-kernel
-        name: proxmox-kernel-7.0.14-8-pve-signed
-        version: 7.0.14-8
+        name: proxmox-kernel-7.0.14-14-pve-signed
+        version: 7.0.14-14
       - role: retained-kernel-headers
-        name: proxmox-headers-7.0.14-8-pve
-        version: 7.0.14-8
+        name: proxmox-headers-7.0.14-14-pve
+        version: 7.0.14-14
       - role: default-headers
         name: pve-headers
         version: 9.2.0
@@ -1066,10 +1066,10 @@ proxmox:
       - python3.11-minimal
       - usrmerge
   kernels:
-    current: 7.0.14-8-pve
+    current: 7.0.14-14-pve
     fallback: 7.0.14-8-pve
-    retention_count: 1
-    require_boot_history_proof: false
+    retention_count: 2
+    require_boot_history_proof: true
   root_cleanup:
     approved_shell: /bin/bash
     preserve_paths:
