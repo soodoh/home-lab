@@ -91,6 +91,13 @@ case "$command" in
     printf '{"operation":"apply-package","plan_sha256":"%s"}\n' "$digest" |
       exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
     ;;
+  recover\ package\ *)
+    digest=${command#recover package }
+    case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
+    [ "${#digest}" -eq 64 ] || exit 64
+    printf '{"operation":"recover-package","plan_sha256":"%s"}\n' "$digest" |
+      exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
+    ;;
   *)
     exit 64
     ;;

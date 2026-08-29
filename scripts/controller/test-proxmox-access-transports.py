@@ -49,7 +49,7 @@ def main() -> None:
     digest = "a" * 64
     for command in (f"stage lifecycle-marker {digest}", f"inspect lifecycle-marker {digest}", f"apply lifecycle-marker {digest}"):
         assert invoke(DEPLOY, "-c", command) != 64
-    for command in (f"stage package {digest}", f"inspect package {digest}", f"prepare package {digest}", f"apply package {digest}"):
+    for command in (f"stage package {digest}", f"inspect package {digest}", f"prepare package {digest}", f"apply package {digest}", f"recover package {digest}"):
         assert invoke(DEPLOY, "-c", command) != 64
     for args, original in (
         ((), None), (("-c", "apply lifecycle-marker a;id"), None),
@@ -61,12 +61,12 @@ def main() -> None:
     activator_source = DEPLOY_ACTIVATOR.read_text()
     assert "eval" not in deploy_source and "sh -c" not in deploy_source
     assert "sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator" in deploy_source
-    for required in ("os.O_NOFOLLOW", "os.O_EXCL", "origin/main", "apply-lifecycle-marker", "prepare-package", "apply-package", "--download-only", "--no-download", "automatic_reboot"):
+    for required in ("os.O_NOFOLLOW", "os.O_EXCL", "origin/main", "apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "--download-only", "--no-download", "automatic_reboot"):
         assert required in activator_source
     assert "shell=True" not in activator_source and "NOPASSWD: ALL" not in activator_source
     assert "apt-get update" not in activator_source and "reboot(" not in activator_source
     package_source = PACKAGE_ACTIVATION.read_text()
-    for required in ("PROXMOX_PACKAGE_PREPARE_CONFIRMED", "PROXMOX_PACKAGE_APPLY_CONFIRMED", "os.O_EXCL", "os.O_NOFOLLOW", "automatic_reboot", "access_evidence_sha256", "console_attested"):
+    for required in ("PROXMOX_PACKAGE_PREPARE_CONFIRMED", "PROXMOX_PACKAGE_APPLY_CONFIRMED", "PROXMOX_PACKAGE_RECOVERY_CONFIRMED", "os.O_EXCL", "os.O_NOFOLLOW", "automatic_reboot", "access_evidence_sha256", "console_attested"):
         assert required in package_source
 
     plan_source = PLAN.read_text()

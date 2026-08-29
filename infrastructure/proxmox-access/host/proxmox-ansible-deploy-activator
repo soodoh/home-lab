@@ -210,7 +210,7 @@ def solver_changes():
     return changes, hashlib.sha256(result.stdout.encode()).hexdigest()
 
 
-def validate_package_plan(value, digest):
+def validate_package_plan(value, digest, allow_expired=False):
     expected_keys = {"access_evidence_sha256", "authorized", "automatic_reboot", "commit", "console_attested",
                      "contract_sha256", "created_at", "expires_at", "format", "host_key_fingerprint", "inventory_sha256",
                      "maintenance_plan_sha256", "proposal"}
@@ -222,7 +222,7 @@ def validate_package_plan(value, digest):
         fail("package activation binding is invalid")
     created, expires = parse_time(value["created_at"]), parse_time(value["expires_at"])
     now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
-    if created > now or now > expires or (expires - created).total_seconds() != 1800:
+    if created > now or (not allow_expired and now > expires) or (expires - created).total_seconds() != 1800:
         fail("package activation freshness differs")
     if hashlib.sha256(canonical(value)).hexdigest() != digest:
         fail("package activation content hash differs")
@@ -286,9 +286,23 @@ def verify_package_preconditions(proposal):
         fail("apply-time solver differs from the saved exact proposal")
 
 
+def verify_package_postconditions(proposal):
+    for item in proposal["changes"]:
+        result = native(("/usr/bin/dpkg-query", "--show", "--showformat=${Version}", item["name"]))
+        if result.stdout != item["candidate_version"]:
+            fail("package postcondition differs")
+    audit = native(("/usr/bin/dpkg", "--audit"))
+    if audit.stdout or audit.stderr:
+        fail("dpkg audit is not clean")
+    remaining, _ = solver_changes()
+    if remaining:
+        fail("package solver is not empty after apply")
+
+
 def package_operation(value, digest, operation):
-    proposal = validate_package_plan(value, digest)
-    verify_repo(value)
+    proposal = validate_package_plan(value, digest, allow_expired=operation == "recover-package")
+    if operation != "recover-package":
+        verify_repo(value)
     lock_path = "/run/lock/home-lab-proxmox-package.lock"
     lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -307,31 +321,30 @@ def package_operation(value, digest, operation):
                    "status": "prepared", "automatic_reboot": False}
         save_package_journal(journal_path, journal)
         return {"package_transaction": "prepared", "plan_sha256": digest}
-    if journal is None or journal.get("status") not in {"prepared", "committed"} or journal.get("plan_sha256") != digest:
+    if journal is None or journal.get("plan_sha256") != digest:
+        fail("package transaction journal differs")
+    if journal.get("status") == "committed":
+        return {"automatic_reboot": False, "package_transaction": "already-committed", "plan_sha256": digest}
+    if operation == "recover-package":
+        if journal.get("status") != "applying":
+            fail("package transaction is not recoverable")
+        verify_package_postconditions(proposal)
+        journal["status"] = "committed"; save_package_journal(journal_path, journal)
+        return {"automatic_reboot": False, "package_transaction": "recovered-committed", "plan_sha256": digest}
+    if journal.get("status") != "prepared":
         fail("package transaction is not prepared")
-    if journal["status"] == "committed":
-        return {"package_transaction": "already-committed", "plan_sha256": digest}
     verify_package_preconditions(proposal)
     journal["status"] = "applying"; save_package_journal(journal_path, journal)
     native(("/usr/bin/apt-get", "--yes", "--no-remove", "--no-download", "--option", "Dpkg::Options::=--force-confold",
             "--option", "APT::Get::Show-Upgraded=true", "dist-upgrade"), timeout=3600)
-    for item in proposal["changes"]:
-        result = native(("/usr/bin/dpkg-query", "--show", "--showformat=${Version}", item["name"]))
-        if result.stdout != item["candidate_version"]:
-            fail("package postcondition differs")
-    audit = native(("/usr/bin/dpkg", "--audit"))
-    if audit.stdout or audit.stderr:
-        fail("dpkg audit is not clean")
-    remaining, _ = solver_changes()
-    if remaining:
-        fail("package solver is not empty after apply")
+    verify_package_postconditions(proposal)
     journal["status"] = "committed"; save_package_journal(journal_path, journal)
     return {"automatic_reboot": False, "package_transaction": "committed", "plan_sha256": digest}
 
 
 def main():
     request = read_bounded_stdin(1024)
-    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package"}
+    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package"}
     if not isinstance(request, dict) or set(request) != {"operation", "plan_sha256"} or \
             request.get("operation") not in operations or not isinstance(request.get("plan_sha256"), str) or \
             HEX64.fullmatch(request["plan_sha256"]) is None:

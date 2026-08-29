@@ -145,12 +145,34 @@ def apply(path: Path, receipt_path: Path) -> None:
     print(json.dumps(output, sort_keys=True))
 
 
+def recover(path: Path) -> None:
+    value, raw = load_private(path, "package activation"); digest = sha(raw)
+    if path.name != f"{digest}.json" or value.get("format") != "home-lab-proxmox-package-activation-v1" or value.get("automatic_reboot") is not False or value.get("authorized") is not False:
+        raise SystemExit("package recovery activation binding differs")
+    expected = f"recover-proxmox-package-{digest}"
+    if os.environ.get("PROXMOX_PACKAGE_RECOVERY_CONFIRMED") != expected:
+        raise SystemExit(f"exact confirmation required: {expected}")
+    lock = acquire_transfer_lock(LOCK)
+    try:
+        stage(raw, digest)
+        result = subprocess.run((*SSH, f"recover package {digest}"), capture_output=True, timeout=600)
+    finally:
+        os.close(lock)
+    if result.returncode or result.stderr:
+        raise SystemExit("package recovery failed; retain the root-only journal")
+    output = json.loads(result.stdout)
+    if output.get("package_transaction") not in {"recovered-committed", "already-committed"} or output.get("plan_sha256") != digest or output.get("automatic_reboot") is not False:
+        raise SystemExit("package recovery result differs")
+    print(json.dumps(output, sort_keys=True))
+
+
 def main() -> None:
-    parser=argparse.ArgumentParser(); commands=parser.add_subparsers(dest="command",required=True); built=commands.add_parser("build"); built.add_argument("maintenance_plan",type=Path); built.add_argument("access_receipt",type=Path); prepared=commands.add_parser("prepare"); prepared.add_argument("activation",type=Path); applied=commands.add_parser("apply"); applied.add_argument("activation",type=Path); applied.add_argument("preparation_receipt",type=Path); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); commands=parser.add_subparsers(dest="command",required=True); built=commands.add_parser("build"); built.add_argument("maintenance_plan",type=Path); built.add_argument("access_receipt",type=Path); prepared=commands.add_parser("prepare"); prepared.add_argument("activation",type=Path); applied=commands.add_parser("apply"); applied.add_argument("activation",type=Path); applied.add_argument("preparation_receipt",type=Path); recovered=commands.add_parser("recover"); recovered.add_argument("activation",type=Path); args=parser.parse_args()
     if args.command == "build":
         path,digest=build(args.maintenance_plan.resolve(), args.access_receipt.resolve()); print(json.dumps({"authorized":False,"activation_sha256":digest,"path":str(path)},sort_keys=True))
     elif args.command == "prepare": prepare(args.activation.resolve())
-    else: apply(args.activation.resolve(), args.preparation_receipt.resolve())
+    elif args.command == "apply": apply(args.activation.resolve(), args.preparation_receipt.resolve())
+    else: recover(args.activation.resolve())
 
 
 if __name__ == "__main__": main()
