@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
@@ -72,9 +72,11 @@ def build(maintenance_path: Path, backup_path: Path, access_path: Path) -> tuple
     if access.get("format") != "home-lab-proxmox-access-evidence-v1" or access.get("commit") != commit or proofs.get("console", {}).get("attested") is not True or proofs.get("plan_observer", {}).get("positive") is not True or proofs.get("deploy_transport", {}).get("positive") is not True or proofs.get("human_session", {}).get("positive") is not True:
         raise SystemExit("access and console evidence is incomplete")
     expected = {"boot_id": evidence["boot_id"], "current_kernel": evidence["current_kernel"], "target_kernel": evidence["target_kernel"]}
+    expires = datetime.fromisoformat(maintenance["expires_at"].replace("Z", "+00:00"))
+    activation_created = (expires - timedelta(seconds=1800)).strftime("%Y-%m-%dT%H:%M:%SZ")
     activation = {"format": "home-lab-proxmox-reboot-activation-v1", "commit": commit,
                   "contract_sha256": bindings["contract_sha256"], "inventory_sha256": bindings["inventory_sha256"],
-                  "host_key_fingerprint": FINGERPRINT, "created_at": maintenance["created_at"], "expires_at": maintenance["expires_at"],
+                  "host_key_fingerprint": FINGERPRINT, "created_at": activation_created, "expires_at": maintenance["expires_at"],
                   "maintenance_plan_sha256": maintenance["plan_sha256"], "backup_attestation_sha256": sha(backup_raw),
                   "access_evidence_sha256": sha(access_raw), "console_attested": True,
                   "expected": expected, "evidence": {"boot_id": evidence["boot_id"], "current_kernel": evidence["current_kernel"],
