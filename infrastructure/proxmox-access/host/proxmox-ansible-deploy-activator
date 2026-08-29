@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Apply immutable lifecycle-marker and exact package plans through the fixed deploy transport."""
+"""Apply immutable lifecycle-marker, exact package, and guarded reboot plans."""
 
 import datetime as dt
 import fcntl
@@ -345,9 +345,101 @@ def package_operation(value, digest, operation):
     return {"automatic_reboot": False, "package_transaction": "committed", "plan_sha256": digest}
 
 
+def validate_reboot_plan(value, digest, allow_expired=False):
+    keys = {"access_evidence_sha256", "authorized", "automatic_reboot", "backup_attestation_sha256", "commit",
+            "console_attested", "contract_sha256", "created_at", "evidence", "expires_at", "expected", "format",
+            "host_key_fingerprint", "inventory_sha256", "maintenance_plan_sha256"}
+    if not isinstance(value, dict) or set(value) != keys or value["format"] != "home-lab-proxmox-reboot-activation-v1" or \
+            value["authorized"] is not False or value["automatic_reboot"] is not False or value["console_attested"] is not True or \
+            value["host_key_fingerprint"] != FINGERPRINT or HEX40.fullmatch(value.get("commit", "")) is None:
+        fail("reboot activation envelope differs")
+    for key in ("access_evidence_sha256", "backup_attestation_sha256", "contract_sha256", "inventory_sha256", "maintenance_plan_sha256"):
+        if HEX64.fullmatch(value.get(key, "")) is None:
+            fail("reboot activation binding is invalid")
+    created, expires = parse_time(value["created_at"]), parse_time(value["expires_at"])
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    if created > now or (not allow_expired and now > expires) or (expires - created).total_seconds() != 1800 or \
+            hashlib.sha256(canonical(value)).hexdigest() != digest:
+        fail("reboot activation freshness or hash differs")
+    expected = value["expected"]; evidence = value["evidence"]
+    if not isinstance(expected, dict) or set(expected) != {"boot_id", "current_kernel", "target_kernel"} or \
+            not isinstance(evidence, dict) or set(evidence) != {"boot_id", "current_kernel", "evidence_sha256", "health", "reboot_indicated", "target_kernel"}:
+        fail("reboot evidence shape differs")
+    kernel = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+~-]*-pve")
+    if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", expected["boot_id"]) is None or \
+            kernel.fullmatch(expected["current_kernel"]) is None or kernel.fullmatch(expected["target_kernel"]) is None or \
+            evidence["boot_id"] != expected["boot_id"] or evidence["current_kernel"] != expected["current_kernel"] or \
+            evidence["target_kernel"] != expected["target_kernel"] or evidence["reboot_indicated"] is not True or \
+            evidence["health"] != {"vm_100": "status: running", "zpool_storage": True} or HEX64.fullmatch(evidence["evidence_sha256"]) is None:
+        fail("reboot evidence differs")
+    return expected
+
+
+def reboot_journal_path(digest):
+    root = Path("/var/lib/home-lab/reboot-transactions"); root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    info = os.lstat(root)
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o700:
+        fail("reboot transaction root is unsafe")
+    return root / f"{digest}.json"
+
+
+def reboot_health():
+    pool = native(("/usr/sbin/zpool", "status", "-x", "storage"))
+    vm = native(("/usr/sbin/qm", "status", "100"))
+    system = native(("/usr/bin/systemctl", "is-system-running"), accepted=(0, 1))
+    services = ("pveproxy.service", "pvedaemon.service", "pvestatd.service", "pve-firewall.service", "tailscaled.service", "ssh.service", "nfs-server.service", "zfs-zed.service", "chrony.service")
+    active = native(("/usr/bin/systemctl", "is-active", *services))
+    audit = native(("/usr/bin/dpkg", "--audit"))
+    remaining, _ = solver_changes()
+    if "is healthy" not in pool.stdout or vm.stdout.strip() != "status: running" or system.stdout.strip() != "running" or \
+            active.stdout.splitlines() != ["active"] * len(services) or audit.stdout or audit.stderr or remaining:
+        fail("reboot health precondition differs")
+
+
+def reboot_preconditions(expected):
+    if os.uname().release != expected["current_kernel"] or Path("/proc/sys/kernel/random/boot_id").read_text().strip() != expected["boot_id"]:
+        fail("reboot current kernel or boot ID differs")
+    target = Path("/boot") / f"vmlinuz-{expected['target_kernel']}"; info = os.lstat(target)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0:
+        fail("target kernel image differs")
+    reboot_health()
+
+
+def reboot_operation(value, digest, operation):
+    expected = validate_reboot_plan(value, digest, allow_expired=operation == "verify-reboot")
+    verify_repo(value)
+    lock_fd = os.open("/run/lock/home-lab-proxmox-reboot.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    path = reboot_journal_path(digest); journal = json.loads(path.read_bytes()) if path.exists() else None
+    if operation == "prepare-reboot":
+        if journal is not None:
+            if journal.get("status") == "prepared": return {"reboot_transaction": "already-prepared", "plan_sha256": digest}
+            fail("reboot transaction journal already exists")
+        reboot_preconditions(expected)
+        journal = {"automatic_reboot": False, "boot_id_before": expected["boot_id"], "format": "home-lab-proxmox-reboot-journal-v1",
+                   "plan_sha256": digest, "status": "prepared", "target_kernel": expected["target_kernel"]}
+        save_package_journal(path, journal, exclusive=True)
+        return {"reboot_transaction": "prepared", "plan_sha256": digest}
+    if journal is None or journal.get("plan_sha256") != digest or journal.get("target_kernel") != expected["target_kernel"]:
+        fail("reboot transaction journal differs")
+    if journal.get("status") == "committed":
+        return {"reboot_transaction": "already-committed", "plan_sha256": digest, "current_kernel": os.uname().release}
+    if operation == "apply-reboot":
+        if journal.get("status") != "prepared": fail("reboot transaction is not prepared")
+        reboot_preconditions(expected); journal["status"] = "rebooting"; save_package_journal(path, journal)
+        native(("/usr/bin/systemctl", "reboot"), timeout=30)
+        return {"reboot_transaction": "initiated", "plan_sha256": digest}
+    if journal.get("status") != "rebooting" or Path("/proc/sys/kernel/random/boot_id").read_text().strip() == expected["boot_id"] or \
+            os.uname().release != expected["target_kernel"]:
+        fail("reboot postcondition differs")
+    reboot_health(); journal["status"] = "committed"; journal["boot_id_after"] = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    save_package_journal(path, journal)
+    return {"reboot_transaction": "committed", "plan_sha256": digest, "current_kernel": os.uname().release}
+
+
 def main():
     request = read_bounded_stdin(1024)
-    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package"}
+    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot"}
     if not isinstance(request, dict) or set(request) != {"operation", "plan_sha256"} or \
             request.get("operation") not in operations or not isinstance(request.get("plan_sha256"), str) or \
             HEX64.fullmatch(request["plan_sha256"]) is None:
@@ -366,6 +458,8 @@ def main():
         after = validate_plan(value, digest)
         verify_repo(value)
         output = {"lifecycle_marker": install_marker(after), "plan_sha256": digest}
+    elif request["operation"].endswith("-reboot"):
+        output = reboot_operation(value, digest, request["operation"])
     else:
         output = package_operation(value, digest, request["operation"])
     print(json.dumps(output, sort_keys=True, separators=(",", ":")))

@@ -89,6 +89,27 @@ def main() -> None:
     except ValueError:
         pass
 
+    expected_reboot = {"boot_id": "b2ab9646-6a22-4252-be34-cc875c92d9f9", "current_kernel": "7.0.14-8-pve", "target_kernel": "7.0.14-14-pve"}
+    reboot = {
+        "access_evidence_sha256": "1" * 64, "authorized": False, "automatic_reboot": False,
+        "backup_attestation_sha256": "2" * 64, "commit": commit, "console_attested": True,
+        "contract_sha256": "3" * 64, "inventory_sha256": "4" * 64,
+        "created_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "expires_at": (now + dt.timedelta(seconds=1800)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "format": "home-lab-proxmox-reboot-activation-v1", "host_key_fingerprint": module["FINGERPRINT"],
+        "maintenance_plan_sha256": "5" * 64, "expected": expected_reboot,
+        "evidence": {**expected_reboot, "evidence_sha256": "6" * 64,
+                     "health": {"vm_100": "status: running", "zpool_storage": True}, "reboot_indicated": True},
+    }
+    reboot_digest = hashlib.sha256(canonical(reboot)).hexdigest()
+    assert module["validate_reboot_plan"](reboot, reboot_digest) == expected_reboot
+    unsafe_reboot = json.loads(json.dumps(reboot)); unsafe_reboot["automatic_reboot"] = True
+    try:
+        module["validate_reboot_plan"](unsafe_reboot, hashlib.sha256(canonical(unsafe_reboot)).hexdigest())
+        raise AssertionError("automatic reboot was accepted")
+    except ValueError:
+        pass
+
     with tempfile.TemporaryDirectory() as temporary:
         parent = Path(temporary)
         parent.chmod(0o700)
