@@ -64,12 +64,14 @@ def build(maintenance_path: Path, backup_path: Path, access_path: Path) -> tuple
     if bindings.get("git_commit") != commit or bindings.get("contract_sha256") != file_sha(ROOT / "infrastructure/contract/home-lab.yml") or bindings.get("inventory_sha256") != file_sha(ROOT / "ansible/inventory/production.yml") or bindings.get("host_key_fingerprint") != FINGERPRINT:
         raise SystemExit("maintenance plan source binding differs")
     material = {key: item for key, item in maintenance.items() if key != "plan_sha256"}
-    if sha(canonical(material)) != maintenance.get("plan_sha256") or sha(canonical(evidence)) != maintenance.get("evidence_sha256") or datetime.now(timezone.utc) > datetime.fromisoformat(maintenance["expires_at"].replace("Z", "+00:00")):
+    now = datetime.now(timezone.utc); now_epoch = int(now.timestamp())
+    if sha(canonical(material)) != maintenance.get("plan_sha256") or sha(canonical(evidence)) != maintenance.get("evidence_sha256") or now > datetime.fromisoformat(maintenance["expires_at"].replace("Z", "+00:00")):
         raise SystemExit("maintenance plan hash or freshness differs")
-    if backup.get("format") != "home-lab-proxmox-reboot-backup-attestation-v1" or backup.get("commit") != commit or backup.get("authorized") is not False or backup.get("automatic_reboot") is not False or backup.get("evidence", {}).get("pending_records") != 0 or backup.get("evidence", {}).get("proton_copy_records", 0) < 1 or backup.get("evidence", {}).get("age_seconds", 86401) > 86400 or any(backup.get("evidence", {}).get(name, {}).get("result") != "success" for name in ("local_service", "proton_service")):
+    backup_evidence = backup.get("evidence", {})
+    if backup.get("format") != "home-lab-proxmox-reboot-backup-attestation-v1" or backup.get("commit") != commit or backup.get("authorized") is not False or backup.get("automatic_reboot") is not False or backup_evidence.get("pending_records") != 0 or backup_evidence.get("proton_copy_records", 0) < 1 or not isinstance(backup_evidence.get("accepted_mtime_epoch"), int) or now_epoch - backup_evidence["accepted_mtime_epoch"] > 86400 or any(backup_evidence.get(name, {}).get("result") != "success" for name in ("local_service", "proton_service")):
         raise SystemExit("backup attestation differs")
     proofs = access.get("proofs", {})
-    if access.get("format") != "home-lab-proxmox-access-evidence-v1" or access.get("commit") != commit or proofs.get("console", {}).get("attested") is not True or proofs.get("plan_observer", {}).get("positive") is not True or proofs.get("deploy_transport", {}).get("positive") is not True or proofs.get("human_session", {}).get("positive") is not True:
+    if access.get("format") != "home-lab-proxmox-access-evidence-v1" or access.get("commit") != commit or now > datetime.fromisoformat(access.get("expires_at", "1970-01-01T00:00:00Z").replace("Z", "+00:00")) or proofs.get("console", {}).get("attested") is not True or proofs.get("plan_observer", {}).get("positive") is not True or proofs.get("deploy_transport", {}).get("positive") is not True or proofs.get("human_session", {}).get("positive") is not True:
         raise SystemExit("access and console evidence is incomplete")
     expected = {"boot_id": evidence["boot_id"], "current_kernel": evidence["current_kernel"], "target_kernel": evidence["target_kernel"]}
     expires = datetime.fromisoformat(maintenance["expires_at"].replace("Z", "+00:00"))

@@ -42,11 +42,12 @@ def main() -> None:
     maintenance["plan_sha256"] = module.sha(module.canonical(maintenance))
     backup = {"accepted_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "accepted_by": "explicit-user-selection", "automatic_reboot": False,
               "authorized": False, "commit": commit,
-              "evidence": {"age_seconds": 1, "local_service": {"result": "success"}, "pending_records": 0,
+              "evidence": {"accepted_mtime_epoch": int(now.timestamp()), "age_seconds": 1,
+                           "local_service": {"result": "success"}, "pending_records": 0,
                            "proton_copy_records": 1, "proton_service": {"result": "success"}},
               "format": "home-lab-proxmox-reboot-backup-attestation-v1", "host": "proxmox", "maximum_age_hours": 24,
               "scope": {"host_configuration": "git-managed", "pve_vzdump_present": False, "workload_data": "restic-local-and-proton"}}
-    access = {"commit": commit, "format": "home-lab-proxmox-access-evidence-v1",
+    access = {"commit": commit, "expires_at": (now + dt.timedelta(seconds=1800)).strftime("%Y-%m-%dT%H:%M:%SZ"), "format": "home-lab-proxmox-access-evidence-v1",
               "proofs": {"console": {"attested": True}, "deploy_transport": {"positive": True},
                          "human_session": {"positive": True}, "plan_observer": {"positive": True}}}
     with tempfile.TemporaryDirectory() as temporary:
