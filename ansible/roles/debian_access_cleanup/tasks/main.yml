@@ -80,3 +80,151 @@
     - name: Stop after restoring the legacy marker
       ansible.builtin.fail:
         msg: Legacy marker removal failed and its exact empty before-state was restored.
+
+
+- name: Validate the exact conventional key removal plan
+  ansible.builtin.assert:
+    that:
+      - debian_access_cleanup_plan.format == 'home-lab-debian-access-cleanup-plan-v1'
+      - debian_access_cleanup_plan.host == 'debian'
+      - debian_access_cleanup_plan.kind == 'conventional-key-removal'
+      - debian_access_cleanup_plan.sequence == 2
+      - debian_access_cleanup_plan.authorized == false
+      - debian_access_cleanup_plan_sha256 is match('^[0-9a-f]{64}$')
+      - debian_access_cleanup_operation in ['apply', 'rollback']
+      - debian_access_cleanup_plan.action.paths.keys() | sort == lifecycle.hosts.debian.access_cleanup.conventional_key_paths | sort
+      - lifecycle.hosts.debian.access_cleanup.remove_keys_before_tightening
+    fail_msg: Conventional key removal differs from its exact saved plan.
+  tags:
+    - debian_conventional_keys
+
+- name: Apply or roll back the exact conventional key plan
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import fcntl
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import stat
+        import sys
+
+        plan = json.loads(sys.argv[1])
+        plan_sha256 = sys.argv[2]
+        operation = sys.argv[3]
+        paths = sorted(plan["action"]["paths"])
+        expected_paths = [
+            "/home/ansible-deploy/.ssh/authorized_keys",
+            "/root/.ssh/authorized_keys",
+        ]
+        if paths != expected_paths or operation not in {"apply", "rollback"}:
+            raise SystemExit(65)
+        lock_path = "/var/lib/iac-ansible-production.lock"
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        rollback_root = Path("/var/lib/home-lab/access-rollback")
+        rollback = rollback_root / plan_sha256
+        names = {
+            "/home/ansible-deploy/.ssh/authorized_keys": "ansible-deploy-authorized-keys",
+            "/root/.ssh/authorized_keys": "root-authorized-keys",
+        }
+
+        def canonical(value):
+            return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+        def inspect(path):
+            info = os.lstat(path)
+            if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode) or info.st_nlink != 1 or info.st_size > 65536:
+                raise ValueError("unsafe conventional key file")
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                raw = os.read(fd, 65537)
+            finally:
+                os.close(fd)
+            return info, raw
+
+        def restore():
+            manifest = json.loads((rollback / "manifest.json").read_bytes())
+            for path in paths:
+                item = manifest[path]
+                source = rollback / names[path]
+                raw = source.read_bytes()
+                if hashlib.sha256(raw).hexdigest() != item["sha256"]:
+                    raise ValueError("rollback key hash differs")
+                target = Path(path)
+                temporary = target.parent / f".{target.name}.{os.getpid()}.restore"
+                fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                try:
+                    os.write(fd, raw)
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+                os.chown(temporary, item["uid"], item["gid"])
+                os.chmod(temporary, int(item["mode"], 8))
+                os.replace(temporary, target)
+            print(json.dumps({"status": "rolled-back"}, sort_keys=True, separators=(",", ":")))
+
+        if operation == "rollback":
+            restore()
+            raise SystemExit(0)
+
+        rollback_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        root_info = os.lstat(rollback_root)
+        if not stat.S_ISDIR(root_info.st_mode) or root_info.st_uid != 0 or root_info.st_gid != 0 or stat.S_IMODE(root_info.st_mode) != 0o700:
+            raise ValueError("rollback root is unsafe")
+        rollback.mkdir(mode=0o700)
+        manifest = {}
+        removed = []
+        try:
+            for path in paths:
+                expected = plan["action"]["paths"][path]["before"]
+                info, raw = inspect(path)
+                observed = {
+                    "uid": info.st_uid,
+                    "gid": info.st_gid,
+                    "mode": format(stat.S_IMODE(info.st_mode), "04o"),
+                    "nlink": info.st_nlink,
+                    "size": info.st_size,
+                    "sha256": hashlib.sha256(raw).hexdigest(),
+                }
+                for key in observed:
+                    if observed[key] != expected[key]:
+                        raise ValueError("conventional key changed after planning")
+                backup = rollback / names[path]
+                fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                try:
+                    os.write(fd, raw)
+                    os.fsync(fd)
+                finally:
+                    os.close(fd)
+                os.chown(backup, 0, 0)
+                manifest[path] = observed
+            manifest_path = rollback / "manifest.json"
+            fd = os.open(manifest_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            try:
+                os.write(fd, canonical(manifest))
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            for path in paths:
+                os.unlink(path)
+                removed.append(path)
+            if any(os.path.lexists(path) for path in paths):
+                raise ValueError("conventional key postcondition failed")
+        except Exception:
+            if removed:
+                restore()
+            raise
+        print(json.dumps({"rollback_retained": True, "status": "applied"}, sort_keys=True, separators=(",", ":")))
+      - "{{ debian_access_cleanup_plan | to_json }}"
+      - "{{ debian_access_cleanup_plan_sha256 }}"
+      - "{{ debian_access_cleanup_operation }}"
+  become: true
+  register: debian_access_cleanup_key_transaction
+  changed_when: (debian_access_cleanup_key_transaction.stdout | from_json).status == 'applied'
+  no_log: true
+  tags:
+    - debian_conventional_keys

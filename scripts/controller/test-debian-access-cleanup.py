@@ -24,9 +24,11 @@ def main() -> None:
         "acquire_transfer_lock",
         "--tags",
         "debian_legacy_marker",
+        "debian_conventional_keys",
+        "rollback_retained",
     ):
         assert required in source, required
-    assert 'add_parser("plan")' in source and 'add_parser("attest-recovery")' in source and 'add_parser("apply-legacy-marker")' in source
+    assert all(f'add_parser("{name}")' in source for name in ("plan", "attest-recovery", "apply-legacy-marker", "apply-conventional-keys"))
     assert "StrictHostKeyChecking=no" not in source and "shell=True" not in source
     remote = source.split("program = r'''", 1)[1].split("'''", 1)[0]
     for forbidden in ("unlink(", "remove(", 'open(path,"w', "usermod", "sshd_config"):
@@ -36,6 +38,8 @@ def main() -> None:
     assert role.count("ansible.builtin.file:") == 1 and "state: absent" in role
     assert "rescue:" in role and "Restore the exact empty legacy marker" in role
     assert "hosts: docker_host" in playbook and "serial: 1" in playbook
+    for required in ("fcntl.flock", "access-rollback", "os.O_NOFOLLOW", "conventional key changed after planning", "operation == \"rollback\""):
+        assert required in role, required
     for required in (
         "access_cleanup:",
         "remove_keys_before_tightening: true",
