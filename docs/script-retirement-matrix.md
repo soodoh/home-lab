@@ -68,6 +68,7 @@
 | `scripts/controller/proxmox-timezone-handoff.js` | `transition-with-nix` | 1 | `scripts/controller/test-proxmox-timezone-handoff.js` |
 | `scripts/controller/proxmox-timezone-handoff-transaction.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-timezone-handoff.js` |
 | `scripts/controller/proxmox-package-manifest.js` | `transition-with-nix` | 5 | `nix/proxmox/bundle.py`, `nix/proxmox/planner.py`, `scripts/bootstrap-proxmox-nix-host` (+2) |
+| `scripts/controller/proxmox-low-risk-activation.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-low-risk-activation.py` |
 | `scripts/controller/proxmox-package-activation.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-transports.py` |
 | `scripts/controller/proxmox-reboot-activation.py` | `retain-controller` | 2 | `scripts/controller/test-proxmox-access-transports.py`, `scripts/controller/test-proxmox-reboot-activation.py` |
 | `scripts/controller/save-host-maintenance-plan.js` | `retain-controller` | 1 | `scripts/controller/test-save-host-maintenance-plan.js` |
@@ -100,6 +101,7 @@
 | `scripts/controller/test-proxmox-nix-plan.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-nix-projection.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-package-manifest.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
+| `scripts/controller/test-proxmox-low-risk-activation.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-reboot-activation.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-proxmox-timezone-handoff.js` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/test-reconcile-manifest.py` | `retain-test` | 1 | `scripts/reconcile-infrastructure` |

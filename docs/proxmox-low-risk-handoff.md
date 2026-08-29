@@ -26,7 +26,7 @@ Volatile NTP peer addresses, offsets, and reference timestamps are evidence, not
 
 ## Repository transaction boundary
 
-A future fixed `ansible-deploy` action may manage only the five contracted repository files. It must:
+The reviewed but not yet installed fixed `ansible-deploy` action may manage only the five contracted repository files. It must:
 
 - consume a canonical, commit-bound, 30-minute saved plan with exact before/after SHA-256 values;
 - hold the controller lifecycle lock and a root host lock;
@@ -40,7 +40,7 @@ Archive keyrings remain Nix/package-owned dependencies during this transaction. 
 
 ## Chrony transaction boundary
 
-A future fixed `ansible-deploy` action may manage only enablement and start state for `chrony.service`. It must:
+The reviewed but not yet installed fixed `ansible-deploy` action may manage only enablement and start state for `chrony.service`. It must:
 
 - bind exact before-state, unit provenance, no-drop-in evidence, contract and source state, locks, and synchronized `chronyc tracking` evidence;
 - record whether the service was enabled and active for rollback;
@@ -69,6 +69,6 @@ A `ready` state may be used only while reviewed capability is installed and live
 Read-only parity is complete for both domains. Mutation remains blocked by:
 
 - Nix still being the contracted current writer;
-- fixed deploy schemas and rollback activators not yet being installed;
+- fixed deploy schemas, authority checks, durable rollback/recovery, locks, and negative command canaries are implemented in source but not installed on the host;
 - a saved reviewed handoff not yet existing;
 - separate exact authorization not yet being granted.

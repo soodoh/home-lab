@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Apply immutable lifecycle-marker, exact package, and guarded reboot plans."""
+"""Apply immutable lifecycle-marker, exact package, guarded reboot, and low-risk plans."""
 
 import datetime as dt
 import fcntl
@@ -16,6 +16,26 @@ import sys
 REPO = Path("/root/home-lab")
 INBOX = Path("/home/ansible-deploy/.home-lab-plan-inbox")
 MARKER = Path("/var/lib/home-lab/lifecycle-state.json")
+LOW_RISK_DIR = Path("/var/lib/home-lab/low-risk-transactions")
+LOW_RISK_LOCK = Path("/run/lock/home-lab-proxmox-low-risk.lock")
+APT_SOURCE_PATHS = (
+    "/etc/apt/sources.list",
+    "/etc/apt/sources.list.d/debian-security.sources",
+    "/etc/apt/sources.list.d/debian.sources",
+    "/etc/apt/sources.list.d/pve-no-subscription.sources",
+    "/etc/apt/sources.list.d/tailscale.sources",
+)
+APT_KEYRING_PATHS = (
+    "/usr/share/keyrings/debian-archive-keyring.gpg",
+    "/usr/share/keyrings/proxmox-archive-keyring.gpg",
+    "/usr/share/keyrings/tailscale-archive-keyring.gpg",
+)
+APT_LOCK_PATHS = (
+    "/var/lib/dpkg/lock-frontend",
+    "/var/lib/dpkg/lock",
+    "/var/lib/apt/lists/lock",
+    "/var/cache/apt/archives/lock",
+)
 LOCKS = (
     Path("/var/lib/home-lab/reconciliation/apply.lock"),
     Path("/var/lib/iac-ansible-production.lock"),
@@ -70,6 +90,16 @@ def file_hash(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def open_low_risk_lock():
+    LOW_RISK_LOCK.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+    descriptor = os.open(LOW_RISK_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    metadata = os.fstat(descriptor)
+    if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_gid != 0 or metadata.st_nlink != 1 or \
+            stat.S_IMODE(metadata.st_mode) != 0o600:
+        os.close(descriptor); fail("low-risk lock metadata differs")
+    return descriptor
+
+
 def git(*args):
     result = subprocess.run(("/usr/bin/git", "-C", str(REPO), *args), stdin=subprocess.DEVNULL,
                             capture_output=True, text=True, timeout=15, check=True)
@@ -112,6 +142,34 @@ def verify_repo(plan):
     if file_hash(REPO / "infrastructure/contract/home-lab.yml") != plan["contract_sha256"] or \
             file_hash(REPO / "ansible/inventory/production.yml") != plan["inventory_sha256"]:
         fail("contract or inventory binding differs")
+
+
+def verify_low_risk_authority(domain, value):
+    key = "apt_repositories" if domain == "apt-repositories" else "chrony_service"
+    expected_block = (f"        {key}:\n          current_owner: ansible\n          target_owner: ansible\n"
+                      "          state: transferred\n          parity_required: true\n          single_writer: true")
+    if expected_block not in (REPO / "infrastructure/contract/home-lab.yml").read_text():
+        fail("low-risk domain ownership is not transferred to Ansible")
+    projection = json.loads((REPO / "nix/proxmox/projection.json").read_text())
+    if domain == "apt-repositories":
+        desired_files = {item["path"]: item for item in projection["managedFiles"] if item["path"] in APT_SOURCE_PATHS}
+        if tuple(sorted(desired_files)) != tuple(sorted(APT_SOURCE_PATHS)):
+            fail("contracted repository projection cardinality differs")
+        for item in value["records"]:
+            desired = desired_files.get(item["path"])
+            if desired is None or item["content"] != desired["content"] or item["after_sha256"] != hashlib.sha256(desired["content"].encode()).hexdigest() or \
+                    desired.get("owner") != "root" or desired.get("group") != "root" or desired.get("mode") != "0644":
+                fail("repository activation is not bound to contracted content")
+        desired_keyrings = {item["path"]: item for item in projection["managedArtifacts"] if item["path"] in APT_KEYRING_PATHS}
+        expected_keyrings = [{"path": path, "sha256": desired_keyrings[path]["sha256"],
+                              "symlink_target": desired_keyrings[path]["symlinkTarget"]} for path in APT_KEYRING_PATHS]
+        if value["keyrings"] != expected_keyrings:
+            fail("repository activation is not bound to contracted keyrings")
+    else:
+        services = {item["name"]: item for item in projection["nativeServices"]}
+        if services.get("chrony.service") != {"enabled": True, "name": "chrony.service", "state": "started"} or \
+                value["desired"] != {"active": True, "enabled": True}:
+            fail("chrony activation is not bound to contracted service state")
 
 
 def install_marker(after):
@@ -345,6 +403,339 @@ def package_operation(value, digest, operation):
     return {"automatic_reboot": False, "package_transaction": "committed", "plan_sha256": digest}
 
 
+def validate_repository_plan(value, digest, allow_expired=False):
+    expected_keys = {"authorized", "automatic_reboot", "commit", "contract_sha256", "created_at", "domain",
+                     "expires_at", "format", "host", "host_key_fingerprint", "inventory_sha256", "keyrings",
+                     "metadata_refresh", "records", "unknown_source_files"}
+    if not isinstance(value, dict) or set(value) != expected_keys or \
+            value["format"] != "home-lab-proxmox-low-risk-activation-v1" or value["domain"] != "apt-repositories" or \
+            value["host"] != "proxmox" or value["host_key_fingerprint"] != FINGERPRINT or \
+            value["authorized"] is not False or value["automatic_reboot"] is not False or value["metadata_refresh"] is not False:
+        fail("repository activation envelope differs")
+    if not isinstance(value["commit"], str) or HEX40.fullmatch(value["commit"]) is None or \
+            any(not isinstance(value[name], str) or HEX64.fullmatch(value[name]) is None for name in ("contract_sha256", "inventory_sha256")):
+        fail("repository activation source hash differs")
+    created, expires = parse_time(value["created_at"]), parse_time(value["expires_at"])
+    now = dt.datetime.now(dt.timezone.utc)
+    if expires - created != dt.timedelta(seconds=1800) or now < created or (now > expires and not allow_expired):
+        fail("repository activation freshness differs")
+    if hashlib.sha256(canonical(value)).hexdigest() != digest or value["unknown_source_files"] != []:
+        fail("repository activation hash or source cardinality differs")
+    if not isinstance(value["records"], list) or len(value["records"]) != len(APT_SOURCE_PATHS):
+        fail("repository record cardinality differs")
+    records = []
+    for item, expected_path in zip(value["records"], APT_SOURCE_PATHS):
+        if not isinstance(item, dict) or set(item) != {"after_sha256", "before_sha256", "content", "gid", "mode", "path", "uid"} or \
+                item["path"] != expected_path or item["uid"] != 0 or item["gid"] != 0 or item["mode"] != "0644" or \
+                not isinstance(item["content"], str) or len(item["content"].encode()) > 16384 or \
+                any(not isinstance(item[name], str) or HEX64.fullmatch(item[name]) is None for name in ("before_sha256", "after_sha256")) or \
+                hashlib.sha256(item["content"].encode()).hexdigest() != item["after_sha256"]:
+            fail("repository record differs")
+        records.append(item)
+    if not isinstance(value["keyrings"], list) or len(value["keyrings"]) != len(APT_KEYRING_PATHS):
+        fail("repository keyring cardinality differs")
+    for item, expected_path in zip(value["keyrings"], APT_KEYRING_PATHS):
+        if not isinstance(item, dict) or set(item) != {"path", "sha256", "symlink_target"} or item["path"] != expected_path or \
+                not isinstance(item["sha256"], str) or HEX64.fullmatch(item["sha256"]) is None or \
+                item["symlink_target"] not in (None, "debian-archive-keyring.pgp") or \
+                (expected_path != APT_KEYRING_PATHS[0] and item["symlink_target"] is not None) or \
+                (expected_path == APT_KEYRING_PATHS[0] and item["symlink_target"] != "debian-archive-keyring.pgp"):
+            fail("repository keyring record differs")
+    return records
+
+
+def repository_snapshot(path):
+    metadata = os.lstat(path)
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode) or metadata.st_nlink != 1 or \
+            metadata.st_uid != 0 or metadata.st_gid != 0 or stat.S_IMODE(metadata.st_mode) != 0o644:
+        fail(f"repository file metadata differs: {path}")
+    content = path.read_bytes()
+    return content, hashlib.sha256(content).hexdigest()
+
+
+def verify_repository_keyrings(value):
+    for item in value["keyrings"]:
+        path = Path(item["path"]); metadata = os.lstat(path); expected_target = item["symlink_target"]
+        if expected_target is None:
+            content_path = path
+            if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode):
+                fail("repository keyring type differs")
+        else:
+            if not stat.S_ISLNK(metadata.st_mode) or os.readlink(path) != expected_target or metadata.st_uid != 0 or metadata.st_gid != 0:
+                fail("repository keyring symlink differs")
+            content_path = path.parent / expected_target
+        content_metadata = os.lstat(content_path)
+        if not stat.S_ISREG(content_metadata.st_mode) or stat.S_ISLNK(content_metadata.st_mode) or content_metadata.st_nlink != 1 or \
+                content_metadata.st_uid != 0 or content_metadata.st_gid != 0 or stat.S_IMODE(content_metadata.st_mode) != 0o644 or \
+                hashlib.sha256(content_path.read_bytes()).hexdigest() != item["sha256"]:
+            fail("repository keyring content or metadata differs")
+
+
+def save_low_risk_journal(directory, value):
+    LOW_RISK_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    parent_metadata = os.lstat(LOW_RISK_DIR)
+    if not stat.S_ISDIR(parent_metadata.st_mode) or stat.S_ISLNK(parent_metadata.st_mode) or parent_metadata.st_uid != 0 or \
+            parent_metadata.st_gid != 0 or stat.S_IMODE(parent_metadata.st_mode) != 0o700:
+        fail("low-risk journal parent metadata differs")
+    if not os.path.lexists(directory): os.mkdir(directory, 0o700)
+    metadata = os.lstat(directory)
+    if not stat.S_ISDIR(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_gid != 0 or \
+            stat.S_IMODE(metadata.st_mode) != 0o700:
+        fail("low-risk journal directory metadata differs")
+    target = directory / "journal.json"; temporary = directory / ".journal.tmp"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(descriptor, canonical(value)); os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    os.replace(temporary, target); os.chown(target, 0, 0); os.chmod(target, 0o600)
+    fsync_directory(directory)
+
+
+def replace_repository_file(path, content):
+    temporary = path.parent / f".{path.name}.home-lab.tmp"
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(descriptor, content); os.fchmod(descriptor, 0o644); os.fchown(descriptor, 0, 0); os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    os.replace(temporary, path)
+    directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try: os.fsync(directory_fd)
+    finally: os.close(directory_fd)
+
+
+def fsync_directory(path):
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try: os.fsync(descriptor)
+    finally: os.close(descriptor)
+
+
+def rollback_repository(directory, records):
+    for index, item in reversed(list(enumerate(records))):
+        _, current_hash = repository_snapshot(Path(item["path"]))
+        if current_hash == item["before_sha256"]:
+            continue
+        if current_hash != item["after_sha256"] or item["before_sha256"] == item["after_sha256"]:
+            fail("repository rollback found unrecognized file state")
+        backup = directory / f"before-{index}.bin"; content = read_fixed(backup, 0, 0, 0o600, 16384)
+        if hashlib.sha256(content).hexdigest() != item["before_sha256"]:
+            fail("repository rollback backup differs")
+        replace_repository_file(Path(item["path"]), content)
+    for item in records:
+        _, current_hash = repository_snapshot(Path(item["path"]))
+        if current_hash != item["before_sha256"]:
+            fail("repository rollback postcondition differs")
+
+
+def repository_operation(value, digest):
+    lock_descriptor = open_low_risk_lock(); package_locks = []
+    try:
+        fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        records = validate_repository_plan(value, digest); verify_repo(value); verify_low_risk_authority("apt-repositories", value)
+        verify_repository_keyrings(value)
+        unknown = sorted(name for name in os.listdir("/etc/apt/sources.list.d")
+                         if name not in {Path(path).name for path in APT_SOURCE_PATHS[1:]})
+        if unknown: fail("unrecognized repository source file is present")
+        for lock_path in APT_LOCK_PATHS:
+            descriptor = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+            try: fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except Exception: os.close(descriptor); raise
+            package_locks.append(descriptor)
+        directory = LOW_RISK_DIR / digest; journal_path = directory / "journal.json"
+        if os.path.lexists(journal_path):
+            existing = json.loads(read_fixed(journal_path, 0, 0, 0o600, 65536))
+            if existing.get("plan_sha256") != digest or existing.get("format") != "home-lab-proxmox-low-risk-journal-v1":
+                fail("repository journal differs")
+            if existing.get("status") == "committed":
+                for item in records:
+                    _, current_hash = repository_snapshot(Path(item["path"]))
+                    if current_hash != item["after_sha256"]: fail("committed repository postcondition differs")
+                return {"changed_files": existing.get("changed_files", 0), "plan_sha256": digest,
+                        "repository_transaction": "committed"}
+            fail("repository transaction requires fixed recovery")
+        before = {}
+        for item in records:
+            path = Path(item["path"]); content, current_hash = repository_snapshot(path)
+            if current_hash != item["before_sha256"]: fail("repository before-state changed")
+            before[item["path"]] = content
+        journal = {"automatic_reboot": False, "domain": "apt-repositories", "format": "home-lab-proxmox-low-risk-journal-v1",
+                   "metadata_refresh": False, "plan_sha256": digest,
+                   "records": [{"after_sha256": item["after_sha256"], "before_sha256": item["before_sha256"], "path": item["path"]}
+                               for item in records], "status": "applying"}
+        save_low_risk_journal(directory, journal)
+        for index, item in enumerate(records):
+            if item["before_sha256"] == item["after_sha256"]: continue
+            backup = directory / f"before-{index}.bin"
+            descriptor = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            try: os.write(descriptor, before[item["path"]]); os.fsync(descriptor)
+            finally: os.close(descriptor)
+        fsync_directory(directory)
+        try:
+            for item in records:
+                if item["before_sha256"] != item["after_sha256"]:
+                    replace_repository_file(Path(item["path"]), item["content"].encode())
+            if native(["/usr/bin/apt-get", "indextargets"]).returncode != 0: fail("APT rejected repository sources")
+            for item in records:
+                _, current_hash = repository_snapshot(Path(item["path"]))
+                if current_hash != item["after_sha256"]: fail("repository postcondition differs")
+        except Exception:
+            rollback_repository(directory, records)
+            journal["status"] = "rolled-back"; save_low_risk_journal(directory, journal); raise
+        changed_files = sum(item["before_sha256"] != item["after_sha256"] for item in records)
+        journal["status"] = "committed"; journal["changed_files"] = changed_files; save_low_risk_journal(directory, journal)
+        return {"changed_files": changed_files, "plan_sha256": digest, "repository_transaction": "committed"}
+    except BlockingIOError:
+        fail("low-risk or package manager lock is active")
+    finally:
+        for descriptor in package_locks: os.close(descriptor)
+        os.close(lock_descriptor)
+
+
+def recover_repository(value, digest):
+    lock_descriptor = open_low_risk_lock(); package_locks = []
+    try:
+        fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        records = validate_repository_plan(value, digest, allow_expired=True); verify_repo(value)
+        verify_low_risk_authority("apt-repositories", value); verify_repository_keyrings(value)
+        unknown = sorted(name for name in os.listdir("/etc/apt/sources.list.d")
+                         if name not in {Path(path).name for path in APT_SOURCE_PATHS[1:]})
+        if unknown: fail("unrecognized repository source file is present")
+        for lock_path in APT_LOCK_PATHS:
+            descriptor = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+            try: fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except Exception: os.close(descriptor); raise
+            package_locks.append(descriptor)
+        directory = LOW_RISK_DIR / digest; journal = json.loads(read_fixed(directory / "journal.json", 0, 0, 0o600, 65536))
+        expected_records = [{"after_sha256": item["after_sha256"], "before_sha256": item["before_sha256"], "path": item["path"]}
+                            for item in records]
+        if journal.get("format") != "home-lab-proxmox-low-risk-journal-v1" or journal.get("plan_sha256") != digest or \
+                journal.get("domain") != "apt-repositories" or journal.get("records") != expected_records:
+            fail("repository recovery journal differs")
+        states = []
+        for item in records:
+            _, current_hash = repository_snapshot(Path(item["path"]))
+            if current_hash not in (item["before_sha256"], item["after_sha256"]):
+                fail("repository recovery found unrecognized file state")
+            states.append(current_hash)
+        if all(current == item["after_sha256"] for current, item in zip(states, records)):
+            journal["status"] = "committed"
+            journal["changed_files"] = sum(item["before_sha256"] != item["after_sha256"] for item in records)
+            save_low_risk_journal(directory, journal)
+            return {"plan_sha256": digest, "repository_transaction": "committed"}
+        rollback_repository(directory, records)
+        journal["status"] = "rolled-back"; save_low_risk_journal(directory, journal)
+        return {"plan_sha256": digest, "repository_transaction": "rolled-back"}
+    except BlockingIOError:
+        fail("low-risk or package manager lock is active")
+    finally:
+        for descriptor in package_locks: os.close(descriptor)
+        os.close(lock_descriptor)
+
+
+def validate_chrony_plan(value, digest, allow_expired=False):
+    keys = {"authorized", "automatic_reboot", "before", "commit", "config_mutation", "contract_sha256", "created_at",
+            "desired", "domain", "expires_at", "format", "host", "host_key_fingerprint", "inventory_sha256", "restart_if_healthy"}
+    if not isinstance(value, dict) or set(value) != keys or value["format"] != "home-lab-proxmox-low-risk-activation-v1" or \
+            value["domain"] != "chrony-service" or value["host"] != "proxmox" or value["host_key_fingerprint"] != FINGERPRINT or \
+            value["authorized"] is not False or value["automatic_reboot"] is not False or value["config_mutation"] is not False or \
+            value["restart_if_healthy"] is not False or value["desired"] != {"active": True, "enabled": True} or \
+            not isinstance(value["before"], dict) or set(value["before"]) != {"active", "enabled"} or \
+            any(not isinstance(value["before"][name], bool) for name in ("active", "enabled")):
+        fail("chrony activation envelope differs")
+    if not isinstance(value["commit"], str) or HEX40.fullmatch(value["commit"]) is None or \
+            any(not isinstance(value[name], str) or HEX64.fullmatch(value[name]) is None for name in ("contract_sha256", "inventory_sha256")):
+        fail("chrony activation source hash differs")
+    created, expires = parse_time(value["created_at"]), parse_time(value["expires_at"]); now = dt.datetime.now(dt.timezone.utc)
+    if expires - created != dt.timedelta(seconds=1800) or now < created or (now > expires and not allow_expired) or \
+            hashlib.sha256(canonical(value)).hexdigest() != digest:
+        fail("chrony activation freshness or hash differs")
+    return value["before"]
+
+
+def chrony_state(require_health=False):
+    result = native(["/usr/bin/systemctl", "show", "chrony.service", "--property=ActiveState", "--property=DropInPaths",
+                     "--property=FragmentPath", "--property=UnitFileState"])
+    values = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    if values.get("FragmentPath") != "/usr/lib/systemd/system/chrony.service" or values.get("DropInPaths") != "" or \
+            values.get("ActiveState") not in ("active", "inactive") or values.get("UnitFileState") not in ("enabled", "disabled"):
+        fail("chrony unit provenance or state differs")
+    state = {"active": values["ActiveState"] == "active", "enabled": values["UnitFileState"] == "enabled"}
+    if require_health:
+        tracking = native(["/usr/bin/chronyc", "tracking"]); parsed = {}
+        for line in tracking.stdout.splitlines():
+            if ":" in line:
+                key, item = line.split(":", 1); parsed[key.strip()] = item.strip()
+        try: stratum = int(parsed.get("Stratum", "0"))
+        except ValueError: stratum = 0
+        if parsed.get("Leap status") != "Normal" or not 1 <= stratum <= 15:
+            fail("chrony tracking health differs")
+    return state
+
+
+def chrony_operation(value, digest):
+    lock_descriptor = open_low_risk_lock()
+    try:
+        fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        before = validate_chrony_plan(value, digest); verify_repo(value); verify_low_risk_authority("chrony-service", value)
+        directory = LOW_RISK_DIR / digest; journal_path = directory / "journal.json"
+        if os.path.lexists(journal_path):
+            journal = json.loads(read_fixed(journal_path, 0, 0, 0o600, 65536))
+            if journal.get("format") != "home-lab-proxmox-low-risk-journal-v1" or journal.get("plan_sha256") != digest:
+                fail("chrony journal differs")
+            if journal.get("status") == "committed" and chrony_state(require_health=True) == {"active": True, "enabled": True}:
+                return {"changed": journal.get("changed", False), "chrony_transaction": "committed", "plan_sha256": digest}
+            fail("chrony transaction requires fixed recovery")
+        current = chrony_state(require_health=before["active"])
+        if current != before: fail("chrony before-state changed")
+        journal = {"automatic_reboot": False, "before": before, "config_mutation": False, "domain": "chrony-service",
+                   "format": "home-lab-proxmox-low-risk-journal-v1", "plan_sha256": digest, "restart_if_healthy": False,
+                   "status": "applying"}
+        save_low_risk_journal(directory, journal); changed = False
+        try:
+            if not before["enabled"]: native(["/usr/bin/systemctl", "enable", "chrony.service"]); changed = True
+            if not before["active"]: native(["/usr/bin/systemctl", "start", "chrony.service"]); changed = True
+            if chrony_state(require_health=True) != {"active": True, "enabled": True}: fail("chrony postcondition differs")
+        except Exception:
+            if not before["active"]: native(["/usr/bin/systemctl", "stop", "chrony.service"])
+            if not before["enabled"]: native(["/usr/bin/systemctl", "disable", "chrony.service"])
+            journal["status"] = "rolled-back"; save_low_risk_journal(directory, journal); raise
+        journal["status"] = "committed"; journal["changed"] = changed; save_low_risk_journal(directory, journal)
+        return {"changed": changed, "chrony_transaction": "committed", "plan_sha256": digest}
+    except BlockingIOError:
+        fail("low-risk lock is active")
+    finally:
+        os.close(lock_descriptor)
+
+
+def recover_chrony(value, digest):
+    lock_descriptor = open_low_risk_lock()
+    try:
+        fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        before = validate_chrony_plan(value, digest, allow_expired=True); verify_repo(value)
+        verify_low_risk_authority("chrony-service", value)
+        directory = LOW_RISK_DIR / digest; journal = json.loads(read_fixed(directory / "journal.json", 0, 0, 0o600, 65536))
+        if journal.get("format") != "home-lab-proxmox-low-risk-journal-v1" or journal.get("plan_sha256") != digest or \
+                journal.get("domain") != "chrony-service" or journal.get("before") != before:
+            fail("chrony recovery journal differs")
+        current = chrony_state(require_health=False)
+        if current == {"active": True, "enabled": True}:
+            chrony_state(require_health=True); journal["status"] = "committed"; journal["changed"] = current != before
+            save_low_risk_journal(directory, journal)
+            return {"chrony_transaction": "committed", "plan_sha256": digest}
+        if current["active"] and not before["active"]: native(["/usr/bin/systemctl", "stop", "chrony.service"])
+        if current["enabled"] and not before["enabled"]: native(["/usr/bin/systemctl", "disable", "chrony.service"])
+        if not current["enabled"] and before["enabled"]: native(["/usr/bin/systemctl", "enable", "chrony.service"])
+        if not current["active"] and before["active"]: native(["/usr/bin/systemctl", "start", "chrony.service"])
+        if chrony_state(require_health=before["active"]) != before: fail("chrony rollback postcondition differs")
+        journal["status"] = "rolled-back"; save_low_risk_journal(directory, journal)
+        return {"chrony_transaction": "rolled-back", "plan_sha256": digest}
+    except BlockingIOError:
+        fail("low-risk lock is active")
+    finally:
+        os.close(lock_descriptor)
+
+
 def validate_reboot_plan(value, digest, allow_expired=False):
     keys = {"access_evidence_sha256", "authorized", "automatic_reboot", "backup_attestation_sha256", "commit",
             "console_attested", "contract_sha256", "created_at", "evidence", "expires_at", "expected", "format",
@@ -439,7 +830,7 @@ def reboot_operation(value, digest, operation):
 
 def main():
     request = read_bounded_stdin(1024)
-    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot"}
+    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "apply-apt-repositories", "recover-apt-repositories", "apply-chrony-service", "recover-chrony-service"}
     if not isinstance(request, dict) or set(request) != {"operation", "plan_sha256"} or \
             request.get("operation") not in operations or not isinstance(request.get("plan_sha256"), str) or \
             HEX64.fullmatch(request["plan_sha256"]) is None:
@@ -458,6 +849,14 @@ def main():
         after = validate_plan(value, digest)
         verify_repo(value)
         output = {"lifecycle_marker": install_marker(after), "plan_sha256": digest}
+    elif request["operation"] == "apply-apt-repositories":
+        output = repository_operation(value, digest)
+    elif request["operation"] == "recover-apt-repositories":
+        output = recover_repository(value, digest)
+    elif request["operation"] == "apply-chrony-service":
+        output = chrony_operation(value, digest)
+    elif request["operation"] == "recover-chrony-service":
+        output = recover_chrony(value, digest)
     elif request["operation"].endswith("-reboot"):
         output = reboot_operation(value, digest, request["operation"])
     else:
