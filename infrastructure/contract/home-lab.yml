@@ -70,7 +70,7 @@ lifecycle:
         apt_repositories:
           current_owner: nix
           target_owner: ansible
-          state: pending
+          state: ready
           parity_required: true
           single_writer: true
         chrony_service:

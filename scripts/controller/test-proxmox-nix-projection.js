@@ -133,6 +133,17 @@ for (const policy of projected.planningPolicy.servicePolicies) {
   if (!expected || policy.safetyClass !== expected.safetyClass || policy.automatic !== expected.automatic ||
       policy.requiresWatchdog !== expected.requiresWatchdog) throw new Error(`unsafe projected service policy: ${policy.name}`);
 }
+const aptPaths = new Set(projected.managedFiles.filter((item) => item.path.startsWith("/etc/apt/")).map((item) => item.path));
+const aptPolicies = projected.planningPolicy.managedFilePolicies.filter((item) => aptPaths.has(item.path));
+if (aptPolicies.length !== 5 || aptPolicies.some((item) => item.automatic !== false)) {
+  throw new Error("ready APT repository handoff did not freeze Nix mutation");
+}
+const pendingAptHandoff = structuredClone(contract);
+pendingAptHandoff.lifecycle.hosts.proxmox.domain_handoffs.apt_repositories.state = "pending";
+const pendingAptProjection = projectProxmoxPolicy(pendingAptHandoff, structuredClone(packageManifest));
+if (pendingAptProjection.planningPolicy.managedFilePolicies.filter((item) => aptPaths.has(item.path)).some((item) => item.automatic !== true)) {
+  throw new Error("pending APT repository handoff did not retain Nix mutation authority");
+}
 for (const mutation of [
   (value) => value.proxmox.planning_policy.service_policies.pop(),
   (value) => { value.proxmox.planning_policy.service_policies[1].name = "chrony.service"; },

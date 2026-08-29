@@ -35,6 +35,12 @@ function managedFile(file, content) {
 
 function projectProxmoxPolicy(contract, packageManifest) {
   const { network, proxmox, storage, system_timezone: systemTimezone } = contract;
+  const aptRepositoriesFrozen = ["ready", "transferred"].includes(
+    contract.lifecycle.hosts.proxmox.domain_handoffs.apt_repositories.state,
+  );
+  const chronyServiceFrozen = ["ready", "transferred"].includes(
+    contract.lifecycle.hosts.proxmox.domain_handoffs.chrony_service.state,
+  );
   if (packageManifest.architecture !== proxmox.packages.architecture || !Array.isArray(packageManifest.packages) ||
       packageManifest.packages.length < 1 || !Number.isInteger(packageManifest.provenance?.installedInventory?.installedRecords) ||
       packageManifest.provenance.installedInventory.installedRecords < 1 ||
@@ -263,7 +269,7 @@ function projectProxmoxPolicy(contract, packageManifest) {
       servicePolicies: proxmox.planning_policy.service_policies.map((entry) => ({
         name: entry.name,
         safetyClass: entry.safety_class,
-        automatic: entry.automatic,
+        automatic: entry.name === "chrony.service" && chronyServiceFrozen ? false : entry.automatic,
         requiresApproval: entry.requires_approval,
         requiresReboot: entry.requires_reboot,
         requiresWatchdog: entry.requires_watchdog,
@@ -271,7 +277,7 @@ function projectProxmoxPolicy(contract, packageManifest) {
       managedFilePolicies: proxmox.planning_policy.managed_file_policies.map((entry) => ({
         path: entry.path,
         safetyClass: entry.safety_class,
-        automatic: entry.automatic,
+        automatic: entry.path.startsWith("/etc/apt/") && aptRepositoriesFrozen ? false : entry.automatic,
         requiresApproval: entry.requires_approval,
         requiresReboot: entry.requires_reboot,
         requiresWatchdog: entry.requires_watchdog,

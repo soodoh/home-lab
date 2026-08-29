@@ -551,15 +551,16 @@ class ProxmoxNixApplyTests(unittest.TestCase):
     def test_safe_dispatch_derives_content_and_commands_only_from_catalog(self) -> None:
         file_item = next(item for item in self.activator["SPEC"]["catalog"].values() if item["domain"] == "managed-files")
         captured = []
+        commands = []
         old_replace = self.activator["replace_fixed"]
         old_run = self.activator["run_native"]
         try:
             self.activator["replace_fixed"] = lambda *args: captured.append(args)
+            self.activator["run_native"] = lambda argv, accepted=(0,): commands.append(argv) or b""
             self.activator["mutate_item"](file_item)
             self.assertEqual(captured[0][1], base64.b64decode(file_item["contentBase64"]))
             service = next(item for item in self.activator["SPEC"]["catalog"].values() if item["domain"] == "services")
-            commands = []
-            self.activator["run_native"] = lambda argv, accepted=(0,): commands.append(argv) or b""
+            commands.clear()
             native_items = [item for item in self.activator["SPEC"]["catalog"].values() if item.get("nativeOperation")]
             for native_item in native_items:
                 self.activator["run_post_write"](native_item)
