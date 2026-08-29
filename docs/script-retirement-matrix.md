@@ -62,6 +62,7 @@
 | `scripts/controller/proxmox-access-identity-stage.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-identity-stage.py` |
 | `scripts/controller/proxmox-plan-capability.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-transports.py` |
 | `scripts/controller/proxmox-deploy-capability.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-transports.py` |
+| `scripts/controller/proxmox-deploy-upgrade.py` | `retain-controller` | 1 | `scripts/controller/test-proxmox-access-transports.py` |
 | `scripts/controller/proxmox-firewall.py` | `retain-firewall-boundary` | 2 | `docs/proxmox-firewall-cutover.md`, `scripts/controller/test-proxmox-firewall-controller.py` |
 | `scripts/controller/proxmox-nix-projection.js` | `transition-with-nix` | 1 | `scripts/reconcile-infrastructure` |
 | `scripts/controller/proxmox-timezone-handoff.js` | `transition-with-nix` | 1 | `scripts/controller/test-proxmox-timezone-handoff.js` |

@@ -15,6 +15,7 @@ DEPLOY_ACTIVATOR = ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-de
 FIREWALL = ROOT / "infrastructure/proxmox-firewall/host/proxmox-firewall-transport"
 CAPABILITY = ROOT / "scripts/controller/proxmox-plan-capability.py"
 DEPLOY_CAPABILITY = ROOT / "scripts/controller/proxmox-deploy-capability.py"
+DEPLOY_UPGRADE = ROOT / "scripts/controller/proxmox-deploy-upgrade.py"
 PACKAGE_ACTIVATION = ROOT / "scripts/controller/proxmox-package-activation.py"
 
 
@@ -80,6 +81,9 @@ def main() -> None:
     for required in ("PROXMOX_DEPLOY_CAPABILITY_CONFIRMED", "os.O_EXCL", "os.O_NOFOLLOW", "saved-action-plans-only"):
         assert required in deploy_capability_source
     assert "authorized_keys\", \"w" not in deploy_capability_source
+    upgrade_source = DEPLOY_UPGRADE.read_text()
+    for required in ("PROXMOX_DEPLOY_UPGRADE_CONFIRMED", "after_sha256", "saved-lifecycle-marker-and-package-plans-only", "os.O_EXCL", "os.O_NOFOLLOW"):
+        assert required in upgrade_source
     print("proxmox_access_transports=verified")
 
 
