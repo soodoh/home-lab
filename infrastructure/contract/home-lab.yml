@@ -109,7 +109,7 @@ lifecycle:
         mode: "0600"
         adoption_state: complete
       access_cleanup:
-        state: pending
+        state: ready
         identity: ansible-deploy
         steady_transport: tailscale-ssh
         legacy_marker_path: /var/lib/home-lab/debian-inert-provisioned

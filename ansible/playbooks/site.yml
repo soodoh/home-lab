@@ -52,6 +52,7 @@
       vars:
         ssh_service_name: sshd.service
         ssh_password_authentication: false
+        ssh_pubkey_authentication: false
         ssh_allow_users:
           - ansible-plan
           - ansible-deploy

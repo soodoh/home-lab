@@ -26,12 +26,13 @@ def main() -> None:
         "debian_legacy_marker",
         "debian_conventional_keys",
         "rollback_retained",
+        "debian_sshd_tightening",
     ):
         assert required in source, required
-    assert all(f'add_parser("{name}")' in source for name in ("plan", "attest-recovery", "apply-legacy-marker", "apply-conventional-keys"))
+    assert all(f'add_parser("{name}")' in source for name in ("plan", "attest-recovery", "apply-legacy-marker", "apply-conventional-keys", "apply-openssh"))
     assert "StrictHostKeyChecking=no" not in source and "shell=True" not in source
     remote = source.split("program = r'''", 1)[1].split("'''", 1)[0]
-    for forbidden in ("unlink(", "remove(", 'open(path,"w', "usermod", "sshd_config"):
+    for forbidden in ("unlink(", "remove(", 'open(path,"w', "usermod"):
         assert forbidden not in remote, forbidden
     role = (ROOT / "ansible/roles/debian_access_cleanup/tasks/main.yml").read_text()
     playbook = (ROOT / "ansible/playbooks/apply-debian-access-cleanup.yml").read_text()
@@ -39,6 +40,8 @@ def main() -> None:
     assert "rescue:" in role and "Restore the exact empty legacy marker" in role
     assert "hosts: docker_host" in playbook and "serial: 1" in playbook
     for required in ("fcntl.flock", "access-rollback", "os.O_NOFOLLOW", "conventional key changed after planning", "operation == \"rollback\""):
+        assert required in role, required
+    for required in ("systemd-run", "--on-active=120s", "watchdog_active", "/usr/sbin/sshd", "status\": \"committed"):
         assert required in role, required
     for required in (
         "access_cleanup:",

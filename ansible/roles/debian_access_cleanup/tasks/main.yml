@@ -228,3 +228,178 @@
   no_log: true
   tags:
     - debian_conventional_keys
+
+
+- name: Validate the exact OpenSSH tightening plan
+  ansible.builtin.assert:
+    that:
+      - debian_access_cleanup_plan.format == 'home-lab-debian-access-cleanup-plan-v1'
+      - debian_access_cleanup_plan.host == 'debian'
+      - debian_access_cleanup_plan.kind == 'openssh-tightening'
+      - debian_access_cleanup_plan.sequence == 3
+      - debian_access_cleanup_plan.authorized == false
+      - debian_access_cleanup_plan_sha256 is match('^[0-9a-f]{64}$')
+      - debian_access_cleanup_operation in ['apply', 'commit', 'rollback']
+      - debian_access_cleanup_plan.action.config_path == '/etc/ssh/sshd_config.d/60-home-lab.conf'
+      - debian_access_cleanup_plan.action.after.pubkey_authentication == 'no'
+      - debian_access_cleanup_plan.action.after.permit_root_login == 'no'
+      - lifecycle.hosts.debian.access_cleanup.remove_keys_before_tightening
+    fail_msg: OpenSSH tightening differs from its exact saved plan.
+  tags:
+    - debian_sshd_tightening
+
+- name: Apply, commit, or roll back the exact OpenSSH plan
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import fcntl
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import stat
+        import subprocess
+        import sys
+
+        plan = json.loads(sys.argv[1])
+        plan_sha256 = sys.argv[2]
+        operation = sys.argv[3]
+        target = Path("/etc/ssh/sshd_config.d/60-home-lab.conf")
+        if plan["action"]["config_path"] != str(target) or operation not in {"apply", "commit", "rollback"}:
+            raise SystemExit(65)
+        lock_path = "/run/lock/home-lab-debian-access-cleanup.lock"
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        rollback = Path("/var/lib/home-lab/access-rollback") / (plan_sha256 + "-sshd")
+        backup = rollback / "60-home-lab.conf"
+        manifest_path = rollback / "manifest.json"
+        rollback_script = rollback / "rollback.sh"
+        unit = "home-lab-debian-ssh-rollback-" + plan_sha256[:12]
+        environment = {"LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+        desired = (
+            "PubkeyAuthentication no\n"
+            "PasswordAuthentication no\n"
+            "KbdInteractiveAuthentication no\n"
+            "PermitRootLogin no\n"
+            "AllowUsers ansible-plan ansible-deploy\n"
+        ).encode()
+
+        def inspect(path):
+            info = os.lstat(path)
+            if not stat.S_ISREG(info.st_mode) or stat.S_ISLNK(info.st_mode) or info.st_nlink != 1 or info.st_size > 65536:
+                raise ValueError("unsafe SSH policy file")
+            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                raw = os.read(fd, 65537)
+            finally:
+                os.close(fd)
+            return info, raw
+
+        def stop_watchdog():
+            subprocess.run(["/usr/bin/systemctl", "stop", unit + ".timer"], env=environment, capture_output=True)
+            subprocess.run(["/usr/bin/systemctl", "reset-failed", unit + ".timer", unit + ".service"], env=environment, capture_output=True)
+
+        def restore():
+            item = json.loads(manifest_path.read_bytes())
+            raw = backup.read_bytes()
+            if hashlib.sha256(raw).hexdigest() != item["sha256"]:
+                raise ValueError("SSH rollback hash differs")
+            temporary = target.parent / f".{target.name}.{os.getpid()}.restore"
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            try:
+                os.write(fd, raw)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            os.chown(temporary, item["uid"], item["gid"])
+            os.chmod(temporary, int(item["mode"], 8))
+            os.replace(temporary, target)
+            subprocess.run(["/usr/sbin/sshd", "-t"], env=environment, check=True, capture_output=True)
+            subprocess.run(["/usr/bin/systemctl", "reload", "sshd.service"], env=environment, check=True, capture_output=True)
+            stop_watchdog()
+
+        if operation == "rollback":
+            restore()
+            print(json.dumps({"status": "rolled-back"}, sort_keys=True, separators=(",", ":")))
+            raise SystemExit(0)
+        if operation == "commit":
+            stop_watchdog()
+            rollback_script.unlink(missing_ok=True)
+            print(json.dumps({"rollback_retained": True, "status": "committed"}, sort_keys=True, separators=(",", ":")))
+            raise SystemExit(0)
+
+        if any(os.path.lexists(path) for path in ("/home/ansible-deploy/.ssh/authorized_keys", "/root/.ssh/authorized_keys")):
+            raise ValueError("conventional key files remain")
+        expected = plan["action"]["config_before"]
+        info, raw = inspect(target)
+        observed = {
+            "uid": info.st_uid,
+            "gid": info.st_gid,
+            "mode": format(stat.S_IMODE(info.st_mode), "04o"),
+            "nlink": info.st_nlink,
+            "size": info.st_size,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        }
+        for key in observed:
+            if observed[key] != expected[key]:
+                raise ValueError("SSH policy changed after planning")
+        rollback.mkdir(mode=0o700)
+        fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            os.write(fd, raw)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        os.chown(backup, 0, 0)
+        fd = os.open(manifest_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            os.write(fd, (json.dumps(observed, sort_keys=True, separators=(",", ":")) + "\n").encode())
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        script = (
+            "#!/bin/sh\nset -eu\n"
+            f"install -o {observed['uid']} -g {observed['gid']} -m {observed['mode']} '{backup}' '{target}'\n"
+            "/usr/sbin/sshd -t\n/usr/bin/systemctl reload sshd.service\n"
+        ).encode()
+        fd = os.open(rollback_script, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o700)
+        try:
+            os.write(fd, script)
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        subprocess.run(
+            ["/usr/bin/systemd-run", "--quiet", "--unit", unit, "--on-active=120s", "/bin/sh", str(rollback_script)],
+            env=environment,
+            check=True,
+            capture_output=True,
+        )
+        try:
+            temporary = target.parent / f".{target.name}.{os.getpid()}.new"
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+            try:
+                os.write(fd, desired)
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            os.chown(temporary, 0, 0)
+            os.chmod(temporary, 0o644)
+            subprocess.run(["/usr/sbin/sshd", "-t", "-f", str(temporary)], env=environment, check=True, capture_output=True)
+            os.replace(temporary, target)
+            subprocess.run(["/usr/sbin/sshd", "-t"], env=environment, check=True, capture_output=True)
+            subprocess.run(["/usr/bin/systemctl", "reload", "sshd.service"], env=environment, check=True, capture_output=True)
+        except Exception:
+            restore()
+            raise
+        print(json.dumps({"status": "applied", "watchdog_active": True}, sort_keys=True, separators=(",", ":")))
+      - "{{ debian_access_cleanup_plan | to_json }}"
+      - "{{ debian_access_cleanup_plan_sha256 }}"
+      - "{{ debian_access_cleanup_operation }}"
+  become: true
+  register: debian_access_cleanup_sshd_transaction
+  changed_when: (debian_access_cleanup_sshd_transaction.stdout | from_json).status == 'applied'
+  no_log: true
+  tags:
+    - debian_sshd_tightening

@@ -48,7 +48,7 @@ def clean_pushed_commit() -> str:
 def observe() -> dict:
     program = r'''
 import grp,hashlib,json,os,pwd,stat,subprocess
-paths=["/var/lib/home-lab/debian-inert-provisioned","/home/ansible-deploy/.ssh/authorized_keys","/root/.ssh/authorized_keys"]
+paths=["/var/lib/home-lab/debian-inert-provisioned","/home/ansible-deploy/.ssh/authorized_keys","/root/.ssh/authorized_keys","/etc/ssh/sshd_config.d/60-home-lab.conf"]
 def metadata(path):
  try: info=os.lstat(path)
  except FileNotFoundError: return {"exists":False}
@@ -106,7 +106,7 @@ def plan() -> tuple[Path, str]:
          ([] if marker_present else ["legacy-marker-already-absent"]) + ["physical-console-attestation-required", "saved-reviewed-plan-required", "separate-authorization-required"]),
         ("conventional-key-removal", {"paths": {path: {"before": evidence["paths"][path], "after": {"exists": False}} for path in key_paths}},
          ([] if not marker_present else ["legacy-marker-removal-required"]) + ["physical-console-attestation-required", "saved-reviewed-plan-required", "separate-authorization-required"]),
-        ("openssh-tightening", {"before": evidence["sshd"], "after": {"pubkey_authentication": "no", "permit_root_login": "no"}},
+        ("openssh-tightening", {"before": evidence["sshd"], "after": {"pubkey_authentication": "no", "permit_root_login": "no"}, "config_path": "/etc/ssh/sshd_config.d/60-home-lab.conf", "config_before": evidence["paths"]["/etc/ssh/sshd_config.d/60-home-lab.conf"]},
          ([] if not keys_present else ["conventional-key-removal-required"]) + ["independent-post-key-session-canary-required", "physical-console-attestation-required", "saved-reviewed-plan-required", "separate-authorization-required"]),
     ]
     OUTPUT.mkdir(parents=True, exist_ok=True, mode=0o700); os.chmod(OUTPUT, 0o700); plans=[]
@@ -247,13 +247,72 @@ def apply_conventional_keys(plan_path: Path, manifest_path: Path, recovery_path:
     print(json.dumps({"action": "conventional-key-removal", "plan_sha256": plan_digest, "rollback_retained": True, "status": "applied"}, sort_keys=True))
 
 
+def apply_openssh(plan_path: Path, manifest_path: Path, recovery_path: Path) -> None:
+    plan_value, plan_raw = load_private(plan_path, "Debian OpenSSH plan")
+    manifest, manifest_raw = load_private(manifest_path, "Debian access cleanup manifest")
+    recovery, _ = load_private(recovery_path, "Debian recovery attestation")
+    plan_digest = sha(plan_raw); manifest_digest = sha(manifest_raw)
+    if plan_path.name != f"3-openssh-tightening-{plan_digest}.json" or manifest_path.name != f"manifest-{manifest_digest}.json":
+        raise SystemExit("Debian OpenSSH artifact filename differs")
+    if plan_value.get("kind") != "openssh-tightening" or plan_value.get("sequence") != 3 or plan_value.get("authorized") is not False or plan_value.get("commit") != clean_pushed_commit() or plan_value.get("contract_sha256") != file_sha(ROOT / "infrastructure/contract/home-lab.yml") or plan_value.get("inventory_sha256") != file_sha(ROOT / "ansible/inventory/production.yml"):
+        raise SystemExit("Debian OpenSSH plan binding differs")
+    reference = next((item for item in manifest.get("plans", []) if item.get("plan_sha256") == plan_digest), None)
+    if manifest.get("commit") != plan_value["commit"] or reference is None or reference.get("kind") != "openssh-tightening" or "conventional-key-removal-required" in reference.get("blockers", []):
+        raise SystemExit("Debian cleanup manifest does not permit OpenSSH tightening")
+    if recovery != {"format": "home-lab-debian-access-recovery-attestation-v1", "manifest_sha256": manifest_digest, "commit": manifest["commit"], "method": "localhost", "attested_at": recovery.get("attested_at")}:
+        raise SystemExit("Debian localhost recovery receipt differs")
+    if datetime.now(timezone.utc) > datetime.fromisoformat(plan_value["expires_at"].replace("Z", "+00:00")):
+        raise SystemExit("Debian OpenSSH plan expired")
+    expected = f"apply-debian-openssh-tightening-{plan_digest}"
+    if os.environ.get("DEBIAN_ACCESS_CLEANUP_CONFIRMED") != expected:
+        raise SystemExit(f"exact confirmation required: {expected}")
+    current = observe(); config_path = plan_value["action"]["config_path"]
+    if any(current["paths"].get(path) != {"exists": False} for path in ("/home/ansible-deploy/.ssh/authorized_keys", "/root/.ssh/authorized_keys")) or current["sshd"] != plan_value["action"]["before"] or current["paths"].get(config_path) != plan_value["action"]["config_before"]:
+        raise SystemExit("Debian OpenSSH or key state changed after planning")
+
+    def invoke(operation: str) -> int:
+        extra = {"debian_access_cleanup_plan": plan_value, "debian_access_cleanup_plan_sha256": plan_digest,
+                 "debian_access_cleanup_operation": operation}
+        with tempfile.NamedTemporaryFile(mode="wb", dir=OUTPUT, prefix=f"sshd-{operation}-", suffix=".json", delete=False) as handle:
+            extra_path = Path(handle.name); os.chmod(extra_path, 0o600); handle.write(canonical(extra)); handle.flush(); os.fsync(handle.fileno())
+        try:
+            command = ("ansible-playbook", "-i", "inventory/production.yml", "playbooks/apply-debian-access-cleanup.yml", "--limit", "docker-host-production", "--tags", "debian_sshd_tightening", "--extra-vars", f"@{extra_path}")
+            return subprocess.run(command, cwd=ROOT / "ansible", timeout=300).returncode
+        finally:
+            extra_path.unlink(missing_ok=True)
+
+    lock_descriptor = acquire_transfer_lock(LOCK)
+    try:
+        if invoke("apply"):
+            raise SystemExit("Debian OpenSSH one-tag apply failed")
+        try:
+            run_ssh = (*SSH, TARGET, "sudo -n -- true")
+            if subprocess.run(run_ssh, capture_output=True, timeout=60).returncode:
+                raise ValueError("deploy Tailscale session failed")
+            if subprocess.run((*SSH, "docker@docker-host", "true"), capture_output=True, timeout=60).returncode:
+                raise ValueError("human Tailscale session failed")
+            after = observe()
+            if after["sshd"].get("pubkey_authentication") != "no" or after["sshd"].get("permit_root_login") != "no":
+                raise ValueError("OpenSSH effective postcondition differs")
+            if invoke("commit"):
+                raise ValueError("OpenSSH watchdog commit failed")
+        except (Exception, SystemExit):
+            if invoke("rollback"):
+                raise SystemExit("Debian OpenSSH canary failed and watchdog rollback failed")
+            raise SystemExit("Debian OpenSSH canary failed; exact policy was rolled back")
+    finally:
+        os.close(lock_descriptor)
+    print(json.dumps({"action": "openssh-tightening", "plan_sha256": plan_digest, "rollback_retained": True, "status": "committed"}, sort_keys=True))
+
+
 def main() -> None:
-    parser=argparse.ArgumentParser(); commands=parser.add_subparsers(dest="command",required=True); commands.add_parser("plan"); attested=commands.add_parser("attest-recovery"); attested.add_argument("manifest",type=Path); attested.add_argument("--method",choices=("localhost","physical-console"),required=True); marker=commands.add_parser("apply-legacy-marker"); marker.add_argument("plan",type=Path); marker.add_argument("manifest",type=Path); marker.add_argument("recovery",type=Path); keys=commands.add_parser("apply-conventional-keys"); keys.add_argument("plan",type=Path); keys.add_argument("manifest",type=Path); keys.add_argument("recovery",type=Path); args=parser.parse_args()
+    parser=argparse.ArgumentParser(); commands=parser.add_subparsers(dest="command",required=True); commands.add_parser("plan"); attested=commands.add_parser("attest-recovery"); attested.add_argument("manifest",type=Path); attested.add_argument("--method",choices=("localhost","physical-console"),required=True); marker=commands.add_parser("apply-legacy-marker"); marker.add_argument("plan",type=Path); marker.add_argument("manifest",type=Path); marker.add_argument("recovery",type=Path); keys=commands.add_parser("apply-conventional-keys"); keys.add_argument("plan",type=Path); keys.add_argument("manifest",type=Path); keys.add_argument("recovery",type=Path); sshd=commands.add_parser("apply-openssh"); sshd.add_argument("plan",type=Path); sshd.add_argument("manifest",type=Path); sshd.add_argument("recovery",type=Path); args=parser.parse_args()
     if args.command == "plan":
         path,digest=plan(); print(json.dumps({"authorized":False,"manifest_sha256":digest,"path":str(path)},sort_keys=True))
     elif args.command == "attest-recovery": attest_recovery(args.manifest.resolve(), args.method)
     elif args.command == "apply-legacy-marker": apply_legacy_marker(args.plan.resolve(), args.manifest.resolve(), args.recovery.resolve())
-    else: apply_conventional_keys(args.plan.resolve(), args.manifest.resolve(), args.recovery.resolve())
+    elif args.command == "apply-conventional-keys": apply_conventional_keys(args.plan.resolve(), args.manifest.resolve(), args.recovery.resolve())
+    else: apply_openssh(args.plan.resolve(), args.manifest.resolve(), args.recovery.resolve())
 
 
 if __name__ == "__main__": main()
