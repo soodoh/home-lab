@@ -260,6 +260,14 @@ def json_command(arguments):
         return None
 
 
+def firewall_options():
+    value = json_command(("/usr/bin/pvesh", "get", "/cluster/firewall/options", "--output-format", "json"))
+    if isinstance(value, dict):
+        return value
+    return json_command(("/usr/bin/perl", "-MPVE::Firewall", "-MJSON", "-e",
+                         "my $c=PVE::Firewall::load_clusterfw_conf(); print encode_json(PVE::Firewall::copy_opject_with_digest($c->{options}));"))
+
+
 def normalized_boolean(value, default=None):
     if value is None:
         return default
@@ -403,7 +411,7 @@ def tailscale_summary():
 
 
 def public_summaries():
-    options = json_command(("/usr/bin/pvesh", "get", "/cluster/firewall/options", "--output-format", "json"))
+    options = firewall_options()
     rules = json_command(("/usr/bin/pvesh", "get", "/cluster/firewall/rules", "--output-format", "json"))
     firewall = summary(expected=len(SPEC["pveFirewall"]["rules"]) + 1)
     if isinstance(options, dict) and isinstance(rules, list):

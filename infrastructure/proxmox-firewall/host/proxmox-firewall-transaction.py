@@ -256,12 +256,18 @@ def normalize_rule(value: Any) -> dict[str, Any] | None:
     return {"action": "ACCEPT", "destination_port": port, "direction": "IN", "log": "nolog",
             "protocol": protocol, "source": value["source"]}
 
+class FixedCommandError(RuntimeError):
+    def __init__(self, returncode: int, stderr: bytes):
+        super().__init__("fixed command failed")
+        self.returncode = returncode
+        self.stderr = stderr
+
 
 class Runner:
     deadline: float | None = None
 
     def run(self, argv: tuple[str, ...], attempts: int = 2, timeout: int = 5, accepted: tuple[int, ...] = (0,), allow_stderr: bool = False) -> bytes:
-        if not argv or argv[0] not in {"/usr/bin/pvesh", "/usr/bin/systemctl", "/usr/sbin/pve-firewall", "/usr/sbin/usermod", "/usr/bin/loginctl", "/usr/bin/pkill", "/usr/bin/pgrep"}:
+        if not argv or argv[0] not in {"/usr/bin/perl", "/usr/bin/pvesh", "/usr/bin/systemctl", "/usr/sbin/pve-firewall", "/usr/sbin/usermod", "/usr/bin/loginctl", "/usr/bin/pkill", "/usr/bin/pgrep"}:
             raise ValueError("command catalogue differs")
         last: Exception | None = None
         for attempt in range(attempts):
@@ -272,7 +278,7 @@ class Runner:
                 result = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                         timeout=min(timeout, remaining), env={"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"})
                 if result.returncode not in accepted or (result.stderr and not allow_stderr):
-                    raise RuntimeError("fixed command failed")
+                    raise FixedCommandError(result.returncode, result.stderr)
                 return result.stdout
             except (OSError, subprocess.TimeoutExpired, RuntimeError) as error:
                 last = error
@@ -280,11 +286,28 @@ class Runner:
                     if self.deadline is not None and self.deadline - time.monotonic() <= 1:
                         break
                     time.sleep(1)
+        if isinstance(last, FixedCommandError):
+            raise last
         raise RuntimeError("fixed command exhausted retries") from last
 
 
+def firewall_options(runner: Runner) -> dict[str, Any]:
+    try:
+        raw = runner.run(("/usr/bin/pvesh", "get", "/cluster/firewall/options", "--output-format", "json"))
+    except FixedCommandError as error:
+        expected = b"unknown schema type (not an object?)\nCompilation failed in require at /usr/bin/pvesh line 6.\nBEGIN failed--compilation aborted at /usr/bin/pvesh line 6.\n"
+        if error.returncode != 255 or error.stderr != expected:
+            raise
+        raw = runner.run(("/usr/bin/perl", "-MPVE::Firewall", "-MJSON", "-e",
+                          "my $c=PVE::Firewall::load_clusterfw_conf(); print encode_json(PVE::Firewall::copy_opject_with_digest($c->{options}));"))
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError("PVE firewall options differ")
+    return value
+
+
 def observe(runner: Runner) -> dict[str, Any]:
-    options = json.loads(runner.run(("/usr/bin/pvesh", "get", "/cluster/firewall/options", "--output-format", "json")))
+    options = firewall_options(runner)
     rules = json.loads(runner.run(("/usr/bin/pvesh", "get", "/cluster/firewall/rules", "--output-format", "json")))
     if not isinstance(options, dict) or not isinstance(rules, list):
         raise ValueError("PVE firewall response differs")
