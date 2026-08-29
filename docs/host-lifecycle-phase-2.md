@@ -36,6 +36,8 @@ The first parser surfaced 2 installs and 94 upgrades but silently skipped solver
 
 PVE 9.2.10/9.2.11 also has upstream bug 7942: `pvesh get /cluster/firewall/options` fails schema compilation while firewall enforcement and the other endpoints remain active. The fixed observer and firewall transaction now use the normal `pvesh` endpoint first and permit one exact, read-only `PVE::Firewall::load_clusterfw_conf` fallback only for that exact status-255 stderr. The fallback uses Proxmox's own `copy_opject_with_digest` function, so CAS digests and option normalization remain unchanged; unrelated failures still stop.
 
+The root-owned package journal ultimately reached `committed` with `automatic_reboot: false`. Final verification reported a clean `dpkg --audit`, an empty package solver, no reboot-required marker, all expected services active, all observer domains complete, lifecycle check mode `changed=0`, zero pending package actions, Nix host plan `f79739b209e066c3dcaf91cc01df73f3bee2061f31931f7edbf5783d410b63d8` with zero actions/blockers/findings, and five immutable OpenTofu plans with no changes under controller manifest `075430c1dec2d7f509e65767df272babffc9fea55ddb150fa98f860c60f36201`.
+
 ## Remaining gate
 
 The saved-plan deploy identity accepts lifecycle-marker plans and the fixed package prepare/apply/recovery schema only; any additional action type requires its own reviewed schema and activator support. Tofu retirement, conventional-key removal, OpenSSH tightening, the two unattributed historical RSA keys, and stale `apex` membership remain blocked on separate access-cutover review and authorization.
