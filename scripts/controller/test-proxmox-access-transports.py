@@ -82,7 +82,7 @@ def main() -> None:
         assert required in deploy_capability_source
     assert "authorized_keys\", \"w" not in deploy_capability_source
     upgrade_source = DEPLOY_UPGRADE.read_text()
-    for required in ("PROXMOX_DEPLOY_UPGRADE_CONFIRMED", "after_sha256", "saved-lifecycle-marker-and-package-plans-only", "os.O_EXCL", "os.O_NOFOLLOW"):
+    for required in ("PROXMOX_DEPLOY_UPGRADE_CONFIRMED", "after_sha256", "saved-actions-and-read-only-compatibility-only", "proxmox-observer", "proxmox-firewall-transaction", "os.O_EXCL", "os.O_NOFOLLOW"):
         assert required in upgrade_source
     print("proxmox_access_transports=verified")
 

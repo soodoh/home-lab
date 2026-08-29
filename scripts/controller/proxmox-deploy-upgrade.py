@@ -7,6 +7,7 @@ import argparse
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import importlib.util
 import os
 from pathlib import Path
 import stat
@@ -17,6 +18,8 @@ OUTPUT = ROOT / ".local/proxmox-deploy-upgrade"
 FINGERPRINT = "SHA256:uaxG9uESfphESCqWx3ialKjK0doHnVcFoUIGWMGcaYQ"
 TRANSPORT = "/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport"
 ACTIVATOR = "/usr/local/libexec/home-lab/proxmox-ansible-deploy-activator"
+OBSERVER = "/usr/local/libexec/home-lab/proxmox-observer"
+FIREWALL_TRANSACTION = "/usr/local/libexec/home-lab/proxmox-firewall-transaction"
 RULE = f"ansible-deploy ALL=(root) NOPASSWD: {ACTIVATOR}"
 SSH = ("ssh", "-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "proxmox@proxmox", "sudo -n -- /usr/bin/python3 -")
 
@@ -45,7 +48,7 @@ def clean_pushed_commit() -> str:
 
 
 def observe() -> dict:
-    program=f'''import grp,hashlib,json,os,pwd,stat,subprocess\nname="ansible-deploy"; account=pwd.getpwnam(name); status=subprocess.run(["/usr/bin/passwd","--status",name],capture_output=True,text=True); fields=status.stdout.split()\ndef meta(path):\n s=os.lstat(path); return {{"uid":s.st_uid,"gid":s.st_gid,"mode":format(stat.S_IMODE(s.st_mode),"04o"),"regular":stat.S_ISREG(s.st_mode),"symlink":stat.S_ISLNK(s.st_mode),"nlink":s.st_nlink,"sha256":hashlib.sha256(open(path,"rb").read()).hexdigest()}}\nprint(json.dumps({{"account":{{"groups":sorted(grp.getgrgid(g).gr_name for g in os.getgrouplist(name,account.pw_gid)),"password_locked":status.returncode==0 and len(fields)>1 and fields[1] in {{"L","LK"}},"shell":account.pw_shell}},"authorized_keys_absent":not os.path.lexists("/home/ansible-deploy/.ssh/authorized_keys") and not os.path.lexists("/home/ansible-deploy/.ssh/authorized_keys2"),"helpers":{{{TRANSPORT!r}:meta({TRANSPORT!r}),{ACTIVATOR!r}:meta({ACTIVATOR!r})}},"sudo_rule":open("/etc/sudoers.d/ansible-deploy").read(),"locks":[p for p in ("/var/lib/home-lab/reconciliation/apply.lock","/var/lib/iac-ansible-production.lock","/var/lib/home-lab/firewall-transaction/active.json") if os.path.lexists(p)]}},sort_keys=True,separators=(",",":")))\n'''
+    program=f'''import grp,hashlib,json,os,pwd,stat,subprocess\nname="ansible-deploy"; account=pwd.getpwnam(name); status=subprocess.run(["/usr/bin/passwd","--status",name],capture_output=True,text=True); fields=status.stdout.split()\ndef meta(path):\n s=os.lstat(path); return {{"uid":s.st_uid,"gid":s.st_gid,"mode":format(stat.S_IMODE(s.st_mode),"04o"),"regular":stat.S_ISREG(s.st_mode),"symlink":stat.S_ISLNK(s.st_mode),"nlink":s.st_nlink,"sha256":hashlib.sha256(open(path,"rb").read()).hexdigest()}}\nprint(json.dumps({{"account":{{"groups":sorted(grp.getgrgid(g).gr_name for g in os.getgrouplist(name,account.pw_gid)),"password_locked":status.returncode==0 and len(fields)>1 and fields[1] in {{"L","LK"}},"shell":account.pw_shell}},"authorized_keys_absent":not os.path.lexists("/home/ansible-deploy/.ssh/authorized_keys") and not os.path.lexists("/home/ansible-deploy/.ssh/authorized_keys2"),"helpers":{{{TRANSPORT!r}:meta({TRANSPORT!r}),{ACTIVATOR!r}:meta({ACTIVATOR!r}),{OBSERVER!r}:meta({OBSERVER!r}),{FIREWALL_TRANSACTION!r}:meta({FIREWALL_TRANSACTION!r})}},"sudo_rule":open("/etc/sudoers.d/ansible-deploy").read(),"locks":[p for p in ("/var/lib/home-lab/reconciliation/apply.lock","/var/lib/iac-ansible-production.lock","/var/lib/home-lab/firewall-transaction/active.json") if os.path.lexists(p)]}},sort_keys=True,separators=(",",":")))\n'''
     result=subprocess.run(SSH,input=program,text=True,capture_output=True,timeout=60)
     if result.returncode or result.stderr: raise SystemExit("deploy upgrade observation failed")
     value=json.loads(result.stdout)
@@ -58,15 +61,19 @@ def observe() -> dict:
 
 
 def source_hashes() -> dict:
+    spec=importlib.util.spec_from_file_location("proxmox_bundle",ROOT/"nix/proxmox/bundle.py"); module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+    projection=json.loads((ROOT/"nix/proxmox/projection.json").read_bytes())
     return {TRANSPORT:file_sha(ROOT/"infrastructure/proxmox-access/host/proxmox-ansible-deploy-transport"),
-            ACTIVATOR:file_sha(ROOT/"infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator")}
+            ACTIVATOR:file_sha(ROOT/"infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator"),
+            OBSERVER:sha(module.expected_helper_content("proxmox-observer",projection)),
+            FIREWALL_TRANSACTION:file_sha(ROOT/"infrastructure/proxmox-firewall/host/proxmox-firewall-transaction.py")}
 
 
 def plan() -> tuple[Path,str]:
     commit=clean_pushed_commit(); before=observe(); after=source_hashes()
-    if {path:item["sha256"] for path,item in before["helpers"].items()}==after: raise SystemExit("deploy helpers already match")
+    if {path:item["sha256"] for path,item in before["helpers"].items()}==after: raise SystemExit("reviewed helpers already match")
     now=datetime.now(timezone.utc).replace(microsecond=0)
-    value={"format":"home-lab-proxmox-deploy-upgrade-v1","commit":commit,"contract_sha256":file_sha(ROOT/"infrastructure/contract/home-lab.yml"),"inventory_sha256":file_sha(ROOT/"ansible/inventory/production.yml"),"host_key_fingerprint":FINGERPRINT,"created_at":now.isoformat().replace("+00:00","Z"),"expires_at":(now+timedelta(seconds=1800)).isoformat().replace("+00:00","Z"),"before":before,"after_sha256":after,"preserve":{"account_shell":TRANSPORT,"sudo_rule":RULE,"authorized_keys":"absent"},"capability":"saved-lifecycle-marker-and-package-plans-only","authorized":False}
+    value={"format":"home-lab-proxmox-deploy-upgrade-v1","commit":commit,"contract_sha256":file_sha(ROOT/"infrastructure/contract/home-lab.yml"),"inventory_sha256":file_sha(ROOT/"ansible/inventory/production.yml"),"host_key_fingerprint":FINGERPRINT,"created_at":now.isoformat().replace("+00:00","Z"),"expires_at":(now+timedelta(seconds=1800)).isoformat().replace("+00:00","Z"),"before":before,"after_sha256":after,"preserve":{"account_shell":TRANSPORT,"sudo_rule":RULE,"authorized_keys":"absent"},"capability":"saved-actions-and-read-only-compatibility-only","authorized":False}
     raw=canonical(value);digest=sha(raw);OUTPUT.mkdir(parents=True,exist_ok=True,mode=0o700);os.chmod(OUTPUT,0o700);path=OUTPUT/f"{digest}.json";fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
     with os.fdopen(fd,"wb") as handle:handle.write(raw);handle.flush();os.fsync(handle.fileno())
     return path,digest
