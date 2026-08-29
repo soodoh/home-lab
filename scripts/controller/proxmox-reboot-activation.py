@@ -107,11 +107,20 @@ def stage(raw: bytes, digest: str) -> None:
         raise SystemExit("reboot activation remote staging failed")
 
 
+def acquire_controller_lock() -> int:
+    LOCK.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(LOCK.parent, 0o700)
+    info = LOCK.parent.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) != 0o700:
+        raise SystemExit("reboot controller lock directory differs")
+    return acquire_transfer_lock(LOCK)
+
+
 def prepare(path: Path) -> None:
     value, raw, digest = validate_activation(path); expected = f"prepare-proxmox-reboot-{digest}"
     if os.environ.get("PROXMOX_REBOOT_PREPARE_CONFIRMED") != expected:
         raise SystemExit(f"exact confirmation required: {expected}")
-    lock = acquire_transfer_lock(LOCK)
+    lock = acquire_controller_lock()
     try:
         stage(raw, digest); result = subprocess.run((*SSH, f"prepare reboot {digest}"), capture_output=True, timeout=600)
     finally:
@@ -137,7 +146,7 @@ def apply(path: Path, receipt_path: Path) -> None:
     expected = f"apply-proxmox-reboot-{digest}"
     if os.environ.get("PROXMOX_REBOOT_APPLY_CONFIRMED") != expected:
         raise SystemExit(f"exact confirmation required: {expected}")
-    lock = acquire_transfer_lock(LOCK)
+    lock = acquire_controller_lock()
     try:
         result = subprocess.run((*SSH, f"apply reboot {digest}"), capture_output=True, timeout=120)
         if result.returncode not in {0, 255}:
