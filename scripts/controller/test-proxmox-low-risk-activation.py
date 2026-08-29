@@ -94,13 +94,18 @@ def main() -> None:
     expect_failure(lambda: activator.validate_chrony_plan(restarting, restarting_digest), "chrony activation envelope differs")
 
     original_repo = activator.REPO
-    activator.REPO = ROOT
-    expect_failure(lambda: activator.verify_low_risk_authority("apt-repositories", plan), "ownership is not transferred")
     with tempfile.TemporaryDirectory() as temporary:
         repo = Path(temporary)
         (repo / "infrastructure/contract").mkdir(parents=True)
         (repo / "nix/proxmox").mkdir(parents=True)
-        (repo / "infrastructure/contract/home-lab.yml").write_text(
+        contract_path = repo / "infrastructure/contract/home-lab.yml"
+        contract_path.write_text(
+            "        apt_repositories:\n          current_owner: nix\n          target_owner: ansible\n"
+            "          state: pending\n          parity_required: true\n          single_writer: true\n"
+        )
+        activator.REPO = repo
+        expect_failure(lambda: activator.verify_low_risk_authority("apt-repositories", plan), "ownership is not transferred")
+        contract_path.write_text(
             "        apt_repositories:\n          current_owner: ansible\n          target_owner: ansible\n"
             "          state: transferred\n          parity_required: true\n          single_writer: true\n"
             "        chrony_service:\n          current_owner: ansible\n          target_owner: ansible\n"
@@ -166,7 +171,7 @@ def main() -> None:
     wrong_keyring_digest = hashlib.sha256(canonical(wrong_keyring)).hexdigest()
     expect_failure(lambda: activator.validate_repository_plan(wrong_keyring, wrong_keyring_digest), "keyring record differs")
 
-    expect_failure(lambda: controller.handoff_state("apt_repositories"), "ownership is not transferred")
+    assert controller.handoff_state("apt_repositories")["current_owner"] == "ansible"
     expect_failure(lambda: controller.handoff_state("chrony_service"), "ownership is not transferred")
     for command in ("apply apt-repositories bad", "apply apt-repositories " + "a" * 64 + ";id", "apply chrony-service bad", "recover chrony-service ../x", "shell", "stage low-risk ../x"):
         result = subprocess.run((str(TRANSPORT), "-c", command), capture_output=True, timeout=10)
