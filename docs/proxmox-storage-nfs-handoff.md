@@ -53,3 +53,7 @@ Any export-table activation requires fresh VM 100, Debian mount, Compose, Restic
 Planning is read-only. Future activation must acquire the controller transaction lock and host locks conflicting with Nix reconciliation, Ansible production apply, protected boot/storage work, PVE storage work, firewall NFS changes, Compose deployment, and Restic maintenance. Unknown or active locks stop the transaction.
 
 Journals and backups are root-owned, regular, single-link mode-`0600`, fsynced before activation, and retained for explicit recovery. Recovery recognizes only exact before, exact committed-after, or a narrowly defined in-progress state; ambiguous state stops for physical-console recovery.
+
+## Current status
+
+Provider and consumer parity are complete in check mode with `changed=0`: pool/dataset, export file/table, services, PVE registration, VM 100, Debian mount, Compose, and Restic all match. `zfs_dataset` is now `ready` with Nix still the current owner. Nix already has no representable dataset-property mutation action, so the existing installed bundle bytes are the frozen dataset bundle; they must be independently reverified before a source-only transfer. `nfs_export_service` remains separately `pending` under Nix.

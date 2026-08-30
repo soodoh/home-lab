@@ -23,11 +23,12 @@ def main() -> None:
     playbook = PLAYBOOK.read_text(encoding="utf-8")
     documentation = DOC.read_text(encoding="utf-8")
 
-    expected = {"current_owner": "nix", "target_owner": "ansible", "state": "pending",
-                "parity_required": True, "single_writer": True}
+    expected_pending = {"current_owner": "nix", "target_owner": "ansible", "state": "pending",
+                        "parity_required": True, "single_writer": True}
+    expected_ready = {**expected_pending, "state": "ready"}
     handoffs = contract["lifecycle"]["hosts"]["proxmox"]["domain_handoffs"]
-    assert handoffs["zfs_dataset"] == expected
-    assert handoffs["nfs_export_service"] == expected
+    assert handoffs["zfs_dataset"] == expected_ready
+    assert handoffs["nfs_export_service"] == expected_pending
 
     combined = provider + consumer
     for forbidden in (

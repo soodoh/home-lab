@@ -88,7 +88,7 @@ lifecycle:
         zfs_dataset:
           current_owner: nix
           target_owner: ansible
-          state: pending
+          state: ready
           parity_required: true
           single_writer: true
         nfs_export_service:

@@ -75,9 +75,9 @@ check(invalidTransferredBootOwner, false, "transferred boot configuration handof
 const missingBootHandoff = structuredClone(contract);
 delete missingBootHandoff.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration;
 check(missingBootHandoff, false, "Proxmox boot configuration handoff policy is required");
-const invalidPendingZfsOwner = structuredClone(contract);
-invalidPendingZfsOwner.lifecycle.hosts.proxmox.domain_handoffs.zfs_dataset.current_owner = "ansible";
-check(invalidPendingZfsOwner, false, "pending ZFS dataset handoff retains Nix ownership");
+const invalidReadyZfsOwner = structuredClone(contract);
+invalidReadyZfsOwner.lifecycle.hosts.proxmox.domain_handoffs.zfs_dataset.current_owner = "ansible";
+check(invalidReadyZfsOwner, false, "ready ZFS dataset handoff retains Nix ownership");
 const invalidPendingNfsOwner = structuredClone(contract);
 invalidPendingNfsOwner.lifecycle.hosts.proxmox.domain_handoffs.nfs_export_service.current_owner = "ansible";
 check(invalidPendingNfsOwner, false, "pending NFS export handoff retains Nix ownership");
