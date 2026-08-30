@@ -157,15 +157,15 @@ const bootPaths = new Set([
   contract.proxmox.vfio.modules_load_file.path,
   contract.storage.zfs.arc_config.file.path,
 ]);
-if (projected.planningPolicy.managedFilePolicies.filter((item) => bootPaths.has(item.path)).some((item) => item.automatic !== true) ||
-    projected.planningPolicy.domains.find((item) => item.domain === "managed-fragments").automatic !== true) {
+const pendingBootHandoff = structuredClone(contract);
+pendingBootHandoff.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration.state = "pending";
+const pendingBootProjection = projectProxmoxPolicy(pendingBootHandoff, structuredClone(packageManifest));
+if (pendingBootProjection.planningPolicy.managedFilePolicies.filter((item) => bootPaths.has(item.path)).some((item) => item.automatic !== true) ||
+    pendingBootProjection.planningPolicy.domains.find((item) => item.domain === "managed-fragments").automatic !== true) {
   throw new Error("pending boot-configuration handoff did not retain Nix mutation authority");
 }
-const readyBootHandoff = structuredClone(contract);
-readyBootHandoff.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration.state = "ready";
-const readyBootProjection = projectProxmoxPolicy(readyBootHandoff, structuredClone(packageManifest));
-if (readyBootProjection.planningPolicy.managedFilePolicies.filter((item) => bootPaths.has(item.path)).some((item) => item.automatic !== false) ||
-    readyBootProjection.planningPolicy.domains.find((item) => item.domain === "managed-fragments").automatic !== false) {
+if (projected.planningPolicy.managedFilePolicies.filter((item) => bootPaths.has(item.path)).some((item) => item.automatic !== false) ||
+    projected.planningPolicy.domains.find((item) => item.domain === "managed-fragments").automatic !== false) {
   throw new Error("ready boot-configuration handoff did not freeze Nix mutation");
 }
 for (const mutation of [

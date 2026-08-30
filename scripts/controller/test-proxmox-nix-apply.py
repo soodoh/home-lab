@@ -139,6 +139,16 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         plan_path.chmod(0o600)
         private_path.chmod(0o600)
 
+    def boot_mutation_catalog(self) -> dict:
+        projection = copy.deepcopy(self.projection)
+        boot_paths = {"/etc/modprobe.d/zfs.conf", "/etc/modules-load.d/home-lab-vfio.conf"}
+        for policy in projection["planningPolicy"]["managedFilePolicies"]:
+            if policy["path"] in boot_paths:
+                policy["automatic"] = True
+        next(item for item in projection["planningPolicy"]["domains"]
+             if item["domain"] == "managed-fragments")["automatic"] = True
+        return bundle.activation_specification(projection, "0" * 64, False)["catalog"]
+
     def test_private_sidecar_bindings_expiry_gates_and_package_shape(self) -> None:
         now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
         guarded_apply.validate_private(self.sidecar(now), self.plan, self.metadata, now)
@@ -555,7 +565,8 @@ class ProxmoxNixApplyTests(unittest.TestCase):
             self.activator["SPEC"]["catalog"][key] = original
 
     def test_safe_dispatch_derives_content_and_commands_only_from_catalog(self) -> None:
-        file_item = next(item for item in self.activator["SPEC"]["catalog"].values() if item["domain"] == "managed-files")
+        catalog = self.boot_mutation_catalog()
+        file_item = next(item for item in catalog.values() if item["domain"] == "managed-files")
         captured = []
         commands = []
         old_replace = self.activator["replace_fixed"]
@@ -565,7 +576,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
             self.activator["run_native"] = lambda argv, accepted=(0,): commands.append(argv) or b""
             self.activator["mutate_item"](file_item)
             self.assertEqual(captured[0][1], base64.b64decode(file_item["contentBase64"]))
-            native_items = [item for item in self.activator["SPEC"]["catalog"].values() if item.get("nativeOperation")]
+            native_items = [item for item in catalog.values() if item.get("nativeOperation")]
             for native_item in native_items:
                 self.activator["run_post_write"](native_item)
             self.assertIn(("/usr/sbin/update-grub",), commands)
@@ -621,7 +632,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
 
     def test_capture_capacity_symlink_and_begin_retention_free_space_fail_closed(self) -> None:
         action = copy.deepcopy(self.plan["actions"][0])
-        item = copy.deepcopy(next(value for value in self.activator["SPEC"]["catalog"].values() if value["domain"] == "managed-files"))
+        item = copy.deepcopy(next(value for value in self.boot_mutation_catalog().values() if value["domain"] == "managed-files"))
         old_limit = self.activator["MAX_ROLLBACK_RAW_BYTES"]
         old_manifest = self.activator["read_manifest"]
         old_inspect = self.activator["inspect_fixed"]
@@ -848,7 +859,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         self.assertNotIn("systemctl\", \"reboot", source)
         self.assertNotIn("/sbin/reboot", source)
         catalog_domains = {item["domain"] for item in self.activator["SPEC"]["catalog"].values()}
-        self.assertEqual(catalog_domains, {"managed-artifacts", "managed-files", "managed-fragments"})
+        self.assertEqual(catalog_domains, {"managed-artifacts"})
         service_names = {item["name"] for item in self.activator["SPEC"]["catalog"].values() if item["domain"] == "services"}
         self.assertEqual(service_names, set())
 

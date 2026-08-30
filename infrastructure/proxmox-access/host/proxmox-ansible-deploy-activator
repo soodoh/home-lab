@@ -746,7 +746,7 @@ def recover_chrony(value, digest):
         os.close(lock_descriptor)
 
 
-def boot_contract_material():
+def boot_contract_material(allow_ready=True):
     try:
         import yaml
     except ImportError as error:
@@ -761,10 +761,14 @@ def boot_contract_material():
     except (KeyError, OSError, TypeError, yaml.YAMLError) as error:
         raise ValueError("protected boot contract is invalid") from error
     required = {"device_ids", "file", "handoff", "kernels", "soft_dependencies"}
-    if not isinstance(value, dict) or set(value) != required or value["handoff"] != {
-            "current_owner": "nix", "target_owner": "ansible", "state": "pending",
-            "parity_required": True, "single_writer": True}:
-        fail("protected boot ownership is not pending under Nix")
+    handoff = value.get("handoff") if isinstance(value, dict) else None
+    allowed_states = {"pending", "ready"} if allow_ready else {"pending"}
+    if not isinstance(value, dict) or set(value) != required or not isinstance(handoff, dict) or \
+            set(handoff) != {"current_owner", "target_owner", "state", "parity_required", "single_writer"} or \
+            handoff["current_owner"] != "nix" or handoff["target_owner"] != "ansible" or \
+            handoff["state"] not in allowed_states or handoff["parity_required"] is not True or \
+            handoff["single_writer"] is not True:
+        fail("protected boot ownership is not retained by Nix in an allowed handoff state")
     file_policy = value["file"]
     if file_policy != {"kind": "protected-managed-file", "projectable": False,
                        "path": str(BOOT_VFIO_PATH), "owner": "root", "group": "root", "mode": "0644"}:
@@ -802,11 +806,11 @@ def boot_file_record(path):
             "uid": metadata.st_uid}
 
 
-def boot_snapshot():
+def boot_snapshot(allow_ready=True):
     if git("status", "--porcelain=v1", "--untracked-files=all"):
         fail("protected boot host checkout is not clean")
     commit = git("rev-parse", "HEAD")
-    material, expected = boot_contract_material()
+    material, expected = boot_contract_material(allow_ready=allow_ready)
     source = boot_file_record(BOOT_VFIO_PATH)
     initramfs = []
     for role in ("current", "fallback"):
@@ -868,7 +872,7 @@ def validate_boot_plan(value, digest, allow_expired=False):
         fail("protected boot bindings differ")
     if not allow_expired and dt.datetime.now(dt.timezone.utc) > parse_time(value["expires_at"]):
         fail("protected boot activation expired")
-    current = boot_snapshot()
+    current = boot_snapshot(allow_ready=False)
     if value.get("commit") != current["commit"] or value.get("contract_sha256") != current["contract_sha256"] or \
             (not allow_expired and value.get("before") != current):
         fail("protected boot evidence changed")

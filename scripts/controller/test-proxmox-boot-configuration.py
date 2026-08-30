@@ -29,7 +29,7 @@ def main() -> None:
     assert handoff == {
         "current_owner": "nix",
         "target_owner": "ansible",
-        "state": "pending",
+        "state": "ready",
         "parity_required": True,
         "single_writer": True,
     }
