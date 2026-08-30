@@ -107,8 +107,8 @@
                 descriptor = os.open(accepted_path, os.O_RDONLY | os.O_NOFOLLOW)
                 try:
                     metadata = os.fstat(descriptor)
-                    if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_gid != 0 or \
-                            metadata.st_nlink != 1 or metadata.st_size > 1024 * 1024:
+                    if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or \
+                            metadata.st_size > 1024 * 1024:
                         raise ValueError("accepted_metadata")
                     with os.fdopen(descriptor, "rb") as handle:
                         descriptor = -1
