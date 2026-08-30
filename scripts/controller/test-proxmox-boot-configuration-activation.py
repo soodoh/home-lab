@@ -181,11 +181,12 @@ def exercise_pending_reboot(namespace: dict) -> None:
         )
         try:
             assert namespace["boot_configuration_reboot_pending"]() is True
+            assert namespace["boot_configuration_reboot_completed"]() is False
             snapshot["unexpected_vfio_device_count"] = 0
             assert namespace["boot_configuration_reboot_pending"]() is False
-            snapshot["unexpected_vfio_device_count"] = 1
+            assert namespace["boot_configuration_reboot_completed"]() is True
             journal["status"] = "rolled-back"
-            assert namespace["boot_configuration_reboot_pending"]() is False
+            assert namespace["boot_configuration_reboot_completed"]() is False
         finally:
             namespace.update(old)
             namespace["os"].lstat = old_lstat

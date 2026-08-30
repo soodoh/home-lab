@@ -1079,10 +1079,10 @@ def recover_boot(value, digest):
         os.close(lock_fd)
 
 
-def boot_configuration_reboot_pending():
+def boot_configuration_reboot_evidence(unexpected_count):
     snapshot = boot_snapshot()
     if snapshot["source"]["sha256"] != snapshot["expected_source_sha256"] or \
-            snapshot["unexpected_vfio_device_count"] != 1:
+            snapshot["unexpected_vfio_device_count"] != unexpected_count:
         return False
     try:
         root_metadata = os.lstat(BOOT_TRANSACTION_DIR)
@@ -1128,6 +1128,14 @@ def boot_configuration_reboot_pending():
     return matching == 1
 
 
+def boot_configuration_reboot_pending():
+    return boot_configuration_reboot_evidence(1)
+
+
+def boot_configuration_reboot_completed():
+    return boot_configuration_reboot_evidence(0)
+
+
 def validate_reboot_plan(value, digest, allow_expired=False):
     keys = {"access_evidence_sha256", "authorized", "automatic_reboot", "backup_attestation_sha256", "commit",
             "console_attested", "contract_sha256", "created_at", "evidence", "expires_at", "expected", "format",
@@ -1149,11 +1157,13 @@ def validate_reboot_plan(value, digest, allow_expired=False):
             not isinstance(evidence, dict) or set(evidence) != {"boot_id", "current_kernel", "evidence_sha256", "health", "reboot_indicated", "target_kernel"}:
         fail("reboot evidence shape differs")
     kernel = re.compile(r"[0-9A-Za-z][0-9A-Za-z.+~-]*-pve")
+    configuration_reboot = evidence["reboot_indicated"] is True or (
+        boot_configuration_reboot_completed() if allow_expired else boot_configuration_reboot_pending())
     if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", expected["boot_id"]) is None or \
             kernel.fullmatch(expected["current_kernel"]) is None or kernel.fullmatch(expected["target_kernel"]) is None or \
             evidence["boot_id"] != expected["boot_id"] or evidence["current_kernel"] != expected["current_kernel"] or \
             evidence["target_kernel"] != expected["target_kernel"] or \
-            (evidence["reboot_indicated"] is not True and not boot_configuration_reboot_pending()) or \
+            not configuration_reboot or \
             evidence["health"] != {"vm_100": "status: running", "zpool_storage": True} or HEX64.fullmatch(evidence["evidence_sha256"]) is None:
         fail("reboot evidence differs")
     return expected
