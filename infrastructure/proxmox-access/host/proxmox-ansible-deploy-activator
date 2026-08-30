@@ -740,13 +740,18 @@ def recover_chrony(value, digest):
 
 
 def boot_contract_material():
-    script = """const fs=require('node:fs');const {load}=require('js-yaml');const v=load(fs.readFileSync(process.argv[1],'utf8'));process.stdout.write(JSON.stringify({handoff:v.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration,file:v.proxmox.vfio.modprobe_file,device_ids:v.proxmox.vfio.device_ids,soft_dependencies:v.proxmox.vfio.soft_dependencies,kernels:v.proxmox.kernels}));"""
-    result = native(("/usr/bin/node", "-e", script, str(REPO / "infrastructure/contract/home-lab.yml")), timeout=30)
-    if result.stderr:
-        fail("protected boot contract parsing failed")
     try:
-        value = json.loads(result.stdout)
-    except json.JSONDecodeError as error:
+        import yaml
+    except ImportError as error:
+        raise ValueError("protected boot contract parser is unavailable") from error
+    try:
+        contract = yaml.safe_load((REPO / "infrastructure/contract/home-lab.yml").read_text(encoding="utf-8"))
+        value = {"handoff": contract["lifecycle"]["hosts"]["proxmox"]["domain_handoffs"]["boot_configuration"],
+                 "file": contract["proxmox"]["vfio"]["modprobe_file"],
+                 "device_ids": contract["proxmox"]["vfio"]["device_ids"],
+                 "soft_dependencies": contract["proxmox"]["vfio"]["soft_dependencies"],
+                 "kernels": contract["proxmox"]["kernels"]}
+    except (KeyError, OSError, TypeError, yaml.YAMLError) as error:
         raise ValueError("protected boot contract is invalid") from error
     required = {"device_ids", "file", "handoff", "kernels", "soft_dependencies"}
     if not isinstance(value, dict) or set(value) != required or value["handoff"] != {

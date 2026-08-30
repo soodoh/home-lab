@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import stat
 import subprocess
+import sys
 import tempfile
 from types import SimpleNamespace
 
@@ -159,15 +160,19 @@ def main() -> None:
         assert value not in controller_source
 
     namespace = load_activator()
-    material = fake_material()
-    old_native = namespace["native"]
-    namespace["native"] = lambda arguments, timeout=30: SimpleNamespace(
-        stdout=json.dumps(material), stderr="", returncode=0,
-    )
+    material = {"handoff": contract["lifecycle"]["hosts"]["proxmox"]["domain_handoffs"]["boot_configuration"], "file": contract["proxmox"]["vfio"]["modprobe_file"], "device_ids": contract["proxmox"]["vfio"]["device_ids"], "soft_dependencies": contract["proxmox"]["vfio"]["soft_dependencies"], "kernels": contract["proxmox"]["kernels"]}
+    old_repo = namespace["REPO"]
+    namespace["REPO"] = ROOT
+    old_yaml = sys.modules.get("yaml")
+    sys.modules["yaml"] = SimpleNamespace(safe_load=lambda _: contract, YAMLError=Exception)
     try:
         observed, expected = namespace["boot_contract_material"]()
     finally:
-        namespace["native"] = old_native
+        namespace["REPO"] = old_repo
+        if old_yaml is None:
+            del sys.modules["yaml"]
+        else:
+            sys.modules["yaml"] = old_yaml
     assert observed == material
     assert expected.startswith(b"options vfio-pci ids=")
     assert expected.count(b"softdep ") == 2
@@ -202,6 +207,8 @@ def main() -> None:
     assert '\"%s-boot-configuration\"' in transport_source
     assert "apply\\ boot-configuration" in transport_source
     assert "recover\\ boot-configuration" in transport_source
+    assert 'import yaml' in activator_source
+    assert '"/usr/bin/node"' not in activator_source
     assert "protected_values_exported" in controller_source
     assert "automatic_reboot" in controller_source
     print("proxmox_boot_configuration_activation_tests=passed")
