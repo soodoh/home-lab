@@ -139,6 +139,58 @@ def exercise_transaction(namespace: dict, fail_native: bool) -> None:
             namespace["os"].fchown = old_fchown
 
 
+def exercise_pending_reboot(namespace: dict) -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary) / "transactions"
+        digest = "f" * 64
+        directory = root / digest
+        directory.mkdir(parents=True, mode=0o700)
+        root.chmod(0o700)
+        directory.chmod(0o700)
+        journal_path = directory / "journal.json"
+        journal_path.write_text("placeholder", encoding="utf-8")
+        snapshot = {
+            "expected_source_sha256": "1" * 64,
+            "source": {"sha256": "1" * 64},
+            "unexpected_vfio_device_count": 1,
+            "initramfs": [
+                {"role": "current", "kernel": "kernel-current", "path": "/boot/current", "sha256": "2" * 64},
+                {"role": "fallback", "kernel": "kernel-fallback", "path": "/boot/fallback", "sha256": "3" * 64},
+            ],
+        }
+        journal = {
+            "automatic_reboot": False,
+            "format": "home-lab-proxmox-protected-boot-journal-v1",
+            "initramfs": [
+                {"role": "current", "kernel": "kernel-current", "path": "/boot/current", "after_sha256": "2" * 64},
+                {"role": "fallback", "kernel": "kernel-fallback", "path": "/boot/fallback", "after_sha256": "3" * 64},
+            ],
+            "plan_sha256": digest,
+            "protected_values_exported": False,
+            "reboot_required": True,
+            "source": {"after_sha256": "1" * 64},
+            "status": "committed",
+        }
+        old = {key: namespace[key] for key in ("BOOT_TRANSACTION_DIR", "boot_snapshot", "read_fixed")}
+        old_lstat = namespace["os"].lstat
+        namespace["BOOT_TRANSACTION_DIR"] = root
+        namespace["boot_snapshot"] = lambda: snapshot
+        namespace["read_fixed"] = lambda *args: namespace["canonical"](journal)
+        namespace["os"].lstat = lambda path: SimpleNamespace(
+            st_mode=old_lstat(path).st_mode, st_uid=0, st_gid=0,
+        )
+        try:
+            assert namespace["boot_configuration_reboot_pending"]() is True
+            snapshot["unexpected_vfio_device_count"] = 0
+            assert namespace["boot_configuration_reboot_pending"]() is False
+            snapshot["unexpected_vfio_device_count"] = 1
+            journal["status"] = "rolled-back"
+            assert namespace["boot_configuration_reboot_pending"]() is False
+        finally:
+            namespace.update(old)
+            namespace["os"].lstat = old_lstat
+
+
 def main() -> None:
     activator_source = ACTIVATOR.read_text(encoding="utf-8")
     transport_source = TRANSPORT.read_text(encoding="utf-8")
@@ -191,6 +243,7 @@ def main() -> None:
 
     exercise_transaction(namespace, fail_native=False)
     exercise_transaction(namespace, fail_native=True)
+    exercise_pending_reboot(namespace)
 
     for command in (
         "stage boot-configuration bad",

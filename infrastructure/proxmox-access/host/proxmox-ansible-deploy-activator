@@ -1079,6 +1079,55 @@ def recover_boot(value, digest):
         os.close(lock_fd)
 
 
+def boot_configuration_reboot_pending():
+    snapshot = boot_snapshot()
+    if snapshot["source"]["sha256"] != snapshot["expected_source_sha256"] or \
+            snapshot["unexpected_vfio_device_count"] != 1:
+        return False
+    try:
+        root_metadata = os.lstat(BOOT_TRANSACTION_DIR)
+        directories = tuple(BOOT_TRANSACTION_DIR.iterdir())
+    except OSError:
+        return False
+    if not stat.S_ISDIR(root_metadata.st_mode) or root_metadata.st_uid != 0 or root_metadata.st_gid != 0 or \
+            stat.S_IMODE(root_metadata.st_mode) != 0o700:
+        fail("protected boot transaction root differs")
+    matching = 0
+    observed_initramfs = {(item["role"], item["kernel"], item["path"]): item["sha256"]
+                          for item in snapshot["initramfs"]}
+    for directory in directories:
+        if HEX64.fullmatch(directory.name) is None:
+            fail("protected boot transaction entry differs")
+        directory_metadata = os.lstat(directory)
+        if not stat.S_ISDIR(directory_metadata.st_mode) or directory_metadata.st_uid != 0 or \
+                directory_metadata.st_gid != 0 or stat.S_IMODE(directory_metadata.st_mode) != 0o700:
+            fail("protected boot transaction directory differs")
+        journal_path = directory / "journal.json"
+        if not journal_path.exists():
+            continue
+        try:
+            journal = json.loads(read_fixed(journal_path, 0, 0, 0o600, 65536))
+        except (OSError, ValueError, json.JSONDecodeError):
+            fail("protected boot reboot journal differs")
+        if not isinstance(journal, dict) or journal.get("format") != "home-lab-proxmox-protected-boot-journal-v1" or \
+                journal.get("status") != "committed" or journal.get("reboot_required") is not True or \
+                journal.get("automatic_reboot") is not False or journal.get("protected_values_exported") is not False or \
+                journal.get("plan_sha256") != directory.name:
+            continue
+        source = journal.get("source", {})
+        initramfs = journal.get("initramfs")
+        if source.get("after_sha256") != snapshot["source"]["sha256"] or \
+                not isinstance(initramfs, list) or len(initramfs) != len(observed_initramfs):
+            continue
+        journal_initramfs = {(item.get("role"), item.get("kernel"), item.get("path")): item.get("after_sha256")
+                             for item in initramfs if isinstance(item, dict)}
+        if journal_initramfs == observed_initramfs:
+            matching += 1
+    if matching > 1:
+        fail("multiple protected boot reboot journals match")
+    return matching == 1
+
+
 def validate_reboot_plan(value, digest, allow_expired=False):
     keys = {"access_evidence_sha256", "authorized", "automatic_reboot", "backup_attestation_sha256", "commit",
             "console_attested", "contract_sha256", "created_at", "evidence", "expires_at", "expected", "format",
@@ -1103,7 +1152,8 @@ def validate_reboot_plan(value, digest, allow_expired=False):
     if re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", expected["boot_id"]) is None or \
             kernel.fullmatch(expected["current_kernel"]) is None or kernel.fullmatch(expected["target_kernel"]) is None or \
             evidence["boot_id"] != expected["boot_id"] or evidence["current_kernel"] != expected["current_kernel"] or \
-            evidence["target_kernel"] != expected["target_kernel"] or evidence["reboot_indicated"] is not True or \
+            evidence["target_kernel"] != expected["target_kernel"] or \
+            (evidence["reboot_indicated"] is not True and not boot_configuration_reboot_pending()) or \
             evidence["health"] != {"vm_100": "status: running", "zpool_storage": True} or HEX64.fullmatch(evidence["evidence_sha256"]) is None:
         fail("reboot evidence differs")
     return expected
