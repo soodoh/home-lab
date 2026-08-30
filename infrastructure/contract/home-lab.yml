@@ -80,9 +80,9 @@ lifecycle:
           parity_required: true
           single_writer: true
         boot_configuration:
-          current_owner: nix
+          current_owner: ansible
           target_owner: ansible
-          state: ready
+          state: transferred
           parity_required: true
           single_writer: true
       access_cutover:

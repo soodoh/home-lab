@@ -69,9 +69,9 @@ check(invalidPendingAptOwner, false, "pending APT repository handoff retains Nix
 const invalidTransferredChronyOwner = structuredClone(contract);
 invalidTransferredChronyOwner.lifecycle.hosts.proxmox.domain_handoffs.chrony_service.current_owner = "nix";
 check(invalidTransferredChronyOwner, false, "transferred chrony handoff requires Ansible ownership");
-const invalidPendingBootOwner = structuredClone(contract);
-invalidPendingBootOwner.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration.current_owner = "ansible";
-check(invalidPendingBootOwner, false, "pending boot configuration handoff retains Nix ownership");
+const invalidTransferredBootOwner = structuredClone(contract);
+invalidTransferredBootOwner.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration.current_owner = "nix";
+check(invalidTransferredBootOwner, false, "transferred boot configuration handoff requires Ansible ownership");
 const missingBootHandoff = structuredClone(contract);
 delete missingBootHandoff.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration;
 check(missingBootHandoff, false, "Proxmox boot configuration handoff policy is required");

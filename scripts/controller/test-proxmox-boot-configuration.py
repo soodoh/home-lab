@@ -27,9 +27,9 @@ def main() -> None:
 
     handoff = contract["lifecycle"]["hosts"]["proxmox"]["domain_handoffs"]["boot_configuration"]
     assert handoff == {
-        "current_owner": "nix",
+        "current_owner": "ansible",
         "target_owner": "ansible",
-        "state": "ready",
+        "state": "transferred",
         "parity_required": True,
         "single_writer": True,
     }
