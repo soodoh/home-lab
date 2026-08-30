@@ -138,9 +138,16 @@ def validate_plan(value, digest):
     return after
 
 
-def verify_repo(plan):
-    if git("rev-parse", "HEAD") != plan["commit"] or git("rev-parse", "origin/main") != plan["commit"] or \
-            git("status", "--porcelain=v1", "--untracked-files=all"):
+def verify_repo(plan, recovery_paths=()):
+    head = git("rev-parse", "HEAD")
+    clean = not git("status", "--porcelain=v1", "--untracked-files=all")
+    exact = head == plan["commit"] and git("rev-parse", "origin/main") == plan["commit"]
+    recovered = False
+    if recovery_paths and head == git("rev-parse", "origin/main") and clean and head != plan["commit"]:
+        ancestor = native(("/usr/bin/git", "-C", str(REPO), "merge-base", "--is-ancestor", plan["commit"], head), accepted=(0, 1))
+        changed = tuple(line for line in git("diff", "--name-only", plan["commit"], head).splitlines() if line)
+        recovered = ancestor.returncode == 0 and bool(changed) and set(changed).issubset(set(recovery_paths))
+    if not clean or (not exact and not recovered):
         fail("repository commit or cleanliness differs")
     if file_hash(REPO / "infrastructure/contract/home-lab.yml") != plan["contract_sha256"] or \
             file_hash(REPO / "ansible/inventory/production.yml") != plan["inventory_sha256"]:
@@ -1201,7 +1208,10 @@ def reboot_preconditions(expected):
 
 def reboot_operation(value, digest, operation):
     expected = validate_reboot_plan(value, digest, allow_expired=operation == "verify-reboot")
-    verify_repo(value)
+    verify_repo(value, (
+        "infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator",
+        "scripts/controller/test-proxmox-boot-configuration-activation.py",
+    ) if operation == "verify-reboot" else ())
     lock_fd = os.open("/run/lock/home-lab-proxmox-reboot.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     path = reboot_journal_path(digest); journal = json.loads(path.read_bytes()) if path.exists() else None
