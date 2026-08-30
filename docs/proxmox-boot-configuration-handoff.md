@@ -44,7 +44,7 @@ Unavailable or ambiguous facts fail closed. Read-only parity never runs `update-
 
 A future Ansible activation must be an immutable saved plan bound to the clean commit, contract and schema hashes, fixed role/helper hashes, strict host key, two equal observations, exact source and generated-artifact hashes, retained kernels, lock evidence, and expiry. Protected values are derived only inside the fixed root activator from the bound host checkout. Apply must re-observe before mutation, capture root-only rollback copies durably, replace only differing source records, run only the fixed generated-artifact commands named by the plan, and post-observe before committing a root-only journal.
 
-Rollback restores source files and regenerates the corresponding derivatives. Ambiguous transport recovery recognizes only exact before or after states. A source activation never reboots automatically. Any reboot uses the existing reboot lifecycle with fresh console, access, backup, VM, pool, service, dpkg, solver, kernel, and boot-ID evidence plus a separate exact confirmation.
+Rollback restores the exact captured source file and both retained initramfs images from durable root-only backups. Ambiguous transport recovery recognizes only exact before or journaled committed states and rolls any nonterminal transaction back without invoking initramfs tooling. A source activation never reboots automatically. Any reboot uses the existing reboot lifecycle with fresh console, access, backup, VM, pool, service, dpkg, solver, kernel, and boot-ID evidence plus a separate exact confirmation.
 
 ## Handoff sequence
 
@@ -56,3 +56,7 @@ Rollback restores source files and regenerates the corresponding derivatives. Am
 6. Re-run full parity, set the domain to `ready`, install and verify the frozen Nix bundle, and prove Nix has zero boot-domain mutation surface.
 7. Transfer ownership in a source-only commit.
 8. Apply one exact Ansible ownership activation, expected to make no file changes, and commit its durable journal.
+
+## Current status
+
+Read-only check-mode planning is implemented and reports `changed=0`. It proves GRUB, ZFS, retained initramfs, running-kernel, and reduced protected-hardware parity while correctly blocking on the protected VFIO source hash and one unexpected `vfio-pci` binding. The fixed protected cleanup controller, transport grammar, root transaction, durable backups, rollback, and recovery are implemented in source but do not authorize mutation and must be installed and verified from the physical console before an activation can be built.

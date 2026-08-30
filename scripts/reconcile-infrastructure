@@ -87,6 +87,8 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-proxmox-ansible-deploy-activator.py
   python3 scripts/controller/test-proxmox-reboot-activation.py
   python3 scripts/controller/test-proxmox-low-risk-activation.py
+  python3 scripts/controller/test-proxmox-boot-configuration.py
+  python3 scripts/controller/test-proxmox-boot-configuration-activation.py
   node scripts/controller/test-restic-policy.js
   node scripts/controller/test-attest-debian-qualification-plan.js
   python3 scripts/controller/test-proxmox-disk-adoption-plan.py

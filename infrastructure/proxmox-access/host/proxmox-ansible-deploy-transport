@@ -94,6 +94,27 @@ case "$command" in
     trap - EXIT HUP INT TERM
     printf '%s\n' '{"staged":true}'
     ;;
+  stage\ boot-configuration\ *)
+    digest=${command#stage boot-configuration }
+    case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
+    [ "${#digest}" -eq 64 ] || exit 64
+    inbox=/home/ansible-deploy/.home-lab-plan-inbox
+    umask 077
+    mkdir -p "$inbox"
+    [ "$(id -u)" -eq "$(stat -c %u "$inbox")" ] || exit 77
+    [ "$(stat -c %a "$inbox")" = 700 ] || exit 77
+    target=$inbox/$digest.json
+    [ ! -e "$target" ] || exit 73
+    tmp=$inbox/.$digest.$$.tmp
+    trap 'rm -f "$tmp"' EXIT HUP INT TERM
+    dd bs=65537 count=1 of="$tmp" 2>/dev/null
+    [ "$(wc -c <"$tmp")" -le 65536 ] || exit 65
+    [ "$(sha256sum "$tmp" | cut -d' ' -f1)" = "$digest" ] || exit 65
+    chmod 0600 "$tmp"
+    mv -T "$tmp" "$target"
+    trap - EXIT HUP INT TERM
+    printf '%s\n' '{"staged":true}'
+    ;;
   inspect\ lifecycle-marker\ *)
     digest=${command#inspect lifecycle-marker }
     case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
@@ -129,6 +150,19 @@ case "$command" in
     [ -f "$target" ] && [ ! -L "$target" ] || exit 66
     [ "$(sha256sum "$target" | cut -d' ' -f1)" = "$digest" ] || exit 65
     printf '%s\n' '{"present":true}'
+    ;;
+  inspect\ boot-configuration\ *)
+    digest=${command#inspect boot-configuration }
+    case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
+    [ "${#digest}" -eq 64 ] || exit 64
+    target=/home/ansible-deploy/.home-lab-plan-inbox/$digest.json
+    [ -f "$target" ] && [ ! -L "$target" ] || exit 66
+    [ "$(sha256sum "$target" | cut -d' ' -f1)" = "$digest" ] || exit 65
+    printf '%s\n' '{"present":true}'
+    ;;
+  observe\ boot-configuration)
+    printf '%s\n' '{"operation":"inspect-boot-configuration","plan_sha256":"0000000000000000000000000000000000000000000000000000000000000000"}' |
+      exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
     ;;
   apply\ lifecycle-marker\ *)
     digest=${command#apply lifecycle-marker }
@@ -180,6 +214,14 @@ case "$command" in
     case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
     [ "${#digest}" -eq 64 ] || exit 64
     printf '{"operation":"%s-chrony-service","plan_sha256":"%s"}\n' "$operation" "$digest" |
+      exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
+    ;;
+  apply\ boot-configuration\ *|recover\ boot-configuration\ *)
+    operation=${command%% boot-configuration *}
+    digest=${command#* boot-configuration }
+    case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
+    [ "${#digest}" -eq 64 ] || exit 64
+    printf '{"operation":"%s-boot-configuration","plan_sha256":"%s"}\n' "$operation" "$digest" |
       exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
     ;;
   *)

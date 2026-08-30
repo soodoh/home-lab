@@ -18,6 +18,9 @@ INBOX = Path("/home/ansible-deploy/.home-lab-plan-inbox")
 MARKER = Path("/var/lib/home-lab/lifecycle-state.json")
 LOW_RISK_DIR = Path("/var/lib/home-lab/low-risk-transactions")
 LOW_RISK_LOCK = Path("/run/lock/home-lab-proxmox-low-risk.lock")
+BOOT_TRANSACTION_DIR = Path("/var/lib/home-lab/boot-configuration-transactions")
+BOOT_TRANSACTION_LOCK = Path("/run/lock/home-lab-proxmox-boot-configuration.lock")
+BOOT_VFIO_PATH = Path("/etc/modprobe.d/home-lab-vfio.conf")
 APT_SOURCE_PATHS = (
     "/etc/apt/sources.list",
     "/etc/apt/sources.list.d/debian-security.sources",
@@ -736,6 +739,341 @@ def recover_chrony(value, digest):
         os.close(lock_descriptor)
 
 
+def boot_contract_material():
+    script = """const fs=require('node:fs');const {load}=require('js-yaml');const v=load(fs.readFileSync(process.argv[1],'utf8'));process.stdout.write(JSON.stringify({handoff:v.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration,file:v.proxmox.vfio.modprobe_file,device_ids:v.proxmox.vfio.device_ids,soft_dependencies:v.proxmox.vfio.soft_dependencies,kernels:v.proxmox.kernels}));"""
+    result = native(("/usr/bin/node", "-e", script, str(REPO / "infrastructure/contract/home-lab.yml")), timeout=30)
+    if result.stderr:
+        fail("protected boot contract parsing failed")
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise ValueError("protected boot contract is invalid") from error
+    required = {"device_ids", "file", "handoff", "kernels", "soft_dependencies"}
+    if not isinstance(value, dict) or set(value) != required or value["handoff"] != {
+            "current_owner": "nix", "target_owner": "ansible", "state": "pending",
+            "parity_required": True, "single_writer": True}:
+        fail("protected boot ownership is not pending under Nix")
+    file_policy = value["file"]
+    if file_policy != {"kind": "protected-managed-file", "projectable": False,
+                       "path": str(BOOT_VFIO_PATH), "owner": "root", "group": "root", "mode": "0644"}:
+        fail("protected boot file policy differs")
+    device_ids = value["device_ids"]
+    dependencies = value["soft_dependencies"]
+    kernels = value["kernels"]
+    if not isinstance(device_ids, list) or len(device_ids) != 2 or len(set(device_ids)) != 2 or \
+            any(re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{4}", item) is None for item in device_ids) or \
+            not isinstance(dependencies, list) or len(dependencies) != 2 or \
+            not isinstance(kernels, dict) or set(kernels) != {"current", "fallback", "retention_count", "require_boot_history_proof"} or \
+            kernels["retention_count"] != 2 or kernels["require_boot_history_proof"] is not True or \
+            any(re.fullmatch(r"[0-9A-Za-z.+~-]+", kernels[name]) is None for name in ("current", "fallback")):
+        fail("protected boot material differs")
+    lines = ["options vfio-pci ids=" + ",".join(device_ids)]
+    for dependency in dependencies:
+        if not isinstance(dependency, dict) or set(dependency) != {"module", "pre"} or \
+                not isinstance(dependency["module"], str) or not isinstance(dependency["pre"], list) or \
+                not dependency["pre"] or any(not isinstance(item, str) for item in dependency["pre"]):
+            fail("protected boot dependency differs")
+        lines.append("softdep " + dependency["module"] + " pre: " + " ".join(dependency["pre"]))
+    return value, ("\n".join(lines) + "\n").encode()
+
+
+def boot_file_record(path):
+    try:
+        metadata = os.lstat(path)
+    except FileNotFoundError:
+        fail("protected boot file is absent")
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_ISLNK(metadata.st_mode) or metadata.st_uid != 0 or \
+            metadata.st_gid != 0 or metadata.st_nlink != 1 or stat.S_IMODE(metadata.st_mode) != 0o644:
+        fail("protected boot file metadata differs")
+    return {"gid": metadata.st_gid, "mode": "0644", "mtime_ns": metadata.st_mtime_ns,
+            "nlink": metadata.st_nlink, "path": str(path), "sha256": file_hash(path), "size": metadata.st_size,
+            "uid": metadata.st_uid}
+
+
+def boot_snapshot():
+    if git("status", "--porcelain=v1", "--untracked-files=all"):
+        fail("protected boot host checkout is not clean")
+    commit = git("rev-parse", "HEAD")
+    material, expected = boot_contract_material()
+    source = boot_file_record(BOOT_VFIO_PATH)
+    initramfs = []
+    for role in ("current", "fallback"):
+        kernel = material["kernels"][role]
+        record = boot_file_record(Path("/boot") / f"initrd.img-{kernel}")
+        record.update({"kernel": kernel, "role": role})
+        initramfs.append(record)
+    expected_ids = set(material["device_ids"])
+    expected_bound = 0
+    total_bound = 0
+    try:
+        entries = tuple(Path("/sys/bus/pci/devices").iterdir())
+    except OSError:
+        fail("protected PCI observation is unavailable")
+    for entry in entries:
+        try:
+            driver = (entry / "driver").resolve(strict=True).name
+        except OSError:
+            continue
+        if driver != "vfio-pci":
+            continue
+        total_bound += 1
+        try:
+            identifier = (entry / "vendor").read_text().strip().removeprefix("0x").lower() + ":" + \
+                         (entry / "device").read_text().strip().removeprefix("0x").lower()
+        except OSError:
+            fail("protected PCI identity is unavailable")
+        if identifier in expected_ids:
+            expected_bound += 1
+    return {"commit": commit, "contract_sha256": file_hash(REPO / "infrastructure/contract/home-lab.yml"),
+            "expected_source_sha256": hashlib.sha256(expected).hexdigest(),
+            "expected_vfio_device_count": len(expected_ids), "expected_vfio_devices_bound": expected_bound,
+            "format": "home-lab-proxmox-protected-boot-observation-v1", "initramfs": initramfs,
+            "source": source, "unexpected_vfio_device_count": max(0, total_bound - len(expected_ids)), "version": 1}
+
+
+def validate_boot_plan(value, digest, allow_expired=False):
+    required = {"activator_sha256", "authorized", "automatic_reboot", "before", "commit", "contract_schema_sha256",
+                "contract_sha256", "created_at", "domain", "expires_at", "format", "host", "host_key_fingerprint",
+                "inventory_sha256", "playbook_sha256", "protected_values_exported", "rebuild_initramfs",
+                "reboot_required", "role_sha256", "transport_sha256"}
+    if not isinstance(value, dict) or set(value) != required or value.get("format") != "home-lab-proxmox-protected-boot-activation-v1" or \
+            value.get("domain") != "boot-configuration" or value.get("host") != "proxmox" or \
+            value.get("authorized") is not False or value.get("automatic_reboot") is not False or \
+            value.get("protected_values_exported") is not False or value.get("rebuild_initramfs") is not True or \
+            value.get("reboot_required") is not True or canonical(value) != read_fixed(
+                INBOX / f"{digest}.json", pwd.getpwnam("ansible-deploy").pw_uid,
+                pwd.getpwnam("ansible-deploy").pw_gid, 0o600, 65536) or \
+            hashlib.sha256(canonical(value)).hexdigest() != digest:
+        fail("protected boot activation differs")
+    verify_repo(value)
+    if value.get("host_key_fingerprint") != FINGERPRINT or not HEX64.fullmatch(value.get("inventory_sha256", "")) or \
+            not TIME.fullmatch(value.get("created_at", "")) or not TIME.fullmatch(value.get("expires_at", "")) or \
+            value.get("contract_schema_sha256") != file_hash(REPO / "infrastructure/contract/schema.json") or \
+            value.get("role_sha256") != file_hash(REPO / "ansible/roles/proxmox_boot_configuration/tasks/main.yml") or \
+            value.get("playbook_sha256") != file_hash(REPO / "ansible/playbooks/proxmox-boot-configuration-plan.yml") or \
+            value.get("activator_sha256") != file_hash(Path("/usr/local/libexec/home-lab/proxmox-ansible-deploy-activator")) or \
+            value.get("transport_sha256") != file_hash(Path("/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport")):
+        fail("protected boot bindings differ")
+    if not allow_expired and dt.datetime.now(dt.timezone.utc) > parse_time(value["expires_at"]):
+        fail("protected boot activation expired")
+    current = boot_snapshot()
+    if value.get("commit") != current["commit"] or value.get("contract_sha256") != current["contract_sha256"] or \
+            (not allow_expired and value.get("before") != current):
+        fail("protected boot evidence changed")
+    return current
+
+
+def save_boot_journal(path, value):
+    raw = canonical(value)
+    temporary = path.with_name(f".journal.{os.getpid()}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb", closefd=False) as handle:
+            handle.write(raw); handle.flush(); os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        fsync_directory(path.parent)
+    finally:
+        os.close(descriptor)
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def boot_copy(source, target):
+    source_fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        target_fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            while True:
+                block = os.read(source_fd, 1024 * 1024)
+                if not block:
+                    break
+                view = memoryview(block)
+                while view:
+                    written = os.write(target_fd, view)
+                    if written < 1:
+                        fail("protected boot backup write made no progress")
+                    view = view[written:]
+            os.fsync(target_fd)
+        finally:
+            os.close(target_fd)
+    finally:
+        os.close(source_fd)
+
+
+def boot_restore(backup, target, mode=0o644):
+    content = backup.read_bytes()
+    temporary = target.with_name(f".{target.name}.boot-rollback.{os.getpid()}")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, mode)
+    try:
+        view = memoryview(content)
+        while view:
+            written = os.write(descriptor, view)
+            if written < 1:
+                fail("protected boot rollback write made no progress")
+            view = view[written:]
+        os.fchmod(descriptor, mode); os.fchown(descriptor, 0, 0); os.fsync(descriptor)
+        os.replace(temporary, target); fsync_directory(target.parent)
+    finally:
+        os.close(descriptor)
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def boot_transaction_paths(digest):
+    directory = BOOT_TRANSACTION_DIR / digest
+    return directory, directory / "journal.json"
+
+
+def boot_verify_state(journal, state):
+    source_sha = journal["source"]["after_sha256" if state == "committed" else "before_sha256"]
+    if file_hash(BOOT_VFIO_PATH) != source_sha:
+        return False
+    key = "after_sha256" if state == "committed" else "before_sha256"
+    return all(file_hash(Path(item["path"])) == item[key] for item in journal["initramfs"])
+
+
+def acquire_boot_conflict_locks():
+    descriptors = []
+    for path in (LOW_RISK_LOCK, Path("/run/lock/home-lab-proxmox-package.lock"),
+                 Path("/run/lock/home-lab-proxmox-reboot.lock"), Path("/run/lock/home-lab-vfio-recovery.lock")):
+        descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_gid != 0 or metadata.st_nlink != 1:
+            os.close(descriptor)
+            fail("protected boot conflict lock metadata differs")
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except Exception:
+            os.close(descriptor)
+            for held in descriptors:
+                os.close(held)
+            raise
+        descriptors.append(descriptor)
+    return descriptors
+
+
+def boot_operation(value, digest):
+    BOOT_TRANSACTION_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(BOOT_TRANSACTION_DIR, 0o700)
+    lock_fd = os.open(BOOT_TRANSACTION_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    conflict_locks = []
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        conflict_locks = acquire_boot_conflict_locks()
+        before = validate_boot_plan(value, digest)
+        directory, journal_path = boot_transaction_paths(digest)
+        if journal_path.exists():
+            journal = json.loads(read_fixed(journal_path, 0, 0, 0o600, 65536))
+            if journal.get("status") == "committed" and boot_verify_state(journal, "committed"):
+                return {"boot_configuration_transaction": "already-committed", "changed": True,
+                        "plan_sha256": digest, "rebooted": False}
+            fail("protected boot transaction requires recovery")
+        if directory.exists():
+            fail("protected boot transaction directory exists without a journal")
+        required_root = before["source"]["size"] + sum(item["size"] for item in before["initramfs"]) + 64 * 1024 * 1024
+        root_space = os.statvfs(BOOT_TRANSACTION_DIR)
+        boot_space = os.statvfs(Path(before["initramfs"][0]["path"]).parent)
+        if root_space.f_bavail * root_space.f_frsize < required_root or \
+                boot_space.f_bavail * boot_space.f_frsize < max(item["size"] for item in before["initramfs"]) + 64 * 1024 * 1024:
+            fail("protected boot transaction free space is insufficient")
+        directory.mkdir(mode=0o700)
+        fsync_directory(BOOT_TRANSACTION_DIR)
+        source_backup = directory / "source.before"
+        initramfs_entries = []
+        try:
+            boot_copy(BOOT_VFIO_PATH, source_backup)
+            for item in before["initramfs"]:
+                backup = directory / f"initramfs-{item['role']}.before"
+                boot_copy(Path(item["path"]), backup)
+                initramfs_entries.append({"after_sha256": None, "backup": backup.name,
+                                          "before_sha256": item["sha256"], "kernel": item["kernel"],
+                                          "path": item["path"], "role": item["role"]})
+            fsync_directory(directory)
+        except Exception:
+            for candidate in (source_backup, *(directory / f"initramfs-{role}.before" for role in ("current", "fallback"))):
+                try:
+                    os.unlink(candidate)
+                except FileNotFoundError:
+                    pass
+            os.rmdir(directory); fsync_directory(BOOT_TRANSACTION_DIR)
+            raise
+        journal = {"automatic_reboot": False, "format": "home-lab-proxmox-protected-boot-journal-v1",
+                   "initramfs": initramfs_entries, "plan_sha256": digest, "protected_values_exported": False,
+                   "reboot_required": True, "source": {"after_sha256": before["expected_source_sha256"],
+                   "backup": source_backup.name, "before_sha256": before["source"]["sha256"],
+                   "path": str(BOOT_VFIO_PATH)}, "status": "prepared"}
+        save_boot_journal(journal_path, journal)
+        try:
+            _, expected = boot_contract_material()
+            if hashlib.sha256(expected).hexdigest() != before["expected_source_sha256"]:
+                fail("protected boot expected content changed")
+            replace_repository_file(BOOT_VFIO_PATH, expected)
+            journal["status"] = "source-updated"; save_boot_journal(journal_path, journal)
+            for item in journal["initramfs"]:
+                native(("/usr/sbin/update-initramfs", "-u", "-k", item["kernel"]), timeout=600)
+            for item in journal["initramfs"]:
+                item["after_sha256"] = file_hash(Path(item["path"]))
+                if item["after_sha256"] == item["before_sha256"]:
+                    fail("retained initramfs did not change")
+            if file_hash(BOOT_VFIO_PATH) != before["expected_source_sha256"]:
+                fail("protected boot source postcondition differs")
+            journal["status"] = "committed"; save_boot_journal(journal_path, journal)
+            return {"boot_configuration_transaction": "committed", "changed": True,
+                    "plan_sha256": digest, "rebooted": False}
+        except Exception:
+            try:
+                boot_restore(source_backup, BOOT_VFIO_PATH)
+                for item in journal["initramfs"]:
+                    boot_restore(directory / item["backup"], Path(item["path"]))
+                journal["status"] = "rolled-back" if boot_verify_state(journal, "rolled-back") else "rollback-failed"
+                save_boot_journal(journal_path, journal)
+            except Exception:
+                journal["status"] = "rollback-failed"; save_boot_journal(journal_path, journal)
+            raise
+    finally:
+        for descriptor in conflict_locks:
+            os.close(descriptor)
+        os.close(lock_fd)
+
+
+def recover_boot(value, digest):
+    BOOT_TRANSACTION_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock_fd = os.open(BOOT_TRANSACTION_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    conflict_locks = []
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        conflict_locks = acquire_boot_conflict_locks()
+        validate_boot_plan(value, digest, allow_expired=True)
+        directory, journal_path = boot_transaction_paths(digest)
+        journal = json.loads(read_fixed(journal_path, 0, 0, 0o600, 65536))
+        status = journal.get("status")
+        if status == "committed" and boot_verify_state(journal, "committed"):
+            return {"boot_configuration_transaction": "committed", "changed": True,
+                    "plan_sha256": digest, "rebooted": False}
+        if status == "rolled-back" and boot_verify_state(journal, "rolled-back"):
+            return {"boot_configuration_transaction": "rolled-back", "changed": False,
+                    "plan_sha256": digest, "rebooted": False}
+        if status not in {"prepared", "source-updated", "rollback-failed"}:
+            fail("protected boot journal state differs")
+        boot_restore(directory / journal["source"]["backup"], BOOT_VFIO_PATH)
+        for item in journal["initramfs"]:
+            boot_restore(directory / item["backup"], Path(item["path"]))
+        if not boot_verify_state(journal, "rolled-back"):
+            journal["status"] = "rollback-failed"; save_boot_journal(journal_path, journal)
+            fail("protected boot recovery verification failed")
+        journal["status"] = "rolled-back"; save_boot_journal(journal_path, journal)
+        return {"boot_configuration_transaction": "rolled-back", "changed": False,
+                "plan_sha256": digest, "rebooted": False}
+    finally:
+        for descriptor in conflict_locks:
+            os.close(descriptor)
+        os.close(lock_fd)
+
+
 def validate_reboot_plan(value, digest, allow_expired=False):
     keys = {"access_evidence_sha256", "authorized", "automatic_reboot", "backup_attestation_sha256", "commit",
             "console_attested", "contract_sha256", "created_at", "evidence", "expires_at", "expected", "format",
@@ -830,13 +1168,18 @@ def reboot_operation(value, digest, operation):
 
 def main():
     request = read_bounded_stdin(1024)
-    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "apply-apt-repositories", "recover-apt-repositories", "apply-chrony-service", "recover-chrony-service"}
+    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "apply-apt-repositories", "recover-apt-repositories", "apply-chrony-service", "recover-chrony-service", "inspect-boot-configuration", "apply-boot-configuration", "recover-boot-configuration"}
     if not isinstance(request, dict) or set(request) != {"operation", "plan_sha256"} or \
             request.get("operation") not in operations or not isinstance(request.get("plan_sha256"), str) or \
             HEX64.fullmatch(request["plan_sha256"]) is None:
         fail("deploy request differs")
     if any(os.path.lexists(path) for path in LOCKS):
         fail("conflicting lifecycle lock is active")
+    if request["operation"] == "inspect-boot-configuration":
+        if request["plan_sha256"] != "0" * 64:
+            fail("protected boot inspection request differs")
+        print(json.dumps(boot_snapshot(), sort_keys=True, separators=(",", ":")))
+        return
     digest = request["plan_sha256"]
     deploy_account = pwd.getpwnam("ansible-deploy")
     path = INBOX / f"{digest}.json"
@@ -857,6 +1200,10 @@ def main():
         output = chrony_operation(value, digest)
     elif request["operation"] == "recover-chrony-service":
         output = recover_chrony(value, digest)
+    elif request["operation"] == "apply-boot-configuration":
+        output = boot_operation(value, digest)
+    elif request["operation"] == "recover-boot-configuration":
+        output = recover_boot(value, digest)
     elif request["operation"].endswith("-reboot"):
         output = reboot_operation(value, digest, request["operation"])
     else:
