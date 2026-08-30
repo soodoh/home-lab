@@ -21,7 +21,7 @@ SSH = ("ssh", "-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostK
 ACTIVATOR = ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator"
 TRANSPORT = ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-deploy-transport"
 CONTRACT = ROOT / "infrastructure/contract/home-lab.yml"
-SCHEMA = ROOT / "infrastructure/contract/home-lab.schema.json"
+SCHEMA = ROOT / "infrastructure/contract/schema.json"
 INVENTORY = ROOT / "ansible/inventory/production.yml"
 ROLE = ROOT / "ansible/roles/proxmox_boot_configuration/tasks/main.yml"
 PLAYBOOK = ROOT / "ansible/playbooks/proxmox-boot-configuration-plan.yml"

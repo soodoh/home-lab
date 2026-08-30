@@ -1115,7 +1115,7 @@ def validate_boot_ownership_plan(value, digest):
     verify_repo(value)
     bindings = {
         "activator_sha256": file_hash(Path(__file__)),
-        "contract_schema_sha256": file_hash(REPO / "infrastructure/contract/home-lab.schema.json"),
+        "contract_schema_sha256": file_hash(REPO / "infrastructure/contract/schema.json"),
         "playbook_sha256": file_hash(REPO / "ansible/playbooks/proxmox-boot-configuration-plan.yml"),
         "role_sha256": file_hash(REPO / "ansible/roles/proxmox_boot_configuration/tasks/main.yml"),
         "transport_sha256": file_hash(Path("/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport")),

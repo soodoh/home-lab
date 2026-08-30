@@ -45,6 +45,7 @@ def main() -> None:
     compile(activator_source, str(ACTIVATOR), "exec")
     controller = load_controller()
     assert controller.canonical({"b": 1, "a": 2}) == b'{"a":2,"b":1}\n'
+    assert controller.SCHEMA.is_file()
 
     parsed = subprocess.run(("node", "-e", "const fs=require('node:fs'),y=require('js-yaml');process.stdout.write(JSON.stringify(y.load(fs.readFileSync(process.argv[1],'utf8'))));", str(CONTRACT)), cwd=ROOT, check=True, capture_output=True, text=True)
     contract = json.loads(parsed.stdout)
