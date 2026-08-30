@@ -94,8 +94,8 @@ case "$command" in
     trap - EXIT HUP INT TERM
     printf '%s\n' '{"staged":true}'
     ;;
-  stage\ boot-configuration\ *)
-    digest=${command#stage boot-configuration }
+  stage\ boot-configuration\ *|stage\ boot-ownership\ *)
+    digest=${command##* }
     case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
     [ "${#digest}" -eq 64 ] || exit 64
     inbox=/home/ansible-deploy/.home-lab-plan-inbox
@@ -214,6 +214,13 @@ case "$command" in
     case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
     [ "${#digest}" -eq 64 ] || exit 64
     printf '{"operation":"%s-chrony-service","plan_sha256":"%s"}\n' "$operation" "$digest" |
+      exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
+    ;;
+  apply\ boot-ownership\ *)
+    digest=${command#apply boot-ownership }
+    case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
+    [ "${#digest}" -eq 64 ] || exit 64
+    printf '{"operation":"apply-boot-ownership","plan_sha256":"%s"}\n' "$digest" |
       exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
     ;;
   apply\ boot-configuration\ *|recover\ boot-configuration\ *)
