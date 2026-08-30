@@ -1,0 +1,16 @@
+---
+- name: Build read-only Proxmox boot-configuration handoff evidence
+  hosts: proxmox_host
+  gather_facts: false
+  any_errors_fatal: true
+  serial: 1
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+  roles:
+    - role: lifecycle_state
+      vars:
+        lifecycle_state_enforce: false
+        lifecycle_state_emit_observation: false
+    - role: proxmox_boot_configuration
+      vars:
+        proxmox_boot_configuration_emit: true

@@ -69,6 +69,12 @@ check(invalidPendingAptOwner, false, "pending APT repository handoff retains Nix
 const invalidTransferredChronyOwner = structuredClone(contract);
 invalidTransferredChronyOwner.lifecycle.hosts.proxmox.domain_handoffs.chrony_service.current_owner = "nix";
 check(invalidTransferredChronyOwner, false, "transferred chrony handoff requires Ansible ownership");
+const invalidPendingBootOwner = structuredClone(contract);
+invalidPendingBootOwner.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration.current_owner = "ansible";
+check(invalidPendingBootOwner, false, "pending boot configuration handoff retains Nix ownership");
+const missingBootHandoff = structuredClone(contract);
+delete missingBootHandoff.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration;
+check(missingBootHandoff, false, "Proxmox boot configuration handoff policy is required");
 const missingAptHandoff = structuredClone(contract);
 delete missingAptHandoff.lifecycle.hosts.proxmox.domain_handoffs.apt_repositories;
 check(missingAptHandoff, false, "Proxmox APT repository handoff policy is required");
@@ -370,9 +376,11 @@ function collectPolicyRecords(value, records = []) {
 }
 const policyRecords = collectPolicyRecords(contract);
 const managedFiles = policyRecords.filter((record) => record.kind === "managed-file");
+const protectedManagedFiles = policyRecords.filter((record) => record.kind === "protected-managed-file");
 const protectedRecords = policyRecords.filter((record) => record.kind.startsWith("runtime-protected-"));
-if (!managedFiles.length || !protectedRecords.length) throw new Error("contract must classify managed and runtime-protected policies");
-const knownPolicyKinds = new Set(["managed-file", "managed-file-metadata", "managed-directory", "runtime-protected-file", "runtime-protected-directory", "audit-absence", "api-owned"]);
+if (!managedFiles.length || !protectedManagedFiles.length || !protectedRecords.length) throw new Error("contract must classify managed, protected-managed, and runtime-protected policies");
+if (protectedManagedFiles.some((record) => record.projectable !== false)) throw new Error("protected managed files must not enter the reduced projection");
+const knownPolicyKinds = new Set(["managed-file", "protected-managed-file", "managed-file-metadata", "managed-directory", "runtime-protected-file", "runtime-protected-directory", "audit-absence", "api-owned"]);
 if (policyRecords.some((record) => !knownPolicyKinds.has(record.kind))) throw new Error("contract contains an unknown projector-dispatch kind");
 if (contract.proxmox.apt.repository_file_metadata.kind !== "managed-file-metadata" ||
     contract.proxmox.access.service_accounts[0].sudo.file.kind !== "managed-file" ||

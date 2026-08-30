@@ -41,6 +41,14 @@ function projectProxmoxPolicy(contract, packageManifest) {
   const chronyServiceFrozen = ["ready", "transferred"].includes(
     contract.lifecycle.hosts.proxmox.domain_handoffs.chrony_service.state,
   );
+  const bootConfigurationFrozen = ["ready", "transferred"].includes(
+    contract.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration.state,
+  );
+  const bootConfigurationPaths = new Set([
+    proxmox.grub.file.path,
+    proxmox.vfio.modules_load_file.path,
+    storage.zfs.arc_config.file.path,
+  ]);
   if (packageManifest.architecture !== proxmox.packages.architecture || !Array.isArray(packageManifest.packages) ||
       packageManifest.packages.length < 1 || !Number.isInteger(packageManifest.provenance?.installedInventory?.installedRecords) ||
       packageManifest.provenance.installedInventory.installedRecords < 1 ||
@@ -277,7 +285,8 @@ function projectProxmoxPolicy(contract, packageManifest) {
       managedFilePolicies: proxmox.planning_policy.managed_file_policies.map((entry) => ({
         path: entry.path,
         safetyClass: entry.safety_class,
-        automatic: entry.path.startsWith("/etc/apt/") && aptRepositoriesFrozen ? false : entry.automatic,
+        automatic: (entry.path.startsWith("/etc/apt/") && aptRepositoriesFrozen) ||
+          (bootConfigurationPaths.has(entry.path) && bootConfigurationFrozen) ? false : entry.automatic,
         requiresApproval: entry.requires_approval,
         requiresReboot: entry.requires_reboot,
         requiresWatchdog: entry.requires_watchdog,
@@ -285,7 +294,7 @@ function projectProxmoxPolicy(contract, packageManifest) {
       domains: proxmox.planning_policy.domains.map((entry) => ({
         domain: entry.domain,
         safetyClass: entry.safety_class,
-        automatic: entry.automatic,
+        automatic: entry.domain === "managed-fragments" && bootConfigurationFrozen ? false : entry.automatic,
         requiresApproval: entry.requires_approval,
         requiresReboot: entry.requires_reboot,
         requiresWatchdog: entry.requires_watchdog,

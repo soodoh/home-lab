@@ -79,6 +79,12 @@ lifecycle:
           state: transferred
           parity_required: true
           single_writer: true
+        boot_configuration:
+          current_owner: nix
+          target_owner: ansible
+          state: pending
+          parity_required: true
+          single_writer: true
       access_cutover:
         state: pending
         target_identities:
@@ -289,8 +295,8 @@ proxmox:
       group: root
       mode: "0644"
     modprobe_file:
-      kind: managed-file
-      projectable: true
+      kind: protected-managed-file
+      projectable: false
       path: /etc/modprobe.d/home-lab-vfio.conf
       owner: root
       group: root

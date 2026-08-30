@@ -1,0 +1,312 @@
+---
+- name: Require Proxmox lifecycle context for boot-configuration planning
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'proxmox'
+      - lifecycle_state_observation is defined
+      - lifecycle.hosts.proxmox.domain_handoffs.boot_configuration is defined
+      - proxmox.grub is defined
+      - proxmox.vfio is defined
+      - proxmox.kernels is defined
+      - storage.zfs.arc_config is defined
+      - not proxmox.vfio.modprobe_file.projectable
+    fail_msg: Boot-configuration planning requires the Proxmox lifecycle and protected boot contract.
+
+- name: Derive protected VFIO expectations on the controller
+  ansible.builtin.set_fact:
+    proxmox_boot_configuration_expected_vfio_modprobe: |
+      options vfio-pci ids={{ proxmox.vfio.device_ids | join(',') }}
+      {% for dependency in proxmox.vfio.soft_dependencies %}
+      softdep {{ dependency.module }} pre: {{ dependency.pre | join(' ') }}
+      {% endfor %}
+  no_log: true
+
+- name: Reduce protected VFIO file expectation to an opaque hash
+  ansible.builtin.set_fact:
+    proxmox_boot_configuration_expected_vfio_modprobe_sha256: >-
+      {{ proxmox_boot_configuration_expected_vfio_modprobe | hash('sha256') }}
+  no_log: true
+
+- name: Build reduced read-only boot-configuration evidence
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import re
+        import stat
+        import subprocess
+        import sys
+
+        policy = json.loads(sys.argv[1])
+        grub = policy["grub"]
+        vfio = policy["vfio"]
+        zfs = policy["zfs"]
+        kernels = policy["kernels"]
+
+        def metadata(path):
+            try:
+                value = os.lstat(path)
+            except (FileNotFoundError, PermissionError, OSError):
+                return {"exists": False, "gid": None, "mode": None, "mtime_ns": None, "nlink": None,
+                        "path": path, "regular": False, "sha256": None, "uid": None}
+            regular = stat.S_ISREG(value.st_mode) and not stat.S_ISLNK(value.st_mode)
+            content = b""
+            if regular:
+                try:
+                    with open(path, "rb") as handle:
+                        content = handle.read()
+                except (PermissionError, OSError):
+                    regular = False
+            return {
+                "exists": True,
+                "gid": value.st_gid,
+                "mode": format(stat.S_IMODE(value.st_mode), "04o"),
+                "mtime_ns": value.st_mtime_ns,
+                "nlink": value.st_nlink,
+                "path": path,
+                "regular": regular,
+                "sha256": hashlib.sha256(content).hexdigest() if regular else None,
+                "uid": value.st_uid,
+            }
+
+        def exact_file(item, expected_text):
+            expected_sha256 = hashlib.sha256(expected_text.encode()).hexdigest()
+            return exact_file_hash(item, expected_sha256)
+
+        def exact_file_hash(item, expected_sha256):
+            record = metadata(item["path"])
+            record.update({
+                "content_matches": record["regular"] and record["sha256"] == expected_sha256,
+                "expected_sha256": expected_sha256,
+                "metadata_matches": record["regular"] and record["uid"] == 0 and record["gid"] == 0 and
+                                    record["nlink"] == 1 and record["mode"] == item["mode"],
+            })
+            return record
+
+        grub_line = grub["variable"] + '=\"' + " ".join(grub["default_tokens"]) + '\"'
+        grub_record = metadata(grub["file"]["path"])
+        try:
+            grub_lines = Path(grub["file"]["path"]).read_text(encoding="utf-8").splitlines() if grub_record["regular"] else []
+        except (UnicodeDecodeError, OSError):
+            grub_lines = []
+        assignments = [line.strip() for line in grub_lines if re.match(r"^\s*" + re.escape(grub["variable"]) + r"\s*=", line)]
+        grub_record.update({
+            "assignment_matches": assignments == [grub_line],
+            "expected_assignment_sha256": hashlib.sha256((grub_line + "\n").encode()).hexdigest(),
+            "match_count": len(assignments),
+            "metadata_matches": grub_record["regular"] and grub_record["uid"] == 0 and grub_record["gid"] == 0 and
+                                grub_record["nlink"] == 1 and grub_record["mode"] == grub["file"]["mode"],
+        })
+
+        zfs_text = "options " + zfs["arc_config"]["module"] + " " + zfs["arc_config"]["option"] + "=" + str(zfs["arc_max_bytes"]) + "\n"
+        modules_text = "\n".join(vfio["modules"]) + "\n"
+        zfs_record = exact_file(zfs["arc_config"]["file"], zfs_text)
+        modules_record = exact_file(vfio["modules_load_file"], modules_text)
+        modprobe_record = exact_file_hash(vfio["modprobe_file"], vfio["expected_modprobe_sha256"])
+
+        absence_records = []
+        for item in vfio["absence_policy"]:
+            path = item["path"]
+            observed = metadata(path)
+            if item["absence"] == "file":
+                matches = not observed["exists"]
+                count = 0 if matches else 1
+            else:
+                try:
+                    lines = Path(path).read_text(encoding="utf-8").splitlines()
+                    count = sum(re.search(item["pattern"], line) is not None for line in lines)
+                    matches = count == 0
+                except (FileNotFoundError, PermissionError, UnicodeDecodeError, OSError, re.error):
+                    count = None
+                    matches = False
+            absence_records.append({"absence": item["absence"], "count": count, "matches": matches, "path": path})
+
+        grub_cfg = metadata("/boot/grub/grub.cfg")
+        syntax = subprocess.run(["/usr/bin/grub-script-check", "/boot/grub/grub.cfg"], stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=30)
+        menu_recovery = False
+        normal_entries = []
+        recovery_entry_count = 0
+        try:
+            generated_lines = Path("/boot/grub/grub.cfg").read_text(encoding="utf-8").splitlines()
+        except (FileNotFoundError, PermissionError, UnicodeDecodeError, OSError):
+            generated_lines = []
+        for line in generated_lines:
+            stripped = line.strip()
+            if stripped.startswith("menuentry "):
+                menu_recovery = "recovery mode" in stripped.lower()
+            elif re.match(r"^linux\s+", stripped):
+                words = stripped.split()
+                if menu_recovery:
+                    recovery_entry_count += 1
+                else:
+                    normal_entries.append({
+                        "image": Path(words[1]).name if len(words) > 1 else None,
+                        "tokens_match": all(token in words for token in grub["default_tokens"]),
+                    })
+        expected_images = {"vmlinuz-" + kernels["current"], "vmlinuz-" + kernels["fallback"]}
+        normal_images = {item["image"] for item in normal_entries if item["tokens_match"]}
+        grub_generated_matches = (
+            grub_cfg["regular"] and grub_cfg["uid"] == 0 and grub_cfg["gid"] == 0 and grub_cfg["nlink"] == 1 and
+            syntax.returncode == 0 and bool(normal_entries) and all(item["tokens_match"] for item in normal_entries) and
+            expected_images.issubset(normal_images) and grub_cfg["mtime_ns"] is not None and
+            grub_record["mtime_ns"] is not None and grub_cfg["mtime_ns"] >= grub_record["mtime_ns"]
+        )
+
+        initramfs_records = []
+        module_source_mtimes = [item["mtime_ns"] for item in (zfs_record, modules_record, modprobe_record) if item["mtime_ns"] is not None]
+        newest_module_source = max(module_source_mtimes) if len(module_source_mtimes) == 3 else None
+        for role in ("current", "fallback"):
+            path = "/boot/initrd.img-" + kernels[role]
+            record = metadata(path)
+            record.update({
+                "kernel": kernels[role],
+                "role": role,
+                "fresh": record["regular"] and record["uid"] == 0 and record["gid"] == 0 and record["nlink"] == 1 and
+                         newest_module_source is not None and record["mtime_ns"] >= newest_module_source,
+            })
+            initramfs_records.append(record)
+
+        try:
+            command_line = Path("/proc/cmdline").read_text(encoding="utf-8").strip().split()
+        except (PermissionError, UnicodeDecodeError, OSError):
+            command_line = []
+        try:
+            loaded = {line.split()[0] for line in Path("/proc/modules").read_text(encoding="utf-8").splitlines()}
+        except (PermissionError, UnicodeDecodeError, OSError):
+            loaded = set()
+        try:
+            live_arc = int(Path("/sys/module/zfs/parameters/" + zfs["arc_config"]["option"]).read_text().strip())
+        except (FileNotFoundError, PermissionError, OSError, ValueError):
+            live_arc = None
+        uname = subprocess.run(["/usr/bin/uname", "-r"], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
+        runtime = {
+            "cmdline_tokens_match": all(token in command_line for token in grub["default_tokens"]),
+            "current_kernel": uname.stdout.strip() if uname.returncode == 0 else None,
+            "current_kernel_matches": uname.returncode == 0 and uname.stdout.strip() == kernels["current"],
+            "loaded_modules": {module: module in loaded for module in sorted(set(vfio["modules"] + ["zfs"]))},
+            "zfs_arc_max": live_arc,
+            "zfs_arc_max_matches": live_arc == zfs["arc_max_bytes"],
+        }
+        runtime["modules_match"] = all(runtime["loaded_modules"].values())
+
+        protected = subprocess.run(
+            ["/usr/local/libexec/home-lab/proxmox-observer", "observe"], stdin=subprocess.DEVNULL,
+            capture_output=True, text=True, timeout=90,
+        )
+        protected_hardware = {"expectedCount": None, "matches": False, "observedCount": None, "status": "unavailable"}
+        if protected.returncode == 0 and not protected.stderr:
+            try:
+                observed = json.loads(protected.stdout)
+                candidate = observed["domains"]["protectedHardware"]
+                if set(candidate) == {"expectedCount", "matches", "observedCount", "status"}:
+                    protected_hardware = candidate
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                pass
+
+        try:
+            pci_entries = sorted(Path("/sys/bus/pci/devices").iterdir())
+        except (FileNotFoundError, PermissionError, OSError):
+            pci_entries = []
+        vfio_bound_count = 0
+        for directory in pci_entries:
+            try:
+                driver = (directory / "driver").resolve(strict=True).name
+            except (FileNotFoundError, PermissionError, OSError):
+                continue
+            if driver == "vfio-pci":
+                vfio_bound_count += 1
+        unexpected_vfio_count = max(0, vfio_bound_count - vfio["expected_device_count"])
+
+        source_parity = grub_record["metadata_matches"] and grub_record["assignment_matches"] and all(
+            item["metadata_matches"] and item["content_matches"] for item in (zfs_record, modules_record, modprobe_record)
+        )
+        absence_parity = all(item["matches"] for item in absence_records)
+        initramfs_parity = len(initramfs_records) == 2 and all(item["fresh"] for item in initramfs_records)
+        runtime_parity = runtime["cmdline_tokens_match"] and runtime["current_kernel_matches"] and \
+                         runtime["modules_match"] and runtime["zfs_arc_max_matches"]
+        pci_parity = protected_hardware["status"] == "complete" and protected_hardware["matches"] is True and \
+                     protected_hardware["expectedCount"] == 3 and protected_hardware["observedCount"] == 3 and \
+                     unexpected_vfio_count == 0
+        result = {
+            "version": 1,
+            "absence": {"exact_parity": absence_parity, "records": absence_records},
+            "generated": {
+                "grub": {"exact_parity": grub_generated_matches, "normal_entries": normal_entries,
+                         "recovery_entry_count": recovery_entry_count, "record": grub_cfg,
+                         "syntax_status": syntax.returncode},
+                "initramfs": {"exact_parity": initramfs_parity, "records": initramfs_records},
+            },
+            "pci": {"exact_parity": pci_parity, "protected_hardware": protected_hardware,
+                    "expected_vfio_device_count": vfio["expected_device_count"],
+                    "unexpected_vfio_device_count": unexpected_vfio_count,
+                    "vfio_bound_device_count": vfio_bound_count},
+            "runtime": dict(runtime, exact_parity=runtime_parity),
+            "sources": {"exact_parity": source_parity, "grub": grub_record,
+                        "records": [modprobe_record, zfs_record, modules_record]},
+        }
+        result["exact_parity"] = source_parity and absence_parity and grub_generated_matches and initramfs_parity and runtime_parity and pci_parity
+        print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+      - >-
+        {{
+          {
+            'grub': proxmox.grub,
+            'vfio': {
+              'modules': proxmox.vfio.modules,
+              'absence_policy': proxmox.vfio.absence_policy,
+              'modules_load_file': proxmox.vfio.modules_load_file,
+              'modprobe_file': proxmox.vfio.modprobe_file,
+              'expected_modprobe_sha256': proxmox_boot_configuration_expected_vfio_modprobe_sha256,
+              'expected_device_count': proxmox.vfio.device_ids | length
+            },
+            'zfs': {
+              'arc_max_bytes': storage.zfs.arc_max_bytes,
+              'arc_config': storage.zfs.arc_config
+            },
+            'kernels': proxmox.kernels
+          } | to_json
+        }}
+  register: proxmox_boot_configuration_raw
+  changed_when: false
+  check_mode: false
+
+- name: Decode reduced boot-configuration evidence
+  ansible.builtin.set_fact:
+    proxmox_boot_configuration_evidence: "{{ proxmox_boot_configuration_raw.stdout | from_json }}"
+
+- name: Publish boot-configuration readiness without authorizing mutation
+  ansible.builtin.set_fact:
+    proxmox_boot_configuration_observation:
+      version: 1
+      contract_host: proxmox
+      ownership: "{{ lifecycle.hosts.proxmox.domain_handoffs.boot_configuration }}"
+      evidence: "{{ proxmox_boot_configuration_evidence }}"
+      active_lifecycle_locks: "{{ lifecycle_state_observation.locks.active }}"
+      parity_complete: "{{ proxmox_boot_configuration_evidence.exact_parity }}"
+      mutation_authorized: false
+      blockers: >-
+        {{
+          (
+            ([] if proxmox_boot_configuration_evidence.sources.exact_parity else ['boot-source-parity-incomplete']) +
+            ([] if proxmox_boot_configuration_evidence.absence.exact_parity else ['conflicting-vfio-source-present']) +
+            ([] if proxmox_boot_configuration_evidence.generated.grub.exact_parity else ['generated-grub-parity-incomplete']) +
+            ([] if proxmox_boot_configuration_evidence.generated.initramfs.exact_parity else ['initramfs-parity-incomplete']) +
+            ([] if proxmox_boot_configuration_evidence.runtime.exact_parity else ['boot-runtime-parity-incomplete']) +
+            ([] if proxmox_boot_configuration_evidence.pci.unexpected_vfio_device_count == 0 else ['retired-vfio-device-still-bound']) +
+            ([] if proxmox_boot_configuration_evidence.pci.exact_parity else ['pci-parity-incomplete']) +
+            ([] if lifecycle_state_observation.locks.active | length == 0 else ['active-lifecycle-lock']) +
+            ['nix-remains-current-writer', 'protected-cleanup-session-required', 'saved-reviewed-handoff-required',
+             'separate-configuration-authorization-required', 'separate-reboot-authorization-required']
+          ) | unique | list
+        }}
+
+- name: Emit reduced boot-configuration readiness
+  ansible.builtin.debug:
+    var: proxmox_boot_configuration_observation
+  when: proxmox_boot_configuration_emit | bool

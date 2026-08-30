@@ -150,6 +150,24 @@ const pendingAptProjection = projectProxmoxPolicy(pendingAptHandoff, structuredC
 if (pendingAptProjection.planningPolicy.managedFilePolicies.filter((item) => aptPaths.has(item.path)).some((item) => item.automatic !== true)) {
   throw new Error("pending APT repository handoff did not retain Nix mutation authority");
 }
+if (projected.managedFiles.some((item) => item.path === contract.proxmox.vfio.modprobe_file.path)) {
+  throw new Error("protected VFIO modprobe policy leaked into the reduced Nix projection");
+}
+const bootPaths = new Set([
+  contract.proxmox.vfio.modules_load_file.path,
+  contract.storage.zfs.arc_config.file.path,
+]);
+if (projected.planningPolicy.managedFilePolicies.filter((item) => bootPaths.has(item.path)).some((item) => item.automatic !== true) ||
+    projected.planningPolicy.domains.find((item) => item.domain === "managed-fragments").automatic !== true) {
+  throw new Error("pending boot-configuration handoff did not retain Nix mutation authority");
+}
+const readyBootHandoff = structuredClone(contract);
+readyBootHandoff.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration.state = "ready";
+const readyBootProjection = projectProxmoxPolicy(readyBootHandoff, structuredClone(packageManifest));
+if (readyBootProjection.planningPolicy.managedFilePolicies.filter((item) => bootPaths.has(item.path)).some((item) => item.automatic !== false) ||
+    readyBootProjection.planningPolicy.domains.find((item) => item.domain === "managed-fragments").automatic !== false) {
+  throw new Error("ready boot-configuration handoff did not freeze Nix mutation");
+}
 for (const mutation of [
   (value) => value.proxmox.planning_policy.service_policies.pop(),
   (value) => { value.proxmox.planning_policy.service_policies[1].name = "chrony.service"; },

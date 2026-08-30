@@ -272,11 +272,12 @@
     "lifecycleDomainHandoffs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["timezone", "apt_repositories", "chrony_service"],
+      "required": ["timezone", "apt_repositories", "chrony_service", "boot_configuration"],
       "properties": {
         "timezone": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "apt_repositories": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
-        "chrony_service": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
+        "chrony_service": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
+        "boot_configuration": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
       }
     },
     "lifecycleAccessCutoverPolicy": {
@@ -1192,6 +1193,19 @@
         "mode": { "$ref": "#/$defs/safeMode" }
       }
     },
+    "protectedManagedFilePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "projectable", "path", "owner", "group", "mode"],
+      "properties": {
+        "kind": { "const": "protected-managed-file" },
+        "projectable": { "const": false },
+        "path": { "$ref": "#/$defs/absolutePath" },
+        "owner": { "$ref": "#/$defs/unixIdentity" },
+        "group": { "$ref": "#/$defs/unixIdentity" },
+        "mode": { "$ref": "#/$defs/safeMode" }
+      }
+    },
     "managedDirectoryPolicy": {
       "type": "object",
       "additionalProperties": false,
@@ -1321,7 +1335,7 @@
         "prohibited_modules": { "type": "array", "maxItems": 0 },
         "absence_policy": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/auditAbsentLinesPolicy" }, { "$ref": "#/$defs/auditAbsentLinesPolicy" }, { "$ref": "#/$defs/auditAbsentFilePolicy" }], "items": false, "minItems": 3, "maxItems": 3, "uniqueItems": true },
         "modules_load_file": { "$ref": "#/$defs/managedFilePolicy" },
-        "modprobe_file": { "$ref": "#/$defs/managedFilePolicy" },
+        "modprobe_file": { "$ref": "#/$defs/protectedManagedFilePolicy" },
         "soft_dependencies": { "type": "array", "prefixItems": [{ "$ref": "#/$defs/softDependency" }, { "$ref": "#/$defs/softDependency" }], "items": false, "minItems": 2, "maxItems": 2, "uniqueItems": true },
         "recovery": { "$ref": "#/$defs/vfioRecovery" }
       }
