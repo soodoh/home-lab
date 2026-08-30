@@ -21,6 +21,7 @@
         import json
         import os
         import subprocess
+        import stat
         import sys
 
         host = sys.argv[1]
@@ -80,6 +81,8 @@
 
         backup = {
             "accepted_path": accepted_path,
+            "accepted_mtime_epoch": None,
+            "accepted_sha256": None,
             "age_seconds": None,
             "durable_chain_clear": False,
             "exists": False,
@@ -101,10 +104,21 @@
                     "exit_timestamp": values.get("ExecMainExitTimestamp", ""),
                 }
             try:
-                metadata = os.lstat(accepted_path)
-                if not os.path.isfile(accepted_path) or os.path.islink(accepted_path) or metadata.st_size > 1024 * 1024:
-                    raise ValueError("accepted_metadata")
-                value = json.loads(open(accepted_path, encoding="utf-8").read())
+                descriptor = os.open(accepted_path, os.O_RDONLY | os.O_NOFOLLOW)
+                try:
+                    metadata = os.fstat(descriptor)
+                    if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_gid != 0 or \
+                            metadata.st_nlink != 1 or metadata.st_size > 1024 * 1024:
+                        raise ValueError("accepted_metadata")
+                    with os.fdopen(descriptor, "rb") as handle:
+                        descriptor = -1
+                        accepted_raw = handle.read(1024 * 1024 + 1)
+                finally:
+                    if descriptor >= 0:
+                        os.close(descriptor)
+                if len(accepted_raw) != metadata.st_size:
+                    raise ValueError("accepted_size")
+                value = json.loads(accepted_raw)
                 if set(value) - {"version", "pending", "proton_copies"} or value.get("version") != 1:
                     raise ValueError("accepted_schema")
                 pending = value.get("pending")
@@ -112,7 +126,9 @@
                 if not isinstance(pending, list) or not isinstance(proton_copies, dict):
                     raise ValueError("accepted_schema")
                 backup["exists"] = True
-                backup["age_seconds"] = max(0, now - int(metadata.st_mtime))
+                backup["accepted_mtime_epoch"] = int(metadata.st_mtime)
+                backup["accepted_sha256"] = hashlib.sha256(accepted_raw).hexdigest()
+                backup["age_seconds"] = max(0, now - backup["accepted_mtime_epoch"])
                 backup["pending_records"] = len(pending)
                 backup["proton_copy_records"] = len(proton_copies)
                 backup["durable_chain_clear"] = (
