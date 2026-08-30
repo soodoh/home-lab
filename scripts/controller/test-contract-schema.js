@@ -67,7 +67,7 @@ invalidPendingAptOwner.lifecycle.hosts.proxmox.domain_handoffs.apt_repositories.
 invalidPendingAptOwner.lifecycle.hosts.proxmox.domain_handoffs.apt_repositories.state = "pending";
 check(invalidPendingAptOwner, false, "pending APT repository handoff retains Nix ownership");
 const invalidTransferredChronyOwner = structuredClone(contract);
-invalidTransferredChronyOwner.lifecycle.hosts.proxmox.domain_handoffs.chrony_service.state = "transferred";
+invalidTransferredChronyOwner.lifecycle.hosts.proxmox.domain_handoffs.chrony_service.current_owner = "nix";
 check(invalidTransferredChronyOwner, false, "transferred chrony handoff requires Ansible ownership");
 const missingAptHandoff = structuredClone(contract);
 delete missingAptHandoff.lifecycle.hosts.proxmox.domain_handoffs.apt_repositories;

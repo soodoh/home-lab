@@ -68,4 +68,4 @@ A `ready` state may be used only while reviewed capability is installed and live
 
 APT repository ownership transferred under exact activation `3cdb7924bec68fb82e83c69fe8a9b2e1f5b087b9a348bae12f336aafcf1b8b53`. The root-only mode-`0600` journal is `committed` with `changed_files: 0` and `metadata_refresh: false`; Nix remains audit-only for the five source files.
 
-Chrony parity is complete and the source policy is now `ready`, with Nix mutation frozen while Nix remains the contracted owner. The chrony freeze bundle must be installed and verified before the separate ownership transfer and exact no-restart activation.
+The chrony freeze bundle was installed and independently verified at exact parity before the source policy transferred ownership to Ansible. Nix is now audit-only for `chrony.service`; the separate immutable no-restart activation remains pending.

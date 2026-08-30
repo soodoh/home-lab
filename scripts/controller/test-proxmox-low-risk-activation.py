@@ -172,7 +172,7 @@ def main() -> None:
     expect_failure(lambda: activator.validate_repository_plan(wrong_keyring, wrong_keyring_digest), "keyring record differs")
 
     assert controller.handoff_state("apt_repositories")["current_owner"] == "ansible"
-    expect_failure(lambda: controller.handoff_state("chrony_service"), "ownership is not transferred")
+    assert controller.handoff_state("chrony_service")["current_owner"] == "ansible"
     for command in ("apply apt-repositories bad", "apply apt-repositories " + "a" * 64 + ";id", "apply chrony-service bad", "recover chrony-service ../x", "shell", "stage low-risk ../x"):
         result = subprocess.run((str(TRANSPORT), "-c", command), capture_output=True, timeout=10)
         assert result.returncode == 64, (command, result.returncode, result.stdout, result.stderr)
