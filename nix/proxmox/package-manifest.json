@@ -9,19 +9,13 @@
     },
     "solverResult": {
       "format": "apt-get-simulate-v1",
-      "sha256": "fec703a4133ecd2a5051533e0422f000c8e5ea22a0ff780f926fb7489a7aaf8c",
+      "sha256": "dcbb6929b7db1609d362be5417d6d10740ee40dea136baa5590d4eced4fb6f38",
       "changes": [
         {
           "action": "upgrade",
-          "name": "libpve-apiclient-perl",
-          "previousVersion": "3.4.2",
-          "version": "3.4.3"
-        },
-        {
-          "action": "upgrade",
-          "name": "libpve-storage-perl",
-          "previousVersion": "9.1.9",
-          "version": "9.1.10"
+          "name": "linux-libc-dev",
+          "previousVersion": "6.12.105-1",
+          "version": "6.12.107-1"
         }
       ]
     }
@@ -4045,7 +4039,7 @@
     },
     {
       "name": "linux-libc-dev",
-      "version": "6.12.105-1"
+      "version": "6.12.107-1"
     },
     {
       "name": "linux-sysctl-defaults",

@@ -940,7 +940,7 @@ proxmox:
         version: 1.2.3
     manifest:
       path: nix/proxmox/package-manifest.json
-      sha256: 8ebb8dfd6e6b3b3c8842be1b723aae362b93c035afa5b03529d198a6e6b62bc4
+      sha256: e772a1cf30083f86dc36ebf8209efdcbaf8a61f44156eb7e883827cf0c49a235
     prohibited:
       - build-essential
       - cargo
