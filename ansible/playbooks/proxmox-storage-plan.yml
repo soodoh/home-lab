@@ -1,0 +1,26 @@
+---
+- name: Build read-only Proxmox ZFS and NFS provider parity
+  hosts: proxmox_host
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+  roles:
+    - role: lifecycle_state
+      vars:
+        lifecycle_state_enforce: false
+        lifecycle_state_emit_observation: false
+    - role: proxmox_storage_lifecycle
+
+- name: Build read-only Debian NFS consumer parity
+  hosts: docker_host
+  gather_facts: false
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+  roles:
+    - role: lifecycle_state
+      vars:
+        lifecycle_state_enforce: false
+        lifecycle_state_emit_observation: false
+    - role: proxmox_storage_consumers

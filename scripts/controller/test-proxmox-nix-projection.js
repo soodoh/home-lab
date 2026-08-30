@@ -168,6 +168,18 @@ if (projected.planningPolicy.managedFilePolicies.filter((item) => bootPaths.has(
     projected.planningPolicy.domains.find((item) => item.domain === "managed-fragments").automatic !== false) {
   throw new Error("ready boot-configuration handoff did not freeze Nix mutation");
 }
+const storageHandoffs = contract.lifecycle.hosts.proxmox.domain_handoffs;
+for (const name of ["zfs_dataset", "nfs_export_service"]) {
+  if (JSON.stringify(storageHandoffs[name]) !== JSON.stringify({ current_owner: "nix", target_owner: "ansible", state: "pending", parity_required: true, single_writer: true })) {
+    throw new Error(`pending storage handoff differs: ${name}`);
+  }
+}
+const exportPolicy = projected.planningPolicy.managedFilePolicies.find((item) => item.path === contract.storage.nfs.exports_file.path);
+const nfsServicePolicy = projected.planningPolicy.servicePolicies.find((item) => item.name === "nfs-server.service");
+if (!exportPolicy || exportPolicy.automatic !== false || exportPolicy.safetyClass !== "data-critical" ||
+    !nfsServicePolicy || nfsServicePolicy.automatic !== false || nfsServicePolicy.safetyClass !== "data-critical") {
+  throw new Error("pending NFS handoff must remain nonautomatic and data-critical");
+}
 for (const mutation of [
   (value) => value.proxmox.planning_policy.service_policies.pop(),
   (value) => { value.proxmox.planning_policy.service_policies[1].name = "chrony.service"; },

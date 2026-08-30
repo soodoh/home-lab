@@ -75,6 +75,18 @@ check(invalidTransferredBootOwner, false, "transferred boot configuration handof
 const missingBootHandoff = structuredClone(contract);
 delete missingBootHandoff.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration;
 check(missingBootHandoff, false, "Proxmox boot configuration handoff policy is required");
+const invalidPendingZfsOwner = structuredClone(contract);
+invalidPendingZfsOwner.lifecycle.hosts.proxmox.domain_handoffs.zfs_dataset.current_owner = "ansible";
+check(invalidPendingZfsOwner, false, "pending ZFS dataset handoff retains Nix ownership");
+const invalidPendingNfsOwner = structuredClone(contract);
+invalidPendingNfsOwner.lifecycle.hosts.proxmox.domain_handoffs.nfs_export_service.current_owner = "ansible";
+check(invalidPendingNfsOwner, false, "pending NFS export handoff retains Nix ownership");
+const missingZfsHandoff = structuredClone(contract);
+delete missingZfsHandoff.lifecycle.hosts.proxmox.domain_handoffs.zfs_dataset;
+check(missingZfsHandoff, false, "Proxmox ZFS dataset handoff policy is required");
+const missingNfsHandoff = structuredClone(contract);
+delete missingNfsHandoff.lifecycle.hosts.proxmox.domain_handoffs.nfs_export_service;
+check(missingNfsHandoff, false, "Proxmox NFS export handoff policy is required");
 const missingAptHandoff = structuredClone(contract);
 delete missingAptHandoff.lifecycle.hosts.proxmox.domain_handoffs.apt_repositories;
 check(missingAptHandoff, false, "Proxmox APT repository handoff policy is required");

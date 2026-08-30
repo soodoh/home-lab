@@ -1,0 +1,184 @@
+---
+- name: Require Proxmox storage lifecycle context
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'proxmox'
+      - lifecycle_state_observation is defined
+      - lifecycle.hosts.proxmox.domain_handoffs.zfs_dataset is defined
+      - lifecycle.hosts.proxmox.domain_handoffs.nfs_export_service is defined
+      - storage.zfs.dataset == 'storage/docker'
+      - storage.nfs.client_vmid == 100
+    fail_msg: Storage planning requires the authoritative Proxmox ZFS and NFS lifecycle contract.
+
+- name: Derive the exact NFS export expectation
+  ansible.builtin.set_fact:
+    proxmox_storage_lifecycle_expected_export: |
+      {{ storage.nfs.export }} {{ storage.nfs.client }}({{ (storage.nfs.options + [storage.nfs.squash_policy]) | join(',') }})
+
+- name: Reduce the NFS export expectation to a hash
+  ansible.builtin.set_fact:
+    proxmox_storage_lifecycle_expected_export_sha256: "{{ proxmox_storage_lifecycle_expected_export | hash('sha256') }}"
+
+- name: Build reduced read-only Proxmox storage evidence
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import re
+        import stat
+        import subprocess
+        import sys
+
+        pool, dataset, mountpoint, export_path, export_client, export_file, expected_export_sha = sys.argv[1:8]
+        expected_mirrors = int(sys.argv[8])
+        expected_width = int(sys.argv[9])
+        expected_properties = json.loads(sys.argv[10])
+        expected_options = set(json.loads(sys.argv[11]))
+        environment = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+
+        def run(arguments, accepted=(0,), timeout=60):
+            result = subprocess.run(arguments, capture_output=True, text=True, env=environment, timeout=timeout)
+            if result.returncode not in accepted or result.stderr:
+                raise ValueError("read_only_command")
+            return result.stdout
+
+        health = run(["/usr/sbin/zpool", "list", "-H", "-o", "health", pool]).strip()
+        topology = run(["/usr/sbin/zpool", "status", "-P", pool]).splitlines()
+        mirror_count = sum(1 for line in topology if re.match(r"^\s+mirror-\d+\s+", line))
+        status_rows = [line.split() for line in topology if re.match(r"^\s+\S+\s+(?:ONLINE|DEGRADED|FAULTED|UNAVAIL|OFFLINE)\s+", line)]
+        member_rows = [row for row in status_rows if row[0].startswith("/dev/disk/by-id/")]
+        topology_states = sorted({row[1] for row in status_rows})
+        checksum_error_rows = sum(1 for row in member_rows if len(row) < 5 or row[-1] != "0")
+
+        raw_properties = run(["/usr/sbin/zfs", "get", "-H", "-o", "property,value",
+                              "mountpoint,mounted,sharenfs,canmount,readonly", dataset])
+        properties = dict(line.split("\t", 1) for line in raw_properties.splitlines())
+        dataset_matches = properties == {**expected_properties, "mountpoint": mountpoint,
+                                         "mounted": "yes", "canmount": "on", "readonly": "off"}
+
+        metadata = os.lstat(export_file)
+        descriptor = os.open(export_file, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            opened = os.fstat(descriptor)
+            raw = os.read(descriptor, 65537)
+        finally:
+            os.close(descriptor)
+        file_matches = (stat.S_ISREG(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode) and
+                        metadata.st_uid == metadata.st_gid == 0 and metadata.st_nlink == 1 and
+                        stat.S_IMODE(metadata.st_mode) == 0o644 and
+                        (metadata.st_dev, metadata.st_ino, metadata.st_size) ==
+                        (opened.st_dev, opened.st_ino, opened.st_size) and len(raw) == opened.st_size and
+                        hashlib.sha256(raw).hexdigest() == expected_export_sha)
+
+        export_lines = run(["/usr/sbin/exportfs", "-v"]).splitlines()
+        entries = []
+        index = 0
+        while index < len(export_lines):
+            direct = re.fullmatch(r"\s*(\S+)\s+(\S+)\(([^()]*)\)\s*", export_lines[index])
+            if direct:
+                export, client, options = direct.groups()
+                index += 1
+            elif index + 1 < len(export_lines):
+                export = export_lines[index].strip()
+                second = re.fullmatch(r"\s*(\S+)\(([^()]*)\)\s*", export_lines[index + 1])
+                if not export or not second:
+                    raise ValueError("export_table")
+                client, options = second.groups()
+                index += 2
+            else:
+                raise ValueError("export_table")
+            entries.append({"client": client, "export": export,
+                            "options": sorted(options.split(",") if options else [])})
+        defaults = {"hide", "no_all_squash", "sec=sys", "secure", "wdelay"}
+        export_matches = False
+        if len(entries) == 1 and entries[0]["export"] == export_path and entries[0]["client"] == export_client:
+            observed_options = set(entries[0]["options"])
+            export_matches = expected_options.issubset(observed_options) and observed_options - defaults == expected_options
+
+        services = {}
+        for unit in ("nfs-server.service", "rpcbind.service"):
+            active = run(["/usr/bin/systemctl", "is-active", unit]).strip()
+            enabled = run(["/usr/bin/systemctl", "is-enabled", unit]).strip()
+            services[unit] = {"active": active == "active", "enabled": enabled == "enabled"}
+
+        pvesm = run(["/usr/sbin/pvesm", "status", "--storage", "storage"])
+        pve_storage_active = any(line.split() and line.split()[0] == "storage" and "active" in line for line in pvesm.splitlines())
+        vm_running = run(["/usr/sbin/qm", "status", "100"]).strip() == "status: running"
+        lock_paths = [path for path in ("/var/lib/home-lab/reconciliation/apply.lock",
+                                        "/var/lib/iac-ansible-production.lock",
+                                        "/var/lib/home-lab/firewall-transaction/active.json") if os.path.lexists(path)]
+
+        zfs_parity = (health == "ONLINE" and mirror_count == expected_mirrors and
+                      len(member_rows) == expected_mirrors * expected_width and
+                      topology_states == ["ONLINE"] and checksum_error_rows == 0 and dataset_matches)
+        nfs_parity = (file_matches and export_matches and all(item["active"] and item["enabled"] for item in services.values()) and
+                      vm_running and pve_storage_active)
+        output = {
+            "active_lifecycle_locks": lock_paths,
+            "contract_host": "proxmox",
+            "format": "home-lab-proxmox-storage-observation-v1",
+            "mutation_authorized": False,
+            "nfs_export_service": {
+                "export_file": {"content_matches": file_matches, "gid": metadata.st_gid,
+                                "mode": format(stat.S_IMODE(metadata.st_mode), "04o"), "nlink": metadata.st_nlink,
+                                "regular": stat.S_ISREG(metadata.st_mode), "symlink": stat.S_ISLNK(metadata.st_mode),
+                                "uid": metadata.st_uid},
+                "export_table_matches": export_matches,
+                "ownership": json.loads(r'''{{ lifecycle.hosts.proxmox.domain_handoffs.nfs_export_service | to_json }}'''),
+                "parity_complete": nfs_parity,
+                "pve_storage_active": pve_storage_active,
+                "services": services,
+                "vm_100_running": vm_running,
+            },
+            "protected_values_exported": False,
+            "version": 1,
+            "zfs_dataset": {
+                "dataset_matches": dataset_matches,
+                "health": health,
+                "member_count": len(member_rows),
+                "member_identities_exported": False,
+                "mirror_count": mirror_count,
+                "ownership": json.loads(r'''{{ lifecycle.hosts.proxmox.domain_handoffs.zfs_dataset | to_json }}'''),
+                "parity_complete": zfs_parity,
+                "topology_states": topology_states,
+            },
+        }
+        print(json.dumps(output, sort_keys=True, separators=(",", ":")))
+      - "{{ storage.zfs.pool }}"
+      - "{{ storage.zfs.dataset }}"
+      - "{{ storage.zfs.mountpoint }}"
+      - "{{ storage.nfs.export }}"
+      - "{{ storage.nfs.client }}"
+      - "{{ storage.nfs.exports_file.path }}"
+      - "{{ proxmox_storage_lifecycle_expected_export_sha256 }}"
+      - "{{ storage.zfs.mirror_topology.count | string }}"
+      - "{{ storage.zfs.mirror_topology.width | string }}"
+      - "{{ storage.zfs.dataset_properties | to_json }}"
+      - "{{ (storage.nfs.options + [storage.nfs.squash_policy]) | to_json }}"
+  register: proxmox_storage_lifecycle_observation_raw
+  changed_when: false
+  check_mode: false
+
+- name: Decode reduced Proxmox storage evidence
+  ansible.builtin.set_fact:
+    proxmox_storage_lifecycle_observation: "{{ proxmox_storage_lifecycle_observation_raw.stdout | from_json }}"
+
+- name: Assert Proxmox storage evidence is complete and mutation-free
+  ansible.builtin.assert:
+    that:
+      - not proxmox_storage_lifecycle_observation.mutation_authorized
+      - not proxmox_storage_lifecycle_observation.protected_values_exported
+      - proxmox_storage_lifecycle_observation.active_lifecycle_locks | length == 0
+      - proxmox_storage_lifecycle_observation.zfs_dataset.parity_complete
+      - proxmox_storage_lifecycle_observation.nfs_export_service.parity_complete
+    fail_msg: Proxmox ZFS/NFS parity is incomplete; refusing ownership planning.
+
+- name: Emit reduced Proxmox storage planning evidence
+  ansible.builtin.debug:
+    var: proxmox_storage_lifecycle_observation

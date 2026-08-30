@@ -272,12 +272,14 @@
     "lifecycleDomainHandoffs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["timezone", "apt_repositories", "chrony_service", "boot_configuration"],
+      "required": ["timezone", "apt_repositories", "chrony_service", "boot_configuration", "zfs_dataset", "nfs_export_service"],
       "properties": {
         "timezone": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "apt_repositories": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "chrony_service": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
-        "boot_configuration": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
+        "boot_configuration": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
+        "zfs_dataset": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
+        "nfs_export_service": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
       }
     },
     "lifecycleAccessCutoverPolicy": {

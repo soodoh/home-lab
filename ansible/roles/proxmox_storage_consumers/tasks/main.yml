@@ -1,0 +1,99 @@
+---
+- name: Require Debian storage-consumer lifecycle context
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'debian'
+      - storage.nfs.mountpoint == '/mnt/storage'
+      - backups.restic.repositories.nfs.mountpoint == storage.nfs.mountpoint
+      - backups.restic.repositories.nfs.mount_source == (network.proxmox.ipv4.split('/')[0] ~ ':' ~ storage.nfs.export)
+    fail_msg: Storage consumer planning requires the authoritative Debian NFS and Restic contract.
+
+- name: Build reduced read-only storage-consumer evidence
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import json
+        import os
+        from pathlib import Path
+        import subprocess
+        import stat
+        import sys
+        import time
+
+        mountpoint, expected_source, accepted_path = sys.argv[1:4]
+        environment = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+        def run(arguments, accepted=(0,), timeout=60):
+            result = subprocess.run(arguments, capture_output=True, text=True, env=environment, timeout=timeout)
+            if result.returncode not in accepted or result.stderr:
+                raise ValueError("read_only_command")
+            return result.stdout
+
+        fields = run(["/usr/bin/findmnt", "--raw", "--noheadings", "--target", mountpoint,
+                      "--output", "TARGET,SOURCE,FSTYPE"]).split()
+        mount_matches = fields == [mountpoint, expected_source, "nfs4"]
+        required_paths = [Path(mountpoint) / "media", Path(mountpoint) / "restic"]
+        paths_available = all(path.is_dir() and not path.is_symlink() for path in required_paths)
+        compose_active = run(["/usr/bin/systemctl", "is-active", "home-lab-compose.service"]).strip() == "active"
+
+        accepted = Path(accepted_path)
+        descriptor = os.open(accepted, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            accepted_metadata = os.fstat(descriptor)
+            if not stat.S_ISREG(accepted_metadata.st_mode) or accepted_metadata.st_nlink != 1 or accepted_metadata.st_size > 1024 * 1024:
+                raise ValueError("accepted_metadata")
+            accepted_raw = os.read(descriptor, 1024 * 1024 + 1)
+        finally:
+            os.close(descriptor)
+        if len(accepted_raw) != accepted_metadata.st_size:
+            raise ValueError("accepted_size")
+        accepted_value = json.loads(accepted_raw)
+        pending = accepted_value.get("pending")
+        proton_copies = accepted_value.get("proton_copies")
+        restic_chain_clear = (isinstance(pending, list) and not pending and isinstance(proton_copies, dict) and
+                              len(proton_copies) >= 1 and int(time.time()) - int(accepted_metadata.st_mtime) <= 86400)
+        services = {}
+        for unit in ("home-lab-restic-daily-local.service", "home-lab-restic-daily-proton.service"):
+            result = run(["/usr/bin/systemctl", "show", unit, "--property=Result"]).strip()
+            services[unit] = result == "Result=success"
+        restic_chain_clear = restic_chain_clear and all(services.values())
+
+        output = {
+            "compose_active": compose_active,
+            "contract_host": "debian",
+            "format": "home-lab-storage-consumer-observation-v1",
+            "mount_matches": mount_matches,
+            "mutation_authorized": False,
+            "parity_complete": mount_matches and paths_available and compose_active and restic_chain_clear,
+            "paths_available": paths_available,
+            "protected_values_exported": False,
+            "restic": {"chain_clear": restic_chain_clear, "pending_records": len(pending) if isinstance(pending, list) else None,
+                       "proton_copy_records": len(proton_copies) if isinstance(proton_copies, dict) else None,
+                       "services": services},
+            "version": 1,
+        }
+        print(json.dumps(output, sort_keys=True, separators=(",", ":")))
+      - "{{ storage.nfs.mountpoint }}"
+      - "{{ network.proxmox.ipv4.split('/')[0] }}:{{ storage.nfs.export }}"
+      - "{{ backups.restic.runner.accepted_path }}"
+  register: proxmox_storage_consumers_observation_raw
+  changed_when: false
+  check_mode: false
+
+- name: Decode reduced storage-consumer evidence
+  ansible.builtin.set_fact:
+    proxmox_storage_consumers_observation: "{{ proxmox_storage_consumers_observation_raw.stdout | from_json }}"
+
+- name: Assert storage consumers remain healthy and mutation-free
+  ansible.builtin.assert:
+    that:
+      - not proxmox_storage_consumers_observation.mutation_authorized
+      - not proxmox_storage_consumers_observation.protected_values_exported
+      - proxmox_storage_consumers_observation.parity_complete
+    fail_msg: Debian NFS/Compose/Restic consumer parity is incomplete; refusing storage ownership planning.
+
+- name: Emit reduced storage-consumer evidence
+  ansible.builtin.debug:
+    var: proxmox_storage_consumers_observation
