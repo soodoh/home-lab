@@ -66,9 +66,6 @@ A `ready` state may be used only while reviewed capability is installed and live
 
 ## Current readiness
 
-Read-only parity is complete for both domains. Mutation remains blocked by:
+APT repository ownership transferred under exact activation `3cdb7924bec68fb82e83c69fe8a9b2e1f5b087b9a348bae12f336aafcf1b8b53`. The root-only mode-`0600` journal is `committed` with `changed_files: 0` and `metadata_refresh: false`; Nix remains audit-only for the five source files.
 
-- Nix still being the contracted current writer;
-- fixed deploy schemas, authority checks, durable rollback/recovery, locks, and negative command canaries are implemented in source but not installed on the host;
-- a saved reviewed handoff not yet existing;
-- separate exact authorization not yet being granted.
+Chrony parity is complete and the source policy is now `ready`, with Nix mutation frozen while Nix remains the contracted owner. The chrony freeze bundle must be installed and verified before the separate ownership transfer and exact no-restart activation.

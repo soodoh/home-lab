@@ -122,7 +122,7 @@ if (canonicalJson(projectProxmoxPolicy(reorderedPveAccounts, structuredClone(pac
   throw new Error("PVE principal bindings depend on account array position");
 }
 const expectedServicePolicies = {
-  "chrony.service": { safetyClass: "guarded", automatic: true, requiresWatchdog: false },
+  "chrony.service": { safetyClass: "guarded", automatic: false, requiresWatchdog: false },
   "nfs-server.service": { safetyClass: "data-critical", automatic: false, requiresWatchdog: false },
   "ssh.service": { safetyClass: "access-critical", automatic: false, requiresWatchdog: true },
   "tailscaled.service": { safetyClass: "access-critical", automatic: false, requiresWatchdog: true },
@@ -132,6 +132,12 @@ for (const policy of projected.planningPolicy.servicePolicies) {
   const expected = expectedServicePolicies[policy.name];
   if (!expected || policy.safetyClass !== expected.safetyClass || policy.automatic !== expected.automatic ||
       policy.requiresWatchdog !== expected.requiresWatchdog) throw new Error(`unsafe projected service policy: ${policy.name}`);
+}
+const pendingChronyHandoff = structuredClone(contract);
+pendingChronyHandoff.lifecycle.hosts.proxmox.domain_handoffs.chrony_service.state = "pending";
+const pendingChronyProjection = projectProxmoxPolicy(pendingChronyHandoff, structuredClone(packageManifest));
+if (pendingChronyProjection.planningPolicy.servicePolicies.find((item) => item.name === "chrony.service").automatic !== true) {
+  throw new Error("pending chrony handoff did not retain Nix mutation authority");
 }
 const aptPaths = new Set(projected.managedFiles.filter((item) => item.path.startsWith("/etc/apt/")).map((item) => item.path));
 const aptPolicies = projected.planningPolicy.managedFilePolicies.filter((item) => aptPaths.has(item.path));

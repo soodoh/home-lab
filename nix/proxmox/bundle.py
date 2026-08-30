@@ -296,8 +296,9 @@ def validate_projection(projection: Any, package_count: int, package_manifest_sh
                 any(not isinstance(item[key], bool) for key in ("automatic", "requiresApproval", "requiresReboot", "requiresWatchdog")):
             raise ValueError("service policy is malformed or incomplete")
         expected_class, expected_automatic, expected_watchdog = expected_service_policy[item["name"]]
-        if (item["safetyClass"], item["automatic"], item["requiresWatchdog"]) != \
-                (expected_class, expected_automatic, expected_watchdog) or not item["requiresApproval"] or item["requiresReboot"]:
+        automatic_allowed = {False, True} if item["name"] == "chrony.service" else {expected_automatic}
+        if item["safetyClass"] != expected_class or item["automatic"] not in automatic_allowed or \
+                item["requiresWatchdog"] != expected_watchdog or not item["requiresApproval"] or item["requiresReboot"]:
             raise ValueError("service policy weakens the authoritative safety classification")
     target_keys = {"automatic", "path", "requiresApproval", "requiresReboot", "requiresWatchdog", "safetyClass"}
     managed_file_paths = {item["path"] for item in projection["managedFiles"]}

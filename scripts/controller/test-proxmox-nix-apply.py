@@ -506,10 +506,16 @@ class ProxmoxNixApplyTests(unittest.TestCase):
 
     def test_complete_ordered_action_manifest_is_hash_bound_and_each_transition_matches_it(self) -> None:
         original = copy.deepcopy(self.plan["actions"][0])
-        chrony_policy = next(item for item in self.projection["planningPolicy"]["servicePolicies"] if item["name"] == "chrony.service")
-        desired = next(item for item in planner.desired_records(self.projection, self.manifest)["services"] if item["name"] == "chrony.service")
-        observed = dict(desired, active=False)
-        second = planner.plan_action("services", observed, desired, chrony_policy)
+        artifact_policy = next(item for item in self.projection["planningPolicy"]["domains"] if item["domain"] == "managed-artifacts")
+        desired_artifacts = planner.desired_records(self.projection, self.manifest)["managed-artifacts"]
+        original_order = self.activator["SPEC"]["catalogOrder"].index(
+            self.activator["catalog_key"](original["domain"], original["target"])
+        )
+        desired = next(item for item in desired_artifacts if self.activator["SPEC"]["catalogOrder"].index(
+            self.activator["catalog_key"]("managed-artifacts", {"path": item["target"], "type": "artifact"})
+        ) > original_order)
+        observed = dict(desired, contentMatches=False)
+        second = planner.plan_action("managed-artifacts", observed, desired, artifact_policy)
         second["sequence"] = 2
         second["dependsOn"] = [original["id"]]
         actions = [original, second]
@@ -559,17 +565,11 @@ class ProxmoxNixApplyTests(unittest.TestCase):
             self.activator["run_native"] = lambda argv, accepted=(0,): commands.append(argv) or b""
             self.activator["mutate_item"](file_item)
             self.assertEqual(captured[0][1], base64.b64decode(file_item["contentBase64"]))
-            service = next(item for item in self.activator["SPEC"]["catalog"].values() if item["domain"] == "services")
-            commands.clear()
             native_items = [item for item in self.activator["SPEC"]["catalog"].values() if item.get("nativeOperation")]
             for native_item in native_items:
                 self.activator["run_post_write"](native_item)
             self.assertIn(("/usr/sbin/update-grub",), commands)
             self.assertIn(("/usr/sbin/update-initramfs", "-u", "-k", "all"), commands)
-            commands.clear()
-            self.activator["mutate_item"](service)
-            self.assertEqual(commands, [("/usr/bin/systemctl", "--quiet", "enable", service["name"]),
-                                        ("/usr/bin/systemctl", "--quiet", "start", service["name"])])
             self.assertFalse(any("reboot" in part for command in commands for part in command))
         finally:
             self.activator["replace_fixed"] = old_replace
@@ -848,9 +848,9 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         self.assertNotIn("systemctl\", \"reboot", source)
         self.assertNotIn("/sbin/reboot", source)
         catalog_domains = {item["domain"] for item in self.activator["SPEC"]["catalog"].values()}
-        self.assertEqual(catalog_domains, {"managed-artifacts", "managed-files", "managed-fragments", "services"})
+        self.assertEqual(catalog_domains, {"managed-artifacts", "managed-files", "managed-fragments"})
         service_names = {item["name"] for item in self.activator["SPEC"]["catalog"].values() if item["domain"] == "services"}
-        self.assertEqual(service_names, {"chrony.service"})
+        self.assertEqual(service_names, set())
 
     def test_strict_schemas_and_manual_handlers_reject_comprehensive_malformed_documents(self) -> None:
         sidecar = self.sidecar()

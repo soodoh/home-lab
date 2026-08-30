@@ -159,9 +159,9 @@ class ProxmoxNixPlanTests(unittest.TestCase):
         self.assertEqual([action for action in blocked["actions"] if action["domain"] == "timezone"], [])
         self.assertTrue(any(item["domain"] == "timezone" and item["code"] == "observation-unavailable" for item in blocked["blockers"]))
 
-    def test_service_overrides_allow_only_chrony_and_block_access_or_data_critical_services(self) -> None:
+    def test_ready_chrony_and_critical_services_are_audit_only(self) -> None:
         expected = {
-            "chrony.service": ("guarded", True, False),
+            "chrony.service": ("guarded", False, False),
             "nfs-server.service": ("data-critical", False, False),
             "ssh.service": ("access-critical", False, True),
             "tailscaled.service": ("access-critical", False, True),
@@ -176,11 +176,8 @@ class ProxmoxNixPlanTests(unittest.TestCase):
             record["active"] = False
             plan = self.make_plan(observation)
             service_actions = [action for action in plan["actions"] if action["domain"] == "services"]
-            if name == "chrony.service":
-                self.assertEqual([action["target"]["name"] for action in service_actions], [name])
-            else:
-                self.assertEqual(service_actions, [])
-                self.assertTrue(any(blocker["domain"] == "services" and blocker["target"] == name for blocker in plan["blockers"]))
+            self.assertEqual(service_actions, [])
+            self.assertTrue(any(blocker["domain"] == "services" and blocker["target"] == name for blocker in plan["blockers"]))
 
     def test_audit_and_opentofu_drift_are_findings_and_blockers_never_actions(self) -> None:
         observation = copy.deepcopy(self.observation)
