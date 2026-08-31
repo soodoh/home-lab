@@ -94,7 +94,7 @@ case "$command" in
     trap - EXIT HUP INT TERM
     printf '%s\n' '{"staged":true}'
     ;;
-  stage\ boot-configuration\ *|stage\ boot-ownership\ *|stage\ storage-ownership\ *|stage\ nfs-ownership\ *|stage\ network-ownership\ *|stage\ tailscale-ownership\ *)
+  stage\ boot-configuration\ *|stage\ boot-ownership\ *|stage\ storage-ownership\ *|stage\ nfs-ownership\ *|stage\ network-ownership\ *|stage\ tailscale-ownership\ *|stage\ package-ownership\ *)
     digest=${command##* }
     case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
     [ "${#digest}" -eq 64 ] || exit 64
@@ -178,6 +178,10 @@ case "$command" in
     ;;
   observe\ tailscale-lifecycle)
     printf '%s\n' '{"operation":"inspect-tailscale-lifecycle","plan_sha256":"0000000000000000000000000000000000000000000000000000000000000000"}' |
+      exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
+    ;;
+  observe\ package-lifecycle)
+    printf '%s\n' '{"operation":"inspect-package-lifecycle","plan_sha256":"0000000000000000000000000000000000000000000000000000000000000000"}' |
       exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
     ;;
   apply\ lifecycle-marker\ *)
@@ -265,6 +269,13 @@ case "$command" in
     case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
     [ "${#digest}" -eq 64 ] || exit 64
     printf '{"operation":"apply-tailscale-ownership","plan_sha256":"%s"}\n' "$digest" |
+      exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
+    ;;
+  apply\ package-ownership\ *)
+    digest=${command#apply package-ownership }
+    case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
+    [ "${#digest}" -eq 64 ] || exit 64
+    printf '{"operation":"apply-package-ownership","plan_sha256":"%s"}\n' "$digest" |
       exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
     ;;
   apply\ boot-configuration\ *|recover\ boot-configuration\ *)

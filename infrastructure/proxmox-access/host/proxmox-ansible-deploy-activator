@@ -29,6 +29,8 @@ NETWORK_OWNERSHIP_DIR = Path("/var/lib/home-lab/network-ownership-transactions")
 NETWORK_OWNERSHIP_LOCK = Path("/run/lock/home-lab-proxmox-network-ownership.lock")
 TAILSCALE_OWNERSHIP_DIR = Path("/var/lib/home-lab/tailscale-ownership-transactions")
 TAILSCALE_OWNERSHIP_LOCK = Path("/run/lock/home-lab-proxmox-tailscale-ownership.lock")
+PACKAGE_OWNERSHIP_DIR = Path("/var/lib/home-lab/package-ownership-transactions")
+PACKAGE_OWNERSHIP_LOCK = Path("/run/lock/home-lab-proxmox-package-ownership.lock")
 BOOT_VFIO_PATH = Path("/etc/modprobe.d/home-lab-vfio.conf")
 APT_SOURCE_PATHS = (
     "/etc/apt/sources.list",
@@ -1725,6 +1727,135 @@ def tailscale_ownership_operation(value, digest):
 
 
 
+def package_ownership_contract_material():
+    try:
+        import yaml
+        contract = yaml.safe_load((REPO / "infrastructure/contract/home-lab.yml").read_text())
+        handoff = contract["lifecycle"]["hosts"]["proxmox"]["domain_handoffs"]["package_set"]
+        package_policy = contract["proxmox"]["packages"]
+        manifest_path = REPO / package_policy["manifest"]["path"]
+        manifest_raw = manifest_path.read_bytes()
+        manifest = json.loads(manifest_raw)
+        ready = {"current_owner": "nix", "target_owner": "ansible", "state": "ready",
+                 "parity_required": True, "single_writer": True}
+        transferred = {**ready, "current_owner": "ansible", "state": "transferred"}
+        if handoff not in (ready, transferred) or hashlib.sha256(manifest_raw).hexdigest() != package_policy["manifest"]["sha256"] or \
+                manifest.get("architecture") != package_policy["architecture"] or not isinstance(manifest.get("packages"), list):
+            fail("package ownership contract differs")
+        expected = sorted((item["name"], item["version"]) for item in manifest["packages"])
+        if len(expected) != len(set(expected)) or not expected:
+            fail("package manifest records differ")
+        max_age = contract["lifecycle"]["maintenance"]["package_plan"]["max_metadata_age_seconds"]
+        return handoff, expected, package_policy["manifest"]["sha256"], max_age
+    except (KeyError, TypeError, OSError, ValueError, json.JSONDecodeError, yaml.YAMLError) as error:
+        fail(f"package ownership contract cannot be loaded: {type(error).__name__}")
+
+
+def package_ownership_snapshot():
+    handoff, expected, manifest_sha256, max_age = package_ownership_contract_material()
+    installed_output = storage_run(("/usr/bin/dpkg-query", "--show",
+                                    "--showformat=${db:Status-Abbrev}\\t${binary:Package}\\t${Version}\\n"))
+    installed = sorted(tuple(line.split("\t")[1:]) for line in installed_output.splitlines()
+                       if line.startswith("ii \t") and len(line.split("\t")) == 3)
+    installed_raw = ("\n".join("\t".join(item) for item in installed) + "\n").encode()
+    expected_raw = ("\n".join("\t".join(item) for item in expected) + "\n").encode()
+    holds = sorted(item for item in storage_run(("/usr/bin/apt-mark", "showhold")).splitlines() if item)
+    audit = storage_run(("/usr/bin/dpkg", "--audit"))
+    solver = storage_run(("/usr/bin/apt-get", "--simulate", "-o", "Debug::NoLocking=1",
+                          "-o", "APT::Get::List-Cleanup=0", "dist-upgrade"))
+    solver_changes = [line for line in solver.splitlines() if line.startswith(("Inst ", "Remv ", "Conf "))]
+    metadata_paths = [path for path in Path("/var/lib/apt/lists").glob("*_InRelease") if path.is_file()]
+    metadata_age = None if not metadata_paths else max(0, int(dt.datetime.now().timestamp() - max(path.stat().st_mtime for path in metadata_paths)))
+    apt_locks = []
+    for lock_path in APT_LOCK_PATHS:
+        descriptor = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            except BlockingIOError:
+                apt_locks.append(lock_path)
+        finally:
+            os.close(descriptor)
+    lifecycle_locks = [str(item) for item in LOCKS if os.path.lexists(item)]
+    matches = installed == expected
+    parity = matches and not holds and not audit.strip() and not solver_changes and metadata_age is not None and \
+        metadata_age <= max_age and not apt_locks and not lifecycle_locks
+    return {"active_apt_locks": apt_locks, "active_lifecycle_locks": lifecycle_locks,
+            "dpkg_audit_clean": not audit.strip(), "expected_manifest_records": len(expected),
+            "expected_manifest_sha256": hashlib.sha256(expected_raw).hexdigest(),
+            "format": "home-lab-proxmox-package-ownership-observation-v1", "handoff": handoff,
+            "holds": holds, "installed_manifest_matches": matches, "installed_package_records": len(installed),
+            "installed_manifest_sha256": hashlib.sha256(installed_raw).hexdigest(),
+            "manifest_file_sha256": manifest_sha256, "metadata_age_seconds": metadata_age,
+            "metadata_fresh": metadata_age is not None and metadata_age <= max_age,
+            "parity_complete": parity, "protected_values_exported": False,
+            "solver_change_count": len(solver_changes), "version": 1}
+
+
+def validate_package_ownership_plan(value, digest):
+    keys = {"activator_sha256", "authorized", "automatic_reboot", "before", "changed", "commit",
+            "consumer_parity_verified", "consumer_role_sha256", "contract_schema_sha256", "contract_sha256",
+            "created_at", "expires_at", "format", "host_key_fingerprint", "inventory_sha256",
+            "package_manifest_sha256", "playbook_sha256", "protected_values_exported", "role_sha256", "transport_sha256"}
+    if not isinstance(value, dict) or set(value) != keys or \
+            value["format"] != "home-lab-proxmox-package-ownership-activation-v1" or \
+            value["authorized"] is not False or value["automatic_reboot"] is not False or \
+            value["changed"] is not False or value["consumer_parity_verified"] is not True or \
+            value["protected_values_exported"] is not False or value["host_key_fingerprint"] != FINGERPRINT or \
+            HEX40.fullmatch(value.get("commit", "")) is None:
+        fail("package ownership activation envelope differs")
+    for key in ("activator_sha256", "consumer_role_sha256", "contract_schema_sha256", "contract_sha256",
+                "inventory_sha256", "package_manifest_sha256", "playbook_sha256", "role_sha256", "transport_sha256"):
+        if HEX64.fullmatch(value.get(key, "")) is None:
+            fail("package ownership activation binding is invalid")
+    created, expires = parse_time(value["created_at"]), parse_time(value["expires_at"])
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    if created > now or now > expires or (expires - created).total_seconds() != 1800 or \
+            hashlib.sha256(canonical(value)).hexdigest() != digest:
+        fail("package ownership activation freshness or hash differs")
+    verify_repo(value)
+    bindings = {"activator_sha256": file_hash(Path(__file__)),
+                "contract_schema_sha256": file_hash(REPO / "infrastructure/contract/schema.json"),
+                "package_manifest_sha256": file_hash(REPO / "nix/proxmox/package-manifest.json"),
+                "playbook_sha256": file_hash(REPO / "ansible/playbooks/packages-plan.yml"),
+                "role_sha256": file_hash(REPO / "ansible/roles/package_lifecycle/tasks/main.yml"),
+                "consumer_role_sha256": file_hash(REPO / "ansible/roles/package_lifecycle/defaults/main.yml"),
+                "transport_sha256": file_hash(Path("/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport"))}
+    if any(value[key] != observed for key, observed in bindings.items()):
+        fail("package ownership activation implementation binding differs")
+    current = package_ownership_snapshot()
+    transferred = {"current_owner": "ansible", "target_owner": "ansible", "state": "transferred",
+                   "parity_required": True, "single_writer": True}
+    if current["handoff"] != transferred or value["before"] != current or not current["parity_complete"]:
+        fail("package ownership parity differs")
+    return current
+
+
+def package_ownership_operation(value, digest):
+    lock_fd = os.open(PACKAGE_OWNERSHIP_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        before = validate_package_ownership_plan(value, digest)
+        PACKAGE_OWNERSHIP_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(PACKAGE_OWNERSHIP_DIR, 0o700)
+        path = PACKAGE_OWNERSHIP_DIR / f"{digest}.json"
+        receipt = {"automatic_reboot": False, "changed": False,
+                   "format": "home-lab-proxmox-package-ownership-journal-v1",
+                   "installed_manifest_sha256": before["installed_manifest_sha256"],
+                   "packages_mutated": False, "plan_sha256": digest, "status": "committed"}
+        if path.exists():
+            if json.loads(read_fixed(path, 0, 0, 0o600, 65536)) != receipt:
+                fail("package ownership journal differs")
+            return {"package_ownership_transaction": "already-committed", "changed": False, "plan_sha256": digest}
+        save_package_journal(path, receipt, exclusive=True)
+        return {"package_ownership_transaction": "committed", "changed": False, "plan_sha256": digest}
+    except BlockingIOError:
+        fail("package ownership lock is active")
+    finally:
+        os.close(lock_fd)
+
+
 def boot_configuration_reboot_evidence(unexpected_count):
     snapshot = boot_snapshot()
     if snapshot["source"]["sha256"] != snapshot["expected_source_sha256"] or \
@@ -1882,7 +2013,7 @@ def reboot_operation(value, digest, operation):
 
 def main():
     request = read_bounded_stdin(1024)
-    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "apply-apt-repositories", "recover-apt-repositories", "apply-chrony-service", "recover-chrony-service", "inspect-boot-configuration", "apply-boot-configuration", "recover-boot-configuration", "apply-boot-ownership", "inspect-storage-lifecycle", "apply-zfs-ownership", "inspect-nfs-lifecycle", "apply-nfs-ownership", "inspect-network-lifecycle", "apply-network-ownership", "inspect-tailscale-lifecycle", "apply-tailscale-ownership"}
+    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "apply-apt-repositories", "recover-apt-repositories", "apply-chrony-service", "recover-chrony-service", "inspect-boot-configuration", "apply-boot-configuration", "recover-boot-configuration", "apply-boot-ownership", "inspect-storage-lifecycle", "apply-zfs-ownership", "inspect-nfs-lifecycle", "apply-nfs-ownership", "inspect-network-lifecycle", "apply-network-ownership", "inspect-tailscale-lifecycle", "apply-tailscale-ownership", "inspect-package-lifecycle", "apply-package-ownership"}
     if not isinstance(request, dict) or set(request) != {"operation", "plan_sha256"} or \
             request.get("operation") not in operations or not isinstance(request.get("plan_sha256"), str) or \
             HEX64.fullmatch(request["plan_sha256"]) is None:
@@ -1913,6 +2044,11 @@ def main():
         if request["plan_sha256"] != "0" * 64:
             fail("Tailscale inspection request differs")
         print(json.dumps(tailscale_ownership_snapshot(), sort_keys=True, separators=(",", ":")))
+        return
+    if request["operation"] == "inspect-package-lifecycle":
+        if request["plan_sha256"] != "0" * 64:
+            fail("package inspection request differs")
+        print(json.dumps(package_ownership_snapshot(), sort_keys=True, separators=(",", ":")))
         return
     digest = request["plan_sha256"]
     deploy_account = pwd.getpwnam("ansible-deploy")
@@ -1948,6 +2084,8 @@ def main():
         output = network_ownership_operation(value, digest)
     elif request["operation"] == "apply-tailscale-ownership":
         output = tailscale_ownership_operation(value, digest)
+    elif request["operation"] == "apply-package-ownership":
+        output = package_ownership_operation(value, digest)
     elif request["operation"].endswith("-reboot"):
         output = reboot_operation(value, digest, request["operation"])
     else:
