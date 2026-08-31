@@ -33,6 +33,8 @@ def main() -> None:
         '"apply-zfs-ownership"', '"inspect-storage-lifecycle"', "zfs_ownership_snapshot",
         "ZFS_OWNERSHIP_LOCK", '"changed": False', '"automatic_reboot": False',
         '"member_identities_exported": False', '"protected_values_exported": False',
+        'zfs["dataset"]', 'zfs["mountpoint"]', 'zfs["dataset_properties"]',
+        'zfs["mirror_topology"]["count"]', 'zfs["mirror_topology"]["width"]',
         "save_package_journal(path, receipt, exclusive=True)",
     ):
         assert required in activator, required

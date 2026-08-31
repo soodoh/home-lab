@@ -1174,13 +1174,14 @@ def zfs_contract_material():
         contract = yaml.safe_load((REPO / "infrastructure/contract/home-lab.yml").read_text())
         handoff = contract["lifecycle"]["hosts"]["proxmox"]["domain_handoffs"]["zfs_dataset"]
         zfs = contract["storage"]["zfs"]
-        dataset = zfs["datasets"][0]
+        dataset = {"name": zfs["dataset"], "mountpoint": zfs["mountpoint"],
+                   "properties": zfs["dataset_properties"]}
         expected = {"current_owner": "nix", "target_owner": "ansible", "state": "ready",
                     "parity_required": True, "single_writer": True}
         transferred = {**expected, "current_owner": "ansible", "state": "transferred"}
-        if handoff not in (expected, transferred) or dataset["name"] != f"{zfs['pool']}/docker" or \
-                dataset["mountpoint"] != "/storage/docker" or dataset["properties"] != {"sharenfs": "off"} or \
-                zfs["topology"] != {"kind": "mirror", "mirror_count": 6, "width": 2}:
+        if handoff not in (expected, transferred) or dataset != {"name": f"{zfs['pool']}/docker",
+                "mountpoint": "/storage/docker", "properties": {"sharenfs": "off"}} or \
+                zfs["mirror_topology"] != {"count": 6, "width": 2}:
             fail("ZFS ownership contract differs")
         return handoff, zfs, dataset
     except (KeyError, TypeError, OSError, yaml.YAMLError) as error:
@@ -1206,8 +1207,8 @@ def zfs_ownership_snapshot():
     pve_active = any(line.split() and line.split()[0] == pool and "active" in line for line in pvesm.splitlines())
     vm_running = storage_run(("/usr/sbin/qm", "status", "100")).strip() == "status: running"
     locks = [str(path) for path in LOCKS if os.path.lexists(path)]
-    parity = health == "ONLINE" and mirror_count == zfs["topology"]["mirror_count"] and \
-        len(members) == zfs["topology"]["mirror_count"] * zfs["topology"]["width"] and \
+    parity = health == "ONLINE" and mirror_count == zfs["mirror_topology"]["count"] and \
+        len(members) == zfs["mirror_topology"]["count"] * zfs["mirror_topology"]["width"] and \
         states == ["ONLINE"] and checksum_errors == 0 and properties == expected_properties and \
         pve_active and vm_running and not locks
     return {"active_lifecycle_locks": locks, "dataset_matches": properties == expected_properties,
