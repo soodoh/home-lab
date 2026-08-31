@@ -1,0 +1,122 @@
+---
+- name: Require Debian networking-consumer lifecycle context
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'debian'
+      - lifecycle_state_observation is defined
+      - proxmox_storage_consumers_observation is defined
+      - proxmox_storage_consumers_observation.parity_complete
+      - lifecycle.hosts.proxmox.domain_handoffs.network_interfaces is defined
+      - lifecycle.hosts.proxmox.domain_handoffs.tailscale_node is defined
+      - vm_100.networking.interface is defined
+      - storage.nfs.mountpoint == '/mnt/storage'
+    fail_msg: Networking consumer planning requires healthy storage consumers and the authoritative lifecycle contract.
+
+- name: Build reduced read-only networking-consumer evidence
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import json
+        import socket
+        import subprocess
+        import sys
+
+        interface, consumer_ipv4, provider_ipv4, provider_name, expected_version = sys.argv[1:6]
+        environment = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+
+        def run(arguments, accepted=(0,), timeout=30):
+            result = subprocess.run(arguments, capture_output=True, text=True, env=environment, timeout=timeout)
+            if result.returncode not in accepted or result.stderr or len(result.stdout) > 262144:
+                raise ValueError("read_only_command")
+            return result.stdout
+
+        expected_ip = consumer_ipv4.split("/", 1)[0]
+        route = json.loads(run(["/usr/sbin/ip", "-j", "route", "get", provider_ipv4.split("/", 1)[0]]))
+        route_matches = (len(route) == 1 and route[0].get("dev") == interface and
+                         route[0].get("prefsrc") == expected_ip and route[0].get("gateway") is None)
+        status_value = json.loads(run(["/usr/bin/tailscale", "status", "--json"]))
+        prefs = json.loads(run(["/usr/bin/tailscale", "debug", "prefs"]))
+        auto_update = prefs.get("AutoUpdate")
+        prefs_match = (prefs.get("WantRunning") is True and prefs.get("CorpDNS") is False and
+                       prefs.get("RouteAll") is False and prefs.get("RunSSH") is True and
+                       prefs.get("Hostname") == sys.argv[6] and isinstance(auto_update, dict) and
+                       auto_update.get("Check") is True and auto_update.get("Apply") is False)
+        tailscale_version = run(["/usr/bin/tailscale", "version"]).splitlines()[0]
+        service_active = run(["/usr/bin/systemctl", "is-active", "tailscaled.service"]).strip() == "active"
+        service_enabled = run(["/usr/bin/systemctl", "is-enabled", "tailscaled.service"]).strip() == "enabled"
+        docker_active = run(["/usr/bin/systemctl", "is-active", "docker.service"]).strip() == "active"
+        peer_result = subprocess.run(["/usr/bin/tailscale", "ping", "--c", "1", "--timeout", "3s", provider_name],
+                                     capture_output=True, text=True, env=environment, timeout=10)
+        peer_path_matches = peer_result.returncode == 0 and not peer_result.stderr
+        endpoint_matches = False
+        peers = [item for item in status_value.get("Peer", {}).values()
+                 if isinstance(item, dict) and item.get("HostName") == provider_name and item.get("Online") is True]
+        peer_addresses = peers[0].get("TailscaleIPs", []) if len(peers) == 1 else []
+        peer_ipv4 = next((item for item in peer_addresses if isinstance(item, str) and ":" not in item), None)
+        try:
+            if peer_ipv4 is not None:
+                connection = socket.create_connection((peer_ipv4, 8006), timeout=3)
+                connection.close()
+                endpoint_matches = True
+        except OSError:
+            endpoint_matches = False
+        tailscale_matches = (status_value.get("BackendState") == "Running" and
+                             status_value.get("Self", {}).get("Online") is True and
+                             status_value.get("Self", {}).get("HostName") == sys.argv[6] and
+                             prefs_match and tailscale_version == expected_version and service_active and service_enabled)
+        parity = (route_matches and tailscale_matches and peer_path_matches and endpoint_matches and docker_active)
+        output = {
+            "contract_host": "debian",
+            "docker_active": docker_active,
+            "format": "home-lab-network-consumer-observation-v1",
+            "lan_route_matches": route_matches,
+            "mutation_authorized": False,
+            "parity_complete": parity,
+            "protected_values_exported": False,
+            "storage_consumers_healthy": True,
+            "tailscale": {
+                "backend_running": status_value.get("BackendState") == "Running",
+                "endpoint_matches": endpoint_matches,
+                "node_online": status_value.get("Self", {}).get("Online") is True,
+                "peer_identities_exported": False,
+                "peer_path_matches": peer_path_matches,
+                "preferences_match": prefs_match,
+                "service_active": service_active,
+                "service_enabled": service_enabled,
+                "version_matches": tailscale_version == expected_version,
+            },
+            "version": 1,
+        }
+        print(json.dumps(output, sort_keys=True, separators=(",", ":")))
+      - "{{ vm_100.networking.interface }}"
+      - "{{ vm_100.networking.ipv4 }}"
+      - "{{ network.proxmox.ipv4 }}"
+      - "{{ network.proxmox.magicdns_name }}"
+      - "{{ tailscale.docker_host_client.version }}"
+      - "{{ vm_100.host_name }}"
+  register: proxmox_network_consumers_observation_raw
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Decode reduced networking-consumer evidence
+  ansible.builtin.set_fact:
+    proxmox_network_consumers_observation: "{{ proxmox_network_consumers_observation_raw.stdout | from_json }}"
+  no_log: true
+
+- name: Assert networking consumers remain healthy and mutation-free
+  ansible.builtin.assert:
+    that:
+      - not proxmox_network_consumers_observation.mutation_authorized
+      - not proxmox_network_consumers_observation.protected_values_exported
+      - proxmox_network_consumers_observation.storage_consumers_healthy
+      - proxmox_network_consumers_observation.parity_complete
+    fail_msg: A LAN, tailnet, Docker, or storage consumer gate differs; no mutation is authorized.
+
+- name: Emit reduced networking-consumer evidence
+  ansible.builtin.debug:
+    var: proxmox_network_consumers_observation
+  changed_when: false

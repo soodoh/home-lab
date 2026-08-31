@@ -1,0 +1,234 @@
+---
+- name: Require Proxmox networking lifecycle context
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'proxmox'
+      - lifecycle_state_observation is defined
+      - proxmox_storage_lifecycle_observation is defined
+      - proxmox_storage_lifecycle_observation.zfs_dataset.parity_complete
+      - proxmox_storage_lifecycle_observation.nfs_export_service.parity_complete
+      - lifecycle.hosts.proxmox.domain_handoffs.network_interfaces is defined
+      - lifecycle.hosts.proxmox.domain_handoffs.tailscale_node is defined
+      - network.ownership.resolver_management == 'excluded-from-this-handoff'
+      - network.ownership.hosts_file_management == 'excluded-from-this-handoff'
+      - network.ownership.runtime_activation == 'separately-authorized-watchdog'
+    fail_msg: Networking planning requires the authoritative lifecycle, storage, recovery, and ownership boundaries.
+
+- name: Derive the exact interfaces-file expectation
+  ansible.builtin.set_fact:
+    proxmox_network_lifecycle_interfaces_content: |
+      {{ network.ownership.managed_header }}
+      auto lo
+      iface lo inet loopback
+
+      auto {{ network.bridge_port }}
+      iface {{ network.bridge_port }} inet manual
+
+      auto {{ network.bridge }}
+      iface {{ network.bridge }} inet static
+        address {{ network.proxmox.ipv4 }}
+        gateway {{ network.gateway }}
+        bridge-ports {{ network.bridge_port }}
+        bridge-stp {{ 'on' if network.ownership.bridge_stp else 'off' }}
+        bridge-fd {{ network.ownership.bridge_forward_delay }}
+
+- name: Reduce the interfaces-file expectation to a hash
+  ansible.builtin.set_fact:
+    proxmox_network_lifecycle_interfaces_sha256: "{{ proxmox_network_lifecycle_interfaces_content | hash('sha256') }}"
+
+- name: Bind the expected Tailscale package version
+  ansible.builtin.set_fact:
+    proxmox_network_lifecycle_tailscale_expected: >-
+      {{ proxmox.tailscale | combine({'version': (proxmox.packages.direct |
+      selectattr('name', 'equalto', 'tailscale') | map(attribute='version') | first)}) }}
+
+- name: Build reduced read-only Proxmox networking evidence
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |
+        import hashlib
+        import json
+        import os
+        from pathlib import Path
+        import re
+        import stat
+        import subprocess
+        import sys
+
+        expected_sha, interface_path, snippets_path, bridge, port, ipv4, gateway, mac = sys.argv[1:9]
+        network_handoff = json.loads(sys.argv[9])
+        tailscale_handoff = json.loads(sys.argv[10])
+        tailscale_expected = json.loads(sys.argv[11])
+        firewall_expected = json.loads(sys.argv[12])
+        vm_expected = json.loads(sys.argv[13])
+        environment = {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+
+        def run(arguments, accepted=(0,), timeout=60):
+            result = subprocess.run(arguments, capture_output=True, text=True, env=environment, timeout=timeout)
+            if result.returncode not in accepted or result.stderr or len(result.stdout) > 262144:
+                raise ValueError("read_only_command")
+            return result.stdout
+
+        metadata = os.lstat(interface_path)
+        descriptor = os.open(interface_path, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            opened = os.fstat(descriptor)
+            raw = os.read(descriptor, 65537)
+        finally:
+            os.close(descriptor)
+        interfaces_match = (stat.S_ISREG(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode) and
+                            metadata.st_uid == metadata.st_gid == 0 and metadata.st_nlink == 1 and
+                            stat.S_IMODE(metadata.st_mode) == 0o644 and
+                            (metadata.st_dev, metadata.st_ino, metadata.st_size) ==
+                            (opened.st_dev, opened.st_ino, opened.st_size) and len(raw) == opened.st_size and
+                            hashlib.sha256(raw).hexdigest() == expected_sha)
+        snippets_metadata = os.lstat(snippets_path)
+        snippets = list(Path(snippets_path).iterdir())
+        snippets_match = (stat.S_ISDIR(snippets_metadata.st_mode) and not stat.S_ISLNK(snippets_metadata.st_mode) and
+                          snippets_metadata.st_uid == snippets_metadata.st_gid == 0 and not snippets)
+
+        addresses = json.loads(run(["/usr/sbin/ip", "-j", "address", "show"]))
+        by_name = {item.get("ifname"): item for item in addresses if isinstance(item, dict)}
+        physical, bridged = by_name.get(port, {}), by_name.get(bridge, {})
+        expected_ip, expected_prefix = ipv4.split("/", 1)
+        bridge_ipv4 = [item for item in bridged.get("addr_info", [])
+                       if item.get("family") == "inet" and item.get("scope") == "global"]
+        physical_matches = (physical.get("operstate") == "UP" and physical.get("master") == bridge and
+                            str(physical.get("address", "")).lower() == mac.lower() and physical.get("mtu") == 1500)
+        bridge_matches = (bridged.get("operstate") == "UP" and str(bridged.get("address", "")).lower() == mac.lower() and
+                          bridged.get("mtu") == 1500 and len(bridge_ipv4) == 1 and
+                          bridge_ipv4[0].get("local") == expected_ip and bridge_ipv4[0].get("prefixlen") == int(expected_prefix))
+        routes = json.loads(run(["/usr/sbin/ip", "-j", "route", "show", "table", "main"]))
+        default_routes = [item for item in routes if item.get("dst") == "default"]
+        local_routes = [item for item in routes if item.get("dst") == sys.argv[14]]
+        routes_match = (len(routes) == 2 and len(default_routes) == 1 and len(local_routes) == 1 and
+                        default_routes[0].get("gateway") == gateway and default_routes[0].get("dev") == bridge and
+                        local_routes[0].get("dev") == bridge and local_routes[0].get("prefsrc") == expected_ip)
+
+        services = {}
+        for unit in ("networking.service", "tailscaled.service"):
+            services[unit] = {
+                "active": run(["/usr/bin/systemctl", "is-active", unit]).strip() == "active",
+                "enabled": run(["/usr/bin/systemctl", "is-enabled", unit]).strip() == "enabled",
+            }
+        status_value = json.loads(run(["/usr/bin/tailscale", "status", "--json"]))
+        prefs = json.loads(run(["/usr/bin/tailscale", "debug", "prefs"]))
+        netfilter = prefs.get("NetfilterMode")
+        if isinstance(netfilter, int) and not isinstance(netfilter, bool):
+            netfilter = {0: "off", 1: "nodivert", 2: "on"}.get(netfilter)
+        routes_value = [] if prefs.get("AdvertiseRoutes") is None else prefs.get("AdvertiseRoutes")
+        tags_value = [] if prefs.get("AdvertiseTags") is None else prefs.get("AdvertiseTags")
+        observed_prefs = {
+            "accept_dns": prefs.get("CorpDNS"), "accept_routes": prefs.get("RouteAll"),
+            "advertise_routes": sorted(routes_value) if isinstance(routes_value, list) else None,
+            "advertise_tags": sorted(tags_value) if isinstance(tags_value, list) else None,
+            "hostname": prefs.get("Hostname"), "netfilter_mode": netfilter, "ssh": prefs.get("RunSSH"),
+            "want_running": prefs.get("WantRunning"),
+        }
+        expected_prefs = {
+            "accept_dns": tailscale_expected["accept_dns"], "accept_routes": tailscale_expected["accept_routes"],
+            "advertise_routes": sorted(tailscale_expected["advertise_routes"]),
+            "advertise_tags": [tailscale_expected["advertise_tag"]], "hostname": tailscale_expected["hostname"],
+            "netfilter_mode": tailscale_expected["netfilter_mode"], "ssh": tailscale_expected["ssh"],
+            "want_running": True,
+        }
+        state_path = Path("/var/lib/tailscale")
+        state_metadata = os.lstat(state_path)
+        state_protected = (stat.S_ISDIR(state_metadata.st_mode) and not stat.S_ISLNK(state_metadata.st_mode) and
+                           state_metadata.st_uid == state_metadata.st_gid == 0 and
+                           stat.S_IMODE(state_metadata.st_mode) == 0o700)
+        tailscale_version = run(["/usr/bin/tailscale", "version"]).splitlines()[0]
+        tailscale_matches = (status_value.get("BackendState") == "Running" and
+                             status_value.get("Self", {}).get("Online") is True and
+                             status_value.get("Self", {}).get("HostName") == tailscale_expected["hostname"] and
+                             observed_prefs == expected_prefs and services["tailscaled.service"]["active"] and
+                             services["tailscaled.service"]["enabled"] and state_protected and
+                             tailscale_version == tailscale_expected["version"])
+
+        if (firewall_expected.get("kind"), firewall_expected.get("ownership"),
+                firewall_expected.get("activation"), firewall_expected.get("projectable")) != \
+                ("api-owned", "pve-api", "pve-api", False):
+            raise ValueError("firewall_ownership")
+        observer = json.loads(run(["/usr/local/libexec/home-lab/proxmox-observer", "observe"]))
+        firewall_summary = observer.get("domains", {}).get("pveFirewall", {})
+        firewall_matches = (firewall_summary.get("status") == "complete" and
+                            firewall_summary.get("matches") is True and
+                            firewall_summary.get("expectedCount") == firewall_summary.get("observedCount"))
+
+        vm_lines = run(["/usr/sbin/qm", "config", str(vm_expected["vmid"])]).splitlines()
+        net_lines = [line.split(":", 1)[1].strip() for line in vm_lines if line.startswith("net0:")]
+        expected_net = (f"{vm_expected['model']}={vm_expected['mac']},bridge={vm_expected['bridge']},"
+                        f"firewall={1 if vm_expected['firewall'] else 0}")
+        vm_network_matches = len(net_lines) == 1 and net_lines[0] == expected_net
+        vm_running = run(["/usr/sbin/qm", "status", str(vm_expected["vmid"])]).strip() == "status: running"
+        lock_paths = [path for path in ("/var/lib/home-lab/reconciliation/apply.lock",
+                                        "/var/lib/iac-ansible-production.lock",
+                                        "/var/lib/home-lab/firewall-transaction/active.json") if os.path.lexists(path)]
+        network_parity = (interfaces_match and snippets_match and physical_matches and bridge_matches and routes_match and
+                          services["networking.service"]["active"] and services["networking.service"]["enabled"] and
+                          firewall_matches and vm_network_matches and vm_running and not lock_paths)
+        output = {
+            "active_lifecycle_locks": lock_paths,
+            "contract_host": "proxmox",
+            "external_owners": {"firewall": "pve-api", "tailnet_policy": "opentofu", "vm_100_network": "opentofu"},
+            "format": "home-lab-proxmox-network-observation-v1",
+            "mutation_authorized": False,
+            "network_interfaces": {
+                "bridge_matches": bridge_matches, "file_matches": interfaces_match,
+                "firewall_matches": firewall_matches, "ownership": network_handoff,
+                "parity_complete": network_parity, "physical_port_matches": physical_matches,
+                "resolver_exported": False, "routes_match": routes_match, "snippets_match": snippets_match,
+                "vm_100_network_matches": vm_network_matches, "vm_100_running": vm_running,
+            },
+            "protected_values_exported": False,
+            "tailscale_node": {
+                "backend_running": status_value.get("BackendState") == "Running",
+                "node_online": status_value.get("Self", {}).get("Online") is True,
+                "ownership": tailscale_handoff, "parity_complete": tailscale_matches,
+                "peer_identities_exported": False, "preferences_match": observed_prefs == expected_prefs,
+                "service": services["tailscaled.service"], "state_directory_protected": state_protected,
+            },
+            "version": 1,
+        }
+        print(json.dumps(output, sort_keys=True, separators=(",", ":")))
+      - "{{ proxmox_network_lifecycle_interfaces_sha256 }}"
+      - "{{ network.ownership.interfaces_file.path }}"
+      - "{{ network.ownership.snippets_directory }}"
+      - "{{ network.bridge }}"
+      - "{{ network.bridge_port }}"
+      - "{{ network.proxmox.ipv4 }}"
+      - "{{ network.gateway }}"
+      - "{{ network.proxmox.mac }}"
+      - "{{ lifecycle.hosts.proxmox.domain_handoffs.network_interfaces | to_json }}"
+      - "{{ lifecycle.hosts.proxmox.domain_handoffs.tailscale_node | to_json }}"
+      - "{{ proxmox_network_lifecycle_tailscale_expected | to_json }}"
+      - "{{ proxmox.firewall | to_json }}"
+      - "{{ {'vmid': proxmox.vm.vmid, 'model': 'virtio', 'mac': network.docker_host.mac, 'bridge': network.bridge, 'firewall': true} | to_json }}"
+      - "{{ network.cidr }}"
+  register: proxmox_network_lifecycle_observation_raw
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Decode reduced Proxmox networking evidence
+  ansible.builtin.set_fact:
+    proxmox_network_lifecycle_observation: "{{ proxmox_network_lifecycle_observation_raw.stdout | from_json }}"
+  no_log: true
+
+- name: Assert networking parity remains complete and mutation-free
+  ansible.builtin.assert:
+    that:
+      - not proxmox_network_lifecycle_observation.mutation_authorized
+      - not proxmox_network_lifecycle_observation.protected_values_exported
+      - proxmox_network_lifecycle_observation.active_lifecycle_locks | length == 0
+      - proxmox_network_lifecycle_observation.network_interfaces.parity_complete
+      - proxmox_network_lifecycle_observation.tailscale_node.parity_complete
+    fail_msg: Networking or Tailscale parity is incomplete; no mutation is authorized.
+
+- name: Emit reduced Proxmox networking evidence
+  ansible.builtin.debug:
+    var: proxmox_network_lifecycle_observation
+  changed_when: false

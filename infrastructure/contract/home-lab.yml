@@ -97,6 +97,18 @@ lifecycle:
           state: transferred
           parity_required: true
           single_writer: true
+        network_interfaces:
+          current_owner: nix
+          target_owner: ansible
+          state: pending
+          parity_required: true
+          single_writer: true
+        tailscale_node:
+          current_owner: nix
+          target_owner: ansible
+          state: pending
+          parity_required: true
+          single_writer: true
       access_cutover:
         state: pending
         target_identities:
@@ -249,6 +261,9 @@ network:
     managed_header: "# Managed by the Home Lab Nix host workflow. Keep console/LAN rollback available during changes."
     bridge_stp: false
     bridge_forward_delay: 0
+    resolver_management: excluded-from-this-handoff
+    hosts_file_management: excluded-from-this-handoff
+    runtime_activation: separately-authorized-watchdog
   proxmox:
     hostname: proxmox
     magicdns_name: proxmox

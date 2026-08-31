@@ -272,14 +272,16 @@
     "lifecycleDomainHandoffs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["timezone", "apt_repositories", "chrony_service", "boot_configuration", "zfs_dataset", "nfs_export_service"],
+      "required": ["timezone", "apt_repositories", "chrony_service", "boot_configuration", "zfs_dataset", "nfs_export_service", "network_interfaces", "tailscale_node"],
       "properties": {
         "timezone": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "apt_repositories": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "chrony_service": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "boot_configuration": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "zfs_dataset": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
-        "nfs_export_service": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
+        "nfs_export_service": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
+        "network_interfaces": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
+        "tailscale_node": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
       }
     },
     "lifecycleAccessCutoverPolicy": {
@@ -1287,14 +1289,17 @@
     "networkOwnership": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["interfaces_file", "snippets_directory", "permitted_active_snippets", "managed_header", "bridge_stp", "bridge_forward_delay"],
+      "required": ["interfaces_file", "snippets_directory", "permitted_active_snippets", "managed_header", "bridge_stp", "bridge_forward_delay", "resolver_management", "hosts_file_management", "runtime_activation"],
       "properties": {
         "interfaces_file": { "$ref": "#/$defs/managedFilePolicy" },
         "snippets_directory": { "const": "/etc/network/interfaces.d" },
         "permitted_active_snippets": { "type": "array", "maxItems": 0 },
         "managed_header": { "type": "string", "pattern": "^# Managed by ", "minLength": 20 },
         "bridge_stp": { "const": false },
-        "bridge_forward_delay": { "const": 0 }
+        "bridge_forward_delay": { "const": 0 },
+        "resolver_management": { "const": "excluded-from-this-handoff" },
+        "hosts_file_management": { "const": "excluded-from-this-handoff" },
+        "runtime_activation": { "const": "separately-authorized-watchdog" }
       }
     },
     "grubPolicy": {
