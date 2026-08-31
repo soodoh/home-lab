@@ -94,7 +94,7 @@ lifecycle:
         nfs_export_service:
           current_owner: nix
           target_owner: ansible
-          state: pending
+          state: ready
           parity_required: true
           single_writer: true
       access_cutover:

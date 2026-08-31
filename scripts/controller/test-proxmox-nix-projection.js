@@ -170,18 +170,18 @@ if (projected.planningPolicy.managedFilePolicies.filter((item) => bootPaths.has(
 }
 const storageHandoffs = contract.lifecycle.hosts.proxmox.domain_handoffs;
 const transferredZfsHandoff = { current_owner: "ansible", target_owner: "ansible", state: "transferred", parity_required: true, single_writer: true };
-const pendingNfsHandoff = { current_owner: "nix", target_owner: "ansible", state: "pending", parity_required: true, single_writer: true };
+const readyNfsHandoff = { current_owner: "nix", target_owner: "ansible", state: "ready", parity_required: true, single_writer: true };
 if (JSON.stringify(storageHandoffs.zfs_dataset) !== JSON.stringify(transferredZfsHandoff)) {
   throw new Error("transferred ZFS dataset handoff differs");
 }
-if (JSON.stringify(storageHandoffs.nfs_export_service) !== JSON.stringify(pendingNfsHandoff)) {
-  throw new Error("pending NFS handoff differs");
+if (JSON.stringify(storageHandoffs.nfs_export_service) !== JSON.stringify(readyNfsHandoff)) {
+  throw new Error("ready NFS handoff differs");
 }
 const exportPolicy = projected.planningPolicy.managedFilePolicies.find((item) => item.path === contract.storage.nfs.exports_file.path);
 const nfsServicePolicy = projected.planningPolicy.servicePolicies.find((item) => item.name === "nfs-server.service");
 if (!exportPolicy || exportPolicy.automatic !== false || exportPolicy.safetyClass !== "data-critical" ||
     !nfsServicePolicy || nfsServicePolicy.automatic !== false || nfsServicePolicy.safetyClass !== "data-critical") {
-  throw new Error("pending NFS handoff must remain nonautomatic and data-critical");
+  throw new Error("ready NFS handoff must remain nonautomatic and data-critical");
 }
 for (const mutation of [
   (value) => value.proxmox.planning_policy.service_policies.pop(),
