@@ -1765,7 +1765,8 @@ def package_ownership_snapshot():
                           "-o", "APT::Get::List-Cleanup=0", "dist-upgrade"))
     solver_changes = [line for line in solver.splitlines() if line.startswith(("Inst ", "Remv ", "Conf "))]
     metadata_paths = [path for path in Path("/var/lib/apt/lists").glob("*_InRelease") if path.is_file()]
-    metadata_age = None if not metadata_paths else max(0, int(dt.datetime.now().timestamp() - max(path.stat().st_mtime for path in metadata_paths)))
+    metadata_mtime = None if not metadata_paths else int(max(path.stat().st_mtime for path in metadata_paths))
+    metadata_age = None if metadata_mtime is None else max(0, int(dt.datetime.now().timestamp() - metadata_mtime))
     apt_locks = []
     for lock_path in APT_LOCK_PATHS:
         descriptor = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
@@ -1787,7 +1788,7 @@ def package_ownership_snapshot():
             "format": "home-lab-proxmox-package-ownership-observation-v1", "handoff": handoff,
             "holds": holds, "installed_manifest_matches": matches, "installed_package_records": len(installed),
             "installed_manifest_sha256": hashlib.sha256(installed_raw).hexdigest(),
-            "manifest_file_sha256": manifest_sha256, "metadata_age_seconds": metadata_age,
+            "manifest_file_sha256": manifest_sha256, "metadata_newest_mtime_epoch": metadata_mtime,
             "metadata_fresh": metadata_age is not None and metadata_age <= max_age,
             "parity_complete": parity, "protected_values_exported": False,
             "solver_change_count": len(solver_changes), "version": 1}
