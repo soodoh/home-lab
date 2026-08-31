@@ -29,4 +29,4 @@ No controller source change authorizes host mutation. Apply-time Ansible replann
 
 The live Proxmox host has exactly 1,355 installed package records matching the reviewed manifest. The package solver reports zero installs, upgrades, downgrades, or removals; APT metadata is within the contracted age; holds and lifecycle locks are empty; and check mode reports `changed=0`. Debian also has a valid empty package proposal, but Debian package authority is not part of this Proxmox ownership transfer.
 
-`package_set` remains pending until the parity source commit is accepted and the independent Nix freeze is recorded. Controller-engine retirement remains later and must not be combined with the package receipt or access cutover.
+`package_set` is now `ready`: Nix remains the declared owner, its already-closed package mutation surface is frozen, and read-only audit remains available. The fixed package ownership capability, source transfer, and separately authorized no-mutation receipt are still required. Controller-engine retirement remains later and must not be combined with the package receipt or access cutover.

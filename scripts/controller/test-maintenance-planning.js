@@ -13,6 +13,8 @@ const rebootTasks = readYaml("ansible/roles/reboot_lifecycle/tasks/main.yml");
 const packagePlaybook = readYaml("ansible/playbooks/packages-plan.yml")[0];
 const rebootPlaybook = readYaml("ansible/playbooks/reboot-plan.yml")[0];
 const contract = readYaml("infrastructure/contract/home-lab.yml");
+const nixPlanner = fs.readFileSync(path.join(root, "nix/proxmox/planner.py"), "utf8");
+const nixActivator = fs.readFileSync(path.join(root, "nix/proxmox/activator-template.py"), "utf8");
 
 function task(tasks, name) {
   const matches = tasks.filter((item) => item.name === name);
@@ -109,8 +111,10 @@ assert.equal(packagePolicy.hosts.proxmox.apply_authority, "protected-session");
 assert.equal(packagePolicy.hosts.debian.automatic_reboot, false);
 assert.equal(packagePolicy.hosts.proxmox.automatic_reboot, false);
 assert.deepEqual(contract.lifecycle.hosts.proxmox.domain_handoffs.package_set, {
-  current_owner: "nix", target_owner: "ansible", state: "pending", parity_required: true, single_writer: true,
+  current_owner: "nix", target_owner: "ansible", state: "ready", parity_required: true, single_writer: true,
 });
+assert(nixPlanner.includes("aggregate package actions remain closed until protected bootstrap"));
+assert(!nixActivator.includes("reconcile-package-set"));
 
 const rebootPolicy = contract.lifecycle.maintenance.reboot_plan;
 assert.equal(rebootPolicy.automatic, false);

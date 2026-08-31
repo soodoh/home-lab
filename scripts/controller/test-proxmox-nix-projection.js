@@ -189,9 +189,9 @@ if (JSON.stringify(storageHandoffs.network_interfaces) !== JSON.stringify(transf
 if (JSON.stringify(storageHandoffs.tailscale_node) !== JSON.stringify(transferredNetworkHandoff)) {
   throw new Error("transferred Tailscale node handoff differs");
 }
-const pendingPackageHandoff = { current_owner: "nix", target_owner: "ansible", state: "pending", parity_required: true, single_writer: true };
-if (JSON.stringify(storageHandoffs.package_set) !== JSON.stringify(pendingPackageHandoff)) {
-  throw new Error("pending package-set handoff differs");
+const readyPackageHandoff = { current_owner: "nix", target_owner: "ansible", state: "ready", parity_required: true, single_writer: true };
+if (JSON.stringify(storageHandoffs.package_set) !== JSON.stringify(readyPackageHandoff)) {
+  throw new Error("ready package-set handoff differs");
 }
 const interfacesPolicy = projected.planningPolicy.managedFilePolicies.find((item) => item.path === contract.network.ownership.interfaces_file.path);
 const tailscaleServicePolicy = projected.planningPolicy.servicePolicies.find((item) => item.name === "tailscaled.service");
