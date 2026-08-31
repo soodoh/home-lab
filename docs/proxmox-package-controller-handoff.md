@@ -12,13 +12,13 @@ The retained Nix planner observes the package set but already refuses aggregate 
 
 ## Controller dependency and access ordering
 
-The Nix planner currently reaches the host through the conventional LAN-only `tofu-plan` capability, while the historical Nix apply engine depends on `tofu-apply`. The replacement `ansible-plan` and `ansible-deploy` Tailscale transports are already fixed and proven, but controller-engine retirement is not implied by package ownership.
+The retained Nix planner now reaches the fixed reduced observer through `ansible-plan@proxmox` over Tailscale with strict host-key checking and no identity-file fallback. A live guarded steady plan through that transport is ready with no blockers or findings. The historical Nix apply engine still depends on `tofu-apply`; controller-engine retirement is not implied by package ownership.
 
 The safe order is:
 
 1. prove exact package parity and empty solver;
 2. freeze and source-transfer `package_set`, install its fixed no-mutation ownership capability, and commit a separately authorized receipt;
-3. keep Nix only as an audit/recovery engine and switch its read-only observation transport from `tofu-plan` LAN SSH to the fixed `ansible-plan` Tailscale observer;
+3. keep Nix only as an audit/recovery engine and route its read-only observation through the fixed `ansible-plan` Tailscale observer (complete);
 4. prove no remaining Nix action domain needs `tofu-apply`;
 5. retire tofu identities and conventional keys through the separate access transactions; and
 6. retire the remaining Nix controller/bundle only after equivalent saved-plan, freshness, lock, rollback, and recovery behavior is bound into the lifecycle controller.
