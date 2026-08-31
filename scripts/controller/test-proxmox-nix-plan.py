@@ -360,12 +360,11 @@ class ProxmoxNixPlanTests(unittest.TestCase):
             planner.live_observation(self.bindings["observerSha256"])
 
     def test_cli_surface_and_transport_are_fully_fixed(self) -> None:
-        self.assertEqual(planner.SSH_COMMAND[-2:], (
-            "tofu-plan@192.168.0.123", "sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe"))
+        self.assertEqual(planner.SSH_COMMAND[-2:], ("ansible-plan@proxmox", "observe"))
         self.assertEqual(planner.SSH_COMMAND[1:3], ("-F", "/dev/null"))
-        self.assertIn(str(Path.home() / ".ssh/home-lab-proxmox-plan"), planner.SSH_COMMAND)
-        for option in ("IdentitiesOnly=yes", "BatchMode=yes",
-                       "ClearAllForwardings=yes", "PermitLocalCommand=no", "RequestTTY=no",
+        self.assertNotIn(str(Path.home() / ".ssh/home-lab-proxmox-plan"), planner.SSH_COMMAND)
+        self.assertFalse(any("tofu-plan" in value or "192.168.0.123" in value for value in planner.SSH_COMMAND))
+        for option in ("BatchMode=yes", "ClearAllForwardings=yes", "PermitLocalCommand=no", "RequestTTY=no",
                        "StrictHostKeyChecking=yes", "UpdateHostKeys=no"):
             self.assertIn(option, planner.SSH_COMMAND)
         self.assertFalse(any(value.startswith("ProxyCommand=") for value in planner.SSH_COMMAND))

@@ -36,7 +36,15 @@ def fixed_ssh_command(capability: str, remote_command: str) -> tuple[str, ...]:
     )
 
 
-SSH_COMMAND = fixed_ssh_command("plan", "sudo -n -- " + _OBSERVER_REMOTE + " observe")
+def fixed_observer_ssh_command() -> tuple[str, ...]:
+    return (
+        "ssh", "-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "ClearAllForwardings=yes",
+        "-o", "PermitLocalCommand=no", "-o", "RequestTTY=no", "-o", "StrictHostKeyChecking=yes",
+        "-o", "UpdateHostKeys=no", "ansible-plan@proxmox", "observe",
+    )
+
+
+SSH_COMMAND = fixed_observer_ssh_command()
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 TIME = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 TIMEZONE = re.compile(r"^[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*$")
