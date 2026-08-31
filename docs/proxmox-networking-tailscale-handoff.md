@@ -84,3 +84,7 @@ A future Tailscale preference or service activation must be separate from networ
 Rollback restores captured file bytes or exact captured local preferences/service state only. It never rewrites Tailscale state-directory bytes, re-enrolls a node, changes tailnet policy, changes firewall rules, or modifies VM networking. Ambiguous state stops for physical-console recovery.
 
 Final ownership transfer for each domain is a separately authorized no-mutation receipt with `changed: false`. The receipt cannot write network configuration, activate links, change routes, alter Tailscale, restart services, change firewall policy, act on VM 100, install packages, or reboot.
+
+## Current status
+
+Read-only provider and consumer parity is complete with `changed=0`. `network_interfaces` is `ready` with Nix still the current owner and its already nonautomatic interface policy frozen. `tailscale_node` remains separately `pending` under Nix. Resolver and hosts-file ownership remain excluded.

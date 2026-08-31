@@ -183,10 +183,12 @@ if (!exportPolicy || exportPolicy.automatic !== false || exportPolicy.safetyClas
   throw new Error("transferred NFS handoff must remain nonautomatic and data-critical");
 }
 const pendingAccessHandoff = { current_owner: "nix", target_owner: "ansible", state: "pending", parity_required: true, single_writer: true };
-for (const name of ["network_interfaces", "tailscale_node"]) {
-  if (JSON.stringify(storageHandoffs[name]) !== JSON.stringify(pendingAccessHandoff)) {
-    throw new Error(`pending networking handoff differs: ${name}`);
-  }
+const readyNetworkHandoff = { ...pendingAccessHandoff, state: "ready" };
+if (JSON.stringify(storageHandoffs.network_interfaces) !== JSON.stringify(readyNetworkHandoff)) {
+  throw new Error("ready network interface handoff differs");
+}
+if (JSON.stringify(storageHandoffs.tailscale_node) !== JSON.stringify(pendingAccessHandoff)) {
+  throw new Error("pending Tailscale node handoff differs");
 }
 const interfacesPolicy = projected.planningPolicy.managedFilePolicies.find((item) => item.path === contract.network.ownership.interfaces_file.path);
 const tailscaleServicePolicy = projected.planningPolicy.servicePolicies.find((item) => item.name === "tailscaled.service");
@@ -194,7 +196,7 @@ const tailscaleDomainPolicy = projected.planningPolicy.domains.find((item) => it
 if (!interfacesPolicy || interfacesPolicy.automatic !== false || interfacesPolicy.safetyClass !== "access-critical" ||
     !tailscaleServicePolicy || tailscaleServicePolicy.automatic !== false || tailscaleServicePolicy.safetyClass !== "access-critical" ||
     !tailscaleDomainPolicy || tailscaleDomainPolicy.automatic !== false || tailscaleDomainPolicy.safetyClass !== "access-critical") {
-  throw new Error("pending networking handoffs must remain nonautomatic and access-critical");
+  throw new Error("networking handoffs must remain nonautomatic and access-critical");
 }
 for (const mutation of [
   (value) => value.proxmox.planning_policy.service_policies.pop(),

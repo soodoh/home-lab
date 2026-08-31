@@ -100,7 +100,7 @@ lifecycle:
         network_interfaces:
           current_owner: nix
           target_owner: ansible
-          state: pending
+          state: ready
           parity_required: true
           single_writer: true
         tailscale_node:
