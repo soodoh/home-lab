@@ -24,25 +24,12 @@ The private preparer validates protected hardware inventory, both tofu authorize
 
 The new projection was installed in observer `2ea47661a7f8ea0e286048abdfeae7354e22023f1a9d8375913ddc2e2936875c` through guarded observer plan `c2feed3774ddc86df39e9e01f66e7b31872c7399cc0f488b29a54cac0d118744`. The first canary failed on an incorrect field name and rolled back to the exact prior observer. The corrected transaction committed with a root-owned mode-`0600` journal.
 
-## Current fail-closed result
+## Protected evidence restored
 
-Live observation succeeds over `ansible-plan`, protocol 4, with all public domains complete. Protected access and hardware attestations are unavailable because the existing private attestation is bound to the earlier bundle. The Nix planner therefore produces zero actions but remains blocked by exactly:
+The initial observer-only transition failed closed with `protected-access/observation-unavailable` and `protected-hardware/observation-unavailable` because the observer required the projection-bound private-preparer hash. No blocker was weakened or reclassified.
 
-- `protected-access/observation-unavailable`; and
-- `protected-hardware/observation-unavailable`.
+A separate physical-console protected-evidence transaction then installed only private preparer `b0dc55397d228345a0725e8e9de6ad6443d196c76c83cb2a7cc850d2a53eeefb` under authorized plan `46dc9e6ce9f2e495a01a778599d617d6a86133fff8b6f7f383413c8aaab528a2`. It read existing protected inputs in place, exported no protected values, required complete reduced access/hardware summaries, ran an `ansible-plan` observer canary, retained the prior helper for rollback, and wrote a root-owned mode-`0600`, regular, single-link, fsynced journal.
 
-This is intentional fail-closed behavior, not a no-op authorization. It must not be weakened or reclassified as ready.
+Fresh live observation now reports protected access `6/6` and protected hardware `3/3`, both complete and matching. The guarded Nix steady plan has zero actions, zero blockers, zero findings, and `privatePreconditionsRequired: false`; plan SHA-256 is `663da14e8413734b0194d29b7bbf84824c2e8a649fa370f6739e474e84a556b0`.
 
-## Required replacement before retirement
-
-Before retiring `tofu-apply`, implement a separately authorized protected-evidence capability that:
-
-1. runs only from the physical console or an equivalently bounded fixed capability;
-2. reads root-only protected inputs without exporting values;
-3. binds the exact clean pushed contract, projection, observer, schemas, installed access metadata, and current bundle;
-4. emits only reduced match/count/hash evidence;
-5. uses root-owned, mode-`0600`, regular, single-link, fsynced state under an exclusive lock;
-6. cannot prepare or execute Nix actions, mutate accounts, keys, tokens, hardware, firewall, storage, services, or packages; and
-7. preserves a durable recovery path for the historical protected inputs until final Nix retirement.
-
-Only after fresh protected evidence makes the zero-action plan ready may the Nix prepare/apply entry points be frozen. Local tofu accounts and conventional recovery assets still require their own exact access-critical retirement transactions and physical-console rollback.
+The next step is to freeze the Nix prepare/apply entry points themselves. Local tofu accounts, conventional keys, sudo rules, helpers, protected inputs, tokens, and recovery assets remain unchanged until that source freeze is proven and the separate access-critical retirement transactions are authorized.
