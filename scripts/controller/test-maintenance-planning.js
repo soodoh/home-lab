@@ -111,7 +111,7 @@ assert.equal(packagePolicy.hosts.proxmox.apply_authority, "protected-session");
 assert.equal(packagePolicy.hosts.debian.automatic_reboot, false);
 assert.equal(packagePolicy.hosts.proxmox.automatic_reboot, false);
 assert.deepEqual(contract.lifecycle.hosts.proxmox.domain_handoffs.package_set, {
-  current_owner: "nix", target_owner: "ansible", state: "ready", parity_required: true, single_writer: true,
+  current_owner: "ansible", target_owner: "ansible", state: "transferred", parity_required: true, single_writer: true,
 });
 assert(nixPlanner.includes("aggregate package actions remain closed until protected bootstrap"));
 assert(!nixActivator.includes("reconcile-package-set"));

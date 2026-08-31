@@ -31,7 +31,7 @@ def main() -> None:
     handoffs = contract["lifecycle"]["hosts"]["proxmox"]["domain_handoffs"]
     assert handoffs["network_interfaces"] == transferred
     assert handoffs["tailscale_node"] == transferred
-    assert handoffs["package_set"] == ready
+    assert handoffs["package_set"] == transferred
     ownership = contract["network"]["ownership"]
     assert ownership["resolver_management"] == "excluded-from-this-handoff"
     assert ownership["hosts_file_management"] == "excluded-from-this-handoff"
