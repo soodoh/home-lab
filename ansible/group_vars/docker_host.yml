@@ -129,10 +129,12 @@ audit_expected_mounts:
     source: "{{ audit_nfs_source }}"
     fstype: nfs4
   - path: "{{ vm_100.storage.games.mountpoint }}"
-    source: /dev/sdb1
+    source: "UUID={{ vm_100.storage.games.filesystem_uuid }}"
+    filesystem_uuid: "{{ vm_100.storage.games.filesystem_uuid }}"
     fstype: ext4
   - path: "{{ proxmox.vm.state_disk.mountpoint }}"
-    source: /dev/sda1
+    source: "UUID={{ proxmox.vm.state_disk.filesystem_uuid }}"
+    filesystem_uuid: "{{ proxmox.vm.state_disk.filesystem_uuid }}"
     fstype: ext4
 
 audit_expected_modules:

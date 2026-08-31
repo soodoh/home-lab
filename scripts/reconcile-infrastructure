@@ -8,7 +8,7 @@ cd "$repo_root"
 
 usage() {
   cat >&2 <<'EOF'
-usage: scripts/reconcile-infrastructure <validate|plan|apply|verify> [options]
+usage: scripts/reconcile-infrastructure <validate|plan|apply|apply-tailnet|verify> [options]
 
 Options:
   --phase steady                       Desired reconciliation phase (default: steady)
@@ -29,7 +29,7 @@ EOF
 reconcile_original_args=("$@")
 action=$1
 shift
-case "$action" in validate|plan|apply|verify) ;; *) usage ;; esac
+case "$action" in validate|plan|apply|apply-tailnet|verify) ;; *) usage ;; esac
 phase=steady
 plan_dir="$repo_root/.reconcile/plans"
 production_inventory=inventory/production.yml
@@ -57,7 +57,7 @@ case "$plan_dir" in
 esac
 [[ $plan_dir != *"/../"* && $plan_dir != */.. ]] || exit 64
 
-if [[ $action == apply ]]; then
+if [[ $action == apply || $action == apply-tailnet ]]; then
   node scripts/controller/check-vm-100-authority.js --require-ordinary-mutation
 fi
 
@@ -992,6 +992,44 @@ verify_all() {
   popd >/dev/null
 }
 
+require_tailnet_only_manifest() {
+  jq -e '
+    .phase == "steady" and .stage == "converge" and
+    .proxmox_host_plan.status == "ready" and .proxmox_host_plan.actions == 0 and
+    ([.plans[] | select(.changed == true) | .root] == ["tailscale"])
+  ' "$plan_dir/manifest.json" >/dev/null || {
+    echo "tailnet-only apply requires exactly one saved Tailscale policy change and no Proxmox host actions" >&2
+    exit 66
+  }
+}
+
+tailnet_only_preflight() {
+  local root exit_code verify_log argument
+  require_tailnet_only_manifest
+  verify_fresh_proxmox_host_noop
+  for root in aws-foundation proxmox omada authentik; do
+    backend_init "$root"
+    plan_args=()
+    while IFS= read -r -d '' argument; do plan_args+=("$argument"); done < <(root_plan_args "$root")
+    verify_log="$plan_dir/$root.tailnet-preflight.log"
+    : >"$verify_log"
+    chmod 0600 "$verify_log"
+    set +eu
+    tofu -chdir="infrastructure/tofu/$root" plan -input=false -lock-timeout=5m -no-color \
+      -parallelism=1 -detailed-exitcode "${plan_args[@]}" >"$verify_log" 2>&1
+    exit_code=$?
+    set -eu
+    [[ $exit_code == 0 ]] || {
+      echo "unrelated OpenTofu root differs before tailnet-only apply: $root" >&2
+      exit 1
+    }
+  done
+  pushd ansible >/dev/null
+  ansible_require_noop "$production_inventory" playbooks/audit.yml docker-host-production
+  ansible_require_noop "$production_inventory" playbooks/proxmox-access-cutover-plan.yml proxmox-host-production
+  popd >/dev/null
+}
+
 
 acquire_apply_lock() {
   if [[ -z ${RECONCILE_CONTROLLER_LOCK_TOKEN:-} && -z ${RECONCILE_CONTROLLER_LOCK_FD:-} ]]; then
@@ -1033,6 +1071,17 @@ case "$action" in
     apply_root tailscale
     compose_apply
     apply_root authentik
+    verify_all
+    ;;
+  apply-tailnet)
+    if [[ -n $(git status --porcelain --untracked-files=all) ]]; then
+      echo "tailnet-only apply requires a clean checkout" >&2
+      exit 65
+    fi
+    acquire_apply_lock
+    verify_manifest
+    tailnet_only_preflight
+    apply_root tailscale
     verify_all
     ;;
   verify)

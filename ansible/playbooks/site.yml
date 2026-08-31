@@ -53,6 +53,7 @@
         ssh_service_name: sshd.service
         ssh_password_authentication: false
         ssh_pubkey_authentication: false
+        ssh_permit_root_login: "{{ vm_100.access.permit_root_login | ternary('yes', 'no') }}"
         ssh_allow_users:
           - ansible-plan
           - ansible-deploy

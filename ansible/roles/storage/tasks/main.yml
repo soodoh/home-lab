@@ -14,13 +14,13 @@
   changed_when: false
   check_mode: false
 
-- name: Inspect adopted mount source and filesystem type
+- name: Inspect adopted mount source, filesystem type, and stable UUID
   ansible.builtin.command:
     argv:
       - /usr/bin/findmnt
       - --noheadings
       - --output
-      - SOURCE,FSTYPE
+      - SOURCE,FSTYPE,UUID
       - --target
       - "{{ item.path }}"
   register: storage_mount_results
@@ -34,8 +34,17 @@
   ansible.builtin.assert:
     that:
       - item.rc == 0
-      - item.stdout.split() | first == item.item.source
-      - item.stdout.split() | last == item.item.fstype
+      - item.stdout.split() | length >= 2
+      - item.stdout.split()[1] == item.item.fstype
+      - >-
+        (
+          item.item.filesystem_uuid is defined and
+          item.stdout.split() | length == 3 and
+          item.stdout.split()[2] == item.item.filesystem_uuid
+        ) or (
+          item.item.filesystem_uuid is not defined and
+          item.stdout.split()[0] == item.item.source
+        )
     fail_msg: "Required mount {{ item.item.path }} differs or is unavailable; refusing convergence."
   loop: "{{ storage_mount_results.results }}"
   loop_control:

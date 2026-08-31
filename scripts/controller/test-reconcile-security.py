@@ -51,8 +51,8 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertIn('[[ -n ${NIX_SSL_CERT_FILE:-} && -r $NIX_SSL_CERT_FILE ]]', self.provider_bundle)
         self.assertIn('"$HOME/Library/Keychains/login.keychain-db"', self.provider_bundle)
 
-    def test_local_controller_exposes_only_plan_and_apply(self) -> None:
-        self.assertIn('case "$action" in plan|apply)', self.controller)
+    def test_local_controller_exposes_only_fixed_plan_and_apply_modes(self) -> None:
+        self.assertIn('case "$action" in plan|apply|apply-tailnet)', self.controller)
         self.assertNotIn("  review)", self.controller)
         self.assertNotIn("  approve)", self.controller)
         self.assertNotIn("  validate)", self.controller)
@@ -101,6 +101,7 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertIn('[controller-manifest] operation=%s recovery_stage=%s', self.controller)
         self.assertNotIn('expected_confirmation="apply-reviewed-$operation"', self.controller)
         self.assertIn('confirmation_invalid', self.controller)
+        self.assertIn('expected_confirmation="apply-reviewed-tailnet-$operation-$recovery_stage"', self.controller)
 
     def test_apply_confirms_before_loading_mutation_credentials(self) -> None:
         dispatch = self.controller.index('case "$action" in', self.controller.index("confirm_apply()"))
@@ -121,6 +122,16 @@ class ReconcileSecurityTests(unittest.TestCase):
         apply_section = self.controller[confirm:]
         self.assertNotIn("load_credentials plan", apply_section)
 
+    def test_tailnet_apply_is_exactly_scoped_and_preflighted(self) -> None:
+        self.assertIn("require_tailnet_only_manifest", self.reconciler)
+        self.assertIn('([.plans[] | select(.changed == true) | .root] == ["tailscale"])', self.reconciler)
+        section = self.reconciler[self.reconciler.index("  apply-tailnet)"):self.reconciler.index("  verify)", self.reconciler.index("  apply-tailnet)"))]
+        self.assertIn("verify_manifest", section)
+        self.assertIn("tailnet_only_preflight", section)
+        self.assertIn("apply_root tailscale", section)
+        self.assertIn("verify_all", section)
+        self.assertNotIn("apply_debian_steady", section)
+        self.assertNotIn("compose_apply", section)
     def test_migration_authority_refuses_all_ordinary_apply_paths_before_mutation(self) -> None:
         local_dispatch = self.controller.index('case "$action" in', self.controller.index("confirm_apply()"))
         local_gate = self.controller.index("require_ordinary_mutation_authority", local_dispatch)
@@ -140,7 +151,7 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertLess(reconcile_gate, reconcile_lock)
         self.assertLess(reconcile_gate, first_mutation)
         gate_block = self.reconciler[self.reconciler.rfind("if [[ $action ==", 0, reconcile_gate):backend_setup]
-        self.assertIn("$action == apply", gate_block)
+        self.assertIn("$action == apply || $action == apply-tailnet", gate_block)
 
     def test_authentik_management_is_guarded_and_ordered(self) -> None:
         self.assertIn("prepare_steady_authentik_input", self.controller)

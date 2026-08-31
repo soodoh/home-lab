@@ -7,7 +7,7 @@ cd "$repo_root"
 
 usage() {
   cat >&2 <<'EOF'
-usage: scripts/local-controller <plan|apply> <steady|recovery> [options]
+usage: scripts/local-controller <plan|apply|apply-tailnet> <steady|recovery> [options]
 
 Options:
   --config-dir <protected-controller-config-directory>
@@ -24,7 +24,7 @@ EOF
 action=$1
 operation=$2
 shift 2
-case "$action" in plan|apply) ;; *) usage ;; esac
+case "$action" in plan|apply|apply-tailnet) ;; *) usage ;; esac
 
 config_dir=${HOME_LAB_CONTROLLER_CONFIG_DIR:-$HOME/.config/home-lab/controller}
 while (($#)); do
@@ -262,7 +262,11 @@ confirm_apply() {
   local confirmation recovery_stage
   verify_saved_plans
   recovery_stage=$(jq -r .stage "$manifest")
-  expected_confirmation="apply-reviewed-$operation-$recovery_stage"
+  if [[ $action == apply-tailnet ]]; then
+    expected_confirmation="apply-reviewed-tailnet-$operation-$recovery_stage"
+  else
+    expected_confirmation="apply-reviewed-$operation-$recovery_stage"
+  fi
   [[ -t 0 ]] || {
     echo "local_controller=failed reason=interactive_confirmation_required" >&2
     exit 66
@@ -300,6 +304,20 @@ case "$action" in
     prepare_steady_omada_input
     scripts/reconcile-infrastructure apply --plan-dir "$plan_dir" "${operation_args[@]}"
     printf 'local_controller=applied operation=%s recovery_stage=%s commit=%s\n' \
+      "$operation" "$(jq -r .stage "$manifest")" "$commit"
+    ;;
+  apply-tailnet)
+    [[ $operation == steady ]] || usage
+    require_ordinary_mutation_authority
+    use_prepared_provider_tls
+    run_validation
+    confirm_apply
+    load_credentials apply
+    prepare_provider_tls
+    prepare_steady_authentik_input
+    prepare_steady_omada_input
+    scripts/reconcile-infrastructure apply-tailnet --plan-dir "$plan_dir" "${operation_args[@]}"
+    printf 'local_controller=applied-tailnet operation=%s recovery_stage=%s commit=%s\n' \
       "$operation" "$(jq -r .stage "$manifest")" "$commit"
     ;;
 esac
