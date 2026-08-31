@@ -192,7 +192,11 @@ class ProxmoxNixPlanTests(unittest.TestCase):
     def test_validate_plan_rejects_rehashed_action_mutations(self) -> None:
         observation = copy.deepcopy(self.observation)
         observation["domains"]["managedFiles"]["records"][0]["contentMatches"] = False
-        original = self.make_plan(observation)
+        action_projection = copy.deepcopy(self.projection)
+        target = observation["domains"]["managedFiles"]["records"][0]["target"]
+        next(item for item in action_projection["planningPolicy"]["managedFilePolicies"] if item["path"] == target)["automatic"] = True
+        original = planner.build_plan(self.bindings, action_projection, self.manifest, observation,
+                                      "2026-08-11T00:00:00Z", "2026-08-11T00:00:01Z", True)
         self.assertTrue(original["actions"])
         mutations = (
             lambda action: action.update({"kind": "reconcile-service"}),
@@ -208,7 +212,7 @@ class ProxmoxNixPlanTests(unittest.TestCase):
             mutate(plan["actions"][0])
             plan["planSha256"] = planner.digest({key: value for key, value in plan.items() if key != "planSha256"})
             with self.assertRaises(ValueError):
-                planner.validate_plan(plan, self.projection, self.manifest)
+                planner.validate_plan(plan, action_projection, self.manifest)
 
     def test_validate_plan_derives_status_and_rejects_nonautomatic_policy_actions(self) -> None:
         original = self.make_plan()

@@ -36,6 +36,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.projection = json.loads((NIX / "proxmox/projection.json").read_bytes())
+        next(item for item in cls.projection["planningPolicy"]["domains"] if item["domain"] == "managed-artifacts")["automatic"] = True
         cls.manifest = json.loads((NIX / "proxmox/package-manifest.json").read_bytes())
         cls.before_observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
         cls.before_observation["domains"]["protectedAccess"] = {"expectedCount": 6, "matches": True, "observedCount": 6, "status": "complete"}

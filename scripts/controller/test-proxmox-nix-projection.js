@@ -168,6 +168,13 @@ if (projected.planningPolicy.managedFilePolicies.filter((item) => bootPaths.has(
     projected.planningPolicy.domains.find((item) => item.domain === "managed-fragments").automatic !== false) {
   throw new Error("ready boot-configuration handoff did not freeze Nix mutation");
 }
+const managedArtifactsPolicy = projected.planningPolicy.domains.find((item) => item.domain === "managed-artifacts");
+if (!managedArtifactsPolicy || managedArtifactsPolicy.automatic !== false) {
+  throw new Error("transferred APT repository handoff did not freeze keyring artifact mutation");
+}
+if (pendingAptProjection.planningPolicy.domains.find((item) => item.domain === "managed-artifacts").automatic !== true) {
+  throw new Error("pending APT repository handoff did not retain keyring artifact mutation authority");
+}
 const storageHandoffs = contract.lifecycle.hosts.proxmox.domain_handoffs;
 const transferredStorageHandoff = { current_owner: "ansible", target_owner: "ansible", state: "transferred", parity_required: true, single_writer: true };
 if (JSON.stringify(storageHandoffs.zfs_dataset) !== JSON.stringify(transferredStorageHandoff)) {

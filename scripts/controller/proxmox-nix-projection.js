@@ -294,7 +294,8 @@ function projectProxmoxPolicy(contract, packageManifest) {
       domains: proxmox.planning_policy.domains.map((entry) => ({
         domain: entry.domain,
         safetyClass: entry.safety_class,
-        automatic: entry.domain === "managed-fragments" && bootConfigurationFrozen ? false : entry.automatic,
+        automatic: (entry.domain === "managed-fragments" && bootConfigurationFrozen) ||
+          (entry.domain === "managed-artifacts" && aptRepositoriesFrozen) ? false : entry.automatic,
         requiresApproval: entry.requires_approval,
         requiresReboot: entry.requires_reboot,
         requiresWatchdog: entry.requires_watchdog,
