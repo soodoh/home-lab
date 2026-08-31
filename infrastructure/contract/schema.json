@@ -150,10 +150,11 @@
         "qualification": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["os_id", "kernel_release", "hostname", "network_interface", "kernel_modules", "gpu_vendor_device", "gpu_render_node", "protected_mounts", "compose_service", "automatic_reboot"],
+          "required": ["os_id", "kernel_release", "kernel_package_version", "hostname", "network_interface", "kernel_modules", "gpu_vendor_device", "gpu_render_node", "protected_mounts", "compose_service", "automatic_reboot"],
           "properties": {
             "os_id": { "const": "debian" },
-            "kernel_release": { "const": "6.12.101+deb13-amd64" },
+            "kernel_release": { "const": "6.12.107+deb13-amd64" },
+            "kernel_package_version": { "const": "6.12.107-1" },
             "hostname": { "const": "docker-host" },
             "network_interface": { "const": "ens18" },
             "kernel_modules": { "type": "array", "prefixItems": [{ "const": "amdgpu" }, { "const": "uhid" }, { "const": "uinput" }], "items": false, "minItems": 3, "maxItems": 3 },

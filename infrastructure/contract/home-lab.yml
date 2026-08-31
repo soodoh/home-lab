@@ -1390,7 +1390,8 @@ debian:
       - net0
   qualification:
     os_id: debian
-    kernel_release: 6.12.101+deb13-amd64
+    kernel_release: 6.12.107+deb13-amd64
+    kernel_package_version: 6.12.107-1
     hostname: docker-host
     network_interface: ens18
     kernel_modules:

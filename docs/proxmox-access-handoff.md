@@ -28,6 +28,12 @@ The six retained root authorized-key fingerprints are now contract-attributed. T
 
 The stale `apex` supplementary group remains an explicit retirement target. Its removal must be independently planned and authorized.
 
+## Guarded-controller scope correction
+
+The first authorized tailnet transition was stopped before the Tailscale plan applied because the broad steady controller evaluated unrelated Debian tags at apply time. It exposed volatile `/dev/sdX` mount assertions and changed the Debian managed SSH drop-in from `PermitRootLogin no` to the role default `prohibit-password`, then reloaded SSH. Effective root login remained `no` because the earlier authoritative directive was unchanged, and both independent Tailscale sessions remained healthy. Exact Debian cleanup plan `359678a759789658c888678b2029944c03ec479cb1403a212ea29d313b4ad772` restored the drop-in under the retained watchdog/rollback transaction.
+
+Mount checks now bind the contracted filesystem UUIDs rather than volatile device names. Debian kernel and metapackage evidence were refreshed to the already-running unattended-upgrade result `6.12.107+deb13-amd64` / `6.12.107-1`. The new `apply-tailnet` controller path accepts only a manifest with exactly one saved Tailscale change, zero Nix host actions, unrelated OpenTofu no-op preconditions, Ansible no-op preconditions, CAS-bound policy state, and post-verification. It cannot invoke broad Debian or Compose convergence.
+
 ## Current status
 
 The replacement plan, deploy, firewall, and human identities are present and their fixed transports match installed bytes. Read-only access planning reports `changed=0`. Conventional root/tofu/firewall keys, legacy tofu accounts, current OpenSSH public-key/root-login policy, and root `apex` membership remain unchanged.

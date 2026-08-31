@@ -5,7 +5,7 @@ VM 100 runs Debian 13 (`trixie`) as the sole production and deployment authority
 ## Managed platform
 
 - Debian cloud build `20260810-2566`, generic image variant
-- Kernel `6.12.101+deb13-amd64`
+- Kernel `6.12.107+deb13-amd64`
 - Docker Engine and Compose from Debian packages
 - QEMU Guest Agent, hardened OpenSSH, and unattended security updates
 - RX 7900 XTX through `amdgpu`, plus `uhid` and `uinput`

@@ -21,7 +21,7 @@ This document records the discovery baseline for consolidating Proxmox and Debia
 | VM 100 disks | `scsi0` absent; `scsi1` protected raw games disk; `scsi2` `vm-100-disk-1` 128 GiB; `scsi3` `vm-100-disk-2` 64 GiB; cloud-init on `ide2` | Matches contract; `scsi3` remains omitted from the resource's `disk` blocks |
 | OpenTofu | Zero-change current plans for AWS foundation, Proxmox, Omada, Tailscale, and Authentik | Live remote state; Proxmox state contains `proxmox_virtual_environment_vm.debian` and five hardware mappings |
 | Tailnet policy | Live policy equals desired policy byte-for-byte after canonicalization | SHA-256 `983273a2f37c6b01b5b9c7c3d6f19537b687f7376c9011ecb644d274b4a7374e`; 5 grants, 5 SSH rules, 2 network tests, 3 SSH tests |
-| Debian identity | Debian 13 trixie, kernel `6.12.101+deb13-amd64`, timezone `America/Los_Angeles` | Ansible facts and read-only commands |
+| Debian identity | Debian 13 trixie, kernel `6.12.107+deb13-amd64`, timezone `America/Los_Angeles` | Ansible facts and read-only commands |
 | Debian storage | `/dev/sdc1` root, games UUID-backed ext4 at `/mnt/games`, state ext4 at `/srv/home-lab-state`, NFSv4 `192.168.0.123:/storage/docker` at `/mnt/storage` | Audit and `findmnt` |
 | Compose | Artifact `31a2fe455d849ab38d373709ee39cd6378406708c1de29e43b6e410eb21ca213`; 38 declared and 38 running services | Live artifact recomputation and exact CLI identity |
 | Compose images | All 37 committed service image IDs match live; `nextcloud-cron` is the 38th runtime record and shares the `nextcloud` image ID | 34 live unique image IDs versus 33 committed references because the runtime lock records IDs rather than source references |
