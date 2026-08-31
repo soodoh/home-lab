@@ -79,7 +79,7 @@ sync -f "$helper_root"
 [[ $(stat -c '%u:%g:%a:%h' "$activator") == 0:0:755:1 ]]
 [[ $(stat -c '%u:%g:%a:%h' "$transport") == 0:0:755:1 ]]
 
-observation=$(runuser -u ansible-deploy -- env SSH_ORIGINAL_COMMAND='observe package-lifecycle' "$transport")
+observation=$(runuser -u ansible-deploy -- "$transport" -c 'observe package-lifecycle')
 printf '%s' "$observation" | python3 -c 'import json,sys; v=json.load(sys.stdin); assert v["format"] == "home-lab-proxmox-package-ownership-observation-v1" and v["parity_complete"] is True and v["protected_values_exported"] is False and not v["active_lifecycle_locks"] and not v["active_apt_locks"]'
 
 PLAN_SHA256=$plan_sha256 AUTHORIZATION_SHA256=$authorization_sha256 COMMIT=$commit \
