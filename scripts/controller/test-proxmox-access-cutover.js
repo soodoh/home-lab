@@ -41,7 +41,6 @@ assert.equal(current.ready, false);
 assert.equal(current.authorized, false);
 for (const blocker of [
   "access-cutover-state-not-ready",
-  "tailnet-ssh-tests-incomplete",
   "conventional-authorized-keys-present",
   "openssh-pubkey-authentication-enabled",
   "openssh-root-login-enabled",
@@ -140,9 +139,12 @@ assert.deepEqual(policy.forbidden_tailnet_users, ["root", "tofu-plan", "tofu-app
 assert.equal(policy.plan_privilege_model, "fixed-reduced-observer");
 assert.equal(policy.firewall_magicdns_target, "firewall-apply@proxmox");
 assert.equal(policy.remove_conventional_keys_last, true);
+assert.deepEqual(policy.retire_root_supplementary_groups, ["apex"]);
+assert.equal(policy.root_key_attributions["SHA256:/qSECkXxkpCIjTkBwa8XZZdRW2/seScon5uAKGlLC80"], "obsolete-proxmox-root-identity");
+assert.equal(policy.root_key_attributions["SHA256:SNH3GBfBBvbkycl78DbrIjbaC0rJxkvue+KF9qhpXrs"], "obsolete-proxmox-root-identity");
 
 const accessEvidence = read("scripts/controller/proxmox-access-evidence.py");
-for (const required of ["PROXMOX_CONSOLE_ATTESTATION_CONFIRMED", "StrictHostKeyChecking=yes", "live_plan_noop", "root_keys", "os.O_EXCL", "os.O_NOFOLLOW"]) {
+for (const required of ["PROXMOX_CONSOLE_ATTESTATION_CONFIRMED", "StrictHostKeyChecking=yes", "live_plan_noop", "root_keys", "os.O_EXCL", "os.O_NOFOLLOW", "SHA256:/qSECkXxkpCIjTkBwa8XZZdRW2/seScon5uAKGlLC80", "SHA256:SNH3GBfBBvbkycl78DbrIjbaC0rJxkvue+KF9qhpXrs"]) {
   assert(accessEvidence.includes(required), `access evidence capture omits ${required}`);
 }
 assert(!accessEvidence.includes("StrictHostKeyChecking=no"));

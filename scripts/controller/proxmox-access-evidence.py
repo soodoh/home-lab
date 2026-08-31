@@ -86,6 +86,8 @@ print(json.dumps(sorted(records,key=lambda item:item["fingerprint"]),sort_keys=T
         "SHA256:xnvOo0mjS/Ghwrbf8JovxNp51qFXQncLO4ygGvZPR7w": "personal-laptop",
         "SHA256:6RaXU5sJ5bREB69ozsxdAFWVhYvCm9jlPAu7rSOx+dU": "iphone-termius",
         "SHA256:UKIt1zHVexMpz9we72AErUd+DBrQh4cyoGa1gqOGPmA": "work-laptop",
+        "SHA256:/qSECkXxkpCIjTkBwa8XZZdRW2/seScon5uAKGlLC80": "obsolete-proxmox-root-identity",
+        "SHA256:SNH3GBfBBvbkycl78DbrIjbaC0rJxkvue+KF9qhpXrs": "obsolete-proxmox-root-identity",
     }
     unresolved = sorted(item["fingerprint"] for item in records if item["fingerprint"] not in attributed)
     return {"records": records, "attributed": attributed, "attributed_count": len(records) - len(unresolved),

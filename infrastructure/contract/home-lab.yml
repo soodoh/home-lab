@@ -119,6 +119,15 @@ lifecycle:
         retire_identities:
           - tofu-plan
           - tofu-apply
+        retire_root_supplementary_groups:
+          - apex
+        root_key_attributions:
+          "SHA256:Je+jcqxxdCTlcMc8sZToiF3oZrLIJ+N6mxNhiosUIXw": current-proxmox-root-identity
+          "SHA256:xnvOo0mjS/Ghwrbf8JovxNp51qFXQncLO4ygGvZPR7w": personal-laptop
+          "SHA256:6RaXU5sJ5bREB69ozsxdAFWVhYvCm9jlPAu7rSOx+dU": iphone-termius
+          "SHA256:UKIt1zHVexMpz9we72AErUd+DBrQh4cyoGa1gqOGPmA": work-laptop
+          "SHA256:/qSECkXxkpCIjTkBwa8XZZdRW2/seScon5uAKGlLC80": obsolete-proxmox-root-identity
+          "SHA256:SNH3GBfBBvbkycl78DbrIjbaC0rJxkvue+KF9qhpXrs": obsolete-proxmox-root-identity
         required_tailnet_users:
           - proxmox
           - ansible-plan

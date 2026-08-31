@@ -287,7 +287,7 @@
     "lifecycleAccessCutoverPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["state", "target_identities", "retire_identities", "required_tailnet_users", "forbidden_tailnet_users", "plan_privilege_model", "apply_privilege_model", "firewall_privilege_model", "firewall_magicdns_target", "conventional_keys_target", "pubkey_authentication_target", "permit_root_login_target", "remove_conventional_keys_last", "physical_console_required"],
+      "required": ["state", "target_identities", "retire_identities", "retire_root_supplementary_groups", "root_key_attributions", "required_tailnet_users", "forbidden_tailnet_users", "plan_privilege_model", "apply_privilege_model", "firewall_privilege_model", "firewall_magicdns_target", "conventional_keys_target", "pubkey_authentication_target", "permit_root_login_target", "remove_conventional_keys_last", "physical_console_required"],
       "properties": {
         "state": { "enum": ["pending", "ready", "cutover", "complete"] },
         "target_identities": {
@@ -302,6 +302,20 @@
           }
         },
         "retire_identities": { "const": ["tofu-plan", "tofu-apply"] },
+        "retire_root_supplementary_groups": { "const": ["apex"] },
+        "root_key_attributions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["SHA256:Je+jcqxxdCTlcMc8sZToiF3oZrLIJ+N6mxNhiosUIXw", "SHA256:xnvOo0mjS/Ghwrbf8JovxNp51qFXQncLO4ygGvZPR7w", "SHA256:6RaXU5sJ5bREB69ozsxdAFWVhYvCm9jlPAu7rSOx+dU", "SHA256:UKIt1zHVexMpz9we72AErUd+DBrQh4cyoGa1gqOGPmA", "SHA256:/qSECkXxkpCIjTkBwa8XZZdRW2/seScon5uAKGlLC80", "SHA256:SNH3GBfBBvbkycl78DbrIjbaC0rJxkvue+KF9qhpXrs"],
+          "properties": {
+            "SHA256:Je+jcqxxdCTlcMc8sZToiF3oZrLIJ+N6mxNhiosUIXw": { "const": "current-proxmox-root-identity" },
+            "SHA256:xnvOo0mjS/Ghwrbf8JovxNp51qFXQncLO4ygGvZPR7w": { "const": "personal-laptop" },
+            "SHA256:6RaXU5sJ5bREB69ozsxdAFWVhYvCm9jlPAu7rSOx+dU": { "const": "iphone-termius" },
+            "SHA256:UKIt1zHVexMpz9we72AErUd+DBrQh4cyoGa1gqOGPmA": { "const": "work-laptop" },
+            "SHA256:/qSECkXxkpCIjTkBwa8XZZdRW2/seScon5uAKGlLC80": { "const": "obsolete-proxmox-root-identity" },
+            "SHA256:SNH3GBfBBvbkycl78DbrIjbaC0rJxkvue+KF9qhpXrs": { "const": "obsolete-proxmox-root-identity" }
+          }
+        },
         "required_tailnet_users": { "const": ["proxmox", "ansible-plan", "ansible-deploy", "firewall-apply"] },
         "forbidden_tailnet_users": { "const": ["root", "tofu-plan", "tofu-apply"] },
         "plan_privilege_model": { "const": "fixed-reduced-observer" },
