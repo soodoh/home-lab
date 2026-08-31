@@ -16,6 +16,7 @@ FIREWALL = ROOT / "infrastructure/proxmox-firewall/host/proxmox-firewall-transpo
 CAPABILITY = ROOT / "scripts/controller/proxmox-plan-capability.py"
 DEPLOY_CAPABILITY = ROOT / "scripts/controller/proxmox-deploy-capability.py"
 DEPLOY_UPGRADE = ROOT / "scripts/controller/proxmox-deploy-upgrade.py"
+PRIVATE_PREPARER_UPGRADE = ROOT / "scripts/physical-console-install-proxmox-private-preparer-upgrade"
 PACKAGE_ACTIVATION = ROOT / "scripts/controller/proxmox-package-activation.py"
 REBOOT_ACTIVATION = ROOT / "scripts/controller/proxmox-reboot-activation.py"
 
@@ -88,8 +89,12 @@ def main() -> None:
         assert required in deploy_capability_source
     assert "authorized_keys\", \"w" not in deploy_capability_source
     upgrade_source = DEPLOY_UPGRADE.read_text()
-    for required in ("PROXMOX_DEPLOY_UPGRADE_CONFIRMED", "after_sha256", "saved-actions-and-read-only-compatibility-only", "proxmox-observer", "proxmox-firewall-transaction", "os.O_EXCL", "os.O_NOFOLLOW"):
+    for required in ("PROXMOX_DEPLOY_UPGRADE_CONFIRMED", "after_sha256", "saved-actions-and-read-only-compatibility-only", "proxmox-observer", "proxmox-private-preparer", "proxmox-firewall-transaction", "os.O_EXCL", "os.O_NOFOLLOW"):
         assert required in upgrade_source
+    preparer_upgrade_source = PRIVATE_PREPARER_UPGRADE.read_text()
+    for required in ("physical /dev/ttyN console required", "proxmox-private-preparer", "protectedAccess", "protectedHardware", "private-preparer.before", "os.O_EXCL", "os.O_NOFOLLOW"):
+        assert required in preparer_upgrade_source
+    assert "proxmox-activator session" not in preparer_upgrade_source
     print("proxmox_access_transports=verified")
 
 
