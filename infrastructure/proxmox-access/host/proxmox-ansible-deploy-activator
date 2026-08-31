@@ -25,6 +25,8 @@ ZFS_OWNERSHIP_DIR = Path("/var/lib/home-lab/zfs-ownership-transactions")
 ZFS_OWNERSHIP_LOCK = Path("/run/lock/home-lab-proxmox-zfs-ownership.lock")
 NFS_OWNERSHIP_DIR = Path("/var/lib/home-lab/nfs-ownership-transactions")
 NFS_OWNERSHIP_LOCK = Path("/run/lock/home-lab-proxmox-nfs-ownership.lock")
+NETWORK_OWNERSHIP_DIR = Path("/var/lib/home-lab/network-ownership-transactions")
+NETWORK_OWNERSHIP_LOCK = Path("/run/lock/home-lab-proxmox-network-ownership.lock")
 BOOT_VFIO_PATH = Path("/etc/modprobe.d/home-lab-vfio.conf")
 APT_SOURCE_PATHS = (
     "/etc/apt/sources.list",
@@ -1429,6 +1431,164 @@ def nfs_ownership_operation(value, digest):
         os.close(lock_fd)
 
 
+def network_contract_material():
+    try:
+        import yaml
+        contract = yaml.safe_load((REPO / "infrastructure/contract/home-lab.yml").read_text())
+        handoff = contract["lifecycle"]["hosts"]["proxmox"]["domain_handoffs"]["network_interfaces"]
+        network = contract["network"]
+        expected = {"current_owner": "nix", "target_owner": "ansible", "state": "ready",
+                    "parity_required": True, "single_writer": True}
+        transferred = {**expected, "current_owner": "ansible", "state": "transferred"}
+        ownership = network["ownership"]
+        file_policy = ownership["interfaces_file"]
+        if handoff not in (expected, transferred) or file_policy != {"kind": "managed-file", "projectable": True,
+                "path": "/etc/network/interfaces", "owner": "root", "group": "root", "mode": "0644"} or \
+                ownership["snippets_directory"] != "/etc/network/interfaces.d" or \
+                ownership["permitted_active_snippets"] != [] or \
+                ownership["resolver_management"] != "excluded-from-this-handoff" or \
+                ownership["hosts_file_management"] != "excluded-from-this-handoff" or \
+                ownership["runtime_activation"] != "separately-authorized-watchdog":
+            fail("network ownership contract differs")
+        return handoff, network
+    except (KeyError, TypeError, OSError, yaml.YAMLError) as error:
+        fail(f"network ownership contract cannot be loaded: {type(error).__name__}")
+
+
+def network_ownership_snapshot():
+    handoff, network = network_contract_material()
+    ownership = network["ownership"]
+    expected_raw = (f"{ownership['managed_header']}\nauto lo\niface lo inet loopback\n\n"
+                    f"auto {network['bridge_port']}\niface {network['bridge_port']} inet manual\n\n"
+                    f"auto {network['bridge']}\niface {network['bridge']} inet static\n"
+                    f"  address {network['proxmox']['ipv4']}\n  gateway {network['gateway']}\n"
+                    f"  bridge-ports {network['bridge_port']}\n"
+                    f"  bridge-stp {'on' if ownership['bridge_stp'] else 'off'}\n"
+                    f"  bridge-fd {ownership['bridge_forward_delay']}\n").encode()
+    path = Path(ownership["interfaces_file"]["path"])
+    metadata = os.lstat(path)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        opened = os.fstat(descriptor)
+        raw = os.read(descriptor, 65537)
+    finally:
+        os.close(descriptor)
+    file_matches = stat.S_ISREG(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode) and \
+        metadata.st_uid == metadata.st_gid == 0 and metadata.st_nlink == 1 and \
+        stat.S_IMODE(metadata.st_mode) == 0o644 and \
+        (metadata.st_dev, metadata.st_ino, metadata.st_size) == (opened.st_dev, opened.st_ino, opened.st_size) and \
+        raw == expected_raw
+    snippets_path = Path(ownership["snippets_directory"])
+    snippets_metadata = os.lstat(snippets_path)
+    snippets_match = stat.S_ISDIR(snippets_metadata.st_mode) and not stat.S_ISLNK(snippets_metadata.st_mode) and \
+        snippets_metadata.st_uid == snippets_metadata.st_gid == 0 and not list(snippets_path.iterdir())
+    addresses = json.loads(storage_run(("/usr/sbin/ip", "-j", "address", "show")))
+    by_name = {item.get("ifname"): item for item in addresses if isinstance(item, dict)}
+    port, bridge = network["bridge_port"], network["bridge"]
+    physical, bridged = by_name.get(port, {}), by_name.get(bridge, {})
+    expected_ip, expected_prefix = network["proxmox"]["ipv4"].split("/", 1)
+    bridge_ipv4 = [item for item in bridged.get("addr_info", [])
+                   if item.get("family") == "inet" and item.get("scope") == "global"]
+    physical_matches = physical.get("operstate") == "UP" and physical.get("master") == bridge and \
+        str(physical.get("address", "")).lower() == network["proxmox"]["mac"].lower()
+    bridge_matches = bridged.get("operstate") == "UP" and \
+        str(bridged.get("address", "")).lower() == network["proxmox"]["mac"].lower() and \
+        len(bridge_ipv4) == 1 and bridge_ipv4[0].get("local") == expected_ip and \
+        bridge_ipv4[0].get("prefixlen") == int(expected_prefix)
+    routes = json.loads(storage_run(("/usr/sbin/ip", "-j", "route", "show", "table", "main")))
+    default_routes = [item for item in routes if item.get("dst") == "default"]
+    local_routes = [item for item in routes if item.get("dst") == network["cidr"]]
+    routes_match = len(routes) == 2 and len(default_routes) == 1 and len(local_routes) == 1 and \
+        default_routes[0].get("gateway") == network["gateway"] and default_routes[0].get("dev") == bridge and \
+        local_routes[0].get("dev") == bridge and local_routes[0].get("prefsrc") == expected_ip
+    networking_active = storage_run(("/usr/bin/systemctl", "is-active", "networking.service")).strip() == "active"
+    networking_enabled = storage_run(("/usr/bin/systemctl", "is-enabled", "networking.service")).strip() == "enabled"
+    observer = json.loads(storage_run(("/usr/local/libexec/home-lab/proxmox-observer", "observe")))
+    summaries = observer.get("domains", {})
+    external_matches = all(summaries.get(name, {}).get("status") == "complete" and
+                           summaries.get(name, {}).get("matches") is True
+                           for name in ("pveFirewall", "storage", "tailscale", "vm", "health"))
+    vm_lines = storage_run(("/usr/sbin/qm", "config", "100")).splitlines()
+    net_lines = [line.split(":", 1)[1].strip() for line in vm_lines if line.startswith("net0:")]
+    expected_net = f"virtio={network['docker_host']['mac']},bridge={bridge},firewall=1"
+    vm_network_matches = len(net_lines) == 1 and net_lines[0] == expected_net
+    vm_running = storage_run(("/usr/sbin/qm", "status", "100")).strip() == "status: running"
+    locks = [str(item) for item in LOCKS if os.path.lexists(item)]
+    parity = file_matches and snippets_match and physical_matches and bridge_matches and routes_match and \
+        networking_active and networking_enabled and external_matches and vm_network_matches and vm_running and not locks
+    return {"active_lifecycle_locks": locks, "bridge_matches": bridge_matches,
+            "external_owners_match": external_matches, "file_matches": file_matches,
+            "format": "home-lab-proxmox-network-ownership-observation-v1", "handoff": handoff,
+            "networking_service": {"active": networking_active, "enabled": networking_enabled},
+            "parity_complete": parity, "physical_port_matches": physical_matches,
+            "protected_values_exported": False, "resolver_exported": False,
+            "routes_match": routes_match, "snippets_match": snippets_match, "version": 1,
+            "vm_100_network_matches": vm_network_matches, "vm_100_running": vm_running}
+
+
+def validate_network_ownership_plan(value, digest):
+    keys = {"activator_sha256", "authorized", "automatic_reboot", "before", "changed", "commit",
+            "consumer_parity_verified", "consumer_role_sha256", "contract_schema_sha256", "contract_sha256",
+            "created_at", "expires_at", "format", "host_key_fingerprint", "inventory_sha256",
+            "playbook_sha256", "protected_values_exported", "role_sha256", "transport_sha256"}
+    if not isinstance(value, dict) or set(value) != keys or \
+            value["format"] != "home-lab-proxmox-network-ownership-activation-v1" or \
+            value["authorized"] is not False or value["automatic_reboot"] is not False or \
+            value["changed"] is not False or value["consumer_parity_verified"] is not True or \
+            value["protected_values_exported"] is not False or value["host_key_fingerprint"] != FINGERPRINT or \
+            HEX40.fullmatch(value.get("commit", "")) is None:
+        fail("network ownership activation envelope differs")
+    for key in ("activator_sha256", "consumer_role_sha256", "contract_schema_sha256", "contract_sha256",
+                "inventory_sha256", "playbook_sha256", "role_sha256", "transport_sha256"):
+        if HEX64.fullmatch(value.get(key, "")) is None:
+            fail("network ownership activation binding is invalid")
+    created, expires = parse_time(value["created_at"]), parse_time(value["expires_at"])
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    if created > now or now > expires or (expires - created).total_seconds() != 1800 or \
+            hashlib.sha256(canonical(value)).hexdigest() != digest:
+        fail("network ownership activation freshness or hash differs")
+    verify_repo(value)
+    bindings = {"activator_sha256": file_hash(Path(__file__)),
+                "contract_schema_sha256": file_hash(REPO / "infrastructure/contract/schema.json"),
+                "playbook_sha256": file_hash(REPO / "ansible/playbooks/proxmox-network-plan.yml"),
+                "role_sha256": file_hash(REPO / "ansible/roles/proxmox_network_lifecycle/tasks/main.yml"),
+                "consumer_role_sha256": file_hash(REPO / "ansible/roles/proxmox_network_consumers/tasks/main.yml"),
+                "transport_sha256": file_hash(Path("/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport"))}
+    if any(value[key] != observed for key, observed in bindings.items()):
+        fail("network ownership activation implementation binding differs")
+    current = network_ownership_snapshot()
+    transferred = {"current_owner": "ansible", "target_owner": "ansible", "state": "transferred",
+                   "parity_required": True, "single_writer": True}
+    if current["handoff"] != transferred or value["before"] != current or not current["parity_complete"]:
+        fail("network ownership parity differs")
+    return current
+
+
+def network_ownership_operation(value, digest):
+    lock_fd = os.open(NETWORK_OWNERSHIP_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        before = validate_network_ownership_plan(value, digest)
+        NETWORK_OWNERSHIP_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(NETWORK_OWNERSHIP_DIR, 0o700)
+        path = NETWORK_OWNERSHIP_DIR / f"{digest}.json"
+        receipt = {"automatic_reboot": False, "changed": False,
+                   "file_matches": before["file_matches"],
+                   "format": "home-lab-proxmox-network-ownership-journal-v1", "plan_sha256": digest,
+                   "protected_values_exported": False, "runtime_activated": False,
+                   "status": "committed"}
+        if path.exists():
+            if json.loads(read_fixed(path, 0, 0, 0o600, 65536)) != receipt:
+                fail("network ownership journal differs")
+            return {"network_ownership_transaction": "already-committed", "changed": False, "plan_sha256": digest}
+        save_package_journal(path, receipt, exclusive=True)
+        return {"network_ownership_transaction": "committed", "changed": False, "plan_sha256": digest}
+    except BlockingIOError:
+        fail("network ownership lock is active")
+    finally:
+        os.close(lock_fd)
+
+
 
 def boot_configuration_reboot_evidence(unexpected_count):
     snapshot = boot_snapshot()
@@ -1587,7 +1747,7 @@ def reboot_operation(value, digest, operation):
 
 def main():
     request = read_bounded_stdin(1024)
-    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "apply-apt-repositories", "recover-apt-repositories", "apply-chrony-service", "recover-chrony-service", "inspect-boot-configuration", "apply-boot-configuration", "recover-boot-configuration", "apply-boot-ownership", "inspect-storage-lifecycle", "apply-zfs-ownership", "inspect-nfs-lifecycle", "apply-nfs-ownership"}
+    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "apply-apt-repositories", "recover-apt-repositories", "apply-chrony-service", "recover-chrony-service", "inspect-boot-configuration", "apply-boot-configuration", "recover-boot-configuration", "apply-boot-ownership", "inspect-storage-lifecycle", "apply-zfs-ownership", "inspect-nfs-lifecycle", "apply-nfs-ownership", "inspect-network-lifecycle", "apply-network-ownership"}
     if not isinstance(request, dict) or set(request) != {"operation", "plan_sha256"} or \
             request.get("operation") not in operations or not isinstance(request.get("plan_sha256"), str) or \
             HEX64.fullmatch(request["plan_sha256"]) is None:
@@ -1608,6 +1768,11 @@ def main():
         if request["plan_sha256"] != "0" * 64:
             fail("NFS inspection request differs")
         print(json.dumps(nfs_ownership_snapshot(), sort_keys=True, separators=(",", ":")))
+        return
+    if request["operation"] == "inspect-network-lifecycle":
+        if request["plan_sha256"] != "0" * 64:
+            fail("network inspection request differs")
+        print(json.dumps(network_ownership_snapshot(), sort_keys=True, separators=(",", ":")))
         return
     digest = request["plan_sha256"]
     deploy_account = pwd.getpwnam("ansible-deploy")
@@ -1639,6 +1804,8 @@ def main():
         output = zfs_ownership_operation(value, digest)
     elif request["operation"] == "apply-nfs-ownership":
         output = nfs_ownership_operation(value, digest)
+    elif request["operation"] == "apply-network-ownership":
+        output = network_ownership_operation(value, digest)
     elif request["operation"].endswith("-reboot"):
         output = reboot_operation(value, digest, request["operation"])
     else:

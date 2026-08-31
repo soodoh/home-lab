@@ -88,3 +88,5 @@ Final ownership transfer for each domain is a separately authorized no-mutation 
 ## Current status
 
 Read-only provider and consumer parity is complete with `changed=0`. `network_interfaces` is `ready` with Nix still the current owner and its already nonautomatic interface policy frozen. `tailscale_node` remains separately `pending` under Nix. Resolver and hosts-file ownership remain excluded.
+
+The installed network ownership capability must be fixed before source transfer. Its controller binds a clean pushed commit, contract/schema, inventory, provider and consumer roles, playbook, transport, activator, strict host key, fresh reduced host parity, and a fresh two-host check-mode run. The host independently verifies exact interface bytes, empty snippets, bridge/port/address/route state, networking service, external-owner summaries, VM 100 networking, and lock absence. It can write only a root-owned mode-`0600` receipt with `changed: false` and `runtime_activated: false`.
