@@ -25,9 +25,9 @@ def main() -> None:
 
     expected_pending = {"current_owner": "nix", "target_owner": "ansible", "state": "pending",
                         "parity_required": True, "single_writer": True}
-    expected_ready = {**expected_pending, "state": "ready"}
+    expected_transferred = {**expected_pending, "current_owner": "ansible", "state": "transferred"}
     handoffs = contract["lifecycle"]["hosts"]["proxmox"]["domain_handoffs"]
-    assert handoffs["zfs_dataset"] == expected_ready
+    assert handoffs["zfs_dataset"] == expected_transferred
     assert handoffs["nfs_export_service"] == expected_pending
 
     combined = provider + consumer
