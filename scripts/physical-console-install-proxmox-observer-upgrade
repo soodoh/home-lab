@@ -84,7 +84,7 @@ sync -f "$helper_root"
 [[ $(sha256sum "$observer" | cut -d' ' -f1) == "$new_observer_sha256" ]]
 [[ $(stat -c '%u:%g:%a:%h' "$observer") == 0:0:755:1 ]]
 observation=$(runuser -u ansible-plan -- "$plan_transport" -c observe)
-printf '%s' "$observation" | EXPECTED_SHA256=$new_observer_sha256 python3 -c 'import json,os,sys; v=json.load(sys.stdin); assert v["format"] == "home-lab-proxmox-observation-v1" and v["protocolVersion"] == 4 and v["observerSha256"] == os.environ["EXPECTED_SHA256"]'
+printf '%s' "$observation" | EXPECTED_SHA256=$new_observer_sha256 python3 -c 'import json,os,sys; v=json.load(sys.stdin); assert v["format"] == "home-lab-proxmox-observation-v1" and v["protocol"] == 4 and v["observerSha256"] == os.environ["EXPECTED_SHA256"]'
 
 PLAN_SHA256=$plan_sha256 AUTHORIZATION_SHA256=$authorization_sha256 COMMIT=$commit OBSERVER_SHA256=$new_observer_sha256 \
 python3 - "$transaction_root/committed.json" <<'PY'
