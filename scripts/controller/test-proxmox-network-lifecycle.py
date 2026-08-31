@@ -27,9 +27,10 @@ def main() -> None:
     pending = {"current_owner": "nix", "target_owner": "ansible", "state": "pending",
                "parity_required": True, "single_writer": True}
     transferred = {**pending, "current_owner": "ansible", "state": "transferred"}
+    ready = {**pending, "state": "ready"}
     handoffs = contract["lifecycle"]["hosts"]["proxmox"]["domain_handoffs"]
     assert handoffs["network_interfaces"] == transferred
-    assert handoffs["tailscale_node"] == pending
+    assert handoffs["tailscale_node"] == ready
     ownership = contract["network"]["ownership"]
     assert ownership["resolver_management"] == "excluded-from-this-handoff"
     assert ownership["hosts_file_management"] == "excluded-from-this-handoff"
