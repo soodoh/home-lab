@@ -94,7 +94,7 @@ case "$command" in
     trap - EXIT HUP INT TERM
     printf '%s\n' '{"staged":true}'
     ;;
-  stage\ boot-configuration\ *|stage\ boot-ownership\ *|stage\ storage-ownership\ *)
+  stage\ boot-configuration\ *|stage\ boot-ownership\ *|stage\ storage-ownership\ *|stage\ nfs-ownership\ *)
     digest=${command##* }
     case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
     [ "${#digest}" -eq 64 ] || exit 64
@@ -168,6 +168,10 @@ case "$command" in
     printf '%s\n' '{"operation":"inspect-storage-lifecycle","plan_sha256":"0000000000000000000000000000000000000000000000000000000000000000"}' |
       exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
     ;;
+  observe\ nfs-lifecycle)
+    printf '%s\n' '{"operation":"inspect-nfs-lifecycle","plan_sha256":"0000000000000000000000000000000000000000000000000000000000000000"}' |
+      exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
+    ;;
   apply\ lifecycle-marker\ *)
     digest=${command#apply lifecycle-marker }
     case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
@@ -232,6 +236,13 @@ case "$command" in
     case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
     [ "${#digest}" -eq 64 ] || exit 64
     printf '{"operation":"apply-zfs-ownership","plan_sha256":"%s"}\n' "$digest" |
+      exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
+    ;;
+  apply\ nfs-ownership\ *)
+    digest=${command#apply nfs-ownership }
+    case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
+    [ "${#digest}" -eq 64 ] || exit 64
+    printf '{"operation":"apply-nfs-ownership","plan_sha256":"%s"}\n' "$digest" |
       exec sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
     ;;
   apply\ boot-configuration\ *|recover\ boot-configuration\ *)

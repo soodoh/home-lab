@@ -23,6 +23,8 @@ BOOT_TRANSACTION_LOCK = Path("/run/lock/home-lab-proxmox-boot-configuration.lock
 BOOT_OWNERSHIP_DIR = Path("/var/lib/home-lab/boot-ownership-transactions")
 ZFS_OWNERSHIP_DIR = Path("/var/lib/home-lab/zfs-ownership-transactions")
 ZFS_OWNERSHIP_LOCK = Path("/run/lock/home-lab-proxmox-zfs-ownership.lock")
+NFS_OWNERSHIP_DIR = Path("/var/lib/home-lab/nfs-ownership-transactions")
+NFS_OWNERSHIP_LOCK = Path("/run/lock/home-lab-proxmox-nfs-ownership.lock")
 BOOT_VFIO_PATH = Path("/etc/modprobe.d/home-lab-vfio.conf")
 APT_SOURCE_PATHS = (
     "/etc/apt/sources.list",
@@ -1280,6 +1282,153 @@ def zfs_ownership_operation(value, digest):
     finally:
         os.close(lock_fd)
 
+def nfs_contract_material():
+    try:
+        import yaml
+        contract = yaml.safe_load((REPO / "infrastructure/contract/home-lab.yml").read_text())
+        handoff = contract["lifecycle"]["hosts"]["proxmox"]["domain_handoffs"]["nfs_export_service"]
+        nfs = contract["storage"]["nfs"]
+        zfs = contract["storage"]["zfs"]
+        expected = {"current_owner": "nix", "target_owner": "ansible", "state": "ready",
+                    "parity_required": True, "single_writer": True}
+        transferred = {**expected, "current_owner": "ansible", "state": "transferred"}
+        expected_nfs = {"export": "/storage/docker", "client": "192.168.0.100/32", "client_vmid": 100,
+                        "mountpoint": "/mnt/storage", "exports_file": {"kind": "managed-file",
+                        "projectable": True, "path": "/etc/exports.d/home-lab.exports", "owner": "root",
+                        "group": "root", "mode": "0644"},
+                        "options": ["rw", "sync", "no_subtree_check"], "squash_policy": "no_root_squash"}
+        if handoff not in (expected, transferred) or nfs != expected_nfs or \
+                (zfs["dataset"], zfs["mountpoint"], zfs["dataset_properties"]) != \
+                ("storage/docker", "/storage/docker", {"sharenfs": "off"}):
+            fail("NFS ownership contract differs")
+        return handoff, nfs, zfs
+    except (KeyError, TypeError, OSError, yaml.YAMLError) as error:
+        fail(f"NFS ownership contract cannot be loaded: {type(error).__name__}")
+
+
+def nfs_ownership_snapshot():
+    handoff, nfs, zfs = nfs_contract_material()
+    expected_raw = (f"{nfs['export']} {nfs['client']}(" + ",".join(nfs["options"] + [nfs["squash_policy"]]) + ")\n").encode()
+    path = Path(nfs["exports_file"]["path"])
+    metadata = os.lstat(path)
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        opened = os.fstat(descriptor)
+        raw = os.read(descriptor, 65537)
+    finally:
+        os.close(descriptor)
+    file_matches = stat.S_ISREG(metadata.st_mode) and not stat.S_ISLNK(metadata.st_mode) and \
+        metadata.st_uid == metadata.st_gid == 0 and metadata.st_nlink == 1 and \
+        stat.S_IMODE(metadata.st_mode) == 0o644 and \
+        (metadata.st_dev, metadata.st_ino, metadata.st_size) == (opened.st_dev, opened.st_ino, opened.st_size) and \
+        raw == expected_raw
+    lines = storage_run(("/usr/sbin/exportfs", "-v")).splitlines()
+    entries = []
+    index = 0
+    while index < len(lines):
+        direct = re.fullmatch(r"\s*(\S+)\s+(\S+)\(([^()]*)\)\s*", lines[index])
+        if direct:
+            export, client, options = direct.groups(); index += 1
+        elif index + 1 < len(lines):
+            export = lines[index].strip()
+            second = re.fullmatch(r"\s*(\S+)\(([^()]*)\)\s*", lines[index + 1])
+            if not export or not second:
+                fail("NFS export table differs")
+            client, options = second.groups(); index += 2
+        else:
+            fail("NFS export table differs")
+        entries.append((export, client, set(options.split(",") if options else [])))
+    expected_options = set(nfs["options"] + [nfs["squash_policy"]])
+    defaults = {"hide", "no_all_squash", "sec=sys", "secure", "wdelay"}
+    table_matches = len(entries) == 1 and entries[0][0] == nfs["export"] and entries[0][1] == nfs["client"] and \
+        expected_options.issubset(entries[0][2]) and entries[0][2] - defaults == expected_options
+    services = {}
+    for unit in ("nfs-server.service", "rpcbind.service"):
+        services[unit] = {"active": storage_run(("/usr/bin/systemctl", "is-active", unit)).strip() == "active",
+                          "enabled": storage_run(("/usr/bin/systemctl", "is-enabled", unit)).strip() == "enabled"}
+    zfs_raw = storage_run(("/usr/sbin/zfs", "get", "-H", "-o", "property,value",
+                           "mountpoint,mounted,sharenfs,canmount,readonly", zfs["dataset"]))
+    properties = dict(line.split("\t", 1) for line in zfs_raw.splitlines())
+    dataset_matches = properties == {"mountpoint": zfs["mountpoint"], "mounted": "yes", "sharenfs": "off",
+                                     "canmount": "on", "readonly": "off"}
+    pvesm = storage_run(("/usr/sbin/pvesm", "status", "--storage", zfs["pool"]))
+    pve_active = any(line.split() and line.split()[0] == zfs["pool"] and "active" in line for line in pvesm.splitlines())
+    vm_running = storage_run(("/usr/sbin/qm", "status", "100")).strip() == "status: running"
+    locks = [str(item) for item in LOCKS if os.path.lexists(item)]
+    services_match = all(item["active"] and item["enabled"] for item in services.values())
+    parity = file_matches and table_matches and services_match and dataset_matches and pve_active and vm_running and not locks
+    return {"active_lifecycle_locks": locks, "dataset_matches": dataset_matches,
+            "export_file_matches": file_matches, "export_table_matches": table_matches,
+            "format": "home-lab-proxmox-nfs-ownership-observation-v1", "handoff": handoff,
+            "parity_complete": parity, "protected_values_exported": False, "pve_storage_active": pve_active,
+            "services": services, "version": 1, "vm_100_running": vm_running}
+
+
+def validate_nfs_ownership_plan(value, digest):
+    keys = {"activator_sha256", "authorized", "automatic_reboot", "before", "changed", "commit",
+            "consumer_parity_verified", "consumer_role_sha256", "contract_schema_sha256", "contract_sha256",
+            "created_at", "expires_at", "format", "host_key_fingerprint", "inventory_sha256",
+            "playbook_sha256", "protected_values_exported", "role_sha256", "transport_sha256"}
+    if not isinstance(value, dict) or set(value) != keys or \
+            value["format"] != "home-lab-proxmox-nfs-ownership-activation-v1" or \
+            value["authorized"] is not False or value["automatic_reboot"] is not False or \
+            value["changed"] is not False or value["consumer_parity_verified"] is not True or \
+            value["protected_values_exported"] is not False or value["host_key_fingerprint"] != FINGERPRINT or \
+            HEX40.fullmatch(value.get("commit", "")) is None:
+        fail("NFS ownership activation envelope differs")
+    for key in ("activator_sha256", "consumer_role_sha256", "contract_schema_sha256", "contract_sha256",
+                "inventory_sha256", "playbook_sha256", "role_sha256", "transport_sha256"):
+        if HEX64.fullmatch(value.get(key, "")) is None:
+            fail("NFS ownership activation binding is invalid")
+    created, expires = parse_time(value["created_at"]), parse_time(value["expires_at"])
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    if created > now or now > expires or (expires - created).total_seconds() != 1800 or \
+            hashlib.sha256(canonical(value)).hexdigest() != digest:
+        fail("NFS ownership activation freshness or hash differs")
+    verify_repo(value)
+    bindings = {"activator_sha256": file_hash(Path(__file__)),
+                "contract_schema_sha256": file_hash(REPO / "infrastructure/contract/schema.json"),
+                "playbook_sha256": file_hash(REPO / "ansible/playbooks/proxmox-storage-plan.yml"),
+                "role_sha256": file_hash(REPO / "ansible/roles/proxmox_storage_lifecycle/tasks/main.yml"),
+                "consumer_role_sha256": file_hash(REPO / "ansible/roles/proxmox_storage_consumers/tasks/main.yml"),
+                "transport_sha256": file_hash(Path("/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport"))}
+    if any(value[key] != observed for key, observed in bindings.items()):
+        fail("NFS ownership activation implementation binding differs")
+    current = nfs_ownership_snapshot()
+    transferred = {"current_owner": "ansible", "target_owner": "ansible", "state": "transferred",
+                   "parity_required": True, "single_writer": True}
+    if current["handoff"] != transferred or value["before"] != current or not current["parity_complete"]:
+        fail("NFS ownership parity differs")
+    return current
+
+
+def nfs_ownership_operation(value, digest):
+    lock_fd = os.open(NFS_OWNERSHIP_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        before = validate_nfs_ownership_plan(value, digest)
+        NFS_OWNERSHIP_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(NFS_OWNERSHIP_DIR, 0o700)
+        path = NFS_OWNERSHIP_DIR / f"{digest}.json"
+        receipt = {"automatic_reboot": False, "changed": False,
+                   "export_file_matches": before["export_file_matches"],
+                   "export_table_matches": before["export_table_matches"],
+                   "format": "home-lab-proxmox-nfs-ownership-journal-v1", "plan_sha256": digest,
+                   "protected_values_exported": False, "services_match": all(
+                       item["active"] and item["enabled"] for item in before["services"].values()),
+                   "status": "committed"}
+        if path.exists():
+            if json.loads(read_fixed(path, 0, 0, 0o600, 65536)) != receipt:
+                fail("NFS ownership journal differs")
+            return {"nfs_ownership_transaction": "already-committed", "changed": False, "plan_sha256": digest}
+        save_package_journal(path, receipt, exclusive=True)
+        return {"nfs_ownership_transaction": "committed", "changed": False, "plan_sha256": digest}
+    except BlockingIOError:
+        fail("NFS ownership lock is active")
+    finally:
+        os.close(lock_fd)
+
+
 
 def boot_configuration_reboot_evidence(unexpected_count):
     snapshot = boot_snapshot()
@@ -1438,7 +1587,7 @@ def reboot_operation(value, digest, operation):
 
 def main():
     request = read_bounded_stdin(1024)
-    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "apply-apt-repositories", "recover-apt-repositories", "apply-chrony-service", "recover-chrony-service", "inspect-boot-configuration", "apply-boot-configuration", "recover-boot-configuration", "apply-boot-ownership", "inspect-storage-lifecycle", "apply-zfs-ownership"}
+    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "apply-apt-repositories", "recover-apt-repositories", "apply-chrony-service", "recover-chrony-service", "inspect-boot-configuration", "apply-boot-configuration", "recover-boot-configuration", "apply-boot-ownership", "inspect-storage-lifecycle", "apply-zfs-ownership", "inspect-nfs-lifecycle", "apply-nfs-ownership"}
     if not isinstance(request, dict) or set(request) != {"operation", "plan_sha256"} or \
             request.get("operation") not in operations or not isinstance(request.get("plan_sha256"), str) or \
             HEX64.fullmatch(request["plan_sha256"]) is None:
@@ -1454,6 +1603,11 @@ def main():
         if request["plan_sha256"] != "0" * 64:
             fail("storage inspection request differs")
         print(json.dumps(zfs_ownership_snapshot(), sort_keys=True, separators=(",", ":")))
+        return
+    if request["operation"] == "inspect-nfs-lifecycle":
+        if request["plan_sha256"] != "0" * 64:
+            fail("NFS inspection request differs")
+        print(json.dumps(nfs_ownership_snapshot(), sort_keys=True, separators=(",", ":")))
         return
     digest = request["plan_sha256"]
     deploy_account = pwd.getpwnam("ansible-deploy")
@@ -1483,6 +1637,8 @@ def main():
         output = boot_ownership_operation(value, digest)
     elif request["operation"] == "apply-zfs-ownership":
         output = zfs_ownership_operation(value, digest)
+    elif request["operation"] == "apply-nfs-ownership":
+        output = nfs_ownership_operation(value, digest)
     elif request["operation"].endswith("-reboot"):
         output = reboot_operation(value, digest, request["operation"])
     else:
