@@ -14,3 +14,14 @@
     - role: package_lifecycle
       vars:
         package_lifecycle_emit: true
+        package_lifecycle_expected_packages: >-
+          {{
+            (
+              lookup(
+                'ansible.builtin.file',
+                playbook_dir + '/../../' + proxmox.packages.manifest.path
+              ) | from_json
+            ).packages
+            if lifecycle_contract_host == 'proxmox'
+            else []
+          }}

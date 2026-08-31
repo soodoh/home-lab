@@ -273,7 +273,7 @@
     "lifecycleDomainHandoffs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["timezone", "apt_repositories", "chrony_service", "boot_configuration", "zfs_dataset", "nfs_export_service", "network_interfaces", "tailscale_node"],
+      "required": ["timezone", "apt_repositories", "chrony_service", "boot_configuration", "zfs_dataset", "nfs_export_service", "network_interfaces", "tailscale_node", "package_set"],
       "properties": {
         "timezone": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "apt_repositories": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
@@ -282,7 +282,8 @@
         "zfs_dataset": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "nfs_export_service": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "network_interfaces": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
-        "tailscale_node": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
+        "tailscale_node": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
+        "package_set": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
       }
     },
     "lifecycleAccessCutoverPolicy": {

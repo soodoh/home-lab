@@ -23,6 +23,7 @@
         import sys
 
         host = sys.argv[1]
+        expected_packages = json.loads(sys.argv[2])
         environment = {
             "DEBIAN_FRONTEND": "noninteractive",
             "LC_ALL": "C",
@@ -46,6 +47,24 @@
             raise SystemExit("dpkg_query_failed")
         installed_lines = sorted(line for line in installed_result.stdout.splitlines() if line)
         installed_raw = ("\n".join(installed_lines) + "\n").encode()
+
+        installed_status_result = run([
+            "/usr/bin/dpkg-query", "--show", "--showformat=${db:Status-Abbrev}\t${binary:Package}\t${Version}\n",
+        ])
+        if installed_status_result.returncode != 0:
+            raise SystemExit("dpkg_status_query_failed")
+        installed_status_lines = sorted(
+            "\t".join(line.split("\t")[1:])
+            for line in installed_status_result.stdout.splitlines()
+            if line.startswith("ii \t")
+        )
+        installed_status_raw = ("\n".join(installed_status_lines) + "\n").encode()
+        expected_package_lines = sorted(
+            item["name"] + "\t" + item["version"]
+            for item in expected_packages
+        )
+        expected_package_raw = ("\n".join(expected_package_lines) + "\n").encode()
+        manifest_matches = host != "proxmox" or installed_status_lines == expected_package_lines
 
         hold_result = run(["/usr/bin/apt-mark", "showhold"])
         if hold_result.returncode != 0:
@@ -121,6 +140,9 @@
             "holds": holds,
             "solver_stdout_sha256": hashlib.sha256(solver_result.stdout.encode()).hexdigest(),
             "changes": changes,
+            "installed_status_sha256": hashlib.sha256(installed_status_raw).hexdigest(),
+            "expected_manifest_sha256": hashlib.sha256(expected_package_raw).hexdigest(),
+            "manifest_matches": manifest_matches,
         }
         canonical = json.dumps(proposal_material, sort_keys=True, separators=(",", ":")).encode()
         result = {
@@ -134,6 +156,11 @@
             "installed_inventory_format": "dpkg-query-status-tsv-v1",
             "installed_records": len(installed_lines),
             "installed_inventory_sha256": proposal_material["installed_inventory_sha256"],
+            "installed_package_records": len(installed_status_lines),
+            "installed_status_sha256": proposal_material["installed_status_sha256"],
+            "expected_manifest_records": len(expected_package_lines),
+            "expected_manifest_sha256": proposal_material["expected_manifest_sha256"],
+            "manifest_matches": manifest_matches,
             "holds": holds,
             "solver": {
                 "command": "apt-get-simulate",
@@ -151,6 +178,7 @@
         }
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
       - "{{ lifecycle_contract_host }}"
+      - "{{ package_lifecycle_expected_packages | to_json }}"
   register: package_lifecycle_raw
   changed_when: false
   check_mode: false
@@ -180,6 +208,7 @@
           package_lifecycle_proposal.solver.returncode == 0 and
           package_lifecycle_proposal.metadata_age_seconds is not none and
           package_lifecycle_proposal.metadata_age_seconds <= package_lifecycle_policy.max_metadata_age_seconds and
+          package_lifecycle_proposal.manifest_matches and
           package_lifecycle_proposal.holds | length == 0 and
           package_lifecycle_proposal.change_counts.remove == 0 and
           package_lifecycle_proposal.change_counts.downgrade == 0 and
@@ -197,6 +226,7 @@
               else ['apt-metadata-stale']
             ) +
             ([] if package_lifecycle_proposal.holds | length == 0 else ['held-packages']) +
+            ([] if package_lifecycle_proposal.manifest_matches else ['installed-package-manifest-drift']) +
             ([] if package_lifecycle_proposal.change_counts.remove == 0 else ['package-removal']) +
             ([] if package_lifecycle_proposal.change_counts.downgrade == 0 else ['package-downgrade']) +
             ([] if lifecycle_state_observation.locks.active | length == 0 else ['active-lifecycle-lock']) +

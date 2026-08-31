@@ -50,6 +50,10 @@ for (const required of [
   '"/usr/bin/apt-mark", "showhold"',
   '"metadata_refresh_performed": False',
   '"proposal_sha256"',
+  'Status-Abbrev',
+  'installed_status_lines',
+  '"manifest_matches"',
+  '"expected_manifest_sha256"',
 ]) {
   assert(packageScript.includes(required), `package observer omits ${required}`);
 }
@@ -104,6 +108,9 @@ assert.equal(packagePolicy.hosts.proxmox.allowed_apply_scope, "reviewed-exact-se
 assert.equal(packagePolicy.hosts.proxmox.apply_authority, "protected-session");
 assert.equal(packagePolicy.hosts.debian.automatic_reboot, false);
 assert.equal(packagePolicy.hosts.proxmox.automatic_reboot, false);
+assert.deepEqual(contract.lifecycle.hosts.proxmox.domain_handoffs.package_set, {
+  current_owner: "nix", target_owner: "ansible", state: "pending", parity_required: true, single_writer: true,
+});
 
 const rebootPolicy = contract.lifecycle.maintenance.reboot_plan;
 assert.equal(rebootPolicy.automatic, false);

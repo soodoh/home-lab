@@ -109,6 +109,12 @@ lifecycle:
           state: transferred
           parity_required: true
           single_writer: true
+        package_set:
+          current_owner: nix
+          target_owner: ansible
+          state: pending
+          parity_required: true
+          single_writer: true
       access_cutover:
         state: pending
         target_identities:
