@@ -183,9 +183,9 @@ if (!exportPolicy || exportPolicy.automatic !== false || exportPolicy.safetyClas
   throw new Error("transferred NFS handoff must remain nonautomatic and data-critical");
 }
 const pendingAccessHandoff = { current_owner: "nix", target_owner: "ansible", state: "pending", parity_required: true, single_writer: true };
-const readyNetworkHandoff = { ...pendingAccessHandoff, state: "ready" };
-if (JSON.stringify(storageHandoffs.network_interfaces) !== JSON.stringify(readyNetworkHandoff)) {
-  throw new Error("ready network interface handoff differs");
+const transferredNetworkHandoff = { current_owner: "ansible", target_owner: "ansible", state: "transferred", parity_required: true, single_writer: true };
+if (JSON.stringify(storageHandoffs.network_interfaces) !== JSON.stringify(transferredNetworkHandoff)) {
+  throw new Error("transferred network interface handoff differs");
 }
 if (JSON.stringify(storageHandoffs.tailscale_node) !== JSON.stringify(pendingAccessHandoff)) {
   throw new Error("pending Tailscale node handoff differs");

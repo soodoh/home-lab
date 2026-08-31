@@ -87,9 +87,9 @@ check(missingZfsHandoff, false, "Proxmox ZFS dataset handoff policy is required"
 const missingNfsHandoff = structuredClone(contract);
 delete missingNfsHandoff.lifecycle.hosts.proxmox.domain_handoffs.nfs_export_service;
 check(missingNfsHandoff, false, "Proxmox NFS export handoff policy is required");
-const invalidReadyNetworkOwner = structuredClone(contract);
-invalidReadyNetworkOwner.lifecycle.hosts.proxmox.domain_handoffs.network_interfaces.current_owner = "ansible";
-check(invalidReadyNetworkOwner, false, "ready network interface handoff retains Nix ownership");
+const invalidTransferredNetworkOwner = structuredClone(contract);
+invalidTransferredNetworkOwner.lifecycle.hosts.proxmox.domain_handoffs.network_interfaces.current_owner = "nix";
+check(invalidTransferredNetworkOwner, false, "transferred network interface handoff requires Ansible ownership");
 const invalidPendingTailscaleOwner = structuredClone(contract);
 invalidPendingTailscaleOwner.lifecycle.hosts.proxmox.domain_handoffs.tailscale_node.current_owner = "ansible";
 check(invalidPendingTailscaleOwner, false, "pending Tailscale node handoff retains Nix ownership");
