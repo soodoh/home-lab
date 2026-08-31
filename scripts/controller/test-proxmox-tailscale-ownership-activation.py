@@ -56,6 +56,7 @@ def main() -> None:
         '"/usr/sbin/qm", "start"', '"/usr/sbin/qm", "stop"', "subprocess.Popen",
     ):
         assert forbidden not in operation, forbidden
+    assert "state_metadata.st_nlink" not in operation
     assert re.search(r'HEX64\.fullmatch\(request\["plan_sha256"\]\)', activator)
     assert 'set(request) != {"operation", "plan_sha256"}' in activator
     print("proxmox_tailscale_ownership_activation_tests=passed")
