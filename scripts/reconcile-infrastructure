@@ -95,6 +95,7 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-proxmox-nfs-ownership-activation.py
   python3 scripts/controller/test-proxmox-network-lifecycle.py
   python3 scripts/controller/test-proxmox-network-ownership-activation.py
+  python3 scripts/controller/test-proxmox-tailscale-ownership-activation.py
   node scripts/controller/test-restic-policy.js
   node scripts/controller/test-attest-debian-qualification-plan.js
   python3 scripts/controller/test-proxmox-disk-adoption-plan.py

@@ -27,6 +27,8 @@ NFS_OWNERSHIP_DIR = Path("/var/lib/home-lab/nfs-ownership-transactions")
 NFS_OWNERSHIP_LOCK = Path("/run/lock/home-lab-proxmox-nfs-ownership.lock")
 NETWORK_OWNERSHIP_DIR = Path("/var/lib/home-lab/network-ownership-transactions")
 NETWORK_OWNERSHIP_LOCK = Path("/run/lock/home-lab-proxmox-network-ownership.lock")
+TAILSCALE_OWNERSHIP_DIR = Path("/var/lib/home-lab/tailscale-ownership-transactions")
+TAILSCALE_OWNERSHIP_LOCK = Path("/run/lock/home-lab-proxmox-tailscale-ownership.lock")
 BOOT_VFIO_PATH = Path("/etc/modprobe.d/home-lab-vfio.conf")
 APT_SOURCE_PATHS = (
     "/etc/apt/sources.list",
@@ -1589,6 +1591,140 @@ def network_ownership_operation(value, digest):
         os.close(lock_fd)
 
 
+def tailscale_contract_material():
+    try:
+        import yaml
+        contract = yaml.safe_load((REPO / "infrastructure/contract/home-lab.yml").read_text())
+        handoff = contract["lifecycle"]["hosts"]["proxmox"]["domain_handoffs"]["tailscale_node"]
+        tailscale = contract["proxmox"]["tailscale"]
+        packages = contract["proxmox"]["packages"]["direct"]
+        expected = {"current_owner": "nix", "target_owner": "ansible", "state": "ready",
+                    "parity_required": True, "single_writer": True}
+        transferred = {**expected, "current_owner": "ansible", "state": "transferred"}
+        versions = [item["version"] for item in packages if item.get("name") == tailscale.get("package")]
+        if handoff not in (expected, transferred) or len(versions) != 1 or \
+                tailscale.get("service") != "tailscaled.service" or tailscale.get("service_enabled") is not True or \
+                tailscale.get("service_state") != "started" or tailscale.get("auth_key_secret_ref") != "TAILSCALE_AUTH_KEY":
+            fail("Tailscale ownership contract differs")
+        return handoff, tailscale, versions[0]
+    except (KeyError, TypeError, OSError, yaml.YAMLError) as error:
+        fail(f"Tailscale ownership contract cannot be loaded: {type(error).__name__}")
+
+
+def tailscale_ownership_snapshot():
+    handoff, expected, expected_version = tailscale_contract_material()
+    network = network_ownership_snapshot()
+    transferred_network = {"current_owner": "ansible", "target_owner": "ansible", "state": "transferred",
+                           "parity_required": True, "single_writer": True}
+    network_matches = network["handoff"] == transferred_network and network["parity_complete"]
+    status_value = json.loads(storage_run(("/usr/bin/tailscale", "status", "--json")))
+    prefs = json.loads(storage_run(("/usr/bin/tailscale", "debug", "prefs")))
+    netfilter = prefs.get("NetfilterMode")
+    if isinstance(netfilter, int) and not isinstance(netfilter, bool):
+        netfilter = {0: "off", 1: "nodivert", 2: "on"}.get(netfilter)
+    routes = [] if prefs.get("AdvertiseRoutes") is None else prefs.get("AdvertiseRoutes")
+    tags = [] if prefs.get("AdvertiseTags") is None else prefs.get("AdvertiseTags")
+    observed_prefs = {"accept_dns": prefs.get("CorpDNS"), "accept_routes": prefs.get("RouteAll"),
+                      "advertise_routes": sorted(routes) if isinstance(routes, list) else None,
+                      "advertise_tags": sorted(tags) if isinstance(tags, list) else None,
+                      "hostname": prefs.get("Hostname"), "netfilter_mode": netfilter,
+                      "ssh": prefs.get("RunSSH"), "want_running": prefs.get("WantRunning")}
+    expected_prefs = {"accept_dns": expected["accept_dns"], "accept_routes": expected["accept_routes"],
+                      "advertise_routes": sorted(expected["advertise_routes"]),
+                      "advertise_tags": [expected["advertise_tag"]], "hostname": expected["hostname"],
+                      "netfilter_mode": expected["netfilter_mode"], "ssh": expected["ssh"], "want_running": True}
+    service_active = storage_run(("/usr/bin/systemctl", "is-active", expected["service"])).strip() == "active"
+    service_enabled = storage_run(("/usr/bin/systemctl", "is-enabled", expected["service"])).strip() == "enabled"
+    version_matches = storage_run(("/usr/bin/tailscale", "version")).splitlines()[0] == expected_version
+    state_path = Path("/var/lib/tailscale")
+    state_metadata = os.lstat(state_path)
+    state_protected = stat.S_ISDIR(state_metadata.st_mode) and not stat.S_ISLNK(state_metadata.st_mode) and \
+        state_metadata.st_uid == state_metadata.st_gid == 0 and state_metadata.st_nlink == 1 and \
+        stat.S_IMODE(state_metadata.st_mode) == 0o700
+    observer = json.loads(storage_run(("/usr/local/libexec/home-lab/proxmox-observer", "observe")))
+    summaries = observer.get("domains", {})
+    external_matches = all(summaries.get(name, {}).get("status") == "complete" and
+                           summaries.get(name, {}).get("matches") is True
+                           for name in ("pveFirewall", "storage", "tailscale", "vm", "health"))
+    backend_running = status_value.get("BackendState") == "Running"
+    node_online = status_value.get("Self", {}).get("Online") is True
+    hostname_matches = status_value.get("Self", {}).get("HostName") == expected["hostname"]
+    preferences_match = observed_prefs == expected_prefs
+    locks = [str(item) for item in LOCKS if os.path.lexists(item)]
+    parity = network_matches and backend_running and node_online and hostname_matches and preferences_match and \
+        service_active and service_enabled and version_matches and state_protected and external_matches and not locks
+    return {"active_lifecycle_locks": locks, "backend_running": backend_running,
+            "external_owners_match": external_matches,
+            "format": "home-lab-proxmox-tailscale-ownership-observation-v1", "handoff": handoff,
+            "network_dependency_matches": network_matches, "node_online": node_online,
+            "parity_complete": parity, "peer_identities_exported": False,
+            "preferences_match": preferences_match, "protected_values_exported": False,
+            "service": {"active": service_active, "enabled": service_enabled},
+            "state_directory_protected": state_protected, "version": 1, "version_matches": version_matches}
+
+
+def validate_tailscale_ownership_plan(value, digest):
+    keys = {"activator_sha256", "authorized", "automatic_reboot", "before", "changed", "commit",
+            "consumer_parity_verified", "consumer_role_sha256", "contract_schema_sha256", "contract_sha256",
+            "created_at", "expires_at", "format", "host_key_fingerprint", "inventory_sha256",
+            "playbook_sha256", "protected_values_exported", "role_sha256", "transport_sha256"}
+    if not isinstance(value, dict) or set(value) != keys or \
+            value["format"] != "home-lab-proxmox-tailscale-ownership-activation-v1" or \
+            value["authorized"] is not False or value["automatic_reboot"] is not False or \
+            value["changed"] is not False or value["consumer_parity_verified"] is not True or \
+            value["protected_values_exported"] is not False or value["host_key_fingerprint"] != FINGERPRINT or \
+            HEX40.fullmatch(value.get("commit", "")) is None:
+        fail("Tailscale ownership activation envelope differs")
+    for key in ("activator_sha256", "consumer_role_sha256", "contract_schema_sha256", "contract_sha256",
+                "inventory_sha256", "playbook_sha256", "role_sha256", "transport_sha256"):
+        if HEX64.fullmatch(value.get(key, "")) is None:
+            fail("Tailscale ownership activation binding is invalid")
+    created, expires = parse_time(value["created_at"]), parse_time(value["expires_at"])
+    now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    if created > now or now > expires or (expires - created).total_seconds() != 1800 or \
+            hashlib.sha256(canonical(value)).hexdigest() != digest:
+        fail("Tailscale ownership activation freshness or hash differs")
+    verify_repo(value)
+    bindings = {"activator_sha256": file_hash(Path(__file__)),
+                "contract_schema_sha256": file_hash(REPO / "infrastructure/contract/schema.json"),
+                "playbook_sha256": file_hash(REPO / "ansible/playbooks/proxmox-network-plan.yml"),
+                "role_sha256": file_hash(REPO / "ansible/roles/proxmox_network_lifecycle/tasks/main.yml"),
+                "consumer_role_sha256": file_hash(REPO / "ansible/roles/proxmox_network_consumers/tasks/main.yml"),
+                "transport_sha256": file_hash(Path("/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport"))}
+    if any(value[key] != observed for key, observed in bindings.items()):
+        fail("Tailscale ownership activation implementation binding differs")
+    current = tailscale_ownership_snapshot()
+    transferred = {"current_owner": "ansible", "target_owner": "ansible", "state": "transferred",
+                   "parity_required": True, "single_writer": True}
+    if current["handoff"] != transferred or value["before"] != current or not current["parity_complete"]:
+        fail("Tailscale ownership parity differs")
+    return current
+
+
+def tailscale_ownership_operation(value, digest):
+    lock_fd = os.open(TAILSCALE_OWNERSHIP_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        before = validate_tailscale_ownership_plan(value, digest)
+        TAILSCALE_OWNERSHIP_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(TAILSCALE_OWNERSHIP_DIR, 0o700)
+        path = TAILSCALE_OWNERSHIP_DIR / f"{digest}.json"
+        receipt = {"automatic_reboot": False, "changed": False,
+                   "format": "home-lab-proxmox-tailscale-ownership-journal-v1", "plan_sha256": digest,
+                   "preferences_match": before["preferences_match"], "protected_values_exported": False,
+                   "service_restarted": False, "state_mutated": False, "status": "committed"}
+        if path.exists():
+            if json.loads(read_fixed(path, 0, 0, 0o600, 65536)) != receipt:
+                fail("Tailscale ownership journal differs")
+            return {"tailscale_ownership_transaction": "already-committed", "changed": False, "plan_sha256": digest}
+        save_package_journal(path, receipt, exclusive=True)
+        return {"tailscale_ownership_transaction": "committed", "changed": False, "plan_sha256": digest}
+    except BlockingIOError:
+        fail("Tailscale ownership lock is active")
+    finally:
+        os.close(lock_fd)
+
+
 
 def boot_configuration_reboot_evidence(unexpected_count):
     snapshot = boot_snapshot()
@@ -1747,7 +1883,7 @@ def reboot_operation(value, digest, operation):
 
 def main():
     request = read_bounded_stdin(1024)
-    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "apply-apt-repositories", "recover-apt-repositories", "apply-chrony-service", "recover-chrony-service", "inspect-boot-configuration", "apply-boot-configuration", "recover-boot-configuration", "apply-boot-ownership", "inspect-storage-lifecycle", "apply-zfs-ownership", "inspect-nfs-lifecycle", "apply-nfs-ownership", "inspect-network-lifecycle", "apply-network-ownership"}
+    operations = {"apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "apply-apt-repositories", "recover-apt-repositories", "apply-chrony-service", "recover-chrony-service", "inspect-boot-configuration", "apply-boot-configuration", "recover-boot-configuration", "apply-boot-ownership", "inspect-storage-lifecycle", "apply-zfs-ownership", "inspect-nfs-lifecycle", "apply-nfs-ownership", "inspect-network-lifecycle", "apply-network-ownership", "inspect-tailscale-lifecycle", "apply-tailscale-ownership"}
     if not isinstance(request, dict) or set(request) != {"operation", "plan_sha256"} or \
             request.get("operation") not in operations or not isinstance(request.get("plan_sha256"), str) or \
             HEX64.fullmatch(request["plan_sha256"]) is None:
@@ -1773,6 +1909,11 @@ def main():
         if request["plan_sha256"] != "0" * 64:
             fail("network inspection request differs")
         print(json.dumps(network_ownership_snapshot(), sort_keys=True, separators=(",", ":")))
+        return
+    if request["operation"] == "inspect-tailscale-lifecycle":
+        if request["plan_sha256"] != "0" * 64:
+            fail("Tailscale inspection request differs")
+        print(json.dumps(tailscale_ownership_snapshot(), sort_keys=True, separators=(",", ":")))
         return
     digest = request["plan_sha256"]
     deploy_account = pwd.getpwnam("ansible-deploy")
@@ -1806,6 +1947,8 @@ def main():
         output = nfs_ownership_operation(value, digest)
     elif request["operation"] == "apply-network-ownership":
         output = network_ownership_operation(value, digest)
+    elif request["operation"] == "apply-tailscale-ownership":
+        output = tailscale_ownership_operation(value, digest)
     elif request["operation"].endswith("-reboot"):
         output = reboot_operation(value, digest, request["operation"])
     else:
