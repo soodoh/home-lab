@@ -262,6 +262,7 @@ def main() -> None:
                 controlled = {
                     "repository": ("unable to open config file", "repository does not exist", "repository not found"),
                     "password": ("wrong password", "no key found"),
+                    "integrity": ("invalid data returned", "loadraw("),
                     "backend": ("rclone", "backend"),
                     "network": ("connection", "timeout", "dial tcp", "network"),
                     "capacity": ("no space left", "not enough space"),
