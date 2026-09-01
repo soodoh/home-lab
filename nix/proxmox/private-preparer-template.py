@@ -455,14 +455,8 @@ def summaries():
         access = state["access"]
         home = Path("/home")
         human_ok = all(absent_fixed(home / "proxmox" / ".ssh" / name) for name in ("authorized_keys", "authorized_keys2"))
-        forced = 'restrict,command="sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe" '
-        plan_text = read_fixed(home / "tofu-plan" / ".ssh" / "authorized_keys", owner_name="tofu-plan")
-        apply_text = read_fixed(home / "tofu-apply" / ".ssh" / "authorized_keys", owner_name="tofu-apply")
         firewall_text = read_fixed(home / "firewall-apply" / ".ssh" / "authorized_keys", owner_name="firewall-apply")
         firewall_forced = 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport" '
-        apply_forced = 'restrict,command="/usr/local/libexec/home-lab/proxmox-apply-transport" '
-        plan_ok = plan_text == "".join(forced + key + "\n" for key in access["planKeys"])
-        apply_ok = apply_text == "".join(apply_forced + key + "\n" for key in access["applyKeys"])
         firewall_ok = firewall_text == "".join(firewall_forced + key + "\n" for key in access["firewallKeys"])
         escrow = Path("/root") / ".config" / "home-lab"
         plan_escrow = read_fixed(escrow / "proxmox-plan-token.env")
@@ -477,7 +471,15 @@ def summaries():
         apply_token_ok = apply_escrow == "PROXMOX_VE_API_TOKEN=" + access["applyToken"] + "\n" and \
             token_valid(access["applyToken"]) and token_policy_valid(access["applyToken"], "apply", acl_records,
                                                                    access["applyTokenIdentity"])
-        access_summary = summary_record((human_ok, plan_ok, apply_ok, firewall_ok, plan_token_ok, apply_token_ok))
+        access_checks = [human_ok, firewall_ok, plan_token_ok, apply_token_ok]
+        if SPEC["legacyTofuAccessRequired"]:
+            plan_forced = 'restrict,command="sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe" '
+            apply_forced = 'restrict,command="/usr/local/libexec/home-lab/proxmox-apply-transport" '
+            plan_text = read_fixed(home / "tofu-plan" / ".ssh" / "authorized_keys", owner_name="tofu-plan")
+            apply_text = read_fixed(home / "tofu-apply" / ".ssh" / "authorized_keys", owner_name="tofu-apply")
+            access_checks.extend((plan_text == "".join(plan_forced + key + "\n" for key in access["planKeys"]),
+                                  apply_text == "".join(apply_forced + key + "\n" for key in access["applyKeys"])))
+        access_summary = summary_record(access_checks)
 
         hardware = state["hardware"]
         vm = run(("/usr/sbin/qm", "config", "100"))
@@ -498,7 +500,7 @@ def summaries():
         hardware_summary = summary_record((games_ok, pool_ok, usb_ok))
         return {"protectedAccess": access_summary, "protectedHardware": hardware_summary}
     except Exception:
-        return {"protectedAccess": {"expectedCount": 6, "matches": None, "observedCount": None, "status": "unavailable"},
+        return {"protectedAccess": {"expectedCount": SPEC["protectedAccessExpectedCount"], "matches": None, "observedCount": None, "status": "unavailable"},
                 "protectedHardware": {"expectedCount": 3, "matches": None, "observedCount": None, "status": "unavailable"}}
 
 

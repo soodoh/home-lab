@@ -41,6 +41,15 @@ specification.loader.exec_module(bundle_module)
 
 
 class ProxmoxNixFoundationTests(unittest.TestCase):
+    def test_frozen_mutation_projection_drops_legacy_tofu_key_evidence(self) -> None:
+        projection = json.loads(PROJECTION.read_bytes())
+        observation = bundle_module.observation_specification(projection)
+        preparation = bundle_module.preparation_specification(projection, "a" * 64)
+        self.assertTrue(projection["nixMutationFrozen"])
+        self.assertFalse(observation["legacyTofuAccessRequired"])
+        self.assertEqual(observation["protectedAccessExpectedCount"], 4)
+        self.assertFalse(preparation["legacyTofuAccessRequired"])
+        self.assertEqual(preparation["protectedAccessExpectedCount"], 4)
     def build(self, root: Path) -> tuple[Path, Path]:
         bundle = root / "bundle"
         content_hash = root / "bundle.sha256"

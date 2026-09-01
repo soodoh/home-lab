@@ -349,7 +349,8 @@ def observation_specification(projection: dict[str, Any]) -> dict[str, Any]:
         "networkSnippetNames": sorted(projection["hostNetworking"]["permittedActiveSnippets"]),
         "expectedIdentity": {"architecture": projection["architecture"], "hostname": projection["hostNetworking"]["hostname"],
                              "os": "debian", "pveVersion": "pve-manager/" + pve_manager["version"]},
-        "protectedAccessExpectedCount": 6,
+        "legacyTofuAccessRequired": projection["nixMutationFrozen"] is not True,
+        "protectedAccessExpectedCount": 4 if projection["nixMutationFrozen"] is True else 6,
         "protectedExpectedCount": 3,
         "pveAccessRoles": projection["apiIntent"]["pveAccess"]["roles"],
         "pveFirewall": projection["apiIntent"]["pveFirewall"],
@@ -437,10 +438,13 @@ def activation_specification(projection: dict[str, Any], flake_lock_sha256: str,
 
 def preparation_specification(projection: dict[str, Any], flake_lock_sha256: str) -> dict[str, Any]:
     catalog = activation_specification(projection, flake_lock_sha256, False)
+    observation = observation_specification(projection)
     pve_manager = next(item for item in projection["packagePolicy"]["critical"] if item["role"] == "pve-manager")
     return {**catalog, "hostname": projection["hostNetworking"]["hostname"],
+            "legacyTofuAccessRequired": observation["legacyTofuAccessRequired"],
             "node": projection["apiIntent"]["pveStorage"]["nodes"][0],
             "pool": projection["apiIntent"]["pveStorage"]["pool"],
+            "protectedAccessExpectedCount": observation["protectedAccessExpectedCount"],
             "pveAccessBindings": projection["apiIntent"]["pveAccess"]["bindings"],
             "pveVersion": "pve-manager/" + pve_manager["version"]}
 
