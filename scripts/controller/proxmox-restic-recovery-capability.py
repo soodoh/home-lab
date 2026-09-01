@@ -239,7 +239,7 @@ def apply(plan_path: Path, authorization_path: Path) -> None:
     if not already_committed: commit_candidate(candidate_digest, digest)
     final = observe(); active = [item for item in final["candidates"] if item.get("status") != "committed"]
     if active or any(final["paths"][path].get("sha256") != sha(source[path]) for path in TARGETS): raise SystemExit("capability committed observation differs")
-    receipt = {"format": "home-lab-proxmox-restic-recovery-capability-receipt-v1", "plan_sha256": digest, "candidate_plan_sha256": candidate_digest, "status": "committed", "snippet_transport_canary": True, "guest_interfaces_canary": "required-during-live-vm-9900-qualification"}; receipt_raw = canonical(receipt); receipt_digest = sha(receipt_raw); write_exclusive(OUTPUT / f"receipt-{receipt_digest}.json", receipt_raw)
+    receipt = {"format": "home-lab-proxmox-restic-recovery-capability-receipt-v1", "plan_sha256": digest, "candidate_plan_sha256": candidate_digest, "status": "committed", "snippet_transport_canary": True, "network_identity_canary": "required-during-live-vm-9900-qualification"}; receipt_raw = canonical(receipt); receipt_digest = sha(receipt_raw); write_exclusive(OUTPUT / f"receipt-{receipt_digest}.json", receipt_raw)
     print(json.dumps({**receipt, "receipt_sha256": receipt_digest}, sort_keys=True))
 
 

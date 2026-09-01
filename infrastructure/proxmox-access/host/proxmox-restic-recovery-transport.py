@@ -67,13 +67,14 @@ def fsync_directory() -> None:
     finally: os.close(descriptor)
 
 
-def guest_interfaces() -> None:
-    result = subprocess.run(("/usr/sbin/qm", "guest", "cmd", str(VMID), "network-get-interfaces"), capture_output=True, text=True, timeout=30)
-    if result.returncode or result.stderr:
-        fail("VM 9900 guest interface observation failed", 69)
-    try: value = json.loads(result.stdout)
-    except json.JSONDecodeError: fail("VM 9900 guest interface output differs", 69)
-    print(canonical(value))
+def network_identity() -> None:
+    status = subprocess.run(("/usr/sbin/qm", "status", str(VMID)), capture_output=True, text=True, timeout=30)
+    config = subprocess.run(("/usr/sbin/qm", "config", str(VMID)), capture_output=True, text=True, timeout=30)
+    if status.returncode or config.returncode or status.stderr or config.stderr: fail("VM 9900 network identity observation failed", 69)
+    status_match = re.fullmatch(r"status: ([a-z]+)\n?", status.stdout)
+    net_match = re.search(r"^net0: [^\n]*?(?:virtio|e1000|vmxnet3)=([0-9A-Fa-f:]{17})(?:,|$)", config.stdout, re.MULTILINE)
+    if status_match is None or net_match is None: fail("VM 9900 network identity output differs", 69)
+    print(canonical({"mac": net_match.group(1).upper(), "status": status_match.group(1), "vmid": VMID}))
 
 
 def stage_snippet(expected: str) -> None:
@@ -117,7 +118,7 @@ def remove_snippet(expected: str) -> None:
 
 def main() -> None:
     require_root(); arguments = sys.argv[1:]
-    if arguments == ["guest-interfaces"]: guest_interfaces(); return
+    if arguments == ["network-identity"]: network_identity(); return
     if len(arguments) == 2 and arguments[0] == "stage-snippet": stage_snippet(arguments[1]); return
     if len(arguments) == 2 and arguments[0] == "remove-snippet": remove_snippet(arguments[1]); return
     fail("unsupported restic recovery transport command")

@@ -10,8 +10,8 @@ if [ "$#" -ne 2 ] || [ "$1" != -c ] || [ -n "${SSH_ORIGINAL_COMMAND-}" ]; then
 fi
 command=$2
 case "$command" in
-  restic-recovery\ guest-interfaces)
-    exec sudo -n -- /usr/local/libexec/home-lab/proxmox-restic-recovery-transport guest-interfaces
+  restic-recovery\ network-identity)
+    exec sudo -n -- /usr/local/libexec/home-lab/proxmox-restic-recovery-transport network-identity
     ;;
   restic-recovery\ stage-snippet\ *)
     digest=${command#restic-recovery stage-snippet }

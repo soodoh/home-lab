@@ -87,10 +87,12 @@ def proxmox_recovery_transport() -> list[str]:
     return ["ssh", "-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "-o", "ClearAllForwardings=yes", "ansible-deploy@proxmox"]
 
 
-def proxmox_guest_interfaces() -> object:
-    result = command(proxmox_recovery_transport() + ["restic-recovery guest-interfaces"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    try: return json.loads(result.stdout)
-    except json.JSONDecodeError: fail("proxmox_guest_interface_observation_failed")
+def proxmox_network_identity() -> dict[str, object]:
+    result = command(proxmox_recovery_transport() + ["restic-recovery network-identity"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try: value = json.loads(result.stdout)
+    except json.JSONDecodeError: fail("proxmox_network_identity_observation_failed")
+    if not isinstance(value, dict) or set(value) != {"mac", "status", "vmid"} or value.get("vmid") != VMID or value.get("status") != "running" or not isinstance(value.get("mac"), str) or re.fullmatch(r"[0-9A-F]{2}(?::[0-9A-F]{2}){5}", value["mac"]) is None: fail("proxmox_network_identity_observation_failed")
+    return value
 
 
 def install_cloud_snippet(directory: Path, cloud: str, expected_sha256: str) -> None:
@@ -931,18 +933,14 @@ def flatten(value: object) -> list[str]:
 
 
 def discover_recovery_ip(directory: Path) -> str:
-    interfaces = proxmox_guest_interfaces()
-    if not isinstance(interfaces, list): fail("proxmox_guest_interface_observation_failed")
-    candidates = set()
-    for interface in interfaces:
-        if not isinstance(interface, dict): continue
-        addresses = interface.get("ip-addresses", [])
-        if not isinstance(addresses, list): continue
-        for address in addresses:
-            if not isinstance(address, dict): continue
-            value = address.get("ip-address")
-            if isinstance(value, str) and re.fullmatch(r"192\.168\.0\.[0-9]+", value): candidates.add(value)
-    candidates = sorted(candidates - {"192.168.0.1", "192.168.0.100", "192.168.0.123", "192.168.0.255"})
+    identity = proxmox_network_identity(); expected_mac = str(identity["mac"]).lower()
+    sweep = "for i in $(seq 2 254); do ping -c 1 -W 200 192.168.0.$i >/dev/null 2>&1 & done; wait"
+    command(["bash", "-c", sweep], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    observed = command(["arp", "-a"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL); candidates = []
+    for line in (observed.stdout or "").splitlines():
+        match = re.search(r"\((192\.168\.0\.[0-9]+)\) at ([0-9a-f:]{17})", line.lower())
+        if match and match.group(2) == expected_mac: candidates.append(match.group(1))
+    candidates = sorted(set(candidates) - {"192.168.0.1", "192.168.0.100", "192.168.0.123", "192.168.0.255"})
     _cloud, _user_public, host_public = cloud_init_data(directory); matches = []
     for ip in candidates:
         try:
