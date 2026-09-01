@@ -17,7 +17,8 @@ PLAN_DIR = ROOT / ".local/proxmox-deploy-capability"
 FINGERPRINT = "SHA256:uaxG9uESfphESCqWx3ialKjK0doHnVcFoUIGWMGcaYQ"
 TRANSPORT = "/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport"
 ACTIVATOR = "/usr/local/libexec/home-lab/proxmox-ansible-deploy-activator"
-RULE = f"ansible-deploy ALL=(root) NOPASSWD: {ACTIVATOR}"
+RESTIC_RECOVERY = "/usr/local/libexec/home-lab/proxmox-restic-recovery-transport"
+RULE = f"ansible-deploy ALL=(root) NOPASSWD: {ACTIVATOR}, {RESTIC_RECOVERY}"
 SSH = ("ssh", "-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "proxmox@proxmox", "sudo -n -- /usr/bin/python3 -")
 SSH_BASE = ("ssh", "-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "proxmox@proxmox")
 
@@ -49,7 +50,7 @@ def observe() -> dict:
     program = r'''
 import grp,json,os,pwd,subprocess
 name="ansible-deploy"; value=pwd.getpwnam(name); status=subprocess.run(["/usr/bin/passwd","--status",name],capture_output=True,text=True); fields=status.stdout.split()
-paths=("/home/ansible-deploy/.ssh/authorized_keys","/home/ansible-deploy/.ssh/authorized_keys2","/etc/sudoers.d/ansible-deploy","/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport","/usr/local/libexec/home-lab/proxmox-ansible-deploy-activator")
+paths=("/home/ansible-deploy/.ssh/authorized_keys","/home/ansible-deploy/.ssh/authorized_keys2","/etc/sudoers.d/ansible-deploy","/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport","/usr/local/libexec/home-lab/proxmox-ansible-deploy-activator","/usr/local/libexec/home-lab/proxmox-restic-recovery-transport")
 locks=[p for p in ("/var/lib/home-lab/reconciliation/apply.lock","/var/lib/iac-ansible-production.lock","/var/lib/home-lab/firewall-transaction/active.json") if os.path.lexists(p)]
 print(json.dumps({"account":{"groups":sorted(grp.getgrgid(g).gr_name for g in os.getgrouplist(name,value.pw_gid)),"home":value.pw_dir,"password_locked":status.returncode==0 and len(fields)>1 and fields[1] in {"L","LK"},"shell":value.pw_shell},"paths":{p:os.path.lexists(p) for p in paths},"locks":locks},sort_keys=True,separators=(",",":")))
 '''
@@ -71,9 +72,10 @@ def source_proof() -> dict:
     contract = (ROOT / "infrastructure/contract/home-lab.yml").read_text()
     transport = ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-deploy-transport"
     activator = ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator"
-    proof = {"transport_sha256": file_sha(transport), "activator_sha256": file_sha(activator),
+    recovery = ROOT / "infrastructure/proxmox-access/host/proxmox-restic-recovery-transport.py"
+    proof = {"transport_sha256": file_sha(transport), "activator_sha256": file_sha(activator), "restic_recovery_sha256": file_sha(recovery),
              "contract_shell": f"shell: {TRANSPORT}" in contract, "contract_sudo_rule": f'rule: "{RULE}"' in contract,
-             "no_generic_sudo": "NOPASSWD: ALL" not in transport.read_text() + activator.read_text()}
+             "no_generic_sudo": "NOPASSWD: ALL" not in transport.read_text() + activator.read_text() + recovery.read_text()}
     if proof["contract_shell"] is not True or proof["contract_sudo_rule"] is not True or proof["no_generic_sudo"] is not True:
         raise SystemExit("deploy capability source proof failed")
     return proof
@@ -136,7 +138,8 @@ def apply_capability(path: Path, receipt_path: Path) -> None:
     proof = plan["source_proof"]
     if installed != {TRANSPORT: {"sha256": proof["transport_sha256"], "uid": 0, "gid": 0, "mode": "0755", "regular": True, "nlink": 1}, ACTIVATOR: {"sha256": proof["activator_sha256"], "uid": 0, "gid": 0, "mode": "0755", "regular": True, "nlink": 1}}:
         raise SystemExit("installed deploy helpers differ from reviewed sources")
-    remote = f'''set -euo pipefail\n[[ ! -e /var/lib/home-lab/reconciliation/apply.lock && ! -e /var/lib/iac-ansible-production.lock && ! -e /var/lib/home-lab/firewall-transaction/active.json ]]\n[[ $(getent passwd ansible-deploy | cut -d: -f7) == /usr/sbin/nologin ]]\n[[ ! -e /etc/sudoers.d/ansible-deploy && ! -e /home/ansible-deploy/.ssh/authorized_keys && ! -e /home/ansible-deploy/.ssh/authorized_keys2 ]]\ntmp=$(mktemp /etc/sudoers.d/.ansible-deploy.XXXXXX); trap 'rm -f "$tmp"; usermod --shell /usr/sbin/nologin ansible-deploy >/dev/null 2>&1 || true; rm -f /etc/sudoers.d/ansible-deploy' ERR\nprintf '%s\\n' '{RULE}' >"$tmp"; chown root:root "$tmp"; chmod 0440 "$tmp"; /usr/sbin/visudo --check --file="$tmp" >/dev/null\ninstall -o root -g root -m 0440 "$tmp" /etc/sudoers.d/ansible-deploy; rm -f "$tmp"; usermod --shell {TRANSPORT} ansible-deploy\n'''
+    recovery_raw = (ROOT / "infrastructure/proxmox-access/host/proxmox-restic-recovery-transport.py").read_bytes()
+    remote = f'''set -euo pipefail\n[[ ! -e /var/lib/home-lab/reconciliation/apply.lock && ! -e /var/lib/iac-ansible-production.lock && ! -e /var/lib/home-lab/firewall-transaction/active.json ]]\n[[ $(getent passwd ansible-deploy | cut -d: -f7) == /usr/sbin/nologin ]]\n[[ ! -e /etc/sudoers.d/ansible-deploy && ! -e /home/ansible-deploy/.ssh/authorized_keys && ! -e /home/ansible-deploy/.ssh/authorized_keys2 ]]\ntmp=$(mktemp /etc/sudoers.d/.ansible-deploy.XXXXXX); helper_tmp=$(mktemp /usr/local/libexec/home-lab/.proxmox-restic-recovery.XXXXXX); trap 'rm -f "$tmp" "$helper_tmp"; usermod --shell /usr/sbin/nologin ansible-deploy >/dev/null 2>&1 || true; rm -f /etc/sudoers.d/ansible-deploy {RESTIC_RECOVERY}' ERR\nprintf '%s\\n' '{RULE}' >"$tmp"; chown root:root "$tmp"; chmod 0440 "$tmp"; /usr/sbin/visudo --check --file="$tmp" >/dev/null\nprintf '%s' '{recovery_raw.hex()}' | xxd -r -p >"$helper_tmp"; chown root:root "$helper_tmp"; chmod 0755 "$helper_tmp"\ninstall -o root -g root -m 0755 "$helper_tmp" {RESTIC_RECOVERY}; install -o root -g root -m 0440 "$tmp" /etc/sudoers.d/ansible-deploy; rm -f "$tmp" "$helper_tmp"; usermod --shell {TRANSPORT} ansible-deploy\n'''
     result = subprocess.run((*SSH_BASE, "sudo -n -- /bin/bash -s"), input=remote, text=True, timeout=120)
     if result.returncode: raise SystemExit("deploy capability transaction failed")
     print(json.dumps({"deploy_capability": "enabled", "plan_sha256": digest}, sort_keys=True))

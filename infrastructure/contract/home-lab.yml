@@ -658,7 +658,7 @@ proxmox:
             owner: root
             group: root
             mode: "0440"
-          rule: "ansible-deploy ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator"
+          rule: "ansible-deploy ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator, /usr/local/libexec/home-lab/proxmox-restic-recovery-transport"
     human_accounts:
       - name: proxmox
         comment: Home Lab Proxmox Administrator

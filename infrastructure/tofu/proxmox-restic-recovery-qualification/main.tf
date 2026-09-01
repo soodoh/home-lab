@@ -23,16 +23,6 @@ locals {
 provider "proxmox" {
   endpoint = var.proxmox_endpoint
   insecure = false
-
-  ssh {
-    agent    = true
-    username = "root"
-
-    node {
-      name    = local.node
-      address = split("/", local.contract.network.proxmox.ipv4)[0]
-    }
-  }
 }
 
 

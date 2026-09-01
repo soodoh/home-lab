@@ -21,7 +21,8 @@ ACTIVATOR = "/usr/local/libexec/home-lab/proxmox-ansible-deploy-activator"
 OBSERVER = "/usr/local/libexec/home-lab/proxmox-observer"
 PREPARER = "/usr/local/libexec/home-lab/proxmox-private-preparer"
 FIREWALL_TRANSACTION = "/usr/local/libexec/home-lab/proxmox-firewall-transaction"
-RULE = f"ansible-deploy ALL=(root) NOPASSWD: {ACTIVATOR}"
+RESTIC_RECOVERY = "/usr/local/libexec/home-lab/proxmox-restic-recovery-transport"
+RULE = f"ansible-deploy ALL=(root) NOPASSWD: {ACTIVATOR}, {RESTIC_RECOVERY}"
 SSH = ("ssh", "-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "proxmox@proxmox", "sudo -n -- /usr/bin/python3 -")
 
 
@@ -49,7 +50,7 @@ def clean_pushed_commit() -> str:
 
 
 def observe() -> dict:
-    program=f'''import grp,hashlib,json,os,pwd,stat,subprocess\nname="ansible-deploy"; account=pwd.getpwnam(name); status=subprocess.run(["/usr/bin/passwd","--status",name],capture_output=True,text=True); fields=status.stdout.split()\ndef meta(path):\n s=os.lstat(path); return {{"uid":s.st_uid,"gid":s.st_gid,"mode":format(stat.S_IMODE(s.st_mode),"04o"),"regular":stat.S_ISREG(s.st_mode),"symlink":stat.S_ISLNK(s.st_mode),"nlink":s.st_nlink,"sha256":hashlib.sha256(open(path,"rb").read()).hexdigest()}}\nprint(json.dumps({{"account":{{"groups":sorted(grp.getgrgid(g).gr_name for g in os.getgrouplist(name,account.pw_gid)),"password_locked":status.returncode==0 and len(fields)>1 and fields[1] in {{"L","LK"}},"shell":account.pw_shell}},"authorized_keys_absent":not os.path.lexists("/home/ansible-deploy/.ssh/authorized_keys") and not os.path.lexists("/home/ansible-deploy/.ssh/authorized_keys2"),"helpers":{{{TRANSPORT!r}:meta({TRANSPORT!r}),{ACTIVATOR!r}:meta({ACTIVATOR!r}),{OBSERVER!r}:meta({OBSERVER!r}),{PREPARER!r}:meta({PREPARER!r}),{FIREWALL_TRANSACTION!r}:meta({FIREWALL_TRANSACTION!r})}},"sudo_rule":open("/etc/sudoers.d/ansible-deploy").read(),"locks":[p for p in ("/var/lib/home-lab/reconciliation/apply.lock","/var/lib/iac-ansible-production.lock","/var/lib/home-lab/firewall-transaction/active.json") if os.path.lexists(p)]}},sort_keys=True,separators=(",",":")))\n'''
+    program=f'''import grp,hashlib,json,os,pwd,stat,subprocess\nname="ansible-deploy"; account=pwd.getpwnam(name); status=subprocess.run(["/usr/bin/passwd","--status",name],capture_output=True,text=True); fields=status.stdout.split()\ndef meta(path):\n s=os.lstat(path); return {{"uid":s.st_uid,"gid":s.st_gid,"mode":format(stat.S_IMODE(s.st_mode),"04o"),"regular":stat.S_ISREG(s.st_mode),"symlink":stat.S_ISLNK(s.st_mode),"nlink":s.st_nlink,"sha256":hashlib.sha256(open(path,"rb").read()).hexdigest()}}\nprint(json.dumps({{"account":{{"groups":sorted(grp.getgrgid(g).gr_name for g in os.getgrouplist(name,account.pw_gid)),"password_locked":status.returncode==0 and len(fields)>1 and fields[1] in {{"L","LK"}},"shell":account.pw_shell}},"authorized_keys_absent":not os.path.lexists("/home/ansible-deploy/.ssh/authorized_keys") and not os.path.lexists("/home/ansible-deploy/.ssh/authorized_keys2"),"helpers":{{{TRANSPORT!r}:meta({TRANSPORT!r}),{ACTIVATOR!r}:meta({ACTIVATOR!r}),{OBSERVER!r}:meta({OBSERVER!r}),{PREPARER!r}:meta({PREPARER!r}),{FIREWALL_TRANSACTION!r}:meta({FIREWALL_TRANSACTION!r}),{RESTIC_RECOVERY!r}:meta({RESTIC_RECOVERY!r})}},"sudo_rule":open("/etc/sudoers.d/ansible-deploy").read(),"locks":[p for p in ("/var/lib/home-lab/reconciliation/apply.lock","/var/lib/iac-ansible-production.lock","/var/lib/home-lab/firewall-transaction/active.json") if os.path.lexists(p)]}},sort_keys=True,separators=(",",":")))\n'''
     result=subprocess.run(SSH,input=program,text=True,capture_output=True,timeout=60)
     if result.returncode or result.stderr: raise SystemExit("deploy upgrade observation failed")
     value=json.loads(result.stdout)
@@ -68,7 +69,8 @@ def source_bytes() -> dict[str, bytes]:
             ACTIVATOR:(ROOT/"infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator").read_bytes(),
             OBSERVER:module.expected_helper_content("proxmox-observer",projection),
             PREPARER:module.expected_helper_content("proxmox-private-preparer",projection),
-            FIREWALL_TRANSACTION:(ROOT/"infrastructure/proxmox-firewall/host/proxmox-firewall-transaction.py").read_bytes()}
+            FIREWALL_TRANSACTION:(ROOT/"infrastructure/proxmox-firewall/host/proxmox-firewall-transaction.py").read_bytes(),
+            RESTIC_RECOVERY:(ROOT/"infrastructure/proxmox-access/host/proxmox-restic-recovery-transport.py").read_bytes()}
 
 
 def source_hashes() -> dict:

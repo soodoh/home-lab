@@ -85,6 +85,7 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-proxmox-root-group-retirement-host.py
   python3 scripts/controller/test-proxmox-obsolete-root-key-retirement.py
   python3 scripts/controller/test-proxmox-obsolete-root-key-retirement-host.py
+  python3 scripts/controller/test-proxmox-restic-recovery-capability.py
   node scripts/controller/test-lifecycle-transition-plan.js
   node scripts/controller/test-maintenance-planning.js
   node scripts/controller/test-save-host-maintenance-plan.js

@@ -168,11 +168,12 @@ function validateProxmoxHostPolicy(contract) {
   }
   const ansibleDeployAccount = serviceAccounts.find((account) => account.name === "ansible-deploy");
   const deployActivator = "/usr/local/libexec/home-lab/proxmox-ansible-deploy-activator";
+  const resticRecoveryTransport = "/usr/local/libexec/home-lab/proxmox-restic-recovery-transport";
   if (ansibleDeployAccount && (ansibleDeployAccount.groups.length || ansibleDeployAccount.sudo?.state !== "present" ||
       ansibleDeployAccount.sudo?.file?.path !== "/etc/sudoers.d/ansible-deploy" ||
-      ansibleDeployAccount.sudo?.rule !== `ansible-deploy ALL=(root) NOPASSWD: ${deployActivator}` ||
+      ansibleDeployAccount.sudo?.rule !== `ansible-deploy ALL=(root) NOPASSWD: ${deployActivator}, ${resticRecoveryTransport}` ||
       ansibleDeployAccount.authorized_keys?.state !== "absent")) {
-    failures.push("ansible-deploy must expose only the fixed saved-plan activator transport");
+    failures.push("ansible-deploy must expose only the fixed saved-plan and Restic recovery transports");
   }
 
   const humanNames = proxmox.access.human_accounts.map((account) => account.name);

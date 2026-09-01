@@ -76,58 +76,38 @@ def command(arguments: list[str], *, env=None, stdout=None, stderr=None, check=T
 
 
 def provider_ssh_environment(environment: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:
-    key = Path.home() / ".ssh/home-lab-arch-ansible"
-    regular_source(key, 0o600, "proxmox_root_ssh_key")
-    started = command(["ssh-agent", "-s"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    socket = re.search(r"SSH_AUTH_SOCK=([^;]+);", started.stdout or "")
-    process = re.search(r"SSH_AGENT_PID=([0-9]+);", started.stdout or "")
-    if socket is None or process is None: fail("provider_ssh_agent_start_failed")
-    agent = {"SSH_AUTH_SOCK": socket.group(1), "SSH_AGENT_PID": process.group(1)}
-    result = dict(environment); result.update(agent)
-    result["PROXMOX_VE_SSH_USERNAME"] = "root"
-    command(["ssh-add", str(key)], env=result, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return result, agent
+    return dict(environment), {}
 
 
 def stop_provider_ssh_agent(environment: dict[str, str], agent: dict[str, str]) -> None:
-    cleanup = dict(environment); cleanup.update(agent)
-    command(["ssh-agent", "-k"], env=cleanup, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+    del environment, agent
 
 
-def proxmox_root_ssh() -> list[str]:
-    key = Path.home() / ".ssh/home-lab-arch-ansible"
-    regular_source(key, 0o600, "proxmox_root_ssh_key")
-    return ["ssh", "-i", str(key), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "root@proxmox"]
+def proxmox_recovery_transport() -> list[str]:
+    return ["ssh", "-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no", "-o", "ClearAllForwardings=yes", "ansible-deploy@proxmox"]
 
 
 def proxmox_guest_interfaces() -> object:
-    result = command(proxmox_root_ssh() + ["/usr/sbin/qm guest cmd 9900 network-get-interfaces"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    result = command(proxmox_recovery_transport() + ["restic-recovery guest-interfaces"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     try: return json.loads(result.stdout)
     except json.JSONDecodeError: fail("proxmox_guest_interface_observation_failed")
 
 
 def install_cloud_snippet(directory: Path, cloud: str, expected_sha256: str) -> None:
+    del directory
     if HEX.fullmatch(expected_sha256) is None or sha_bytes(cloud.encode()) != expected_sha256: fail("cloud_snippet_identity_differs")
-    source = directory / "cloud-init.yaml"
-    if not source.exists():
-        descriptor = os.open(source, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        with os.fdopen(descriptor, "w") as stream: stream.write(cloud); stream.flush(); os.fsync(stream.fileno())
-    regular_source(source, 0o600, "cloud_snippet")
-    if digest(source) != expected_sha256: fail("cloud_snippet_source_drift")
-    temporary = f"/var/lib/vz/snippets/.home-lab-restic-recovery.{expected_sha256}"
-    destination = "/var/lib/vz/snippets/home-lab-restic-recovery-cloud-init.yaml"
-    command(proxmox_root_ssh() + [f"install -d -m 0755 /var/lib/vz/snippets && rm -f {temporary}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    key = Path.home() / ".ssh/home-lab-arch-ansible"
-    command(["scp", "-q", "-i", str(key), "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", str(source), f"root@proxmox:{temporary}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    script = f"test $(sha256sum {temporary} | awk '{{print $1}}') = {expected_sha256} && chown root:root {temporary} && chmod 0600 {temporary} && mv -f {temporary} {destination}"
-    command(proxmox_root_ssh() + [script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = command(proxmox_recovery_transport() + [f"restic-recovery stage-snippet {expected_sha256}"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, input_text=cloud)
+    try: receipt = json.loads(result.stdout)
+    except json.JSONDecodeError: fail("cloud_snippet_stage_receipt_differs")
+    if receipt != {"sha256": expected_sha256, "staged": True}: fail("cloud_snippet_stage_receipt_differs")
 
 
 def remove_cloud_snippet(expected_sha256: str) -> None:
     if HEX.fullmatch(expected_sha256) is None: fail("cloud_snippet_identity_differs")
-    destination = "/var/lib/vz/snippets/home-lab-restic-recovery-cloud-init.yaml"
-    script = f"if test -e {destination}; then test $(sha256sum {destination} | awk '{{print $1}}') = {expected_sha256} && rm -f {destination}; fi"
-    command(proxmox_root_ssh() + [script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = command(proxmox_recovery_transport() + [f"restic-recovery remove-snippet {expected_sha256}"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    try: receipt = json.loads(result.stdout)
+    except json.JSONDecodeError: fail("cloud_snippet_remove_receipt_differs")
+    if receipt != {"removed": True, "sha256": expected_sha256}: fail("cloud_snippet_remove_receipt_differs")
 
 
 def git(*arguments: str) -> str:
@@ -951,18 +931,23 @@ def flatten(value: object) -> list[str]:
 
 
 def discover_recovery_ip(directory: Path) -> str:
-    sweep = "for i in $(seq 2 254); do ping -c 1 -W 200 192.168.0.$i >/dev/null 2>&1 & done; wait"
-    command(["bash", "-c", sweep], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-    observed = command(["arp", "-a"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-    candidates = sorted(set(re.findall(r"\((192\.168\.0\.[0-9]+)\)", observed.stdout or "")))
-    _cloud, _user_public, host_public = cloud_init_data(directory)
-    matches = []
+    interfaces = proxmox_guest_interfaces()
+    if not isinstance(interfaces, list): fail("proxmox_guest_interface_observation_failed")
+    candidates = set()
+    for interface in interfaces:
+        if not isinstance(interface, dict): continue
+        addresses = interface.get("ip-addresses", [])
+        if not isinstance(addresses, list): continue
+        for address in addresses:
+            if not isinstance(address, dict): continue
+            value = address.get("ip-address")
+            if isinstance(value, str) and re.fullmatch(r"192\.168\.0\.[0-9]+", value): candidates.add(value)
+    candidates = sorted(candidates - {"192.168.0.1", "192.168.0.100", "192.168.0.123", "192.168.0.255"})
+    _cloud, _user_public, host_public = cloud_init_data(directory); matches = []
     for ip in candidates:
-        if ip in {"192.168.0.1", "192.168.0.100", "192.168.0.123", "192.168.0.255"}: continue
         try:
-            with socket.create_connection((ip, 22), timeout=0.2): pass
-        except OSError:
-            continue
+            with socket.create_connection((ip, 22), timeout=0.5): pass
+        except OSError: continue
         known_hosts(directory, ip, host_public)
         result = command(ssh_base(directory, ip) + ["true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         if result.returncode == 0: matches.append(ip)

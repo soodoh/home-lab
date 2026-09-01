@@ -10,6 +10,21 @@ if [ "$#" -ne 2 ] || [ "$1" != -c ] || [ -n "${SSH_ORIGINAL_COMMAND-}" ]; then
 fi
 command=$2
 case "$command" in
+  restic-recovery\ guest-interfaces)
+    exec sudo -n -- /usr/local/libexec/home-lab/proxmox-restic-recovery-transport guest-interfaces
+    ;;
+  restic-recovery\ stage-snippet\ *)
+    digest=${command#restic-recovery stage-snippet }
+    case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
+    [ "${#digest}" -eq 64 ] || exit 64
+    exec sudo -n -- /usr/local/libexec/home-lab/proxmox-restic-recovery-transport stage-snippet "$digest"
+    ;;
+  restic-recovery\ remove-snippet\ *)
+    digest=${command#restic-recovery remove-snippet }
+    case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
+    [ "${#digest}" -eq 64 ] || exit 64
+    exec sudo -n -- /usr/local/libexec/home-lab/proxmox-restic-recovery-transport remove-snippet "$digest"
+    ;;
   stage\ lifecycle-marker\ *)
     digest=${command#stage lifecycle-marker }
     case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
