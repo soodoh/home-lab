@@ -32,9 +32,9 @@ def contract(state: str = "ready") -> bytes:
 def observation() -> dict:
     return {"root": {"exists": True, "gid": 0, "home": "/root", "shell": "/bin/bash", "groups": ["apex", "root"]},
             "apex": {"exists": True, "gid": 1000, "members": ["root"]},
-            "database_records": {"/etc/group": {"count": 1, "sha256": "a" * 64},
-                                 "/etc/gshadow": {"count": 1, "sha256": "b" * 64}},
-            "locks": [], "paths": {path: {"exists": True, "sha256": "c" * 64} for path in MODULE.RETAINED},
+            "database_records": {"/etc/group": {"count": 1, "line": "apex:x:1000:root", "sha256": MODULE.sha(b"apex:x:1000:root\n") },
+                                 "/etc/gshadow": {"count": 1, "line": "apex:!::root", "sha256": MODULE.sha(b"apex:!::root\n") }},
+            "locks": [], "paths": {path: {"exists": True, "directory": False, "size": 1, **expected, **({"sha256": "c" * 64} if expected["regular"] else {})} for path, expected in MODULE.RETAINED_METADATA.items()},
             "pve_tokens": [{"privsep": 1, "tokenid": "tofu-apply"}, {"privsep": 1, "tokenid": "tofu-plan"}]}
 
 
@@ -42,7 +42,10 @@ class RootGroupRetirementTests(unittest.TestCase):
     def test_ready_plan_removes_only_membership(self) -> None:
         plan = MODULE.build_plan("a" * 40, contract(), observation(), datetime(2026, 9, 1, tzinfo=timezone.utc))
         self.assertEqual(plan["target_group"], "apex")
-        self.assertEqual(plan["after"], {"root_groups": ["root"], "apex": {"exists": True, "gid": 1000, "members": []}})
+        self.assertEqual(plan["after"]["root_groups"], ["root"])
+        self.assertEqual(plan["after"]["apex"], {"exists": True, "gid": 1000, "members": []})
+        self.assertEqual(plan["after"]["database_records"]["/etc/group"]["line"], "apex:x:1000:")
+        self.assertEqual(plan["after"]["database_records"]["/etc/gshadow"]["line"], "apex:!::")
         self.assertFalse(plan["explicit_exclusions"]["delete_apex_group"])
         self.assertTrue(plan["explicit_exclusions"]["root_authorized_keys"])
         self.assertEqual(plan["retained_pve_tokens"], observation()["pve_tokens"])
@@ -57,6 +60,13 @@ class RootGroupRetirementTests(unittest.TestCase):
         evidence = observation(); evidence["apex"]["members"] = ["someone-else"]
         plan = MODULE.build_plan("a" * 40, contract(), evidence, datetime(2026, 9, 1, tzinfo=timezone.utc))
         self.assertIn("root-apex-membership-differs", plan["blockers"])
+
+    def test_degraded_retained_authority_is_not_authorizable(self) -> None:
+        evidence = observation(); evidence["paths"]["/root/.config/home-lab/proxmox-plan-token.env"]["exists"] = False
+        evidence["pve_tokens"] = [{"privsep": 1, "tokenid": "tofu-apply"}]
+        plan = MODULE.build_plan("a" * 40, contract(), evidence, datetime(2026, 9, 1, tzinfo=timezone.utc))
+        self.assertIn("retained-access-metadata-differs", plan["blockers"])
+        self.assertIn("retained-pve-token-set-differs", plan["blockers"])
 
 
 if __name__ == "__main__":
