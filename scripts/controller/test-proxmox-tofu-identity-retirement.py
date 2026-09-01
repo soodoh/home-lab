@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import importlib.util
+import json
+import os
 from pathlib import Path
 import tempfile
+from unittest import mock
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -89,6 +92,56 @@ class RetirementPlanTests(unittest.TestCase):
         self.assertIn("host-tofu-plan-retirement-receipt-required", plans[2]["blockers"])
         self.assertIn("host-tofu-apply-retirement-receipt-required", plans[3]["blockers"])
         self.assertTrue(all(metadata["sha256"] for metadata in plans[2]["before"].values()))
+        self.assertEqual(plans[2]["host_retirement_plan_sha256"], MODULE.sha(MODULE.canonical(plans[0])))
+        self.assertEqual(plans[3]["host_retirement_plan_sha256"], MODULE.sha(MODULE.canonical(plans[1])))
+
+    def test_authorization_binds_plan_and_console_evidence(self) -> None:
+        now = datetime.now(timezone.utc); expires = (now + timedelta(minutes=20)).isoformat().replace("+00:00", "Z")
+        requirements = ["physical-console-attestation-required", "rollback-bundle-required", "separate-authorization-required"]
+        plan = {"kind": "host-tofu-plan-retirement", "commit": "a" * 40, "contract_sha256": "b" * 64,
+                "inventory_sha256": "e" * 64, "host_key_fingerprint": MODULE.HOST_KEY_FINGERPRINT,
+                "expires_at": expires, "blockers": requirements}
+        evidence = {"format": "home-lab-proxmox-access-evidence-v1", "commit": "a" * 40,
+                    "contract_sha256": "b" * 64, "inventory_sha256": "e" * 64,
+                    "host_key_fingerprint": MODULE.HOST_KEY_FINGERPRINT, "expires_at": expires}
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory); plan_path = output / "plan.json"; evidence_path = output / "evidence.json"
+            confirmation = f"authorize-proxmox-host-tofu-plan-retirement-{'c' * 64}-{'d' * 64}"
+            with mock.patch.object(MODULE, "OUTPUT", output), mock.patch.object(MODULE, "load_local_plan", return_value=(plan, b"plan\n", "c" * 64, "tofu-plan")), \
+                 mock.patch.object(MODULE, "load_local_evidence", return_value=(evidence, b"evidence\n", "d" * 64)), \
+                 mock.patch.object(MODULE, "stage_authorized_bundle", return_value={"plan": "/staged/plan"}), \
+                 mock.patch.dict(os.environ, {"PROXMOX_TOFU_RETIREMENT_AUTHORIZATION_CONFIRMED": confirmation}):
+                MODULE.authorize(plan_path, evidence_path)
+            saved = list(output.glob("authorization-tofu-plan-*.json"))
+            self.assertEqual(len(saved), 1)
+            authorization = json.loads(saved[0].read_bytes())
+            self.assertTrue(authorization["authorized"])
+            self.assertEqual(authorization["plan_sha256"], "c" * 64)
+            self.assertEqual(authorization["console_evidence_sha256"], "d" * 64)
+            self.assertEqual(authorization["accepted_requirements"], requirements)
+            self.assertEqual(authorization["inventory_sha256"], "e" * 64)
+            self.assertEqual(authorization["host_key_fingerprint"], MODULE.HOST_KEY_FINGERPRINT)
+
+    def test_controller_credentials_require_committed_matching_host_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory); private = output / "plan-key"; public = output / "plan-key.pub"
+            private.write_bytes(b"private\n"); private.chmod(0o600); public.write_bytes(b"public\n"); public.chmod(0o644)
+            before = {str(path): MODULE.local_metadata(path) for path in (private, public)}
+            plan = {"kind": "controller-tofu-plan-credential-retirement", "before": before,
+                    "after": {path: {"exists": False} for path in before},
+                    "host_retirement_plan_sha256": "a" * 64,
+                    "blockers": ["host-tofu-plan-retirement-receipt-required", "controller-recovery-attestation-required", "separate-authorization-required"]}
+            host_receipt = {"format": "home-lab-proxmox-tofu-retirement-host-receipt-v1", "status": "committed",
+                            "identity": "tofu-plan", "plan_sha256": "a" * 64}
+            confirmation = f"retire-controller-tofu-plan-credentials-{'b' * 64}-{'c' * 64}"
+            with mock.patch.object(MODULE, "OUTPUT", output), mock.patch.object(MODULE, "load_controller_plan", return_value=(plan, b"plan\n", "b" * 64, "tofu-plan")), \
+                 mock.patch.object(MODULE, "fetch_host_receipt", return_value=(host_receipt, b"receipt\n", "c" * 64, output / "host.json")), \
+                 mock.patch.dict(os.environ, {"PROXMOX_TOFU_RETIREMENT_CONFIRMED": confirmation}):
+                MODULE.retire_controller_credentials(output / "controller-plan.json")
+            self.assertFalse(private.exists()); self.assertFalse(public.exists())
+            receipts = list((output / "controller-journals" / ("b" * 64)).glob("receipt.json"))
+            self.assertEqual(len(receipts), 1)
+            self.assertEqual(json.loads(receipts[0].read_bytes())["status"], "committed")
 
 
 if __name__ == "__main__":
