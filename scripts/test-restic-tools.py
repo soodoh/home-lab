@@ -160,8 +160,17 @@ def main() -> None:
     assert not any("restic/home-lab" in source for source in files_from)
 
     runner_text = (ROOT / "scripts/restic-backup").read_text()
-    assert 'SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "diagnose-proton", "maintenance", "status"}' in runner_text
+    assert 'SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "diagnose-proton", "maintenance", "repair-proton-index", "status"}' in runner_text
+    assert 'HOME_LAB_RESTIC_REPAIR_CONFIRMATION' in runner_text and 'repair-proton-index-e59972a362' in runner_text
     assert 'restic_backup=diagnose_proton repository_check=passed mutation=false' in runner_text
+    runner_module = runpy.run_path(ROOT / "scripts/restic-backup")
+    repair_signature = runner_module["repair_signature"]
+    exact_repair_error = "LoadRaw(<index/e59972a362>): invalid data returned\n"
+    assert repair_signature("", exact_repair_error)
+    assert not repair_signature("{}", exact_repair_error)
+    assert not repair_signature("", "LoadRaw(<index/changed>): invalid data returned")
+    assert not repair_signature("", "index e59972a362\ninvalid data returned")
+    assert not repair_signature("", exact_repair_error + "additional error\n")
     for command in ("cleanup", "mount", "nfsmount", "purge", "sync", "bisync"):
         assert f'"{command}"' in runner_text
     assert "restic_partial_source" in runner_text

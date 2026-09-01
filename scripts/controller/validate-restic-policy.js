@@ -108,7 +108,7 @@ function validateResticFirstRunEvidence(policy, evidence, rawEvidence) {
     if (evidence.snapshots[name] !== firstRun.snapshots[name]) failures.push(`Restic first-run ${name} snapshot differs from the contract`);
     if (evidence.repository_ids[name] !== policy.repositories[name].id) failures.push(`Restic first-run ${name} repository differs from the contract`);
   }
-  if (evidence.helper_sha256 !== firstRun.helper_sha256 || evidence.runner_sha256 !== policy.runner.sha256) failures.push("Restic first-run helper or runner hash differs");
+  if (evidence.helper_sha256 !== firstRun.helper_sha256 || evidence.runner_sha256 !== policy.runner.first_run_sha256) failures.push("Restic first-run helper or runner hash differs");
   if (evidence.quota.total < policy.repositories.proton.minimum_allocated_bytes || evidence.quota.free < policy.proton.minimum_free_bytes) failures.push("Restic first-run quota crossed a threshold");
   return failures;
 }

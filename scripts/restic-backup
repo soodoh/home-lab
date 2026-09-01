@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "diagnose-proton", "maintenance", "status"}
+SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "diagnose-proton", "maintenance", "repair-proton-index", "status"}
 PROHIBITED_RCLONE = {"cleanup", "mount", "nfsmount", "purge", "sync", "bisync", "delete", "deletefile"}
 SNAPSHOT_ID = re.compile(r"^[0-9a-f]{64}$")
 
@@ -907,6 +907,24 @@ def diagnose_proton(policy: dict[str, Any]) -> None:
     print("restic_backup=diagnose_proton repository_check=passed mutation=false")
 
 
+def repair_signature(stdout: str, stderr: str) -> bool:
+    return stdout.strip() == "" and stderr.strip() == "LoadRaw(<index/e59972a362>): invalid data returned"
+
+
+def repair_proton_index(policy: dict[str, Any]) -> None:
+    expected = "repair-proton-index-e59972a362"
+    if os.environ.get("HOME_LAB_RESTIC_REPAIR_CONFIRMATION") != expected:
+        raise WorkflowError("repair_confirmation")
+    preflight(policy, proton=True, include_nfs=False, verify_source_paths=False)
+    before = restic_result(policy, "proton", ["check", "--json"])
+    if before.returncode == 0 or not repair_signature(before.stdout, before.stderr):
+        raise WorkflowError("repair_precondition")
+    repaired = restic_result(policy, "proton", ["repair", "index", "--read-all-packs"])
+    require_success(repaired, "repair_index_proton")
+    check_repository(policy, "proton")
+    print("restic_backup=repair_proton_index status=repaired-verified target=e59972a362")
+
+
 def status(policy: dict[str, Any], policy_hash: str) -> None:
     evidence = read_json(accepted_path(policy), {"pending": []})
     pending = evidence.get("pending", []) if isinstance(evidence, dict) else []
@@ -946,6 +964,8 @@ def main() -> None:
                 diagnose_proton(policy)
             elif command == "maintenance":
                 maintenance(policy)
+            elif command == "repair-proton-index":
+                repair_proton_index(policy)
             else:
                 status(policy, policy_hash)
     except (WorkflowError, KeyError, TypeError, ValueError, OSError) as error:

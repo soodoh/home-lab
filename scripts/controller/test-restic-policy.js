@@ -208,7 +208,7 @@ const firstRunEvidence = {
   version: 1, type: "restic-first-run", state: "completed", lock_owner_sha256: "1".repeat(64),
   source_policy_sha256: fixture.first_run.source_policy_sha256, artifact_sha256: fixture.first_run.artifact_sha256,
   aws_evidence_sha256: fixture.first_run.aws_evidence_sha256, helper_sha256: fixture.first_run.helper_sha256,
-  runner_sha256: fixture.runner.sha256, restic_sha256: fixture.tools.restic.installed_sha256, rclone_sha256: fixture.tools.rclone.installed_sha256,
+  runner_sha256: fixture.runner.first_run_sha256, restic_sha256: fixture.tools.restic.installed_sha256, rclone_sha256: fixture.tools.rclone.installed_sha256,
   initialization_evidence_sha256: fixture.initialization.evidence_sha256, qualification_evidence_sha256: fixture.qualification.evidence_sha256,
   repository_ids: Object.fromEntries(Object.entries(fixture.repositories).map(([name, value]) => [name, value.id])), snapshots: fixture.first_run.snapshots,
   initially_running_writers: [], stopped_writers: [], restarted_writers: [], writers_healthy: "pass",
@@ -222,5 +222,7 @@ const rawFirstRun = Buffer.from(`${JSON.stringify(firstRunEvidence)}\n`);
 fixture.first_run.evidence_sha256 = crypto.createHash("sha256").update(rawFirstRun).digest("hex");
 assert.deepEqual(validateResticPolicy(fixture), []);
 assert.deepEqual(validateResticFirstRunEvidence(fixture, firstRunEvidence, rawFirstRun), []);
+const upgradedRunnerFixture = { ...fixture, runner: { ...fixture.runner, sha256: "f".repeat(64) } };
+assert.deepEqual(validateResticFirstRunEvidence(upgradedRunnerFixture, firstRunEvidence, rawFirstRun), []);
 
 console.log("restic_policy_semantics=verified");
