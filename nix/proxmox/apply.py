@@ -359,6 +359,8 @@ def apply(args: Any, bundle_path: Path, hash_path: Path, source_root: Path) -> s
     if args.plan_sha != args.approve_plan_sha:
         raise ValueError("explicit plan approval hash differs")
     bindings, projection, manifest, metadata = planner.bundle_inputs(bundle_path, hash_path, repo, source_root)
+    if projection["nixMutationFrozen"] is True:
+        raise ValueError("Nix apply is frozen by lifecycle policy")
     plan_path = repo / ".reconcile" / "plans" / f"{args.plan_sha}.json"
     sidecar_path = repo / ".reconcile" / "plans" / f"{args.plan_sha}.private.json"
     plan = load_secure_canonical(plan_path, "plan", planner.MAX_OBSERVATION_BYTES)

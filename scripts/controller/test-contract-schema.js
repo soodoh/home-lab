@@ -102,6 +102,9 @@ check(missingTailscaleHandoff, false, "Proxmox Tailscale node handoff policy is 
 const missingPackageHandoff = structuredClone(contract);
 delete missingPackageHandoff.lifecycle.hosts.proxmox.domain_handoffs.package_set;
 check(missingPackageHandoff, false, "Proxmox package-set handoff policy is required");
+const missingNixMutationHandoff = structuredClone(contract);
+delete missingNixMutationHandoff.lifecycle.hosts.proxmox.domain_handoffs.nix_mutation_engine;
+check(missingNixMutationHandoff, false, "Proxmox Nix mutation-engine handoff policy is required");
 const invalidResolverOwnership = structuredClone(contract);
 invalidResolverOwnership.network.ownership.resolver_management = "ansible";
 check(invalidResolverOwnership, false, "resolver ownership is excluded from this handoff");

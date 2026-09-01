@@ -36,6 +36,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.projection = json.loads((NIX / "proxmox/projection.json").read_bytes())
+        cls.projection["nixMutationFrozen"] = False
         next(item for item in cls.projection["planningPolicy"]["domains"] if item["domain"] == "managed-artifacts")["automatic"] = True
         cls.manifest = json.loads((NIX / "proxmox/package-manifest.json").read_bytes())
         cls.before_observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
@@ -173,6 +174,15 @@ class ProxmoxNixApplyTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "approval"):
             guarded_apply.apply(args, Path("fixed"), Path("fixed.sha"), Path("source"))
         inputs.assert_not_called()
+        transport.assert_not_called()
+
+    def test_lifecycle_freeze_rejects_apply_before_plan_or_transport(self) -> None:
+        args = SimpleNamespace(repo_root=str(ROOT), plan_sha="a" * 64, approve_plan_sha="a" * 64)
+        frozen = copy.deepcopy(self.projection)
+        frozen["nixMutationFrozen"] = True
+        with patch.object(planner, "bundle_inputs", return_value=(self.bindings, frozen, self.manifest, self.metadata)), \
+                patch.object(guarded_apply, "send_session") as transport, self.assertRaisesRegex(ValueError, "frozen"):
+            guarded_apply.apply(args, Path("fixed"), Path("fixed.sha"), Path("source"))
         transport.assert_not_called()
 
     def test_complete_sidecar_mac_covers_all_private_fields_and_protected_macs_remain_independent(self) -> None:

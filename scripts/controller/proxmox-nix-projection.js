@@ -44,6 +44,9 @@ function projectProxmoxPolicy(contract, packageManifest) {
   const bootConfigurationFrozen = ["ready", "transferred"].includes(
     contract.lifecycle.hosts.proxmox.domain_handoffs.boot_configuration.state,
   );
+  const nixMutationFrozen = ["ready", "transferred"].includes(
+    contract.lifecycle.hosts.proxmox.domain_handoffs.nix_mutation_engine.state,
+  );
   const bootConfigurationPaths = new Set([
     proxmox.grub.file.path,
     proxmox.vfio.modules_load_file.path,
@@ -176,6 +179,7 @@ function projectProxmoxPolicy(contract, packageManifest) {
   return {
     version: 1,
     architecture: proxmox.packages.architecture,
+    nixMutationFrozen,
     timezoneAuditExpected: systemTimezone,
     hostNetworking: {
       cidr: network.cidr,

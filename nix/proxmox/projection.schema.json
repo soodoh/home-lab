@@ -2,10 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "architecture", "timezoneAuditExpected", "hostNetworking", "managedFiles", "managedFileFragments", "managedArtifacts", "managedFileMetadata", "auditAbsence", "nativeServices", "accounts", "ssh", "tailscale", "healthExpectations", "planningPolicy", "packagePolicy", "kernelPolicy", "storagePolicy", "apiIntent"],
+  "required": ["version", "architecture", "nixMutationFrozen", "timezoneAuditExpected", "hostNetworking", "managedFiles", "managedFileFragments", "managedArtifacts", "managedFileMetadata", "auditAbsence", "nativeServices", "accounts", "ssh", "tailscale", "healthExpectations", "planningPolicy", "packagePolicy", "kernelPolicy", "storagePolicy", "apiIntent"],
   "properties": {
     "version": { "const": 1 },
     "architecture": { "const": "amd64" },
+    "nixMutationFrozen": { "type": "boolean" },
     "timezoneAuditExpected": { "const": "America/Los_Angeles" },
     "hostNetworking": {
       "type": "object", "additionalProperties": false,

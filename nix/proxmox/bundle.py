@@ -26,7 +26,7 @@ PREPARER_TEMPLATE_PATH = Path(__file__).with_name("private-preparer-template.py"
 EXPECTED_PROJECTION_KEYS = {
     "accounts", "apiIntent", "architecture", "auditAbsence", "healthExpectations", "hostNetworking",
     "kernelPolicy", "managedArtifacts", "managedFileFragments", "managedFileMetadata", "managedFiles",
-    "nativeServices", "packagePolicy", "planningPolicy", "ssh", "storagePolicy", "tailscale", "timezoneAuditExpected", "version",
+    "nativeServices", "nixMutationFrozen", "packagePolicy", "planningPolicy", "ssh", "storagePolicy", "tailscale", "timezoneAuditExpected", "version",
 }
 FORBIDDEN_PROJECTION_KEYS = {
     "api_endpoint", "auth_key_secret_ref", "bdf", "by_id_secret_ref", "compatibility_config_path",
@@ -230,8 +230,9 @@ def validate_projection(projection: Any, package_count: int, package_manifest_sh
     if not isinstance(projection, dict) or set(projection) != EXPECTED_PROJECTION_KEYS:
         raise ValueError("projection top-level shape is invalid")
     if projection["version"] != 1 or projection["architecture"] != "amd64" or \
+            not isinstance(projection["nixMutationFrozen"], bool) or \
             projection["timezoneAuditExpected"] != "America/Los_Angeles":
-        raise ValueError("projection version, architecture, or timezone audit expectation is invalid")
+        raise ValueError("projection version, architecture, mutation freeze, or timezone audit expectation is invalid")
     package_policy = projection.get("packagePolicy")
     if not isinstance(package_policy, dict) or package_policy.get("manifestPackageCount") != package_count or \
             package_policy.get("manifestSha256") != package_manifest_sha256:

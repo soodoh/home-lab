@@ -115,6 +115,12 @@ lifecycle:
           state: transferred
           parity_required: true
           single_writer: true
+        nix_mutation_engine:
+          current_owner: nix
+          target_owner: ansible
+          state: ready
+          parity_required: true
+          single_writer: true
       access_cutover:
         state: pending
         target_identities:

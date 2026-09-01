@@ -52,6 +52,7 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.projection = json.loads((NIX / "proxmox/projection.json").read_bytes())
+        cls.projection["nixMutationFrozen"] = False
         next(item for item in cls.projection["planningPolicy"]["domains"] if item["domain"] == "managed-artifacts")["automatic"] = True
         cls.manifest = json.loads((NIX / "proxmox/package-manifest.json").read_bytes())
         cls.observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
@@ -193,6 +194,12 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
         self.assertEqual(prepare.SSH_PREPARE_COMMAND[-2:], ("tofu-apply@192.168.0.123", "sudo -n -- /usr/local/libexec/home-lab/proxmox-private-preparer prepare"))
         self.assertEqual(prepare.SSH_PREPARE_COMMAND[1:3], ("-F", "/dev/null"))
         self.assertIn(str(Path.home() / ".ssh/home-lab-proxmox-apply"), prepare.SSH_PREPARE_COMMAND)
+        frozen = copy.deepcopy(self.projection); frozen["nixMutationFrozen"] = True
+        frozen_args = SimpleNamespace(repo_root=str(ROOT), plan_sha="a" * 64, approve_plan_sha="a" * 64)
+        with patch.object(planner, "bundle_inputs", return_value=({}, frozen, self.manifest, {})), \
+                patch.object(prepare, "send") as transport, self.assertRaisesRegex(ValueError, "frozen"):
+            prepare.prepare(frozen_args, Path("bundle"), Path("hash"), Path("source"))
+        transport.assert_not_called()
         with tempfile.TemporaryDirectory() as name:
             repo=Path(name); reconcile=repo/".reconcile"; reconcile.mkdir(mode=0o700); plans=reconcile/"plans"; plans.mkdir(mode=0o700)
             plan=copy.deepcopy(self.plan); now=dt.datetime.now(dt.timezone.utc).replace(microsecond=0)

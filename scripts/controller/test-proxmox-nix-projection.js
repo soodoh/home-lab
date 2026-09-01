@@ -200,6 +200,15 @@ const transferredPackageHandoff = { current_owner: "ansible", target_owner: "ans
 if (JSON.stringify(storageHandoffs.package_set) !== JSON.stringify(transferredPackageHandoff)) {
   throw new Error("transferred package-set handoff differs");
 }
+const readyMutationHandoff = { current_owner: "nix", target_owner: "ansible", state: "ready", parity_required: true, single_writer: true };
+if (JSON.stringify(storageHandoffs.nix_mutation_engine) !== JSON.stringify(readyMutationHandoff) || projected.nixMutationFrozen !== true) {
+  throw new Error("ready Nix mutation-engine handoff must freeze mutation");
+}
+const pendingMutationHandoff = structuredClone(contract);
+pendingMutationHandoff.lifecycle.hosts.proxmox.domain_handoffs.nix_mutation_engine.state = "pending";
+if (projectProxmoxPolicy(pendingMutationHandoff, structuredClone(packageManifest)).nixMutationFrozen !== false) {
+  throw new Error("pending Nix mutation-engine handoff must retain historical mutation testing");
+}
 const interfacesPolicy = projected.planningPolicy.managedFilePolicies.find((item) => item.path === contract.network.ownership.interfaces_file.path);
 const tailscaleServicePolicy = projected.planningPolicy.servicePolicies.find((item) => item.name === "tailscaled.service");
 const tailscaleDomainPolicy = projected.planningPolicy.domains.find((item) => item.domain === "tailscale");

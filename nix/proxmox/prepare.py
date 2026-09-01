@@ -60,6 +60,8 @@ def prepare(args: Any, bundle_path: Path, hash_path: Path, source_root: Path) ->
     if not repo.is_absolute() or not HEX64.fullmatch(args.plan_sha or "") or args.plan_sha != args.approve_plan_sha:
         raise ValueError("prepare requires an absolute root and identical exact plan approval hashes")
     bindings, projection, manifest, metadata = planner.bundle_inputs(bundle_path, hash_path, repo, source_root)
+    if projection["nixMutationFrozen"] is True:
+        raise ValueError("Nix protected preparation is frozen by lifecycle policy")
     plan_path = repo / ".reconcile" / "plans" / f"{args.plan_sha}.json"
     plan = guarded_apply.load_secure_canonical(plan_path, "plan", planner.MAX_OBSERVATION_BYTES)
     planner.validate_plan(plan, projection, manifest)
