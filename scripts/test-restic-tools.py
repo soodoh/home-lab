@@ -160,7 +160,8 @@ def main() -> None:
     assert not any("restic/home-lab" in source for source in files_from)
 
     runner_text = (ROOT / "scripts/restic-backup").read_text()
-    assert 'SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "maintenance", "status"}' in runner_text
+    assert 'SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "diagnose-proton", "maintenance", "status"}' in runner_text
+    assert 'restic_backup=diagnose_proton repository_check=passed mutation=false' in runner_text
     for command in ("cleanup", "mount", "nfsmount", "purge", "sync", "bisync"):
         assert f'"{command}"' in runner_text
     assert "restic_partial_source" in runner_text

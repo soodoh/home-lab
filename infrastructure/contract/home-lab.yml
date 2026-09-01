@@ -1790,7 +1790,7 @@ backups:
       proton_independent_timer: false
     runner:
       path: /usr/local/libexec/home-lab/restic-backup
-      sha256: b493ff6837daead63a2b6ddf1f4734cea8e74ccf839bb7e5e561020ed7bf72e4
+      sha256: 418d61a395eda2132efeb8e308432343318a68365fa11fbf067e5172de0219c9
       identity_local: root
       identity_proton: restic-proton
       policy_path: /etc/home-lab/restic-policy.json

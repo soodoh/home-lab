@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "maintenance", "status"}
+SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "diagnose-proton", "maintenance", "status"}
 PROHIBITED_RCLONE = {"cleanup", "mount", "nfsmount", "purge", "sync", "bisync", "delete", "deletefile"}
 SNAPSHOT_ID = re.compile(r"^[0-9a-f]{64}$")
 
@@ -901,6 +901,12 @@ def maintenance(policy: dict[str, Any]) -> None:
     print(f"restic_backup=maintenance scope={scope} repositories={len(names)} subset={subset}/{subset_total}{quota_fields}")
 
 
+def diagnose_proton(policy: dict[str, Any]) -> None:
+    preflight(policy, proton=True, include_nfs=False, verify_source_paths=False)
+    check_repository(policy, "proton")
+    print("restic_backup=diagnose_proton repository_check=passed mutation=false")
+
+
 def status(policy: dict[str, Any], policy_hash: str) -> None:
     evidence = read_json(accepted_path(policy), {"pending": []})
     pending = evidence.get("pending", []) if isinstance(evidence, dict) else []
@@ -936,6 +942,8 @@ def main() -> None:
                 daily_local(policy, policy_hash, first_run)
             elif command == "daily-proton":
                 daily_proton(policy, policy_hash, first_run)
+            elif command == "diagnose-proton":
+                diagnose_proton(policy)
             elif command == "maintenance":
                 maintenance(policy)
             else:
