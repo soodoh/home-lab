@@ -39,7 +39,14 @@ class AccessEvidenceTests(unittest.TestCase):
             with mock.patch.object(MODULE, "ROOT", root), mock.patch.object(MODULE, "access_cutover_state", return_value="ready"):
                 proof = MODULE.controller_plan_proof(result, time.time() - 1)
         self.assertTrue(proof["expected_retirement_drift"])
+        self.assertEqual(proof["retirement_drift_targets"], targets)
         self.assertEqual(proof["controller_plan_sha256"], "a" * 64)
+
+    def test_ready_state_accepts_final_noop(self) -> None:
+        result = subprocess.CompletedProcess([], 0, stdout=b"[tailscale]\nNo changes\n", stderr=b"")
+        with mock.patch.object(MODULE, "access_cutover_state", return_value="ready"):
+            proof = MODULE.controller_plan_proof(result, time.time() - 1)
+        self.assertFalse(proof["expected_retirement_drift"])
 
     def test_ready_state_rejects_extra_drift(self) -> None:
         result = subprocess.CompletedProcess([], 66, stdout=b"blocked\n", stderr=b"")

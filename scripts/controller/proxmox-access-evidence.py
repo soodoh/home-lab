@@ -122,17 +122,21 @@ def controller_plan_proof(result: subprocess.CompletedProcess[bytes], started_at
             raise SystemExit("controller did not prove a steady tailnet no-op")
         return {"tests_present": True, "live_plan_noop": True, "expected_retirement_drift": False,
                 "controller_plan_stdout_sha256": sha(result.stdout)}
+    if result.returncode == 0 and b"[tailscale]" in result.stdout and b"No changes" in result.stdout:
+        return {"tests_present": True, "live_plan_noop": True, "expected_retirement_drift": False,
+                "controller_plan_stdout_sha256": sha(result.stdout)}
     candidates = sorted((ROOT / ".reconcile/plans").glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
     if result.returncode != 66 or not candidates or candidates[0].stat().st_mtime < started_at:
         raise SystemExit("controller did not produce the expected access-retirement drift plan")
     plan_path = candidates[0]; plan = json.loads(plan_path.read_bytes())
     blocker_targets = sorted(item.get("target") for item in plan.get("blockers", []))
     finding_targets = sorted(item.get("target") for item in plan.get("findings", []))
-    expected_targets = ["/etc/sudoers.d/tofu-apply", "/etc/sudoers.d/tofu-plan"]
-    if plan_path.name != f"{plan.get('planSha256')}.json" or plan.get("status") != "blocked" or plan.get("applyEligible") is not False or plan.get("actions") != [] or blocker_targets != expected_targets or finding_targets != expected_targets or any(item.get("code") != "manual-remediation-required" or item.get("domain") != "audit-absence" for item in plan["blockers"]) or any(item.get("code") != "unexpected-presence" or item.get("domain") != "audit-absence" for item in plan["findings"]):
+    permitted_targets = {"/etc/sudoers.d/tofu-apply", "/etc/sudoers.d/tofu-plan"}
+    if plan_path.name != f"{plan.get('planSha256')}.json" or plan.get("status") != "blocked" or plan.get("applyEligible") is not False or plan.get("actions") != [] or not blocker_targets or blocker_targets != finding_targets or not set(blocker_targets).issubset(permitted_targets) or any(item.get("code") != "manual-remediation-required" or item.get("domain") != "audit-absence" for item in plan["blockers"]) or any(item.get("code") != "unexpected-presence" or item.get("domain") != "audit-absence" for item in plan["findings"]):
         raise SystemExit("controller access-retirement drift differs from the exact expected boundary")
     return {"tests_present": True, "live_plan_noop": True, "expected_retirement_drift": True,
-            "controller_plan_sha256": plan["planSha256"], "controller_plan_stdout_sha256": sha(result.stdout)}
+            "controller_plan_sha256": plan["planSha256"], "controller_plan_stdout_sha256": sha(result.stdout),
+            "retirement_drift_targets": blocker_targets}
 
 def capture() -> tuple[Path, str]:
     commit = clean_pushed_commit()
