@@ -161,16 +161,28 @@ def main() -> None:
 
     runner_text = (ROOT / "scripts/restic-backup").read_text()
     assert 'SUBCOMMANDS = {"preflight", "daily-local", "daily-proton", "diagnose-proton", "maintenance", "repair-proton-index", "status"}' in runner_text
-    assert 'HOME_LAB_RESTIC_REPAIR_CONFIRMATION' in runner_text and 'repair-proton-index-e59972a362' in runner_text
-    assert 'restic_backup=diagnose_proton repository_check=passed mutation=false' in runner_text
+    full_index = "e59972a3621be54dbad90b47f8fb91f96bd725ab69495a0dcefcc4a544411d70"
+    assert "HOME_LAB_RESTIC_REPAIR_CONFIRMATION" in runner_text and f"repair-proton-index-{full_index}" in runner_text
+    assert "restic_backup=diagnose_proton repository_check=passed mutation=false" in runner_text
     runner_module = runpy.run_path(ROOT / "scripts/restic-backup")
     repair_signature = runner_module["repair_signature"]
-    exact_repair_error = "LoadRaw(<index/e59972a362>): invalid data returned\n"
-    assert repair_signature("", exact_repair_error)
-    assert not repair_signature("{}", exact_repair_error)
-    assert not repair_signature("", "LoadRaw(<index/changed>): invalid data returned")
-    assert not repair_signature("", "index e59972a362\ninvalid data returned")
-    assert not repair_signature("", exact_repair_error + "additional error\n")
+    exact_stdout = json.dumps({"message_type": "summary", "num_errors": 1, "broken_packs": None, "suggest_repair_index": True, "suggest_prune": False}, separators=(",", ":")) + "\n"
+    errors = [
+        {"message_type": "error", "message": f"error: error loading index {full_index}: LoadRaw(<index/e59972a362>): invalid data returned\n"},
+        {"message_type": "error", "message": "\nThe repository index is damaged and must be repaired. You must run `restic repair index' to correct this.\n\n"},
+        {"message_type": "exit_error", "code": 1, "message": "Fatal: repository contains errors"},
+    ]
+    exact_stderr = "\n".join(json.dumps(item, separators=(",", ":")) for item in errors) + "\n"
+    assert repair_signature(exact_stdout, exact_stderr)
+    assert not repair_signature("", exact_stderr)
+    changed = exact_stderr.replace(full_index, "f" * 64)
+    assert not repair_signature(exact_stdout, changed)
+    assert not repair_signature(exact_stdout, exact_stderr + json.dumps({"message_type": "error", "message": "additional"}) + "\n")
+    extra_field_errors = [errors[0], {**errors[1], "extra": True}, errors[2]]
+    assert not repair_signature(exact_stdout, "\n".join(json.dumps(item, separators=(",", ":")) for item in extra_field_errors) + "\n")
+    repair_precondition = runner_module["repair_precondition"]
+    assert repair_precondition(1, exact_stdout, exact_stderr)
+    assert not repair_precondition(2, exact_stdout, exact_stderr)
     for command in ("cleanup", "mount", "nfsmount", "purge", "sync", "bisync"):
         assert f'"{command}"' in runner_text
     assert "restic_partial_source" in runner_text

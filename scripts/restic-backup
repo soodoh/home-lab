@@ -908,16 +908,26 @@ def diagnose_proton(policy: dict[str, Any]) -> None:
 
 
 def repair_signature(stdout: str, stderr: str) -> bool:
-    return stdout.strip() == "" and stderr.strip() == "LoadRaw(<index/e59972a362>): invalid data returned"
+    try:
+        output = [json.loads(line) for line in stdout.splitlines() if line]
+        errors = [json.loads(line) for line in stderr.splitlines() if line]
+    except json.JSONDecodeError:
+        return False
+    expected_index = "e59972a3621be54dbad90b47f8fb91f96bd725ab69495a0dcefcc4a544411d70"
+    expected_first = f"error: error loading index {expected_index}: LoadRaw(<index/e59972a362>): invalid data returned\n"
+    expected_second = {"message_type": "error", "message": "\nThe repository index is damaged and must be repaired. You must run `restic repair index' to correct this.\n\n"}
+    return output == [{"message_type": "summary", "num_errors": 1, "broken_packs": None, "suggest_repair_index": True, "suggest_prune": False}] and errors == [{"message_type": "error", "message": expected_first}, expected_second, {"message_type": "exit_error", "code": 1, "message": "Fatal: repository contains errors"}]
 
+def repair_precondition(returncode: int, stdout: str, stderr: str) -> bool:
+    return returncode == 1 and repair_signature(stdout, stderr)
 
 def repair_proton_index(policy: dict[str, Any]) -> None:
-    expected = "repair-proton-index-e59972a362"
+    expected = "repair-proton-index-e59972a3621be54dbad90b47f8fb91f96bd725ab69495a0dcefcc4a544411d70"
     if os.environ.get("HOME_LAB_RESTIC_REPAIR_CONFIRMATION") != expected:
         raise WorkflowError("repair_confirmation")
     preflight(policy, proton=True, include_nfs=False, verify_source_paths=False)
     before = restic_result(policy, "proton", ["check", "--json"])
-    if before.returncode == 0 or not repair_signature(before.stdout, before.stderr):
+    if not repair_precondition(before.returncode, before.stdout, before.stderr):
         raise WorkflowError("repair_precondition")
     repaired = restic_result(policy, "proton", ["repair", "index", "--read-all-packs"])
     require_success(repaired, "repair_index_proton")
