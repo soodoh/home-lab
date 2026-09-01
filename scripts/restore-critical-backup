@@ -85,6 +85,9 @@ recovery_parent=/srv/home-lab-recovery
         [[ -n ${!variable:-} ]] || exit 1
         allowed_recovery_remote_variables+=("$variable")
       done
+      if [[ -n ${RCLONE_CONFIG_PROTON_BACKUP_OTP_SECRET_KEY:-} ]]; then
+        allowed_recovery_remote_variables+=(RCLONE_CONFIG_PROTON_BACKUP_OTP_SECRET_KEY)
+      fi
       for variable in ${!RCLONE_@}; do
         [[ " ${allowed_recovery_remote_variables[*]} " == *" $variable "* ]] || exit 1
       done
