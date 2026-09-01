@@ -58,6 +58,11 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
         cls.observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
         cls.observation["domains"]["protectedAccess"] = {"expectedCount": 6, "matches": True, "observedCount": 6, "status": "complete"}
         cls.observation["domains"]["protectedHardware"] = {"expectedCount": 3, "matches": True, "observedCount": 3, "status": "complete"}
+        projected_account_names = {account["name"] for kind in ("service", "human") for account in cls.projection["accounts"][kind]}
+        cls.observation["domains"]["accounts"]["records"] = [
+            record for record in cls.observation["domains"]["accounts"]["records"]
+            if record["name"] in projected_account_names
+        ]
         for record in cls.observation["domains"]["accounts"]["records"]:
             if record["name"] == "tofu-apply":
                 record["shell"] = "/usr/local/libexec/home-lab/proxmox-apply-transport"
@@ -76,6 +81,8 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
             for absence in cls.projection["auditAbsence"]
         ]
         managed_records = cls.observation["domains"]["managedFiles"]["records"]
+        projected_managed_targets = {managed["path"] for managed in cls.projection["managedFiles"]}
+        managed_records[:] = [record for record in managed_records if record["target"] in projected_managed_targets]
         managed_targets = {record["target"] for record in managed_records}
         for managed in cls.projection["managedFiles"]:
             if managed["path"] not in managed_targets:

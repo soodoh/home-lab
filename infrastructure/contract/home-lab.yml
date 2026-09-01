@@ -122,7 +122,7 @@ lifecycle:
           parity_required: true
           single_writer: true
       access_cutover:
-        state: pending
+        state: ready
         target_identities:
           human: proxmox
           plan: ansible-plan

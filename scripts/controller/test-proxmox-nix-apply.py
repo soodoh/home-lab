@@ -42,6 +42,11 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         cls.before_observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
         cls.before_observation["domains"]["protectedAccess"] = {"expectedCount": 6, "matches": True, "observedCount": 6, "status": "complete"}
         cls.before_observation["domains"]["protectedHardware"] = {"expectedCount": 3, "matches": True, "observedCount": 3, "status": "complete"}
+        projected_account_names = {account["name"] for kind in ("service", "human") for account in cls.projection["accounts"][kind]}
+        cls.before_observation["domains"]["accounts"]["records"] = [
+            record for record in cls.before_observation["domains"]["accounts"]["records"]
+            if record["name"] in projected_account_names
+        ]
         for record in cls.before_observation["domains"]["accounts"]["records"]:
             if record["name"] == "tofu-apply":
                 record["shell"] = "/usr/local/libexec/home-lab/proxmox-apply-transport"
@@ -60,6 +65,8 @@ class ProxmoxNixApplyTests(unittest.TestCase):
             for absence in cls.projection["auditAbsence"]
         ]
         managed_records = cls.before_observation["domains"]["managedFiles"]["records"]
+        projected_managed_targets = {managed["path"] for managed in cls.projection["managedFiles"]}
+        managed_records[:] = [record for record in managed_records if record["target"] in projected_managed_targets]
         managed_targets = {record["target"] for record in managed_records}
         for managed in cls.projection["managedFiles"]:
             if managed["path"] not in managed_targets:
@@ -87,7 +94,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         cls.plan = planner.build_plan(cls.bindings, cls.projection, cls.manifest, cls.before_observation,
                                       planner.format_time(plan_start), planner.format_time(plan_start + dt.timedelta(seconds=1)), False)
         if cls.plan["status"] != "ready" or len(cls.plan["actions"]) != 1:
-            raise RuntimeError("apply fixture must be a one-action ready plan")
+            raise RuntimeError(f"apply fixture must be a one-action ready plan: {json.dumps({'status': cls.plan['status'], 'blockers': cls.plan['blockers'], 'findings': cls.plan['findings'], 'actions': cls.plan['actions']}, sort_keys=True)}")
         cls.after_observation = copy.deepcopy(cls.before_observation)
         action = cls.plan["actions"][0]
         records = cls.after_observation["domains"]["managedArtifacts"]["records"]

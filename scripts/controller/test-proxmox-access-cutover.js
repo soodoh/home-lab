@@ -36,7 +36,9 @@ const currentEvidence = {
   console_attested: false,
 };
 
-const current = planProxmoxAccessCutover(contract, sources, currentEvidence);
+const pendingContract = structuredClone(contract);
+pendingContract.lifecycle.hosts.proxmox.access_cutover.state = "pending";
+const current = planProxmoxAccessCutover(pendingContract, sources, currentEvidence);
 assert.equal(current.ready, false);
 assert.equal(current.authorized, false);
 for (const blocker of [
@@ -133,7 +135,7 @@ assert.equal(playbook.roles[0].vars.lifecycle_state_enforce, false);
 assert.equal(playbook.roles[1].role, "access_cutover_plan");
 
 const policy = contract.lifecycle.hosts.proxmox.access_cutover;
-assert.equal(policy.state, "pending");
+assert.equal(policy.state, "ready");
 assert.deepEqual(policy.required_tailnet_users, ["proxmox", "ansible-plan", "ansible-deploy", "firewall-apply"]);
 assert.deepEqual(policy.forbidden_tailnet_users, ["root", "tofu-plan", "tofu-apply"]);
 assert.equal(policy.plan_privilege_model, "fixed-reduced-observer");
