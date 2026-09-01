@@ -209,6 +209,19 @@ pendingMutationHandoff.lifecycle.hosts.proxmox.domain_handoffs.nix_mutation_engi
 if (projectProxmoxPolicy(pendingMutationHandoff, structuredClone(packageManifest)).nixMutationFrozen !== false) {
   throw new Error("pending Nix mutation-engine handoff must retain historical mutation testing");
 }
+const readyAccessCutover = structuredClone(contract);
+readyAccessCutover.lifecycle.hosts.proxmox.access_cutover.state = "ready";
+const readyAccessProjection = projectProxmoxPolicy(readyAccessCutover, structuredClone(packageManifest));
+const retiredNames = new Set(contract.lifecycle.hosts.proxmox.access_cutover.retire_identities);
+const retiredSudoPaths = new Set(contract.proxmox.access.service_accounts
+  .filter((account) => retiredNames.has(account.name)).map((account) => account.sudo.file.path));
+if (readyAccessProjection.accounts.service.some((account) => retiredNames.has(account.name)) ||
+    readyAccessProjection.managedFiles.some((file) => retiredSudoPaths.has(file.path)) ||
+    readyAccessProjection.planningPolicy.managedFilePolicies.some((policy) => retiredSudoPaths.has(policy.path)) ||
+    ![...retiredSudoPaths].every((path) => readyAccessProjection.auditAbsence.some((item) => item.path === path && item.absence === "file")) ||
+    JSON.stringify(readyAccessProjection.ssh.allowUsers) !== JSON.stringify(projected.ssh.allowUsers)) {
+  throw new Error("ready access cutover must retire tofu account/sudo projection without tightening OpenSSH");
+}
 const interfacesPolicy = projected.planningPolicy.managedFilePolicies.find((item) => item.path === contract.network.ownership.interfaces_file.path);
 const tailscaleServicePolicy = projected.planningPolicy.servicePolicies.find((item) => item.name === "tailscaled.service");
 const tailscaleDomainPolicy = projected.planningPolicy.domains.find((item) => item.domain === "tailscale");

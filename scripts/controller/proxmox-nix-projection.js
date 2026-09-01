@@ -47,6 +47,16 @@ function projectProxmoxPolicy(contract, packageManifest) {
   const nixMutationFrozen = ["ready", "transferred"].includes(
     contract.lifecycle.hosts.proxmox.domain_handoffs.nix_mutation_engine.state,
   );
+  const tofuIdentityRetirementReady = ["ready", "complete"].includes(
+    contract.lifecycle.hosts.proxmox.access_cutover.state,
+  );
+  const retiredIdentities = new Set(contract.lifecycle.hosts.proxmox.access_cutover.retire_identities);
+  const projectedServiceAccounts = proxmox.access.service_accounts.filter(
+    (account) => !tofuIdentityRetirementReady || !retiredIdentities.has(account.name),
+  );
+  const retiredSudoPaths = new Set(proxmox.access.service_accounts
+    .filter((account) => retiredIdentities.has(account.name) && account.sudo?.state === "present")
+    .map((account) => account.sudo.file.path));
   const bootConfigurationPaths = new Set([
     proxmox.grub.file.path,
     proxmox.vfio.modules_load_file.path,
@@ -101,7 +111,7 @@ function projectProxmoxPolicy(contract, packageManifest) {
       `Signed-By: ${repository.signed_by}\n`,
   ));
   const sudoFiles = [
-    ...proxmox.access.service_accounts,
+    ...projectedServiceAccounts,
     ...proxmox.access.human_accounts,
   ].filter((account) => account.sudo?.state === "present").map((account) =>
     managedFile(account.sudo.file, `${account.sudo.rule}\n`));
@@ -223,12 +233,13 @@ function projectProxmoxPolicy(contract, packageManifest) {
         path: record.path,
         ...(record.pattern === undefined ? {} : { pattern: record.pattern }),
       })),
-      ...proxmox.access.service_accounts.filter((account) => account.sudo?.kind === "audit-absence")
+      ...projectedServiceAccounts.filter((account) => account.sudo?.kind === "audit-absence")
         .map((account) => ({ absence: account.sudo.absence, path: account.sudo.path })),
+      ...(tofuIdentityRetirementReady ? [...retiredSudoPaths].map((path) => ({ absence: "file", path })) : []),
     ].sort((left, right) => compareText(left.path, right.path)),
     nativeServices: proxmox.services.map((service) => ({ ...service })),
     accounts: {
-      service: proxmox.access.service_accounts.map((account) => ({
+      service: projectedServiceAccounts.map((account) => ({
         name: account.name,
         home: account.home,
         shell: account.shell,
@@ -286,7 +297,9 @@ function projectProxmoxPolicy(contract, packageManifest) {
         requiresReboot: entry.requires_reboot,
         requiresWatchdog: entry.requires_watchdog,
       })).sort((left, right) => compareText(left.name, right.name)),
-      managedFilePolicies: proxmox.planning_policy.managed_file_policies.map((entry) => ({
+      managedFilePolicies: proxmox.planning_policy.managed_file_policies
+        .filter((entry) => !tofuIdentityRetirementReady || !retiredSudoPaths.has(entry.path))
+        .map((entry) => ({
         path: entry.path,
         safetyClass: entry.safety_class,
         automatic: (entry.path.startsWith("/etc/apt/") && aptRepositoriesFrozen) ||
