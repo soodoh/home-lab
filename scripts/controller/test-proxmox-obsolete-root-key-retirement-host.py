@@ -48,16 +48,16 @@ class ObsoleteRootKeyHostTests(unittest.TestCase):
     def test_concurrent_drift_is_captured_and_restored_without_overwrite(self) -> None:
         before = b"before-exact"; after = b"candidate-exact"; unknown = b"concurrent-recovery-key"; digest = "a" * 64
         with tempfile.TemporaryDirectory() as directory:
-            key = Path(directory) / "authorized_keys"; key.write_bytes(before); candidate = key.with_name(f".authorized_keys.home-lab-{digest}.candidate"); backup = key.with_name(f".authorized_keys.home-lab-{digest}.rollback")
+            key = Path(directory) / "authorized_keys"; key.write_bytes(before); candidate = key.with_name(f"authorized_keys.home-lab-{digest}.candidate"); backup = key.with_name(f"authorized_keys.home-lab-{digest}.rollback")
             plan = {"before": {"bytes_hex": before.hex()}, "after": {"bytes_hex": after.hex()}}
             def create(path: Path, raw: bytes):
                 path.write_bytes(raw); key.write_bytes(unknown)
             def no_replace(source: Path, target: Path):
                 if target.exists(): raise FileExistsError(target)
                 os.rename(source, target)
-            with mock.patch.object(MODULE, "KEY_PATH", key), mock.patch.object(MODULE, "verify_noreplace_support"), mock.patch.object(MODULE, "create_candidate", side_effect=create), mock.patch.object(MODULE, "rename_noreplace", side_effect=no_replace), mock.patch.object(MODULE, "fsync_key_directory"):
+            with mock.patch.object(MODULE, "KEY_PATH", key), mock.patch.object(MODULE, "verify_exclusive_create_support"), mock.patch.object(MODULE, "create_candidate", side_effect=create), mock.patch.object(MODULE, "fsync_key_directory"):
                 with self.assertRaises(RuntimeError): MODULE.install_candidate(plan, digest)
-            self.assertEqual(key.read_bytes(), unknown); self.assertFalse(candidate.exists()); self.assertFalse(backup.exists())
+            self.assertEqual(key.read_bytes(), unknown); self.assertFalse(candidate.exists()); self.assertEqual(backup.read_bytes(), unknown)
 
     def test_transactional_install_failure_is_followed_by_exact_rollback(self) -> None:
         plan = {"before": {"bytes_hex": "01"}, "after": {"bytes_hex": "00"}}; current_state = {"status": "mutation-started", "plan_sha256": "a" * 64, "before_sha256": "b" * 64}
@@ -90,8 +90,49 @@ class ObsoleteRootKeyHostTests(unittest.TestCase):
             def no_replace(source: Path, target: Path):
                 if target.exists(): raise FileExistsError(target)
                 os.rename(source, target)
-            with mock.patch.object(MODULE, "KEY_PATH", key), mock.patch.object(MODULE, "transaction_paths", return_value=(candidate, backup)), mock.patch.object(MODULE, "rename_noreplace", side_effect=no_replace), mock.patch.object(MODULE, "fsync_key_directory"), mock.patch.object(MODULE, "sha", return_value=digest), mock.patch.object(MODULE, "load_private", return_value=(plan, b"plan")), mock.patch.object(MODULE, "key_snapshot", return_value=plan["before"]), mock.patch.object(MODULE, "retained_matches", return_value=True): MODULE.restore_from_journal(journal, current)
+            with mock.patch.object(MODULE, "KEY_PATH", key), mock.patch.object(MODULE, "transaction_paths", return_value=(candidate, backup)), mock.patch.object(MODULE, "create_candidate", side_effect=lambda path, raw: path.write_bytes(raw)), mock.patch.object(MODULE, "fsync_key_directory"), mock.patch.object(MODULE, "sha", return_value=digest), mock.patch.object(MODULE, "load_private", return_value=(plan, b"plan")), mock.patch.object(MODULE, "key_snapshot", return_value=plan["before"]), mock.patch.object(MODULE, "retained_matches", return_value=True): MODULE.restore_from_journal(journal, current)
             self.assertEqual(key.read_bytes(), before); self.assertFalse(candidate.exists()); self.assertFalse(backup.exists())
+
+    def test_crash_state_matrix_restores_full_partial_and_absent_candidate_targets(self) -> None:
+        before = b"before"; after = b"candidate"; digest = "a" * 64; plan = {"before": {"exact": True}, "after": {"bytes_hex": after.hex()}}; current = {"plan_sha256": digest, "before_sha256": digest}; info = mock.Mock(st_mode=0o100600, st_uid=0, st_nlink=1)
+        for target_value in (None, after, after[:3], before[:3]):
+            with self.subTest(target=target_value), tempfile.TemporaryDirectory() as directory:
+                before_path = mock.Mock(); before_path.lstat.return_value = info; before_path.read_bytes.return_value = before; journal = mock.MagicMock(); journal.__truediv__.side_effect = lambda name: before_path if name == "before.bin" else Path("/plan.json")
+                key = Path(directory) / "authorized_keys"; candidate = Path(directory) / "candidate"; backup = Path(directory) / "backup"; candidate.write_bytes(after); backup.write_bytes(before)
+                if target_value is not None: key.write_bytes(target_value)
+                with mock.patch.object(MODULE, "KEY_PATH", key), mock.patch.object(MODULE, "transaction_paths", return_value=(candidate, backup)), mock.patch.object(MODULE, "create_candidate", side_effect=lambda path, raw: path.write_bytes(raw)), mock.patch.object(MODULE, "fsync_key_directory"), mock.patch.object(MODULE, "sha", return_value=digest), mock.patch.object(MODULE, "load_private", return_value=(plan, b"plan")), mock.patch.object(MODULE, "key_snapshot", return_value=plan["before"]), mock.patch.object(MODULE, "retained_matches", return_value=True): MODULE.restore_from_journal(journal, current)
+                self.assertEqual(key.read_bytes(), before); self.assertFalse(candidate.exists()); self.assertFalse(backup.exists())
+
+    def test_crash_before_owned_target_rename_retains_provenance_and_retries(self) -> None:
+        before = b"before"; after = b"candidate"; partial = before[:3]; digest = "a" * 64; plan = {"before": {"exact": True}, "after": {"bytes_hex": after.hex()}}; current = {"plan_sha256": digest, "before_sha256": digest}; info = mock.Mock(st_mode=0o100600, st_uid=0, st_nlink=1)
+        before_path = mock.Mock(); before_path.lstat.return_value = info; before_path.read_bytes.return_value = before; journal = mock.MagicMock(); journal.__truediv__.side_effect = lambda name: before_path if name == "before.bin" else Path("/plan.json")
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory) / "authorized_keys"; key.write_bytes(partial); candidate = Path(directory) / "candidate"; candidate.write_bytes(after); backup = Path(directory) / "backup"; backup.write_bytes(before)
+            patches = (mock.patch.object(MODULE, "KEY_PATH", key), mock.patch.object(MODULE, "transaction_paths", return_value=(candidate, backup)), mock.patch.object(MODULE, "create_candidate", side_effect=lambda path, raw: path.write_bytes(raw)), mock.patch.object(MODULE, "fsync_key_directory"), mock.patch.object(MODULE, "sha", return_value=digest), mock.patch.object(MODULE, "load_private", return_value=(plan, b"plan")), mock.patch.object(MODULE, "key_snapshot", return_value=plan["before"]), mock.patch.object(MODULE, "retained_matches", return_value=True))
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7], mock.patch.object(MODULE.os, "rename", side_effect=SystemExit("simulated crash")):
+                with self.assertRaises(SystemExit): MODULE.restore_from_journal(journal, current)
+            self.assertEqual(key.read_bytes(), partial); self.assertEqual(candidate.read_bytes(), after)
+            patches = (mock.patch.object(MODULE, "KEY_PATH", key), mock.patch.object(MODULE, "transaction_paths", return_value=(candidate, backup)), mock.patch.object(MODULE, "create_candidate", side_effect=lambda path, raw: path.write_bytes(raw)), mock.patch.object(MODULE, "fsync_key_directory"), mock.patch.object(MODULE, "sha", return_value=digest), mock.patch.object(MODULE, "load_private", return_value=(plan, b"plan")), mock.patch.object(MODULE, "key_snapshot", return_value=plan["before"]), mock.patch.object(MODULE, "retained_matches", return_value=True))
+            with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]: MODULE.restore_from_journal(journal, current)
+            self.assertEqual(key.read_bytes(), before); self.assertFalse(candidate.exists()); self.assertFalse(backup.exists())
+
+    def test_restart_completes_partial_captured_drift_restoration(self) -> None:
+        before = b"before"; after = b"candidate"; drift = b"concurrent-recovery-key"; digest = "a" * 64; plan = {"before": {"exact": True}, "after": {"bytes_hex": after.hex()}}; current = {"plan_sha256": digest, "before_sha256": digest}; info = mock.Mock(st_mode=0o100600, st_uid=0, st_nlink=1)
+        before_path = mock.Mock(); before_path.lstat.return_value = info; before_path.read_bytes.return_value = before; journal = mock.MagicMock(); journal.__truediv__.side_effect = lambda name: before_path if name == "before.bin" else Path("/plan.json")
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory) / "authorized_keys"; key.write_bytes(drift[:5]); candidate = Path(directory) / "candidate"; candidate.write_bytes(after); backup = Path(directory) / "backup"; backup.write_bytes(drift)
+            with mock.patch.object(MODULE, "KEY_PATH", key), mock.patch.object(MODULE, "transaction_paths", return_value=(candidate, backup)), mock.patch.object(MODULE, "create_candidate", side_effect=lambda path, raw: path.write_bytes(raw)), mock.patch.object(MODULE, "fsync_key_directory"), mock.patch.object(MODULE, "sha", return_value=digest), mock.patch.object(MODULE, "load_private", return_value=(plan, b"plan")):
+                with self.assertRaises(SystemExit): MODULE.restore_from_journal(journal, current)
+            self.assertEqual(key.read_bytes(), drift); self.assertFalse(candidate.exists()); self.assertEqual(backup.read_bytes(), drift)
+
+    def test_restart_preserves_unknown_candidate_when_target_is_absent(self) -> None:
+        before = b"before"; after = b"candidate"; unknown = b"concurrent-recovery-key"; digest = "a" * 64; plan = {"before": {"exact": True}, "after": {"bytes_hex": after.hex()}}; current = {"plan_sha256": digest, "before_sha256": digest}; info = mock.Mock(st_mode=0o100600, st_uid=0, st_nlink=1)
+        before_path = mock.Mock(); before_path.lstat.return_value = info; before_path.read_bytes.return_value = before; journal = mock.MagicMock(); journal.__truediv__.side_effect = lambda name: before_path if name == "before.bin" else Path("/plan.json")
+        with tempfile.TemporaryDirectory() as directory:
+            key = Path(directory) / "authorized_keys"; candidate = Path(directory) / "candidate"; backup = Path(directory) / "backup"; candidate.write_bytes(unknown); backup.write_bytes(before)
+            with mock.patch.object(MODULE, "KEY_PATH", key), mock.patch.object(MODULE, "transaction_paths", return_value=(candidate, backup)), mock.patch.object(MODULE, "create_candidate", side_effect=lambda path, raw: path.write_bytes(raw)), mock.patch.object(MODULE, "fsync_key_directory"), mock.patch.object(MODULE, "sha", return_value=digest), mock.patch.object(MODULE, "load_private", return_value=(plan, b"plan")):
+                with self.assertRaises(SystemExit): MODULE.restore_from_journal(journal, current)
+            self.assertEqual(key.read_bytes(), unknown); self.assertEqual(candidate.read_bytes(), unknown); self.assertEqual(backup.read_bytes(), before)
 
     def test_unknown_drift_blocks_rollback_without_overwrite(self) -> None:
         before = b"before"; after = b"candidate"; unknown = b"unknown"; digest = "a" * 64; plan = {"before": {"exact": True}, "after": {"bytes_hex": after.hex()}}; current = {"plan_sha256": digest, "before_sha256": digest}

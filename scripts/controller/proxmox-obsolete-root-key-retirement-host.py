@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import ctypes
 import fcntl
 from datetime import datetime, timezone
 import grp
@@ -264,10 +263,18 @@ def fsync_key_directory() -> None:
     finally: os.close(descriptor)
 
 
-def rename_noreplace(source: Path, target: Path) -> None:
-    function = ctypes.CDLL(None, use_errno=True).renameat2; function.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint); function.restype = ctypes.c_int
-    if function(-100, os.fsencode(source), -100, os.fsencode(target), 1) != 0:
-        error = ctypes.get_errno(); raise OSError(error, os.strerror(error), str(target))
+def verify_exclusive_create_support(digest: str) -> None:
+    probe = KEY_PATH.with_name(f"authorized_keys.home-lab-{digest}.probe")
+    if os.path.lexists(probe): raise RuntimeError("root-key exclusive-create probe path exists")
+    try:
+        create_candidate(probe, b"probe")
+        try: descriptor = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        except FileExistsError: pass
+        else:
+            os.close(descriptor); raise RuntimeError("exclusive create overwrote an existing target")
+        if probe.read_bytes() != b"probe": raise RuntimeError("exclusive-create probe differs")
+    finally:
+        probe.unlink(missing_ok=True); fsync_key_directory()
 
 
 def transaction_paths(digest: str) -> tuple[Path, Path]:
@@ -283,33 +290,22 @@ def create_candidate(path: Path, raw: bytes) -> None:
 
 
 def verify_noreplace_support(digest: str) -> None:
-    source = KEY_PATH.with_name(f"authorized_keys.home-lab-{digest}.probe-source"); target = KEY_PATH.with_name(f"authorized_keys.home-lab-{digest}.probe-target")
-    if os.path.lexists(source) or os.path.lexists(target): raise RuntimeError("root-key rename probe path exists")
-    try:
-        create_candidate(source, b"source"); create_candidate(target, b"target")
-        try: rename_noreplace(source, target)
-        except FileExistsError: pass
-        else: raise RuntimeError("rename noreplace overwrote an existing target")
-        if source.read_bytes() != b"source" or target.read_bytes() != b"target": raise RuntimeError("rename noreplace probe differs")
-        target.unlink(); rename_noreplace(source, target)
-        if source.exists() or target.read_bytes() != b"source": raise RuntimeError("rename noreplace installation probe differs")
-    finally:
-        source.unlink(missing_ok=True); target.unlink(missing_ok=True); fsync_key_directory()
+    verify_exclusive_create_support(digest)
 
 
 def install_candidate(plan: dict, digest: str) -> None:
     before = bytes.fromhex(plan["before"]["bytes_hex"]); after = bytes.fromhex(plan["after"]["bytes_hex"]); candidate, backup = transaction_paths(digest)
     if os.path.lexists(candidate) or os.path.lexists(backup): raise RuntimeError("root-key transaction path already exists")
-    verify_noreplace_support(digest)
-    create_candidate(candidate, after); os.rename(KEY_PATH, backup); fsync_key_directory()
-    if backup.read_bytes() != before:
-        if not os.path.lexists(KEY_PATH): rename_noreplace(backup, KEY_PATH)
+    verify_exclusive_create_support(digest); create_candidate(candidate, after); os.rename(KEY_PATH, backup); fsync_key_directory()
+    captured = backup.read_bytes()
+    if captured != before:
+        if not os.path.lexists(KEY_PATH): create_candidate(KEY_PATH, captured)
         candidate.unlink(missing_ok=True); fsync_key_directory(); raise RuntimeError("root-key bytes changed at transactional rename")
-    try: rename_noreplace(candidate, KEY_PATH)
-    except OSError:
-        if not os.path.lexists(KEY_PATH): rename_noreplace(backup, KEY_PATH)
-        candidate.unlink(missing_ok=True); fsync_key_directory(); raise
-    fsync_key_directory()
+    try: create_candidate(KEY_PATH, candidate.read_bytes())
+    except Exception:
+        if not os.path.lexists(KEY_PATH): create_candidate(KEY_PATH, captured)
+        fsync_key_directory(); raise
+    candidate.unlink(); fsync_key_directory()
     if KEY_PATH.read_bytes() != after or backup.read_bytes() != before: raise RuntimeError("root-key transactional replacement differs")
 
 
@@ -325,36 +321,46 @@ def cleanup_transaction_files(plan: dict, digest: str) -> None:
 def restore_from_journal(journal: Path, current: dict) -> None:
     before_path = journal / "before.bin"; info = before_path.lstat(); before = before_path.read_bytes(); plan, _ = load_private(journal / "plan.json"); after = bytes.fromhex(plan["after"]["bytes_hex"]); candidate, backup = transaction_paths(current["plan_sha256"])
     if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != 0 or info.st_nlink != 1 or sha(before) != current.get("before_sha256"): raise SystemExit("obsolete root-key rollback bundle differs")
-    target = KEY_PATH.read_bytes() if KEY_PATH.exists() else None
-    if backup.exists():
-        backup_bytes = backup.read_bytes()
-        if backup_bytes != before:
-            if target is None:
-                rename_noreplace(backup, KEY_PATH); candidate.unlink(missing_ok=True); fsync_key_directory()
-            elif target == after and not candidate.exists():
-                os.rename(KEY_PATH, candidate); fsync_key_directory()
-                if candidate.read_bytes() != after:
-                    if not KEY_PATH.exists(): rename_noreplace(candidate, KEY_PATH)
-                    raise SystemExit("root-key changed during drift-preserving rollback")
-                rename_noreplace(backup, KEY_PATH); candidate.unlink(); fsync_key_directory()
-            else:
-                raise SystemExit("unknown root-key drift blocks rollback")
-            raise SystemExit("unknown root-key drift was preserved instead of overwritten")
-        if target is None:
-            rename_noreplace(backup, KEY_PATH)
-        elif target == after:
-            if candidate.exists(): raise SystemExit("root-key rollback candidate path is occupied")
-            os.rename(KEY_PATH, candidate); fsync_key_directory()
-            if candidate.read_bytes() != after:
-                if not KEY_PATH.exists(): rename_noreplace(candidate, KEY_PATH)
-                raise SystemExit("root-key changed during rollback")
-            rename_noreplace(backup, KEY_PATH)
-        elif target != before:
+    target = KEY_PATH.read_bytes() if KEY_PATH.exists() else None; backup_value = backup.read_bytes() if backup.exists() else None; source = backup_value if backup_value is not None else before; captured_drift = source != before
+    def is_prefix(value: bytes, expected: bytes) -> bool:
+        return len(value) < len(expected) and expected.startswith(value)
+    def known_install_artifact(value: bytes) -> bool:
+        return value == after or is_prefix(value, after)
+    def known_rollback_artifact(value: bytes) -> bool:
+        return known_install_artifact(value) or value == source or is_prefix(value, source)
+    def candidate_bytes() -> bytes | None:
+        return candidate.read_bytes() if candidate.exists() else None
+    def discard_known_candidate() -> None:
+        value = candidate_bytes()
+        if value is None: return
+        if not known_rollback_artifact(value): raise SystemExit("unknown candidate drift is preserved")
+        candidate.unlink(); fsync_key_directory()
+    def move_owned_target(value: bytes) -> None:
+        existing_candidate = candidate_bytes(); prefix_of_source = is_prefix(value, source)
+        if existing_candidate is not None and not known_rollback_artifact(existing_candidate): raise SystemExit("unknown candidate drift is preserved")
+        if prefix_of_source and existing_candidate is None: raise SystemExit("unproven partial rollback target is preserved")
+        os.rename(KEY_PATH, candidate); fsync_key_directory(); moved = candidate.read_bytes()
+        if moved != value or not known_rollback_artifact(moved):
+            if not KEY_PATH.exists(): create_candidate(KEY_PATH, moved)
+            raise SystemExit("root-key drift was preserved during rollback")
+    if target is None:
+        value = candidate_bytes()
+        if value is not None and not known_rollback_artifact(value):
+            create_candidate(KEY_PATH, value); raise SystemExit("unknown candidate drift was restored and preserved")
+        create_candidate(KEY_PATH, source)
+    elif target != source:
+        if known_install_artifact(target) or (is_prefix(target, source) and candidate_bytes() is not None and known_rollback_artifact(candidate_bytes())):
+            move_owned_target(target); create_candidate(KEY_PATH, source)
+        else:
             raise SystemExit("unknown root-key drift blocks rollback")
-    elif target != before:
-        raise SystemExit("root-key rollback artifact is unavailable")
+    if KEY_PATH.read_bytes() != source: raise SystemExit("root-key restoration source differs")
+    discard_known_candidate(); fsync_key_directory()
+    if captured_drift: raise SystemExit("captured root-key drift was preserved instead of overwritten")
     if key_snapshot() != plan["before"] or not retained_matches(plan): raise SystemExit("obsolete root-key rollback differs")
-    candidate.unlink(missing_ok=True); backup.unlink(missing_ok=True); fsync_key_directory()
+    if backup.exists():
+        if backup.read_bytes() != before: raise SystemExit("root-key rollback artifact differs")
+        backup.unlink()
+    fsync_key_directory()
 
 
 def rollback(journal: Path) -> None:
