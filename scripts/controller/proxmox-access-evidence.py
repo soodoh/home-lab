@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import stat
 import subprocess
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / ".local/proxmox-access-evidence"
@@ -105,6 +106,34 @@ def latest_marker_plan_digest() -> str:
     return match.group(1)
 
 
+def access_cutover_state() -> str:
+    text = (ROOT / "infrastructure/contract/home-lab.yml").read_text()
+    section = text.split("      access_cutover:\n", 1)
+    match = re.search(r"^        state: (pending|ready|complete)$", section[1].split("      domain_handoffs:\n", 1)[0], re.MULTILINE) if len(section) == 2 else None
+    if match is None:
+        raise SystemExit("access cutover lifecycle state is unavailable")
+    return match.group(1)
+
+
+def controller_plan_proof(result: subprocess.CompletedProcess[bytes], started_at: float) -> dict:
+    state = access_cutover_state()
+    if state == "pending":
+        if result.returncode != 0 or b"[tailscale]" not in result.stdout or b"No changes" not in result.stdout:
+            raise SystemExit("controller did not prove a steady tailnet no-op")
+        return {"tests_present": True, "live_plan_noop": True, "expected_retirement_drift": False,
+                "controller_plan_stdout_sha256": sha(result.stdout)}
+    candidates = sorted((ROOT / ".reconcile/plans").glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    if result.returncode != 66 or not candidates or candidates[0].stat().st_mtime < started_at:
+        raise SystemExit("controller did not produce the expected access-retirement drift plan")
+    plan_path = candidates[0]; plan = json.loads(plan_path.read_bytes())
+    blocker_targets = sorted(item.get("target") for item in plan.get("blockers", []))
+    finding_targets = sorted(item.get("target") for item in plan.get("findings", []))
+    expected_targets = ["/etc/sudoers.d/tofu-apply", "/etc/sudoers.d/tofu-plan"]
+    if plan_path.name != f"{plan.get('planSha256')}.json" or plan.get("status") != "blocked" or plan.get("applyEligible") is not False or plan.get("actions") != [] or blocker_targets != expected_targets or finding_targets != expected_targets or any(item.get("code") != "manual-remediation-required" or item.get("domain") != "audit-absence" for item in plan["blockers"]) or any(item.get("code") != "unexpected-presence" or item.get("domain") != "audit-absence" for item in plan["findings"]):
+        raise SystemExit("controller access-retirement drift differs from the exact expected boundary")
+    return {"tests_present": True, "live_plan_noop": True, "expected_retirement_drift": True,
+            "controller_plan_sha256": plan["planSha256"], "controller_plan_stdout_sha256": sha(result.stdout)}
+
 def capture() -> tuple[Path, str]:
     commit = clean_pushed_commit()
     if not known_host_proven():
@@ -122,9 +151,9 @@ def capture() -> tuple[Path, str]:
         raise SystemExit("fixed deploy inspect canary differs")
     run_ssh("ansible-deploy@proxmox", "apply lifecycle-marker a;id", expected=64)
     run_ssh("proxmox@proxmox", "true")
+    controller_started = time.time()
     controller = subprocess.run((ROOT / "scripts/local-controller", "plan", "steady"), cwd=ROOT, capture_output=True, timeout=1800)
-    if controller.returncode != 0 or b"[tailscale]" not in controller.stdout or b"No changes" not in controller.stdout:
-        raise SystemExit("controller did not prove a steady tailnet no-op")
+    tailnet_proof = controller_plan_proof(controller, controller_started)
     now = datetime.now(timezone.utc).replace(microsecond=0)
     evidence = {
         "format": "home-lab-proxmox-access-evidence-draft-v1", "commit": commit,
@@ -138,7 +167,7 @@ def capture() -> tuple[Path, str]:
             "firewall_transport": {"positive": True, "injection_rejected": True, "inspect_sha256": sha(firewall.stdout)},
             "deploy_transport": {"positive": True, "injection_rejected": True, "marker_plan_sha256": marker_digest},
             "human_session": {"positive": True},
-            "tailnet_policy": {"tests_present": True, "live_plan_noop": True, "controller_plan_stdout_sha256": sha(controller.stdout)},
+            "tailnet_policy": tailnet_proof,
             "root_keys": root_key_evidence(),
             "console": {"attested": False},
         },
