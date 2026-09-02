@@ -73,7 +73,8 @@ def load_policy(*, deployed: bool):
     module, policy, digest = B.module_and_policy()
     proton = policy["repositories"]["proton"]
     tools = policy["tools"]["rclone"]
-    if proton.get("path") != V2 or proton.get("id") != V2_ID or policy.get("schedule", {}).get("state") not in ({"incident-suspended"} if deployed else {None, "incident-suspended"}):
+    repository_identity = (proton.get("path"), proton.get("id"))
+    if repository_identity not in {(V2, V2_ID), (TARGET, SOURCE_ID)} or policy.get("schedule", {}).get("state") not in ({"incident-suspended"} if deployed else {None, "incident-suspended"}):
         fail("policy-boundary")
     if deployed and (tools.get("installed_sha256") != BETA_SHA256 or tools.get("version") != "1.76.0-beta.10267.220fe7619"):
         fail("deployed-tool-policy")

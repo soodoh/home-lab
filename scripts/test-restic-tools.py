@@ -124,9 +124,9 @@ def main() -> None:
     assert policy["proton"]["trash_cleanup"] == "manual-only"
     assert policy["repositories"]["games"]["id"] == "b15627185df9b10a95b5dffe7d194dbccdba6ba4eb8a038ee03e750fedbde08f"
     assert policy["repositories"]["nfs"]["id"] == "61d50fa782d194374deb24f354a07b0f11634721afa1b268963e4d017b93bb95"
-    assert policy["repositories"]["proton"]["id"] == "98d792c009c01e06b8b39aab5112f0392050e9c533d1882e9c0d87727884ea25"
-    assert policy["repositories"]["proton"]["path"] == "rclone:proton-backup:Backups/home-lab-restic-v2"
-    assert policy["repositories"]["proton"]["damaged_predecessor"]["id"] == "d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e"
+    assert policy["repositories"]["proton"]["id"] == "dce8dbc3cde106047631317a09257c23ee5eab4d9ece5f88d52108ae384a8503"
+    assert policy["repositories"]["proton"]["path"] == "rclone:proton-backup:Backups/home-lab-restic"
+    assert policy["repositories"]["proton"]["damaged_predecessor"]["id"] == "98d792c009c01e06b8b39aab5112f0392050e9c533d1882e9c0d87727884ea25"
     assert policy["repositories"]["nfs"]["copy_chunker_params_from"] == "games"
     assert policy["repositories"]["proton"]["copy_chunker_params_from"] == "games"
     assert policy["repositories"]["proton"]["minimum_allocated_bytes"] == 1_000_000_000_000

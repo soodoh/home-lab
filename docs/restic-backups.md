@@ -12,6 +12,8 @@ A separately reviewed replacement transaction then created the requested canonic
 
 Investigation identified the exact upstream defect: rclone v1.75.0 issue `#9722` retries a Proton upload after its input stream has already been partially consumed, allowing `rclone serve restic` to report success for a silently truncated pack. Upstream commit `a06df7a2de46ee15932a0fbfa27bc4bb0045acf8` fixes the retry boundary after v1.75.0. The hash-pinned latest beta `v1.76.0-beta.10267.220fe7619` passed direct stable/beta comparison fixtures and then created a complete isolated Restic repository from the exact games snapshot; two separate full `--read-data` checks returned the same zero-error summary. Evidence is `infrastructure/evidence/proton-rclone-beta-qualification.json`. The beta is qualified as a repair candidate but is not yet installed as production authority; timers remain stopped.
 
+The guarded promotion transaction subsequently installed that exact beta, moved only the failed v1.75.0 canonical attempt to Proton Trash, and server-side moved the qualified repository from `Diagnostics/restic-beta-10267` to `Backups/home-lab-restic`. Plan `91a21b8f4ade39ae105f0004e73024a03eb70e79319e406319d0b3572b628f4e` committed repository ID `dce8dbc3cde106047631317a09257c23ee5eab4d9ece5f88d52108ae384a8503` and snapshot `a42e4694ac164d62bb1c815144ea6407f70ab1e8ee91c54f293b2acdb77dcfea` after structural and full `--read-data` checks. Damaged v2 remains preserved, Trash was not emptied, and both timers remain incident-suspended. The receipt is `infrastructure/evidence/proton-qualified-promotion.json`.
+
 The final retired Offen recovery point was:
 
 - basename `daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg`;
