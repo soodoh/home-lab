@@ -1709,9 +1709,6 @@ backups:
         copy_chunker_params_from: games
         recovery_snapshot_id: a42e4694ac164d62bb1c815144ea6407f70ab1e8ee91c54f293b2acdb77dcfea
         recovery_original_snapshot_id: edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2
-        damaged_predecessor:
-          path: rclone:proton-backup:Backups/home-lab-restic-v2
-          id: 98d792c009c01e06b8b39aab5112f0392050e9c533d1882e9c0d87727884ea25
     retention:
       keep_daily: 7
       keep_weekly: 5
