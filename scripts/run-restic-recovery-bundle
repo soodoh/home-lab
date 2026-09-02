@@ -168,7 +168,7 @@ def main() -> None:
             "artifact_sha256": arguments.expected_artifact_sha256,
             "original_snapshot_id": arguments.expected_original_snapshot_id,
             "policy_sha256": arguments.expected_policy_sha256,
-            "repository": "rclone:proton_backup:Backups/home-lab-restic-v2",
+            "repository": "rclone:proton_backup:Backups/home-lab-restic",
             "repository_id": arguments.expected_repository_id,
             "snapshot_id": arguments.expected_snapshot_id,
         }

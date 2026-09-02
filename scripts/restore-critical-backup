@@ -72,7 +72,7 @@ recovery_parent=/srv/home-lab-recovery
         [[ $variable == RCLONE_CONFIG ]] || exit 1
       done
       ;;
-    rclone:proton_backup:Backups/home-lab-restic-v2)
+    rclone:proton_backup:Backups/home-lab-restic)
       : "${RECOVERY_EXPECTED_RCLONE_SHA256:?RECOVERY_EXPECTED_RCLONE_SHA256 is required}"
       : "${RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID:?RECOVERY_EXPECTED_ORIGINAL_SNAPSHOT_ID is required}"
       [[ $RECOVERY_EXPECTED_RCLONE_SHA256 =~ ^[0-9a-f]{64}$ ]] || exit 1

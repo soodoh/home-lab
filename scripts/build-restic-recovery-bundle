@@ -115,7 +115,7 @@ def main() -> None:
     for key in required - {"repository", "version"}:
         if not HEX.fullmatch(metadata[key]):
             raise ValueError("bundle metadata hash differs")
-    if metadata["repository"] != "rclone:proton_backup:Backups/home-lab-restic-v2":
+    if metadata["repository"] != "rclone:proton_backup:Backups/home-lab-restic":
         raise ValueError("bundle repository differs")
 
     restic = secure_source(Path(arguments.restic), metadata["restic_sha256"], True)
