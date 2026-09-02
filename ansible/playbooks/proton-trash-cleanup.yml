@@ -1,0 +1,169 @@
+---
+- name: Manage explicitly authorized entire Proton Trash cleanup
+  hosts: docker_host
+  gather_facts: false
+  become: true
+  vars:
+    proton_trash_cleanup_helper_source: "{{ playbook_dir }}/../../scripts/empty-proton-trash"
+    proton_trash_cleanup_helper_path: /usr/local/libexec/home-lab/empty-proton-trash
+    proton_trash_cleanup_stage: "/var/lib/restic-proton/proton-trash-cleanup/staged/{{ proton_trash_cleanup_plan_sha256 }}"
+  pre_tasks:
+    - name: Validate Proton Trash operation boundary
+      ansible.builtin.assert:
+        that:
+          - proton_trash_cleanup_operation in ['install', 'observe', 'apply']
+          - proton_trash_cleanup_expected_helper_sha256 is match('^[0-9a-f]{64}$')
+        fail_msg: Proton Trash operation or helper identity differs.
+
+    - name: Require live mode for entire Trash cleanup
+      ansible.builtin.assert:
+        that:
+          - not ansible_check_mode
+        fail_msg: Entire Proton Trash cleanup cannot run in check mode.
+      when: proton_trash_cleanup_operation == 'apply'
+
+  tasks:
+    - name: Install exact Proton Trash cleanup capability
+      ansible.builtin.copy:
+        src: "{{ proton_trash_cleanup_helper_source }}"
+        dest: "{{ proton_trash_cleanup_helper_path }}"
+        owner: root
+        group: restic-proton
+        mode: "0750"
+      when: proton_trash_cleanup_operation == 'install'
+
+    - name: Inspect installed Proton Trash capability
+      ansible.builtin.stat:
+        path: "{{ proton_trash_cleanup_helper_path }}"
+        checksum_algorithm: sha256
+        follow: false
+      register: proton_trash_cleanup_helper_stat
+      when: proton_trash_cleanup_operation != 'install' or not ansible_check_mode
+
+    - name: Validate installed Proton Trash capability
+      ansible.builtin.assert:
+        that:
+          - proton_trash_cleanup_helper_stat.stat.exists
+          - proton_trash_cleanup_helper_stat.stat.isreg
+          - not proton_trash_cleanup_helper_stat.stat.islnk
+          - proton_trash_cleanup_helper_stat.stat.pw_name == 'root'
+          - proton_trash_cleanup_helper_stat.stat.gr_name == 'restic-proton'
+          - proton_trash_cleanup_helper_stat.stat.mode == '0750'
+          - proton_trash_cleanup_helper_stat.stat.nlink == 1
+          - proton_trash_cleanup_helper_stat.stat.checksum == proton_trash_cleanup_expected_helper_sha256
+        fail_msg: Installed Proton Trash cleanup capability differs.
+      when: proton_trash_cleanup_operation != 'install' or not ansible_check_mode
+
+    - name: Observe entire Proton Trash cleanup boundary
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/runuser
+          - --user
+          - restic-proton
+          - --
+          - "{{ proton_trash_cleanup_helper_path }}"
+          - observe
+      register: proton_trash_cleanup_observation
+      changed_when: false
+      when: proton_trash_cleanup_operation == 'observe'
+
+    - name: Save bounded Trash observation on controller
+      ansible.builtin.copy:
+        content: "{{ proton_trash_cleanup_observation.stdout }}\n"
+        dest: "{{ proton_trash_cleanup_controller_output }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      when: proton_trash_cleanup_operation == 'observe'
+
+    - name: Validate entire Trash transaction inputs
+      ansible.builtin.assert:
+        that:
+          - proton_trash_cleanup_plan_sha256 is match('^[0-9a-f]{64}$')
+          - proton_trash_cleanup_authorization_sha256 is match('^[0-9a-f]{64}$')
+          - >-
+            proton_trash_cleanup_confirmation == 'empty-entire-proton-trash-' ~
+            proton_trash_cleanup_plan_sha256 ~ '-' ~ proton_trash_cleanup_authorization_sha256
+          - proton_trash_cleanup_plan_source | basename == 'proton-trash-cleanup-' ~ proton_trash_cleanup_plan_sha256 ~ '.json'
+          - proton_trash_cleanup_authorization_source | basename == 'authorization-' ~ proton_trash_cleanup_authorization_sha256 ~ '.json'
+        fail_msg: Entire Proton Trash transaction binding differs.
+      when: proton_trash_cleanup_operation == 'apply'
+
+    - name: Create protected Proton Trash roots
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: restic-proton
+        group: restic-proton
+        mode: "0700"
+      loop:
+        - /var/lib/restic-proton/proton-trash-cleanup
+        - /var/lib/restic-proton/proton-trash-cleanup/staged
+      when: proton_trash_cleanup_operation == 'apply'
+
+    - name: Create protected Trash plan staging directory
+      ansible.builtin.file:
+        path: "{{ proton_trash_cleanup_stage }}"
+        state: directory
+        owner: restic-proton
+        group: restic-proton
+        mode: "0700"
+      when: proton_trash_cleanup_operation == 'apply'
+
+    - name: Stage exact Trash cleanup artifacts
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ proton_trash_cleanup_stage }}/{{ item.dest }}"
+        owner: restic-proton
+        group: restic-proton
+        mode: "0600"
+      loop:
+        - src: "{{ proton_trash_cleanup_plan_source }}"
+          dest: "proton-trash-cleanup-{{ proton_trash_cleanup_plan_sha256 }}.json"
+        - src: "{{ proton_trash_cleanup_authorization_source }}"
+          dest: "authorization-{{ proton_trash_cleanup_authorization_sha256 }}.json"
+        - src: "{{ proton_trash_cleanup_recovery_source }}"
+          dest: recovery-evidence.json
+        - src: "{{ proton_trash_cleanup_recovery_journal_source }}"
+          dest: recovery-journal.json
+      when: proton_trash_cleanup_operation == 'apply'
+
+    - name: Empty explicitly authorized entire Proton Trash
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/runuser
+          - --user
+          - restic-proton
+          - --
+          - "{{ proton_trash_cleanup_helper_path }}"
+          - apply
+          - "{{ proton_trash_cleanup_stage }}/proton-trash-cleanup-{{ proton_trash_cleanup_plan_sha256 }}.json"
+          - "{{ proton_trash_cleanup_stage }}/authorization-{{ proton_trash_cleanup_authorization_sha256 }}.json"
+          - "{{ proton_trash_cleanup_stage }}/recovery-evidence.json"
+          - "{{ proton_trash_cleanup_stage }}/recovery-journal.json"
+      environment:
+        PROTON_TRASH_CLEANUP_CONFIRMED: "{{ proton_trash_cleanup_confirmation }}"
+      changed_when: true
+      when: proton_trash_cleanup_operation == 'apply'
+
+    - name: Fetch committed Proton Trash receipt
+      ansible.builtin.fetch:
+        src: "/var/lib/restic-proton/proton-trash-cleanup/{{ proton_trash_cleanup_plan_sha256 }}/receipt.json"
+        dest: "{{ proton_trash_cleanup_controller_output }}"
+        flat: true
+      when: proton_trash_cleanup_operation == 'apply'
+
+    - name: Protect fetched Proton Trash receipt
+      ansible.builtin.file:
+        path: "{{ proton_trash_cleanup_controller_output }}"
+        state: file
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      when: proton_trash_cleanup_operation == 'apply'
+
+    - name: Remove successful Proton Trash staging
+      ansible.builtin.file:
+        path: "{{ proton_trash_cleanup_stage }}"
+        state: absent
+      when: proton_trash_cleanup_operation == 'apply'

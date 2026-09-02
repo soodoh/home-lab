@@ -589,6 +589,10 @@
       dest: /usr/local/libexec/home-lab/cleanup-damaged-proton-restic-v1
       group: restic-proton
       mode: "0750"
+    - src: "{{ playbook_dir }}/../../scripts/empty-proton-trash"
+      dest: /usr/local/libexec/home-lab/empty-proton-trash
+      group: restic-proton
+      mode: "0750"
 
 - name: Install canonical SOPS ciphertext for host-side credential bootstrap
   ansible.builtin.copy:
