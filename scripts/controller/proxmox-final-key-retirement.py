@@ -774,10 +774,20 @@ def validate_access_evidence(value, raw, plan, expected_root_fingerprints):
 
 
 def stage(files, digest):
-    base = f"/var/lib/home-lab/final-key-retirement/staged/{digest}"
-    program = (
-        f"import os,stat\nbase={base!r}\nos.makedirs(base,mode=0o700,exist_ok=False)\n"
-    )
+    root = "/var/lib/home-lab/final-key-retirement"
+    staged = f"{root}/staged"
+    base = f"{staged}/{digest}"
+    program = f"""import os,stat
+root={root!r}
+staged={staged!r}
+base={base!r}
+for path in (root,staged):
+ os.makedirs(path,mode=0o700,exist_ok=True)
+ value=os.lstat(path)
+ if not stat.S_ISDIR(value.st_mode) or stat.S_ISLNK(value.st_mode) or value.st_uid!=0 or value.st_gid!=0:raise SystemExit('staging root differs')
+ os.chmod(path,0o700)
+os.makedirs(base,mode=0o700,exist_ok=False)
+"""
     for name, raw in files.items():
         program += f"p=os.path.join(base,{name!r});fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600);h=os.fdopen(fd,'wb');h.write(bytes.fromhex({raw.hex()!r}));h.flush();os.fsync(h.fileno());h.close()\n"
     r = subprocess.run(
