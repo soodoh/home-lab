@@ -183,6 +183,47 @@ def main() -> None:
     repair_precondition = runner_module["repair_precondition"]
     assert repair_precondition(1, exact_stdout, exact_stderr)
     assert not repair_precondition(2, exact_stdout, exact_stderr)
+    migration_text = (ROOT / "scripts/migrate-proton-restic-v2").read_text()
+    assert "create-proton-restic-v2-preserve-damaged-v1" in migration_text
+    assert "rclone:proton-backup:Backups/home-lab-restic-v2" in migration_text
+    assert '"check", "--json", "--read-data"' in migration_text
+    assert '"prune"' not in migration_text and '"forget"' not in migration_text and '"purge"' not in migration_text
+    migration = runpy.run_path(ROOT / "scripts/migrate-proton-restic-v2")
+    class ListingModule:
+        def __init__(self, listing): self.listing = listing
+        def command_paths(self, _policy): return ("restic", "rclone")
+        def rooted(self, path): return Path(path)
+        def run(self, _arguments, **_kwargs): return subprocess.CompletedProcess([], 0, self.listing, "")
+        def require_success(self, result, _reason): assert result.returncode == 0
+    assert migration["provider_path_absent"](ListingModule("other/\n"), {}) == hashlib.sha256(b"other/\n").hexdigest()
+    try: migration["provider_path_absent"](ListingModule("home-lab-restic-v2/\n"), {})
+    except SystemExit: pass
+    else: raise AssertionError("existing provider path was accepted as absent")
+    migration_policy = {"first_run": {"source_policy_sha256": "a" * 64, "artifact_sha256": "b" * 64}}
+    source_snapshot = {"id": migration["SOURCE_SNAPSHOT"], "original": migration["ORIGINAL_SNAPSHOT"], "tags": ["cadence=daily", f"policy={'a' * 64}", f"artifact={'b' * 64}"]}
+    migration["validate_source_snapshot"]([source_snapshot], migration_policy)
+    copied_snapshot = {"id": "c" * 64, "original": migration["SOURCE_SNAPSHOT"], "tags": source_snapshot["tags"]}
+    assert migration["destination_snapshot"]([copied_snapshot], migration_policy) == "c" * 64
+    try: migration["destination_snapshot"]([{**copied_snapshot, "original": migration["ORIGINAL_SNAPSHOT"]}], migration_policy)
+    except SystemExit: pass
+    else: raise AssertionError("wrong snapshot lineage was accepted")
+    state = {"format": "home-lab-proton-restic-v2-state-v1", "status": "initialized", "policy_sha256": "d" * 64, "damaged_repository_id": migration["DAMAGED_REPOSITORY_ID"], "new_repository": migration["NEW_REPOSITORY"], "new_repository_id": "e" * 64, "chunker_polynomial": "poly", "source_repository_id": migration["SOURCE_REPOSITORY_ID"], "source_snapshot_id": migration["SOURCE_SNAPSHOT"], "absence_listing_sha256": "0" * 64}
+    migration["validate_bound_state"](state, {"id": "e" * 64, "chunker_polynomial": "poly"}, "poly", "d" * 64)
+    try: migration["validate_bound_state"](state, {"id": "f" * 64, "chunker_polynomial": "poly"}, "poly", "d" * 64)
+    except SystemExit: pass
+    else: raise AssertionError("unrelated repository was accepted")
+    try: migration["validate_bound_state"](state, {"id": "e" * 64, "chunker_polynomial": "poly"}, "poly", "f" * 64)
+    except SystemExit: pass
+    else: raise AssertionError("stale migration policy was accepted")
+    initializing = {key: value for key, value in state.items() if key not in {"new_repository_id", "chunker_polynomial"}}; initializing["status"] = "initializing"
+    migration["validate_state_header"](initializing, "d" * 64)
+    try: migration["validate_bound_state"](initializing, {}, "poly", "d" * 64)
+    except SystemExit: pass
+    else: raise AssertionError("unbound initializing state was accepted as bound")
+    migration["validate_full_summary"](json.dumps({"message_type": "summary", "num_errors": 0, "broken_packs": None, "suggest_repair_index": False, "suggest_prune": False}) + "\n")
+    try: migration["validate_full_summary"](json.dumps({"message_type": "summary", "num_errors": 1, "broken_packs": None, "suggest_repair_index": False, "suggest_prune": False}) + "\n")
+    except SystemExit: pass
+    else: raise AssertionError("invalid full-check summary was accepted")
     for command in ("cleanup", "mount", "nfsmount", "purge", "sync", "bisync"):
         assert f'"{command}"' in runner_text
     assert "restic_partial_source" in runner_text
