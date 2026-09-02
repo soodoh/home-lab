@@ -50,6 +50,16 @@ def observation(stage: str = "initial") -> dict:
     }
 
 
+def test_service_state_parses_named_properties_without_order_dependency() -> None:
+    class FakeModule:
+        def run(self, *_args, **_kwargs):
+            class Result:
+                returncode = 0
+                stdout = "Result=success\nActiveState=inactive\n"
+            return Result()
+
+    assert H.service_states(FakeModule()) == [{"unit": "home-lab-restic-daily-proton.service", "active": "inactive", "result": "success"}, {"unit": "home-lab-restic-maintenance-proton.service", "active": "inactive", "result": "success"}]
+
 def test_controller_requires_exact_live_boundary() -> None:
     contract, _ = C.contract_policy()
     C.validate_observation(observation(), contract)
@@ -161,6 +171,7 @@ def test_plan_requires_40_character_git_commit() -> None:
 
 def main() -> None:
     test_controller_requires_exact_live_boundary()
+    test_service_state_parses_named_properties_without_order_dependency()
     test_mutation_surface_and_playbook_locking()
     test_apply_commits_only_after_three_exact_purges_and_full_check()
     test_expired_authorization_cannot_resume_mutation()

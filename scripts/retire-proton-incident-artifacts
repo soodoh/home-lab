@@ -178,11 +178,11 @@ def timer_states(module, expected_active: str, expected_unit_file: str) -> list[
 def service_states(module) -> list[dict]:
     values = []
     for unit in ("home-lab-restic-daily-proton.service", "home-lab-restic-maintenance-proton.service"):
-        result = module.run(["/usr/bin/systemctl", "show", "--property=ActiveState", "--property=Result", "--value", unit], environment={}, timeout=30)
-        lines = result.stdout.splitlines()
-        if result.returncode or lines != ["inactive", "success"]:
+        result = module.run(["/usr/bin/systemctl", "show", "--property=ActiveState", "--property=Result", unit], environment={}, timeout=30)
+        properties = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+        if result.returncode or properties != {"ActiveState": "inactive", "Result": "success"}:
             fail("service-state")
-        values.append({"unit": unit, "active": lines[0], "result": lines[1]})
+        values.append({"unit": unit, "active": properties["ActiveState"], "result": properties["Result"]})
     return values
 
 
