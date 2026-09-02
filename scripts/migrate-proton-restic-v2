@@ -14,9 +14,9 @@ import stat
 RUNNER = Path("/usr/local/libexec/home-lab/restic-backup")
 STATE = Path("/var/lib/restic-proton/migration-v2.json")
 NEW_REPOSITORY = "rclone:proton-backup:Backups/home-lab-restic-v2"
-SOURCE_REPOSITORY_ID = "61d50fa782d194374deb24f354a07b0f11634721afa1b268963e4d017b93bb95"
-SOURCE_SNAPSHOT = "d64f24f17b7cfb2b5aaefe0f2ff625837b9ab198061470269f15f2026651b88d"
-ORIGINAL_SNAPSHOT = "edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2"
+SOURCE_REPOSITORY_ID = "b15627185df9b10a95b5dffe7d194dbccdba6ba4eb8a038ee03e750fedbde08f"
+SOURCE_SNAPSHOT = "edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2"
+ORIGINAL_SNAPSHOT = SOURCE_SNAPSHOT
 DAMAGED_REPOSITORY_ID = "d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e"
 CONFIRMATION = "create-proton-restic-v2-preserve-damaged-v1"
 HEX = re.compile(r"^[0-9a-f]{64}$")
@@ -33,7 +33,7 @@ def canonical(value: object) -> bytes:
 def validate_source_snapshot(values: list[dict], policy: dict) -> None:
     required = {"cadence=daily", f"policy={policy['first_run']['source_policy_sha256']}", f"artifact={policy['first_run']['artifact_sha256']}"}
     matches = [item for item in values if item.get("id") == SOURCE_SNAPSHOT]
-    if len(matches) != 1 or matches[0].get("original") != ORIGINAL_SNAPSHOT or not required <= set(matches[0].get("tags") or []): fail("source-snapshot-lineage")
+    if len(matches) != 1 or matches[0].get("original") not in {None, ""} or not required <= set(matches[0].get("tags") or []): fail("source-snapshot-lineage")
 
 
 def destination_snapshot(values: list[dict], policy: dict) -> str:
@@ -103,14 +103,14 @@ def main() -> None:
     if os.environ.get("HOME_LAB_PROTON_V2_CONFIRMATION") != CONFIRMATION: fail("confirmation")
     if os.geteuid() == 0: fail("must-run-as-restic-proton")
     module = SourceFileLoader("home_lab_restic_backup", str(RUNNER)).load_module(); policy, policy_hash = module.load_policy()
-    if policy["repositories"]["proton"]["id"] != DAMAGED_REPOSITORY_ID or policy["repositories"]["nfs"]["id"] != SOURCE_REPOSITORY_ID: fail("policy-boundary")
+    if policy["repositories"]["proton"]["id"] != DAMAGED_REPOSITORY_ID or policy["repositories"]["games"]["id"] != SOURCE_REPOSITORY_ID: fail("policy-boundary")
     descriptor = acquire_lock(module, policy)
     try:
-        module.preflight(policy, proton=True, include_nfs=True, verify_source_paths=False); module.check_repository(policy, "nfs")
-        source_config_result = module.restic_result(policy, "nfs", ["cat", "config"]); module.require_success(source_config_result, "source_config"); source_config = json.loads(source_config_result.stdout)
+        module.preflight(policy, proton=True, include_nfs=False, verify_source_paths=False); module.check_repository(policy, "games")
+        source_config_result = module.restic_result(policy, "games", ["cat", "config"]); module.require_success(source_config_result, "source_config"); source_config = json.loads(source_config_result.stdout)
         if source_config.get("id") != SOURCE_REPOSITORY_ID or not isinstance(source_config.get("chunker_polynomial"), str): fail("source-config")
-        source_snapshots = module.restic_result(policy, "nfs", ["snapshots", "--json", SOURCE_SNAPSHOT]); module.require_success(source_snapshots, "source_snapshot"); validate_source_snapshot(json.loads(source_snapshots.stdout), policy)
-        restic, _ = module.command_paths(policy); environment = module.credential_environment(policy, "proton", "nfs"); environment["RESTIC_FROM_REPOSITORY"] = module.repository(policy, "nfs"); state = load_state()
+        source_snapshots = module.restic_result(policy, "games", ["snapshots", "--json", SOURCE_SNAPSHOT]); module.require_success(source_snapshots, "source_snapshot"); validate_source_snapshot(json.loads(source_snapshots.stdout), policy)
+        restic, _ = module.command_paths(policy); environment = module.credential_environment(policy, "proton", "games"); environment["RESTIC_FROM_REPOSITORY"] = module.repository(policy, "games"); state = load_state()
         existing = module.run([restic, "-r", NEW_REPOSITORY, "cat", "config"], environment=environment, timeout=300)
         if state is None:
             if existing.returncode == 0: fail("unbound-existing-repository")
@@ -120,7 +120,7 @@ def main() -> None:
             validate_state_header(state, policy_hash)
         if state["status"] == "initializing":
             if existing.returncode != 0:
-                initialized = module.run([restic, "-r", NEW_REPOSITORY, "init", "--from-repo", module.repository(policy, "nfs"), "--copy-chunker-params"], environment=environment, timeout=1800); module.require_success(initialized, "proton_v2_init")
+                initialized = module.run([restic, "-r", NEW_REPOSITORY, "init", "--from-repo", module.repository(policy, "games"), "--copy-chunker-params"], environment=environment, timeout=1800); module.require_success(initialized, "proton_v2_init")
                 config_result = module.run([restic, "-r", NEW_REPOSITORY, "cat", "config"], environment=environment, timeout=300); module.require_success(config_result, "proton_v2_config"); config = json.loads(config_result.stdout)
             else:
                 config = json.loads(existing.stdout)
@@ -130,7 +130,7 @@ def main() -> None:
         else:
             if existing.returncode != 0: fail("bound-repository-absent")
             config = json.loads(existing.stdout); validate_bound_state(state, config, source_config["chunker_polynomial"], policy_hash)
-        copied = module.run([restic, "-r", NEW_REPOSITORY, "copy", "--from-repo", module.repository(policy, "nfs"), SOURCE_SNAPSHOT], environment=environment, timeout=7200); module.require_success(copied, "proton_v2_copy")
+        copied = module.run([restic, "-r", NEW_REPOSITORY, "copy", "--from-repo", module.repository(policy, "games"), SOURCE_SNAPSHOT], environment=environment, timeout=7200); module.require_success(copied, "proton_v2_copy")
         snapshots = module.run([restic, "-r", NEW_REPOSITORY, "snapshots", "--json"], environment=environment, timeout=600); module.require_success(snapshots, "proton_v2_snapshots"); snapshot_id = destination_snapshot(json.loads(snapshots.stdout), policy)
         state = {**state, "status": "copied", "new_snapshot_id": snapshot_id, "original_snapshot_id": ORIGINAL_SNAPSHOT}; save_state(state)
         checked = module.run([restic, "-r", NEW_REPOSITORY, "check", "--json", "--read-data"], environment=environment, timeout=14400); module.require_success(checked, "proton_v2_full_check")

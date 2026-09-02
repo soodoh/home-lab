@@ -200,11 +200,11 @@ def main() -> None:
     except SystemExit: pass
     else: raise AssertionError("existing provider path was accepted as absent")
     migration_policy = {"first_run": {"source_policy_sha256": "a" * 64, "artifact_sha256": "b" * 64}}
-    source_snapshot = {"id": migration["SOURCE_SNAPSHOT"], "original": migration["ORIGINAL_SNAPSHOT"], "tags": ["cadence=daily", f"policy={'a' * 64}", f"artifact={'b' * 64}"]}
+    source_snapshot = {"id": migration["SOURCE_SNAPSHOT"], "original": None, "tags": ["cadence=daily", f"policy={'a' * 64}", f"artifact={'b' * 64}"]}
     migration["validate_source_snapshot"]([source_snapshot], migration_policy)
     copied_snapshot = {"id": "c" * 64, "original": migration["SOURCE_SNAPSHOT"], "tags": source_snapshot["tags"]}
     assert migration["destination_snapshot"]([copied_snapshot], migration_policy) == "c" * 64
-    try: migration["destination_snapshot"]([{**copied_snapshot, "original": migration["ORIGINAL_SNAPSHOT"]}], migration_policy)
+    try: migration["destination_snapshot"]([{**copied_snapshot, "original": "f" * 64}], migration_policy)
     except SystemExit: pass
     else: raise AssertionError("wrong snapshot lineage was accepted")
     state = {"format": "home-lab-proton-restic-v2-state-v1", "status": "initialized", "policy_sha256": "d" * 64, "damaged_repository_id": migration["DAMAGED_REPOSITORY_ID"], "new_repository": migration["NEW_REPOSITORY"], "new_repository_id": "e" * 64, "chunker_polynomial": "poly", "source_repository_id": migration["SOURCE_REPOSITORY_ID"], "source_snapshot_id": migration["SOURCE_SNAPSHOT"], "absence_listing_sha256": "0" * 64}
