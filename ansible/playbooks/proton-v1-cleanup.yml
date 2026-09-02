@@ -1,0 +1,159 @@
+---
+- name: Manage exact damaged Proton Restic v1 cleanup
+  hosts: docker_host
+  gather_facts: false
+  become: true
+  vars:
+    proton_v1_cleanup_helper_source: "{{ playbook_dir }}/../../scripts/cleanup-damaged-proton-restic-v1"
+    proton_v1_cleanup_helper_path: /usr/local/libexec/home-lab/cleanup-damaged-proton-restic-v1
+    proton_v1_cleanup_stage: "/var/lib/restic-proton/proton-v1-cleanup/staged/{{ proton_v1_cleanup_plan_sha256 }}"
+  pre_tasks:
+    - name: Validate cleanup operation boundary
+      ansible.builtin.assert:
+        that:
+          - proton_v1_cleanup_operation in ['install', 'observe', 'apply']
+          - proton_v1_cleanup_expected_helper_sha256 is match('^[0-9a-f]{64}$')
+        fail_msg: Proton v1 cleanup operation or helper identity differs.
+
+    - name: Require live mode for destructive cleanup
+      ansible.builtin.assert:
+        that:
+          - not ansible_check_mode
+        fail_msg: Destructive Proton v1 cleanup cannot run in check mode.
+      when: proton_v1_cleanup_operation == 'apply'
+
+  tasks:
+    - name: Install exact Proton v1 cleanup capability
+      ansible.builtin.copy:
+        src: "{{ proton_v1_cleanup_helper_source }}"
+        dest: "{{ proton_v1_cleanup_helper_path }}"
+        owner: root
+        group: restic-proton
+        mode: "0750"
+      when: proton_v1_cleanup_operation == 'install'
+
+    - name: Inspect installed cleanup capability
+      ansible.builtin.stat:
+        path: "{{ proton_v1_cleanup_helper_path }}"
+        checksum_algorithm: sha256
+        follow: false
+      register: proton_v1_cleanup_helper_stat
+      when: proton_v1_cleanup_operation != 'install' or not ansible_check_mode
+
+    - name: Validate installed cleanup capability
+      ansible.builtin.assert:
+        that:
+          - proton_v1_cleanup_helper_stat.stat.exists
+          - proton_v1_cleanup_helper_stat.stat.isreg
+          - not proton_v1_cleanup_helper_stat.stat.islnk
+          - proton_v1_cleanup_helper_stat.stat.pw_name == 'root'
+          - proton_v1_cleanup_helper_stat.stat.gr_name == 'restic-proton'
+          - proton_v1_cleanup_helper_stat.stat.mode == '0750'
+          - proton_v1_cleanup_helper_stat.stat.nlink == 1
+          - proton_v1_cleanup_helper_stat.stat.checksum == proton_v1_cleanup_expected_helper_sha256
+        fail_msg: Installed Proton v1 cleanup capability differs.
+      when: proton_v1_cleanup_operation != 'install' or not ansible_check_mode
+
+    - name: Observe exact Proton cleanup boundary
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/runuser
+          - --user
+          - restic-proton
+          - --
+          - "{{ proton_v1_cleanup_helper_path }}"
+          - observe
+      register: proton_v1_cleanup_observation
+      changed_when: false
+      when: proton_v1_cleanup_operation == 'observe'
+
+    - name: Save bounded observation on controller
+      ansible.builtin.copy:
+        content: "{{ proton_v1_cleanup_observation.stdout }}\n"
+        dest: "{{ proton_v1_cleanup_controller_output }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      when: proton_v1_cleanup_operation == 'observe'
+
+    - name: Validate destructive transaction inputs
+      ansible.builtin.assert:
+        that:
+          - proton_v1_cleanup_plan_sha256 is match('^[0-9a-f]{64}$')
+          - proton_v1_cleanup_authorization_sha256 is match('^[0-9a-f]{64}$')
+          - proton_v1_cleanup_confirmation == 'delete-damaged-proton-v1-' ~ proton_v1_cleanup_plan_sha256 ~ '-' ~ proton_v1_cleanup_authorization_sha256
+          - proton_v1_cleanup_plan_source | basename == 'proton-v1-cleanup-' ~ proton_v1_cleanup_plan_sha256 ~ '.json'
+          - proton_v1_cleanup_authorization_source | basename == 'authorization-' ~ proton_v1_cleanup_authorization_sha256 ~ '.json'
+        fail_msg: Proton v1 cleanup transaction binding differs.
+      when: proton_v1_cleanup_operation == 'apply'
+
+    - name: Create protected cleanup roots
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: restic-proton
+        group: restic-proton
+        mode: "0700"
+      loop:
+        - /var/lib/restic-proton/proton-v1-cleanup
+        - /var/lib/restic-proton/proton-v1-cleanup/staged
+      when: proton_v1_cleanup_operation == 'apply'
+
+    - name: Create protected plan staging directory
+      ansible.builtin.file:
+        path: "{{ proton_v1_cleanup_stage }}"
+        state: directory
+        owner: restic-proton
+        group: restic-proton
+        mode: "0700"
+      when: proton_v1_cleanup_operation == 'apply'
+
+    - name: Stage exact cleanup artifacts
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ proton_v1_cleanup_stage }}/{{ item.dest }}"
+        owner: restic-proton
+        group: restic-proton
+        mode: "0600"
+      loop:
+        - src: "{{ proton_v1_cleanup_plan_source }}"
+          dest: "proton-v1-cleanup-{{ proton_v1_cleanup_plan_sha256 }}.json"
+        - src: "{{ proton_v1_cleanup_authorization_source }}"
+          dest: "authorization-{{ proton_v1_cleanup_authorization_sha256 }}.json"
+        - src: "{{ proton_v1_cleanup_recovery_source }}"
+          dest: recovery-evidence.json
+        - src: "{{ proton_v1_cleanup_recovery_journal_source }}"
+          dest: recovery-journal.json
+      when: proton_v1_cleanup_operation == 'apply'
+
+    - name: Apply exact damaged Proton v1 cleanup
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/runuser
+          - --user
+          - restic-proton
+          - --
+          - "{{ proton_v1_cleanup_helper_path }}"
+          - apply
+          - "{{ proton_v1_cleanup_stage }}/proton-v1-cleanup-{{ proton_v1_cleanup_plan_sha256 }}.json"
+          - "{{ proton_v1_cleanup_stage }}/authorization-{{ proton_v1_cleanup_authorization_sha256 }}.json"
+          - "{{ proton_v1_cleanup_stage }}/recovery-evidence.json"
+          - "{{ proton_v1_cleanup_stage }}/recovery-journal.json"
+      environment:
+        PROTON_V1_CLEANUP_CONFIRMED: "{{ proton_v1_cleanup_confirmation }}"
+      register: proton_v1_cleanup_result
+      changed_when: true
+      when: proton_v1_cleanup_operation == 'apply'
+
+    - name: Fetch committed cleanup receipt
+      ansible.builtin.fetch:
+        src: "/var/lib/restic-proton/proton-v1-cleanup/{{ proton_v1_cleanup_plan_sha256 }}/receipt.json"
+        dest: "{{ proton_v1_cleanup_controller_output }}"
+        flat: true
+      when: proton_v1_cleanup_operation == 'apply'
+
+    - name: Remove successful transaction staging
+      ansible.builtin.file:
+        path: "{{ proton_v1_cleanup_stage }}"
+        state: absent
+      when: proton_v1_cleanup_operation == 'apply'

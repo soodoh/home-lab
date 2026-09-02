@@ -1,0 +1,549 @@
+#!/usr/bin/env python3
+"""Observe and irreversibly remove the exact damaged Proton Restic v1 repository."""
+from __future__ import annotations
+
+import fcntl
+import hashlib
+from importlib.machinery import SourceFileLoader
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+from datetime import datetime, timezone
+
+RUNNER = Path("/usr/local/libexec/home-lab/restic-backup")
+ROOT = Path("/var/lib/restic-proton")
+MIGRATION_STATE = ROOT / "migration-v2.json"
+JOURNAL_ROOT = ROOT / "proton-v1-cleanup"
+OLD_REPOSITORY = "rclone:proton-backup:Backups/home-lab-restic"
+OLD_REMOTE = "proton-backup:Backups/home-lab-restic"
+NEW_REPOSITORY = "rclone:proton-backup:Backups/home-lab-restic-v2"
+NEW_REMOTE_DIRECTORY = "home-lab-restic-v2/"
+OLD_REMOTE_DIRECTORY = "home-lab-restic/"
+OLD_ID = "d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e"
+NEW_ID = "98d792c009c01e06b8b39aab5112f0392050e9c533d1882e9c0d87727884ea25"
+NEW_SNAPSHOT = "e0ac47b09716b3a1632a9fce21ada5f53b82980ecce6723fa7a682b9117fc139"
+ORIGINAL_SNAPSHOT = "edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2"
+MIGRATION_SHA256 = "3213ceff96d067da22c5b243a213f39a00e7f9cce74905fc53c5d5229ac1f4a5"
+RECOVERY_SHA256 = "82537efde96231435da520e0f0dc472f1808e0c24dad0fef8b7b659c6c2ba1cc"
+RECOVERY_JOURNAL_SHA256 = "6ec32081ddd4283cec6329695daf74670d83ac0fbecd7cb95f437cd81b0a6a15"
+PLAN_FORMAT = "home-lab-proton-v1-cleanup-plan-v1"
+AUTH_FORMAT = "home-lab-proton-v1-cleanup-authorization-v1"
+RECEIPT_FORMAT = "home-lab-proton-v1-cleanup-receipt-v1"
+HEX = re.compile(r"^[0-9a-f]{64}$")
+
+
+def fail(reason: str, code: int = 1) -> None:
+    raise SystemExit(f"proton_v1_cleanup=failed reason={reason}")
+
+
+def canonical(value: object) -> bytes:
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def sha(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+def load_private(path: Path) -> tuple[dict, bytes]:
+    info = path.lstat()
+    raw = path.read_bytes()
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise SystemExit("proton_v1_cleanup=failed reason=artifact-json") from error
+    if (
+        not stat.S_ISREG(info.st_mode)
+        or stat.S_ISLNK(info.st_mode)
+        or stat.S_IMODE(info.st_mode) != 0o600
+        or info.st_uid != os.geteuid()
+        or info.st_gid != os.getegid()
+        or info.st_nlink != 1
+        or raw != canonical(value)
+    ):
+        fail("artifact-metadata")
+    return value, raw
+
+
+def fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+
+def require_private_directory(path: Path) -> None:
+    value = path.lstat()
+    if (
+        not stat.S_ISDIR(value.st_mode)
+        or stat.S_ISLNK(value.st_mode)
+        or stat.S_IMODE(value.st_mode) != 0o700
+        or value.st_uid != os.geteuid()
+        or value.st_gid != os.getegid()
+    ):
+        fail("private-directory-metadata")
+
+
+def write_private(path: Path, value: dict, *, exclusive: bool = False) -> bytes:
+    raw = canonical(value)
+    require_private_directory(path.parent)
+    if exclusive:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        temporary = None
+    else:
+        temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(raw)
+        handle.flush()
+        os.fchmod(handle.fileno(), 0o600)
+        os.fsync(handle.fileno())
+    if temporary is not None:
+        os.replace(temporary, path)
+    fsync_directory(path.parent)
+    return raw
+
+
+def module_and_policy():
+    module = SourceFileLoader("home_lab_restic_backup", str(RUNNER)).load_module()
+    policy, policy_sha256 = module.load_policy()
+    repository = policy.get("repositories", {}).get("proton", {})
+    if (
+        repository.get("path") != NEW_REPOSITORY
+        or repository.get("id") != NEW_ID
+        or repository.get("recovery_snapshot_id") != NEW_SNAPSHOT
+        or repository.get("recovery_original_snapshot_id") != ORIGINAL_SNAPSHOT
+        or repository.get("damaged_predecessor") != {"path": OLD_REPOSITORY, "id": OLD_ID}
+    ):
+        fail("policy-boundary")
+    return module, policy, policy_sha256
+
+
+def require_identity() -> None:
+    if os.geteuid() == 0 or os.geteuid() != 60000 or os.getegid() != 60000 or os.getgroups() != [60000]:
+        fail("identity")
+
+
+def acquire_lock(module, policy: dict) -> int:
+    path = module.rooted(policy["runner"]["lock_path"])
+    before = path.lstat()
+    if (
+        not stat.S_ISREG(before.st_mode)
+        or stat.S_ISLNK(before.st_mode)
+        or stat.S_IMODE(before.st_mode) != 0o660
+        or before.st_uid != 0
+        or before.st_gid != 60000
+        or before.st_nlink != 1
+    ):
+        fail("lock-metadata")
+    descriptor = os.open(path, os.O_RDWR | os.O_NOFOLLOW)
+    opened = os.fstat(descriptor)
+    if (opened.st_dev, opened.st_ino, opened.st_mode, opened.st_nlink) != (
+        before.st_dev,
+        before.st_ino,
+        before.st_mode,
+        1,
+    ):
+        os.close(descriptor)
+        fail("lock-identity")
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as error:
+        os.close(descriptor)
+        raise SystemExit("proton_v1_cleanup=failed reason=concurrent-operation") from error
+    return descriptor
+
+
+def reject_processes(restic: str, rclone: str) -> None:
+    protected = {os.path.realpath(restic), os.path.realpath(rclone)}
+    for entry in Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            executable = os.path.realpath(entry / "exe")
+        except OSError:
+            continue
+        if executable in protected:
+            fail("restic-rclone-process-active")
+
+
+def run(module, argv: list[str], environment: dict[str, str], label: str, timeout: int = 600) -> str:
+    result = module.run(argv, environment=environment, timeout=timeout)
+    if result.returncode:
+        fail(f"{label}-{result.returncode}-{sha(result.stderr.encode())}")
+    return result.stdout
+
+
+
+def exact_purge(rclone: str, config_path: Path, environment: dict[str, str]) -> None:
+    arguments = [rclone, "purge", "--config", str(config_path), OLD_REMOTE]
+    merged = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/var/empty", "LC_ALL": "C", "TZ": "UTC"}
+    merged.update(environment)
+    try:
+        result = subprocess.run(
+            arguments,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            env=merged,
+            timeout=7200,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise SystemExit("proton_v1_cleanup=failed reason=exact-purge-execution") from error
+    if result.returncode:
+        fail(f"exact-purge-{result.returncode}-{sha(result.stderr.encode())}")
+
+
+def migration_proof() -> dict:
+    value, raw = load_private(MIGRATION_STATE)
+    if sha(raw) != MIGRATION_SHA256 or value != {
+        "absence_listing_sha256": "7823cd380caa90ede650e9dc9d6fc1e5753cc8fa890ed64886d59758df2aa880",
+        "chunker_polynomial": "255a608adc8769",
+        "damaged_repository_id": OLD_ID,
+        "damaged_v1_preserved": True,
+        "format": "home-lab-proton-restic-v2-state-v1",
+        "full_read_data_check": True,
+        "new_repository": NEW_REPOSITORY,
+        "new_repository_id": NEW_ID,
+        "new_snapshot_id": NEW_SNAPSHOT,
+        "original_snapshot_id": ORIGINAL_SNAPSHOT,
+        "policy_sha256": "adb5748fa38fa844624404a0f997ceb024b46718ea7a914ffa2967fa135783bd",
+        "source_repository_id": "b15627185df9b10a95b5dffe7d194dbccdba6ba4eb8a038ee03e750fedbde08f",
+        "source_snapshot_id": ORIGINAL_SNAPSHOT,
+        "status": "verified",
+    }:
+        fail("migration-proof")
+    return {"sha256": MIGRATION_SHA256, "full_read_data_check": True}
+
+
+def replacement_proof(module, policy: dict, environment: dict[str, str], restic: str) -> dict:
+    config = json.loads(run(module, [restic, "-r", NEW_REPOSITORY, "cat", "config"], environment, "replacement-config"))
+    snapshots = json.loads(run(module, [restic, "-r", NEW_REPOSITORY, "snapshots", "--json", NEW_SNAPSHOT], environment, "replacement-snapshot"))
+    if config.get("id") != NEW_ID or len(snapshots) != 1 or snapshots[0].get("id") != NEW_SNAPSHOT or snapshots[0].get("original") != ORIGINAL_SNAPSHOT:
+        fail("replacement-proof")
+    return {"repository_id": NEW_ID, "snapshot_id": NEW_SNAPSHOT, "original_snapshot_id": ORIGINAL_SNAPSHOT}
+
+
+def parent_directories(module, environment: dict[str, str], rclone: str, config: Path) -> list[str]:
+    output = run(module, [rclone, "lsf", "--dirs-only", "--config", str(config), "proton-backup:Backups"], environment, "parent-listing")
+    values = sorted(line for line in output.splitlines() if line)
+    if any("/" in line.rstrip("/") or line in {".", ".."} for line in values):
+        fail("parent-listing-shape")
+    return values
+
+
+def common_observation_locked(module, policy: dict, policy_sha256: str) -> tuple[dict, str, str, dict[str, str], Path]:
+    restic, rclone = module.command_paths(policy)
+    reject_processes(restic, rclone)
+    environment = module.credential_environment(policy, "proton", "games")
+    config_path = module.rooted("/var/lib/restic-proton/rclone.conf")
+    common = {
+        "format": "home-lab-proton-v1-cleanup-observation-v1",
+        "helper_sha256": sha(Path(__file__).read_bytes()),
+        "runner_sha256": sha(RUNNER.read_bytes()),
+        "policy_sha256": policy_sha256,
+        "parent_directories": parent_directories(module, environment, rclone, config_path),
+        "replacement": replacement_proof(module, policy, environment, restic),
+        "migration": migration_proof(),
+    }
+    return common, restic, rclone, environment, config_path
+
+
+def observe_locked(module, policy: dict, policy_sha256: str) -> dict:
+    common, restic, rclone, environment, config_path = common_observation_locked(module, policy, policy_sha256)
+    directories = common["parent_directories"]
+    target_present = OLD_REMOTE_DIRECTORY in directories
+    if target_present:
+        old_config = json.loads(run(module, [restic, "-r", OLD_REPOSITORY, "cat", "config"], environment, "damaged-config"))
+        if old_config.get("id") != OLD_ID:
+            fail("damaged-repository-identity")
+        size = json.loads(run(module, [rclone, "size", "--json", "--config", str(config_path), OLD_REMOTE], environment, "damaged-size", 1800))
+        inventory = run(module, [rclone, "lsf", "--recursive", "--files-only", "--format", "pst", "--config", str(config_path), OLD_REMOTE], environment, "damaged-inventory", 1800)
+        lines = sorted(line for line in inventory.splitlines() if line)
+        inventory_raw = ("\n".join(lines) + "\n").encode()
+        if size.get("count") != len(lines) or not all(isinstance(size.get(key), int) and size[key] >= 0 for key in ("bytes", "count", "sizeless")):
+            fail("damaged-inventory-shape")
+        damaged = {"present": True, "repository_id": OLD_ID, "bytes": size["bytes"], "objects": size["count"], "sizeless": size["sizeless"], "inventory_sha256": sha(inventory_raw)}
+    else:
+        damaged = {"present": False}
+    return {**common, "damaged": damaged}
+
+
+def resume_observation_locked(module, policy: dict, policy_sha256: str) -> dict:
+    common, _, _, _, _ = common_observation_locked(module, policy, policy_sha256)
+    directories = common["parent_directories"]
+    if directories not in ([NEW_REMOTE_DIRECTORY], [NEW_REMOTE_DIRECTORY, OLD_REMOTE_DIRECTORY]):
+        fail("resume-parent-boundary")
+    return {**common, "damaged": {"present": OLD_REMOTE_DIRECTORY in directories}}
+
+
+def observe() -> None:
+    require_identity()
+    module, policy, policy_sha256 = module_and_policy()
+    descriptor = acquire_lock(module, policy)
+    try:
+        print(canonical(observe_locked(module, policy, policy_sha256)).decode(), end="")
+    finally:
+        os.close(descriptor)
+
+
+def validate_recovery(path: Path, journal_path: Path) -> None:
+    evidence, raw = load_private(path)
+    journal, journal_raw = load_private(journal_path)
+    restore = evidence.get("restore", {})
+    if (
+        sha(raw) != RECOVERY_SHA256
+        or evidence.get("state") != "restored-verified"
+        or evidence.get("vmid") != 9900
+        or restore.get("state") != "restored-verified"
+        or restore.get("repository_id") != NEW_ID
+        or restore.get("snapshot_id") != NEW_SNAPSHOT
+        or restore.get("original_snapshot_id") != ORIGINAL_SNAPSHOT
+        or evidence.get("service_validation", {}).get("state") != "validated"
+        or sha(journal_raw) != RECOVERY_JOURNAL_SHA256
+        or journal.get("state") != "destroy-applied"
+        or journal.get("commit") != "e6e4a2f5fd0613e703d36c0a53c95f80c741608c"
+    ):
+        fail("recovery-proof")
+
+
+def validate_plan(path: Path) -> tuple[dict, bytes, str, datetime]:
+    plan, raw = load_private(path)
+    digest = sha(raw)
+    try:
+        created = datetime.fromisoformat(plan["created_at"].replace("Z", "+00:00"))
+        expires = datetime.fromisoformat(plan["expires_at"].replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError) as error:
+        raise SystemExit("proton_v1_cleanup=failed reason=plan-timestamp") from error
+    expected_keys = {
+        "format", "commit", "contract_sha256", "created_at", "expires_at", "host_observation",
+        "recovery_evidence_sha256", "recovery_journal_sha256", "action", "blockers", "authorized",
+    }
+    expected_action = {
+        "kind": "purge-exact-damaged-proton-v1",
+        "remote": OLD_REMOTE,
+        "repository_id": OLD_ID,
+        "provider_effect": "move-exact-directory-to-proton-trash",
+        "permanent_delete": False,
+    }
+    if (
+        set(plan) != expected_keys
+        or plan.get("format") != PLAN_FORMAT
+        or not isinstance(plan.get("commit"), str)
+        or len(plan["commit"]) != 40
+        or HEX.fullmatch(plan.get("contract_sha256", "")) is None
+        or plan.get("recovery_evidence_sha256") != RECOVERY_SHA256
+        or plan.get("recovery_journal_sha256") != RECOVERY_JOURNAL_SHA256
+        or plan.get("action") != expected_action
+        or plan.get("blockers") != ["irreversible-deletion-acknowledgement-required", "separate-authorization-required"]
+        or plan.get("authorized") is not False
+        or expires <= created
+        or (expires - created).total_seconds() > 86400
+        or path.name != f"proton-v1-cleanup-{digest}.json"
+    ):
+        fail("plan-binding")
+    return plan, raw, digest, expires
+
+
+def validate_authorization(path: Path, digest: str, plan: dict) -> tuple[str, datetime, datetime]:
+    authorization, raw = load_private(path)
+    auth_digest = sha(raw)
+    try:
+        created = datetime.fromisoformat(authorization["created_at"].replace("Z", "+00:00"))
+        expires = datetime.fromisoformat(authorization["expires_at"].replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError) as error:
+        raise SystemExit("proton_v1_cleanup=failed reason=authorization-timestamp") from error
+    confirmation = f"authorize-proton-v1-cleanup-{digest}"
+    if (
+        authorization != {
+            "format": AUTH_FORMAT,
+            "plan_sha256": digest,
+            "created_at": authorization.get("created_at"),
+            "expires_at": authorization.get("expires_at"),
+            "confirmation": confirmation,
+            "authorized": True,
+        }
+        or expires <= created
+        or (expires - created).total_seconds() > 900
+        or expires > datetime.fromisoformat(plan["expires_at"].replace("Z", "+00:00"))
+    ):
+        fail("authorization-binding")
+    return auth_digest, created, expires
+
+
+def current_state(journal: Path) -> dict | None:
+    path = journal / "state.json"
+    if not path.exists():
+        return None
+    value, _ = load_private(path)
+    return value
+
+
+def verify_observation(expected: dict, observed: dict, *, allow_absent: bool = False) -> None:
+    for key in ("format", "helper_sha256", "runner_sha256", "policy_sha256", "replacement", "migration"):
+        if observed.get(key) != expected.get(key):
+            fail(f"precondition-{key}")
+    if allow_absent:
+        if observed.get("damaged") != {"present": False} or observed.get("parent_directories") != [NEW_REMOTE_DIRECTORY]:
+            fail("postcondition-damaged-absence")
+    elif observed != expected:
+        fail("precondition-observation")
+
+
+def validate_check_summary(stdout: str) -> None:
+    try:
+        values = [json.loads(line) for line in stdout.splitlines() if line]
+    except json.JSONDecodeError as error:
+        raise SystemExit("proton_v1_cleanup=failed reason=replacement-check-json") from error
+    summaries = [value for value in values if value.get("message_type") == "summary"]
+    if len(summaries) != 1 or summaries[0] != {"message_type": "summary", "num_errors": 0, "broken_packs": None, "suggest_repair_index": False, "suggest_prune": False}:
+        fail("replacement-check-summary")
+
+
+
+def validate_committed_receipt(receipt: dict, state: dict, digest: str, auth_digest: str) -> None:
+    expected_started = {
+        key: receipt[key]
+        for key in ("format", "status", "plan_sha256", "authorization_sha256", "started_at", "before")
+    } | {"status": "deletion-started"}
+    state_matches = receipt == state if state.get("status") == "committed" else state == expected_started
+    expected_keys = {
+        "format", "status", "plan_sha256", "authorization_sha256", "started_at", "before",
+        "committed_at", "after", "provider_effect", "permanent_delete", "space_reclamation",
+        "replacement_check", "recovery_evidence_sha256", "recovery_journal_sha256",
+    }
+    if (
+        not state_matches
+        or set(receipt) != expected_keys
+        or receipt.get("format") != RECEIPT_FORMAT
+        or receipt.get("status") != "committed"
+        or receipt.get("plan_sha256") != digest
+        or receipt.get("authorization_sha256") != auth_digest
+        or receipt.get("after") != {"present": False, "parent_directories": [NEW_REMOTE_DIRECTORY]}
+        or receipt.get("provider_effect") != "moved-exact-directory-to-proton-trash"
+        or receipt.get("permanent_delete") is not False
+        or receipt.get("space_reclamation") != "blocked-global-trash-scope"
+        or receipt.get("replacement_check") != "full-read-data-zero-errors"
+        or receipt.get("recovery_evidence_sha256") != RECOVERY_SHA256
+        or receipt.get("recovery_journal_sha256") != RECOVERY_JOURNAL_SHA256
+    ):
+        fail("receipt-state")
+    try:
+        started = datetime.fromisoformat(receipt["started_at"].replace("Z", "+00:00"))
+        committed = datetime.fromisoformat(receipt["committed_at"].replace("Z", "+00:00"))
+    except (TypeError, ValueError) as error:
+        raise SystemExit("proton_v1_cleanup=failed reason=receipt-timestamp") from error
+    if committed < started:
+        fail("receipt-timestamp")
+
+
+def apply(plan_path: Path, authorization_path: Path, recovery_path: Path, recovery_journal_path: Path) -> None:
+    require_identity()
+    plan, _, digest, plan_expires = validate_plan(plan_path)
+    auth_digest, auth_created, auth_expires = validate_authorization(authorization_path, digest, plan)
+    expected_confirmation = f"delete-damaged-proton-v1-{digest}-{auth_digest}"
+    if os.environ.get("PROTON_V1_CLEANUP_CONFIRMED") != expected_confirmation:
+        fail("exact-confirmation")
+    validate_recovery(recovery_path, recovery_journal_path)
+    module, policy, policy_sha256 = module_and_policy()
+    descriptor = acquire_lock(module, policy)
+    try:
+        require_private_directory(JOURNAL_ROOT)
+        journal = JOURNAL_ROOT / digest
+        if not os.path.lexists(journal):
+            journal.mkdir(mode=0o700)
+            fsync_directory(JOURNAL_ROOT)
+        require_private_directory(journal)
+        state = current_state(journal)
+        receipt_path = journal / "receipt.json"
+        if os.path.lexists(receipt_path):
+            if state is None:
+                fail("receipt-without-state")
+            receipt, raw = load_private(receipt_path)
+            validate_committed_receipt(receipt, state, digest, auth_digest)
+            after = resume_observation_locked(module, policy, policy_sha256)
+            verify_observation(plan["host_observation"], after, allow_absent=True)
+            if state != receipt:
+                write_private(journal / "state.json", receipt)
+            print(canonical({"status": "committed", "plan_sha256": digest, "receipt_sha256": sha(raw)}).decode(), end="")
+            return
+        if state is not None and state.get("status") == "committed":
+            fail("committed-receipt-missing")
+        if state is None:
+            now = datetime.now(timezone.utc)
+            if auth_created > now or now > auth_expires or now > plan_expires:
+                fail("fresh-authorization-required")
+            observed = observe_locked(module, policy, policy_sha256)
+            verify_observation(plan["host_observation"], observed)
+            state = {
+                "format": RECEIPT_FORMAT,
+                "status": "deletion-started",
+                "plan_sha256": digest,
+                "authorization_sha256": auth_digest,
+                "started_at": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+                "before": plan["host_observation"]["damaged"],
+            }
+            write_private(journal / "state.json", state, exclusive=True)
+        else:
+            if (
+                state.get("format") != RECEIPT_FORMAT
+                or state.get("status") != "deletion-started"
+                or state.get("plan_sha256") != digest
+                or state.get("authorization_sha256") != auth_digest
+                or state.get("before") != plan["host_observation"]["damaged"]
+            ):
+                fail("resume-state")
+            observed = resume_observation_locked(module, policy, policy_sha256)
+        restic, rclone = module.command_paths(policy)
+        reject_processes(restic, rclone)
+        environment = module.credential_environment(policy, "proton", "games")
+        config_path = module.rooted("/var/lib/restic-proton/rclone.conf")
+        if observed["damaged"].get("present") is True:
+            exact_purge(rclone, config_path, environment)
+        after = resume_observation_locked(module, policy, policy_sha256)
+        verify_observation(plan["host_observation"], after, allow_absent=True)
+        checked = run(module, [restic, "-r", NEW_REPOSITORY, "check", "--json", "--read-data"], environment, "replacement-full-check", 14400)
+        validate_check_summary(checked)
+        receipt = {
+            **state,
+            "status": "committed",
+            "committed_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "after": {"present": False, "parent_directories": [NEW_REMOTE_DIRECTORY]},
+            "provider_effect": "moved-exact-directory-to-proton-trash",
+            "permanent_delete": False,
+            "space_reclamation": "blocked-global-trash-scope",
+            "replacement_check": "full-read-data-zero-errors",
+            "recovery_evidence_sha256": RECOVERY_SHA256,
+            "recovery_journal_sha256": RECOVERY_JOURNAL_SHA256,
+        }
+        raw = write_private(receipt_path, receipt, exclusive=True)
+        write_private(journal / "state.json", receipt)
+        print(canonical({"status": "committed", "plan_sha256": digest, "receipt_sha256": sha(raw)}).decode(), end="")
+    finally:
+        os.close(descriptor)
+
+
+def main() -> None:
+    parser = __import__("argparse").ArgumentParser()
+    commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("observe")
+    apply_parser = commands.add_parser("apply")
+    apply_parser.add_argument("plan", type=Path)
+    apply_parser.add_argument("authorization", type=Path)
+    apply_parser.add_argument("recovery", type=Path)
+    apply_parser.add_argument("recovery_journal", type=Path)
+    arguments = parser.parse_args()
+    if arguments.command == "observe":
+        observe()
+    else:
+        apply(arguments.plan.resolve(), arguments.authorization.resolve(), arguments.recovery.resolve(), arguments.recovery_journal.resolve())
+
+
+if __name__ == "__main__":
+    main()
