@@ -1,0 +1,188 @@
+---
+- name: Create canonical Proton Restic repository
+  hosts: docker_host
+  gather_facts: false
+  become: true
+  vars:
+    canonical_proton_helper_source: "{{ playbook_dir }}/../../scripts/create-canonical-proton-restic"
+    canonical_proton_helper_path: /usr/local/libexec/home-lab/create-canonical-proton-restic
+    canonical_proton_stage: "/var/lib/restic-proton/canonical-proton-creation/staged/{{ canonical_proton_plan_sha256 }}"
+  pre_tasks:
+    - name: Validate canonical Proton operation boundary
+      ansible.builtin.assert:
+        that:
+          - canonical_proton_operation in ['install', 'observe', 'apply']
+          - canonical_proton_expected_helper_sha256 is match('^[0-9a-f]{64}$')
+        fail_msg: Canonical Proton operation or helper identity differs.
+
+    - name: Require live mode for canonical repository creation
+      ansible.builtin.assert:
+        that:
+          - not ansible_check_mode
+        fail_msg: Canonical Proton repository creation cannot run in check mode.
+      when: canonical_proton_operation == 'apply'
+
+  tasks:
+    - name: Install exact canonical Proton creation capability
+      ansible.builtin.copy:
+        src: "{{ canonical_proton_helper_source }}"
+        dest: "{{ canonical_proton_helper_path }}"
+        owner: root
+        group: restic-proton
+        mode: "0750"
+      when: canonical_proton_operation == 'install'
+
+    - name: Inspect installed canonical Proton capability
+      ansible.builtin.stat:
+        path: "{{ canonical_proton_helper_path }}"
+        checksum_algorithm: sha256
+        follow: false
+      register: canonical_proton_helper_stat
+      when: canonical_proton_operation != 'install' or not ansible_check_mode
+
+    - name: Validate installed canonical Proton capability
+      ansible.builtin.assert:
+        that:
+          - canonical_proton_helper_stat.stat.exists
+          - canonical_proton_helper_stat.stat.isreg
+          - not canonical_proton_helper_stat.stat.islnk
+          - canonical_proton_helper_stat.stat.pw_name == 'root'
+          - canonical_proton_helper_stat.stat.gr_name == 'restic-proton'
+          - canonical_proton_helper_stat.stat.mode == '0750'
+          - canonical_proton_helper_stat.stat.nlink == 1
+          - canonical_proton_helper_stat.stat.checksum == canonical_proton_expected_helper_sha256
+        fail_msg: Installed canonical Proton capability differs.
+      when: canonical_proton_operation != 'install' or not ansible_check_mode
+
+    - name: Observe canonical Proton creation boundary
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/runuser
+          - --user
+          - restic-proton
+          - --
+          - "{{ canonical_proton_helper_path }}"
+          - observe
+      register: canonical_proton_observation
+      changed_when: false
+      when: canonical_proton_operation == 'observe'
+
+    - name: Save bounded canonical Proton observation
+      ansible.builtin.copy:
+        content: "{{ canonical_proton_observation.stdout }}\n"
+        dest: "{{ canonical_proton_controller_output }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      when: canonical_proton_operation == 'observe'
+
+    - name: Validate canonical Proton transaction inputs
+      ansible.builtin.assert:
+        that:
+          - canonical_proton_plan_sha256 is match('^[0-9a-f]{64}$')
+          - canonical_proton_authorization_sha256 is match('^[0-9a-f]{64}$')
+          - canonical_proton_confirmation == 'create-canonical-proton-repository-' ~ canonical_proton_plan_sha256 ~ '-' ~ canonical_proton_authorization_sha256
+          - canonical_proton_plan_source | basename == 'canonical-proton-creation-' ~ canonical_proton_plan_sha256 ~ '.json'
+          - canonical_proton_authorization_source | basename == 'authorization-' ~ canonical_proton_authorization_sha256 ~ '.json'
+        fail_msg: Canonical Proton transaction binding differs.
+      when: canonical_proton_operation == 'apply'
+
+    - name: Create protected canonical Proton roots
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: restic-proton
+        group: restic-proton
+        mode: "0700"
+      loop:
+        - /var/lib/restic-proton/canonical-proton-creation
+        - /var/lib/restic-proton/canonical-proton-creation/staged
+      when: canonical_proton_operation == 'apply'
+
+    - name: Create protected canonical Proton staging directory
+      ansible.builtin.file:
+        path: "{{ canonical_proton_stage }}"
+        state: directory
+        owner: restic-proton
+        group: restic-proton
+        mode: "0700"
+      when: canonical_proton_operation == 'apply'
+
+    - name: Stage exact canonical Proton artifacts
+      ansible.builtin.copy:
+        src: "{{ item.src }}"
+        dest: "{{ canonical_proton_stage }}/{{ item.dest }}"
+        owner: restic-proton
+        group: restic-proton
+        mode: "0600"
+      loop:
+        - src: "{{ canonical_proton_plan_source }}"
+          dest: "canonical-proton-creation-{{ canonical_proton_plan_sha256 }}.json"
+        - src: "{{ canonical_proton_authorization_source }}"
+          dest: "authorization-{{ canonical_proton_authorization_sha256 }}.json"
+      when: canonical_proton_operation == 'apply'
+
+    - name: Create explicitly authorized canonical Proton repository
+      ansible.builtin.command:
+        argv:
+          - /usr/sbin/runuser
+          - --user
+          - restic-proton
+          - --
+          - "{{ canonical_proton_helper_path }}"
+          - apply
+          - "{{ canonical_proton_stage }}/canonical-proton-creation-{{ canonical_proton_plan_sha256 }}.json"
+          - "{{ canonical_proton_stage }}/authorization-{{ canonical_proton_authorization_sha256 }}.json"
+      environment:
+        CANONICAL_PROTON_CREATION_CONFIRMED: "{{ canonical_proton_confirmation }}"
+      changed_when: true
+      when: canonical_proton_operation == 'apply'
+
+    - name: Read committed canonical Proton receipt
+      ansible.builtin.slurp:
+        src: "/var/lib/restic-proton/canonical-proton-creation/{{ canonical_proton_plan_sha256 }}/receipt.json"
+      register: canonical_proton_receipt
+      no_log: true
+      when: canonical_proton_operation == 'apply'
+
+    - name: Persist protected canonical Proton receipt durably
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/python3
+          - -c
+          - |
+            import base64, os, stat, sys
+            from pathlib import Path
+            path = Path(sys.argv[1])
+            parent = path.parent
+            info = parent.lstat()
+            if not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o700 or info.st_uid != os.geteuid():
+                raise SystemExit("controller receipt directory differs")
+            raw = base64.b64decode(sys.stdin.buffer.read(), validate=True)
+            temporary = parent / f".{path.name}.{os.getpid()}.tmp"
+            descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(raw)
+                handle.flush()
+                os.fchmod(handle.fileno(), 0o600)
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+          - "{{ canonical_proton_controller_output }}"
+        stdin: "{{ canonical_proton_receipt.content }}"
+        stdin_add_newline: false
+      delegate_to: localhost
+      become: false
+      no_log: true
+      changed_when: true
+      when: canonical_proton_operation == 'apply'
+
+    - name: Remove successful canonical Proton staging
+      ansible.builtin.file:
+        path: "{{ canonical_proton_stage }}"
+        state: absent
+      when: canonical_proton_operation == 'apply'
