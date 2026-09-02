@@ -1564,7 +1564,7 @@
         "password_authentication": { "type": "boolean" },
         "kbd_interactive_authentication": { "type": "boolean" },
         "permit_root_login": { "enum": ["yes", "no", "prohibit-password", "forced-commands-only"] },
-        "allow_users": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z_][a-z0-9_-]*$" } }
+        "allow_users": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^[a-z_][a-z0-9_-]*$" } }
       }
     },
     "proxmoxTailscalePolicy": {

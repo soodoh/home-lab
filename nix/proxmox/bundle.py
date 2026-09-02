@@ -350,7 +350,8 @@ def observation_specification(projection: dict[str, Any]) -> dict[str, Any]:
         "expectedIdentity": {"architecture": projection["architecture"], "hostname": projection["hostNetworking"]["hostname"],
                              "os": "debian", "pveVersion": "pve-manager/" + pve_manager["version"]},
         "legacyTofuAccessRequired": projection["nixMutationFrozen"] is not True,
-        "protectedAccessExpectedCount": 4 if projection["nixMutationFrozen"] is True else 6,
+        "conventionalKeysAbsent": projection["ssh"]["pubkeyAuthentication"] is False,
+        "protectedAccessExpectedCount": (3 if projection["ssh"]["pubkeyAuthentication"] is False else 4) + (0 if projection["nixMutationFrozen"] is True else 2),
         "protectedExpectedCount": 3,
         "pveAccessRoles": projection["apiIntent"]["pveAccess"]["roles"],
         "pveFirewall": projection["apiIntent"]["pveFirewall"],
@@ -442,6 +443,7 @@ def preparation_specification(projection: dict[str, Any], flake_lock_sha256: str
     pve_manager = next(item for item in projection["packagePolicy"]["critical"] if item["role"] == "pve-manager")
     return {**catalog, "hostname": projection["hostNetworking"]["hostname"],
             "legacyTofuAccessRequired": observation["legacyTofuAccessRequired"],
+            "conventionalKeysAbsent": observation["conventionalKeysAbsent"],
             "node": projection["apiIntent"]["pveStorage"]["nodes"][0],
             "pool": projection["apiIntent"]["pveStorage"]["pool"],
             "protectedAccessExpectedCount": observation["protectedAccessExpectedCount"],

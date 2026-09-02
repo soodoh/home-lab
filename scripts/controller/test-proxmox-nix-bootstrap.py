@@ -56,7 +56,7 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
         next(item for item in cls.projection["planningPolicy"]["domains"] if item["domain"] == "managed-artifacts")["automatic"] = True
         cls.manifest = json.loads((NIX / "proxmox/package-manifest.json").read_bytes())
         cls.observation = json.loads((NIX / "proxmox/fixture-observation.json").read_bytes())
-        cls.observation["domains"]["protectedAccess"] = {"expectedCount": 6, "matches": True, "observedCount": 6, "status": "complete"}
+        cls.observation["domains"]["protectedAccess"] = {"expectedCount": 5, "matches": True, "observedCount": 5, "status": "complete"}
         cls.observation["domains"]["protectedHardware"] = {"expectedCount": 3, "matches": True, "observedCount": 3, "status": "complete"}
         projected_account_names = {account["name"] for kind in ("service", "human") for account in cls.projection["accounts"][kind]}
         cls.observation["domains"]["accounts"]["records"] = [
@@ -163,7 +163,7 @@ class ProxmoxNixBootstrapTests(unittest.TestCase):
         with patch.dict(self.preparer, {"runtime_state": lambda: state, "read_fixed": read_fixed, "run": run,
                                         "absent_fixed": lambda path: True, "token_valid": lambda token: True}):
             value = self.preparer["summaries"]()
-        self.assertEqual(value, {"protectedAccess": {"expectedCount": 6, "matches": True, "observedCount": 6, "status": "complete"},
+        self.assertEqual(value, {"protectedAccess": {"expectedCount": 5, "matches": True, "observedCount": 5, "status": "complete"},
                                  "protectedHardware": {"expectedCount": 3, "matches": True, "observedCount": 3, "status": "complete"}})
         encoded = json.dumps(value)
         for protected in ("opaque-plan", "opaque-token", "opaque-disk", "opaque-guid", "opaque-member", "opaque-usb"):

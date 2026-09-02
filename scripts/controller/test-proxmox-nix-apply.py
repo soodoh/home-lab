@@ -110,7 +110,7 @@ class ProxmoxNixApplyTests(unittest.TestCase):
         return {
             "actionManifestSha256": planner.digest(self.plan["actions"]),
             "attestations": {
-                "protectedAccess": {"expectedCount": 6, "keyedAttestation": "b" * 64, "matches": True},
+                "protectedAccess": {"expectedCount": 5, "keyedAttestation": "b" * 64, "matches": True},
                 "protectedHardware": {"expectedCount": 3, "keyedAttestation": "c" * 64, "matches": True},
             },
             "bindings": {

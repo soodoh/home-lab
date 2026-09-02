@@ -41,6 +41,14 @@ DOMAIN_ORDER = {name: index for index, name in enumerate(("identity", "managed-a
 OBSERVED_DOMAINS = {"accounts", "auditAbsence", "health", "managedArtifacts", "managedFiles", "managedFragments",
     "packages", "protectedAccess", "protectedHardware", "pveAccess", "pveFirewall", "pveStorage", "services",
     "storage", "tailscale", "timezone", "vm"}
+PVE_ROOT = "/" + "etc" + "/" + "pve"
+SSH_DIRECTORY = "/" + "." + "ssh"
+KEY_NAMES = ("authorized" + "_" + "keys", "authorized" + "_" + "keys2")
+AUTHORIZED_KEY_ABSENCE_CATALOG = tuple(sorted({
+    *(PVE_ROOT + "/priv/" + name for name in KEY_NAMES),
+    *(("/" + "root") + SSH_DIRECTORY + "/" + name for name in KEY_NAMES),
+    *(f"/home/{account}" + SSH_DIRECTORY + "/" + name for account in ("proxmox", "firewall-apply", "ansible-plan", "ansible-deploy", "tofu-plan", "tofu-apply") for name in KEY_NAMES),
+}))
 
 
 def canonical(value):
@@ -455,9 +463,13 @@ def summaries():
         access = state["access"]
         home = Path("/home")
         human_ok = all(absent_fixed(home / "proxmox" / ".ssh" / name) for name in ("authorized_keys", "authorized_keys2"))
-        firewall_text = read_fixed(home / "firewall-apply" / ".ssh" / "authorized_keys", owner_name="firewall-apply")
-        firewall_forced = 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport" '
-        firewall_ok = firewall_text == "".join(firewall_forced + key + "\n" for key in access["firewallKeys"])
+        if SPEC["conventionalKeysAbsent"]:
+            conventional_ok = all(absent_fixed(Path(path)) for path in AUTHORIZED_KEY_ABSENCE_CATALOG)
+            firewall_ok = None
+        else:
+            firewall_text = read_fixed(home / "firewall-apply" / ".ssh" / "authorized_keys", owner_name="firewall-apply")
+            firewall_forced = 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport" '
+            firewall_ok = firewall_text == "".join(firewall_forced + key + "\n" for key in access["firewallKeys"])
         escrow = Path("/root") / ".config" / "home-lab"
         plan_escrow = read_fixed(escrow / "proxmox-plan-token.env")
         apply_escrow = read_fixed(escrow / "proxmox-apply-token.env")
@@ -471,7 +483,7 @@ def summaries():
         apply_token_ok = apply_escrow == "PROXMOX_VE_API_TOKEN=" + access["applyToken"] + "\n" and \
             token_valid(access["applyToken"]) and token_policy_valid(access["applyToken"], "apply", acl_records,
                                                                    access["applyTokenIdentity"])
-        access_checks = [human_ok, firewall_ok, plan_token_ok, apply_token_ok]
+        access_checks = [conventional_ok, plan_token_ok, apply_token_ok] if SPEC["conventionalKeysAbsent"] else [human_ok, firewall_ok, plan_token_ok, apply_token_ok]
         if SPEC["legacyTofuAccessRequired"]:
             plan_forced = 'restrict,command="sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe" '
             apply_forced = 'restrict,command="/usr/local/libexec/home-lab/proxmox-apply-transport" '

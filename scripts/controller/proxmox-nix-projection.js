@@ -50,7 +50,8 @@ function projectProxmoxPolicy(contract, packageManifest) {
   const tofuIdentityRetirementReady = ["ready", "complete"].includes(
     contract.lifecycle.hosts.proxmox.access_cutover.state,
   );
-  const retiredIdentities = new Set(contract.lifecycle.hosts.proxmox.access_cutover.retire_identities);
+  const accessCutover = contract.lifecycle.hosts.proxmox.access_cutover;
+  const retiredIdentities = new Set(accessCutover.retire_identities);
   const projectedServiceAccounts = proxmox.access.service_accounts.filter(
     (account) => !tofuIdentityRetirementReady || !retiredIdentities.has(account.name),
   );

@@ -80,6 +80,7 @@ function validateProxmoxHostPolicy(contract) {
     failures.push("native service set must contain exactly the required time, NFS, SSH, and Tailscale services");
   }
 
+  const finalAccess = proxmoxLifecycle.access_cutover.conventional_keys_target === "absent";
   const serviceAccounts = proxmox.access.service_accounts;
   const serviceAccountNames = serviceAccounts.map((account) => account.name);
   const serviceAccountHomes = serviceAccounts.map((account) => account.home);
@@ -94,7 +95,7 @@ function validateProxmoxHostPolicy(contract) {
   const expectedServiceAccounts = new Map([
     ["tofu-plan", "PROXMOX_PLAN_SSH_PUBLIC_KEYS"],
     ["tofu-apply", "PROXMOX_APPLY_SSH_PUBLIC_KEYS"],
-    ["firewall-apply", "PROXMOX_FIREWALL_SSH_PUBLIC_KEYS"],
+    ["firewall-apply", finalAccess ? null : "PROXMOX_FIREWALL_SSH_PUBLIC_KEYS"],
     ["ansible-plan", null],
     ["ansible-deploy", null],
   ]);
@@ -154,9 +155,12 @@ function validateProxmoxHostPolicy(contract) {
   }
   const firewallHelper = "/usr/local/libexec/home-lab/proxmox-firewall-transaction";
   const firewallSudo = `firewall-apply ALL=(root) NOPASSWD: ${["inspect","begin","status","commit","rollback"].map((command) => `${firewallHelper} ${command}`).join(", ")}`;
+  const firewallAccessValid = finalAccess
+    ? firewallAccount?.authorized_keys?.state === "absent"
+    : firewallAccount?.authorized_keys?.forced_command === 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport"';
   if (firewallAccount && (firewallAccount.groups.length || firewallAccount.sudo?.state !== "present" ||
       firewallAccount.sudo?.file?.path !== "/etc/sudoers.d/firewall-apply" || firewallAccount.sudo?.rule !== firewallSudo ||
-      firewallAccount.authorized_keys?.forced_command !== 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport"')) {
+      !firewallAccessValid)) {
     failures.push("firewall-apply must have only the fixed firewall transport capability");
   }
   const ansiblePlanAccount = serviceAccounts.find((account) => account.name === "ansible-plan");
@@ -273,14 +277,15 @@ function validateProxmoxHostPolicy(contract) {
     }
   }
 
-  const expectedAllowUsers = ["root", ...serviceAccounts.filter((account) => account.authorized_keys.secret_ref).map((account) => account.name)];
+  const expectedAllowUsers = finalAccess ? [] : ["root", ...serviceAccounts.filter((account) => account.authorized_keys.secret_ref).map((account) => account.name)];
   if (JSON.stringify(proxmox.ssh.allow_users) !== JSON.stringify(expectedAllowUsers)) {
-    failures.push("SSH allow-users must contain only root and conventional-key service accounts");
+    failures.push("SSH allow-users must contain only conventional-key identities before retirement and be absent afterward");
   }
-  if (!proxmox.ssh.pubkey_authentication || proxmox.ssh.password_authentication || proxmox.ssh.kbd_interactive_authentication) {
-    failures.push("Proxmox SSH authentication policy must remain key-only");
+  if (proxmox.ssh.pubkey_authentication !== !finalAccess || proxmox.ssh.password_authentication || proxmox.ssh.kbd_interactive_authentication) {
+    failures.push("Proxmox SSH authentication policy differs from the lifecycle cutover target");
   }
-  if (proxmox.ssh.permit_root_login !== "prohibit-password") failures.push("Proxmox root SSH must remain key-only");
+  const expectedRootLogin = finalAccess ? "no" : "prohibit-password";
+  if (proxmox.ssh.permit_root_login !== expectedRootLogin) failures.push("Proxmox root SSH policy differs from the lifecycle cutover target");
   const hostKey = proxmox.ssh.host_key_sentinel;
   if (hostKey.path !== "/etc/ssh/ssh_host_ed25519_key" || hostKey.owner !== "root" || hostKey.group !== "root" ||
       hostKey.mode !== "0600" || hostKey.kind !== "runtime-protected-file" || hostKey.projectable ||

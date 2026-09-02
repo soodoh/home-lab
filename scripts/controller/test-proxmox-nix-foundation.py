@@ -47,9 +47,15 @@ class ProxmoxNixFoundationTests(unittest.TestCase):
         preparation = bundle_module.preparation_specification(projection, "a" * 64)
         self.assertTrue(projection["nixMutationFrozen"])
         self.assertFalse(observation["legacyTofuAccessRequired"])
-        self.assertEqual(observation["protectedAccessExpectedCount"], 4)
+        self.assertTrue(observation["conventionalKeysAbsent"])
+        self.assertEqual(observation["protectedAccessExpectedCount"], 3)
         self.assertFalse(preparation["legacyTofuAccessRequired"])
-        self.assertEqual(preparation["protectedAccessExpectedCount"], 4)
+        self.assertTrue(preparation["conventionalKeysAbsent"])
+        self.assertEqual(preparation["protectedAccessExpectedCount"], 3)
+        helper = bundle_module.expected_helper_content("proxmox-private-preparer", projection, "a" * 64)
+        self.assertIn(b"AUTHORIZED_KEY_ABSENCE_CATALOG", helper)
+        self.assertIn(b'"firewall-apply"', helper)
+        self.assertIn(b"KEY_NAMES", helper)
     def build(self, root: Path) -> tuple[Path, Path]:
         bundle = root / "bundle"
         content_hash = root / "bundle.sha256"

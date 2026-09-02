@@ -557,16 +557,22 @@ proxmox:
           group: firewall-apply
           mode: "0700"
         authorized_keys:
-          file:
-            kind: runtime-protected-file
-            projectable: false
-            materialization: metadata-only
-            path: /home/firewall-apply/.ssh/authorized_keys
-            owner: firewall-apply
-            group: firewall-apply
-            mode: "0600"
-          secret_ref: PROXMOX_FIREWALL_SSH_PUBLIC_KEYS
-          forced_command: 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport"'
+          state: absent
+          files:
+            - kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /home/firewall-apply/.ssh/authorized_keys
+              owner: firewall-apply
+              group: firewall-apply
+              mode: "0600"
+            - kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /home/firewall-apply/.ssh/authorized_keys2
+              owner: firewall-apply
+              group: firewall-apply
+              mode: "0600"
         sudo:
           state: present
           file:
@@ -804,15 +810,11 @@ proxmox:
       owner: root
       group: root
       mode: "0644"
-    pubkey_authentication: true
+    pubkey_authentication: false
     password_authentication: false
     kbd_interactive_authentication: false
-    permit_root_login: prohibit-password
-    allow_users:
-      - root
-      - tofu-plan
-      - tofu-apply
-      - firewall-apply
+    permit_root_login: no
+    allow_users: []
   tailscale:
     package: tailscale
     service: tailscaled.service

@@ -70,7 +70,9 @@ def root_key_evidence() -> dict:
     program = r'''
 import json,re,subprocess
 records=[]
-for line in open("/etc/pve/priv/authorized_keys"):
+try: lines=open("/etc/pve/priv/authorized_keys")
+except FileNotFoundError: lines=[]
+for line in lines:
  value=line.strip()
  if not value: continue
  match=re.search(r'(ssh-(?:rsa|ed25519) [A-Za-z0-9+/=]+(?: .*)?)$',value)
@@ -129,14 +131,33 @@ def controller_plan_proof(result: subprocess.CompletedProcess[bytes], started_at
     if result.returncode != 66 or not candidates or candidates[0].stat().st_mtime < started_at:
         raise SystemExit("controller did not produce the expected access-retirement drift plan")
     plan_path = candidates[0]; plan = json.loads(plan_path.read_bytes())
-    blocker_targets = sorted(item.get("target") for item in plan.get("blockers", []))
-    finding_targets = sorted(item.get("target") for item in plan.get("findings", []))
-    permitted_targets = {"/etc/sudoers.d/tofu-apply", "/etc/sudoers.d/tofu-plan"}
-    if plan_path.name != f"{plan.get('planSha256')}.json" or plan.get("status") != "blocked" or plan.get("applyEligible") is not False or plan.get("actions") != [] or not blocker_targets or blocker_targets != finding_targets or not set(blocker_targets).issubset(permitted_targets) or any(item.get("code") != "manual-remediation-required" or item.get("domain") != "audit-absence" for item in plan["blockers"]) or any(item.get("code") != "unexpected-presence" or item.get("domain") != "audit-absence" for item in plan["findings"]):
+    blockers = plan.get("blockers", [])
+    findings = plan.get("findings", [])
+    blocker_targets = sorted(item.get("target") for item in blockers)
+    finding_targets = sorted(item.get("target") for item in findings)
+    permitted_audit_targets = {"/etc/sudoers.d/tofu-apply", "/etc/sudoers.d/tofu-plan"}
+    ssh_target = "/etc/ssh/sshd_config.d/60-home-lab.conf"
+    def permitted_blocker(item: dict) -> bool:
+        return ((item.get("domain"), item.get("code"), item.get("target")) in {
+            ("managed-files", "review-required", ssh_target),
+            ("protected-access", "private-observation-mismatch", "protected-access"),
+        } or (item.get("domain") == "audit-absence" and item.get("code") == "manual-remediation-required"
+              and item.get("target") in permitted_audit_targets))
+    def permitted_finding(item: dict) -> bool:
+        return ((item.get("domain"), item.get("code"), item.get("target")) ==
+                ("managed-files", "desired-state-drift", ssh_target)
+                or (item.get("domain") == "audit-absence" and item.get("code") == "unexpected-presence"
+                    and item.get("target") in permitted_audit_targets))
+    if (plan_path.name != f"{plan.get('planSha256')}.json" or plan.get("status") != "blocked"
+            or plan.get("applyEligible") is not False or plan.get("actions") != [] or not blockers
+            or any(not permitted_blocker(item) for item in blockers)
+            or any(not permitted_finding(item) for item in findings)
+            or (ssh_target in blocker_targets) != (ssh_target in finding_targets)
+            or any(target in permitted_audit_targets and target not in finding_targets for target in blocker_targets)):
         raise SystemExit("controller access-retirement drift differs from the exact expected boundary")
     return {"tests_present": True, "live_plan_noop": True, "expected_retirement_drift": True,
             "controller_plan_sha256": plan["planSha256"], "controller_plan_stdout_sha256": sha(result.stdout),
-            "retirement_drift_targets": blocker_targets}
+            "retirement_drift_targets": sorted(set(blocker_targets + finding_targets))}
 
 def capture() -> tuple[Path, str]:
     commit = clean_pushed_commit()
