@@ -17,7 +17,7 @@ cat >"$work/restore-critical-backup" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ $1 == --restic-snapshot-id && $3 == --confirmed-empty-target ]]
-[[ $RECOVERY_RESTIC_REPOSITORY == rclone:proton_backup:Backups/home-lab-restic ]]
+[[ $RECOVERY_RESTIC_REPOSITORY == rclone:proton_backup:Backups/home-lab-restic-v2 ]]
 if [[ $RECOVERY_TARGET == *interrupt* ]]; then sleep 60; fi
 mkdir -p "$RECOVERY_TARGET/srv/home-lab-state"
 printf verified >"$RECOVERY_TARGET/srv/home-lab-state/fixture"
@@ -40,7 +40,7 @@ rclone_sha=$(sha "$work/rclone")
 runner_sha=$(sha "$work/restore-critical-backup")
 age_sha=$(sha "$work/age")
 cat >"$work/metadata.json" <<JSON
-{"artifact_sha256":"$(printf 'a%.0s' {1..64})","first_run_evidence_sha256":"$(printf 'b%.0s' {1..64})","original_snapshot_id":"edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2","policy_sha256":"09f86d94190f0020488bad8285d60ef42f26a4e285992be1973e38fd3387e5a6","qualification_evidence_sha256":"$(printf 'c%.0s' {1..64})","rclone_sha256":"$rclone_sha","repository":"rclone:proton_backup:Backups/home-lab-restic","repository_id":"d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e","restic_sha256":"$restic_sha","restore_runner_sha256":"$runner_sha","snapshot_id":"95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e","version":1}
+{"artifact_sha256":"$(printf 'a%.0s' {1..64})","first_run_evidence_sha256":"$(printf 'b%.0s' {1..64})","original_snapshot_id":"edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2","policy_sha256":"09f86d94190f0020488bad8285d60ef42f26a4e285992be1973e38fd3387e5a6","qualification_evidence_sha256":"$(printf 'c%.0s' {1..64})","rclone_sha256":"$rclone_sha","repository":"rclone:proton_backup:Backups/home-lab-restic-v2","repository_id":"d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e","restic_sha256":"$restic_sha","restore_runner_sha256":"$runner_sha","snapshot_id":"95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e","version":1}
 JSON
 chmod 0600 "$work/metadata.json"
 recipient_a=age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqq

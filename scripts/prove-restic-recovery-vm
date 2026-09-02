@@ -421,7 +421,7 @@ def recovery_metadata(paths: dict[str, Path]) -> tuple[dict[str, object], dict[s
     }
     result_keys = {"ciphertext_sha256", "plaintext_sha256", "recipient_sha256", "state", "version"}
     if (set(metadata) != metadata_keys or metadata.get("version") != 1
-            or metadata.get("repository") != "rclone:proton_backup:Backups/home-lab-restic"):
+            or metadata.get("repository") != "rclone:proton_backup:Backups/home-lab-restic-v2"):
         fail("recovery_metadata_schema_differs")
     if set(result) != result_keys or result.get("version") != 1 or result.get("state") != "encrypted":
         fail("bundle_result_schema_differs")

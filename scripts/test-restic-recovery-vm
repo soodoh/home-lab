@@ -99,7 +99,7 @@ try: module.journal(state_root,'a'*40)
 except SystemExit: pass
 else: raise SystemExit('illegal journal transition unexpectedly passed')
 metadata_root=work/'metadata'; metadata_root.mkdir(mode=0o700)
-metadata={'version':1,'repository':'rclone:proton_backup:Backups/home-lab-restic','artifact_sha256':'1'*64,'first_run_evidence_sha256':'2'*64,'original_snapshot_id':'3'*64,'policy_sha256':'4'*64,'qualification_evidence_sha256':'5'*64,'rclone_sha256':'6'*64,'repository_id':'7'*64,'restic_sha256':'8'*64,'restore_runner_sha256':'9'*64,'snapshot_id':'a'*64}
+metadata={'version':1,'repository':'rclone:proton_backup:Backups/home-lab-restic-v2','artifact_sha256':'1'*64,'first_run_evidence_sha256':'2'*64,'original_snapshot_id':'3'*64,'policy_sha256':'4'*64,'qualification_evidence_sha256':'5'*64,'rclone_sha256':'6'*64,'repository_id':'7'*64,'restic_sha256':'8'*64,'restore_runner_sha256':'9'*64,'snapshot_id':'a'*64}
 bundle=metadata_root/'bundle'; bundle.write_bytes(b'ciphertext'); bundle.chmod(0o600)
 result={'version':1,'state':'encrypted','ciphertext_sha256':module.digest(bundle),'plaintext_sha256':'b'*64,'recipient_sha256':'c'*64}
 module.atomic_json(metadata_root/'metadata.json',metadata,exclusive=True); module.atomic_json(metadata_root/'result.json',result,exclusive=True)
