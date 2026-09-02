@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 
 BASE_PATH = Path(os.environ["HOME_LAB_PROTON_PROMOTION_BASE"]) if os.environ.get("HOME_LAB_PROTON_PROMOTION_TESTING") == "1" else Path("/usr/local/libexec/home-lab/cleanup-damaged-proton-restic-v1")
 B = SourceFileLoader("proton_promotion_base", str(BASE_PATH)).load_module()
@@ -49,6 +50,23 @@ def command(module, argv: list[str], environment: dict[str, str], label: str, ti
     if result.returncode:
         fail(f"{label}-{result.returncode}-{B.sha(result.stderr.encode())}")
     return result.stdout
+
+
+def mutation_command(rclone: str, config: Path, environment: dict[str, str], argv: list[str], label: str) -> None:
+    allowed = [
+        [rclone, "purge", "--config", str(config), TARGET_REMOTE],
+        [rclone, "moveto", "--config", str(config), SOURCE_REMOTE, TARGET_REMOTE],
+    ]
+    if argv not in allowed:
+        fail("mutation-command-scope")
+    merged = {"PATH":"/usr/local/bin:/usr/bin:/bin","HOME":"/var/empty","LC_ALL":"C","TZ":"UTC"}
+    merged.update(environment)
+    try:
+        result = subprocess.run(argv, env=merged, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=3600, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise SystemExit(f"qualified_proton_promotion=failed reason={label}-execution") from error
+    if result.returncode:
+        fail(f"{label}-{result.returncode}-{B.sha(result.stderr.encode())}")
 
 
 def load_policy(*, deployed: bool):
@@ -339,7 +357,8 @@ def apply(plan_path: Path, authorization_path: Path) -> None:
             disposition = mutation_disposition(state["status"], target_present, source_present)
             if disposition == "execute":
                 broken_proof(module, restic, environment, TARGET, TARGET_FAILED_ID, TARGET_BROKEN_PACK)
-                command(module, [rclone, "purge", "--config", str(module.rooted("/var/lib/restic-proton/rclone.conf")), TARGET_REMOTE], environment, "retire-failed-canonical", 3600)
+                config = module.rooted("/var/lib/restic-proton/rclone.conf")
+                mutation_command(rclone, config, environment, [rclone, "purge", "--config", str(config), TARGET_REMOTE], "retire-failed-canonical")
                 require_directory_absent(module, rclone, environment, "proton-backup:Backups", "home-lab-restic/", "failed-canonical-present")
             else:
                 repository_proof(module, restic, environment, SOURCE, SOURCE_ID, SOURCE_SNAPSHOT)
@@ -360,7 +379,8 @@ def apply(plan_path: Path, authorization_path: Path) -> None:
             disposition = mutation_disposition(state["status"], target_present, source_present)
             if disposition == "execute":
                 repository_proof(module, restic, environment, SOURCE, SOURCE_ID, SOURCE_SNAPSHOT)
-                command(module, [rclone, "moveto", "--config", str(module.rooted("/var/lib/restic-proton/rclone.conf")), SOURCE_REMOTE, TARGET_REMOTE], environment, "move-qualified-candidate", 3600)
+                config = module.rooted("/var/lib/restic-proton/rclone.conf")
+                mutation_command(rclone, config, environment, [rclone, "moveto", "--config", str(config), SOURCE_REMOTE, TARGET_REMOTE], "move-qualified-candidate")
                 require_directory_absent(module, rclone, environment, "proton-backup:Diagnostics", "restic-beta-10267/", "source-still-present")
             else:
                 repository_proof(module, restic, environment, TARGET, SOURCE_ID, SOURCE_SNAPSHOT)

@@ -44,10 +44,14 @@ def test_controller_binds_exact_action() -> None:
 
 def test_mutation_scope_and_order() -> None:
     source=(ROOT/"scripts/promote-qualified-proton-restic").read_text()
-    purge='[rclone, "purge", "--config", str(module.rooted("/var/lib/restic-proton/rclone.conf")), TARGET_REMOTE]'
-    move='[rclone, "moveto", "--config", str(module.rooted("/var/lib/restic-proton/rclone.conf")), SOURCE_REMOTE, TARGET_REMOTE]'
+    purge='[rclone, "purge", "--config", str(config), TARGET_REMOTE]'
+    move='[rclone, "moveto", "--config", str(config), SOURCE_REMOTE, TARGET_REMOTE]'
     assert purge in source and move in source and source.index(purge)<source.index(move)
-    freshness=source.index('fail("fresh-authorization-required")'); assert freshness<source.index(purge)
+    try: H.mutation_command("rclone", Path("/config"), {}, ["rclone","purge","remote:wrong"], "bad")
+    except SystemExit as error: assert "mutation-command-scope" in str(error)
+    else: raise AssertionError("out-of-scope direct rclone mutation accepted")
+    assert "shell=True" not in source
+    freshness=source.index('fail("fresh-authorization-required")'); assert freshness<source.index('mutation_command(rclone, config, environment, '+purge, freshness)<source.index('mutation_command(rclone, config, environment, '+move, freshness)
     assert "require_directory_absent" in source and "directory_entries" in source
     for forbidden in ('"cleanup"','"repair"','"prune"','"forget"','"EmptyTrash"'):
         assert forbidden not in source
