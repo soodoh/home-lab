@@ -353,7 +353,9 @@ def sshd():
  out=subprocess.run(["/usr/sbin/sshd","-T"],capture_output=True,text=True,check=True).stdout;v={{"allow_users":[],"authorized_keys_file":[],"pubkey_authentication":None,"password_authentication":None,"kbd_interactive_authentication":None,"permit_root_login":None}};mapping={{"allowusers":"allow_users","authorizedkeysfile":"authorized_keys_file","pubkeyauthentication":"pubkey_authentication","passwordauthentication":"password_authentication","kbdinteractiveauthentication":"kbd_interactive_authentication","permitrootlogin":"permit_root_login"}}
  for line in out.splitlines():
   k,_,x=line.partition(" ");m=mapping.get(k)
-  if m:v[m]=x.split() if m in {{"allow_users","authorized_keys_file"}} else x
+  if m=="allow_users":v[m].append(x)
+  elif m=="authorized_keys_file":v[m]=x.split()
+  elif m:v[m]=x
  return v
 items=json.loads(subprocess.run(["/usr/sbin/pveum","user","token","list","root@pam","--output-format","json"],capture_output=True,text=True,check=True).stdout)
 root=pwd.getpwnam("root");apex=grp.getgrnam("apex")

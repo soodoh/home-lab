@@ -155,8 +155,10 @@ def effective():
     for line in out.splitlines():
         k, _, x = line.partition(" ")
         m = mapping.get(k)
-        if m:
-            v[m] = x.split() if m == "allow_users" else x
+        if m == "allow_users":
+            v[m].append(x)
+        elif m:
+            v[m] = x
     return v
 
 

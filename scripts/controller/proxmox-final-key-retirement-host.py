@@ -168,12 +168,12 @@ def sshd_policy():
     for line in output.splitlines():
         key, _, item = line.partition(" ")
         selected = mapping.get(key)
-        if selected:
-            value[selected] = (
-                item.split()
-                if selected in {"allow_users", "authorized_keys_file"}
-                else item
-            )
+        if selected == "allow_users":
+            value[selected].append(item)
+        elif selected == "authorized_keys_file":
+            value[selected] = item.split()
+        elif selected:
+            value[selected] = item
     return value
 
 
