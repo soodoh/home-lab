@@ -82,7 +82,7 @@ function validateResticInitializationEvidence(policy, evidence, rawEvidence) {
   if (evidence.source_policy_sha256 !== initialization.source_policy_sha256) failures.push("Restic initialization source policy hash differs from the contract");
   if (evidence.completed_at !== initialization.verified_at) failures.push("Restic initialization timestamp differs from the contract");
   for (const name of ["games", "nfs", "proton"]) {
-    if (evidence.repository_ids[name] !== policy.repositories[name].id) failures.push(`Restic initialization ${name} repository ID differs from the contract`);
+    if (evidence.repository_ids[name] !== policy.first_run.repository_ids[name]) failures.push(`Restic initialization ${name} repository ID differs from the historical contract`);
   }
   if (evidence.helper_sha256 !== initialization.helper_sha256
       || evidence.restic_sha256 !== policy.tools.restic.installed_sha256
@@ -106,7 +106,7 @@ function validateResticFirstRunEvidence(policy, evidence, rawEvidence) {
       || evidence.completed_at !== firstRun.completed_at) failures.push("Restic first-run evidence bindings differ from the contract");
   for (const name of ["games", "nfs", "proton"]) {
     if (evidence.snapshots[name] !== firstRun.snapshots[name]) failures.push(`Restic first-run ${name} snapshot differs from the contract`);
-    if (evidence.repository_ids[name] !== policy.repositories[name].id) failures.push(`Restic first-run ${name} repository differs from the contract`);
+    if (evidence.repository_ids[name] !== firstRun.repository_ids[name]) failures.push(`Restic first-run ${name} repository differs from the historical contract`);
   }
   if (evidence.helper_sha256 !== firstRun.helper_sha256 || evidence.runner_sha256 !== policy.runner.first_run_sha256) failures.push("Restic first-run helper or runner hash differs");
   if (evidence.quota.total < policy.repositories.proton.minimum_allocated_bytes || evidence.quota.free < policy.proton.minimum_free_bytes) failures.push("Restic first-run quota crossed a threshold");

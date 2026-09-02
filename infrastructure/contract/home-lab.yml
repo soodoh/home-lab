@@ -1697,14 +1697,19 @@ backups:
         password: local
         copy_chunker_params_from: games
       proton:
-        path: rclone:proton-backup:Backups/home-lab-restic
-        id: d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e
+        path: rclone:proton-backup:Backups/home-lab-restic-v2
+        id: 98d792c009c01e06b8b39aab5112f0392050e9c533d1882e9c0d87727884ea25
         remote: proton-backup
-        remote_path: Backups/home-lab-restic
+        remote_path: Backups/home-lab-restic-v2
         account_ref: dedicated-proton-family-backup-member
         minimum_allocated_bytes: 1000000000000
         password: proton
         copy_chunker_params_from: games
+        recovery_snapshot_id: e0ac47b09716b3a1632a9fce21ada5f53b82980ecce6723fa7a682b9117fc139
+        recovery_original_snapshot_id: edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2
+        damaged_predecessor:
+          path: rclone:proton-backup:Backups/home-lab-restic
+          id: d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e
     retention:
       keep_daily: 7
       keep_weekly: 5
@@ -1780,6 +1785,10 @@ backups:
         games: []
         nfs: []
         proton: []
+      repository_ids:
+        games: b15627185df9b10a95b5dffe7d194dbccdba6ba4eb8a038ee03e750fedbde08f
+        nfs: 61d50fa782d194374deb24f354a07b0f11634721afa1b268963e4d017b93bb95
+        proton: d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e
       snapshots:
         games: edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2
         nfs: d64f24f17b7cfb2b5aaefe0f2ff625837b9ab198061470269f15f2026651b88d
