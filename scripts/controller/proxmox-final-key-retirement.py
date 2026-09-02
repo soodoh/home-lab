@@ -99,24 +99,28 @@ RECOVERY_SNAPSHOT_ID = (
 )
 RETAINED_ACCOUNTS = {
     "proxmox": {
+        "exists": True,
         "home": "/home/proxmox",
         "shell": "/bin/bash",
         "groups": ["proxmox"],
         "password_locked": True,
     },
     "firewall-apply": {
+        "exists": True,
         "home": "/home/firewall-apply",
         "shell": "/usr/local/libexec/home-lab/proxmox-firewall-transport",
         "groups": ["firewall-apply"],
         "password_locked": True,
     },
     "ansible-plan": {
+        "exists": True,
         "home": "/home/ansible-plan",
         "shell": "/usr/local/libexec/home-lab/proxmox-ansible-plan-transport",
         "groups": ["ansible-plan"],
         "password_locked": True,
     },
     "ansible-deploy": {
+        "exists": True,
         "home": "/home/ansible-deploy",
         "shell": "/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport",
         "groups": ["ansible-deploy"],
