@@ -31,6 +31,10 @@ def observation() -> dict:
 
 def test_controller_binds_exact_action() -> None:
     contract,_=C.C.contract_policy(); C.validate_observation(observation(),contract)
+    deployed=observation(); deployed["installed_rclone_sha256"]=H.BETA_SHA256
+    for timer in deployed["timers"]: timer["unit_file"]="disabled"
+    C.validate_observation(deployed,contract)
+    assert C.deployed_policy_sha256(contract)=="00b1a4bd81c0203d6f36f29e6ce5801b5d3d94b07d36f77317d93e580770670d"
     assert C.action()=={"kind":"promote-qualified-proton-repository","install_rclone_sha256":H.BETA_SHA256,"retire_to_trash":H.TARGET,"move_from":H.SOURCE,"move_to":H.TARGET,"preserve":H.V2}
     changed=observation(); changed["candidate"]["repository_id"]="f"*64
     try: C.validate_observation(changed,contract)
@@ -78,7 +82,7 @@ def test_interrupted_mutations_have_exact_adoption_states() -> None:
 
 def write_plan(directory: Path, **changes) -> Path:
     created=datetime.now(timezone.utc).replace(microsecond=0)-timedelta(minutes=1)
-    plan={"format":H.PLAN_FORMAT,"commit":"a"*40,"contract_sha256":"b"*64,"created_at":created.isoformat().replace("+00:00","Z"),"expires_at":(created+timedelta(hours=1)).isoformat().replace("+00:00","Z"),"host_observation":{},"action":C.action(),"blockers":["exact-proton-promotion-authorization-required"],"authorized":False,**changes}
+    plan={"format":H.PLAN_FORMAT,"commit":"a"*40,"contract_sha256":"b"*64,"deployed_policy_sha256":"c"*64,"created_at":created.isoformat().replace("+00:00","Z"),"expires_at":(created+timedelta(hours=1)).isoformat().replace("+00:00","Z"),"host_observation":{},"action":C.action(),"blockers":["exact-proton-promotion-authorization-required"],"authorized":False,**changes}
     raw=H.B.canonical(plan); path=directory/f"qualified-proton-promotion-{H.B.sha(raw)}.json"; path.write_bytes(raw); os.chmod(path,0o600); return path
 
 
@@ -95,6 +99,7 @@ def test_host_plan_time_and_identity_boundaries() -> None:
             {"commit":"bad"},
             {"commit":"a"*64},
             {"contract_sha256":"bad"},
+            {"deployed_policy_sha256":"bad"},
             {"created_at":(now+timedelta(minutes=1)).isoformat().replace("+00:00","Z"),"expires_at":(now+timedelta(hours=1)).isoformat().replace("+00:00","Z")},
             {"created_at":now.isoformat().replace("+00:00","Z"),"expires_at":(now-timedelta(minutes=1)).isoformat().replace("+00:00","Z")},
             {"created_at":now.isoformat().replace("+00:00","Z"),"expires_at":(now+timedelta(hours=25)).isoformat().replace("+00:00","Z")},
@@ -117,7 +122,7 @@ def test_retained_boundaries_and_canaries() -> None:
     assert "retained_postconditions(module, restic, environment, prior)" in source
     assert '[*restic_prefix(restic, TARGET), "check", "--json", "--read-data"]' in source
     assert 'B.write_private(receipt_path, receipt, exclusive=True)' in source
-    assert 'plan.get("contract_sha256") != policy_sha256' in source
+    assert 'plan.get("deployed_policy_sha256") != policy_sha256' in source
 
 
 def test_playbook_keeps_incident_suspended_and_adopts_lock() -> None:

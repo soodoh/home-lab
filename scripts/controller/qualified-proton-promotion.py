@@ -25,6 +25,11 @@ def action() -> dict:
     return {"kind":"promote-qualified-proton-repository","install_rclone_sha256":H.BETA_SHA256,"retire_to_trash":H.TARGET,"move_from":H.SOURCE,"move_to":H.TARGET,"preserve":H.V2}
 
 
+def deployed_policy_sha256(contract: dict) -> str:
+    raw=(json.dumps(contract["backups"]["restic"],indent=4,sort_keys=True)+"\n").encode()
+    return C.sha(raw)
+
+
 def run_playbook(extra: dict) -> None:
     descriptor, name = tempfile.mkstemp(prefix="qualified-proton-promotion-", suffix=".json")
     try:
@@ -55,21 +60,23 @@ def observe_host() -> dict:
 def validate_observation(value: dict, contract: dict) -> None:
     expected_keys={"format","helper_sha256","base_helper_sha256","policy_sha256","installed_rclone_sha256","beta_sha256","candidate","candidate_state","failed_canonical","damaged_v2","trash_state","canonical_state","timers"}
     candidate=value.get("candidate",{}); failed=value.get("failed_canonical",{}); v2=value.get("damaged_v2",{})
+    timers=value.get("timers")
+    predeploy=(value.get("installed_rclone_sha256")==H.STABLE_SHA256 and timers==[{"unit":"home-lab-restic-daily.timer","active":"inactive","unit_file":"enabled"},{"unit":"home-lab-restic-maintenance.timer","active":"inactive","unit_file":"enabled"}])
+    deployed=(value.get("installed_rclone_sha256")==H.BETA_SHA256 and timers==[{"unit":"home-lab-restic-daily.timer","active":"inactive","unit_file":"disabled"},{"unit":"home-lab-restic-maintenance.timer","active":"inactive","unit_file":"disabled"}])
     if (set(value)!=expected_keys or value.get("format")!="home-lab-qualified-proton-promotion-observation-v1" or value.get("helper_sha256")!=C.sha(HELPER.read_bytes())
-        or value.get("installed_rclone_sha256")!=H.STABLE_SHA256 or value.get("beta_sha256")!=H.BETA_SHA256
+        or not (predeploy or deployed) or value.get("beta_sha256")!=H.BETA_SHA256
         or contract["backups"]["restic"]["tools"]["rclone"]["installed_sha256"]!=H.BETA_SHA256 or contract["backups"]["restic"]["schedule"]["state"]!="incident-suspended"
         or candidate.get("repository_id")!=H.SOURCE_ID or candidate.get("snapshot_id")!=H.SOURCE_SNAPSHOT or candidate.get("original_snapshot_id")!=H.ORIGINAL_SNAPSHOT or candidate.get("full_read_data_check")!="zero-errors"
         or value.get("candidate_state",{}).get("repository_id")!=H.SOURCE_ID or value.get("candidate_state",{}).get("status")!="verified"
         or failed.get("repository_id")!=H.TARGET_FAILED_ID or failed.get("broken_pack")!=H.TARGET_BROKEN_PACK
         or v2.get("repository_id")!=H.V2_ID or v2.get("broken_pack")!=H.V2_BROKEN_PACK
-        or value.get("trash_state",{}).get("status")!="cleanup-started" or value.get("canonical_state",{}).get("status")!="copied"
-        or value.get("timers")!=[{"unit":"home-lab-restic-daily.timer","active":"inactive","unit_file":"enabled"},{"unit":"home-lab-restic-maintenance.timer","active":"inactive","unit_file":"enabled"}]):
+        or value.get("trash_state",{}).get("status")!="cleanup-started" or value.get("canonical_state",{}).get("status")!="copied"):
         raise SystemExit("qualified Proton promotion observation differs")
 
 
 def create_plan() -> None:
     commit=C.clean_pushed_commit(); contract,raw=C.contract_policy(); observed=observe_host(); validate_observation(observed,contract); created=datetime.now(timezone.utc).replace(microsecond=0)
-    plan={"format":H.PLAN_FORMAT,"commit":commit,"contract_sha256":C.sha(raw),"created_at":created.isoformat().replace("+00:00","Z"),"expires_at":(created+timedelta(hours=24)).isoformat().replace("+00:00","Z"),"host_observation":observed,"action":action(),"blockers":["exact-proton-promotion-authorization-required"],"authorized":False}
+    plan={"format":H.PLAN_FORMAT,"commit":commit,"contract_sha256":C.sha(raw),"deployed_policy_sha256":deployed_policy_sha256(contract),"created_at":created.isoformat().replace("+00:00","Z"),"expires_at":(created+timedelta(hours=24)).isoformat().replace("+00:00","Z"),"host_observation":observed,"action":action(),"blockers":["exact-proton-promotion-authorization-required"],"authorized":False}
     plan_raw=C.canonical(plan); digest=C.sha(plan_raw); path=OUTPUT/f"qualified-proton-promotion-{digest}.json"; C.write_private(path,plan_raw)
     print(json.dumps({"plan_sha256":digest,"path":str(path),"action":action(),"blockers":plan["blockers"]},sort_keys=True))
 
@@ -78,7 +85,7 @@ def load_plan(path: Path, *, allow_expired: bool=False) -> tuple[dict,str]:
     plan,raw=C.load_private(path); digest=C.sha(raw)
     try: expires=datetime.fromisoformat(plan["expires_at"].replace("Z","+00:00"))
     except (KeyError,TypeError,ValueError) as error: raise SystemExit("qualified Proton plan time differs") from error
-    if plan.get("format")!=H.PLAN_FORMAT or path.name!=f"qualified-proton-promotion-{digest}.json" or plan.get("commit")!=C.clean_pushed_commit() or plan.get("contract_sha256")!=C.sha(C.CONTRACT.read_bytes()) or plan.get("action")!=action() or plan.get("blockers")!=["exact-proton-promotion-authorization-required"] or plan.get("authorized") is not False or (not allow_expired and datetime.now(timezone.utc)>expires): raise SystemExit("qualified Proton plan binding differs")
+    if plan.get("format")!=H.PLAN_FORMAT or path.name!=f"qualified-proton-promotion-{digest}.json" or plan.get("commit")!=C.clean_pushed_commit() or plan.get("contract_sha256")!=C.sha(C.CONTRACT.read_bytes()) or plan.get("deployed_policy_sha256")!=deployed_policy_sha256(C.contract_policy()[0]) or plan.get("action")!=action() or plan.get("blockers")!=["exact-proton-promotion-authorization-required"] or plan.get("authorized") is not False or (not allow_expired and datetime.now(timezone.utc)>expires): raise SystemExit("qualified Proton plan binding differs")
     validate_observation(plan.get("host_observation",{}),C.contract_policy()[0]); return plan,digest
 
 

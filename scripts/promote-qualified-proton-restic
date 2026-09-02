@@ -182,9 +182,9 @@ def validate_plan(path: Path, *, allow_expired: bool = False) -> tuple[dict, str
         raise SystemExit("qualified_proton_promotion=failed reason=plan-time") from error
     action = {"kind":"promote-qualified-proton-repository","install_rclone_sha256":BETA_SHA256,"retire_to_trash":TARGET,"move_from":SOURCE,"move_to":TARGET,"preserve":V2}
     now = datetime.now(timezone.utc)
-    if (set(plan) != {"format","commit","contract_sha256","created_at","expires_at","host_observation","action","blockers","authorized"}
+    if (set(plan) != {"format","commit","contract_sha256","deployed_policy_sha256","created_at","expires_at","host_observation","action","blockers","authorized"}
             or plan.get("format") != PLAN_FORMAT or path.name != f"qualified-proton-promotion-{digest}.json"
-            or GIT_COMMIT.fullmatch(str(plan.get("commit", ""))) is None or HEX.fullmatch(str(plan.get("contract_sha256", ""))) is None
+            or GIT_COMMIT.fullmatch(str(plan.get("commit", ""))) is None or HEX.fullmatch(str(plan.get("contract_sha256", ""))) is None or HEX.fullmatch(str(plan.get("deployed_policy_sha256", ""))) is None
             or plan.get("action") != action or plan.get("blockers") != ["exact-proton-promotion-authorization-required"]
             or plan.get("authorized") is not False or expires <= created or (expires-created).total_seconds() > 86400
             or created > now or (not allow_expired and now > expires)):
@@ -267,7 +267,7 @@ def apply(plan_path: Path, authorization_path: Path) -> None:
     if os.environ.get("QUALIFIED_PROTON_PROMOTION_CONFIRMED") != f"promote-qualified-proton-repository-{digest}-{auth_digest}":
         fail("exact-confirmation")
     module, policy, policy_sha256 = load_policy(deployed=True)
-    if plan.get("contract_sha256") != policy_sha256:
+    if plan.get("deployed_policy_sha256") != policy_sha256:
         fail("deployed-contract")
     descriptor = B.acquire_lock(module, policy)
     try:
