@@ -42,7 +42,7 @@ cat >"$bin_root/rclone" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
 [[ ${1:-} == version ]]
-echo 'rclone v1.75.0'
+echo 'rclone v1.76.0-beta.10267.220fe7619'
 SH
 cat >"$bin_root/realpath" <<'SH'
 #!/usr/bin/env bash

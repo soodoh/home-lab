@@ -173,7 +173,7 @@ const initializationEvidence = {
   version: 1, type: "restic-repository-initialization", state: "initialized",
   source_policy_sha256: fixture.initialization.source_policy_sha256,
   lock_owner_sha256: "f".repeat(64), helper_sha256: fixture.initialization.helper_sha256,
-  restic_sha256: fixture.tools.restic.installed_sha256, rclone_sha256: fixture.tools.rclone.installed_sha256,
+  restic_sha256: fixture.initialization.restic_sha256, rclone_sha256: fixture.initialization.rclone_sha256,
   qualification_evidence_sha256: fixture.qualification.evidence_sha256,
   account_username_sha256: fixture.qualification.username_sha256,
   repository_ids: fixture.first_run.repository_ids,

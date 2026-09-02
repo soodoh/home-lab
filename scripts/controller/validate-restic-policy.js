@@ -85,8 +85,8 @@ function validateResticInitializationEvidence(policy, evidence, rawEvidence) {
     if (evidence.repository_ids[name] !== policy.first_run.repository_ids[name]) failures.push(`Restic initialization ${name} repository ID differs from the historical contract`);
   }
   if (evidence.helper_sha256 !== initialization.helper_sha256
-      || evidence.restic_sha256 !== policy.tools.restic.installed_sha256
-      || evidence.rclone_sha256 !== policy.tools.rclone.installed_sha256) failures.push("Restic initialization tool hashes differ from the contract");
+      || evidence.restic_sha256 !== initialization.restic_sha256
+      || evidence.rclone_sha256 !== initialization.rclone_sha256) failures.push("Restic initialization tool hashes differ from the historical contract");
   if (evidence.qualification_evidence_sha256 !== policy.qualification.evidence_sha256
       || evidence.account_username_sha256 !== policy.qualification.username_sha256) failures.push("Restic initialization Proton identity differs from qualified evidence");
   if (evidence.proton_observed_total_bytes < policy.repositories.proton.minimum_allocated_bytes

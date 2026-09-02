@@ -1675,13 +1675,13 @@ backups:
         installed_path: /usr/local/bin/restic
         version_output: restic 0.19.1 compiled with go1.26.4 on linux/amd64
       rclone:
-        version: 1.75.0
+        version: 1.76.0-beta.10267.220fe7619
         architecture: linux_amd64
-        url: https://github.com/rclone/rclone/releases/download/v1.75.0/rclone-v1.75.0-linux-amd64.zip
-        archive_sha256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
-        installed_sha256: f3f9aff817f9766029e50adf9a7963c169e475b8f10c7927823568a0d9443db7
+        url: https://beta.rclone.org/v1.76.0-beta.10267.220fe7619/rclone-v1.76.0-beta.10267.220fe7619-linux-amd64.zip
+        archive_sha256: 8d836165cfc92b273f8735dc91e4158c55267dfa69f9e35ed838805802a89dec
+        installed_sha256: acd2c7aca2996c884a8cd0012b27d74213bc7d02c514d9711166b5023e51ca49
         installed_path: /usr/local/bin/rclone
-        version_output_prefix: rclone v1.75.0
+        version_output_prefix: rclone v1.76.0-beta.10267.220fe7619
     repositories:
       games:
         path: /mnt/games/restic/home-lab
@@ -1751,6 +1751,8 @@ backups:
     initialization:
       state: initialized
       helper_sha256: 80b7fb8e7dd3ff0e2afd7bb91b668281c426256a70c37a8e9b1b3ff75a602694
+      restic_sha256: 20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639
+      rclone_sha256: f3f9aff817f9766029e50adf9a7963c169e475b8f10c7927823568a0d9443db7
       confirmation: initialize-three-native-restic-repositories
       exclusive_client_confirmation: proton-exclusive-client-closed
       journal_path: /var/lib/home-lab-restic/repository-initialization-journal.json
@@ -1796,6 +1798,7 @@ backups:
         nfs: d64f24f17b7cfb2b5aaefe0f2ff625837b9ab198061470269f15f2026651b88d
         proton: 95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e
     schedule:
+      state: incident-suspended
       daily_calendar: "*-*-* 05:00:00"
       maintenance_calendar: monthly
       proton_independent_timer: false

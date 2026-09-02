@@ -751,6 +751,18 @@
     fail_msg: Active Restic scheduling requires the exact restore proof and terminal Offen retirement evidence.
   when: backups.restic.migration_state == 'active'
 
+- name: Keep incident-suspended Restic timers disabled and stopped
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop:
+    - home-lab-restic-daily.timer
+    - home-lab-restic-maintenance.timer
+  when:
+    - backups.restic.migration_state == 'active'
+    - backups.restic.schedule.state == 'incident-suspended'
+
 - name: Enable boot-time interrupted backup recovery
   ansible.builtin.systemd_service:
     name: home-lab-restic-recover.service
@@ -769,4 +781,5 @@
     - home-lab-restic-maintenance.timer
   when:
     - backups.restic.migration_state == 'active'
+    - backups.restic.schedule.state == 'active'
     - not ansible_check_mode

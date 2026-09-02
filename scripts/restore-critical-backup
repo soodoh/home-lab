@@ -112,7 +112,7 @@ recovery_parent=/srv/home-lab-recovery
     rclone_path=$(command -v rclone) || exit 1
     verify_recovery_binary "$rclone_path" "$RECOVERY_EXPECTED_RCLONE_SHA256"
     rclone_version=$("$rclone_path" version 2>/dev/null | head -n 1)
-    [[ $rclone_version == 'rclone v1.75.0' ]] || {
+    [[ $rclone_version == 'rclone v1.76.0-beta.10267.220fe7619' ]] || {
       echo "Pinned rclone version identity failed" >&2
       exit 1
     }

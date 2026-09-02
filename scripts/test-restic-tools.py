@@ -120,6 +120,7 @@ def main() -> None:
     assert policy["migration_state"] == "active"
     assert [policy["retention"][key] for key in ("keep_daily", "keep_weekly", "keep_monthly")] == [7, 5, 12]
     assert policy["schedule"]["proton_independent_timer"] is False
+    assert policy["schedule"]["state"] == "incident-suspended"
     assert policy["proton"]["trash_cleanup"] == "manual-only"
     assert policy["repositories"]["games"]["id"] == "b15627185df9b10a95b5dffe7d194dbccdba6ba4eb8a038ee03e750fedbde08f"
     assert policy["repositories"]["nfs"]["id"] == "61d50fa782d194374deb24f354a07b0f11634721afa1b268963e4d017b93bb95"
@@ -317,6 +318,7 @@ def main() -> None:
         raise AssertionError("Proton copy headroom could cross the free-space reserve")
 
     role = (ROOT / "ansible/roles/restic_backup/tasks/main.yml").read_text()
+    audit_restic = (ROOT / "ansible/roles/audit/tasks/restic.yml").read_text()
     bootstrap = (ROOT / "scripts/bootstrap-restic-credentials").read_text()
     assert "required_sops_keys_absent" in bootstrap
     assert "state={'changed' if changed else 'noop'}" in bootstrap
@@ -494,13 +496,18 @@ def main() -> None:
     assert 'rclone_binary_sha256: "{{ backups.restic.tools.rclone.installed_sha256 }}"' in group_vars
     assert 'restic_binary_sha256: "{{ backups.restic.tools.restic.installed_sha256 }}"' in group_vars
     assert policy["tools"]["restic"]["installed_sha256"] == "20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639"
-    assert policy["tools"]["rclone"]["installed_sha256"] == "f3f9aff817f9766029e50adf9a7963c169e475b8f10c7927823568a0d9443db7"
+    assert policy["tools"]["rclone"]["installed_sha256"] == "acd2c7aca2996c884a8cd0012b27d74213bc7d02c514d9711166b5023e51ca49"
     assert policy["qualification"]["helper_sha256"] == hashlib.sha256((ROOT / "scripts/qualify-proton-backup").read_bytes()).hexdigest()
     assert policy["initialization"]["helper_sha256"] == hashlib.sha256((ROOT / "scripts/initialize-restic-repositories").read_bytes()).hexdigest()
     assert policy["tools"]["restic"]["archive_sha256"] == "f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c"
-    assert policy["tools"]["rclone"]["archive_sha256"] == "aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa"
+    assert policy["tools"]["rclone"]["archive_sha256"] == "8d836165cfc92b273f8735dc91e4158c55267dfa69f9e35ed838805802a89dec"
     assert "ansible_facts.architecture == 'x86_64'" in role
     assert "Refusing to replace a non-regular, symlinked, or hard-linked Restic tool destination" in role
+    assert "Keep incident-suspended Restic timers disabled and stopped" in role
+    assert "backups.restic.schedule.state == 'active'" in role
+    assert "backups.restic.schedule.state == 'active'" in audit_restic
+    assert "backups.restic.schedule.state == 'incident-suspended'" in audit_restic
+    assert "'disabled' if item.item.key.endswith('.timer')" in audit_restic
     assert "Refusing a pre-existing games Restic repository until its exact ID is recorded" in role
     assert "The games Restic repository ID differs from the contract" in role
     assert "Refusing Restic deployment without the exact contract repository mount" in role

@@ -44,7 +44,7 @@ The corrective local transition completed on 2026-08-27 with active artifact `24
 The Ansible `restic_backup` role installs official Linux amd64 binaries only:
 
 - Restic 0.19.1 archive SHA-256 `f415415624dcc452f2a02b8c33641791a8c6d6d3b65bbb3543fcf9a25151585c`;
-- rclone 1.75.0 archive SHA-256 `aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa`.
+- rclone 1.76.0-beta.10267.220fe7619 archive SHA-256 `8d836165cfc92b273f8735dc91e4158c55267dfa69f9e35ed838805802a89dec`, temporarily exact-pinned after qualification of the upstream Proton retry fix.
 
 The role verifies archive and installed-binary hashes, exact versions, architecture, ownership, modes, and non-symlink destinations. `restic-proton` has no login shell, home creation, Docker group, sudo, or production-source access. Its service sandbox can read the games repository and write only its native `locks/` directory, replication evidence, and protected rclone state.
 
