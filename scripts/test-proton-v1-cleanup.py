@@ -99,6 +99,8 @@ def test_playbook_stages_only_exact_artifacts_and_removes_successful_stage():
     assert "delete-damaged-proton-v1-" in source
     assert source.count("proton_v1_cleanup_operation == 'apply'") >= 6
     assert "state: absent" in source
+    assert "Protect fetched cleanup receipt" in source
+    assert source.count('mode: "0600"') >= 2
     assert "ansible.builtin.shell" not in source
 
 

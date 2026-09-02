@@ -4,6 +4,8 @@
 
 Restic is **active**. The daily and maintenance timers are enabled, active, and non-persistent; interrupted-backup recovery is enabled. The first games → NFS → Proton chain and isolated Proton `restore --verify` proof passed. Offen is fully retired: its Compose definitions and stopped containers are absent, all twelve manifest-bound local archives and eight checksum sidecars were removed, the exact AWS Offen version is absent, and the temporary bucket-wide expiration hold was replaced with multipart-only and expired-marker cleanup. Terminal evidence is `infrastructure/evidence/offen-retirement.json` with SHA-256 `5bd285796ab04d9cc7370768fae2ed284215492c76791cd75b01d22950fde2d0`.
 
+The damaged Proton v1 active directory was retired by exact saved plan `b8da0f1ecfa0faaaac08e317d97c2c9113f6006dc20863cfef87ad956e482e7a`. Its reviewed inventory contained 768 objects and 12,892,898,017 bytes with inventory SHA-256 `3b8d26ebbb3acc9239ec2705755f51d0771181391fe31bf68b0547a62a3a0fc1`; repository ID was exactly `d1faa9cd772dd13275b8d4db376c2bbba0b82a9415a28b0d03a8b17e37b7fb7e`. Receipt SHA-256 `143beaab3513af31e91ed15ef5d268ddb059ac8550e4fc199113e8e232d0e77b` proves the exact v1 directory left the active `Backups` namespace, Proton v2 remained the sole active directory, and a post-operation `restic check --read-data` passed with zero errors. Proton's backend implements purge by moving the folder to Trash, not permanent deletion. Space reclamation remains blocked because rclone exposes only account-wide `cleanup`/`EmptyTrash`; no transaction may empty unrelated Trash contents without separate exact scope proof.
+
 The final retired Offen recovery point was:
 
 - basename `daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg`;

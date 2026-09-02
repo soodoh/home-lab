@@ -152,6 +152,15 @@
         flat: true
       when: proton_v1_cleanup_operation == 'apply'
 
+    - name: Protect fetched cleanup receipt
+      ansible.builtin.file:
+        path: "{{ proton_v1_cleanup_controller_output }}"
+        state: file
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      when: proton_v1_cleanup_operation == 'apply'
+
     - name: Remove successful transaction staging
       ansible.builtin.file:
         path: "{{ proton_v1_cleanup_stage }}"
