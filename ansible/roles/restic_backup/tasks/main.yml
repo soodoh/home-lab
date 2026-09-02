@@ -597,6 +597,10 @@
       dest: /usr/local/libexec/home-lab/create-canonical-proton-restic
       group: restic-proton
       mode: "0750"
+    - src: "{{ playbook_dir }}/../../scripts/promote-qualified-proton-restic"
+      dest: /usr/local/libexec/home-lab/promote-qualified-proton-restic
+      group: restic-proton
+      mode: "0750"
 
 - name: Install canonical SOPS ciphertext for host-side credential bootstrap
   ansible.builtin.copy:

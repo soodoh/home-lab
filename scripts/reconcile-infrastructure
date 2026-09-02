@@ -167,7 +167,8 @@ if [[ $action == validate ]]; then
   scripts/test-restic-recovery-bundle
   python3 scripts/test-compose-action-plan.py
   python3 scripts/test-restic-tools.py
-  python3 -m py_compile scripts/*.py scripts/controller/*.py scripts/activate-restic-staging-fixture scripts/build-restic-recovery-bundle scripts/run-restic-recovery-bundle
+  python3 scripts/test-qualified-proton-promotion.py
+  python3 -m py_compile scripts/*.py scripts/controller/*.py scripts/activate-restic-staging-fixture scripts/build-restic-recovery-bundle scripts/run-restic-recovery-bundle scripts/promote-qualified-proton-restic
   node --check scripts/controller/authentik-normalize-inventory.mjs
   shellcheck scripts/reconcile-infrastructure scripts/local-controller \
     scripts/audit-opentofu-state-objects scripts/configure-local-controller-aws \
