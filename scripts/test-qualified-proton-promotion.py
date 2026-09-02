@@ -122,6 +122,7 @@ def test_retained_boundaries_and_canaries() -> None:
 
 def test_playbook_keeps_incident_suspended_and_adopts_lock() -> None:
     source=(ROOT/"ansible/playbooks/qualified-proton-promotion.yml").read_text()
+    assert "infrastructure/contract/home-lab.yml" in source and "group_vars/docker_host.yml" in source
     assert source.index("name: restic_backup")<source.index("Execute explicitly authorized qualified Proton promotion")
     assert "Require exact beta identity and suspended timers after promotion" in source
     assert "[['inactive', 'disabled'], ['inactive', 'disabled']]" in source

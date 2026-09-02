@@ -2,6 +2,9 @@
 - name: Promote exact qualified Proton Restic repository
   hosts: docker_host
   gather_facts: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   become: true
   vars:
     qualified_proton_helper_source: "{{ playbook_dir }}/../../scripts/promote-qualified-proton-restic"
