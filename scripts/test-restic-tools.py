@@ -504,6 +504,7 @@ def main() -> None:
     assert "ansible_facts.architecture == 'x86_64'" in role
     assert "Refusing to replace a non-regular, symlinked, or hard-linked Restic tool destination" in role
     assert "Keep incident-suspended Restic timers disabled and stopped" in role
+    assert "Clear retained incident failure markers before active scheduling" in role
     assert "backups.restic.schedule.state == 'active'" in role
     assert "backups.restic.schedule.state == 'active'" in audit_restic
     assert "backups.restic.schedule.state == 'incident-suspended'" in audit_restic

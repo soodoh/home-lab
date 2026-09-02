@@ -767,6 +767,16 @@
     - backups.restic.migration_state == 'active'
     - backups.restic.schedule.state == 'incident-suspended'
 
+- name: Clear retained incident failure markers before active scheduling
+  ansible.builtin.command:
+    argv: [/usr/bin/systemctl, reset-failed, "{{ item.item.key }}"]
+  loop: "{{ restic_backup_inert_unit_states.results }}"
+  changed_when: true
+  when:
+    - backups.restic.migration_state == 'active'
+    - backups.restic.schedule.state == 'active'
+    - item.stdout_lines | first == 'failed'
+
 - name: Enable boot-time interrupted backup recovery
   ansible.builtin.systemd_service:
     name: home-lab-restic-recover.service
