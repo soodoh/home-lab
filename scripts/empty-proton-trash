@@ -80,6 +80,13 @@ def observe() -> None:
         os.close(descriptor)
 
 
+
+def validate_current_observation(expected: dict, current: dict) -> None:
+    for key, value in expected.items():
+        if key != "usage" and current.get(key) != value:
+            fail(f"current-precondition-{key}")
+
+
 def validate_plan(path: Path) -> tuple[dict, str, datetime]:
     plan, raw = B.load_private(path)
     digest = B.sha(raw)
@@ -222,8 +229,7 @@ def apply(plan_path: Path, authorization_path: Path, recovery_path: Path, recove
             if auth_created > now or now > auth_expires or now > plan_expires:
                 fail("fresh-authorization-required")
             observed = observe_locked(module, policy, policy_sha256)
-            if observed != plan["host_observation"]:
-                fail("precondition-observation")
+            validate_current_observation(plan["host_observation"], observed)
             state = {
                 "format": RECEIPT_FORMAT,
                 "status": "cleanup-started",
@@ -255,9 +261,7 @@ def apply(plan_path: Path, authorization_path: Path, recovery_path: Path, recove
             }
             B.write_private(journal / "state.json", state)
         current = observe_locked(module, policy, policy_sha256)
-        for key, value in plan["host_observation"].items():
-            if key != "usage" and current.get(key) != value:
-                fail(f"current-precondition-{key}")
+        validate_current_observation(plan["host_observation"], current)
         state = {**state, "execution_usage": current["usage"]}
         B.write_private(journal / "state.json", state)
         restic, rclone = module.command_paths(policy)
