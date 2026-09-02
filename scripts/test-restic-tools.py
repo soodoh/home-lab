@@ -120,7 +120,7 @@ def main() -> None:
     assert policy["migration_state"] == "active"
     assert [policy["retention"][key] for key in ("keep_daily", "keep_weekly", "keep_monthly")] == [7, 5, 12]
     assert policy["schedule"]["proton_independent_timer"] is False
-    assert policy["schedule"]["state"] == "incident-suspended"
+    assert policy["schedule"]["state"] == "active"
     assert policy["proton"]["trash_cleanup"] == "manual-only"
     assert policy["repositories"]["games"]["id"] == "b15627185df9b10a95b5dffe7d194dbccdba6ba4eb8a038ee03e750fedbde08f"
     assert policy["repositories"]["nfs"]["id"] == "61d50fa782d194374deb24f354a07b0f11634721afa1b268963e4d017b93bb95"

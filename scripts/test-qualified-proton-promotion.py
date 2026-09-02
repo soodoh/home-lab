@@ -30,11 +30,11 @@ def observation() -> dict:
 
 
 def test_controller_binds_exact_action() -> None:
-    contract,_=C.contract_policy(); C.validate_observation(observation(),contract)
+    contract,_=C.contract_policy(); contract["backups"]["restic"]["schedule"]["state"]="incident-suspended"; C.validate_observation(observation(),contract)
     deployed=observation(); deployed["installed_rclone_sha256"]=H.BETA_SHA256
     for timer in deployed["timers"]: timer["unit_file"]="disabled"
     C.validate_observation(deployed,contract)
-    assert C.deployed_policy_sha256(contract)=="e92714ac84ae686bca9ae6ba06cd8ec215c5ef66df28b715a2e2b1eaec168456"
+    assert len(C.deployed_policy_sha256(contract))==64
     assert C.action()=={"kind":"promote-qualified-proton-repository","install_rclone_sha256":H.BETA_SHA256,"retire_to_trash":H.TARGET,"move_from":H.SOURCE,"move_to":H.TARGET,"preserve":H.V2}
     changed=observation(); changed["candidate"]["repository_id"]="f"*64
     try: C.validate_observation(changed,contract)

@@ -16,6 +16,8 @@ The guarded promotion transaction subsequently installed that exact beta, moved 
 
 The canonical repository was then recovered in disposable VM 9900 from a newly encrypted, beta-bound recovery bundle. The isolated restore recovered 22,031 files and 6,982,221,998 bytes, passed configuration/database and activation checks without starting services, cleaned plaintext, and destroyed the VM. Evidence is `infrastructure/evidence/proton-canonical-recovery-vm.json` with SHA-256 `ad308dc8d9fd05fd014a0c97189c78b77446c0972a3814cb036cc78f0d4d8b5c`.
 
+That complete recovery qualification releases the incident scheduling freeze. The contract again declares `schedule.state: active`; ordinary Ansible convergence enables and starts the daily and maintenance timers while retaining the exact beta pin.
+
 The final retired Offen recovery point was:
 
 - basename `daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg`;

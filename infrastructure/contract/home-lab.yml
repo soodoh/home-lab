@@ -1798,7 +1798,7 @@ backups:
         nfs: d64f24f17b7cfb2b5aaefe0f2ff625837b9ab198061470269f15f2026651b88d
         proton: 95be7e9b0a03cedd06340fdcf63055c67205c3a6c28687ffd2dc99e733bfa71e
     schedule:
-      state: incident-suspended
+      state: active
       daily_calendar: "*-*-* 05:00:00"
       maintenance_calendar: monthly
       proton_independent_timer: false
