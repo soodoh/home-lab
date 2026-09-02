@@ -1,0 +1,449 @@
+#!/usr/bin/env python3
+"""Retire exact damaged Proton incident artifacts after canonical recovery qualification."""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from importlib.machinery import SourceFileLoader
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+
+BASE_PATH = Path(os.environ["HOME_LAB_PROTON_RETIREMENT_BASE"]) if os.environ.get("HOME_LAB_PROTON_RETIREMENT_TESTING") == "1" else Path("/usr/local/libexec/home-lab/cleanup-damaged-proton-restic-v1")
+B = SourceFileLoader("proton_retirement_base", str(BASE_PATH)).load_module()
+RUNNER = Path("/usr/local/libexec/home-lab/restic-backup")
+ROOT = Path("/var/lib/restic-proton")
+JOURNAL_ROOT = ROOT / "proton-incident-retirement"
+CANONICAL = "rclone:proton-backup:Backups/home-lab-restic"
+CANONICAL_ID = "dce8dbc3cde106047631317a09257c23ee5eab4d9ece5f88d52108ae384a8503"
+CANONICAL_SNAPSHOT = "a42e4694ac164d62bb1c815144ea6407f70ab1e8ee91c54f293b2acdb77dcfea"
+ORIGINAL_SNAPSHOT = "edd4f507cec382e6fae48e2690ffa53ae7ef7a61e24581983975631cbe5a32e2"
+DAMAGED = "rclone:proton-backup:Backups/home-lab-restic-v2"
+DAMAGED_REMOTE = "proton-backup:Backups/home-lab-restic-v2"
+DAMAGED_NAME = "home-lab-restic-v2/"
+DAMAGED_ID = "98d792c009c01e06b8b39aab5112f0392050e9c533d1882e9c0d87727884ea25"
+DAMAGED_PACK = "a1f72495c2ca8a84c76fb7843e2ebcd35f6b8d675bb8121a736c4c3622f1e669"
+DIAGNOSTICS_PARENT = "proton-backup:Diagnostics/rclone-upload-20260902"
+DIAGNOSTICS_NAME = "rclone-upload-20260902/"
+STABLE_REMOTE = f"{DIAGNOSTICS_PARENT}/stable-v1.75.0"
+STABLE_NAME = "stable-v1.75.0/"
+BETA_REMOTE = f"{DIAGNOSTICS_PARENT}/beta-v1.76.0-beta.10267.220fe7619"
+BETA_NAME = "beta-v1.76.0-beta.10267.220fe7619/"
+DIAGNOSTIC_CHILDREN = [BETA_NAME, STABLE_NAME]
+RCLONE_SHA256 = "acd2c7aca2996c884a8cd0012b27d74213bc7d02c514d9711166b5023e51ca49"
+PROMOTION_SHA256 = "1d3e84d0a01d39fff5ded2f30066c6c871c7127449931d191400b4ea02a9190e"
+RECOVERY_SHA256 = "ad308dc8d9fd05fd014a0c97189c78b77446c0972a3814cb036cc78f0d4d8b5c"
+RECOVERY_JOURNAL_SHA256 = "9e30fa7a142c263b888ad2d72bfb3bbf294dd9456863747aba42c3afc9c1ce74"
+TRASH_PLAN = "53898e93b53264768b090d4b00e7e3add22e822efa5c7fa1bb6fc0b97e0f8a90"
+TRASH_STATE = ROOT / "proton-trash-cleanup" / TRASH_PLAN / "state.json"
+CANONICAL_PLAN = "6c128f8498c87fa070685f79608296855508b97818098a1300e77740a4ee58eb"
+CANONICAL_STATE = ROOT / "canonical-proton-creation" / CANONICAL_PLAN / "state.json"
+PLAN_FORMAT = "home-lab-proton-incident-retirement-plan-v1"
+AUTH_FORMAT = "home-lab-proton-incident-retirement-authorization-v1"
+RECEIPT_FORMAT = "home-lab-proton-incident-retirement-receipt-v1"
+HEX = re.compile(r"^[0-9a-f]{64}$")
+GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+
+
+def fail(reason: str) -> None:
+    raise SystemExit(f"proton_incident_retirement=failed reason={reason}")
+
+
+def command(module, argv: list[str], environment: dict[str, str], label: str, timeout: int = 600) -> str:
+    result = module.run(argv, environment=environment, timeout=timeout)
+    if result.returncode:
+        fail(f"{label}-{result.returncode}-{B.sha(result.stderr.encode())}")
+    return result.stdout
+
+
+def mutation_command(rclone: str, config: Path, environment: dict[str, str], remote: str, label: str) -> None:
+    allowed = {DAMAGED_REMOTE, STABLE_REMOTE, BETA_REMOTE}
+    if remote not in allowed:
+        fail("mutation-command-scope")
+    argv = [rclone, "purge", "--config", str(config), remote]
+    merged = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/var/empty", "LC_ALL": "C", "TZ": "UTC"}
+    merged.update(environment)
+    try:
+        result = subprocess.run(argv, env=merged, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=7200, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise SystemExit(f"proton_incident_retirement=failed reason={label}-execution") from error
+    if result.returncode:
+        fail(f"{label}-{result.returncode}-{B.sha(result.stderr.encode())}")
+
+
+def load_policy():
+    module = SourceFileLoader("home_lab_restic_backup_retirement", str(RUNNER)).load_module()
+    policy, policy_sha256 = module.load_policy()
+    proton = policy.get("repositories", {}).get("proton", {})
+    tool = policy.get("tools", {}).get("rclone", {})
+    if (
+        proton.get("path") != CANONICAL
+        or proton.get("id") != CANONICAL_ID
+        or proton.get("recovery_snapshot_id") != CANONICAL_SNAPSHOT
+        or proton.get("recovery_original_snapshot_id") != ORIGINAL_SNAPSHOT
+        or tool.get("installed_sha256") != RCLONE_SHA256
+        or policy.get("schedule", {}).get("state") != "active"
+    ):
+        fail("policy-boundary")
+    return module, policy, policy_sha256
+
+
+def check_summary(stdout: str) -> dict:
+    try:
+        values = [json.loads(line) for line in stdout.splitlines() if line]
+    except json.JSONDecodeError as error:
+        raise SystemExit("proton_incident_retirement=failed reason=check-json") from error
+    matches = [item for item in values if item.get("message_type") == "summary"]
+    if len(matches) != 1:
+        fail("check-summary")
+    return matches[0]
+
+
+def restic_prefix(restic: str, repository: str, rclone: str) -> list[str]:
+    return [restic, "-o", f"rclone.program={rclone}", "-r", repository]
+
+
+def repository_proof(module, restic: str, rclone: str, environment: dict[str, str], *, full: bool) -> dict:
+    prefix = restic_prefix(restic, CANONICAL, rclone)
+    config = json.loads(command(module, [*prefix, "cat", "config"], environment, "canonical-config"))
+    snapshots = json.loads(command(module, [*prefix, "snapshots", "--json", CANONICAL_SNAPSHOT], environment, "canonical-snapshot"))
+    if config.get("id") != CANONICAL_ID or not isinstance(config.get("chunker_polynomial"), str) or len(snapshots) != 1 or snapshots[0].get("id") != CANONICAL_SNAPSHOT or snapshots[0].get("original") != ORIGINAL_SNAPSHOT:
+        fail("canonical-identity")
+    proof = {"repository_id": CANONICAL_ID, "snapshot_id": CANONICAL_SNAPSHOT, "original_snapshot_id": ORIGINAL_SNAPSHOT, "chunker_polynomial": config["chunker_polynomial"]}
+    structural = check_summary(command(module, [*prefix, "check", "--json"], environment, "canonical-structural-check", 3600))
+    if structural != {"message_type": "summary", "num_errors": 0, "broken_packs": None, "suggest_repair_index": False, "suggest_prune": False}:
+        fail("canonical-structural-check-summary")
+    proof["structural_check"] = "zero-errors"
+    if full:
+        summary = check_summary(command(module, [*prefix, "check", "--json", "--read-data"], environment, "canonical-full-check", 14400))
+        if summary != {"message_type": "summary", "num_errors": 0, "broken_packs": None, "suggest_repair_index": False, "suggest_prune": False}:
+            fail("canonical-full-check-summary")
+        proof["full_read_data_check"] = "zero-errors"
+    return proof
+
+
+def damaged_proof(module, restic: str, rclone: str, environment: dict[str, str]) -> dict:
+    prefix = restic_prefix(restic, DAMAGED, rclone)
+    config = json.loads(command(module, [*prefix, "cat", "config"], environment, "damaged-config"))
+    result = module.run([*prefix, "check", "--json"], environment=environment, timeout=3600)
+    summary = check_summary(result.stdout)
+    expected = {"message_type": "summary", "num_errors": 1, "broken_packs": [DAMAGED_PACK], "suggest_repair_index": False, "suggest_prune": False}
+    if config.get("id") != DAMAGED_ID or result.returncode != 1 or summary != expected:
+        fail("damaged-proof")
+    return {"repository_id": DAMAGED_ID, "broken_pack": DAMAGED_PACK, "check_summary": summary}
+
+
+def directories(module, rclone: str, config: Path, environment: dict[str, str], parent: str, label: str) -> list[str]:
+    output = command(module, [rclone, "lsf", "--dirs-only", "--config", str(config), parent], environment, label)
+    values = sorted(line for line in output.splitlines() if line)
+    if any("/" in value.rstrip("/") or value in {".", ".."} for value in values):
+        fail(f"{label}-shape")
+    return values
+
+
+def inventory(module, rclone: str, config: Path, environment: dict[str, str], remote: str, label: str) -> dict:
+    raw = command(module, [rclone, "lsjson", "--recursive", "--files-only", "--no-mimetype", "--no-modtime", "--config", str(config), remote], environment, label, 3600)
+    nested = command(module, [rclone, "lsf", "--recursive", "--dirs-only", "--config", str(config), remote], environment, f"{label}-directories", 3600)
+    try:
+        values = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise SystemExit(f"proton_incident_retirement=failed reason={label}-json") from error
+    normalized = []
+    for item in values:
+        path = item.get("Path")
+        size = item.get("Size")
+        if not isinstance(path, str) or not path or path.startswith("/") or ".." in Path(path).parts or not isinstance(size, int) or size < 0 or item.get("IsDir") is not False:
+            fail(f"{label}-shape")
+        normalized.append({"path": path, "size": size})
+    normalized.sort(key=lambda value: value["path"])
+    if not normalized:
+        fail(f"{label}-empty")
+    directories_sha256 = B.sha(B.canonical(sorted(line for line in nested.splitlines() if line)))
+    return {"objects": len(normalized), "bytes": sum(value["size"] for value in normalized), "zero_byte_objects": sum(value["size"] == 0 for value in normalized), "inventory_sha256": B.sha(B.canonical(normalized)), "directories_sha256": directories_sha256, "nested_directories": [line for line in nested.splitlines() if line]}
+
+
+def timer_states(module, expected_active: str, expected_unit_file: str) -> list[dict]:
+    values = []
+    for unit in ("home-lab-restic-daily.timer", "home-lab-restic-maintenance.timer"):
+        result = module.run(["/usr/bin/systemctl", "show", "--property=ActiveState", "--property=UnitFileState", "--value", unit], environment={}, timeout=30)
+        lines = result.stdout.splitlines()
+        if result.returncode or lines != [expected_active, expected_unit_file]:
+            fail("timer-state")
+        values.append({"unit": unit, "active": lines[0], "unit_file": lines[1]})
+    return values
+
+
+def service_states(module) -> list[dict]:
+    values = []
+    for unit in ("home-lab-restic-daily-proton.service", "home-lab-restic-maintenance-proton.service"):
+        result = module.run(["/usr/bin/systemctl", "show", "--property=ActiveState", "--property=Result", "--value", unit], environment={}, timeout=30)
+        lines = result.stdout.splitlines()
+        if result.returncode or lines != ["inactive", "success"]:
+            fail("service-state")
+        values.append({"unit": unit, "active": lines[0], "result": lines[1]})
+    return values
+
+
+def retained_states() -> dict:
+    trash, trash_raw = B.load_private(TRASH_STATE)
+    canonical, canonical_raw = B.load_private(CANONICAL_STATE)
+    if trash.get("format") != "home-lab-proton-trash-cleanup-receipt-v1" or trash.get("status") != "cleanup-started" or trash.get("plan_sha256") != TRASH_PLAN:
+        fail("trash-state")
+    if canonical.get("format") != "home-lab-canonical-proton-creation-receipt-v1" or canonical.get("status") != "copied" or canonical.get("plan_sha256") != CANONICAL_PLAN:
+        fail("canonical-state")
+    return {"trash": {"sha256": B.sha(trash_raw), "status": "cleanup-started"}, "canonical_creation": {"sha256": B.sha(canonical_raw), "status": "copied"}}
+
+
+def observe_locked(module, policy: dict, policy_sha256: str, *, full: bool) -> dict:
+    restic, rclone = module.command_paths(policy)
+    if B.sha(Path(rclone).read_bytes()) != RCLONE_SHA256:
+        fail("rclone-binary")
+    B.reject_processes(restic, rclone)
+    environment = module.credential_environment(policy, "proton", "games")
+    config = module.rooted("/var/lib/restic-proton/rclone.conf")
+    backups = directories(module, rclone, config, environment, "proton-backup:Backups", "backups-listing")
+    diagnostics = directories(module, rclone, config, environment, "proton-backup:Diagnostics", "diagnostics-listing")
+    if "home-lab-restic/" not in backups:
+        fail("canonical-namespace")
+    damaged = {"present": DAMAGED_NAME in backups}
+    if damaged["present"]:
+        damaged |= damaged_proof(module, restic, rclone, environment)
+        damaged |= inventory(module, rclone, config, environment, DAMAGED_REMOTE, "damaged-inventory")
+    parent_present = DIAGNOSTICS_NAME in diagnostics
+    fixtures = {"present": False, "parent_present": parent_present, "children": []}
+    if parent_present:
+        children = directories(module, rclone, config, environment, DIAGNOSTICS_PARENT, "diagnostic-children")
+        if any(child not in DIAGNOSTIC_CHILDREN for child in children):
+            fail("diagnostic-children")
+        fixtures |= {"present": bool(children), "children": children}
+        if STABLE_NAME in children:
+            stable = inventory(module, rclone, config, environment, STABLE_REMOTE, "stable-inventory")
+            if stable["objects"] != 8 or stable["bytes"] != 167772160 or stable["nested_directories"]:
+                fail("stable-fixture-boundary")
+            fixtures["stable"] = stable
+        if BETA_NAME in children:
+            beta = inventory(module, rclone, config, environment, BETA_REMOTE, "beta-inventory")
+            if beta["objects"] != 8 or beta["bytes"] != 167772160 or beta["nested_directories"]:
+                fail("beta-fixture-boundary")
+            fixtures["beta"] = beta
+    return {
+        "format": "home-lab-proton-incident-retirement-observation-v1",
+        "helper_sha256": B.sha(Path(__file__).read_bytes()),
+        "base_helper_sha256": B.sha(BASE_PATH.read_bytes()),
+        "runner_sha256": B.sha(RUNNER.read_bytes()),
+        "policy_sha256": policy_sha256,
+        "rclone_sha256": RCLONE_SHA256,
+        "canonical": repository_proof(module, restic, rclone, environment, full=full),
+        "damaged_v2": damaged,
+        "diagnostic_fixtures": fixtures,
+        "namespace_listings": {"backups": backups, "backups_sha256": B.sha(B.canonical(backups)), "diagnostics": diagnostics, "diagnostics_sha256": B.sha(B.canonical(diagnostics))},
+        "retained_states": retained_states(),
+        "timers": timer_states(module, "active", "enabled"),
+        "services": service_states(module),
+    }
+
+
+def observe() -> None:
+    B.require_identity()
+    module, policy, policy_sha256 = load_policy()
+    descriptor = B.acquire_lock(module, policy)
+    try:
+        print(B.canonical(observe_locked(module, policy, policy_sha256, full=True)).decode(), end="")
+    finally:
+        os.close(descriptor)
+
+
+def validate_plan(path: Path, *, allow_expired: bool = False) -> tuple[dict, str, datetime]:
+    plan, raw = B.load_private(path)
+    digest = B.sha(raw)
+    try:
+        created = datetime.fromisoformat(plan["created_at"].replace("Z", "+00:00"))
+        expires = datetime.fromisoformat(plan["expires_at"].replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError) as error:
+        raise SystemExit("proton_incident_retirement=failed reason=plan-time") from error
+    expected_action = {"kind": "retire-proton-incident-artifacts", "purge_to_trash": [DAMAGED_REMOTE, STABLE_REMOTE, BETA_REMOTE], "empty_trash": False, "preserve": CANONICAL}
+    now = datetime.now(timezone.utc)
+    if (
+        set(plan) != {"format", "commit", "contract_sha256", "deployed_policy_sha256", "created_at", "expires_at", "host_observation", "promotion_receipt_sha256", "recovery_evidence_sha256", "recovery_journal_sha256", "action", "blockers", "authorized"}
+        or plan.get("format") != PLAN_FORMAT
+        or path.name != f"proton-incident-retirement-{digest}.json"
+        or GIT_COMMIT.fullmatch(str(plan.get("commit", ""))) is None
+        or HEX.fullmatch(str(plan.get("contract_sha256", ""))) is None
+        or HEX.fullmatch(str(plan.get("deployed_policy_sha256", ""))) is None
+        or plan.get("promotion_receipt_sha256") != PROMOTION_SHA256
+        or plan.get("recovery_evidence_sha256") != RECOVERY_SHA256
+        or plan.get("recovery_journal_sha256") != RECOVERY_JOURNAL_SHA256
+        or plan.get("action") != expected_action
+        or plan.get("blockers") != ["exact-destructive-authorization-required"]
+        or plan.get("authorized") is not False
+        or expires <= created
+        or (expires - created).total_seconds() > 86400
+        or created > now
+        or (not allow_expired and now > expires)
+    ):
+        fail("plan-binding")
+    return plan, digest, expires
+
+
+def validate_authorization(path: Path, digest: str) -> tuple[str, datetime]:
+    value, raw = B.load_private(path)
+    auth_digest = B.sha(raw)
+    try:
+        created = datetime.fromisoformat(value["created_at"].replace("Z", "+00:00"))
+        expires = datetime.fromisoformat(value["expires_at"].replace("Z", "+00:00"))
+    except (KeyError, TypeError, ValueError) as error:
+        raise SystemExit("proton_incident_retirement=failed reason=authorization-time") from error
+    expected = {"format": AUTH_FORMAT, "plan_sha256": digest, "created_at": value.get("created_at"), "expires_at": value.get("expires_at"), "confirmation": f"authorize-proton-incident-retirement-{digest}", "authorized": True}
+    if value != expected or expires <= created or (expires - created).total_seconds() > 900 or datetime.now(timezone.utc) > expires:
+        fail("fresh-authorization-required")
+    return auth_digest, expires
+
+
+def staged_proofs(promotion_path: Path, recovery_path: Path, recovery_journal_path: Path) -> None:
+    promotion, promotion_raw = B.load_private(promotion_path)
+    recovery, recovery_raw = B.load_private(recovery_path)
+    journal, journal_raw = B.load_private(recovery_journal_path)
+    target = promotion.get("target", {})
+    restore = recovery.get("restore", {})
+    if B.sha(promotion_raw) != PROMOTION_SHA256 or promotion.get("format") != "home-lab-qualified-proton-promotion-receipt-v1" or promotion.get("status") != "committed" or promotion.get("plan_sha256") != "91a21b8f4ade39ae105f0004e73024a03eb70e79319e406319d0b3572b628f4e" or target.get("repository_id") != CANONICAL_ID or target.get("snapshot_id") != CANONICAL_SNAPSHOT:
+        fail("promotion-receipt")
+    if B.sha(recovery_raw) != RECOVERY_SHA256 or recovery.get("state") != "restored-verified" or recovery.get("vmid") != 9900 or restore.get("state") != "restored-verified" or restore.get("repository_id") != CANONICAL_ID or restore.get("snapshot_id") != CANONICAL_SNAPSHOT or restore.get("original_snapshot_id") != ORIGINAL_SNAPSHOT or recovery.get("service_validation", {}).get("state") != "validated":
+        fail("recovery-evidence")
+    if B.sha(journal_raw) != RECOVERY_JOURNAL_SHA256 or journal.get("state") != "destroy-applied" or journal.get("commit") != "72909b5723ae8d586f5b3db428b7d73f6c610e97":
+        fail("recovery-journal")
+
+
+def matching_precondition(current: dict, planned: dict) -> bool:
+    keys = {"format", "helper_sha256", "base_helper_sha256", "runner_sha256", "policy_sha256", "rclone_sha256", "canonical", "damaged_v2", "diagnostic_fixtures", "namespace_listings", "retained_states", "timers", "services"}
+    return all(current.get(key) == planned.get(key) for key in keys)
+
+
+def apply(plan_path: Path, authorization_path: Path, promotion_path: Path, recovery_path: Path, recovery_journal_path: Path) -> None:
+    B.require_identity()
+    initial_plan, initial_raw = B.load_private(plan_path)
+    initial_digest = B.sha(initial_raw)
+    transaction = JOURNAL_ROOT / initial_digest
+    existing = (transaction / "state.json").exists() if transaction.exists() else False
+    plan, digest, _ = validate_plan(plan_path, allow_expired=existing)
+    if digest != initial_digest:
+        fail("plan-digest")
+    auth_digest, _ = validate_authorization(authorization_path, digest)
+    staged_proofs(promotion_path, recovery_path, recovery_journal_path)
+    expected_confirmation = f"retire-proton-incident-artifacts-{digest}-{auth_digest}"
+    if os.environ.get("PROTON_INCIDENT_RETIREMENT_CONFIRMED") != expected_confirmation:
+        fail("confirmation")
+    module, policy, policy_sha256 = load_policy()
+    if plan.get("contract_sha256") != os.environ.get("PROTON_INCIDENT_RETIREMENT_CONTRACT_SHA256") or plan.get("deployed_policy_sha256") != policy_sha256:
+        fail("deployed-contract")
+    state_path = transaction / "state.json"
+    receipt_path = transaction / "receipt.json"
+    descriptor = B.acquire_lock(module, policy)
+    try:
+        JOURNAL_ROOT.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(JOURNAL_ROOT, 0o700)
+        B.require_private_directory(JOURNAL_ROOT)
+        transaction.mkdir(exist_ok=True, mode=0o700)
+        os.chmod(transaction, 0o700)
+        B.require_private_directory(transaction)
+        current = observe_locked(module, policy, policy_sha256, full=True)
+        state = B.load_private(state_path)[0] if state_path.exists() else None
+        if receipt_path.exists():
+            if state is None:
+                fail("receipt-without-state")
+            receipt = B.load_private(receipt_path)[0]
+            if (receipt.get("format") != RECEIPT_FORMAT or receipt.get("status") != "committed"
+                    or receipt.get("plan_sha256") != digest or receipt.get("canonical") != current["canonical"]
+                    or receipt.get("after", {}).get("damaged_v2") != {"present": False}
+                    or receipt.get("after", {}).get("diagnostic_fixtures", {}).get("present") is not False
+                    or receipt.get("promotion_receipt_sha256") != PROMOTION_SHA256
+                    or receipt.get("recovery_evidence_sha256") != RECOVERY_SHA256
+                    or receipt.get("recovery_journal_sha256") != RECOVERY_JOURNAL_SHA256
+                    or receipt.get("empty_trash") is not False or receipt.get("permanent_delete") is not False):
+                fail("receipt-postcondition")
+            if current["damaged_v2"] != {"present": False} or current["diagnostic_fixtures"].get("present") is not False:
+                fail("receipt-namespace")
+            B.write_private(state_path, receipt)
+            print(B.canonical(receipt).decode(), end="")
+            return
+        if state is None:
+            if not matching_precondition(current, plan["host_observation"]):
+                fail("current-precondition")
+            state = {"format": RECEIPT_FORMAT, "status": "started", "plan_sha256": digest, "authorization_sha256": auth_digest, "authorization_history": [auth_digest], "started_at": datetime.now(timezone.utc).isoformat(), "before": {"damaged_v2": plan["host_observation"]["damaged_v2"], "diagnostic_fixtures": plan["host_observation"]["diagnostic_fixtures"]}}
+            B.write_private(state_path, state, exclusive=True)
+        elif state.get("format") != RECEIPT_FORMAT or state.get("plan_sha256") != digest:
+            fail("retained-state")
+        elif state.get("status") != "committed" and state.get("authorization_sha256") != auth_digest:
+            history = state.get("authorization_history")
+            if not isinstance(history, list) or any(HEX.fullmatch(str(value)) is None for value in history):
+                fail("authorization-history")
+            state |= {"authorization_sha256": auth_digest, "authorization_history": [*history, auth_digest]}
+            B.write_private(state_path, state)
+        allowed_statuses = {"started", "damaged-v2-retirement-started", "damaged-v2-retired", "stable-fixture-retirement-started", "stable-fixture-retired", "beta-fixture-retirement-started", "beta-fixture-retired"}
+        if state.get("status") not in allowed_statuses:
+            fail("retained-status")
+        restic, rclone = module.command_paths(policy)
+        environment = module.credential_environment(policy, "proton", "games")
+        config = module.rooted("/var/lib/restic-proton/rclone.conf")
+        if state.get("status") == "started":
+            state |= {"status": "damaged-v2-retirement-started"}
+            B.write_private(state_path, state)
+        if state.get("status") == "damaged-v2-retirement-started":
+            if current["damaged_v2"].get("present") is True:
+                if current["damaged_v2"] != plan["host_observation"]["damaged_v2"]:
+                    fail("v2-inventory-drift")
+                mutation_command(rclone, config, environment, DAMAGED_REMOTE, "v2-purge")
+            current = observe_locked(module, policy, policy_sha256, full=False)
+            if current["damaged_v2"] != {"present": False}:
+                fail("v2-absence")
+            state |= {"status": "damaged-v2-retired", "v2_retired_at": datetime.now(timezone.utc).isoformat()}
+            B.write_private(state_path, state)
+        if state.get("status") == "damaged-v2-retired":
+            state |= {"status": "stable-fixture-retirement-started"}
+            B.write_private(state_path, state)
+        if state.get("status") == "stable-fixture-retirement-started":
+            fixtures = current["diagnostic_fixtures"]
+            if fixtures.get("present") is True and STABLE_NAME in fixtures.get("children", []):
+                if fixtures.get("stable") != plan["host_observation"]["diagnostic_fixtures"].get("stable"):
+                    fail("stable-inventory-drift")
+                mutation_command(rclone, config, environment, STABLE_REMOTE, "stable-purge")
+            current = observe_locked(module, policy, policy_sha256, full=False)
+            if current["diagnostic_fixtures"].get("present") is True and STABLE_NAME in current["diagnostic_fixtures"].get("children", []):
+                fail("stable-absence")
+            state |= {"status": "stable-fixture-retired", "stable_retired_at": datetime.now(timezone.utc).isoformat()}
+            B.write_private(state_path, state)
+        if state.get("status") == "stable-fixture-retired":
+            state |= {"status": "beta-fixture-retirement-started"}
+            B.write_private(state_path, state)
+        if state.get("status") == "beta-fixture-retirement-started":
+            fixtures = current["diagnostic_fixtures"]
+            if fixtures.get("present") is True and BETA_NAME in fixtures.get("children", []):
+                if fixtures.get("beta") != plan["host_observation"]["diagnostic_fixtures"].get("beta"):
+                    fail("beta-inventory-drift")
+                mutation_command(rclone, config, environment, BETA_REMOTE, "beta-purge")
+            current = observe_locked(module, policy, policy_sha256, full=False)
+            if current["damaged_v2"] != {"present": False} or current["diagnostic_fixtures"].get("present") is not False:
+                fail("namespace-postcondition")
+            state |= {"status": "beta-fixture-retired", "beta_retired_at": datetime.now(timezone.utc).isoformat()}
+            B.write_private(state_path, state)
+        canonical = repository_proof(module, restic, rclone, environment, full=True)
+        receipt = {**state, "status": "committed", "committed_at": datetime.now(timezone.utc).isoformat(), "after": {"damaged_v2": {"present": False}, "diagnostic_fixtures": current["diagnostic_fixtures"], "namespace_listings": current["namespace_listings"]}, "canonical": canonical, "provider_effect": "moved-exact-directories-to-proton-trash", "permanent_delete": False, "empty_trash": False, "space_reclamation": "not-claimed-global-trash-untouched", "historical_journals": current["retained_states"], "promotion_receipt_sha256": PROMOTION_SHA256, "recovery_evidence_sha256": RECOVERY_SHA256, "recovery_journal_sha256": RECOVERY_JOURNAL_SHA256}
+        B.write_private(receipt_path, receipt, exclusive=True)
+        B.write_private(state_path, receipt)
+        print(B.canonical(receipt).decode(), end="")
+    finally:
+        os.close(descriptor)
+
+
+def main() -> None:
+    if len(sys.argv) == 2 and sys.argv[1] == "observe":
+        observe()
+    elif len(sys.argv) == 7 and sys.argv[1] == "apply":
+        apply(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]), Path(sys.argv[5]), Path(sys.argv[6]))
+    else:
+        fail("usage")
+
+
+if __name__ == "__main__":
+    main()

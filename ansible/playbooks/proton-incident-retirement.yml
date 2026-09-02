@@ -1,0 +1,254 @@
+---
+- name: Retire exact Proton incident artifacts
+  hosts: docker_host
+  gather_facts: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  become: true
+  vars:
+    proton_incident_retirement_helper_source: "{{ playbook_dir }}/../../scripts/retire-proton-incident-artifacts"
+    proton_incident_retirement_helper_path: /usr/local/libexec/home-lab/retire-proton-incident-artifacts
+    proton_incident_retirement_stage: "/var/lib/restic-proton/proton-incident-retirement/staged/{{ proton_incident_retirement_plan_sha256 }}"
+  pre_tasks:
+    - name: Validate Proton incident retirement operation boundary
+      ansible.builtin.assert:
+        that:
+          - proton_incident_retirement_operation in ['install', 'observe', 'apply']
+          - proton_incident_retirement_expected_helper_sha256 is match('^[0-9a-f]{64}$')
+        fail_msg: Proton incident retirement operation or helper identity differs.
+
+    - name: Require live mode for destructive incident retirement
+      ansible.builtin.assert:
+        that: [not ansible_check_mode]
+        fail_msg: Proton incident retirement cannot run in check mode.
+      when: proton_incident_retirement_operation == 'apply'
+
+    - name: Inspect retained production lock for Proton incident retirement resume
+      ansible.builtin.stat:
+        path: "{{ apply_lock_path }}"
+        checksum_algorithm: sha256
+        follow: false
+      register: proton_incident_retirement_apply_lock
+      when: proton_incident_retirement_operation == 'apply'
+
+    - name: Inspect retained production lock owner for Proton incident retirement resume
+      ansible.builtin.stat:
+        path: "{{ apply_lock_path }}/owner"
+        checksum_algorithm: sha256
+        follow: false
+      register: proton_incident_retirement_apply_lock_owner
+      when:
+        - proton_incident_retirement_operation == 'apply'
+        - proton_incident_retirement_apply_lock.stat.exists
+        - proton_incident_retirement_apply_lock.stat.isdir
+        - not proton_incident_retirement_apply_lock.stat.islnk
+
+    - name: Require safe retained production lock metadata
+      ansible.builtin.assert:
+        that:
+          - proton_incident_retirement_apply_lock.stat.isdir
+          - not proton_incident_retirement_apply_lock.stat.islnk
+          - proton_incident_retirement_apply_lock.stat.pw_name == 'root'
+          - proton_incident_retirement_apply_lock.stat.gr_name == 'root'
+          - proton_incident_retirement_apply_lock.stat.mode == '0700'
+          - proton_incident_retirement_apply_lock_owner.stat.isreg
+          - not proton_incident_retirement_apply_lock_owner.stat.islnk
+          - proton_incident_retirement_apply_lock_owner.stat.nlink == 1
+          - proton_incident_retirement_apply_lock_owner.stat.pw_name == 'root'
+          - proton_incident_retirement_apply_lock_owner.stat.gr_name == 'root'
+          - proton_incident_retirement_apply_lock_owner.stat.mode == '0600'
+          - proton_incident_retirement_apply_lock_owner.stat.checksum is match('^[0-9a-f]{64}$')
+        fail_msg: Retained production lock is unsafe and cannot be adopted.
+      when:
+        - proton_incident_retirement_operation == 'apply'
+        - proton_incident_retirement_apply_lock.stat.exists
+
+  tasks:
+    - name: Install exact Proton incident retirement capability
+      ansible.builtin.copy:
+        src: "{{ proton_incident_retirement_helper_source }}"
+        dest: "{{ proton_incident_retirement_helper_path }}"
+        owner: root
+        group: restic-proton
+        mode: "0750"
+      when: proton_incident_retirement_operation == 'install'
+
+    - name: Inspect installed Proton incident retirement capability
+      ansible.builtin.stat:
+        path: "{{ proton_incident_retirement_helper_path }}"
+        checksum_algorithm: sha256
+        follow: false
+      register: proton_incident_retirement_helper_stat
+      when: proton_incident_retirement_operation != 'install' or not ansible_check_mode
+
+    - name: Validate installed Proton incident retirement capability
+      ansible.builtin.assert:
+        that:
+          - proton_incident_retirement_helper_stat.stat.exists
+          - proton_incident_retirement_helper_stat.stat.isreg
+          - not proton_incident_retirement_helper_stat.stat.islnk
+          - proton_incident_retirement_helper_stat.stat.pw_name == 'root'
+          - proton_incident_retirement_helper_stat.stat.gr_name == 'restic-proton'
+          - proton_incident_retirement_helper_stat.stat.mode == '0750'
+          - proton_incident_retirement_helper_stat.stat.nlink == 1
+          - proton_incident_retirement_helper_stat.stat.checksum == proton_incident_retirement_expected_helper_sha256
+        fail_msg: Installed Proton incident retirement capability differs.
+      when: proton_incident_retirement_operation != 'install' or not ansible_check_mode
+
+    - name: Observe exact Proton incident retirement boundary
+      ansible.builtin.command:
+        argv: [/usr/sbin/runuser, --user, restic-proton, --, "{{ proton_incident_retirement_helper_path }}", observe]
+      register: proton_incident_retirement_observation
+      changed_when: false
+      when: proton_incident_retirement_operation == 'observe'
+
+    - name: Save bounded Proton incident retirement observation
+      ansible.builtin.copy:
+        content: "{{ proton_incident_retirement_observation.stdout }}\n"
+        dest: "{{ proton_incident_retirement_controller_output }}"
+        mode: "0600"
+      delegate_to: localhost
+      become: false
+      when: proton_incident_retirement_operation == 'observe'
+
+    - name: Execute guarded Proton incident retirement transaction
+      when: proton_incident_retirement_operation == 'apply'
+      block:
+        - name: Acquire or adopt exact shared production lock for Proton incident retirement
+          ansible.builtin.include_role:
+            name: apply_lock
+          vars:
+            apply_lock_action: "{{ 'adopt' if proton_incident_retirement_apply_lock.stat.exists else 'acquire' }}"
+            apply_lock_operation: "proton-incident-retirement-{{ proton_incident_retirement_plan_sha256 }}"
+            apply_lock_expected_owner_sha256: >-
+              {{ proton_incident_retirement_apply_lock_owner.stat.checksum
+                 if proton_incident_retirement_apply_lock.stat.exists else '' }}
+
+        - name: Record ownership of shared production lock
+          ansible.builtin.set_fact:
+            proton_incident_retirement_lock_owned: true
+
+        - name: Validate destructive Proton incident retirement inputs
+          ansible.builtin.assert:
+            that:
+              - proton_incident_retirement_plan_sha256 is match('^[0-9a-f]{64}$')
+              - proton_incident_retirement_authorization_sha256 is match('^[0-9a-f]{64}$')
+              - proton_incident_retirement_contract_sha256 is match('^[0-9a-f]{64}$')
+              - >-
+                proton_incident_retirement_confirmation == 'retire-proton-incident-artifacts-'
+                ~ proton_incident_retirement_plan_sha256 ~ '-'
+                ~ proton_incident_retirement_authorization_sha256
+              - proton_incident_retirement_plan_source | basename == 'proton-incident-retirement-' ~ proton_incident_retirement_plan_sha256 ~ '.json'
+              - proton_incident_retirement_authorization_source | basename == 'authorization-' ~ proton_incident_retirement_authorization_sha256 ~ '.json'
+            fail_msg: Proton incident retirement transaction binding differs.
+
+        - name: Create protected Proton incident retirement roots
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: directory
+            owner: restic-proton
+            group: restic-proton
+            mode: "0700"
+          loop:
+            - /var/lib/restic-proton/proton-incident-retirement
+            - /var/lib/restic-proton/proton-incident-retirement/staged
+            - "{{ proton_incident_retirement_stage }}"
+
+        - name: Stage exact Proton incident retirement artifacts
+          ansible.builtin.copy:
+            src: "{{ item.src }}"
+            dest: "{{ proton_incident_retirement_stage }}/{{ item.dest }}"
+            owner: restic-proton
+            group: restic-proton
+            mode: "0600"
+          loop:
+            - src: "{{ proton_incident_retirement_plan_source }}"
+              dest: "proton-incident-retirement-{{ proton_incident_retirement_plan_sha256 }}.json"
+            - src: "{{ proton_incident_retirement_authorization_source }}"
+              dest: "authorization-{{ proton_incident_retirement_authorization_sha256 }}.json"
+            - src: "{{ proton_incident_retirement_promotion_source }}"
+              dest: promotion-receipt.json
+            - src: "{{ proton_incident_retirement_recovery_source }}"
+              dest: recovery-evidence.json
+            - src: "{{ proton_incident_retirement_recovery_journal_source }}"
+              dest: recovery-journal.json
+
+        - name: Execute explicitly authorized Proton incident retirement
+          ansible.builtin.command:
+            argv:
+              - /usr/sbin/runuser
+              - --user
+              - restic-proton
+              - --
+              - "{{ proton_incident_retirement_helper_path }}"
+              - apply
+              - "{{ proton_incident_retirement_stage }}/proton-incident-retirement-{{ proton_incident_retirement_plan_sha256 }}.json"
+              - "{{ proton_incident_retirement_stage }}/authorization-{{ proton_incident_retirement_authorization_sha256 }}.json"
+              - "{{ proton_incident_retirement_stage }}/promotion-receipt.json"
+              - "{{ proton_incident_retirement_stage }}/recovery-evidence.json"
+              - "{{ proton_incident_retirement_stage }}/recovery-journal.json"
+          environment:
+            PROTON_INCIDENT_RETIREMENT_CONFIRMED: "{{ proton_incident_retirement_confirmation }}"
+            PROTON_INCIDENT_RETIREMENT_CONTRACT_SHA256: "{{ proton_incident_retirement_contract_sha256 }}"
+          changed_when: true
+
+        - name: Read committed Proton incident retirement receipt
+          ansible.builtin.slurp:
+            src: "/var/lib/restic-proton/proton-incident-retirement/{{ proton_incident_retirement_plan_sha256 }}/receipt.json"
+          register: proton_incident_retirement_receipt
+          no_log: true
+
+        - name: Persist protected Proton incident retirement receipt durably
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/python3
+              - -c
+              - |
+                import base64, os, stat, sys
+                from pathlib import Path
+                path = Path(sys.argv[1]); parent = path.parent; info = parent.lstat()
+                if (not stat.S_ISDIR(info.st_mode) or stat.S_ISLNK(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o700 or info.st_uid != os.geteuid()):
+                    raise SystemExit("controller receipt directory differs")
+                raw = base64.b64decode(sys.stdin.buffer.read(), validate=True); temporary = parent / f".{path.name}.{os.getpid()}.tmp"
+                descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+                with os.fdopen(descriptor, "wb") as handle: handle.write(raw); handle.flush(); os.fchmod(handle.fileno(), 0o600); os.fsync(handle.fileno())
+                os.replace(temporary, path); directory = os.open(parent, os.O_RDONLY | os.O_DIRECTORY)
+                try: os.fsync(directory)
+                finally: os.close(directory)
+              - "{{ proton_incident_retirement_controller_output }}"
+            stdin: "{{ proton_incident_retirement_receipt.content }}"
+            stdin_add_newline: false
+          delegate_to: localhost
+          become: false
+          no_log: true
+          changed_when: true
+
+        - name: Remove successful Proton incident retirement staging
+          ansible.builtin.file:
+            path: "{{ proton_incident_retirement_stage }}"
+            state: absent
+      rescue:
+        - name: Fail closed by suspending Restic timers after retirement failure
+          ansible.builtin.systemd_service:
+            name: "{{ item }}"
+            enabled: false
+            state: stopped
+          loop:
+            - home-lab-restic-daily.timer
+            - home-lab-restic-maintenance.timer
+
+        - name: Report guarded Proton incident retirement failure
+          ansible.builtin.fail:
+            msg: Proton incident retirement failed; Restic timers were suspended for investigation.
+      always:
+        - name: Release shared production lock after Proton incident retirement
+          ansible.builtin.include_role:
+            name: apply_lock
+          vars:
+            apply_lock_action: release
+            apply_lock_operation: "proton-incident-retirement-{{ proton_incident_retirement_plan_sha256 }}"
+            apply_lock_expected_owner_sha256: >-
+              {{ proton_incident_retirement_apply_lock_owner.stat.checksum
+                 if proton_incident_retirement_apply_lock.stat.exists else '' }}
+          when: proton_incident_retirement_lock_owned | default(false)
