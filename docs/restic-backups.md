@@ -14,6 +14,8 @@ Investigation identified the exact upstream defect: rclone v1.75.0 issue `#9722`
 
 The guarded promotion transaction subsequently installed that exact beta, moved only the failed v1.75.0 canonical attempt to Proton Trash, and server-side moved the qualified repository from `Diagnostics/restic-beta-10267` to `Backups/home-lab-restic`. Plan `91a21b8f4ade39ae105f0004e73024a03eb70e79319e406319d0b3572b628f4e` committed repository ID `dce8dbc3cde106047631317a09257c23ee5eab4d9ece5f88d52108ae384a8503` and snapshot `a42e4694ac164d62bb1c815144ea6407f70ab1e8ee91c54f293b2acdb77dcfea` after structural and full `--read-data` checks. Damaged v2 remains preserved, Trash was not emptied, and both timers remain incident-suspended. The receipt is `infrastructure/evidence/proton-qualified-promotion.json`.
 
+The canonical repository was then recovered in disposable VM 9900 from a newly encrypted, beta-bound recovery bundle. The isolated restore recovered 22,031 files and 6,982,221,998 bytes, passed configuration/database and activation checks without starting services, cleaned plaintext, and destroyed the VM. Evidence is `infrastructure/evidence/proton-canonical-recovery-vm.json` with SHA-256 `ad308dc8d9fd05fd014a0c97189c78b77446c0972a3814cb036cc78f0d4d8b5c`.
+
 The final retired Offen recovery point was:
 
 - basename `daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg`;
