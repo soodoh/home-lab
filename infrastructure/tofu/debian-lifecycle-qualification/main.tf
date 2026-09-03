@@ -102,7 +102,7 @@ resource "proxmox_download_file" "qualification_image" {
         var.qualification_image_datastore_id != "" &&
         var.qualification_disk_datastore_id != "" &&
         var.qualification_bridge != "" &&
-        var.qualification_cloud_init_file_id == "${var.qualification_image_datastore_id}:snippets/home-lab-debian-lifecycle-qualification.yaml" &&
+        var.qualification_cloud_init_file_id == "local:snippets/home-lab-debian-lifecycle-qualification.yaml" &&
         !strcontains(lower(var.proxmox_endpoint), lower(local.contract.proxmox.node)) &&
         !strcontains(var.proxmox_endpoint, split("/", local.contract.network.proxmox.ipv4)[0])
       )

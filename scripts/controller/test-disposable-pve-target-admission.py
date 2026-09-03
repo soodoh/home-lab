@@ -23,7 +23,7 @@ with tempfile.TemporaryDirectory() as directory:
   "locks":[],"network":{"bridge":"vmbr-qualification","can_reach_production_pve":False,"can_reach_production_state":False,"can_reach_vm100":False,"controller_ipv4":"198.51.100.12","production_cidrs_denied":["10.0.0.0/8","100.64.0.0/10","172.16.0.0/12","192.168.0.0/16"],"public_package_egress":True},
   "node_name":"pve-qualification","observed_at":now.isoformat().replace("+00:00","Z"),
   "official_pve":{"package_origin_verified":True,"version":"9.0"},
-  "storage":{"disk_datastore_id":"qualification-lvm","image_datastore_id":"qualification-dir","production_identifiers_absent":True,"shares_production_storage":False,"synthetic_only":True},
+  "storage":{"disk_datastore_id":"qualification-lvm","image_datastore_id":"qualification-dir","production_identifiers_absent":True,"shares_production_storage":False,"snippet_content_enabled":True,"snippet_datastore_id":"local","snippet_directory":"/var/lib/vz/snippets","synthetic_only":True},
   "target_id":"isolated-pve-qualification","version":1,
  }
  evidence=root/"admission.json"; evidence.write_bytes(canonical(value)); evidence.chmod(0o600)

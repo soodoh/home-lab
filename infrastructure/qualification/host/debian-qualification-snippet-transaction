@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""Fixed create-only cloud-init snippet transaction for an isolated PVE target."""
+import base64,datetime as dt,fcntl,hashlib,json,os,re,stat,sys,tempfile
+NAME="home-lab-debian-lifecycle-qualification.yaml"
+def fail(message): raise RuntimeError(message)
+def canonical(value): return (json.dumps(value,sort_keys=True,separators=(",",":"))+"\n").encode()
+def sha(raw): return hashlib.sha256(raw).hexdigest()
+def paths():
+ fixture=os.environ.get("HOME_LAB_QUALIFICATION_SNIPPET_FIXTURE_ROOT") if os.geteuid()!=0 else None
+ base=os.path.realpath(fixture) if fixture else ""
+ return os.path.join(base,"var/lib/vz/snippets"),os.path.join(base,"run/lock/home-lab-debian-qualification-snippet.lock")
+def expected_ids(): return (os.getuid(),os.getgid()) if os.environ.get("HOME_LAB_QUALIFICATION_SNIPPET_FIXTURE_ROOT") and os.geteuid()!=0 else (0,0)
+def inspect():
+ directory,_=paths(); uid,gid=expected_ids(); d=os.lstat(directory)
+ if not stat.S_ISDIR(d.st_mode) or stat.S_ISLNK(d.st_mode) or d.st_uid!=uid or d.st_gid!=gid or stat.S_IMODE(d.st_mode)!=0o755 or os.path.realpath(directory)!=directory: fail("unsafe snippet directory")
+ target=os.path.join(directory,NAME)
+ try:
+  before=os.lstat(target)
+  if not stat.S_ISREG(before.st_mode) or before.st_nlink!=1 or before.st_uid!=uid or before.st_gid!=gid or stat.S_IMODE(before.st_mode)!=0o600 or before.st_size>65536: fail("unsafe snippet metadata")
+  fd=os.open(target,os.O_RDONLY|os.O_NOFOLLOW); raw=b""
+  try:
+   opened=os.fstat(fd)
+   while True:
+    chunk=os.read(fd,65537-len(raw));
+    if not chunk: break
+    raw+=chunk
+    if len(raw)>65536: fail("snippet too large")
+   after=os.fstat(fd)
+  finally: os.close(fd)
+  current=os.lstat(target)
+  if (opened.st_dev,opened.st_ino,opened.st_size,opened.st_nlink)!=(after.st_dev,after.st_ino,after.st_size,after.st_nlink) or (current.st_dev,current.st_ino)!=(after.st_dev,after.st_ino): fail("snippet changed during observation")
+  item={"exists":True,"gid":after.st_gid,"mode":format(stat.S_IMODE(after.st_mode),"04o"),"nlink":after.st_nlink,"sha256":sha(raw),"size":len(raw),"uid":after.st_uid}
+ except FileNotFoundError: item={"exists":False}
+ return {"directory":{"gid":d.st_gid,"mode":format(stat.S_IMODE(d.st_mode),"04o"),"uid":d.st_uid},"file_id":f"local:snippets/{NAME}","format":"home-lab-debian-qualification-snippet-observation-v1","snippet":item}
+def read_plan():
+ raw=sys.stdin.buffer.read(65537)
+ if len(raw)>65536: fail("plan too large")
+ try: plan=json.loads(raw)
+ except Exception: fail("plan is not JSON")
+ if raw!=canonical(plan): fail("plan must be canonical JSON")
+ return raw,plan
+def parse_time(value):
+ try: parsed=dt.datetime.fromisoformat(value.replace("Z","+00:00"))
+ except Exception: fail("invalid plan time")
+ if parsed.tzinfo is None: fail("invalid plan time")
+ return parsed
+def apply(plan_sha,approval):
+ raw,plan=read_plan()
+ if sha(raw)!=plan_sha or approval!=plan_sha: fail("plan approval mismatch")
+ required={"admission_sha256","authorized","automatic_apply","before_sha256","commit","content_b64","created_at","expires_at","file_id","format","guest_ssh_public_key_sha256","known_hosts_sha256","mode","node_name","operation","sha256","size","target_id","version"}
+ if set(plan)!=required or plan["version"]!=1 or plan["format"]!="home-lab-debian-qualification-snippet-plan-v1" or plan["operation"]!="create-snippet" or plan["authorized"] is not False or plan["automatic_apply"] is not False: fail("invalid plan schema")
+ if not all(isinstance(plan[key],str) for key in required-{"authorized","automatic_apply","size","version"}): fail("invalid plan field type")
+ for key in ("admission_sha256","before_sha256","commit","guest_ssh_public_key_sha256","known_hosts_sha256","sha256"):
+  expected=40 if key=="commit" else 64
+  if not re.fullmatch(f"[0-9a-f]{{{expected}}}",plan[key]): fail("invalid plan identity")
+ if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,63}",plan["target_id"]) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,62}",plan["node_name"]): fail("invalid target identity")
+ if not isinstance(plan["size"],int) or isinstance(plan["size"],bool): fail("invalid snippet size")
+ now=dt.datetime.now(dt.timezone.utc); created=parse_time(plan["created_at"]); expires=parse_time(plan["expires_at"])
+ if created>now+dt.timedelta(seconds=5) or created<now-dt.timedelta(minutes=15) or expires<=now or expires-created>dt.timedelta(minutes=15): fail("plan stale")
+ if plan["file_id"]!=f"local:snippets/{NAME}" or plan["mode"]!="0600": fail("invalid snippet target")
+ try: content=base64.b64decode(plan["content_b64"],validate=True)
+ except Exception: fail("invalid snippet content")
+ if not content.startswith(b"#cloud-config\n") or len(content)!=plan["size"] or sha(content)!=plan["sha256"] or len(content)>65536: fail("snippet content mismatch")
+ directory,lock_path=paths(); lock_directory=os.path.dirname(lock_path); os.makedirs(lock_directory,mode=0o700,exist_ok=True)
+ lock_parent=os.lstat(lock_directory); uid,gid=expected_ids()
+ if not stat.S_ISDIR(lock_parent.st_mode) or stat.S_ISLNK(lock_parent.st_mode) or lock_parent.st_uid!=uid or lock_parent.st_gid!=gid or stat.S_IMODE(lock_parent.st_mode) not in (0o700,0o755,0o1777) or os.path.realpath(lock_directory)!=lock_directory: fail("unsafe lock directory")
+ lock_fd=os.open(lock_path,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600)
+ try:
+  lock_state=os.fstat(lock_fd)
+  if not stat.S_ISREG(lock_state.st_mode) or lock_state.st_uid!=uid or lock_state.st_gid!=gid or lock_state.st_nlink!=1 or stat.S_IMODE(lock_state.st_mode)!=0o600: fail("unsafe snippet transaction lock")
+  try: fcntl.flock(lock_fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+  except BlockingIOError: fail("active snippet transaction lock")
+  before=inspect()
+  if sha(canonical(before))!=plan["before_sha256"]: fail("snippet precondition drift")
+  if before["snippet"].get("exists"):
+   if before["snippet"].get("sha256")!=plan["sha256"] or before["snippet"].get("size")!=plan["size"]: fail("existing snippet differs")
+   changed=False
+  else:
+   fd,tmp=tempfile.mkstemp(prefix=".qualification-snippet-",dir=directory)
+   try:
+    os.fchmod(fd,0o600); offset=0
+    while offset<len(content): offset+=os.write(fd,content[offset:])
+    os.fsync(fd); os.close(fd); fd=-1
+    os.link(tmp,os.path.join(directory,NAME),follow_symlinks=False); os.unlink(tmp); dir_fd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY); os.fsync(dir_fd); os.close(dir_fd)
+   finally:
+    if fd>=0: os.close(fd)
+    try: os.unlink(tmp)
+    except FileNotFoundError: pass
+   changed=True
+  after=inspect()
+  if after["snippet"].get("sha256")!=plan["sha256"] or after["snippet"].get("size")!=plan["size"]: fail("snippet postcondition failed")
+  return {"admission_sha256":plan["admission_sha256"],"changed":changed,"commit":plan["commit"],"file_id":plan["file_id"],"format":"home-lab-debian-qualification-snippet-receipt-v1","mode":"0600","node_name":plan["node_name"],"plan_sha256":plan_sha,"sha256":plan["sha256"],"size":plan["size"],"target_id":plan["target_id"],"version":1}
+ finally: os.close(lock_fd)
+def main():
+ if len(sys.argv)==2 and sys.argv[1]=="observe": print(canonical(inspect()).decode(),end=""); return
+ if len(sys.argv)==4 and sys.argv[1]=="apply": print(canonical(apply(sys.argv[2],sys.argv[3])).decode(),end=""); return
+ fail("usage: debian-qualification-snippet-transaction <observe|apply PLAN_SHA APPROVE_PLAN_SHA>")
+if __name__=="__main__":
+ try: main()
+ except Exception as error: print(str(error),file=sys.stderr); raise SystemExit(1)

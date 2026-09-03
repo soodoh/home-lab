@@ -39,6 +39,12 @@ Record these facts as canonical JSON conforming to `infrastructure/evidence/disp
 
 The earlier VM 9900 plan `fe1423e38110f41dabd5600ba0d2ce0bc3471fc1d861b6747fcc1b66b2ebd645` was a read-only provider feasibility preview against the production PVE endpoint. It was never actionable or applied and is not qualification evidence because that host can reach production VM 100 and shared production storage. VM-level firewall rules cannot establish hypervisor/storage isolation.
 
+### Guarded snippet prerequisite
+
+After target admission and separate capability installation, `scripts/controller/debian-qualification-snippet.py plan` validates the admission and dedicated known-hosts artifacts, requires exactly one admitted PVE SSH-agent key, binds a distinct protected guest public key, renders the shared template, observes the fixed `local:snippets/home-lab-debian-lifecycle-qualification.yaml` target, and writes an expiring mode-`0600` saved plan. The plan is non-authorizing and cannot be applied automatically.
+
+A separately approved apply must provide the plan SHA twice plus `DEBIAN_QUALIFICATION_SNIPPET_CONFIRMED`. The fixed forced transport and host transaction sources are under `infrastructure/qualification/host/`; they accept only `observe` or the exact approved plan, acquire a target lock, reject precondition drift or existing different bytes, use an atomic fsynced create, and return a canonical receipt. The guarded OpenTofu controller must consume that receipt and independently recheck the server-side SHA-256 before VM planning. These host assets are repository-only and are not installed on any target.
+
 ## Current blocker
 
 The operator selected an existing lab node, but no endpoint, inventory alias, host-key fingerprint, console method, synthetic-storage identity, or network-isolation evidence has been supplied. The controller's read-only tailnet peer list currently exposes only the production Proxmox and Debian hosts; neither is admissible. No PVE qualification connection or mutation is authorized until all target-admission fields above are available.

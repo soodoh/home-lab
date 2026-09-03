@@ -40,10 +40,13 @@
     },
     "storage": {
       "type": "object", "additionalProperties": false,
-      "required": ["image_datastore_id", "disk_datastore_id", "synthetic_only", "shares_production_storage", "production_identifiers_absent"],
+      "required": ["image_datastore_id", "disk_datastore_id", "snippet_datastore_id", "snippet_content_enabled", "snippet_directory", "synthetic_only", "shares_production_storage", "production_identifiers_absent"],
       "properties": {
         "image_datastore_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$" },
         "disk_datastore_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$" },
+        "snippet_datastore_id": { "const": "local" },
+        "snippet_content_enabled": { "const": true },
+        "snippet_directory": { "const": "/var/lib/vz/snippets" },
         "synthetic_only": { "const": true },
         "shares_production_storage": { "const": false },
         "production_identifiers_absent": { "const": true }

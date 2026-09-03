@@ -20,7 +20,7 @@ required = (
     'qualification-[a-z0-9-]+$',
     '!strcontains(lower(var.proxmox_endpoint), lower(local.contract.proxmox.node))',
     '!strcontains(var.proxmox_endpoint, split("/", local.contract.network.proxmox.ipv4)[0])',
-    'var.qualification_cloud_init_file_id == "${var.qualification_image_datastore_id}:snippets/home-lab-debian-lifecycle-qualification.yaml"',
+    'var.qualification_cloud_init_file_id == "local:snippets/home-lab-debian-lifecycle-qualification.yaml"',
     'reboot_after_update                  = false',
     'on_boot       = false',
     'started       = false',

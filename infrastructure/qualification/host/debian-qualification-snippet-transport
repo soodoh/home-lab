@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+helper=/usr/local/libexec/home-lab/debian-qualification-snippet-transaction
+case "${SSH_ORIGINAL_COMMAND-}" in
+  observe)
+    exec sudo -n -- "$helper" observe
+    ;;
+  apply\ [0-9a-f][0-9a-f]*)
+    IFS=' ' read -r verb plan approval extra <<EOF
+${SSH_ORIGINAL_COMMAND}
+EOF
+    [ "$verb" = apply ] && [ -z "${extra-}" ] || exit 64
+    case "$plan:$approval" in *[!0-9a-f:]*|*:*:*|:*) exit 64;; esac
+    [ "${#plan}" -eq 64 ] && [ "$plan" = "$approval" ] || exit 64
+    exec sudo -n -- "$helper" apply "$plan" "$approval"
+    ;;
+  *)
+    echo "unsupported qualification snippet command" >&2
+    exit 64
+    ;;
+esac
