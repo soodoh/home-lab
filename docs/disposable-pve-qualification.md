@@ -10,7 +10,8 @@ Before any connection or plan, record and independently verify:
 - official PVE release and package origin;
 - out-of-band console path;
 - dedicated plan and apply identities with no production credentials;
-- a dedicated mode-`0600`, single-link known-hosts file and exact host-key fingerprint;
+- an independently verified PVE API CA bundle and exact SHA-256;
+- dedicated mode-`0600`, single-link known-hosts and PVE public-key files with exact host-key and SSH-agent fingerprints;
 - synthetic local storage and disks containing no production serial, UUID, pool GUID, datastore path, or state;
 - network controls proving the target cannot reach production VM 100, production PVE storage, controller state, Restic credentials, or production service state;
 - absence of production OpenTofu backend configuration and production API tokens; and
@@ -44,6 +45,14 @@ The earlier VM 9900 plan `fe1423e38110f41dabd5600ba0d2ce0bc3471fc1d861b6747fcc1b
 After target admission and separate capability installation, `scripts/controller/debian-qualification-snippet.py plan` validates the admission and dedicated known-hosts artifacts, requires exactly one admitted PVE SSH-agent key, binds a distinct protected guest public key, renders the shared template, observes the fixed `local:snippets/home-lab-debian-lifecycle-qualification.yaml` target, and writes an expiring mode-`0600` saved plan. The plan is non-authorizing and cannot be applied automatically.
 
 A separately approved apply must provide the plan SHA twice plus `DEBIAN_QUALIFICATION_SNIPPET_CONFIRMED`. The fixed forced transport and host transaction sources are under `infrastructure/qualification/host/`; they accept only `observe` or the exact approved plan, acquire a target lock, reject precondition drift or existing different bytes, use an atomic fsynced create, and return a canonical receipt. The guarded OpenTofu controller must consume that receipt and independently recheck the server-side SHA-256 before VM planning. These host assets are repository-only and are not installed on any target.
+
+### Guarded stopped-foundation plan
+
+`scripts/controller/debian-lifecycle-qualification.py plan` consumes only fresh admission output and a freshly revalidated snippet receipt. It requires canonical protected `qualification-plan-credentials.json` with exactly `version`, `format`, `purpose`, `principal`, `endpoint`, `api_token`, and `ca_pem`; the principal, endpoint, and CA SHA-256 must match admission. It uses a dedicated mode-private state root and `TF_DATA_DIR`, a sanitized provider environment, controller and target locks, and permits exactly four create actions: pinned image download, stopped VM 9900, firewall options, and firewall rules. The saved binary and rendered JSON are hash-bound; the manifest is actionable only as a proposal and remains `authorized: false` with no automatic apply.
+
+A foundation apply requires a distinct canonical `qualification-apply-credentials.json`, the saved plan SHA and manifest authorization SHA each repeated exactly, and `CREATE_ISOLATED_DEBIAN_QUALIFICATION_9900`. It revalidates admission, the server-side snippet bytes, Git revision, provider identities, state hash, target lock, and exact plan JSON, then applies the saved binary without replanning. Failure after mutation is `tofu-apply-no-retry`; no automatic retry or start follows. A successful receipt still records `vm_started: false`.
+
+`scripts/controller/debian-lifecycle-qualification-transitions.py` implements separately planned start and destroy operations. Start accepts only a stopped-foundation receipt, permits one in-place VM 9900 update from `started: false` to `true`, keeps `on_boot: false`, and requires `START_ISOLATED_DEBIAN_QUALIFICATION_9900`. Destroy accepts only a successful start receipt, permits deletion of exactly the four qualification resources, and requires `DESTROY_ISOLATED_DEBIAN_QUALIFICATION_9900`. Both bind an exact prior receipt, state, admission, snippet, API identities, saved plan, authorization manifest, and target lock; neither replans during apply or retries a failed mutation.
 
 ## Current blocker
 

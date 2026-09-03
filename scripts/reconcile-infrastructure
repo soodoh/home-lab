@@ -124,6 +124,8 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-debian-lifecycle-qualification.py
   python3 scripts/controller/test-disposable-pve-target-admission.py
   python3 scripts/controller/test-debian-qualification-snippet-transaction.py
+  python3 scripts/controller/test-debian-lifecycle-qualification-controller.py
+  python3 scripts/controller/test-debian-lifecycle-qualification-transitions.py
   node scripts/controller/test-proxmox-package-manifest.js
   node scripts/controller/test-proxmox-nix-projection.js
   node scripts/controller/test-proxmox-ansible-observer.js

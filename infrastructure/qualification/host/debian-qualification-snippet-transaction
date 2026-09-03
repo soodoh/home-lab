@@ -8,7 +8,7 @@ def sha(raw): return hashlib.sha256(raw).hexdigest()
 def paths():
  fixture=os.environ.get("HOME_LAB_QUALIFICATION_SNIPPET_FIXTURE_ROOT") if os.geteuid()!=0 else None
  base=os.path.realpath(fixture) if fixture else ""
- return os.path.join(base,"var/lib/vz/snippets"),os.path.join(base,"run/lock/home-lab-debian-qualification-snippet.lock")
+ return os.path.join(base,"var/lib/vz/snippets"),os.path.join(base,"run/lock/home-lab-disposable-qualification.lock")
 def expected_ids(): return (os.getuid(),os.getgid()) if os.environ.get("HOME_LAB_QUALIFICATION_SNIPPET_FIXTURE_ROOT") and os.geteuid()!=0 else (0,0)
 def inspect():
  directory,_=paths(); uid,gid=expected_ids(); d=os.lstat(directory)
@@ -44,6 +44,22 @@ def parse_time(value):
  except Exception: fail("invalid plan time")
  if parsed.tzinfo is None: fail("invalid plan time")
  return parsed
+def acquire_lock():
+ _,lock_path=paths(); lock_directory=os.path.dirname(lock_path); os.makedirs(lock_directory,mode=0o700,exist_ok=True)
+ lock_parent=os.lstat(lock_directory); uid,gid=expected_ids()
+ if not stat.S_ISDIR(lock_parent.st_mode) or stat.S_ISLNK(lock_parent.st_mode) or lock_parent.st_uid!=uid or lock_parent.st_gid!=gid or stat.S_IMODE(lock_parent.st_mode) not in (0o700,0o755,0o1777) or os.path.realpath(lock_directory)!=lock_directory: fail("unsafe lock directory")
+ lock_fd=os.open(lock_path,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600); lock_state=os.fstat(lock_fd)
+ if not stat.S_ISREG(lock_state.st_mode) or lock_state.st_uid!=uid or lock_state.st_gid!=gid or lock_state.st_nlink!=1 or stat.S_IMODE(lock_state.st_mode)!=0o600: os.close(lock_fd); fail("unsafe qualification transaction lock")
+ try: fcntl.flock(lock_fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+ except BlockingIOError: os.close(lock_fd); fail("active qualification transaction lock")
+ return lock_fd
+def hold_lock(admission_sha256):
+ if re.fullmatch(r"[0-9a-f]{64}",admission_sha256) is None: fail("invalid admission identity")
+ descriptor=acquire_lock()
+ try:
+  print(canonical({"admission_sha256":admission_sha256,"format":"home-lab-disposable-qualification-lock-v1","held":True}).decode(),end="",flush=True)
+  while sys.stdin.buffer.read(65536): pass
+ finally: os.close(descriptor)
 def apply(plan_sha,approval):
  raw,plan=read_plan()
  if sha(raw)!=plan_sha or approval!=plan_sha: fail("plan approval mismatch")
@@ -61,15 +77,8 @@ def apply(plan_sha,approval):
  try: content=base64.b64decode(plan["content_b64"],validate=True)
  except Exception: fail("invalid snippet content")
  if not content.startswith(b"#cloud-config\n") or len(content)!=plan["size"] or sha(content)!=plan["sha256"] or len(content)>65536: fail("snippet content mismatch")
- directory,lock_path=paths(); lock_directory=os.path.dirname(lock_path); os.makedirs(lock_directory,mode=0o700,exist_ok=True)
- lock_parent=os.lstat(lock_directory); uid,gid=expected_ids()
- if not stat.S_ISDIR(lock_parent.st_mode) or stat.S_ISLNK(lock_parent.st_mode) or lock_parent.st_uid!=uid or lock_parent.st_gid!=gid or stat.S_IMODE(lock_parent.st_mode) not in (0o700,0o755,0o1777) or os.path.realpath(lock_directory)!=lock_directory: fail("unsafe lock directory")
- lock_fd=os.open(lock_path,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600)
+ directory,_=paths(); lock_fd=acquire_lock()
  try:
-  lock_state=os.fstat(lock_fd)
-  if not stat.S_ISREG(lock_state.st_mode) or lock_state.st_uid!=uid or lock_state.st_gid!=gid or lock_state.st_nlink!=1 or stat.S_IMODE(lock_state.st_mode)!=0o600: fail("unsafe snippet transaction lock")
-  try: fcntl.flock(lock_fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
-  except BlockingIOError: fail("active snippet transaction lock")
   before=inspect()
   if sha(canonical(before))!=plan["before_sha256"]: fail("snippet precondition drift")
   if before["snippet"].get("exists"):
@@ -89,12 +98,13 @@ def apply(plan_sha,approval):
    changed=True
   after=inspect()
   if after["snippet"].get("sha256")!=plan["sha256"] or after["snippet"].get("size")!=plan["size"]: fail("snippet postcondition failed")
-  return {"admission_sha256":plan["admission_sha256"],"changed":changed,"commit":plan["commit"],"file_id":plan["file_id"],"format":"home-lab-debian-qualification-snippet-receipt-v1","mode":"0600","node_name":plan["node_name"],"plan_sha256":plan_sha,"sha256":plan["sha256"],"size":plan["size"],"target_id":plan["target_id"],"version":1}
+  return {"admission_sha256":plan["admission_sha256"],"changed":changed,"commit":plan["commit"],"file_id":plan["file_id"],"format":"home-lab-debian-qualification-snippet-receipt-v1","guest_ssh_public_key_sha256":plan["guest_ssh_public_key_sha256"],"known_hosts_sha256":plan["known_hosts_sha256"],"mode":"0600","node_name":plan["node_name"],"plan_sha256":plan_sha,"sha256":plan["sha256"],"size":plan["size"],"target_id":plan["target_id"],"version":1}
  finally: os.close(lock_fd)
 def main():
  if len(sys.argv)==2 and sys.argv[1]=="observe": print(canonical(inspect()).decode(),end=""); return
  if len(sys.argv)==4 and sys.argv[1]=="apply": print(canonical(apply(sys.argv[2],sys.argv[3])).decode(),end=""); return
- fail("usage: debian-qualification-snippet-transaction <observe|apply PLAN_SHA APPROVE_PLAN_SHA>")
+ if len(sys.argv)==3 and sys.argv[1]=="hold-lock": hold_lock(sys.argv[2]); return
+ fail("usage: debian-qualification-snippet-transaction <observe|apply PLAN_SHA APPROVE_PLAN_SHA|hold-lock ADMISSION_SHA256>")
 if __name__=="__main__":
  try: main()
  except Exception as error: print(str(error),file=sys.stderr); raise SystemExit(1)

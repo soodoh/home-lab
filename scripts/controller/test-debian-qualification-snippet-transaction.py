@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Exercise the isolated PVE snippet helper and refusal paths."""
-import base64,datetime as dt,fcntl,hashlib,json,os,subprocess,tempfile
+import base64,datetime as dt,fcntl,hashlib,importlib.util,json,os,subprocess,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]; HELPER=ROOT/"infrastructure/qualification/host/debian-qualification-snippet-transaction"; TRANSPORT=ROOT/"infrastructure/qualification/host/debian-qualification-snippet-transport"; CONTROLLER=ROOT/"scripts/controller/debian-qualification-snippet.py"
+spec=importlib.util.spec_from_file_location("snippet_controller",CONTROLLER); controller=importlib.util.module_from_spec(spec); spec.loader.exec_module(controller)
 def canonical(value): return (json.dumps(value,sort_keys=True,separators=(",",":"))+"\n").encode()
 def sha(raw): return hashlib.sha256(raw).hexdigest()
 def call(env,*args,data=None): return subprocess.run([str(HELPER),*args],input=data,capture_output=True,env=env)
@@ -21,14 +22,22 @@ with tempfile.TemporaryDirectory() as directory:
  stale=dict(plan,created_at=(now-dt.timedelta(hours=1)).isoformat().replace("+00:00","Z")); raw=canonical(stale); assert b"plan stale" in call(env,"apply",sha(raw),sha(raw),data=raw).stderr
  bad=dict(plan,content_b64=base64.b64encode(b"not-cloud-init").decode()); raw=canonical(bad); assert b"snippet content mismatch" in call(env,"apply",sha(raw),sha(raw),data=raw).stderr
  target=snippets/"home-lab-debian-lifecycle-qualification.yaml"; link=fixture/"linked"; os.link(target,link); assert b"unsafe snippet metadata" in call(env,"observe").stderr; link.unlink()
- lock_path=fixture/"run/lock/home-lab-debian-qualification-snippet.lock"; lock_path.parent.mkdir(parents=True,exist_ok=True); fd=os.open(lock_path,os.O_RDWR|os.O_CREAT,0o600); fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
- raw=canonical(plan); digest=sha(raw); assert b"active snippet transaction lock" in call(env,"apply",digest,digest,data=raw).stderr; os.close(fd)
+ lock_path=fixture/"run/lock/home-lab-disposable-qualification.lock"; lock_path.parent.mkdir(parents=True,exist_ok=True); fd=os.open(lock_path,os.O_RDWR|os.O_CREAT,0o600); fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+ raw=canonical(plan); digest=sha(raw); assert b"active qualification transaction lock" in call(env,"apply",digest,digest,data=raw).stderr; os.close(fd)
+ holder=subprocess.Popen([str(HELPER),"hold-lock","a"*64],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env)
+ assert json.loads(holder.stdout.readline())["held"] is True
+ assert b"active qualification transaction lock" in call(env,"apply",digest,digest,data=raw).stderr
+ holder.stdin.close(); assert holder.wait(timeout=5)==0
+ pve_public=fixture/"pve.pub"; pve_public.write_text("ssh-ed25519 AAAA qualification-pve-fixture\n"); pve_public.chmod(0o600); known=fixture/"known_hosts"; known.write_text("pve-qualification.invalid ssh-ed25519 AAAA\n"); known.chmod(0o600)
+ ssh=controller.ssh_args({"ssh_username":"qualification-apply","ssh_address":"pve-qualification.invalid"},known,pve_public,"observe"); effective=subprocess.check_output([ssh[0],"-G",*ssh[1:]],text=True,stderr=subprocess.DEVNULL).lower()
+ for setting in ("globalknownhostsfile /dev/null",f"userknownhostsfile {known}".lower(),f"identityfile {pve_public}".lower(),"identitiesonly yes","preferredauthentications publickey","passwordauthentication no","kbdinteractiveauthentication no"):
+  assert setting in effective,setting
  source=TRANSPORT.read_text()
- for required in ("SSH_ORIGINAL_COMMAND", "sudo -n --", "unsupported qualification snippet command", '"$plan" = "$approval"', '"${#plan}" -eq 64'):
+ for required in ("SSH_ORIGINAL_COMMAND", "sudo -n --", "hold-lock", "unsupported qualification snippet command", '"$plan" = "$approval"', '"${#plan}" -eq 64'):
   assert required in source
  helper_source=HELPER.read_text(); controller_source=CONTROLLER.read_text()
  for required in ("os.O_NOFOLLOW", "os.fsync", "os.link", "LOCK_EX|fcntl.LOCK_NB", "plan stale", "snippet precondition drift"):
   assert required in helper_source
- for required in ("StrictHostKeyChecking=yes", "UpdateHostKeys=no", "IdentitiesOnly=yes", "RequestTTY=no", "validate-disposable-pve-target.js", "qualification SSH agent must contain exactly one key", "verify_exact_checkout", "acquire_transfer_lock", "DEBIAN_QUALIFICATION_SNIPPET_CONFIRMED", "expected_content=render(public)", "snippet plan binding mismatch"):
+ for required in ("StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null", "UpdateHostKeys=no", "IdentitiesOnly=yes", "IdentityFile=", "PreferredAuthentications=publickey", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no", "RequestTTY=no", "validate-disposable-pve-target.js", "qualification SSH agent must contain exactly one key", "verify_exact_checkout", "acquire_transfer_lock", "DEBIAN_QUALIFICATION_SNIPPET_CONFIRMED", "expected_content=render(public)", "snippet plan binding mismatch"):
   assert required in controller_source
 print("debian_qualification_snippet_transaction=verified create_noop_refusals=true")

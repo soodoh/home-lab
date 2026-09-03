@@ -17,6 +17,7 @@ with tempfile.TemporaryDirectory() as directory:
   "console":{"kind":"isolated-hypervisor-console","verified":True},
   "credentials":{"apply_principal":"qualification@pve!apply","guest_ssh_public_key_sha256":"0"*64,"plan_principal":"qualification@pve!plan","production_credentials_absent":True,"separate_principals":True,"ssh_agent_key_count":1,"ssh_agent_public_key_sha256":hashlib.sha256(f"{public[0]} {public[1]}".encode()).hexdigest(),"ssh_principal":"qualification-apply"},
   "endpoint":"https://pve-qualification.invalid:8006/api2/json",
+  "api_ca_sha256":"e"*64,
   "expires_at":(now+dt.timedelta(minutes=15)).isoformat().replace("+00:00","Z"),
   "format":"home-lab-disposable-pve-target-admission-v1",
   "host_key":{"algorithm":"ssh-ed25519","fingerprint":fingerprint,"known_hosts_sha256":hashlib.sha256(known.read_bytes()).hexdigest(),"out_of_band_verified":True,"ssh_address":"pve-qualification.invalid"},

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "format", "operation", "commit", "created_at", "expires_at", "target_id", "endpoint", "node_name", "vmid", "admission_sha256", "api_ca_sha256", "snippet_receipt_sha256", "plan_principal", "apply_principal", "state_sha256", "plan_sha256", "plan_json_sha256", "resources", "actionable", "authorized", "automatic_apply"],
+  "properties": {
+    "version": { "const": 1 },
+    "format": { "const": "home-lab-debian-qualification-foundation-plan-v1" },
+    "operation": { "const": "create-stopped-foundation" },
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "created_at": { "type": "string" },
+    "expires_at": { "type": "string" },
+    "target_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
+    "endpoint": { "type": "string", "pattern": "^https://[^/]+:8006/api2/json$" },
+    "node_name": { "type": "string" },
+    "vmid": { "const": 9900 },
+    "admission_sha256": { "$ref": "#/$defs/sha256" },
+    "api_ca_sha256": { "$ref": "#/$defs/sha256" },
+    "snippet_receipt_sha256": { "$ref": "#/$defs/sha256" },
+    "plan_principal": { "type": "string" },
+    "apply_principal": { "type": "string" },
+    "state_sha256": { "$ref": "#/$defs/sha256" },
+    "plan_sha256": { "$ref": "#/$defs/sha256" },
+    "plan_json_sha256": { "$ref": "#/$defs/sha256" },
+    "resources": { "const": ["proxmox_download_file.qualification_image[0]", "proxmox_virtual_environment_firewall_options.qualification[0]", "proxmox_virtual_environment_firewall_rules.qualification[0]", "proxmox_virtual_environment_vm.qualification[0]"] },
+    "actionable": { "const": true },
+    "authorized": { "const": false },
+    "automatic_apply": { "const": false }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+}

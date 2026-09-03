@@ -6,6 +6,10 @@ variable "enable_qualification" {
   type    = bool
   default = false
 }
+variable "start_qualification" {
+  type    = bool
+  default = false
+}
 
 variable "qualification_ssh_public_key" {
   type      = string
@@ -124,7 +128,7 @@ resource "proxmox_virtual_environment_vm" "qualification" {
   scsi_hardware = "virtio-scsi-single"
   boot_order    = ["scsi0"]
   on_boot       = false
-  started       = false
+  started       = var.start_qualification
   protection    = false
 
   reboot_after_update                  = false

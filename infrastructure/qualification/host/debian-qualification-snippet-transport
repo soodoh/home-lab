@@ -5,6 +5,15 @@ case "${SSH_ORIGINAL_COMMAND-}" in
   observe)
     exec sudo -n -- "$helper" observe
     ;;
+  hold-lock\ [0-9a-f][0-9a-f]*)
+    IFS=' ' read -r verb admission extra <<EOF
+${SSH_ORIGINAL_COMMAND}
+EOF
+    [ "$verb" = hold-lock ] && [ -z "${extra-}" ] || exit 64
+    case "$admission" in *[!0-9a-f]*|'') exit 64;; esac
+    [ "${#admission}" -eq 64 ] || exit 64
+    exec sudo -n -- "$helper" hold-lock "$admission"
+    ;;
   apply\ [0-9a-f][0-9a-f]*)
     IFS=' ' read -r verb plan approval extra <<EOF
 ${SSH_ORIGINAL_COMMAND}
