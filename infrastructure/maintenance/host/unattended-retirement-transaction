@@ -1,0 +1,218 @@
+#!/usr/bin/python3
+"""Crash-recorded, exact-plan unattended-upgrade retirement transaction."""
+
+import base64
+import datetime as dt
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+
+PLAN_ROOT = Path("/var/lib/home-lab/unattended-retirement/plans")
+JOURNAL_ROOT = Path("/var/lib/home-lab/unattended-retirement/journals")
+LOCK_PATH = Path("/run/lock/home-lab-unattended-retirement.lock")
+HEX64 = re.compile(r"^[0-9a-f]{64}$")
+MAX_BYTES = 1024 * 1024
+ENV = {"LC_ALL": "C", "LANG": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+
+
+def canonical(value):
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def digest(value):
+    return hashlib.sha256(value).hexdigest()
+
+
+def read_canonical(path, mode):
+    info = os.lstat(path)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != mode or info.st_uid != 0 or info.st_gid != 0 or info.st_size > MAX_BYTES:
+        raise RuntimeError("retirement artifact metadata differs")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        after = os.fstat(descriptor)
+        if (info.st_dev, info.st_ino, info.st_mode, info.st_size) != (after.st_dev, after.st_ino, after.st_mode, after.st_size):
+            raise RuntimeError("retirement artifact changed during read")
+        raw = os.read(descriptor, MAX_BYTES + 1)
+    finally:
+        os.close(descriptor)
+    value = json.loads(raw)
+    if canonical(value) != raw:
+        raise RuntimeError("retirement artifact is not canonical")
+    return value, raw
+
+
+def validate_plan(plan, raw, expected_digest, now):
+    if plan.get("plan_sha256") != expected_digest:
+        raise RuntimeError("retirement plan hash differs")
+    material = dict(plan)
+    material.pop("plan_sha256", None)
+    if digest(canonical(material)) != expected_digest:
+        raise RuntimeError("retirement plan material hash differs")
+    if (plan.get("format") != "home-lab-unattended-retirement-plan-v1" or plan.get("version") != 1 or
+            plan.get("host") != "debian" or plan.get("lifecycle") != "production" or plan.get("automatic_apply") is not False or
+            plan.get("authorized") is not False or plan.get("package_removal") is not False or plan.get("actionable") is not True or
+            plan.get("blockers") != ["separate-exact-authorization-required"]):
+        raise RuntimeError("retirement plan authority differs")
+    expires = dt.datetime.fromisoformat(plan["expires_at"].replace("Z", "+00:00"))
+    created = dt.datetime.fromisoformat(plan["created_at"].replace("Z", "+00:00"))
+    if created > now or now > expires or (expires - created).total_seconds() > 1800:
+        raise RuntimeError("retirement plan is stale or future-dated")
+    desired = plan["desired"]
+    if desired.get("package_removal") is not False or [item["name"] for item in desired.get("units", [])] != [
+            "apt-daily.timer", "apt-daily-upgrade.timer", "unattended-upgrades.service"]:
+        raise RuntimeError("retirement desired state differs")
+    if any(item.get("active_state") != "inactive" or item.get("unit_file_state") != "masked" for item in desired["units"]):
+        raise RuntimeError("retirement unit target differs")
+    expected = b'APT::Periodic::Update-Package-Lists "0";\nAPT::Periodic::Unattended-Upgrade "0";\n'
+    file_value = desired["periodic_file"]
+    if (file_value.get("path") != "/etc/apt/apt.conf.d/20auto-upgrades" or file_value.get("owner") != "root" or
+            file_value.get("group") != "root" or file_value.get("mode") != "0644" or
+            base64.b64decode(file_value.get("content_base64", ""), validate=True) != expected or file_value.get("sha256") != digest(expected)):
+        raise RuntimeError("retirement periodic policy differs")
+    return plan
+
+
+class SystemBackend:
+    def run(self, arguments):
+        result = subprocess.run(arguments, stdin=subprocess.DEVNULL, capture_output=True, env=ENV, timeout=120)
+        if result.returncode or result.stderr:
+            raise RuntimeError("retirement system operation failed")
+
+    def stop_and_mask(self, unit):
+        self.run(("/usr/bin/systemctl", "stop", unit))
+        self.run(("/usr/bin/systemctl", "mask", unit))
+
+    def restore_unit(self, before):
+        name = before["name"]
+        self.run(("/usr/bin/systemctl", "unmask", name))
+        if before["unit_file_state"] == "enabled":
+            self.run(("/usr/bin/systemctl", "enable", name))
+        else:
+            self.run(("/usr/bin/systemctl", "disable", name))
+        if before["active_state"] == "active":
+            self.run(("/usr/bin/systemctl", "start", name))
+        else:
+            self.run(("/usr/bin/systemctl", "stop", name))
+
+    def write_file(self, record):
+        path = Path(record["path"])
+        temporary = path.parent / f".{path.name}.{os.getpid()}.tmp"
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, int(record["mode"], 8))
+        try:
+            raw = base64.b64decode(record["content_base64"], validate=True)
+            os.write(descriptor, raw); os.fchmod(descriptor, int(record["mode"], 8)); os.fchown(descriptor, 0, 0); os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try: os.fsync(directory)
+        finally: os.close(directory)
+
+    def restore_file(self, record):
+        if record["exists"]:
+            self.write_file(record)
+        else:
+            Path(record["path"]).unlink(missing_ok=True)
+
+    def daemon_reload(self):
+        self.run(("/usr/bin/systemctl", "daemon-reload"))
+
+    def observe(self):
+        result = subprocess.run(("/usr/local/libexec/home-lab/unattended-retirement-observer", "observe"),
+                                stdin=subprocess.DEVNULL, capture_output=True, env=ENV, timeout=60)
+        if result.returncode or result.stderr or len(result.stdout) > MAX_BYTES:
+            raise RuntimeError("retirement post-observation failed")
+        return json.loads(result.stdout)
+
+
+def save_journal(path, value, exclusive=False):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    raw = canonical(value)
+    if exclusive:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try: os.write(descriptor, raw); os.fsync(descriptor)
+        finally: os.close(descriptor)
+    else:
+        temporary = path.parent / f".{path.name}.{os.getpid()}.tmp"
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try: os.write(descriptor, raw); os.fsync(descriptor)
+        finally: os.close(descriptor)
+        os.replace(temporary, path)
+    directory = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    try: os.fsync(directory)
+    finally: os.close(directory)
+
+
+def state_material(observation):
+    return {key: observation[key] for key in ("files", "locks", "processes", "units")}
+
+
+def apply_plan(plan, digest_value, backend):
+    current = backend.observe()
+    if current.get("observation_sha256") != plan["observation"]["observation_sha256"] or state_material(current) != state_material(plan["observation"]):
+        raise RuntimeError("retirement live precondition differs")
+    if current["processes"] or current["locks"]:
+        raise RuntimeError("retirement package activity is present")
+    journal_path = JOURNAL_ROOT / f"{digest_value}.json"
+    journal = {"format": "home-lab-unattended-retirement-journal-v1", "plan_sha256": digest_value,
+               "status": "applying", "rollback": plan["rollback"]}
+    save_journal(journal_path, journal, exclusive=True)
+    try:
+        for unit in reversed(plan["desired"]["units"]):
+            backend.stop_and_mask(unit["name"])
+        backend.write_file(plan["desired"]["periodic_file"])
+        backend.daemon_reload()
+        after = backend.observe()
+        desired_file = plan["desired"]["periodic_file"]
+        current_file = next(item for item in after["files"] if item["path"] == desired_file["path"])
+        if (after["processes"] or after["locks"] or current_file.get("sha256") != desired_file["sha256"] or
+                any(item["active_state"] != "inactive" or item["unit_file_state"] != "masked" for item in after["units"])):
+            raise RuntimeError("retirement postcondition differs")
+        journal.update({"status": "committed", "post_observation_sha256": after["observation_sha256"]})
+        save_journal(journal_path, journal)
+        return journal
+    except Exception:
+        rollback_file = next(item for item in plan["rollback"]["files"] if item["path"] == "/etc/apt/apt.conf.d/20auto-upgrades")
+        backend.restore_file(rollback_file)
+        for unit in plan["rollback"]["units"]:
+            backend.restore_unit(unit)
+        backend.daemon_reload()
+        journal["status"] = "rolled-back"
+        save_journal(journal_path, journal)
+        raise
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] not in {"inspect", "apply", "recover"} or HEX64.fullmatch(sys.argv[2]) is None:
+        raise SystemExit("usage: unattended-retirement-transaction <inspect|apply|recover> SHA256")
+    digest_value = sys.argv[2]
+    plan, raw = read_canonical(PLAN_ROOT / f"{digest_value}.json", 0o600)
+    validate_plan(plan, raw, digest_value, dt.datetime.now(dt.timezone.utc).replace(microsecond=0))
+    if sys.argv[1] == "inspect":
+        print(json.dumps({"plan_sha256": digest_value, "status": "valid"}, sort_keys=True))
+        return
+    if sys.argv[1] == "recover":
+        journal, _ = read_canonical(JOURNAL_ROOT / f"{digest_value}.json", 0o600)
+        print(json.dumps({"plan_sha256": digest_value, "status": journal["status"]}, sort_keys=True))
+        return
+    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(LOCK_PATH, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result = apply_plan(plan, digest_value, SystemBackend())
+    finally:
+        os.close(descriptor)
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    try: main()
+    except Exception as error:
+        os.write(2, f"unattended-retirement-transaction: {error}\n".encode())
+        raise SystemExit(1)

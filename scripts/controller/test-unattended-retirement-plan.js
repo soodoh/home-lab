@@ -4,7 +4,9 @@
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
+const { spawnSync } = require("node:child_process");
 const { load } = require("js-yaml");
 const { buildPlan, canonicalJson } = require("./save-unattended-retirement-plan");
 
@@ -46,6 +48,30 @@ const tampered = structuredClone(observation);
 tampered.units[0].active_state = "active";
 assert.throws(() => buildPlan({ observation: tampered, contract, bindings, nowEpoch: Date.parse("2026-09-03T10:01:00Z") / 1000 }), /hash differs/);
 assert.throws(() => buildPlan({ observation, contract, bindings, nowEpoch: Date.parse("2026-09-03T11:00:00Z") / 1000 }), /stale/);
+const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "unattended-transaction-"));
+try {
+  const planPath = path.join(temporary, "plan.json");
+  fs.writeFileSync(planPath, canonicalJson(plan));
+  const transactionPath = path.join(root, "infrastructure/maintenance/host/unattended-retirement-transaction");
+  const python = String.raw`import datetime as dt,importlib.machinery,importlib.util,json,pathlib,sys
+loader=importlib.machinery.SourceFileLoader("transaction",sys.argv[1]); spec=importlib.util.spec_from_loader("transaction",loader); module=importlib.util.module_from_spec(spec); loader.exec_module(module)
+plan=json.loads(pathlib.Path(sys.argv[2]).read_bytes()); raw=module.canonical(plan)
+module.validate_plan(plan,raw,plan["plan_sha256"],dt.datetime.fromisoformat("2026-09-03T10:02:00+00:00"))
+try: module.validate_plan({**plan,"authorized":True},raw,plan["plan_sha256"],dt.datetime.fromisoformat("2026-09-03T10:02:00+00:00")); raise AssertionError("accepted")
+except RuntimeError: pass
+print("transaction_validation=verified")`;
+  const result = spawnSync("python3", ["-c", python, transactionPath, planPath], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), "transaction_validation=verified");
+  const transaction = fs.readFileSync(transactionPath, "utf8");
+  for (const required of ["fcntl.LOCK_EX | fcntl.LOCK_NB", "status\": \"applying", "status\"] = \"rolled-back\"",
+    "os.O_EXCL | os.O_NOFOLLOW", "os.fsync", "stop_and_mask", "restore_unit", "live precondition differs",
+    "retirement postcondition differs", "separate-exact-authorization-required"]) {
+    assert(transaction.includes(required), `retirement transaction omits ${required}`);
+  }
+} finally {
+  fs.rmSync(temporary, { recursive: true, force: true });
+}
 const source = fs.readFileSync(path.join(root, "infrastructure/maintenance/host/unattended-retirement-observer"), "utf8");
 for (const required of ["os.O_NOFOLLOW", "os.fstat", "st_nlink != 1", "apt-daily-upgrade.timer", "unattended-upgrades.service", "lslocks", "processes"]) {
   assert(source.includes(required), `retirement observer omits ${required}`);
@@ -53,4 +79,4 @@ for (const required of ["os.O_NOFOLLOW", "os.fstat", "st_nlink != 1", "apt-daily
 for (const forbidden of ["systemctl\", \"stop", "systemctl\", \"disable", "systemctl\", \"mask", "apt-get\", \"remove", "os.unlink", "os.replace"]) {
   assert(!source.includes(forbidden), `retirement observer contains mutation ${forbidden}`);
 }
-console.log("unattended_retirement_plan=verified");
+console.log("unattended_retirement_plan=verified transaction=verified");
