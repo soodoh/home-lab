@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "canonical_repository_id",
+    "completed_at",
+    "execution",
+    "expired_pending_entries",
+    "full_read_data_check",
+    "local_service_result",
+    "nfs_snapshot_id",
+    "pending_entries",
+    "policy_sha256",
+    "proton_copied_snapshots",
+    "proton_service_result",
+    "proton_snapshot_id",
+    "rclone_sha256",
+    "snapshot_count",
+    "source_snapshot_id",
+    "structural_check",
+    "timers",
+    "version"
+  ],
+  "properties": {
+    "canonical_repository_id": { "const": "dce8dbc3cde106047631317a09257c23ee5eab4d9ece5f88d52108ae384a8503" },
+    "completed_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$" },
+    "execution": { "const": "manual-execution-of-scheduled-target" },
+    "expired_pending_entries": { "const": 2 },
+    "full_read_data_check": { "const": "zero-errors" },
+    "local_service_result": { "const": "success" },
+    "nfs_snapshot_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "pending_entries": { "const": 0 },
+    "policy_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "proton_copied_snapshots": { "const": 1 },
+    "proton_service_result": { "const": "success" },
+    "proton_snapshot_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "rclone_sha256": { "const": "acd2c7aca2996c884a8cd0012b27d74213bc7d02c514d9711166b5023e51ca49" },
+    "snapshot_count": { "type": "integer", "minimum": 2 },
+    "source_snapshot_id": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "structural_check": { "const": "zero-errors" },
+    "timers": {
+      "const": [
+        { "active": "active", "unit": "home-lab-restic-daily.timer", "unit_file": "enabled" },
+        { "active": "active", "unit": "home-lab-restic-maintenance.timer", "unit_file": "enabled" }
+      ]
+    },
+    "version": { "const": 1 }
+  }
+}

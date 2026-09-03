@@ -24,6 +24,8 @@ After that receipt committed, the operator reported manually moving the remainin
 
 The rebuilt canonical recovery bundle now has two independent ciphertexts. Bundle A remains protected locally. Bundle B ciphertext `4b62aaa4857ec68822392752d3cce758af981e106b79d8cb969cd6538bb14164` was published as the checksum-verified current version in KMS-encrypted, versioned AWS recovery storage. Publication evidence is `infrastructure/evidence/proton-canonical-recovery-bundles.json`; no AWS credentials or raw version ID are recorded.
 
+A manual execution of the exact scheduled daily target then provided the first post-incident write canary. Local snapshot `3877b600d37c2f2003af9e765f137da8175fee473fda7b1b2407c97b1898de76` mapped to canonical Proton snapshot `4ae03d04658d45a25534008a26b642722f35d08839e3fb4e3c0e4d8de31760d2`; both daily services succeeded, the pending queue reached zero, and subsequent structural and full read-data checks passed. Evidence is `infrastructure/evidence/proton-post-incident-daily-canary.json`. The ordinary timer remains responsible for the next naturally scheduled 05:00 run.
+
 The final retired Offen recovery point was:
 
 - basename `daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg`;
