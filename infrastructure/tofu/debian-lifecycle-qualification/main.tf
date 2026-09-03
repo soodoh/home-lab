@@ -79,7 +79,7 @@ resource "proxmox_virtual_environment_vm" "qualification" {
   scsi_hardware = "virtio-scsi-single"
   boot_order    = ["scsi0"]
   on_boot       = false
-  started       = true
+  started       = false
   protection    = false
 
   reboot_after_update                  = false
