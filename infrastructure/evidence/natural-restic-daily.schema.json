@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "event", "scheduled_local_time", "local_completed_at", "proton_completed_at", "local_service_result", "proton_service_result", "source_snapshot_id", "nfs_snapshot_id", "proton_snapshot_id", "canonical_repository_id", "proton_copied_snapshots", "expired_pending_entries", "pending_entries", "accepted_state_mtime", "accepted_state_sha256"],
+  "properties": {
+    "version": { "const": 1 },
+    "event": { "const": "natural-systemd-timer" },
+    "scheduled_local_time": { "type": "string", "format": "date-time" },
+    "local_completed_at": { "type": "string", "format": "date-time" },
+    "proton_completed_at": { "type": "string", "format": "date-time" },
+    "local_service_result": { "const": "success" },
+    "proton_service_result": { "const": "success" },
+    "source_snapshot_id": { "$ref": "#/$defs/sha256" },
+    "nfs_snapshot_id": { "$ref": "#/$defs/sha256" },
+    "proton_snapshot_id": { "$ref": "#/$defs/sha256" },
+    "canonical_repository_id": { "$ref": "#/$defs/sha256" },
+    "proton_copied_snapshots": { "const": 1 },
+    "expired_pending_entries": { "type": "integer", "minimum": 0 },
+    "pending_entries": { "const": 0 },
+    "accepted_state_mtime": { "type": "string", "format": "date-time" },
+    "accepted_state_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+}
