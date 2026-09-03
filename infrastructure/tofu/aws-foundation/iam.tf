@@ -228,16 +228,6 @@ data "aws_iam_policy_document" "state_apply" {
   }
   statement {
     actions = [
-      "iam:CreateAccessKey",
-      "iam:DeleteAccessKey",
-      "iam:GetAccessKeyLastUsed",
-      "iam:ListAccessKeys",
-      "iam:UpdateAccessKey",
-    ]
-    resources = [var.backup_principal_arn]
-  }
-  statement {
-    actions = [
       "iam:AttachRolePolicy",
       "iam:CreatePolicy",
       "iam:CreatePolicyVersion",
