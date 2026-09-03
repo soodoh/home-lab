@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "format", "observed_at", "base_commit", "operation", "vmid", "resource", "source_root", "provider", "provider_refresh_result", "plan_sha256", "plan_json_sha256", "state_sha256", "actionable", "authorized", "apply_requires_separate_exact_authorization", "blockers"],
+  "properties": {
+    "version": { "const": 1 },
+    "format": { "const": "home-lab-debian-lifecycle-vm-plan-evidence-v1" },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "base_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "operation": { "const": "create" },
+    "vmid": { "const": 9900 },
+    "resource": { "const": "proxmox_virtual_environment_vm.recovery[0]" },
+    "source_root": { "const": "infrastructure/tofu/proxmox-restic-recovery-qualification" },
+    "provider": { "const": "bpg/proxmox@0.111.1" },
+    "provider_refresh_result": { "const": "one-create-action" },
+    "plan_sha256": { "$ref": "#/$defs/sha256" },
+    "plan_json_sha256": { "$ref": "#/$defs/sha256" },
+    "state_sha256": { "const": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+    "actionable": { "const": false },
+    "authorized": { "const": false },
+    "apply_requires_separate_exact_authorization": { "const": true },
+    "blockers": { "const": ["cloud-init-not-staged", "network-isolation-not-proven", "separate-exact-authorization-required"] }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+}
