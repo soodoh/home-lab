@@ -13,7 +13,7 @@ def fixture():
     value={"format":"home-lab-package-transaction-final-v1","version":1,"host":"debian","lifecycle":"production","base_commit":"1"*40,"generated_at":"2026-09-03T10:00:00Z","expires_at":"2026-09-03T10:30:00Z","lane":"no-restart-safe","automatic_apply":False,"automatic_reboot":False,"actionable":True,"authorized":False,
       "bindings":{"candidate_transaction_sha256":"1"*64,"review_sha256":"2"*64,"changes_sha256":"3"*64,"contract_sha256":"4"*64,"inventory_sha256":"5"*64,"host_key_fingerprint":"SHA256:"+"A"*43,"installed_package_set_sha256":"6"*64,"apt_sources_sha256":"7"*64,"apt_keyrings_sha256":"8"*64,"apt_configuration_sha256":"9"*64,"proposal_sha256":"b"*64},
       "transaction":{"changes":[change],"exact_install_specs":["fixture=2"],"additions":[],"download_bytes":1,"disk_delta_bytes":1,"affected_services":[],"protected_services":[],"needrestart_assessment":"no-protected-restart","reboot_required":False,"reboot_reasons":[],"safety_classification":"no-restart-safe"},"blockers":["separate-exact-authorization-required"]}
-    value["final_sha256"]=hashlib.sha256(canonical(value)).hexdigest(); return value
+    value["bindings"]["changes_sha256"]=hashlib.sha256(canonical(value["transaction"]["changes"])).hexdigest(); value["final_sha256"]=hashlib.sha256(canonical(value)).hexdigest(); return value
 
 def observation(plan):
     return {"version":2,"host":"debian","installed_status_sha256":"6"*64,"apt_state_hashes":{"sources_sha256":"7"*64,"keyrings_sha256":"8"*64,"configuration_sha256":"9"*64},"proposal_sha256":"b"*64,"changes":plan["transaction"]["changes"],"apt_tree_safe":True,"size_parse_complete":True,"holds":[],"kept_back":[],"active_lifecycle_locks":[str(module.LOCK)]}
@@ -33,6 +33,10 @@ class Tests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,"live precondition"): module.validate_live(plan,drift)
         locks=observation(plan); locks["active_lifecycle_locks"].append("/var/lib/dpkg/lock")
         with self.assertRaisesRegex(RuntimeError,"live precondition"): module.validate_live(plan,locks)
+        widened=json.loads(json.dumps(plan)); widened["unexpected"]=False; widened["final_sha256"]=hashlib.sha256(canonical({key:value for key,value in widened.items() if key!="final_sha256"})).hexdigest()
+        with self.assertRaisesRegex(RuntimeError,"fields differ"): module.validate_plan(widened,canonical(widened),hashlib.sha256(canonical(widened)).hexdigest(),now)
+        changed=json.loads(json.dumps(plan)); changed["bindings"]["changes_sha256"]="0"*64; changed["final_sha256"]=hashlib.sha256(canonical({key:value for key,value in changed.items() if key!="final_sha256"})).hexdigest()
+        with self.assertRaisesRegex(RuntimeError,"shape differs"): module.validate_plan(changed,canonical(changed),hashlib.sha256(canonical(changed)).hexdigest(),now)
     def test_fake_backend_commit_and_failed_journal(self):
         plan=fixture(); raw=canonical(plan); digest=hashlib.sha256(raw).hexdigest(); backend=FakeBackend(observation(plan))
         with tempfile.TemporaryDirectory() as temp:

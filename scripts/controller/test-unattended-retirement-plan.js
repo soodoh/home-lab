@@ -80,9 +80,13 @@ for (const forbidden of ["systemctl\", \"stop", "systemctl\", \"disable", "syste
   assert(!source.includes(forbidden), `retirement observer contains mutation ${forbidden}`);
 }
 const capability = fs.readFileSync(path.join(root, "scripts/controller/maintenance-capability-activation.py"), "utf8");
+const capabilityPlaybook = fs.readFileSync(path.join(root, "ansible/playbooks/install-maintenance-capability.yml"), "utf8");
 const capabilityTasks = fs.readFileSync(path.join(root, "ansible/roles/maintenance_capability/tasks/main.yml"), "utf8");
-for (const required of ["unattended-retirement", "source_hashes", "MAINTENANCE_CAPABILITY_CONFIRMED", "--check", "clean pushed HEAD"]) {
+for (const required of ["unattended-retirement", "source_hashes", "MAINTENANCE_CAPABILITY_CONFIRMED", "--check", "clean pushed HEAD", "acquire_transfer_lock"]) {
   assert(capability.includes(required), `retirement capability controller omits ${required}`);
+}
+for (const required of ["role: apply_lock", "apply_lock_action: acquire", "apply_lock_action: release", "not ansible_check_mode"]) {
+  assert(capabilityPlaybook.includes(required), `retirement capability playbook omits ${required}`);
 }
 for (const required of ["maintenance_capability_approved_sha256", "unattended-retirement-observer", "unattended-retirement-transaction", "owner: root", "mode: '0755'"]) {
   assert(capabilityTasks.includes(required), `retirement capability installer omits ${required}`);

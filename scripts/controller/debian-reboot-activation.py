@@ -21,10 +21,30 @@ def ssh():
  return ("ssh","-F","/dev/null","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes","-o",f"UserKnownHostsFile={known}","-o","UpdateHostKeys=no","-o","IdentitiesOnly=yes","-o","RequestTTY=no","-o","ClearAllForwardings=yes","ansible-deploy@docker-host")
 def build(path):
  maintenance,raw=private(path); evidence=maintenance.get("evidence",{}); bindings=maintenance.get("bindings",{}); current=commit()
- plan_material=dict(maintenance); plan_material.pop("plan_sha256",None)
- if maintenance.get("format")!="home-lab-host-maintenance-plan-v1" or maintenance.get("kind")!="reboot" or maintenance.get("host")!="debian" or maintenance.get("authorized") is not False or maintenance.get("actionable") is not True or maintenance.get("blockers")!=["saved-reviewed-plan-required","separate-reboot-authorization-required"] or maintenance.get("plan_sha256")!=sha(canonical(plan_material)) or bindings.get("git_commit")!=current or evidence.get("reboot_indicated") is not True or evidence.get("evidence_sha256")!=maintenance.get("evidence_sha256") or dt.datetime.now(dt.timezone.utc)>dt.datetime.fromisoformat(maintenance["expires_at"].replace("Z","+00:00")): raise SystemExit("maintenance reboot plan is not current and actionable")
+ plan_material=dict(maintenance); plan_material.pop("plan_sha256",None); backup=evidence.get("backup",{})
+ if (maintenance.get("format")!="home-lab-host-maintenance-plan-v1" or maintenance.get("kind")!="reboot" or maintenance.get("host")!="debian" or
+     maintenance.get("authorized") is not False or maintenance.get("actionable") is not True or
+     maintenance.get("blockers")!=["saved-reviewed-plan-required","separate-reboot-authorization-required"] or
+     maintenance.get("plan_sha256")!=sha(canonical(plan_material)) or bindings.get("git_commit")!=current or
+     evidence.get("reboot_indicated") is not True or evidence.get("window_eligible") is not True or
+     evidence.get("evidence_sha256")!=maintenance.get("evidence_sha256") or backup.get("durable_chain_clear") is not True or
+     not isinstance(backup.get("accepted_path"),str) or not isinstance(backup.get("accepted_sha256"),str) or
+     not isinstance(evidence.get("pending_package_transaction_sha256"),str) or
+     dt.datetime.now(dt.timezone.utc)>dt.datetime.fromisoformat(maintenance["expires_at"].replace("Z","+00:00"))):
+  raise SystemExit("maintenance reboot plan is not current and actionable")
  policy=__import__("yaml").safe_load((ROOT/"infrastructure/contract/home-lab.yml").read_text())["lifecycle"]["maintenance"]["reboot_plan"]
- material={"format":"home-lab-debian-reboot-activation-v1","host":"debian","commit":current,"created_at":maintenance["created_at"],"expires_at":maintenance["expires_at"],"maintenance_plan_sha256":maintenance["plan_sha256"],"expected":{"boot_id":evidence["boot_id"],"current_kernel":evidence["current_kernel"],"target_kernel":evidence["target_kernel"]},"evidence_sha256":evidence["evidence_sha256"],"pending_package_transaction_sha256":evidence["pending_package_transaction_sha256"],"inactive_backup_units":policy["inactive_backup_units"],"conflict_locks":policy["conflict_locks"],"workload_order":policy["workload_order"]["debian"],"postchecks":policy["postchecks"]["debian"],"executor_sha256":sha(EXECUTOR.read_bytes()),"automatic_reboot":False,"authorized":False}
+ material={"format":"home-lab-debian-reboot-activation-v1","host":"debian","commit":current,
+           "created_at":maintenance["created_at"],"expires_at":maintenance["expires_at"],
+           "maintenance_plan_sha256":maintenance["plan_sha256"],
+           "expected":{"boot_id":evidence["boot_id"],"current_kernel":evidence["current_kernel"],"target_kernel":evidence["target_kernel"]},
+           "evidence_sha256":evidence["evidence_sha256"],
+           "pending_package_transaction_sha256":evidence["pending_package_transaction_sha256"],
+           "backup":{"accepted_path":backup["accepted_path"],"accepted_sha256":backup["accepted_sha256"],
+                     "max_age_seconds":policy["backup_max_age_hours"]*3600},
+           "window":policy["debian_window"],"inactive_backup_units":policy["inactive_backup_units"],
+           "conflict_locks":policy["conflict_locks"],"workload_order":policy["workload_order"]["debian"],
+           "postchecks":policy["postchecks"]["debian"],"executor_sha256":sha(EXECUTOR.read_bytes()),
+           "automatic_reboot":False,"authorized":False}
  material["activation_sha256"]=sha(canonical(material)); raw=canonical(material); digest=sha(raw); OUTPUT.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(OUTPUT,0o700); target=OUTPUT/f"{digest}.json"; fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
  with os.fdopen(fd,"wb") as handle: handle.write(raw); handle.flush(); os.fsync(handle.fileno())
  print(json.dumps({"authorized":False,"path":str(target),"activation_sha256":digest},sort_keys=True))

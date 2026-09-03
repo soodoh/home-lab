@@ -1,7 +1,7 @@
 ---
 - name: Install one separately authorized maintenance capability
   hosts: docker_host
-  gather_facts: false
+  gather_facts: true
   become: false
   serial: 1
   max_fail_percentage: 0
@@ -38,4 +38,16 @@
           }}
   roles:
     - role: lifecycle_state
+    - role: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: "maintenance-capability-{{ maintenance_capability_kind }}-{{ maintenance_capability_plan_sha256 }}"
     - role: maintenance_capability
+  post_tasks:
+    - name: Release the exact maintenance capability host lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: "maintenance-capability-{{ maintenance_capability_kind }}-{{ maintenance_capability_plan_sha256 }}"
+      when: not ansible_check_mode

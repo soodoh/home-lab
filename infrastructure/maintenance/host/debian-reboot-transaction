@@ -2,6 +2,7 @@
 """Perform one saved Debian reboot, retaining failed postboot state without retry."""
 import datetime as dt, fcntl, hashlib, json, os, re, stat, subprocess, sys
 from pathlib import Path
+from zoneinfo import ZoneInfo
 PLAN_ROOT=Path("/var/lib/home-lab/debian-reboot/plans"); JOURNAL_ROOT=Path("/var/lib/home-lab/debian-reboot/journals"); LOCK=Path("/run/lock/home-lab-debian-reboot.lock"); HEX=re.compile(r"^[0-9a-f]{64}$"); ENV={"LC_ALL":"C","LANG":"C","PATH":"/usr/sbin:/usr/bin:/sbin:/bin"}
 def canonical(v): return (json.dumps(v,sort_keys=True,separators=(",",":"))+"\n").encode()
 def sha(raw): return hashlib.sha256(raw).hexdigest()
@@ -19,11 +20,13 @@ def run(args,accepted=(0,),timeout=120):
  if result.returncode not in accepted: raise RuntimeError("reboot check failed")
  return result
 def validate(value,raw,digest,allow_expired=False):
- if sha(raw)!=digest or value.get("format")!="home-lab-debian-reboot-activation-v1" or value.get("host")!="debian" or value.get("automatic_reboot") is not False or value.get("authorized") is not False: raise RuntimeError("reboot activation differs")
- material=dict(value); material.pop("activation_sha256",None)
- if value.get("activation_sha256")!=sha(canonical(material)): raise RuntimeError("reboot activation hash differs")
- if not allow_expired and dt.datetime.now(dt.timezone.utc)>dt.datetime.fromisoformat(value["expires_at"].replace("Z","+00:00")): raise RuntimeError("reboot activation expired")
- if value.get("workload_order")!=["compose-drain","host-reboot","host-audit"] or value.get("postchecks")!=["kernel","mounts","docker","compose","restic-timers","tailscale","production-audit"]: raise RuntimeError("reboot sequence differs")
+ fields={"format","host","commit","created_at","expires_at","maintenance_plan_sha256","expected","evidence_sha256","pending_package_transaction_sha256","backup","window","inactive_backup_units","conflict_locks","workload_order","postchecks","executor_sha256","automatic_reboot","authorized","activation_sha256"}
+ if set(value)!=fields or sha(raw)!=digest or value.get("format")!="home-lab-debian-reboot-activation-v1" or value.get("host")!="debian" or value.get("automatic_reboot") is not False or value.get("authorized") is not False or sha(Path(__file__).read_bytes())!=value.get("executor_sha256"): raise RuntimeError("reboot activation differs")
+ material=dict(value); material.pop("activation_sha256")
+ if value["activation_sha256"]!=sha(canonical(material)): raise RuntimeError("reboot activation hash differs")
+ created=dt.datetime.fromisoformat(value["created_at"].replace("Z","+00:00")); expires=dt.datetime.fromisoformat(value["expires_at"].replace("Z","+00:00")); now=dt.datetime.now(dt.timezone.utc)
+ if created>now or expires<=created or (expires-created).total_seconds()>1800 or (not allow_expired and now>expires): raise RuntimeError("reboot activation freshness differs")
+ if value.get("workload_order")!=["compose-drain","host-reboot","host-audit"] or value.get("postchecks")!=["kernel","mounts","docker","compose","restic-timers","tailscale","production-audit"] or HEX.fullmatch(value.get("pending_package_transaction_sha256", "")) is None: raise RuntimeError("reboot sequence differs")
  return value
 def boot_id(): return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
 def tailscale():
@@ -31,6 +34,12 @@ def tailscale():
 def preflight(plan):
  expected=plan["expected"]
  if os.uname().release!=expected["current_kernel"] or boot_id()!=expected["boot_id"] or not Path("/boot",f"vmlinuz-{expected['target_kernel']}").is_file(): raise RuntimeError("reboot kernel or boot identity differs")
+ window=plan["window"]; local=dt.datetime.now(ZoneInfo(window["timezone"])); start=local.replace(hour=window["start_hour"],minute=0,second=0,microsecond=0)
+ if local.weekday()!=window["weekday"] or local<start or (local-start).total_seconds()>=window["max_duration_seconds"]: raise RuntimeError("outside reboot maintenance window")
+ backup_path=Path(plan["backup"]["accepted_path"]); _,backup_raw=read(backup_path); age=dt.datetime.now().timestamp()-backup_path.lstat().st_mtime
+ if sha(backup_raw)!=plan["backup"]["accepted_sha256"] or age<0 or age>plan["backup"]["max_age_seconds"]: raise RuntimeError("reboot backup evidence differs or is stale")
+ package=plan["pending_package_transaction_sha256"]; package_journal,_=read(Path("/var/lib/home-lab/debian-package/journals")/f"{package}.json")
+ if package_journal.get("plan_sha256")!=package or package_journal.get("status")!="committed" or package_journal.get("automatic_reboot") is not False: raise RuntimeError("reboot package transaction is not committed")
  for path in plan["conflict_locks"]:
   if path!=str(LOCK) and os.path.lexists(path): raise RuntimeError("reboot conflict lock exists")
  for unit in plan["inactive_backup_units"]:

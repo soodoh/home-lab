@@ -88,7 +88,7 @@ def main() -> None:
         assert required in capability_source
     assert "NOPASSWD: ALL" not in capability_source and "authorized_keys\", \"w" not in capability_source
     observer_capability_source = PACKAGE_OBSERVER_CAPABILITY.read_text()
-    for required in ("PROXMOX_PACKAGE_OBSERVER_CAPABILITY_CONFIRMED", "package_observer_sha256", "before_sha256", "os.O_EXCL", "os.O_NOFOLLOW", "visudo --check", "observe proxmox", "UpdateHostKeys=no", "IdentitiesOnly=yes", "RequestTTY=no"):
+    for required in ("PROXMOX_PACKAGE_OBSERVER_CAPABILITY_CONFIRMED", "package_observer_sha256", "before_sha256", "os.O_EXCL", "os.O_NOFOLLOW", "visudo --check", "observe proxmox", "UpdateHostKeys=no", "IdentitiesOnly=yes", "RequestTTY=no", "ClearAllForwardings=yes", "PermitLocalCommand=no", "acquire_transfer_lock", "/var/lib/iac-ansible-production.lock", "artifact changed during observation", "retained host lock requires inspection"):
         assert required in observer_capability_source
     assert "NOPASSWD: ALL" not in observer_capability_source
     deploy_capability_source = DEPLOY_CAPABILITY.read_text()

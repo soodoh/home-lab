@@ -53,28 +53,45 @@ def read_file(path, owner, mode, group=None):
 def validate_plan(value, raw, transport_sha, now):
     if sha(raw) != transport_sha:
         raise RuntimeError("package transport hash differs")
-    material = dict(value); material.pop("final_sha256", None)
-    if value.get("final_sha256") != sha(canonical(material)):
+    if set(value) != {"format", "version", "host", "lifecycle", "base_commit", "generated_at", "expires_at", "lane",
+                      "automatic_apply", "automatic_reboot", "actionable", "authorized", "bindings", "transaction",
+                      "blockers", "final_sha256"}:
+        raise RuntimeError("package final fields differ")
+    material = dict(value); material.pop("final_sha256")
+    if value["final_sha256"] != sha(canonical(material)):
         raise RuntimeError("package final hash differs")
-    if (value.get("format") != "home-lab-package-transaction-final-v1" or value.get("version") != 1 or
-            value.get("host") != "debian" or value.get("lifecycle") != "production" or
-            value.get("automatic_apply") is not False or value.get("automatic_reboot") is not False or
-            value.get("actionable") is not True or value.get("authorized") is not False or
-            value.get("blockers") != ["separate-exact-authorization-required"]):
+    if (value["format"] != "home-lab-package-transaction-final-v1" or value["version"] != 1 or
+            value["host"] != "debian" or value["lifecycle"] != "production" or
+            value["automatic_apply"] is not False or value["automatic_reboot"] is not False or
+            value["actionable"] is not True or value["authorized"] is not False or
+            value["blockers"] != ["separate-exact-authorization-required"] or
+            value["lane"] not in {"no-restart-safe", "maintenance-window"}):
         raise RuntimeError("package plan authority differs")
     created = dt.datetime.fromisoformat(value["generated_at"].replace("Z", "+00:00"))
     expires = dt.datetime.fromisoformat(value["expires_at"].replace("Z", "+00:00"))
-    if created > now or now > expires or (expires - created).total_seconds() > 86400:
+    if created > now or now > expires or expires <= created or (expires - created).total_seconds() > 86400:
         raise RuntimeError("package plan is stale or future-dated")
-    transaction = value.get("transaction", {})
-    changes = transaction.get("changes", [])
-    specs = transaction.get("exact_install_specs", [])
-    if (not changes or len(changes) != len(specs) or transaction.get("safety_classification") != value.get("lane") or
-            transaction.get("needrestart_assessment") not in {"no-protected-restart", "maintenance-window-required"} or
-            any(item.get("action") not in {"install", "upgrade"} for item in changes)):
+    bindings = value["bindings"]
+    binding_names = {"candidate_transaction_sha256", "review_sha256", "changes_sha256", "contract_sha256",
+                     "inventory_sha256", "host_key_fingerprint", "installed_package_set_sha256",
+                     "apt_sources_sha256", "apt_keyrings_sha256", "apt_configuration_sha256", "proposal_sha256"}
+    if set(bindings) != binding_names or any(HEX64.fullmatch(bindings[name]) is None for name in binding_names - {"host_key_fingerprint"}) or not re.fullmatch(r"SHA256:[A-Za-z0-9+/]{43}", bindings["host_key_fingerprint"]):
+        raise RuntimeError("package bindings differ")
+    transaction = value["transaction"]
+    if set(transaction) != {"changes", "exact_install_specs", "additions", "download_bytes", "disk_delta_bytes",
+                            "affected_services", "protected_services", "needrestart_assessment", "reboot_required",
+                            "reboot_reasons", "safety_classification"}:
+        raise RuntimeError("package transaction fields differ")
+    changes = transaction["changes"]; specs = transaction["exact_install_specs"]
+    if (not changes or len(changes) != len(specs) or transaction["safety_classification"] != value["lane"] or
+            transaction["needrestart_assessment"] not in {"no-protected-restart", "maintenance-window-required"} or
+            bindings["changes_sha256"] != sha(canonical(changes)) or
+            any(set(item) != {"action", "candidate_version", "name", "origin", "policy_sha256", "previous_version", "security"} or
+                item["action"] not in {"install", "upgrade"} or not item["name"] or not item["candidate_version"] or
+                not item["origin"] or HEX64.fullmatch(item["policy_sha256"]) is None for item in changes)):
         raise RuntimeError("package transaction shape differs")
     expected = sorted(f'{item["name"]}={item["candidate_version"]}' for item in changes)
-    if sorted(specs) != expected or len(set(specs)) != len(specs):
+    if sorted(specs) != expected or len(set(specs)) != len(specs) or len({item["name"] for item in changes}) != len(changes):
         raise RuntimeError("package exact specs differ")
     return value
 
@@ -156,6 +173,7 @@ def apply(transport_sha, backend=None):
     try:
         if backend is None:
             run(("/usr/bin/apt-get", "--yes", "--no-remove", "--download-only", "install", *specs), 1800)
+            validate_live(plan, observe())
             run(("/usr/bin/apt-get", "--yes", "--no-remove", "--no-download", "install", *specs), 3600)
             audit = run(("/usr/bin/dpkg", "--audit"), 120)
             if audit.stdout: raise RuntimeError("dpkg audit is not empty")
@@ -186,8 +204,9 @@ def main():
         if request["operation"] == "inspect":
             present = (PLAN_ROOT / f"{digest}.json").exists(); result = {"present": present}
         elif request["operation"] == "prepare":
-            plan = install_plan(digest); validate_live(plan, observe());
+            plan = install_plan(digest); validate_live(plan, observe())
             run(("/usr/bin/apt-get", "--yes", "--no-remove", "--download-only", "install", *plan["transaction"]["exact_install_specs"]), 1800)
+            validate_live(plan, observe())
             result = {"package_transaction": "prepared", "plan_sha256": digest, "automatic_reboot": False}
         elif request["operation"] == "apply": result = apply(digest)
         else:

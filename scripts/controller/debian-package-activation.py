@@ -18,22 +18,50 @@ def clean_commit():
         raise SystemExit("Debian package activation requires clean pushed HEAD")
     return commit
 
+def protected_read(path):
+    before=path.lstat()
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or stat.S_IMODE(before.st_mode) != 0o600 or before.st_uid != os.getuid() or before.st_size > 262144:
+        raise SystemExit("package lock metadata differs")
+    descriptor=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
+    try:
+        after=os.fstat(descriptor); raw=os.read(descriptor,262145)
+    finally: os.close(descriptor)
+    if (before.st_dev,before.st_ino,before.st_size)!=(after.st_dev,after.st_ino,after.st_size) or len(raw)>262144:
+        raise SystemExit("package lock changed during read")
+    return raw
+
+def known_host_fingerprint():
+    value=os.environ.get("HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS",""); path=Path(value)
+    if not value or not path.is_absolute(): raise SystemExit("dedicated Debian known-hosts path required")
+    info=path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or info.st_uid!=os.getuid() or stat.S_IMODE(info.st_mode)!=0o600:
+        raise SystemExit("dedicated Debian known-hosts metadata differs")
+    result=subprocess.run(("ssh-keygen","-lf",str(path)),capture_output=True,text=True)
+    lines=[line for line in result.stdout.splitlines() if line]
+    if result.returncode or result.stderr or len(lines)!=1 or len(lines[0].split())<2 or not lines[0].split()[1].startswith("SHA256:"):
+        raise SystemExit("dedicated Debian host key identity differs")
+    return lines[0].split()[1]
+
 def load(path):
-    info=path.lstat(); raw=path.read_bytes(); value=json.loads(raw)
-    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != os.getuid() or raw != canonical(value):
-        raise SystemExit("package lock metadata or canonical content differs")
-    material=dict(value); material.pop("final_sha256",None)
+    raw=protected_read(path); value=json.loads(raw); digest=sha(raw)
+    if raw != canonical(value) or path.name != f"{digest}.json":
+        raise SystemExit("package lock canonical content or filename differs")
+    material=dict(value); material.pop("final_sha256",None); bindings=value.get("bindings",{})
     if (value.get("format") != "home-lab-package-transaction-final-v1" or value.get("host") != "debian" or
         value.get("base_commit") != clean_commit() or value.get("authorized") is not False or value.get("automatic_apply") is not False or
         value.get("automatic_reboot") is not False or value.get("actionable") is not True or
         value.get("blockers") != ["separate-exact-authorization-required"] or value.get("final_sha256") != sha(canonical(material)) or
+        bindings.get("contract_sha256") != sha((ROOT/"infrastructure/contract/home-lab.yml").read_bytes()) or
+        bindings.get("inventory_sha256") != sha((ROOT/"ansible/inventory/production.yml").read_bytes()) or
+        bindings.get("host_key_fingerprint") != known_host_fingerprint() or
+        bindings.get("changes_sha256") != sha(canonical(value.get("transaction",{}).get("changes",[]))) or
         datetime.now(timezone.utc) > datetime.fromisoformat(value["expires_at"].replace("Z","+00:00"))):
-        raise SystemExit("package lock authority, hash, commit, or freshness differs")
-    return value,raw,sha(raw)
+        raise SystemExit("package lock authority, hash, current bindings, or freshness differs")
+    return value,raw,digest
 
 def ssh_args():
-    known=os.environ.get("HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS","")
-    if not known or not Path(known).is_absolute(): raise SystemExit("dedicated Debian known-hosts path required")
+    known=os.environ["HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS"]
+    known_host_fingerprint()
     return ("ssh","-F","/dev/null","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes","-o",f"UserKnownHostsFile={known}","-o","UpdateHostKeys=no","-o","IdentitiesOnly=yes","-o","RequestTTY=no","-o","ClearAllForwardings=yes",TARGET)
 
 def invoke(operation,path):

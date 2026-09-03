@@ -2,7 +2,8 @@
 """Save and consume one exact Debian maintenance capability plan."""
 import argparse, datetime as dt, hashlib, json, os, stat, subprocess
 from pathlib import Path
-ROOT=Path(__file__).resolve().parents[2]; OUTPUT=ROOT/".local/maintenance-capabilities"
+from protected_execution import acquire_transfer_lock
+ROOT=Path(__file__).resolve().parents[2]; OUTPUT=ROOT/".local/maintenance-capabilities"; LOCK=ROOT/".local/locks/maintenance-capability.lock"
 SOURCES={
  "package-identity":["infrastructure/maintenance/host/debian-package-apply-transport","infrastructure/maintenance/host/debian-package-transaction","infrastructure/maintenance/host/package-candidate-observer"],
  "unattended-retirement":["infrastructure/maintenance/host/unattended-retirement-observer","infrastructure/maintenance/host/unattended-retirement-transaction"],
@@ -36,8 +37,10 @@ def apply(path):
  command=("ansible-playbook","-i",str(ROOT/"ansible/inventory/production.yml"),"--limit","docker_host",str(ROOT/"ansible/playbooks/install-maintenance-capability.yml"),"--extra-vars",extras)
  checked=subprocess.run((*command,"--check"),cwd=ROOT)
  if checked.returncode: raise SystemExit("immediate capability check failed")
- result=subprocess.run(command,cwd=ROOT)
- if result.returncode: raise SystemExit("capability apply failed")
+ LOCK.parent.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(LOCK.parent,0o700); lock=acquire_transfer_lock(LOCK)
+ try: result=subprocess.run(command,cwd=ROOT)
+ finally: os.close(lock)
+ if result.returncode: raise SystemExit("capability apply failed; retained host lock may require inspection")
  print(json.dumps({"capability":"installed","kind":value["kind"],"plan_sha256":digest},sort_keys=True))
 def main():
  p=argparse.ArgumentParser(); sub=p.add_subparsers(dest="command",required=True); planned=sub.add_parser("plan"); planned.add_argument("kind",choices=sorted(SOURCES)); applied=sub.add_parser("apply"); applied.add_argument("plan",type=Path); args=p.parse_args(); save(args.kind) if args.command=="plan" else apply(args.plan.resolve())
