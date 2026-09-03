@@ -398,22 +398,24 @@
             "debian": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["candidate_scope", "allowed_apply_scope", "apply_authority", "automatic_reboot"],
+              "required": ["candidate_scope", "allowed_apply_scope", "apply_authority", "automatic_apply", "automatic_reboot"],
               "properties": {
                 "candidate_scope": { "const": "all-upgrades" },
-                "allowed_apply_scope": { "const": "security-updates-only" },
-                "apply_authority": { "const": "reviewed-ansible-transaction" },
+                "allowed_apply_scope": { "const": "reviewed-exact-set" },
+                "apply_authority": { "const": "exact-saved-package-transaction" },
+                "automatic_apply": { "const": false },
                 "automatic_reboot": { "const": false }
               }
             },
             "proxmox": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["candidate_scope", "allowed_apply_scope", "apply_authority", "automatic_reboot"],
+              "required": ["candidate_scope", "allowed_apply_scope", "apply_authority", "automatic_apply", "automatic_reboot"],
               "properties": {
                 "candidate_scope": { "const": "all-upgrades" },
                 "allowed_apply_scope": { "const": "reviewed-exact-set" },
                 "apply_authority": { "const": "protected-session" },
+                "automatic_apply": { "const": false },
                 "automatic_reboot": { "const": false }
               }
             }

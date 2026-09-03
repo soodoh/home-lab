@@ -2,6 +2,8 @@
 
 This document records the discovery baseline for consolidating Proxmox and Debian host lifecycle management under Ansible. It is evidence and design input, not mutation authority.
 
+This is a historical baseline. The current completion baseline is `docs/host-lifecycle-rebaseline-2026-09-03.md`; later evidence must not infer current authority from the 2026-08-28 observations below.
+
 ## Evidence boundary
 
 - Repository: clean `main` at `38c01635b8f71afdbe69670e4cf4a7cdb6c53f2e`.

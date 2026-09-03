@@ -82,11 +82,12 @@ Nix rollback trees remain until every session is terminal, the affected domains 
 
 ### 6. Packages, images and reboots
 
-- Debian may automatically apply security-origin package updates under an Ansible-managed unattended-upgrades policy with result evidence. It never automatically reboots.
+- Debian and Proxmox package automation is candidate/report-only. Every package mutation, including a security update, requires an exact saved package transaction and separate authorization; no unattended package apply is permitted.
 - Proxmox automation may refresh metadata and propose an exact compatible PVE/kernel/ZFS/firmware package manifest. Installation remains a protected reviewed session.
 - Generic `state: latest` is not an accepted package lifecycle design.
 - Compose image automation proposes digest/lock changes; the production host does not perform unplanned steady-state pulls or builds.
 - Reboot is a separate one-host saved plan with expected kernels, recent backup, workload ordering, console/access proof, storage/lock checks and post-boot audit. A package handler never reboots.
+- This exact-authorization rule supersedes the original proposal for automatic Debian security-origin mutation. Existing unattended-upgrade timers are migration drift to retire through a separately reviewed transaction, not authority to continue automatic mutation.
 
 ### 7. VM disks
 

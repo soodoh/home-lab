@@ -29,13 +29,15 @@ lifecycle:
       hosts:
         debian:
           candidate_scope: all-upgrades
-          allowed_apply_scope: security-updates-only
-          apply_authority: reviewed-ansible-transaction
+          allowed_apply_scope: reviewed-exact-set
+          apply_authority: exact-saved-package-transaction
+          automatic_apply: false
           automatic_reboot: false
         proxmox:
           candidate_scope: all-upgrades
           allowed_apply_scope: reviewed-exact-set
           apply_authority: protected-session
+          automatic_apply: false
           automatic_reboot: false
     reboot_plan:
       automatic: false

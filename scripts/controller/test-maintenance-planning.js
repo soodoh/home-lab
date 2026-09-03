@@ -105,9 +105,12 @@ assert.equal(packagePolicy.max_metadata_age_seconds, 86400);
 assert.equal(packagePolicy.resolver, "apt-get-simulate");
 assert.equal(packagePolicy.save_exact_versions, true);
 assert.equal(packagePolicy.apply_time_replan, false);
-assert.equal(packagePolicy.hosts.debian.allowed_apply_scope, "security-updates-only");
+assert.equal(packagePolicy.hosts.debian.allowed_apply_scope, "reviewed-exact-set");
+assert.equal(packagePolicy.hosts.debian.apply_authority, "exact-saved-package-transaction");
 assert.equal(packagePolicy.hosts.proxmox.allowed_apply_scope, "reviewed-exact-set");
 assert.equal(packagePolicy.hosts.proxmox.apply_authority, "protected-session");
+assert.equal(packagePolicy.hosts.debian.automatic_apply, false);
+assert.equal(packagePolicy.hosts.proxmox.automatic_apply, false);
 assert.equal(packagePolicy.hosts.debian.automatic_reboot, false);
 assert.equal(packagePolicy.hosts.proxmox.automatic_reboot, false);
 assert.deepEqual(contract.lifecycle.hosts.proxmox.domain_handoffs.package_set, {
