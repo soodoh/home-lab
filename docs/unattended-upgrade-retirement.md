@@ -1,0 +1,17 @@
+# Unattended-upgrade retirement
+
+Every Debian package mutation, including a security-origin update, requires an exact reviewed package transaction. The live unattended-upgrade schedule is therefore policy drift, not an exception to package authorization.
+
+The direct contract keeps `unattended-upgrades` installed but requires these units to become inactive and masked:
+
+- `apt-daily.timer`
+- `apt-daily-upgrade.timer`
+- `unattended-upgrades.service`
+
+It also requires `/etc/apt/apt.conf.d/20auto-upgrades` to set both periodic package-list refresh and unattended upgrade to `0`. Package removal is explicitly outside this transaction.
+
+`ansible/playbooks/unattended-retirement-plan.yml` is read-only. Its immutable observer uses no-follow descriptor reads for both relevant APT policy files, records their exact content and metadata for rollback, inventories unit state, and checks exact APT/dpkg processes and lock holders. It refuses unsafe files and does not stop, disable, mask, rewrite, remove, or install anything.
+
+`scripts/controller/save-unattended-retirement-plan.js` binds a clean pushed commit, contract, production inventory, independently verified host key, fresh observation, exact before state, desired state, and rollback material into an exclusive mode-0600 local artifact. An active package process, active package lock, unavailable unit, or missing drift blocks action. Even a safe plan remains `authorized: false` and requires a separate exact authorization.
+
+The 2026-09-03 read-only production observation found no APT/dpkg process or lock and canonical root-owned mode-0644 policy files. All three units were active and enabled, and periodic update and unattended-upgrade values were both `1`. The play reported `changed=0`; no unit or file was changed. A separately authorized executor with durable rollback and postconditions is still required before remediation.

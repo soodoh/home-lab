@@ -485,12 +485,34 @@
         }
       }
     },
+    "lifecycleUnattendedRetirementPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["automatic_apply", "target", "package_removal", "refuse_active_upgrade", "units", "periodic_file"],
+      "properties": {
+        "automatic_apply": { "const": false },
+        "target": { "const": "debian" },
+        "package_removal": { "const": false },
+        "refuse_active_upgrade": { "const": true },
+        "units": { "const": ["apt-daily.timer", "apt-daily-upgrade.timer", "unattended-upgrades.service"] },
+        "periodic_file": {
+          "type": "object", "additionalProperties": false,
+          "required": ["path", "owner", "group", "mode", "content"],
+          "properties": {
+            "path": { "const": "/etc/apt/apt.conf.d/20auto-upgrades" },
+            "owner": { "const": "root" }, "group": { "const": "root" }, "mode": { "const": "0644" },
+            "content": { "const": "APT::Periodic::Update-Package-Lists \"0\";\nAPT::Periodic::Unattended-Upgrade \"0\";\n" }
+          }
+        }
+      }
+    },
     "lifecycleMaintenancePolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["package_plan", "reboot_plan", "release_monitor"],
+      "required": ["package_plan", "unattended_upgrade_retirement", "reboot_plan", "release_monitor"],
       "properties": {
         "package_plan": { "$ref": "#/$defs/lifecyclePackagePlanPolicy" },
+        "unattended_upgrade_retirement": { "$ref": "#/$defs/lifecycleUnattendedRetirementPolicy" },
         "reboot_plan": { "$ref": "#/$defs/lifecycleRebootPlanPolicy" },
         "release_monitor": { "$ref": "#/$defs/lifecycleReleaseMonitorPolicy" }
       }

@@ -96,6 +96,7 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-package-candidate-observer.js
   node scripts/controller/test-save-host-maintenance-plan.js
   node scripts/controller/test-promote-package-transaction.js
+  node scripts/controller/test-unattended-retirement-plan.js
   node scripts/controller/test-release-eol-report.js
   node scripts/controller/test-proxmox-timezone-handoff.js
   node scripts/controller/test-proxmox-access-cutover.js

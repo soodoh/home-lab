@@ -1,0 +1,32 @@
+---
+- name: Require Debian production context for unattended-upgrade retirement planning
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'debian'
+      - lifecycle_profile == 'production'
+      - lifecycle.maintenance.unattended_upgrade_retirement.target == 'debian'
+      - lifecycle.maintenance.unattended_upgrade_retirement.automatic_apply == false
+      - lifecycle.maintenance.unattended_upgrade_retirement.package_removal == false
+    fail_msg: Unattended-upgrade retirement planning is Debian-production-only and cannot authorize mutation.
+
+- name: Observe unattended-upgrade state without changing it
+  become: true
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - "{{ lookup('ansible.builtin.file', role_path + '/../../../infrastructure/maintenance/host/unattended-retirement-observer') }}"
+      - observe
+  register: unattended_retirement_plan_raw
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Decode unattended-upgrade retirement evidence
+  ansible.builtin.set_fact:
+    unattended_retirement_plan_observation: "{{ unattended_retirement_plan_raw.stdout | from_json }}"
+  no_log: true
+
+- name: Emit unattended-upgrade retirement evidence
+  ansible.builtin.debug:
+    var: unattended_retirement_plan_observation
