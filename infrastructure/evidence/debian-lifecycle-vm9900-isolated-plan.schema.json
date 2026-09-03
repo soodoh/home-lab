@@ -32,7 +32,7 @@
     "plan_json_sha256": { "$ref": "#/$defs/sha256" },
     "actionable": { "const": false },
     "authorized": { "const": false },
-    "blockers": { "const": ["guarded-apply-controller-required", "fresh-controller-ipv4-proof-required", "separate-exact-authorization-required", "separate-start-plan-required"] }
+    "blockers": { "const": ["dedicated-qualification-api-and-ssh-identity-required", "fresh-controller-ipv4-proof-required", "guarded-apply-controller-required", "separate-exact-authorization-required", "separate-start-plan-required"] }
   },
   "$defs": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
 }
