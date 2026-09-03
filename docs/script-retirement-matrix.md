@@ -2,6 +2,8 @@
 
 > Phase 0 classification began at commit `38c01635b8f71afdbe69670e4cf4a7cdb6c53f2e` and includes subsequent lifecycle-foundation tests. No script is authorized for deletion by this matrix. Static callers do not prove live use or absence of external use.
 
+Operation-level Compose and Restic classifications are refined by `infrastructure/retirement/compose-operation-classification.json` and `docs/compose-operation-classification.md`. That refinement may freeze one-time code or retain a conditional rollback lane without changing this ledger's prohibition on deletion before proof.
+
 ## Classes
 
 | Class | Phase 0 decision |

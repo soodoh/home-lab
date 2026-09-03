@@ -182,6 +182,7 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-authentik-tofu-foundation.py
   scripts/test-restic-recovery-bundle
   python3 scripts/test-compose-action-plan.py
+  node scripts/controller/test-compose-operation-classification.js
   python3 scripts/test-restic-tools.py
   python3 scripts/test-qualified-proton-promotion.py
   python3 scripts/test-proton-incident-retirement.py

@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "format", "entries"],
+  "properties": {
+    "version": { "const": 1 },
+    "format": { "const": "home-lab-compose-operation-classification-v1" },
+    "entries": {
+      "type": "array",
+      "minItems": 13,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["component", "class", "deletion_gate", "paths"],
+        "properties": {
+          "component": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]+$" },
+          "class": { "enum": ["durable-runtime", "durable-policy", "durable-recovery", "durable-validation", "conditional-recovery", "pending-migration", "retire-after-proof"] },
+          "deletion_gate": { "type": "string", "minLength": 8 },
+          "paths": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^(ansible|docs|scripts)/" } }
+        }
+      }
+    }
+  }
+}
