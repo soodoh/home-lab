@@ -1958,13 +1958,15 @@ def reboot_journal_path(digest):
 def reboot_health():
     pool = native(("/usr/sbin/zpool", "status", "-x", "storage"))
     vm = native(("/usr/sbin/qm", "status", "100"))
+    vm_config = native(("/usr/sbin/qm", "config", "100"))
     system = native(("/usr/bin/systemctl", "is-system-running"), accepted=(0, 1))
     services = ("pveproxy.service", "pvedaemon.service", "pvestatd.service", "pve-firewall.service", "tailscaled.service", "ssh.service", "nfs-server.service", "zfs-zed.service", "chrony.service")
     active = native(("/usr/bin/systemctl", "is-active", *services))
     audit = native(("/usr/bin/dpkg", "--audit"))
     remaining, _ = solver_changes()
-    if "is healthy" not in pool.stdout or vm.stdout.strip() != "status: running" or system.stdout.strip() != "running" or \
-            active.stdout.splitlines() != ["active"] * len(services) or audit.stdout or audit.stderr or remaining:
+    if "is healthy" not in pool.stdout or vm.stdout.strip() != "status: running" or "onboot: 1" not in vm_config.stdout.splitlines() or \
+            system.stdout.strip() != "running" or active.stdout.splitlines() != ["active"] * len(services) or \
+            audit.stdout or audit.stderr or remaining:
         fail("reboot health precondition differs")
 
 
@@ -1974,6 +1976,11 @@ def reboot_preconditions(expected):
     target = Path("/boot") / f"vmlinuz-{expected['target_kernel']}"; info = os.lstat(target)
     if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0:
         fail("target kernel image differs")
+    for path in ("/var/lib/iac-ansible-production.lock", "/var/lib/home-lab/reconciliation/owner.lock",
+                 "/var/lib/home-lab/reconciliation/nix.lock", "/var/lib/home-lab/reconciliation/operation.lock",
+                 "/var/lib/home-lab/firewall-transaction/active.json"):
+        if os.path.lexists(path):
+            fail("reboot conflict journal or lock exists")
     reboot_health()
 
 
@@ -1983,8 +1990,9 @@ def reboot_operation(value, digest, operation):
         "infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator",
         "scripts/controller/test-proxmox-boot-configuration-activation.py",
     ) if operation == "verify-reboot" else ())
-    lock_fd = os.open("/run/lock/home-lab-proxmox-reboot.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    conflict_locks = acquire_boot_conflict_locks()
+    if len(conflict_locks) != 4:
+        fail("reboot conflict lock acquisition differs")
     path = reboot_journal_path(digest); journal = json.loads(path.read_bytes()) if path.exists() else None
     if operation == "prepare-reboot":
         if journal is not None:
@@ -2001,7 +2009,13 @@ def reboot_operation(value, digest, operation):
         return {"reboot_transaction": "already-committed", "plan_sha256": digest, "current_kernel": os.uname().release}
     if operation == "apply-reboot":
         if journal.get("status") != "prepared": fail("reboot transaction is not prepared")
-        reboot_preconditions(expected); journal["status"] = "rebooting"; save_package_journal(path, journal)
+        reboot_preconditions(expected)
+        native(("/usr/sbin/qm", "shutdown", "100", "--timeout", "120"), timeout=150)
+        stopped = native(("/usr/sbin/qm", "status", "100"))
+        if stopped.stdout.strip() != "status: stopped":
+            fail("VM 100 did not stop before host reboot")
+        journal["status"] = "vm-stopped"; save_package_journal(path, journal)
+        journal["status"] = "rebooting"; save_package_journal(path, journal)
         native(("/usr/bin/systemctl", "reboot"), timeout=30)
         return {"reboot_transaction": "initiated", "plan_sha256": digest}
     if journal.get("status") != "rebooting" or Path("/proc/sys/kernel/random/boot_id").read_text().strip() == expected["boot_id"] or \

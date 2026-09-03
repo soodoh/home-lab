@@ -435,7 +435,7 @@
     "lifecycleRebootPlanPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["automatic", "one_host_per_transaction", "backup_max_age_hours", "expected_current_kernel_required", "expected_target_kernel_required", "expected_boot_id_required", "console_required_hosts"],
+      "required": ["automatic", "one_host_per_transaction", "backup_max_age_hours", "expected_current_kernel_required", "expected_target_kernel_required", "expected_boot_id_required", "console_required_hosts", "max_plan_age_seconds", "debian_window", "inactive_backup_units", "conflict_locks", "workload_order", "postchecks"],
       "properties": {
         "automatic": { "const": false },
         "one_host_per_transaction": { "const": true },
@@ -443,7 +443,23 @@
         "expected_current_kernel_required": { "const": true },
         "expected_target_kernel_required": { "const": true },
         "expected_boot_id_required": { "const": true },
-        "console_required_hosts": { "const": ["proxmox"] }
+        "console_required_hosts": { "const": ["proxmox"] },
+        "max_plan_age_seconds": { "const": 1800 },
+        "debian_window": {
+          "const": { "timezone": "America/Los_Angeles", "weekday": 5, "start_hour": 1, "max_duration_seconds": 3600, "backup_buffer_seconds": 10800 }
+        },
+        "inactive_backup_units": {
+          "const": ["home-lab-restic-daily.target", "home-lab-restic-daily-local.service", "home-lab-restic-daily-proton.service", "home-lab-restic-maintenance.target", "home-lab-restic-maintenance-local.service", "home-lab-restic-maintenance-proton.service", "home-lab-restic-recover.service"]
+        },
+        "conflict_locks": {
+          "const": ["/var/lib/iac-ansible-production.lock", "/run/lock/home-lab-backup.lock", "/var/lib/home-lab/reconciliation/owner.lock", "/var/lib/home-lab/reconciliation/nix.lock", "/var/lib/home-lab/reconciliation/operation.lock", "/run/lock/home-lab-vfio-recovery.lock", "/run/lock/home-lab-debian-package.lock", "/run/lock/home-lab-proxmox-package.lock", "/var/lib/home-lab/firewall-transaction/active.json"]
+        },
+        "workload_order": {
+          "const": { "debian": ["compose-drain", "host-reboot", "host-audit"], "proxmox": ["vm-100-shutdown", "host-reboot", "host-audit", "vm-100-startup", "debian-audit"] }
+        },
+        "postchecks": {
+          "const": { "debian": ["kernel", "mounts", "docker", "compose", "restic-timers", "tailscale", "production-audit"], "proxmox": ["kernel", "zfs", "pve-api", "firewall", "tailscale", "vm-100", "debian-audit"] }
+        }
       }
     },
     "lifecycleReleaseMonitorPolicy": {

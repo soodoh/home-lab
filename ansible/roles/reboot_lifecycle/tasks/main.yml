@@ -23,10 +23,15 @@
         import subprocess
         import stat
         import sys
+        from zoneinfo import ZoneInfo
 
         host = sys.argv[1]
         accepted_path = sys.argv[2]
         backup_max_age_hours = int(sys.argv[3])
+        inactive_backup_units = json.loads(sys.argv[4])
+        conflict_lock_paths = set(json.loads(sys.argv[5]))
+        window_policy = json.loads(sys.argv[6])
+        pending_package_transaction_sha256 = sys.argv[7] or None
         environment = {"LC_ALL": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
 
         def run(arguments, timeout=30):
@@ -78,6 +83,34 @@
             vm = run(["/usr/sbin/qm", "status", "100"])
             health["zpool_storage"] = zpool.returncode == 0 and "is healthy" in zpool.stdout
             health["vm_100"] = vm.stdout.strip()
+
+        backup_unit_states = {}
+        for unit in inactive_backup_units:
+            state = run(["/usr/bin/systemctl", "is-active", unit])
+            backup_unit_states[unit] = state.stdout.strip() or "unknown"
+
+        lock_result = run(["/usr/bin/lslocks", "--json", "--output", "PATH,PID,COMMAND"])
+        active_conflict_locks = []
+        if lock_result.returncode == 0:
+            for record in json.loads(lock_result.stdout).get("locks", []):
+                normalized = {str(key).lower(): value for key, value in record.items()}
+                if normalized.get("path") in conflict_lock_paths:
+                    active_conflict_locks.append({"command": normalized.get("command"), "path": normalized["path"], "pid": normalized.get("pid")})
+        for path in conflict_lock_paths:
+            if path.endswith("active.json") and os.path.lexists(path) and not any(item["path"] == path for item in active_conflict_locks):
+                active_conflict_locks.append({"command": "retained-journal", "path": path, "pid": None})
+        active_conflict_locks.sort(key=lambda item: item["path"])
+
+        tailscale = run(["/usr/bin/tailscale", "status", "--json"])
+        tailscale_backend_state = None
+        if tailscale.returncode == 0:
+            tailscale_backend_state = json.loads(tailscale.stdout).get("BackendState")
+        local_now = datetime.datetime.now(ZoneInfo(window_policy["timezone"]))
+        window_eligible = host != "debian" or (
+            local_now.weekday() == window_policy["weekday"] and
+            local_now.hour == window_policy["start_hour"] and
+            local_now.minute < window_policy["max_duration_seconds"] // 60
+        )
 
         backup = {
             "accepted_path": accepted_path,
@@ -150,6 +183,11 @@
             "reboot_required_packages": reboot_required_packages,
             "health": health,
             "backup": backup,
+            "backup_unit_states": backup_unit_states,
+            "active_conflict_locks": active_conflict_locks,
+            "tailscale_backend_state": tailscale_backend_state,
+            "window_eligible": window_eligible,
+            "pending_package_transaction_sha256": pending_package_transaction_sha256,
         }
         canonical = json.dumps(evidence_material, sort_keys=True, separators=(",", ":")).encode()
         evidence_material.update({
@@ -165,6 +203,10 @@
       - "{{ lifecycle_contract_host }}"
       - "{{ backups.restic.runner.accepted_path }}"
       - "{{ lifecycle.maintenance.reboot_plan.backup_max_age_hours | string }}"
+      - "{{ lifecycle.maintenance.reboot_plan.inactive_backup_units | to_json }}"
+      - "{{ lifecycle.maintenance.reboot_plan.conflict_locks | to_json }}"
+      - "{{ lifecycle.maintenance.reboot_plan.debian_window | to_json }}"
+      - "{{ reboot_lifecycle_pending_package_transaction_sha256 }}"
   register: reboot_lifecycle_raw
   changed_when: false
   check_mode: false
@@ -185,6 +227,9 @@
         current_kernel: "{{ reboot_lifecycle_expected_current_kernel }}"
         target_kernel: "{{ reboot_lifecycle_expected_target_kernel }}"
         boot_id: "{{ reboot_lifecycle_expected_boot_id }}"
+        pending_package_transaction_sha256: "{{ reboot_lifecycle_pending_package_transaction_sha256 }}"
+        workload_order: "{{ reboot_lifecycle_policy.workload_order[lifecycle_contract_host] }}"
+        postchecks: "{{ reboot_lifecycle_policy.postchecks[lifecycle_contract_host] }}"
       console_attested: "{{ reboot_lifecycle_console_attested | bool }}"
       backup_attested: "{{ reboot_lifecycle_backup_attested | bool }}"
       active_lifecycle_locks: "{{ lifecycle_state_observation.locks.active }}"
@@ -192,12 +237,20 @@
         {{
           reboot_lifecycle_expected_current_kernel | length > 0 and
           reboot_lifecycle_expected_target_kernel | length > 0 and
-          reboot_lifecycle_expected_boot_id | length > 0
+          reboot_lifecycle_expected_boot_id | length > 0 and
+          (
+            not reboot_lifecycle_evidence.reboot_indicated or
+            reboot_lifecycle_pending_package_transaction_sha256 is match('^[0-9a-f]{64}$')
+          )
         }}
       preconditions_met: >-
         {{
           lifecycle_state_observation.current_compliant and
           lifecycle_state_observation.locks.active | length == 0 and
+          reboot_lifecycle_evidence.active_conflict_locks | length == 0 and
+          reboot_lifecycle_evidence.backup_unit_states.values() | select('equalto', 'active') | list | length == 0 and
+          reboot_lifecycle_evidence.tailscale_backend_state == 'Running' and
+          reboot_lifecycle_evidence.window_eligible and
           (
             reboot_lifecycle_evidence.backup.durable_chain_clear or
             reboot_lifecycle_backup_attested | bool
@@ -216,6 +269,21 @@
             ([] if reboot_lifecycle_expected_current_kernel | length > 0 else ['expected-current-kernel-missing']) +
             ([] if reboot_lifecycle_expected_target_kernel | length > 0 else ['expected-target-kernel-missing']) +
             ([] if reboot_lifecycle_expected_boot_id | length > 0 else ['expected-boot-id-missing']) +
+            (
+              [] if
+                not reboot_lifecycle_evidence.reboot_indicated or
+                reboot_lifecycle_pending_package_transaction_sha256 is match('^[0-9a-f]{64}$')
+              else ['pending-package-transaction-missing']
+            ) +
+            ([] if reboot_lifecycle_evidence.active_conflict_locks | length == 0 else ['active-conflict-lock']) +
+            (
+              [] if
+                reboot_lifecycle_evidence.backup_unit_states.values() |
+                select('equalto', 'active') | list | length == 0
+              else ['backup-unit-active']
+            ) +
+            ([] if reboot_lifecycle_evidence.tailscale_backend_state == 'Running' else ['tailscale-unhealthy']) +
+            ([] if reboot_lifecycle_evidence.window_eligible else ['outside-maintenance-window']) +
             (
               [] if reboot_lifecycle_evidence.backup.durable_chain_clear or reboot_lifecycle_backup_attested | bool
               else ['recent-backup-unproven']

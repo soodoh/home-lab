@@ -5,3 +5,4 @@ reboot_lifecycle_expected_target_kernel: ""
 reboot_lifecycle_expected_boot_id: ""
 reboot_lifecycle_console_attested: false
 reboot_lifecycle_backup_attested: false
+reboot_lifecycle_pending_package_transaction_sha256: ""

@@ -76,6 +76,37 @@ lifecycle:
       expected_boot_id_required: true
       console_required_hosts:
         - proxmox
+      max_plan_age_seconds: 1800
+      debian_window:
+        timezone: America/Los_Angeles
+        weekday: 5
+        start_hour: 1
+        max_duration_seconds: 3600
+        backup_buffer_seconds: 10800
+      inactive_backup_units:
+        - home-lab-restic-daily.target
+        - home-lab-restic-daily-local.service
+        - home-lab-restic-daily-proton.service
+        - home-lab-restic-maintenance.target
+        - home-lab-restic-maintenance-local.service
+        - home-lab-restic-maintenance-proton.service
+        - home-lab-restic-recover.service
+      conflict_locks:
+        - /var/lib/iac-ansible-production.lock
+        - /run/lock/home-lab-backup.lock
+        - /var/lib/home-lab/reconciliation/owner.lock
+        - /var/lib/home-lab/reconciliation/nix.lock
+        - /var/lib/home-lab/reconciliation/operation.lock
+        - /run/lock/home-lab-vfio-recovery.lock
+        - /run/lock/home-lab-debian-package.lock
+        - /run/lock/home-lab-proxmox-package.lock
+        - /var/lib/home-lab/firewall-transaction/active.json
+      workload_order:
+        debian: [compose-drain, host-reboot, host-audit]
+        proxmox: [vm-100-shutdown, host-reboot, host-audit, vm-100-startup, debian-audit]
+      postchecks:
+        debian: [kernel, mounts, docker, compose, restic-timers, tailscale, production-audit]
+        proxmox: [kernel, zfs, pve-api, firewall, tailscale, vm-100, debian-audit]
     release_monitor:
       automatic_apply: false
       warning_days: 180

@@ -1,0 +1,13 @@
+# Reboot maintenance
+
+A timer never authorizes a reboot. Reboot planning is read-only, one-host-only, and separate from every package transaction.
+
+The contract defines a Saturday 01:00 America/Los_Angeles Debian window with a one-hour maximum duration and three-hour backup buffer before the 05:00 daily Restic schedule. Every daily, maintenance, and recovery Restic target/service must be inactive. Planning checks the complete deploy, backup, reconciliation, VFIO, Debian/PVE package, and firewall conflict-lock set; fresh accepted backup state; Tailscale health; current and target kernels; boot ID; and an exact pending package transaction whenever a reboot is indicated.
+
+Saved evidence binds the host-specific workload order and postchecks. Debian must drain Compose, reboot once, and pass kernel, mounts, Docker, Compose, Restic timer, Tailscale, and full production audits. Proxmox remains attended and must stop VM 100 before reboot, audit kernel/ZFS/PVE/firewall/Tailscale after reconnect, restore VM 100 according to reviewed startup policy, and then audit Debian. A failed postboot state is retained for manual recovery and must never trigger another automatic reboot.
+
+The repository Proxmox executor now acquires the shared boot/package/reboot/VFIO conflict lock set, refuses retained reconciliation or firewall transaction state, verifies VM 100 `onboot: 1`, requests a bounded graceful VM shutdown, proves `status: stopped`, journals `vm-stopped` and `rebooting`, and only then invokes the host reboot. Postboot commit still requires VM 100 running and the complete existing host health checks. These changed executor bytes are not installed without a separately reviewed production capability transaction.
+
+`scripts/controller/save-host-maintenance-plan.js` independently recomputes the reduced reboot evidence hash and refuses an expected current kernel, target kernel, or boot ID that differs from direct observation. It cannot mark a plan actionable unless a reboot is actually indicated, all plan inputs are complete, and every precondition passes. Every saved plan remains `authorized: false` with a separate reboot authorization blocker.
+
+The 2026-09-03 production Debian read-only observation reported `changed=0`, current and target kernel `6.12.107+deb13-amd64`, no reboot indication, all seven protected Restic units inactive, no conflict lock, and Tailscale `Running`. It was outside the maintenance window and supplied no expected identities, so no reboot plan was saved and no reboot occurred.

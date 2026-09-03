@@ -93,10 +93,20 @@ function buildPlan({ kind, host, evidence, bindings, nowEpoch }) {
         !/^[0-9a-f]{64}$/.test(payload.proposal_sha256)) {
       throw new Error("package proposal is not safe to save");
     }
-  } else if (evidence.reboot_authorized !== false || !/^[0-9a-f]{64}$/.test(payload?.evidence_sha256) ||
-      typeof payload.current_kernel !== "string" || typeof payload.target_kernel !== "string" ||
-      !/^[0-9a-f-]{36}$/.test(payload.boot_id)) {
-    throw new Error("reboot proposal is not safe to save");
+  } else {
+    if (evidence.reboot_authorized !== false || !/^[0-9a-f]{64}$/.test(payload?.evidence_sha256) ||
+        typeof payload.current_kernel !== "string" || typeof payload.target_kernel !== "string" ||
+        !/^[0-9a-f-]{36}$/.test(payload.boot_id)) {
+      throw new Error("reboot proposal is not safe to save");
+    }
+    const rebootMaterial = Object.fromEntries([
+      "host", "boot_id", "current_kernel", "installed_kernels", "target_kernel", "reboot_required_file",
+      "reboot_required_packages", "health", "backup", "backup_unit_states", "active_conflict_locks",
+      "tailscale_backend_state", "window_eligible", "pending_package_transaction_sha256",
+    ].map((name) => [name, payload[name]]));
+    if (sha256(canonicalJson(rebootMaterial).trimEnd()) !== payload.evidence_sha256) throw new Error("reboot evidence hash differs");
+    if (evidence.expected?.current_kernel !== payload.current_kernel || evidence.expected?.target_kernel !== payload.target_kernel ||
+        evidence.expected?.boot_id !== payload.boot_id) throw new Error("reboot expected state differs from observation");
   }
 
   const createdAt = new Date(nowEpoch * 1000).toISOString().replace(".000Z", "Z");
@@ -121,8 +131,8 @@ function buildPlan({ kind, host, evidence, bindings, nowEpoch }) {
     evidence_sha256: sha256(canonicalJson(payload)),
     blockers: kind === "package"
       ? [...new Set([...(evidence.apply_blockers || []), ...packageTransactionLock.blockers])].sort()
-      : evidence.blockers || [],
-    actionable: kind === "reboot" && evidence.preconditions_met && evidence.plan_inputs_complete,
+      : [...new Set([...(evidence.blockers || []), ...(payload.reboot_indicated ? [] : ["reboot-not-indicated"])])].sort(),
+    actionable: kind === "reboot" && payload.reboot_indicated && evidence.preconditions_met && evidence.plan_inputs_complete,
     authorized: false,
     ...(packageTransactionLock ? { package_transaction_lock: packageTransactionLock } : {}),
   };

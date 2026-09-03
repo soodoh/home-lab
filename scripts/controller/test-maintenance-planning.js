@@ -90,6 +90,13 @@ for (const required of [
   '"/usr/sbin/zpool", "status", "-x", "storage"',
   '"/usr/sbin/qm", "status", "100"',
   '"evidence_sha256"',
+  '"backup_unit_states"',
+  '"active_conflict_locks"',
+  '"tailscale_backend_state"',
+  '"window_eligible"',
+  '"pending_package_transaction_sha256"',
+  '"/usr/bin/lslocks"',
+  '"/usr/bin/tailscale", "status", "--json"',
 ]) {
   assert(rebootScript.includes(required), `reboot observer omits ${required}`);
 }
@@ -139,5 +146,11 @@ assert.equal(rebootPolicy.automatic, false);
 assert.equal(rebootPolicy.one_host_per_transaction, true);
 assert.equal(rebootPolicy.backup_max_age_hours, contract.recovery.critical_rpo_hours);
 assert.deepEqual(rebootPolicy.console_required_hosts, ["proxmox"]);
+assert.equal(rebootPolicy.max_plan_age_seconds, 1800);
+assert.equal(rebootPolicy.debian_window.backup_buffer_seconds, 10800);
+assert(rebootPolicy.inactive_backup_units.includes("home-lab-restic-recover.service"));
+assert(rebootPolicy.conflict_locks.includes("/run/lock/home-lab-debian-package.lock"));
+assert.deepEqual(rebootPolicy.workload_order.proxmox, ["vm-100-shutdown", "host-reboot", "host-audit", "vm-100-startup", "debian-audit"]);
+assert(rebootPolicy.postchecks.debian.includes("production-audit"));
 
 console.log("maintenance_planning=verified");

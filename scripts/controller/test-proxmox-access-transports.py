@@ -66,7 +66,7 @@ def main() -> None:
     activator_source = DEPLOY_ACTIVATOR.read_text()
     assert "eval" not in deploy_source and "sh -c" not in deploy_source
     assert "sudo -n -- /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator" in deploy_source
-    for required in ("os.O_NOFOLLOW", "os.O_EXCL", "origin/main", "apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "--download-only", "--no-download", "automatic_reboot"):
+    for required in ("os.O_NOFOLLOW", "os.O_EXCL", "origin/main", "apply-lifecycle-marker", "prepare-package", "apply-package", "recover-package", "prepare-reboot", "apply-reboot", "verify-reboot", "--download-only", "--no-download", "automatic_reboot", "acquire_boot_conflict_locks", '"shutdown", "100", "--timeout", "120"', '"onboot: 1"', '"status"] = "vm-stopped"'):
         assert required in activator_source
     assert "shell=True" not in activator_source and "NOPASSWD: ALL" not in activator_source
     assert "apt-get update" not in activator_source and "reboot(" not in activator_source

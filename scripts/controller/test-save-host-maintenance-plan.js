@@ -111,15 +111,34 @@ assert.throws(() => buildPlan({ kind: "package", host: "debian", evidence: missi
 const staleMetadataBindings = { ...bindings, max_metadata_age_seconds: 60 };
 assert.throws(() => buildPlan({ kind: "package", host: "debian", evidence: packageEvidence, bindings: staleMetadataBindings, nowEpoch }), /metadata is stale/);
 
+const rebootPayload = {
+  observed_at: "2026-08-28T08:29:30Z",
+  host: "debian",
+  current_kernel: "6.12.101+deb13-amd64",
+  target_kernel: "6.12.105+deb13-amd64",
+  installed_kernels: ["6.12.101+deb13-amd64", "6.12.105+deb13-amd64"],
+  boot_id: "87b6fad8-db9a-46fa-bf0d-68b9b28237f3",
+  reboot_required_file: true,
+  reboot_required_packages: ["linux-image-amd64"],
+  health: { compose_service: "active", mounts: { "/mnt/storage": true } },
+  backup: { durable_chain_clear: true },
+  backup_unit_states: { "home-lab-restic-daily.target": "inactive" },
+  active_conflict_locks: [],
+  tailscale_backend_state: "Running",
+  window_eligible: true,
+  pending_package_transaction_sha256: "9".repeat(64),
+  reboot_indicated: true,
+};
+const rebootMaterial = Object.fromEntries([
+  "host", "boot_id", "current_kernel", "installed_kernels", "target_kernel", "reboot_required_file",
+  "reboot_required_packages", "health", "backup", "backup_unit_states", "active_conflict_locks",
+  "tailscale_backend_state", "window_eligible", "pending_package_transaction_sha256",
+].map((name) => [name, rebootPayload[name]]));
+rebootPayload.evidence_sha256 = crypto.createHash("sha256").update(canonicalJson(rebootMaterial).trimEnd()).digest("hex");
 const rebootEvidence = {
   contract_host: "debian",
-  evidence: {
-    observed_at: "2026-08-28T08:29:30Z",
-    evidence_sha256: "e".repeat(64),
-    current_kernel: "6.12.101+deb13-amd64",
-    target_kernel: "6.12.105+deb13-amd64",
-    boot_id: "87b6fad8-db9a-46fa-bf0d-68b9b28237f3",
-  },
+  evidence: rebootPayload,
+  expected: { current_kernel: rebootPayload.current_kernel, target_kernel: rebootPayload.target_kernel, boot_id: rebootPayload.boot_id },
   blockers: ["expected-current-kernel-missing"],
   preconditions_met: false,
   plan_inputs_complete: false,
