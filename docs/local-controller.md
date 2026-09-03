@@ -7,6 +7,14 @@ scripts/local-controller plan steady
 scripts/local-controller apply steady
 ```
 
+Install the exact Ansible collection set before validation:
+
+```bash
+ansible-galaxy collection install --requirements-file ansible/collections/requirements.yml
+```
+
+Validation refuses a missing or differently versioned pinned collection.
+
 The controller accepts only clean, committed revisions. Plan loads read-only credentials, validates the complete repository, creates commit-bound saved plans, runs policy checks, and displays the plans. Apply verifies those exact plans, requires the exact interactive confirmation, and loads separate mutation credentials only after confirmation.
 
 ## Saved plan boundary

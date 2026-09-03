@@ -68,7 +68,7 @@ We retain the existing safety properties:
 
 - a clean committed revision;
 - plan-only credentials before review and separate apply credentials after confirmation;
-- saved OpenTofu and Ansible plans bound into one manifest;
+- saved OpenTofu plans and saved normalized Ansible check evidence bound into one manifest;
 - no apply-time replan;
 - deterministic normalized Ansible check output;
 - exactly one approved Ansible tag or lifecycle transition per apply;
