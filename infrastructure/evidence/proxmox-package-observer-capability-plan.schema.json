@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "format", "base_commit", "created_at", "expires_at", "plan_sha256", "before_sha256", "desired_package_observer_sha256", "desired_plan_transport_sha256", "desired_sudo_rule_sha256", "live_locks", "authorized", "automatic_apply", "decision", "production_mutation_performed"],
+  "properties": {
+    "version": { "const": 1 },
+    "format": { "const": "home-lab-proxmox-package-observer-capability-plan-evidence-v1" },
+    "base_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "plan_sha256": { "$ref": "#/$defs/sha256" },
+    "before_sha256": { "$ref": "#/$defs/sha256" },
+    "desired_package_observer_sha256": { "$ref": "#/$defs/sha256" },
+    "desired_plan_transport_sha256": { "$ref": "#/$defs/sha256" },
+    "desired_sudo_rule_sha256": { "$ref": "#/$defs/sha256" },
+    "live_locks": { "const": [] },
+    "authorized": { "const": false },
+    "automatic_apply": { "const": false },
+    "decision": { "const": "do-not-apply" },
+    "production_mutation_performed": { "const": false }
+  },
+  "$defs": { "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } }
+}
