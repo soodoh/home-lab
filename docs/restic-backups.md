@@ -20,6 +20,10 @@ That complete recovery qualification releases the incident scheduling freeze. Th
 
 Plan `460d9dfbb659e700b0bdf6a9a2cc6cee55c333cc1c3bc2ee3bab776a2a580e6c` then retired only the exact damaged v2 repository and the stable/beta direct-upload fixtures to Proton Trash. The transaction did not invoke `EmptyTrash`, did not permanently delete data, and made no space-reclamation claim. It revalidated the canonical repository structurally and with a full read-data check while the timers remained active. `infrastructure/evidence/proton-incident-resolution.json` is the terminal supersession receipt (SHA-256 `7f44b0883b87541f662750adbf4b0b24a515fa8815e7ddb675a6311a1ec42d4d`); the historical `cleanup-started` and `copied` journals remain immutable.
 
+After that receipt committed, the operator reported manually moving the remaining `Diagnostics` directory to Proton Trash and emptying account-wide Trash. This manual provider action was not performed by the automation and is not treated as provider-generated evidence; all previously trashed incident artifacts must consequently be treated as permanently deleted.
+
+The rebuilt canonical recovery bundle now has two independent ciphertexts. Bundle A remains protected locally. Bundle B ciphertext `4b62aaa4857ec68822392752d3cce758af981e106b79d8cb969cd6538bb14164` was published as the checksum-verified current version in KMS-encrypted, versioned AWS recovery storage. Publication evidence is `infrastructure/evidence/proton-canonical-recovery-bundles.json`; no AWS credentials or raw version ID are recorded.
+
 The final retired Offen recovery point was:
 
 - basename `daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg`;
