@@ -32,8 +32,9 @@ class SchemaTests(unittest.TestCase):
   self.assertEqual(subprocess.run((validator,),env=base,capture_output=True).returncode,0)
   overlap=dict(base); overlap["PROXMOX_FIREWALL_SSH_PUBLIC_KEYS"]="ssh-ed25519 AAAB different-firewall-comment"
   self.assertNotEqual(subprocess.run((validator,),env=overlap,capture_output=True).returncode,0)
- def test_ansible_proxmox_authority_is_removed(self):
-  self.assertFalse((ROOT/"ansible/playbooks/proxmox-site.yml").exists()); self.assertFalse((ROOT/"ansible/roles/proxmox_firewall").exists()); self.assertFalse((ROOT/"ansible/roles/proxmox_host").exists())
+ def test_ansible_proxmox_surface_is_audit_only_during_nix_ownership(self):
+  site=(ROOT/"ansible/playbooks/proxmox-site.yml").read_text(); self.assertIn("proxmox-audit.yml",site); self.assertNotIn("ansible-deploy",site); self.assertNotIn("proxmox_firewall",site)
+  self.assertFalse((ROOT/"ansible/roles/proxmox_firewall").exists()); self.assertFalse((ROOT/"ansible/roles/proxmox_host").exists())
   inventory=(ROOT/"ansible/inventory/infrastructure.yml").read_text(); self.assertNotIn("proxmox_hosts:",inventory)
  def test_boot_and_timer_units_have_fixed_two_phase_order(self):
   files=ROOT/"infrastructure/proxmox-firewall/host"

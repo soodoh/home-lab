@@ -1,0 +1,96 @@
+---
+- name: Require the fixed local Proxmox audit boundary
+  ansible.builtin.assert:
+    that:
+      - ansible_connection == 'local'
+      - lifecycle_contract_host == 'proxmox'
+      - lifecycle_profile == 'production'
+      - proxmox_audit_profile == 'complete'
+      - proxmox_plan_identity == 'ansible-plan'
+      - proxmox_deploy_identity == 'ansible-deploy'
+      - proxmox_plan_identity != proxmox_deploy_identity
+      - proxmox_plan_ssh_target == proxmox_plan_identity ~ '@' ~ network.proxmox.magicdns_name
+      - proxmox_observer_remote_command == 'observe'
+      - proxmox_complete_audit_domain_count == 17
+      - proxmox_observer_artifact_dir | length > 0
+      - proxmox_observer_artifact_dir is match('^/')
+      - proxmox_known_hosts_file | length > 0
+      - proxmox_known_hosts_file is match('^/')
+    fail_msg: The complete Proxmox audit requires the final local controller, fixed ansible-plan transport, explicit artifact, and strict known-hosts boundary.
+
+- name: Verify the pinned known-hosts database and observer artifact files
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+  loop:
+    - path: "{{ proxmox_known_hosts_file }}"
+      mode: '0600'
+    - path: "{{ proxmox_observer_artifact_dir }}/manifest.json"
+      mode: '0644'
+    - path: "{{ proxmox_observer_artifact_dir }}/observation-spec.json"
+      mode: '0644'
+    - path: "{{ proxmox_observer_artifact_dir }}/proxmox-observer"
+      mode: '0755'
+  register: proxmox_complete_audit_inputs
+  changed_when: false
+
+- name: Enforce observer artifact and known-hosts file metadata
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - not item.stat.islnk
+      - item.stat.nlink == 1
+      - item.stat.pw_name == lookup('ansible.builtin.env', 'USER')
+      - item.stat.mode == item.item.mode
+    fail_msg: "Proxmox audit input is not a canonical controller-owned regular file: {{ item.item.path }}"
+  loop: "{{ proxmox_complete_audit_inputs.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+- name: Fetch the bounded canonical observation through ansible-plan
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['ssh'] +
+        proxmox_controller_ssh_options +
+        ['-o', 'UserKnownHostsFile=' ~ proxmox_known_hosts_file,
+         proxmox_plan_ssh_target, proxmox_observer_remote_command]
+      }}
+  register: proxmox_complete_audit_observation
+  changed_when: false
+  check_mode: false
+  no_log: true
+  timeout: "{{ proxmox_observer_timeout_seconds }}"
+
+- name: Validate complete Proxmox parity against the direct contract mapping
+  ansible.builtin.command:
+    argv:
+      - "{{ playbook_dir }}/../../scripts/controller/proxmox-ansible-audit.js"
+      - --artifact-dir
+      - "{{ proxmox_observer_artifact_dir }}"
+      - --observation
+      - '-'
+    stdin: "{{ proxmox_complete_audit_observation.stdout }}"
+    stdin_add_newline: true
+  register: proxmox_complete_audit_validation
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Publish the reduced complete Proxmox audit
+  ansible.builtin.set_fact:
+    proxmox_complete_audit_result: "{{ proxmox_complete_audit_validation.stdout | from_json }}"
+
+- name: Enforce complete Proxmox audit results
+  ansible.builtin.assert:
+    that:
+      - proxmox_complete_audit_result.format == 'home-lab-proxmox-ansible-audit-v1'
+      - proxmox_complete_audit_result.parity
+      - proxmox_complete_audit_result.domain_count == proxmox_complete_audit_domain_count
+      - proxmox_complete_audit_result.host == network.proxmox.hostname
+    fail_msg: Complete Proxmox parity failed.
+
+- name: Emit complete Proxmox audit evidence
+  ansible.builtin.debug:
+    var: proxmox_complete_audit_result

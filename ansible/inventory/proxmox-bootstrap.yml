@@ -1,0 +1,24 @@
+---
+# Disposable/isolated official-PVE targets only. Never point this inventory at
+# production VM 100 disks, production ZFS members, or the production host.
+all:
+  children:
+    proxmox_host:
+      hosts:
+        proxmox-host-bootstrap:
+          ansible_host: "{{ lookup('ansible.builtin.env', 'HOME_LAB_PROXMOX_BOOTSTRAP_HOST') }}"
+          ansible_user: root
+          ansible_python_interpreter: /usr/bin/python3
+          lifecycle_contract_host: proxmox
+          lifecycle_profile: bootstrap
+          ansible_ssh_common_args: >-
+            -F /dev/null
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o UpdateHostKeys=no
+            -o UserKnownHostsFile={{ lookup('ansible.builtin.env', 'HOME_LAB_PROXMOX_BOOTSTRAP_KNOWN_HOSTS') }}
+            -o IdentitiesOnly=yes
+            -o ClearAllForwardings=yes
+            -o PermitLocalCommand=no
+            -o RequestTTY=no
+            -o ConnectTimeout=10

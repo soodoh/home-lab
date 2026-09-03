@@ -82,6 +82,35 @@ try {
   const version = spawnSync(path.join(outputDirectory, "proxmox-observer"), ["version"], { encoding: "utf8" });
   assert.equal(version.status, 0, version.stderr);
   assert.deepEqual(JSON.parse(version.stdout), { capabilities: ["observe"], helper: "proxmox-observer", protocol: 4, version: 1 });
+
+  const auditSource = path.join(root, "scripts/controller/proxmox-ansible-audit.js");
+  const fixture = JSON.parse(read("infrastructure/host-lifecycle/proxmox/fixture-observation.json"));
+  fixture.observerSha256 = manifest.observer_sha256;
+  let fixtureIndex = 0;
+  const runAudit = (value, canonical = true) => {
+    fixtureIndex += 1;
+    const observationPath = path.join(temporaryRoot, `observation-${fixtureIndex}.json`);
+    const rendered = canonicalJson(value);
+    fs.writeFileSync(observationPath, canonical ? rendered : `${rendered} `, { mode: 0o600 });
+    return spawnSync(auditSource, ["--artifact-dir", outputDirectory, "--observation", observationPath], { encoding: "utf8" });
+  };
+  const verifiedAudit = runAudit(fixture);
+  assert.equal(verifiedAudit.status, 0, verifiedAudit.stderr);
+  assert.equal(JSON.parse(verifiedAudit.stdout).parity, true);
+
+  const managedMismatch = structuredClone(fixture);
+  managedMismatch.domains.managedFiles.records[0].contentMatches = false;
+  assert.notEqual(runAudit(managedMismatch).status, 0);
+  const protectedUnavailable = structuredClone(fixture);
+  Object.assign(protectedUnavailable.domains.protectedHardware, { status: "unavailable", matches: null, observedCount: null });
+  assert.notEqual(runAudit(protectedUnavailable).status, 0);
+  const sensitive = structuredClone(fixture);
+  sensitive.host.hostname = "HOMELAB_SECRET";
+  assert.notEqual(runAudit(sensitive).status, 0);
+  const missingDomain = structuredClone(fixture);
+  delete missingDomain.domains.pveFirewall;
+  assert.notEqual(runAudit(missingDomain).status, 0);
+  assert.notEqual(runAudit(fixture, false).status, 0);
   assert.throws(() => build(outputDirectory, privatePreparerSha256), /already exists/);
   assert.throws(() => observationSpecification(projection, "bad"), /malformed/);
 } finally {

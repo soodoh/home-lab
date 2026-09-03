@@ -1,0 +1,11 @@
+---
+- name: Audit complete Proxmox host parity through the fixed plan transport
+  hosts: proxmox_host
+  gather_facts: false
+  become: false
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/proxmox_host.yml"
+  roles:
+    - role: proxmox_complete_audit

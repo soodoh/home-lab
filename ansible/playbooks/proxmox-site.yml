@@ -1,0 +1,6 @@
+---
+# Until the separately authorized Gate 4 ownership cutover, the final Proxmox
+# site entrypoint is intentionally audit-only. Fixed deploy transactions remain
+# separate and cannot be selected through a broad site apply.
+- name: Run the complete fixed-transport Proxmox site audit
+  ansible.builtin.import_playbook: proxmox-audit.yml

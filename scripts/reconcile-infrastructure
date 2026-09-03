@@ -116,6 +116,7 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-proxmox-package-manifest.js
   node scripts/controller/test-proxmox-nix-projection.js
   node scripts/controller/test-proxmox-ansible-observer.js
+  node scripts/controller/test-proxmox-complete-audit.js
   python3 scripts/controller/test-vfio-recover.py
   node scripts/controller/test-vm-100-authority.js
   node scripts/controller/proxmox-host-projection.js --check --target proxmox

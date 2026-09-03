@@ -1,0 +1,30 @@
+---
+# Desired values remain sourced directly from infrastructure/contract/home-lab.yml.
+# These variables define only the final Ansible execution boundary.
+proxmox_complete_audit_domain_count: 17
+proxmox_observer_remote_command: observe
+proxmox_observer_timeout_seconds: 180
+proxmox_controller_ssh_options:
+  - -F
+  - /dev/null
+  - -T
+  - -o
+  - BatchMode=yes
+  - -o
+  - StrictHostKeyChecking=yes
+  - -o
+  - UpdateHostKeys=no
+  - -o
+  - IdentitiesOnly=yes
+  - -o
+  - ClearAllForwardings=yes
+  - -o
+  - PermitLocalCommand=no
+  - -o
+  - RequestTTY=no
+  - -o
+  - ConnectTimeout=10
+  - -o
+  - ServerAliveInterval=15
+  - -o
+  - ServerAliveCountMax=2

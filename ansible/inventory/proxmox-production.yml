@@ -1,0 +1,16 @@
+---
+all:
+  children:
+    proxmox_host:
+      hosts:
+        proxmox-host-production:
+          ansible_connection: local
+          ansible_python_interpreter: "{{ ansible_playbook_python }}"
+          lifecycle_contract_host: proxmox
+          lifecycle_profile: production
+          proxmox_audit_profile: complete
+          proxmox_plan_identity: ansible-plan
+          proxmox_deploy_identity: ansible-deploy
+          proxmox_plan_ssh_target: ansible-plan@proxmox
+          proxmox_observer_artifact_dir: "{{ lookup('ansible.builtin.env', 'HOME_LAB_PROXMOX_OBSERVER_ARTIFACT') }}"
+          proxmox_known_hosts_file: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/known_hosts"
