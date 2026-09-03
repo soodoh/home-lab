@@ -1,0 +1,24 @@
+---
+all:
+  children:
+    docker_host:
+      hosts:
+        docker-host-inert:
+          ansible_host: "{{ lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_INERT_HOST') }}"
+          ansible_user: ansible-deploy
+          ansible_python_interpreter: /usr/bin/python3
+          lifecycle_contract_host: debian
+          lifecycle_profile: inert
+          ansible_become: true
+          ansible_become_method: sudo
+          ansible_ssh_common_args: >-
+            -F /dev/null
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o UpdateHostKeys=no
+            -o UserKnownHostsFile={{ lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_INERT_KNOWN_HOSTS') }}
+            -o IdentitiesOnly=yes
+            -o ClearAllForwardings=yes
+            -o PermitLocalCommand=no
+            -o RequestTTY=no
+            -o ConnectTimeout=10

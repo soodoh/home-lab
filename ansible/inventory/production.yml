@@ -10,6 +10,7 @@ all:
           ansible_user: ansible-deploy
           ansible_python_interpreter: /usr/bin/python3
           lifecycle_contract_host: debian
+          lifecycle_profile: production
           # The controller authenticates through Tailscale SSH while retaining
           # strict SSH host-key verification for the Tailscale SSH endpoint.
           ansible_ssh_common_args: >-

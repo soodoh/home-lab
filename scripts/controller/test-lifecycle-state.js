@@ -12,6 +12,8 @@ const tasks = readYaml("ansible/roles/lifecycle_state/tasks/main.yml");
 const observePlaybook = readYaml("ansible/playbooks/lifecycle-observe.yml");
 const assertPlaybook = readYaml("ansible/playbooks/lifecycle-assert.yml");
 const inventory = readYaml("ansible/inventory/production.yml");
+const inertInventory = readYaml("ansible/inventory/debian-inert.yml");
+const sitePlaybook = readYaml("ansible/playbooks/site.yml")[0];
 const contract = readYaml("infrastructure/contract/home-lab.yml");
 
 function task(name) {
@@ -79,10 +81,28 @@ assert.equal(dockerHost.lifecycle_contract_host, "debian");
 assert.equal(proxmoxHost.lifecycle_contract_host, "proxmox");
 assert.equal(proxmoxHost.ansible_host, "proxmox");
 assert.equal(proxmoxHost.ansible_user, "proxmox");
+assert.equal(dockerHost.lifecycle_profile, "production");
 for (const host of [dockerHost, proxmoxHost]) {
   for (const required of ["-F /dev/null", "StrictHostKeyChecking=yes", "UpdateHostKeys=no", "ClearAllForwardings=yes", "PermitLocalCommand=no"]) {
     assert(host.ansible_ssh_common_args.includes(required), `inventory SSH policy omits ${required}`);
   }
+}
+
+const inertHost = inertInventory.all.children.docker_host.hosts["docker-host-inert"];
+assert.equal(inertHost.lifecycle_contract_host, "debian");
+assert.equal(inertHost.lifecycle_profile, "inert");
+for (const required of ["BatchMode=yes", "StrictHostKeyChecking=yes", "UpdateHostKeys=no", "UserKnownHostsFile=", "IdentitiesOnly=yes", "RequestTTY=no"]) {
+  assert(inertHost.ansible_ssh_common_args.includes(required), `inert inventory SSH policy omits ${required}`);
+}
+assert(!inertHost.ansible_ssh_common_args.includes("StrictHostKeyChecking=no"));
+
+const profileGuard = sitePlaybook.pre_tasks.find((item) => item.name === "Require an explicit Debian lifecycle profile");
+assert(profileGuard, "site.yml must require a lifecycle profile");
+assert(profileGuard["ansible.builtin.assert"].that.includes("lifecycle_profile in ['inert', 'recovery', 'production']"));
+const baseRole = sitePlaybook.roles.find((item) => item.role === "base");
+assert(baseRole && baseRole.when === undefined, "safe base must run for every lifecycle profile");
+for (const role of sitePlaybook.roles.filter((item) => item.role !== "base")) {
+  assert.equal(role.when, "lifecycle_profile == 'production'", `${role.role} must remain production-only`);
 }
 
 assert.deepEqual(contract.lifecycle.states, ["inert", "bootstrap", "production", "maintenance", "recovery", "retired"]);

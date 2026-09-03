@@ -7,9 +7,27 @@
     - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
     - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   pre_tasks:
+    - name: Require an explicit Debian lifecycle profile
+      ansible.builtin.assert:
+        that:
+          - lifecycle_profile is defined
+          - lifecycle_profile in ['inert', 'recovery', 'production']
+        fail_msg: Set lifecycle_profile explicitly through the selected inventory; implicit production activation is forbidden.
+      tags:
+        - always
     - name: Enforce the apply safety contract
       ansible.builtin.import_role:
         name: apply_guard
+      tags:
+        - always
+
+    - name: Enforce production lifecycle invariants before production convergence
+      ansible.builtin.import_role:
+        name: lifecycle_state
+      vars:
+        lifecycle_state_enforce: true
+        lifecycle_state_emit_observation: false
+      when: lifecycle_profile == 'production'
       tags:
         - always
 
@@ -25,27 +43,35 @@
       tags:
         - base
     - role: tailscale
+      when: lifecycle_profile == 'production'
       tags:
         - tailscale
     - role: firewall_nfs_canary
+      when: lifecycle_profile == 'production'
       tags:
         - storage
     - role: storage
+      when: lifecycle_profile == 'production'
       tags:
         - storage
     - role: docker
+      when: lifecycle_profile == 'production'
       tags:
         - docker
     - role: human_access
+      when: lifecycle_profile == 'production'
       tags:
         - ssh
     - role: sops_age
+      when: lifecycle_profile == 'production'
       tags:
         - sops_age
     - role: restic_backup
+      when: lifecycle_profile == 'production'
       tags:
         - restic_backup
     - role: hardware
+      when: lifecycle_profile == 'production'
       tags:
         - hardware
     - role: ssh
@@ -57,15 +83,19 @@
         ssh_allow_users:
           - ansible-plan
           - ansible-deploy
+      when: lifecycle_profile == 'production'
       tags:
         - ssh
     - role: host_files
+      when: lifecycle_profile == 'production'
       tags:
         - host_files
     - role: compose
+      when: lifecycle_profile == 'production'
       tags:
         - compose
     - role: health
+      when: lifecycle_profile == 'production'
       tags:
         - health
   post_tasks:
