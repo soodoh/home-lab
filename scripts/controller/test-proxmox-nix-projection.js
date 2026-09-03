@@ -9,7 +9,7 @@ const {
   canonicalJson,
   projectProxmoxPolicy,
   validateProjection,
-} = require("./proxmox-nix-projection");
+} = require("./proxmox-host-projection");
 
 const root = path.resolve(__dirname, "../..");
 const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/home-lab.yml"), "utf8"));

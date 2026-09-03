@@ -54,7 +54,7 @@ def observe() -> dict:
 
 
 def source_proof() -> dict:
-    projection = (ROOT / "scripts/controller/proxmox-nix-projection.js").read_text()
+    projection = (ROOT / "scripts/controller/proxmox-host-projection.js").read_text()
     planner = (ROOT / "nix/proxmox/planner.py").read_text()
     activator = (ROOT / "nix/proxmox/activator-template.py").read_text()
     contract = (ROOT / "infrastructure/contract/home-lab.yml").read_text()

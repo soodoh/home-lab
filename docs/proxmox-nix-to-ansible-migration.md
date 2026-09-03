@@ -20,7 +20,7 @@ The installed observer proves every currently retained Nix domain and the transf
 
 | Nix area/domain | Current implementation | Target Ansible implementation | Handoff/retirement gate |
 |---|---|---|---|
-| Projection | `scripts/controller/proxmox-nix-projection.js`, `nix/proxmox/projection.json`, schemas | Contract-backed Proxmox group vars and role assertions, without a second generated policy document | Every projected field has one role owner; contract schema tests reject omissions and unknowns |
+| Projection | `scripts/controller/proxmox-host-projection.js`, `nix/proxmox/projection.json`, schemas | Shared direct contract mapping consumed by transitional Nix and final Ansible artifacts, without a second policy authority | Every projected field has one role/audit owner; contract schema tests reject omissions and unknowns |
 | Bundle and source isolation | `nix/flake.nix`, `flake.lock`, `bundle.py`, Nix-store leak scans | Controller-built manifest of reviewed Ansible role/templates/helpers with content hashes | Reproducible artifact, secret scan, source allowlist, and installed-byte verification equal or exceed bundle tests |
 | Observation | Forced `tofu-plan` observer and observation schema | `ansible-plan` Tailscale SSH inventory plus reduced custom facts/commands | Two independent observations normalize identically; unavailable protected facts block; no secret/protected literal is emitted |
 | Planning | `planner.py`, `plan.schema.json`, 30-minute freshness, ordered findings/actions/blockers | Reproducible Ansible check plan plus normalized action manifest bound into the controller saved-plan manifest | Same commit/tree, contract, inventory, role, artifact, live-observation, freshness, and action-order bindings; apply cannot replan |

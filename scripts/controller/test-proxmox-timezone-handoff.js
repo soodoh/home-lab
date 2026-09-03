@@ -11,7 +11,7 @@ const root = path.resolve(__dirname, "../..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 const contract = load(read("infrastructure/contract/home-lab.yml"));
 const sources = {
-  projection: read("scripts/controller/proxmox-nix-projection.js"),
+  projection: read("scripts/controller/proxmox-host-projection.js"),
   planner: read("nix/proxmox/planner.py"),
   activator: read("nix/proxmox/activator-template.py"),
 };

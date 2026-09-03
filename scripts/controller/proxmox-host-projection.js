@@ -2,6 +2,7 @@
 "use strict";
 
 const fs = require("node:fs");
+const crypto = require("node:crypto");
 const path = require("node:path");
 const { load } = require("js-yaml");
 const Ajv2020 = require("ajv/dist/2020");
@@ -370,6 +371,87 @@ function projectProxmoxPolicy(contract, packageManifest) {
 }
 
 
+function observationSpecification(projection, privatePreparerSha256) {
+  if (!/^[0-9a-f]{64}$/.test(privatePreparerSha256)) {
+    throw new Error("private preparer SHA-256 is malformed");
+  }
+  const accounts = [...projection.accounts.service, ...projection.accounts.human]
+    .map((account) => ({
+      comment: account.comment ?? "",
+      groups: [...(account.groups ?? account.supplementaryGroups ?? [])].sort(compareText),
+      home: account.home,
+      name: account.name,
+      primaryGroup: account.group ?? account.name,
+      shell: account.shell,
+    }))
+    .sort((left, right) => compareText(left.name, right.name));
+  const pveManager = projection.packagePolicy.critical.find((item) => item.role === "pve-manager");
+  if (!pveManager) throw new Error("projection lacks the required PVE manager identity policy");
+  const sha256Text = (value) => crypto.createHash("sha256").update(value, "utf8").digest("hex");
+  return {
+    accounts,
+    auditAbsence: projection.auditAbsence.map((item) => ({
+      absence: item.absence,
+      target: item.path,
+      ...(item.pattern === undefined ? {} : { pattern: item.pattern }),
+    })),
+    aptSourceNames: projection.managedFiles
+      .filter((item) => item.path.startsWith("/etc/apt/sources.list.d/"))
+      .map((item) => path.basename(item.path)).sort(compareText),
+    managedArtifacts: projection.managedArtifacts.map((item) => ({
+      expectedSha256: item.sha256,
+      group: item.group,
+      owner: item.owner,
+      symlinkTarget: item.symlinkTarget,
+      target: item.path,
+    })),
+    managedFiles: projection.managedFiles.map((item) => ({
+      expectedSha256: sha256Text(item.content),
+      group: item.group,
+      owner: item.owner,
+      target: item.path,
+    })),
+    managedFragments: projection.managedFileFragments.map((item) => ({
+      content: item.content,
+      expectedSha256: sha256Text(item.content),
+      group: item.group,
+      owner: item.owner,
+      target: item.path,
+    })),
+    health: projection.healthExpectations,
+    timezone: projection.timezoneAuditExpected,
+    networkSnippetNames: [...projection.hostNetworking.permittedActiveSnippets].sort(compareText),
+    expectedIdentity: {
+      architecture: projection.architecture,
+      hostname: projection.hostNetworking.hostname,
+      os: "debian",
+      pveVersion: `pve-manager/${pveManager.version}`,
+    },
+    legacyTofuAccessRequired: projection.nixMutationFrozen !== true,
+    conventionalKeysAbsent: projection.ssh.pubkeyAuthentication === false,
+    protectedAccessExpectedCount: (projection.ssh.pubkeyAuthentication === false ? 3 : 4) +
+      (projection.nixMutationFrozen === true ? 0 : 2),
+    protectedExpectedCount: 3,
+    pveAccessRoles: projection.apiIntent.pveAccess.roles,
+    pveFirewall: projection.apiIntent.pveFirewall,
+    pveStorage: projection.apiIntent.pveStorage,
+    services: projection.nativeServices.map((item) => item.name).sort(compareText),
+    storage: projection.storagePolicy,
+    tailscale: {
+      acceptDns: projection.tailscale.acceptDns,
+      acceptRoutes: projection.tailscale.acceptRoutes,
+      advertiseRoutes: projection.tailscale.advertiseRoutes,
+      advertiseTags: [projection.tailscale.advertiseTag],
+      backendState: projection.healthExpectations.tailscaleBackendState,
+      hostname: projection.tailscale.hostname,
+      netfilterMode: projection.tailscale.netfilterMode,
+      ssh: projection.tailscale.ssh,
+    },
+    privatePreparerSha256,
+  };
+}
+
+
 function validateProjection(projection, schema) {
   const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
   if (!validate(projection)) {
@@ -386,7 +468,7 @@ function main() {
     if (args[index] === "--check") check = true;
     else if (args[index] === "--target" && args[index + 1]) target = args[++index];
     else if (args[index] === "--output" && args[index + 1]) output = path.resolve(args[++index]);
-    else throw new Error("usage: proxmox-nix-projection.js [--check] [--target proxmox] [--output PATH]");
+    else throw new Error("usage: proxmox-host-projection.js [--check] [--target proxmox] [--output PATH]");
   }
   const targets = {
     proxmox: {
@@ -404,7 +486,7 @@ function main() {
   validateProjection(JSON.parse(rendered), schema);
   if (check) {
     if (!fs.existsSync(output) || fs.readFileSync(output, "utf8") !== rendered) {
-      throw new Error(`${path.relative(root, output)} is stale; regenerate it with scripts/controller/proxmox-nix-projection.js --target ${target}`);
+      throw new Error(`${path.relative(root, output)} is stale; regenerate it with scripts/controller/proxmox-host-projection.js --target ${target}`);
     }
   } else {
     fs.mkdirSync(path.dirname(output), { recursive: true });
@@ -413,4 +495,4 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { canonicalJson, projectProxmoxPolicy, validateProjection };
+module.exports = { canonicalJson, observationSpecification, projectProxmoxPolicy, validateProjection };

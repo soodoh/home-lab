@@ -1,0 +1,594 @@
+{
+  "$defs": {
+    "accounts": {
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "commentMatches": {
+                "type": "boolean"
+              },
+              "exists": {
+                "type": "boolean"
+              },
+              "expectedGroupsMatch": {
+                "type": "boolean"
+              },
+              "home": {
+                "$ref": "#/$defs/path"
+              },
+              "name": {
+                "type": "string"
+              },
+              "passwordLocked": {
+                "type": "boolean"
+              },
+              "primaryGroupMatches": {
+                "type": "boolean"
+              },
+              "shell": {
+                "$ref": "#/$defs/path"
+              }
+            },
+            "required": [
+              "name",
+              "exists",
+              "home",
+              "shell",
+              "passwordLocked",
+              "expectedGroupsMatch",
+              "commentMatches",
+              "primaryGroupMatches"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "unexpectedCount": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "records",
+        "unexpectedCount"
+      ],
+      "type": "object"
+    },
+    "auditAbsence": {
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "count": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "target": {
+                "$ref": "#/$defs/path"
+              },
+              "type": {
+                "enum": [
+                  "file",
+                  "matching-lines"
+                ]
+              }
+            },
+            "required": [
+              "target",
+              "type",
+              "count"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "unexpectedCount": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "records",
+        "unexpectedCount"
+      ],
+      "type": "object"
+    },
+    "fileBase": {
+      "additionalProperties": false,
+      "properties": {
+        "contentMatches": {
+          "type": "boolean"
+        },
+        "groupMatches": {
+          "type": "boolean"
+        },
+        "mode": {
+          "pattern": "^0[0-7]{3}$",
+          "type": "string"
+        },
+        "ownerMatches": {
+          "type": "boolean"
+        },
+        "target": {
+          "$ref": "#/$defs/path"
+        },
+        "type": {
+          "enum": [
+            "file",
+            "symlink",
+            "other",
+            "absent"
+          ]
+        }
+      },
+      "required": [
+        "target",
+        "type",
+        "ownerMatches",
+        "groupMatches",
+        "mode",
+        "contentMatches"
+      ],
+      "type": "object"
+    },
+    "fileRecords": {
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "items": {
+            "$ref": "#/$defs/fileBase"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "unexpectedCount": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "records",
+        "unexpectedCount"
+      ],
+      "type": "object"
+    },
+    "managedArtifacts": {
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "contentMatches": {
+                "type": "boolean"
+              },
+              "groupMatches": {
+                "type": "boolean"
+              },
+              "mode": {
+                "pattern": "^0[0-7]{3}$",
+                "type": "string"
+              },
+              "ownerMatches": {
+                "type": "boolean"
+              },
+              "symlinkTargetMatches": {
+                "type": "boolean"
+              },
+              "target": {
+                "$ref": "#/$defs/path"
+              },
+              "type": {
+                "enum": [
+                  "file",
+                  "symlink",
+                  "other",
+                  "absent"
+                ]
+              }
+            },
+            "required": [
+              "target",
+              "type",
+              "ownerMatches",
+              "groupMatches",
+              "mode",
+              "contentMatches",
+              "symlinkTargetMatches"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "unexpectedCount": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "records",
+        "unexpectedCount"
+      ],
+      "type": "object"
+    },
+    "managedFiles": {
+      "$ref": "#/$defs/fileRecords"
+    },
+    "managedFragments": {
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "groupMatches": {
+                "type": "boolean"
+              },
+              "matchCount": {
+                "minimum": 0,
+                "type": "integer"
+              },
+              "mode": {
+                "pattern": "^0[0-7]{3}$",
+                "type": "string"
+              },
+              "ownerMatches": {
+                "type": "boolean"
+              },
+              "target": {
+                "$ref": "#/$defs/path"
+              },
+              "type": {
+                "enum": [
+                  "file",
+                  "symlink",
+                  "other",
+                  "absent"
+                ]
+              }
+            },
+            "required": [
+              "target",
+              "type",
+              "ownerMatches",
+              "groupMatches",
+              "mode",
+              "matchCount"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "unexpectedCount": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "records",
+        "unexpectedCount"
+      ],
+      "type": "object"
+    },
+    "packages": {
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "version"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "unexpectedCount": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "records",
+        "unexpectedCount"
+      ],
+      "type": "object"
+    },
+    "path": {
+      "pattern": "^/(?!etc/pve(?:/|$))",
+      "type": "string"
+    },
+    "services": {
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "active": {
+                "type": "boolean"
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "enabled",
+              "active"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "unexpectedCount": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "records",
+        "unexpectedCount"
+      ],
+      "type": "object"
+    },
+    "timezone": {
+      "additionalProperties": false,
+      "properties": {
+        "records": {
+          "type": "array",
+          "items": {
+            "additionalProperties": false,
+            "type": "object",
+            "properties": {
+              "name": { "const": "system" },
+              "timezone": { "type": "string", "pattern": "^[A-Za-z0-9_+-]+(?:/[A-Za-z0-9_+-]+)*$", "maxLength": 128 }
+            },
+            "required": ["name", "timezone"]
+          }
+        },
+        "status": { "$ref": "#/$defs/status" },
+        "unexpectedCount": { "type": ["integer", "null"], "minimum": 0 }
+      },
+      "required": ["status", "records", "unexpectedCount"],
+      "type": "object"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "unavailable"
+      ]
+    },
+    "summary": {
+      "additionalProperties": false,
+      "properties": {
+        "expectedCount": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "matches": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "observedCount": {
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        }
+      },
+      "required": [
+        "status",
+        "expectedCount",
+        "observedCount",
+        "matches"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "domains": {
+      "additionalProperties": false,
+      "properties": {
+        "accounts": {
+          "$ref": "#/$defs/accounts"
+        },
+        "auditAbsence": {
+          "$ref": "#/$defs/auditAbsence"
+        },
+        "health": {
+          "$ref": "#/$defs/summary"
+        },
+        "managedArtifacts": {
+          "$ref": "#/$defs/managedArtifacts"
+        },
+        "managedFiles": {
+          "$ref": "#/$defs/managedFiles"
+        },
+        "managedFragments": {
+          "$ref": "#/$defs/managedFragments"
+        },
+        "packages": {
+          "$ref": "#/$defs/packages"
+        },
+        "protectedAccess": {
+          "$ref": "#/$defs/summary"
+        },
+        "protectedHardware": {
+          "$ref": "#/$defs/summary"
+        },
+        "pveAccess": {
+          "$ref": "#/$defs/summary"
+        },
+        "pveFirewall": {
+          "$ref": "#/$defs/summary"
+        },
+        "pveStorage": {
+          "$ref": "#/$defs/summary"
+        },
+        "services": {
+          "$ref": "#/$defs/services"
+        },
+        "storage": {
+          "$ref": "#/$defs/summary"
+        },
+        "tailscale": {
+          "$ref": "#/$defs/summary"
+        },
+        "timezone": {
+          "$ref": "#/$defs/timezone"
+        },
+        "vm": {
+          "$ref": "#/$defs/summary"
+        }
+      },
+      "required": [
+        "accounts",
+        "auditAbsence",
+        "health",
+        "managedArtifacts",
+        "managedFiles",
+        "managedFragments",
+        "packages",
+        "protectedAccess",
+        "protectedHardware",
+        "pveAccess",
+        "pveFirewall",
+        "pveStorage",
+        "services",
+        "storage",
+        "tailscale",
+        "timezone",
+        "vm"
+      ],
+      "type": "object"
+    },
+    "format": {
+      "const": "home-lab-proxmox-observation-v1"
+    },
+    "host": {
+      "additionalProperties": false,
+      "properties": {
+        "architecture": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "hostname": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "kernel": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "os": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "pveVersion": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "architecture",
+        "hostname",
+        "kernel",
+        "os",
+        "pveVersion"
+      ],
+      "type": "object"
+    },
+    "observerSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "protocol": {
+      "const": 4
+    }
+  },
+  "required": [
+    "format",
+    "protocol",
+    "observerSha256",
+    "host",
+    "domains"
+  ],
+  "type": "object"
+}
