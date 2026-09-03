@@ -89,6 +89,7 @@
         ssh_allow_users:
           - ansible-plan
           - ansible-deploy
+          - ansible-package-apply
       when: lifecycle_profile == 'production'
       tags:
         - ssh

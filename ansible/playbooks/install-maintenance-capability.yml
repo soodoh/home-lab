@@ -1,0 +1,41 @@
+---
+- name: Install one separately authorized maintenance capability
+  hosts: docker_host
+  gather_facts: false
+  become: false
+  serial: 1
+  max_fail_percentage: 0
+  vars:
+    maintenance_capability_source_root: "{{ playbook_dir }}/../../infrastructure/maintenance/host"
+  pre_tasks:
+    - name: Build source hash binding from reviewed repository bytes
+      ansible.builtin.set_fact:
+        maintenance_capability_expected_source_hashes: >-
+          {{
+            (
+              {
+                'transport': lookup('ansible.builtin.file', maintenance_capability_source_root + '/debian-package-apply-transport',
+                                    rstrip=False) | hash('sha256'),
+                'executor': lookup('ansible.builtin.file', maintenance_capability_source_root + '/debian-package-transaction',
+                                   rstrip=False) | hash('sha256'),
+                'observer': lookup('ansible.builtin.file', maintenance_capability_source_root + '/package-candidate-observer',
+                                   rstrip=False) | hash('sha256')
+              }
+            ) if maintenance_capability_kind == 'package-identity' else
+            (
+              {
+                'observer': lookup('ansible.builtin.file', maintenance_capability_source_root + '/unattended-retirement-observer',
+                                   rstrip=False) | hash('sha256'),
+                'executor': lookup('ansible.builtin.file', maintenance_capability_source_root + '/unattended-retirement-transaction',
+                                   rstrip=False) | hash('sha256')
+              }
+              if maintenance_capability_kind == 'unattended-retirement' else
+              {
+                'executor': lookup('ansible.builtin.file', maintenance_capability_source_root + '/debian-reboot-transaction',
+                                   rstrip=False) | hash('sha256')
+              }
+            )
+          }}
+  roles:
+    - role: lifecycle_state
+    - role: maintenance_capability

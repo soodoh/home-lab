@@ -1,0 +1,37 @@
+---
+name: Maintenance candidate dashboard
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '41 14 1 * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: maintenance-candidate-dashboard
+  cancel-in-progress: false
+
+jobs:
+  dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out reviewed repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install pinned Bun runtime
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.2.4
+      - name: Build non-authorizing dashboard
+        env:
+          MAINTENANCE_DASHBOARD_GENERATED_AT: ${{ github.event.repository.updated_at }}
+        run: bun scripts/controller/maintenance-dashboard.js > maintenance-dashboard.json
+      - name: Publish candidate-only dashboard
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: maintenance-candidate-dashboard
+          path: maintenance-dashboard.json
+          if-no-files-found: error
+          retention-days: 30

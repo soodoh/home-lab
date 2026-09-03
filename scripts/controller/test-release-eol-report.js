@@ -85,8 +85,9 @@ for (const forbidden of ["secrets.", "contents: write", "pull-requests: write", 
 }
 
 const renovate = JSON.parse(read("renovate.json"));
-assert.equal(renovate.customManagers.length, 1);
-const lifecycleManager = renovate.customManagers[0];
+assert(renovate.customManagers.length >= 2);
+const lifecycleManager = renovate.customManagers.find((manager) => manager.matchStrings?.some((pattern) => pattern.includes("depName=(?<depName>")));
+assert(lifecycleManager);
 assert.equal(lifecycleManager.customType, "regex");
 const markerPattern = new RegExp(lifecycleManager.matchStrings[0], "g");
 const markerText = [read("ansible/collections/requirements.yml"), read("ansible/group_vars/docker_host.yml"),

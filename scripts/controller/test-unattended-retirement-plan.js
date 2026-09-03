@@ -79,4 +79,12 @@ for (const required of ["os.O_NOFOLLOW", "os.fstat", "st_nlink != 1", "apt-daily
 for (const forbidden of ["systemctl\", \"stop", "systemctl\", \"disable", "systemctl\", \"mask", "apt-get\", \"remove", "os.unlink", "os.replace"]) {
   assert(!source.includes(forbidden), `retirement observer contains mutation ${forbidden}`);
 }
-console.log("unattended_retirement_plan=verified transaction=verified");
+const capability = fs.readFileSync(path.join(root, "scripts/controller/maintenance-capability-activation.py"), "utf8");
+const capabilityTasks = fs.readFileSync(path.join(root, "ansible/roles/maintenance_capability/tasks/main.yml"), "utf8");
+for (const required of ["unattended-retirement", "source_hashes", "MAINTENANCE_CAPABILITY_CONFIRMED", "--check", "clean pushed HEAD"]) {
+  assert(capability.includes(required), `retirement capability controller omits ${required}`);
+}
+for (const required of ["maintenance_capability_approved_sha256", "unattended-retirement-observer", "unattended-retirement-transaction", "owner: root", "mode: '0755'"]) {
+  assert(capabilityTasks.includes(required), `retirement capability installer omits ${required}`);
+}
+console.log("unattended_retirement_plan=verified transaction=verified capability=verified");

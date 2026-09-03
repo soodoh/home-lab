@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+unset CDPATH ENV BASH_ENV PYTHONPATH PYTHONHOME PERL5LIB RUBYLIB
+
+if [ "$#" -ne 2 ] || [ "$1" != -c ] || [ -n "${SSH_ORIGINAL_COMMAND-}" ]; then
+  exit 64
+fi
+command=$2
+case "$command" in
+  stage\ package\ *)
+    digest=${command#stage package }
+    case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
+    [ "${#digest}" -eq 64 ] || exit 64
+    inbox=/home/ansible-package-apply/.home-lab-plan-inbox
+    umask 077
+    mkdir -p "$inbox"
+    [ "$(id -u)" -eq "$(stat -c %u "$inbox")" ] || exit 77
+    [ "$(stat -c %a "$inbox")" = 700 ] || exit 77
+    target=$inbox/$digest.json
+    [ ! -e "$target" ] || exit 73
+    temporary=$inbox/.$digest.$$.tmp
+    trap 'rm -f "$temporary"' EXIT HUP INT TERM
+    dd bs=262145 count=1 of="$temporary" 2>/dev/null
+    [ "$(wc -c <"$temporary")" -le 262144 ] || exit 65
+    [ "$(sha256sum "$temporary" | cut -d' ' -f1)" = "$digest" ] || exit 65
+    chmod 0600 "$temporary"
+    mv -T "$temporary" "$target"
+    trap - EXIT HUP INT TERM
+    printf '%s\n' '{"staged":true}'
+    ;;
+  inspect\ package\ *|prepare\ package\ *|apply\ package\ *|recover\ package\ *)
+    operation=${command%% package *}
+    digest=${command#* package }
+    case "$digest" in *[!0-9a-f]*|'') exit 64;; esac
+    [ "${#digest}" -eq 64 ] || exit 64
+    printf '{"operation":"%s","plan_sha256":"%s"}\n' "$operation" "$digest" |
+      exec /usr/bin/sudo -n -- /usr/local/libexec/home-lab/debian-package-transaction
+    ;;
+  *) exit 64;;
+esac

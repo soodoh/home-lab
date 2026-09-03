@@ -19,6 +19,7 @@ DEPLOY_UPGRADE = ROOT / "scripts/controller/proxmox-deploy-upgrade.py"
 PRIVATE_PREPARER_UPGRADE = ROOT / "scripts/physical-console-install-proxmox-private-preparer-upgrade"
 PACKAGE_ACTIVATION = ROOT / "scripts/controller/proxmox-package-activation.py"
 REBOOT_ACTIVATION = ROOT / "scripts/controller/proxmox-reboot-activation.py"
+PACKAGE_OBSERVER_CAPABILITY = ROOT / "scripts/controller/proxmox-package-observer-capability.py"
 
 
 def invoke(path: Path, *args: str, original: str | None = None) -> int:
@@ -86,6 +87,10 @@ def main() -> None:
     for required in ("PROXMOX_PLAN_CAPABILITY_CONFIRMED", "os.O_EXCL", "os.O_NOFOLLOW", "ansible-plan ALL=(root) NOPASSWD"):
         assert required in capability_source
     assert "NOPASSWD: ALL" not in capability_source and "authorized_keys\", \"w" not in capability_source
+    observer_capability_source = PACKAGE_OBSERVER_CAPABILITY.read_text()
+    for required in ("PROXMOX_PACKAGE_OBSERVER_CAPABILITY_CONFIRMED", "package_observer_sha256", "before_sha256", "os.O_EXCL", "os.O_NOFOLLOW", "visudo --check", "observe proxmox", "UpdateHostKeys=no", "IdentitiesOnly=yes", "RequestTTY=no"):
+        assert required in observer_capability_source
+    assert "NOPASSWD: ALL" not in observer_capability_source
     deploy_capability_source = DEPLOY_CAPABILITY.read_text()
     for required in ("PROXMOX_DEPLOY_CAPABILITY_CONFIRMED", "os.O_EXCL", "os.O_NOFOLLOW", "saved-action-plans-only"):
         assert required in deploy_capability_source

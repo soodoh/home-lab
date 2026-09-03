@@ -452,7 +452,7 @@
           "const": ["home-lab-restic-daily.target", "home-lab-restic-daily-local.service", "home-lab-restic-daily-proton.service", "home-lab-restic-maintenance.target", "home-lab-restic-maintenance-local.service", "home-lab-restic-maintenance-proton.service", "home-lab-restic-recover.service"]
         },
         "conflict_locks": {
-          "const": ["/var/lib/iac-ansible-production.lock", "/run/lock/home-lab-backup.lock", "/var/lib/home-lab/reconciliation/owner.lock", "/var/lib/home-lab/reconciliation/nix.lock", "/var/lib/home-lab/reconciliation/operation.lock", "/run/lock/home-lab-vfio-recovery.lock", "/run/lock/home-lab-debian-package.lock", "/run/lock/home-lab-proxmox-package.lock", "/var/lib/home-lab/firewall-transaction/active.json"]
+          "const": ["/var/lib/iac-ansible-production.lock", "/run/lock/home-lab-backup.lock", "/var/lib/home-lab/reconciliation/owner.lock", "/var/lib/home-lab/reconciliation/nix.lock", "/var/lib/home-lab/reconciliation/operation.lock", "/run/lock/home-lab-vfio-recovery.lock", "/run/lock/home-lab-debian-package.lock", "/run/lock/home-lab-debian-reboot.lock", "/run/lock/home-lab-proxmox-package.lock", "/var/lib/home-lab/firewall-transaction/active.json"]
         },
         "workload_order": {
           "const": { "debian": ["compose-drain", "host-reboot", "host-audit"], "proxmox": ["vm-100-shutdown", "host-reboot", "host-audit", "vm-100-startup", "debian-audit"] }
@@ -522,12 +522,28 @@
         }
       }
     },
+    "lifecyclePackageApplyIdentityPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "shell", "groups", "authorized_keys", "sudo_rule", "executor", "automatic_reboot", "generic_sudo"],
+      "properties": {
+        "name": { "const": "ansible-package-apply" },
+        "shell": { "const": "/usr/local/libexec/home-lab/debian-package-apply-transport" },
+        "groups": { "const": [] },
+        "authorized_keys": { "const": "absent" },
+        "sudo_rule": { "const": "ansible-package-apply ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/debian-package-transaction" },
+        "executor": { "const": "/usr/local/libexec/home-lab/debian-package-transaction" },
+        "automatic_reboot": { "const": false },
+        "generic_sudo": { "const": false }
+      }
+    },
     "lifecycleMaintenancePolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["package_plan", "unattended_upgrade_retirement", "reboot_plan", "release_monitor"],
+      "required": ["package_plan", "package_apply_identity", "unattended_upgrade_retirement", "reboot_plan", "release_monitor"],
       "properties": {
         "package_plan": { "$ref": "#/$defs/lifecyclePackagePlanPolicy" },
+        "package_apply_identity": { "$ref": "#/$defs/lifecyclePackageApplyIdentityPolicy" },
         "unattended_upgrade_retirement": { "$ref": "#/$defs/lifecycleUnattendedRetirementPolicy" },
         "reboot_plan": { "$ref": "#/$defs/lifecycleRebootPlanPolicy" },
         "release_monitor": { "$ref": "#/$defs/lifecycleReleaseMonitorPolicy" }

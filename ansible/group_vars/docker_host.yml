@@ -241,6 +241,13 @@ deploy_user_sudoers_path: /etc/sudoers.d/ansible-deploy
 deploy_user_sudoers_content: |
   ansible-deploy ALL=(root) NOPASSWD: ALL
 
+package_apply_user_name: ansible-package-apply
+package_apply_user_home: /home/ansible-package-apply
+package_apply_user_shell: /usr/local/libexec/home-lab/debian-package-apply-transport
+package_apply_user_sudoers_path: /etc/sudoers.d/ansible-package-apply
+package_apply_user_sudoers_content: |
+  ansible-package-apply ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/debian-package-transaction
+
 plan_user_name: ansible-plan
 plan_user_home: /home/ansible-plan
 plan_user_shell: /bin/bash

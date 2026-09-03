@@ -75,6 +75,18 @@
       ],
       "groupName": null,
       "automerge": false
+    },
+    {
+      "description": "Keep OpenTofu provider locks candidate-only and separately reviewed",
+      "matchManagers": [
+        "terraform"
+      ],
+      "labels": [
+        "dependencies",
+        "host-maintenance-candidate",
+        "tofu-provider"
+      ],
+      "automerge": false
     }
   ],
   "docker-compose": {
@@ -94,6 +106,27 @@
         "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\s+(?:[a-z]+_)?version:\\s+[\\\"']?(?<currentValue>[^\\s\\\"']+)"
       ],
       "versioningTemplate": "semver-coerced"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^infrastructure/contract/home-lab\\.yml$/"
+      ],
+      "matchStrings": [
+        "url: https://cloud\\.debian\\.org/images/cloud/trixie/(?<currentValue>[0-9]{8}-[0-9]+)/debian-13-generic-amd64-[0-9]{8}-[0-9]+\\.qcow2"
+      ],
+      "depNameTemplate": "debian-trixie-generic-cloud",
+      "datasourceTemplate": "custom.debian-cloud-images",
+      "versioningTemplate": "loose"
     }
-  ]
+  ],
+  "customDatasources": {
+    "debian-cloud-images": {
+      "defaultRegistryUrlTemplate": "https://cloud.debian.org/images/cloud/trixie/",
+      "format": "plain",
+      "transformTemplates": [
+        "{ \"releases\": $map(releases[$contains(version, \"href=\")], function($v) { { \"version\": $match($v.version, /([0-9]{8}-[0-9]+)/).groups[0] } }) }"
+      ]
+    }
+  }
 }

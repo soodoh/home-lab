@@ -1,0 +1,90 @@
+---
+- name: Require one exact maintenance capability activation
+  ansible.builtin.assert:
+    that:
+      - lifecycle_profile == 'production'
+      - lifecycle_contract_host == 'debian'
+      - maintenance_capability_kind in ['package-identity', 'unattended-retirement', 'debian-reboot']
+      - maintenance_capability_plan_sha256 is match('^[0-9a-f]{64}$')
+      - maintenance_capability_approved_sha256 == maintenance_capability_plan_sha256
+      - maintenance_capability_source_hashes == maintenance_capability_expected_source_hashes
+    fail_msg: Maintenance capability installation requires an exact separately approved saved plan.
+
+- name: Create the dedicated package apply identity without supplementary groups
+  become: true
+  ansible.builtin.user:
+    name: "{{ package_apply_user_name }}"
+    home: "{{ package_apply_user_home }}"
+    shell: "{{ package_apply_user_shell }}"
+    create_home: true
+    password_lock: true
+    groups: ''
+    append: false
+  when: maintenance_capability_kind == 'package-identity'
+
+- name: Remove conventional package apply keys
+  become: true
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ package_apply_user_home }}/.ssh/authorized_keys"
+    - "{{ package_apply_user_home }}/.ssh/authorized_keys2"
+  when: maintenance_capability_kind == 'package-identity'
+
+- name: Install fixed package transaction programs
+  become: true
+  ansible.builtin.copy:
+    dest: "{{ item.dest }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - dest: /usr/local/libexec/home-lab/debian-package-apply-transport
+      content: "{{ lookup('ansible.builtin.file', role_path + '/../../../infrastructure/maintenance/host/debian-package-apply-transport', rstrip=False) }}"
+    - dest: /usr/local/libexec/home-lab/debian-package-transaction
+      content: "{{ lookup('ansible.builtin.file', role_path + '/../../../infrastructure/maintenance/host/debian-package-transaction', rstrip=False) }}"
+    - dest: /usr/local/libexec/home-lab/package-candidate-observer
+      content: >-
+        {{
+          lookup('ansible.builtin.file', role_path + '/../../../infrastructure/maintenance/host/package-candidate-observer', rstrip=False) |
+          replace('@EXPECTED_PACKAGES_BASE64@', 'W10=')
+        }}
+  when: maintenance_capability_kind == 'package-identity'
+
+- name: Install only the fixed package transaction sudo entry point
+  become: true
+  ansible.builtin.copy:
+    dest: "{{ package_apply_user_sudoers_path }}"
+    content: "{{ package_apply_user_sudoers_content }}"
+    owner: root
+    group: root
+    mode: '0440'
+    validate: /usr/sbin/visudo --check --file=%s
+  when: maintenance_capability_kind == 'package-identity'
+
+- name: Install exact Debian reboot executor
+  become: true
+  ansible.builtin.copy:
+    dest: /usr/local/libexec/home-lab/debian-reboot-transaction
+    content: "{{ lookup('ansible.builtin.file', role_path + '/../../../infrastructure/maintenance/host/debian-reboot-transaction', rstrip=False) }}"
+    owner: root
+    group: root
+    mode: '0755'
+  when: maintenance_capability_kind == 'debian-reboot'
+
+- name: Install exact unattended retirement programs
+  become: true
+  ansible.builtin.copy:
+    dest: "{{ item.dest }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - dest: /usr/local/libexec/home-lab/unattended-retirement-observer
+      content: "{{ lookup('ansible.builtin.file', role_path + '/../../../infrastructure/maintenance/host/unattended-retirement-observer', rstrip=False) }}"
+    - dest: /usr/local/libexec/home-lab/unattended-retirement-transaction
+      content: "{{ lookup('ansible.builtin.file', role_path + '/../../../infrastructure/maintenance/host/unattended-retirement-transaction', rstrip=False) }}"
+  when: maintenance_capability_kind == 'unattended-retirement'

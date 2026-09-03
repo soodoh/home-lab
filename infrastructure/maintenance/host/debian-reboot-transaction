@@ -1,0 +1,94 @@
+#!/usr/bin/python3
+"""Perform one saved Debian reboot, retaining failed postboot state without retry."""
+import datetime as dt, fcntl, hashlib, json, os, re, stat, subprocess, sys
+from pathlib import Path
+PLAN_ROOT=Path("/var/lib/home-lab/debian-reboot/plans"); JOURNAL_ROOT=Path("/var/lib/home-lab/debian-reboot/journals"); LOCK=Path("/run/lock/home-lab-debian-reboot.lock"); HEX=re.compile(r"^[0-9a-f]{64}$"); ENV={"LC_ALL":"C","LANG":"C","PATH":"/usr/sbin:/usr/bin:/sbin:/bin"}
+def canonical(v): return (json.dumps(v,sort_keys=True,separators=(",",":"))+"\n").encode()
+def sha(raw): return hashlib.sha256(raw).hexdigest()
+def read(path):
+ s=os.lstat(path)
+ if not stat.S_ISREG(s.st_mode) or s.st_uid!=0 or s.st_gid!=0 or stat.S_IMODE(s.st_mode)!=0o600 or s.st_nlink!=1 or s.st_size>65536: raise RuntimeError("reboot artifact metadata differs")
+ fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
+ try: raw=os.read(fd,65537)
+ finally: os.close(fd)
+ value=json.loads(raw)
+ if raw!=canonical(value): raise RuntimeError("reboot artifact is not canonical")
+ return value,raw
+def run(args,accepted=(0,),timeout=120):
+ result=subprocess.run(args,stdin=subprocess.DEVNULL,capture_output=True,env=ENV,timeout=timeout)
+ if result.returncode not in accepted: raise RuntimeError("reboot check failed")
+ return result
+def validate(value,raw,digest,allow_expired=False):
+ if sha(raw)!=digest or value.get("format")!="home-lab-debian-reboot-activation-v1" or value.get("host")!="debian" or value.get("automatic_reboot") is not False or value.get("authorized") is not False: raise RuntimeError("reboot activation differs")
+ material=dict(value); material.pop("activation_sha256",None)
+ if value.get("activation_sha256")!=sha(canonical(material)): raise RuntimeError("reboot activation hash differs")
+ if not allow_expired and dt.datetime.now(dt.timezone.utc)>dt.datetime.fromisoformat(value["expires_at"].replace("Z","+00:00")): raise RuntimeError("reboot activation expired")
+ if value.get("workload_order")!=["compose-drain","host-reboot","host-audit"] or value.get("postchecks")!=["kernel","mounts","docker","compose","restic-timers","tailscale","production-audit"]: raise RuntimeError("reboot sequence differs")
+ return value
+def boot_id(): return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+def tailscale():
+ value=json.loads(run(("/usr/bin/tailscale","status","--json")).stdout); return value.get("BackendState")=="Running"
+def preflight(plan):
+ expected=plan["expected"]
+ if os.uname().release!=expected["current_kernel"] or boot_id()!=expected["boot_id"] or not Path("/boot",f"vmlinuz-{expected['target_kernel']}").is_file(): raise RuntimeError("reboot kernel or boot identity differs")
+ for path in plan["conflict_locks"]:
+  if path!=str(LOCK) and os.path.lexists(path): raise RuntimeError("reboot conflict lock exists")
+ for unit in plan["inactive_backup_units"]:
+  if run(("/usr/bin/systemctl","is-active",unit),accepted=(0,3)).stdout.strip()!=b"inactive": raise RuntimeError("backup unit is active")
+ for unit in ("docker.service","home-lab-compose.service"):
+  if run(("/usr/bin/systemctl","is-active",unit)).stdout.strip()!=b"active": raise RuntimeError("preboot service is not active")
+ if not tailscale(): raise RuntimeError("Tailscale is not running")
+def save(path,value,exclusive=False):
+ path.parent.mkdir(parents=True,exist_ok=True,mode=0o700); raw=canonical(value)
+ if exclusive: fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+ else:
+  temporary=path.parent/f".{path.name}.{os.getpid()}.tmp"; fd=os.open(temporary,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+ try: os.write(fd,raw); os.fchmod(fd,0o600); os.fchown(fd,0,0); os.fsync(fd)
+ finally: os.close(fd)
+ if not exclusive: os.replace(temporary,path)
+ directory=os.open(path.parent,os.O_RDONLY|os.O_DIRECTORY)
+ try: os.fsync(directory)
+ finally: os.close(directory)
+def verify_health(plan):
+ failures=[]
+ if boot_id()==plan["expected"]["boot_id"]: failures.append("boot-id-unchanged")
+ if os.uname().release!=plan["expected"]["target_kernel"]: failures.append("target-kernel-differs")
+ for mount in ("/mnt/storage","/mnt/games","/srv/home-lab-state"):
+  if not os.path.ismount(mount): failures.append("mount:"+mount)
+ for unit in ("docker.service","home-lab-compose.service","home-lab-restic-daily.timer","home-lab-restic-maintenance.timer"):
+  result=run(("/usr/bin/systemctl","is-active",unit),accepted=(0,3))
+  if result.stdout.strip()!=b"active": failures.append("unit:"+unit)
+ if not tailscale(): failures.append("tailscale")
+ return failures
+def operation(name,digest):
+ plan,raw=read(PLAN_ROOT/f"{digest}.json"); validate(plan,raw,digest,allow_expired=name=="verify")
+ journal_path=JOURNAL_ROOT/f"{digest}.json"; journal=read(journal_path)[0] if journal_path.exists() else None
+ if name=="prepare":
+  if journal: raise RuntimeError("reboot journal already exists")
+  preflight(plan); journal={"format":"home-lab-debian-reboot-journal-v1","plan_sha256":digest,"automatic_reboot":False,"boot_id_before":boot_id(),"status":"prepared"}; save(journal_path,journal,True); return journal
+ if not journal or journal.get("plan_sha256")!=digest: raise RuntimeError("reboot journal differs")
+ if name=="apply":
+  if journal.get("status")!="prepared": raise RuntimeError("reboot is not prepared")
+  preflight(plan); run(("/usr/bin/systemctl","stop","home-lab-compose.service"),timeout=600)
+  if run(("/usr/bin/systemctl","is-active","home-lab-compose.service"),accepted=(0,3)).stdout.strip()!=b"inactive": raise RuntimeError("Compose did not drain")
+  journal["status"]="compose-drained"; save(journal_path,journal); journal["status"]="rebooting"; save(journal_path,journal); run(("/usr/bin/systemctl","reboot"),timeout=30); return journal
+ if journal.get("status") not in {"rebooting","failed-postboot-manual-recovery-required"}: raise RuntimeError("reboot is not awaiting verification")
+ failures=verify_health(plan)
+ if failures:
+  journal["status"]="failed-postboot-manual-recovery-required"; journal["failures"]=sorted(failures); save(journal_path,journal); raise RuntimeError("reboot postboot health differs")
+ journal["status"]="host-health-passed-awaiting-controller-audit"; journal["boot_id_after"]=boot_id(); save(journal_path,journal); return journal
+def main():
+ if len(sys.argv)!=3 or sys.argv[1] not in {"prepare","apply","verify","commit"} or HEX.fullmatch(sys.argv[2]) is None: raise RuntimeError("reboot request differs")
+ descriptor=os.open(LOCK,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600)
+ try:
+  fcntl.flock(descriptor,fcntl.LOCK_EX|fcntl.LOCK_NB)
+  if sys.argv[1]=="commit":
+   path=JOURNAL_ROOT/f"{sys.argv[2]}.json"; journal=read(path)[0]
+   if journal.get("status")!="host-health-passed-awaiting-controller-audit": raise RuntimeError("controller audit is not ready to commit")
+   journal["status"]="committed"; save(path,journal); result=journal
+  else: result=operation(sys.argv[1],sys.argv[2])
+ finally: os.close(descriptor)
+ os.write(1,canonical(result))
+if __name__=="__main__":
+ try: main()
+ except Exception as error: os.write(2,f"debian-reboot-transaction: {error}\n".encode()); raise SystemExit(1)

@@ -18,7 +18,8 @@ TARGET = "proxmox@proxmox"
 FINGERPRINT = "SHA256:uaxG9uESfphESCqWx3ialKjK0doHnVcFoUIGWMGcaYQ"
 TRANSPORT = "/usr/local/libexec/home-lab/proxmox-ansible-plan-transport"
 OBSERVER = "/usr/local/libexec/home-lab/proxmox-observer"
-RULE = f"ansible-plan ALL=(root) NOPASSWD: {OBSERVER} observe"
+PACKAGE_OBSERVER = "/usr/local/libexec/home-lab/proxmox-package-candidate-observer"
+RULE = f"ansible-plan ALL=(root) NOPASSWD: {OBSERVER} observe, {PACKAGE_OBSERVER} observe proxmox"
 SSH = ("ssh", "-F", "/dev/null", "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UpdateHostKeys=no")
 
 
@@ -57,7 +58,7 @@ def meta(path):
  result={"exists":True,"uid":value.st_uid,"gid":value.st_gid,"mode":format(stat.S_IMODE(value.st_mode),"04o"),"regular":stat.S_ISREG(value.st_mode),"symlink":stat.S_ISLNK(value.st_mode)}
  if result["regular"] and value.st_size<1048576: result["sha256"]=hashlib.sha256(open(path,"rb").read()).hexdigest()
  return result
-paths={path:meta(path) for path in ("/home/ansible-plan/.ssh/authorized_keys","/home/ansible-plan/.ssh/authorized_keys2","/etc/sudoers.d/ansible-plan","/usr/local/libexec/home-lab/proxmox-ansible-plan-transport","/usr/local/libexec/home-lab/proxmox-observer")}
+paths={path:meta(path) for path in ("/home/ansible-plan/.ssh/authorized_keys","/home/ansible-plan/.ssh/authorized_keys2","/etc/sudoers.d/ansible-plan","/usr/local/libexec/home-lab/proxmox-ansible-plan-transport","/usr/local/libexec/home-lab/proxmox-observer","/usr/local/libexec/home-lab/proxmox-package-candidate-observer")}
 locks=[p for p in ("/var/lib/home-lab/reconciliation/apply.lock","/var/lib/iac-ansible-production.lock","/var/lib/home-lab/firewall-transaction/active.json") if os.path.lexists(p)]
 print(json.dumps({"account":{"exists":True,"home":account.pw_dir,"shell":account.pw_shell,"groups":groups,"password_locked":status.returncode==0 and len(fields)>1 and fields[1] in {"L","LK"}},"paths":paths,"locks":locks},sort_keys=True,separators=(",",":")))
 '''
@@ -78,10 +79,13 @@ def validate_staged(value: dict) -> None:
     source_hash = file_hash(ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-plan-transport")
     transport = paths.get(TRANSPORT, {})
     observer = paths.get(OBSERVER, {})
+    package_observer = paths.get(PACKAGE_OBSERVER, {})
     if transport.get("sha256") != source_hash or transport.get("uid") != 0 or transport.get("gid") != 0 or transport.get("mode") != "0755" or not transport.get("regular") or transport.get("symlink"):
         raise SystemExit("installed plan transport differs")
     if not isinstance(observer.get("sha256"), str) or observer.get("uid") != 0 or observer.get("gid") != 0 or observer.get("mode") != "0755" or not observer.get("regular") or observer.get("symlink"):
         raise SystemExit("installed observer differs")
+    if not isinstance(package_observer.get("sha256"), str) or package_observer.get("uid") != 0 or package_observer.get("gid") != 0 or package_observer.get("mode") != "0755" or not package_observer.get("regular") or package_observer.get("symlink"):
+        raise SystemExit("installed package observer differs; use the exact package observer capability upgrade first")
 
 
 def make_plan(observation: dict, commit: str, now: datetime) -> dict:

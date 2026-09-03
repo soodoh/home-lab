@@ -200,7 +200,9 @@ def observe(host):
         "/var/lib/iac-ansible-production.lock", "/run/lock/home-lab-backup.lock",
         "/var/lib/home-lab/reconciliation/owner.lock", "/var/lib/home-lab/reconciliation/nix.lock",
         "/var/lib/home-lab/reconciliation/operation.lock", "/run/lock/home-lab-vfio-recovery.lock",
-        "/run/lock/home-lab-proxmox-package.lock", "/run/lock/home-lab-proxmox-reboot.lock",
+        "/run/lock/home-lab-debian-package.lock", "/run/lock/home-lab-proxmox-package.lock",
+        "/run/lock/home-lab-proxmox-reboot.lock", "/var/lib/dpkg/lock", "/var/lib/dpkg/lock-frontend",
+        "/var/cache/apt/archives/lock",
     }
     retained_paths = {
         "/var/lib/iac-ansible-production.lock", "/var/lib/home-lab/reconciliation/owner.lock",

@@ -53,7 +53,7 @@ locals {
         action = "accept"
         src    = ["autogroup:owner", "autogroup:admin"]
         dst    = [local.tags.docker_host]
-        users  = ["ansible-deploy"]
+        users  = ["ansible-deploy", "ansible-package-apply"]
       },
       {
         action = "accept"
@@ -101,7 +101,7 @@ locals {
       {
         src    = local.owner_identity
         dst    = [local.tags.docker_host]
-        accept = ["docker", "ansible-deploy"]
+        accept = ["docker", "ansible-deploy", "ansible-package-apply"]
         deny   = ["proxmox", "root"]
       },
       {

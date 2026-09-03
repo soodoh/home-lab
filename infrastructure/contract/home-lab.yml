@@ -50,6 +50,15 @@ lifecycle:
           apply_authority: protected-session
           automatic_apply: false
           automatic_reboot: false
+    package_apply_identity:
+      name: ansible-package-apply
+      shell: /usr/local/libexec/home-lab/debian-package-apply-transport
+      groups: []
+      authorized_keys: absent
+      sudo_rule: "ansible-package-apply ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/debian-package-transaction"
+      executor: /usr/local/libexec/home-lab/debian-package-transaction
+      automatic_reboot: false
+      generic_sudo: false
     unattended_upgrade_retirement:
       automatic_apply: false
       target: debian
@@ -99,6 +108,7 @@ lifecycle:
         - /var/lib/home-lab/reconciliation/operation.lock
         - /run/lock/home-lab-vfio-recovery.lock
         - /run/lock/home-lab-debian-package.lock
+        - /run/lock/home-lab-debian-reboot.lock
         - /run/lock/home-lab-proxmox-package.lock
         - /var/lib/home-lab/firewall-transaction/active.json
       workload_order:
@@ -699,7 +709,7 @@ proxmox:
             owner: root
             group: root
             mode: "0440"
-          rule: "ansible-plan ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-observer observe"
+          rule: "ansible-plan ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-observer observe, /usr/local/libexec/home-lab/proxmox-package-candidate-observer observe proxmox"
       - name: ansible-deploy
         home: /home/ansible-deploy
         shell: /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport
