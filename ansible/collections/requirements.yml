@@ -1,4 +1,5 @@
 ---
 collections:
   - name: community.general
+    # renovate: datasource=github-tags depName=ansible-collections/community.general
     version: 13.2.0

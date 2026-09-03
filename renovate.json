@@ -63,11 +63,37 @@
       ],
       "allowedVersions": "/^5\\.[0-9]+\\.[0-9]+$/",
       "enabled": true
+    },
+    {
+      "description": "Create candidate-only host lifecycle release updates",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "labels": [
+        "dependencies",
+        "host-maintenance-candidate"
+      ],
+      "groupName": null,
+      "automerge": false
     }
   ],
   "docker-compose": {
     "managerFilePatterns": [
       "/(^|/)services/[^/]+\\.ya?ml$/"
     ]
-  }
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^ansible/collections/requirements\\.yml$/",
+        "/^ansible/group_vars/docker_host\\.yml$/",
+        "/^infrastructure/contract/home-lab\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\s+(?:[a-z]+_)?version:\\s+[\\\"']?(?<currentValue>[^\\s\\\"']+)"
+      ],
+      "versioningTemplate": "semver-coerced"
+    }
+  ]
 }

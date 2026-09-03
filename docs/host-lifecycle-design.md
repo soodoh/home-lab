@@ -97,10 +97,11 @@ The bootstrap transition must:
 
 ## Package automation
 
-- **Debian:** automatically apply Debian Security updates under Ansible-managed unattended-upgrades policy. Record installed/candidate/result manifests. Fail closed on origin drift, conffile prompts, dependency removal, held packages or service-health failure. Never auto-reboot.
-- **Proxmox:** automate inventory, metadata refresh and proposal creation only. Package apply remains a protected session because PVE, kernel, ZFS and firmware must move as a compatible reviewed set. Preserve the exact-manifest model rather than `latest`.
+- **Debian:** produce candidate and exact-lock reports only. Every package mutation, including a Debian Security update, requires a separately reviewed exact package transaction. Unattended package mutation is forbidden and automatic reboot remains disabled.
+- **Proxmox:** automate inventory, metadata refresh and proposal creation only. Package apply remains a protected attended session because PVE, kernel, ZFS and firmware must move as a compatible reviewed set. Preserve the exact-manifest model rather than `latest`.
 - **Compose images:** automation may propose digest updates and regenerate the reviewed lock/model diff. The host never performs an unplanned build or pull during steady apply.
-- **Scheduler:** add a committed workflow or controller timer with plan credentials only. No external scheduler is assumed until inventoried and documented.
+- **Release/EOL scheduler:** the credential-free weekly workflow has read-only repository permission, runs hostile fixtures, fetches only the fixed endoflife.date API endpoints, and publishes a non-authorizing report artifact. It cannot invoke Ansible, OpenTofu apply, or host credentials.
+- **Package scheduler:** add a candidate-only workflow or controller timer with plan credentials only after the canonical package-lock generator is complete. No schedule or merge is package authorization.
 
 ## Reboot workflow
 

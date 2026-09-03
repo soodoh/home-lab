@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/schemas/release-eol-report-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "observed_at", "automatic_apply", "status", "warnings", "blockers", "sources"],
+  "properties": {
+    "format": { "const": "home-lab-release-eol-report-v1" },
+    "version": { "const": 1 },
+    "observed_at": { "$ref": "#/$defs/timestamp" },
+    "automatic_apply": { "const": false },
+    "status": { "enum": ["healthy", "warning", "blocking"] },
+    "warnings": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "blockers": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["debian", "proxmox"],
+      "properties": {
+        "debian": { "$ref": "#/$defs/source" },
+        "proxmox": { "$ref": "#/$defs/source" }
+      }
+    }
+  },
+  "$defs": {
+    "timestamp": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$" },
+    "date": { "type": ["string", "null"], "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["api", "cycle", "current_version", "latest_version", "release_date", "eol", "extended_support_end", "maintained", "eol_known", "source_generated_at", "source_last_modified", "source_sha256"],
+      "properties": {
+        "api": { "type": "string", "pattern": "^https://endoflife\\.date/api/v1/products/" },
+        "cycle": { "type": "string", "minLength": 1 },
+        "current_version": { "type": "string", "minLength": 1 },
+        "latest_version": { "type": "string", "minLength": 1 },
+        "release_date": { "$ref": "#/$defs/date" },
+        "eol": { "$ref": "#/$defs/date" },
+        "extended_support_end": { "$ref": "#/$defs/date" },
+        "maintained": { "type": "boolean" },
+        "eol_known": { "type": "boolean" },
+        "source_generated_at": { "type": "string", "minLength": 1 },
+        "source_last_modified": { "type": "string", "minLength": 1 },
+        "source_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

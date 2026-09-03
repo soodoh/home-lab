@@ -438,13 +438,53 @@
         "console_required_hosts": { "const": ["proxmox"] }
       }
     },
+    "lifecycleReleaseMonitorPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["automatic_apply", "warning_days", "max_source_age_days", "sources"],
+      "properties": {
+        "automatic_apply": { "const": false },
+        "warning_days": { "const": 180 },
+        "max_source_age_days": { "const": 7 },
+        "sources": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["debian", "proxmox"],
+          "properties": {
+            "debian": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["api", "cycle", "require_maintained", "require_eol_known"],
+              "properties": {
+                "api": { "const": "https://endoflife.date/api/v1/products/debian/" },
+                "cycle": { "const": "13" },
+                "require_maintained": { "const": true },
+                "require_eol_known": { "const": true }
+              }
+            },
+            "proxmox": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["api", "cycle", "require_maintained", "require_eol_known"],
+              "properties": {
+                "api": { "const": "https://endoflife.date/api/v1/products/proxmox-ve/" },
+                "cycle": { "const": "9" },
+                "require_maintained": { "const": true },
+                "require_eol_known": { "const": false }
+              }
+            }
+          }
+        }
+      }
+    },
     "lifecycleMaintenancePolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["package_plan", "reboot_plan"],
+      "required": ["package_plan", "reboot_plan", "release_monitor"],
       "properties": {
         "package_plan": { "$ref": "#/$defs/lifecyclePackagePlanPolicy" },
-        "reboot_plan": { "$ref": "#/$defs/lifecycleRebootPlanPolicy" }
+        "reboot_plan": { "$ref": "#/$defs/lifecycleRebootPlanPolicy" },
+        "release_monitor": { "$ref": "#/$defs/lifecycleReleaseMonitorPolicy" }
       }
     },
     "lifecyclePolicy": {

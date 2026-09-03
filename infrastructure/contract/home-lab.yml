@@ -48,6 +48,21 @@ lifecycle:
       expected_boot_id_required: true
       console_required_hosts:
         - proxmox
+    release_monitor:
+      automatic_apply: false
+      warning_days: 180
+      max_source_age_days: 7
+      sources:
+        debian:
+          api: https://endoflife.date/api/v1/products/debian/
+          cycle: "13"
+          require_maintained: true
+          require_eol_known: true
+        proxmox:
+          api: https://endoflife.date/api/v1/products/proxmox-ve/
+          cycle: "9"
+          require_maintained: true
+          require_eol_known: false
   hosts:
     proxmox:
       desired_state: production
@@ -955,6 +970,7 @@ proxmox:
       - name: sudo
         version: 1.9.16p2-3+deb13u2
       - name: tailscale
+        # renovate: datasource=github-releases depName=tailscale/tailscale
         version: 1.102.3
     critical:
       - role: debian-archive-keyring
@@ -1431,6 +1447,7 @@ tailscale:
   owner_identity: soodoh@github
   docker_host_client:
     installation: official-static-archive
+    # renovate: datasource=github-releases depName=tailscale/tailscale
     version: 1.102.3
     architecture: linux_amd64
     archive_url: https://pkgs.tailscale.com/stable/tailscale_1.102.3_amd64.tgz
@@ -1670,6 +1687,7 @@ backups:
     policy_version: 1
     tools:
       restic:
+        # renovate: datasource=github-releases depName=restic/restic
         version: 0.19.1
         architecture: linux_amd64
         url: https://github.com/restic/restic/releases/download/v0.19.1/restic_0.19.1_linux_amd64.bz2

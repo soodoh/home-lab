@@ -1,0 +1,1 @@
+{"schema_version":"1.2.1","generated_at":"2026-09-03T07:02:55+00:00","last_modified":"2026-07-17T08:33:57+00:00","result":{"name":"proxmox-ve","releases":[{"name":"9","label":"9","releaseDate":"2025-08-05","isEol":false,"eolFrom":null,"isMaintained":true,"latest":{"name":"9.2","date":"2026-05-21","link":"https://pve.proxmox.com/wiki/Roadmap#Proxmox_VE_9.2"}}]}}

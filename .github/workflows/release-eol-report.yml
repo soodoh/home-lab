@@ -1,0 +1,45 @@
+---
+name: Release and EOL candidate report
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 13 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-eol-candidate-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    name: Build candidate-only release report
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the reviewed repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      - name: Install the pinned Bun runtime
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: 1.2.4
+
+      - name: Install locked validation dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Run hostile release-monitor fixtures
+        run: bun scripts/controller/test-release-eol-report.js
+
+      - name: Fetch and build the candidate-only report
+        run: bun scripts/controller/release-eol-report.js --fetch > release-eol-report.json
+
+      - name: Publish the non-authorizing report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-eol-report
+          path: release-eol-report.json
+          if-no-files-found: error
+          retention-days: 14
