@@ -7,7 +7,8 @@ The foundation is active for Compose. The trusted local controller stages the ex
 The repository contains only:
 
 - SOPS dotenv ciphertext at `secrets/production.sops.env`;
-- its sorted 89-name and non-secret blank-line manifests; and
+- its sorted 89-name and non-secret blank-line manifests;
+- controller-only recovery publication credentials at `secrets/recovery-publication.sops.json`, encrypted to the same two recipients; and
 - two public age recipients in `.sops.yaml`: active Debian production and independent recovery.
 
 No production age identity is present in Git or repository files.
@@ -42,6 +43,8 @@ Its public recipient is `age1atumjua6hxyls6z8v20tsgy72304x72lqjstwmwzqy5ma4txyfs
 The independent recovery recipient is `age1ddk0qtwjclc2za5afrz5pl4j5kley02rqv2vh0s07c27a8t5u58sph58qm`. Its private identity and GPG escrow are controller-local under `~/.config/sops/home-lab-recovery`, mode `0600` in a mode `0700` directory. The GPG ciphertext also has a byte-identical external recovery copy.
 
 Retired runtime and rollback recipients were removed from `.sops.yaml` and both current ciphertext documents with `sops updatekeys`. Independent-recovery decryption and secret-free recipient validation passed after the final removal.
+
+The off-site recovery publication credential is now escrowed as `secrets/recovery-publication.sops.json`. Before plaintext retirement, its IAM caller, exact recovery bucket, single active access-key state, encrypted field set, recipient set, and independent-recovery decryption were verified. It is controller-only and must never be installed on the production host or included in Compose artifacts.
 
 ## Encryption and exact reconstruction
 

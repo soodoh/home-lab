@@ -28,6 +28,8 @@ A manual execution of the exact scheduled daily target then provided the first p
 
 Ordinary Restic convergence removes installed copies of the terminal incident-only cleanup, Trash, canonical-creation, promotion, and retirement helpers. Their reviewed source and committed evidence remain in Git, and their dedicated playbooks can reinstall an exact capability only for a separately reviewed future transaction.
 
+The long-lived off-site publication credential is encrypted at `secrets/recovery-publication.sops.json` to both the active production and independent recovery age recipients. Independent-recovery decryption and exact caller/bucket/access-key validation passed before removal of the controller-local plaintext copy. Future IAM key rotation remains a separate saved-plan transaction; this escrow does not authorize rotation.
+
 The final retired Offen recovery point was:
 
 - basename `daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg`;
