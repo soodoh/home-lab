@@ -26,6 +26,17 @@ lifecycle:
       installed_inventory: dpkg-query-status-tsv-v1
       save_exact_versions: true
       apply_time_replan: false
+      protected_services:
+        - containerd.service
+        - docker.service
+        - tailscaled.service
+        - home-lab-compose.service
+        - home-lab-restic-daily-local.service
+        - home-lab-restic-daily-proton.service
+        - home-lab-restic-maintenance.service
+        - srv-home\x2dlab\x2dstate.mount
+        - mnt-games.mount
+        - mnt-storage.mount
       hosts:
         debian:
           candidate_scope: all-upgrades

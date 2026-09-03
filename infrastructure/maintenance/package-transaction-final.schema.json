@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/schemas/package-transaction-final-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "host", "lifecycle", "base_commit", "generated_at", "expires_at", "lane",
+    "automatic_apply", "automatic_reboot", "actionable", "authorized", "bindings", "transaction", "blockers", "final_sha256"
+  ],
+  "properties": {
+    "format": { "const": "home-lab-package-transaction-final-v1" },
+    "version": { "const": 1 },
+    "host": { "enum": ["debian", "proxmox"] },
+    "lifecycle": { "const": "production" },
+    "base_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "generated_at": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "lane": { "enum": ["no-restart-safe", "maintenance-window"] },
+    "automatic_apply": { "const": false },
+    "automatic_reboot": { "const": false },
+    "actionable": { "const": true },
+    "authorized": { "const": false },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "candidate_transaction_sha256", "review_sha256", "changes_sha256", "contract_sha256", "inventory_sha256",
+        "host_key_fingerprint", "installed_package_set_sha256", "apt_sources_sha256", "apt_keyrings_sha256",
+        "apt_configuration_sha256", "proposal_sha256"
+      ],
+      "properties": {
+        "candidate_transaction_sha256": { "$ref": "#/$defs/sha256" },
+        "review_sha256": { "$ref": "#/$defs/sha256" },
+        "changes_sha256": { "$ref": "#/$defs/sha256" },
+        "contract_sha256": { "$ref": "#/$defs/sha256" },
+        "inventory_sha256": { "$ref": "#/$defs/sha256" },
+        "host_key_fingerprint": { "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$" },
+        "installed_package_set_sha256": { "$ref": "#/$defs/sha256" },
+        "apt_sources_sha256": { "$ref": "#/$defs/sha256" },
+        "apt_keyrings_sha256": { "$ref": "#/$defs/sha256" },
+        "apt_configuration_sha256": { "$ref": "#/$defs/sha256" },
+        "proposal_sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "changes", "exact_install_specs", "additions", "download_bytes", "disk_delta_bytes", "affected_services",
+        "protected_services", "needrestart_assessment", "reboot_required", "reboot_reasons", "safety_classification"
+      ],
+      "properties": {
+        "changes": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/change" } },
+        "exact_install_specs": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^[^=\\s]+=[^=\\s]+$" }, "uniqueItems": true },
+        "additions": { "$ref": "#/$defs/names" },
+        "download_bytes": { "type": "integer", "minimum": 0 },
+        "disk_delta_bytes": { "type": "integer" },
+        "affected_services": { "$ref": "#/$defs/names" },
+        "protected_services": { "$ref": "#/$defs/names" },
+        "needrestart_assessment": { "enum": ["no-protected-restart", "maintenance-window-required"] },
+        "reboot_required": { "type": "boolean" },
+        "reboot_reasons": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "safety_classification": { "enum": ["no-restart-safe", "maintenance-window"] }
+      }
+    },
+    "blockers": { "const": ["separate-exact-authorization-required"] },
+    "final_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "names": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "change": {
+      "type": "object", "additionalProperties": false,
+      "required": ["action", "candidate_version", "name", "origin", "policy_sha256", "previous_version", "security"],
+      "properties": {
+        "action": { "enum": ["install", "upgrade"] },
+        "candidate_version": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "origin": { "type": "string", "minLength": 1 },
+        "policy_sha256": { "$ref": "#/$defs/sha256" },
+        "previous_version": { "type": ["string", "null"] },
+        "security": { "type": "boolean" }
+      }
+    }
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/schemas/package-impact-review-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "host", "created_at", "expires_at", "reviewer", "candidate_transaction_sha256",
+    "changes_sha256", "approved_additions", "approved_removals", "approved_downgrades", "approved_origins",
+    "affected_services", "protected_services", "needrestart_assessment", "reboot_required", "reboot_reasons",
+    "lane", "automatic_apply", "automatic_reboot", "authorized", "review_sha256"
+  ],
+  "properties": {
+    "format": { "const": "home-lab-package-impact-review-v1" },
+    "version": { "const": 1 },
+    "host": { "enum": ["debian", "proxmox"] },
+    "created_at": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "reviewer": { "type": "string", "pattern": "^[A-Za-z0-9._@-]{1,128}$" },
+    "candidate_transaction_sha256": { "$ref": "#/$defs/sha256" },
+    "changes_sha256": { "$ref": "#/$defs/sha256" },
+    "approved_additions": { "$ref": "#/$defs/names" },
+    "approved_removals": { "$ref": "#/$defs/names" },
+    "approved_downgrades": { "$ref": "#/$defs/names" },
+    "approved_origins": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "candidate_version", "origin", "policy_sha256"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "candidate_version": { "type": "string", "minLength": 1 },
+          "origin": { "type": "string", "minLength": 1 },
+          "policy_sha256": { "$ref": "#/$defs/sha256" }
+        }
+      }
+    },
+    "affected_services": { "$ref": "#/$defs/names" },
+    "protected_services": { "$ref": "#/$defs/names" },
+    "needrestart_assessment": { "enum": ["no-protected-restart", "maintenance-window-required"] },
+    "reboot_required": { "type": "boolean" },
+    "reboot_reasons": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "lane": { "enum": ["no-restart-safe", "maintenance-window"] },
+    "automatic_apply": { "const": false },
+    "automatic_reboot": { "const": false },
+    "authorized": { "const": false },
+    "review_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "names": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true }
+  }
+}
