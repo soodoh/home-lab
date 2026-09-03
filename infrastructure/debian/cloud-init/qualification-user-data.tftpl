@@ -1,0 +1,18 @@
+#cloud-config
+hostname: debian-lifecycle-qualification
+manage_etc_hosts: true
+timezone: ${timezone}
+locale: ${locale}
+package_update: false
+package_upgrade: false
+users:
+  - name: ansible-deploy
+    lock_passwd: true
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ${qualification_ssh_public_key}
+packages:
+  - qemu-guest-agent
+runcmd:
+  - [systemctl, enable, --now, qemu-guest-agent.service]

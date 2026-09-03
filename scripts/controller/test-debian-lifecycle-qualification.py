@@ -3,10 +3,24 @@
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[2]
-source = (root / "infrastructure/tofu/debian-lifecycle-qualification/main.tf").read_text()
+source = (root / "infrastructure/tofu/debian-lifecycle-qualification/main.tf").read_text() + (root / "infrastructure/debian/cloud-init/qualification-user-data.tftpl").read_text()
 
 required = (
-    'vm_id      = 9900',
+    'vm_id    = 9900',
+    'resource "proxmox_download_file" "qualification_image"',
+    'checksum_algorithm = "sha512"',
+    'url                = local.contract.debian.image.url',
+    'checksum           = local.contract.debian.image.sha512',
+    'datastore_id = var.qualification_disk_datastore_id',
+    'node_name   = var.qualification_node_name',
+    'bridge   = var.qualification_bridge',
+    'import_from  = proxmox_download_file.qualification_image[0].id',
+    'var.isolation_attestation_sha256 != ""',
+    'sha256(var.qualification_ssh_public_key) == var.qualification_ssh_public_key_sha256',
+    'qualification-[a-z0-9-]+$',
+    '!strcontains(lower(var.proxmox_endpoint), lower(local.contract.proxmox.node))',
+    '!strcontains(var.proxmox_endpoint, split("/", local.contract.network.proxmox.ipv4)[0])',
+    'var.qualification_cloud_init_file_id == "${var.qualification_image_datastore_id}:snippets/home-lab-debian-lifecycle-qualification.yaml"',
     'reboot_after_update                  = false',
     'on_boot       = false',
     'started       = false',
@@ -17,11 +31,13 @@ required = (
     'output_policy = "DROP"',
     'source  = "${var.controller_ipv4}/32"',
     'dest    = "192.168.0.0/16"',
-    'comment = "public package sources only"',
+    'dest    = "100.64.0.0/10"',
+    'comment = "public IPv4 egress after private and CGNAT denies"',
+    'servers = ["1.1.1.1", "9.9.9.9"]',
     'package_update: false',
     'package_upgrade: false',
     'sudo: ALL=(ALL) NOPASSWD:ALL',
-    'upload_mode  = "stream"',
+    'user_data_file_id = var.qualification_cloud_init_file_id',
 )
 for item in required:
     assert item in source, f"Debian qualification boundary omits {item}"
@@ -40,10 +56,14 @@ for forbidden in (
     "tailscale",
     "age-keygen",
     "docker.io",
+    "local:import/home-lab-restic-recovery-",
+    'resource "proxmox_virtual_environment_file"',
+    "  ssh {",
 ):
     assert forbidden not in source, f"Debian qualification contains forbidden production value {forbidden}"
 
-assert source.index('dest    = "192.168.0.0/16"') < source.index('dest    = "0.0.0.0/0"')
+for denied in ('10.0.0.0/8', '100.64.0.0/10', '172.16.0.0/12', '192.168.0.0/16'):
+    assert source.index(f'dest    = "{denied}"') < source.index('dest    = "0.0.0.0/0"')
 assert source.count('resource "proxmox_virtual_environment_vm"') == 1
 assert source.count("disk {") == 1
 print("debian_lifecycle_qualification=verified vmid=9900 isolated=true automatic_apply=false")

@@ -122,6 +122,7 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-attest-debian-qualification-plan.js
   python3 scripts/controller/test-proxmox-disk-adoption-plan.py
   python3 scripts/controller/test-debian-lifecycle-qualification.py
+  python3 scripts/controller/test-disposable-pve-target-admission.py
   node scripts/controller/test-proxmox-package-manifest.js
   node scripts/controller/test-proxmox-nix-projection.js
   node scripts/controller/test-proxmox-ansible-observer.js
