@@ -121,6 +121,7 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-restic-policy.js
   node scripts/controller/test-attest-debian-qualification-plan.js
   python3 scripts/controller/test-proxmox-disk-adoption-plan.py
+  python3 scripts/controller/test-debian-lifecycle-qualification.py
   node scripts/controller/test-proxmox-package-manifest.js
   node scripts/controller/test-proxmox-nix-projection.js
   node scripts/controller/test-proxmox-ansible-observer.js
@@ -189,7 +190,7 @@ if [[ $action == validate ]]; then
     scripts/prepare-omada-plan-input scripts/rehearse-recovery \
     scripts/restore-critical-backup scripts/test-restic-activation-fixture scripts/test-restic-recovery-bundle scripts/test-restic-restore-branch
   tofu fmt -check -recursive infrastructure/tofu
-  for root in aws-foundation authentik proxmox omada tailscale; do
+  for root in aws-foundation authentik proxmox omada tailscale debian-lifecycle-qualification; do
     (
       validation_data=$(mktemp -d)
       trap 'rm -rf "$validation_data"' EXIT
