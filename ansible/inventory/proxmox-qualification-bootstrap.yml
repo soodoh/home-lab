@@ -1,0 +1,27 @@
+---
+# Independently admitted disposable official-PVE targets only.
+all:
+  children:
+    proxmox_qualification:
+      hosts:
+        proxmox-qualification-bootstrap:
+          ansible_host: "{{ lookup('ansible.builtin.env', 'HOME_LAB_DISPOSABLE_PVE_HOST') }}"
+          ansible_user: root
+          ansible_python_interpreter: /usr/bin/python3
+          lifecycle_profile: bootstrap
+          ansible_ssh_common_args: >-
+            -F /dev/null
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o GlobalKnownHostsFile=/dev/null
+            -o UpdateHostKeys=no
+            -o UserKnownHostsFile={{ lookup('ansible.builtin.env', 'HOME_LAB_DISPOSABLE_PVE_KNOWN_HOSTS') }}
+            -o IdentitiesOnly=yes
+            -o IdentityFile={{ lookup('ansible.builtin.env', 'HOME_LAB_DISPOSABLE_PVE_BOOTSTRAP_PUBLIC_KEY') }}
+            -o PreferredAuthentications=publickey
+            -o PasswordAuthentication=no
+            -o KbdInteractiveAuthentication=no
+            -o ClearAllForwardings=yes
+            -o PermitLocalCommand=no
+            -o RequestTTY=no
+            -o ConnectTimeout=10

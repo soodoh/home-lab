@@ -1,0 +1,177 @@
+---
+- name: Load the direct lifecycle contract for isolation refusal
+  ansible.builtin.set_fact:
+    qualification_snippet_capability_contract: "{{ lookup('ansible.builtin.file', role_path ~ '/../../../infrastructure/contract/home-lab.yml') | from_yaml }}"
+  no_log: true
+
+- name: Validate isolated qualification capability inputs
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == 'proxmox-qualification-bootstrap'
+      - lifecycle_profile == 'bootstrap'
+      - ansible_user == 'root'
+      - ansible_host | length > 0
+      - ansible_host != qualification_snippet_capability_contract.proxmox.node
+      - ansible_host != (qualification_snippet_capability_contract.network.proxmox.ipv4 | split('/') | first)
+      - ansible_host != (qualification_snippet_capability_contract.vm_100.networking.ipv4 | split('/') | first)
+      - disposable_pve_admission_sha256 is match('^[0-9a-f]{64}$')
+      - disposable_pve_target_id is match('^[a-z0-9][a-z0-9-]{2,63}$')
+      - disposable_pve_node_name != qualification_snippet_capability_contract.proxmox.node
+      - qualification_pve_public_key is match('^ssh-ed25519 [A-Za-z0-9+/]+={0,2} qualification-[a-z0-9-]+$')
+      - (qualification_pve_public_key.split()[0:2] | join(' ') | hash('sha256')) == qualification_pve_public_key_sha256
+      - qualification_pve_public_key_sha256 is match('^[0-9a-f]{64}$')
+      - ansible_check_mode or (qualification_capability_confirmation | default('')) == 'install-isolated-pve-qualification-capability'
+    fail_msg: Qualification capability installation is restricted to the exact admitted isolated target.
+
+- name: Bind capability source identities
+  ansible.builtin.set_fact:
+    qualification_snippet_capability_helper_source: >-
+      {{ lookup('ansible.builtin.file',
+      role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transaction') }}
+    qualification_snippet_capability_transport_source: >-
+      {{ lookup('ansible.builtin.file',
+      role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transport') }}
+    qualification_snippet_capability_helper_sha256: >-
+      {{ lookup('ansible.builtin.file',
+      role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transaction') | hash('sha256') }}
+    qualification_snippet_capability_transport_sha256: >-
+      {{ lookup('ansible.builtin.file',
+      role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transport') | hash('sha256') }}
+  no_log: true
+
+- name: Report the bounded check-mode capability plan
+  ansible.builtin.debug:
+    msg:
+      admission_sha256: "{{ disposable_pve_admission_sha256 }}"
+      target_id: "{{ disposable_pve_target_id }}"
+      node_name: "{{ disposable_pve_node_name }}"
+      uid_gid: 1900
+      helper_sha256: "{{ qualification_snippet_capability_helper_sha256 }}"
+      transport_sha256: "{{ qualification_snippet_capability_transport_sha256 }}"
+      mutation_authorized: false
+  changed_when: true
+  when: ansible_check_mode
+
+- name: Inspect fixed qualification UID
+  ansible.builtin.command:
+    argv: [/usr/bin/getent, passwd, '1900']
+  register: qualification_snippet_capability_uid
+  changed_when: false
+  failed_when: qualification_snippet_capability_uid.rc not in [0, 2]
+  check_mode: false
+
+- name: Refuse a conflicting qualification UID
+  ansible.builtin.assert:
+    that:
+      - qualification_snippet_capability_uid.rc == 2 or qualification_snippet_capability_uid.stdout.split(':')[0] == 'qualification-apply'
+    fail_msg: Fixed qualification UID 1900 is already owned by another account.
+
+- name: Create fixed qualification group
+  ansible.builtin.group:
+    name: qualification-apply
+    gid: 1900
+    system: true
+    state: present
+  when: not ansible_check_mode
+
+- name: Create locked fixed-transport qualification account
+  ansible.builtin.user:
+    name: qualification-apply
+    uid: 1900
+    group: qualification-apply
+    groups: []
+    append: false
+    create_home: true
+    home: /home/qualification-apply
+    shell: /usr/local/libexec/home-lab/debian-qualification-snippet-transport
+    password_lock: true
+    system: true
+    state: present
+  when: not ansible_check_mode
+
+- name: Create qualification executable root
+  ansible.builtin.file:
+    path: /usr/local/libexec/home-lab
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: Install fixed qualification host transaction
+  ansible.builtin.copy:
+    content: "{{ qualification_snippet_capability_helper_source }}"
+    dest: /usr/local/libexec/home-lab/debian-qualification-snippet-transaction
+    owner: root
+    group: root
+    mode: "0755"
+  when: not ansible_check_mode
+  no_log: true
+
+- name: Install fixed qualification forced transport
+  ansible.builtin.copy:
+    content: "{{ qualification_snippet_capability_transport_source }}"
+    dest: /usr/local/libexec/home-lab/debian-qualification-snippet-transport
+    owner: root
+    group: root
+    mode: "0755"
+  when: not ansible_check_mode
+  no_log: true
+
+- name: Create qualification SSH directory
+  ansible.builtin.file:
+    path: /home/qualification-apply/.ssh
+    state: directory
+    owner: '1900'
+    group: '1900'
+    mode: "0700"
+  when: not ansible_check_mode
+
+- name: Install sole forced qualification key
+  ansible.builtin.copy:
+    content: "restrict,command=\"/usr/local/libexec/home-lab/debian-qualification-snippet-transport\" {{ qualification_pve_public_key }}\n"
+    dest: /home/qualification-apply/.ssh/authorized_keys
+    owner: '1900'
+    group: '1900'
+    mode: "0600"
+  when: not ansible_check_mode
+  no_log: true
+
+- name: Install fixed qualification sudo boundary
+  ansible.builtin.copy:
+    content: >-
+      qualification-apply ALL=(root) NOPASSWD:
+      /usr/local/libexec/home-lab/debian-qualification-snippet-transaction observe,
+      /usr/local/libexec/home-lab/debian-qualification-snippet-transaction apply *,
+      /usr/local/libexec/home-lab/debian-qualification-snippet-transaction hold-lock *
+    dest: /etc/sudoers.d/qualification-apply
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo --check --file=%s
+  when: not ansible_check_mode
+
+- name: Inspect installed qualification artifacts
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+    follow: false
+  loop:
+    - /usr/local/libexec/home-lab/debian-qualification-snippet-transaction
+    - /usr/local/libexec/home-lab/debian-qualification-snippet-transport
+    - /home/qualification-apply/.ssh/authorized_keys
+    - /etc/sudoers.d/qualification-apply
+  register: qualification_snippet_capability_installed
+  when: not ansible_check_mode
+  no_log: true
+
+- name: Verify installed qualification capability identities
+  ansible.builtin.assert:
+    that:
+      - qualification_snippet_capability_installed.results[0].stat.checksum == qualification_snippet_capability_helper_sha256
+      - qualification_snippet_capability_installed.results[1].stat.checksum == qualification_snippet_capability_transport_sha256
+      - qualification_snippet_capability_installed.results | map(attribute='stat.isreg') | select('equalto', true) | list | length == 4
+      - qualification_snippet_capability_installed.results | map(attribute='stat.islnk') | select('equalto', true) | list | length == 0
+    fail_msg: Installed qualification capability differs from reviewed source.
+  when: not ansible_check_mode
+  no_log: true

@@ -1,0 +1,11 @@
+---
+- name: Install the fixed snippet capability on an admitted disposable PVE target
+  hosts: proxmox_qualification
+  gather_facts: false
+  become: false
+  serial: 1
+  any_errors_fatal: true
+  roles:
+    - role: qualification_snippet_capability
+      tags:
+        - qualification_snippet_capability
