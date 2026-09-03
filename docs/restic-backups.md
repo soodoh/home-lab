@@ -32,7 +32,7 @@ Ordinary Restic convergence removes installed copies of the terminal incident-on
 
 The long-lived off-site publication credential is encrypted at `secrets/recovery-publication.sops.json` to both the active production and independent recovery age recipients. Independent-recovery decryption and exact caller/bucket/access-key validation passed before removal of the controller-local plaintext copy. Future IAM key rotation remains a separate saved-plan transaction; this escrow does not authorize rotation.
 
-The OpenTofu apply role may receive exact access-key lifecycle permissions scoped only to the protected off-site backup principal for the rotation transaction. Those permissions do not authorize a rotation by themselves and must be removed in a follow-up saved-plan transaction after the replacement key is independently escrowed and qualified.
+The off-site publication credential was rotated through separately approved create, deactivate, delete, and capability-retirement plans. Two propagation-sensitive attempts failed closed and rolled back before fresh plans succeeded. The canonical SOPS ciphertext now holds the independently decrypted and S3-qualified replacement; exactly one active key remains, the old key is deleted, and access-key lifecycle permissions are absent from the OpenTofu apply role. Evidence is `infrastructure/evidence/aws-recovery-publication-credential-rotation.json`.
 
 The final retired Offen recovery point was:
 
