@@ -83,10 +83,12 @@ assert.equal(proxmoxHost.ansible_host, "proxmox");
 assert.equal(proxmoxHost.ansible_user, "proxmox");
 assert.equal(dockerHost.lifecycle_profile, "production");
 for (const host of [dockerHost, proxmoxHost]) {
-  for (const required of ["-F /dev/null", "StrictHostKeyChecking=yes", "UpdateHostKeys=no", "ClearAllForwardings=yes", "PermitLocalCommand=no"]) {
+  for (const required of ["-F /dev/null", "BatchMode=yes", "StrictHostKeyChecking=yes", "UpdateHostKeys=no", "UserKnownHostsFile=", "IdentitiesOnly=yes", "ClearAllForwardings=yes", "PermitLocalCommand=no", "RequestTTY=no"]) {
     assert(host.ansible_ssh_common_args.includes(required), `inventory SSH policy omits ${required}`);
   }
 }
+assert(dockerHost.ansible_ssh_common_args.includes("HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS"));
+assert(proxmoxHost.ansible_ssh_common_args.includes("HOME_LAB_PROXMOX_PRODUCTION_KNOWN_HOSTS"));
 
 const inertHost = inertInventory.all.children.docker_host.hosts["docker-host-inert"];
 assert.equal(inertHost.lifecycle_contract_host, "debian");

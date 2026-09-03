@@ -15,13 +15,17 @@ all:
           # strict SSH host-key verification for the Tailscale SSH endpoint.
           ansible_ssh_common_args: >-
             -F /dev/null
+            -o BatchMode=yes
             -o StrictHostKeyChecking=yes
             -o UpdateHostKeys=no
+            -o UserKnownHostsFile={{ lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS') }}
+            -o IdentitiesOnly=yes
             -o ClearAllForwardings=yes
             -o PermitLocalCommand=no
             -o ConnectTimeout=10
             -o ServerAliveInterval=15
             -o ServerAliveCountMax=2
+            -o RequestTTY=no
           # Debian production retains the dedicated controller account outside the Docker
           # group and its separately validated passwordless sudo policy.
           ansible_become: true
@@ -37,12 +41,16 @@ all:
           lifecycle_contract_host: proxmox
           ansible_ssh_common_args: >-
             -F /dev/null
+            -o BatchMode=yes
             -o StrictHostKeyChecking=yes
             -o UpdateHostKeys=no
+            -o UserKnownHostsFile={{ lookup('ansible.builtin.env', 'HOME_LAB_PROXMOX_PRODUCTION_KNOWN_HOSTS') }}
+            -o IdentitiesOnly=yes
             -o ClearAllForwardings=yes
             -o PermitLocalCommand=no
             -o ConnectTimeout=10
             -o ServerAliveInterval=15
             -o ServerAliveCountMax=2
+            -o RequestTTY=no
           ansible_become: true
           ansible_become_method: sudo
