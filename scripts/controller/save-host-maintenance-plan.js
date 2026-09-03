@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const childProcess = require("node:child_process");
 const { load } = require("js-yaml");
+const { buildCandidateLock } = require("./package-transaction-lock");
 
 const root = path.resolve(__dirname, "../..");
 
@@ -98,19 +99,32 @@ function buildPlan({ kind, host, evidence, bindings, nowEpoch }) {
     throw new Error("reboot proposal is not safe to save");
   }
 
+  const createdAt = new Date(nowEpoch * 1000).toISOString().replace(".000Z", "Z");
+  const expiresAt = new Date((observedEpoch + bindings.max_observation_age_seconds) * 1000).toISOString().replace(".000Z", "Z");
+  const packageTransactionLock = kind === "package" ? buildCandidateLock({
+    host,
+    lifecycle: "production",
+    proposal: payload,
+    bindings,
+    generatedAt: createdAt,
+    expiresAt,
+  }) : undefined;
   const material = {
     format: "home-lab-host-maintenance-plan-v1",
     version: 1,
     kind,
     host,
-    created_at: new Date(nowEpoch * 1000).toISOString().replace(".000Z", "Z"),
-    expires_at: new Date((observedEpoch + bindings.max_observation_age_seconds) * 1000).toISOString().replace(".000Z", "Z"),
+    created_at: createdAt,
+    expires_at: expiresAt,
     bindings,
     evidence: payload,
     evidence_sha256: sha256(canonicalJson(payload)),
-    blockers: evidence.blockers || evidence.apply_blockers || [],
-    actionable: kind === "package" ? evidence.proposal_valid && evidence.apply_blockers?.length === 1 : evidence.preconditions_met && evidence.plan_inputs_complete,
+    blockers: kind === "package"
+      ? [...new Set([...(evidence.apply_blockers || []), ...packageTransactionLock.blockers])].sort()
+      : evidence.blockers || [],
+    actionable: kind === "reboot" && evidence.preconditions_met && evidence.plan_inputs_complete,
     authorized: false,
+    ...(packageTransactionLock ? { package_transaction_lock: packageTransactionLock } : {}),
   };
   return {
     ...material,
@@ -166,6 +180,7 @@ function main() {
       inventory_sha256: sha256(inventoryRaw),
       host_key_fingerprint: hostKeyFingerprint,
       max_observation_age_seconds: contract.proxmox.planning_policy.max_observation_age_seconds,
+      max_metadata_age_seconds: contract.lifecycle.maintenance.package_plan.max_metadata_age_seconds,
     },
     nowEpoch: Math.floor(Date.now() / 1000),
   });

@@ -2,8 +2,10 @@
 "use strict";
 
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const Ajv2020 = require("ajv/dist/2020");
 const {
   buildPlan,
   canonicalJson,
@@ -17,15 +19,52 @@ const bindings = {
   inventory_sha256: "c".repeat(64),
   host_key_fingerprint: `SHA256:${"A".repeat(43)}`,
   max_observation_age_seconds: 1800,
+  max_metadata_age_seconds: 86400,
 };
 const proposal = {
+  version: 1,
+  host: "debian",
   observed_at: "2026-08-28T08:29:00Z",
-  proposal_sha256: "d".repeat(64),
-  solver: { returncode: 0 },
+  metadata_mtime_epoch: nowEpoch - 120,
+  metadata_age_seconds: 120,
+  installed_inventory_format: "dpkg-query-status-tsv-v1",
+  installed_records: 100,
+  installed_inventory_sha256: "d".repeat(64),
+  installed_package_records: 100,
+  installed_status_sha256: "e".repeat(64),
+  expected_manifest_records: 0,
+  expected_manifest_sha256: "f".repeat(64),
+  manifest_matches: true,
+  solver: { returncode: 0, stdout_sha256: "1".repeat(64), stderr_sha256: "2".repeat(64) },
   holds: [],
+  kept_back: [],
+  download_bytes: 1024,
+  disk_delta_bytes: 512,
+  apt_state_hashes: {
+    configuration_sha256: "3".repeat(64),
+    keyrings_sha256: "4".repeat(64),
+    sources_sha256: "5".repeat(64),
+  },
   change_counts: { install: 0, upgrade: 1, downgrade: 0, remove: 0 },
+  security_changes: 1,
   changes: [{ action: "upgrade", name: "fixture", previous_version: "1", candidate_version: "2", origin: "Debian-Security", security: true }],
 };
+const proposalMaterial = {
+  host: proposal.host,
+  installed_inventory_sha256: proposal.installed_inventory_sha256,
+  metadata_mtime_epoch: proposal.metadata_mtime_epoch,
+  holds: proposal.holds,
+  solver_stdout_sha256: proposal.solver.stdout_sha256,
+  changes: proposal.changes,
+  installed_status_sha256: proposal.installed_status_sha256,
+  expected_manifest_sha256: proposal.expected_manifest_sha256,
+  manifest_matches: proposal.manifest_matches,
+  apt_state_hashes: proposal.apt_state_hashes,
+  kept_back: proposal.kept_back,
+  download_bytes: proposal.download_bytes,
+  disk_delta_bytes: proposal.disk_delta_bytes,
+};
+proposal.proposal_sha256 = crypto.createHash("sha256").update(canonicalJson(proposalMaterial).trimEnd()).digest("hex");
 const packageEvidence = {
   contract_host: "debian",
   proposal,
@@ -36,14 +75,33 @@ const packageEvidence = {
 };
 const packagePlan = buildPlan({ kind: "package", host: "debian", evidence: packageEvidence, bindings, nowEpoch });
 assert.equal(packagePlan.format, "home-lab-host-maintenance-plan-v1");
-assert.equal(packagePlan.actionable, true);
+assert.equal(packagePlan.actionable, false);
 assert.equal(packagePlan.authorized, false);
 assert.deepEqual(packagePlan.evidence.changes, proposal.changes);
+assert.equal(packagePlan.package_transaction_lock.automatic_apply, false);
+assert.equal(packagePlan.package_transaction_lock.authorized, false);
+assert.deepEqual(packagePlan.package_transaction_lock.transaction.exact_install_specs, ["fixture=2"]);
+assert.equal(packagePlan.package_transaction_lock.transaction.affected_services, null);
+assert(packagePlan.blockers.includes("impact-review-required"));
+assert(packagePlan.blockers.includes("separate-exact-authorization-required"));
+assert.match(packagePlan.package_transaction_lock.transaction_sha256, /^[0-9a-f]{64}$/);
 assert.match(packagePlan.plan_sha256, /^[0-9a-f]{64}$/);
 assert.equal(
   packagePlan.plan_sha256,
   buildPlan({ kind: "package", host: "debian", evidence: structuredClone(packageEvidence), bindings: structuredClone(bindings), nowEpoch }).plan_sha256,
 );
+
+const lockSchema = JSON.parse(fs.readFileSync(path.join(__dirname, "../../infrastructure/maintenance/package-transaction-lock.schema.json")));
+const validateLock = new Ajv2020({ allErrors: true, strict: true, formats: { "date-time": true } }).compile(lockSchema);
+assert(validateLock(packagePlan.package_transaction_lock), JSON.stringify(validateLock.errors));
+const tamperedProposal = structuredClone(packageEvidence);
+tamperedProposal.proposal.changes[0].origin = "unreviewed-origin";
+assert.throws(() => buildPlan({ kind: "package", host: "debian", evidence: tamperedProposal, bindings, nowEpoch }), /hash differs/);
+const missingAptBinding = structuredClone(packageEvidence);
+delete missingAptBinding.proposal.apt_state_hashes.sources_sha256;
+assert.throws(() => buildPlan({ kind: "package", host: "debian", evidence: missingAptBinding, bindings, nowEpoch }), /APT sources/);
+const staleMetadataBindings = { ...bindings, max_metadata_age_seconds: 60 };
+assert.throws(() => buildPlan({ kind: "package", host: "debian", evidence: packageEvidence, bindings: staleMetadataBindings, nowEpoch }), /metadata is stale/);
 
 const rebootEvidence = {
   contract_host: "debian",

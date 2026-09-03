@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://home-lab.invalid/schemas/package-transaction-lock-v1.json",
+  "title": "Home-lab package transaction candidate lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "version", "host", "lifecycle", "base_commit", "generated_at", "expires_at",
+    "automatic_apply", "authorized", "bindings", "transaction", "blockers", "transaction_sha256"
+  ],
+  "properties": {
+    "format": { "const": "home-lab-package-transaction-lock-v1" },
+    "version": { "const": 1 },
+    "host": { "enum": ["debian", "proxmox"] },
+    "lifecycle": { "const": "production" },
+    "base_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "generated_at": { "$ref": "#/$defs/timestamp" },
+    "expires_at": { "$ref": "#/$defs/timestamp" },
+    "automatic_apply": { "const": false },
+    "authorized": { "const": false },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_sha256", "inventory_sha256", "proposal_sha256", "installed_package_set_sha256",
+        "apt_sources_sha256", "apt_keyrings_sha256", "apt_configuration_sha256", "host_key_fingerprint", "max_metadata_age_seconds"
+      ],
+      "properties": {
+        "contract_sha256": { "$ref": "#/$defs/sha256" },
+        "inventory_sha256": { "$ref": "#/$defs/sha256" },
+        "proposal_sha256": { "$ref": "#/$defs/sha256" },
+        "installed_package_set_sha256": { "$ref": "#/$defs/sha256" },
+        "apt_sources_sha256": { "$ref": "#/$defs/sha256" },
+        "apt_keyrings_sha256": { "$ref": "#/$defs/sha256" },
+        "apt_configuration_sha256": { "$ref": "#/$defs/sha256" },
+        "host_key_fingerprint": { "type": "string", "pattern": "^SHA256:[A-Za-z0-9+/]{43}$" },
+        "max_metadata_age_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 }
+      }
+    },
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "changes", "exact_install_specs", "additions", "removals", "downgrades", "holds", "kept_back",
+        "download_bytes", "disk_delta_bytes", "affected_services", "needrestart_result", "reboot_required",
+        "reboot_reasons", "safety_classification"
+      ],
+      "properties": {
+        "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } },
+        "exact_install_specs": { "type": "array", "items": { "type": "string", "pattern": "^[^=\\s]+=[^=\\s]+$" }, "uniqueItems": true },
+        "additions": { "$ref": "#/$defs/packageNames" },
+        "removals": { "$ref": "#/$defs/packageNames" },
+        "downgrades": { "$ref": "#/$defs/packageNames" },
+        "holds": { "$ref": "#/$defs/packageNames" },
+        "kept_back": { "$ref": "#/$defs/packageNames" },
+        "download_bytes": { "type": "integer", "minimum": 0 },
+        "disk_delta_bytes": { "type": "integer" },
+        "affected_services": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "needrestart_result": { "type": ["string", "null"], "minLength": 1 },
+        "reboot_required": { "type": ["boolean", "null"] },
+        "reboot_reasons": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "safety_classification": { "const": "impact-review-required" }
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "contains": { "const": "separate-exact-authorization-required" },
+      "uniqueItems": true
+    },
+    "transaction_sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "timestamp": { "type": "string", "format": "date-time", "pattern": "Z$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "packageNames": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "change": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "candidate_version", "name", "origin", "previous_version", "security"],
+      "properties": {
+        "action": { "enum": ["install", "upgrade", "downgrade", "remove"] },
+        "candidate_version": { "type": ["string", "null"] },
+        "name": { "type": "string", "minLength": 1 },
+        "origin": { "type": "string" },
+        "previous_version": { "type": ["string", "null"] },
+        "security": { "type": "boolean" }
+      }
+    }
+  }
+}

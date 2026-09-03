@@ -40,6 +40,38 @@
                 timeout=300,
             )
 
+        def hash_tree(paths):
+            entries = []
+            for root in paths:
+                if not os.path.lexists(root):
+                    entries.append({"path": root, "type": "missing"})
+                    continue
+                candidates = [root]
+                if os.path.isdir(root) and not os.path.islink(root):
+                    candidates.extend(
+                        os.path.join(directory, name)
+                        for directory, subdirectories, files in os.walk(root, followlinks=False)
+                        for name in sorted(subdirectories + files)
+                    )
+                for path in sorted(set(candidates)):
+                    metadata = os.lstat(path)
+                    entry = {"mode": oct(metadata.st_mode & 0o7777), "path": path}
+                    if os.path.islink(path):
+                        entry.update({"target": os.readlink(path), "type": "symlink"})
+                    elif os.path.isfile(path):
+                        digest = hashlib.sha256()
+                        with open(path, "rb") as handle:
+                            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                                digest.update(chunk)
+                        entry.update({"sha256": digest.hexdigest(), "size": metadata.st_size, "type": "file"})
+                    elif os.path.isdir(path):
+                        entry["type"] = "directory"
+                    else:
+                        entry["type"] = "other"
+                    entries.append(entry)
+            raw = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()
+            return hashlib.sha256(raw).hexdigest()
+
         installed_result = run([
             "/usr/bin/dpkg-query", "--show", "--showformat=${binary:Package}\\t${Version}\\n",
         ])
@@ -86,6 +118,13 @@
                 newest_metadata = path
                 newest_metadata_mtime = int(metadata.st_mtime)
 
+        apt_state_hashes = {
+            "configuration_sha256": hash_tree([
+                "/etc/apt/apt.conf", "/etc/apt/apt.conf.d", "/etc/apt/preferences", "/etc/apt/preferences.d",
+            ]),
+            "keyrings_sha256": hash_tree(["/etc/apt/keyrings", "/usr/share/keyrings"]),
+            "sources_sha256": hash_tree(["/etc/apt/sources.list", "/etc/apt/sources.list.d"]),
+        }
         solver_result = run([
             "/usr/bin/apt-get",
             "--simulate",
@@ -93,6 +132,39 @@
             "--option", "APT::Get::Show-Upgraded=true",
             "dist-upgrade",
         ])
+        kept_back = []
+        collecting_kept_back = False
+        for line in solver_result.stdout.splitlines():
+            if line.startswith("The following packages have been kept back:"):
+                collecting_kept_back = True
+                kept_back.extend(line.split(":", 1)[1].split())
+            elif collecting_kept_back and line.startswith(" "):
+                kept_back.extend(line.split())
+            elif collecting_kept_back:
+                collecting_kept_back = False
+        kept_back = sorted(set(kept_back))
+
+        unit_multipliers = {"B": 1, "kB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3, "TB": 1000 ** 4}
+        def byte_value(number, unit):
+            return int(float(number.replace(",", "")) * unit_multipliers[unit])
+
+        download_bytes = 0
+        disk_delta_bytes = 0
+        download_match = re.search(r"Need to get ([0-9.,]+) (B|kB|MB|GB|TB)", solver_result.stdout)
+        if download_match:
+            download_bytes = byte_value(*download_match.groups())
+        disk_match = re.search(
+            r"After this operation, ([0-9.,]+) (B|kB|MB|GB|TB) of additional disk space will be used\.",
+            solver_result.stdout,
+        )
+        freed_match = re.search(
+            r"After this operation, ([0-9.,]+) (B|kB|MB|GB|TB) disk space will be freed\.",
+            solver_result.stdout,
+        )
+        if disk_match:
+            disk_delta_bytes = byte_value(*disk_match.groups())
+        elif freed_match:
+            disk_delta_bytes = -byte_value(*freed_match.groups())
         changes = []
         install_pattern = re.compile(r"^Inst (\S+)(?: \[([^]]+)\])? \((\S+)(?: (.*))?\)$")
         remove_pattern = re.compile(r"^Remv (\S+)(?: \[([^]]+)\])?")
@@ -143,6 +215,10 @@
             "installed_status_sha256": hashlib.sha256(installed_status_raw).hexdigest(),
             "expected_manifest_sha256": hashlib.sha256(expected_package_raw).hexdigest(),
             "manifest_matches": manifest_matches,
+            "apt_state_hashes": apt_state_hashes,
+            "kept_back": kept_back,
+            "download_bytes": download_bytes,
+            "disk_delta_bytes": disk_delta_bytes,
         }
         canonical = json.dumps(proposal_material, sort_keys=True, separators=(",", ":")).encode()
         result = {
@@ -174,6 +250,10 @@
                 for action in ("install", "upgrade", "downgrade", "remove")
             },
             "security_changes": sum(1 for item in changes if item["security"]),
+            "apt_state_hashes": apt_state_hashes,
+            "kept_back": kept_back,
+            "download_bytes": download_bytes,
+            "disk_delta_bytes": disk_delta_bytes,
             "proposal_sha256": hashlib.sha256(canonical).hexdigest(),
         }
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
@@ -210,6 +290,7 @@
           package_lifecycle_proposal.metadata_age_seconds <= package_lifecycle_policy.max_metadata_age_seconds and
           package_lifecycle_proposal.manifest_matches and
           package_lifecycle_proposal.holds | length == 0 and
+          package_lifecycle_proposal.kept_back | length == 0 and
           package_lifecycle_proposal.change_counts.remove == 0 and
           package_lifecycle_proposal.change_counts.downgrade == 0 and
           lifecycle_state_observation.locks.active | length == 0
@@ -226,6 +307,7 @@
               else ['apt-metadata-stale']
             ) +
             ([] if package_lifecycle_proposal.holds | length == 0 else ['held-packages']) +
+            ([] if package_lifecycle_proposal.kept_back | length == 0 else ['kept-back-packages']) +
             ([] if package_lifecycle_proposal.manifest_matches else ['installed-package-manifest-drift']) +
             ([] if package_lifecycle_proposal.change_counts.remove == 0 else ['package-removal']) +
             ([] if package_lifecycle_proposal.change_counts.downgrade == 0 else ['package-downgrade']) +

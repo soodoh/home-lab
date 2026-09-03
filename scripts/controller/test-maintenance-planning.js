@@ -56,6 +56,13 @@ for (const required of [
   'installed_status_lines',
   '"manifest_matches"',
   '"expected_manifest_sha256"',
+  '"apt_state_hashes"',
+  '"configuration_sha256"',
+  '"keyrings_sha256"',
+  '"sources_sha256"',
+  '"kept_back"',
+  '"download_bytes"',
+  '"disk_delta_bytes"',
 ]) {
   assert(packageScript.includes(required), `package observer omits ${required}`);
 }
