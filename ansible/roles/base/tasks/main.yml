@@ -5,6 +5,42 @@
   vars:
     apt_packages_requested: "{{ base_packages }}"
 
+- name: Set the contracted default Debian locale
+  ansible.builtin.copy:
+    content: "LANG={{ debian_locale }}\n"
+    dest: /etc/locale.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: false
+  become: "{{ not ansible_check_mode }}"
+
+- name: Keep the Debian default locale compatibility link
+  ansible.builtin.file:
+    path: /etc/default/locale
+    src: ../locale.conf
+    state: link
+    owner: root
+    group: root
+    force: true
+  become: "{{ not ansible_check_mode }}"
+
+- name: Inspect generated Debian locales
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/locale
+      - -a
+  register: base_generated_locales
+  changed_when: false
+  check_mode: false
+
+- name: Require the contracted Debian locale
+  ansible.builtin.assert:
+    that:
+      - debian_locale == 'C.UTF-8'
+      - "'C.utf8' in base_generated_locales.stdout_lines"
+    fail_msg: The contracted Debian locale is unavailable after base convergence.
+
 - name: Resolve timezone mutation ownership
   ansible.builtin.set_fact:
     base_timezone_mutation_authorized: >-

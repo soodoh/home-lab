@@ -75,6 +75,7 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-ansible-collections.js
   node scripts/controller/test-contract-schema.js
   node scripts/controller/test-lifecycle-state.js
+  node scripts/controller/test-debian-lifecycle-profiles.js
   python3 scripts/controller/test-lifecycle-marker-transaction.py
   python3 scripts/controller/test-debian-access-cleanup.py
   python3 scripts/controller/test-proxmox-tofu-identity-retirement.py

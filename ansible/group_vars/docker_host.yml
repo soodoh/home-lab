@@ -4,6 +4,17 @@ audit_home_dir: /home/docker
 audit_expected_distribution: Debian
 audit_expected_running_kernel: "{{ debian.qualification.kernel_release }}"
 audit_expected_timezone: "{{ system_timezone }}"
+audit_expected_locale: "{{ debian.locale }}"
+debian_locale: "{{ debian.locale }}"
+debian_protected_mounts: "{{ debian.qualification.protected_mounts }}"
+debian_lifecycle_inactive_units:
+  - docker.service
+  - home-lab-compose.service
+  - home-lab-restic-daily.timer
+  - home-lab-restic-maintenance.timer
+  - home-lab-restic-recover.service
+  - tailscaled.service
+debian_tailscale_state_path: /var/lib/tailscale
 audit_expected_packages:
   linux-image-amd64: "{{ debian.qualification.kernel_package_version }}"
   docker.io: 26.1.5+dfsg1-9+deb13u1

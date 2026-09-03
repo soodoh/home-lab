@@ -1,15 +1,11 @@
 ---
-- name: Audit the existing Docker host without changing it
+- name: Audit the explicit Debian lifecycle boundary
   hosts: docker_host
-  gather_facts: true
+  gather_facts: false
+  become: false
   any_errors_fatal: true
   vars_files:
     - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
     - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   roles:
     - role: debian_lifecycle_guard
-      tags:
-        - audit
-    - role: audit
-      tags:
-        - audit

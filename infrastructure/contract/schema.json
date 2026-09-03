@@ -71,11 +71,12 @@
     "debian": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["release", "version", "point_release", "build_id", "image", "cloud_init", "os_disk", "qualification"],
+      "required": ["release", "version", "point_release", "locale", "build_id", "image", "cloud_init", "os_disk", "qualification"],
       "properties": {
         "release": { "const": "trixie" },
         "version": { "const": "13" },
         "point_release": { "const": "13.6" },
+        "locale": { "const": "C.UTF-8" },
         "build_id": { "const": "20260810-2566" },
         "image": {
           "type": "object",

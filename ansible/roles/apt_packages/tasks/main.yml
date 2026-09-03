@@ -16,9 +16,31 @@
     - ansible_check_mode
     - apt_packages_missing | length > 0
 
+- name: Normalize exact locked package names
+  ansible.builtin.set_fact:
+    apt_packages_exact_locked_names: >-
+      {{ apt_packages_exact_locked_specs | map('regex_replace', '=.*$', '') | list }}
+
+- name: Require a reviewed exact lock before package installation
+  ansible.builtin.assert:
+    that:
+      - package_mutation_policy.require_exact_lock_for_all_updates | bool
+      - not (package_mutation_policy.automatic_apply | bool)
+      - apt_packages_exact_lock_authorized | bool
+      - apt_packages_exact_locked_specs | length == apt_packages_missing | length
+      - apt_packages_exact_locked_names | sort == apt_packages_missing | sort
+      - >-
+        apt_packages_exact_locked_specs |
+        select('match', '^[A-Za-z0-9][A-Za-z0-9+.-]*(?::[A-Za-z0-9]+)?=\\S+$') |
+        list | length == apt_packages_exact_locked_specs | length
+    fail_msg: Package installation requires a separately reviewed exact name=version lock matching every missing package.
+  when:
+    - not ansible_check_mode
+    - apt_packages_missing | length > 0
+
 - name: Install only absent requested packages without upgrading present packages
   ansible.builtin.apt:
-    name: "{{ apt_packages_missing }}"
+    name: "{{ apt_packages_exact_locked_specs }}"
     state: present
     update_cache: false
   become: true

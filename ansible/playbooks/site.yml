@@ -15,6 +15,12 @@
         fail_msg: Set lifecycle_profile explicitly through the selected inventory; implicit production activation is forbidden.
       tags:
         - always
+
+    - name: Enforce lifecycle-specific Debian safety boundaries
+      ansible.builtin.import_role:
+        name: debian_lifecycle_guard
+      tags:
+        - always
     - name: Enforce the apply safety contract
       ansible.builtin.import_role:
         name: apply_guard

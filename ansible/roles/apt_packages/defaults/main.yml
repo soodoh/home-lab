@@ -1,0 +1,3 @@
+---
+apt_packages_exact_lock_authorized: false
+apt_packages_exact_locked_specs: []

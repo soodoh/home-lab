@@ -1367,6 +1367,7 @@ debian:
   release: trixie
   version: "13"
   point_release: "13.6"
+  locale: C.UTF-8
   build_id: "20260810-2566"
   image:
     variant: generic

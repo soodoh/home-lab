@@ -1,0 +1,155 @@
+---
+- name: Require an explicit supported Debian lifecycle profile
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'debian'
+      - lifecycle_profile in ['inert', 'recovery', 'production']
+      - debian_protected_mounts == debian.qualification.protected_mounts
+      - debian_locale == debian.locale
+    fail_msg: Debian lifecycle convergence requires direct contract mapping and an explicit supported profile.
+
+- name: Inspect generated Debian locales
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/locale
+      - -a
+  register: debian_lifecycle_guard_locales
+  changed_when: false
+  check_mode: false
+
+- name: Require the contracted Debian locale on adopted hosts
+  ansible.builtin.assert:
+    that:
+      - "'C.utf8' in debian_lifecycle_guard_locales.stdout_lines"
+    fail_msg: The contracted Debian locale is absent; use an explicitly reviewed base transaction.
+  when: lifecycle_profile == 'production'
+
+- name: Inspect inactive protected mountpoints without traversing them
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -c
+      - |-
+        import json
+        import os
+        import stat
+        import sys
+
+        target = sys.argv[1]
+        result = {"entry_count": None, "exists": False, "is_directory": False, "is_mount": False, "is_symlink": False}
+        try:
+            metadata = os.lstat(target)
+            result["exists"] = True
+            result["is_directory"] = stat.S_ISDIR(metadata.st_mode)
+            result["is_symlink"] = stat.S_ISLNK(metadata.st_mode)
+            result["is_mount"] = os.path.ismount(target)
+            if result["is_directory"] and not result["is_mount"]:
+                result["entry_count"] = sum(1 for _ in os.scandir(target))
+        except FileNotFoundError:
+            pass
+        print(json.dumps(result, separators=(",", ":"), sort_keys=True))
+      - "{{ item }}"
+  loop: "{{ debian_protected_mounts }}"
+  loop_control:
+    label: "{{ item }}"
+  register: debian_lifecycle_guard_mounts
+  changed_when: false
+  check_mode: false
+  when: lifecycle_profile in ['inert', 'recovery']
+
+- name: Refuse mounted, non-directory, symlinked, or nonempty inactive protected paths
+  ansible.builtin.assert:
+    that:
+      - not (item.stdout | from_json).is_mount
+      - not (item.stdout | from_json).is_symlink
+      - >-
+        not (item.stdout | from_json).exists or
+        ((item.stdout | from_json).is_directory and (item.stdout | from_json).entry_count == 0)
+    fail_msg: "Inactive protected path {{ item.item }} is mounted, unsafe, or nonempty; refusing lifecycle convergence."
+  loop: "{{ debian_lifecycle_guard_mounts.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: lifecycle_profile in ['inert', 'recovery']
+
+- name: Inspect services forbidden from running before production activation
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/systemctl
+      - show
+      - --property=LoadState
+      - --property=ActiveState
+      - --property=UnitFileState
+      - "{{ item }}"
+  loop: "{{ debian_lifecycle_inactive_units }}"
+  loop_control:
+    label: "{{ item }}"
+  register: debian_lifecycle_guard_units
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  when: lifecycle_profile in ['inert', 'recovery']
+
+- name: Require protected services and timers to remain absent or disabled and inactive
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - >-
+        'LoadState=not-found' in item.stdout_lines or
+        (
+          'LoadState=loaded' in item.stdout_lines and
+          'ActiveState=inactive' in item.stdout_lines and
+          (
+            'UnitFileState=disabled' in item.stdout_lines or
+            'UnitFileState=masked' in item.stdout_lines or
+            'UnitFileState=static' in item.stdout_lines
+          )
+        )
+    fail_msg: "{{ item.item }} is enabled or active before production activation."
+  loop: "{{ debian_lifecycle_guard_units.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: lifecycle_profile in ['inert', 'recovery']
+
+- name: Inspect secret identity and Tailscale state boundaries
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: false
+  become: true
+  loop:
+    - "{{ compose_age_identity_path }}"
+    - "{{ debian_tailscale_state_path }}"
+  register: debian_lifecycle_guard_identity_paths
+  no_log: true
+  when: lifecycle_profile in ['inert', 'recovery']
+
+- name: Require Tailscale state to remain absent before explicit enrollment
+  ansible.builtin.assert:
+    that:
+      - not (debian_lifecycle_guard_identity_paths.results[1].stat.exists | default(false))
+    fail_msg: Ordinary inert or recovery convergence cannot create or retain Tailscale enrollment state.
+  no_log: true
+  when: lifecycle_profile in ['inert', 'recovery']
+
+- name: Require the age identity to remain absent on inert hosts
+  ansible.builtin.assert:
+    that:
+      - not (debian_lifecycle_guard_identity_paths.results[0].stat.exists | default(false))
+    fail_msg: Inert hosts cannot contain the production age identity.
+  no_log: true
+  when: lifecycle_profile == 'inert'
+
+- name: Validate an already recovered age identity without reading it
+  ansible.builtin.assert:
+    that:
+      - debian_lifecycle_guard_identity_paths.results[0].stat.isreg
+      - not debian_lifecycle_guard_identity_paths.results[0].stat.islnk
+      - debian_lifecycle_guard_identity_paths.results[0].stat.nlink == 1
+      - debian_lifecycle_guard_identity_paths.results[0].stat.pw_name == 'root'
+      - debian_lifecycle_guard_identity_paths.results[0].stat.gr_name == 'root'
+      - debian_lifecycle_guard_identity_paths.results[0].stat.mode == '0600'
+    fail_msg: Recovered age identity metadata is unsafe.
+  no_log: true
+  when:
+    - lifecycle_profile == 'recovery'
+    - debian_lifecycle_guard_identity_paths.results[0].stat.exists | default(false)
