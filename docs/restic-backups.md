@@ -26,6 +26,8 @@ The rebuilt canonical recovery bundle now has two independent ciphertexts. Bundl
 
 A manual execution of the exact scheduled daily target then provided the first post-incident write canary. Local snapshot `3877b600d37c2f2003af9e765f137da8175fee473fda7b1b2407c97b1898de76` mapped to canonical Proton snapshot `4ae03d04658d45a25534008a26b642722f35d08839e3fb4e3c0e4d8de31760d2`; both daily services succeeded, the pending queue reached zero, and subsequent structural and full read-data checks passed. Evidence is `infrastructure/evidence/proton-post-incident-daily-canary.json`. The ordinary timer remains responsible for the next naturally scheduled 05:00 run.
 
+Ordinary Restic convergence removes installed copies of the terminal incident-only cleanup, Trash, canonical-creation, promotion, and retirement helpers. Their reviewed source and committed evidence remain in Git, and their dedicated playbooks can reinstall an exact capability only for a separately reviewed future transaction.
+
 The final retired Offen recovery point was:
 
 - basename `daily-local-backup-2026-08-23T05-00-00.tar.gz.gpg`;

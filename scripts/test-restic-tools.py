@@ -505,6 +505,10 @@ def main() -> None:
     assert "Refusing to replace a non-regular, symlinked, or hard-linked Restic tool destination" in role
     assert "Keep incident-suspended Restic timers disabled and stopped" in role
     assert "Clear retained incident failure markers before active scheduling" in role
+    assert "Remove terminal incident-only Restic capabilities" in role
+    for helper in ("cleanup-damaged-proton-restic-v1", "empty-proton-trash", "create-canonical-proton-restic", "promote-qualified-proton-restic", "retire-proton-incident-artifacts"):
+        assert f'src: "{{{{ playbook_dir }}}}/../../scripts/{helper}"' not in role
+        assert f"/usr/local/libexec/home-lab/{helper}" in role
     assert "backups.restic.schedule.state == 'active'" in role
     assert "backups.restic.schedule.state == 'active'" in audit_restic
     assert "backups.restic.schedule.state == 'incident-suspended'" in audit_restic
