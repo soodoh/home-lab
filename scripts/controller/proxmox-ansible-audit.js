@@ -101,9 +101,11 @@ function audit(artifactDirectory, observationPath) {
   const manifestPath = path.join(artifactDirectory, "manifest.json");
   const specificationPath = path.join(artifactDirectory, "observation-spec.json");
   const observerPath = path.join(artifactDirectory, "proxmox-observer");
+  const packageObserverPath = path.join(artifactDirectory, "proxmox-package-candidate-observer");
   const { raw: manifestRaw, value: manifest } = parseCanonical(manifestPath, 64 * 1024);
   const { raw: specificationRaw, value: specification } = parseCanonical(specificationPath, 1024 * 1024);
   const observerRaw = readRegular(observerPath, 1024 * 1024);
+  const packageObserverRaw = readRegular(packageObserverPath, 1024 * 1024);
   const { raw: observationRaw, value: observation } = observationPath === "-" ?
     parseCanonicalRaw(readStdinBounded(maxObservationBytes), "standard input", maxObservationBytes) :
     parseCanonical(observationPath, maxObservationBytes);
@@ -118,6 +120,8 @@ function audit(artifactDirectory, observationPath) {
   if (!validateObservation(observation)) throw new Error(`observation schema validation failed: ${JSON.stringify(validateObservation.errors)}`);
 
   assert.equal(manifest.observer_sha256, sha256(observerRaw));
+  assert.equal(manifest.package_observer_sha256, sha256(packageObserverRaw));
+  assert.equal(manifest.package_observer_template_sha256, sha256(readRegular(path.join(root, "infrastructure/maintenance/host/package-candidate-observer"), 1024 * 1024)));
   assert.equal(manifest.specification_sha256, sha256(specificationRaw));
   assert.equal(manifest.observation_schema_sha256, sha256(observationSchemaRaw));
   assert.equal(manifest.projection_schema_sha256, sha256(projectionSchemaRaw));

@@ -9,6 +9,7 @@ const { load } = require("js-yaml");
 const root = path.resolve(__dirname, "../..");
 const readYaml = (relative) => load(fs.readFileSync(path.join(root, relative), "utf8"));
 const packageTasks = readYaml("ansible/roles/package_lifecycle/tasks/main.yml");
+const packageScript = fs.readFileSync(path.join(root, "infrastructure/maintenance/host/package-candidate-observer"), "utf8");
 const rebootTasks = readYaml("ansible/roles/reboot_lifecycle/tasks/main.yml");
 const packagePlaybook = readYaml("ansible/playbooks/packages-plan.yml")[0];
 const rebootPlaybook = readYaml("ansible/playbooks/reboot-plan.yml")[0];
@@ -43,7 +44,9 @@ for (const item of [...packageTasks, ...rebootTasks].filter((entry) => entry["an
 }
 
 const packageObserver = task(packageTasks, "Build a reduced read-only package proposal from existing APT metadata");
-const packageScript = packageObserver["ansible.builtin.command"].argv[2];
+const packageArgv = packageObserver["ansible.builtin.command"].argv;
+assert(packageArgv[2].includes("package-candidate-observer"));
+assert.deepEqual(packageArgv.slice(3), ["observe", "{{ lifecycle_contract_host }}"]);
 for (const required of [
   '"/usr/bin/apt-get"',
   '"--simulate"',
@@ -53,13 +56,18 @@ for (const required of [
   '"metadata_refresh_performed": False',
   '"proposal_sha256"',
   'Status-Abbrev',
-  'installed_status_lines',
+  'installed_lines',
   '"manifest_matches"',
   '"expected_manifest_sha256"',
+  '"policy_sha256"',
+  '"apt_tree_safe"',
+  '"size_parse_complete"',
+  'os.O_NOFOLLOW',
+  'os.fstat',
   '"apt_state_hashes"',
-  '"configuration_sha256"',
-  '"keyrings_sha256"',
-  '"sources_sha256"',
+  '"/etc/apt/apt.conf.d"',
+  '"/usr/share/keyrings"',
+  '"/etc/apt/sources.list.d"',
   '"kept_back"',
   '"download_bytes"',
   '"disk_delta_bytes"',

@@ -60,6 +60,7 @@ try {
   const outputDirectory = path.join(temporaryRoot, "artifact");
   build(outputDirectory, privatePreparerSha256);
   const observer = fs.readFileSync(path.join(outputDirectory, "proxmox-observer"));
+  const packageObserver = fs.readFileSync(path.join(outputDirectory, "proxmox-package-candidate-observer"));
   const specificationRaw = fs.readFileSync(path.join(outputDirectory, "observation-spec.json"));
   const manifestRaw = fs.readFileSync(path.join(outputDirectory, "manifest.json"));
   const manifest = JSON.parse(manifestRaw);
@@ -67,18 +68,22 @@ try {
   const validateManifest = new Ajv2020({ allErrors: true, strict: true }).compile(manifestSchema);
   assert(validateManifest(manifest), JSON.stringify(validateManifest.errors));
   assert.equal(manifest.observer_sha256, sha256(observer));
+  assert.equal(manifest.package_observer_sha256, sha256(packageObserver));
   assert.equal(manifest.specification_sha256, sha256(specificationRaw));
   assert.equal(manifest.private_preparer_sha256, privatePreparerSha256);
   assert.equal(manifestRaw.toString("utf8"), canonicalJson(manifest));
   assert.equal(specificationRaw.toString("utf8"), canonicalJson(specification));
   assert(!observer.includes("@OBSERVATION_SPEC@"));
-  for (const [name, mode] of [["proxmox-observer", 0o755], ["observation-spec.json", 0o644], ["manifest.json", 0o644]]) {
+  assert(!packageObserver.includes("@EXPECTED_PACKAGES_BASE64@"));
+  for (const [name, mode] of [["proxmox-observer", 0o755], ["proxmox-package-candidate-observer", 0o755], ["observation-spec.json", 0o644], ["manifest.json", 0o644]]) {
     const metadata = fs.lstatSync(path.join(outputDirectory, name));
     assert(metadata.isFile() && metadata.nlink === 1, `${name} must be a single-link regular file`);
     assert.equal(metadata.mode & 0o777, mode, `${name} mode differs`);
   }
   const compile = spawnSync("python3", ["-c", "import pathlib,sys;compile(pathlib.Path(sys.argv[1]).read_bytes(),sys.argv[1],'exec')", path.join(outputDirectory, "proxmox-observer")], { encoding: "utf8" });
   assert.equal(compile.status, 0, compile.stderr);
+  const compilePackage = spawnSync("python3", ["-c", "import pathlib,sys;compile(pathlib.Path(sys.argv[1]).read_bytes(),sys.argv[1],'exec')", path.join(outputDirectory, "proxmox-package-candidate-observer")], { encoding: "utf8" });
+  assert.equal(compilePackage.status, 0, compilePackage.stderr);
   const version = spawnSync(path.join(outputDirectory, "proxmox-observer"), ["version"], { encoding: "utf8" });
   assert.equal(version.status, 0, version.stderr);
   assert.deepEqual(JSON.parse(version.stdout), { capabilities: ["observe"], helper: "proxmox-observer", protocol: 4, version: 1 });

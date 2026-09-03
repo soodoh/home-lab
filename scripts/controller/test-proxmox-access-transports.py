@@ -35,6 +35,7 @@ def main() -> None:
         assert not path.is_symlink()
 
     assert invoke(PLAN, "-c", "observe") != 64
+    assert invoke(PLAN, "-c", "observe-package") != 64
     for args, original in (
         ((), None), (("-c", "observe;id"), None), (("-c", "/bin/sh"), None),
         (("-c", "observe"), "observe"), (("-c", "observe", "extra"), None),
@@ -78,6 +79,7 @@ def main() -> None:
 
     plan_source = PLAN.read_text()
     assert "proxmox-observer observe" in plan_source
+    assert "proxmox-package-candidate-observer observe proxmox" in plan_source
     assert "SSH_ORIGINAL_COMMAND" in plan_source
     assert "eval" not in plan_source and "sh -c" not in plan_source
     capability_source = CAPABILITY.read_text()

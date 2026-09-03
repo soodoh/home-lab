@@ -1,0 +1,254 @@
+#!/usr/bin/python3
+"""Fixed, read-only APT package candidate observer."""
+
+import base64
+import datetime as dt
+import hashlib
+import json
+import os
+import re
+import stat
+import subprocess
+import sys
+
+EXPECTED_PACKAGES = json.loads(base64.b64decode('@EXPECTED_PACKAGES_BASE64@').decode())
+ENV = {"DEBIAN_FRONTEND": "noninteractive", "LC_ALL": "C", "LANG": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+MAX_BYTES = 4 * 1024 * 1024
+
+
+def compact(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
+def digest(value):
+    return hashlib.sha256(value).hexdigest()
+
+
+def run(arguments, timeout=300):
+    try:
+        result = subprocess.run(arguments, stdin=subprocess.DEVNULL, capture_output=True, env=ENV, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError("package observer command unavailable") from error
+    if len(result.stdout) > MAX_BYTES or len(result.stderr) > MAX_BYTES:
+        raise RuntimeError("package observer command exceeded bound")
+    return result
+
+
+def read_regular(path, before):
+    if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or before.st_size > MAX_BYTES or
+            before.st_uid != 0 or before.st_gid != 0 or stat.S_IMODE(before.st_mode) & 0o022):
+        return None
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        after = os.fstat(descriptor)
+        if (before.st_dev, before.st_ino, before.st_mode, before.st_size) != (after.st_dev, after.st_ino, after.st_mode, after.st_size):
+            raise RuntimeError("APT state changed during observation")
+        raw = bytearray()
+        while len(raw) <= MAX_BYTES:
+            block = os.read(descriptor, min(65536, MAX_BYTES + 1 - len(raw)))
+            if not block:
+                break
+            raw.extend(block)
+        if len(raw) != after.st_size:
+            raise RuntimeError("APT state read differs")
+        return bytes(raw)
+    finally:
+        os.close(descriptor)
+
+
+def file_tree(paths):
+    entries = []
+    safe = True
+    unsafe_paths = []
+    for root in paths:
+        if not os.path.lexists(root):
+            entries.append({"path": root, "type": "missing"})
+            continue
+        candidates = [root]
+        if os.path.isdir(root) and not os.path.islink(root):
+            candidates.extend(os.path.join(directory, name)
+                              for directory, subdirectories, files in os.walk(root, followlinks=False)
+                              for name in sorted(subdirectories + files))
+        for path in sorted(set(candidates)):
+            before = os.lstat(path)
+            entry = {"mode": oct(stat.S_IMODE(before.st_mode)), "path": path}
+            if stat.S_ISLNK(before.st_mode):
+                target = os.readlink(path)
+                entry.update({"target": target, "type": "symlink"})
+                target_path = os.path.join(os.path.dirname(path), target)
+                target_info = os.lstat(target_path) if "/" not in target and target not in {".", ".."} else None
+                raw = read_regular(target_path, target_info) if target_info is not None else None
+                if raw is None:
+                    safe = False
+                    unsafe_paths.append(path)
+                else:
+                    entry.update({"target_sha256": digest(raw), "target_size": target_info.st_size})
+            elif stat.S_ISDIR(before.st_mode):
+                entry["type"] = "directory"
+                if before.st_uid != 0 or before.st_gid != 0 or stat.S_IMODE(before.st_mode) & 0o022:
+                    safe = False
+                    unsafe_paths.append(path)
+            elif stat.S_ISREG(before.st_mode):
+                raw = read_regular(path, before)
+                if raw is None:
+                    safe = False
+                    unsafe_paths.append(path)
+                    entry.update({"size": before.st_size, "type": "unsafe-file"})
+                else:
+                    entry.update({"sha256": digest(raw), "size": before.st_size, "type": "file"})
+            else:
+                entry["type"] = "other"
+                safe = False
+                unsafe_paths.append(path)
+            entries.append(entry)
+    return {"safe": safe, "sha256": digest(compact(entries)), "unsafe_paths": sorted(unsafe_paths)}
+
+
+def policy_identity(name, candidate):
+    result = run(("/usr/bin/apt-cache", "policy", name), 30)
+    if result.returncode != 0 or result.stderr:
+        raise RuntimeError("APT policy unavailable")
+    text = result.stdout.decode("utf-8", "strict")
+    matched = re.search(r"^  Candidate: (\S+)$", text, re.MULTILINE)
+    if matched is None or matched.group(1) != candidate:
+        raise RuntimeError("APT policy candidate differs")
+    return digest(result.stdout)
+
+
+def parse_size(stdout, changes):
+    multipliers = {"B": 1, "kB": 1000, "MB": 1000 ** 2, "GB": 1000 ** 3, "TB": 1000 ** 4}
+    convert = lambda match: int(float(match.group(1).replace(",", "")) * multipliers[match.group(2)])
+    download = re.search(r"Need to get ([0-9.,]+) (B|kB|MB|GB|TB)", stdout)
+    used = re.search(r"After this operation, ([0-9.,]+) (B|kB|MB|GB|TB) of additional disk space will be used\.", stdout)
+    freed = re.search(r"After this operation, ([0-9.,]+) (B|kB|MB|GB|TB) disk space will be freed\.", stdout)
+    if not changes:
+        return 0, 0, True
+    complete = download is not None and (used is not None or freed is not None)
+    return convert(download) if download else None, convert(used) if used else -convert(freed) if freed else None, complete
+
+
+def observe(host):
+    installed = run(("/usr/bin/dpkg-query", "--show", "--showformat=${db:Status-Abbrev}\t${binary:Package}\t${Version}\n"), 30)
+    holds_result = run(("/usr/bin/apt-mark", "showhold"), 30)
+    solver = run(("/usr/bin/apt-get", "--simulate", "--option", "Debug::NoLocking=1",
+                  "--option", "APT::Get::Show-Upgraded=true", "dist-upgrade"), 300)
+    if installed.returncode != 0 or holds_result.returncode != 0:
+        raise RuntimeError("package inventory unavailable")
+    installed_lines = sorted("\t".join(line.split("\t")[1:])
+                             for line in installed.stdout.decode("utf-8", "strict").splitlines()
+                             if line.startswith("ii \t"))
+    installed_raw = ("\n".join(installed_lines) + "\n").encode()
+    expected_lines = sorted(item["name"] + "\t" + item["version"] for item in EXPECTED_PACKAGES)
+    expected_raw = ("\n".join(expected_lines) + "\n").encode()
+    holds = sorted(line for line in holds_result.stdout.decode("utf-8", "strict").splitlines() if line)
+    stdout = solver.stdout.decode("utf-8", "strict")
+    changes = []
+    install_pattern = re.compile(r"^Inst (\S+)(?: \[([^]]+)\])? \((\S+)(?: (.*))?\)$")
+    remove_pattern = re.compile(r"^Remv (\S+)(?: \[([^]]+)\])?")
+    for line in stdout.splitlines():
+        match = install_pattern.match(line)
+        if match:
+            name, previous, candidate, origin = match.groups()
+            action = "install" if previous is None else "upgrade"
+            if previous is not None:
+                comparison = run(("/usr/bin/dpkg", "--compare-versions", candidate, "lt", previous), 10)
+                if comparison.returncode not in (0, 1):
+                    raise RuntimeError("version comparison unavailable")
+                if comparison.returncode == 0:
+                    action = "downgrade"
+            changes.append({"action": action, "candidate_version": candidate, "name": name, "origin": origin or "",
+                            "policy_sha256": policy_identity(name, candidate), "previous_version": previous,
+                            "security": "security" in (origin or "").lower()})
+            continue
+        match = remove_pattern.match(line)
+        if match:
+            name, previous = match.groups()
+            changes.append({"action": "remove", "candidate_version": None, "name": name, "origin": "",
+                            "policy_sha256": None, "previous_version": previous, "security": False})
+        elif line.startswith(("Inst ", "Remv ")):
+            raise RuntimeError("unrecognized APT transition")
+    changes.sort(key=lambda item: (item["name"], item["action"], item["candidate_version"] or ""))
+    kept_back = []
+    collecting = False
+    for line in stdout.splitlines():
+        if line.startswith("The following packages have been kept back:"):
+            collecting = True
+            kept_back.extend(line.split(":", 1)[1].split())
+        elif collecting and line.startswith(" "):
+            kept_back.extend(line.split())
+        elif collecting:
+            collecting = False
+    kept_back = sorted(set(kept_back))
+    download_bytes, disk_delta_bytes, size_parse_complete = parse_size(stdout, changes)
+    newest_path, newest_mtime = None, 0
+    for directory, subdirectories, files in os.walk("/var/lib/apt/lists"):
+        subdirectories[:] = [name for name in subdirectories if name != "partial"]
+        for name in files:
+            path = os.path.join(directory, name)
+            info = os.stat(path, follow_symlinks=False)
+            if stat.S_ISREG(info.st_mode) and int(info.st_mtime) > newest_mtime:
+                newest_path, newest_mtime = path, int(info.st_mtime)
+    apt_trees = {
+        "configuration": file_tree(("/etc/apt/apt.conf", "/etc/apt/apt.conf.d", "/etc/apt/preferences", "/etc/apt/preferences.d")),
+        "keyrings": file_tree(("/etc/apt/keyrings", "/usr/share/keyrings")),
+        "sources": file_tree(("/etc/apt/sources.list", "/etc/apt/sources.list.d")),
+    }
+    apt_hashes = {f"{name}_sha256": value["sha256"] for name, value in apt_trees.items()}
+    apt_tree_safe = all(value["safe"] for value in apt_trees.values())
+    apt_unsafe_paths = sorted(path for value in apt_trees.values() for path in value["unsafe_paths"])
+    lock_paths = {
+        "/var/lib/iac-ansible-production.lock", "/run/lock/home-lab-backup.lock",
+        "/var/lib/home-lab/reconciliation/owner.lock", "/var/lib/home-lab/reconciliation/nix.lock",
+        "/var/lib/home-lab/reconciliation/operation.lock", "/run/lock/home-lab-vfio-recovery.lock",
+        "/run/lock/home-lab-proxmox-package.lock", "/run/lock/home-lab-proxmox-reboot.lock",
+    }
+    retained_paths = {
+        "/var/lib/iac-ansible-production.lock", "/var/lib/home-lab/reconciliation/owner.lock",
+        "/var/lib/home-lab/reconciliation/nix.lock", "/var/lib/home-lab/firewall-transaction/active.json",
+    }
+    active_lifecycle_locks = {path for path in retained_paths if os.path.lexists(path)}
+    locks = run(("/usr/bin/lslocks", "--json", "--output", "PATH"), 30)
+    if locks.returncode != 0 or locks.stderr:
+        raise RuntimeError("lock observation unavailable")
+    for record in json.loads(locks.stdout).get("locks", []):
+        path = {str(key).lower(): value for key, value in record.items()}.get("path")
+        if path in lock_paths:
+            active_lifecycle_locks.add(path)
+    active_lifecycle_locks = sorted(active_lifecycle_locks)
+    material = {"host": host, "installed_inventory_sha256": digest(installed_raw), "metadata_mtime_epoch": newest_mtime or None,
+                "holds": holds, "solver_stdout_sha256": digest(solver.stdout), "changes": changes,
+                "installed_status_sha256": digest(installed_raw), "expected_manifest_sha256": digest(expected_raw),
+                "manifest_matches": host != "proxmox" or installed_lines == expected_lines, "apt_state_hashes": apt_hashes,
+                "apt_tree_safe": apt_tree_safe, "apt_unsafe_paths": apt_unsafe_paths, "active_lifecycle_locks": active_lifecycle_locks, "kept_back": kept_back,
+                "download_bytes": download_bytes, "disk_delta_bytes": disk_delta_bytes,
+                "size_parse_complete": size_parse_complete}
+    now = int(dt.datetime.now(dt.timezone.utc).timestamp())
+    return {"version": 2, "host": host, "observed_at": dt.datetime.fromtimestamp(now, dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "metadata_refresh_performed": False, "metadata_newest_path": newest_path, "metadata_mtime_epoch": newest_mtime or None,
+            "metadata_age_seconds": now - newest_mtime if newest_mtime else None, "installed_inventory_format": "dpkg-query-status-tsv-v1",
+            "installed_records": len(installed_lines), "installed_inventory_sha256": material["installed_inventory_sha256"],
+            "installed_package_records": len(installed_lines), "installed_status_sha256": material["installed_status_sha256"],
+            "expected_manifest_records": len(expected_lines), "expected_manifest_sha256": material["expected_manifest_sha256"],
+            "manifest_matches": material["manifest_matches"], "holds": holds, "solver": {"command": "apt-get-simulate",
+            "returncode": solver.returncode, "stdout_sha256": material["solver_stdout_sha256"], "stderr_sha256": digest(solver.stderr)},
+            "changes": changes, "change_counts": {action: sum(1 for item in changes if item["action"] == action)
+                                                   for action in ("install", "upgrade", "downgrade", "remove")},
+            "security_changes": sum(1 for item in changes if item["security"]), "apt_state_hashes": apt_hashes,
+            "apt_tree_safe": apt_tree_safe, "apt_unsafe_paths": apt_unsafe_paths, "active_lifecycle_locks": active_lifecycle_locks, "kept_back": kept_back,
+            "download_bytes": download_bytes, "disk_delta_bytes": disk_delta_bytes,
+            "size_parse_complete": size_parse_complete,
+            "proposal_sha256": digest(compact(material))}
+
+
+def main():
+    if len(sys.argv) != 3 or sys.argv[1] != "observe" or sys.argv[2] not in {"debian", "proxmox"}:
+        raise SystemExit("usage: package-candidate-observer observe <debian|proxmox>")
+    os.write(1, compact(observe(sys.argv[2])) + b"\n")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as error:
+        os.write(2, f"package-candidate-observer: {error}\n".encode())
+        raise SystemExit(1)

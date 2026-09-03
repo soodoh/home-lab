@@ -1,7 +1,18 @@
 #!/bin/sh
 set -eu
-if [ "$#" -ne 2 ] || [ "$1" != -c ] || [ "$2" != observe ] || [ -n "${SSH_ORIGINAL_COMMAND-}" ]; then
+if [ "$#" -ne 2 ] || [ "$1" != -c ] || [ -n "${SSH_ORIGINAL_COMMAND-}" ]; then
   echo "proxmox-ansible-plan-transport: fixed invocation rejected" >&2
   exit 64
 fi
-exec /usr/bin/sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe
+case "$2" in
+  observe)
+    exec /usr/bin/sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe
+    ;;
+  observe-package)
+    exec /usr/bin/sudo -n -- /usr/local/libexec/home-lab/proxmox-package-candidate-observer observe proxmox
+    ;;
+  *)
+    echo "proxmox-ansible-plan-transport: fixed invocation rejected" >&2
+    exit 64
+    ;;
+esac

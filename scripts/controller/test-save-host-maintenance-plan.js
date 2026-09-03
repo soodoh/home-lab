@@ -22,7 +22,7 @@ const bindings = {
   max_metadata_age_seconds: 86400,
 };
 const proposal = {
-  version: 1,
+  version: 2,
   host: "debian",
   observed_at: "2026-08-28T08:29:00Z",
   metadata_mtime_epoch: nowEpoch - 120,
@@ -40,6 +40,10 @@ const proposal = {
   kept_back: [],
   download_bytes: 1024,
   disk_delta_bytes: 512,
+  apt_tree_safe: true,
+  apt_unsafe_paths: [],
+  size_parse_complete: true,
+  active_lifecycle_locks: [],
   apt_state_hashes: {
     configuration_sha256: "3".repeat(64),
     keyrings_sha256: "4".repeat(64),
@@ -47,7 +51,7 @@ const proposal = {
   },
   change_counts: { install: 0, upgrade: 1, downgrade: 0, remove: 0 },
   security_changes: 1,
-  changes: [{ action: "upgrade", name: "fixture", previous_version: "1", candidate_version: "2", origin: "Debian-Security", security: true }],
+  changes: [{ action: "upgrade", name: "fixture", previous_version: "1", candidate_version: "2", origin: "Debian-Security", policy_sha256: "6".repeat(64), security: true }],
 };
 const proposalMaterial = {
   host: proposal.host,
@@ -60,9 +64,13 @@ const proposalMaterial = {
   expected_manifest_sha256: proposal.expected_manifest_sha256,
   manifest_matches: proposal.manifest_matches,
   apt_state_hashes: proposal.apt_state_hashes,
+  apt_tree_safe: proposal.apt_tree_safe,
+  apt_unsafe_paths: proposal.apt_unsafe_paths,
+  active_lifecycle_locks: proposal.active_lifecycle_locks,
   kept_back: proposal.kept_back,
   download_bytes: proposal.download_bytes,
   disk_delta_bytes: proposal.disk_delta_bytes,
+  size_parse_complete: proposal.size_parse_complete,
 };
 proposal.proposal_sha256 = crypto.createHash("sha256").update(canonicalJson(proposalMaterial).trimEnd()).digest("hex");
 const packageEvidence = {

@@ -42,8 +42,8 @@
       "additionalProperties": false,
       "required": [
         "changes", "exact_install_specs", "additions", "removals", "downgrades", "holds", "kept_back",
-        "download_bytes", "disk_delta_bytes", "affected_services", "needrestart_result", "reboot_required",
-        "reboot_reasons", "safety_classification"
+        "download_bytes", "disk_delta_bytes", "apt_tree_safe", "apt_unsafe_paths", "size_parse_complete", "affected_services",
+        "needrestart_result", "reboot_required", "reboot_reasons", "safety_classification"
       ],
       "properties": {
         "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } },
@@ -53,8 +53,11 @@
         "downgrades": { "$ref": "#/$defs/packageNames" },
         "holds": { "$ref": "#/$defs/packageNames" },
         "kept_back": { "$ref": "#/$defs/packageNames" },
-        "download_bytes": { "type": "integer", "minimum": 0 },
-        "disk_delta_bytes": { "type": "integer" },
+        "download_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "disk_delta_bytes": { "type": ["integer", "null"] },
+        "apt_tree_safe": { "type": "boolean" },
+        "apt_unsafe_paths": { "type": "array", "items": { "type": "string", "pattern": "^/" }, "uniqueItems": true },
+        "size_parse_complete": { "type": "boolean" },
         "affected_services": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
         "needrestart_result": { "type": ["string", "null"], "minLength": 1 },
         "reboot_required": { "type": ["boolean", "null"] },
@@ -77,12 +80,13 @@
     "change": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["action", "candidate_version", "name", "origin", "previous_version", "security"],
+      "required": ["action", "candidate_version", "name", "origin", "policy_sha256", "previous_version", "security"],
       "properties": {
         "action": { "enum": ["install", "upgrade", "downgrade", "remove"] },
         "candidate_version": { "type": ["string", "null"] },
         "name": { "type": "string", "minLength": 1 },
         "origin": { "type": "string" },
+        "policy_sha256": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
         "previous_version": { "type": ["string", "null"] },
         "security": { "type": "boolean" }
       }

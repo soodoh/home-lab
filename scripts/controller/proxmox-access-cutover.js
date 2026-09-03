@@ -59,9 +59,11 @@ function planProxmoxAccessCutover(contract, sources, hostEvidence) {
       sources.firewallTransport.includes('echo "proxmox-firewall-transport: mixed transport rejected"') &&
       sources.firewallTransport.includes('case "$command" in') &&
       sources.firewallTransport.includes('proxmox-firewall-transaction "$command"'),
-    plan_fixed_observer_transport_present: sources.planTransport.includes('[ "$2" != observe ]') &&
-      sources.planTransport.includes('[ -n "${SSH_ORIGINAL_COMMAND-}" ]') &&
-      sources.planTransport.includes('proxmox-observer observe'),
+    plan_fixed_observer_transport_present: sources.planTransport.includes('case "$2" in') &&
+      sources.planTransport.includes('  observe)') && sources.planTransport.includes('  observe-package)') &&
+      sources.planTransport.includes('  *)') && sources.planTransport.includes('[ -n "${SSH_ORIGINAL_COMMAND-}" ]') &&
+      sources.planTransport.includes('proxmox-observer observe') &&
+      sources.planTransport.includes('proxmox-package-candidate-observer observe proxmox'),
   };
   const account = (name) => hostEvidence.accounts.find((item) => item.name === name);
   const targetAccounts = Object.fromEntries(Object.entries(policy.target_identities).map(([kind, name]) => [

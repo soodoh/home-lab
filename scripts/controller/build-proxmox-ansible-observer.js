@@ -18,6 +18,7 @@ const projectionSchemaPath = path.join(root, "infrastructure/host-lifecycle/prox
 const observerTemplatePath = path.join(root, "infrastructure/host-lifecycle/proxmox/observer-template.py");
 const compatibilityTemplatePath = path.join(root, "nix/proxmox/observer-template.py");
 const observationSchemaPath = path.join(root, "infrastructure/host-lifecycle/proxmox/observation.schema.json");
+const packageObserverTemplatePath = path.join(root, "infrastructure/maintenance/host/package-candidate-observer");
 
 function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -68,6 +69,12 @@ function build(outputDirectory, privatePreparerSha256) {
   if (!template.equals(compatibilityTemplate)) {
     throw new Error("neutral observer template differs from the transitional Nix compatibility mirror");
   }
+  const packageObserverTemplate = regularFile(packageObserverTemplatePath);
+  const packageMarker = "@EXPECTED_PACKAGES_BASE64@";
+  const packageTemplateText = packageObserverTemplate.toString("utf8");
+  if (packageTemplateText.split(packageMarker).length !== 2) throw new Error("package observer marker cardinality differs");
+  const expectedPackages = packageManifest.packages.map((item) => ({ name: item.name, version: item.version }));
+  const packageObserver = Buffer.from(packageTemplateText.replace(packageMarker, Buffer.from(JSON.stringify(expectedPackages)).toString("base64")));
   const marker = "'@OBSERVATION_SPEC@'";
   const templateText = template.toString("utf8");
   if (templateText.split(marker).length !== 2) throw new Error("observer template marker cardinality differs");
@@ -84,6 +91,8 @@ function build(outputDirectory, privatePreparerSha256) {
     observer_sha256: sha256(observer),
     observer_template_sha256: sha256(template),
     package_manifest_sha256: sha256(packageManifestRaw),
+    package_observer_sha256: sha256(packageObserver),
+    package_observer_template_sha256: sha256(packageObserverTemplate),
     private_preparer_sha256: privatePreparerSha256,
     projection_schema_sha256: sha256(projectionSchemaRaw),
     projection_sha256: sha256(projectionRaw),
@@ -97,6 +106,7 @@ function build(outputDirectory, privatePreparerSha256) {
   fs.mkdirSync(temporary, { mode: 0o700 });
   try {
     writeExclusive(path.join(temporary, "proxmox-observer"), observer, 0o755);
+    writeExclusive(path.join(temporary, "proxmox-package-candidate-observer"), packageObserver, 0o755);
     writeExclusive(path.join(temporary, "observation-spec.json"), specificationRaw, 0o644);
     writeExclusive(path.join(temporary, "manifest.json"), Buffer.from(canonicalJson(manifest)), 0o644);
     fsyncDirectory(temporary);

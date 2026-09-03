@@ -3,6 +3,7 @@
 # These variables define only the final Ansible execution boundary.
 proxmox_complete_audit_domain_count: 17
 proxmox_observer_remote_command: observe
+proxmox_package_observer_remote_command: observe-package
 proxmox_observer_timeout_seconds: 180
 proxmox_controller_ssh_options:
   - -F

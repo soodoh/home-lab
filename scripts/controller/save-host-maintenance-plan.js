@@ -164,9 +164,9 @@ function main() {
   if (status !== "") throw new Error("maintenance plans require a clean worktree");
   const commit = childProcess.execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
   const contractRaw = fs.readFileSync(path.join(root, "infrastructure/contract/home-lab.yml"));
-  const inventoryRaw = fs.readFileSync(path.join(root, "ansible/inventory/production.yml"));
+  const inventoryRaw = fs.readFileSync(path.join(root, host === "proxmox" ? "ansible/inventory/proxmox-production.yml" : "ansible/inventory/production.yml"));
   const contract = load(contractRaw);
-  const variable = kind === "package" ? "package_lifecycle_observation" : "reboot_lifecycle_observation";
+  const variable = kind === "package" ? (host === "proxmox" ? "proxmox_package_plan_observation" : "package_lifecycle_observation") : "reboot_lifecycle_observation";
   const observations = extractObservations(fs.readFileSync(logPath, "utf8"), variable);
   const evidence = observations.find((value) => value.contract_host === host);
   if (!evidence) throw new Error("requested maintenance observation is absent");

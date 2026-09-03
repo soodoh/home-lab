@@ -1,0 +1,156 @@
+---
+- name: Require the fixed local Proxmox package planning boundary
+  ansible.builtin.assert:
+    that:
+      - ansible_connection == 'local'
+      - lifecycle_contract_host == 'proxmox'
+      - lifecycle_profile == 'production'
+      - proxmox_plan_identity == 'ansible-plan'
+      - proxmox_plan_ssh_target == proxmox_plan_identity ~ '@' ~ network.proxmox.magicdns_name
+      - proxmox_package_observer_remote_command == 'observe-package'
+      - proxmox_observer_artifact_dir | length > 0
+      - proxmox_observer_artifact_dir is match('^/')
+      - proxmox_known_hosts_file | length > 0
+      - proxmox_known_hosts_file is match('^/')
+    fail_msg: Proxmox package planning requires the fixed local ansible-plan transport and immutable observer artifact.
+
+- name: Inspect immutable Proxmox package planning inputs
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    get_checksum: true
+    checksum_algorithm: sha256
+  loop:
+    - path: "{{ proxmox_known_hosts_file }}"
+      mode: '0600'
+    - path: "{{ proxmox_observer_artifact_dir }}/manifest.json"
+      mode: '0644'
+    - path: "{{ proxmox_observer_artifact_dir }}/proxmox-package-candidate-observer"
+      mode: '0755'
+  register: proxmox_package_plan_inputs
+  changed_when: false
+
+- name: Enforce Proxmox package planning input metadata
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - not item.stat.islnk
+      - item.stat.nlink == 1
+      - item.stat.pw_name == lookup('ansible.builtin.env', 'USER')
+      - item.stat.mode == item.item.mode
+    fail_msg: "Proxmox package planning input is unsafe: {{ item.item.path }}"
+  loop: "{{ proxmox_package_plan_inputs.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+- name: Read the immutable Proxmox observer manifest
+  ansible.builtin.slurp:
+    src: "{{ proxmox_observer_artifact_dir }}/manifest.json"
+  register: proxmox_package_plan_manifest_raw
+  changed_when: false
+  no_log: true
+
+- name: Decode and bind the Proxmox package observer manifest
+  ansible.builtin.set_fact:
+    proxmox_package_plan_manifest: "{{ proxmox_package_plan_manifest_raw.content | b64decode | from_json }}"
+    proxmox_package_plan_observer_stat: "{{ proxmox_package_plan_inputs.results[2].stat }}"
+  no_log: true
+
+- name: Enforce the exact generated package observer identity
+  ansible.builtin.assert:
+    that:
+      - proxmox_package_plan_manifest.format == 'home-lab-proxmox-ansible-observer-artifact-v1'
+      - proxmox_package_plan_manifest.package_observer_sha256 == proxmox_package_plan_observer_stat.checksum
+      - >-
+        proxmox_package_plan_manifest.package_observer_template_sha256 ==
+        lookup(
+          'ansible.builtin.file',
+          role_path + '/../../../infrastructure/maintenance/host/package-candidate-observer'
+        ) | hash('sha256')
+      - >-
+        proxmox_package_plan_manifest.contract_sha256 ==
+        lookup(
+          'ansible.builtin.file',
+          playbook_dir + '/../../infrastructure/contract/home-lab.yml'
+        ) | hash('sha256')
+      - proxmox_package_plan_manifest.package_manifest_sha256 == proxmox.packages.manifest.sha256
+    fail_msg: Proxmox package observer artifact differs from the reviewed contract or package manifest.
+
+- name: Fetch the bounded Proxmox package candidate through ansible-plan
+  ansible.builtin.command:
+    argv: >-
+      {{
+        ['ssh'] +
+        proxmox_controller_ssh_options +
+        ['-o', 'UserKnownHostsFile=' ~ proxmox_known_hosts_file,
+         proxmox_plan_ssh_target, proxmox_package_observer_remote_command]
+      }}
+  register: proxmox_package_plan_raw
+  changed_when: false
+  check_mode: false
+  no_log: true
+  timeout: 360
+
+- name: Decode the Proxmox package candidate
+  ansible.builtin.set_fact:
+    proxmox_package_plan_proposal: "{{ proxmox_package_plan_raw.stdout | from_json }}"
+    proxmox_package_plan_policy: "{{ lifecycle.maintenance.package_plan }}"
+    proxmox_package_plan_host_policy: "{{ lifecycle.maintenance.package_plan.hosts.proxmox }}"
+  no_log: true
+
+- name: Publish Proxmox package readiness without authorizing apply
+  ansible.builtin.set_fact:
+    proxmox_package_plan_observation:
+      version: 2
+      contract_host: proxmox
+      policy: "{{ proxmox_package_plan_host_policy }}"
+      metadata_refresh_policy: "{{ proxmox_package_plan_policy.metadata_refresh }}"
+      metadata_fresh: >-
+        {{
+          proxmox_package_plan_proposal.metadata_age_seconds is not none and
+          proxmox_package_plan_proposal.metadata_age_seconds <= proxmox_package_plan_policy.max_metadata_age_seconds
+        }}
+      proposal: "{{ proxmox_package_plan_proposal }}"
+      active_lifecycle_locks: "{{ proxmox_package_plan_proposal.active_lifecycle_locks }}"
+      proposal_valid: >-
+        {{
+          proxmox_package_plan_proposal.version == 2 and
+          proxmox_package_plan_proposal.solver.returncode == 0 and
+          proxmox_package_plan_proposal.metadata_age_seconds is not none and
+          proxmox_package_plan_proposal.metadata_age_seconds <= proxmox_package_plan_policy.max_metadata_age_seconds and
+          proxmox_package_plan_proposal.manifest_matches and
+          proxmox_package_plan_proposal.apt_tree_safe and
+          proxmox_package_plan_proposal.size_parse_complete and
+          proxmox_package_plan_proposal.holds | length == 0 and
+          proxmox_package_plan_proposal.kept_back | length == 0 and
+          proxmox_package_plan_proposal.change_counts.remove == 0 and
+          proxmox_package_plan_proposal.change_counts.downgrade == 0 and
+          proxmox_package_plan_proposal.active_lifecycle_locks | length == 0
+        }}
+      apply_authorized: false
+      apply_blockers: >-
+        {{
+          (
+            ([] if proxmox_package_plan_proposal.solver.returncode == 0 else ['solver-failed']) +
+            (
+              [] if
+                proxmox_package_plan_proposal.metadata_age_seconds is not none and
+                proxmox_package_plan_proposal.metadata_age_seconds <= proxmox_package_plan_policy.max_metadata_age_seconds
+              else ['apt-metadata-stale']
+            ) +
+            ([] if proxmox_package_plan_proposal.manifest_matches else ['installed-package-manifest-drift']) +
+            ([] if proxmox_package_plan_proposal.apt_tree_safe else ['apt-state-tree-unsafe']) +
+            ([] if proxmox_package_plan_proposal.size_parse_complete else ['package-size-evidence-incomplete']) +
+            ([] if proxmox_package_plan_proposal.holds | length == 0 else ['held-packages']) +
+            ([] if proxmox_package_plan_proposal.kept_back | length == 0 else ['kept-back-packages']) +
+            ([] if proxmox_package_plan_proposal.change_counts.remove == 0 else ['package-removal']) +
+            ([] if proxmox_package_plan_proposal.change_counts.downgrade == 0 else ['package-downgrade']) +
+            ([] if proxmox_package_plan_proposal.active_lifecycle_locks | length == 0 else ['active-lifecycle-lock']) +
+            ['saved-reviewed-plan-required']
+          ) | unique | list
+        }}
+
+- name: Emit the Proxmox package candidate
+  ansible.builtin.debug:
+    var: proxmox_package_plan_observation

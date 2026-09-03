@@ -31,6 +31,8 @@
       mode: '0644'
     - path: "{{ proxmox_observer_artifact_dir }}/proxmox-observer"
       mode: '0755'
+    - path: "{{ proxmox_observer_artifact_dir }}/proxmox-package-candidate-observer"
+      mode: '0755'
   register: proxmox_complete_audit_inputs
   changed_when: false
 

@@ -23,10 +23,10 @@ function requireSha(value, label) {
 }
 
 function validateProposal(proposal, host) {
-  if (proposal?.version !== 1 || proposal.host !== host || proposal.solver?.returncode !== 0) {
+  if (proposal?.version !== 2 || proposal.host !== host || proposal.solver?.returncode !== 0) {
     throw new Error("package proposal envelope is invalid");
   }
-  if (!Array.isArray(proposal.changes) || !Array.isArray(proposal.holds) || !Array.isArray(proposal.kept_back)) {
+  if (!Array.isArray(proposal.changes) || !Array.isArray(proposal.holds) || !Array.isArray(proposal.kept_back) || !Array.isArray(proposal.active_lifecycle_locks) || !Array.isArray(proposal.apt_unsafe_paths)) {
     throw new Error("package proposal arrays are invalid");
   }
   for (const name of ["installed_inventory_sha256", "installed_status_sha256", "expected_manifest_sha256", "proposal_sha256"]) {
@@ -35,8 +35,10 @@ function validateProposal(proposal, host) {
   for (const name of ["configuration_sha256", "keyrings_sha256", "sources_sha256"]) {
     requireSha(proposal.apt_state_hashes?.[name], `APT ${name}`);
   }
-  if (!Number.isInteger(proposal.download_bytes) || proposal.download_bytes < 0 || !Number.isInteger(proposal.disk_delta_bytes)) {
-    throw new Error("package proposal size estimates are invalid");
+  if (typeof proposal.apt_tree_safe !== "boolean" || typeof proposal.size_parse_complete !== "boolean" ||
+      !(proposal.download_bytes === null || Number.isInteger(proposal.download_bytes) && proposal.download_bytes >= 0) ||
+      !(proposal.disk_delta_bytes === null || Number.isInteger(proposal.disk_delta_bytes))) {
+    throw new Error("package proposal safety or size evidence is invalid");
   }
   const actions = new Set(["install", "upgrade", "downgrade", "remove"]);
   const seen = new Set();
@@ -47,11 +49,12 @@ function validateProposal(proposal, host) {
     }
     seen.add(change.name);
     if (change.action === "install" && change.previous_version !== null) throw new Error("package addition has a current version");
-    if (change.action === "remove" && change.candidate_version !== null) throw new Error("package removal has a candidate version");
+    if (change.action === "remove" && (change.candidate_version !== null || change.policy_sha256 !== null)) throw new Error("package removal has candidate policy");
     if (change.action !== "install" && typeof change.previous_version !== "string") throw new Error("package change lacks a current version");
     if (change.action !== "remove" && (typeof change.candidate_version !== "string" || !change.candidate_version || !change.origin)) {
       throw new Error("package change lacks an exact candidate or origin");
     }
+    if (change.action !== "remove") requireSha(change.policy_sha256, "package candidate policy");
   }
   const sorted = [...proposal.changes].sort((left, right) => {
     const leftKey = `${left.name}\0${left.action}\0${left.candidate_version ?? ""}`;
@@ -74,9 +77,13 @@ function validateProposal(proposal, host) {
     expected_manifest_sha256: proposal.expected_manifest_sha256,
     manifest_matches: proposal.manifest_matches,
     apt_state_hashes: proposal.apt_state_hashes,
+    apt_tree_safe: proposal.apt_tree_safe,
+    apt_unsafe_paths: proposal.apt_unsafe_paths,
+    active_lifecycle_locks: proposal.active_lifecycle_locks,
     kept_back: proposal.kept_back,
     download_bytes: proposal.download_bytes,
     disk_delta_bytes: proposal.disk_delta_bytes,
+    size_parse_complete: proposal.size_parse_complete,
   };
   if (sha256(canonicalJson(material, false)) !== proposal.proposal_sha256) throw new Error("package proposal hash differs");
 }
@@ -107,6 +114,9 @@ function buildCandidateLock({ host, lifecycle, proposal, bindings, generatedAt, 
   if (proposal.change_counts.downgrade) blockers.push("package-downgrade-review-required");
   if (!changes.length) blockers.push("no-package-changes");
   if (!proposal.manifest_matches) blockers.push("installed-package-manifest-drift");
+  if (!proposal.apt_tree_safe) blockers.push("apt-state-tree-unsafe");
+  if (!proposal.size_parse_complete) blockers.push("package-size-evidence-incomplete");
+  if (proposal.active_lifecycle_locks.length) blockers.push("active-lifecycle-lock");
 
   const material = {
     format: "home-lab-package-transaction-lock-v1",
@@ -139,6 +149,9 @@ function buildCandidateLock({ host, lifecycle, proposal, bindings, generatedAt, 
       kept_back: proposal.kept_back,
       download_bytes: proposal.download_bytes,
       disk_delta_bytes: proposal.disk_delta_bytes,
+      apt_tree_safe: proposal.apt_tree_safe,
+      apt_unsafe_paths: proposal.apt_unsafe_paths,
+      size_parse_complete: proposal.size_parse_complete,
       affected_services: null,
       needrestart_result: null,
       reboot_required: null,
