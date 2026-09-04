@@ -26,6 +26,7 @@
     mode: "0755"
     backup: false
   become: true
+  register: debian_lifecycle_capability_copy
 
 - name: Verify the installed fixed executor metadata and checksum
   ansible.builtin.stat:
@@ -51,4 +52,4 @@
           rstrip=False
         ) | hash('sha256')
     fail_msg: Installed Debian lifecycle transaction executor differs.
-  when: not ansible_check_mode or (debian_lifecycle_capability_executor.stat.exists | default(false))
+  when: not ansible_check_mode or not (debian_lifecycle_capability_copy.changed | default(false))
