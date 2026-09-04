@@ -51,3 +51,4 @@
           rstrip=False
         ) | hash('sha256')
     fail_msg: Installed Debian lifecycle transaction executor differs.
+  when: not ansible_check_mode or (debian_lifecycle_capability_executor.stat.exists | default(false))
