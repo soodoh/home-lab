@@ -23,10 +23,10 @@ refused(destroy,"destroy",lambda x:x["resource_changes"][0]["change"].update(act
 refused(destroy,"destroy",lambda x:x["resource_changes"][0]["change"]["before"].update(datastore_id="production"),"destroy-actions")
 refused(destroy,"destroy",lambda x:x["resource_changes"].append(change("proxmox_virtual_environment_vm.production",["delete"],{},None)),"destroy-actions")
 with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
- receipt={"admission_sha256":"a"*64,"commit":"b"*40,"format":"home-lab-debian-qualification-foundation-receipt-v1","operation":"create-stopped-foundation","plan_sha256":"c"*64,"resources":sorted(addresses),"snippet_receipt_sha256":"d"*64,"state_sha256":"e"*64,"target_id":"production-pve-vm9900-qualification","version":1,"vm_started":False,"vmid":9900}; path=Path(directory)/"receipt.json"; path.write_text(json.dumps(receipt,sort_keys=True,separators=(",",":"))+"\n"); path.chmod(0o600); args=SimpleNamespace(prior_receipt=path); admitted={"isolation_attestation_sha256":"a"*64,"target_id":"production-pve-vm9900-qualification"}; assert module.prior(args,"start",admitted,"d"*64)[0]==receipt
- try: module.prior(args,"start",admitted,"f"*64)
+ receipt={"admission_sha256":"a"*64,"commit":"b"*40,"format":"home-lab-debian-qualification-foundation-receipt-v1","operation":"create-stopped-foundation","plan_sha256":"c"*64,"resources":sorted(addresses),"snippet_receipt_sha256":"d"*64,"state_sha256":"e"*64,"target_id":"production-pve-vm9900-qualification","version":1,"vm_started":False,"vmid":9900}; path=Path(directory)/"receipt.json"; path.write_text(json.dumps(receipt,sort_keys=True,separators=(",",":"))+"\n"); path.chmod(0o600); args=SimpleNamespace(prior_receipt=path); admitted={"isolation_attestation_sha256":"f"*64,"target_id":"production-pve-vm9900-qualification"}; assert module.prior(args,"start",admitted)[0]==receipt
+ try: module.prior(args,"start",{"target_id":"other-target"})
  except SystemExit as error: assert "prior-receipt" in str(error)
- else: raise AssertionError("snippet receipt substitution accepted")
+ else: raise AssertionError("prior receipt target substitution accepted")
 source=SOURCE.read_text()
 for required in ("START_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","DESTROY_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","plan-start","apply-start","plan-destroy","apply-destroy","prior_receipt_sha256","snippet_receipt_sha256",'target={**target,"snippet_file_id"',"approve_authorization_sha","tofu-{operation}-apply-no-retry","-destroy","locked_setup","state-drift"):
  assert required in source,required

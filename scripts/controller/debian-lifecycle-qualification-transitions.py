@@ -13,12 +13,12 @@ def parse_time(value):
  except Exception: fail("manifest-time")
  if parsed.tzinfo is None: fail("manifest-time")
  return parsed
-def prior(args,operation,target,snippet_sha):
+def prior(args,operation,target):
  value,raw=load_canonical_object(args.prior_receipt,"qualification prior receipt"); expected_format="home-lab-debian-qualification-foundation-receipt-v1" if operation=="start" else "home-lab-debian-qualification-start-receipt-v1"; expected_started=operation=="destroy"; expected_operation="create-stopped-foundation" if operation=="start" else "start"
  required={"admission_sha256","commit","format","operation","plan_sha256","resources","snippet_receipt_sha256","state_sha256","target_id","version","vm_started","vmid"} if operation=="start" else {"admission_sha256","commit","format","operation","plan_sha256","prior_receipt_sha256","resources","snippet_receipt_sha256","state_sha256","target_id","version","vm_started","vmid"}
  identities=("admission_sha256","plan_sha256","snippet_receipt_sha256","state_sha256")+("prior_receipt_sha256",) if operation=="destroy" else ("admission_sha256","plan_sha256","snippet_receipt_sha256","state_sha256")
  expected_resources=["proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]","proxmox_virtual_environment_vm.qualification[0]"]
- if set(value)!=required or value.get("format")!=expected_format or value.get("operation")!=expected_operation or value.get("version")!=1 or re.fullmatch(r"[0-9a-f]{40}",value.get("commit","") or "") is None or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("snippet_receipt_sha256")!=snippet_sha or value.get("resources")!=expected_resources or value.get("target_id")!=target["target_id"] or value.get("admission_sha256")!=target["isolation_attestation_sha256"] or value.get("vmid")!=9900 or value.get("vm_started") is not expected_started: fail("prior-receipt")
+ if set(value)!=required or value.get("format")!=expected_format or value.get("operation")!=expected_operation or value.get("version")!=1 or re.fullmatch(r"[0-9a-f]{40}",value.get("commit","") or "") is None or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("resources")!=expected_resources or value.get("target_id")!=target["target_id"] or value.get("vmid")!=9900 or value.get("vm_started") is not expected_started: fail("prior-receipt")
  return value,sha(raw)
 def changed(value): return {item.get("address"):item.get("change",{}) for item in value.get("resource_changes",[]) if item.get("change",{}).get("actions")!=["no-op"]}
 def inspect(value,operation,target):
@@ -40,7 +40,7 @@ def publish(output,run,binary,shown,manifest):
  descriptor=os.open(output,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)); os.fsync(descriptor); os.close(descriptor); authorization=sha(canonical_bytes(manifest)+b"\n"); write_json(output,f"{authorization}.manifest.json",manifest)
  print(json.dumps({"actionable":True,"authorization_sha256":authorization,"authorized":False,"manifest":str(output/f'{authorization}.manifest.json'),"plan_sha256":plan_sha},sort_keys=True))
 def plan(args,operation):
- output=require_private_root(args.output_dir,()); target=common.admission(args); verified=common.snippet(args); target={**target,"snippet_file_id":verified["snippet_file_id"]}; prior_receipt,prior_sha=prior(args,operation,target,verified["snippet_receipt_sha256"]); key=common.guest_key(args.guest_public_key,target); commit=common.revision(); credentials=common.credential("plan",target); controller,run,env,state,host=common.locked_setup(output,credentials,target,args); state_before=common.state_sha(state)
+ output=require_private_root(args.output_dir,()); target=common.admission(args); verified=common.snippet(args); target={**target,"snippet_file_id":verified["snippet_file_id"]}; prior_receipt,prior_sha=prior(args,operation,target); key=common.guest_key(args.guest_public_key,target); commit=common.revision(); credentials=common.credential("plan",target); controller,run,env,state,host=common.locked_setup(output,credentials,target,args); state_before=common.state_sha(state)
  try:
   if state_before!=prior_receipt["state_sha256"]: fail("state-drift")
   fresh=common.snippet(args)
@@ -59,7 +59,7 @@ def manifest(args,operation,target,prior_sha,snippet_sha):
  return value
 def apply(args,operation):
  if re.fullmatch(r"[0-9a-f]{64}",args.plan_sha or "") is None or re.fullmatch(r"[0-9a-f]{64}",args.authorization_sha or "") is None or args.approve_plan_sha!=args.plan_sha or args.approve_authorization_sha!=args.authorization_sha or args.confirm!=CONFIRM[operation]: fail("exact-authorization-required")
- output=require_private_root(args.output_dir,()); target=common.admission(args); verified=common.snippet(args); target={**target,"snippet_file_id":verified["snippet_file_id"]}; prior_receipt,prior_sha=prior(args,operation,target,verified["snippet_receipt_sha256"]); value=manifest(args,operation,target,prior_sha,verified["snippet_receipt_sha256"]); common.revision(value["commit"]); binary=output/f"{args.plan_sha}.tfplan"; shown=output/f"{args.plan_sha}.plan.json"
+ output=require_private_root(args.output_dir,()); target=common.admission(args); verified=common.snippet(args); target={**target,"snippet_file_id":verified["snippet_file_id"]}; prior_receipt,prior_sha=prior(args,operation,target); value=manifest(args,operation,target,prior_sha,verified["snippet_receipt_sha256"]); common.revision(value["commit"]); binary=output/f"{args.plan_sha}.tfplan"; shown=output/f"{args.plan_sha}.plan.json"
  if sha(load_protected_bytes(binary,"transition saved plan"))!=args.plan_sha or sha(load_protected_bytes(shown,"transition plan JSON"))!=value["plan_json_sha256"]: fail("saved-plan-binding")
  inspect(json.loads(load_protected_bytes(shown,"transition plan JSON")),operation,target); credentials=common.credential("apply",target); controller,run,env,state,host=common.locked_setup(output,credentials,target,args)
  try:
