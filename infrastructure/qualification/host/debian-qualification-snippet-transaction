@@ -136,7 +136,7 @@ def production_guest_host_key(plan):
  if run(["/usr/sbin/qm","status","9900"]).strip()!="status: stopped": fail("VM9900 is not stopped")
  disk=run(["/usr/sbin/pvesm","path",plan["disk_volume"]]).strip()
  if disk!="/dev/pve/vm-9900-disk-0": fail("VM9900 disk path")
- module_loaded=os.path.isdir("/sys/module/nbd"); device=None; mountpoint=None; connected=False; lock_held=False
+ module_loaded=os.path.isdir("/sys/module/nbd"); device=None; mountpoint=None; connected=False; partitions_added=False; lock_held=False
  try:
   run(["/usr/sbin/qm","set","9900","--lock","backup"]); lock_held=True
   locked=run(["/usr/sbin/qm","config","9900","--current"])
@@ -147,6 +147,7 @@ def production_guest_host_key(plan):
    if os.path.exists(candidate) and not os.path.exists(f"/sys/block/nbd{index}/pid"): device=candidate; break
   if device is None: fail("no unused NBD device")
   run(["/usr/bin/qemu-nbd","--read-only","--format=raw",f"--connect={device}",disk]); connected=True
+  run(["/usr/bin/partx","--add",device]); partitions_added=True
   run(["/usr/bin/udevadm","settle","--timeout=10"])
   layout=json.loads(run(["/usr/bin/lsblk","--json","--paths","--output","PATH,TYPE",device])); partitions=[]
   for child in layout.get("blockdevices",[{}])[0].get("children",[]) or []:
@@ -162,6 +163,7 @@ def production_guest_host_key(plan):
    unmounted=subprocess.run(["/usr/bin/umount",mountpoint],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
    if unmounted.returncode and os.path.ismount(mountpoint): cleanup_failed=True
    else: os.rmdir(mountpoint)
+  if partitions_added and subprocess.run(["/usr/bin/partx","--delete",device],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: cleanup_failed=True
   if connected and subprocess.run(["/usr/bin/qemu-nbd","--disconnect",device],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: cleanup_failed=True
   if not module_loaded and subprocess.run(["/usr/sbin/modprobe","-r","nbd"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: cleanup_failed=True
   if lock_held:
