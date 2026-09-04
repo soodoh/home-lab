@@ -148,12 +148,13 @@ def production_guest_host_key(plan):
   if device is None: fail("no unused NBD device")
   run(["/usr/bin/qemu-nbd","--read-only","--format=raw",f"--connect={device}",disk]); connected=True
   run(["/usr/bin/udevadm","settle","--timeout=10"])
-  layout=json.loads(run(["/usr/bin/lsblk","--json","--paths","--output","PATH,FSTYPE,TYPE",device])); partitions=[]
+  layout=json.loads(run(["/usr/bin/lsblk","--json","--paths","--output","PATH,TYPE",device])); partitions=[]
   for child in layout.get("blockdevices",[{}])[0].get("children",[]) or []:
-   if child.get("type")=="part" and child.get("fstype")=="ext4": partitions.append(child.get("path"))
-  if len(partitions)!=1 or not partitions[0].startswith(device+"p"): fail("unexpected VM9900 partition layout")
+   if child.get("type")=="part": partitions.append(child.get("path"))
+  root_partition=device+"p1"
+  if set(partitions)!={root_partition,device+"p14",device+"p15"}: fail("unexpected VM9900 partition layout")
   mountpoint=tempfile.mkdtemp(prefix="home-lab-vm9900-hostkey-",dir="/run")
-  run(["/usr/bin/mount","-o","ro,noload,nodev,nosuid,noexec",partitions[0],mountpoint])
+  run(["/usr/bin/mount","-o","ro,noload,nodev,nosuid,noexec",root_partition,mountpoint])
   return read_guest_host_key(mountpoint)
  finally:
   cleanup_failed=False
