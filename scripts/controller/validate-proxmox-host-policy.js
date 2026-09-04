@@ -218,7 +218,7 @@ function validateProxmoxHostPolicy(contract) {
   if (duplicates(tokenPaths).length) failures.push("PVE API token escrow paths must be unique");
   const knownRoles = new Set(roleNames);
   const expectedPveAccounts = new Map([
-    ["tofu-plan", { user: "root@pam", role: "HomeLabTofuPlan", additionalAcls: [`/vms/${proxmox.vm.vmid}\0HomeLabTofuPlanDiskInspect`] }],
+    ["tofu-plan", { user: "root@pam", role: "HomeLabTofuPlan", additionalAcls: [`/vms/${proxmox.vm.vmid}\0HomeLabTofuPlanDiskInspect`, `/vms/${contract.lifecycle.qualification_route.vmid}\0HomeLabTofuPlanDiskInspect`] }],
     ["tofu-apply", { user: "root@pam", role: "HomeLabTofuApply", additionalAcls: [] }],
   ]);
   const planPrivilegeCeiling = new Set([

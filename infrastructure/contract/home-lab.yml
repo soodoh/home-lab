@@ -846,6 +846,8 @@ proxmox:
           additional_acls:
             - path: /vms/100
               role: HomeLabTofuPlanDiskInspect
+            - path: /vms/9900
+              role: HomeLabTofuPlanDiskInspect
         - user: root@pam
           token_name: tofu-apply
           token_escrow:
