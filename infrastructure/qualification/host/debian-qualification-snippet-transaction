@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fixed create-only cloud-init snippet transaction for an isolated PVE target."""
-import base64,datetime as dt,fcntl,hashlib,json,os,re,stat,subprocess,sys,tempfile
+import base64,datetime as dt,fcntl,hashlib,json,os,re,stat,subprocess,sys,tempfile,time
 NAME="home-lab-debian-lifecycle-qualification.yaml"
 def fail(message): raise RuntimeError(message)
 def canonical(value): return (json.dumps(value,sort_keys=True,separators=(",",":"))+"\n").encode()
@@ -149,6 +149,10 @@ def production_guest_host_key(plan):
    if os.path.exists(candidate) and not os.path.exists(f"/sys/block/nbd{index}/pid"): device=candidate; break
   if device is None: fail("no unused NBD device")
   run(["/usr/bin/qemu-nbd","--read-only","--format=raw",f"--connect={device}",disk]); connected=True
+  for _ in range(50):
+   if int(open(f"/sys/block/{os.path.basename(device)}/size",encoding="ascii").read().strip())>0: break
+   time.sleep(0.1)
+  if run(["/usr/sbin/blockdev","--getsize64",device]).strip()!="34359738368": fail("unexpected VM9900 NBD size")
   run(["/usr/bin/partx","--add",device]); partitions_added=True
   run(["/usr/bin/udevadm","settle","--timeout=10"])
   layout=json.loads(run(["/usr/bin/lsblk","--json","--paths","--output","PATH,TYPE",device])); partitions=[]
