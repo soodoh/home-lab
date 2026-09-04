@@ -31,6 +31,15 @@ EOF
     [ "${#plan}" -eq 64 ] && [ "$plan" = "$approval" ] || exit 64
     exec sudo -n -- "$helper" apply "$plan" "$approval"
     ;;
+  host-key\ [0-9a-f][0-9a-f]*)
+    IFS=' ' read -r verb plan approval extra <<EOF
+${command}
+EOF
+    [ "$verb" = host-key ] && [ -z "${extra-}" ] || exit 64
+    case "$plan:$approval" in *[!0-9a-f:]*|*:*:*|:*) exit 64;; esac
+    [ "${#plan}" -eq 64 ] && [ "$plan" = "$approval" ] || exit 64
+    exec sudo -n -- "$helper" host-key "$plan" "$approval"
+    ;;
   *)
     echo "unsupported qualification snippet command" >&2
     exit 64

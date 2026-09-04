@@ -41,8 +41,13 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
  try: module.prior(args,"start",{"target_id":"other-target"})
  except SystemExit as error: assert "prior-receipt" in str(error)
  else: raise AssertionError("prior receipt target substitution accepted")
+with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
+ host_receipt={"disk_volume":"local-lvm:vm-9900-disk-0","fingerprint":"SHA256:"+"A"*43,"format":"home-lab-debian-qualification-host-key-receipt-v1","guest_ipv4":"192.168.0.53","plan_sha256":"a"*64,"public_key":"ssh-ed25519 "+"A"*44,"sha256":"b"*64,"state_sha256":"c"*64,"stopped_receipt_sha256":"d"*64,"target_id":"production-pve-vm9900-qualification","version":1,"vmid":9900}; host_receipt["sha256"]=module.sha((host_receipt["public_key"]+"\n").encode()); path=Path(directory)/"host-key.json"; path.write_text(json.dumps(host_receipt,sort_keys=True,separators=(",",":"))+"\n"); path.chmod(0o600); args=SimpleNamespace(host_key_receipt=path); admitted={"target_id":"production-pve-vm9900-qualification"}; assert module.host_key(args,"restart",admitted,"d"*64,"c"*64)==module.sha(path.read_bytes())
+ try: module.host_key(args,"restart",admitted,"e"*64,"c"*64)
+ except SystemExit as error: assert "host-key-receipt" in str(error)
+ else: raise AssertionError("restart accepted unrelated host-key receipt")
 source=SOURCE.read_text()
-for required in ("START_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","REPAIR_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_DHCP","STOP_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_FOR_HOSTKEY","RESTART_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_AFTER_HOSTKEY","DESTROY_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","plan-start","apply-start","plan-repair-network","apply-repair-network","plan-stop","apply-stop","plan-restart","apply-restart","plan-destroy","apply-destroy","prior_receipt_sha256","snippet_receipt_sha256","snippet_sha256",'target={**target,"snippet_file_id"',"approve_authorization_sha","tofu-{operation}-apply-no-retry","-destroy","locked_setup","state-drift",'split("-",1)[1]'):
+for required in ("START_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","REPAIR_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_DHCP","STOP_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_FOR_HOSTKEY","RESTART_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_AFTER_HOSTKEY","DESTROY_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","plan-start","apply-start","plan-repair-network","apply-repair-network","plan-stop","apply-stop","plan-restart","apply-restart","plan-destroy","apply-destroy","prior_receipt_sha256","snippet_receipt_sha256","snippet_sha256","host_key_receipt_sha256","--host-key-receipt",'target={**target,"snippet_file_id"',"approve_authorization_sha","tofu-{operation}-apply-no-retry","-destroy","locked_setup","state-drift",'split("-",1)[1]'):
  assert required in source,required
 assert 'start_value="false" if operation=="stop" else "true"' in source
-print("debian_lifecycle_qualification_transitions=verified hostile_plans=10")
+print("debian_lifecycle_qualification_transitions=verified hostile_plans=11")

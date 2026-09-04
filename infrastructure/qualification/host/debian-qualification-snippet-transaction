@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fixed create-only cloud-init snippet transaction for an isolated PVE target."""
-import base64,datetime as dt,fcntl,hashlib,json,os,re,stat,sys,tempfile
+import base64,datetime as dt,fcntl,hashlib,json,os,re,stat,subprocess,sys,tempfile
 NAME="home-lab-debian-lifecycle-qualification.yaml"
 def fail(message): raise RuntimeError(message)
 def canonical(value): return (json.dumps(value,sort_keys=True,separators=(",",":"))+"\n").encode()
@@ -101,11 +101,95 @@ def apply(plan_sha,approval):
   if after["snippet"].get("sha256")!=plan["sha256"] or after["snippet"].get("size")!=plan["size"]: fail("snippet postcondition failed")
   return {"admission_sha256":plan["admission_sha256"],"changed":changed,"commit":plan["commit"],"file_id":plan["file_id"],"format":"home-lab-debian-qualification-snippet-receipt-v1","guest_ssh_public_key_sha256":plan["guest_ssh_public_key_sha256"],"known_hosts_sha256":plan["known_hosts_sha256"],"mode":"0600","node_name":plan["node_name"],"plan_sha256":plan_sha,"sha256":plan["sha256"],"size":plan["size"],"target_id":plan["target_id"],"version":1}
  finally: os.close(lock_fd)
+def run(command):
+ result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+ if result.returncode: fail(f"command failed: {command[0]}")
+ return result.stdout
+
+def read_guest_host_key(root):
+ uid,gid=expected_ids(); descriptors=[]
+ try:
+  descriptor=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW); descriptors.append(descriptor)
+  for segment in ("etc","ssh"):
+   current=os.fstat(descriptor)
+   if not stat.S_ISDIR(current.st_mode) or current.st_uid!=uid or current.st_gid!=gid or stat.S_IMODE(current.st_mode)&0o022: fail("unsafe guest host key path")
+   descriptor=os.open(segment,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=descriptor); descriptors.append(descriptor)
+  directory=os.fstat(descriptor)
+  if not stat.S_ISDIR(directory.st_mode) or directory.st_uid!=uid or directory.st_gid!=gid or stat.S_IMODE(directory.st_mode)&0o022: fail("unsafe guest host key path")
+  name="ssh_host_ed25519_key.pub"; before=os.stat(name,dir_fd=descriptor,follow_symlinks=False)
+  if not stat.S_ISREG(before.st_mode) or before.st_nlink!=1 or before.st_uid!=uid or before.st_gid!=gid or stat.S_IMODE(before.st_mode)!=0o644 or before.st_size>1024: fail("unsafe guest host key metadata")
+  fd=os.open(name,os.O_RDONLY|os.O_NOFOLLOW,dir_fd=descriptor); descriptors.append(fd); opened=os.fstat(fd); raw=os.read(fd,1025); after=os.fstat(fd); current=os.stat(name,dir_fd=descriptor,follow_symlinks=False)
+  if len(raw)>1024 or (opened.st_dev,opened.st_ino,opened.st_size,opened.st_nlink)!=(after.st_dev,after.st_ino,after.st_size,after.st_nlink) or (current.st_dev,current.st_ino)!=(after.st_dev,after.st_ino): fail("guest host key changed during observation")
+ finally:
+  for item in reversed(descriptors): os.close(item)
+ fields=raw.decode("ascii").strip().split()
+ if len(fields) not in (2,3) or fields[0]!="ssh-ed25519": fail("unexpected guest host key")
+ try: blob=base64.b64decode(fields[1],validate=True)
+ except Exception: fail("invalid guest host key")
+ if len(blob)<32: fail("invalid guest host key")
+ fingerprint="SHA256:"+base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
+ return {"fingerprint":fingerprint,"public_key":" ".join(fields[:2]),"sha256":sha((" ".join(fields[:2])+"\n").encode())}
+
+def production_guest_host_key(plan):
+ config=run(["/usr/sbin/qm","config","9900","--current"]); lines=dict(line.split(": ",1) for line in config.splitlines() if ": " in line)
+ if "lock" in lines or lines.get("scsi0","").split(",",1)[0]!=plan["disk_volume"] or lines.get("ide2","").split(",",1)[0]!="local-lvm:vm-9900-cloudinit" or lines.get("protection")!="0" or lines.get("onboot")!="0": fail("VM9900 disk precondition")
+ if run(["/usr/sbin/qm","status","9900"]).strip()!="status: stopped": fail("VM9900 is not stopped")
+ disk=run(["/usr/sbin/pvesm","path",plan["disk_volume"]]).strip()
+ if disk!="/dev/pve/vm-9900-disk-0": fail("VM9900 disk path")
+ module_loaded=os.path.isdir("/sys/module/nbd"); device=None; mountpoint=None; connected=False; lock_held=False
+ try:
+  run(["/usr/sbin/qm","set","9900","--lock","backup"]); lock_held=True
+  locked=run(["/usr/sbin/qm","config","9900","--current"])
+  if "lock: backup\n" not in locked or run(["/usr/sbin/qm","status","9900"]).strip()!="status: stopped": fail("VM9900 stopped lock precondition")
+  if not module_loaded: run(["/usr/sbin/modprobe","nbd","max_part=8"])
+  for index in range(16):
+   candidate=f"/dev/nbd{index}"
+   if os.path.exists(candidate) and not os.path.exists(f"/sys/block/nbd{index}/pid"): device=candidate; break
+  if device is None: fail("no unused NBD device")
+  run(["/usr/bin/qemu-nbd","--read-only","--format=raw",f"--connect={device}",disk]); connected=True
+  run(["/usr/bin/udevadm","settle","--timeout=10"])
+  layout=json.loads(run(["/usr/bin/lsblk","--json","--paths","--output","PATH,FSTYPE,TYPE",device])); partitions=[]
+  for child in layout.get("blockdevices",[{}])[0].get("children",[]) or []:
+   if child.get("type")=="part" and child.get("fstype")=="ext4": partitions.append(child.get("path"))
+  if len(partitions)!=1 or not partitions[0].startswith(device+"p"): fail("unexpected VM9900 partition layout")
+  mountpoint=tempfile.mkdtemp(prefix="home-lab-vm9900-hostkey-",dir="/run")
+  run(["/usr/bin/mount","-o","ro,noload,nodev,nosuid,noexec",partitions[0],mountpoint])
+  return read_guest_host_key(mountpoint)
+ finally:
+  cleanup_failed=False
+  if mountpoint:
+   unmounted=subprocess.run(["/usr/bin/umount",mountpoint],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+   if unmounted.returncode and os.path.ismount(mountpoint): cleanup_failed=True
+   else: os.rmdir(mountpoint)
+  if connected and subprocess.run(["/usr/bin/qemu-nbd","--disconnect",device],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: cleanup_failed=True
+  if not module_loaded and subprocess.run(["/usr/sbin/modprobe","-r","nbd"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: cleanup_failed=True
+  if lock_held:
+   if subprocess.run(["/usr/sbin/qm","unlock","9900"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: cleanup_failed=True
+   elif "lock: " in subprocess.run(["/usr/sbin/qm","config","9900","--current"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True).stdout: cleanup_failed=True
+  if cleanup_failed: fail("host-key extraction cleanup failed")
+
+def apply_host_key(plan_sha,approval):
+ raw,plan=read_plan()
+ if sha(raw)!=plan_sha or approval!=plan_sha: fail("plan approval mismatch")
+ required={"admission_sha256","authorized","automatic_apply","commit","created_at","disk_volume","expires_at","format","guest_ipv4","node_name","operation","state_sha256","stopped_receipt_sha256","target_id","version","vmid"}
+ if set(plan)!=required or plan["format"]!="home-lab-debian-qualification-host-key-plan-v1" or plan["operation"]!="extract-host-key-read-only" or plan["version"]!=1 or plan["vmid"]!=9900 or plan["authorized"] is not False or plan["automatic_apply"] is not False or plan["target_id"]!="production-pve-vm9900-qualification" or plan["node_name"]!="proxmox" or plan["disk_volume"]!="local-lvm:vm-9900-disk-0" or plan["guest_ipv4"]!="192.168.0.53": fail("invalid host-key plan")
+ for key in ("admission_sha256","state_sha256","stopped_receipt_sha256"):
+  if re.fullmatch(r"[0-9a-f]{64}",plan.get(key,"") or "") is None: fail("invalid host-key identity")
+ if re.fullmatch(r"[0-9a-f]{40}",plan.get("commit","") or "") is None: fail("invalid host-key commit")
+ now=dt.datetime.now(dt.timezone.utc); created=parse_time(plan["created_at"]); expires=parse_time(plan["expires_at"])
+ if created>now+dt.timedelta(seconds=5) or created<now-dt.timedelta(hours=4) or expires<=now or expires-created>dt.timedelta(hours=4): fail("host-key plan stale")
+ lock_fd=acquire_lock()
+ try:
+  fixture=os.environ.get("HOME_LAB_QUALIFICATION_SNIPPET_FIXTURE_ROOT") if os.geteuid()!=0 else None
+  key=read_guest_host_key(os.path.realpath(fixture)+"/vm9900" if fixture else "/") if fixture else production_guest_host_key(plan)
+  return {**key,"disk_volume":plan["disk_volume"],"format":"home-lab-debian-qualification-host-key-receipt-v1","guest_ipv4":plan["guest_ipv4"],"plan_sha256":plan_sha,"state_sha256":plan["state_sha256"],"stopped_receipt_sha256":plan["stopped_receipt_sha256"],"target_id":plan["target_id"],"version":1,"vmid":9900}
+ finally: os.close(lock_fd)
 def main():
  if len(sys.argv)==2 and sys.argv[1]=="observe": print(canonical(inspect()).decode(),end=""); return
  if len(sys.argv)==4 and sys.argv[1]=="apply": print(canonical(apply(sys.argv[2],sys.argv[3])).decode(),end=""); return
+ if len(sys.argv)==4 and sys.argv[1]=="host-key": print(canonical(apply_host_key(sys.argv[2],sys.argv[3])).decode(),end=""); return
  if len(sys.argv)==3 and sys.argv[1]=="hold-lock": hold_lock(sys.argv[2]); return
- fail("usage: debian-qualification-snippet-transaction <observe|apply PLAN_SHA APPROVE_PLAN_SHA|hold-lock ADMISSION_SHA256>")
+ fail("usage: debian-qualification-snippet-transaction <observe|apply PLAN_SHA APPROVE_PLAN_SHA|host-key PLAN_SHA APPROVE_PLAN_SHA|hold-lock ADMISSION_SHA256>")
 if __name__=="__main__":
  try: main()
  except Exception as error: print(str(error),file=sys.stderr); raise SystemExit(1)
