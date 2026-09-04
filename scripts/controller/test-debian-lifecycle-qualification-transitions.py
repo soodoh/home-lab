@@ -35,7 +35,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
  except SystemExit as error: assert "prior-receipt" in str(error)
  else: raise AssertionError("prior receipt target substitution accepted")
 source=SOURCE.read_text()
-for required in ("START_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","REPAIR_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_DHCP","DESTROY_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","plan-start","apply-start","plan-repair-network","apply-repair-network","plan-destroy","apply-destroy","prior_receipt_sha256","snippet_receipt_sha256",'target={**target,"snippet_file_id"',"approve_authorization_sha","tofu-{operation}-apply-no-retry","-destroy","locked_setup","state-drift",'split("-",1)[1]'):
+for required in ("START_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","REPAIR_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_DHCP","DESTROY_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","plan-start","apply-start","plan-repair-network","apply-repair-network","plan-destroy","apply-destroy","prior_receipt_sha256","snippet_receipt_sha256","snippet_sha256",'target={**target,"snippet_file_id"',"approve_authorization_sha","tofu-{operation}-apply-no-retry","-destroy","locked_setup","state-drift",'split("-",1)[1]'):
  assert required in source,required
 assert "start_qualification=true" in source
 print("debian_lifecycle_qualification_transitions=verified hostile_plans=8")
