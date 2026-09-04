@@ -76,6 +76,8 @@ def contract_image():
  if result.returncode or result.stderr: fail("contract-projection")
  try: return json.loads(result.stdout)
  except json.JSONDecodeError: fail("contract-projection")
+def expected_firewall_rules(target):
+ return [("out","ACCEPT","255.255.255.255/32",None,"udp","67","68"),("in","ACCEPT",None,"0.0.0.0/0","udp","68","67"),("in","ACCEPT",None,f"{target['controller_ipv4']}/32","tcp","22",None),("out","ACCEPT",f"{target['controller_ipv4']}/32",None,"tcp","1024:65535","22"),("out","DROP","10.0.0.0/8",None,None,None,None),("out","DROP","172.16.0.0/12",None,None,None,None),("out","DROP","192.168.0.0/16",None,None,None,None),("out","DROP","100.64.0.0/10",None,None,None,None),("out","ACCEPT","0.0.0.0/0",None,None,None,None)]
 def inspect_plan(value,target):
  expected={"proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_vm.qualification[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]"}; changes={item.get("address"):item.get("change",{}) for item in value.get("resource_changes",[])}
  if set(changes)!=expected or any(item.get("actions")!=["create"] for item in changes.values()): fail("foundation-actions")
@@ -85,7 +87,7 @@ def inspect_plan(value,target):
  contract=contract_image()
  if image.get("datastore_id")!=target["image_datastore_id"] or image.get("node_name")!=target["node_name"] or image.get("url")!=contract["url"] or image.get("checksum")!=contract["sha512"] or image.get("checksum_algorithm")!="sha512" or image.get("overwrite") is not False: fail("foundation-image")
  if options.get("enabled") is not True or options.get("input_policy")!="DROP" or options.get("output_policy")!="DROP" or options.get("dhcp") is not True or options.get("ipfilter") is not False or options.get("macfilter") is not True: fail("foundation-firewall")
- expected_rules=[("in","ACCEPT",None,f"{target['controller_ipv4']}/32","tcp","22",None),("out","ACCEPT",f"{target['controller_ipv4']}/32",None,"tcp","1024:65535","22"),("out","DROP","10.0.0.0/8",None,None,None,None),("out","DROP","172.16.0.0/12",None,None,None,None),("out","DROP","192.168.0.0/16",None,None,None,None),("out","DROP","100.64.0.0/10",None,None,None,None),("out","ACCEPT","0.0.0.0/0",None,None,None,None)]
+ expected_rules=expected_firewall_rules(target)
  observed_rules=[(item.get("type"),item.get("action"),item.get("dest"),item.get("source"),item.get("proto"),item.get("dport"),item.get("sport")) for item in rules]
  if observed_rules!=expected_rules: fail("foundation-firewall-rules")
  return sorted(expected)

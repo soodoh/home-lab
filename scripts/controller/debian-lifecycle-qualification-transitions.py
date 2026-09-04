@@ -5,7 +5,7 @@ from pathlib import Path
 from protected_execution import acquire_transfer_lock,canonical_bytes,load_canonical_object,load_protected_bytes,require_private_root,write_json
 ROOT=Path(__file__).resolve().parents[2]; source=ROOT/"scripts/controller/debian-lifecycle-qualification.py"; spec=importlib.util.spec_from_file_location("debian_qualification_foundation",source); common=importlib.util.module_from_spec(spec); spec.loader.exec_module(common)
 os.umask(0o077)
-CONFIRM={"start":"START_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","destroy":"DESTROY_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900"}
+CONFIRM={"start":"START_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","repair-network":"REPAIR_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_DHCP","destroy":"DESTROY_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900"}
 def fail(reason): raise SystemExit(f"debian_qualification_transition=failed reason={reason}")
 def sha(raw): return hashlib.sha256(raw).hexdigest()
 def parse_time(value):
@@ -14,9 +14,12 @@ def parse_time(value):
  if parsed.tzinfo is None: fail("manifest-time")
  return parsed
 def prior(args,operation,target):
- value,raw=load_canonical_object(args.prior_receipt,"qualification prior receipt"); expected_format="home-lab-debian-qualification-foundation-receipt-v1" if operation=="start" else "home-lab-debian-qualification-start-receipt-v1"; expected_started=operation=="destroy"; expected_operation="create-stopped-foundation" if operation=="start" else "start"
- required={"admission_sha256","commit","format","operation","plan_sha256","resources","snippet_receipt_sha256","state_sha256","target_id","version","vm_started","vmid"} if operation=="start" else {"admission_sha256","commit","format","operation","plan_sha256","prior_receipt_sha256","resources","snippet_receipt_sha256","state_sha256","target_id","version","vm_started","vmid"}
- identities=("admission_sha256","plan_sha256","snippet_receipt_sha256","state_sha256")+("prior_receipt_sha256",) if operation=="destroy" else ("admission_sha256","plan_sha256","snippet_receipt_sha256","state_sha256")
+ value,raw=load_canonical_object(args.prior_receipt,"qualification prior receipt")
+ if operation=="start": expected_format="home-lab-debian-qualification-foundation-receipt-v1"; expected_operation="create-stopped-foundation"; expected_started=False; prior_identity=False
+ elif operation=="repair-network": expected_format="home-lab-debian-qualification-start-receipt-v1"; expected_operation="start"; expected_started=True; prior_identity=True
+ else: expected_format="home-lab-debian-qualification-repair-network-receipt-v1"; expected_operation="repair-network"; expected_started=True; prior_identity=True
+ required={"admission_sha256","commit","format","operation","plan_sha256","resources","snippet_receipt_sha256","state_sha256","target_id","version","vm_started","vmid"} | ({"prior_receipt_sha256"} if prior_identity else set())
+ identities=("admission_sha256","plan_sha256","snippet_receipt_sha256","state_sha256")+(("prior_receipt_sha256",) if prior_identity else ())
  expected_resources=["proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]","proxmox_virtual_environment_vm.qualification[0]"]
  if set(value)!=required or value.get("format")!=expected_format or value.get("operation")!=expected_operation or value.get("version")!=1 or re.fullmatch(r"[0-9a-f]{40}",value.get("commit","") or "") is None or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("resources")!=expected_resources or value.get("target_id")!=target["target_id"] or value.get("vmid")!=9900 or value.get("vm_started") is not expected_started: fail("prior-receipt")
  return value,sha(raw)
@@ -34,6 +37,14 @@ def inspect(value,operation,target):
   before_stable={key:item for key,item in before.items() if key not in computed}; after_stable={key:item for key,item in after.items() if key not in computed}; before_stable["started"]=True
   if any(path[0] not in computed for path in unknown_true(unknown)) or before.get("vm_id")!=9900 or before.get("started") is not False or after.get("vm_id")!=9900 or after.get("started") is not True or after.get("on_boot") is not False or after.get("node_name")!=target["node_name"] or before_stable!=after_stable: fail("start-vm")
   return [vm_address]
+ if operation=="repair-network":
+  rules_address="proxmox_virtual_environment_firewall_rules.qualification[0]"
+  if set(changes)!={rules_address} or changes[rules_address].get("actions")!=["update"]: fail("repair-network-actions")
+  before=changes[rules_address].get("before",{}); after=changes[rules_address].get("after",{})
+  def tuples(item): return [(row.get("type"),row.get("action"),row.get("dest"),row.get("source"),row.get("proto"),row.get("dport"),row.get("sport")) for row in item.get("rule",[])]
+  expected_rules=common.expected_firewall_rules(target)
+  if before.get("node_name")!=target["node_name"] or before.get("vm_id")!=9900 or after.get("node_name")!=target["node_name"] or after.get("vm_id")!=9900 or tuples(before)!=expected_rules[2:] or tuples(after)!=expected_rules: fail("repair-network-rules")
+  return [rules_address]
  expected={"proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_vm.qualification[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]"}; image_address="proxmox_download_file.qualification_image[0]"; options_address="proxmox_virtual_environment_firewall_options.qualification[0]"; rules_address="proxmox_virtual_environment_firewall_rules.qualification[0]"
  if set(changes)!=expected or any(item.get("actions")!=["delete"] for item in changes.values()): fail("destroy-actions")
  vm_before=changes[vm_address].get("before",{}); image_before=changes[image_address].get("before",{}); options_before=changes[options_address].get("before",{}); rules_before=changes[rules_address].get("before",{}); image=common.contract_image()
@@ -59,7 +70,7 @@ def plan(args,operation):
  finally: common.release_target(host); os.close(controller); shutil.rmtree(run,ignore_errors=True)
 def manifest(args,operation,target,prior_sha,snippet_sha):
  value,raw=load_canonical_object(args.manifest,"qualification transition manifest"); required={"actionable","admission_sha256","api_ca_sha256","apply_principal","authorized","automatic_apply","commit","created_at","endpoint","expires_at","format","node_name","operation","plan_json_sha256","plan_principal","plan_sha256","prior_receipt_sha256","resources","snippet_receipt_sha256","state_sha256","target_id","version","vmid"}; created=parse_time(value.get("created_at","")); expires=parse_time(value.get("expires_at","")); identities=("admission_sha256","api_ca_sha256","plan_json_sha256","plan_sha256","prior_receipt_sha256","snippet_receipt_sha256","state_sha256")
- expected_resources=["proxmox_virtual_environment_vm.qualification[0]"] if operation=="start" else ["proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]","proxmox_virtual_environment_vm.qualification[0]"]
+ expected_resources=["proxmox_virtual_environment_vm.qualification[0]"] if operation=="start" else (["proxmox_virtual_environment_firewall_rules.qualification[0]"] if operation=="repair-network" else ["proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]","proxmox_virtual_environment_vm.qualification[0]"])
  if set(value)!=required or sha(raw)!=args.authorization_sha or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("format")!="home-lab-debian-qualification-transition-plan-v1" or value.get("operation")!=operation or value.get("plan_sha256")!=args.plan_sha or value.get("prior_receipt_sha256")!=prior_sha or value.get("snippet_receipt_sha256")!=snippet_sha or value.get("resources")!=expected_resources or value.get("target_id")!=target["target_id"] or value.get("admission_sha256")!=target["isolation_attestation_sha256"] or value.get("endpoint")!=target["endpoint"] or value.get("node_name")!=target["node_name"] or value.get("api_ca_sha256")!=target["api_ca_sha256"] or value.get("plan_principal")!=target["plan_principal"] or value.get("apply_principal")!=target["apply_principal"] or value.get("version")!=1 or value.get("vmid")!=9900 or value.get("actionable") is not True or value.get("authorized") is not False or value.get("automatic_apply") is not False or created>common.now()+dt.timedelta(seconds=5) or created<common.now()-dt.timedelta(minutes=20) or expires<=common.now() or expires-created>dt.timedelta(minutes=20): fail("manifest-binding")
  return value
 def apply(args,operation):
@@ -74,13 +85,13 @@ def apply(args,operation):
   common.run_locked(["tofu",f"-chdir={common.TF_ROOT}","apply","-input=false","-lock=true","-auto-approve",str(binary)],env,host,f"tofu-{operation}-apply-no-retry")
   post=common.run_json(["tofu",f"-chdir={common.TF_ROOT}","show","-json"],env); resources=((post.get("values") or {}).get("root_module") or {}).get("resources",[]); vm=next((item.get("values",{}) for item in resources if item.get("address")=="proxmox_virtual_environment_vm.qualification[0]"),None)
   expected_addresses={"proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_vm.qualification[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]"}
-  if operation=="start" and ({item.get("address") for item in resources}!=expected_addresses or vm is None or vm.get("vm_id")!=9900 or vm.get("started") is not True or vm.get("on_boot") is not False): fail("start-postcondition")
+  if operation in ("start","repair-network") and ({item.get("address") for item in resources}!=expected_addresses or vm is None or vm.get("vm_id")!=9900 or vm.get("started") is not True or vm.get("on_boot") is not False): fail(f"{operation}-postcondition")
   if operation=="destroy" and resources: fail("destroy-postcondition")
-  receipt={"admission_sha256":target["isolation_attestation_sha256"],"commit":value["commit"],"format":f"home-lab-debian-qualification-{operation}-receipt-v1","operation":operation,"plan_sha256":args.plan_sha,"prior_receipt_sha256":prior_sha,"resources":sorted(expected_addresses),"snippet_receipt_sha256":verified["snippet_receipt_sha256"],"state_sha256":common.state_sha(state),"target_id":target["target_id"],"version":1,"vm_started":operation=="start","vmid":9900}; write_json(output,f"{args.plan_sha}.receipt.json",receipt); print(json.dumps({"receipt":str(output/f'{args.plan_sha}.receipt.json'),"vm_started":receipt["vm_started"]},sort_keys=True))
+  receipt={"admission_sha256":target["isolation_attestation_sha256"],"commit":value["commit"],"format":f"home-lab-debian-qualification-{operation}-receipt-v1","operation":operation,"plan_sha256":args.plan_sha,"prior_receipt_sha256":prior_sha,"resources":sorted(expected_addresses),"snippet_receipt_sha256":verified["snippet_receipt_sha256"],"state_sha256":common.state_sha(state),"target_id":target["target_id"],"version":1,"vm_started":operation!="destroy","vmid":9900}; write_json(output,f"{args.plan_sha}.receipt.json",receipt); print(json.dumps({"receipt":str(output/f'{args.plan_sha}.receipt.json'),"vm_started":receipt["vm_started"]},sort_keys=True))
  finally: common.release_target(host); os.close(controller); shutil.rmtree(run,ignore_errors=True)
 def main():
  parser=argparse.ArgumentParser(); sub=parser.add_subparsers(dest="command",required=True)
- for command in ("plan-start","apply-start","plan-destroy","apply-destroy"):
+ for command in ("plan-start","apply-start","plan-repair-network","apply-repair-network","plan-destroy","apply-destroy"):
   item=sub.add_parser(command)
   for option in ("admission","known-hosts","guest-public-key","snippet-receipt","prior-receipt","output-dir"): item.add_argument("--"+option,type=Path,required=True)
   if command.startswith("apply-"):

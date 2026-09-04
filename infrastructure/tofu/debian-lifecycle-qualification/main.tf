@@ -214,6 +214,26 @@ resource "proxmox_virtual_environment_firewall_rules" "qualification" {
   vm_id     = proxmox_virtual_environment_vm.qualification[0].vm_id
 
   rule {
+    type    = "out"
+    action  = "ACCEPT"
+    dest    = "255.255.255.255/32"
+    proto   = "udp"
+    sport   = "68"
+    dport   = "67"
+    log     = "nolog"
+    comment = "DHCP discovery"
+  }
+  rule {
+    type    = "in"
+    action  = "ACCEPT"
+    source  = "0.0.0.0/0"
+    proto   = "udp"
+    sport   = "67"
+    dport   = "68"
+    log     = "nolog"
+    comment = "DHCP offer"
+  }
+  rule {
     type    = "in"
     action  = "ACCEPT"
     source  = "${var.controller_ipv4}/32"
