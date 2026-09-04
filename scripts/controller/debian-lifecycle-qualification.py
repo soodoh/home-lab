@@ -21,7 +21,7 @@ def run_json(command,env=None):
  return value
 def admission(args):
  value=run_json(["node",str(ADMISSION),"--evidence",str(args.admission),"--known-hosts",str(args.known_hosts)])
- if value.get("admitted") is not True: fail("target-not-admitted")
+ if value.get("admitted") is not True or value.get("snippet_content_enabled") is not True: fail("target-not-admitted")
  return value
 def snippet(args):
  value=run_json([str(SNIPPET),"verify","--admission",str(args.admission),"--known-hosts",str(args.known_hosts),"--pve-public-key",str(args.pve_public_key),"--guest-public-key",str(args.guest_public_key),"--receipt",str(args.snippet_receipt)])

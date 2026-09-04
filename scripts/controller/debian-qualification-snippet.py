@@ -8,8 +8,10 @@ def sha(raw): return hashlib.sha256(raw).hexdigest()
 def validate_target(admission,known_hosts):
  result=subprocess.run(["node",str(VALIDATOR),"--evidence",str(admission),"--known-hosts",str(known_hosts)],text=True,capture_output=True)
  if result.returncode or result.stderr: raise SystemExit("disposable PVE admission validation failed")
- try: return json.loads(result.stdout)
+ try: value=json.loads(result.stdout)
  except json.JSONDecodeError as error: raise SystemExit("admission validator returned invalid JSON") from error
+ if value.get("admitted") is not True or value.get("snippet_content_enabled") is not True: raise SystemExit("PVE snippet content is not admitted")
+ return value
 def verify_agent(expected,public_key_path):
  if not os.environ.get("SSH_AUTH_SOCK"): raise SystemExit("dedicated qualification SSH agent is required")
  raw=load_protected_bytes(public_key_path,"PVE qualification public key")

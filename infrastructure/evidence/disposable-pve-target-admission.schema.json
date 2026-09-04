@@ -47,7 +47,7 @@
         "image_datastore_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$" },
         "disk_datastore_id": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{1,31}$" },
         "snippet_datastore_id": { "const": "local" },
-        "snippet_content_enabled": { "const": true },
+        "snippet_content_enabled": { "type": "boolean" },
         "snippet_directory": { "const": "/var/lib/vz/snippets" },
         "synthetic_only": { "const": true },
         "shares_production_storage": { "const": true },

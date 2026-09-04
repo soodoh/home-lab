@@ -70,6 +70,61 @@
       - qualification_snippet_capability_uid.rc == 2 or qualification_snippet_capability_uid.stdout.split(':')[0] == 'qualification-apply'
     fail_msg: Fixed qualification UID 1900 is already owned by another account.
 
+- name: Inspect production local storage content types
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/pvesh
+      - get
+      - /storage/local
+      - --output-format
+      - json
+  register: qualification_snippet_capability_local_storage
+  changed_when: false
+  check_mode: false
+
+- name: Bind and validate the local storage precondition
+  ansible.builtin.set_fact:
+    qualification_snippet_capability_local_storage_value: >-
+      {{ qualification_snippet_capability_local_storage.stdout | from_json }}
+    qualification_snippet_capability_local_content: >-
+      {{ (qualification_snippet_capability_local_storage.stdout | from_json).content.split(',') | sort }}
+  no_log: true
+
+- name: Refuse unexpected production local storage configuration
+  ansible.builtin.assert:
+    that:
+      - qualification_snippet_capability_local_storage_value.storage == 'local'
+      - qualification_snippet_capability_local_storage_value.type == 'dir'
+      - qualification_snippet_capability_local_storage_value.path == '/var/lib/vz'
+      - >-
+        qualification_snippet_capability_local_content in [
+        ['backup', 'import', 'iso', 'vztmpl'],
+        ['backup', 'import', 'iso', 'snippets', 'vztmpl']]
+    fail_msg: Production local storage differs from the exact additive snippets transition.
+  no_log: true
+
+- name: Enable snippets as the sole local storage content addition
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/pvesh
+      - set
+      - /storage/local
+      - --content
+      - backup,import,iso,snippets,vztmpl
+  when:
+    - not ansible_check_mode
+    - "'snippets' not in qualification_snippet_capability_local_content"
+  changed_when: true
+
+- name: Create the fixed local snippets directory
+  ansible.builtin.file:
+    path: /var/lib/vz/snippets
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: not ansible_check_mode
+
 - name: Create fixed qualification group
   ansible.builtin.group:
     name: qualification-apply
@@ -153,6 +208,27 @@
     group: root
     mode: "0440"
     validate: /usr/sbin/visudo --check --file=%s
+  when: not ansible_check_mode
+
+- name: Reinspect local storage after capability installation
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/pvesh
+      - get
+      - /storage/local
+      - --output-format
+      - json
+  register: qualification_snippet_capability_local_storage_after
+  changed_when: false
+  when: not ansible_check_mode
+
+- name: Verify additive local snippets content
+  ansible.builtin.assert:
+    that:
+      - >-
+        ((qualification_snippet_capability_local_storage_after.stdout | from_json).content.split(',') | sort) ==
+        ['backup', 'import', 'iso', 'snippets', 'vztmpl']
+    fail_msg: Local storage snippets content was not enabled exactly.
   when: not ansible_check_mode
 
 - name: Inspect installed qualification artifacts
