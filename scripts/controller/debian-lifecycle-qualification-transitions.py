@@ -41,7 +41,7 @@ def inspect(value,operation,target):
   rules_address="proxmox_virtual_environment_firewall_rules.qualification[0]"
   if set(changes)!={rules_address} or changes[rules_address].get("actions")!=["update"]: fail("repair-network-actions")
   before=changes[rules_address].get("before",{}); after=changes[rules_address].get("after",{})
-  def tuples(item): return [(row.get("type"),row.get("action"),row.get("dest"),row.get("source"),row.get("proto"),row.get("dport"),row.get("sport")) for row in item.get("rule",[])]
+  def tuples(item): return [tuple(row.get(key) or None for key in ("type","action","dest","source","proto","dport","sport")) for row in item.get("rule",[])]
   expected_rules=common.expected_firewall_rules(target)
   if before.get("node_name")!=target["node_name"] or before.get("vm_id")!=9900 or after.get("node_name")!=target["node_name"] or after.get("vm_id")!=9900 or tuples(before)!=expected_rules[2:] or tuples(after)!=expected_rules: fail("repair-network-rules")
   return [rules_address]
