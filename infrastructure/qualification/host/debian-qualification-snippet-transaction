@@ -153,7 +153,7 @@ def production_guest_host_key(plan):
    if int(open(f"/sys/block/{os.path.basename(device)}/size",encoding="ascii").read().strip())>0: break
    time.sleep(0.1)
   if run(["/usr/sbin/blockdev","--getsize64",device]).strip()!="34359738368": fail("unexpected VM9900 NBD size")
-  run(["/usr/bin/partx","--add",device]); partitions_added=True
+  mapping=subprocess.run(["/usr/bin/partx","--add",device],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); partitions_added=mapping.returncode==0
   run(["/usr/bin/udevadm","settle","--timeout=10"])
   layout=json.loads(run(["/usr/bin/lsblk","--json","--paths","--output","PATH,TYPE",device])); partitions=[]
   for child in layout.get("blockdevices",[{}])[0].get("children",[]) or []:
