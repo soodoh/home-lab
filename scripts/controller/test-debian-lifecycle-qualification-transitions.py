@@ -8,6 +8,7 @@ target={"disk_datastore_id":"local-lvm","image_datastore_id":"local","node_name"
 def change(address,actions,before=None,after=None): return {"address":address,"change":{"actions":actions,"before":before,"after":after}}
 before_vm={"disk":[{"datastore_id":"local-lvm"}],"node_name":"proxmox","on_boot":False,"started":False,"vm_id":9900}; after_vm=copy.deepcopy(before_vm); after_vm["started"]=True
 start={"resource_changes":[change(vm,["update"],before_vm,after_vm),*[change(address,["no-op"],{}, {}) for address in addresses if address!=vm]]}
+start["resource_changes"][0]["change"]["after_unknown"]={"agent":[{"wait_for_ip":[{}]}],"ipv4_addresses":True}
 destroy={"resource_changes":[change(image_address,["delete"],{"checksum":image["sha512"],"datastore_id":"local","node_name":"proxmox","url":image["url"]},None),change(options,["delete"],{"node_name":"proxmox","vm_id":9900},None),change(rules,["delete"],{"node_name":"proxmox","vm_id":9900},None),change(vm,["delete"],after_vm,None)]}
 assert module.inspect(start,"start",target)==[vm]
 assert module.inspect(destroy,"destroy",target)==sorted(addresses)
@@ -19,6 +20,7 @@ def refused(value,operation,mutate,reason):
 refused(start,"start",lambda x:x["resource_changes"][0]["change"]["after"].update(on_boot=True),"start-vm")
 refused(start,"start",lambda x:x["resource_changes"][0]["change"].update(actions=["delete","create"]),"start-actions")
 refused(start,"start",lambda x:x["resource_changes"][0]["change"]["after"]["disk"][0].update(datastore_id="production"),"start-vm")
+refused(start,"start",lambda x:x["resource_changes"][0]["change"]["after_unknown"].update(disk=[{"file_id":True}]),"start-vm")
 refused(destroy,"destroy",lambda x:x["resource_changes"][0]["change"].update(actions=["update"]),"destroy-actions")
 refused(destroy,"destroy",lambda x:x["resource_changes"][0]["change"]["before"].update(datastore_id="production"),"destroy-actions")
 refused(destroy,"destroy",lambda x:x["resource_changes"].append(change("proxmox_virtual_environment_vm.production",["delete"],{},None)),"destroy-actions")
@@ -31,4 +33,4 @@ source=SOURCE.read_text()
 for required in ("START_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","DESTROY_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","plan-start","apply-start","plan-destroy","apply-destroy","prior_receipt_sha256","snippet_receipt_sha256",'target={**target,"snippet_file_id"',"approve_authorization_sha","tofu-{operation}-apply-no-retry","-destroy","locked_setup","state-drift"):
  assert required in source,required
 assert "start_qualification=true" in source
-print("debian_lifecycle_qualification_transitions=verified hostile_plans=6")
+print("debian_lifecycle_qualification_transitions=verified hostile_plans=7")

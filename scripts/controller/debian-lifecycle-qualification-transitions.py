@@ -21,13 +21,18 @@ def prior(args,operation,target):
  if set(value)!=required or value.get("format")!=expected_format or value.get("operation")!=expected_operation or value.get("version")!=1 or re.fullmatch(r"[0-9a-f]{40}",value.get("commit","") or "") is None or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("resources")!=expected_resources or value.get("target_id")!=target["target_id"] or value.get("vmid")!=9900 or value.get("vm_started") is not expected_started: fail("prior-receipt")
  return value,sha(raw)
 def changed(value): return {item.get("address"):item.get("change",{}) for item in value.get("resource_changes",[]) if item.get("change",{}).get("actions")!=["no-op"]}
+def unknown_true(value,path=()):
+ if value is True: return [path]
+ if isinstance(value,dict): return [item for key,child in value.items() for item in unknown_true(child,path+(key,))]
+ if isinstance(value,list): return [item for index,child in enumerate(value) for item in unknown_true(child,path+(index,))]
+ return []
 def inspect(value,operation,target):
  changes=changed(value); vm_address="proxmox_virtual_environment_vm.qualification[0]"
  if operation=="start":
   if set(changes)!={vm_address} or changes[vm_address].get("actions")!=["update"]: fail("start-actions")
   before=changes[vm_address].get("before",{}); after=changes[vm_address].get("after",{}); unknown=changes[vm_address].get("after_unknown",{}) or {}; computed={"ipv4_addresses","ipv6_addresses","mac_addresses","network_interface_names"}
   before_stable={key:item for key,item in before.items() if key not in computed}; after_stable={key:item for key,item in after.items() if key not in computed}; before_stable["started"]=True
-  if any(value for key,value in unknown.items() if key not in computed) or before.get("vm_id")!=9900 or before.get("started") is not False or after.get("vm_id")!=9900 or after.get("started") is not True or after.get("on_boot") is not False or after.get("node_name")!=target["node_name"] or before_stable!=after_stable: fail("start-vm")
+  if any(path[0] not in computed for path in unknown_true(unknown)) or before.get("vm_id")!=9900 or before.get("started") is not False or after.get("vm_id")!=9900 or after.get("started") is not True or after.get("on_boot") is not False or after.get("node_name")!=target["node_name"] or before_stable!=after_stable: fail("start-vm")
   return [vm_address]
  expected={"proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_vm.qualification[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]"}; image_address="proxmox_download_file.qualification_image[0]"; options_address="proxmox_virtual_environment_firewall_options.qualification[0]"; rules_address="proxmox_virtual_environment_firewall_rules.qualification[0]"
  if set(changes)!=expected or any(item.get("actions")!=["delete"] for item in changes.values()): fail("destroy-actions")
