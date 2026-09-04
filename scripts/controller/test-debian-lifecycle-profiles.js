@@ -17,6 +17,8 @@ const guardTasks = yaml("ansible/roles/debian_lifecycle_guard/tasks/main.yml");
 const aptTasks = yaml("ansible/roles/apt_packages/tasks/main.yml");
 const aptDefaults = yaml("ansible/roles/apt_packages/defaults/main.yml");
 const baseSource = read("ansible/roles/base/tasks/main.yml");
+const qualificationInventory = yaml("ansible/inventory/debian-qualification.yml");
+const qualificationHost = qualificationInventory.all.children.docker_host.hosts["debian-lifecycle-qualification"];
 
 assert.equal(contract.debian.locale, "C.UTF-8");
 assert.equal(groupVars.debian_locale, "{{ debian.locale }}");
@@ -34,6 +36,12 @@ for (const role of site.roles.filter((item) => item.role !== "base")) {
   assert.equal(role.when, "lifecycle_profile == 'production'", `${role.role} is not production-gated`);
 }
 assert.equal(audit.roles[0].role, "debian_lifecycle_guard");
+assert.equal(qualificationHost.lifecycle_profile, "inert");
+assert.equal(qualificationHost.lifecycle_contract_host, "debian");
+assert.equal(qualificationHost.ansible_user, "ansible-deploy");
+const qualificationSsh = qualificationHost.ansible_ssh_common_args;
+for (const required of ["StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null", "UpdateHostKeys=no", "IdentityAgent=none", "IdentitiesOnly=yes", "PreferredAuthentications=publickey", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no", "RequestTTY=no"]) assert(qualificationSsh.includes(required));
+assert(qualificationHost.ansible_ssh_private_key_file.includes("HOME_LAB_DEBIAN_QUALIFICATION_PRIVATE_KEY"));
 
 const allowedGuardModules = new Set(["ansible.builtin.assert", "ansible.builtin.command", "ansible.builtin.stat"]);
 for (const task of guardTasks) {

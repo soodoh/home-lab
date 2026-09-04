@@ -1,0 +1,31 @@
+---
+# Disposable VM9900 only. Production activation is structurally unavailable.
+all:
+  children:
+    docker_host:
+      hosts:
+        debian-lifecycle-qualification:
+          ansible_host: "{{ lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_QUALIFICATION_HOST') }}"
+          ansible_user: ansible-deploy
+          ansible_python_interpreter: /usr/bin/python3
+          lifecycle_contract_host: debian
+          lifecycle_profile: inert
+          ansible_ssh_private_key_file: "{{ lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_QUALIFICATION_PRIVATE_KEY') }}"
+          ansible_ssh_common_args: >-
+            -F /dev/null
+            -o BatchMode=yes
+            -o StrictHostKeyChecking=yes
+            -o GlobalKnownHostsFile=/dev/null
+            -o UpdateHostKeys=no
+            -o UserKnownHostsFile={{ lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_QUALIFICATION_KNOWN_HOSTS') }}
+            -o IdentityAgent=none
+            -o IdentitiesOnly=yes
+            -o PreferredAuthentications=publickey
+            -o PubkeyAuthentication=yes
+            -o PasswordAuthentication=no
+            -o KbdInteractiveAuthentication=no
+            -o GSSAPIAuthentication=no
+            -o ClearAllForwardings=yes
+            -o PermitLocalCommand=no
+            -o RequestTTY=no
+            -o ConnectTimeout=10
