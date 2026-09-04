@@ -5,7 +5,23 @@
   become: true
   serial: 1
   any_errors_fatal: true
+  pre_tasks:
+    - name: Acquire production PVE capability transaction lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: qualification-snippet-capability
+        apply_lock_guard_path: /var/lib/home-lab/reconciliation/operation.lock
   roles:
     - role: qualification_snippet_capability
       tags:
         - qualification_snippet_capability
+  post_tasks:
+    - name: Release production PVE capability transaction lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: qualification-snippet-capability
+        apply_lock_guard_path: /var/lib/home-lab/reconciliation/operation.lock

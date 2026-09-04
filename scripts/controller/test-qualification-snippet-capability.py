@@ -9,6 +9,6 @@ for forbidden in ("NOPASSWD: ALL","lifecycle_profile: production","vm_id: 100","
  assert forbidden not in role
 for required in ("StrictHostKeyChecking=yes","GlobalKnownHostsFile=/dev/null","UpdateHostKeys=no","IdentitiesOnly=yes","IdentityFile=","PreferredAuthentications=publickey","PasswordAuthentication=no","KbdInteractiveAuthentication=no","RequestTTY=no","HOME_LAB_DISPOSABLE_PVE_HOST","HOME_LAB_DISPOSABLE_PVE_KNOWN_HOSTS","HOME_LAB_DISPOSABLE_PVE_BOOTSTRAP_PUBLIC_KEY"):
  assert required in inventory,required
-assert "hosts: proxmox_qualification" in playbook and "serial: 1" in playbook and "any_errors_fatal: true" in playbook
+assert "hosts: proxmox_qualification" in playbook and "serial: 1" in playbook and "any_errors_fatal: true" in playbook and playbook.count("name: apply_lock") == 2 and "/var/lib/home-lab/reconciliation/operation.lock" in playbook
 assert "qualification_snippet_capability" not in site
 print("qualification_snippet_capability=verified route=production-pve-disposable-vm production_vm_mutation=false automatic_apply=false")
