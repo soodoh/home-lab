@@ -6,13 +6,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HEX64=re.compile(r"^[0-9a-f]{64}$")
-OPS={"storage-activation","identity-recovery","tailscale-enrollment","production-activation","state-disk-initialization","ssh-tightening"}
+OPS={"qualification-canary","storage-activation","identity-recovery","tailscale-enrollment","production-activation","state-disk-initialization","ssh-tightening"}
 FLOCK_LOCKS=("/run/lock/home-lab-backup.lock","/run/lock/home-lab-vfio-recovery.lock","/run/lock/home-lab-debian-package.lock","/run/lock/home-lab-debian-reboot.lock","/run/lock/home-lab-proxmox-package.lock","/var/lock/home-lab-compose.lock","/run/lock/home-lab-restic-backup.lock")
 PRESENCE_LOCKS=("/var/lib/home-lab/reconciliation/owner.lock","/var/lib/home-lab/reconciliation/nix.lock","/var/lib/home-lab/reconciliation/operation.lock","/var/lib/home-lab/firewall-transaction/active.json")
 HOST_LOCK=Path("/run/lock/home-lab-debian-lifecycle-transaction.lock")
 STORAGE_TOKEN=Path("/etc/home-lab/allow-storage-activation")
 LIFECYCLE_MARKER=Path("/var/lib/home-lab/lifecycle-state.json")
 STATE_JOURNAL_ROOT=Path("/var/lib/home-lab/debian-state-disk-transactions")
+QUALIFICATION_ROOT=Path("/var/lib/home-lab/debian-lifecycle-qualification-canaries")
+QUALIFICATION_UNITS=("docker.service","home-lab-compose.service","home-lab-restic-daily.timer","home-lab-restic-maintenance.timer")
 RUNTIME_DIR=Path("/run")
 
 def canonical(v): return (json.dumps(v,sort_keys=True,separators=(",",":"))+"\n").encode()
@@ -152,6 +154,28 @@ def verify_mount(expected,active):
     after=os.stat(path)
     if after.st_uid!=expected["owner"] or after.st_gid!=expected["group"] or format(stat.S_IMODE(after.st_mode),"04o")!=expected["mode"] or os.statvfs(path).f_bavail*os.statvfs(path).f_frsize<expected["minimum_free_bytes"]: raise SystemExit("active mount ownership or capacity differs")
 
+def qualification(plan,digest):
+    params=plan["request"]["parameters"]
+    if plan.get("profile")!="inert" or set(params)!={"receipt_root","inactive_units"} or params["receipt_root"]!=str(QUALIFICATION_ROOT) or params["inactive_units"]!=list(QUALIFICATION_UNITS): raise SystemExit("qualification canary boundary differs")
+    unit_states={}
+    for unit in QUALIFICATION_UNITS:
+        status=run(["/usr/bin/systemctl","is-active","--quiet",unit],check=False)
+        if status.returncode==0: raise SystemExit(f"qualification production unit is active: {unit}")
+        if status.returncode==3:
+            unit_states[unit]="inactive"
+        elif status.returncode==4:
+            loaded=run(["/usr/bin/systemctl","show","--property=LoadState","--value",unit],check=False,text=True)
+            if loaded.returncode!=0 or loaded.stdout.strip()!="not-found": raise SystemExit(f"qualification production unit absence is unverifiable: {unit}")
+            unit_states[unit]="absent"
+        else: raise SystemExit(f"qualification production unit state is unverifiable: {unit}")
+    parent=QUALIFICATION_ROOT.parent
+    if not parent.exists():
+        os.mkdir(parent,0o700); fsync_parent(parent)
+    safe_directory(parent)
+    if not QUALIFICATION_ROOT.exists():
+        os.mkdir(QUALIFICATION_ROOT,0o700); fsync_parent(QUALIFICATION_ROOT)
+    safe_directory(QUALIFICATION_ROOT)
+    publish_exclusive(QUALIFICATION_ROOT/f"{digest}.json",canonical({"format":"home-lab-debian-lifecycle-qualification-canary-v1","operation":"qualification-canary","plan_sha256":digest,"profile":"inert","status":"applied","unit_states":unit_states,"version":1}))
 def storage(plan,digest):
     params=plan["request"]["parameters"]; numbers=set()
     for item in params["devices"]:
@@ -326,10 +350,13 @@ def main():
         created=datetime.fromisoformat(plan["created_at"].replace("Z","+00:00")); expires=datetime.fromisoformat(plan["expires_at"].replace("Z","+00:00")); current=datetime.now(timezone.utc)
     except (KeyError,TypeError,ValueError) as error: raise SystemExit("host transaction freshness fields differ") from error
     if not HEX64.fullmatch(a.plan_sha256) or digest!=a.plan_sha256 or a.confirmation!=expected_confirmation or not created<=current<=expires or plan.get("operation")!=a.operation or plan.get("authorized") is not False or plan.get("automatic_apply") is not False or plan.get("blockers")!=["saved-reviewed-plan-required","separate-exact-authorization-required"]: raise SystemExit("host transaction plan, freshness, or exact confirmation differs")
+    profile=plan.get("profile"); request_profile=plan.get("request",{}).get("profile"); route_valid=(a.operation=="qualification-canary" and profile=="inert") or (a.operation=="ssh-tightening" and profile=="production") or (a.operation not in {"qualification-canary","ssh-tightening"} and profile=="recovery")
+    if profile!=request_profile or not route_valid: raise SystemExit("host transaction operation and lifecycle profile route differs")
     lock=acquire_host_lock(a.operation,digest)
     try:
         verify_target(plan)
-        if a.operation=="storage-activation": storage(plan,digest)
+        if a.operation=="qualification-canary": qualification(plan,digest)
+        elif a.operation=="storage-activation": storage(plan,digest)
         elif a.operation=="identity-recovery": identity(plan,secret)
         elif a.operation=="tailscale-enrollment": tailscale(plan,secret)
         elif a.operation=="production-activation": production(plan,digest)

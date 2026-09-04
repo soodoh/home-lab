@@ -8,6 +8,7 @@
       - >-
         debian_lifecycle_transaction_plan.operation in
         [
+          'qualification-canary',
           'storage-activation',
           'identity-recovery',
           'tailscale-enrollment',
@@ -32,10 +33,13 @@
       - ansible_run_tags | length == 1
       - ansible_run_tags | first == debian_lifecycle_transaction_plan.operation
       - lifecycle_profile == debian_lifecycle_transaction_plan.profile
+      - debian_lifecycle_transaction_plan.profile == debian_lifecycle_transaction_plan.request.profile
       - >-
+        (debian_lifecycle_transaction_plan.operation == 'qualification-canary' and lifecycle_profile == 'inert')
+        or
         (debian_lifecycle_transaction_plan.operation == 'ssh-tightening' and lifecycle_profile == 'production')
         or
-        (debian_lifecycle_transaction_plan.operation != 'ssh-tightening' and lifecycle_profile == 'recovery')
+        (debian_lifecycle_transaction_plan.operation not in ['qualification-canary', 'ssh-tightening'] and lifecycle_profile == 'recovery')
     fail_msg: The saved Debian lifecycle plan, exact confirmation, selected tag, or lifecycle profile differs.
   tags: always
 

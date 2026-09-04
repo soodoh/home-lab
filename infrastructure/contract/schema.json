@@ -169,13 +169,16 @@
         "transaction": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["executor_path", "age_identity_path", "storage_activation_path", "state_disk_journal_root", "host_apply_lock_path", "compose_command", "compose_artifact_path", "compose_image_lock_path", "root_environment_path", "production_units"],
+          "required": ["executor_path", "age_identity_path", "storage_activation_path", "state_disk_journal_root", "host_apply_lock_path", "qualification_canary_hostname", "qualification_canary_inventory_host", "qualification_canary_receipt_root", "compose_command", "compose_artifact_path", "compose_image_lock_path", "root_environment_path", "production_units"],
           "properties": {
             "executor_path": { "const": "/usr/local/libexec/home-lab/debian-lifecycle-host-transaction" },
             "age_identity_path": { "const": "/etc/sops/age/keys.txt" },
             "storage_activation_path": { "const": "/etc/home-lab/allow-storage-activation" },
             "state_disk_journal_root": { "const": "/var/lib/home-lab/debian-state-disk-transactions" },
             "host_apply_lock_path": { "const": "/var/lib/iac-ansible-production.lock" },
+            "qualification_canary_hostname": { "const": "debian-lifecycle-qualification" },
+            "qualification_canary_inventory_host": { "const": "debian-lifecycle-qualification" },
+            "qualification_canary_receipt_root": { "const": "/var/lib/home-lab/debian-lifecycle-qualification-canaries" },
             "compose_command": { "const": ["/usr/bin/docker", "compose", "--project-name", "docker-compose", "--project-directory", "/srv/docker-compose/current", "--env-file", "/etc/docker-compose/production.env", "--file", "/srv/docker-compose/current/docker-compose.yml", "--file", "/var/lib/home-lab/production-image-override.json"] },
             "compose_artifact_path": { "const": "/srv/docker-compose/current/docker-compose.yml" },
             "compose_image_lock_path": { "const": "/var/lib/home-lab/production-image-override.json" },

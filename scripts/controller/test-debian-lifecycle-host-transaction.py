@@ -77,4 +77,19 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
  def root_fstat(fd):
   value=original_fstat(fd); return SimpleNamespace(st_mode=value.st_mode,st_uid=0,st_gid=0,st_nlink=value.st_nlink)
  module.os.fstat=root_fstat; assert module.flock_active(path) is False; descriptor=os.open(path,os.O_RDWR); fcntl.flock(descriptor,fcntl.LOCK_EX|fcntl.LOCK_NB); assert module.flock_active(path) is True; os.close(descriptor); module.os.fstat=original_fstat
-print("debian_lifecycle_host_transaction=verified rollback=true no_retry=true interruption=true locks=true")
+with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
+ root=Path(raw); module.QUALIFICATION_ROOT=root/"canaries"; original_fchown=module.os.fchown; original_safe=module.safe_directory; original_run=module.run; module.os.fchown=lambda *args:None; module.safe_directory=lambda path:Path(path); digest="e"*64; params={"receipt_root":str(module.QUALIFICATION_ROOT),"inactive_units":list(module.QUALIFICATION_UNITS)}; plan={"profile":"inert","request":{"parameters":params}}
+ module.run=lambda *args,**kwargs:result(returncode=0)
+ try: module.qualification(plan,digest)
+ except SystemExit as error: assert "production unit is active" in str(error)
+ else: raise AssertionError("active production unit passed qualification")
+ assert not module.QUALIFICATION_ROOT.exists()
+ def unknown_unit(argv,**kwargs): return result("loaded\n",0) if "show" in argv else result(returncode=4)
+ module.run=unknown_unit
+ try: module.qualification(plan,digest)
+ except SystemExit as error: assert "absence is unverifiable" in str(error)
+ else: raise AssertionError("unknown production unit passed qualification")
+ assert not module.QUALIFICATION_ROOT.exists()
+ def absent_unit(argv,**kwargs): return result("not-found\n",0) if "show" in argv else result(returncode=4)
+ module.run=absent_unit; module.qualification(plan,digest); receipt=json.loads((module.QUALIFICATION_ROOT/f"{digest}.json").read_bytes()); assert receipt["plan_sha256"]==digest and receipt["profile"]=="inert" and set(receipt["unit_states"].values())=={"absent"}; module.os.fchown=original_fchown; module.safe_directory=original_safe; module.run=original_run
+print("debian_lifecycle_host_transaction=verified rollback=true no_retry=true interruption=true locks=true qualification=true")

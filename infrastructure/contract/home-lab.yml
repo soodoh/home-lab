@@ -1535,6 +1535,9 @@ debian:
     storage_activation_path: /etc/home-lab/allow-storage-activation
     state_disk_journal_root: /var/lib/home-lab/debian-state-disk-transactions
     host_apply_lock_path: /var/lib/iac-ansible-production.lock
+    qualification_canary_hostname: debian-lifecycle-qualification
+    qualification_canary_inventory_host: debian-lifecycle-qualification
+    qualification_canary_receipt_root: /var/lib/home-lab/debian-lifecycle-qualification-canaries
     compose_command: [/usr/bin/docker, compose, --project-name, docker-compose, --project-directory, /srv/docker-compose/current, --env-file, /etc/docker-compose/production.env, --file, /srv/docker-compose/current/docker-compose.yml, --file, /var/lib/home-lab/production-image-override.json]
     compose_artifact_path: /srv/docker-compose/current/docker-compose.yml
     compose_image_lock_path: /var/lib/home-lab/production-image-override.json

@@ -19,6 +19,7 @@ from protected_execution import acquire_transfer_lock, canonical_bytes, load_can
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / "infrastructure/contract/home-lab.yml"
 INVENTORY = ROOT / "ansible/inventory/production.yml"
+QUALIFICATION_INVENTORY = ROOT / "ansible/inventory/debian-qualification.yml"
 EXECUTOR = ROOT / "ansible/roles/debian_lifecycle_transaction/files/debian-lifecycle-host-transaction"
 AUTHORITY_PRODUCER = ROOT / "scripts/controller/debian-lifecycle-authority-receipts.py"
 ACCESS_CLEANUP = ROOT / "scripts/controller/debian-access-cleanup.py"
@@ -30,6 +31,7 @@ OPERATIONS = {
     "production-activation",
     "state-disk-initialization",
     "ssh-tightening",
+    "qualification-canary",
 }
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 DEVICE = re.compile(r"^/dev/disk/by-id/[A-Za-z0-9._:+-]{1,180}$")
@@ -73,6 +75,17 @@ def contract_policy() -> dict:
     result=subprocess.run(["node","-e",script,str(CONTRACT)],cwd=ROOT,text=True,capture_output=True)
     if result.returncode or result.stderr: raise SystemExit("direct Debian transaction contract projection failed")
     return json.loads(result.stdout)
+
+
+def execution_route(operation: str, profile: str) -> tuple[Path, str]:
+    if operation == "qualification-canary" and profile == "inert":
+        policy = contract_policy()["transaction"]
+        return QUALIFICATION_INVENTORY, policy["qualification_canary_inventory_host"]
+    if operation == "ssh-tightening" and profile == "production":
+        return INVENTORY, "docker-host-production"
+    if operation in OPERATIONS - {"qualification-canary", "ssh-tightening"} and profile == "recovery":
+        return INVENTORY, "docker-host-production"
+    raise SystemExit("operation and lifecycle execution profile route differs")
 
 
 def private_output(directory: Path) -> Path:
@@ -180,10 +193,19 @@ def validate_request(operation: str, request: dict, observation: dict, now: date
     blockers = list(observation["locks"])
     params = request["parameters"]
     policy = contract_policy()
-    if observation["host"]["hostname"] != policy["hostname"]:
+    expected_hostname = policy["transaction"]["qualification_canary_hostname"] if request["profile"] == "inert" else policy["hostname"]
+    if observation["host"]["hostname"] != expected_hostname:
         blockers.append("contract-hostname-drift")
 
-    if operation == "storage-activation":
+    if operation == "qualification-canary":
+        exact_keys(params, {"receipt_root", "inactive_units"}, "qualification canary request")
+        exact_keys(observation["production"], {"active_units"}, "qualification canary production observation")
+        if request["profile"] != "inert" or params["receipt_root"] != policy["transaction"]["qualification_canary_receipt_root"] or params["inactive_units"] != policy["transaction"]["production_units"]:
+            blockers.append("inert-qualification-canary-binding-required")
+        if observation["production"]["active_units"] != []:
+            blockers.append("qualification-production-units-active")
+
+    elif operation == "storage-activation":
         exact_keys(params, {"devices", "mounts", "activation_path", "attachment_receipt_sha256"}, "storage request")
         if request["profile"] != "recovery" or params["activation_path"] != policy["transaction"]["storage_activation_path"]:
             blockers.append("recovery-profile-and-canonical-token-required")
@@ -310,6 +332,7 @@ def make_plan(operation: str, request_path: Path, observation_path: Path, output
     observation, observation_raw = read_input(observation_path, "transaction observation", protected=True)
     blockers = validate_request(operation, request, observation, moment)
     evidence_sha256 = validate_evidence(operation, request["parameters"], evidence_paths)
+    inventory, _ = execution_route(operation, request["profile"])
     base_commit = commit or clean_pushed_commit()
     plan = {
         "format": "home-lab-debian-lifecycle-transaction-plan-v1",
@@ -321,7 +344,7 @@ def make_plan(operation: str, request_path: Path, observation_path: Path, output
         "expires_at": now_text(moment + timedelta(minutes=30)),
         "bindings": {
             "contract_sha256": sha(CONTRACT.read_bytes()),
-            "inventory_sha256": sha(INVENTORY.read_bytes()),
+            "inventory_sha256": sha(inventory.read_bytes()),
             "executor_sha256": sha(EXECUTOR.read_bytes()),
             "authority_producer_sha256": sha(AUTHORITY_PRODUCER.read_bytes()),
             "access_cleanup_producer_sha256": sha(ACCESS_CLEANUP.read_bytes()),
@@ -351,9 +374,12 @@ def load_plan(path: Path, operation: str, now: datetime | None = None, commit: s
     plan, raw = read_input(path, "transaction plan", protected=True); digest = sha(raw)
     if path.name != f"{operation}-{digest}.json" or plan.get("format") != "home-lab-debian-lifecycle-transaction-plan-v1" or plan.get("operation") != operation or plan.get("target") != "debian" or plan.get("authorized") is not False or plan.get("automatic_apply") is not False:
         raise SystemExit("transaction plan identity or authority differs")
+    if plan.get("profile") != plan.get("request", {}).get("profile"):
+        raise SystemExit("transaction plan and request lifecycle profiles differ")
     bindings = plan.get("bindings", {})
     expected_commit = commit or clean_pushed_commit()
-    if plan.get("base_commit") != expected_commit or bindings.get("contract_sha256") != sha(CONTRACT.read_bytes()) or bindings.get("inventory_sha256") != sha(INVENTORY.read_bytes()) or bindings.get("executor_sha256") != sha(EXECUTOR.read_bytes()) or bindings.get("authority_producer_sha256")!=sha(AUTHORITY_PRODUCER.read_bytes()) or bindings.get("access_cleanup_producer_sha256")!=sha(ACCESS_CLEANUP.read_bytes()) or bindings.get("request_sha256") != sha(canonical_bytes(plan.get("request")) + b"\n") or bindings.get("observation_sha256") != sha(canonical_bytes(plan.get("precondition")) + b"\n"):
+    inventory, _ = execution_route(operation, plan.get("profile"))
+    if plan.get("base_commit") != expected_commit or bindings.get("contract_sha256") != sha(CONTRACT.read_bytes()) or bindings.get("inventory_sha256") != sha(inventory.read_bytes()) or bindings.get("executor_sha256") != sha(EXECUTOR.read_bytes()) or bindings.get("authority_producer_sha256")!=sha(AUTHORITY_PRODUCER.read_bytes()) or bindings.get("access_cleanup_producer_sha256")!=sha(ACCESS_CLEANUP.read_bytes()) or bindings.get("request_sha256") != sha(canonical_bytes(plan.get("request")) + b"\n") or bindings.get("observation_sha256") != sha(canonical_bytes(plan.get("precondition")) + b"\n"):
         raise SystemExit("transaction plan current bindings differ")
     moment = now or datetime.now(timezone.utc)
     if moment < utc(plan["created_at"]) or moment > utc(plan["expires_at"]):
@@ -428,11 +454,12 @@ def apply(operation: str, plan_path: Path, current_path: Path, secret_path: Path
             staged_secret = Path(secret_handle.name); os.chmod(staged_secret, 0o600); secret_handle.write(secret_raw); secret_handle.flush(); os.fsync(secret_handle.fileno())
         extra["debian_lifecycle_transaction_secret_path"] = str(staged_secret)
     result_code = None
+    inventory, inventory_host = execution_route(operation, plan["profile"])
     try:
         with tempfile.NamedTemporaryFile(mode="wb", dir=LOCK.parent, prefix="debian-lifecycle-", suffix=".json", delete=False) as handle:
             extra_path = Path(handle.name); os.chmod(extra_path, 0o600); handle.write(canonical_bytes(extra) + b"\n"); handle.flush(); os.fsync(handle.fileno())
         try:
-            command = ("ansible-playbook", "-i", str(INVENTORY), str(ROOT / "ansible/playbooks/apply-debian-lifecycle-transaction.yml"), "--limit", "docker-host-production", "--tags", operation, "--extra-vars", f"@{extra_path}")
+            command = ("ansible-playbook", "-i", str(inventory), str(ROOT / "ansible/playbooks/apply-debian-lifecycle-transaction.yml"), "--limit", inventory_host, "--tags", operation, "--extra-vars", f"@{extra_path}")
             result_code = run_controlled(command)
         finally:
             extra_path.unlink(missing_ok=True)

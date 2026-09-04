@@ -12,7 +12,7 @@ SPEC=importlib.util.spec_from_file_location("transactions",ROOT/"scripts/control
 module=importlib.util.module_from_spec(SPEC); SPEC.loader.exec_module(module)
 COMMIT="a"*40
 NOW=datetime(2026,9,4,12,0,tzinfo=timezone.utc)
-TEST_POLICY={"transaction":{"storage_activation_path":"/etc/home-lab/allow-storage-activation","age_identity_path":"/etc/home-lab/age/keys.txt","compose_command":["/usr/bin/docker","compose"],"compose_artifact_path":"/etc/home-lab/compose.yml","compose_image_lock_path":"/etc/home-lab/images.json","root_environment_path":"/etc/home-lab/compose.env","production_units":["docker-compose.service"]},"hostname":"docker-host","tag":"tag:docker-host","state":{"mountpoint":"/srv/home-lab-state","filesystem_uuid":"11111111-1111-4111-8111-111111111111","filesystem":"ext4","mount_options":["defaults"],"serial":"replacement-serial","size_gb":2},"storage":{"games":{"mountpoint":"/mnt/games","filesystem_uuid":"31602ce7-0054-498a-9f24-f51ca491e7b3","filesystem":"ext4","options":["noatime"]}},"protected_mounts":["/srv/home-lab-state"]}
+TEST_POLICY={"transaction":{"storage_activation_path":"/etc/home-lab/allow-storage-activation","age_identity_path":"/etc/home-lab/age/keys.txt","qualification_canary_hostname":"debian-lifecycle-qualification","qualification_canary_inventory_host":"debian-lifecycle-qualification","qualification_canary_receipt_root":"/var/lib/home-lab/debian-lifecycle-qualification-canaries","compose_command":["/usr/bin/docker","compose"],"compose_artifact_path":"/etc/home-lab/compose.yml","compose_image_lock_path":"/etc/home-lab/images.json","root_environment_path":"/etc/home-lab/compose.env","production_units":["docker-compose.service"]},"hostname":"docker-host","tag":"tag:docker-host","state":{"mountpoint":"/srv/home-lab-state","filesystem_uuid":"11111111-1111-4111-8111-111111111111","filesystem":"ext4","mount_options":["defaults"],"serial":"replacement-serial","size_gb":2},"storage":{"games":{"mountpoint":"/mnt/games","filesystem_uuid":"31602ce7-0054-498a-9f24-f51ca491e7b3","filesystem":"ext4","options":["noatime"]}},"protected_mounts":["/srv/home-lab-state"]}
 actual_policy=module.contract_policy(); assert actual_policy["transaction"]["age_identity_path"]=="/etc/sops/age/keys.txt" and actual_policy["state"]["serial"]=="QUAL-NIXOS-128G"
 module.contract_policy=lambda:TEST_POLICY
 
@@ -25,7 +25,7 @@ def expect(label,needle,call):
     else: raise AssertionError(f"{label}: unexpectedly succeeded")
 
 def base(profile="recovery"):
-    return {"format":"home-lab-debian-lifecycle-observation-v1","target":"debian","profile":profile,"host":{"hostname":"docker-host","machine_id_sha256":"f"*64,"host_key_fingerprint":"SHA256:test"},"locks":[],"storage":[],"mounts":[],"identity":{"exists":False},"tailscale":{"backend_state":"Absent"},"production":{},"ssh":{}}
+    return {"format":"home-lab-debian-lifecycle-observation-v1","target":"debian","profile":profile,"host":{"hostname":"debian-lifecycle-qualification" if profile=="inert" else "docker-host","machine_id_sha256":"f"*64,"host_key_fingerprint":"SHA256:test"},"locks":[],"storage":[],"mounts":[],"identity":{"exists":False},"tailscale":{"backend_state":"Absent"},"production":{},"ssh":{}}
 
 def request(op,profile,params): return {"format":"home-lab-debian-lifecycle-request-v1","operation":op,"profile":profile,"parameters":params}
 
@@ -53,6 +53,8 @@ def mount(active=False):
     return {"path":"/srv/home-lab-state","source":"/dev/disk/by-id/scsi-state","uuid":"11111111-1111-4111-8111-111111111111","fstype":"ext4","options":["defaults","nofail"],"owner":0,"group":0,"mode":"0755","minimum_free_bytes":1048576,**({"active":active,"symlink":False,"free_bytes":9999999,"same_device":True} if active else {})}
 
 def cases(now):
+    o=base("inert"); o["production"]={"active_units":[]}
+    yield "qualification-canary",request("qualification-canary","inert",{"receipt_root":"/var/lib/home-lab/debian-lifecycle-qualification-canaries","inactive_units":TEST_POLICY["transaction"]["production_units"]}),o
     device={"path":"/dev/disk/by-id/scsi-state","serial":"state-serial","size_bytes":1073741824,"uuid":"11111111-1111-4111-8111-111111111111","fstype":"ext4","surviving":True}
     observed_device={**device,"stable_path":device["path"],"realpath":"/dev/sdb","block":True,"symlink":True,"signatures":[{"type":"ext4","uuid":device["uuid"]}],"holders":[],"mounts":[],"device_number":"8:16"}
     o=base(); o["storage"]=[observed_device]; o["mounts"]=[mount(False)]
@@ -79,12 +81,14 @@ def main():
       if op=="production-activation": obs["production"]["restic_recovery_receipt_sha256"]=req["parameters"]["restic_recovery_receipt_sha256"]
       rp=root/f"{op}-request.json"; opath=root/f"{op}-observation.json"; write(rp,req); write(opath,obs)
       plan_path,digest,plan=module.make_plan(op,rp,opath,output,NOW,COMMIT,evidence)
-      assert plan["blockers"]==["saved-reviewed-plan-required","separate-exact-authorization-required"] and plan["authorized"] is False and plan["automatic_apply"] is False
+      assert plan["blockers"]==["saved-reviewed-plan-required","separate-exact-authorization-required"] and plan["authorized"] is False and plan["automatic_apply"] is False, (op,plan["blockers"])
       secret_path=None
       if secret:
         secret_path=root/f"{op}.secret"; write(secret_path,secret[0])
       module.verify(op,plan_path,opath,secret_path,NOW,COMMIT,evidence); generated[op]=(req,obs,plan_path,secret_path)
+    canary_plan=json.loads(generated["qualification-canary"][2].read_bytes()); assert canary_plan["bindings"]["inventory_sha256"]==module.sha(module.QUALIFICATION_INVENTORY.read_bytes())
 
+    canary_req,canary_obs,_,_=generated["qualification-canary"]; missing=deepcopy(canary_obs); missing["production"]={}; rp=root/"canary-hostile-request.json"; current=root/"canary-hostile-observation.json"; write(rp,canary_req); write(current,missing); expect("missing canary unit observation","qualification canary production observation",lambda:module.make_plan("qualification-canary",rp,current,output,NOW,COMMIT,[]))
     op="state-disk-initialization"; req,obs,_,_=generated[op]
     drift=deepcopy(obs); drift["storage"][0]["serial"]="wrong"; rp=root/"drift-request.json"; current=root/"drift.json"; write(rp,req); write(current,drift)
     _,_,blocked=module.make_plan(op,rp,current,output,NOW,COMMIT,evidence_by_op[op]); assert "replacement-disk-not-exactly-blank" in blocked["blockers"]
@@ -110,6 +114,9 @@ def main():
     sym=root/"symlink-plan.json"; sym.symlink_to(plan_path); expect("symlink plan","dedicated regular file",lambda: module.load_plan(sym,"identity-recovery",NOW,COMMIT))
     hard_secret=root/"hard.secret"; os.link(secret,hard_secret); expect("hardlink secret","dedicated regular file",lambda: module.verify("identity-recovery",plan_path,root/"identity-recovery-observation.json",hard_secret,NOW,COMMIT,evidence_by_op["identity-recovery"])); hard_secret.unlink()
     lock_obs=deepcopy(obs); lock_obs["locks"]=["active-lifecycle-lock"]; write(current,lock_obs); expect("active lock","precondition",lambda: module.verify("identity-recovery",plan_path,current,secret,NOW,COMMIT,evidence_by_op["identity-recovery"]))
+    expect("production op inert route","operation and lifecycle execution profile route differs",lambda:module.execution_route("storage-activation","inert")); expect("canary recovery route","operation and lifecycle execution profile route differs",lambda:module.execution_route("qualification-canary","recovery"))
+    canary_req,canary_obs,canary_plan,_=generated["qualification-canary"]; canary_digest=module.sha(canary_plan.read_bytes()); os.environ["DEBIAN_LIFECYCLE_TRANSACTION_CONFIRMED"]=module.exact_confirmation(json.loads(canary_plan.read_bytes()),canary_digest); captured=[]; original_controlled=module.run_controlled; module.run_controlled=lambda command: captured.append(command) or 0
+    module.apply("qualification-canary",canary_plan,root/"qualification-canary-observation.json",None,NOW,COMMIT,[]); module.run_controlled=original_controlled; os.environ.pop("DEBIAN_LIFECYCLE_TRANSACTION_CONFIRMED",None); assert str(module.QUALIFICATION_INVENTORY) in captured[0] and TEST_POLICY["transaction"]["qualification_canary_inventory_host"] in captured[0]
     os.environ.pop("DEBIAN_LIFECYCLE_TRANSACTION_CONFIRMED",None)
     expect("unauthorized apply","exact confirmation",lambda: module.apply("identity-recovery",plan_path,root/"identity-recovery-observation.json",secret,NOW,COMMIT,evidence_by_op["identity-recovery"]))
 

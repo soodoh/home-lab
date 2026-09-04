@@ -4,6 +4,7 @@ Gate 7 recovery work uses `scripts/controller/debian-lifecycle-transactions.py`.
 
 ## Boundaries
 
+- `qualification-canary` is the only inert-profile transaction. It is routed only through the dedicated VM9900 inventory/host named by the contract, requires an explicit empty active-unit observation, independently proves every contract-defined production unit is inactive or absent on-host, and durably publishes one plan-digest canary receipt below the contract-fixed private root. It cannot select production inventory, storage, identity, Tailscale, Compose, state-disk, or SSH operations.
 - `storage-activation` accepts only surviving filesystems named by stable `/dev/disk/by-id` identity, serial, byte size, filesystem type and UUID and bound to a canonical OpenTofu attachment receipt. It rejects aliases, holders, mounts, signatures that differ, symlinked mount targets, ownership/mode drift and insufficient free capacity. Only then may it durably create `/etc/home-lab/allow-storage-activation` with the plan digest and start the exact mount units; failed starts are stopped and verified.
 - `identity-recovery` accepts a protected controller identity and a protected canonical recovery receipt whose bytes are bound into the plan. The host independently derives its public recipient with `age-keygen -y`; the contract-selected target must be absent and is opened with `O_EXCL|O_NOFOLLOW`, root ownership and mode `0600`, then file- and directory-fsynced. No identity is generated silently.
 - `tailscale-enrollment` accepts a protected, fresh, preauthorized one-use key. The key is held only in root-only temporary files, never in the plan or normal output. The executor proves backend state, node ID, contract hostname/tag, address and DNS suffix; any failure or interruption runs checked `tailscale down` and verifies the node is no longer running.
@@ -17,7 +18,7 @@ Authority receipts are not standalone assertions. `scripts/controller/debian-lif
 
 ## Installation and use
 
-Install the fixed executor only through `ansible/playbooks/install-debian-lifecycle-capability.yml`, with lifecycle profile `inert` or `recovery`, exactly the `debian_lifecycle_capability` tag, and `debian_lifecycle_capability_confirmation=INSTALL_DEBIAN_LIFECYCLE_TRANSACTION_CAPABILITY`. Installation and execution use the same host apply lock, so the executor cannot be replaced between checksum verification and launch.
+Install the fixed executor only through `ansible/playbooks/install-debian-lifecycle-capability.yml`, with lifecycle profile `inert` or `recovery`, exactly the `debian_lifecycle_capability` tag, and `debian_lifecycle_capability_confirmation=INSTALL_DEBIAN_LIFECYCLE_TRANSACTION_CAPABILITY`. Installation and execution use the same host apply lock, so the executor cannot be replaced between checksum verification and launch. The controller derives inventory and host routing from the saved profile: `inert` can route only to the contract-bound qualification inventory host, while `recovery` and `production` route only to the production inventory host.
 
 Create canonical request and observation JSON, in an owned mode-private output directory, then run:
 
