@@ -99,6 +99,6 @@ def main():
  args=parser.parse_args()
  for key,value in vars(args).items():
   if isinstance(value,Path): setattr(args,key,value.resolve())
- operation=args.command.rsplit("-",1)[1]
+ operation=args.command.split("-",1)[1]
  apply(args,operation) if args.command.startswith("apply-") else plan(args,operation)
 if __name__=="__main__": main()
