@@ -38,6 +38,6 @@ with tempfile.TemporaryDirectory() as directory:
  helper_source=HELPER.read_text(); controller_source=CONTROLLER.read_text()
  for required in ("os.O_NOFOLLOW", "os.fsync", "os.link", "LOCK_EX|fcntl.LOCK_NB", "plan stale", "snippet precondition drift"):
   assert required in helper_source
- for required in ("StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null", "UpdateHostKeys=no", "IdentitiesOnly=yes", "IdentityFile=", "PreferredAuthentications=publickey", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no", "RequestTTY=no", "validate-disposable-pve-target.js", "qualification SSH agent must contain exactly one key", "verify_exact_checkout", "acquire_transfer_lock", "DEBIAN_QUALIFICATION_SNIPPET_CONFIRMED", "expected_content=render(public)", "snippet plan binding mismatch"):
+ for required in ("StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null", "UpdateHostKeys=no", "IdentitiesOnly=yes", "IdentityFile=", "PreferredAuthentications=publickey", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no", "RequestTTY=no", "validate-disposable-pve-target.js", "qualification SSH agent must contain exactly one key", "verify_exact_checkout", "acquire_transfer_lock", "PRODUCTION_PVE_VM9900_SNIPPET_CONFIRMED", "expected_content=render(public)", "snippet plan binding mismatch"):
   assert required in controller_source
 print("debian_qualification_snippet_transaction=verified create_noop_refusals=true")

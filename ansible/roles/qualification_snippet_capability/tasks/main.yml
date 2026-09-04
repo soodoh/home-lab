@@ -4,24 +4,28 @@
     qualification_snippet_capability_contract: "{{ lookup('ansible.builtin.file', role_path ~ '/../../../infrastructure/contract/home-lab.yml') | from_yaml }}"
   no_log: true
 
-- name: Validate isolated qualification capability inputs
+- name: Validate accepted production-PVE qualification capability inputs
   ansible.builtin.assert:
     that:
       - inventory_hostname == 'proxmox-qualification-bootstrap'
-      - lifecycle_profile == 'bootstrap'
-      - ansible_user == 'root'
+      - lifecycle_profile == 'maintenance'
+      - ansible_user == 'proxmox'
       - ansible_host | length > 0
-      - ansible_host != qualification_snippet_capability_contract.proxmox.node
-      - ansible_host != (qualification_snippet_capability_contract.network.proxmox.ipv4 | split('/') | first)
-      - ansible_host != (qualification_snippet_capability_contract.vm_100.networking.ipv4 | split('/') | first)
+      - >-
+        ansible_host in [qualification_snippet_capability_contract.proxmox.node,
+        (qualification_snippet_capability_contract.network.proxmox.ipv4 | split('/') | first)]
+      - qualification_snippet_capability_contract.lifecycle.qualification_route.mode == 'production-pve-disposable-vm'
+      - not qualification_snippet_capability_contract.lifecycle.qualification_route.production_vm_mutation_allowed
+      - not qualification_snippet_capability_contract.lifecycle.qualification_route.production_disk_attachment_allowed
+      - not qualification_snippet_capability_contract.lifecycle.qualification_route.production_state_allowed
       - disposable_pve_admission_sha256 is match('^[0-9a-f]{64}$')
-      - disposable_pve_target_id is match('^[a-z0-9][a-z0-9-]{2,63}$')
-      - disposable_pve_node_name != qualification_snippet_capability_contract.proxmox.node
+      - disposable_pve_target_id == 'production-pve-vm9900-qualification'
+      - disposable_pve_node_name == qualification_snippet_capability_contract.proxmox.node
       - qualification_pve_public_key is match('^ssh-ed25519 [A-Za-z0-9+/]+={0,2} qualification-[a-z0-9-]+$')
       - (qualification_pve_public_key.split()[0:2] | join(' ') | hash('sha256')) == qualification_pve_public_key_sha256
       - qualification_pve_public_key_sha256 is match('^[0-9a-f]{64}$')
-      - ansible_check_mode or (qualification_capability_confirmation | default('')) == 'install-isolated-pve-qualification-capability'
-    fail_msg: Qualification capability installation is restricted to the exact admitted isolated target.
+      - ansible_check_mode or (qualification_capability_confirmation | default('')) == 'install-production-pve-vm9900-qualification-capability'
+    fail_msg: Qualification capability installation is restricted to the accepted production-PVE/VM9900 route.
 
 - name: Bind capability source identities
   ansible.builtin.set_fact:

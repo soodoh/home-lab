@@ -142,3 +142,18 @@ Rejected because both hosts carry production storage/workloads and require order
 Acceptance confirms the Phase 0 baseline, ownership and migration matrices, authorized-key and tailnet transition order, lifecycle/package/reboot/recovery design, script ledger, and disposable-only disk plan.
 
 Acceptance authorizes implementation and disposable rehearsals. It does **not** authorize a production ownership handoff, conventional-key removal, package apply, reboot, firewall change, recovery activation, or disk change. Each remains a separately reviewed saved transaction.
+
+## Amendment — shared-hypervisor qualification route
+
+On 2026-09-04 the operator selected production PVE plus disposable VM 9900 because no separately isolated official-PVE endpoint was available. This supersedes only the requirement that the qualification hypervisor be physically independent. It does not waive saved plans, strict trust, separate plan/apply credentials, locks, immediate postchecks, or fail-closed recovery.
+
+The revised route:
+
+- qualifies Proxmox read-only parity and separately tagged non-destructive Ansible changes against the production PVE host, with attended console and host-outage risk accepted;
+- qualifies minimal Debian cloud-init and lifecycle behavior in disposable VM 9900 on that host;
+- prohibits any VM 100 configuration mutation, production disk attachment, passthrough, production state/backend use, production credential material inside the guest, or guest reachability to VM 100 and production services;
+- reuses the existing production PVE API plan/apply identities only through the guarded VM 9900 controllers and exact resource inspectors;
+- authorizes proceeding through non-destructive gated capability and VM 9900 creation/start transactions after their exact checks pass; and
+- still requires a fresh, separately reviewed exact approval for packages, reboots, root-disk work, VM/resource destruction, authority cutover, credential removal, and any failed-canary recovery.
+
+A disposable guest firewall is not claimed to isolate the hypervisor. The accepted residual risk is that a provider/PVE defect or host failure can affect production. VM 100 and every production disk remain immutable guard conditions, and the current Restic/SOPS/console recovery paths must pass before each affected production transaction.

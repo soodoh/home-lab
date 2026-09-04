@@ -2,10 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "format", "observed_at", "expires_at", "target_id", "endpoint", "api_ca_sha256", "node_name", "official_pve", "host_key", "console", "storage", "network", "credentials", "locks"],
+  "required": ["version", "format", "route", "observed_at", "expires_at", "target_id", "endpoint", "api_ca_sha256", "node_name", "official_pve", "host_key", "console", "storage", "network", "credentials", "locks"],
   "properties": {
     "version": { "const": 1 },
     "format": { "const": "home-lab-disposable-pve-target-admission-v1" },
+    "route": { "const": "production-pve-disposable-vm" },
     "observed_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,6})?Z$" },
     "expires_at": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]{1,6})?Z$" },
     "target_id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{2,63}$" },
@@ -49,7 +50,7 @@
         "snippet_content_enabled": { "const": true },
         "snippet_directory": { "const": "/var/lib/vz/snippets" },
         "synthetic_only": { "const": true },
-        "shares_production_storage": { "const": false },
+        "shares_production_storage": { "const": true },
         "production_identifiers_absent": { "const": true }
       }
     },
@@ -77,7 +78,7 @@
         "ssh_agent_public_key_sha256": { "$ref": "#/$defs/sha256" },
         "guest_ssh_public_key_sha256": { "$ref": "#/$defs/sha256" },
         "separate_principals": { "const": true },
-        "production_credentials_absent": { "const": true }
+        "production_credentials_absent": { "const": false }
       }
     },
     "locks": { "const": [] }

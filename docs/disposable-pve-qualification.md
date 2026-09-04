@@ -1,25 +1,22 @@
 # Disposable official-PVE qualification
 
-Gate 3 requires an independently identified official Proxmox VE target. Repository fixtures, the production node, a Debian guest, and the prior VM 9900 recovery guest cannot substitute for an isolated PVE installation.
+Gate 3 now follows the accepted `production-pve-disposable-vm` route in `infrastructure/contract/home-lab.yml` and the ADR amendment. Proxmox parity is qualified against the production PVE host; Debian first contact is qualified in disposable VM 9900 on that host. The operator accepts shared-hypervisor and host-outage risk, but VM 100, production disks, production state, and production guest credentials remain prohibited inputs.
 
 ## Target admission
 
 Before any connection or plan, record and independently verify:
 
-- endpoint and inventory alias;
-- official PVE release and package origin;
-- out-of-band console path;
-- dedicated plan and apply identities with no production credentials;
-- an independently verified PVE API CA bundle and exact SHA-256;
-- dedicated mode-`0600`, single-link known-hosts and PVE public-key files with exact host-key and SSH-agent fingerprints;
-- synthetic local storage and disks containing no production serial, UUID, pool GUID, datastore path, or state;
-- network controls proving the target cannot reach production VM 100, production PVE storage, controller state, Restic credentials, or production service state;
-- absence of production OpenTofu backend configuration and production API tokens; and
-- absence of active target/controller transaction locks.
+- the exact contract PVE API endpoint, node name, release, package origin, API CA, SSH host key, and attended physical-console path;
+- the existing `root@pam!tofu-plan` and `root@pam!tofu-apply` API identities, used only through the VM9900 action inspectors and sanitized controller environment;
+- a new dedicated `qualification-apply` fixed SSH identity and a distinct temporary guest first-contact key;
+- `local` snippets/import storage and a single new `local-lvm` 32 GiB VM9900 disk with no production serial, UUID, attachment, passthrough, backup, or state identity;
+- VM firewall defaults of DROP, bounded controller SSH, RFC1918 and CGNAT/Tailnet egress denial before public egress, and independent post-start proof that the guest cannot reach VM 100 or production services;
+- an empty private OpenTofu state root dedicated to this qualification, never the production backend; and
+- absence of active PVE/controller, package, reboot, firewall, backup, VFIO, or recovery locks.
 
-The target must not share the production PVE root filesystem, `/etc/pve`, ZFS pool, LVM-thin pool, NFS export, cloud-init snippets, VMIDs, or provider state.
+The production root filesystem, `/etc/pve`, and storage pools are shared by explicit risk acceptance; they are not described as isolated. Every plan must contain only VM9900 qualification resources, and direct before/after observations must prove VM 100 unchanged.
 
-Record these facts as canonical JSON conforming to `infrastructure/evidence/disposable-pve-target-admission.schema.json`. Keep both the admission document and dedicated known-hosts file as mode-`0600`, current-controller-owned, single-link regular files. `scripts/controller/validate-disposable-pve-target.js --evidence ABSOLUTE_PATH --known-hosts ABSOLUTE_PATH` rejects stale evidence, production identities/endpoints, credential reuse, shared storage, unsafe files, and host-key drift; its admission SHA-256 is the exact OpenTofu input.
+Record these facts as canonical JSON conforming to `infrastructure/evidence/disposable-pve-target-admission.schema.json`. Keep admission, known-hosts, and public IdentityFile artifacts as mode-`0600`, current-controller-owned, single-link regular files. `scripts/controller/validate-disposable-pve-target.js` accepts only the contract-selected production route, exact production plan/apply principals, dedicated qualification SSH user, fresh evidence, expected shared-storage declaration, and exact host trust.
 
 ## Required proof
 
@@ -36,26 +33,26 @@ Record these facts as canonical JSON conforming to `infrastructure/evidence/disp
 
 ## Disposable Debian guest boundary
 
-`infrastructure/tofu/debian-lifecycle-qualification` may target only an admitted PVE node from this document. Enabled planning requires an exact isolation-attestation SHA-256 plus explicit node, image datastore, disk datastore, bridge, and pre-staged cloud-init snippet identities. The node name and endpoint must not match the production contract. The provider downloads the exact contract-pinned Debian image and verifies its SHA-512 before importing it; it may not reuse the production image-import path. Because provider-managed snippet uploads do not expose strict host-key verification, OpenTofu performs no SSH operation: a separately authorized fixed OpenSSH transaction must install the exact snippet using the admitted single-key known-hosts boundary.
+`infrastructure/tofu/debian-lifecycle-qualification` accepts only the contract-selected production PVE node and API endpoint. Enabled planning requires an exact admission SHA-256 plus explicit local image/disk/bridge and pre-staged cloud-init snippet identities. The provider downloads the exact contract-pinned Debian image and verifies its SHA-512 before importing it. Because provider-managed snippet uploads do not expose strict host-key verification, OpenTofu performs no SSH operation: a separately gated fixed OpenSSH transaction installs and verifies the exact snippet.
 
-The earlier VM 9900 plan `fe1423e38110f41dabd5600ba0d2ce0bc3471fc1d861b6747fcc1b66b2ebd645` was a read-only provider feasibility preview against the production PVE endpoint. It was never actionable or applied and is not qualification evidence because that host can reach production VM 100 and shared production storage. VM-level firewall rules cannot establish hypervisor/storage isolation.
+The earlier VM 9900 plan `fe1423e38110f41dabd5600ba0d2ce0bc3471fc1d861b6747fcc1b66b2ebd645` remains historical and unusable: it predates the accepted-route contract, API CA/principal binding, dedicated PVE/guest keys, server-side snippet receipt, lifecycle-wide locks, and exact create/start/destroy inspectors. A fresh plan is mandatory.
 
 ### Guarded snippet prerequisite
 
 After target admission and separate capability installation, `scripts/controller/debian-qualification-snippet.py plan` validates the admission and dedicated known-hosts artifacts, requires exactly one admitted PVE SSH-agent key, binds a distinct protected guest public key, renders the shared template, observes the fixed `local:snippets/home-lab-debian-lifecycle-qualification.yaml` target, and writes an expiring mode-`0600` saved plan. The plan is non-authorizing and cannot be applied automatically.
 
-A separately approved apply must provide the plan SHA twice plus `DEBIAN_QUALIFICATION_SNIPPET_CONFIRMED`. The fixed forced transport and host transaction sources are under `infrastructure/qualification/host/`; they accept only `observe` or the exact approved plan, acquire a target lock, reject precondition drift or existing different bytes, use an atomic fsynced create, and return a canonical receipt. The guarded OpenTofu controller must consume that receipt and independently recheck the server-side SHA-256 before VM planning. These host assets are repository-only and are not installed on any target.
+A separately approved apply must provide the plan SHA twice plus `PRODUCTION_PVE_VM9900_SNIPPET_CONFIRMED`. The fixed forced transport and host transaction sources under `infrastructure/qualification/host/` accept only `observe`, `hold-lock`, or the exact approved plan; they reject precondition drift or existing different bytes, atomically fsync the create, and return a canonical receipt. The guarded OpenTofu controller consumes that receipt and independently rechecks the server-side SHA-256.
 
-The repository-only installer is `ansible/playbooks/install-qualification-snippet-capability.yml` with `ansible/inventory/proxmox-qualification-bootstrap.yml`. It is excluded from ordinary convergence, accepts only the bootstrap profile and non-production endpoint, pins UID/GID 1900, installs only the two reviewed executables, a sole forced key, and the fixed sudo command family. Run check mode from a fresh admitted bootstrap session, review the reported admission and source hashes, then rerun the same check immediately before one separately authorized apply with `qualification_capability_confirmation=install-isolated-pve-qualification-capability`. The admitted console/root bootstrap session remains the rollback route until the account and both controller paths are proven.
+The capability installer is `ansible/playbooks/install-qualification-snippet-capability.yml` with `ansible/inventory/proxmox-qualification-bootstrap.yml`. It is excluded from ordinary convergence and accepts only the contract-selected production PVE maintenance route, the existing `proxmox` human bootstrap account, exact admission/key hashes, UID/GID 1900, two reviewed executables, a sole forced key, and the fixed sudo command family. Run and review check mode, rerun it immediately, then perform one gated apply with `qualification_capability_confirmation=install-production-pve-vm9900-qualification-capability`. The attended physical console is retained throughout.
 
 ### Guarded stopped-foundation plan
 
-`scripts/controller/debian-lifecycle-qualification.py plan` consumes only fresh admission output and a freshly revalidated snippet receipt. It requires canonical protected `qualification-plan-credentials.json` with exactly `version`, `format`, `purpose`, `principal`, `endpoint`, `api_token`, and `ca_pem`; the principal, endpoint, and CA SHA-256 must match admission. It uses a dedicated mode-private state root and `TF_DATA_DIR`, a sanitized provider environment, controller and target locks, and permits exactly four create actions: pinned image download, stopped VM 9900, firewall options, and firewall rules. The saved binary and rendered JSON are hash-bound; the manifest is actionable only as a proposal and remains `authorized: false` with no automatic apply.
+`scripts/controller/debian-lifecycle-qualification.py plan` consumes fresh admission and a freshly revalidated snippet receipt. It reads the existing protected `plan-credentials.json` but exports only the exact PVE plan token, endpoint, and CA; their principal and hashes must match admission. It uses a dedicated private state root and `TF_DATA_DIR`, lifecycle-wide controller/target locks, and permits exactly four create actions: pinned image download, stopped VM 9900, firewall options, and firewall rules. The binary, JSON, and authorization manifest are hash-bound; `authorized` and `automatic_apply` remain false.
 
-A foundation apply requires a distinct canonical `qualification-apply-credentials.json`, the saved plan SHA and manifest authorization SHA each repeated exactly, and `CREATE_ISOLATED_DEBIAN_QUALIFICATION_9900`. It revalidates admission, the server-side snippet bytes, Git revision, provider identities, state hash, target lock, and exact plan JSON, then applies the saved binary without replanning. Failure after mutation is `tofu-apply-no-retry`; no automatic retry or start follows. A successful receipt still records `vm_started: false`.
+A foundation apply uses the existing production `apply-credentials.json` but exports only the exact apply token, endpoint, and CA into a sanitized environment. It requires the saved plan SHA and manifest authorization SHA each repeated exactly plus `CREATE_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900`. It revalidates admission, server-side snippet bytes, Git revision, provider identities, state, locks, and plan JSON, then applies the saved binary without replanning. Failure after mutation is never retried automatically; success leaves `vm_started: false`.
 
-`scripts/controller/debian-lifecycle-qualification-transitions.py` implements separately planned start and destroy operations. Start accepts only a stopped-foundation receipt, permits one in-place VM 9900 update from `started: false` to `true`, keeps `on_boot: false`, and requires `START_ISOLATED_DEBIAN_QUALIFICATION_9900`. Destroy accepts only a successful start receipt, permits deletion of exactly the four qualification resources, and requires `DESTROY_ISOLATED_DEBIAN_QUALIFICATION_9900`. Both bind an exact prior receipt, state, admission, snippet, API identities, saved plan, authorization manifest, and target lock; neither replans during apply or retries a failed mutation.
+`scripts/controller/debian-lifecycle-qualification-transitions.py` separately plans start and destroy. Start accepts only a stopped-foundation receipt, permits only `started: false` to `true`, keeps `on_boot: false`, and requires `START_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900`. Destroy accepts only a successful start receipt, permits only the four qualification resources, and requires the separately reviewed destructive confirmation `DESTROY_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900`. Neither replans or retries.
 
-## Current blocker
+## Current gate
 
-The operator selected an existing lab node, but no endpoint, inventory alias, host-key fingerprint, console method, synthetic-storage identity, or network-isolation evidence has been supplied. The controller's read-only tailnet peer list currently exposes only the production Proxmox and Debian hosts; neither is admissible. No PVE qualification connection or mutation is authorized until all target-admission fields above are available.
+The route decision is accepted and repository guards are ready. Before mutation, generate dedicated PVE and guest keys, capture a fresh production-route admission document from direct read-only observations, run the capability check twice, and prove current VM 100/state/lock baselines. Packages, reboot, root-disk changes, resource destruction, authority cutover, and credential removal still stop for fresh exact approval.

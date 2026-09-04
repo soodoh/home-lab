@@ -5,7 +5,7 @@ from pathlib import Path
 from protected_execution import acquire_transfer_lock,canonical_bytes,load_canonical_object,load_protected_bytes,require_private_root,write_json
 ROOT=Path(__file__).resolve().parents[2]; source=ROOT/"scripts/controller/debian-lifecycle-qualification.py"; spec=importlib.util.spec_from_file_location("debian_qualification_foundation",source); common=importlib.util.module_from_spec(spec); spec.loader.exec_module(common)
 os.umask(0o077)
-CONFIRM={"start":"START_ISOLATED_DEBIAN_QUALIFICATION_9900","destroy":"DESTROY_ISOLATED_DEBIAN_QUALIFICATION_9900"}
+CONFIRM={"start":"START_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","destroy":"DESTROY_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900"}
 def fail(reason): raise SystemExit(f"debian_qualification_transition=failed reason={reason}")
 def sha(raw): return hashlib.sha256(raw).hexdigest()
 def parse_time(value):

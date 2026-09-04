@@ -4,6 +4,23 @@ system_name: home-lab
 system_timezone: America/Los_Angeles
 lifecycle:
   version: 1
+  qualification_route:
+    mode: production-pve-disposable-vm
+    pve_host: proxmox
+    vmid: 9900
+    shared_hypervisor_risk_accepted: true
+    host_outage_risk_accepted: true
+    production_vm_mutation_allowed: false
+    production_disk_attachment_allowed: false
+    production_state_allowed: false
+    reuse_production_api_plan_apply_identities: true
+    non_destructive_gated_applies_authorized: true
+    separate_exact_approval:
+      - package
+      - reboot
+      - root-disk
+      - destructive
+    selected_at: "2026-09-04T00:10:00Z"
   states:
     - inert
     - bootstrap

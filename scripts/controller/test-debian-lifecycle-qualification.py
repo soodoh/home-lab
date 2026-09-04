@@ -19,8 +19,10 @@ required = (
     'variable "start_qualification"',
     'sha256(var.qualification_ssh_public_key) == var.qualification_ssh_public_key_sha256',
     'qualification-[a-z0-9-]+$',
-    '!strcontains(lower(var.proxmox_endpoint), lower(local.contract.proxmox.node))',
-    '!strcontains(var.proxmox_endpoint, split("/", local.contract.network.proxmox.ipv4)[0])',
+    'local.contract.lifecycle.qualification_route.mode == "production-pve-disposable-vm"',
+    'local.contract.lifecycle.qualification_route.production_vm_mutation_allowed == false',
+    'local.contract.lifecycle.qualification_route.production_disk_attachment_allowed == false',
+    'var.proxmox_endpoint == local.contract.proxmox.api_endpoint',
     'var.qualification_cloud_init_file_id == "local:snippets/home-lab-debian-lifecycle-qualification.yaml"',
     'reboot_after_update                  = false',
     'on_boot       = false',
@@ -67,4 +69,4 @@ for denied in ('10.0.0.0/8', '100.64.0.0/10', '172.16.0.0/12', '192.168.0.0/16')
     assert source.index(f'dest    = "{denied}"') < source.index('dest    = "0.0.0.0/0"')
 assert source.count('resource "proxmox_virtual_environment_vm"') == 1
 assert source.count("disk {") == 1
-print("debian_lifecycle_qualification=verified vmid=9900 isolated=true automatic_apply=false")
+print("debian_lifecycle_qualification=verified vmid=9900 shared_hypervisor=true production_vm_mutation=false automatic_apply=false")

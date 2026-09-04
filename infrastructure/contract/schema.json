@@ -552,9 +552,28 @@
     "lifecyclePolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "states", "transitions", "maintenance", "hosts"],
+      "required": ["version", "qualification_route", "states", "transitions", "maintenance", "hosts"],
       "properties": {
         "version": { "const": 1 },
+        "qualification_route": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "pve_host", "vmid", "shared_hypervisor_risk_accepted", "host_outage_risk_accepted", "production_vm_mutation_allowed", "production_disk_attachment_allowed", "production_state_allowed", "reuse_production_api_plan_apply_identities", "non_destructive_gated_applies_authorized", "separate_exact_approval", "selected_at"],
+          "properties": {
+            "mode": { "const": "production-pve-disposable-vm" },
+            "pve_host": { "const": "proxmox" },
+            "vmid": { "const": 9900 },
+            "shared_hypervisor_risk_accepted": { "const": true },
+            "host_outage_risk_accepted": { "const": true },
+            "production_vm_mutation_allowed": { "const": false },
+            "production_disk_attachment_allowed": { "const": false },
+            "production_state_allowed": { "const": false },
+            "reuse_production_api_plan_apply_identities": { "const": true },
+            "non_destructive_gated_applies_authorized": { "const": true },
+            "separate_exact_approval": { "const": ["package", "reboot", "root-disk", "destructive"] },
+            "selected_at": { "const": "2026-09-04T00:10:00Z" }
+          }
+        },
         "states": { "const": ["inert", "bootstrap", "production", "maintenance", "recovery", "retired"] },
         "transitions": { "$ref": "#/$defs/lifecycleTransitions" },
         "maintenance": { "$ref": "#/$defs/lifecycleMaintenancePolicy" },

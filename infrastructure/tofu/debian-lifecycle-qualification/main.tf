@@ -102,15 +102,17 @@ resource "proxmox_download_file" "qualification_image" {
       condition = (
         var.isolation_attestation_sha256 != "" &&
         var.qualification_node_name != "disabled-qualification" &&
-        var.qualification_node_name != local.contract.proxmox.node &&
+        local.contract.lifecycle.qualification_route.mode == "production-pve-disposable-vm" &&
+        local.contract.lifecycle.qualification_route.production_vm_mutation_allowed == false &&
+        local.contract.lifecycle.qualification_route.production_disk_attachment_allowed == false &&
+        var.qualification_node_name == local.contract.lifecycle.qualification_route.pve_host &&
         var.qualification_image_datastore_id != "" &&
         var.qualification_disk_datastore_id != "" &&
         var.qualification_bridge != "" &&
         var.qualification_cloud_init_file_id == "local:snippets/home-lab-debian-lifecycle-qualification.yaml" &&
-        !strcontains(lower(var.proxmox_endpoint), lower(local.contract.proxmox.node)) &&
-        !strcontains(var.proxmox_endpoint, split("/", local.contract.network.proxmox.ipv4)[0])
+        var.proxmox_endpoint == local.contract.proxmox.api_endpoint
       )
-      error_message = "Enabled qualification requires an independently attested non-production PVE target and explicit isolated node, datastore, and bridge identities."
+      error_message = "Enabled qualification requires the accepted production-PVE/VM9900 route and explicit guarded node, datastore, bridge, snippet, and admission identities."
     }
   }
 }
@@ -121,7 +123,7 @@ resource "proxmox_virtual_environment_vm" "qualification" {
   node_name   = var.qualification_node_name
   vm_id       = local.vm_id
   name        = "home-lab-debian-lifecycle-qualification"
-  description = "Disposable Debian lifecycle proof on independently attested isolated PVE target"
+  description = "Disposable Debian lifecycle proof on accepted production-PVE shared-hypervisor route"
   tags        = ["qualification", "disposable", "debian-lifecycle"]
 
   machine       = "q35"
@@ -184,7 +186,7 @@ resource "proxmox_virtual_environment_vm" "qualification" {
 
   lifecycle {
     precondition {
-      condition     = local.contract.proxmox.vm.vmid == 100 && local.vm_id == 9900 && var.controller_ipv4 != split("/", local.contract.vm_100.networking.ipv4)[0] && var.qualification_node_name != local.contract.proxmox.node && var.isolation_attestation_sha256 != ""
+      condition     = local.contract.proxmox.vm.vmid == 100 && local.vm_id == local.contract.lifecycle.qualification_route.vmid && var.controller_ipv4 != split("/", local.contract.vm_100.networking.ipv4)[0] && var.qualification_node_name == local.contract.proxmox.node && var.isolation_attestation_sha256 != ""
       error_message = "Disposable and production VM identities must remain distinct."
     }
     precondition {

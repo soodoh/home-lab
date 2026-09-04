@@ -3,7 +3,7 @@
 import argparse,base64,datetime as dt,hashlib,json,os,re,subprocess,sys
 from pathlib import Path
 from protected_execution import acquire_transfer_lock,canonical_bytes,load_canonical_object,load_protected_bytes,require_private_root,verify_exact_checkout,write_json
-ROOT=Path(__file__).resolve().parents[2]; TEMPLATE=ROOT/"infrastructure/debian/cloud-init/qualification-user-data.tftpl"; VALIDATOR=ROOT/"scripts/controller/validate-disposable-pve-target.js"; CONFIRM="DEBIAN_QUALIFICATION_SNIPPET_CONFIRMED"
+ROOT=Path(__file__).resolve().parents[2]; TEMPLATE=ROOT/"infrastructure/debian/cloud-init/qualification-user-data.tftpl"; VALIDATOR=ROOT/"scripts/controller/validate-disposable-pve-target.js"; CONFIRM="PRODUCTION_PVE_VM9900_SNIPPET_CONFIRMED"
 def sha(raw): return hashlib.sha256(raw).hexdigest()
 def validate_target(admission,known_hosts):
  result=subprocess.run(["node",str(VALIDATOR),"--evidence",str(admission),"--known-hosts",str(known_hosts)],text=True,capture_output=True)

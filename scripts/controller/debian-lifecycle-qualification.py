@@ -3,7 +3,7 @@
 import argparse,datetime as dt,hashlib,json,os,re,select,shutil,signal,stat,subprocess,tempfile,time
 from pathlib import Path
 from protected_execution import acquire_transfer_lock,canonical_bytes,load_canonical_object,load_protected_bytes,require_private_root,verify_exact_checkout,write_json
-ROOT=Path(__file__).resolve().parents[2]; TF_ROOT=ROOT/"infrastructure/tofu/debian-lifecycle-qualification"; ADMISSION=ROOT/"scripts/controller/validate-disposable-pve-target.js"; SNIPPET=ROOT/"scripts/controller/debian-qualification-snippet.py"; CONFIRM="CREATE_ISOLATED_DEBIAN_QUALIFICATION_9900"; EMPTY_SHA=hashlib.sha256(b"").hexdigest()
+ROOT=Path(__file__).resolve().parents[2]; TF_ROOT=ROOT/"infrastructure/tofu/debian-lifecycle-qualification"; ADMISSION=ROOT/"scripts/controller/validate-disposable-pve-target.js"; SNIPPET=ROOT/"scripts/controller/debian-qualification-snippet.py"; CONFIRM="CREATE_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900"; EMPTY_SHA=hashlib.sha256(b"").hexdigest()
 os.umask(0o077)
 def fail(message): raise SystemExit(f"debian_qualification=failed reason={message}")
 def sha(raw): return hashlib.sha256(raw).hexdigest()
@@ -28,13 +28,14 @@ def snippet(args):
  if value.get("snippet_file_id")!="local:snippets/home-lab-debian-lifecycle-qualification.yaml": fail("snippet-not-verified")
  return value
 def credential(kind,target):
- directory=Path(os.environ.get("HOME_LAB_CONTROLLER_CONFIG_DIR",Path.home()/".config/home-lab/controller")); path=directory/f"qualification-{kind}-credentials.json"; value,_=load_canonical_object(path,f"qualification {kind} credentials")
- required={"api_token","ca_pem","endpoint","format","principal","purpose","version"}
- expected=target[f"{kind}_principal"]; token=value.get("api_token",""); ca=value.get("ca_pem","")
- if not isinstance(token,str) or not isinstance(ca,str) or len(token)>1024 or len(ca)>65536: fail("credential-structure")
- if set(value)!=required or value.get("version")!=1 or value.get("format")!="home-lab-disposable-pve-api-credentials-v1" or value.get("purpose")!=kind or value.get("principal")!=expected or value.get("endpoint")!=target["endpoint"] or sha(ca.encode())!=target["api_ca_sha256"]: fail("credential-binding")
+ directory=Path(os.environ.get("HOME_LAB_CONTROLLER_CONFIG_DIR",Path.home()/".config/home-lab/controller")); path=directory/f"{kind}-credentials.json"; raw=load_protected_bytes(path,f"production PVE {kind} credentials")
+ try: source=json.loads(raw)
+ except json.JSONDecodeError: fail("credential-structure")
+ token_key="PROXMOX_PLAN_API_TOKEN" if kind=="plan" else "PROXMOX_APPLY_API_TOKEN"; expected=target[f"{kind}_principal"]; token=source.get(token_key,""); ca=source.get("PROXMOX_CA_PEM",""); endpoint=source.get("TF_VAR_proxmox_endpoint","")
+ if not isinstance(token,str) or not isinstance(ca,str) or not isinstance(endpoint,str) or len(token)>1024 or len(ca)>65536: fail("credential-structure")
+ if endpoint!=target["endpoint"] or sha(ca.encode())!=target["api_ca_sha256"]: fail("credential-binding")
  if not token.startswith(expected+"=") or len(token)<=len(expected)+16: fail("credential-principal")
- return value
+ return {"api_token":token,"ca_pem":ca,"endpoint":endpoint,"principal":expected,"purpose":kind}
 def environment(values,output,ca_path):
  data={"HOME":os.environ["HOME"],"PATH":os.environ["PATH"],"LANG":"C.UTF-8","LC_ALL":"C.UTF-8","SSL_CERT_FILE":str(ca_path),"TF_DATA_DIR":str(output/"tf-data"),"PROXMOX_VE_API_TOKEN":values["api_token"]}
  for key in data:
