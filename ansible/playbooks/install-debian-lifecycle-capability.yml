@@ -1,0 +1,30 @@
+---
+- name: Install the fixed Debian lifecycle transaction capability
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  pre_tasks:
+    - name: Acquire the independent Debian lifecycle capability lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_path: "{{ debian.transaction.host_apply_lock_path }}"
+        apply_lock_operation: debian-lifecycle-capability
+      tags: always
+  roles:
+    - role: debian_lifecycle_capability
+      tags:
+        - debian_lifecycle_capability
+  post_tasks:
+    - name: Release the independent Debian lifecycle capability lock after success
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ debian.transaction.host_apply_lock_path }}"
+        apply_lock_operation: debian-lifecycle-capability
+      tags: always

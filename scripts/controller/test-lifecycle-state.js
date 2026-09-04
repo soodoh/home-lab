@@ -88,6 +88,9 @@ for (const host of [dockerHost, proxmoxHost]) {
   }
 }
 assert(dockerHost.ansible_ssh_common_args.includes("HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS"));
+for (const required of ["GlobalKnownHostsFile=/dev/null", "IdentityAgent=none", "IdentityFile=none", "PreferredAuthentications=none", "PubkeyAuthentication=no", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no", "GSSAPIAuthentication=no"]) {
+  assert(dockerHost.ansible_ssh_common_args.includes(required), `protected Debian transaction SSH policy omits ${required}`);
+}
 assert(proxmoxHost.ansible_ssh_common_args.includes("HOME_LAB_PROXMOX_PRODUCTION_KNOWN_HOSTS"));
 
 const inertHost = inertInventory.all.children.docker_host.hosts["docker-host-inert"];

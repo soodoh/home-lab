@@ -17,9 +17,17 @@ all:
             -F /dev/null
             -o BatchMode=yes
             -o StrictHostKeyChecking=yes
+            -o GlobalKnownHostsFile=/dev/null
             -o UpdateHostKeys=no
             -o UserKnownHostsFile={{ lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS') }}
+            -o IdentityAgent=none
+            -o IdentityFile=none
             -o IdentitiesOnly=yes
+            -o PreferredAuthentications=none
+            -o PubkeyAuthentication=no
+            -o PasswordAuthentication=no
+            -o KbdInteractiveAuthentication=no
+            -o GSSAPIAuthentication=no
             -o ClearAllForwardings=yes
             -o PermitLocalCommand=no
             -o ConnectTimeout=10

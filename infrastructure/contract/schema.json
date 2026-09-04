@@ -71,7 +71,7 @@
     "debian": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["release", "version", "point_release", "locale", "build_id", "image", "cloud_init", "os_disk", "qualification"],
+      "required": ["release", "version", "point_release", "locale", "build_id", "image", "cloud_init", "os_disk", "qualification", "transaction"],
       "properties": {
         "release": { "const": "trixie" },
         "version": { "const": "13" },
@@ -164,6 +164,23 @@
             "protected_mounts": { "type": "array", "prefixItems": [{ "const": "/srv/home-lab-state" }, { "const": "/mnt/games" }, { "const": "/mnt/storage" }], "items": false, "minItems": 3, "maxItems": 3 },
             "compose_service": { "const": "home-lab-compose.service" },
             "automatic_reboot": { "const": false }
+          }
+        },
+        "transaction": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["executor_path", "age_identity_path", "storage_activation_path", "state_disk_journal_root", "host_apply_lock_path", "compose_command", "compose_artifact_path", "compose_image_lock_path", "root_environment_path", "production_units"],
+          "properties": {
+            "executor_path": { "const": "/usr/local/libexec/home-lab/debian-lifecycle-host-transaction" },
+            "age_identity_path": { "const": "/etc/sops/age/keys.txt" },
+            "storage_activation_path": { "const": "/etc/home-lab/allow-storage-activation" },
+            "state_disk_journal_root": { "const": "/var/lib/home-lab/debian-state-disk-transactions" },
+            "host_apply_lock_path": { "const": "/var/lib/iac-ansible-production.lock" },
+            "compose_command": { "const": ["/usr/bin/docker", "compose", "--project-name", "docker-compose", "--project-directory", "/srv/docker-compose/current", "--env-file", "/etc/docker-compose/production.env", "--file", "/srv/docker-compose/current/docker-compose.yml", "--file", "/var/lib/home-lab/production-image-override.json"] },
+            "compose_artifact_path": { "const": "/srv/docker-compose/current/docker-compose.yml" },
+            "compose_image_lock_path": { "const": "/var/lib/home-lab/production-image-override.json" },
+            "root_environment_path": { "const": "/etc/docker-compose/production.env" },
+            "production_units": { "const": ["docker.service", "home-lab-compose.service", "home-lab-restic-daily.timer", "home-lab-restic-maintenance.timer"] }
           }
         }
       }

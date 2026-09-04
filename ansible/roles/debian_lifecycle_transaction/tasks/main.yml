@@ -1,0 +1,122 @@
+---
+- name: Validate the exact Debian lifecycle transaction envelope
+  ansible.builtin.assert:
+    that:
+      - not ansible_check_mode
+      - debian_lifecycle_transaction_plan is mapping
+      - debian_lifecycle_transaction_plan.format == 'home-lab-debian-lifecycle-transaction-plan-v1'
+      - >-
+        debian_lifecycle_transaction_plan.operation in
+        [
+          'storage-activation',
+          'identity-recovery',
+          'tailscale-enrollment',
+          'production-activation',
+          'state-disk-initialization',
+          'ssh-tightening'
+        ]
+      - debian_lifecycle_transaction_plan.target == 'debian'
+      - debian_lifecycle_transaction_plan.authorized == false
+      - debian_lifecycle_transaction_plan.automatic_apply == false
+      - debian_lifecycle_transaction_plan.blockers == ['saved-reviewed-plan-required', 'separate-exact-authorization-required']
+      - debian_lifecycle_transaction_plan_sha256 is match('^[0-9a-f]{64}$')
+      - >-
+        debian_lifecycle_transaction_confirmation ==
+        (
+          'apply-debian-state-disk-initialization-' ~
+          debian_lifecycle_transaction_plan.request.parameters.serial ~ '-' ~
+          debian_lifecycle_transaction_plan_sha256
+          if debian_lifecycle_transaction_plan.operation == 'state-disk-initialization'
+          else 'apply-debian-' ~ debian_lifecycle_transaction_plan.operation ~ '-' ~ debian_lifecycle_transaction_plan_sha256
+        )
+      - ansible_run_tags | length == 1
+      - ansible_run_tags | first == debian_lifecycle_transaction_plan.operation
+      - lifecycle_profile == debian_lifecycle_transaction_plan.profile
+      - >-
+        (debian_lifecycle_transaction_plan.operation == 'ssh-tightening' and lifecycle_profile == 'production')
+        or
+        (debian_lifecycle_transaction_plan.operation != 'ssh-tightening' and lifecycle_profile == 'recovery')
+    fail_msg: The saved Debian lifecycle plan, exact confirmation, selected tag, or lifecycle profile differs.
+  tags: always
+
+- name: Verify the fixed host transaction executor
+  ansible.builtin.stat:
+    path: "{{ debian_lifecycle_transaction_executor_path }}"
+    checksum_algorithm: sha256
+    follow: false
+  register: debian_lifecycle_transaction_executor
+  tags: always
+
+- name: Require the exact protected fixed host transaction executor
+  ansible.builtin.assert:
+    that:
+      - debian_lifecycle_transaction_executor.stat.isreg | default(false)
+      - not (debian_lifecycle_transaction_executor.stat.islnk | default(false))
+      - debian_lifecycle_transaction_executor.stat.nlink | int == 1
+      - debian_lifecycle_transaction_executor.stat.pw_name == 'root'
+      - debian_lifecycle_transaction_executor.stat.gr_name == 'root'
+      - debian_lifecycle_transaction_executor.stat.mode == '0755'
+      - >-
+        debian_lifecycle_transaction_executor.stat.checksum ==
+        lookup(
+          'ansible.builtin.file',
+          role_path ~ '/files/debian-lifecycle-host-transaction',
+          rstrip=False
+        ) | hash('sha256')
+    fail_msg: The fixed Debian lifecycle host executor is absent or differs; install its capability separately.
+  tags: always
+
+- name: Acquire the independent host-side lifecycle transaction lock
+  ansible.builtin.import_role:
+    name: apply_lock
+  vars:
+    apply_lock_action: acquire
+    apply_lock_path: "{{ debian_lifecycle_transaction_controller_lock }}"
+    apply_lock_operation: "debian-lifecycle-{{ debian_lifecycle_transaction_plan.operation }}-{{ debian_lifecycle_transaction_plan_sha256 }}"
+  tags: always
+
+- name: Run exactly one host-side lifecycle transaction
+  ansible.builtin.command:
+    argv:
+      - "{{ debian_lifecycle_transaction_executor_path }}"
+      - "{{ debian_lifecycle_transaction_plan.operation }}"
+      - "{{ debian_lifecycle_transaction_plan_sha256 }}"
+      - "{{ debian_lifecycle_transaction_confirmation }}"
+    stdin: >-
+      {{
+        {
+          'plan': debian_lifecycle_transaction_plan,
+          'secret': (
+            lookup('ansible.builtin.file', debian_lifecycle_transaction_secret_path, rstrip=False)
+            if debian_lifecycle_transaction_plan.operation in ['identity-recovery', 'tailscale-enrollment']
+            else ''
+          )
+        } | to_json
+      }}
+  become: true
+  register: debian_lifecycle_transaction_result
+  changed_when: debian_lifecycle_transaction_plan.operation != 'ssh-tightening'
+  no_log: "{{ debian_lifecycle_transaction_plan.operation in ['identity-recovery', 'tailscale-enrollment'] }}"
+  tags: always
+
+- name: Require the exact host transaction receipt
+  ansible.builtin.assert:
+    that:
+      - >-
+        debian_lifecycle_transaction_result.stdout | from_json ==
+        {
+          'operation': debian_lifecycle_transaction_plan.operation,
+          'plan_sha256': debian_lifecycle_transaction_plan_sha256,
+          'status': 'applied'
+        }
+    fail_msg: The host-side lifecycle transaction receipt differs.
+  tags: always
+
+- name: Release the independent host-side lifecycle transaction lock after success only
+  ansible.builtin.import_role:
+    name: apply_lock
+  vars:
+    apply_lock_action: release
+    apply_lock_path: "{{ debian_lifecycle_transaction_controller_lock }}"
+    apply_lock_operation: "debian-lifecycle-{{ debian_lifecycle_transaction_plan.operation }}-{{ debian_lifecycle_transaction_plan_sha256 }}"
+  tags: always

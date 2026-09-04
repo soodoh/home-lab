@@ -151,6 +151,13 @@ def load_private(path: Path, label: str) -> tuple[dict, bytes]:
     return value, raw
 
 
+def write_operation_receipt(kind: str, plan_sha256: str, manifest_sha256: str, commit: str) -> Path:
+    value={"commit":commit,"format":"home-lab-debian-access-cleanup-operation-receipt-v1","kind":kind,"manifest_sha256":manifest_sha256,"plan_sha256":plan_sha256,"producer_sha256":sha(Path(__file__).read_bytes()),"status":"committed","target":"debian","version":1}; raw=canonical(value); digest=sha(raw); target=OUTPUT/f"operation-receipt-{kind}-{digest}.json"
+    fd=os.open(target,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+    with os.fdopen(fd,"wb") as handle: handle.write(raw); handle.flush(); os.fsync(handle.fileno())
+    directory=os.open(OUTPUT,os.O_RDONLY|os.O_DIRECTORY); os.fsync(directory); os.close(directory); return target
+
+
 def apply_legacy_marker(plan_path: Path, manifest_path: Path, recovery_path: Path) -> None:
     plan_value, plan_raw = load_private(plan_path, "Debian access cleanup plan")
     manifest, manifest_raw = load_private(manifest_path, "Debian access cleanup manifest")
@@ -190,6 +197,7 @@ def apply_legacy_marker(plan_path: Path, manifest_path: Path, recovery_path: Pat
     after = observe()
     if after["paths"].get(marker_path) != {"exists": False}:
         raise SystemExit("Debian legacy marker postcondition differs")
+    write_operation_receipt("legacy-marker-removal",plan_digest,manifest_digest,plan_value["commit"])
     print(json.dumps({"action": "legacy-marker-removal", "plan_sha256": plan_digest, "status": "applied"}, sort_keys=True))
 
 
@@ -244,6 +252,7 @@ def apply_conventional_keys(plan_path: Path, manifest_path: Path, recovery_path:
             raise SystemExit("Debian conventional key canary failed; rollback restored exact keys")
     finally:
         os.close(lock_descriptor)
+    write_operation_receipt("conventional-key-removal",plan_digest,manifest_digest,plan_value["commit"])
     print(json.dumps({"action": "conventional-key-removal", "plan_sha256": plan_digest, "rollback_retained": True, "status": "applied"}, sort_keys=True))
 
 
@@ -302,6 +311,7 @@ def apply_openssh(plan_path: Path, manifest_path: Path, recovery_path: Path) -> 
             raise SystemExit("Debian OpenSSH canary failed; exact policy was rolled back")
     finally:
         os.close(lock_descriptor)
+    write_operation_receipt("openssh-tightening",plan_digest,manifest_digest,plan_value["commit"])
     print(json.dumps({"action": "openssh-tightening", "plan_sha256": plan_digest, "rollback_retained": True, "status": "committed"}, sort_keys=True))
 
 

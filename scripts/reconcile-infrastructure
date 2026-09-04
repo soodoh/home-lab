@@ -78,6 +78,9 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-debian-lifecycle-profiles.js
   python3 scripts/controller/test-lifecycle-marker-transaction.py
   python3 scripts/controller/test-debian-access-cleanup.py
+  python3 scripts/controller/test-debian-lifecycle-transactions.py
+  python3 scripts/controller/test-debian-lifecycle-host-transaction.py
+  python3 scripts/controller/test-debian-lifecycle-authority-receipts.py
   python3 scripts/controller/test-proxmox-tofu-identity-retirement.py
   python3 scripts/controller/test-proxmox-tofu-identity-retirement-host.py
   python3 scripts/controller/test-proxmox-deploy-upgrade.py

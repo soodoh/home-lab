@@ -1,0 +1,31 @@
+# Guarded Debian lifecycle transactions
+
+Gate 7 recovery work uses `scripts/controller/debian-lifecycle-transactions.py`. It does not extend ordinary `site.yml` convergence. Each operation has its own protected canonical request, fresh protected canonical observation, operation-specific protected authority receipts, immutable 30-minute saved plan, exact typed confirmation, controller lock, shared host apply lock, and fixed root-side executor. Hostname, machine ID, Ed25519 host key, lifecycle marker, and direct contract values are rechecked before mutation.
+
+## Boundaries
+
+- `storage-activation` accepts only surviving filesystems named by stable `/dev/disk/by-id` identity, serial, byte size, filesystem type and UUID and bound to a canonical OpenTofu attachment receipt. It rejects aliases, holders, mounts, signatures that differ, symlinked mount targets, ownership/mode drift and insufficient free capacity. Only then may it durably create `/etc/home-lab/allow-storage-activation` with the plan digest and start the exact mount units; failed starts are stopped and verified.
+- `identity-recovery` accepts a protected controller identity and a protected canonical recovery receipt whose bytes are bound into the plan. The host independently derives its public recipient with `age-keygen -y`; the contract-selected target must be absent and is opened with `O_EXCL|O_NOFOLLOW`, root ownership and mode `0600`, then file- and directory-fsynced. No identity is generated silently.
+- `tailscale-enrollment` accepts a protected, fresh, preauthorized one-use key. The key is held only in root-only temporary files, never in the plan or normal output. The executor proves backend state, node ID, contract hostname/tag, address and DNS suffix; any failure or interruption runs checked `tailscale down` and verifies the node is no longer running.
+- `production-activation` requires exact contract-derived mount sources/filesystems/UUIDs/options, the recovered recipient, the enrolled node, a digest-bound root environment, contract-selected Compose command/artifact/image override, a schema-validated Restic activation receipt and direct systemd dependencies. Every unit must initially be inactive. Attempted starts are recorded before invocation, and unit startup plus the recovery-to-production marker CAS are one rollback transaction that restores every exact inactive pre-state and the exact recovery marker.
+- `state-disk-initialization` accepts only a blank, unmounted, holder-free replacement disk bound to a protected canonical OpenTofu receipt and the contract serial, size, filesystem and UUID. `force` must be false. The confirmation contains both the serial and plan digest. An fsynced `started` journal is published before `mkfs.ext4`; any existing plan journal prohibits automatic retry, and success atomically records `committed`.
+- `ssh-tightening` is a post-proof transaction. It requires the three protected canonical receipts from the existing `debian-access-cleanup.py` sequence and independently verifies the contract Tailscale tag, absent conventional key files and effective `PubkeyAuthentication no` / `PermitRootLogin no`. Key removal is deliberately not reimplemented.
+
+A failed controller or host action terminates and waits for its process group, verifies operation-specific rollback, and does not release `/var/lib/iac-ansible-production.lock`; recovery must inspect and adopt that retained lock. Persistent package/reboot mutex files are tested with descriptor `flock` rather than treated as active by existence. Durable reconciliation/firewall ownership locks remain existence blockers.
+
+Authority receipts are not standalone assertions. `scripts/controller/debian-lifecycle-authority-receipts.py` embeds its own source hash and produces OpenTofu receipts only after inspecting the actual saved binary with `tofu show -json`, proving each requested disk is absent before and present after as the sole VM delta, and matching the complete relevant planned VM result to protected current-state bytes. Age receipts require `age-keygen -y` and hash the complete decrypted plaintext from a full-read protected bundle. Fixed `restic-snapshot` and `restic-restore` commands verify repository/config/snapshot identity, run `restic check --read-data`, restore with `--verify` into an empty private root, and hash the restored tree before producing mutually bound manifests. `debian-access-cleanup.py` durably publishes source-hash-bound canonical per-stage operation receipts.
+
+## Installation and use
+
+Install the fixed executor only through `ansible/playbooks/install-debian-lifecycle-capability.yml`, with lifecycle profile `inert` or `recovery`, exactly the `debian_lifecycle_capability` tag, and `debian_lifecycle_capability_confirmation=INSTALL_DEBIAN_LIFECYCLE_TRANSACTION_CAPABILITY`. Installation and execution use the same host apply lock, so the executor cannot be replaced between checksum verification and launch.
+
+Create canonical request and observation JSON, in an owned mode-private output directory, then run:
+
+```text
+scripts/controller/debian-lifecycle-transactions.py plan OPERATION REQUEST OBSERVATION OUTPUT_DIRECTORY [--evidence PROTECTED_RECEIPT ...]
+scripts/controller/debian-lifecycle-transactions.py verify OPERATION SAVED_PLAN CURRENT_OBSERVATION [--secret PROTECTED_FILE] [--evidence PROTECTED_RECEIPT ...]
+DEBIAN_LIFECYCLE_TRANSACTION_CONFIRMED=EXACT_VALUE \
+  scripts/controller/debian-lifecycle-transactions.py apply OPERATION SAVED_PLAN CURRENT_OBSERVATION [--secret PROTECTED_FILE] [--evidence PROTECTED_RECEIPT ...]
+```
+
+Planning never authorizes apply. Request, observation, authority receipts, identity, and auth-key files must be owned, single-link, mode-private regular files with no symlink path components. Observations must be collected independently and recollected immediately before exactly one apply. Executable fixture tests cover marker-publication rollback, partial unit-start rollback, interrupted Tailscale rollback, state-disk no-retry journaling, authority source-byte mismatches, and persistent-flock classification; they do not authorize a live transaction.

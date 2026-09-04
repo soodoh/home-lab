@@ -104,7 +104,7 @@ compose_runtime_env_path: /etc/docker-compose/production.env
 compose_staged_env_root: /etc/docker-compose/staging
 compose_staged_env_path: "{{ compose_staged_env_root }}/{{ compose_artifact_hash }}.env"
 compose_previous_env_path: /etc/docker-compose/previous.env
-compose_age_identity_path: /etc/sops/age/keys.txt
+compose_age_identity_path: "{{ debian.transaction.age_identity_path }}"
 compose_image_override_path: /var/lib/home-lab/production-image-override.json
 compose_runtime_cli:
   - /usr/bin/docker

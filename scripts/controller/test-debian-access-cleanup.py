@@ -11,6 +11,8 @@ def main() -> None:
     contract = (ROOT / "infrastructure/contract/home-lab.yml").read_text()
     for required in (
         "home-lab-debian-access-cleanup-manifest-v1",
+        "home-lab-debian-access-cleanup-operation-receipt-v1",
+        "producer_sha256",
         "legacy-marker-removal",
         "conventional-key-removal",
         "openssh-tightening",

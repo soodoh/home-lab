@@ -1,0 +1,3 @@
+---
+debian_lifecycle_transaction_executor_path: "{{ debian.transaction.executor_path }}"
+debian_lifecycle_transaction_controller_lock: "{{ debian.transaction.host_apply_lock_path }}"

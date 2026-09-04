@@ -1,0 +1,53 @@
+---
+- name: Require separate exact capability installation confirmation
+  ansible.builtin.assert:
+    that:
+      - lifecycle_profile in ['inert', 'recovery']
+      - debian_lifecycle_capability_confirmation == 'INSTALL_DEBIAN_LIFECYCLE_TRANSACTION_CAPABILITY'
+      - ansible_run_tags | length == 1
+      - ansible_run_tags | first == 'debian_lifecycle_capability'
+    fail_msg: Installing the fixed Debian lifecycle transaction capability requires a separate exact confirmation.
+
+- name: Ensure the fixed lifecycle capability directory exists
+  ansible.builtin.file:
+    path: "{{ debian_lifecycle_capability_executor_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
+
+- name: Install the fixed Debian lifecycle host transaction executor
+  ansible.builtin.copy:
+    src: "{{ role_path }}/../debian_lifecycle_transaction/files/debian-lifecycle-host-transaction"
+    dest: "{{ debian_lifecycle_capability_executor_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+    backup: false
+  become: true
+
+- name: Verify the installed fixed executor metadata and checksum
+  ansible.builtin.stat:
+    path: "{{ debian_lifecycle_capability_executor_path }}"
+    checksum_algorithm: sha256
+    follow: false
+  register: debian_lifecycle_capability_executor
+
+- name: Require the exact protected installed executor
+  ansible.builtin.assert:
+    that:
+      - debian_lifecycle_capability_executor.stat.isreg
+      - not debian_lifecycle_capability_executor.stat.islnk
+      - debian_lifecycle_capability_executor.stat.nlink | int == 1
+      - debian_lifecycle_capability_executor.stat.pw_name == 'root'
+      - debian_lifecycle_capability_executor.stat.gr_name == 'root'
+      - debian_lifecycle_capability_executor.stat.mode == '0755'
+      - >-
+        debian_lifecycle_capability_executor.stat.checksum ==
+        lookup(
+          'ansible.builtin.file',
+          role_path ~ '/../debian_lifecycle_transaction/files/debian-lifecycle-host-transaction',
+          rstrip=False
+        ) | hash('sha256')
+    fail_msg: Installed Debian lifecycle transaction executor differs.

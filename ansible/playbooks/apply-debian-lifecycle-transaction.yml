@@ -1,0 +1,11 @@
+---
+- name: Apply exactly one saved Debian lifecycle transaction
+  hosts: docker_host
+  gather_facts: true
+  any_errors_fatal: true
+  vars_files:
+    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
+    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
+  roles:
+    - role: debian_lifecycle_transaction
+      tags: always

@@ -1529,6 +1529,17 @@ debian:
       - /mnt/storage
     compose_service: home-lab-compose.service
     automatic_reboot: false
+  transaction:
+    executor_path: /usr/local/libexec/home-lab/debian-lifecycle-host-transaction
+    age_identity_path: /etc/sops/age/keys.txt
+    storage_activation_path: /etc/home-lab/allow-storage-activation
+    state_disk_journal_root: /var/lib/home-lab/debian-state-disk-transactions
+    host_apply_lock_path: /var/lib/iac-ansible-production.lock
+    compose_command: [/usr/bin/docker, compose, --project-name, docker-compose, --project-directory, /srv/docker-compose/current, --env-file, /etc/docker-compose/production.env, --file, /srv/docker-compose/current/docker-compose.yml, --file, /var/lib/home-lab/production-image-override.json]
+    compose_artifact_path: /srv/docker-compose/current/docker-compose.yml
+    compose_image_lock_path: /var/lib/home-lab/production-image-override.json
+    root_environment_path: /etc/docker-compose/production.env
+    production_units: [docker.service, home-lab-compose.service, home-lab-restic-daily.timer, home-lab-restic-maintenance.timer]
 omada:
   controller_version: 6.2.14.11
   endpoint: https://Omada:8043

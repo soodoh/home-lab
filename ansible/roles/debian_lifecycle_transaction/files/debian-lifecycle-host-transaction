@@ -1,0 +1,345 @@
+#!/usr/bin/env python3
+"""Root-side executor for one controller-bound Debian lifecycle transaction."""
+from __future__ import annotations
+import argparse, fcntl, hashlib, json, os, re, signal, stat, subprocess, tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+
+HEX64=re.compile(r"^[0-9a-f]{64}$")
+OPS={"storage-activation","identity-recovery","tailscale-enrollment","production-activation","state-disk-initialization","ssh-tightening"}
+FLOCK_LOCKS=("/run/lock/home-lab-backup.lock","/run/lock/home-lab-vfio-recovery.lock","/run/lock/home-lab-debian-package.lock","/run/lock/home-lab-debian-reboot.lock","/run/lock/home-lab-proxmox-package.lock","/var/lock/home-lab-compose.lock","/run/lock/home-lab-restic-backup.lock")
+PRESENCE_LOCKS=("/var/lib/home-lab/reconciliation/owner.lock","/var/lib/home-lab/reconciliation/nix.lock","/var/lib/home-lab/reconciliation/operation.lock","/var/lib/home-lab/firewall-transaction/active.json")
+HOST_LOCK=Path("/run/lock/home-lab-debian-lifecycle-transaction.lock")
+STORAGE_TOKEN=Path("/etc/home-lab/allow-storage-activation")
+LIFECYCLE_MARKER=Path("/var/lib/home-lab/lifecycle-state.json")
+STATE_JOURNAL_ROOT=Path("/var/lib/home-lab/debian-state-disk-transactions")
+RUNTIME_DIR=Path("/run")
+
+def canonical(v): return (json.dumps(v,sort_keys=True,separators=(",",":"))+"\n").encode()
+def sha(v): return hashlib.sha256(v).hexdigest()
+def run(argv,check=True,**kw):
+    kw.setdefault("stdout",subprocess.PIPE); kw.setdefault("stderr",subprocess.PIPE); process=subprocess.Popen(argv,start_new_session=True,**kw)
+    try: stdout,stderr=process.communicate()
+    except BaseException:
+        if process.poll() is None:
+            os.killpg(process.pid,signal.SIGTERM)
+            try: process.wait(timeout=10)
+            except subprocess.TimeoutExpired: os.killpg(process.pid,signal.SIGKILL); process.wait(timeout=10)
+        raise
+    result=subprocess.CompletedProcess(argv,process.returncode,stdout,stderr)
+    if check and result.returncode: raise subprocess.CalledProcessError(result.returncode,argv,stdout,stderr)
+    return result
+def require_regular(path,uid=0,gid=0,mode="0600"):
+    value=os.lstat(path)
+    if not stat.S_ISREG(value.st_mode) or stat.S_ISLNK(value.st_mode) or value.st_nlink!=1 or value.st_uid!=uid or value.st_gid!=gid or format(stat.S_IMODE(value.st_mode),"04o")!=mode:
+        raise SystemExit(f"protected path metadata differs: {path}")
+    return value
+
+def require_root_regular(path,modes=("0600",)):
+    value=os.lstat(path)
+    if not stat.S_ISREG(value.st_mode) or stat.S_ISLNK(value.st_mode) or value.st_nlink!=1 or value.st_uid!=0 or value.st_gid!=0 or format(stat.S_IMODE(value.st_mode),"04o") not in modes:
+        raise SystemExit(f"root-owned regular path metadata differs: {path}")
+    return value
+
+def read_root_regular(path,modes=("0600",),limit=1048576):
+    before=require_root_regular(path,modes); fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW); raw=b""
+    try:
+        opened=os.fstat(fd)
+        while True:
+            chunk=os.read(fd,limit+1-len(raw))
+            if not chunk: break
+            raw+=chunk
+            if len(raw)>limit: raise SystemExit(f"root-owned file too large: {path}")
+        after=os.fstat(fd)
+    finally: os.close(fd)
+    current=os.lstat(path)
+    if (opened.st_dev,opened.st_ino,opened.st_size,opened.st_nlink)!=(after.st_dev,after.st_ino,after.st_size,after.st_nlink) or (current.st_dev,current.st_ino)!=(after.st_dev,after.st_ino): raise SystemExit(f"root-owned file changed during read: {path}")
+    return raw
+
+def safe_directory(path):
+    current=Path("/")
+    for part in Path(path).parts[1:]:
+        current/=part; value=os.lstat(current)
+        if stat.S_ISLNK(value.st_mode) or not stat.S_ISDIR(value.st_mode) or value.st_uid!=0 or value.st_gid!=0 or stat.S_IMODE(value.st_mode)&0o022: raise SystemExit(f"unsafe directory: {path}")
+    return Path(path)
+
+def fsync_parent(path):
+    descriptor=os.open(Path(path).parent,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try: os.fsync(descriptor)
+    finally: os.close(descriptor)
+
+def publish_exclusive(path,content,mode=0o600):
+    fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,mode)
+    try:
+        os.fchown(fd,0,0); os.fchmod(fd,mode)
+        if os.write(fd,content)!=len(content): raise RuntimeError("short protected write")
+        os.fsync(fd)
+    finally: os.close(fd)
+    fsync_parent(path)
+
+def replace_fsynced(path,content,mode=0o600):
+    fd,temp=tempfile.mkstemp(prefix=f".{Path(path).name}.",dir=Path(path).parent); os.fchown(fd,0,0); os.fchmod(fd,mode)
+    try:
+        if os.write(fd,content)!=len(content): raise RuntimeError("short protected replacement")
+        os.fsync(fd); os.close(fd); os.replace(temp,path); fsync_parent(path)
+    finally:
+        try: os.close(fd)
+        except OSError: pass
+        if os.path.exists(temp): os.unlink(temp)
+
+def flock_active(path):
+    if not os.path.lexists(path): return False
+    fd=os.open(path,os.O_RDWR|os.O_NOFOLLOW); value=os.fstat(fd)
+    if not stat.S_ISREG(value.st_mode) or value.st_uid!=0 or value.st_gid!=0 or value.st_nlink!=1 or stat.S_IMODE(value.st_mode)&0o022:
+        os.close(fd); raise SystemExit(f"unsafe conflict lock: {path}")
+    try:
+        try: fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError: return True
+        fcntl.flock(fd,fcntl.LOCK_UN); return False
+    finally: os.close(fd)
+
+def acquire_host_lock(operation,digest):
+    path=HOST_LOCK
+    fd=os.open(path,os.O_RDWR|os.O_CREAT|os.O_NOFOLLOW,0o600); value=os.fstat(fd)
+    if not stat.S_ISREG(value.st_mode) or value.st_uid!=0 or value.st_gid!=0 or value.st_nlink!=1 or stat.S_IMODE(value.st_mode)!=0o600:
+        os.close(fd); raise SystemExit("host lifecycle lock metadata differs")
+    try: fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+    except BlockingIOError: os.close(fd); raise SystemExit("host lifecycle transaction lock is active")
+    os.ftruncate(fd,0); os.write(fd,f"operation={operation}\nplan_sha256={digest}\n".encode()); os.fsync(fd)
+    for item in PRESENCE_LOCKS:
+        if os.path.lexists(item): os.close(fd); raise SystemExit(f"competing durable host lock is active: {item}")
+    for item in FLOCK_LOCKS:
+        if flock_active(item): os.close(fd); raise SystemExit(f"competing flock host lock is active: {item}")
+    return fd
+
+def verify_target(plan):
+    host=plan["precondition"].get("host",{}); expected={"hostname","machine_id_sha256","host_key_fingerprint"}
+    if set(host)!=expected or os.uname().nodename!=host["hostname"] or sha(Path("/etc/machine-id").read_bytes())!=host["machine_id_sha256"]: raise SystemExit("host identity changed after planning")
+    result=run(["/usr/bin/ssh-keygen","-lf","/etc/ssh/ssh_host_ed25519_key.pub","-E","sha256"],text=True).stdout.split()
+    if len(result)<2 or result[1]!=host["host_key_fingerprint"]: raise SystemExit("host key changed after planning")
+    marker=LIFECYCLE_MARKER; require_regular(marker); value=json.loads(marker.read_bytes())
+    if value.get("state")!=plan.get("profile"): raise SystemExit("live lifecycle profile changed after planning")
+
+def device(path,expected,blank):
+    if not path.startswith("/dev/disk/by-id/") or not os.path.islink(path): raise SystemExit("stable disk symlink required")
+    real=os.path.realpath(path); value=os.stat(real)
+    if not real.startswith("/dev/") or not stat.S_ISBLK(value.st_mode): raise SystemExit("exact block device required")
+    output=run(["/usr/bin/lsblk","--bytes","--nodeps","--noheadings","--output","SERIAL,SIZE",real],text=True).stdout.strip().split()
+    if len(output)!=2 or output[0]!=expected["serial"] or int(output[1])!=expected["size_bytes"]: raise SystemExit("disk serial or size differs")
+    sys=Path("/sys/dev/block")/f"{os.major(value.st_rdev)}:{os.minor(value.st_rdev)}"/"holders"
+    if list(sys.iterdir()): raise SystemExit("disk has holders")
+    if run(["/usr/bin/findmnt","--noheadings","--source",real],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0: raise SystemExit("disk is mounted")
+    signatures=run(["/usr/sbin/wipefs","--noheadings","--output","TYPE",real],text=True).stdout.split()
+    if blank and signatures: raise SystemExit("replacement disk has signatures")
+    if not blank:
+        uuid=run(["/usr/sbin/blkid","--output","value","--match-tag","UUID",real],text=True).stdout.strip()
+        fstype=run(["/usr/sbin/blkid","--output","value","--match-tag","TYPE",real],text=True).stdout.strip()
+        if uuid!=expected["uuid"] or fstype!=expected["fstype"]: raise SystemExit("surviving disk filesystem identity differs")
+    return real,value.st_rdev
+
+def verify_mount(expected,active):
+    path=safe_directory(expected["path"]); value=os.lstat(path)
+    if value.st_uid!=0 or value.st_gid!=0 or format(stat.S_IMODE(value.st_mode),"04o")!=expected["mode"]: raise SystemExit("mount target metadata differs")
+    result=run(["/usr/bin/findmnt","--json","--mountpoint",str(path),"--output","SOURCE,FSTYPE,OPTIONS,UUID"],check=False,text=True)
+    if not active:
+        if result.returncode==0: raise SystemExit("mount target already active")
+        return
+    if result.returncode: raise SystemExit("required mount is inactive")
+    item=json.loads(result.stdout)["filesystems"][0]
+    source=os.path.realpath(item["source"]); expected_source=os.path.realpath(expected["source"])
+    options=set(item.get("options","").split(","))
+    if source!=expected_source or item.get("fstype")!=expected["fstype"] or item.get("uuid")!=expected["uuid"] or not set(expected["options"]).issubset(options): raise SystemExit("active mount identity differs")
+    after=os.stat(path)
+    if after.st_uid!=expected["owner"] or after.st_gid!=expected["group"] or format(stat.S_IMODE(after.st_mode),"04o")!=expected["mode"] or os.statvfs(path).f_bavail*os.statvfs(path).f_frsize<expected["minimum_free_bytes"]: raise SystemExit("active mount ownership or capacity differs")
+
+def storage(plan,digest):
+    params=plan["request"]["parameters"]; numbers=set()
+    for item in params["devices"]:
+        _,number=device(item["path"],item,False)
+        if number in numbers: raise SystemExit("storage device alias detected")
+        numbers.add(number)
+    for item in params["mounts"]: verify_mount(item,False)
+    token=Path(params["activation_path"]); safe_directory(token.parent)
+    publish_exclusive(token,f"plan_sha256={digest}\n".encode())
+    run(["/usr/bin/systemctl","daemon-reload"]); started=[]
+    try:
+        for item in params["mounts"]:
+            unit=run(["/usr/bin/systemd-escape","--path","--suffix=mount",item["path"]],text=True).stdout.strip()
+            started.append(unit); run(["/usr/bin/systemctl","start",unit]); verify_mount(item,True)
+    except BaseException:
+        cleanup_failed=False
+        for unit in reversed(started):
+            if run(["/usr/bin/systemctl","stop",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode or run(["/usr/bin/systemctl","is-active","--quiet",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0: cleanup_failed=True
+        if token.read_text()==f"plan_sha256={digest}\n": token.unlink(); directory=os.open(token.parent,os.O_RDONLY|os.O_DIRECTORY); os.fsync(directory); os.close(directory)
+        if cleanup_failed: raise RuntimeError("storage rollback postcondition failed")
+        raise
+
+def identity(plan,secret):
+    params=plan["request"]["parameters"]; target=Path(params["path"]); parent=safe_directory(target.parent)
+    if os.path.lexists(target): raise SystemExit("identity target must be absent")
+    if sha(secret)!=params["identity_sha256"] or len(secret)>16384 or b"AGE-SECRET-KEY-" not in secret: raise SystemExit("identity secret differs")
+    with tempfile.NamedTemporaryFile(dir=parent,prefix=".identity-verify-",delete=False) as handle:
+        temp=Path(handle.name); os.chmod(temp,0o600); os.chown(temp,0,0); handle.write(secret); handle.flush(); os.fsync(handle.fileno())
+    try:
+        recipient=run(["/usr/local/bin/age-keygen","-y",str(temp)],text=True).stdout.strip()
+        if recipient!=params["recipient"]: raise SystemExit("age identity recipient differs")
+        publish_exclusive(target,secret)
+        require_regular(target)
+    finally:
+        if temp.exists(): temp.unlink()
+
+def rollback_tailscale():
+    if run(["/usr/bin/tailscale","down"],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: raise RuntimeError("Tailscale rollback failed")
+    result=run(["/usr/bin/tailscale","status","--json"],check=False,text=True)
+    try: stopped=json.loads(result.stdout or "{}")
+    except json.JSONDecodeError: raise RuntimeError("Tailscale rollback status invalid")
+    if stopped.get("BackendState")=="Running": raise RuntimeError("Tailscale rollback postcondition failed")
+
+def tailscale(plan,secret):
+    params=plan["request"]["parameters"]
+    if sha(secret)!=params["auth_key_sha256"] or len(secret)>4096: raise SystemExit("Tailscale auth key differs")
+    fd,path=tempfile.mkstemp(prefix="tailscale-auth-",dir=RUNTIME_DIR); os.fchown(fd,0,0); os.fchmod(fd,0o600)
+    try:
+        if os.write(fd,secret)!=len(secret): raise RuntimeError("short Tailscale key write")
+        os.fsync(fd); os.close(fd)
+        args=["/usr/bin/tailscale","up",f"--auth-key=file:{path}",f"--hostname={params['hostname']}",f"--advertise-tags={','.join(params['tags'])}","--accept-dns=false","--accept-routes=false","--ssh=false","--timeout=60s"]
+        run(args)
+    except BaseException:
+        rollback_tailscale()
+        raise
+    finally:
+        try: os.close(fd)
+        except OSError: pass
+        try: os.unlink(path)
+        except FileNotFoundError: pass
+    try:
+        status=json.loads(run(["/usr/bin/tailscale","status","--json"],text=True).stdout); self_state=status.get("Self") or {}
+        if status.get("BackendState")!="Running" or self_state.get("HostName")!=params["hostname"] or sorted(self_state.get("Tags") or [])!=sorted(params["tags"]) or not self_state.get("ID") or not self_state.get("TailscaleIPs") or not str(self_state.get("DNSName","")).rstrip(".").endswith(params["expected_dns_suffix"].lstrip(".")): raise SystemExit("Tailscale enrollment post-proof differs")
+    except BaseException:
+        rollback_tailscale()
+        raise
+
+def production(plan,digest):
+    params=plan["request"]["parameters"]
+    token=STORAGE_TOKEN; require_regular(token)
+    if token.read_text()!=f"plan_sha256={params['storage_plan_sha256']}\n": raise SystemExit("storage activation token binding differs")
+    for item in params["mounts"]: verify_mount(item,True)
+    identity_path=plan["precondition"]["identity"].get("path"); require_regular(identity_path)
+    recipient=run(["/usr/local/bin/age-keygen","-y",identity_path],text=True).stdout.strip()
+    if recipient!=params["identity_recipient"]: raise SystemExit("production identity recipient differs")
+    status=json.loads(run(["/usr/bin/tailscale","status","--json"],text=True).stdout); self_state=status.get("Self") or {}
+    if status.get("BackendState")!="Running" or self_state.get("HostName")!=params["tailscale_hostname"] or sorted(self_state.get("Tags") or [])!=sorted(params["tailscale_tags"]): raise SystemExit("Tailscale production identity differs")
+    artifacts={}
+    for path_key,hash_key,modes in (("compose_artifact_path","compose_artifact_sha256",("0600","0644")),("compose_image_lock_path","compose_image_lock_sha256",("0600","0644")),("restic_recovery_receipt_path","restic_recovery_receipt_sha256",("0600",))):
+        path=params[path_key]; raw=read_root_regular(path,modes); artifacts[path_key]=raw
+        if sha(raw)!=params[hash_key]: raise SystemExit(f"production artifact differs: {path_key}")
+    environment=read_root_regular(params["root_environment_path"],("0600",))
+    if sha(environment)!=params["root_environment_sha256"]: raise SystemExit("production root environment differs")
+    try: restic=json.loads(artifacts["restic_recovery_receipt_path"])
+    except json.JSONDecodeError: raise SystemExit("Restic recovery receipt is not JSON")
+    required={"commit","format","producer_sha256","repository_id","restore_manifest_sha256","snapshot_id","snapshot_manifest_sha256","status","target","tree_sha256","version"}
+    if set(restic)!=required or restic.get("producer_sha256")!=plan["bindings"].get("authority_producer_sha256") or artifacts["restic_recovery_receipt_path"]!=canonical(restic) or restic.get("format")!="home-lab-restic-recovery-activation-receipt-v1" or restic.get("status")!="verified" or restic.get("target")!="debian" or restic.get("version")!=1: raise SystemExit("Restic recovery receipt schema differs")
+    compose=params.get("compose_command")
+    if not isinstance(compose,list) or compose[:2]!=["/usr/bin/docker","compose"]: raise SystemExit("fixed Compose validation command required")
+    run(compose+["config","--quiet"])
+    for unit,dependencies in params["systemd_dependencies"].items():
+        shown=run(["/usr/bin/systemctl","show",unit,"--property=Requires,After","--value"],text=True).stdout
+        if any(value not in shown.split() for value in dependencies): raise SystemExit("systemd dependency differs")
+    marker=LIFECYCLE_MARKER; safe_directory(marker.parent); require_regular(marker)
+    before=marker.read_bytes()
+    if sha(before)!=params["lifecycle_marker_sha256"]: raise SystemExit("recovery lifecycle marker changed")
+    content=canonical({"source_commit":plan["base_commit"],"state":"production","updated_at":datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00","Z"),"version":1})
+    started=[]; marker_changed=False
+    for unit in params["systemd_dependencies"]:
+        if run(["/usr/bin/systemctl","is-active","--quiet",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0: raise SystemExit("production unit already active before activation")
+    try:
+        for unit in params["systemd_dependencies"]:
+            started.append(unit); run(["/usr/bin/systemctl","start",unit])
+            if run(["/usr/bin/systemctl","is-active","--quiet",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: raise RuntimeError("production unit failed to become active")
+        fd,temp=tempfile.mkstemp(prefix=".lifecycle-state-",dir=marker.parent); os.fchown(fd,0,0); os.fchmod(fd,0o600)
+        try:
+            if os.write(fd,content)!=len(content): raise RuntimeError("short lifecycle marker write")
+            os.fsync(fd); os.close(fd)
+            if sha(marker.read_bytes())!=params["lifecycle_marker_sha256"]: raise RuntimeError("recovery lifecycle marker changed during activation")
+            os.replace(temp,marker); marker_changed=True; fsync_parent(marker)
+        finally:
+            try: os.close(fd)
+            except OSError: pass
+            if os.path.exists(temp): os.unlink(temp)
+        published=marker.read_bytes(); parsed=json.loads(published)
+        if published!=canonical(parsed) or parsed.get("state")!="production" or parsed.get("source_commit")!=plan["base_commit"]: raise RuntimeError("production lifecycle marker postcondition failed")
+    except BaseException:
+        cleanup_failed=False
+        for unit in reversed(started):
+            if run(["/usr/bin/systemctl","stop",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode or run(["/usr/bin/systemctl","is-active","--quiet",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0: cleanup_failed=True
+        if marker_changed:
+            fd,temp=tempfile.mkstemp(prefix=".lifecycle-rollback-",dir=marker.parent); os.fchown(fd,0,0); os.fchmod(fd,0o600)
+            try:
+                if os.write(fd,before)!=len(before): cleanup_failed=True
+                os.fsync(fd); os.close(fd); os.replace(temp,marker); fsync_parent(marker)
+            finally:
+                try: os.close(fd)
+                except OSError: pass
+                if os.path.exists(temp): os.unlink(temp)
+            if marker.read_bytes()!=before: cleanup_failed=True
+        if cleanup_failed: raise RuntimeError("production activation rollback postcondition failed")
+        raise
+
+def state_disk(plan,digest):
+    params=plan["request"]["parameters"]
+    if params["force"] is not False: raise SystemExit("force must remain false")
+    real,_=device(params["path"],params,True)
+    root=STATE_JOURNAL_ROOT; safe_directory(root.parent)
+    if not root.exists(): root.mkdir(mode=0o700); fsync_parent(root)
+    value=os.lstat(root)
+    if not stat.S_ISDIR(value.st_mode) or stat.S_ISLNK(value.st_mode) or value.st_uid!=0 or value.st_gid!=0 or stat.S_IMODE(value.st_mode)!=0o700: raise SystemExit("unsafe state-disk journal root")
+    transaction=root/digest
+    try: transaction.mkdir(mode=0o700)
+    except FileExistsError: raise SystemExit("state-disk plan already attempted; automatic retry forbidden")
+    fsync_parent(transaction); journal=transaction/"journal.json"
+    started=canonical({"disk":params["path"],"operation":"state-disk-initialization","plan_sha256":digest,"serial":params["serial"],"status":"started","tofu_receipt_sha256":params["tofu_receipt_sha256"]})
+    publish_exclusive(journal,started)
+    run(["/usr/sbin/mkfs.ext4","-U",params["filesystem_uuid"],real])
+    uuid=run(["/usr/sbin/blkid","--output","value","--match-tag","UUID",real],text=True).stdout.strip(); fstype=run(["/usr/sbin/blkid","--output","value","--match-tag","TYPE",real],text=True).stdout.strip()
+    if uuid!=params["filesystem_uuid"] or fstype!="ext4": raise SystemExit("initialized filesystem identity differs")
+    replace_fsynced(journal,canonical({"disk":params["path"],"filesystem_uuid":uuid,"operation":"state-disk-initialization","plan_sha256":digest,"serial":params["serial"],"status":"committed","tofu_receipt_sha256":params["tofu_receipt_sha256"]}))
+
+def ssh_proof(plan):
+    params=plan["request"]["parameters"]
+    for path in ("/home/ansible-deploy/.ssh/authorized_keys","/root/.ssh/authorized_keys"):
+        if os.path.lexists(path): raise SystemExit("conventional authorized key remains")
+    effective=run(["/usr/sbin/sshd","-T"],text=True).stdout.splitlines()
+    if "pubkeyauthentication no" not in effective or "permitrootlogin no" not in effective: raise SystemExit("OpenSSH tightening differs")
+    status=json.loads(run(["/usr/bin/tailscale","status","--json"],text=True).stdout); prefs=json.loads(run(["/usr/bin/tailscale","debug","prefs"],text=True).stdout)
+    if status.get("BackendState")!="Running" or prefs.get("RunSSH") is not True or params["required_tailscale_tag"] not in ((status.get("Self") or {}).get("Tags") or []): raise SystemExit("Tailscale SSH proof differs")
+
+def main():
+    def interrupted(signum,frame): raise InterruptedError(f"signal:{signum}")
+    for signum in (signal.SIGINT,signal.SIGTERM,signal.SIGHUP): signal.signal(signum,interrupted)
+    p=argparse.ArgumentParser(); p.add_argument("operation",choices=sorted(OPS)); p.add_argument("plan_sha256"); p.add_argument("confirmation"); a=p.parse_args()
+    raw=os.read(0,1048577)
+    if len(raw)>1048576: raise SystemExit("transaction envelope is too large")
+    envelope=json.loads(raw); plan=envelope.get("plan"); secret=(envelope.get("secret") or "").encode()
+    plan_raw=canonical(plan); digest=sha(plan_raw)
+    expected_confirmation=(f"apply-debian-state-disk-initialization-{plan.get('request',{}).get('parameters',{}).get('serial','')}-{digest}" if a.operation=="state-disk-initialization" else f"apply-debian-{a.operation}-{digest}")
+    try:
+        created=datetime.fromisoformat(plan["created_at"].replace("Z","+00:00")); expires=datetime.fromisoformat(plan["expires_at"].replace("Z","+00:00")); current=datetime.now(timezone.utc)
+    except (KeyError,TypeError,ValueError) as error: raise SystemExit("host transaction freshness fields differ") from error
+    if not HEX64.fullmatch(a.plan_sha256) or digest!=a.plan_sha256 or a.confirmation!=expected_confirmation or not created<=current<=expires or plan.get("operation")!=a.operation or plan.get("authorized") is not False or plan.get("automatic_apply") is not False or plan.get("blockers")!=["saved-reviewed-plan-required","separate-exact-authorization-required"]: raise SystemExit("host transaction plan, freshness, or exact confirmation differs")
+    lock=acquire_host_lock(a.operation,digest)
+    try:
+        verify_target(plan)
+        if a.operation=="storage-activation": storage(plan,digest)
+        elif a.operation=="identity-recovery": identity(plan,secret)
+        elif a.operation=="tailscale-enrollment": tailscale(plan,secret)
+        elif a.operation=="production-activation": production(plan,digest)
+        elif a.operation=="state-disk-initialization": state_disk(plan,digest)
+        else: ssh_proof(plan)
+        print(json.dumps({"operation":a.operation,"plan_sha256":digest,"status":"applied"},sort_keys=True))
+    finally:
+        try:
+            opened=os.fstat(lock); current=os.lstat(HOST_LOCK)
+            if (opened.st_dev,opened.st_ino)==(current.st_dev,current.st_ino):
+                os.unlink(HOST_LOCK); directory=os.open(HOST_LOCK.parent,os.O_RDONLY|os.O_DIRECTORY); os.fsync(directory); os.close(directory)
+        finally: os.close(lock)
+if __name__=="__main__": main()
