@@ -40,7 +40,7 @@ def publish(output,run,binary,shown,manifest):
  descriptor=os.open(output,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)); os.fsync(descriptor); os.close(descriptor); authorization=sha(canonical_bytes(manifest)+b"\n"); write_json(output,f"{authorization}.manifest.json",manifest)
  print(json.dumps({"actionable":True,"authorization_sha256":authorization,"authorized":False,"manifest":str(output/f'{authorization}.manifest.json'),"plan_sha256":plan_sha},sort_keys=True))
 def plan(args,operation):
- output=require_private_root(args.output_dir,()); target=common.admission(args); verified=common.snippet(args); prior_receipt,prior_sha=prior(args,operation,target,verified["snippet_receipt_sha256"]); key=common.guest_key(args.guest_public_key,target); commit=common.revision(); credentials=common.credential("plan",target); controller,run,env,state,host=common.locked_setup(output,credentials,target,args); state_before=common.state_sha(state)
+ output=require_private_root(args.output_dir,()); target=common.admission(args); verified=common.snippet(args); target={**target,"snippet_file_id":verified["snippet_file_id"]}; prior_receipt,prior_sha=prior(args,operation,target,verified["snippet_receipt_sha256"]); key=common.guest_key(args.guest_public_key,target); commit=common.revision(); credentials=common.credential("plan",target); controller,run,env,state,host=common.locked_setup(output,credentials,target,args); state_before=common.state_sha(state)
  try:
   if state_before!=prior_receipt["state_sha256"]: fail("state-drift")
   fresh=common.snippet(args)
@@ -59,7 +59,7 @@ def manifest(args,operation,target,prior_sha,snippet_sha):
  return value
 def apply(args,operation):
  if re.fullmatch(r"[0-9a-f]{64}",args.plan_sha or "") is None or re.fullmatch(r"[0-9a-f]{64}",args.authorization_sha or "") is None or args.approve_plan_sha!=args.plan_sha or args.approve_authorization_sha!=args.authorization_sha or args.confirm!=CONFIRM[operation]: fail("exact-authorization-required")
- output=require_private_root(args.output_dir,()); target=common.admission(args); verified=common.snippet(args); prior_receipt,prior_sha=prior(args,operation,target,verified["snippet_receipt_sha256"]); value=manifest(args,operation,target,prior_sha,verified["snippet_receipt_sha256"]); common.revision(value["commit"]); binary=output/f"{args.plan_sha}.tfplan"; shown=output/f"{args.plan_sha}.plan.json"
+ output=require_private_root(args.output_dir,()); target=common.admission(args); verified=common.snippet(args); target={**target,"snippet_file_id":verified["snippet_file_id"]}; prior_receipt,prior_sha=prior(args,operation,target,verified["snippet_receipt_sha256"]); value=manifest(args,operation,target,prior_sha,verified["snippet_receipt_sha256"]); common.revision(value["commit"]); binary=output/f"{args.plan_sha}.tfplan"; shown=output/f"{args.plan_sha}.plan.json"
  if sha(load_protected_bytes(binary,"transition saved plan"))!=args.plan_sha or sha(load_protected_bytes(shown,"transition plan JSON"))!=value["plan_json_sha256"]: fail("saved-plan-binding")
  inspect(json.loads(load_protected_bytes(shown,"transition plan JSON")),operation,target); credentials=common.credential("apply",target); controller,run,env,state,host=common.locked_setup(output,credentials,target,args)
  try:

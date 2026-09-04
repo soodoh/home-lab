@@ -140,6 +140,7 @@ def locked_setup(output,credentials,target,args):
 def plan(args):
  output=require_private_root(args.output_dir,()); target=admission(args); verified=snippet(args)
  if any(target.get(key)!=verified.get(key) for key in ("isolation_attestation_sha256","target_id","node_name","endpoint")): fail("snippet-target-binding")
+ target={**target,"snippet_file_id":verified["snippet_file_id"]}
  key=guest_key(args.guest_public_key,target); commit=revision(); credentials=credential("plan",target); controller,run,env,state,host=locked_setup(output,credentials,target,args)
  try:
   fresh=snippet(args)
@@ -166,6 +167,7 @@ def apply(args):
  if set(manifest)!=required or any(re.fullmatch(r"[0-9a-f]{64}",manifest.get(key,"") or "") is None for key in identities) or sha(manifest_raw)!=args.authorization_sha or manifest.get("plan_sha256")!=args.plan_sha or manifest.get("format")!="home-lab-debian-qualification-foundation-plan-v1" or manifest.get("version")!=1 or manifest.get("vmid")!=9900 or manifest.get("resources")!=expected_resources or manifest.get("actionable") is not True or manifest.get("authorized") is not False or manifest.get("automatic_apply") is not False or manifest.get("operation")!="create-stopped-foundation" or created>now()+dt.timedelta(seconds=5) or created<now()-dt.timedelta(minutes=20) or expires<=now() or expires-created>dt.timedelta(minutes=20): fail("manifest-binding")
  revision(manifest.get("commit")); target=admission(args); verified=snippet(args)
  if manifest.get("admission_sha256")!=target["isolation_attestation_sha256"] or manifest.get("snippet_receipt_sha256")!=verified["snippet_receipt_sha256"] or manifest.get("target_id")!=target["target_id"] or manifest.get("endpoint")!=target["endpoint"] or manifest.get("node_name")!=target["node_name"] or manifest.get("api_ca_sha256")!=target["api_ca_sha256"] or manifest.get("plan_principal")!=target["plan_principal"] or manifest.get("apply_principal")!=target["apply_principal"]: fail("current-binding")
+ target={**target,"snippet_file_id":verified["snippet_file_id"]}
  credentials=credential("apply",target); binary=output/f"{args.plan_sha}.tfplan"; shown=output/f"{args.plan_sha}.plan.json"
  if sha(load_protected_bytes(binary,"qualification saved plan"))!=args.plan_sha or sha(load_protected_bytes(shown,"qualification plan JSON"))!=manifest.get("plan_json_sha256"): fail("saved-plan-binding")
  inspect_plan(json.loads(load_protected_bytes(shown,"qualification plan JSON")),target); controller,run,env,state,host=locked_setup(output,credentials,target,args)
