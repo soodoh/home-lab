@@ -1,13 +1,21 @@
 #!/bin/sh
 set -eu
 helper=/usr/local/libexec/home-lab/debian-qualification-snippet-transaction
-case "${SSH_ORIGINAL_COMMAND-}" in
+if [ -n "${SSH_ORIGINAL_COMMAND-}" ] && [ "$#" -eq 0 ]; then
+  command=$SSH_ORIGINAL_COMMAND
+elif [ -z "${SSH_ORIGINAL_COMMAND-}" ] && [ "$#" -eq 2 ] && [ "$1" = -c ]; then
+  command=$2
+else
+  echo "unsupported qualification snippet command" >&2
+  exit 64
+fi
+case "$command" in
   observe)
     exec sudo -n -- "$helper" observe
     ;;
   hold-lock\ [0-9a-f][0-9a-f]*)
     IFS=' ' read -r verb admission extra <<EOF
-${SSH_ORIGINAL_COMMAND}
+${command}
 EOF
     [ "$verb" = hold-lock ] && [ -z "${extra-}" ] || exit 64
     case "$admission" in *[!0-9a-f]*|'') exit 64;; esac
@@ -16,7 +24,7 @@ EOF
     ;;
   apply\ [0-9a-f][0-9a-f]*)
     IFS=' ' read -r verb plan approval extra <<EOF
-${SSH_ORIGINAL_COMMAND}
+${command}
 EOF
     [ "$verb" = apply ] && [ -z "${extra-}" ] || exit 64
     case "$plan:$approval" in *[!0-9a-f:]*|*:*:*|:*) exit 64;; esac

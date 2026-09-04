@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory() as directory:
  for setting in ("globalknownhostsfile /dev/null",f"userknownhostsfile {known}".lower(),"identityfile none","identitiesonly yes","preferredauthentications none","pubkeyauthentication false","passwordauthentication no","kbdinteractiveauthentication no"):
   assert setting in effective,setting
  source=TRANSPORT.read_text()
- for required in ("SSH_ORIGINAL_COMMAND", "sudo -n --", "hold-lock", "unsupported qualification snippet command", '"$plan" = "$approval"', '"${#plan}" -eq 64'):
+ for required in ("SSH_ORIGINAL_COMMAND", '"$#" -eq 2', '"$1" = -c', "sudo -n --", "hold-lock", "unsupported qualification snippet command", '"$plan" = "$approval"', '"${#plan}" -eq 64'):
   assert required in source
  helper_source=HELPER.read_text(); controller_source=CONTROLLER.read_text()
  for required in ("os.O_NOFOLLOW", "os.fsync", "os.link", "LOCK_EX|fcntl.LOCK_NB", "plan stale", "snippet precondition drift"):
