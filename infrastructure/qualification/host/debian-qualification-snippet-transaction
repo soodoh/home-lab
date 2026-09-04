@@ -103,7 +103,9 @@ def apply(plan_sha,approval):
  finally: os.close(lock_fd)
 def run(command):
  result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
- if result.returncode: fail(f"command failed: {command[0]}")
+ if result.returncode:
+  detail=" ".join(result.stderr.strip().split())[:512]
+  fail(f"command failed: {command[0]}:{detail}")
  return result.stdout
 
 def read_guest_host_key(root):
