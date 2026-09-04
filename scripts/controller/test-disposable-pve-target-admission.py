@@ -16,7 +16,7 @@ with tempfile.TemporaryDirectory() as directory:
  value={
   "api_ca_sha256":"e"*64,
   "console":{"kind":"physical","verified":True},
-  "credentials":{"apply_principal":"root@pam!tofu-apply","guest_ssh_public_key_sha256":"0"*64,"plan_principal":"root@pam!tofu-plan","production_credentials_absent":False,"separate_principals":True,"ssh_agent_key_count":1,"ssh_agent_public_key_sha256":hashlib.sha256(f"{public[0]} {public[1]}".encode()).hexdigest(),"ssh_principal":"qualification-apply"},
+  "credentials":{"apply_principal":"root@pam!tofu-apply","guest_ssh_public_key_sha256":"0"*64,"plan_principal":"root@pam!tofu-plan","production_credentials_absent":False,"separate_principals":True,"ssh_authentication":"tailscale-policy","ssh_principal":"qualification-apply"},
   "endpoint":"https://proxmox:8006/api2/json",
   "expires_at":(now+dt.timedelta(minutes=15)).isoformat().replace("+00:00","Z"),
   "format":"home-lab-disposable-pve-target-admission-v1",
@@ -36,8 +36,8 @@ with tempfile.TemporaryDirectory() as directory:
  refused("wrong-endpoint",lambda x:x.update(endpoint="https://pve-qualification.invalid:8006/api2/json"),"target binding mismatch")
  refused("unshared-storage",lambda x:x["storage"].update(shares_production_storage=False),"schema violation")
  refused("same-principal",lambda x:x["credentials"].update(apply_principal=x["credentials"]["plan_principal"]),"shared-hypervisor route")
- refused("wrong-ssh",lambda x:x["credentials"].update(ssh_principal="ansible-deploy"),"shared-hypervisor route")
- refused("reused-guest-key",lambda x:x["credentials"].update(guest_ssh_public_key_sha256=x["credentials"]["ssh_agent_public_key_sha256"]),"guest and PVE SSH keys must differ")
+ refused("wrong-ssh",lambda x:x["credentials"].update(ssh_principal="ansible-deploy"),"schema violation")
+ refused("wrong-ssh-auth",lambda x:x["credentials"].update(ssh_authentication="authorized-key"),"schema violation")
  refused("stale",lambda x:x.update(observed_at=(now-dt.timedelta(hours=1)).isoformat().replace("+00:00","Z")),"stale")
  noncanonical=root/"noncanonical.json"; noncanonical.write_text(json.dumps(value,indent=2)); noncanonical.chmod(0o600); assert "canonical JSON" in run(noncanonical,known).stderr
  unsafe=root/"unsafe.json"; unsafe.write_bytes(canonical(value)); unsafe.chmod(0o644); assert "unsafe protected artifact metadata" in run(unsafe,known).stderr

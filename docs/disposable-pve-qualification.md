@@ -16,7 +16,7 @@ Before any connection or plan, record and independently verify:
 
 The production root filesystem, `/etc/pve`, and storage pools are shared by explicit risk acceptance; they are not described as isolated. Every plan must contain only VM9900 qualification resources, and direct before/after observations must prove VM 100 unchanged.
 
-Record these facts as canonical JSON conforming to `infrastructure/evidence/disposable-pve-target-admission.schema.json`. Keep admission, known-hosts, and public IdentityFile artifacts as mode-`0600`, current-controller-owned, single-link regular files. `scripts/controller/validate-disposable-pve-target.js` accepts only the contract-selected production route, exact production plan/apply principals, dedicated qualification SSH user, fresh evidence, expected shared-storage declaration, and exact host trust.
+Record these facts as canonical JSON conforming to `infrastructure/evidence/disposable-pve-target-admission.schema.json`. Keep admission and known-hosts artifacts as mode-`0600`, current-controller-owned, single-link regular files. `scripts/controller/validate-disposable-pve-target.js` accepts only the contract-selected production route, exact production plan/apply principals, the temporary `qualification-apply` Tailscale SSH user, fresh evidence, expected shared-storage declaration, and exact host trust.
 
 ## Required proof
 
@@ -35,7 +35,7 @@ Record these facts as canonical JSON conforming to `infrastructure/evidence/disp
 
 `infrastructure/tofu/debian-lifecycle-qualification` accepts only the contract-selected production PVE node and API endpoint. Enabled planning requires an exact admission SHA-256 plus explicit local image/disk/bridge and pre-staged cloud-init snippet identities. The provider downloads the exact contract-pinned Debian image and verifies its SHA-512 before importing it. Because provider-managed snippet uploads do not expose strict host-key verification, OpenTofu performs no SSH operation: a separately gated fixed OpenSSH transaction installs and verifies the exact snippet.
 
-The earlier VM 9900 plan `fe1423e38110f41dabd5600ba0d2ce0bc3471fc1d861b6747fcc1b66b2ebd645` remains historical and unusable: it predates the accepted-route contract, API CA/principal binding, dedicated PVE/guest keys, server-side snippet receipt, lifecycle-wide locks, and exact create/start/destroy inspectors. A fresh plan is mandatory.
+The earlier VM 9900 plan `fe1423e38110f41dabd5600ba0d2ce0bc3471fc1d861b6747fcc1b66b2ebd645` remains historical and unusable: it predates the accepted-route contract, API CA/principal binding, temporary Tailscale-only PVE capability, dedicated guest key, server-side snippet receipt, lifecycle-wide locks, and exact create/start/destroy inspectors. A fresh plan is mandatory.
 
 ### Guarded snippet prerequisite
 
@@ -43,7 +43,7 @@ After target admission and separate capability installation, `scripts/controller
 
 A separately approved apply must provide the plan SHA twice plus `PRODUCTION_PVE_VM9900_SNIPPET_CONFIRMED`. The fixed forced transport and host transaction sources under `infrastructure/qualification/host/` accept only `observe`, `hold-lock`, or the exact approved plan; they reject precondition drift or existing different bytes, atomically fsync the create, and return a canonical receipt. The guarded OpenTofu controller consumes that receipt and independently rechecks the server-side SHA-256.
 
-The capability installer is `ansible/playbooks/install-qualification-snippet-capability.yml` with `ansible/inventory/proxmox-qualification-bootstrap.yml`. It is excluded from ordinary convergence and accepts only the contract-selected production PVE maintenance route, the existing `proxmox` human bootstrap account, exact admission/key hashes, UID/GID 1900, two reviewed executables, a sole forced key, and the fixed sudo command family. Run and review check mode, rerun it immediately, then perform one gated apply with `qualification_capability_confirmation=install-production-pve-vm9900-qualification-capability`. The attended physical console is retained throughout.
+The capability installer is `ansible/playbooks/install-qualification-snippet-capability.yml` with `ansible/inventory/proxmox-qualification-bootstrap.yml`. It is excluded from ordinary convergence and accepts only the contract-selected production PVE maintenance route and existing `proxmox` Tailscale bootstrap account. It pins UID/GID 1900, two reviewed executables, the fixed sudo command family, additive `local` snippets content, and explicit absence of conventional authorized-key files. After the saved Tailscale policy grants `qualification-apply`, rerun check mode immediately before one gated apply with `qualification_capability_confirmation=install-production-pve-vm9900-qualification-capability`.
 
 ### Guarded stopped-foundation plan
 
@@ -55,4 +55,4 @@ A foundation apply uses the existing production `apply-credentials.json` but exp
 
 ## Current gate
 
-The route decision is accepted and repository guards are ready. Before mutation, generate dedicated PVE and guest keys, capture a fresh production-route admission document from direct read-only observations, run the capability check twice, and prove current VM 100/state/lock baselines. Packages, reboot, root-disk changes, resource destruction, authority cutover, and credential removal still stop for fresh exact approval.
+The first capability apply enabled `local` snippets and installed the fixed account/assets but exposed that Tailscale policy did not yet authorize `qualification-apply`; conventional OpenSSH was correctly disabled. The production owner lock was released. Next apply the saved Tailscale-only grant, rerun the capability transaction to remove the now-inert authorized-key file, prove the fixed connection, and capture a new admission with `snippet_content_enabled: true`. Packages, reboot, root-disk changes, resource destruction, authority cutover, and credential removal still stop for fresh exact approval.

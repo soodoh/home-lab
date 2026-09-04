@@ -558,7 +558,7 @@
         "qualification_route": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["mode", "pve_host", "vmid", "shared_hypervisor_risk_accepted", "host_outage_risk_accepted", "production_vm_mutation_allowed", "production_disk_attachment_allowed", "production_state_allowed", "reuse_production_api_plan_apply_identities", "non_destructive_gated_applies_authorized", "separate_exact_approval", "selected_at"],
+          "required": ["mode", "pve_host", "vmid", "shared_hypervisor_risk_accepted", "host_outage_risk_accepted", "production_vm_mutation_allowed", "production_disk_attachment_allowed", "production_state_allowed", "reuse_production_api_plan_apply_identities", "temporary_tailnet_user", "conventional_ssh_key_allowed", "non_destructive_gated_applies_authorized", "separate_exact_approval", "selected_at"],
           "properties": {
             "mode": { "const": "production-pve-disposable-vm" },
             "pve_host": { "const": "proxmox" },
@@ -569,6 +569,8 @@
             "production_disk_attachment_allowed": { "const": false },
             "production_state_allowed": { "const": false },
             "reuse_production_api_plan_apply_identities": { "const": true },
+            "temporary_tailnet_user": { "const": "qualification-apply" },
+            "conventional_ssh_key_allowed": { "const": false },
             "non_destructive_gated_applies_authorized": { "const": true },
             "separate_exact_approval": { "const": ["package", "reboot", "root-disk", "destructive"] },
             "selected_at": { "const": "2026-09-04T00:10:00Z" }

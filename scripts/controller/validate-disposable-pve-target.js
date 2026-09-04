@@ -44,7 +44,7 @@ function main(){
  const {plan_principal:plan,apply_principal:apply,ssh_principal:sshPrincipal}=evidence.credentials; const accounts=contract.proxmox.access.pve.accounts||[];
  const expectedPlan=`${accounts[0].user}!${accounts[0].token_name}`,expectedApply=`${accounts[1].user}!${accounts[1].token_name}`;
  if(plan!==expectedPlan||apply!==expectedApply||plan===apply||sshPrincipal!=="qualification-apply") fail("qualification credentials do not match the accepted shared-hypervisor route");
- if(evidence.credentials.ssh_agent_public_key_sha256===evidence.credentials.guest_ssh_public_key_sha256) fail("guest and PVE SSH keys must differ");
+ if(evidence.credentials.ssh_authentication!=="tailscale-policy"||route.temporary_tailnet_user!==sshPrincipal||route.conventional_ssh_key_allowed!==false) fail("qualification SSH authentication boundary mismatch");
  if(sha(knownHosts)!==evidence.host_key.known_hosts_sha256) fail("known-hosts digest mismatch");
  const lines=knownHosts.toString("utf8").trim().split("\n");
  if(lines.length!==1||lines[0].startsWith("#")) fail("known-hosts file must contain exactly one host key");
@@ -52,7 +52,7 @@ function main(){
  const hostNames=fields[0].split(","); if(!hostNames.includes(evidence.host_key.ssh_address)&&!hostNames.includes(`[${evidence.host_key.ssh_address}]:22`)) fail("known-hosts endpoint mismatch");
  const fingerprint=cp.execFileSync("ssh-keygen",["-E","sha256","-lf","-"],{encoding:"utf8",input:knownHosts,stdio:["pipe","pipe","ignore"]}).trim().split(/\s+/)[1];
  if(fingerprint!==evidence.host_key.fingerprint) fail("known-hosts fingerprint mismatch");
- process.stdout.write(JSON.stringify({admitted:true,api_ca_sha256:evidence.api_ca_sha256,apply_principal:apply,bridge:evidence.network.bridge,controller_ipv4:evidence.network.controller_ipv4,disk_datastore_id:evidence.storage.disk_datastore_id,endpoint:evidence.endpoint,guest_ssh_public_key_sha256:evidence.credentials.guest_ssh_public_key_sha256,image_datastore_id:evidence.storage.image_datastore_id,isolation_attestation_sha256:sha(raw),node_name:evidence.node_name,plan_principal:plan,snippet_content_enabled:evidence.storage.snippet_content_enabled,snippet_datastore_id:evidence.storage.snippet_datastore_id,snippet_directory:evidence.storage.snippet_directory,ssh_address:evidence.host_key.ssh_address,ssh_agent_public_key_sha256:evidence.credentials.ssh_agent_public_key_sha256,ssh_username:sshPrincipal,target_id:evidence.target_id})+"\n");
+ process.stdout.write(JSON.stringify({admitted:true,api_ca_sha256:evidence.api_ca_sha256,apply_principal:apply,bridge:evidence.network.bridge,controller_ipv4:evidence.network.controller_ipv4,disk_datastore_id:evidence.storage.disk_datastore_id,endpoint:evidence.endpoint,guest_ssh_public_key_sha256:evidence.credentials.guest_ssh_public_key_sha256,image_datastore_id:evidence.storage.image_datastore_id,isolation_attestation_sha256:sha(raw),node_name:evidence.node_name,plan_principal:plan,snippet_content_enabled:evidence.storage.snippet_content_enabled,snippet_datastore_id:evidence.storage.snippet_datastore_id,snippet_directory:evidence.storage.snippet_directory,ssh_address:evidence.host_key.ssh_address,ssh_authentication:evidence.credentials.ssh_authentication,ssh_username:sshPrincipal,target_id:evidence.target_id})+"\n");
 }
 if(require.main===module){try{main()}catch(error){console.error(error.message);process.exit(1)}}
 module.exports={protectedRead,stable};

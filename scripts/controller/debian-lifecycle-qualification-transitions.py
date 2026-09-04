@@ -77,7 +77,7 @@ def main():
  parser=argparse.ArgumentParser(); sub=parser.add_subparsers(dest="command",required=True)
  for command in ("plan-start","apply-start","plan-destroy","apply-destroy"):
   item=sub.add_parser(command)
-  for option in ("admission","known-hosts","pve-public-key","guest-public-key","snippet-receipt","prior-receipt","output-dir"): item.add_argument("--"+option,type=Path,required=True)
+  for option in ("admission","known-hosts","guest-public-key","snippet-receipt","prior-receipt","output-dir"): item.add_argument("--"+option,type=Path,required=True)
   if command.startswith("apply-"):
    item.add_argument("--manifest",type=Path,required=True); item.add_argument("--plan-sha",required=True); item.add_argument("--approve-plan-sha",required=True); item.add_argument("--authorization-sha",required=True); item.add_argument("--approve-authorization-sha",required=True); item.add_argument("--confirm",required=True)
  args=parser.parse_args()

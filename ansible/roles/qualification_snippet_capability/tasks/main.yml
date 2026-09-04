@@ -21,9 +21,8 @@
       - disposable_pve_admission_sha256 is match('^[0-9a-f]{64}$')
       - disposable_pve_target_id == 'production-pve-vm9900-qualification'
       - disposable_pve_node_name == qualification_snippet_capability_contract.proxmox.node
-      - qualification_pve_public_key is match('^ssh-ed25519 [A-Za-z0-9+/]+={0,2} qualification-[a-z0-9-]+$')
-      - (qualification_pve_public_key.split()[0:2] | join(' ') | hash('sha256')) == qualification_pve_public_key_sha256
-      - qualification_pve_public_key_sha256 is match('^[0-9a-f]{64}$')
+      - qualification_snippet_capability_contract.lifecycle.qualification_route.temporary_tailnet_user == 'qualification-apply'
+      - not qualification_snippet_capability_contract.lifecycle.qualification_route.conventional_ssh_key_allowed
       - ansible_check_mode or (qualification_capability_confirmation | default('')) == 'install-production-pve-vm9900-qualification-capability'
     fail_msg: Qualification capability installation is restricted to the accepted production-PVE/VM9900 route.
 
@@ -177,25 +176,14 @@
   when: not ansible_check_mode
   no_log: true
 
-- name: Create qualification SSH directory
+- name: Remove conventional qualification authorized-key files
   ansible.builtin.file:
-    path: /home/qualification-apply/.ssh
-    state: directory
-    owner: '1900'
-    group: '1900'
-    mode: "0700"
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /home/qualification-apply/.ssh/authorized_keys
+    - /home/qualification-apply/.ssh/authorized_keys2
   when: not ansible_check_mode
-
-- name: Install sole forced qualification key
-  ansible.builtin.copy:
-    content: "restrict,command=\"/usr/local/libexec/home-lab/debian-qualification-snippet-transport\" {{ qualification_pve_public_key }}\n"
-    dest: /home/qualification-apply/.ssh/authorized_keys
-    owner: '1900'
-    group: '1900'
-    mode: "0600"
-  when: not ansible_check_mode
-  no_log: true
-
 - name: Install fixed qualification sudo boundary
   ansible.builtin.copy:
     content: >-
@@ -239,7 +227,6 @@
   loop:
     - /usr/local/libexec/home-lab/debian-qualification-snippet-transaction
     - /usr/local/libexec/home-lab/debian-qualification-snippet-transport
-    - /home/qualification-apply/.ssh/authorized_keys
     - /etc/sudoers.d/qualification-apply
   register: qualification_snippet_capability_installed
   when: not ansible_check_mode
@@ -250,8 +237,27 @@
     that:
       - qualification_snippet_capability_installed.results[0].stat.checksum == qualification_snippet_capability_helper_sha256
       - qualification_snippet_capability_installed.results[1].stat.checksum == qualification_snippet_capability_transport_sha256
-      - qualification_snippet_capability_installed.results | map(attribute='stat.isreg') | select('equalto', true) | list | length == 4
+      - qualification_snippet_capability_installed.results | map(attribute='stat.isreg') | select('equalto', true) | list | length == 3
       - qualification_snippet_capability_installed.results | map(attribute='stat.islnk') | select('equalto', true) | list | length == 0
     fail_msg: Installed qualification capability differs from reviewed source.
   when: not ansible_check_mode
   no_log: true
+
+- name: Inspect forbidden conventional qualification keys
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /home/qualification-apply/.ssh/authorized_keys
+    - /home/qualification-apply/.ssh/authorized_keys2
+  register: qualification_snippet_capability_authorized_keys
+  when: not ansible_check_mode
+
+- name: Require conventional qualification keys absent
+  ansible.builtin.assert:
+    that:
+      - >-
+        qualification_snippet_capability_authorized_keys.results |
+        map(attribute='stat.exists') | select('equalto', true) | list | length == 0
+    fail_msg: Conventional qualification authorized keys remain present.
+  when: not ansible_check_mode

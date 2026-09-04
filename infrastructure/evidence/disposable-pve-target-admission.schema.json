@@ -69,13 +69,12 @@
     },
     "credentials": {
       "type": "object", "additionalProperties": false,
-      "required": ["plan_principal", "apply_principal", "ssh_principal", "ssh_agent_key_count", "ssh_agent_public_key_sha256", "guest_ssh_public_key_sha256", "separate_principals", "production_credentials_absent"],
+      "required": ["plan_principal", "apply_principal", "ssh_principal", "ssh_authentication", "guest_ssh_public_key_sha256", "separate_principals", "production_credentials_absent"],
       "properties": {
         "plan_principal": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,31}@[a-z][a-z0-9_-]{1,15}![a-z][a-z0-9_-]{1,31}$" },
         "apply_principal": { "type": "string", "pattern": "^[a-z][a-z0-9_-]{2,31}@[a-z][a-z0-9_-]{1,15}![a-z][a-z0-9_-]{1,31}$" },
-        "ssh_principal": { "type": "string", "pattern": "^[a-z_][a-z0-9_-]{0,31}$" },
-        "ssh_agent_key_count": { "const": 1 },
-        "ssh_agent_public_key_sha256": { "$ref": "#/$defs/sha256" },
+        "ssh_principal": { "const": "qualification-apply" },
+        "ssh_authentication": { "const": "tailscale-policy" },
         "guest_ssh_public_key_sha256": { "$ref": "#/$defs/sha256" },
         "separate_principals": { "const": true },
         "production_credentials_absent": { "const": false }

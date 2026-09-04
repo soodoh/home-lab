@@ -37,7 +37,7 @@ with tempfile.TemporaryDirectory() as directory:
  except ProcessLookupError: pass
  else: raise AssertionError("controlled child survived controller interruption")
 source=SOURCE.read_text()
-for required in ("{kind}-credentials.json","PROXMOX_VE_API_TOKEN","CREATE_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","tofu-apply-no-retry","hold-lock","GlobalKnownHostsFile=/dev/null","IdentityFile=","target-lock-lost","lifecycle.lock",'"authorized":False','"automatic_apply":False','"actionable":True',"authorization_sha256","approve_authorization_sha","snippet_receipt_sha256","api_ca_sha256","apply_principal","state-drift","saved-plan-binding"):
+for required in ("{kind}-credentials.json","PROXMOX_VE_API_TOKEN","CREATE_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","tofu-apply-no-retry","hold-lock","GlobalKnownHostsFile=/dev/null","IdentityFile=none","PreferredAuthentications=none","PubkeyAuthentication=no","target-lock-lost","lifecycle.lock",'"authorized":False','"automatic_apply":False','"actionable":True',"authorization_sha256","approve_authorization_sha","snippet_receipt_sha256","api_ca_sha256","apply_principal","state-drift","saved-plan-binding"):
  assert required in source,required
 assert '"apply","-input=false","-lock=true","-auto-approve",str(binary)' in source
 assert "-var=enable_qualification=true" in source and "-var=proxmox_endpoint=" in source

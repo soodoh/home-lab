@@ -24,7 +24,7 @@ def admission(args):
  if value.get("admitted") is not True or value.get("snippet_content_enabled") is not True: fail("target-not-admitted")
  return value
 def snippet(args):
- value=run_json([str(SNIPPET),"verify","--admission",str(args.admission),"--known-hosts",str(args.known_hosts),"--pve-public-key",str(args.pve_public_key),"--guest-public-key",str(args.guest_public_key),"--receipt",str(args.snippet_receipt)])
+ value=run_json([str(SNIPPET),"verify","--admission",str(args.admission),"--known-hosts",str(args.known_hosts),"--guest-public-key",str(args.guest_public_key),"--receipt",str(args.snippet_receipt)])
  if value.get("snippet_file_id")!="local:snippets/home-lab-debian-lifecycle-qualification.yaml": fail("snippet-not-verified")
  return value
 def credential(kind,target):
@@ -89,7 +89,7 @@ def inspect_plan(value,target):
  observed_rules=[(item.get("type"),item.get("action"),item.get("dest"),item.get("source"),item.get("proto"),item.get("dport"),item.get("sport")) for item in rules]
  if observed_rules!=expected_rules: fail("foundation-firewall-rules")
  return sorted(expected)
-def ssh_args(target,args,command): return ["ssh","-F","/dev/null","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes","-o","GlobalKnownHostsFile=/dev/null","-o","UpdateHostKeys=no","-o",f"UserKnownHostsFile={args.known_hosts}","-o","IdentitiesOnly=yes","-o",f"IdentityFile={args.pve_public_key}","-o","PreferredAuthentications=publickey","-o","PasswordAuthentication=no","-o","KbdInteractiveAuthentication=no","-o","ClearAllForwardings=yes","-o","PermitLocalCommand=no","-o","RequestTTY=no",f'{target["ssh_username"]}@{target["ssh_address"]}',command]
+def ssh_args(target,args,command): return ["ssh","-F","/dev/null","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes","-o","GlobalKnownHostsFile=/dev/null","-o","UpdateHostKeys=no","-o",f"UserKnownHostsFile={args.known_hosts}","-o","IdentitiesOnly=yes","-o","IdentityFile=none","-o","PreferredAuthentications=none","-o","PubkeyAuthentication=no","-o","PasswordAuthentication=no","-o","KbdInteractiveAuthentication=no","-o","ClearAllForwardings=yes","-o","PermitLocalCommand=no","-o","RequestTTY=no",f'{target["ssh_username"]}@{target["ssh_address"]}',command]
 def hold_target(target,args):
  child=subprocess.Popen(ssh_args(target,args,f"hold-lock {target['isolation_attestation_sha256']}"),stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
  ready,_,_=select.select([child.stdout,child.stderr],[],[],10)
@@ -185,7 +185,7 @@ def main():
  parser=argparse.ArgumentParser(); sub=parser.add_subparsers(dest="command",required=True)
  for name in ("plan","apply"):
   item=sub.add_parser(name)
-  for option in ("admission","known-hosts","pve-public-key","guest-public-key","snippet-receipt","output-dir"): item.add_argument("--"+option,type=Path,required=True)
+  for option in ("admission","known-hosts","guest-public-key","snippet-receipt","output-dir"): item.add_argument("--"+option,type=Path,required=True)
   if name=="apply": item.add_argument("--manifest",type=Path,required=True); item.add_argument("--plan-sha",required=True); item.add_argument("--approve-plan-sha",required=True); item.add_argument("--authorization-sha",required=True); item.add_argument("--approve-authorization-sha",required=True); item.add_argument("--confirm",required=True)
  args=parser.parse_args()
  for key,value in vars(args).items():

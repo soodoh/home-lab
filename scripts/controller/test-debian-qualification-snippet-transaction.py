@@ -28,9 +28,9 @@ with tempfile.TemporaryDirectory() as directory:
  assert json.loads(holder.stdout.readline())["held"] is True
  assert b"active qualification transaction lock" in call(env,"apply",digest,digest,data=raw).stderr
  holder.stdin.close(); assert holder.wait(timeout=5)==0
- pve_public=fixture/"pve.pub"; pve_public.write_text("ssh-ed25519 AAAA qualification-pve-fixture\n"); pve_public.chmod(0o600); known=fixture/"known_hosts"; known.write_text("pve-qualification.invalid ssh-ed25519 AAAA\n"); known.chmod(0o600)
- ssh=controller.ssh_args({"ssh_username":"qualification-apply","ssh_address":"pve-qualification.invalid"},known,pve_public,"observe"); effective=subprocess.check_output([ssh[0],"-G",*ssh[1:]],text=True,stderr=subprocess.DEVNULL).lower()
- for setting in ("globalknownhostsfile /dev/null",f"userknownhostsfile {known}".lower(),f"identityfile {pve_public}".lower(),"identitiesonly yes","preferredauthentications publickey","passwordauthentication no","kbdinteractiveauthentication no"):
+ known=fixture/"known_hosts"; known.write_text("proxmox ssh-ed25519 AAAA\n"); known.chmod(0o600)
+ ssh=controller.ssh_args({"ssh_username":"qualification-apply","ssh_address":"proxmox"},known,"observe"); effective=subprocess.check_output([ssh[0],"-G",*ssh[1:]],text=True,stderr=subprocess.DEVNULL).lower()
+ for setting in ("globalknownhostsfile /dev/null",f"userknownhostsfile {known}".lower(),"identityfile none","identitiesonly yes","preferredauthentications none","pubkeyauthentication false","passwordauthentication no","kbdinteractiveauthentication no"):
   assert setting in effective,setting
  source=TRANSPORT.read_text()
  for required in ("SSH_ORIGINAL_COMMAND", "sudo -n --", "hold-lock", "unsupported qualification snippet command", '"$plan" = "$approval"', '"${#plan}" -eq 64'):
@@ -38,6 +38,6 @@ with tempfile.TemporaryDirectory() as directory:
  helper_source=HELPER.read_text(); controller_source=CONTROLLER.read_text()
  for required in ("os.O_NOFOLLOW", "os.fsync", "os.link", "LOCK_EX|fcntl.LOCK_NB", "plan stale", "snippet precondition drift"):
   assert required in helper_source
- for required in ("StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null", "UpdateHostKeys=no", "IdentitiesOnly=yes", "IdentityFile=", "PreferredAuthentications=publickey", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no", "RequestTTY=no", "validate-disposable-pve-target.js", "qualification SSH agent must contain exactly one key", "verify_exact_checkout", "acquire_transfer_lock", "PRODUCTION_PVE_VM9900_SNIPPET_CONFIRMED", "expected_content=render(public)", "snippet plan binding mismatch"):
+ for required in ("StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null", "UpdateHostKeys=no", "IdentitiesOnly=yes", "IdentityFile=none", "PreferredAuthentications=none", "PubkeyAuthentication=no", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no", "RequestTTY=no", "validate-disposable-pve-target.js", "tailscale-policy", "verify_exact_checkout", "acquire_transfer_lock", "PRODUCTION_PVE_VM9900_SNIPPET_CONFIRMED", "expected_content=render(public)", "snippet plan binding mismatch"):
   assert required in controller_source
 print("debian_qualification_snippet_transaction=verified create_noop_refusals=true")

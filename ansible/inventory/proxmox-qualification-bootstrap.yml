@@ -17,8 +17,9 @@ all:
             -o UpdateHostKeys=no
             -o UserKnownHostsFile={{ lookup('ansible.builtin.env', 'HOME_LAB_DISPOSABLE_PVE_KNOWN_HOSTS') }}
             -o IdentitiesOnly=yes
-            -o IdentityFile={{ lookup('ansible.builtin.env', 'HOME_LAB_DISPOSABLE_PVE_BOOTSTRAP_PUBLIC_KEY') }}
-            -o PreferredAuthentications=publickey
+            -o IdentityFile=none
+            -o PreferredAuthentications=none
+            -o PubkeyAuthentication=no
             -o PasswordAuthentication=no
             -o KbdInteractiveAuthentication=no
             -o ClearAllForwardings=yes
