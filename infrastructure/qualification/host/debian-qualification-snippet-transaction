@@ -152,7 +152,7 @@ def production_guest_host_key(plan):
   for child in layout.get("blockdevices",[{}])[0].get("children",[]) or []:
    if child.get("type")=="part": partitions.append(child.get("path"))
   root_partition=device+"p1"
-  if set(partitions)!={root_partition,device+"p14",device+"p15"}: fail("unexpected VM9900 partition layout")
+  if set(partitions)!={root_partition,device+"p14",device+"p15"}: fail("unexpected VM9900 partition layout:"+json.dumps(layout,sort_keys=True,separators=(",",":")))
   mountpoint=tempfile.mkdtemp(prefix="home-lab-vm9900-hostkey-",dir="/run")
   run(["/usr/bin/mount","-o","ro,noload,nodev,nosuid,noexec",root_partition,mountpoint])
   return read_guest_host_key(mountpoint)
