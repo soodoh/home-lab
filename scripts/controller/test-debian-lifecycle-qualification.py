@@ -46,6 +46,9 @@ required = (
     'package_update: false',
     'package_upgrade: false',
     'sudo: ALL=(ALL) NOPASSWD:ALL',
+    '[resolvectl, dns, eth0, 1.1.1.1, 9.9.9.9]',
+    'path: /etc/systemd/network/10-cloud-init-eth0.network.d/10-public-dns.conf',
+    'UseDNS=no',
     'user_data_file_id = var.qualification_cloud_init_file_id',
 )
 for item in required:

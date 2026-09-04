@@ -12,6 +12,19 @@ users:
     sudo: ALL=(ALL) NOPASSWD:ALL
     ssh_authorized_keys:
       - ${qualification_ssh_public_key}
+bootcmd:
+  - [resolvectl, dns, eth0, 1.1.1.1, 9.9.9.9]
+  - [resolvectl, domain, eth0, "~."]
+write_files:
+  - path: /etc/systemd/network/10-cloud-init-eth0.network.d/10-public-dns.conf
+    owner: root:root
+    permissions: "0644"
+    content: |
+      [DHCPv4]
+      UseDNS=no
+      [Network]
+      DNS=1.1.1.1
+      DNS=9.9.9.9
 packages:
   - qemu-guest-agent
 runcmd:
