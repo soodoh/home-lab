@@ -7,8 +7,9 @@ def canonical(value): return (json.dumps(value,sort_keys=True,separators=(",",":
 def sha(raw): return hashlib.sha256(raw).hexdigest()
 def paths():
  fixture=os.environ.get("HOME_LAB_QUALIFICATION_SNIPPET_FIXTURE_ROOT") if os.geteuid()!=0 else None
- base=os.path.realpath(fixture) if fixture else ""
- return os.path.join(base,"var/lib/vz/snippets"),os.path.join(base,"run/lock/home-lab-disposable-qualification.lock")
+ if fixture:
+  base=os.path.realpath(fixture); return os.path.join(base,"var/lib/vz/snippets"),os.path.join(base,"run/lock/home-lab-disposable-qualification.lock")
+ return "/var/lib/vz/snippets","/run/lock/home-lab-disposable-qualification.lock"
 def expected_ids(): return (os.getuid(),os.getgid()) if os.environ.get("HOME_LAB_QUALIFICATION_SNIPPET_FIXTURE_ROOT") and os.geteuid()!=0 else (0,0)
 def inspect():
  directory,_=paths(); uid,gid=expected_ids(); d=os.lstat(directory)
