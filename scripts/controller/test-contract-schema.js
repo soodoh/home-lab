@@ -36,8 +36,8 @@ if (validateProxmoxHostPolicy(contract).length) {
 }
 
 const invalidProxmoxLifecycleOwner = structuredClone(contract);
-invalidProxmoxLifecycleOwner.lifecycle.hosts.proxmox.current_mutation_owner = "ansible";
-checkSemantic(invalidProxmoxLifecycleOwner, "Proxmox lifecycle ownership", "Proxmox lifecycle owner changes only at reviewed handoff");
+invalidProxmoxLifecycleOwner.lifecycle.hosts.proxmox.current_mutation_owner = "nix";
+checkSemantic(invalidProxmoxLifecycleOwner, "transferred to Ansible", "Proxmox lifecycle owner changes only at reviewed handoff");
 const invalidDebianBootstrapAuthority = structuredClone(contract);
 invalidDebianBootstrapAuthority.lifecycle.hosts.debian.bootstrap_authority = "physical-console";
 checkSemantic(invalidDebianBootstrapAuthority, "Debian lifecycle ownership", "Debian lifecycle bootstrap authority remains explicit");

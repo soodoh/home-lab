@@ -35,7 +35,7 @@ The final ownership model is:
 - **Controller:** cross-owner ordering, saved-plan manifest, plan/apply credentials, exact confirmations and mutual exclusion.
 - **Physical console:** bootstrap, break glass, access-critical rollback and separately reviewed Proxmox reboot/recovery.
 
-Nix remains Proxmox host mutation authority during migration. Authority transfers one domain at a time only when the Ansible replacement passes the parity gates in `docs/proxmox-nix-to-ansible-migration.md`. A domain never has two enabled writers.
+Nix remained Proxmox host mutation authority during migration while authority transferred one domain at a time after Ansible parity. On 2026-09-04, the aggregate owner transferred to Ansible under the zero-action evidence recorded in `docs/proxmox-aggregate-authority-cutover-2026-09-04.md`. Transitional Nix material is now read-only rollback evidence pending separate retirement; a domain never has two enabled writers.
 
 ### 3. Lifecycle states
 

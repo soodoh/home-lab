@@ -23,9 +23,9 @@ function validateProxmoxHostPolicy(contract) {
   const { lifecycle, proxmox } = contract;
   const proxmoxLifecycle = lifecycle.hosts.proxmox;
   const debianLifecycle = lifecycle.hosts.debian;
-  if (proxmoxLifecycle.desired_state !== "production" || proxmoxLifecycle.current_mutation_owner !== "nix" ||
+  if (proxmoxLifecycle.desired_state !== "production" || proxmoxLifecycle.current_mutation_owner !== "ansible" ||
       proxmoxLifecycle.target_mutation_owner !== "ansible" || proxmoxLifecycle.bootstrap_authority !== "physical-console") {
-    failures.push("Proxmox lifecycle ownership must remain Nix-to-Ansible migration from physical console");
+    failures.push("Proxmox lifecycle ownership must remain transferred to Ansible with physical-console recovery");
   }
   if (debianLifecycle.desired_state !== "production" || debianLifecycle.current_mutation_owner !== "ansible" ||
       debianLifecycle.target_mutation_owner !== "ansible" || debianLifecycle.bootstrap_authority !== "physical-console-or-localhost") {

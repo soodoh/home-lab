@@ -108,7 +108,7 @@ for (const role of sitePlaybook.roles.filter((item) => item.role !== "base")) {
 }
 
 assert.deepEqual(contract.lifecycle.states, ["inert", "bootstrap", "production", "maintenance", "recovery", "retired"]);
-assert.equal(contract.lifecycle.hosts.proxmox.current_mutation_owner, "nix");
+assert.equal(contract.lifecycle.hosts.proxmox.current_mutation_owner, "ansible");
 assert.equal(contract.lifecycle.hosts.debian.current_mutation_owner, "ansible");
 for (const host of Object.values(contract.lifecycle.hosts)) {
   assert.equal(host.desired_state, "production");

@@ -154,7 +154,7 @@ lifecycle:
   hosts:
     proxmox:
       desired_state: production
-      current_mutation_owner: nix
+      current_mutation_owner: ansible
       target_mutation_owner: ansible
       bootstrap_authority: physical-console
       steady_transport: tailscale-ssh
