@@ -413,7 +413,7 @@ def verify(operation: str, plan_path: Path, current_path: Path, secret_path: Pat
 
 
 def run_controlled(command: tuple[str, ...]) -> int:
-    process = subprocess.Popen(command, cwd=ROOT, start_new_session=True)
+    process = subprocess.Popen(command, cwd=ROOT / "ansible", start_new_session=True)
     previous = {}
     def interrupted(signum, frame):
         raise InterruptedError(f"signal:{signum}")

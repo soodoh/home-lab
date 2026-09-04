@@ -124,7 +124,12 @@ def main():
     assert role.index("Run exactly one host-side lifecycle transaction") < role.index("Release the independent host-side lifecycle transaction lock after success only")
     assert 'run(["/usr/bin/tailscale","down"]' in host and "O_EXCL|os.O_NOFOLLOW" in host and "automatic retry forbidden" in host
     assert "verify_target(plan)" in host and "if result.returncode==0" in host and "os.unlink(HOST_LOCK)" in host and '"source_commit":plan["base_commit"]' in host
-    controller=(ROOT/"scripts/controller/debian-lifecycle-transactions.py").read_text(); assert "start_new_session=True" in controller and "os.killpg" in controller and "signal.SIGKILL" in controller
+    controller=(ROOT/"scripts/controller/debian-lifecycle-transactions.py").read_text(); assert "start_new_session=True" in controller and 'cwd=ROOT / "ansible"' in controller and "os.killpg" in controller and "signal.SIGKILL" in controller
+    observed_popen={}
+    class FinishedProcess:
+      def wait(self,timeout): return 0
+    def fake_popen(command,**kwargs): observed_popen.update(kwargs); return FinishedProcess()
+    original_popen=module.subprocess.Popen; module.subprocess.Popen=fake_popen; assert module.run_controlled(("noop",))==0; module.subprocess.Popen=original_popen; assert observed_popen["cwd"]==ROOT/"ansible" and observed_popen["start_new_session"] is True
     assert "mkfs.ext4" in host and "params[\"force\"] is not False" in host and "separate-access-cleanup-receipts-required" in (ROOT/"scripts/controller/debian-lifecycle-transactions.py").read_text()
   print("debian lifecycle transaction tests passed hostile_plans=22")
 if __name__=="__main__": main()
