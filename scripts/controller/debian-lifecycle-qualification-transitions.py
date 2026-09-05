@@ -14,6 +14,15 @@ def parse_time(value):
  except Exception: fail("manifest-time")
  if parsed.tzinfo is None: fail("manifest-time")
  return parsed
+def admission_lineage(args,value,operation,target):
+ if value.get("admission_sha256")==target["isolation_attestation_sha256"]: return True
+ if operation!="restart": return False
+ raw=load_protected_bytes(args.prior_admission,"prior qualification admission")
+ if sha(raw)!=value.get("admission_sha256"): fail("prior-admission-digest")
+ prior_target=common.run_json(["node",str(common.ADMISSION),"--evidence",str(args.prior_admission),"--known-hosts",str(args.known_hosts),"--allow-expired-safe-stop"])
+ fields=("api_ca_sha256","apply_principal","bridge","controller_ipv4","disk_datastore_id","endpoint","guest_ssh_public_key_sha256","image_datastore_id","node_name","plan_principal","snippet_datastore_id","snippet_directory","ssh_address","ssh_authentication","ssh_username","target_id")
+ if prior_target.get("admission_mode")!="expired-safe-stop" or prior_target.get("isolation_attestation_sha256")!=value.get("admission_sha256") or any(prior_target.get(key)!=target.get(key) for key in fields): fail("prior-admission-lineage")
+ return True
 def prior(args,operation,target):
  value,raw=load_canonical_object(args.prior_receipt,"qualification prior receipt")
  if operation=="start": expected_format="home-lab-debian-qualification-foundation-receipt-v1"; expected_operation="create-stopped-foundation"; expected_started=False; prior_identity=False
@@ -26,7 +35,8 @@ def prior(args,operation,target):
  required={"admission_sha256","commit","format","operation","plan_sha256","resources","snippet_receipt_sha256","state_sha256","target_id","version","vm_started","vmid"} | ({"prior_receipt_sha256"} if prior_identity else set()) | ({"snippet_sha256"} if operation in ("stop","restart","destroy") else set()) | ({"host_key_receipt_sha256"} if operation=="destroy" else set())
  identities=("admission_sha256","plan_sha256","snippet_receipt_sha256","state_sha256")+(("prior_receipt_sha256",) if prior_identity else ())+(("snippet_sha256",) if operation in ("stop","restart","destroy") else ())+(("host_key_receipt_sha256",) if operation=="destroy" else ())
  expected_resources=["proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]","proxmox_virtual_environment_vm.qualification[0]"]
- if set(value)!=required or value.get("format")!=expected_format or value.get("operation")!=expected_operation or value.get("version")!=1 or re.fullmatch(r"[0-9a-f]{40}",value.get("commit","") or "") is None or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("resources")!=expected_resources or value.get("admission_sha256")!=target["isolation_attestation_sha256"] or value.get("target_id")!=target["target_id"] or value.get("vmid")!=9900 or value.get("vm_started") is not expected_started: fail("prior-receipt")
+ admission_ok=admission_lineage(args,value,operation,target)
+ if set(value)!=required or value.get("format")!=expected_format or value.get("operation")!=expected_operation or value.get("version")!=1 or re.fullmatch(r"[0-9a-f]{40}",value.get("commit","") or "") is None or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("resources")!=expected_resources or not admission_ok or value.get("target_id")!=target["target_id"] or value.get("vmid")!=9900 or value.get("vm_started") is not expected_started: fail("prior-receipt")
  return value,sha(raw)
 def historical_stop_target(args):
  target=common.run_json(["node",str(common.ADMISSION),"--evidence",str(args.admission),"--known-hosts",str(args.known_hosts),"--allow-expired-safe-stop"])
@@ -98,7 +108,7 @@ def manifest(args,operation,target,prior_sha,snippet_sha,host_key_sha):
  value,raw=load_canonical_object(args.manifest,"qualification transition manifest"); required={"actionable","admission_sha256","api_ca_sha256","apply_principal","authorized","automatic_apply","commit","created_at","endpoint","expires_at","format","node_name","operation","plan_json_sha256","plan_principal","plan_sha256","prior_receipt_sha256","resources","snippet_receipt_sha256","snippet_sha256","state_sha256","target_id","version","vmid"} | ({"host_key_receipt_sha256"} if operation=="restart" else set()); created=parse_time(value.get("created_at","")); expires=parse_time(value.get("expires_at","")); identities=("admission_sha256","api_ca_sha256","plan_json_sha256","plan_sha256","prior_receipt_sha256","snippet_receipt_sha256","snippet_sha256","state_sha256")+(("host_key_receipt_sha256",) if operation=="restart" else ())
  expected_resources=["proxmox_virtual_environment_vm.qualification[0]"] if operation in ("start","stop","restart") else (["proxmox_virtual_environment_firewall_rules.qualification[0]"] if operation=="repair-network" else ["proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]","proxmox_virtual_environment_vm.qualification[0]"])
  ttl=dt.timedelta(hours=4) if operation in ("repair-network","stop","restart") else dt.timedelta(minutes=30)
- if set(value)!=required or sha(raw)!=args.authorization_sha or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("format")!="home-lab-debian-qualification-transition-plan-v1" or value.get("operation")!=operation or value.get("plan_sha256")!=args.plan_sha or value.get("prior_receipt_sha256")!=prior_sha or value.get("snippet_sha256")!=snippet_sha or (operation=="restart" and value.get("host_key_receipt_sha256")!=host_key_sha) or value.get("resources")!=expected_resources or value.get("target_id")!=target["target_id"] or value.get("endpoint")!=target["endpoint"] or value.get("node_name")!=target["node_name"] or value.get("api_ca_sha256")!=target["api_ca_sha256"] or value.get("plan_principal")!=target["plan_principal"] or value.get("apply_principal")!=target["apply_principal"] or value.get("version")!=1 or value.get("vmid")!=9900 or value.get("actionable") is not True or value.get("authorized") is not False or value.get("automatic_apply") is not False or created>common.now()+dt.timedelta(seconds=5) or created<common.now()-ttl or expires<=common.now() or expires-created>ttl: fail("manifest-binding")
+ if set(value)!=required or sha(raw)!=args.authorization_sha or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("format")!="home-lab-debian-qualification-transition-plan-v1" or value.get("operation")!=operation or value.get("plan_sha256")!=args.plan_sha or value.get("prior_receipt_sha256")!=prior_sha or value.get("snippet_receipt_sha256")!=target["snippet_receipt_sha256"] or value.get("snippet_sha256")!=snippet_sha or (operation=="restart" and value.get("host_key_receipt_sha256")!=host_key_sha) or value.get("resources")!=expected_resources or value.get("target_id")!=target["target_id"] or value.get("endpoint")!=target["endpoint"] or value.get("node_name")!=target["node_name"] or value.get("api_ca_sha256")!=target["api_ca_sha256"] or value.get("plan_principal")!=target["plan_principal"] or value.get("apply_principal")!=target["apply_principal"] or value.get("version")!=1 or value.get("vmid")!=9900 or value.get("actionable") is not True or value.get("authorized") is not False or value.get("automatic_apply") is not False or created>common.now()+dt.timedelta(seconds=5) or created<common.now()-ttl or expires<=common.now() or expires-created>ttl: fail("manifest-binding")
  return value
 def apply(args,operation):
  if re.fullmatch(r"[0-9a-f]{64}",args.plan_sha or "") is None or re.fullmatch(r"[0-9a-f]{64}",args.authorization_sha or "") is None or args.approve_plan_sha!=args.plan_sha or args.approve_authorization_sha!=args.authorization_sha or args.confirm!=CONFIRM[operation]: fail("exact-authorization-required")
@@ -108,7 +118,7 @@ def apply(args,operation):
  try:
   if common.state_sha(state)!=value["state_sha256"]: fail("state-drift")
   fresh=target_with_snippet(args,operation)
-  if fresh.get("snippet_sha256")!=target.get("snippet_sha256") or fresh.get("snippet_sha256")!=value.get("snippet_sha256"): fail("snippet-drift")
+  if fresh.get("snippet_receipt_sha256")!=target.get("snippet_receipt_sha256") or fresh.get("snippet_receipt_sha256")!=value.get("snippet_receipt_sha256") or fresh.get("snippet_sha256")!=target.get("snippet_sha256") or fresh.get("snippet_sha256")!=value.get("snippet_sha256"): fail("snippet-drift")
   common.run_locked(["tofu",f"-chdir={common.TF_ROOT}","apply","-input=false","-lock=true","-auto-approve",str(binary)],env,host,f"tofu-{operation}-apply-no-retry")
   post=common.run_json(["tofu",f"-chdir={common.TF_ROOT}","show","-json"],env); resources=((post.get("values") or {}).get("root_module") or {}).get("resources",[]); vm=next((item.get("values",{}) for item in resources if item.get("address")=="proxmox_virtual_environment_vm.qualification[0]"),None)
   expected_addresses={"proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_vm.qualification[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]"}
@@ -122,7 +132,8 @@ def main():
  for command in ("plan-start","apply-start","plan-repair-network","apply-repair-network","plan-stop","apply-stop","plan-restart","apply-restart","plan-destroy","apply-destroy"):
   item=sub.add_parser(command)
   for option in ("admission","known-hosts","guest-public-key","snippet-receipt","prior-receipt","output-dir"): item.add_argument("--"+option,type=Path,required=True)
-  if command in ("plan-restart","apply-restart"): item.add_argument("--host-key-receipt",type=Path,required=True)
+  if command in ("plan-restart","apply-restart"):
+   item.add_argument("--host-key-receipt",type=Path,required=True); item.add_argument("--prior-admission",type=Path,required=True)
   if command.startswith("apply-"):
    item.add_argument("--manifest",type=Path,required=True); item.add_argument("--plan-sha",required=True); item.add_argument("--approve-plan-sha",required=True); item.add_argument("--authorization-sha",required=True); item.add_argument("--approve-authorization-sha",required=True); item.add_argument("--confirm",required=True)
  args=parser.parse_args()

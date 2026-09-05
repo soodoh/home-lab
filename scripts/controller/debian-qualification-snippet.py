@@ -13,7 +13,7 @@ def validate_target(admission,known_hosts):
  if value.get("admitted") is not True or value.get("snippet_content_enabled") is not True or value.get("ssh_authentication")!="tailscale-policy": raise SystemExit("PVE snippet content or SSH route is not admitted")
  return value
 def ssh_args(target,known_hosts,command):
- return ["ssh","-F","/dev/null","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes","-o","GlobalKnownHostsFile=/dev/null","-o","UpdateHostKeys=no","-o",f"UserKnownHostsFile={known_hosts}","-o","IdentitiesOnly=yes","-o","IdentityFile=none","-o","PreferredAuthentications=none","-o","PubkeyAuthentication=no","-o","PasswordAuthentication=no","-o","KbdInteractiveAuthentication=no","-o","ClearAllForwardings=yes","-o","PermitLocalCommand=no","-o","RequestTTY=no","-o","ConnectTimeout=10",f'{target["ssh_username"]}@{target["ssh_address"]}',command]
+ return ["ssh","-F","/dev/null","-T","-o","BatchMode=yes","-o","StrictHostKeyChecking=yes","-o","GlobalKnownHostsFile=/dev/null","-o","UpdateHostKeys=no","-o",f"UserKnownHostsFile={known_hosts}","-o","IdentitiesOnly=yes","-o","IdentityAgent=none","-o","IdentityFile=none","-o","PreferredAuthentications=none","-o","PubkeyAuthentication=no","-o","PasswordAuthentication=no","-o","KbdInteractiveAuthentication=no","-o","ClearAllForwardings=yes","-o","PermitLocalCommand=no","-o","RequestTTY=no","-o","ConnectTimeout=10",f'{target["ssh_username"]}@{target["ssh_address"]}',command]
 def remote(target,known_hosts,command,data=None):
  result=subprocess.run(ssh_args(target,known_hosts,command),input=data,capture_output=True,timeout=90)
  if result.returncode or result.stderr: raise SystemExit("isolated PVE snippet transport failed")
@@ -59,20 +59,27 @@ def apply(args):
  expected={"admission_sha256":value["admission_sha256"],"commit":value["commit"],"file_id":value["file_id"],"guest_ssh_public_key_sha256":value["guest_ssh_public_key_sha256"],"known_hosts_sha256":value["known_hosts_sha256"],"mode":"0600","node_name":value["node_name"],"plan_sha256":digest,"sha256":value["sha256"],"size":value["size"],"target_id":value["target_id"],"version":1}
  if any(receipt.get(key)!=item for key,item in expected.items()) or receipt.get("format")!="home-lab-debian-qualification-snippet-receipt-v1" or not isinstance(receipt.get("changed"),bool): raise SystemExit("snippet receipt mismatch")
  write_json(require_private_root(args.output_dir,()),f"{digest}.receipt.json",receipt); print(json.dumps({"changed":receipt["changed"],"receipt":str(args.output_dir/f'{digest}.receipt.json')},sort_keys=True))
+def observe_receipt(args):
+ target=validate_target(args.admission,args.known_hosts); public=guest_key(args.guest_public_key,target); commit=clean_commit(); content=render(public); current=remote(target,args.known_hosts,"observe"); snippet=current.get("snippet",{}); expected_sha=sha(content)
+ if current.get("file_id")!="local:snippets/home-lab-debian-lifecycle-qualification.yaml" or snippet.get("exists") is not True or snippet.get("sha256")!=expected_sha or snippet.get("size")!=len(content) or snippet.get("mode")!="0600" or snippet.get("uid")!=0 or snippet.get("gid")!=0 or snippet.get("nlink")!=1: raise SystemExit("server-side snippet postcondition mismatch")
+ value={"admission_sha256":target["isolation_attestation_sha256"],"commit":commit,"file_id":current["file_id"],"format":"home-lab-debian-qualification-snippet-observation-receipt-v1","guest_ssh_public_key_sha256":sha(public.encode()),"known_hosts_sha256":sha(load_protected_bytes(args.known_hosts,"qualification known-hosts")),"mode":"0600","node_name":target["node_name"],"observation_sha256":sha(canonical_bytes(current)+b"\n"),"sha256":expected_sha,"size":len(content),"target_id":target["target_id"],"version":1}; raw=canonical_bytes(value)+b"\n"; digest=sha(raw); output=require_private_root(args.output_dir,()); write_json(output,f"{digest}.observation-receipt.json",value); print(json.dumps({"receipt":str(output/f'{digest}.observation-receipt.json'),"receipt_sha256":digest},sort_keys=True))
 def verify(args):
- target=validate_target(args.admission,args.known_hosts); public=guest_key(args.guest_public_key,target); receipt,_=load_canonical_object(args.receipt,"snippet receipt"); content=render(public); current=remote(target,args.known_hosts,"observe")
- required={"admission_sha256","changed","commit","file_id","format","guest_ssh_public_key_sha256","known_hosts_sha256","mode","node_name","plan_sha256","sha256","size","target_id","version"}
- expected={"admission_sha256":target["isolation_attestation_sha256"],"file_id":"local:snippets/home-lab-debian-lifecycle-qualification.yaml","format":"home-lab-debian-qualification-snippet-receipt-v1","guest_ssh_public_key_sha256":sha(public.encode()),"known_hosts_sha256":sha(load_protected_bytes(args.known_hosts,"qualification known-hosts")),"mode":"0600","node_name":target["node_name"],"sha256":sha(content),"size":len(content),"target_id":target["target_id"],"version":1}
- if set(receipt)!=required or any(receipt.get(key)!=value for key,value in expected.items()) or not isinstance(receipt.get("changed"),bool) or re.fullmatch(r"[0-9a-f]{40}",receipt.get("commit","") or "") is None or re.fullmatch(r"[0-9a-f]{64}",receipt.get("plan_sha256","") or "") is None: raise SystemExit("snippet receipt binding mismatch")
+ target=validate_target(args.admission,args.known_hosts); public=guest_key(args.guest_public_key,target); receipt,receipt_raw=load_canonical_object(args.receipt,"snippet receipt"); content=render(public); current=remote(target,args.known_hosts,"observe"); observation=receipt.get("format")=="home-lab-debian-qualification-snippet-observation-receipt-v1"
+ base={"admission_sha256":target["isolation_attestation_sha256"],"file_id":"local:snippets/home-lab-debian-lifecycle-qualification.yaml","guest_ssh_public_key_sha256":sha(public.encode()),"known_hosts_sha256":sha(load_protected_bytes(args.known_hosts,"qualification known-hosts")),"mode":"0600","node_name":target["node_name"],"sha256":sha(content),"size":len(content),"target_id":target["target_id"],"version":1}
+ required=set(base)|{"commit","format"}|({"observation_sha256"} if observation else {"changed","plan_sha256"}); expected={**base,"format":"home-lab-debian-qualification-snippet-observation-receipt-v1" if observation else "home-lab-debian-qualification-snippet-receipt-v1"}
+ if set(receipt)!=required or any(receipt.get(key)!=value for key,value in expected.items()) or re.fullmatch(r"[0-9a-f]{40}",receipt.get("commit","") or "") is None: raise SystemExit("snippet receipt binding mismatch")
+ if observation:
+  if receipt.get("observation_sha256")!=sha(canonical_bytes(current)+b"\n"): raise SystemExit("snippet observation receipt drift")
+ elif not isinstance(receipt.get("changed"),bool) or re.fullmatch(r"[0-9a-f]{64}",receipt.get("plan_sha256","") or "") is None: raise SystemExit("snippet receipt binding mismatch")
  snippet=current.get("snippet",{})
- if current.get("file_id")!=expected["file_id"] or snippet.get("exists") is not True or snippet.get("sha256")!=expected["sha256"] or snippet.get("size")!=expected["size"] or snippet.get("mode")!="0600" or snippet.get("uid")!=0 or snippet.get("gid")!=0 or snippet.get("nlink")!=1: raise SystemExit("server-side snippet postcondition mismatch")
- output={**target,"snippet_file_id":expected["file_id"],"snippet_receipt_sha256":sha(load_protected_bytes(args.receipt,"snippet receipt")),"snippet_sha256":expected["sha256"],"snippet_size":expected["size"]}
+ if current.get("file_id")!=base["file_id"] or snippet.get("exists") is not True or snippet.get("sha256")!=base["sha256"] or snippet.get("size")!=base["size"] or snippet.get("mode")!="0600" or snippet.get("uid")!=0 or snippet.get("gid")!=0 or snippet.get("nlink")!=1: raise SystemExit("server-side snippet postcondition mismatch")
+ output={**target,"snippet_file_id":base["file_id"],"snippet_receipt_sha256":sha(receipt_raw),"snippet_sha256":base["sha256"],"snippet_size":base["size"]}
  print(json.dumps(output,sort_keys=True,separators=(",",":")))
 def main():
  parser=argparse.ArgumentParser(); sub=parser.add_subparsers(dest="command",required=True)
- for name in ("plan","apply","verify"):
+ for name in ("plan","apply","verify","observe-receipt"):
   item=sub.add_parser(name); item.add_argument("--admission",type=Path,required=True); item.add_argument("--known-hosts",type=Path,required=True); item.add_argument("--guest-public-key",type=Path,required=True)
-  if name in ("plan","apply"): item.add_argument("--output-dir",type=Path,required=True)
+  if name in ("plan","apply","observe-receipt"): item.add_argument("--output-dir",type=Path,required=True)
   if name=="apply": item.add_argument("--plan",type=Path,required=True); item.add_argument("--plan-sha",required=True); item.add_argument("--approve-plan-sha",required=True); item.add_argument("--confirm",required=True)
   if name=="verify": item.add_argument("--receipt",type=Path,required=True)
  args=parser.parse_args()
@@ -81,5 +88,6 @@ def main():
   if value is not None: setattr(args,attr,value.resolve())
  if args.command=="apply": apply(args)
  elif args.command=="verify": verify(args)
+ elif args.command=="observe-receipt": observe_receipt(args)
  else: plan(args)
 if __name__=="__main__": main()
