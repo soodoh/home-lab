@@ -197,8 +197,11 @@ def _first_boot():
  if status_after.get("status")!="running" or re.fullmatch(r"[0-9]+",status_after.get("uptime","")) is None: fail("VM9900 running uptime changed during observation")
  pve_uptime=int(status_after["uptime"]); startup_delta=round(pve_uptime-guest_uptime,2)
  if guest_uptime<=0 or startup_delta < -2 or startup_delta>120: fail(f"guest reboot detected by PVE/QEMU uptime: pve={pve_uptime} guest={guest_uptime} delta={startup_delta}")
- boots=[json.loads(line) for line in guest_exec(["/usr/bin/journalctl","--list-boots","--output=json"]).splitlines() if line.strip()]
- if len(boots)!=1 or str(boots[0].get("boot_id","")).replace("-","")!=boot_id.replace("-",""): fail("guest is not on its only recorded boot")
+ boots_raw=guest_exec(["/usr/bin/journalctl","--list-boots","--output=json"])
+ try:
+  decoded_boots=json.loads(boots_raw); boots=decoded_boots if isinstance(decoded_boots,list) else [decoded_boots]
+ except json.JSONDecodeError: boots=[json.loads(line) for line in boots_raw.splitlines() if line.strip()]
+ if len(boots)!=1 or not isinstance(boots[0],dict) or str(boots[0].get("boot_id","")).replace("-","")!=boot_id.replace("-",""): fail("guest is not on its only recorded boot")
  instance_id=guest_exec(["/usr/bin/cloud-init","query","instance_id"]).strip()
  if not instance_id: fail("cloud-init instance identity missing")
  package=guest_exec(["/usr/bin/dpkg-query","-W","-f=${Status} ${Version}","qemu-guest-agent"]).strip()

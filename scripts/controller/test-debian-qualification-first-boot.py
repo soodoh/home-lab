@@ -28,7 +28,7 @@ def fake(command):
  if argv==["/usr/bin/cat","/run/cloud-init/result.json"]: return qga('{"v1":{"errors":[]}}\n')
  if argv==["/usr/bin/cat","/proc/sys/kernel/random/boot_id"]: return qga("efbec1bf-a7a8-4b17-8ba1-55521d98d923\n")
  if argv==["/usr/bin/cat","/proc/uptime"]: return qga("178.78 20.00\n")
- if argv and argv[0]=="/usr/bin/journalctl": return qga('{"boot_id":"efbec1bfa7a84b178ba155521d98d923","index":0}\n')
+ if argv and argv[0]=="/usr/bin/journalctl": return qga('[{"boot_id":"efbec1bfa7a84b178ba155521d98d923","index":0}]\n')
  if argv[:2]==["/usr/bin/cloud-init","query"]: return qga("iid-nocloud\n")
  if argv and argv[0]=="/usr/bin/dpkg-query": return qga("install ok installed 1:10.0.11+ds-0+deb13u1\n")
  if argv and argv[0]=="/usr/bin/systemctl": return qga("active\n")
