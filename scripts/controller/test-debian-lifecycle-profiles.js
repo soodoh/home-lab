@@ -23,8 +23,8 @@ const qualificationHost = qualificationInventory.all.children.docker_host.hosts[
 assert.equal(contract.debian.locale, "C.UTF-8");
 assert.equal(groupVars.debian_locale, "{{ debian.locale }}");
 assert.deepEqual(groupVars.debian_protected_mounts, "{{ debian.qualification.protected_mounts }}");
-for (const unit of ["docker.service", "home-lab-compose.service", "home-lab-restic-daily.timer",
-  "home-lab-restic-maintenance.timer", "home-lab-restic-recover.service", "tailscaled.service"]) {
+for (const unit of ["docker.service", "docker.socket", "home-lab-compose.service", "tailscaled.service",
+  ...Object.keys(groupVars.restic_audit_inert_units)]) {
   assert(groupVars.debian_lifecycle_inactive_units.includes(unit), `inactive lifecycle audit omits ${unit}`);
 }
 

@@ -17,6 +17,10 @@ Validation refuses a missing or differently versioned pinned collection.
 
 The controller accepts only clean, committed revisions. Plan loads read-only credentials, validates the complete repository, creates commit-bound saved plans, runs policy checks, and displays the plans. Apply verifies those exact plans, requires the exact interactive confirmation, and loads separate mutation credentials only after confirmation.
 
+The `.reconcile/controller-apply.lock` file is a persistent descriptor mutex. Its existence and last-owner metadata do **not** establish an active transaction: `nix/proxmox/controller_lock.py` releases the lock by closing descriptors and intentionally leaves the inode and metadata in place. Inspect descriptor-lock contention without changing the file; never unlink it as stale-lock cleanup. Host owner journals and failed-operation receipts have separate recovery rules.
+
+Proxmox mutation authority has transferred to Ansible, but this entrypoint still depends on the read-only Nix compatibility stage described below. Nix-free controller acceptance is not complete; see [the completion review](host-lifecycle-completion-review-2026-09-05.md).
+
 ## Saved plan boundary
 
 Plans are stored under `.reconcile/plans/<commit>/steady/`. The manifest binds:

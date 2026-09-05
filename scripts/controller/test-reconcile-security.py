@@ -25,6 +25,25 @@ class ReconcileSecurityTests(unittest.TestCase):
         ).read_text()
         cls.provider_bundle = (REPOSITORY / "scripts/prepare-provider-ca-bundle").read_text()
 
+    def test_lifecycle_acceptance_suites_are_in_authoritative_validation(self) -> None:
+        start = self.reconciler.index('if [[ $action == validate ]]; then')
+        end = self.reconciler.index('echo "infrastructure_validation=passed"', start)
+        validation_lines = self.reconciler[start:end].splitlines()
+        for suite in (
+            "test-debian-qualification-first-boot.py",
+            "test-debian-qualification-first-boot-diagnostic.py",
+            "test-debian-lifecycle-storage-rollback.py",
+        ):
+            with self.subTest(suite=suite):
+                self.assertEqual(
+                    validation_lines.count(f"  python3 scripts/controller/{suite}"), 1
+                )
+        self.assertIn("  infrastructure/policy/test-policy.sh", validation_lines)
+        policy = (REPOSITORY / "infrastructure/policy/test-policy.sh").read_text()
+        for suite in ("test-normalize-ansible-plan.py", "test-tailscale-policy.py", "test-omada-host-alias.py"):
+            with self.subTest(policy_suite=suite):
+                self.assertIn(f'python3 "$root/../../scripts/controller/{suite}"', policy.splitlines())
+
     def test_oauth_secret_is_supplied_through_protected_request_file(self) -> None:
         self.assertNotIn('-d "client_secret=$TAILSCALE_OAUTH_CLIENT_SECRET"', self.reconciler)
         self.assertIn('chmod 0600 "$token_request"', self.reconciler)

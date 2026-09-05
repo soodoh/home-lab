@@ -134,8 +134,8 @@ Rejected because both hosts carry production storage/workloads and require order
 - Ansible must reproduce substantial Nix planner/preparer/activator behavior, including adversarial failure handling, before retirement.
 - Access migration is high risk and requires tailnet policy changes, controller refactors and console-backed rehearsals.
 - Existing terminal rollback evidence and migration tools increase temporary operational surface.
-- No committed CI scheduler currently exists; automation integration must be added and reviewed.
-- Proxmox package updates remain intentionally less automatic than Debian security updates.
+- Weekly release/EOL and monthly maintenance-coverage workflows now publish non-authorizing artifacts; trusted scheduled host-candidate collection and deduplicated issue/PR publication remain incomplete.
+- Package application on both hosts requires separate exact authorization. Proxmox additionally requires an attended maintenance session.
 
 ## Implementation authorization
 

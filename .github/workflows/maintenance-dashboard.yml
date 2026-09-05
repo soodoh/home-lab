@@ -25,9 +25,10 @@ jobs:
         with:
           bun-version: 1.2.4
       - name: Build non-authorizing dashboard
-        env:
-          MAINTENANCE_DASHBOARD_GENERATED_AT: ${{ github.event.repository.updated_at }}
-        run: bun scripts/controller/maintenance-dashboard.js > maintenance-dashboard.json
+        run: |
+          bun scripts/controller/test-maintenance-dashboard.js
+          MAINTENANCE_DASHBOARD_GENERATED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            bun scripts/controller/maintenance-dashboard.js > maintenance-dashboard.json
       - name: Publish candidate-only dashboard
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

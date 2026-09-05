@@ -9,9 +9,16 @@ debian_locale: "{{ debian.locale }}"
 debian_protected_mounts: "{{ debian.qualification.protected_mounts }}"
 debian_lifecycle_inactive_units:
   - docker.service
+  - docker.socket
   - home-lab-compose.service
   - home-lab-restic-daily.timer
   - home-lab-restic-maintenance.timer
+  - home-lab-restic-daily.target
+  - home-lab-restic-daily-local.service
+  - home-lab-restic-daily-proton.service
+  - home-lab-restic-maintenance.target
+  - home-lab-restic-maintenance-local.service
+  - home-lab-restic-maintenance-proton.service
   - home-lab-restic-recover.service
   - tailscaled.service
 debian_tailscale_state_path: /var/lib/tailscale

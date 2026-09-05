@@ -150,6 +150,7 @@ def verify_mount(expected,active):
     result=run(["/usr/bin/findmnt","--json","--mountpoint",str(path),"--output","SOURCE,FSTYPE,OPTIONS,UUID"],check=False,text=True)
     if not active:
         if result.returncode==0: raise SystemExit("mount target already active")
+        if result.returncode!=1 or result.stdout.strip() or result.stderr.strip(): raise SystemExit("mount target absence is unverifiable")
         return
     if result.returncode: raise SystemExit("required mount is inactive")
     item=json.loads(result.stdout)["filesystems"][0]
@@ -181,27 +182,70 @@ def qualification(plan,digest):
         os.mkdir(QUALIFICATION_ROOT,0o700); fsync_parent(QUALIFICATION_ROOT)
     safe_directory(QUALIFICATION_ROOT)
     publish_exclusive(QUALIFICATION_ROOT/f"{digest}.json",canonical({"format":"home-lab-debian-lifecycle-qualification-canary-v1","operation":"qualification-canary","plan_sha256":digest,"profile":"inert","status":"applied","unit_states":unit_states,"version":1}))
+
+def require_inactive_unit(unit):
+    result=run(["/usr/bin/systemctl","show",unit,"--property=LoadState,ActiveState,SubState"],text=True)
+    expected={"LoadState":"loaded","ActiveState":"inactive","SubState":"dead"}
+    lines=result.stdout.splitlines()
+    if result.returncode or len(lines)!=len(expected) or any("=" not in line for line in lines) or dict(line.split("=",1) for line in lines)!=expected:
+        raise RuntimeError(f"unit is not verifiably loaded and inactive: {unit}")
+
+def stop_started_units(started):
+    cleanup_failed=False
+    for unit in reversed(started):
+        try:
+            result=run(["/usr/bin/systemctl","stop",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+            require_inactive_unit(unit)
+            if result.returncode: cleanup_failed=True
+        except BaseException:
+            cleanup_failed=True
+    return cleanup_failed
 def storage(plan,digest):
     params=plan["request"]["parameters"]; numbers=set()
     for item in params["devices"]:
         _,number=device(item["path"],item,False)
         if number in numbers: raise SystemExit("storage device alias detected")
         numbers.add(number)
-    for item in params["mounts"]: verify_mount(item,False)
+    mounts=[]
+    for item in params["mounts"]:
+        verify_mount(item,False)
+        unit=run(["/usr/bin/systemd-escape","--path","--suffix=mount",item["path"]],text=True).stdout.strip()
+        require_inactive_unit(unit)
+        mounts.append((unit,item))
     token=Path(params["activation_path"]); safe_directory(token.parent)
-    publish_exclusive(token,f"plan_sha256={digest}\n".encode())
-    run(["/usr/bin/systemctl","daemon-reload"]); started=[]
+    content=f"plan_sha256={digest}\n".encode()
+    started=[]; token_fd=None; token_complete=False
     try:
-        for item in params["mounts"]:
-            unit=run(["/usr/bin/systemd-escape","--path","--suffix=mount",item["path"]],text=True).stdout.strip()
+        token_fd=os.open(token,os.O_RDWR|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        os.fchown(token_fd,0,0); os.fchmod(token_fd,0o600)
+        if os.write(token_fd,content)!=len(content): raise RuntimeError("short storage token write")
+        token_complete=True
+        os.fsync(token_fd); fsync_parent(token)
+        run(["/usr/bin/systemctl","daemon-reload"])
+        for unit,item in mounts:
             started.append(unit); run(["/usr/bin/systemctl","start",unit]); verify_mount(item,True)
     except BaseException:
         cleanup_failed=False
-        for unit in reversed(started):
-            if run(["/usr/bin/systemctl","stop",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode or run(["/usr/bin/systemctl","is-active","--quiet",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0: cleanup_failed=True
-        if token.read_text()==f"plan_sha256={digest}\n": token.unlink(); directory=os.open(token.parent,os.O_RDONLY|os.O_DIRECTORY); os.fsync(directory); os.close(directory)
+        if token_fd is not None:
+            try:
+                safe_directory(token.parent)
+                opened=os.fstat(token_fd); current=os.lstat(token)
+                if (opened.st_dev,opened.st_ino)!=(current.st_dev,current.st_ino) or opened.st_nlink!=1 or not stat.S_ISREG(current.st_mode):
+                    raise RuntimeError("storage token ownership changed during rollback")
+                if token_complete and os.pread(token_fd,len(content)+1,0)!=content:
+                    raise RuntimeError("storage token content changed during rollback")
+                token.unlink(); fsync_parent(token)
+            except BaseException:
+                cleanup_failed=True
+        if stop_started_units(started): cleanup_failed=True
+        for unit,item in mounts:
+            if unit in started:
+                try: verify_mount(item,False)
+                except BaseException: cleanup_failed=True
         if cleanup_failed: raise RuntimeError("storage rollback postcondition failed")
         raise
+    finally:
+        if token_fd is not None: os.close(token_fd)
 
 def identity(plan,secret):
     params=plan["request"]["parameters"]; target=Path(params["path"]); parent=safe_directory(target.parent)
@@ -280,7 +324,7 @@ def production(plan,digest):
     content=canonical({"source_commit":plan["base_commit"],"state":"production","updated_at":datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00","Z"),"version":1})
     started=[]; marker_changed=False
     for unit in params["systemd_dependencies"]:
-        if run(["/usr/bin/systemctl","is-active","--quiet",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0: raise SystemExit("production unit already active before activation")
+        require_inactive_unit(unit)
     try:
         for unit in params["systemd_dependencies"]:
             started.append(unit); run(["/usr/bin/systemctl","start",unit])
@@ -298,9 +342,7 @@ def production(plan,digest):
         published=marker.read_bytes(); parsed=json.loads(published)
         if published!=canonical(parsed) or parsed.get("state")!="production" or parsed.get("source_commit")!=plan["base_commit"]: raise RuntimeError("production lifecycle marker postcondition failed")
     except BaseException:
-        cleanup_failed=False
-        for unit in reversed(started):
-            if run(["/usr/bin/systemctl","stop",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode or run(["/usr/bin/systemctl","is-active","--quiet",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode==0: cleanup_failed=True
+        cleanup_failed=stop_started_units(started)
         if marker_changed:
             fd,temp=tempfile.mkstemp(prefix=".lifecycle-rollback-",dir=marker.parent); os.fchown(fd,0,0); os.fchmod(fd,0o600)
             try:

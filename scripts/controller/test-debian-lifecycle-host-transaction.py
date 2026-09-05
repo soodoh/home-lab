@@ -16,6 +16,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
   commands.append(tuple(argv))
   if "age-keygen" in argv[0]: return result("age1recipient\n")
   if argv[:3]==["/usr/bin/tailscale","status","--json"]: return result(json.dumps({"BackendState":"Running","Self":{"HostName":"docker-host","Tags":["tag:docker-host"]}}))
+  if argv==["/usr/bin/systemctl","show","unit.service","--property=LoadState,ActiveState,SubState"]: return result("LoadState=loaded\nActiveState=inactive\nSubState=dead\n" if "unit.service" not in active else "LoadState=loaded\nActiveState=active\nSubState=running\n")
   if argv[:3]==["/usr/bin/systemctl","show","unit.service"]: return result("dep.mount\n")
   if argv[:2]==["/usr/bin/systemctl","start"]:
    active.add(argv[2])
@@ -39,6 +40,26 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
  try: module.production(plan,"c"*64)
  except InterruptedError as error: assert "partial start" in str(error)
  else: raise AssertionError("partial unit start unexpectedly succeeded")
+ assert marker.read_bytes()==before and active==set() and ("/usr/bin/systemctl","stop","unit.service") in commands
+ fail_start=False
+ for state in ("failed", "activating", "deactivating", "unknown"):
+  commands.clear()
+  def invalid_prestate(argv,check=True,**kwargs):
+   if argv==["/usr/bin/systemctl","show","unit.service","--property=LoadState,ActiveState,SubState"]: return result(f"LoadState=loaded\nActiveState={state}\nSubState=dead\n")
+   return fake(argv,check=check,**kwargs)
+  module.run=invalid_prestate
+  try: module.production(plan,"c"*64)
+  except RuntimeError as error: assert "not verifiably loaded and inactive" in str(error)
+  else: raise AssertionError("unsafe production prestate accepted")
+  assert marker.read_bytes()==before and active==set() and not any(command[1]=="start" for command in commands)
+ commands.clear(); calls=0
+ def failed_rollback_observer(argv,check=True,**kwargs):
+  if argv==["/usr/bin/systemctl","show","unit.service","--property=LoadState,ActiveState,SubState"] and ("/usr/bin/systemctl","stop","unit.service") in commands: raise OSError("rollback observer failed")
+  return fake(argv,check=check,**kwargs)
+ module.run=failed_rollback_observer
+ try: module.production(plan,"c"*64)
+ except RuntimeError as error: assert "production activation rollback postcondition failed" in str(error)
+ else: raise AssertionError("unverified production rollback accepted")
  assert marker.read_bytes()==before and active==set() and ("/usr/bin/systemctl","stop","unit.service") in commands
  module.os.fchown=original_fchown
 with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
