@@ -16,6 +16,11 @@ def parse_time(value):
  return parsed
 def admission_lineage(args,value,operation,target):
  if value.get("admission_sha256")==target["isolation_attestation_sha256"]: return True
+ if operation=="destroy":
+  if target.get("admission_mode")!="fresh": fail("destroy-lineage-requires-fresh-admission")
+  prior,prior_raw=load_canonical_object(args.prior_admission,"historical stopped admission"); current,_=load_canonical_object(args.admission,"current destroy admission")
+  prior_stable={key:item for key,item in prior.items() if key not in ("observed_at","expires_at")}; current_stable={key:item for key,item in current.items() if key not in ("observed_at","expires_at")}
+  return sha(prior_raw)==value.get("admission_sha256") and prior_stable==current_stable
  if operation!="restart": return False
  raw=load_protected_bytes(args.prior_admission,"prior qualification admission")
  if sha(raw)!=value.get("admission_sha256"): fail("prior-admission-digest")
@@ -24,19 +29,18 @@ def admission_lineage(args,value,operation,target):
  if prior_target.get("admission_mode")!="expired-safe-stop" or prior_target.get("isolation_attestation_sha256")!=value.get("admission_sha256") or any(prior_target.get(key)!=target.get(key) for key in fields): fail("prior-admission-lineage")
  return True
 def prior(args,operation,target):
- value,raw=load_canonical_object(args.prior_receipt,"qualification prior receipt")
+ value,raw=load_canonical_object(args.prior_receipt,"qualification prior receipt"); needs_host_key=False
  if operation=="start": expected_format="home-lab-debian-qualification-foundation-receipt-v1"; expected_operation="create-stopped-foundation"; expected_started=False; prior_identity=False
  elif operation=="repair-network": expected_format="home-lab-debian-qualification-start-receipt-v1"; expected_operation="start"; expected_started=True; prior_identity=True
  elif operation=="stop":
-  prior_stop=value.get("format")=="home-lab-debian-qualification-restart-receipt-v1" and value.get("operation")=="restart"
-  direct=value.get("format")=="home-lab-debian-qualification-start-receipt-v1" and value.get("operation")=="start"
-  expected_format="home-lab-debian-qualification-restart-receipt-v1" if prior_stop else ("home-lab-debian-qualification-start-receipt-v1" if direct else "home-lab-debian-qualification-repair-network-receipt-v1"); expected_operation="restart" if prior_stop else ("start" if direct else "repair-network"); expected_started=True; prior_identity=True
+  prior_stop=value.get("format")=="home-lab-debian-qualification-restart-receipt-v1" and value.get("operation")=="restart"; direct=value.get("format")=="home-lab-debian-qualification-start-receipt-v1" and value.get("operation")=="start"
+  expected_format="home-lab-debian-qualification-restart-receipt-v1" if prior_stop else ("home-lab-debian-qualification-start-receipt-v1" if direct else "home-lab-debian-qualification-repair-network-receipt-v1"); expected_operation="restart" if prior_stop else ("start" if direct else "repair-network"); expected_started=True; prior_identity=True; needs_host_key=prior_stop
  elif operation=="restart": expected_format="home-lab-debian-qualification-stop-receipt-v1"; expected_operation="stop"; expected_started=False; prior_identity=True
- else: expected_format="home-lab-debian-qualification-restart-receipt-v1"; expected_operation="restart"; expected_started=True; prior_identity=True
- required={"admission_sha256","commit","format","operation","plan_sha256","resources","snippet_receipt_sha256","state_sha256","target_id","version","vm_started","vmid"} | ({"prior_receipt_sha256"} if prior_identity else set()) | ({"snippet_sha256"} if operation in ("stop","restart","destroy") else set()) | ({"host_key_receipt_sha256"} if operation=="destroy" or operation=="stop" and prior_stop else set())
- identities=("admission_sha256","plan_sha256","snippet_receipt_sha256","state_sha256")+(("prior_receipt_sha256",) if prior_identity else ())+(("snippet_sha256",) if operation in ("stop","restart","destroy") else ())+(("host_key_receipt_sha256",) if operation=="destroy" or operation=="stop" and prior_stop else ())
- expected_resources=["proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]","proxmox_virtual_environment_vm.qualification[0]"]
- admission_ok=admission_lineage(args,value,operation,target)
+ else:
+  stopped=value.get("format")=="home-lab-debian-qualification-stop-receipt-v1" and value.get("operation")=="stop"; expected_format="home-lab-debian-qualification-stop-receipt-v1" if stopped else "home-lab-debian-qualification-restart-receipt-v1"; expected_operation="stop" if stopped else "restart"; expected_started=not stopped; prior_identity=True; needs_host_key=not stopped
+ required={"admission_sha256","commit","format","operation","plan_sha256","resources","snippet_receipt_sha256","state_sha256","target_id","version","vm_started","vmid"} | ({"prior_receipt_sha256"} if prior_identity else set()) | ({"snippet_sha256"} if operation in ("stop","restart","destroy") else set()) | ({"host_key_receipt_sha256"} if needs_host_key else set())
+ identities=("admission_sha256","plan_sha256","snippet_receipt_sha256","state_sha256")+(("prior_receipt_sha256",) if prior_identity else ())+(("snippet_sha256",) if operation in ("stop","restart","destroy") else ())+(("host_key_receipt_sha256",) if needs_host_key else ())
+ expected_resources=["proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]","proxmox_virtual_environment_vm.qualification[0]"]; admission_ok=admission_lineage(args,value,operation,target)
  if set(value)!=required or value.get("format")!=expected_format or value.get("operation")!=expected_operation or value.get("version")!=1 or re.fullmatch(r"[0-9a-f]{40}",value.get("commit","") or "") is None or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("resources")!=expected_resources or not admission_ok or value.get("target_id")!=target["target_id"] or value.get("vmid")!=9900 or value.get("vm_started") is not expected_started: fail("prior-receipt")
  return value,sha(raw)
 def historical_stop_target(args):
@@ -84,7 +88,7 @@ def inspect(value,operation,target):
  expected={"proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_vm.qualification[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]"}; image_address="proxmox_download_file.qualification_image[0]"; options_address="proxmox_virtual_environment_firewall_options.qualification[0]"; rules_address="proxmox_virtual_environment_firewall_rules.qualification[0]"
  if set(changes)!=expected or any(item.get("actions")!=["delete"] for item in changes.values()): fail("destroy-actions")
  vm_before=changes[vm_address].get("before",{}); image_before=changes[image_address].get("before",{}); options_before=changes[options_address].get("before",{}); rules_before=changes[rules_address].get("before",{}); image=common.contract_image()
- if vm_before.get("vm_id")!=9900 or vm_before.get("node_name")!=target["node_name"] or len(vm_before.get("disk",[]))!=1 or vm_before["disk"][0].get("datastore_id")!=target["disk_datastore_id"] or image_before.get("node_name")!=target["node_name"] or image_before.get("datastore_id")!=target["image_datastore_id"] or image_before.get("url")!=image["url"] or image_before.get("checksum")!=image["sha512"] or options_before.get("node_name")!=target["node_name"] or options_before.get("vm_id")!=9900 or rules_before.get("node_name")!=target["node_name"] or rules_before.get("vm_id")!=9900: fail("destroy-actions")
+ if vm_before.get("vm_id")!=9900 or vm_before.get("node_name")!=target["node_name"] or vm_before.get("started") is not False or vm_before.get("on_boot") is not False or len(vm_before.get("disk",[]))!=1 or vm_before["disk"][0].get("datastore_id")!=target["disk_datastore_id"] or image_before.get("node_name")!=target["node_name"] or image_before.get("datastore_id")!=target["image_datastore_id"] or image_before.get("url")!=image["url"] or image_before.get("checksum")!=image["sha512"] or options_before.get("node_name")!=target["node_name"] or options_before.get("vm_id")!=9900 or rules_before.get("node_name")!=target["node_name"] or rules_before.get("vm_id")!=9900: fail("destroy-actions")
  return sorted(expected)
 def publish(output,run,binary,shown,manifest):
  plan_sha=sha(binary.read_bytes()); json_sha=sha(shown.read_bytes()); manifest["plan_sha256"]=plan_sha; manifest["plan_json_sha256"]=json_sha; os.chmod(binary,0o600); os.chmod(shown,0o600)
@@ -133,8 +137,8 @@ def main():
  for command in ("plan-start","apply-start","plan-repair-network","apply-repair-network","plan-stop","apply-stop","plan-restart","apply-restart","plan-destroy","apply-destroy"):
   item=sub.add_parser(command)
   for option in ("admission","known-hosts","guest-public-key","snippet-receipt","prior-receipt","output-dir"): item.add_argument("--"+option,type=Path,required=True)
-  if command in ("plan-restart","apply-restart"):
-   item.add_argument("--host-key-receipt",type=Path,required=True); item.add_argument("--prior-admission",type=Path,required=True)
+  if command in ("plan-restart","apply-restart"): item.add_argument("--host-key-receipt",type=Path,required=True)
+  if command in ("plan-restart","apply-restart","plan-destroy","apply-destroy"): item.add_argument("--prior-admission",type=Path,required=True)
   if command in ("plan-stop","apply-stop"): item.add_argument("--allow-expired-admission",action="store_true")
   if command.startswith("apply-"):
    item.add_argument("--manifest",type=Path,required=True); item.add_argument("--plan-sha",required=True); item.add_argument("--approve-plan-sha",required=True); item.add_argument("--authorization-sha",required=True); item.add_argument("--approve-authorization-sha",required=True); item.add_argument("--confirm",required=True)

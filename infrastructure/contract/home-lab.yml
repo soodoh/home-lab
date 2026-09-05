@@ -17,6 +17,7 @@ lifecycle:
     temporary_tailnet_user: qualification-apply
     conventional_ssh_key_allowed: false
     non_destructive_gated_applies_authorized: true
+    historical_stopped_receipt_lineage_with_fresh_admission: true
     offline_diagnostic:
       read_only: true
       requires_stopped_receipt: true
