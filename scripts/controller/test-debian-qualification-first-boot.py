@@ -16,9 +16,10 @@ RULES=[
  {"action":"DROP","comment":"deny tailnet and CGNAT destinations","dest":"100.64.0.0/10","type":"out"},
  {"action":"ACCEPT","comment":"public IPv4 egress after private and CGNAT denies","dest":"0.0.0.0/0","type":"out"}]
 for index,rule in enumerate(RULES): rule.update({"enable":1,"pos":index})
+status_calls=[]
 def fake(command):
  if command[:3]==["/usr/sbin/qm","config","9900"]: return "net0: virtio=BC:24:11:AA:BB:CC,bridge=vmbr0,firewall=1\nonboot: 0\nprotection: 0\n"
- if command[:3]==["/usr/sbin/qm","status","9900"]: return "status: running\nuptime: 126\n"
+ if command[:3]==["/usr/sbin/qm","status","9900"]: status_calls.append(1); return f"status: running\nuptime: {175 if len(status_calls)==1 else 179}\n"
  if command[:3]==["/usr/bin/pvesh","get","/nodes/proxmox/qemu/9900/firewall/options"]: return json.dumps({"dhcp":1,"enable":1,"ipfilter":0,"macfilter":1,"policy_in":"DROP","policy_out":"DROP"})
  if command[:3]==["/usr/bin/pvesh","get","/nodes/proxmox/qemu/9900/firewall/rules"]: return json.dumps(RULES)
  if command[:4]==["/usr/sbin/qm","guest","cmd","9900"]: return "{}\n"
@@ -26,7 +27,7 @@ def fake(command):
  if argv[:2]==["/usr/bin/cloud-init","status"]: return qga("status: done\n")
  if argv==["/usr/bin/cat","/run/cloud-init/result.json"]: return qga('{"v1":{"errors":[]}}\n')
  if argv==["/usr/bin/cat","/proc/sys/kernel/random/boot_id"]: return qga("efbec1bf-a7a8-4b17-8ba1-55521d98d923\n")
- if argv==["/usr/bin/cat","/proc/uptime"]: return qga("120.25 20.00\n")
+ if argv==["/usr/bin/cat","/proc/uptime"]: return qga("178.78 20.00\n")
  if argv and argv[0]=="/usr/bin/journalctl": return qga('{"boot_id":"efbec1bfa7a84b178ba155521d98d923","index":0}\n')
  if argv[:2]==["/usr/bin/cloud-init","query"]: return qga("iid-nocloud\n")
  if argv and argv[0]=="/usr/bin/dpkg-query": return qga("install ok installed 1:10.0.11+ds-0+deb13u1\n")
@@ -36,7 +37,7 @@ def fake(command):
  if argv and argv[0]=="/usr/bin/python3": return qga('{"blocked":{"10.255.255.1":true,"100.64.0.1":true,"172.31.255.1":true,"192.168.0.1":true},"https_status":200}\n')
  raise AssertionError(command)
 original=helper.run; helper.run=fake; value=helper._first_boot(); helper.run=original
-assert value["boot_count"]==1 and value["first_boot_marker"]=={"boot_id":"efbec1bf-a7a8-4b17-8ba1-55521d98d923","mode":"0600"} and value["cloud_init_errors"]==[] and value["cloud_init_status"]=="done" and value["network_device"]["firewall"] is True and value["startup_delta_seconds"]==5.75 and value["qemu_guest_agent"]=="active" and value["vmid"]==9900
+assert value["boot_count"]==1 and value["first_boot_marker"]=={"boot_id":"efbec1bf-a7a8-4b17-8ba1-55521d98d923","mode":"0600"} and value["cloud_init_errors"]==[] and value["cloud_init_status"]=="done" and value["network_device"]["firewall"] is True and value["startup_delta_seconds"]==0.22 and value["pve_uptime_seconds"]==179 and value["qemu_guest_agent"]=="active" and value["vmid"]==9900
 def rebooted(command):
  if command[:3]==["/usr/sbin/qm","status","9900"]: return "status: running\nuptime: 600\n"
  return fake(command)
