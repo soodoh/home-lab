@@ -189,6 +189,7 @@
     content: >-
       qualification-apply ALL=(root) NOPASSWD:
       /usr/local/libexec/home-lab/debian-qualification-snippet-transaction observe,
+      /usr/local/libexec/home-lab/debian-qualification-snippet-transaction first-boot,
       /usr/local/libexec/home-lab/debian-qualification-snippet-transaction apply *,
       /usr/local/libexec/home-lab/debian-qualification-snippet-transaction host-key *,
       /usr/local/libexec/home-lab/debian-qualification-snippet-transaction hold-lock *

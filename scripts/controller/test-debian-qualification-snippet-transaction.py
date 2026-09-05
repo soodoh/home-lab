@@ -34,10 +34,10 @@ with tempfile.TemporaryDirectory() as directory:
  for setting in ("globalknownhostsfile /dev/null",f"userknownhostsfile {known}".lower(),"identityfile none","identitiesonly yes","preferredauthentications none","pubkeyauthentication false","passwordauthentication no","kbdinteractiveauthentication no"):
   assert setting in effective,setting
  source=TRANSPORT.read_text()
- for required in ("SSH_ORIGINAL_COMMAND", '"$#" -eq 2', '"$1" = -c', "sudo -n --", "hold-lock", "unsupported qualification snippet command", '"$plan" = "$approval"', '"${#plan}" -eq 64'):
+ for required in ("SSH_ORIGINAL_COMMAND", '"$#" -eq 2', '"$1" = -c', "sudo -n --", "hold-lock", "first-boot", "unsupported qualification snippet command", '"$plan" = "$approval"', '"${#plan}" -eq 64'):
   assert required in source
  helper_source=HELPER.read_text(); controller_source=CONTROLLER.read_text()
- for required in ('return "/var/lib/vz/snippets","/run/lock/home-lab-disposable-qualification.lock"', "os.O_NOFOLLOW", "os.fsync", "os.link", "os.replace", "snippet replacement rollback failed", "LOCK_EX|fcntl.LOCK_NB", "plan stale", "snippet precondition drift"):
+ for required in ('return "/var/lib/vz/snippets","/run/lock/home-lab-disposable-qualification.lock"', "os.O_NOFOLLOW", "os.fsync", "os.link", "os.replace", "snippet replacement rollback failed", "def first_boot", "cloud-init", "LOCK_EX|fcntl.LOCK_NB", "plan stale", "snippet precondition drift"):
   assert required in helper_source
  for required in ("StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null", "UpdateHostKeys=no", "IdentitiesOnly=yes", "IdentityFile=none", "PreferredAuthentications=none", "PubkeyAuthentication=no", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no", "RequestTTY=no", "validate-disposable-pve-target.js", "tailscale-policy", "verify_exact_checkout", "acquire_transfer_lock", "PRODUCTION_PVE_VM9900_SNIPPET_CONFIRMED", "expected_content=render(public)", "replace-snippet", "snippet plan binding mismatch"):
   assert required in controller_source

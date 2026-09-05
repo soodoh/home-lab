@@ -13,6 +13,9 @@ case "$command" in
   observe)
     exec sudo -n -- "$helper" observe
     ;;
+  first-boot)
+    exec sudo -n -- "$helper" first-boot
+    ;;
   hold-lock\ [0-9a-f][0-9a-f]*)
     IFS=' ' read -r verb admission extra <<EOF
 ${command}

@@ -151,6 +151,68 @@ def run(command):
   fail(f"command failed: {command[0]}:{detail}")
  return result.stdout
 
+def guest_exec(argv):
+ result=json.loads(run(["/usr/sbin/qm","guest","exec","9900","--",*argv]))
+ if result.get("exited")!=1 or result.get("exitcode")!=0 or result.get("err-data",""): fail(f"guest command failed: {argv[0]}")
+ return result.get("out-data","")
+
+def _first_boot():
+ config=run(["/usr/sbin/qm","config","9900","--current"]); lines=dict(line.split(": ",1) for line in config.splitlines() if ": " in line)
+ if "lock" in lines or lines.get("onboot")!="0" or lines.get("protection")!="0": fail("VM9900 first-boot boundary")
+ net0={}; parts=lines.get("net0","").split(",")
+ for index,part in enumerate(parts):
+  if "=" not in part: fail("VM9900 network device differs")
+  key,value=part.split("=",1); net0[key]=value
+ if set(net0)!={"bridge","firewall","virtio"} or net0["bridge"]!="vmbr0" or net0["firewall"]!="1" or re.fullmatch(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}",net0["virtio"]) is None: fail("VM9900 firewall is not attached to net0")
+ status=dict(line.split(": ",1) for line in run(["/usr/sbin/qm","status","9900","--verbose"]).splitlines() if ": " in line)
+ if status.get("status")!="running" or re.fullmatch(r"[0-9]+",status.get("uptime","")) is None: fail("VM9900 running uptime unavailable")
+ pve_uptime=int(status["uptime"])
+ options=json.loads(run(["/usr/bin/pvesh","get","/nodes/proxmox/qemu/9900/firewall/options","--output-format","json"])); normalized_options={key:options.get(key) for key in ("dhcp","enable","ipfilter","macfilter","policy_in","policy_out")}
+ expected_options={"dhcp":1,"enable":1,"ipfilter":0,"macfilter":1,"policy_in":"DROP","policy_out":"DROP"}
+ if normalized_options!=expected_options: fail("VM9900 firewall options differ")
+ rules=json.loads(run(["/usr/bin/pvesh","get","/nodes/proxmox/qemu/9900/firewall/rules","--output-format","json"])); keys=("action","comment","dest","dport","enable","proto","source","sport","type")
+ normalized_rules=[{key:(int(rule.get(key,1)) if key=="enable" else rule.get(key,"")) for key in keys} for rule in sorted(rules,key=lambda rule:int(rule["pos"]))]
+ expected_rules=[
+  {"action":"ACCEPT","comment":"DHCP discovery","dest":"255.255.255.255/32","dport":"67","enable":1,"proto":"udp","source":"","sport":"68","type":"out"},
+  {"action":"ACCEPT","comment":"DHCP offer","dest":"","dport":"68","enable":1,"proto":"udp","source":"0.0.0.0/0","sport":"67","type":"in"},
+  {"action":"ACCEPT","comment":"bounded controller SSH","dest":"","dport":"22","enable":1,"proto":"tcp","source":"192.168.0.12/32","sport":"","type":"in"},
+  {"action":"ACCEPT","comment":"SSH replies only","dest":"192.168.0.12/32","dport":"1024:65535","enable":1,"proto":"tcp","source":"","sport":"22","type":"out"},
+  {"action":"DROP","comment":"deny private production networks","dest":"10.0.0.0/8","dport":"","enable":1,"proto":"","source":"","sport":"","type":"out"},
+  {"action":"DROP","comment":"deny private production networks","dest":"172.16.0.0/12","dport":"","enable":1,"proto":"","source":"","sport":"","type":"out"},
+  {"action":"DROP","comment":"deny production LAN","dest":"192.168.0.0/16","dport":"","enable":1,"proto":"","source":"","sport":"","type":"out"},
+  {"action":"DROP","comment":"deny tailnet and CGNAT destinations","dest":"100.64.0.0/10","dport":"","enable":1,"proto":"","source":"","sport":"","type":"out"},
+  {"action":"ACCEPT","comment":"public IPv4 egress after private and CGNAT denies","dest":"0.0.0.0/0","dport":"","enable":1,"proto":"","source":"","sport":"","type":"out"}]
+ if normalized_rules!=expected_rules: fail("VM9900 firewall rules differ")
+ run(["/usr/sbin/qm","guest","cmd","9900","ping"])
+ cloud_status=guest_exec(["/usr/bin/cloud-init","status","--long"])
+ if "status: done" not in cloud_status or "degraded" in cloud_status.lower(): fail("cloud-init first boot is not complete")
+ cloud_result=json.loads(guest_exec(["/usr/bin/cat","/run/cloud-init/result.json"])); errors=cloud_result.get("v1",{}).get("errors")
+ if errors!=[]: fail("cloud-init first boot reported errors")
+ boot_id=guest_exec(["/usr/bin/cat","/proc/sys/kernel/random/boot_id"]).strip()
+ if not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}",boot_id): fail("invalid guest boot identity")
+ guest_uptime=float(guest_exec(["/usr/bin/cat","/proc/uptime"]).split()[0]); startup_delta=round(pve_uptime-guest_uptime,2)
+ if guest_uptime<=0 or startup_delta<0 or startup_delta>30: fail("guest reboot detected by PVE/QEMU uptime")
+ boots=[json.loads(line) for line in guest_exec(["/usr/bin/journalctl","--list-boots","--output=json"]).splitlines() if line.strip()]
+ if len(boots)!=1 or str(boots[0].get("boot_id","")).replace("-","")!=boot_id.replace("-",""): fail("guest is not on its only recorded boot")
+ instance_id=guest_exec(["/usr/bin/cloud-init","query","instance_id"]).strip()
+ if not instance_id: fail("cloud-init instance identity missing")
+ package=guest_exec(["/usr/bin/dpkg-query","-W","-f=${Status} ${Version}","qemu-guest-agent"]).strip()
+ if not package.startswith("install ok installed "): fail("qemu guest agent package missing")
+ if guest_exec(["/usr/bin/systemctl","is-active","qemu-guest-agent"]).strip()!="active": fail("qemu guest agent is inactive")
+ dns=guest_exec(["/usr/bin/getent","ahostsv4","deb.debian.org"])
+ if not dns.strip(): fail("public DNS failed")
+ network_code='import json,socket,ssl,urllib.request\nblocked={}\nfor host in ("10.255.255.1","172.31.255.1","192.168.0.1","100.64.0.1"):\n s=socket.socket();s.settimeout(2)\n try:s.connect((host,443));blocked[host]=False\n except OSError:blocked[host]=True\n finally:s.close()\nstatus=urllib.request.urlopen("https://deb.debian.org",timeout=10,context=ssl.create_default_context()).status\nprint(json.dumps({"blocked":blocked,"https_status":status},sort_keys=True,separators=(",",":")))'
+ network=json.loads(guest_exec(["/usr/bin/python3","-c",network_code]))
+ if network.get("https_status") not in (200,301,302) or network.get("blocked")!={"10.255.255.1":True,"172.31.255.1":True,"192.168.0.1":True,"100.64.0.1":True}: fail("first-boot network probes differ")
+ return {"boot_count":1,"boot_id":boot_id,"cloud_init_errors":errors,"cloud_init_instance_id":instance_id,"cloud_init_status":"done","firewall_options":normalized_options,"firewall_rules":normalized_rules,"format":"home-lab-debian-qualification-first-boot-observation-v1","guest_uptime_seconds":guest_uptime,"network":network,"network_device":{"bridge":"vmbr0","firewall":True,"model":"virtio"},"package":package,"pve_uptime_seconds":pve_uptime,"qemu_guest_agent":"active","startup_delta_seconds":startup_delta,"vmid":9900}
+
+def first_boot():
+ lock_fd=acquire_lock()
+ try:
+  return _first_boot()
+ finally:
+  os.close(lock_fd)
+
 def read_guest_host_key(root):
  uid,gid=expected_ids(); descriptors=[]
  try:
@@ -240,6 +302,7 @@ def apply_host_key(plan_sha,approval):
  finally: os.close(lock_fd)
 def main():
  if len(sys.argv)==2 and sys.argv[1]=="observe": print(canonical(inspect()).decode(),end=""); return
+ if len(sys.argv)==2 and sys.argv[1]=="first-boot": print(canonical(first_boot()).decode(),end=""); return
  if len(sys.argv)==4 and sys.argv[1]=="apply": print(canonical(apply(sys.argv[2],sys.argv[3])).decode(),end=""); return
  if len(sys.argv)==4 and sys.argv[1]=="host-key": print(canonical(apply_host_key(sys.argv[2],sys.argv[3])).decode(),end=""); return
  if len(sys.argv)==3 and sys.argv[1]=="hold-lock": hold_lock(sys.argv[2]); return
