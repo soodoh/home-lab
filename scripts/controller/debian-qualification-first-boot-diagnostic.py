@@ -45,6 +45,22 @@ def validate_observed(observed,expected):
  if not isinstance(value["errors"],list) or not isinstance(value["cloud_result_errors"],list) or len(value["errors"])>40 or len(value["cloud_result_errors"])>40: fail("diagnostic-redaction")
  rows=value["errors"]+value["cloud_result_errors"]
  if any(not isinstance(row,str) or len(row)>512 or re.search(r"://[^/@\s]+@|(?i:bearer)\s+(?!<redacted>)\S+|(?i:(?:password|token|secret|authorization))\s*[:=]\s*(?!<redacted>)\S+",row) for row in rows): fail("diagnostic-redaction")
+def remote_diagnostic(args,target,command,raw,plan_sha,output):
+ try: result=subprocess.run(snippet.ssh_args(target,args.known_hosts,command),input=raw,capture_output=True,timeout=120)
+ except subprocess.TimeoutExpired as error:
+  detail=(error.stderr or b"").decode("utf-8","replace") if isinstance(error.stderr,bytes) else (error.stderr or "")
+  result=None; returncode=124
+ else:
+  detail=result.stderr.decode("utf-8","replace"); returncode=result.returncode
+ if result is None or returncode or detail:
+  detail=re.sub(r"://[^/@\s]+@","://<redacted>@",detail); detail=re.sub(r"(?i)bearer\s+\S+","Bearer <redacted>",detail); detail=re.sub(r"(?i)(password|token|secret|authorization)(\s*[:=]\s*)\S+",r"\1\2<redacted>",detail)
+  write_json(output,f"{plan_sha}.diagnostic-failure.json",{"automatic_retry":False,"detail":" ".join(detail.split())[:512],"format":"home-lab-debian-qualification-first-boot-diagnostic-failure-v1","plan_sha256":plan_sha,"returncode":returncode,"version":1})
+  fail("remote-diagnostic")
+ try: observed=json.loads(result.stdout)
+ except json.JSONDecodeError:
+  write_json(output,f"{plan_sha}.diagnostic-failure.json",{"automatic_retry":False,"detail":"non-canonical-response","format":"home-lab-debian-qualification-first-boot-diagnostic-failure-v1","plan_sha256":plan_sha,"returncode":0,"version":1}); fail("remote-diagnostic")
+ if result.stdout!=canonical_bytes(observed)+b"\n": fail("remote-diagnostic-canonical")
+ return observed
 def plan(args):
  output=require_private_root(args.output_dir,()); lock=acquire_transfer_lock(output/"lifecycle.lock")
  try:
@@ -62,7 +78,7 @@ def apply(args):
   attempt_path=output/f"{args.plan_sha}.diagnostic-attempt.json"; receipt_path=output/f"{args.plan_sha}.diagnostic-receipt.json"
   if attempt_path.exists() or receipt_path.exists(): fail("diagnostic-plan-already-attempted")
   write_json(output,attempt_path.name,{"automatic_retry":False,"capability_receipt_sha256":capability_sha,"format":"home-lab-debian-qualification-first-boot-diagnostic-attempt-v1","helper_sha256":helper_sha,"plan_sha256":args.plan_sha,"started_at":now().isoformat().replace("+00:00","Z"),"sudoers_sha256":sudoers_sha,"transport_sha256":transport_sha,"version":1})
-  observed=snippet.remote(admitted,args.known_hosts,f"diagnostic {args.plan_sha} {args.plan_sha}",raw)
+  observed=remote_diagnostic(args,admitted,f"diagnostic {args.plan_sha} {args.plan_sha}",raw,args.plan_sha,output)
  finally: os.close(lock)
  expected={"disk_volume":value["disk_volume"],"format":"home-lab-debian-qualification-first-boot-diagnostic-receipt-v1","helper_sha256":helper_sha,"plan_sha256":args.plan_sha,"state_sha256":value["state_sha256"],"stopped_receipt_sha256":receipt_sha,"sudoers_sha256":sudoers_sha,"target_id":value["target_id"],"transport_sha256":transport_sha,"version":1,"vmid":9900}
  validate_observed(observed,expected)
