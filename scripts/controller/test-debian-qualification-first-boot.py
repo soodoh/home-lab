@@ -44,6 +44,6 @@ try: helper._first_boot(); raise AssertionError("rebooted guest accepted")
 except RuntimeError as error: assert "reboot detected" in str(error)
 finally: helper.run=original
 controller=(ROOT/"scripts/controller/debian-qualification-first-boot.py").read_text()
-for required in ("clean pushed commit required","historical_target","acquire_transfer_lock","intervening qualification receipt detected","foundation_receipt_sha256","start_receipt_sha256","first-boot","boot_count","startup_delta_seconds","network_device","firewall_rules","cloud_init_errors","qemu_guest_agent","observation_sha256","helper_sha256","transport_sha256","template_sha256"):
+for required in ("clean pushed commit required","historical_target","acquire_transfer_lock","intervening qualification receipt detected","foundation_receipt_sha256","start_receipt_sha256","first-boot","boot_count","startup_delta_seconds","network_device","firewall_rules","cloud_init_errors","qemu_guest_agent","observation_sha256","helper_sha256","helper_source_sha256","transport_sha256","transport_source_sha256","template_sha256"):
  assert required in controller
 print("debian_qualification_first_boot=verified chain_bound=true one_boot=true firewall_live=true qga_only=true cloud_init=true dns_https=true isolation=true")
