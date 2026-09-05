@@ -20,9 +20,9 @@ Reviewed the Desktop plan `ansible-debian-cloud-init-refactor.md` (SHA-256 `1e74
 | --- | --- | --- |
 | 0–1 discovery and design | Ownership/access/retirement matrices, accepted ADR, contract and collection pin exist | Fresh revision-bound live baseline before any new operation; historical matrices need current-status annotations |
 | 2–3 Proxmox Ansible and cutover | Domain handoffs and aggregate Ansible ownership recorded | Nix-free controller/manifests, reusable-asset migration, separately approved runtime/rollback retirement |
-| 4 Debian profiles | Explicit inert/recovery/production role gates; base ownership and strict access boundaries | Descriptor-safe inactive-mount observer; complete disposable base convergence and second-run zero change |
-| 5 root behavior/cloud-init | Minimal first-contact template and VM9900 controllers exist; warm-repair proof recorded | Clean first-boot chain, installed observer/booted-template provenance, exact-image prerequisites, synthetic disk topology/adoption proof |
-| 6 lifecycle transactions | Storage/identity/enrollment/activation/replacement-disk executors and fault fixtures; inert canary and lock recovery recorded | Contract-bound per-property systemd graph; all substantive transactions rehearsed without production state or credentials |
+| 4 Debian profiles | Explicit inert/recovery/production role gates; descriptor-safe inactive-path observer and hostile synthetic tests | Native Linux bind-mount/namespace proof; complete disposable base convergence and second-run zero change |
+| 5 root behavior/cloud-init | Minimal first-contact template; VM9900 controllers; strict v2 installed-producer/booted-cache provenance and consumer tests | New clean first-boot chain with installed bytes; exact-image prerequisites; synthetic disk topology/adoption proof |
+| 6 lifecycle transactions | Rollback fault fixtures; contract-bound per-property production graph and installed-policy/drop-in path; historical inert canary | Installed-policy/activation proof; durable Docker/Compose/production-guard unit-body ownership; all substantive transactions rehearsed without production state or credentials |
 | 7 maintenance | Exact package/reboot capabilities, candidate generators, Renovate managers, weekly release artifact, monthly coverage artifact | Attended installation/rehearsal and unattended-upgrade retirement proof; trusted scheduled candidate collection; useful deduplicated issue/PR and dashboard aggregation |
 | 8 Compose | Existing artifact/image/rollback safeguards retained | Preserve them; optional simplification is not a prerequisite and must not be used to bypass recovery proof |
 | 9 cold recovery | Restic staging/recovery tools and authority receipts exist | Complete minimal-image → inert → synthetic restore/storage/access → production-profile recovery proof, including interruption/reboot |
@@ -41,19 +41,19 @@ Reviewed the Desktop plan `ansible-debian-cloud-init-refactor.md` (SHA-256 `1e74
 
 Changed executor bytes are **not installed or live-qualified**. Existing evidence bound to executor SHA-256 `94689348c8195a14c509cb90d2a35ad07afe068a96a541af7e6eba830773e494` remains historical. A fresh capability install/check and disposable proof are mandatory before the new executor is used.
 
-## Open safety/implementation blockers
+## Safety implementation and remaining qualification gates
 
-### P1: production dependency graph
+### Production dependency graph — repository fix integrated
 
-`scripts/controller/debian-lifecycle-transactions.py` checks the selected unit names and request/observation equality but does not bind minimum dependency edges to the contract. The host executor checks the union of `Requires` and `After`, so an ordering edge alone can appear to satisfy a requirement; empty lists also pass. Derive and bind the required per-property graph from durable unit policy, then reject empty/weakened graphs and wrong-property edges in both controller and host fixtures. Do not activate production using the present dependency proof.
+Controller requests/observations now use a production-only v2 graph bound independently to the contract; the host additionally verifies installed policy and separate live `Requires`/`After` properties. Docker and Compose retain guard/mount requirements. Timers gain ordering after Compose but do not implicitly start it. Capability installation writes additive drop-ins without starting/restarting units and reloads on every non-check installation, including a separately authorized reinstall after interrupted reload. Hostile graph and interrupted-installation fixtures pass. Installed proof and durable Docker/Compose/guard unit-body ownership remain necessary before complete cold recovery.
 
-### P1: inactive protected path observation
+### Inactive protected path observation — repository fix integrated
 
-`ansible/roles/debian_lifecycle_guard/tasks/main.yml` still uses `os.path.ismount` and path-based enumeration. Same-filesystem bind mounts, symlinked ancestors and inspection/open races are not reliably excluded. Replace this with exact Linux mount identity plus component-safe descriptor-based observation, and test no traversal for unsafe/mounted paths. Rehearse actual bind mounts only on an approved disposable Linux target.
+The role now invokes a separately tested Linux x86_64 helper using `openat2` no-symlink/no-mount-crossing traversal, `statx` mount identities, descriptor-only enumeration and identity/namespace rechecks. Every inactive-path entry is refused. Unsupported kernels and separate-filesystem ancestors fail closed. The 29 synthetic tests do not replace native x86_64 bind-mount/namespace and two-run inert-convergence qualification.
 
-### P2: clean-first-boot provenance
+### Clean-first-boot provenance — repository fix integrated
 
-`scripts/controller/debian-qualification-first-boot.py` records local helper/transport hashes without independently proving the installed producers emitted the result. Return/validate a locked installed-producer and snippet envelope, bind it to the foundation/start chain and distinguish observer revision from booted-template provenance. Add behavioral stale-producer, template-mismatch, source-change and receipt-publication tests. Add uptime boundary tests matching the implemented -2..120-second bound; this review did not change that policy.
+The first-boot controller independently renders and binds the exact snippet, challenges the locked installed producer, and requires the guest's cached user-data hash to match the snippet/start/source chain. The strict v2 host-key consumer revalidates producer/source/envelope/stopped-chain bindings and rejects v1 evidence. Producer, consumer and inclusive -2..120-second boundary fixtures pass. Actual embedded cache-reader code also passed confined Linux filesystem tests, including FIFO, symlink, ownership, hardlink, short-read and content/mode/replacement races, inside the local Colima development environment with no network or production input. These are not clean-first-boot or VM9900 deployment proofs.
 
 ### Nix-free controller and retirement
 
@@ -100,3 +100,15 @@ Passing local checks in this review:
 3. Re-establish fresh read-only target admission and obtain exact approval for any failed-operation recovery, capability install, VM9900 restart/destruction or replacement qualification chain.
 4. Perform complete synthetic cold-recovery and maintenance rehearsals, then separately reviewed production convergence/retirement.
 5. Publish one revision-bound acceptance set covering both hosts, Compose/Restic and every enabled OpenTofu root. Until then, do not mark the original plan complete.
+
+## Continuation after review
+
+The operator instructed the controller to continue through completion without stopping for routine authorization prompts and explicitly reaffirmed the **current ADR maintenance policy**. This standing direction does not change exact-plan, target trust, lock, no-retry, protected-disk, backup or console prerequisites, and does not authorize unattended package/reboot workflows.
+
+- Repository hardening was committed as `601147a`; complete lifecycle SSH checks and offline behavioral fixtures followed in `72035ef`. Lifecycle compliance now explicitly requires password and keyboard-interactive authentication disabled as well as public-key/root login disabled.
+- Fresh pinned-key read-only observations from `601147a` passed both hosts' lifecycle checks, Debian's complete audit (`57` tasks, `changed=0`) and Proxmox's complete 17-domain audit (`parity: true`, `changed=0`). The strengthened lifecycle check also passed on both hosts without changes.
+- At `2026-09-05T22:16:10Z`, VM100 was running and VM9900 was stopped. No failed qualification operation was retried. These observations do not replace fresh admission immediately before an operation.
+- Package observation refreshed **no** metadata and installed nothing. Debian reported zero changes and a valid candidate observation. Proxmox reported two installs/six upgrades, but candidate admission correctly remained blocked on unsafe keyring-path and incomplete package-size evidence. No package apply was attempted.
+- Private reduced logs are retained under `.local/completion-601147a/`. These are intermediate baseline observations, not final revision-bound acceptance or disposable cold-recovery qualification.
+- Isolated implementation/review lanes completed for the inactive-path observer, contract dependency graph and first-boot provenance. Parent integration addresses their test-registration, consumer-version and interrupted-reload findings. Nix-free controller and maintenance publication work remains open; the overall status above is unchanged.
+- The operator selected this existing Mac controller for scheduled read-only collection. Sleeping/offline periods must surface as stale/missing observations; no host credentials will be added to GitHub reporting workflows.

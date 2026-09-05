@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Exercise bounded VM9900 first-boot diagnostic parsing and guards."""
+import os
+from unittest.mock import patch
 import hashlib,importlib.machinery,importlib.util,json,sys,tempfile,types
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]; HELPER=ROOT/"infrastructure/qualification/host/debian-qualification-snippet-transaction"; CONTROLLER=ROOT/"scripts/controller/debian-qualification-first-boot-diagnostic.py"
@@ -25,6 +27,28 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
  try: diagnostic.stopped(receipt_path,expired,state,args); raise AssertionError("expired historical lineage accepted")
  except SystemExit as error: assert "historical-lineage-requires-fresh-admission" in str(error)
  direct={**receipt,"admission_sha256":current_sha}; direct_path=put("direct.json",direct); diagnostic.stopped(direct_path,expired,state,args)
+# The diagnostic and first-boot envelopes share the same installed-byte reader.
+# Model root ownership on a private synthetic file without contacting a host.
+with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
+ path=Path(directory)/"producer"; path.write_bytes(b"reviewed bytes\n"); path.chmod(0o755)
+ real_stat=os.stat; real_fstat=os.fstat; real_read=os.read
+ def root_metadata(info):
+  keys=("st_mode","st_nlink","st_size","st_dev","st_ino","st_mtime_ns","st_ctime_ns")
+  return types.SimpleNamespace(**{key:getattr(info,key) for key in keys},st_uid=0,st_gid=0)
+ with patch.object(helper.os,"stat",side_effect=lambda *a,**k:root_metadata(real_stat(*a,**k))), patch.object(helper.os,"fstat",side_effect=lambda *a:root_metadata(real_fstat(*a))):
+  assert helper.installed_hash(str(path))==hashlib.sha256(b"reviewed bytes\n").hexdigest()
+  path.chmod(0o777)
+  try: helper.installed_hash(str(path)); raise AssertionError("writable producer accepted")
+  except RuntimeError: pass
+  path.chmod(0o755)
+  with patch.object(helper.os,"read",return_value=b""):
+   try: helper.installed_hash(str(path)); raise AssertionError("short producer read accepted")
+   except RuntimeError: pass
+  def changed_read(*args):
+   raw=real_read(*args); path.write_bytes(b"modified bytes\n"); os.utime(path,ns=(1,1)); return raw
+  with patch.object(helper.os,"read",side_effect=changed_read):
+   try: helper.installed_hash(str(path)); raise AssertionError("same-inode producer mutation accepted")
+   except RuntimeError as error: assert "producer changed" in str(error)
 controller=CONTROLLER.read_text()
 for required in ("--allow-expired-offline-diagnostic","--prior-admission","historical diagnostic admission","current_stable","--capability-log","DIAGNOSE_VM9900_FAILED_FIRST_BOOT_READ_ONLY","exact-authorization-required","stopped_receipt_sha256","state-drift","diagnostic-attempt.json","diagnostic-plan-already-attempted","diagnostic-failure.json","remote-diagnostic","capability_receipt_sha256","helper_sha256","sudoers_sha256","transport_sha256","producer-binding","diagnostic-schema","diagnostic-redaction","diagnostic-receipt.json","automatic_apply"):
  assert required in controller,required

@@ -1558,6 +1558,22 @@ debian:
     compose_image_lock_path: /var/lib/home-lab/production-image-override.json
     root_environment_path: /etc/docker-compose/production.env
     production_units: [docker.service, home-lab-compose.service, home-lab-restic-daily.timer, home-lab-restic-maintenance.timer]
+    production_dependency_policy_path: /etc/home-lab/debian-production-dependencies.json
+    # Minimum direct edges; retain the existing production guard until separately retired.
+    production_systemd_dependencies:
+      docker.service:
+        Requires: [home-lab-production-guard.service, mnt-games.mount, mnt-storage.mount, 'srv-home\x2dlab\x2dstate.mount']
+        After: [home-lab-production-guard.service, mnt-games.mount, mnt-storage.mount, 'srv-home\x2dlab\x2dstate.mount']
+      home-lab-compose.service:
+        Requires: [docker.service, home-lab-production-guard.service, mnt-games.mount, mnt-storage.mount, 'srv-home\x2dlab\x2dstate.mount']
+        After: [docker.service, home-lab-production-guard.service, mnt-games.mount, mnt-storage.mount, 'srv-home\x2dlab\x2dstate.mount']
+      # Timers must not pull in workloads; the transaction starts Compose first.
+      home-lab-restic-daily.timer:
+        Requires: []
+        After: [home-lab-compose.service]
+      home-lab-restic-maintenance.timer:
+        Requires: []
+        After: [home-lab-compose.service]
 omada:
   controller_version: 6.2.14.11
   endpoint: https://Omada:8043

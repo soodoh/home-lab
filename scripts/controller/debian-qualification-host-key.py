@@ -14,18 +14,48 @@ def stopped(path,target,state):
  for key in ("admission_sha256","plan_sha256","prior_receipt_sha256","snippet_receipt_sha256","snippet_sha256","state_sha256"):
   if re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None: fail("stopped-receipt")
  return value,sha(raw)
+def clean_provenance(value,stopped_receipt):
+ """Revalidate saved v2 producer evidence against source and the stopped chain."""
+ envelope=value.get("provenance")
+ if not isinstance(envelope,dict): fail("clean-boot-provenance")
+ request=envelope.get("request"); observed_snippet=envelope.get("snippet")
+ if not isinstance(request,dict) or not isinstance(observed_snippet,dict): fail("clean-boot-provenance")
+ nonce=request.get("nonce"); size=observed_snippet.get("size")
+ if not isinstance(nonce,str) or re.fullmatch(r"[0-9a-f]{64}",nonce) is None or type(size) is not int or not 0<size<=1048576: fail("clean-boot-provenance")
+ digest_fields=("admission_sha256","foundation_receipt_sha256","start_receipt_sha256","snippet_receipt_sha256")
+ for key in digest_fields:
+  if not isinstance(value.get(key),str) or re.fullmatch(r"[0-9a-f]{64}",value[key]) is None: fail("clean-boot-provenance")
+ if value["start_receipt_sha256"]!=stopped_receipt.get("prior_receipt_sha256") or value["snippet_receipt_sha256"]!=stopped_receipt.get("snippet_receipt_sha256"): fail("clean-boot-provenance")
+ snippet_sha=stopped_receipt.get("snippet_sha256")
+ if not isinstance(snippet_sha,str) or re.fullmatch(r"[0-9a-f]{64}",snippet_sha) is None: fail("clean-boot-provenance")
+ expected={"format":"home-lab-debian-qualification-first-boot-request-v1","nonce":nonce,"producer":clean.expected_producer(),"snippet":{"file_id":"local:snippets/home-lab-debian-lifecycle-qualification.yaml","sha256":snippet_sha,"size":size},"vmid":9900,**{key:value[key] for key in digest_fields}}
+ observation=clean.validated_envelope(envelope,expected)
+ if canonical_bytes(observation)!=canonical_bytes(value.get("observation")): fail("clean-boot-provenance")
+
 def clean_boot(path,admission_path,known_hosts,target,stopped_receipt):
- value,raw=load_canonical_object(path,"clean first-boot receipt"); required={"admission_sha256","commit","format","foundation_receipt_sha256","helper_sha256","helper_source_sha256","observation","observation_sha256","observed_at","start_receipt_sha256","status","target_id","template_sha256","transport_sha256","transport_source_sha256","version","vmid"}
+ value,raw=load_canonical_object(path,"clean first-boot receipt")
+ required={"admission_sha256","booted_template_commit","commit","format","foundation_receipt_sha256","helper_sha256","helper_source_sha256","observation","observation_sha256","observed_at","provenance","snippet_receipt_sha256","start_receipt_sha256","status","target_id","template_sha256","transport_sha256","transport_source_sha256","version","vmid"}
  observation=value.get("observation",{}); address=clean.validated_observation(observation); observed=parse_time(value.get("observed_at","")); admission_raw=load_protected_bytes(admission_path,"clean first-boot admission")
  command=["node",str(snippet.VALIDATOR),"--evidence",str(admission_path),"--known-hosts",str(known_hosts)]; checked=subprocess.run(command,text=True,capture_output=True)
  if checked.returncode: checked=subprocess.run(command+["--allow-expired-safe-stop"],text=True,capture_output=True,check=True)
  prior_target=json.loads(checked.stdout)
  fields=("api_ca_sha256","apply_principal","bridge","controller_ipv4","disk_datastore_id","endpoint","guest_ssh_public_key_sha256","image_datastore_id","node_name","plan_principal","snippet_datastore_id","snippet_directory","ssh_address","ssh_authentication","ssh_username","target_id")
- producer={"helper_sha256":sha(clean.HELPER.read_bytes().removesuffix(b"\n")),"helper_source_sha256":sha(clean.HELPER.read_bytes()),"template_sha256":sha(clean.TEMPLATE.read_bytes()),"transport_sha256":sha(clean.TRANSPORT.read_bytes().removesuffix(b"\n")),"transport_source_sha256":sha(clean.TRANSPORT.read_bytes())}
- current_revision=revision(); receipt_revision=value.get("commit",""); revision_valid=re.fullmatch(r"[0-9a-f]{40}",receipt_revision) is not None and subprocess.run(["git","merge-base","--is-ancestor",receipt_revision,current_revision],capture_output=True).returncode==0
- if set(value)!=required or value.get("format")!="home-lab-debian-qualification-clean-first-boot-receipt-v1" or value.get("status")!="verified" or value.get("target_id")!=target["target_id"] or value.get("vmid")!=9900 or not revision_valid or value.get("admission_sha256")!=sha(admission_raw) or prior_target.get("admission_mode") not in ("fresh","expired-safe-stop") or any(prior_target.get(key)!=target.get(key) for key in fields) or value.get("start_receipt_sha256")!=stopped_receipt["prior_receipt_sha256"] or value.get("observation_sha256")!=sha(canonical_bytes(observation)+b"\n") or any(value.get(key)!=item for key,item in producer.items()) or observed>now()+dt.timedelta(seconds=5) or observed<now()-dt.timedelta(hours=4): fail("clean-boot-receipt")
- for key in ("admission_sha256","foundation_receipt_sha256","helper_sha256","helper_source_sha256","observation_sha256","start_receipt_sha256","template_sha256","transport_sha256","transport_source_sha256"):
-  if re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None: fail("clean-boot-receipt")
+ producer={"helper_sha256":sha(clean.HELPER.read_bytes().rstrip()),"helper_source_sha256":sha(clean.HELPER.read_bytes()),"template_sha256":sha(clean.TEMPLATE.read_bytes()),"transport_sha256":sha(clean.TRANSPORT.read_bytes().rstrip()),"transport_source_sha256":sha(clean.TRANSPORT.read_bytes())}
+ current_revision=revision(); receipt_revision=value.get("commit","")
+ revision_valid=isinstance(receipt_revision,str) and re.fullmatch(r"[0-9a-f]{40}",receipt_revision) is not None and subprocess.run(["git","merge-base","--is-ancestor",receipt_revision,current_revision],capture_output=True).returncode==0
+ if (set(value)!=required or value.get("format")!="home-lab-debian-qualification-clean-first-boot-receipt-v2"
+     or type(value.get("version")) is not int or value["version"]!=2 or type(value.get("vmid")) is not int or value["vmid"]!=9900
+     or value.get("status")!="verified" or value.get("target_id")!=target["target_id"] or not revision_valid
+     or value.get("booted_template_commit")!=receipt_revision or path.name!=sha(raw)+".json"
+     or value.get("admission_sha256")!=sha(admission_raw) or prior_target.get("admission_mode") not in ("fresh","expired-safe-stop")
+     or any(prior_target.get(key)!=target.get(key) for key in fields)
+     or value.get("start_receipt_sha256")!=stopped_receipt["prior_receipt_sha256"]
+     or value.get("observation_sha256")!=sha(canonical_bytes(observation)+b"\n")
+     or any(value.get(key)!=item for key,item in producer.items())
+     or observed>now()+dt.timedelta(seconds=5) or observed<now()-dt.timedelta(hours=4)): fail("clean-boot-receipt")
+ for key in ("admission_sha256","foundation_receipt_sha256","helper_sha256","helper_source_sha256","observation_sha256","snippet_receipt_sha256","start_receipt_sha256","template_sha256","transport_sha256","transport_source_sha256"):
+  if not isinstance(value.get(key),str) or re.fullmatch(r"[0-9a-f]{64}",value[key]) is None: fail("clean-boot-receipt")
+ clean_provenance(value,stopped_receipt)
  return address,sha(raw)
 def revision(expected=None):
  commit=subprocess.run(["git","rev-parse","HEAD"],text=True,capture_output=True,check=True).stdout.strip(); verify_exact_checkout("git",expected or commit,os.environ.copy()); return commit

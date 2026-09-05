@@ -33,6 +33,11 @@ class ReconcileSecurityTests(unittest.TestCase):
             "test-debian-qualification-first-boot.py",
             "test-debian-qualification-first-boot-diagnostic.py",
             "test-debian-lifecycle-storage-rollback.py",
+            "test-debian-inactive-path.py",
+            "test-debian-production-dependencies.py",
+            "test-debian-qualification-first-boot-provenance.py",
+            "test-debian-qualification-clean-receipt.py",
+            "test-debian-qualification-cache-reader.py",
         ):
             with self.subTest(suite=suite):
                 self.assertEqual(

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fixed guarded cloud-init snippet transaction for an isolated PVE target."""
-import base64,datetime as dt,fcntl,glob,hashlib,ipaddress,json,os,re,signal,stat,subprocess,sys,tempfile,time
+import math,base64,datetime as dt,fcntl,glob,hashlib,ipaddress,json,os,re,signal,stat,subprocess,sys,tempfile,time
 NAME="home-lab-debian-lifecycle-qualification.yaml"
 def fail(message): raise RuntimeError(message)
 def canonical(value): return (json.dumps(value,sort_keys=True,separators=(",",":"))+"\n").encode()
@@ -211,7 +211,7 @@ def _first_boot():
  guest_uptime=float(guest_exec(["/usr/bin/cat","/proc/uptime"]).split()[0]); status_after=dict(line.split(": ",1) for line in run(["/usr/sbin/qm","status","9900","--verbose"]).splitlines() if ": " in line)
  if status_after.get("status")!="running" or re.fullmatch(r"[0-9]+",status_after.get("uptime","")) is None: fail("VM9900 running uptime changed during observation")
  pve_uptime=int(status_after["uptime"]); startup_delta=round(pve_uptime-guest_uptime,2)
- if guest_uptime<=0 or startup_delta < -2 or startup_delta>120: fail(f"guest reboot detected by PVE/QEMU uptime: pve={pve_uptime} guest={guest_uptime} delta={startup_delta}")
+ if not math.isfinite(guest_uptime) or guest_uptime<=0 or startup_delta < -2 or startup_delta>120: fail(f"guest reboot detected by PVE/QEMU uptime: pve={pve_uptime} guest={guest_uptime} delta={startup_delta}")
  boots_raw=guest_exec(["/usr/bin/journalctl","--list-boots","--output=json"])
  try:
   decoded_boots=json.loads(boots_raw); boots=decoded_boots if isinstance(decoded_boots,list) else [decoded_boots]
@@ -229,12 +229,69 @@ def _first_boot():
  if network.get("https_status") not in (200,301,302) or network.get("blocked")!={"10.255.255.1":True,"172.31.255.1":True,"192.168.0.1":True,"100.64.0.1":True}: fail("first-boot network probes differ")
  return {"boot_count":1,"boot_id":boot_id,"first_boot_marker":marker,"cloud_init_errors":errors,"cloud_init_instance_id":instance_id,"cloud_init_status":"done","dhcp":dhcp,"firewall_options":normalized_options,"firewall_rules":normalized_rules,"format":"home-lab-debian-qualification-first-boot-observation-v1","guest_ipv4":str(guest_address),"guest_uptime_seconds":guest_uptime,"network":network,"network_device":{"bridge":"vmbr0","firewall":True,"model":"virtio"},"package":package,"pve_uptime_seconds":pve_uptime,"qemu_guest_agent":"active","startup_delta_seconds":startup_delta,"vmid":9900}
 
-def first_boot():
- lock_fd=acquire_lock()
+def first_boot_request():
+ _,request=read_plan()
+ keys={"format","nonce","admission_sha256","foundation_receipt_sha256","start_receipt_sha256","snippet_receipt_sha256","producer","snippet","vmid"}
+ if not isinstance(request,dict) or set(request)!=keys or request["format"]!="home-lab-debian-qualification-first-boot-request-v1" or type(request["vmid"]) is not int or request["vmid"]!=9900: fail("invalid first-boot request")
+ for key in ("nonce","admission_sha256","foundation_receipt_sha256","start_receipt_sha256","snippet_receipt_sha256"):
+  if not isinstance(request[key],str) or not re.fullmatch(r"[0-9a-f]{64}",request[key]): fail("invalid first-boot identity")
+ producer=request["producer"]; snippet=request["snippet"]
+ if not isinstance(producer,dict) or set(producer)!={"helper_sha256","transport_sha256","sudoers_sha256"} or any(not isinstance(value,str) or not re.fullmatch(r"[0-9a-f]{64}",value) for value in producer.values()): fail("invalid first-boot producer")
+ if not isinstance(snippet,dict) or set(snippet)!={"file_id","sha256","size"} or snippet["file_id"]!=f"local:snippets/{NAME}" or type(snippet["size"]) is not int or not 0<snippet["size"]<=65536 or not isinstance(snippet["sha256"],str) or not re.fullmatch(r"[0-9a-f]{64}",snippet["sha256"]): fail("invalid first-boot snippet")
+ return request
+
+def first_boot_producer():
+ return {"helper_sha256":installed_hash("/usr/local/libexec/home-lab/debian-qualification-snippet-transaction"),"sudoers_sha256":installed_hash("/etc/sudoers.d/qualification-apply",0o440),"transport_sha256":installed_hash("/usr/local/libexec/home-lab/debian-qualification-snippet-transport")}
+
+def first_boot_snippet():
+ config=run(["/usr/sbin/qm","config","9900","--current"]); lines=dict(line.split(": ",1) for line in config.splitlines() if ": " in line)
+ if lines.get("cicustom")!=f"user=local:snippets/{NAME}" or lines.get("ide2","").split(",",1)[0]!="local-lvm:vm-9900-cloudinit": fail("VM9900 boot snippet configuration differs")
+ current=inspect(); item=current["snippet"]
+ if item.get("exists") is not True: fail("first-boot snippet absent")
+ return {"file_id":current["file_id"],"sha256":item["sha256"],"size":item["size"]}
+
+def booted_snippet_hash(instance_id):
+ # cloud-init's instance symlink is expected; every directory of its canonical
+ # instance target is then opened without following symlinks.
+ if not isinstance(instance_id,str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}",instance_id) or instance_id in (".",".."): fail("unsafe cloud-init instance identity")
+ code='''import hashlib,os,stat,sys
+instance=sys.argv[1]
+expected="/var/lib/cloud/instances/"+instance
+if os.path.realpath("/var/lib/cloud/instance")!=expected: raise SystemExit(64)
+fd=os.open("/",os.O_RDONLY|os.O_DIRECTORY)
+try:
+ for part in expected.strip("/").split("/"):
+  child=os.open(part,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=fd);os.close(fd);fd=child
+  info=os.fstat(fd)
+  if info.st_uid!=0 or info.st_gid!=0 or stat.S_IMODE(info.st_mode)&0o022: raise SystemExit(64)
+ source=os.open("user-data.txt",os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK,dir_fd=fd)
  try:
-  return _first_boot()
+  before=os.fstat(source)
+  if not stat.S_ISREG(before.st_mode) or before.st_uid!=0 or before.st_gid!=0 or before.st_nlink!=1 or stat.S_IMODE(before.st_mode)!=0o600 or not 0<before.st_size<=65536: raise SystemExit(64)
+  raw=os.read(source,65537);after=os.fstat(source);current=os.stat("user-data.txt",dir_fd=fd,follow_symlinks=False)
+  identity=lambda s:(s.st_dev,s.st_ino,s.st_size,s.st_nlink,s.st_mode,s.st_uid,s.st_gid,s.st_mtime_ns,s.st_ctime_ns)
+  if identity(before)!=identity(after) or identity(before)!=identity(current) or len(raw)!=before.st_size: raise SystemExit(65)
+  print(hashlib.sha256(raw).hexdigest())
+ finally:os.close(source)
+finally:os.close(fd)
+'''
+ digest=guest_exec(["/usr/bin/python3","-c",code,instance_id]).strip()
+ if not re.fullmatch(r"[0-9a-f]{64}",digest): fail("invalid booted snippet digest")
+ return digest
+
+def first_boot():
+ request=first_boot_request(); shared_fd=acquire_shared_operation_lock(); lock_fd=None
+ try:
+  if os.path.lexists("/var/lib/iac-ansible-production.lock"): fail("qualification capability installation active")
+  lock_fd=acquire_lock(); producer=first_boot_producer(); snippet=first_boot_snippet()
+  if producer!=request["producer"] or snippet!=request["snippet"]: fail("first-boot installed producer/snippet drift")
+  observation=_first_boot(); booted=booted_snippet_hash(observation["cloud_init_instance_id"])
+  if booted!=snippet["sha256"]: fail("first-boot booted snippet differs")
+  if first_boot_producer()!=producer or first_boot_snippet()!=snippet: fail("first-boot producer/snippet changed during observation")
+  return {"format":"home-lab-debian-qualification-first-boot-envelope-v1","request":request,"producer":producer,"snippet":snippet,"booted_snippet_sha256":booted,"observation":observation}
  finally:
-  os.close(lock_fd)
+  if lock_fd is not None: os.close(lock_fd)
+  os.close(shared_fd)
 def _observe_guest_ipv4(expected):
  if run(["/usr/sbin/qm","status","9900"]).strip()!="status: running": fail("VM9900 is not running")
  run(["/usr/sbin/qm","guest","cmd","9900","ping"]); values=guest_exec(["/usr/bin/hostname","-I"]).split(); ipv4=[value for value in values if re.fullmatch(r"(?:[0-9]{1,3}\.){3}[0-9]{1,3}",value)]
@@ -392,8 +449,8 @@ def installed_hash(path,expected_mode=0o755):
    chunk=os.read(fd,min(65536,remaining))
    if not chunk: fail("short installed producer read")
    chunks.append(chunk); remaining-=len(chunk)
-  after=os.fstat(fd); current=os.stat(path,follow_symlinks=False); identity=(opened.st_dev,opened.st_ino,opened.st_size,opened.st_nlink)
-  if identity!=(info.st_dev,info.st_ino,info.st_size,info.st_nlink) or identity!=(after.st_dev,after.st_ino,after.st_size,after.st_nlink) or identity!=(current.st_dev,current.st_ino,current.st_size,current.st_nlink): fail("installed diagnostic producer changed")
+  after=os.fstat(fd); current=os.stat(path,follow_symlinks=False); identity=lambda item:(item.st_dev,item.st_ino,item.st_size,item.st_nlink,item.st_mtime_ns,item.st_ctime_ns)
+  if identity(opened)!=identity(info) or identity(opened)!=identity(after) or identity(opened)!=identity(current): fail("installed diagnostic producer changed")
   return sha(b"".join(chunks))
  finally: os.close(fd)
 def acquire_shared_operation_lock():

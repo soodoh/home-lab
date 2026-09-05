@@ -78,6 +78,34 @@ def contract_policy() -> dict:
     return json.loads(result.stdout)
 
 
+def production_dependency_policy() -> dict:
+    transaction = contract_policy()["transaction"]
+    return {
+        "format": "home-lab-debian-production-dependencies-v1",
+        "contract_sha256": sha(CONTRACT.read_bytes()),
+        "production_units": transaction["production_units"],
+        "systemd_dependencies": transaction["production_systemd_dependencies"],
+    }
+
+
+def dependencies_satisfied(required: dict, observed: dict) -> bool:
+    if not isinstance(observed, dict) or set(observed) != set(required):
+        return False
+    for unit, properties in required.items():
+        current = observed[unit]
+        if not isinstance(current, dict) or set(current) != {"Requires", "After"}:
+            return False
+        for prop, edges in properties.items():
+            values = current[prop]
+            if not isinstance(values, list) or any(not isinstance(value, str) for value in values):
+                return False
+            if len(set(values)) != len(values) or not set(edges).issubset(values):
+                return False
+            if set(values).intersection(required) != set(edges).intersection(required):
+                return False
+    return True
+
+
 def execution_route(operation: str, profile: str) -> tuple[Path, str]:
     if operation == "qualification-canary" and profile == "inert":
         policy = contract_policy()["transaction"]
@@ -150,9 +178,10 @@ def validate_evidence(operation: str, params: dict, paths: list[Path] | None) ->
     return sorted(digests)
 
 
-def common_observation(value: dict) -> None:
+def common_observation(value: dict, operation: str) -> None:
     exact_keys(value, {"format", "target", "profile", "host", "locks", "storage", "mounts", "identity", "tailscale", "production", "ssh"}, "observation")
-    if value["format"] != "home-lab-debian-lifecycle-observation-v1" or value["target"] != "debian":
+    version = 2 if operation == "production-activation" else 1
+    if value["format"] != f"home-lab-debian-lifecycle-observation-v{version}" or value["target"] != "debian":
         raise SystemExit("observation identity differs")
     if value["profile"] not in {"inert", "recovery", "production"} or not isinstance(value["locks"], list):
         raise SystemExit("observation lifecycle fields differ")
@@ -187,9 +216,10 @@ def mount_map(observation: dict) -> dict[str, dict]:
 
 
 def validate_request(operation: str, request: dict, observation: dict, now: datetime) -> list[str]:
-    common_observation(observation)
+    common_observation(observation, operation)
     exact_keys(request, {"format", "operation", "profile", "parameters"}, "request")
-    if request["format"] != "home-lab-debian-lifecycle-request-v1" or request["operation"] != operation or request["profile"] != observation["profile"] or not isinstance(request["parameters"], dict):
+    version = 2 if operation == "production-activation" else 1
+    if request["format"] != f"home-lab-debian-lifecycle-request-v{version}" or request["operation"] != operation or request["profile"] != observation["profile"] or not isinstance(request["parameters"], dict):
         raise SystemExit("request identity or lifecycle profile differs")
     blockers = list(observation["locks"])
     params = request["parameters"]
@@ -266,7 +296,7 @@ def validate_request(operation: str, request: dict, observation: dict, now: date
         exact_keys(params, {"mounts", "storage_plan_sha256", "identity_recipient", "tailscale_hostname", "tailscale_tags", "systemd_dependencies", "lifecycle_marker_sha256", "compose_artifact_path", "compose_artifact_sha256", "compose_image_lock_path", "compose_image_lock_sha256", "compose_command", "root_environment_path", "root_environment_sha256", "restic_recovery_receipt_path", "restic_recovery_receipt_sha256"}, "production request")
         if request["profile"] != "recovery":
             blockers.append("recovery-profile-required")
-        if params["compose_command"]!=policy["transaction"]["compose_command"] or params["compose_artifact_path"]!=policy["transaction"]["compose_artifact_path"] or params["compose_image_lock_path"]!=policy["transaction"]["compose_image_lock_path"] or params["root_environment_path"]!=policy["transaction"]["root_environment_path"] or set(params["systemd_dependencies"])!=set(policy["transaction"]["production_units"]):
+        if params["compose_command"]!=policy["transaction"]["compose_command"] or params["compose_artifact_path"]!=policy["transaction"]["compose_artifact_path"] or params["compose_image_lock_path"]!=policy["transaction"]["compose_image_lock_path"] or params["root_environment_path"]!=policy["transaction"]["root_environment_path"]:
             blockers.append("contract-production-activation-drift")
         if params["tailscale_hostname"]!=policy["hostname"] or params["tailscale_tags"]!=[policy["tag"]] or {item["path"] for item in params["mounts"]}!=set(policy["protected_mounts"]):
             blockers.append("contract-production-identity-drift")
@@ -293,9 +323,12 @@ def validate_request(operation: str, request: dict, observation: dict, now: date
         production = observation["production"]
         if production.get("storage_plan_sha256") != params["storage_plan_sha256"] or production.get("lifecycle_marker_sha256") != params["lifecycle_marker_sha256"] or production.get("compose_artifact_path") != params["compose_artifact_path"] or production.get("compose_artifact_sha256") != params["compose_artifact_sha256"] or production.get("compose_image_lock_path") != params["compose_image_lock_path"] or production.get("compose_image_lock_sha256") != params["compose_image_lock_sha256"] or production.get("compose_command") != params["compose_command"] or production.get("compose_config_valid") is not True or production.get("restic_recovery_receipt_path") != params["restic_recovery_receipt_path"] or production.get("restic_recovery_receipt_sha256") != params["restic_recovery_receipt_sha256"] or production.get("root_environment_path") != params["root_environment_path"] or production.get("root_environment_sha256")!=params["root_environment_sha256"] or production.get("root_environment_protected") is not True:
             blockers.append("compose-restic-prerequisites-differ")
-        if production.get("systemd_dependencies") != params["systemd_dependencies"]:
+        required_dependencies = policy["transaction"]["production_systemd_dependencies"]
+        if params["systemd_dependencies"] != required_dependencies:
+            blockers.append("contract-systemd-dependencies-drift")
+        if not dependencies_satisfied(required_dependencies, production.get("systemd_dependencies")):
             blockers.append("systemd-dependencies-differ")
-        if production.get("systemd_unit_states") != {unit:"inactive" for unit in params["systemd_dependencies"]}:
+        if production.get("systemd_unit_states") != {unit:"inactive" for unit in policy["transaction"]["production_units"]}:
             blockers.append("production-unit-prestate-differ")
         for digest in (params["storage_plan_sha256"], params["lifecycle_marker_sha256"], params["compose_artifact_sha256"], params["compose_image_lock_sha256"], params["root_environment_sha256"], params["restic_recovery_receipt_sha256"]):
             if HEX64.fullmatch(digest) is None:
@@ -359,6 +392,8 @@ def make_plan(operation: str, request_path: Path, observation_path: Path, output
         "authorized": False,
         "automatic_apply": False,
     }
+    if operation == "production-activation":
+        plan["bindings"]["production_dependency_policy_sha256"] = sha(canonical_bytes(production_dependency_policy()) + b"\n")
     raw = canonical_bytes(plan) + b"\n"; digest = sha(raw); directory = private_output(output_dir)
     name = f"{operation}-{digest}.json"; directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
@@ -382,6 +417,8 @@ def load_plan(path: Path, operation: str, now: datetime | None = None, commit: s
     inventory, _ = execution_route(operation, plan.get("profile"))
     if plan.get("base_commit") != expected_commit or bindings.get("contract_sha256") != sha(CONTRACT.read_bytes()) or bindings.get("inventory_sha256") != sha(inventory.read_bytes()) or bindings.get("executor_sha256") != sha(EXECUTOR.read_bytes()) or bindings.get("authority_producer_sha256")!=sha(AUTHORITY_PRODUCER.read_bytes()) or bindings.get("access_cleanup_producer_sha256")!=sha(ACCESS_CLEANUP.read_bytes()) or bindings.get("request_sha256") != sha(canonical_bytes(plan.get("request")) + b"\n") or bindings.get("observation_sha256") != sha(canonical_bytes(plan.get("precondition")) + b"\n"):
         raise SystemExit("transaction plan current bindings differ")
+    if operation == "production-activation" and bindings.get("production_dependency_policy_sha256") != sha(canonical_bytes(production_dependency_policy()) + b"\n"):
+        raise SystemExit("transaction production dependency policy binding differs")
     moment = now or datetime.now(timezone.utc)
     if moment < utc(plan["created_at"]) or moment > utc(plan["expires_at"]):
         raise SystemExit("transaction plan is stale")

@@ -54,10 +54,14 @@ for (const task of guardTasks) {
   }
 }
 const guardSource = read("ansible/roles/debian_lifecycle_guard/tasks/main.yml");
-for (const required of ["os.lstat", "os.path.ismount", "os.scandir", "entry_count", "LoadState=not-found",
+for (const required of ["role_path ~ '/files/debian-inactive-path.py'", "entry_count", "LoadState=not-found",
   "ActiveState=inactive", "UnitFileState=disabled", "compose_age_identity_path", "debian_tailscale_state_path"]) {
   assert(guardSource.includes(required), `Debian lifecycle guard omits ${required}`);
 }
+const inactiveHelper = read("ansible/roles/debian_lifecycle_guard/files/debian-inactive-path.py");
+for (const required of ["RESOLVE = 0x01 | 0x04", "STATX_MASK = 0x07FF | 0x1000", "os.scandir(fd)"])
+  assert(inactiveHelper.includes(required), `Inactive-path helper omits ${required}`);
+assert(!guardSource.includes("os.path.ismount"), "Inactive-path admission must not rely on ismount");
 for (const forbidden of ["mount ", "tailscale up", "age-keygen", "docker compose up", "state: started"]) {
   assert(!guardSource.includes(forbidden), `Debian lifecycle guard contains mutation surface ${forbidden}`);
 }

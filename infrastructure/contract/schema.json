@@ -169,7 +169,7 @@
         "transaction": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["executor_path", "age_identity_path", "storage_activation_path", "state_disk_journal_root", "host_apply_lock_path", "qualification_canary_hostname", "qualification_canary_inventory_host", "qualification_canary_receipt_root", "compose_command", "compose_artifact_path", "compose_image_lock_path", "root_environment_path", "production_units"],
+          "required": ["executor_path", "age_identity_path", "storage_activation_path", "state_disk_journal_root", "host_apply_lock_path", "qualification_canary_hostname", "qualification_canary_inventory_host", "qualification_canary_receipt_root", "compose_command", "compose_artifact_path", "compose_image_lock_path", "root_environment_path", "production_units", "production_dependency_policy_path", "production_systemd_dependencies"],
           "properties": {
             "executor_path": { "const": "/usr/local/libexec/home-lab/debian-lifecycle-host-transaction" },
             "age_identity_path": { "const": "/etc/sops/age/keys.txt" },
@@ -183,7 +183,22 @@
             "compose_artifact_path": { "const": "/srv/docker-compose/current/docker-compose.yml" },
             "compose_image_lock_path": { "const": "/var/lib/home-lab/production-image-override.json" },
             "root_environment_path": { "const": "/etc/docker-compose/production.env" },
-            "production_units": { "const": ["docker.service", "home-lab-compose.service", "home-lab-restic-daily.timer", "home-lab-restic-maintenance.timer"] }
+            "production_units": { "const": ["docker.service", "home-lab-compose.service", "home-lab-restic-daily.timer", "home-lab-restic-maintenance.timer"] },
+            "production_dependency_policy_path": { "const": "/etc/home-lab/debian-production-dependencies.json" },
+            "production_systemd_dependencies": {
+              "const": {
+                "docker.service": {
+                  "Requires": ["home-lab-production-guard.service", "mnt-games.mount", "mnt-storage.mount", "srv-home\\x2dlab\\x2dstate.mount"],
+                  "After": ["home-lab-production-guard.service", "mnt-games.mount", "mnt-storage.mount", "srv-home\\x2dlab\\x2dstate.mount"]
+                },
+                "home-lab-compose.service": {
+                  "Requires": ["docker.service", "home-lab-production-guard.service", "mnt-games.mount", "mnt-storage.mount", "srv-home\\x2dlab\\x2dstate.mount"],
+                  "After": ["docker.service", "home-lab-production-guard.service", "mnt-games.mount", "mnt-storage.mount", "srv-home\\x2dlab\\x2dstate.mount"]
+                },
+                "home-lab-restic-daily.timer": { "Requires": [], "After": ["home-lab-compose.service"] },
+                "home-lab-restic-maintenance.timer": { "Requires": [], "After": ["home-lab-compose.service"] }
+              }
+            }
           }
         }
       }

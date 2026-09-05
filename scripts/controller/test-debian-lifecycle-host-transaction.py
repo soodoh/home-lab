@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
   if "age-keygen" in argv[0]: return result("age1recipient\n")
   if argv[:3]==["/usr/bin/tailscale","status","--json"]: return result(json.dumps({"BackendState":"Running","Self":{"HostName":"docker-host","Tags":["tag:docker-host"]}}))
   if argv==["/usr/bin/systemctl","show","unit.service","--property=LoadState,ActiveState,SubState"]: return result("LoadState=loaded\nActiveState=inactive\nSubState=dead\n" if "unit.service" not in active else "LoadState=loaded\nActiveState=active\nSubState=running\n")
-  if argv[:3]==["/usr/bin/systemctl","show","unit.service"]: return result("dep.mount\n")
+  if argv[:3]==["/usr/bin/systemctl","show","unit.service"]: return result("Requires=dep.mount\nAfter=dep.mount\n")
   if argv[:2]==["/usr/bin/systemctl","start"]:
    active.add(argv[2])
    if fail_start: raise InterruptedError("injected partial start")
@@ -30,8 +30,10 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
   global calls
   if Path(path)==marker and calls==0: calls+=1; raise OSError("injected marker fsync failure")
  module.fsync_parent=fail_first_marker_sync
- params={"mounts":[],"storage_plan_sha256":storage_sha,"identity_recipient":"age1recipient","tailscale_hostname":"docker-host","tailscale_tags":["tag:docker-host"],"systemd_dependencies":{"unit.service":["dep.mount"]},"lifecycle_marker_sha256":module.sha(before),"compose_artifact_path":str(artifact),"compose_artifact_sha256":module.sha(artifact.read_bytes()),"compose_image_lock_path":str(image),"compose_image_lock_sha256":module.sha(image.read_bytes()),"compose_command":["/usr/bin/docker","compose"],"root_environment_path":str(environment),"root_environment_sha256":module.sha(environment.read_bytes()),"restic_recovery_receipt_path":str(restic),"restic_recovery_receipt_sha256":module.sha(restic.read_bytes())}
- plan={"base_commit":"a"*40,"bindings":{"authority_producer_sha256":"f"*64},"request":{"parameters":params},"precondition":{"identity":{"path":str(identity)}}}
+ params={"mounts":[],"storage_plan_sha256":storage_sha,"identity_recipient":"age1recipient","tailscale_hostname":"docker-host","tailscale_tags":["tag:docker-host"],"systemd_dependencies":{"unit.service":{"Requires":["dep.mount"],"After":["dep.mount"]}},"lifecycle_marker_sha256":module.sha(before),"compose_artifact_path":str(artifact),"compose_artifact_sha256":module.sha(artifact.read_bytes()),"compose_image_lock_path":str(image),"compose_image_lock_sha256":module.sha(image.read_bytes()),"compose_command":["/usr/bin/docker","compose"],"root_environment_path":str(environment),"root_environment_sha256":module.sha(environment.read_bytes()),"restic_recovery_receipt_path":str(restic),"restic_recovery_receipt_sha256":module.sha(restic.read_bytes())}
+ policy={"format":"home-lab-debian-production-dependencies-v1","contract_sha256":"d"*64,"production_units":["unit.service"],"systemd_dependencies":params["systemd_dependencies"]}
+ module.PRODUCTION_DEPENDENCY_POLICY=root/"dependencies.json"; module.PRODUCTION_DEPENDENCY_POLICY.write_bytes(module.canonical(policy)); original_units=module.QUALIFICATION_UNITS; module.QUALIFICATION_UNITS=("unit.service",)
+ plan={"base_commit":"a"*40,"bindings":{"authority_producer_sha256":"f"*64,"contract_sha256":"d"*64,"production_dependency_policy_sha256":module.sha(module.canonical(policy))},"request":{"format":"home-lab-debian-lifecycle-request-v2","parameters":params},"precondition":{"format":"home-lab-debian-lifecycle-observation-v2","identity":{"path":str(identity)}}}
  try: module.production(plan,"b"*64)
  except OSError as error: assert "injected" in str(error)
  else: raise AssertionError("marker publication failure unexpectedly succeeded")
@@ -61,7 +63,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
  except RuntimeError as error: assert "production activation rollback postcondition failed" in str(error)
  else: raise AssertionError("unverified production rollback accepted")
  assert marker.read_bytes()==before and active==set() and ("/usr/bin/systemctl","stop","unit.service") in commands
- module.os.fchown=original_fchown
+ module.os.fchown=original_fchown; module.QUALIFICATION_UNITS=original_units
 with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
  root=Path(raw); journal_root=root/"journals"; module.STATE_JOURNAL_ROOT=journal_root; module.safe_directory=lambda path:Path(path); module.device=lambda *args:("/dev/fake",1)
  original_lstat=module.os.lstat; original_fchown=module.os.fchown

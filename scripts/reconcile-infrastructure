@@ -76,11 +76,13 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-contract-schema.js
   node scripts/controller/test-lifecycle-state.js
   node scripts/controller/test-debian-lifecycle-profiles.js
+  python3 scripts/controller/test-debian-inactive-path.py
   python3 scripts/controller/test-lifecycle-marker-transaction.py
   python3 scripts/controller/test-debian-access-cleanup.py
   python3 scripts/controller/test-debian-lifecycle-transactions.py
   python3 scripts/controller/test-debian-lifecycle-host-transaction.py
   python3 scripts/controller/test-debian-lifecycle-storage-rollback.py
+  python3 scripts/controller/test-debian-production-dependencies.py
   python3 scripts/controller/test-debian-lifecycle-authority-receipts.py
   python3 scripts/controller/test-proxmox-tofu-identity-retirement.py
   python3 scripts/controller/test-proxmox-tofu-identity-retirement-host.py
@@ -130,6 +132,9 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-debian-qualification-snippet-transaction.py
   python3 scripts/controller/test-debian-qualification-first-boot.py
   python3 scripts/controller/test-debian-qualification-first-boot-diagnostic.py
+  python3 scripts/controller/test-debian-qualification-first-boot-provenance.py
+  python3 scripts/controller/test-debian-qualification-clean-receipt.py
+  python3 scripts/controller/test-debian-qualification-cache-reader.py
   python3 scripts/controller/test-debian-qualification-host-key.py
   python3 scripts/controller/test-debian-qualification-guest-repair.py
   python3 scripts/controller/test-debian-qualification-package.py

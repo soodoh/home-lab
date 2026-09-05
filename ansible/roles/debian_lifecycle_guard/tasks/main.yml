@@ -29,25 +29,7 @@
     argv:
       - /usr/bin/python3
       - -c
-      - |-
-        import json
-        import os
-        import stat
-        import sys
-
-        target = sys.argv[1]
-        result = {"entry_count": None, "exists": False, "is_directory": False, "is_mount": False, "is_symlink": False}
-        try:
-            metadata = os.lstat(target)
-            result["exists"] = True
-            result["is_directory"] = stat.S_ISDIR(metadata.st_mode)
-            result["is_symlink"] = stat.S_ISLNK(metadata.st_mode)
-            result["is_mount"] = os.path.ismount(target)
-            if result["is_directory"] and not result["is_mount"]:
-                result["entry_count"] = sum(1 for _ in os.scandir(target))
-        except FileNotFoundError:
-            pass
-        print(json.dumps(result, separators=(",", ":"), sort_keys=True))
+      - "{{ lookup('ansible.builtin.file', role_path ~ '/files/debian-inactive-path.py') }}"
       - "{{ item }}"
   loop: "{{ debian_protected_mounts }}"
   loop_control:
@@ -60,11 +42,10 @@
 - name: Refuse mounted, non-directory, symlinked, or nonempty inactive protected paths
   ansible.builtin.assert:
     that:
-      - not (item.stdout | from_json).is_mount
-      - not (item.stdout | from_json).is_symlink
+      - item.rc == 0
       - >-
         not (item.stdout | from_json).exists or
-        ((item.stdout | from_json).is_directory and (item.stdout | from_json).entry_count == 0)
+        (item.stdout | from_json).entry_count == 0
     fail_msg: "Inactive protected path {{ item.item }} is mounted, unsafe, or nonempty; refusing lifecycle convergence."
   loop: "{{ debian_lifecycle_guard_mounts.results | default([]) }}"
   loop_control:

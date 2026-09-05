@@ -67,7 +67,7 @@ def timeout_run(*args,**kwargs): raise subprocess.TimeoutExpired(args[0],120,std
 with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
  original_run=controller_module.subprocess.run; controller_module.subprocess.run=timeout_run
  try:
-  try: controller_module.remote_first_boot({"ssh_address":"proxmox","ssh_username":"qualification-apply"},Path("known_hosts"),Path(directory),b"start\n"); raise AssertionError("timeout accepted")
+  try: controller_module.remote_first_boot({"ssh_address":"proxmox","ssh_username":"qualification-apply"},Path("known_hosts"),Path(directory),b"start\n",{}); raise AssertionError("timeout accepted")
   except SystemExit: pass
  finally: controller_module.subprocess.run=original_run
  failure=json.loads(next(Path(directory).glob("*.first-boot-failure.json")).read_text()); assert failure["returncode"]==124 and failure["detail"]=="Bearer <redacted>"

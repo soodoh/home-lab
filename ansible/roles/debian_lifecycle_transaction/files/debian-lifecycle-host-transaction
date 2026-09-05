@@ -16,6 +16,7 @@ STATE_JOURNAL_ROOT=Path("/var/lib/home-lab/debian-state-disk-transactions")
 QUALIFICATION_ROOT=Path("/var/lib/home-lab/debian-lifecycle-qualification-canaries")
 QUALIFICATION_UNITS=("docker.service","home-lab-compose.service","home-lab-restic-daily.timer","home-lab-restic-maintenance.timer")
 RUNTIME_DIR=Path("/run")
+PRODUCTION_DEPENDENCY_POLICY=Path("/etc/home-lab/debian-production-dependencies.json")
 
 def canonical(v): return (json.dumps(v,sort_keys=True,separators=(",",":"))+"\n").encode()
 def sha(v): return hashlib.sha256(v).hexdigest()
@@ -292,7 +293,69 @@ def tailscale(plan,secret):
         rollback_tailscale()
         raise
 
+def production_dependency_policy(plan):
+    # Installed root-owned policy is independent of the submitted request/observation.
+    safe_directory(PRODUCTION_DEPENDENCY_POLICY.parent)
+    raw=read_root_regular(PRODUCTION_DEPENDENCY_POLICY)
+    policy=json.loads(raw)
+    required={"format","contract_sha256","production_units","systemd_dependencies"}
+    if not isinstance(policy,dict) or set(policy)!=required or raw!=canonical(policy) or policy["format"]!="home-lab-debian-production-dependencies-v1" or policy["contract_sha256"]!=plan["bindings"].get("contract_sha256") or sha(raw)!=plan["bindings"].get("production_dependency_policy_sha256"):
+        raise SystemExit("installed production dependency policy binding differs")
+    graph=policy["systemd_dependencies"]
+    if policy["production_units"]!=list(QUALIFICATION_UNITS) or not isinstance(graph,dict) or set(graph)!=set(policy["production_units"]):
+        raise SystemExit("installed production dependency unit set differs")
+    for properties in graph.values():
+        if not isinstance(properties,dict) or set(properties)!={"Requires","After"}:
+            raise SystemExit("installed production dependency properties differ")
+        for values in properties.values():
+            if not isinstance(values,list) or any(not isinstance(value,str) or re.fullmatch(r"(?:[A-Za-z0-9:_.@-]|\\x[0-9a-fA-F]{2})+",value) is None for value in values) or len(set(values))!=len(values):
+                raise SystemExit("installed production dependency edges differ")
+    if plan["request"].get("format")!="home-lab-debian-lifecycle-request-v2" or plan["precondition"].get("format")!="home-lab-debian-lifecycle-observation-v2" or plan["request"]["parameters"].get("systemd_dependencies")!=graph:
+        raise SystemExit("production request dependency graph differs from installed policy")
+    return policy
+
+
+def systemd_dependency_properties(shown):
+    lines=shown.splitlines()
+    if len(lines)!=2 or any("=" not in line for line in lines):
+        raise SystemExit("systemd dependency properties are unverifiable")
+    properties=dict(line.split("=",1) for line in lines)
+    if set(properties)!={"Requires","After"}:
+        raise SystemExit("systemd dependency properties are unverifiable")
+    result={}
+    for prop,text in properties.items():
+        values=[]
+        while text.strip():
+            text=text.lstrip()
+            # systemctl show C-quotes escaped unit names (not shell words).
+            if text.startswith('"'):
+                try: value,end=json.JSONDecoder().raw_decode(text)
+                except ValueError as error: raise SystemExit("systemd dependency quoting differs") from error
+                if end<len(text) and not text[end].isspace(): raise SystemExit("systemd dependency separator differs")
+                text=text[end:]
+            else:
+                fields=text.split(None,1); value=fields[0]; text=fields[1] if len(fields)>1 else ""
+            if not isinstance(value,str) or re.fullmatch(r"(?:[A-Za-z0-9:_.@-]|\\x[0-9a-fA-F]{2})+",value) is None:
+                raise SystemExit("systemd dependency unit name differs")
+            values.append(value)
+        if len(set(values))!=len(values): raise SystemExit("systemd dependency duplicates differ")
+        result[prop]=set(values)
+    return result
+
+
+def verify_production_dependencies(policy):
+    for unit in policy["production_units"]:
+        result=run(["/usr/bin/systemctl","show",unit,"--property=Requires,After"],text=True)
+        if result.returncode: raise SystemExit("systemd dependency observation failed")
+        properties=systemd_dependency_properties(result.stdout)
+        for prop,dependencies in policy["systemd_dependencies"][unit].items():
+            if not set(dependencies).issubset(properties[prop]) or properties[prop].intersection(policy["production_units"])!=set(dependencies).intersection(policy["production_units"]):
+                raise SystemExit(f"systemd dependency differs: {unit} {prop}")
+
+
 def production(plan,digest):
+    policy=production_dependency_policy(plan)
+    verify_production_dependencies(policy)
     params=plan["request"]["parameters"]
     token=STORAGE_TOKEN; require_regular(token)
     if token.read_text()!=f"plan_sha256={params['storage_plan_sha256']}\n": raise SystemExit("storage activation token binding differs")
@@ -315,18 +378,15 @@ def production(plan,digest):
     compose=params.get("compose_command")
     if not isinstance(compose,list) or compose[:2]!=["/usr/bin/docker","compose"]: raise SystemExit("fixed Compose validation command required")
     run(compose+["config","--quiet"])
-    for unit,dependencies in params["systemd_dependencies"].items():
-        shown=run(["/usr/bin/systemctl","show",unit,"--property=Requires,After","--value"],text=True).stdout
-        if any(value not in shown.split() for value in dependencies): raise SystemExit("systemd dependency differs")
     marker=LIFECYCLE_MARKER; safe_directory(marker.parent); require_regular(marker)
     before=marker.read_bytes()
     if sha(before)!=params["lifecycle_marker_sha256"]: raise SystemExit("recovery lifecycle marker changed")
     content=canonical({"source_commit":plan["base_commit"],"state":"production","updated_at":datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00","Z"),"version":1})
     started=[]; marker_changed=False
-    for unit in params["systemd_dependencies"]:
+    for unit in policy["production_units"]:
         require_inactive_unit(unit)
     try:
-        for unit in params["systemd_dependencies"]:
+        for unit in policy["production_units"]:
             started.append(unit); run(["/usr/bin/systemctl","start",unit])
             if run(["/usr/bin/systemctl","is-active","--quiet",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: raise RuntimeError("production unit failed to become active")
         fd,temp=tempfile.mkstemp(prefix=".lifecycle-state-",dir=marker.parent); os.fchown(fd,0,0); os.fchmod(fd,0o600)
@@ -399,6 +459,7 @@ def main():
     if not HEX64.fullmatch(a.plan_sha256) or digest!=a.plan_sha256 or a.confirmation!=expected_confirmation or not created<=current<=expires or plan.get("operation")!=a.operation or plan.get("authorized") is not False or plan.get("automatic_apply") is not False or plan.get("blockers")!=["saved-reviewed-plan-required","separate-exact-authorization-required"]: raise SystemExit("host transaction plan, freshness, or exact confirmation differs")
     profile=plan.get("profile"); request_profile=plan.get("request",{}).get("profile"); route_valid=(a.operation=="qualification-canary" and profile=="inert") or (a.operation=="ssh-tightening" and profile=="production") or (a.operation not in {"qualification-canary","ssh-tightening"} and profile=="recovery")
     if profile!=request_profile or not route_valid: raise SystemExit("host transaction operation and lifecycle profile route differs")
+    if a.operation=="production-activation": production_dependency_policy(plan)
     lock=acquire_host_lock(a.operation,digest)
     try:
         verify_target(plan)

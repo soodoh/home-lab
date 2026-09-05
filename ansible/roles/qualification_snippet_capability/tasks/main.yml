@@ -33,26 +33,28 @@
       - ansible_check_mode or (qualification_capability_confirmation | default('')) == 'install-production-pve-vm9900-qualification-capability'
     fail_msg: Qualification capability installation is restricted to the accepted production-PVE/VM9900 route.
 
+# Installed-byte hashes intentionally match file lookup/copy with trailing
+# whitespace stripped; first-boot and diagnostic observers bind these bytes.
 - name: Bind capability source identities
   ansible.builtin.set_fact:
     qualification_snippet_capability_helper_source: >-
       {{ lookup('ansible.builtin.file',
-      role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transaction') }}
+      role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transaction', rstrip=true) }}
     qualification_snippet_capability_transport_source: >-
       {{ lookup('ansible.builtin.file',
-      role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transport') }}
+      role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transport', rstrip=true) }}
     qualification_snippet_capability_helper_sha256: >-
       {{ lookup('ansible.builtin.file',
-      role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transaction') | hash('sha256') }}
+      role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transaction', rstrip=true) | hash('sha256') }}
     qualification_snippet_capability_transport_sha256: >-
       {{ lookup('ansible.builtin.file',
-      role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transport') | hash('sha256') }}
+      role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transport', rstrip=true) | hash('sha256') }}
     qualification_snippet_capability_sudo_source: >-
       {{ lookup('ansible.builtin.file',
-      role_path ~ '/../../../infrastructure/qualification/host/qualification-apply.sudoers') }}
+      role_path ~ '/../../../infrastructure/qualification/host/qualification-apply.sudoers', rstrip=true) }}
     qualification_snippet_capability_sudo_sha256: >-
       {{ lookup('ansible.builtin.file',
-      role_path ~ '/../../../infrastructure/qualification/host/qualification-apply.sudoers') | hash('sha256') }}
+      role_path ~ '/../../../infrastructure/qualification/host/qualification-apply.sudoers', rstrip=true) | hash('sha256') }}
   no_log: true
 
 - name: Report the bounded check-mode capability plan

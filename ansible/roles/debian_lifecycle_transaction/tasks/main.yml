@@ -43,6 +43,21 @@
     fail_msg: The saved Debian lifecycle plan, exact confirmation, selected tag, or lifecycle profile differs.
   tags: always
 
+- name: Reject legacy or weakened production dependency requests before host mutation
+  ansible.builtin.assert:
+    that:
+      - debian_lifecycle_transaction_plan.request.format == 'home-lab-debian-lifecycle-request-v2'
+      - debian_lifecycle_transaction_plan.precondition.format == 'home-lab-debian-lifecycle-observation-v2'
+      - >-
+        debian_lifecycle_transaction_plan.request.parameters.systemd_dependencies ==
+        debian.transaction.production_systemd_dependencies
+      - >-
+        debian_lifecycle_transaction_plan.bindings.contract_sha256 ==
+        lookup('ansible.builtin.file', playbook_dir ~ '/../../infrastructure/contract/home-lab.yml', rstrip=False) | hash('sha256')
+    fail_msg: Production dependencies must match the current per-property contract; legacy union evidence is not sufficient.
+  when: debian_lifecycle_transaction_plan.operation == 'production-activation'
+  tags: always
+
 - name: Verify the fixed host transaction executor
   ansible.builtin.stat:
     path: "{{ debian_lifecycle_transaction_executor_path }}"
