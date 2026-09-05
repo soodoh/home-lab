@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Exercise fixed QGA-only clean first-boot observation logic."""
-import importlib.machinery,importlib.util,json
+import importlib.machinery,importlib.util,json,subprocess,sys,tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]; SOURCE=ROOT/"infrastructure/qualification/host/debian-qualification-snippet-transaction"
 loader=importlib.machinery.SourceFileLoader("qualification_helper",str(SOURCE)); spec=importlib.util.spec_from_loader(loader.name,loader); helper=importlib.util.module_from_spec(spec); loader.exec_module(helper)
@@ -43,7 +43,16 @@ helper.run=rebooted
 try: helper._first_boot(); raise AssertionError("rebooted guest accepted")
 except RuntimeError as error: assert "reboot detected" in str(error)
 finally: helper.run=original
-controller=(ROOT/"scripts/controller/debian-qualification-first-boot.py").read_text()
-for required in ("clean pushed commit required","historical_target","acquire_transfer_lock","intervening qualification receipt detected","foundation_receipt_sha256","start_receipt_sha256","first-boot","boot_count","startup_delta_seconds","network_device","firewall_rules","cloud_init_errors","qemu_guest_agent","observation_sha256","helper_sha256","helper_source_sha256","transport_sha256","transport_source_sha256","template_sha256"):
+sys.path.insert(0,str(ROOT/"scripts/controller")); controller_path=ROOT/"scripts/controller/debian-qualification-first-boot.py"; controller_spec=importlib.util.spec_from_file_location("qualification_first_boot_controller",controller_path); controller_module=importlib.util.module_from_spec(controller_spec); controller_spec.loader.exec_module(controller_module)
+def timeout_run(*args,**kwargs): raise subprocess.TimeoutExpired(args[0],120,stderr=b"Bearer exposed")
+with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
+ original_run=controller_module.subprocess.run; controller_module.subprocess.run=timeout_run
+ try:
+  try: controller_module.remote_first_boot({"ssh_address":"proxmox","ssh_username":"qualification-apply"},Path("known_hosts"),Path(directory),b"start\n"); raise AssertionError("timeout accepted")
+  except SystemExit: pass
+ finally: controller_module.subprocess.run=original_run
+ failure=json.loads(next(Path(directory).glob("*.first-boot-failure.json")).read_text()); assert failure["returncode"]==124 and failure["detail"]=="Bearer <redacted>"
+controller=controller_path.read_text()
+for required in ("clean pushed commit required","historical_target","remote_first_boot","first-boot-failure.json","<redacted>","acquire_transfer_lock","intervening qualification receipt detected","foundation_receipt_sha256","start_receipt_sha256","first-boot","boot_count","startup_delta_seconds","network_device","firewall_rules","cloud_init_errors","qemu_guest_agent","observation_sha256","helper_sha256","helper_source_sha256","transport_sha256","transport_source_sha256","template_sha256"):
  assert required in controller
 print("debian_qualification_first_boot=verified chain_bound=true one_boot=true firewall_live=true qga_only=true cloud_init=true dns_https=true isolation=true")

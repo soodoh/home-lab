@@ -39,6 +39,18 @@ def historical_target(admission,known_hosts):
  known=load_protected_bytes(known_hosts,"dedicated known-hosts")
  if sha(known)!=value.get("host_key",{}).get("known_hosts_sha256") or value.get("host_key",{}).get("ssh_address")!="proxmox" or value.get("host_key",{}).get("out_of_band_verified") is not True: raise SystemExit("historical host trust binding failed")
  return {"isolation_attestation_sha256":sha(raw),"ssh_address":"proxmox","ssh_username":"qualification-apply","target_id":"production-pve-vm9900-qualification"}
+def remote_first_boot(target,known_hosts,output,start_raw):
+ try: result=subprocess.run(snippet.ssh_args(target,known_hosts,"first-boot"),capture_output=True,timeout=120)
+ except subprocess.TimeoutExpired as error:
+  detail=(error.stderr or b"").decode("utf-8","replace") if isinstance(error.stderr,bytes) else (error.stderr or ""); result=None; returncode=124
+ else: detail=result.stderr.decode("utf-8","replace"); returncode=result.returncode
+ if result is None or returncode or detail:
+  detail=re.sub(r"://[^/@\s]+@","://<redacted>@",detail); detail=re.sub(r"(?i)bearer\s+\S+","Bearer <redacted>",detail); detail=re.sub(r"(?i)(password|token|secret|authorization)(\s*[:=]\s*)\S+",r"\1\2<redacted>",detail)
+  write_json(output,f"{sha(start_raw)}.first-boot-failure.json",{"detail":" ".join(detail.split())[:512],"format":"home-lab-debian-qualification-clean-first-boot-failure-v1","returncode":returncode,"start_receipt_sha256":sha(start_raw),"version":1}); raise SystemExit("isolated PVE snippet transport failed")
+ try: value=json.loads(result.stdout)
+ except json.JSONDecodeError: raise SystemExit("first-boot transport returned invalid JSON")
+ if result.stdout!=canonical_bytes(value)+b"\n": raise SystemExit("first-boot transport returned non-canonical JSON")
+ return value
 def main():
  parser=argparse.ArgumentParser()
  parser.add_argument("--admission",type=Path,required=True); parser.add_argument("--known-hosts",type=Path,required=True)
@@ -56,7 +68,7 @@ def main():
  if set(start)!=start_keys or start.get("format")!="home-lab-debian-qualification-start-receipt-v1" or start.get("operation")!="start" or start.get("vm_started") is not True or re.fullmatch(r"[0-9a-f]{64}",start.get("prior_receipt_sha256","")) is None or re.fullmatch(r"[0-9a-f]{64}",start.get("snippet_sha256","")) is None or start.get("prior_receipt_sha256")!=sha(foundation_raw) or start.get("commit")!=foundation.get("commit") or start.get("snippet_receipt_sha256")!=foundation.get("snippet_receipt_sha256") or not common(start): raise SystemExit("start receipt binding failed")
  allowed={args.foundation_receipt,args.start_receipt}; present={path.resolve() for path in output.glob("*.receipt.json")}
  if present!=allowed: raise SystemExit("intervening qualification receipt detected")
- observation=snippet.remote(target,args.known_hosts,"first-boot")
+ observation=remote_first_boot(target,args.known_hosts,output,start_raw)
  required={"boot_count","boot_id","cloud_init_errors","cloud_init_instance_id","cloud_init_status","firewall_options","firewall_rules","format","guest_uptime_seconds","network","network_device","package","pve_uptime_seconds","qemu_guest_agent","startup_delta_seconds","vmid"}
  denied={rule.get("dest") for rule in observation.get("firewall_rules",[]) if rule.get("type")=="out" and rule.get("action")=="DROP" and rule.get("enable")==1}
  probes={"10.255.255.1":True,"172.31.255.1":True,"192.168.0.1":True,"100.64.0.1":True}
