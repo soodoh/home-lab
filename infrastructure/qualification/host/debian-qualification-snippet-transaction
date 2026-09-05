@@ -190,8 +190,11 @@ def _first_boot():
  if errors!=[]: fail("cloud-init first boot reported errors")
  boot_id=guest_exec(["/usr/bin/cat","/proc/sys/kernel/random/boot_id"]).strip()
  if not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}",boot_id): fail("invalid guest boot identity")
+ marker_code='import json,os,stat\np="/var/lib/home-lab-qualification/first-boot-id"\ns=os.lstat(p)\nif not (stat.S_ISREG(s.st_mode) and s.st_uid==0 and s.st_gid==0 and s.st_nlink==1 and stat.S_IMODE(s.st_mode)==0o600 and s.st_size==37): raise SystemExit(64)\nfd=os.open(p,os.O_RDONLY|os.O_NOFOLLOW);raw=os.read(fd,38);after=os.fstat(fd);os.close(fd);current=os.lstat(p)\nif not ((s.st_dev,s.st_ino,s.st_size)==(after.st_dev,after.st_ino,after.st_size)==(current.st_dev,current.st_ino,current.st_size) and len(raw)==37 and raw.endswith(b"\\n")): raise SystemExit(65)\nprint(json.dumps({"boot_id":raw.decode().strip(),"mode":"0600"},sort_keys=True,separators=(",",":")))'
+ marker=json.loads(guest_exec(["/usr/bin/python3","-c",marker_code]))
+ if marker!={"boot_id":boot_id,"mode":"0600"}: fail("first-boot marker differs")
  guest_uptime=float(guest_exec(["/usr/bin/cat","/proc/uptime"]).split()[0]); startup_delta=round(pve_uptime-guest_uptime,2)
- if guest_uptime<=0 or startup_delta<0 or startup_delta>30: fail("guest reboot detected by PVE/QEMU uptime")
+ if guest_uptime<=0 or startup_delta<0 or startup_delta>120: fail(f"guest reboot detected by PVE/QEMU uptime: pve={pve_uptime} guest={guest_uptime} delta={startup_delta}")
  boots=[json.loads(line) for line in guest_exec(["/usr/bin/journalctl","--list-boots","--output=json"]).splitlines() if line.strip()]
  if len(boots)!=1 or str(boots[0].get("boot_id","")).replace("-","")!=boot_id.replace("-",""): fail("guest is not on its only recorded boot")
  instance_id=guest_exec(["/usr/bin/cloud-init","query","instance_id"]).strip()
@@ -204,7 +207,7 @@ def _first_boot():
  network_code='import json,socket,ssl,urllib.request\nblocked={}\nfor host in ("10.255.255.1","172.31.255.1","192.168.0.1","100.64.0.1"):\n s=socket.socket();s.settimeout(2)\n try:s.connect((host,443));blocked[host]=False\n except OSError:blocked[host]=True\n finally:s.close()\nstatus=urllib.request.urlopen("https://deb.debian.org",timeout=10,context=ssl.create_default_context()).status\nprint(json.dumps({"blocked":blocked,"https_status":status},sort_keys=True,separators=(",",":")))'
  network=json.loads(guest_exec(["/usr/bin/python3","-c",network_code]))
  if network.get("https_status") not in (200,301,302) or network.get("blocked")!={"10.255.255.1":True,"172.31.255.1":True,"192.168.0.1":True,"100.64.0.1":True}: fail("first-boot network probes differ")
- return {"boot_count":1,"boot_id":boot_id,"cloud_init_errors":errors,"cloud_init_instance_id":instance_id,"cloud_init_status":"done","firewall_options":normalized_options,"firewall_rules":normalized_rules,"format":"home-lab-debian-qualification-first-boot-observation-v1","guest_uptime_seconds":guest_uptime,"network":network,"network_device":{"bridge":"vmbr0","firewall":True,"model":"virtio"},"package":package,"pve_uptime_seconds":pve_uptime,"qemu_guest_agent":"active","startup_delta_seconds":startup_delta,"vmid":9900}
+ return {"boot_count":1,"boot_id":boot_id,"first_boot_marker":marker,"cloud_init_errors":errors,"cloud_init_instance_id":instance_id,"cloud_init_status":"done","firewall_options":normalized_options,"firewall_rules":normalized_rules,"format":"home-lab-debian-qualification-first-boot-observation-v1","guest_uptime_seconds":guest_uptime,"network":network,"network_device":{"bridge":"vmbr0","firewall":True,"model":"virtio"},"package":package,"pve_uptime_seconds":pve_uptime,"qemu_guest_agent":"active","startup_delta_seconds":startup_delta,"vmid":9900}
 
 def first_boot():
  lock_fd=acquire_lock()

@@ -32,16 +32,25 @@ def fake(command):
  if argv and argv[0]=="/usr/bin/dpkg-query": return qga("install ok installed 1:10.0.11+ds-0+deb13u1\n")
  if argv and argv[0]=="/usr/bin/systemctl": return qga("active\n")
  if argv and argv[0]=="/usr/bin/getent": return qga("151.101.2.132 STREAM deb.debian.org\n")
+ if argv and argv[0]=="/usr/bin/python3" and "first-boot-id" in argv[-1]: return qga('{"boot_id":"efbec1bf-a7a8-4b17-8ba1-55521d98d923","mode":"0600"}\n')
  if argv and argv[0]=="/usr/bin/python3": return qga('{"blocked":{"10.255.255.1":true,"100.64.0.1":true,"172.31.255.1":true,"192.168.0.1":true},"https_status":200}\n')
  raise AssertionError(command)
 original=helper.run; helper.run=fake; value=helper._first_boot(); helper.run=original
-assert value["boot_count"]==1 and value["cloud_init_errors"]==[] and value["cloud_init_status"]=="done" and value["network_device"]["firewall"] is True and value["startup_delta_seconds"]==5.75 and value["qemu_guest_agent"]=="active" and value["vmid"]==9900
+assert value["boot_count"]==1 and value["first_boot_marker"]=={"boot_id":"efbec1bf-a7a8-4b17-8ba1-55521d98d923","mode":"0600"} and value["cloud_init_errors"]==[] and value["cloud_init_status"]=="done" and value["network_device"]["firewall"] is True and value["startup_delta_seconds"]==5.75 and value["qemu_guest_agent"]=="active" and value["vmid"]==9900
 def rebooted(command):
  if command[:3]==["/usr/sbin/qm","status","9900"]: return "status: running\nuptime: 600\n"
  return fake(command)
 helper.run=rebooted
 try: helper._first_boot(); raise AssertionError("rebooted guest accepted")
 except RuntimeError as error: assert "reboot detected" in str(error)
+finally: helper.run=original
+def quick_reboot(command):
+ if command[:3]==["/usr/sbin/qm","status","9900"]: return "status: running\nuptime: 200\n"
+ if command[:4]==["/usr/sbin/qm","guest","exec","9900"] and command[5:6]==["/usr/bin/python3"] and "first-boot-id" in command[-1]: return qga('{"boot_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","mode":"0600"}\n')
+ return fake(command)
+helper.run=quick_reboot
+try: helper._first_boot(); raise AssertionError("quick reboot with volatile journal accepted")
+except RuntimeError as error: assert "first-boot marker differs" in str(error)
 finally: helper.run=original
 sys.path.insert(0,str(ROOT/"scripts/controller")); controller_path=ROOT/"scripts/controller/debian-qualification-first-boot.py"; controller_spec=importlib.util.spec_from_file_location("qualification_first_boot_controller",controller_path); controller_module=importlib.util.module_from_spec(controller_spec); controller_spec.loader.exec_module(controller_module)
 def timeout_run(*args,**kwargs): raise subprocess.TimeoutExpired(args[0],120,stderr=b"Bearer exposed")
@@ -52,6 +61,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
   except SystemExit: pass
  finally: controller_module.subprocess.run=original_run
  failure=json.loads(next(Path(directory).glob("*.first-boot-failure.json")).read_text()); assert failure["returncode"]==124 and failure["detail"]=="Bearer <redacted>"
+helper_source=SOURCE.read_text(); assert 'if not (stat.S_ISREG' in helper_source and 'raise SystemExit(64)' in helper_source and 'raise SystemExit(65)' in helper_source and 'assert stat.S_ISREG' not in helper_source and 'assert (s.st_dev' not in helper_source
 controller=controller_path.read_text()
 for required in ("clean pushed commit required","historical_target","remote_first_boot","first-boot-failure.json","<redacted>","acquire_transfer_lock","intervening qualification receipt detected","foundation_receipt_sha256","start_receipt_sha256","first-boot","boot_count","startup_delta_seconds","network_device","firewall_rules","cloud_init_errors","qemu_guest_agent","observation_sha256","helper_sha256","helper_source_sha256","transport_sha256","transport_source_sha256","template_sha256"):
  assert required in controller

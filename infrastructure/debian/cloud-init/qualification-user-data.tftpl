@@ -14,6 +14,16 @@ users:
       - ${qualification_ssh_public_key}
 bootcmd:
   - [rm, --force, /etc/resolv.conf]
+  - |
+    set -euC
+    marker_directory=/var/lib/home-lab-qualification
+    marker="$marker_directory/first-boot-id"
+    /usr/bin/install -d -o root -g root -m 0700 "$marker_directory"
+    boot_id=$(/usr/bin/cat /proc/sys/kernel/random/boot_id)
+    umask 077
+    /usr/bin/printf '%s\n' "$boot_id" > "$marker"
+    /usr/bin/sync -f "$marker"
+    /usr/bin/sync -f "$marker_directory"
 write_files:
   - path: /etc/resolv.conf
     owner: root:root
