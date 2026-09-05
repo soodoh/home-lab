@@ -15,6 +15,7 @@ users:
 bootcmd:
   - |
     set -eu
+    /usr/bin/systemctl start systemd-resolved.service
     attempt=0
     while [ "$attempt" -lt 60 ]; do
       if /usr/bin/resolvectl status eth0 >/dev/null 2>&1; then

@@ -47,6 +47,7 @@ required = (
     'package_upgrade: false',
     'sudo: ALL=(ALL) NOPASSWD:ALL',
     'while [ "$attempt" -lt 60 ]; do',
+    '/usr/bin/systemctl start systemd-resolved.service',
     '/usr/bin/resolvectl status eth0',
     '/usr/bin/resolvectl dns eth0 1.1.1.1 9.9.9.9',
     '/usr/bin/sleep 1',
