@@ -29,6 +29,7 @@
       - >-
         qualification_snippet_capability_contract.lifecycle.qualification_route.offline_diagnostic.attempt_journal_directory
         == '/var/lib/home-lab/reconciliation/qualification-diagnostic-attempts'
+      - qualification_snippet_capability_contract.lifecycle.qualification_route.offline_diagnostic.historical_stopped_receipt_lineage_with_fresh_admission
       - ansible_check_mode or (qualification_capability_confirmation | default('')) == 'install-production-pve-vm9900-qualification-capability'
     fail_msg: Qualification capability installation is restricted to the accepted production-PVE/VM9900 route.
 

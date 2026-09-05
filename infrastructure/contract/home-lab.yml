@@ -23,6 +23,7 @@ lifecycle:
       disk_volume: local-lvm:vm-9900-disk-0
       admission_expiry_grace_seconds: 14400
       attempt_journal_directory: /var/lib/home-lab/reconciliation/qualification-diagnostic-attempts
+      historical_stopped_receipt_lineage_with_fresh_admission: true
     separate_exact_approval:
       - package
       - reboot
