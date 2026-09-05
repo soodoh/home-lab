@@ -188,6 +188,8 @@
     - name: Adopt the exact retained lifecycle apply lock
       ansible.builtin.include_role:
         name: apply_lock
+        apply:
+          tags: always
       vars:
         apply_lock_action: adopt
         apply_lock_path: "{{ debian.transaction.host_apply_lock_path }}"
@@ -199,6 +201,8 @@
     - name: Release the exact adopted lifecycle apply lock
       ansible.builtin.include_role:
         name: apply_lock
+        apply:
+          tags: always
       vars:
         apply_lock_action: release
         apply_lock_path: "{{ debian.transaction.host_apply_lock_path }}"
@@ -206,3 +210,19 @@
           debian-lifecycle-qualification-canary-{{ recovery_plan.failed_plan_sha256 }}
         apply_lock_expected_owner_sha256: "{{ recovery_observation.owner_sha256 }}"
       tags: always
+
+    - name: Verify retained lifecycle apply lock is absent after release
+      ansible.builtin.stat:
+        path: "{{ debian.transaction.host_apply_lock_path }}"
+        follow: false
+      register: recovery_released_lock
+      become: true
+      tags: always
+
+    - name: Require completed retained-lock release
+      ansible.builtin.assert:
+        that:
+          - not (recovery_released_lock.stat.exists | default(false))
+        fail_msg: Retained lifecycle apply lock still exists after release.
+      tags: always
+      when: not ansible_check_mode
