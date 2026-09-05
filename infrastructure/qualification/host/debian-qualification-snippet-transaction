@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fixed create-only cloud-init snippet transaction for an isolated PVE target."""
+"""Fixed guarded cloud-init snippet transaction for an isolated PVE target."""
 import base64,datetime as dt,fcntl,hashlib,json,os,re,stat,subprocess,sys,tempfile,time
 NAME="home-lab-debian-lifecycle-qualification.yaml"
 def fail(message): raise RuntimeError(message)
@@ -65,7 +65,7 @@ def apply(plan_sha,approval):
  raw,plan=read_plan()
  if sha(raw)!=plan_sha or approval!=plan_sha: fail("plan approval mismatch")
  required={"admission_sha256","authorized","automatic_apply","before_sha256","commit","content_b64","created_at","expires_at","file_id","format","guest_ssh_public_key_sha256","known_hosts_sha256","mode","node_name","operation","sha256","size","target_id","version"}
- if set(plan)!=required or plan["version"]!=1 or plan["format"]!="home-lab-debian-qualification-snippet-plan-v1" or plan["operation"]!="create-snippet" or plan["authorized"] is not False or plan["automatic_apply"] is not False: fail("invalid plan schema")
+ if set(plan)!=required or plan["version"]!=1 or plan["format"]!="home-lab-debian-qualification-snippet-plan-v1" or plan["operation"] not in {"create-snippet","replace-snippet"} or plan["authorized"] is not False or plan["automatic_apply"] is not False: fail("invalid plan schema")
  if not all(isinstance(plan[key],str) for key in required-{"authorized","automatic_apply","size","version"}): fail("invalid plan field type")
  for key in ("admission_sha256","before_sha256","commit","guest_ssh_public_key_sha256","known_hosts_sha256","sha256"):
   expected=40 if key=="commit" else 64
@@ -82,10 +82,37 @@ def apply(plan_sha,approval):
  try:
   before=inspect()
   if sha(canonical(before))!=plan["before_sha256"]: fail("snippet precondition drift")
-  if before["snippet"].get("exists"):
-   if before["snippet"].get("sha256")!=plan["sha256"] or before["snippet"].get("size")!=plan["size"]: fail("existing snippet differs")
+  existing=before["snippet"].get("exists") is True; same=existing and before["snippet"].get("sha256")==plan["sha256"] and before["snippet"].get("size")==plan["size"]; replaced=False; old_content=None
+  if same:
+   if plan["operation"]!="create-snippet": fail("replacement operation is not required")
    changed=False
+  elif existing:
+   if plan["operation"]!="replace-snippet": fail("existing snippet differs")
+   target=os.path.join(directory,NAME); old_fd=os.open(target,os.O_RDONLY|os.O_NOFOLLOW); old_content=b""; uid,gid=expected_ids()
+   try:
+    opened=os.fstat(old_fd)
+    if not stat.S_ISREG(opened.st_mode) or opened.st_nlink!=1 or opened.st_uid!=uid or opened.st_gid!=gid or stat.S_IMODE(opened.st_mode)!=0o600 or opened.st_size>65536: fail("unsafe replacement source metadata")
+    while True:
+     chunk=os.read(old_fd,65537-len(old_content))
+     if not chunk: break
+     old_content+=chunk
+     if len(old_content)>65536: fail("existing snippet too large")
+    after_read=os.fstat(old_fd); current=os.lstat(target)
+    if (opened.st_dev,opened.st_ino,opened.st_size,opened.st_nlink)!=(after_read.st_dev,after_read.st_ino,after_read.st_size,after_read.st_nlink) or (current.st_dev,current.st_ino)!=(after_read.st_dev,after_read.st_ino): fail("replacement source changed during read")
+   finally: os.close(old_fd)
+   if sha(old_content)!=before["snippet"]["sha256"] or len(old_content)!=before["snippet"]["size"]: fail("replacement source changed")
+   fd,tmp=tempfile.mkstemp(prefix=".qualification-snippet-",dir=directory)
+   try:
+    os.fchmod(fd,0o600); offset=0
+    while offset<len(content): offset+=os.write(fd,content[offset:])
+    os.fsync(fd); os.close(fd); fd=-1; os.replace(tmp,target); replaced=True; dir_fd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY); os.fsync(dir_fd); os.close(dir_fd)
+   finally:
+    if fd>=0: os.close(fd)
+    try: os.unlink(tmp)
+    except FileNotFoundError: pass
+   changed=True
   else:
+   if plan["operation"]!="create-snippet": fail("replacement target is absent")
    fd,tmp=tempfile.mkstemp(prefix=".qualification-snippet-",dir=directory)
    try:
     os.fchmod(fd,0o600); offset=0
@@ -97,8 +124,24 @@ def apply(plan_sha,approval):
     try: os.unlink(tmp)
     except FileNotFoundError: pass
    changed=True
-  after=inspect()
-  if after["snippet"].get("sha256")!=plan["sha256"] or after["snippet"].get("size")!=plan["size"]: fail("snippet postcondition failed")
+  try:
+   if replaced and os.geteuid()!=0 and os.environ.get("HOME_LAB_QUALIFICATION_SNIPPET_INJECT_REPLACEMENT_FAILURE")=="1": fail("injected replacement postcondition failure")
+   after=inspect()
+   if after["snippet"].get("sha256")!=plan["sha256"] or after["snippet"].get("size")!=plan["size"]: fail("snippet postcondition failed")
+  except BaseException:
+   if replaced and old_content is not None:
+    fd,tmp=tempfile.mkstemp(prefix=".qualification-snippet-rollback-",dir=directory)
+    try:
+     os.fchmod(fd,0o600); offset=0
+     while offset<len(old_content): offset+=os.write(fd,old_content[offset:])
+     os.fsync(fd); os.close(fd); fd=-1; os.replace(tmp,os.path.join(directory,NAME)); dir_fd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY); os.fsync(dir_fd); os.close(dir_fd)
+    finally:
+     if fd>=0: os.close(fd)
+     try: os.unlink(tmp)
+     except FileNotFoundError: pass
+    restored=inspect()
+    if restored["snippet"].get("sha256")!=before["snippet"]["sha256"] or restored["snippet"].get("size")!=before["snippet"]["size"]: fail("snippet replacement rollback failed")
+   raise
   return {"admission_sha256":plan["admission_sha256"],"changed":changed,"commit":plan["commit"],"file_id":plan["file_id"],"format":"home-lab-debian-qualification-snippet-receipt-v1","guest_ssh_public_key_sha256":plan["guest_ssh_public_key_sha256"],"known_hosts_sha256":plan["known_hosts_sha256"],"mode":"0600","node_name":plan["node_name"],"plan_sha256":plan_sha,"sha256":plan["sha256"],"size":plan["size"],"target_id":plan["target_id"],"version":1}
  finally: os.close(lock_fd)
 def run(command):
