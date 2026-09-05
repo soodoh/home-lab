@@ -19,6 +19,12 @@ lifecycle:
     non_destructive_gated_applies_authorized: true
     historical_stopped_receipt_lineage_with_fresh_admission: true
     cross_admission_safe_stop_with_fresh_admission: true
+    interrupted_restart_safe_stop:
+      stop_only: true
+      vmid: 9900
+      requires_failed_receipt_absent: true
+      requires_exact_failed_artifact_hashes: true
+      requires_separate_saved_plan_approval: true
     offline_diagnostic:
       read_only: true
       requires_stopped_receipt: true
