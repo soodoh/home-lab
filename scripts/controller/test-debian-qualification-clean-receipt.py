@@ -94,7 +94,7 @@ class CleanReceiptConsumer(unittest.TestCase):
             (("snippet", "file_id"), "local:snippets/production.yaml"),
             (("snippet", "sha256"), "0" * 64),
             (("snippet", "size"), True), (("snippet", "size"), 0),
-            (("snippet", "size"), 1048577), (("snippet", "extra"), "unexpected"),
+            (("snippet", "size"), 65537), (("snippet", "extra"), "unexpected"),
             (("request", "nonce"), "replay"), (("request", "extra"), True),
             (("request", "format"), "legacy"), (("request", "vmid"), 100),
             (("request", "admission_sha256"), "0" * 64),
@@ -114,6 +114,14 @@ class CleanReceiptConsumer(unittest.TestCase):
                 node[path[-1]] = replacement
                 with self.assertRaises(SystemExit):
                     self.consume(value)
+
+    def test_self_consistent_snippet_size_cannot_exceed_producer_bound(self):
+        for size in (65537, 1048576):
+            value = copy.deepcopy(self.value)
+            value["provenance"]["snippet"]["size"] = size
+            value["provenance"]["request"]["snippet"]["size"] = size
+            with self.subTest(size=size), self.assertRaises(SystemExit):
+                self.consume(value)
 
     def test_self_consistent_forged_producer_and_booted_snippet_fail(self):
         value = copy.deepcopy(self.value)

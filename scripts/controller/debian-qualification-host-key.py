@@ -21,7 +21,7 @@ def clean_provenance(value,stopped_receipt):
  request=envelope.get("request"); observed_snippet=envelope.get("snippet")
  if not isinstance(request,dict) or not isinstance(observed_snippet,dict): fail("clean-boot-provenance")
  nonce=request.get("nonce"); size=observed_snippet.get("size")
- if not isinstance(nonce,str) or re.fullmatch(r"[0-9a-f]{64}",nonce) is None or type(size) is not int or not 0<size<=1048576: fail("clean-boot-provenance")
+ if not isinstance(nonce,str) or re.fullmatch(r"[0-9a-f]{64}",nonce) is None or type(size) is not int or not 0<size<=65536: fail("clean-boot-provenance")
  digest_fields=("admission_sha256","foundation_receipt_sha256","start_receipt_sha256","snippet_receipt_sha256")
  for key in digest_fields:
   if not isinstance(value.get(key),str) or re.fullmatch(r"[0-9a-f]{64}",value[key]) is None: fail("clean-boot-provenance")
