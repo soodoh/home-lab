@@ -59,10 +59,10 @@
               '/../.. status --porcelain=v1 --untracked-files=all') | length == 0
           - >-
             recovery_plan.created_at | to_datetime('%Y-%m-%dT%H:%M:%SZ') <=
-            ansible_date_time.iso8601 | to_datetime('%Y-%m-%dT%H:%M:%SZ')
+            ansible_facts['date_time']['iso8601'] | to_datetime('%Y-%m-%dT%H:%M:%SZ')
           - >-
             recovery_plan.expires_at | to_datetime('%Y-%m-%dT%H:%M:%SZ') >=
-            ansible_date_time.iso8601 | to_datetime('%Y-%m-%dT%H:%M:%SZ')
+            ansible_facts['date_time']['iso8601'] | to_datetime('%Y-%m-%dT%H:%M:%SZ')
           - >-
             ((recovery_plan.expires_at | to_datetime('%Y-%m-%dT%H:%M:%SZ')) -
             (recovery_plan.created_at | to_datetime('%Y-%m-%dT%H:%M:%SZ'))).total_seconds() == 900
