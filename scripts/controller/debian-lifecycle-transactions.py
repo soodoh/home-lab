@@ -21,6 +21,7 @@ CONTRACT = ROOT / "infrastructure/contract/home-lab.yml"
 INVENTORY = ROOT / "ansible/inventory/production.yml"
 QUALIFICATION_INVENTORY = ROOT / "ansible/inventory/debian-qualification.yml"
 EXECUTOR = ROOT / "ansible/roles/debian_lifecycle_transaction/files/debian-lifecycle-host-transaction"
+LOCK_RECOVERY_PLAYBOOK = ROOT / "ansible/playbooks/recover-debian-lifecycle-apply-lock.yml"
 AUTHORITY_PRODUCER = ROOT / "scripts/controller/debian-lifecycle-authority-receipts.py"
 ACCESS_CLEANUP = ROOT / "scripts/controller/debian-access-cleanup.py"
 LOCK = ROOT / ".local/locks/debian-lifecycle-transaction.lock"
@@ -412,6 +413,78 @@ def verify(operation: str, plan_path: Path, current_path: Path, secret_path: Pat
     return plan, raw, digest
 
 
+def validate_lock_recovery_observation(value: dict) -> str:
+    exact_keys(value, {"apply_lock_exists", "canary_receipt_exists", "host_lock_exists", "lock_gid", "lock_mode", "lock_uid", "owner_gid", "owner_mode", "owner_nlink", "owner_sha256", "owner_text", "owner_uid"}, "retained-lock observation")
+    if value["apply_lock_exists"] is not True or value["canary_receipt_exists"] is not False or value["host_lock_exists"] is not False:
+        raise SystemExit("retained-lock recovery postconditions differ")
+    if (value["lock_uid"], value["lock_gid"], value["lock_mode"], value["owner_uid"], value["owner_gid"], value["owner_mode"], value["owner_nlink"]) != (0, 0, "0700", 0, 0, "0600", 1):
+        raise SystemExit("retained-lock metadata differs")
+    owner_text = value["owner_text"]
+    if not isinstance(owner_text, str) or sha(owner_text.encode()) != value["owner_sha256"] or HEX64.fullmatch(value["owner_sha256"]) is None:
+        raise SystemExit("retained-lock owner bytes differ")
+    lines = owner_text.splitlines()
+    if len(lines) != 3 or lines[0] != "controller=ansible-deploy" or not lines[1].startswith("operation=debian-lifecycle-qualification-canary-") or not lines[2].startswith("started="):
+        raise SystemExit("retained-lock owner authority differs")
+    failed_digest = lines[1].removeprefix("operation=debian-lifecycle-qualification-canary-")
+    if HEX64.fullmatch(failed_digest) is None:
+        raise SystemExit("retained-lock failed plan identity differs")
+    utc(lines[2].removeprefix("started="))
+    return failed_digest
+
+
+def make_lock_recovery_plan(observation_path: Path, output_dir: Path, now: datetime | None = None, commit: str | None = None) -> tuple[Path, str, dict]:
+    moment = now or datetime.now(timezone.utc)
+    observation, observation_raw = read_input(observation_path, "retained-lock observation", protected=True)
+    failed_digest = validate_lock_recovery_observation(observation)
+    base_commit = commit or clean_pushed_commit()
+    plan = {"format":"home-lab-debian-lifecycle-retained-lock-recovery-plan-v1","target":"debian","profile":"inert","base_commit":base_commit,"created_at":now_text(moment),"expires_at":now_text(moment+timedelta(minutes=15)),"failed_plan_sha256":failed_digest,"bindings":{"contract_sha256":sha(CONTRACT.read_bytes()),"inventory_sha256":sha(QUALIFICATION_INVENTORY.read_bytes()),"controller_sha256":sha(Path(__file__).read_bytes()),"playbook_sha256":sha(LOCK_RECOVERY_PLAYBOOK.read_bytes()),"observation_sha256":sha(observation_raw)},"precondition":observation,"blockers":["saved-reviewed-plan-required","separate-exact-authorization-required"],"authorized":False,"automatic_apply":False}
+    raw=canonical_bytes(plan)+b"\n"; digest=sha(raw); directory=private_output(output_dir); name=f"retained-lock-recovery-{digest}.json"; directory_fd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+    try:
+        descriptor=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=directory_fd)
+        with os.fdopen(descriptor,"wb") as handle: handle.write(raw); handle.flush(); os.fsync(handle.fileno())
+        os.fsync(directory_fd)
+    finally: os.close(directory_fd)
+    return directory/name,digest,plan
+
+
+def load_lock_recovery_plan(path: Path, now: datetime | None = None, commit: str | None = None) -> tuple[dict, bytes, str]:
+    plan,raw=read_input(path,"retained-lock recovery plan",protected=True); digest=sha(raw)
+    required={"format","target","profile","base_commit","created_at","expires_at","failed_plan_sha256","bindings","precondition","blockers","authorized","automatic_apply"}
+    if set(plan)!=required or path.name!=f"retained-lock-recovery-{digest}.json" or plan["format"]!="home-lab-debian-lifecycle-retained-lock-recovery-plan-v1" or plan["target"]!="debian" or plan["profile"]!="inert" or plan["authorized"] is not False or plan["automatic_apply"] is not False or plan["blockers"]!=["saved-reviewed-plan-required","separate-exact-authorization-required"]:
+        raise SystemExit("retained-lock recovery plan identity differs")
+    expected_commit=commit or clean_pushed_commit(); bindings=plan["bindings"]
+    expected_bindings={"contract_sha256":sha(CONTRACT.read_bytes()),"inventory_sha256":sha(QUALIFICATION_INVENTORY.read_bytes()),"controller_sha256":sha(Path(__file__).read_bytes()),"playbook_sha256":sha(LOCK_RECOVERY_PLAYBOOK.read_bytes()),"observation_sha256":sha(canonical_bytes(plan["precondition"])+b"\n")}
+    if plan["base_commit"]!=expected_commit or bindings!=expected_bindings or validate_lock_recovery_observation(plan["precondition"])!=plan["failed_plan_sha256"]:
+        raise SystemExit("retained-lock recovery plan bindings differ")
+    created=utc(plan["created_at"]); expires=utc(plan["expires_at"]); moment=now or datetime.now(timezone.utc)
+    if expires-created!=timedelta(minutes=15) or not created<=moment<=expires:
+        raise SystemExit("retained-lock recovery plan is stale")
+    return plan,raw,digest
+
+
+def verify_lock_recovery(plan_path: Path, current_path: Path, now: datetime | None = None, commit: str | None = None) -> tuple[dict, str]:
+    plan,_,digest=load_lock_recovery_plan(plan_path,now,commit); current,current_raw=read_input(current_path,"current retained-lock observation",protected=True)
+    if validate_lock_recovery_observation(current)!=plan["failed_plan_sha256"] or current_raw!=canonical_bytes(plan["precondition"])+b"\n":
+        raise SystemExit("retained-lock recovery precondition changed")
+    return plan,digest
+
+
+def apply_lock_recovery(plan_path: Path, current_path: Path, now: datetime | None = None, commit: str | None = None) -> None:
+    plan,digest=verify_lock_recovery(plan_path,current_path,now,commit); expected=f"release-debian-lifecycle-retained-lock-{digest}"
+    if os.environ.get("DEBIAN_LIFECYCLE_LOCK_RECOVERY_CONFIRMED")!=expected: raise SystemExit(f"exact confirmation required: {expected}")
+    LOCK.parent.mkdir(parents=True,exist_ok=True,mode=0o700); os.chmod(LOCK.parent,0o700); descriptor=acquire_transfer_lock(LOCK)
+    extra={"debian_lifecycle_lock_recovery_plan":plan,"debian_lifecycle_lock_recovery_plan_json":(canonical_bytes(plan)+b"\n").decode(),"debian_lifecycle_lock_recovery_plan_sha256":digest,"debian_lifecycle_lock_recovery_confirmation":expected}
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb",dir=LOCK.parent,prefix="debian-lifecycle-lock-recovery-",suffix=".json",delete=False) as handle:
+            extra_path=Path(handle.name); os.chmod(extra_path,0o600); handle.write(canonical_bytes(extra)+b"\n"); handle.flush(); os.fsync(handle.fileno())
+        try:
+            _,inventory_host=execution_route("qualification-canary","inert"); command=("ansible-playbook","-i",str(QUALIFICATION_INVENTORY),str(LOCK_RECOVERY_PLAYBOOK),"--limit",inventory_host,"--tags","debian_lifecycle_lock_recovery","--extra-vars",f"@{extra_path}"); result_code=run_controlled(command)
+        finally: extra_path.unlink(missing_ok=True)
+    finally: os.close(descriptor)
+    if result_code: raise SystemExit("retained Debian lifecycle apply-lock recovery failed")
+    print(json.dumps({"operation":"retained-lock-recovery","plan_sha256":digest,"status":"released","automatic_apply":False},sort_keys=True))
+
+
 def run_controlled(command: tuple[str, ...]) -> int:
     process = subprocess.Popen(command, cwd=ROOT / "ansible", start_new_session=True)
     previous = {}
@@ -477,6 +550,9 @@ def main() -> None:
     planner = commands.add_parser("plan"); planner.add_argument("operation", choices=sorted(OPERATIONS)); planner.add_argument("request", type=Path); planner.add_argument("observation", type=Path); planner.add_argument("output", type=Path); planner.add_argument("--evidence",type=Path,action="append",default=[])
     checker = commands.add_parser("verify"); checker.add_argument("operation", choices=sorted(OPERATIONS)); checker.add_argument("plan", type=Path); checker.add_argument("current", type=Path); checker.add_argument("--secret", type=Path); checker.add_argument("--evidence",type=Path,action="append",default=[])
     runner = commands.add_parser("apply"); runner.add_argument("operation", choices=sorted(OPERATIONS)); runner.add_argument("plan", type=Path); runner.add_argument("current", type=Path); runner.add_argument("--secret", type=Path); runner.add_argument("--evidence",type=Path,action="append",default=[])
+    lock_planner=commands.add_parser("lock-plan"); lock_planner.add_argument("observation",type=Path); lock_planner.add_argument("output",type=Path)
+    lock_checker=commands.add_parser("lock-verify"); lock_checker.add_argument("plan",type=Path); lock_checker.add_argument("current",type=Path)
+    lock_runner=commands.add_parser("lock-apply"); lock_runner.add_argument("plan",type=Path); lock_runner.add_argument("current",type=Path)
     args = parser.parse_args()
     if args.command == "plan":
         path, digest, plan = make_plan(args.operation, args.request, args.observation, args.output, evidence_paths=args.evidence)
@@ -484,8 +560,12 @@ def main() -> None:
     elif args.command == "verify":
         _, _, digest = verify(args.operation, args.plan, args.current, args.secret, evidence_paths=args.evidence)
         print(json.dumps({"operation": args.operation, "plan_sha256": digest, "ready_for_exact_authorization": True}, sort_keys=True))
-    else:
-        apply(args.operation, args.plan, args.current, args.secret, evidence_paths=args.evidence)
+    elif args.command == "apply": apply(args.operation, args.plan, args.current, args.secret, evidence_paths=args.evidence)
+    elif args.command == "lock-plan":
+        path,digest,plan=make_lock_recovery_plan(args.observation,args.output); print(json.dumps({"path":str(path),"plan_sha256":digest,"blockers":plan["blockers"],"authorized":False},sort_keys=True))
+    elif args.command == "lock-verify":
+        _,digest=verify_lock_recovery(args.plan,args.current); print(json.dumps({"operation":"retained-lock-recovery","plan_sha256":digest,"ready_for_exact_authorization":True},sort_keys=True))
+    else: apply_lock_recovery(args.plan,args.current)
 
 
 if __name__ == "__main__":

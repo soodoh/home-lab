@@ -119,8 +119,13 @@ def verify_target(plan):
     if set(host)!=expected or os.uname().nodename!=host["hostname"] or sha(Path("/etc/machine-id").read_bytes())!=host["machine_id_sha256"]: raise SystemExit("host identity changed after planning")
     result=run(["/usr/bin/ssh-keygen","-lf","/etc/ssh/ssh_host_ed25519_key.pub","-E","sha256"],text=True).stdout.split()
     if len(result)<2 or result[1]!=host["host_key_fingerprint"]: raise SystemExit("host key changed after planning")
-    marker=LIFECYCLE_MARKER; require_regular(marker); value=json.loads(marker.read_bytes())
-    if value.get("state")!=plan.get("profile"): raise SystemExit("live lifecycle profile changed after planning")
+    marker=LIFECYCLE_MARKER
+    if plan.get("operation")=="qualification-canary" and plan.get("profile")=="inert" and not os.path.lexists(marker):
+        if os.path.lexists(marker.parent): safe_directory(marker.parent)
+        else: safe_directory(marker.parent.parent)
+    else:
+        require_regular(marker); value=json.loads(marker.read_bytes())
+        if value.get("state")!=plan.get("profile"): raise SystemExit("live lifecycle profile changed after planning")
 
 def device(path,expected,blank):
     if not path.startswith("/dev/disk/by-id/") or not os.path.islink(path): raise SystemExit("stable disk symlink required")
