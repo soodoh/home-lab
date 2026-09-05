@@ -23,6 +23,12 @@
       - disposable_pve_node_name == qualification_snippet_capability_contract.proxmox.node
       - qualification_snippet_capability_contract.lifecycle.qualification_route.temporary_tailnet_user == 'qualification-apply'
       - not qualification_snippet_capability_contract.lifecycle.qualification_route.conventional_ssh_key_allowed
+      - qualification_snippet_capability_contract.lifecycle.qualification_route.offline_diagnostic.read_only
+      - qualification_snippet_capability_contract.lifecycle.qualification_route.offline_diagnostic.requires_stopped_receipt
+      - qualification_snippet_capability_contract.lifecycle.qualification_route.offline_diagnostic.disk_volume == 'local-lvm:vm-9900-disk-0'
+      - >-
+        qualification_snippet_capability_contract.lifecycle.qualification_route.offline_diagnostic.attempt_journal_directory
+        == '/var/lib/home-lab/reconciliation/qualification-diagnostic-attempts'
       - ansible_check_mode or (qualification_capability_confirmation | default('')) == 'install-production-pve-vm9900-qualification-capability'
     fail_msg: Qualification capability installation is restricted to the accepted production-PVE/VM9900 route.
 
@@ -40,6 +46,12 @@
     qualification_snippet_capability_transport_sha256: >-
       {{ lookup('ansible.builtin.file',
       role_path ~ '/../../../infrastructure/qualification/host/debian-qualification-snippet-transport') | hash('sha256') }}
+    qualification_snippet_capability_sudo_source: >-
+      {{ lookup('ansible.builtin.file',
+      role_path ~ '/../../../infrastructure/qualification/host/qualification-apply.sudoers') }}
+    qualification_snippet_capability_sudo_sha256: >-
+      {{ lookup('ansible.builtin.file',
+      role_path ~ '/../../../infrastructure/qualification/host/qualification-apply.sudoers') | hash('sha256') }}
   no_log: true
 
 - name: Report the bounded check-mode capability plan
@@ -51,6 +63,7 @@
       uid_gid: 1900
       helper_sha256: "{{ qualification_snippet_capability_helper_sha256 }}"
       transport_sha256: "{{ qualification_snippet_capability_transport_sha256 }}"
+      sudoers_sha256: "{{ qualification_snippet_capability_sudo_sha256 }}"
       mutation_authorized: false
   changed_when: true
   when: ansible_check_mode
@@ -156,6 +169,15 @@
     mode: "0755"
   when: not ansible_check_mode
 
+- name: Create immutable qualification diagnostic attempt journal root
+  ansible.builtin.file:
+    path: /var/lib/home-lab/reconciliation/qualification-diagnostic-attempts
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: not ansible_check_mode
+
 - name: Install fixed qualification host transaction
   ansible.builtin.copy:
     content: "{{ qualification_snippet_capability_helper_source }}"
@@ -186,13 +208,7 @@
   when: not ansible_check_mode
 - name: Install fixed qualification sudo boundary
   ansible.builtin.copy:
-    content: >-
-      qualification-apply ALL=(root) NOPASSWD:
-      /usr/local/libexec/home-lab/debian-qualification-snippet-transaction observe,
-      /usr/local/libexec/home-lab/debian-qualification-snippet-transaction first-boot,
-      /usr/local/libexec/home-lab/debian-qualification-snippet-transaction apply *,
-      /usr/local/libexec/home-lab/debian-qualification-snippet-transaction host-key *,
-      /usr/local/libexec/home-lab/debian-qualification-snippet-transaction hold-lock *
+    content: "{{ qualification_snippet_capability_sudo_source }}"
     dest: /etc/sudoers.d/qualification-apply
     owner: root
     group: root
@@ -239,6 +255,7 @@
     that:
       - qualification_snippet_capability_installed.results[0].stat.checksum == qualification_snippet_capability_helper_sha256
       - qualification_snippet_capability_installed.results[1].stat.checksum == qualification_snippet_capability_transport_sha256
+      - qualification_snippet_capability_installed.results[2].stat.checksum == qualification_snippet_capability_sudo_sha256
       - qualification_snippet_capability_installed.results | map(attribute='stat.isreg') | select('equalto', true) | list | length == 3
       - qualification_snippet_capability_installed.results | map(attribute='stat.islnk') | select('equalto', true) | list | length == 0
     fail_msg: Installed qualification capability differs from reviewed source.

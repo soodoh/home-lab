@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Fixed guarded cloud-init snippet transaction for an isolated PVE target."""
-import base64,datetime as dt,fcntl,hashlib,json,os,re,stat,subprocess,sys,tempfile,time
+import base64,datetime as dt,fcntl,glob,hashlib,json,os,re,signal,stat,subprocess,sys,tempfile,time
 NAME="home-lab-debian-lifecycle-qualification.yaml"
 def fail(message): raise RuntimeError(message)
 def canonical(value): return (json.dumps(value,sort_keys=True,separators=(",",":"))+"\n").encode()
@@ -237,15 +237,21 @@ def read_guest_host_key(root):
  fingerprint="SHA256:"+base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
  return {"fingerprint":fingerprint,"public_key":" ".join(fields[:2]),"sha256":sha((" ".join(fields[:2])+"\n").encode())}
 
-def production_guest_host_key(plan):
+def nbd_mappings(device):
+ base=os.path.basename(device)
+ return sorted(set(glob.glob(device+"p*")+glob.glob(f"/sys/class/block/{base}/{base}p*")))
+
+def production_guest_disk(plan,reader,prefix):
  config=run(["/usr/sbin/qm","config","9900","--current"]); lines=dict(line.split(": ",1) for line in config.splitlines() if ": " in line)
  if "lock" in lines or lines.get("scsi0","").split(",",1)[0]!=plan["disk_volume"] or lines.get("ide2","").split(",",1)[0]!="local-lvm:vm-9900-cloudinit" or lines.get("protection")!="0" or lines.get("onboot")!="0": fail("VM9900 disk precondition")
  if run(["/usr/sbin/qm","status","9900"]).strip()!="status: stopped": fail("VM9900 is not stopped")
  disk=run(["/usr/sbin/pvesm","path",plan["disk_volume"]]).strip()
  if disk!="/dev/pve/vm-9900-disk-0": fail("VM9900 disk path")
- module_loaded=os.path.isdir("/sys/module/nbd"); device=None; mountpoint=None; connected=False; partitions_added=False; lock_held=False
+ module_loaded=os.path.isdir("/sys/module/nbd"); device=None; mountpoint=None; connect_attempted=False; partx_attempted=False; lock_attempted=False; handled=(signal.SIGHUP,signal.SIGINT,signal.SIGTERM); previous={item:signal.getsignal(item) for item in handled}
+ def interrupted(signum,frame): fail(f"disk inspection interrupted by signal {signum}")
+ for item in handled: signal.signal(item,interrupted)
  try:
-  run(["/usr/sbin/qm","set","9900","--lock","backup"]); lock_held=True
+  lock_attempted=True; run(["/usr/sbin/qm","set","9900","--lock","backup"])
   locked=run(["/usr/sbin/qm","config","9900","--current"])
   if "lock: backup\n" not in locked or run(["/usr/sbin/qm","status","9900"]).strip()!="status: stopped": fail("VM9900 stopped lock precondition")
   if not module_loaded: run(["/usr/sbin/modprobe","nbd","max_part=8"])
@@ -253,12 +259,12 @@ def production_guest_host_key(plan):
    candidate=f"/dev/nbd{index}"
    if os.path.exists(candidate) and not os.path.exists(f"/sys/block/nbd{index}/pid"): device=candidate; break
   if device is None: fail("no unused NBD device")
-  run(["/usr/bin/qemu-nbd","--read-only","--format=raw",f"--connect={device}",disk]); connected=True
+  connect_attempted=True; run(["/usr/bin/qemu-nbd","--read-only","--format=raw",f"--connect={device}",disk])
   for _ in range(50):
    if int(open(f"/sys/block/{os.path.basename(device)}/size",encoding="ascii").read().strip())>0: break
    time.sleep(0.1)
   if run(["/usr/sbin/blockdev","--getsize64",device]).strip()!="34359738368": fail("unexpected VM9900 NBD size")
-  mapping=subprocess.run(["/usr/bin/partx","--add",device],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL); partitions_added=mapping.returncode==0
+  partx_attempted=True; subprocess.run(["/usr/bin/partx","--add",device],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
   run(["/usr/bin/udevadm","settle","--timeout=10"])
   layout=json.loads(run(["/usr/bin/lsblk","--json","--paths","--output","PATH,TYPE",device])); partitions=[]
   pending=list(layout.get("blockdevices",[]))
@@ -267,22 +273,132 @@ def production_guest_host_key(plan):
    if child.get("type")=="part": partitions.append(child.get("path"))
   root_partition=device+"p1"
   if set(partitions)!={root_partition,device+"p14",device+"p15"}: fail("unexpected VM9900 partition layout:"+json.dumps(layout,sort_keys=True,separators=(",",":")))
-  mountpoint=tempfile.mkdtemp(prefix="home-lab-vm9900-hostkey-",dir="/run")
+  mountpoint=tempfile.mkdtemp(prefix=prefix,dir="/run")
   run(["/usr/bin/mount","-o","ro,noload,nodev,nosuid,noexec",root_partition,mountpoint])
-  return read_guest_host_key(mountpoint)
+  return reader(mountpoint)
  finally:
+  for item in handled: signal.signal(item,signal.SIG_IGN)
   cleanup_failed=False
   if mountpoint:
    unmounted=subprocess.run(["/usr/bin/umount",mountpoint],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
    if unmounted.returncode and os.path.ismount(mountpoint): cleanup_failed=True
-   else: os.rmdir(mountpoint)
-  if partitions_added and subprocess.run(["/usr/bin/partx","--delete",device],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: cleanup_failed=True
-  if connected and subprocess.run(["/usr/bin/qemu-nbd","--disconnect",device],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: cleanup_failed=True
+   elif os.path.isdir(mountpoint): os.rmdir(mountpoint)
+  if (partx_attempted or connect_attempted) and device:
+   pid=f"/sys/block/{os.path.basename(device)}/pid"; size=f"/sys/block/{os.path.basename(device)}/size"; stable=0
+   for _ in range(100):
+    if partx_attempted: subprocess.run(["/usr/bin/partx","--delete",device],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    if os.path.exists(pid): subprocess.run(["/usr/bin/qemu-nbd","--disconnect",device],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    subprocess.run(["/usr/bin/udevadm","settle","--timeout=2"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+    clear=not os.path.exists(pid) and not nbd_mappings(device) and (not os.path.exists(size) or open(size,encoding="ascii").read().strip()=="0")
+    stable=stable+1 if clear else 0
+    if stable>=5: break
+    time.sleep(0.1)
+   if stable<5: cleanup_failed=True
   if not module_loaded and subprocess.run(["/usr/sbin/modprobe","-r","nbd"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: cleanup_failed=True
-  if lock_held:
-   if subprocess.run(["/usr/sbin/qm","unlock","9900"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: cleanup_failed=True
-   elif "lock: " in subprocess.run(["/usr/sbin/qm","config","9900","--current"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True).stdout: cleanup_failed=True
-  if cleanup_failed: fail("host-key extraction cleanup failed")
+  if lock_attempted:
+   current=subprocess.run(["/usr/sbin/qm","config","9900","--current"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True).stdout
+   if "lock: backup\n" in current:
+    if subprocess.run(["/usr/sbin/qm","unlock","9900"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: cleanup_failed=True
+   elif "lock: " in current: cleanup_failed=True
+   final=subprocess.run(["/usr/sbin/qm","config","9900","--current"],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True).stdout
+   if "lock: " in final: cleanup_failed=True
+  for item,handler in previous.items(): signal.signal(item,handler)
+  if cleanup_failed: fail("disk inspection cleanup failed")
+
+def production_guest_host_key(plan): return production_guest_disk(plan,read_guest_host_key,"home-lab-vm9900-hostkey-")
+def read_diagnostic_file(root,path,limit=4*1024*1024):
+ segments=path.strip("/").split("/"); descriptors=[]
+ try:
+  fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW); descriptors.append(fd)
+  for segment in segments[:-1]: fd=os.open(segment,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW,dir_fd=fd); descriptors.append(fd)
+  try: info=os.stat(segments[-1],dir_fd=fd,follow_symlinks=False)
+  except FileNotFoundError: return None
+  expected_uid=0 if os.geteuid()==0 else os.geteuid()
+  if not stat.S_ISREG(info.st_mode) or info.st_uid!=expected_uid or info.st_nlink!=1 or stat.S_IMODE(info.st_mode)&0o002 or info.st_size>limit: fail("unsafe diagnostic file")
+  source=os.open(segments[-1],os.O_RDONLY|os.O_NOFOLLOW,dir_fd=fd); descriptors.append(source); before=os.fstat(source)
+  if (info.st_dev,info.st_ino,info.st_size,info.st_nlink)!=(before.st_dev,before.st_ino,before.st_size,before.st_nlink): fail("diagnostic file replaced before open")
+  chunks=[]; remaining=before.st_size
+  while remaining:
+   chunk=os.read(source,min(65536,remaining))
+   if not chunk: fail("short diagnostic read")
+   chunks.append(chunk); remaining-=len(chunk)
+  raw=b"".join(chunks); after=os.fstat(source); current=os.stat(segments[-1],dir_fd=fd,follow_symlinks=False)
+  identity=(before.st_dev,before.st_ino,before.st_size,before.st_nlink)
+  if identity!=(after.st_dev,after.st_ino,after.st_size,after.st_nlink) or identity!=(current.st_dev,current.st_ino,current.st_size,current.st_nlink): fail("diagnostic file changed")
+  return raw
+ finally:
+  for fd in reversed(descriptors): os.close(fd)
+def redact_diagnostic(value):
+ value=re.sub(r"://[^/@\s]+@","://<redacted>@",value)
+ value=re.sub(r"(?i)bearer\s+\S+","Bearer <redacted>",value)
+ return re.sub(r"(?i)(password|token|secret|authorization)(\s*[:=]\s*)\S+",r"\1\2<redacted>",value)
+def read_first_boot_diagnostic(root):
+ paths=("/var/log/cloud-init.log","/var/log/cloud-init-output.log","/var/log/apt/history.log","/var/log/apt/term.log","/var/lib/cloud/data/result.json","/var/lib/dpkg/status"); values={path:read_diagnostic_file(root,path) for path in paths}; status=values["/var/lib/dpkg/status"]; package={"present":False}
+ if status:
+  for stanza in status.decode("utf-8","replace").split("\n\n"):
+   if stanza.startswith("Package: qemu-guest-agent\n"):
+    fields=dict(line.split(": ",1) for line in stanza.splitlines() if ": " in line); package={"present":True,"status":fields.get("Status"),"version":fields.get("Version")}; break
+ combined="\n".join((values[path] or b"").decode("utf-8","replace") for path in paths if path!="/var/lib/dpkg/status"); patterns={"apt_failure":r"(?i)(apt-get.*(?:fail|error)|package.*(?:fail|error)|failed to install)","dns_failure":r"(?i)(temporary failure resolving|could not resolve|name resolution)","network_failure":r"(?i)(network is unreachable|no route to host)","qga_mentioned":r"(?i)qemu-guest-agent"}; signals={key:bool(re.search(pattern,combined)) for key,pattern in patterns.items()}; errors=[]
+ for line in combined.splitlines():
+  if re.search(r"(?i)(error|failed|failure|qemu-guest-agent|resolve|unreachable)",line):
+   errors.append(redact_diagnostic(line)[:512])
+ result=values["/var/lib/cloud/data/result.json"]; parsed=json.loads(result) if result else None; cloud_errors=((parsed or {}).get("v1") or {}).get("errors",[]) if isinstance(parsed,dict) else []
+ if not isinstance(cloud_errors,list) or any(not isinstance(item,str) for item in cloud_errors): fail("invalid cloud diagnostic result")
+ cloud_errors=[redact_diagnostic(item)[:512] for item in cloud_errors[-40:]]
+ return {"cloud_result_errors":cloud_errors,"cloud_result_present":result is not None,"errors":errors[-40:],"files":{path:{"exists":raw is not None,"sha256":sha(raw) if raw is not None else None,"size":len(raw) if raw is not None else None} for path,raw in values.items()},"qemu_guest_agent_package":package,"signals":signals}
+def installed_hash(path,expected_mode=0o755):
+ info=os.stat(path,follow_symlinks=False)
+ if not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_gid!=0 or info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=expected_mode or info.st_size>1024*1024: fail("unsafe installed diagnostic producer")
+ fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
+ try:
+  opened=os.fstat(fd); chunks=[]; remaining=opened.st_size
+  while remaining:
+   chunk=os.read(fd,min(65536,remaining))
+   if not chunk: fail("short installed producer read")
+   chunks.append(chunk); remaining-=len(chunk)
+  after=os.fstat(fd); current=os.stat(path,follow_symlinks=False); identity=(opened.st_dev,opened.st_ino,opened.st_size,opened.st_nlink)
+  if identity!=(info.st_dev,info.st_ino,info.st_size,info.st_nlink) or identity!=(after.st_dev,after.st_ino,after.st_size,after.st_nlink) or identity!=(current.st_dev,current.st_ino,current.st_size,current.st_nlink): fail("installed diagnostic producer changed")
+  return sha(b"".join(chunks))
+ finally: os.close(fd)
+def acquire_shared_operation_lock():
+ fd=os.open("/var/lib/home-lab/reconciliation/operation.lock",os.O_RDWR|os.O_NOFOLLOW); info=os.fstat(fd)
+ if not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_gid!=0 or info.st_nlink!=1 or stat.S_IMODE(info.st_mode)!=0o600: os.close(fd); fail("unsafe shared operation lock")
+ try: fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+ except BaseException: os.close(fd); raise
+ return fd
+def publish_diagnostic_attempt(plan_sha,plan):
+ directory="/var/lib/home-lab/reconciliation/qualification-diagnostic-attempts"; info=os.stat(directory,follow_symlinks=False)
+ if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_gid!=0 or stat.S_IMODE(info.st_mode)!=0o700: fail("unsafe diagnostic attempt journal")
+ root=os.open(directory,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+ try:
+  name=f"{plan_sha}.json"; value={"automatic_retry":False,"capability_receipt_sha256":plan["capability_receipt_sha256"],"format":"home-lab-debian-qualification-host-diagnostic-attempt-v1","helper_sha256":plan["helper_sha256"],"plan_sha256":plan_sha,"sudoers_sha256":plan["sudoers_sha256"],"transport_sha256":plan["transport_sha256"],"version":1}; attempt=canonical(value); fd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600,dir_fd=root)
+  try:
+   if os.write(fd,attempt)!=len(attempt): fail("diagnostic attempt short write")
+   os.fsync(fd)
+  finally: os.close(fd)
+  os.fsync(root)
+ finally: os.close(root)
+def apply_diagnostic(plan_sha,approval):
+ raw,plan=read_plan()
+ if sha(raw)!=plan_sha or approval!=plan_sha: fail("plan approval mismatch")
+ required={"admission_sha256","authorized","automatic_apply","capability_receipt_sha256","commit","created_at","disk_volume","expires_at","format","helper_sha256","node_name","operation","state_sha256","stopped_receipt_sha256","sudoers_sha256","target_id","transport_sha256","version","vmid"}
+ if set(plan)!=required or plan.get("format")!="home-lab-debian-qualification-first-boot-diagnostic-plan-v1" or plan.get("operation")!="inspect-failed-first-boot-read-only" or plan.get("disk_volume")!="local-lvm:vm-9900-disk-0" or plan.get("node_name")!="proxmox" or plan.get("target_id")!="production-pve-vm9900-qualification" or plan.get("vmid")!=9900 or plan.get("version")!=1 or plan.get("authorized") is not False or plan.get("automatic_apply") is not False: fail("invalid diagnostic plan")
+ for key in ("admission_sha256","capability_receipt_sha256","helper_sha256","state_sha256","stopped_receipt_sha256","sudoers_sha256","transport_sha256"):
+  if re.fullmatch(r"[0-9a-f]{64}",plan.get(key,"") or "") is None: fail("invalid diagnostic identity")
+ now=dt.datetime.now(dt.timezone.utc); created=parse_time(plan["created_at"]); expires=parse_time(plan["expires_at"])
+ if created>now+dt.timedelta(seconds=5) or created<now-dt.timedelta(hours=4) or expires<=now or expires-created>dt.timedelta(hours=4): fail("diagnostic plan stale")
+ shared_fd=acquire_shared_operation_lock()
+ if os.path.lexists("/var/lib/iac-ansible-production.lock"):
+  os.close(shared_fd); fail("qualification capability installation active")
+ lock_fd=acquire_lock()
+ try:
+  producer={"helper_sha256":installed_hash("/usr/local/libexec/home-lab/debian-qualification-snippet-transaction"),"sudoers_sha256":installed_hash("/etc/sudoers.d/qualification-apply",0o440),"transport_sha256":installed_hash("/usr/local/libexec/home-lab/debian-qualification-snippet-transport")}
+  if producer!={"helper_sha256":plan["helper_sha256"],"sudoers_sha256":plan["sudoers_sha256"],"transport_sha256":plan["transport_sha256"]}: fail("diagnostic producer drift")
+  publish_diagnostic_attempt(plan_sha,plan)
+  observed=production_guest_disk(plan,read_first_boot_diagnostic,"home-lab-vm9900-diagnostic-")
+  return {"diagnostic":observed,"disk_volume":plan["disk_volume"],"format":"home-lab-debian-qualification-first-boot-diagnostic-receipt-v1","plan_sha256":plan_sha,"producer":producer,"state_sha256":plan["state_sha256"],"stopped_receipt_sha256":plan["stopped_receipt_sha256"],"target_id":plan["target_id"],"version":1,"vmid":9900}
+ finally:
+  os.close(lock_fd); os.close(shared_fd)
 
 def apply_host_key(plan_sha,approval):
  raw,plan=read_plan()
@@ -305,8 +421,9 @@ def main():
  if len(sys.argv)==2 and sys.argv[1]=="first-boot": print(canonical(first_boot()).decode(),end=""); return
  if len(sys.argv)==4 and sys.argv[1]=="apply": print(canonical(apply(sys.argv[2],sys.argv[3])).decode(),end=""); return
  if len(sys.argv)==4 and sys.argv[1]=="host-key": print(canonical(apply_host_key(sys.argv[2],sys.argv[3])).decode(),end=""); return
+ if len(sys.argv)==4 and sys.argv[1]=="diagnostic": print(canonical(apply_diagnostic(sys.argv[2],sys.argv[3])).decode(),end=""); return
  if len(sys.argv)==3 and sys.argv[1]=="hold-lock": hold_lock(sys.argv[2]); return
- fail("usage: debian-qualification-snippet-transaction <observe|apply PLAN_SHA APPROVE_PLAN_SHA|host-key PLAN_SHA APPROVE_PLAN_SHA|hold-lock ADMISSION_SHA256>")
+ fail("usage: debian-qualification-snippet-transaction <observe|first-boot|apply PLAN_SHA APPROVE_PLAN_SHA|host-key PLAN_SHA APPROVE_PLAN_SHA|diagnostic PLAN_SHA APPROVE_PLAN_SHA|hold-lock ADMISSION_SHA256>")
 if __name__=="__main__":
  try: main()
  except Exception as error: print(str(error),file=sys.stderr); raise SystemExit(1)

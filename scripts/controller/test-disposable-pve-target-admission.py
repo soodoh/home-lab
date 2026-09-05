@@ -40,10 +40,13 @@ with tempfile.TemporaryDirectory() as directory:
  refused("wrong-ssh-auth",lambda x:x["credentials"].update(ssh_authentication="authorized-key"),"schema violation")
  refused("stale",lambda x:x.update(observed_at=(now-dt.timedelta(hours=1)).isoformat().replace("+00:00","Z")),"stale")
  expired=copy.deepcopy(value); expired["observed_at"]=(now-dt.timedelta(minutes=60)).isoformat().replace("+00:00","Z"); expired["expires_at"]=(now-dt.timedelta(minutes=45)).isoformat().replace("+00:00","Z"); expired_path=root/"expired.json"; expired_path.write_bytes(canonical(expired)); expired_path.chmod(0o600); assert run(expired_path,known).returncode!=0; recovered=run(expired_path,known,True); assert recovered.returncode==0,recovered.stderr; assert json.loads(recovered.stdout)["admission_mode"]=="expired-safe-stop"
+ offline=subprocess.run(["node",str(VALIDATOR),"--evidence",str(expired_path),"--known-hosts",str(known),"--allow-expired-offline-diagnostic"],text=True,capture_output=True); assert offline.returncode==0,offline.stderr; assert json.loads(offline.stdout)["admission_mode"]=="expired-offline-diagnostic"
+ both=subprocess.run(["node",str(VALIDATOR),"--evidence",str(expired_path),"--known-hosts",str(known),"--allow-expired-safe-stop","--allow-expired-offline-diagnostic"],text=True,capture_output=True); assert both.returncode!=0
  too_old=copy.deepcopy(expired); too_old["observed_at"]=(now-dt.timedelta(hours=6)).isoformat().replace("+00:00","Z"); too_old["expires_at"]=(now-dt.timedelta(hours=5,minutes=45)).isoformat().replace("+00:00","Z"); too_old_path=root/"too-old.json"; too_old_path.write_bytes(canonical(too_old)); too_old_path.chmod(0o600); assert run(too_old_path,known,True).returncode!=0
+ assert subprocess.run(["node",str(VALIDATOR),"--evidence",str(too_old_path),"--known-hosts",str(known),"--allow-expired-offline-diagnostic"],text=True,capture_output=True).returncode!=0
  noncanonical=root/"noncanonical.json"; noncanonical.write_text(json.dumps(value,indent=2)); noncanonical.chmod(0o600); assert "canonical JSON" in run(noncanonical,known).stderr
  unsafe=root/"unsafe.json"; unsafe.write_bytes(canonical(value)); unsafe.chmod(0o644); assert "unsafe protected artifact metadata" in run(unsafe,known).stderr
  hardlink=root/"hardlink.json"; os.link(evidence,hardlink); assert "unsafe protected artifact metadata" in run(evidence,known).stderr; hardlink.unlink()
  symlink=root/"symlink.json"; symlink.symlink_to(evidence); assert "unsafe protected artifact metadata" in run(symlink,known).stderr
  bad_known=root/"bad-known-hosts"; bad_known.write_text(known.read_text().replace("proxmox","wrong.invalid")); bad_known.chmod(0o600); assert "digest mismatch" in run(evidence,bad_known).stderr
-print("disposable_pve_target_admission=verified hostile_paths=12 expired_safe_stop_bounded=true")
+print("disposable_pve_target_admission=verified hostile_paths=15 expired_contract_modes_bounded=true")

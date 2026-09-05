@@ -24,14 +24,15 @@ function stable(value){
 }
 function sha(raw){return crypto.createHash("sha256").update(raw).digest("hex")}
 function main(){
- let evidencePath="",knownHostsPath="",allowExpiredSafeStop=false;
+ let evidencePath="",knownHostsPath="",allowExpiredSafeStop=false,allowExpiredOfflineDiagnostic=false;
  for(let i=2;i<process.argv.length;){
   if(process.argv[i]==="--allow-expired-safe-stop"){allowExpiredSafeStop=true;i+=1;continue}
+  if(process.argv[i]==="--allow-expired-offline-diagnostic"){allowExpiredOfflineDiagnostic=true;i+=1;continue}
   if(process.argv[i]==="--evidence"){evidencePath=process.argv[i+1]||"";i+=2;continue}
   if(process.argv[i]==="--known-hosts"){knownHostsPath=process.argv[i+1]||"";i+=2;continue}
-  fail("usage: validate-disposable-pve-target.js --evidence ABSOLUTE_PATH --known-hosts ABSOLUTE_PATH [--allow-expired-safe-stop]");
+  fail("usage: validate-disposable-pve-target.js --evidence ABSOLUTE_PATH --known-hosts ABSOLUTE_PATH [--allow-expired-safe-stop|--allow-expired-offline-diagnostic]");
  }
- if(!evidencePath||!knownHostsPath) fail("usage: validate-disposable-pve-target.js --evidence ABSOLUTE_PATH --known-hosts ABSOLUTE_PATH [--allow-expired-safe-stop]");
+ if(!evidencePath||!knownHostsPath||allowExpiredSafeStop&&allowExpiredOfflineDiagnostic) fail("usage: validate-disposable-pve-target.js --evidence ABSOLUTE_PATH --known-hosts ABSOLUTE_PATH [--allow-expired-safe-stop|--allow-expired-offline-diagnostic]");
  const raw=protectedRead(evidencePath,65536), knownHosts=protectedRead(knownHostsPath,16384);
  let evidence; try{evidence=JSON.parse(raw.toString("utf8"))}catch{fail("admission evidence is not JSON")}
  const canonical=Buffer.from(JSON.stringify(stable(evidence))+"\n");
@@ -41,11 +42,14 @@ function main(){
  if(!validate(evidence)) fail(`admission schema violation: ${JSON.stringify(validate.errors)}`);
  const observed=Date.parse(evidence.observed_at), expires=Date.parse(evidence.expires_at), now=Date.now();
  const fresh=Number.isFinite(observed)&&Number.isFinite(expires)&&observed<=now+5000&&observed>=now-1800000&&expires>now&&expires-observed<=1800000;
- const boundedExpired=Number.isFinite(observed)&&Number.isFinite(expires)&&observed<=expires&&expires<=now&&expires-observed<=1800000&&now-expires<=14400000;
- if((!allowExpiredSafeStop&&!fresh)||(allowExpiredSafeStop&&!boundedExpired)) fail("admission evidence is stale or has an unsafe validity window");
+ const expiredMode=allowExpiredSafeStop||allowExpiredOfflineDiagnostic;
+ const grace=allowExpiredOfflineDiagnostic?1000*Number(yaml.load(fs.readFileSync(path.join(ROOT,"infrastructure/contract/home-lab.yml"),"utf8")).lifecycle.qualification_route.offline_diagnostic.admission_expiry_grace_seconds):14400000;
+ const boundedExpired=Number.isFinite(observed)&&Number.isFinite(expires)&&observed<=expires&&expires<=now&&expires-observed<=1800000&&now-expires<=grace;
+ if((!expiredMode&&!fresh)||(expiredMode&&!boundedExpired)) fail("admission evidence is stale or has an unsafe validity window");
  const contract=yaml.load(fs.readFileSync(path.join(ROOT,"infrastructure/contract/home-lab.yml"),"utf8")); const route=contract.lifecycle.qualification_route;
  const endpoint=new URL(evidence.endpoint), productionPve=contract.network.proxmox.ipv4.split("/")[0], productionVm=contract.vm_100.networking.ipv4.split("/")[0];
  if(route.mode!=="production-pve-disposable-vm"||route.vmid!==9900||route.production_vm_mutation_allowed!==false||route.production_disk_attachment_allowed!==false||route.production_state_allowed!==false||route.reuse_production_api_plan_apply_identities!==true) fail("contract qualification route is unsafe");
+ if(allowExpiredOfflineDiagnostic&&(route.offline_diagnostic.read_only!==true||route.offline_diagnostic.requires_stopped_receipt!==true||route.offline_diagnostic.disk_volume!=="local-lvm:vm-9900-disk-0"||route.offline_diagnostic.admission_expiry_grace_seconds!==14400||route.offline_diagnostic.attempt_journal_directory!=="/var/lib/home-lab/reconciliation/qualification-diagnostic-attempts")) fail("contract offline diagnostic policy is unsafe");
  if(evidence.route!==route.mode||evidence.target_id!=="production-pve-vm9900-qualification"||evidence.node_name!==contract.proxmox.node||evidence.endpoint!==contract.proxmox.api_endpoint||endpoint.hostname!==contract.proxmox.node||![contract.proxmox.node,productionPve].includes(evidence.host_key.ssh_address)) fail("production qualification target binding mismatch");
  if(net.isIP(evidence.network.controller_ipv4)!==4||evidence.network.controller_ipv4===productionPve||evidence.network.controller_ipv4===productionVm) fail("controller address is invalid or aliases a production managed host");
  const {plan_principal:plan,apply_principal:apply,ssh_principal:sshPrincipal}=evidence.credentials; const accounts=contract.proxmox.access.pve.accounts||[];
@@ -59,7 +63,8 @@ function main(){
  const hostNames=fields[0].split(","); if(!hostNames.includes(evidence.host_key.ssh_address)&&!hostNames.includes(`[${evidence.host_key.ssh_address}]:22`)) fail("known-hosts endpoint mismatch");
  const fingerprint=cp.execFileSync("ssh-keygen",["-E","sha256","-lf","-"],{encoding:"utf8",input:knownHosts,stdio:["pipe","pipe","ignore"]}).trim().split(/\s+/)[1];
  if(fingerprint!==evidence.host_key.fingerprint) fail("known-hosts fingerprint mismatch");
- process.stdout.write(JSON.stringify({admission_mode:allowExpiredSafeStop?"expired-safe-stop":"fresh",admitted:true,api_ca_sha256:evidence.api_ca_sha256,apply_principal:apply,bridge:evidence.network.bridge,controller_ipv4:evidence.network.controller_ipv4,disk_datastore_id:evidence.storage.disk_datastore_id,endpoint:evidence.endpoint,guest_ssh_public_key_sha256:evidence.credentials.guest_ssh_public_key_sha256,image_datastore_id:evidence.storage.image_datastore_id,isolation_attestation_sha256:sha(raw),node_name:evidence.node_name,plan_principal:plan,snippet_content_enabled:evidence.storage.snippet_content_enabled,snippet_datastore_id:evidence.storage.snippet_datastore_id,snippet_directory:evidence.storage.snippet_directory,ssh_address:evidence.host_key.ssh_address,ssh_authentication:evidence.credentials.ssh_authentication,ssh_username:sshPrincipal,target_id:evidence.target_id})+"\n");
+ const admissionMode=allowExpiredSafeStop?"expired-safe-stop":allowExpiredOfflineDiagnostic?"expired-offline-diagnostic":"fresh";
+ process.stdout.write(JSON.stringify({admission_mode:admissionMode,admitted:true,api_ca_sha256:evidence.api_ca_sha256,apply_principal:apply,bridge:evidence.network.bridge,controller_ipv4:evidence.network.controller_ipv4,disk_datastore_id:evidence.storage.disk_datastore_id,endpoint:evidence.endpoint,guest_ssh_public_key_sha256:evidence.credentials.guest_ssh_public_key_sha256,image_datastore_id:evidence.storage.image_datastore_id,isolation_attestation_sha256:sha(raw),node_name:evidence.node_name,plan_principal:plan,snippet_content_enabled:evidence.storage.snippet_content_enabled,snippet_datastore_id:evidence.storage.snippet_datastore_id,snippet_directory:evidence.storage.snippet_directory,ssh_address:evidence.host_key.ssh_address,ssh_authentication:evidence.credentials.ssh_authentication,ssh_username:sshPrincipal,target_id:evidence.target_id})+"\n");
 }
 if(require.main===module){try{main()}catch(error){console.error(error.message);process.exit(1)}}
 module.exports={protectedRead,stable};

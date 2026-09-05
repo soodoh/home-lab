@@ -42,10 +42,10 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
   except SystemExit as error: assert "observation receipt drift" in str(error)
  finally: controller.validate_target,controller.guest_key,controller.render,controller.remote=originals
  source=TRANSPORT.read_text()
- for required in ("SSH_ORIGINAL_COMMAND", '"$#" -eq 2', '"$1" = -c', "sudo -n --", "hold-lock", "first-boot", "unsupported qualification snippet command", '"$plan" = "$approval"', '"${#plan}" -eq 64'):
+ for required in ("SSH_ORIGINAL_COMMAND", '"$#" -eq 2', '"$1" = -c', "sudo -n --", "hold-lock", "first-boot", "diagnostic", "unsupported qualification snippet command", '"$plan" = "$approval"', '"${#plan}" -eq 64'):
   assert required in source
  helper_source=HELPER.read_text(); controller_source=CONTROLLER.read_text()
- for required in ('return "/var/lib/vz/snippets","/run/lock/home-lab-disposable-qualification.lock"', "os.O_NOFOLLOW", "os.fsync", "os.link", "os.replace", "snippet replacement rollback failed", "def first_boot", "cloud-init", "LOCK_EX|fcntl.LOCK_NB", "plan stale", "snippet precondition drift"):
+ for required in ('return "/var/lib/vz/snippets","/run/lock/home-lab-disposable-qualification.lock"', "os.O_NOFOLLOW", "os.fsync", "os.link", "os.replace", "snippet replacement rollback failed", "def first_boot", "apply_diagnostic", "read_first_boot_diagnostic", "short diagnostic read", "cloud-init", "LOCK_EX|fcntl.LOCK_NB", "plan stale", "snippet precondition drift"):
   assert required in helper_source
  for required in ("StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null", "UpdateHostKeys=no", "IdentitiesOnly=yes", "IdentityFile=none", "PreferredAuthentications=none", "PubkeyAuthentication=no", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no", "RequestTTY=no", "validate-disposable-pve-target.js", "tailscale-policy", "verify_exact_checkout", "acquire_transfer_lock", "PRODUCTION_PVE_VM9900_SNIPPET_CONFIRMED", "expected_content=render(public)", "replace-snippet", "snippet plan binding mismatch", "observe-receipt", "snippet-observation-receipt-v1", "snippet observation receipt drift"):
   assert required in controller_source
