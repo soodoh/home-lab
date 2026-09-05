@@ -10,6 +10,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
  for path,value in values.items(): target=root/path; target.parent.mkdir(parents=True,exist_ok=True); target.write_text(value)
  result=helper.read_first_boot_diagnostic(str(root)); assert result["signals"]=={"apt_failure":True,"dns_failure":True,"network_failure":False,"qga_mentioned":True}; assert result["qemu_guest_agent_package"]=={"present":True,"status":"install ok installed","version":"1.2.3"}; assert result["cloud_result_errors"]==["package failed at https://<redacted>@example.invalid/x","Bearer <redacted>"] and result["cloud_result_present"] is True
  device=root/"nbd0"; unexpected=root/"nbd0p2"; device.touch(); unexpected.touch(); assert helper.nbd_mappings(str(device))==[str(unexpected)]
+ assert helper.read_diagnostic_file(str(root),"/missing/parent/file") is None
 sys.path.insert(0,str(ROOT/"scripts/controller")); controller_spec=importlib.util.spec_from_file_location("qualification_diagnostic_controller",CONTROLLER); diagnostic=importlib.util.module_from_spec(controller_spec); controller_spec.loader.exec_module(diagnostic)
 with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
  root=Path(directory); state=root/"state.tfstate"; state.write_bytes(b"state"); state.chmod(0o600)
