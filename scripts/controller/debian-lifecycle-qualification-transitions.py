@@ -5,7 +5,7 @@ from pathlib import Path
 from protected_execution import acquire_transfer_lock,canonical_bytes,load_canonical_object,load_protected_bytes,require_private_root,write_json
 ROOT=Path(__file__).resolve().parents[2]; source=ROOT/"scripts/controller/debian-lifecycle-qualification.py"; spec=importlib.util.spec_from_file_location("debian_qualification_foundation",source); common=importlib.util.module_from_spec(spec); spec.loader.exec_module(common)
 os.umask(0o077)
-CONFIRM={"start":"START_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","repair-network":"REPAIR_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_DHCP","stop":"STOP_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_FOR_HOSTKEY","restart":"RESTART_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_AFTER_HOSTKEY","destroy":"DESTROY_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900"}
+CONFIRM={"start":"START_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900","repair-network":"REPAIR_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_DHCP","stop":"STOP_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_FOR_OFFLINE_INSPECTION","restart":"RESTART_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900_AFTER_HOSTKEY","destroy":"DESTROY_PRODUCTION_PVE_DISPOSABLE_DEBIAN_9900"}
 def fail(reason): raise SystemExit(f"debian_qualification_transition=failed reason={reason}")
 def sha(raw): return hashlib.sha256(raw).hexdigest()
 def parse_time(value):
@@ -17,13 +17,15 @@ def prior(args,operation,target):
  value,raw=load_canonical_object(args.prior_receipt,"qualification prior receipt")
  if operation=="start": expected_format="home-lab-debian-qualification-foundation-receipt-v1"; expected_operation="create-stopped-foundation"; expected_started=False; prior_identity=False
  elif operation=="repair-network": expected_format="home-lab-debian-qualification-start-receipt-v1"; expected_operation="start"; expected_started=True; prior_identity=True
- elif operation=="stop": expected_format="home-lab-debian-qualification-repair-network-receipt-v1"; expected_operation="repair-network"; expected_started=True; prior_identity=True
+ elif operation=="stop":
+  direct=value.get("format")=="home-lab-debian-qualification-start-receipt-v1" and value.get("operation")=="start"
+  expected_format="home-lab-debian-qualification-start-receipt-v1" if direct else "home-lab-debian-qualification-repair-network-receipt-v1"; expected_operation="start" if direct else "repair-network"; expected_started=True; prior_identity=True
  elif operation=="restart": expected_format="home-lab-debian-qualification-stop-receipt-v1"; expected_operation="stop"; expected_started=False; prior_identity=True
  else: expected_format="home-lab-debian-qualification-restart-receipt-v1"; expected_operation="restart"; expected_started=True; prior_identity=True
  required={"admission_sha256","commit","format","operation","plan_sha256","resources","snippet_receipt_sha256","state_sha256","target_id","version","vm_started","vmid"} | ({"prior_receipt_sha256"} if prior_identity else set()) | ({"snippet_sha256"} if operation in ("stop","restart","destroy") else set()) | ({"host_key_receipt_sha256"} if operation=="destroy" else set())
  identities=("admission_sha256","plan_sha256","snippet_receipt_sha256","state_sha256")+(("prior_receipt_sha256",) if prior_identity else ())+(("snippet_sha256",) if operation in ("stop","restart","destroy") else ())+(("host_key_receipt_sha256",) if operation=="destroy" else ())
  expected_resources=["proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]","proxmox_virtual_environment_vm.qualification[0]"]
- if set(value)!=required or value.get("format")!=expected_format or value.get("operation")!=expected_operation or value.get("version")!=1 or re.fullmatch(r"[0-9a-f]{40}",value.get("commit","") or "") is None or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("resources")!=expected_resources or value.get("target_id")!=target["target_id"] or value.get("vmid")!=9900 or value.get("vm_started") is not expected_started: fail("prior-receipt")
+ if set(value)!=required or value.get("format")!=expected_format or value.get("operation")!=expected_operation or value.get("version")!=1 or re.fullmatch(r"[0-9a-f]{40}",value.get("commit","") or "") is None or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("resources")!=expected_resources or value.get("admission_sha256")!=target["isolation_attestation_sha256"] or value.get("target_id")!=target["target_id"] or value.get("vmid")!=9900 or value.get("vm_started") is not expected_started: fail("prior-receipt")
  return value,sha(raw)
 def host_key(args,operation,target,prior_sha,state_sha):
  if operation!="restart": return None
