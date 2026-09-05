@@ -16,9 +16,9 @@ def parse_time(value):
  return parsed
 def admission_lineage(args,value,operation,target):
  if value.get("admission_sha256")==target["isolation_attestation_sha256"]: return True
- if operation=="destroy":
-  if target.get("admission_mode")!="fresh": fail("destroy-lineage-requires-fresh-admission")
-  prior,prior_raw=load_canonical_object(args.prior_admission,"historical stopped admission"); current,_=load_canonical_object(args.admission,"current destroy admission")
+ if operation in ("destroy","stop"):
+  if target.get("admission_mode")!="fresh": fail(f"{operation}-lineage-requires-fresh-admission")
+  prior,prior_raw=load_canonical_object(args.prior_admission,f"historical {operation} admission"); current,_=load_canonical_object(args.admission,f"current {operation} admission")
   prior_stable={key:item for key,item in prior.items() if key not in ("observed_at","expires_at")}; current_stable={key:item for key,item in current.items() if key not in ("observed_at","expires_at")}
   return sha(prior_raw)==value.get("admission_sha256") and prior_stable==current_stable
  if operation!="restart": return False
@@ -138,7 +138,7 @@ def main():
   item=sub.add_parser(command)
   for option in ("admission","known-hosts","guest-public-key","snippet-receipt","prior-receipt","output-dir"): item.add_argument("--"+option,type=Path,required=True)
   if command in ("plan-restart","apply-restart"): item.add_argument("--host-key-receipt",type=Path,required=True)
-  if command in ("plan-restart","apply-restart","plan-destroy","apply-destroy"): item.add_argument("--prior-admission",type=Path,required=True)
+  if command in ("plan-stop","apply-stop","plan-restart","apply-restart","plan-destroy","apply-destroy"): item.add_argument("--prior-admission",type=Path,required=True)
   if command in ("plan-stop","apply-stop"): item.add_argument("--allow-expired-admission",action="store_true")
   if command.startswith("apply-"):
    item.add_argument("--manifest",type=Path,required=True); item.add_argument("--plan-sha",required=True); item.add_argument("--approve-plan-sha",required=True); item.add_argument("--authorization-sha",required=True); item.add_argument("--approve-authorization-sha",required=True); item.add_argument("--confirm",required=True)
