@@ -4,6 +4,7 @@ import argparse
 import datetime as dt
 import hashlib
 import importlib.util
+import ipaddress
 import json
 import re
 import os
@@ -51,6 +52,16 @@ def remote_first_boot(target,known_hosts,output,start_raw):
  except json.JSONDecodeError: raise SystemExit("first-boot transport returned invalid JSON")
  if result.stdout!=canonical_bytes(value)+b"\n": raise SystemExit("first-boot transport returned non-canonical JSON")
  return value
+def validated_observation(observation):
+ required={"boot_count","boot_id","cloud_init_errors","cloud_init_instance_id","cloud_init_status","dhcp","firewall_options","firewall_rules","first_boot_marker","format","guest_ipv4","guest_uptime_seconds","network","network_device","package","pve_uptime_seconds","qemu_guest_agent","startup_delta_seconds","vmid"}
+ denied={rule.get("dest") for rule in observation.get("firewall_rules",[]) if rule.get("type")=="out" and rule.get("action")=="DROP" and rule.get("enable")==1} if isinstance(observation,dict) else set()
+ probes={"10.255.255.1":True,"172.31.255.1":True,"192.168.0.1":True,"100.64.0.1":True}
+ try: guest_address=ipaddress.ip_address(observation.get("guest_ipv4",""))
+ except ValueError: guest_address=None
+ guest_ipv4_valid=guest_address in ipaddress.ip_network("192.168.0.0/24") and str(guest_address) not in {"192.168.0.1","192.168.0.12","192.168.0.100","192.168.0.123"} if guest_address is not None else False
+ uptime=(observation.get("pve_uptime_seconds"),observation.get("guest_uptime_seconds"),observation.get("startup_delta_seconds")) if isinstance(observation,dict) else (None,None,None); uptime_valid=isinstance(uptime[0],int) and not isinstance(uptime[0],bool) and all(isinstance(value,(int,float)) and not isinstance(value,bool) for value in uptime[1:]) and uptime[0]>0 and uptime[1]>0 and -2<=uptime[2]<=120 and abs(round(uptime[0]-uptime[1],2)-uptime[2])<0.01
+ if not isinstance(observation,dict) or not uptime_valid or set(observation)!=required or observation["format"]!="home-lab-debian-qualification-first-boot-observation-v1" or observation["vmid"]!=9900 or observation["boot_count"]!=1 or observation.get("first_boot_marker")!={"boot_id":observation.get("boot_id"),"mode":"0600"} or re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}",observation["boot_id"]) is None or not observation["cloud_init_instance_id"] or observation["cloud_init_errors"]!=[] or observation["cloud_init_status"]!="done" or not guest_ipv4_valid or observation.get("dhcp")!={"address":str(guest_address),"prefix_length":24,"provider":"192.168.0.1","source":"DHCPv4"} or observation["qemu_guest_agent"]!="active" or re.fullmatch(r"install ok installed [^\s]+",observation["package"]) is None or observation["network_device"]!={"bridge":"vmbr0","firewall":True,"model":"virtio"} or observation["firewall_options"]!={"dhcp":1,"enable":1,"ipfilter":0,"macfilter":1,"policy_in":"DROP","policy_out":"DROP"} or len(observation["firewall_rules"])!=9 or denied!={"10.0.0.0/8","100.64.0.0/10","172.16.0.0/12","192.168.0.0/16"} or observation["network"].get("blocked")!=probes or observation["network"].get("https_status") not in (200,301,302): raise SystemExit("clean first-boot observation differs")
+ return str(guest_address)
 def main():
  parser=argparse.ArgumentParser()
  parser.add_argument("--admission",type=Path,required=True); parser.add_argument("--known-hosts",type=Path,required=True)
@@ -69,11 +80,7 @@ def main():
  allowed={args.foundation_receipt,args.start_receipt}; present={path.resolve() for path in output.glob("*.receipt.json")}
  if present!=allowed: raise SystemExit("intervening qualification receipt detected")
  observation=remote_first_boot(target,args.known_hosts,output,start_raw)
- required={"boot_count","boot_id","cloud_init_errors","cloud_init_instance_id","cloud_init_status","firewall_options","firewall_rules","first_boot_marker","format","guest_uptime_seconds","network","network_device","package","pve_uptime_seconds","qemu_guest_agent","startup_delta_seconds","vmid"}
- denied={rule.get("dest") for rule in observation.get("firewall_rules",[]) if rule.get("type")=="out" and rule.get("action")=="DROP" and rule.get("enable")==1}
- probes={"10.255.255.1":True,"172.31.255.1":True,"192.168.0.1":True,"100.64.0.1":True}
- uptime=(observation.get("pve_uptime_seconds"),observation.get("guest_uptime_seconds"),observation.get("startup_delta_seconds")); uptime_valid=isinstance(uptime[0],int) and not isinstance(uptime[0],bool) and all(isinstance(value,(int,float)) and not isinstance(value,bool) for value in uptime[1:]) and uptime[0]>0 and uptime[1]>0 and -2<=uptime[2]<=120 and abs(round(uptime[0]-uptime[1],2)-uptime[2])<0.01
- if not uptime_valid or set(observation)!=required or observation["format"]!="home-lab-debian-qualification-first-boot-observation-v1" or observation["vmid"]!=9900 or observation["boot_count"]!=1 or observation.get("first_boot_marker")!={"boot_id":observation.get("boot_id"),"mode":"0600"} or re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}",observation["boot_id"]) is None or not observation["cloud_init_instance_id"] or observation["cloud_init_errors"]!=[] or observation["cloud_init_status"]!="done" or observation["qemu_guest_agent"]!="active" or re.fullmatch(r"install ok installed [^\s]+",observation["package"]) is None or observation["network_device"]!={"bridge":"vmbr0","firewall":True,"model":"virtio"} or observation["firewall_options"]!={"dhcp":1,"enable":1,"ipfilter":0,"macfilter":1,"policy_in":"DROP","policy_out":"DROP"} or len(observation["firewall_rules"])!=9 or denied!={"10.0.0.0/8","100.64.0.0/10","172.16.0.0/12","192.168.0.0/16"} or observation["network"].get("blocked")!=probes or observation["network"].get("https_status") not in (200,301,302): raise SystemExit("clean first-boot observation differs")
+ validated_observation(observation)
  value={"admission_sha256":target["isolation_attestation_sha256"],"commit":revision,"format":"home-lab-debian-qualification-clean-first-boot-receipt-v1","foundation_receipt_sha256":sha(foundation_raw),"helper_sha256":sha(HELPER.read_bytes().removesuffix(b"\n")),"helper_source_sha256":sha(HELPER.read_bytes()),"observation":observation,"observation_sha256":sha(canonical_bytes(observation)+b"\n"),"observed_at":dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00","Z"),"start_receipt_sha256":sha(start_raw),"status":"verified","target_id":target["target_id"],"template_sha256":sha(TEMPLATE.read_bytes()),"transport_sha256":sha(TRANSPORT.read_bytes().removesuffix(b"\n")),"transport_source_sha256":sha(TRANSPORT.read_bytes()),"version":1,"vmid":9900}
  raw=canonical_bytes(value)+b"\n"; digest=sha(raw)
  if {path.resolve() for path in output.glob("*.receipt.json")}!=allowed: raise SystemExit("intervening qualification receipt detected")

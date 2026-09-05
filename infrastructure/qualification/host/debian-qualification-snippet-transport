@@ -16,6 +16,14 @@ case "$command" in
   first-boot)
     exec sudo -n -- "$helper" first-boot
     ;;
+  guest-ipv4\ [0-9]*.[0-9]*.[0-9]*.[0-9]*)
+    IFS=' ' read -r verb address extra <<EOF
+${command}
+EOF
+    [ "$verb" = guest-ipv4 ] && [ -z "${extra-}" ] || exit 64
+    case "$address" in *[!0-9.]*|'') exit 64;; esac
+    exec sudo -n -- "$helper" guest-ipv4 "$address"
+    ;;
   hold-lock\ [0-9a-f][0-9a-f]*)
     IFS=' ' read -r verb admission extra <<EOF
 ${command}

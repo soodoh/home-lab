@@ -82,8 +82,8 @@ def inspect_plan(value,target):
  expected={"proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_vm.qualification[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]"}; changes={item.get("address"):item.get("change",{}) for item in value.get("resource_changes",[])}
  if set(changes)!=expected or any(item.get("actions")!=["create"] for item in changes.values()): fail("foundation-actions")
  after={key:item.get("after",{}) for key,item in changes.items()}; vm=after["proxmox_virtual_environment_vm.qualification[0]"]; image=after["proxmox_download_file.qualification_image[0]"]; options=after["proxmox_virtual_environment_firewall_options.qualification[0]"]; rules=after["proxmox_virtual_environment_firewall_rules.qualification[0]"].get("rule",[])
- disks=vm.get("disk",[]); initialization=vm.get("initialization",[]); networks=vm.get("network_device",[])
- if vm.get("vm_id")!=9900 or vm.get("node_name")!=target["node_name"] or vm.get("started") is not False or vm.get("on_boot") is not False or vm.get("protection") is not False or vm.get("reboot_after_update") is not False or vm.get("boot_order")!=["scsi0"] or len(disks)!=1 or disks[0].get("datastore_id")!=target["disk_datastore_id"] or disks[0].get("interface")!="scsi0" or disks[0].get("serial")!="DEB-LIFE-ROOT-32G" or disks[0].get("size")!=32 or len(initialization)!=1 or initialization[0].get("datastore_id")!=target["disk_datastore_id"] or initialization[0].get("user_data_file_id")!=target["snippet_file_id"] or initialization[0].get("upgrade") is not False or initialization[0].get("dns",[{}])[0].get("servers")!=["1.1.1.1","9.9.9.9"] or len(networks)!=1 or networks[0].get("bridge")!=target["bridge"] or networks[0].get("firewall") is not True: fail("foundation-vm")
+ disks=vm.get("disk",[]); initialization=vm.get("initialization",[]); networks=vm.get("network_device",[]); ip_configs=initialization[0].get("ip_config",[]) if len(initialization)==1 else []
+ if vm.get("vm_id")!=9900 or vm.get("node_name")!=target["node_name"] or vm.get("started") is not False or vm.get("on_boot") is not False or vm.get("protection") is not False or vm.get("reboot_after_update") is not False or vm.get("boot_order")!=["scsi0"] or len(disks)!=1 or disks[0].get("datastore_id")!=target["disk_datastore_id"] or disks[0].get("interface")!="scsi0" or disks[0].get("serial")!="DEB-LIFE-ROOT-32G" or disks[0].get("size")!=32 or len(initialization)!=1 or initialization[0].get("datastore_id")!=target["disk_datastore_id"] or initialization[0].get("user_data_file_id")!=target["snippet_file_id"] or initialization[0].get("upgrade") is not False or ip_configs!=[{"ipv4":[{"address":"dhcp","gateway":None}],"ipv6":[]}] or initialization[0].get("dns",[{}])[0].get("servers")!=["1.1.1.1","9.9.9.9"] or len(networks)!=1 or networks[0].get("bridge")!=target["bridge"] or networks[0].get("firewall") is not True: fail("foundation-vm")
  contract=contract_image()
  if image.get("datastore_id")!=target["image_datastore_id"] or image.get("node_name")!=target["node_name"] or image.get("url")!=contract["url"] or image.get("checksum")!=contract["sha512"] or image.get("checksum_algorithm")!="sha512" or image.get("overwrite") is not False: fail("foundation-image")
  if options.get("enabled") is not True or options.get("input_policy")!="DROP" or options.get("output_policy")!="DROP" or options.get("dhcp") is not True or options.get("ipfilter") is not False or options.get("macfilter") is not True: fail("foundation-firewall")
@@ -100,11 +100,20 @@ def hold_target(target,args):
  except json.JSONDecodeError: child.kill(); child.wait(); fail("target-lock-response")
  if child.poll() is not None or value!={"admission_sha256":target["isolation_attestation_sha256"],"format":"home-lab-disposable-qualification-lock-v1","held":True}: child.kill(); child.wait(); fail("target-lock-response")
  return child
+def target_guest_ipv4(child,guest_ipv4):
+ child.stdin.write(f"guest-ipv4 {guest_ipv4}\n".encode()); child.stdin.flush(); ready,_,_=select.select([child.stdout,child.stderr],[],[],30)
+ if not ready or child.stderr in ready or child.poll() is not None: fail("target-lock-postcondition")
+ raw=child.stdout.readline()
+ try: observation=json.loads(raw)
+ except json.JSONDecodeError: fail("target-lock-postcondition")
+ expected={"format":"home-lab-debian-qualification-guest-ipv4-observation-v1","guest_ipv4":guest_ipv4,"vmid":9900}
+ if raw!=canonical_bytes(observation)+b"\n" or observation!=expected: fail("target-lock-postcondition")
+ return observation
 def release_target(child):
  child.stdin.close()
  try: code=child.wait(timeout=10)
  except subprocess.TimeoutExpired: child.kill(); child.wait(); fail("target-lock-release")
- if code!=0 or child.stderr.read(): fail("target-lock-release")
+ if code!=0 or child.stderr.read() or child.stdout.read(): fail("target-lock-release")
 def run_locked(command,env,host,failure):
  child=subprocess.Popen(command,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True)
  def terminate():

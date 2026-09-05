@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Separate saved-plan start and destroy transitions for disposable VM 9900."""
-import argparse,datetime as dt,hashlib,importlib.util,json,os,re,shutil,subprocess
+import argparse,datetime as dt,hashlib,importlib.util,ipaddress,json,os,re,shutil,subprocess
 from pathlib import Path
 from protected_execution import acquire_transfer_lock,canonical_bytes,load_canonical_object,load_protected_bytes,require_private_root,write_json
 ROOT=Path(__file__).resolve().parents[2]; source=ROOT/"scripts/controller/debian-lifecycle-qualification.py"; spec=importlib.util.spec_from_file_location("debian_qualification_foundation",source); common=importlib.util.module_from_spec(spec); spec.loader.exec_module(common)
@@ -38,9 +38,14 @@ def prior(args,operation,target):
  elif operation=="restart": expected_format="home-lab-debian-qualification-stop-receipt-v1"; expected_operation="stop"; expected_started=False; prior_identity=True
  else:
   stopped=value.get("format")=="home-lab-debian-qualification-stop-receipt-v1" and value.get("operation")=="stop"; expected_format="home-lab-debian-qualification-stop-receipt-v1" if stopped else "home-lab-debian-qualification-restart-receipt-v1"; expected_operation="stop" if stopped else "restart"; expected_started=not stopped; prior_identity=True; needs_host_key=not stopped
- required={"admission_sha256","commit","format","operation","plan_sha256","resources","snippet_receipt_sha256","state_sha256","target_id","version","vm_started","vmid"} | ({"prior_receipt_sha256"} if prior_identity else set()) | ({"snippet_sha256"} if operation in ("stop","restart","destroy") else set()) | ({"host_key_receipt_sha256"} if needs_host_key else set())
- identities=("admission_sha256","plan_sha256","snippet_receipt_sha256","state_sha256")+(("prior_receipt_sha256",) if prior_identity else ())+(("snippet_sha256",) if operation in ("stop","restart","destroy") else ())+(("host_key_receipt_sha256",) if needs_host_key else ())
+ legacy_restart=needs_host_key and operation in ("stop","destroy") and value.get("commit")=="d29a47cff1677ac5eb1d46d9e6d3a2a4d9f77bb4" and "guest_ipv4" not in value and "guest_ipv4_observation_sha256" not in value
+ required={"admission_sha256","commit","format","operation","plan_sha256","resources","snippet_receipt_sha256","state_sha256","target_id","version","vm_started","vmid"} | ({"prior_receipt_sha256"} if prior_identity else set()) | ({"snippet_sha256"} if operation in ("stop","restart","destroy") else set()) | (({"host_key_receipt_sha256"} if legacy_restart else {"guest_ipv4","guest_ipv4_observation_sha256","host_key_receipt_sha256"}) if needs_host_key else set())
+ identities=("admission_sha256","plan_sha256","snippet_receipt_sha256","state_sha256")+(("prior_receipt_sha256",) if prior_identity else ())+(("snippet_sha256",) if operation in ("stop","restart","destroy") else ())+((("host_key_receipt_sha256",) if legacy_restart else ("guest_ipv4_observation_sha256","host_key_receipt_sha256")) if needs_host_key else ())
  expected_resources=["proxmox_download_file.qualification_image[0]","proxmox_virtual_environment_firewall_options.qualification[0]","proxmox_virtual_environment_firewall_rules.qualification[0]","proxmox_virtual_environment_vm.qualification[0]"]; admission_ok=admission_lineage(args,value,operation,target)
+ if needs_host_key and not legacy_restart:
+  try: prior_guest=ipaddress.ip_address(value.get("guest_ipv4",""))
+  except ValueError: fail("prior-receipt")
+  if prior_guest not in ipaddress.ip_network("192.168.0.0/24") or str(prior_guest) in {"192.168.0.1","192.168.0.12","192.168.0.100","192.168.0.123"}: fail("prior-receipt")
  if set(value)!=required or value.get("format")!=expected_format or value.get("operation")!=expected_operation or value.get("version")!=1 or re.fullmatch(r"[0-9a-f]{40}",value.get("commit","") or "") is None or any(re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None for key in identities) or value.get("resources")!=expected_resources or not admission_ok or value.get("target_id")!=target["target_id"] or value.get("vmid")!=9900 or value.get("vm_started") is not expected_started: fail("prior-receipt")
  return value,sha(raw)
 def historical_stop_target(args):
@@ -57,12 +62,15 @@ def target_with_snippet(args,operation):
   target=historical_stop_target(args); return historical_stop_snippet(args,target)
  return common.snippet(args)
 def host_key(args,operation,target,prior_sha,state_sha):
- if operation!="restart": return None
- value,raw=load_canonical_object(args.host_key_receipt,"qualification host-key receipt"); required={"disk_volume","fingerprint","format","guest_ipv4","plan_sha256","public_key","sha256","state_sha256","stopped_receipt_sha256","target_id","version","vmid"}
- if set(value)!=required or value.get("format")!="home-lab-debian-qualification-host-key-receipt-v1" or value.get("disk_volume")!="local-lvm:vm-9900-disk-0" or value.get("guest_ipv4")!="192.168.0.53" or value.get("state_sha256")!=state_sha or value.get("stopped_receipt_sha256")!=prior_sha or value.get("target_id")!=target["target_id"] or value.get("version")!=1 or value.get("vmid")!=9900 or re.fullmatch(r"ssh-ed25519 [A-Za-z0-9+/]+={0,2}",value.get("public_key","") or "") is None or re.fullmatch(r"SHA256:[A-Za-z0-9+/]+",value.get("fingerprint","") or "") is None or value.get("sha256")!=sha((value.get("public_key","")+"\n").encode()): fail("host-key-receipt")
- for key in ("plan_sha256","sha256","state_sha256","stopped_receipt_sha256"):
+ if operation!="restart": return None,None
+ value,raw=load_canonical_object(args.host_key_receipt,"qualification host-key receipt"); required={"clean_boot_receipt_sha256","disk_volume","fingerprint","format","guest_ipv4","plan_sha256","public_key","sha256","state_sha256","stopped_receipt_sha256","target_id","version","vmid"}
+ try: guest_address=ipaddress.ip_address(value.get("guest_ipv4",""))
+ except ValueError: fail("host-key-receipt")
+ excluded={ipaddress.ip_address(item) for item in ("192.168.0.1","192.168.0.12","192.168.0.100","192.168.0.123")}
+ if set(value)!=required or value.get("format")!="home-lab-debian-qualification-host-key-receipt-v1" or value.get("disk_volume")!="local-lvm:vm-9900-disk-0" or guest_address not in ipaddress.ip_network("192.168.0.0/24") or guest_address in excluded or value.get("state_sha256")!=state_sha or value.get("stopped_receipt_sha256")!=prior_sha or value.get("target_id")!=target["target_id"] or value.get("version")!=1 or value.get("vmid")!=9900 or re.fullmatch(r"ssh-ed25519 [A-Za-z0-9+/]+={0,2}",value.get("public_key","") or "") is None or re.fullmatch(r"SHA256:[A-Za-z0-9+/]+",value.get("fingerprint","") or "") is None or value.get("sha256")!=sha((value["public_key"]+"\n").encode()): fail("host-key-receipt")
+ for key in ("clean_boot_receipt_sha256","plan_sha256","sha256","state_sha256","stopped_receipt_sha256"):
   if re.fullmatch(r"[0-9a-f]{64}",value.get(key,"") or "") is None: fail("host-key-receipt")
- return sha(raw)
+ return sha(raw),str(guest_address)
 def changed(value): return {item.get("address"):item.get("change",{}) for item in value.get("resource_changes",[]) if item.get("change",{}).get("actions")!=["no-op"]}
 def unknown_true(value,path=()):
  if value is True: return [path]
@@ -99,7 +107,7 @@ def plan(args,operation):
  output=require_private_root(args.output_dir,()); target=target_with_snippet(args,operation); prior_receipt,prior_sha=prior(args,operation,target); key=common.guest_key(args.guest_public_key,target); commit=common.revision(); credentials=common.credential("plan",target); controller,run,env,state,host=common.locked_setup(output,credentials,target,args); state_before=common.state_sha(state)
  try:
   if state_before!=prior_receipt["state_sha256"]: fail("state-drift")
-  host_key_sha=host_key(args,operation,target,prior_sha,state_before)
+  host_key_sha,_=host_key(args,operation,target,prior_sha,state_before)
   fresh=target_with_snippet(args,operation)
   if fresh.get("snippet_receipt_sha256")!=target.get("snippet_receipt_sha256"): fail("snippet-drift")
   start_value="false" if operation=="stop" else "true"; binary=run/f"{operation}.tfplan"; shown=run/f"{operation}.json"; command=["tofu",f"-chdir={common.TF_ROOT}","plan","-input=false","-lock=true",*common.variables(target,key),f"-var=start_qualification={start_value}"]
@@ -117,7 +125,7 @@ def manifest(args,operation,target,prior_sha,snippet_sha,host_key_sha):
  return value
 def apply(args,operation):
  if re.fullmatch(r"[0-9a-f]{64}",args.plan_sha or "") is None or re.fullmatch(r"[0-9a-f]{64}",args.authorization_sha or "") is None or args.approve_plan_sha!=args.plan_sha or args.approve_authorization_sha!=args.authorization_sha or args.confirm!=CONFIRM[operation]: fail("exact-authorization-required")
- output=require_private_root(args.output_dir,()); target=target_with_snippet(args,operation); prior_receipt,prior_sha=prior(args,operation,target); host_key_sha=host_key(args,operation,target,prior_sha,prior_receipt["state_sha256"]); value=manifest(args,operation,target,prior_sha,target["snippet_sha256"],host_key_sha); common.revision(value["commit"]); binary=output/f"{args.plan_sha}.tfplan"; shown=output/f"{args.plan_sha}.plan.json"
+ output=require_private_root(args.output_dir,()); target=target_with_snippet(args,operation); prior_receipt,prior_sha=prior(args,operation,target); host_key_sha,guest_ipv4=host_key(args,operation,target,prior_sha,prior_receipt["state_sha256"]); value=manifest(args,operation,target,prior_sha,target["snippet_sha256"],host_key_sha); common.revision(value["commit"]); binary=output/f"{args.plan_sha}.tfplan"; shown=output/f"{args.plan_sha}.plan.json"
  if sha(load_protected_bytes(binary,"transition saved plan"))!=args.plan_sha or sha(load_protected_bytes(shown,"transition plan JSON"))!=value["plan_json_sha256"]: fail("saved-plan-binding")
  inspect(json.loads(load_protected_bytes(shown,"transition plan JSON")),operation,target); credentials=common.credential("apply",target); controller,run,env,state,host=common.locked_setup(output,credentials,target,args)
  try:
@@ -130,7 +138,9 @@ def apply(args,operation):
   expected_started=operation not in ("stop","destroy")
   if operation!="destroy" and ({item.get("address") for item in resources}!=expected_addresses or vm is None or vm.get("vm_id")!=9900 or vm.get("started") is not expected_started or vm.get("on_boot") is not False): fail(f"{operation}-postcondition")
   if operation=="destroy" and resources: fail("destroy-postcondition")
-  receipt={"admission_sha256":target["isolation_attestation_sha256"],"commit":value["commit"],"format":f"home-lab-debian-qualification-{operation}-receipt-v1","operation":operation,"plan_sha256":args.plan_sha,"prior_receipt_sha256":prior_sha,"resources":sorted(expected_addresses),"snippet_receipt_sha256":target["snippet_receipt_sha256"],"snippet_sha256":target["snippet_sha256"],"state_sha256":common.state_sha(state),"target_id":target["target_id"],"version":1,"vm_started":expected_started,"vmid":9900}; receipt.update({"host_key_receipt_sha256":host_key_sha} if operation=="restart" else {}); write_json(output,f"{args.plan_sha}.receipt.json",receipt); print(json.dumps({"receipt":str(output/f'{args.plan_sha}.receipt.json'),"vm_started":receipt["vm_started"]},sort_keys=True))
+  guest_observation=common.target_guest_ipv4(host,guest_ipv4) if operation=="restart" else None; guest_observation_sha=sha(canonical_bytes(guest_observation)+b"\n") if guest_observation is not None else None
+  if guest_observation is not None: write_json(output,f"{args.plan_sha}.guest-ipv4-observation.json",guest_observation)
+  receipt={"admission_sha256":target["isolation_attestation_sha256"],"commit":value["commit"],"format":f"home-lab-debian-qualification-{operation}-receipt-v1","operation":operation,"plan_sha256":args.plan_sha,"prior_receipt_sha256":prior_sha,"resources":sorted(expected_addresses),"snippet_receipt_sha256":target["snippet_receipt_sha256"],"snippet_sha256":target["snippet_sha256"],"state_sha256":common.state_sha(state),"target_id":target["target_id"],"version":1,"vm_started":expected_started,"vmid":9900}; receipt.update({"guest_ipv4":guest_ipv4,"guest_ipv4_observation_sha256":guest_observation_sha,"host_key_receipt_sha256":host_key_sha} if operation=="restart" else {}); write_json(output,f"{args.plan_sha}.receipt.json",receipt); print(json.dumps({"receipt":str(output/f'{args.plan_sha}.receipt.json'),"vm_started":receipt["vm_started"]},sort_keys=True))
  finally: common.release_target(host); os.close(controller); shutil.rmtree(run,ignore_errors=True)
 def main():
  parser=argparse.ArgumentParser(); sub=parser.add_subparsers(dest="command",required=True)
