@@ -98,7 +98,10 @@
               rstrip=False) | hash('sha256')
           - >-
             recovery_plan.bindings.playbook_sha256 ==
-            lookup('ansible.builtin.file', playbook_path, rstrip=False) | hash('sha256')
+            lookup(
+              'ansible.builtin.file',
+              playbook_dir ~ '/recover-debian-lifecycle-apply-lock.yml',
+              rstrip=False) | hash('sha256')
         fail_msg: Retained-lock recovery source bindings differ.
       tags: always
 
