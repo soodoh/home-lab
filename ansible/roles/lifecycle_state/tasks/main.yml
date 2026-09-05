@@ -213,7 +213,7 @@
         monitored_paths = set(json.loads(sys.argv[2]))
         retained = sorted(path for path in retained_paths if os.path.lexists(path))
         completed = subprocess.run(
-            ["/usr/bin/lslocks", "--json", "--output", "PATH,PID,COMMAND"],
+            ["/usr/bin/lslocks", "--json", "--notruncate", "--output", "PATH,PID,COMMAND"],
             check=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -309,7 +309,10 @@
     lifecycle_state_sshd_matches: >-
       {{
         lifecycle_state_policy.current_mutation_owner != 'ansible' or
-        (lifecycle_state_sshd.pubkey_authentication == 'no' and lifecycle_state_sshd.permit_root_login == 'no')
+        (lifecycle_state_sshd.pubkey_authentication == 'no' and
+         lifecycle_state_sshd.password_authentication == 'no' and
+         lifecycle_state_sshd.kbd_interactive_authentication == 'no' and
+         lifecycle_state_sshd.permit_root_login == 'no')
       }}
     lifecycle_state_locks_match: >-
       {{ lifecycle_state_locks.active | length == 0 and lifecycle_state_locks.retained | length == 0 }}
@@ -333,7 +336,10 @@
       }}
     lifecycle_state_target_conventional_keys_match: "{{ lifecycle_state_authorized_key_files | length == 0 }}"
     lifecycle_state_target_sshd_matches: >-
-      {{ lifecycle_state_sshd.pubkey_authentication == 'no' and lifecycle_state_sshd.permit_root_login == 'no' }}
+      {{ lifecycle_state_sshd.pubkey_authentication == 'no' and
+         lifecycle_state_sshd.password_authentication == 'no' and
+         lifecycle_state_sshd.kbd_interactive_authentication == 'no' and
+         lifecycle_state_sshd.permit_root_login == 'no' }}
     lifecycle_state_target_legacy_marker_matches: >-
       {{ lifecycle_contract_host != 'debian' or not lifecycle_state_legacy_inert_marker_exists }}
 

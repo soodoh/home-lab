@@ -4,7 +4,9 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { load } = require("js-yaml");
+const { load, dump } = require("js-yaml");
+const os = require("node:os");
+const { spawnSync } = require("node:child_process");
 
 const root = path.resolve(__dirname, "../..");
 const readYaml = (relative) => load(fs.readFileSync(path.join(root, relative), "utf8"));
@@ -62,8 +64,43 @@ for (const required of ["status", "--json", "debug", "prefs", "RunSSH", "WantRun
 }
 
 const lockScript = task("Inspect lifecycle lock conflicts")["ansible.builtin.command"].argv[2];
-for (const required of ["lslocks", "--json", "os.path.lexists", "monitored_paths"]) {
+for (const required of ["lslocks", "--json", "--notruncate", "os.path.lexists", "monitored_paths"]) {
   assert(lockScript.includes(required), `lock observer omits ${required}`);
+}
+
+const invariants = task("Evaluate lifecycle invariants")["ansible.builtin.set_fact"];
+// Execute the actual role expressions, not a reimplementation of their policy.
+const disabled = Object.fromEntries(["pubkey_authentication", "password_authentication", "kbd_interactive_authentication", "permit_root_login"].map((field) => [field, "no"]));
+const authenticationCases = [{ sshd: disabled, expected: true }];
+for (const field of Object.keys(disabled)) {
+  for (const value of ["yes", null]) authenticationCases.push({ sshd: { ...disabled, [field]: value }, expected: false });
+}
+const fixtureDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "home-lab-lifecycle-auth-"));
+try {
+  const fixture = path.join(fixtureDirectory, "authentication.yml");
+  fs.writeFileSync(fixture, dump([{
+    name: "Test lifecycle authentication policy offline",
+    hosts: "localhost", gather_facts: false,
+    vars: { lifecycle_state_policy: { current_mutation_owner: "ansible" } },
+    tasks: ["lifecycle_state_sshd_matches", "lifecycle_state_target_sshd_matches"].map((name) => ({
+      name,
+      "ansible.builtin.assert": {
+        that: [`(${invariants[name].trim().slice(2, -2).replaceAll("lifecycle_state_sshd.", "item.sshd.")}) == item.expected`],
+      },
+      loop: authenticationCases,
+    })),
+  }]), { mode: 0o600 });
+  const result = spawnSync("ansible-playbook", ["-i", "localhost,", "-c", "local", "--check", fixture], {
+    cwd: root, encoding: "utf8", env: { ...process.env, ANSIBLE_CONFIG: path.join(root, "ansible/ansible.cfg") },
+  });
+  assert.equal(result.status, 0, `lifecycle authentication fixtures failed: ${result.error || ""}\n${result.stdout}\n${result.stderr}`);
+} finally {
+  fs.rmSync(fixtureDirectory, { recursive: true, force: true });
+}
+for (const name of ["lifecycle_state_sshd_matches", "lifecycle_state_target_sshd_matches"]) {
+  for (const field of ["pubkey_authentication", "password_authentication", "kbd_interactive_authentication", "permit_root_login"]) {
+    assert(invariants[name].includes(`lifecycle_state_sshd.${field} == 'no'`), `${name} must require disabled ${field}`);
+  }
 }
 
 const enforcement = task("Enforce lifecycle invariants when explicitly requested");
