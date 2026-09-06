@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3 -I
 """Guarded VM 100 VFIO group unbind/rebind recovery."""
 
 from __future__ import annotations
@@ -7,6 +7,7 @@ import argparse
 import fcntl
 import json
 import os
+import stat
 from dataclasses import dataclass
 from pathlib import Path
 import subprocess
@@ -14,6 +15,17 @@ import sys
 from typing import Callable, Protocol
 
 POLICY_PATH = Path("/etc/home-lab/vfio-recovery.json")
+OPERATION_LOCK = Path("/var/lib/home-lab/reconciliation/operation.lock")
+VFIO_LOCK = Path("/run/lock/home-lab-vfio-recovery.lock")
+RETAINED_OWNERS = (
+    Path("/var/lib/iac-ansible-production.lock"),
+    Path("/var/lib/home-lab/reconciliation/apply.lock"),
+    Path("/var/lib/home-lab/reconciliation/owner.lock"),
+    Path("/var/lib/home-lab/reconciliation/nix.lock"),
+    Path("/var/lib/home-lab/firewall-transaction/active.json"),
+)
+QM_PATH = Path("/usr/sbin/qm")
+NATIVE_ENV = {"LC_ALL": "C.UTF-8", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
 
 
 class RecoveryError(RuntimeError):
@@ -94,11 +106,122 @@ def require_integer(value: object, label: str) -> int:
     return value
 
 
-def load_policy(path: Path = POLICY_PATH) -> Policy:
+def fingerprint(info: os.stat_result) -> tuple[int, ...]:
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
+            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def parent_fd(path: Path) -> int:
+    """Walk canonical root-owned ancestry without following directory links."""
+    if not path.is_absolute() or ".." in path.parts:
+        raise RecoveryError("noncanonical fixed path")
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
-        document = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+        root = os.fstat(fd)
+        if root.st_uid != 0 or root.st_gid != 0 or root.st_mode & 0o022:
+            raise RecoveryError("unsafe root ancestor")
+        walked = Path("/")
+        for part in path.parts[1:-1]:
+            walked /= part
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            try:
+                info = os.fstat(child)
+                sticky_lock = walked == Path("/run/lock") and stat.S_IMODE(info.st_mode) == 0o1777
+                if info.st_uid != 0 or info.st_gid != 0 or (info.st_mode & 0o022 and not sticky_lock):
+                    raise RecoveryError("unsafe fixed-path ancestor")
+            except BaseException:
+                os.close(child)
+                raise
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+def recheck_named(path: Path, parent: int, info: os.stat_result) -> None:
+    current_parent = parent_fd(path)
+    try:
+        original, current = os.fstat(parent), os.fstat(current_parent)
+        if (original.st_dev, original.st_ino) != (current.st_dev, current.st_ino):
+            raise RecoveryError("fixed-path ancestor changed")
+        if fingerprint(info) != fingerprint(os.stat(path.name, dir_fd=current_parent, follow_symlinks=False)):
+            raise RecoveryError("fixed pathname changed")
+    finally:
+        os.close(current_parent)
+
+
+def open_fixed(path: Path, mode: int, writable: bool = False) -> int:
+    parent = parent_fd(path)
+    fd = None
+    try:
+        fd = os.open(path.name, (os.O_RDWR if writable else os.O_RDONLY) | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != mode:
+            raise RecoveryError("fixed file metadata differs")
+        if writable:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        recheck_named(path, parent, info)
+        return fd
+    except BaseException:
+        if fd is not None:
+            os.close(fd)
+        raise
+    finally:
+        os.close(parent)
+
+
+def reject_retained_owners() -> None:
+    # Presence only: never read, adopt, repair or release any owner's contents.
+    for path in RETAINED_OWNERS:
+        parent = parent_fd(path)
+        try:
+            try:
+                os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+            except FileNotFoundError:
+                current_parent = parent_fd(path)
+                try:
+                    before, after = os.fstat(parent), os.fstat(current_parent)
+                    if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+                        raise RecoveryError("retained-owner ancestor changed")
+                finally:
+                    os.close(current_parent)
+            else:
+                raise RecoveryError("conflicting lifecycle ownership is retained")
+        finally:
+            os.close(parent)
+
+
+def load_policy() -> Policy:
+    try:
+        fd = open_fixed(POLICY_PATH, 0o440)
+        try:
+            before = os.fstat(fd)
+            if before.st_size > 65536:
+                raise RecoveryError("VFIO recovery policy exceeds bound")
+            raw = b""
+            while len(raw) <= 65536:
+                chunk = os.read(fd, 65537 - len(raw))
+                if not chunk:
+                    break
+                raw += chunk
+            if len(raw) != before.st_size or fingerprint(before) != fingerprint(os.fstat(fd)):
+                raise RecoveryError("VFIO recovery policy changed")
+            parent = parent_fd(POLICY_PATH)
+            try:
+                recheck_named(POLICY_PATH, parent, before)
+            finally:
+                os.close(parent)
+        finally:
+            os.close(fd)
+        document = json.loads(raw)
+    except (OSError, ValueError) as error:
         raise RecoveryError(f"cannot load VFIO recovery policy: {error}") from error
+    return parse_policy(document)
+
+
+def parse_policy(document: object) -> Policy:
     if not isinstance(document, dict) or set(document) != {"confirmation", "devices", "iommuGroup", "lockPath", "vmid"}:
         raise RecoveryError("VFIO recovery policy has unexpected fields")
     raw_devices = document["devices"]
@@ -118,8 +241,8 @@ def load_policy(path: Path = POLICY_PATH) -> Policy:
         raise RecoveryError("VFIO recovery policy device BDFs must be unique")
     confirmation = require_string(document["confirmation"], "confirmation")
     lock_path = Path(require_string(document["lockPath"], "lock path"))
-    if not lock_path.is_absolute() or lock_path.parent != Path("/run/lock"):
-        raise RecoveryError("VFIO recovery lock must be directly below /run/lock")
+    if document["lockPath"] != str(VFIO_LOCK):
+        raise RecoveryError("VFIO recovery lock must match the exact contract path")
     return Policy(
         vmid=require_integer(document["vmid"], "VMID"),
         iommu_group=require_integer(document["iommuGroup"], "IOMMU group"),
@@ -130,13 +253,24 @@ def load_policy(path: Path = POLICY_PATH) -> Policy:
 
 
 def qm_status(vmid: int) -> str:
-    result = subprocess.run(
-        ["/usr/sbin/qm", "status", str(vmid)],
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=15,
-    )
+    try:
+        fd = open_fixed(QM_PATH, 0o755)
+        try:
+            before = os.fstat(fd)
+            result = subprocess.run(
+                [str(QM_PATH), "status", str(vmid)],
+                check=False, capture_output=True, text=True, timeout=15,
+                env=NATIVE_ENV, cwd="/", close_fds=True,
+            )
+            parent = parent_fd(QM_PATH)
+            try:
+                recheck_named(QM_PATH, parent, before)
+            finally:
+                os.close(parent)
+        finally:
+            os.close(fd)
+    except (OSError, subprocess.SubprocessError) as error:
+        raise RecoveryError(f"cannot execute fixed qm status: {error}") from error
     if result.returncode != 0:
         raise RecoveryError(f"qm status failed for VM {vmid}")
     prefix = "status: "
@@ -272,40 +406,45 @@ def perform_recovery(
     return after
 
 
-def locked_recovery(policy: Policy, confirmation: str) -> dict[str, object]:
-    policy.lock_path.parent.mkdir(parents=True, exist_ok=True)
-    vm_lock_path = Path("/run/lock/qemu-server") / f"lock-{policy.vmid}.conf"
-    if not vm_lock_path.parent.is_dir():
-        raise RecoveryError("the Proxmox QEMU lock directory is absent")
-    with policy.lock_path.open("a+", encoding="utf-8") as recovery_lock:
-        try:
-            fcntl.flock(recovery_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as error:
-            raise RecoveryError("another VFIO recovery operation holds the host lock") from error
-        with vm_lock_path.open("a+", encoding="utf-8") as vm_lock:
-            try:
-                fcntl.flock(vm_lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError as error:
-                raise RecoveryError(f"another Proxmox operation holds the VM {policy.vmid} lock") from error
-            return perform_recovery(policy, RealBackend(), confirmation)
+def locked_recovery(confirmation: str) -> dict[str, object]:
+    descriptors: list[int] = []
+    try:
+        descriptors.append(open_fixed(OPERATION_LOCK, 0o600, writable=True))
+        reject_retained_owners()
+        # Read only under operation serialization: a pre-lock policy/token must
+        # never authorize a replacement published by a cooperating writer.
+        policy = load_policy()
+        if confirmation != policy.confirmation:
+            raise RecoveryError("VFIO recovery confirmation does not match the exact policy token")
+        descriptors.append(open_fixed(VFIO_LOCK, 0o600, writable=True))
+        vm_lock = Path("/run/lock/qemu-server") / f"lock-{policy.vmid}.conf"
+        descriptors.append(open_fixed(vm_lock, 0o600, writable=True))
+        return perform_recovery(policy, RealBackend(), confirmation)
+    except OSError as error:
+        raise RecoveryError(f"VFIO coordination refused: {error}") from error
+    finally:
+        for fd in reversed(descriptors):
+            os.close(fd)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("observe", help="inspect exact recovery prerequisites without mutation")
+    subparsers.add_parser("observe", help="advisory read-only snapshot, not transaction readiness")
     recover_parser = subparsers.add_parser("recover", help="perform one guarded VFIO unbind/rebind cycle")
     recover_parser.add_argument("--confirm", required=True)
     args = parser.parse_args()
 
     if os.geteuid() != 0:
         raise RecoveryError("VFIO observation and recovery require root for complete process inspection")
-    policy = load_policy()
+    if not sys.flags.isolated or sys.executable != "/usr/bin/python3":
+        raise RecoveryError("fixed /usr/bin/python3 -I invocation required")
     if args.command == "observe":
-        result = inspect(policy, RealBackend())
+        result = inspect(load_policy(), RealBackend())
+        result["advisory"] = True
         print(json.dumps(result, sort_keys=True, separators=(",", ":")))
         return 0 if result["state"] == "ready" else 2
-    result = locked_recovery(policy, args.confirm)
+    result = locked_recovery(args.confirm)
     print(json.dumps(result, sort_keys=True, separators=(",", ":")))
     return 0
 

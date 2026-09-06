@@ -22,10 +22,12 @@ ROOT = Path(__file__).resolve().parents[2]
 OBSERVER = ROOT / 'infrastructure/host-lifecycle/proxmox/controller-observer-template.py'
 ACTIVATOR = ROOT / 'infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator'
 INSTALLER = ROOT / 'infrastructure/proxmox-access/host/proxmox-controller-capability-transaction.py'
+VFIO_PATH = ROOT / 'infrastructure/host-lifecycle/proxmox/vfio-recover.py'
 
 
 def module(source, name):
     result = types.ModuleType(name); result.__file__ = '/synthetic/' + name
+    sys.modules[name] = result  # Dataclass annotations in the self-contained VFIO participant.
     exec(compile(source, name, 'exec'), result.__dict__)
     return result
 
@@ -37,6 +39,8 @@ installer_source = INSTALLER.read_text()
 module(observer_source, "preload_observer")
 module(activator_source, "preload_activator")
 module(installer_source, "preload_installer")
+vfio_source = VFIO_PATH.read_text()
+module(vfio_source, "preload_vfio")
 
 
 def seed(path, raw=b'', mode=0o600):
@@ -267,7 +271,26 @@ class NativeProtocolTests(unittest.TestCase):
         activator.reboot_preconditions = lambda *a: None
         activator.reboot_health = lambda: None
         activator.os.uname = lambda: types.SimpleNamespace(release='fixture-kernel-after')
+        vfio = module(vfio_source, 'reboot_fixture_vfio')
+        seed(vfio.POLICY_PATH, json.dumps({
+            'vmid': 4242, 'iommuGroup': 77, 'confirmation': 'synthetic-reboot-recovery',
+            'lockPath': str(vfio.VFIO_LOCK),
+            'devices': [{'bdf': '0000:42:00.0', 'vendor': '1234', 'device': '5678'}],
+        }).encode(), 0o440)
+        seed('/run/lock/qemu-server/lock-4242.conf')
+        Path('/var/lib/home-lab/firewall-transaction').mkdir(parents=True, exist_ok=True)
+        self.reboot_vfio = vfio
         return observer, activator, expected
+
+    def assert_vfio_retained_refusal(self):
+        vfio = self.reboot_vfio
+        before = descriptor_set()
+        with patch.object(vfio, 'perform_recovery') as perform:
+            with self.assertRaisesRegex(vfio.RecoveryError, 'ownership is retained'):
+                vfio.locked_recovery('synthetic-reboot-recovery')
+            perform.assert_not_called()
+        self.assertEqual(descriptor_set(), before)
+        available(vfio.OPERATION_LOCK)
 
     @confined
     def test_reboot_lifetime_queue_barrier_and_committed_removal_retry(self):
@@ -284,22 +307,35 @@ class NativeProtocolTests(unittest.TestCase):
         activator.native = native
         self.assertEqual(activator.reboot_operation({}, digest, 'apply-reboot')['reboot_transaction'], 'initiated')
         self.assertEqual(events, ['stopping-workload', 'stopping-workload', 'rebooting'])
+        self.assert_vfio_retained_refusal()
         available(activator.OPERATION_LOCK)
         with self.assertRaises(ValueError): observer.acquire_locks()
         with self.assertRaises(ValueError): activator.boot_operation({}, 'b' * 64)
         with self.assertRaises(ValueError): activator.reboot_operation({}, digest, 'apply-reboot')
         seed('/proc/sys/kernel/random/boot_id', b'fixture-after\n', 0o444)
+        self.assert_vfio_retained_refusal()
+        victim = observer.LOCKS[-1]; original = victim.read_bytes(); victim.unlink()
+        with self.assertRaises(FileNotFoundError): activator.reboot_operation({}, digest, 'verify-reboot')
+        self.assertFalse(victim.exists()); self.assertTrue(activator.REBOOT_OWNER.exists())
+        self.assert_vfio_retained_refusal()
+        seed(victim, original)  # Fixture provisioning only, never participant repair.
         real_release = activator.release_reboot_owner
         activator.release_reboot_owner = lambda *a: (_ for _ in ()).throw(OSError('injected after durable commit'))
         with self.assertRaises(OSError): activator.reboot_operation({}, digest, 'verify-reboot')
         self.assertTrue(activator.REBOOT_OWNER.exists())
         journal = json.loads(activator.reboot_journal_path(digest).read_bytes())
         self.assertEqual(journal['status'], 'committed')
+        self.assert_vfio_retained_refusal()
         activator.release_reboot_owner = real_release
         health = []
         activator.reboot_health = lambda: health.append(True)
         activator.reboot_operation({}, digest, 'verify-reboot')
         self.assertEqual(health, [True]); self.assertFalse(activator.REBOOT_OWNER.exists())
+        # Exact release enables only a new explicit invocation, not a nested
+        # recovery from health/observer or an automatic postboot handoff.
+        with patch.object(self.reboot_vfio, 'perform_recovery', return_value={'synthetic': True}) as perform:
+            self.assertEqual(self.reboot_vfio.locked_recovery('synthetic-reboot-recovery'), {'synthetic': True})
+            perform.assert_called_once()
         self.assertTrue(activator.reboot_journal_path(digest).exists())
         held = observer.acquire_locks()
         for fd in held: os.close(fd)
@@ -312,6 +348,7 @@ class NativeProtocolTests(unittest.TestCase):
         with self.assertRaises(OSError): activator.reboot_operation({}, digest, 'apply-reboot')
         self.assertTrue(activator.REBOOT_OWNER.exists())
         self.assertEqual(json.loads(activator.reboot_journal_path(digest).read_bytes())['status'], 'stopping-workload')
+        self.assert_vfio_retained_refusal()
         for path in observer.LOCKS: available(path)
         with self.assertRaises(ValueError): observer.acquire_locks()
         # Neither foreign content nor an identical replacement inode is adopted.
@@ -455,12 +492,15 @@ class NativeProtocolTests(unittest.TestCase):
         with self.assertRaises(OSError): activator.reboot_operation({}, digest, 'apply-reboot')
         journal = json.loads(activator.reboot_journal_path(digest).read_bytes())
         self.assertEqual(journal['status'], 'rebooting')
+        self.assert_vfio_retained_refusal()
         available(activator.OPERATION_LOCK)
         with self.assertRaises(ValueError): activator.reboot_operation({}, digest, 'verify-reboot')
         seed('/proc/sys/kernel/random/boot_id', b'fixture-after\n', 0o444)
+        self.assert_vfio_retained_refusal()
         activator.reboot_health = lambda: (_ for _ in ()).throw(ValueError('failed postboot health'))
         with self.assertRaises(ValueError): activator.reboot_operation({}, digest, 'verify-reboot')
         self.assertTrue(activator.REBOOT_OWNER.exists())
+        self.assert_vfio_retained_refusal()
         with self.assertRaises(ValueError): observer.acquire_locks()
 
     @confined
@@ -506,6 +546,41 @@ class InstallerTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'VFIO queued-reboot'):
                     installer.transaction({'operation': operation})
             material.assert_not_called()
+
+    @confined
+    def test_transaction_health_and_observation_never_nest_recovery(self):
+        observer = NativeProtocolTests().setup_protocol()
+        installer = module(installer_source, 'no_nested_vfio_installer')
+        # Native commands are a closed synthetic allowlist: no recovery,
+        # locking observer wrapper, VM start, or mutation can pass unnoticed.
+        source = (activator_source.replace('"100"', '"4242"').replace('"storage"', '"synthetic-pool"') +
+                  '\ntry:\n    main()\nexcept Exception:\n    pass\n').encode()
+        calls = []
+        def native(argv, **kwargs):
+            calls.append(tuple(argv))
+            self.assertTrue(locked(observer.LOCKS[0]))
+            self.assertTrue(installer.OWNER.is_dir())
+            if tuple(argv) == (str(installer.BASE / 'proxmox-observer'), 'observe'):
+                return types.SimpleNamespace(returncode=0, stdout=b'{}\n', stderr=b'')
+            if tuple(argv) == ('/usr/sbin/zpool', 'status', '-x', 'synthetic-pool'): out = 'pool is healthy'
+            elif tuple(argv) == ('/usr/sbin/qm', 'status', '4242'): out = 'status: running'
+            elif tuple(argv) == ('/usr/sbin/qm', 'config', '4242'): out = 'onboot: 1'
+            elif tuple(argv) == ('/usr/bin/systemctl', 'is-system-running'): out = 'running'
+            elif tuple(argv[:2]) == ('/usr/bin/systemctl', 'is-active'): out = '\n'.join(['active'] * (len(argv) - 2))
+            elif tuple(argv) == ('/usr/bin/dpkg', '--audit'): out = ''
+            elif tuple(argv) == ('/usr/bin/apt-get', '--simulate', '--option', 'Debug::NoLocking=1', '--option', 'APT::Get::Show-Upgraded=true', 'dist-upgrade'): out = ''
+            else: raise AssertionError('unexpected nested/native command: ' + repr(argv))
+            return types.SimpleNamespace(returncode=0, stdout=out, stderr='')
+        held = observer.acquire_locks()
+        try:
+            installer.OWNER.mkdir()
+            with patch.object(installer.subprocess, 'run', side_effect=native):
+                installer.health({installer.BASE / 'proxmox-ansible-deploy-activator': source})
+                self.assertEqual(installer.observation(), {})
+        finally:
+            for fd in held: os.close(fd)
+        self.assertEqual(len(calls), 8)
+        self.assertTrue(installer.OWNER.is_dir())
 
     @confined
     def test_install_and_rollback_failure_ownership(self):

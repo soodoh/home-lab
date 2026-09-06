@@ -5,24 +5,56 @@ qualification, package, reboot, recovery or deployment approval.
 
 ## Hard admission blockers
 
-New capability planning/installation and new reboot application are explicitly
-blocked in code: the current VFIO recovery implementation has no qualified
-queued-reboot ownership protocol. There is no override, marker, age/PID cleanup
-or source-hash-only exemption. `verify-reboot` and exact retained capability
-rollback/commit are not behind this new-operation gate.
+New capability planning/installation and new reboot application remain explicitly
+and unconditionally blocked in code. The active VFIO helper now has the reviewed
+**offline source** coordination migration; installed queued-reboot exclusion and
+its dependency closure are still unqualified. There is no override, marker,
+age/PID cleanup or source-hash-only exemption. `verify-reboot` and exact retained
+capability rollback/commit are not behind this new-operation gate.
 
-A future separately reviewed change must migrate the VFIO writer to the shared
-operation descriptor plus retained ownership protocol, prove ordinary and
-recovery paths cannot bypass/remove foreign records, and bind its installed
-executable **and dependencies** to reviewed source. Holding its descriptor only
-until `systemctl reboot` returns does not exclude it during the queued interval.
-The installer must not simply recognize the old source hash as qualification.
+The self-contained VFIO participant acquires the operation descriptor first,
+blanket-rejects retained iac/apply/historical owner/nix/firewall records, then
+acquires VFIO and native QEMU descriptors in that order. Any retained shape,
+including dangling links, FIFO and empty directories, refuses regardless of
+boot ID, matching token or hash. It never reads, adopts or removes owner contents.
+All mutexes must preexist as root:root single-link regular files, mode 0600, with
+no-follow validated ancestry and named-inode rechecks. It creates or repairs none.
+Inspection, mutation, same-invocation compensation and postconditions retain all
+three descriptors; every partial acquisition closes on failure.
+
+The fixed root:root policy (contract mode 0440) is read under operation protection,
+not before locking, and must name the exact contract VFIO mutex. Confirmation is
+checked against that protected policy without reinterpreting an earlier token.
+The helper requires `/usr/bin/python3 -I`, invokes only absolute `/usr/sbin/qm`
+with a bounded explicit environment, and refuses unsafe/missing dependencies.
+Installed interpreter/import, native executable/Perl/PVE/library package integrity
+and compatibility remain separate qualification, not established by these checks.
+`observe` remains a lock-free, read-only **advisory** snapshot, never transaction
+readiness. Recovery remains an explicitly confirmed stopped-VM unbind/rebind of
+the exact already-vfio-bound group, not a boot-binding initializer.
+
+The inspected source graph has **no normal startup call** to VFIO recovery and
+no nested recovery call from deploy, transaction health or observation. Declarative
+module/initramfs binding and native VM startup are distinct from recovery. Installed
+callers, hooks, startup overrides and dependency closure remain **UNOBSERVED**.
+If installed startup requires this recovery CLI, stop for a separate authority
+review; no postboot token handoff, owner exception, journal, retry, automatic
+recovery or boot service is authorized here.
+
+Holding descriptors only until `systemctl reboot` returns does not exclude a
+writer during the queued interval: the blanket retained-owner check supplies that
+source barrier. The installer must not recognize a helper hash as qualification.
+Helper **and policy** installation, interpreter/import/native closure qualification,
+and safe preexisting/boot-time mutex provisioning are separate future work. The
+capability install target set still excludes helper/policy; no installer, retained
+Nix writer, contract, transport, sudo, boot unit or admission gate is changed.
 
 Both maintenance observation consumers now recognize `reconciliation/apply.lock`
 as retained ownership, including descriptor-free regular, symlink and FIFO cases.
 These are source fixtures, not installed coordination qualification. The controller's
 string-presence check is only an early missing-integration rejection. The unconditional
-VFIO gate remains until real reviewed protocol work replaces it.
+VFIO gate remains despite offline source completion; installed qualification and
+separately reviewed admission work are still required.
 
 Target topology has not been observed. Every mutex must already exist with safe
 metadata and remain/reappear at boot through separately approved provisioning.
@@ -74,7 +106,7 @@ authority to relax the root-owned PVE descriptor protocol.
 | Ansible apply_lock | operation before checking apply.lock and publishing iac owner directory |
 | PVE firewall | operation before apply.lock/iac owner checks |
 | Retained Nix activator | operation, legacy exact apply.lock shape; rejects new reboot record in ordinary, initializing and terminal/recovery paths |
-| VFIO recovery | VFIO/QEMU descriptors only; **unqualified across queued reboot**, hard-blocks admission |
+| VFIO recovery | operation → blanket retained-owner rejection → VFIO → QEMU; offline source only, installed queued-reboot exclusion still unqualified |
 | Legacy package/inert plan installers | apply entrypoints disabled; cannot overwrite incomplete sudo or bypass serialization |
 | Maintenance/package observation consumers | retained apply.lock source integration; installed behavior still unqualified |
 
@@ -210,9 +242,50 @@ pull, package install, launchd installation or public operation was used for the
 repairs. The isolated writer lacked the retained AWS proof and did not run or waive
 full validation. The parent checkout has legitimate retained proof and passed full
 Nix-free validation after integration. Source checks include 12 controller cases,
-20 confined native protocol cases and 14 confined reporting capability cases;
+21 confined native protocol cases and 14 confined reporting capability cases;
 attestation, console, native commands and host prerequisites are fixture substitutes.
 These are not target/live acceptance. The durability lane passed independent review.
 Fresh review of `eb35c42` also found no issues in the combined admission/source-binding/
 cleanup/reporting changes and approved bounded source integration. All operational
 gates and setup/qualification gaps remain unchanged.
+
+
+### VFIO migration evidence boundary
+
+The VFIO suite retains the six original recovery semantics tests and adds real
+`main`/`locked_recovery` hostile entry fixtures: zero backend writes on refusal,
+all three missing/busy/unsafe/replaced mutexes, ancestry attacks, descriptor cleanup,
+every retained barrier shape and inspection errors, protected policy replacement,
+fixed dependency/environment checks, and compensation under every descriptor.
+Real children exercise operation contention in both orders with observer/deploy,
+including descriptor-free iac/apply publication. Dormant reboot fixtures additionally
+prove exclusion before/after synthetic boot and failed verification/terminal release;
+only successful exact owner release permits a later explicit recovery invocation.
+Unconditional controller, streamed host and reboot gates remain independently tested.
+The neutral artifact test binds active VFIO bytes into projection/observation hashes
+and checks retained CLI/policy compatibility; unrelated asset parity remains intact.
+
+The source-only confined Linux rerun passed all 15 VFIO, 21 protocol and 14
+maintenance capability tests with no skips. macOS runs skip the Linux/root cases;
+they are not substituted for native evidence. Focused projection/artifact, complete
+17-domain audit, neutral controller, 12 controller-capability, seven controller-
+observer and deploy/reboot regressions also pass.
+
+Confined native checks substitute synthetic policy, VM 4242/group 77/device identity,
+backend and native commands. The cached image has `/usr/local/bin/python3`, not the
+fixed target `/usr/bin/python3`; main-entry fixtures substitute interpreter identity,
+not installed execution qualification. No target, device, real proc/sys write,
+package, reboot, VM or deployment operation is part of these tests. Existing dormant
+reboot command fixtures remain substitutes. The parent passed full Nix-free validation
+after exact patch integration, using legitimate retained AWS evidence unavailable in
+the writer worktree. No prerequisite or operational gate is waived.
+
+An earlier recursive test archive accidentally included one local source-derived
+`.pyc`; that packaging deviation is retained and those runs are superseded, not counted.
+The parent verified all nine regular source files against candidate `2594ed4`, then
+reproduced the 15/21/14 passes from the hash-checked archive in fresh empty tmpfs,
+with cache scans before/after. Interpreter/backend substitutions remain explicit.
+The original workflow failed on unsupported `acceptanceReport.nativeEvidence`; its
+failure was not rewritten as approval. After artifact recovery, a separate independent
+review of `2594ed4` found no issues and approved bounded offline source integration.
+Installed qualification, gate removal and live operations remain unauthorized.
