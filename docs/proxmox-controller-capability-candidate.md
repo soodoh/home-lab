@@ -3,6 +3,87 @@
 ADR 0001 remains authoritative. This document is **not** installation, collection,
 qualification, package, reboot, recovery or deployment approval.
 
+## Offline legacy transition classifier (synthetic only)
+
+`scripts/controller/legacy-transition-classifier.py` implements only the pure
+`classify(value)` function over in-memory synthetic assertions. It has no CLI,
+imports, host reads, clock/environment/network/subprocess access, helper execution,
+collector, receipt issuance, dispatcher, publication or recovery operation.
+ADR 0001 and the direct contract remain authoritative; no v1 format, consumer,
+validator, installed helper or operational gate changes accompany this slice.
+
+The distinct input format is `synthetic-only-legacy-transition-assertions-v0`.
+The output format is `synthetic-only-legacy-transition-classification-v0`, with
+only `well-formed-for-further-qualification` or `refused` status and fixed refusal
+codes. **Every result permanently has `authorized:false`,
+`admission_eligible:false` and all eight qualification blockers**, even for a
+fabricated complete consistent assertion set. It establishes no readiness,
+recovery success, present health or authenticity of terminal evidence.
+
+The closed grammar models nine required legacy public roles: five replacement/
+no-op roles (ordinary observer, package observer, plan transport, deploy activator,
+ansible-plan sudo) and four preserved roles (private-preparer, firewall helper,
+firewall transport, firewall sudo). Protected collector and controller observer
+are two additional, separately declared-absent before/new-output roles, never
+aliases or missing-prerequisite repairs. Exact fixed paths and unique role/object
+references are checked; preserved/no-op identities cannot change. Replacement
+restoration uses original content references but a distinct restoration object
+reference, not a fictitiously restored original inode.
+
+The top-level fields are exactly `format`, `original`, `recovery`, `current`.
+`original` is an **asserted frozen checkpoint**, not an original admission receipt
+or a durable journal: reference, owner_ref, state, generation, terminal_audit_ref,
+and eleven role rows (`role`, `path`, `change`, `before`, `candidate`,
+`restored_before`). Each present object has only `content_ref` and `object_ref`;
+absence is null. `current` binds original_ref, owner_ref, state, generation,
+terminal_audit_ref and role/path/object rows. `recovery` has a distinct reference,
+original_ref, start_state, start_generation and one action. All references use
+bounded `synthetic:` labels, not real hashes or measured installed identities.
+Equality is consistency inside one call only: coherently rewriting all assertions
+cannot be detected or authenticated, and cannot remove any blocker.
+
+| Asserted checkpoint | Required current role profile | Sole action shape |
+| --- | --- | --- |
+| prepared | before | rollback-exact |
+| candidate | candidate | rollback-exact |
+| rollback-restored | restored-before | rollback-exact |
+| committed | candidate | cleanup-committed |
+| rolled-back | restored-before | cleanup-rolled-back |
+
+`rollback-restored` describes only the fully restored preterminal shape, not an
+interrupted publication algorithm. Mixed/installing/failed, ambiguous/foreign
+ownership, detached/fully-cleaned and unknown states are unsupported and refuse;
+no journal is inferred. State and positive integer generation must match exactly
+across all three assertions. Terminal cleanup requires the unchanged original
+terminal-audit reference; it neither invents a missing audit nor reruns rollback,
+restamps history or asserts fresh health. Forward apply/commit/resume, wrong
+terminal cleanup, committed rollback, automatic retry/receipt renewal and unknown
+fields (including trust-me booleans) refuse.
+
+Only built-in JSON-shaped values are accepted: depth at most 12, 4096 visited
+nodes including keys, 32 entries per container, 256 printable ASCII characters
+per string; references are at most 80 characters and generations 1..2147483647
+with bool-as-int rejected. No parsing or normalization of access, measurement or
+receipt v1 occurs. Real complete audit/support coverage, original/recovery
+authority, origin/host/console/runtime, evidence-specific freshness, independently
+approved compatible source/profiles, asynchronous-writer coordination, durable
+crash/publication ownership and authentic original terminal audit all remain
+independent permanent blockers, not caller-supplied evidence predicates.
+
+The focused synthetic suite is registered as
+`env -i PATH="$PATH" python3 -I -B -S scripts/controller/test-legacy-transition-classifier.py`.
+The security regression executes that exact registered entry under synthetic
+Python/SSH contamination. Tests load only the exact adjacent classifier source,
+cover causal one-fault refusals, deterministic nonmutation, runtime-I/O tripwires
+and three in-memory mutations of role, terminal-action and permanent-blocker
+guards. These are offline grammar tests, not native/host/process qualification.
+Independent source review of frozen candidate
+`11c8a042cf150aebf460f38fd0da894104fc6281` found no issues and approved only
+bounded offline integration. Parent verified exact source/patch provenance and
+reran all 13 focused tests, 18 security regressions and full Nix-free repository
+validation. The classifier never reads private evidence; the broader parent
+validation uses separately retained evidence and establishes no live acceptance.
+
 ## Hard admission blockers
 
 New capability planning/installation and new reboot application remain explicitly

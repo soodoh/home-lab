@@ -15,6 +15,8 @@ import unittest
 REPOSITORY = Path(__file__).resolve().parents[2]
 CONSOLE_SUITE = "scripts/controller/test-proxmox-predecessor-console-evidence.py"
 CONSOLE_INVOCATION = f'  env -i PATH="$PATH" python3 -I -B -S {CONSOLE_SUITE}'
+CLASSIFIER_SUITE = "scripts/controller/test-legacy-transition-classifier.py"
+CLASSIFIER_INVOCATION = f'  env -i PATH="$PATH" python3 -I -B -S {CLASSIFIER_SUITE}'
 
 
 class ReconcileSecurityTests(unittest.TestCase):
@@ -53,6 +55,7 @@ class ReconcileSecurityTests(unittest.TestCase):
                 )
         self.assertEqual(validation_lines.count(CONSOLE_INVOCATION), 1)
         self.assertNotIn(f"  python3 {CONSOLE_SUITE}", validation_lines)
+        self.assertEqual(validation_lines.count(CLASSIFIER_INVOCATION), 1)
         for suite in ("test-maintenance-report.js", "test-maintenance-local-inputs.js", "test-maintenance-publish.js"):
             with self.subTest(suite=suite):
                 self.assertEqual(validation_lines.count(f"  node scripts/controller/{suite}"), 1)
@@ -79,6 +82,22 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertIn("\nOK", result.stderr)
         if os.uname().sysname == "Linux" and os.geteuid() == 0:
             self.assertNotIn("skipped", result.stderr)
+
+    def test_classifier_registered_synthetic_suite(self) -> None:
+        lines = [line for line in self.reconciler.splitlines()
+                 if line.strip().endswith(CLASSIFIER_SUITE)]
+        self.assertEqual(lines, [CLASSIFIER_INVOCATION])
+        # Run the real extracted entry only, not reconcile validate or any helper.
+        result = subprocess.run(
+            ["/bin/sh", "-ec", lines[0]], cwd=REPOSITORY,
+            env={"PATH": os.environ.get("PATH", os.defpath),
+                 "PYTHONPATH": "/synthetic-untrusted", "PYTHONHOME": "/synthetic-untrusted",
+                 "PYTHONDONTWRITEBYTECODE": "1", "SSH_CONNECTION": "synthetic-session"},
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("\nOK", result.stderr)
+        self.assertNotIn("skipped", result.stderr)
 
     def test_oauth_secret_is_supplied_through_protected_request_file(self) -> None:
         self.assertNotIn('-d "client_secret=$TAILSCALE_OAUTH_CLIENT_SECRET"', self.reconciler)
