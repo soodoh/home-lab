@@ -17,3 +17,5 @@ At the 2026-09-03 qualification observation:
 - Proxmox VE 9 was maintained; current `pve-manager` was 9.2.11 and latest release line was 9.2. The source did not publish an EOL date, so the report correctly returned warning `proxmox-eol-unknown` rather than inferring a date.
 
 The live report had no blockers and made no production connection or mutation.
+
+For the bounded existing-Mac collector, stale/missing dashboard aggregation and separately authenticated offline issue planner, see [Mac maintenance collection](mac-maintenance-collection.md). GitHub release artifacts are not trusted host evidence and are never automatically promoted to that publisher. Signing, token setup and actual publication remain explicit gates.

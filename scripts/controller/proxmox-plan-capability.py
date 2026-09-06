@@ -108,6 +108,7 @@ def save(plan: dict) -> tuple[Path, str]:
 
 
 def apply(path: Path) -> None:
+    raise SystemExit("legacy installer disabled: use reviewed proxmox-controller-observer-capability transaction; shared mutex and retained-owner migration required")
     info = path.lstat()
     if not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600 or info.st_uid != os.getuid() or info.st_nlink != 1:
         raise SystemExit("plan capability artifact metadata differs")

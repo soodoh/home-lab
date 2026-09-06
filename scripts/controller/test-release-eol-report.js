@@ -7,7 +7,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const Ajv2020 = require("ajv/dist/2020");
 const { load } = require("js-yaml");
-const { buildReport, canonicalJson } = require("./release-eol-report");
+const { buildReport, canonicalJson, sourceBindings } = require("./release-eol-report");
 
 const root = path.resolve(__dirname, "../..");
 const read = (relative) => fs.readFileSync(path.join(root, relative));
@@ -19,8 +19,12 @@ const rawSources = {
 };
 const sources = { debian: { raw: rawSources.debian }, proxmox: { raw: rawSources.proxmox } };
 const observedAt = "2026-09-03T08:00:00Z";
-const report = buildReport(contract, packageManifest, sources, observedAt);
-assert.equal(report.format, "home-lab-release-eol-report-v1");
+const bindings = sourceBindings(read("infrastructure/contract/home-lab.yml"), read(contract.proxmox.packages.manifest.path));
+const report = buildReport(contract, packageManifest, sources, observedAt, bindings);
+assert.equal(report.format, "home-lab-release-eol-report-v2");
+for (const [key, value] of Object.entries(bindings)) assert.equal(report[key], value);
+assert.throws(() => buildReport(contract, packageManifest, sources, observedAt), /binding/);
+assert.throws(() => buildReport(contract, packageManifest, sources, observedAt, {...bindings, package_manifest_sha256: "0".repeat(64)}), /binding/);
 assert.equal(report.automatic_apply, false);
 assert.equal(report.status, "warning");
 assert.deepEqual(report.blockers, []);
@@ -44,20 +48,20 @@ function changedSource(host, mutate) {
   return { raw: Buffer.from(JSON.stringify(value)) };
 }
 const stale = { ...sources, debian: changedSource("debian", (value) => { value.generated_at = "2026-08-01T00:00:00+00:00"; }) };
-assert.throws(() => buildReport(contract, packageManifest, stale, observedAt), /stale/);
+assert.throws(() => buildReport(contract, packageManifest, stale, observedAt, bindings), /stale/);
 const future = { ...sources, proxmox: changedSource("proxmox", (value) => { value.generated_at = "2026-09-04T00:00:00+00:00"; }) };
-assert.throws(() => buildReport(contract, packageManifest, future, observedAt), /future/);
+assert.throws(() => buildReport(contract, packageManifest, future, observedAt, bindings), /future/);
 const wrongProduct = { ...sources, proxmox: changedSource("proxmox", (value) => { value.result.name = "debian"; }) };
-assert.throws(() => buildReport(contract, packageManifest, wrongProduct, observedAt), /envelope/);
+assert.throws(() => buildReport(contract, packageManifest, wrongProduct, observedAt, bindings), /envelope/);
 const missingCycle = { ...sources, debian: changedSource("debian", (value) => { value.result.releases[0].name = "12"; }) };
-assert.equal(buildReport(contract, packageManifest, missingCycle, observedAt).status, "blocking");
+assert.equal(buildReport(contract, packageManifest, missingCycle, observedAt, bindings).status, "blocking");
 const unmaintained = { ...sources, debian: changedSource("debian", (value) => { value.result.releases[0].isMaintained = false; value.result.releases[0].isEol = true; }) };
-assert(buildReport(contract, packageManifest, unmaintained, observedAt).blockers.includes("debian-release-unmaintained"));
+assert(buildReport(contract, packageManifest, unmaintained, observedAt, bindings).blockers.includes("debian-release-unmaintained"));
 const unknownRequiredEol = { ...sources, debian: changedSource("debian", (value) => { value.result.releases[0].eolFrom = null; }) };
-assert(buildReport(contract, packageManifest, unknownRequiredEol, observedAt).blockers.includes("debian-eol-unknown"));
+assert(buildReport(contract, packageManifest, unknownRequiredEol, observedAt, bindings).blockers.includes("debian-eol-unknown"));
 const behindContract = structuredClone(contract);
 behindContract.debian.point_release = "13.5";
-assert(buildReport(behindContract, packageManifest, sources, observedAt).warnings.includes("debian-point-release-behind"));
+assert(buildReport(behindContract, packageManifest, sources, observedAt, bindings).warnings.includes("debian-point-release-behind"));
 
 const cli = spawnSync(path.join(root, "scripts/controller/release-eol-report.js"), [
   "--debian-json", path.join(root, "infrastructure/maintenance/fixtures/endoflife-debian.json"),
@@ -70,7 +74,8 @@ const source = read("scripts/controller/release-eol-report.js").toString("utf8")
 for (const required of ["automatic_apply: false", "endoflife.date", "maxResponseBytes", "source timed out", "status === \"blocking\""]) {
   assert(source.includes(required), `release report omits ${required}`);
 }
-for (const forbidden of ["child_process", "execSync", "spawnSync", "shell: true", "ansible-deploy", "tofu-apply"]) {
+assert(source.includes('"core.fsmonitor=false"') && source.includes('"--no-optional-locks"'));
+for (const forbidden of ["execSync", "spawnSync", "shell: true", "ansible-deploy", "tofu-apply"]) {
   assert(!source.includes(forbidden), `release report contains mutation or shell surface ${forbidden}`);
 }
 

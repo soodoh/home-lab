@@ -6,6 +6,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 
+const { verifyRecord, readRegular } = require("./proxmox-check-evidence");
+
 const expectedRoots = ["aws-foundation", "omada", "proxmox", "tailscale"];
 
 function sha256(body) {
@@ -20,8 +22,10 @@ function buildAttestation(manifestBody, commit, createdAt) {
   if (manifest.phase !== "steady" || manifest.stage !== "converge") {
     throw new Error("plan manifest is not a steady converge plan");
   }
-  if (manifest.proxmox_host_plan?.actions !== 0 || manifest.proxmox_host_plan?.status !== "ready") {
-    throw new Error("Proxmox host plan is not zero-action ready");
+  if (manifest.version !== 6 || Object.hasOwn(manifest, "proxmox_host_plan") ||
+      !/^[0-9a-f]{64}$/.test(manifest.proxmox_host_check?.sha256 || "") ||
+      manifest.proxmox_host_check?.file !== `.reconcile/plans/${manifest.proxmox_host_check.sha256}.check.json`) {
+    throw new Error("neutral Proxmox check binding required");
   }
   const roots = manifest.plans.map((plan) => ({ root: plan.root, changed: plan.changed, sha256: plan.sha256 })).sort((left, right) => left.root.localeCompare(right.root));
   if (JSON.stringify(roots.map((plan) => plan.root)) !== JSON.stringify(expectedRoots)) {
@@ -34,13 +38,14 @@ function buildAttestation(manifestBody, commit, createdAt) {
     throw new Error("an OpenTofu plan digest is invalid");
   }
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     commit,
     createdAt,
     phase: "steady",
     stage: "converge",
     manifestSha256: sha256(manifestBody),
-    proxmoxHostActions: 0,
+    proxmoxHostCheckSha256: manifest.proxmox_host_check.sha256,
+    proxmoxHostScope: "audit",
     allActionsZero: true,
     roots,
   };
@@ -57,15 +62,15 @@ function validatePlanArtifacts(manifest, manifestPath, nowMs = Date.now()) {
   const maximumAgeMs = 60 * 60 * 1000;
   const minimumAgeMs = -5 * 60 * 1000;
   const assertFreshRegularFile = (target, label) => {
-    const metadata = fs.statSync(target);
-    if (!metadata.isFile()) {
+    const metadata = fs.lstatSync(target);
+    if (!metadata.isFile() || metadata.nlink !== 1) {
       throw new Error(`${label} is not a regular file`);
     }
     const ageMs = nowMs - metadata.mtimeMs;
     if (ageMs < minimumAgeMs || ageMs > maximumAgeMs) {
       throw new Error(`${label} is not fresh`);
     }
-    return fs.readFileSync(target);
+    return readRegular(target, 256 * 1024 * 1024, true);
   };
   assertFreshRegularFile(manifestPath, "plan manifest");
   for (const plan of manifest.plans) {
@@ -78,19 +83,9 @@ function validatePlanArtifacts(manifest, manifestPath, nowMs = Date.now()) {
       throw new Error(`plan digest differs: ${plan.root}`);
     }
   }
-  const hostTarget = path.resolve(repositoryRoot, manifest.proxmox_host_plan.file);
-  const reconcileRoot = path.join(repositoryRoot, ".reconcile");
-  if (!hostTarget.startsWith(`${reconcileRoot}${path.sep}`)) {
-    throw new Error("Proxmox host plan path escapes .reconcile");
-  }
-  const hostBody = assertFreshRegularFile(hostTarget, "Proxmox host plan");
-  if (sha256(hostBody) !== manifest.proxmox_host_plan.file_sha256) {
-    throw new Error("Proxmox host plan file digest differs");
-  }
-  const hostPlan = JSON.parse(hostBody.toString("utf8"));
-  if (hostPlan.status !== "ready" || !Array.isArray(hostPlan.actions) || hostPlan.actions.length !== 0 || hostPlan.planSha256 !== manifest.proxmox_host_plan.plan_sha256) {
-    throw new Error("Proxmox host plan content is not zero-action ready");
-  }
+  if (repositoryRoot !== path.resolve(__dirname, "../..")) throw new Error("attestation repository differs");
+  verifyRecord(manifest.proxmox_host_check, manifest.commit, nowMs);
+
 }
 
 function main(argv) {

@@ -26,7 +26,7 @@ INVENTORY = ROOT / "ansible/inventory/production.yml"
 ROLE = ROOT / "ansible/roles/package_lifecycle/tasks/main.yml"
 CONSUMER_ROLE = ROOT / "ansible/roles/package_lifecycle/defaults/main.yml"
 PLAYBOOK = ROOT / "ansible/playbooks/packages-plan.yml"
-MANIFEST = ROOT / "nix/proxmox/package-manifest.json"
+MANIFEST = ROOT / "infrastructure/host-lifecycle/proxmox/package-manifest.json"
 
 
 def canonical(value: object) -> bytes:

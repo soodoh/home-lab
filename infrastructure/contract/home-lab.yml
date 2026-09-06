@@ -743,7 +743,7 @@ proxmox:
             owner: root
             group: root
             mode: "0440"
-          rule: "ansible-plan ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-observer observe, /usr/local/libexec/home-lab/proxmox-package-candidate-observer observe proxmox"
+          rule: "ansible-plan ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-observer observe, /usr/local/libexec/home-lab/proxmox-package-candidate-observer observe proxmox, /usr/local/libexec/home-lab/proxmox-controller-observer observe"
       - name: ansible-deploy
         home: /home/ansible-deploy
         shell: /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport
@@ -1112,7 +1112,7 @@ proxmox:
         name: proxmox-firewall
         version: 1.2.3
     manifest:
-      path: nix/proxmox/package-manifest.json
+      path: infrastructure/host-lifecycle/proxmox/package-manifest.json
       sha256: e772a1cf30083f86dc36ebf8209efdcbaf8a61f44156eb7e883827cf0c49a235
     prohibited:
       - build-essential

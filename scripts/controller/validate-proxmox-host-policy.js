@@ -167,7 +167,7 @@ function validateProxmoxHostPolicy(contract) {
   const ansiblePlanAccount = serviceAccounts.find((account) => account.name === "ansible-plan");
   if (ansiblePlanAccount && (ansiblePlanAccount.groups.length || ansiblePlanAccount.sudo?.state !== "present" ||
       ansiblePlanAccount.sudo?.file?.path !== "/etc/sudoers.d/ansible-plan" ||
-      ansiblePlanAccount.sudo?.rule !== `ansible-plan ALL=(root) NOPASSWD: ${observerCommand}, ${packageObserverCommand}` ||
+      ansiblePlanAccount.sudo?.rule !== `ansible-plan ALL=(root) NOPASSWD: ${observerCommand}, ${packageObserverCommand}, /usr/local/libexec/home-lab/proxmox-controller-observer observe` ||
       ansiblePlanAccount.authorized_keys?.state !== "absent")) {
     failures.push("ansible-plan must expose only the fixed Tailscale observer transport");
   }

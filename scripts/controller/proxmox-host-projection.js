@@ -138,7 +138,7 @@ function projectProxmoxPolicy(contract, packageManifest) {
     lockPath: vfioRecovery.lock_path,
     vmid: proxmox.vm.vmid,
   });
-  const vfioRecoveryScript = fs.readFileSync(path.join(root, "nix/proxmox/vfio-recover.py"), "utf8");
+  const vfioRecoveryScript = fs.readFileSync(path.join(root, "infrastructure/host-lifecycle/proxmox/vfio-recover.py"), "utf8");
   const managedFiles = [
     managedFile(network.ownership.interfaces_file, networkContent),
     managedFile(proxmox.vfio.modules_load_file, `${proxmox.vfio.modules.join("\n")}\n`),
@@ -472,23 +472,23 @@ function main() {
   }
   const targets = {
     proxmox: {
-      output: "nix/proxmox/projection.json",
-      schema: "nix/proxmox/projection.schema.json",
+      output: null,
+      schema: "infrastructure/host-lifecycle/proxmox/projection.schema.json",
       project: (contract) => projectProxmoxPolicy(contract, JSON.parse(fs.readFileSync(path.join(root, contract.proxmox.packages.manifest.path), "utf8"))),
     },
   };
   const selected = targets[target];
   if (!selected) throw new Error(`unknown projection target: ${target}`);
-  output ??= path.join(root, selected.output);
+  if (!check && !output) throw new Error("explicit --output required; execution projection is not a second authority");
   const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/home-lab.yml"), "utf8"));
   const schema = JSON.parse(fs.readFileSync(path.join(root, selected.schema), "utf8"));
   const rendered = canonicalJson(selected.project(contract));
   validateProjection(JSON.parse(rendered), schema);
-  if (check) {
+  if (check && output) {
     if (!fs.existsSync(output) || fs.readFileSync(output, "utf8") !== rendered) {
       throw new Error(`${path.relative(root, output)} is stale; regenerate it with scripts/controller/proxmox-host-projection.js --target ${target}`);
     }
-  } else {
+  } else if (!check) {
     fs.mkdirSync(path.dirname(output), { recursive: true });
     fs.writeFileSync(output, rendered);
   }

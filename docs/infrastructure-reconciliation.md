@@ -1,24 +1,24 @@
 # Infrastructure reconciliation
 
-[`infrastructure/contract/home-lab.yml`](../infrastructure/contract/home-lab.yml) is the desired-state boundary. OpenTofu owns infrastructure resources, controller-side Nix owns the Proxmox host, Ansible owns the Debian Docker host, and Compose owns applications.
+[`infrastructure/contract/home-lab.yml`](../infrastructure/contract/home-lab.yml) is the desired-state boundary. OpenTofu owns infrastructure resources, Ansible owns the declared Proxmox and Debian host lifecycle, and Compose owns applications. The neutral controller's host capability migration and live acceptance remain gated; see [the local controller guide](local-controller.md).
 
 ## Steady reconciliation
 
 Run from the repository root:
 
 ```bash
-scripts/local-controller plan steady
-scripts/local-controller apply steady
+scripts/local-controller plan steady --generation baseline-1
+scripts/local-controller apply steady --generation baseline-1
 ```
 
-Planning validates the contract, provider locks, policies, Nix projection, Ansible, and Compose model. It creates one saved binary plan for each enabled OpenTofu root and a canonical Proxmox host plan under `.reconcile/plans/<commit>/steady/`. The manifest binds the exact commit, backend, plan paths and hashes, Compose artifact, protected inputs, and Tailscale policy identity.
+Planning validates the contract, provider locks, policies, neutral host projection, Ansible, and Compose model. It creates exact binary plans for enabled OpenTofu roots and a complete zero-change Proxmox check under `.reconcile/plans/<commit>/steady/<generation>/`. The v6 manifest binds the commit, backend, plan paths/hashes, checked host source/trust/scope, Compose artifact, protected inputs and Tailscale identity. Failed or expired generations are retained; explicitly select a new generation for a new observation.
 
-Apply accepts only a clean checkout at the manifest commit. It verifies every saved hash and policy, acquires the controller-wide lock, asks for the exact operation confirmation, and only then loads mutation credentials. It never replans during apply.
+Apply accepts only a clean checkout at the manifest commit. It verifies saved hashes and policy, uses the controller-wide descriptor lock, asks for the exact operation confirmation, and loads mutation credentials only afterward. It never replaces a consumable plan during apply; unrelated-root read-only drift checks and final no-op verification remain mandatory.
 
 The production order is:
 
 1. AWS foundation;
-2. guarded Proxmox Nix preparation;
+2. immediate locked, complete, zero-change Proxmox audit (not a host mutation);
 3. Proxmox OpenTofu;
 4. bounded Debian Ansible tags;
 5. Omada and Tailscale OpenTofu;

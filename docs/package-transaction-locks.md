@@ -1,5 +1,7 @@
 # Package transaction candidate locks
 
+The [existing-Mac maintenance collector](mac-maintenance-collection.md) aggregates these candidates through fixed read-only capabilities only; generic planning/deploy transport is not a scheduled fallback. Capability installation and authenticated publication remain separately gated.
+
 Package maintenance remains candidate-only until an exact transaction receives separate review and authorization. Debian Security updates are not exempt from this rule, and neither a Renovate PR nor a merged candidate lock authorizes installation.
 
 `ansible/playbooks/packages-plan.yml` invokes the read-only `package_lifecycle` role. It does not refresh APT metadata and never invokes an install command. The observer records:

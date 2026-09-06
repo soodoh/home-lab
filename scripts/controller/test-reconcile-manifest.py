@@ -47,20 +47,16 @@ if [[ ${{1:-}} == scripts/controller/check-vm-100-authority.js ]]; then
   printf 'vm_100_mutation_authority=arch\\n'
   exit 0
 fi
+if [[ ${{1:-}} == scripts/controller/proxmox-check-evidence.js ]]; then
+  if [[ ${{2:-}} == recheck && ${{NEUTRAL_TEST_RECHECK_FAIL:-}} == true ]]; then exit 66; fi
+  printf '{{"verified":true}}\n'
+  exit 0
+fi
 exec {real_node} "$@"
 """,
     )
 
 
-def write_proxmox_host_plan(plan_dir: Path, manifest: dict) -> None:
-    record = manifest["proxmox_host_plan"]
-    source = {"actions": [], "applyEligible": True, "blockers": [], "findings": [],
-              "format": "home-lab-proxmox-plan-v1", "mode": "steady", "planSha256": record["plan_sha256"],
-              "privatePreconditionsRequired": False, "status": "ready"}
-    destination = REPOSITORY / record["file"]
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(json.dumps(source))
-    record["file_sha256"] = hashlib.sha256(destination.read_bytes()).hexdigest()
 
 
 class ManifestVerificationTests(unittest.TestCase):
@@ -127,7 +123,7 @@ class ManifestVerificationTests(unittest.TestCase):
                 plans.append(record)
 
             manifest = {
-                "version": 5,
+                "version": 6,
                 "commit": commit,
                 "phase": "steady",
                 "stage": "converge",
@@ -137,10 +133,9 @@ class ManifestVerificationTests(unittest.TestCase):
                 "recovery_expectations_sha256": "",
                 "offen_retirement_operation": offen_retirement_operation(),
                 "compose_artifact_sha256": compose_hash,
-                "proxmox_host_plan": {"actions": 0, "external_owner_only": False, "prerequisite": "none", "status": "ready", "file": ".reconcile/plans/" + "f" * 64 + ".json", "file_sha256": "e" * 64, "plan_sha256": "f" * 64},
+                "proxmox_host_check": {"file": ".reconcile/plans/" + "f" * 64 + ".check.json", "sha256": "f" * 64},
                 "plans": plans,
             }
-            write_proxmox_host_plan(plan_dir, manifest)
             (plan_dir / "manifest.json").write_text(json.dumps(manifest))
 
             log = temporary / "tofu.log"
@@ -228,6 +223,7 @@ exit 86
             invalid_manifest = manifest.copy()
             invalid_manifest["recovery_expectations_sha256"] = "0" * 64
             (plan_dir / "manifest.json").write_text(json.dumps(invalid_manifest))
+            environment["RECONCILE_REVIEWED_MANIFEST_SHA256"] = hashlib.sha256((plan_dir / "manifest.json").read_bytes()).hexdigest()
             rejected = subprocess.run(
                 command,
                 cwd=REPOSITORY,
@@ -240,6 +236,10 @@ exit 86
             self.assertIn("manifest metadata is invalid", rejected.stderr)
 
             (plan_dir / "manifest.json").write_text(json.dumps(manifest))
+            environment["RECONCILE_REVIEWED_MANIFEST_SHA256"] = hashlib.sha256((plan_dir / "manifest.json").read_bytes()).hexdigest()
+            blocked = subprocess.run(command, cwd=REPOSITORY, env={**environment, "NEUTRAL_TEST_RECHECK_FAIL": "true"}, text=True, capture_output=True)
+            self.assertEqual(blocked.returncode, 66, blocked.stderr)
+            self.assertNotIn("Applying exact saved", blocked.stdout)
             result = subprocess.run(
                 command,
                 cwd=REPOSITORY,

@@ -23,7 +23,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(ROOT / "nix/proxmox"))
+sys.path.insert(0, str(ROOT / "scripts/controller"))
 import controller_lock as controller_lock_protocol
 
 PLAN_DIR = ROOT / ".reconcile/proxmox-firewall"
@@ -31,7 +31,7 @@ CONFIG = Path.home() / ".config/home-lab/controller/proxmox-firewall-canaries.js
 KEY = Path.home() / ".config/home-lab/controller/proxmox-firewall-controller.key"
 HELPER_SOURCE = ROOT / "infrastructure/proxmox-firewall/host/proxmox-firewall-transaction.py"
 LOCK_ROOT = ROOT
-POLICY_SOURCE = ROOT / "nix/proxmox/projection.json"
+POLICY_SOURCE = ROOT / "infrastructure/contract/home-lab.yml"
 PLAN_SCHEMA = ROOT / "infrastructure/policy/proxmox-firewall-plan.schema.json"
 PRIVATE_SCHEMA = ROOT / "infrastructure/policy/proxmox-firewall-private.schema.json"
 REQUEST_SCHEMA = ROOT / "infrastructure/policy/proxmox-firewall-request.schema.json"
@@ -325,8 +325,8 @@ def validate_inspection(value: Any) -> dict[str, Any]:
 
 
 def load_projection_policy() -> dict[str, Any]:
-    projection = json.loads(POLICY_SOURCE.read_bytes())
-    return projection["apiIntent"]["pveFirewall"]
+    source = "const fs=require('fs'),{load}=require('js-yaml'); const f=load(fs.readFileSync(process.argv[1],'utf8')).proxmox.firewall; console.log(JSON.stringify({ownership:f.ownership,activation:f.activation,options:f.options,rules:f.rules}));"
+    return json.loads(subprocess.check_output(["node", "-e", source, str(POLICY_SOURCE)], cwd=ROOT))
 
 
 def make_plan() -> str:

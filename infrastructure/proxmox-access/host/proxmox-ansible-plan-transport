@@ -5,6 +5,9 @@ if [ "$#" -ne 2 ] || [ "$1" != -c ] || [ -n "${SSH_ORIGINAL_COMMAND-}" ]; then
   exit 64
 fi
 case "$2" in
+  observe-controller)
+    exec /usr/bin/sudo -n -- /usr/local/libexec/home-lab/proxmox-controller-observer observe
+    ;;
   observe)
     exec /usr/bin/sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe
     ;;

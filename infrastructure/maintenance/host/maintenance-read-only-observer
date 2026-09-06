@@ -1,0 +1,334 @@
+#!/usr/bin/python3 -I
+"""Fixed reporting-only challenge; no refresh, install, reboot, or path inputs.
+
+Root-owned policy and executable ancestry, the trusted Python runtime, authenticated
+SSH host identity, and cooperating privileged installers form the trust boundary.
+Hashes describe installed bytes, not hardware-backed execution attestation. This
+snapshot grants no authority and does not hold a lease for subsequent mutations.
+"""
+
+import datetime as dt
+import hashlib
+import json
+import os
+import re
+import selectors
+import signal
+import stat
+import subprocess
+import sys
+import time
+
+BASE = "/usr/local/libexec/home-lab/"
+PATHS = {
+    "producer": BASE + "maintenance-read-only-observer",
+    "package": BASE + "maintenance-package-candidate-observer",
+    "transport": BASE + "maintenance-plan-transport",
+    "policy": "/etc/home-lab/maintenance-observer.json",
+    "machine": "/etc/machine-id",
+}
+MAX_BYTES = 1024 * 1024
+ENV = {"LC_ALL": "C", "LANG": "C", "PATH": "/usr/sbin:/usr/bin:/sbin:/bin"}
+LOCKS = {
+    "/var/lib/iac-ansible-production.lock": "debian-production",
+    "/run/lock/home-lab-backup.lock": "backup",
+    "/var/lib/home-lab/reconciliation/owner.lock": "owner",
+    "/var/lib/home-lab/reconciliation/apply.lock": "apply-owner",
+    "/var/lib/home-lab/reconciliation/nix.lock": "legacy-owner",
+    "/var/lib/home-lab/reconciliation/operation.lock": "operation",
+    "/run/lock/home-lab-vfio-recovery.lock": "vfio-recovery",
+    "/run/lock/home-lab-debian-package.lock": "debian-package",
+    "/run/lock/home-lab-proxmox-package.lock": "proxmox-package",
+    "/run/lock/home-lab-debian-reboot.lock": "debian-reboot",
+    "/run/lock/home-lab-debian-lifecycle-transaction.lock": "debian-lifecycle",
+    "/var/lock/home-lab-compose.lock": "compose",
+    "/run/lock/home-lab-compose.lock": "compose",
+    "/run/lock/home-lab-restic-backup.lock": "restic-backup",
+    "/run/lock/home-lab-proxmox-reboot.lock": "proxmox-reboot",
+    "/var/lib/dpkg/lock": "dpkg",
+    "/var/lib/dpkg/lock-frontend": "dpkg-frontend",
+    "/var/cache/apt/archives/lock": "apt-archives",
+}
+RETAINED = {
+    "/var/lib/iac-ansible-production.lock": "debian-production",
+    "/var/lib/home-lab/reconciliation/owner.lock": "owner",
+    # A retained apply/reboot owner blocks even after its process has exited.
+    "/var/lib/home-lab/reconciliation/apply.lock": "apply-owner",
+    "/var/lib/home-lab/reconciliation/nix.lock": "legacy-owner",
+    "/var/lib/home-lab/firewall-transaction/active.json": "firewall-transaction",
+}
+
+
+class Refusal(Exception):
+    """Only constant, nonsecret diagnostics may leave this process."""
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
+
+
+def digest(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+
+def strict_json(raw):
+    def pairs(items):
+        result = {}
+        for key, value in items:
+            if key in result:
+                raise Refusal("duplicate JSON key")
+            result[key] = value
+        return result
+
+    def invalid_constant(value):
+        raise Refusal("nonfinite JSON value")
+
+    return json.loads(raw, object_pairs_hook=pairs, parse_constant=invalid_constant)
+
+
+def identity(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid,
+            info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def trusted(info, directory=False):
+    kind = stat.S_ISDIR if directory else stat.S_ISREG
+    if (not kind(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or
+            info.st_mode & 0o022 or (not directory and info.st_nlink != 1)):
+        raise Refusal("untrusted installed file")
+
+
+def read_trusted(path):
+    """Pin every ancestor and the regular leaf; refuse symlinks/FIFOs/races."""
+    parts = path.split("/")
+    if parts[0] != "" or any(part in {"", ".", ".."} for part in parts[1:]):
+        raise Refusal("invalid fixed path")
+    parent = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    descriptor = None
+    try:
+        trusted(os.fstat(parent), directory=True)
+        for part in parts[1:-1]:
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+            os.close(parent)
+            parent = child
+            trusted(os.fstat(parent), directory=True)
+        descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        before = os.fstat(descriptor)
+        trusted(before)
+        if before.st_size > MAX_BYTES:
+            raise Refusal("installed file exceeds bound")
+        raw = bytearray()
+        while len(raw) <= MAX_BYTES:
+            block = os.read(descriptor, min(65536, MAX_BYTES + 1 - len(raw)))
+            if not block:
+                break
+            raw.extend(block)
+        if (len(raw) != before.st_size or identity(before) != identity(os.fstat(descriptor)) or
+                identity(before) != identity(os.stat(parts[-1], dir_fd=parent, follow_symlinks=False))):
+            raise Refusal("installed file changed during read")
+        return bytes(raw)
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        os.close(parent)
+
+
+def request(arguments):
+    if (len(arguments) != 4 or arguments[0] != "observe" or
+            not re.fullmatch(r"[0-9a-f]{64}", arguments[1]) or
+            not re.fullmatch(r"[0-9a-f]{40}", arguments[2]) or
+            not re.fullmatch(r"[0-9a-f]{64}", arguments[3])):
+        raise Refusal("invalid reporting challenge")
+    return arguments[1:]
+
+
+def installed(sources, source_commit, contract_sha256):
+    policy = strict_json(sources["policy"])
+    keys = {"version", "host", "source_commit", "contract_sha256", "producer_sha256",
+            "package_producer_sha256", "transport_sha256", "machine_id_sha256"}
+    if (not isinstance(policy, dict) or set(policy) != keys or
+            type(policy["version"]) is not int or policy["version"] != 1 or
+            policy["host"] not in ("debian", "proxmox") or
+            policy["source_commit"] != source_commit or policy["contract_sha256"] != contract_sha256):
+        raise Refusal("installed policy does not match challenge")
+    for source, field in (("producer", "producer_sha256"), ("package", "package_producer_sha256"),
+                          ("transport", "transport_sha256"), ("machine", "machine_id_sha256")):
+        if policy[field] != digest(sources[source]):
+            raise Refusal("installed dependency or host identity differs")
+    if not re.fullmatch(rb"[0-9a-f]{32}\n?", sources["machine"]):
+        raise Refusal("invalid installed host identity")
+    return policy
+
+
+def bounded_process(arguments, timeout=300, env=None):
+    """Internal fixed-producer runner; bound stdout+stderr while draining both."""
+    end = time.monotonic() + min(timeout, 100)
+    output, errors = bytearray(), bytearray()
+    process = None
+    expired = False
+
+    def defer_deadline(signum, frame):
+        nonlocal expired
+        expired = True
+
+    # Defer the Python exception, not the signal mask: executed children must
+    # not inherit blocked SIGALRM. Restore delivery only with cleanup armed.
+    previous_handler = signal.signal(signal.SIGALRM, defer_deadline)
+    try:
+        process = subprocess.Popen(arguments, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, env=ENV if env is None else env,
+                                   start_new_session=True, bufsize=0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        if expired:
+            raise Refusal("observer command exceeded deadline during creation")
+        with selectors.DefaultSelector() as selector:
+            for stream, destination in ((process.stdout, output), (process.stderr, errors)):
+                os.set_blocking(stream.fileno(), False)
+                selector.register(stream, selectors.EVENT_READ, destination)
+            while selector.get_map():
+                remaining = end - time.monotonic()
+                if remaining <= 0:
+                    raise Refusal("observer command exceeded deadline")
+                for key, _ in selector.select(remaining):
+                    allowance = MAX_BYTES - len(output) - len(errors)
+                    try:
+                        block = os.read(key.fd, min(65536, allowance + 1))
+                    except BlockingIOError:
+                        continue
+                    if not block:
+                        selector.unregister(key.fileobj)
+                    elif len(block) > allowance:
+                        raise Refusal("observer command exceeded output bound")
+                    else:
+                        key.data.extend(block)
+            remaining = end - time.monotonic()
+            if remaining <= 0:
+                raise Refusal("observer command exceeded deadline")
+            code = process.wait(timeout=remaining)
+        return subprocess.CompletedProcess(arguments, code, bytes(output), bytes(errors))
+    except BaseException:
+        # Includes the outer SIGALRM exception. Kill the isolated command group
+        # before reaping its leader so inherited pipes cannot prolong capture.
+        if process is not None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=2)
+        raise
+    finally:
+        try:
+            if process is not None:
+                process.stdout.close()
+                process.stderr.close()
+        finally:
+            signal.signal(signal.SIGALRM, previous_handler)
+
+
+def lock_observation():
+    result = bounded_process(
+        ["/usr/bin/lslocks", "--json", "--notruncate", "--output", "PATH"], timeout=5, env=ENV,
+    )
+    if result.returncode or result.stderr or len(result.stdout) > MAX_BYTES:
+        raise Refusal("lock observation unavailable")
+    # util-linux emits no JSON at all when there are no locks.
+    data = strict_json(result.stdout) if result.stdout.strip() else {"locks": []}
+    if not isinstance(data, dict) or set(data) != {"locks"} or not isinstance(data["locks"], list):
+        raise Refusal("lock observation malformed")
+    active = set()
+    for record in data["locks"]:
+        if not isinstance(record, dict) or set(record) != {"path"}:
+            raise Refusal("lock observation malformed")
+        path = record["path"]
+        if not isinstance(path, str) or not path.startswith("/"):
+            raise Refusal("lock observation malformed")
+        if path not in LOCKS:
+            raise Refusal("unrecognized lock observation")
+        active.add(LOCKS[path])
+    for path, name in RETAINED.items():
+        try:
+            os.lstat(path)
+        except FileNotFoundError:
+            continue
+        active.add(name)
+    return sorted(active)
+
+
+def reboot_observation():
+    # Absence of Debian's optional marker does NOT prove no reboot is needed
+    # (notably on PVE). Full kernel/window/backup qualification stays separate.
+    try:
+        read_trusted("/run/reboot-required")
+    except (OSError, Refusal):
+        required = None
+    else:
+        required = True
+    return {"required": required, "backup_proven": False}
+
+
+def observe(arguments):
+    nonce, source_commit, contract_sha256 = request(arguments)
+    sources = {name: read_trusted(path) for name, path in PATHS.items()}
+    policy = installed(sources, source_commit, contract_sha256)
+    before_locks = lock_observation()
+    # Execute only the pinned, root-owned installed package observer bytes. No
+    # caller-supplied code, imports, filenames or observer arguments are accepted.
+    namespace = {"__name__": "maintenance_package_observer", "__file__": PATHS["package"]}
+    exec(compile(sources["package"], PATHS["package"], "exec"), namespace)
+    # The reviewed package producer chooses commands; this wrapper enforces
+    # shared streaming bounds, rather than its standalone buffered runner.
+    def package_run(arguments, timeout=300):
+        return bounded_process(arguments, timeout, env={**ENV, "DEBIAN_FRONTEND": "noninteractive"})
+    namespace["run"] = package_run
+    proposal = namespace["observe"](policy["host"])
+    if (not isinstance(proposal, dict) or type(proposal.get("version")) is not int or
+            proposal["version"] != 2 or proposal.get("host") != policy["host"] or
+            proposal.get("metadata_refresh_performed") is not False):
+        raise Refusal("package producer output differs")
+    reboot = reboot_observation()
+    active_locks = sorted(set(before_locks) | set(lock_observation()))
+    if any(read_trusted(path) != sources[name] for name, path in PATHS.items()):
+        raise Refusal("installed capability changed during observation")
+    return {
+        "format": "home-lab-maintenance-observation-v1", "host": policy["host"],
+        "nonce": nonce, "source_commit": source_commit, "contract_sha256": contract_sha256,
+        "observed_at": dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "producer_sha256": digest(sources["producer"]), "package": {"proposal": proposal},
+        "package_sha256": digest(sources["package"]), "transport_sha256": digest(sources["transport"]),
+        "reboot": reboot, "active_locks": active_locks, "authorized": False,
+        "automatic_apply": False, "automatic_reboot": False, "automatic_retry_allowed": False,
+    }
+
+
+def deadline(signum, frame):
+    raise Refusal("reporting observation exceeded deadline")
+
+
+def main():
+    request(sys.argv[1:])
+    if sys.platform != "linux" or os.geteuid() != 0:
+        raise Refusal("fixed observer requires installed Linux capability")
+    os.environ.clear()
+    os.environ.update(ENV)
+    signal.signal(signal.SIGALRM, deadline)
+    signal.alarm(100)
+    try:
+        raw = canonical(observe(sys.argv[1:])) + b"\n"
+        if len(raw) > MAX_BYTES:
+            raise Refusal("reporting response exceeds bound")
+        while raw:
+            written = os.write(1, raw)
+            if written <= 0:
+                raise Refusal("reporting output failed")
+            raw = raw[written:]
+    finally:
+        signal.alarm(0)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        # Never relay raw APT output, exception paths, policy bytes or identities.
+        os.write(2, b"maintenance-read-only-observer: observation unavailable\n")
+        raise SystemExit(1)

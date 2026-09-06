@@ -32,12 +32,7 @@ function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
-function readRegular(file, limit = maxObservationBytes) {
-  const metadata = fs.lstatSync(file);
-  if (!metadata.isFile() || metadata.nlink !== 1) throw new Error(`input is not a single-link regular file: ${file}`);
-  if (metadata.size > limit) throw new Error(`input exceeds fixed size limit: ${file}`);
-  return fs.readFileSync(file);
-}
+const { readRegular } = require("./neutral-input");
 
 function parseCanonicalRaw(raw, label, limit) {
   if (raw.length > limit) throw new Error(`input exceeds fixed size limit: ${label}`);
@@ -120,6 +115,10 @@ function audit(artifactDirectory, observationPath) {
   if (!validateObservation(observation)) throw new Error(`observation schema validation failed: ${JSON.stringify(validateObservation.errors)}`);
 
   assert.equal(manifest.observer_sha256, sha256(observerRaw));
+  assert.equal(manifest.observer_template_sha256, sha256(readRegular(path.join(root, "infrastructure/host-lifecycle/proxmox/observer-template.py"))));
+  assert.equal(manifest.private_preparer_sha256, sha256(readRegular(path.join(artifactDirectory, "proxmox-protected-collector"))));
+  assert.equal(manifest.controller_observer_sha256, sha256(readRegular(path.join(artifactDirectory, "proxmox-controller-observer"))));
+  assert.equal(manifest.collector_template_sha256, sha256(readRegular(path.join(root, "infrastructure/host-lifecycle/proxmox/protected-collector-template.py"))));
   assert.equal(manifest.package_observer_sha256, sha256(packageObserverRaw));
   assert.equal(manifest.package_observer_template_sha256, sha256(readRegular(path.join(root, "infrastructure/maintenance/host/package-candidate-observer"), 1024 * 1024)));
   assert.equal(manifest.specification_sha256, sha256(specificationRaw));
@@ -230,10 +229,10 @@ function audit(artifactDirectory, observationPath) {
     parity: true,
     protected_summary_dependency: {
       private_preparer_sha256: manifest.private_preparer_sha256,
-      status: "transitional-exact-helper",
+      status: "neutral-exact-collector",
     },
   };
-  process.stdout.write(canonicalJson(result));
+  return result;
 }
 
 function main() {
@@ -248,7 +247,7 @@ function main() {
     } else throw new Error("usage: proxmox-ansible-audit.js --artifact-dir ABSOLUTE_PATH --observation FILE_OR_DASH");
   }
   if (!artifactDirectory || !observationPath) throw new Error("usage: proxmox-ansible-audit.js --artifact-dir ABSOLUTE_PATH --observation FILE_OR_DASH");
-  audit(artifactDirectory, observationPath);
+  process.stdout.write(canonicalJson(audit(artifactDirectory, observationPath)));
 }
 
 if (require.main === module) main();

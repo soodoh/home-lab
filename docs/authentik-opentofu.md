@@ -59,8 +59,8 @@ If a future inventory adds an eligible custom object, add its typed provider res
 After adoption, use:
 
 ```bash
-scripts/local-controller plan steady
-scripts/local-controller apply steady
+scripts/local-controller plan steady --generation baseline-1
+scripts/local-controller apply steady --generation baseline-1
 ```
 
 Rotate both Authentik API tokens before expiry. Rotate an OAuth client secret only as a coordinated Authentik/application change, updating the SOPS ciphertext in the same reviewed change. Never commit plaintext exports, decrypted client secrets, provider tokens, state, plans, or crash logs.

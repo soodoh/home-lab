@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import os
+import importlib.util
+import py_compile
 from pathlib import Path
 import subprocess
 import sys
@@ -12,7 +14,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "scripts/controller/controller-apply-lock.py"
-MODULE_DIR = ROOT / "nix/proxmox"
+MODULE_DIR = ROOT / "scripts/controller"
 COMMIT = "a" * 40
 
 
@@ -59,6 +61,37 @@ raise SystemExit(result.returncode)
         with tempfile.TemporaryDirectory() as name:
             result = self.run_owner(Path(name), self.verify_command())
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_ignored_bytecode_cannot_replace_reviewed_lock_source(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            repo = Path(name) / "repo"
+            directory = repo / "scripts/controller"
+            directory.mkdir(parents=True)
+            helper = directory / HELPER.name
+            helper.write_bytes(HELPER.read_bytes())
+            module = directory / "controller_lock.py"
+            original = (MODULE_DIR / module.name).read_bytes()
+            module.write_bytes(original)
+            marker = repo / "cache-payload-ran"
+            payload = Path(name) / "payload.py"
+            payload.write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\nraise SystemExit(93)\n")
+            cache = Path(importlib.util.cache_from_source(str(module)))
+            cache.parent.mkdir()
+            py_compile.compile(str(payload), cfile=str(cache), doraise=True,
+                               invalidation_mode=py_compile.PycInvalidationMode.UNCHECKED_HASH)
+            (repo / ".gitignore").write_text("__pycache__/\n*.pyc\n")
+            for command in (["git", "init", "-q"], ["git", "add", "."],
+                            ["git", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+                             "commit", "-qm", "fixture"]):
+                subprocess.run(command, cwd=repo, capture_output=True, check=True)
+            self.assertEqual(subprocess.run(["git", "status", "--porcelain"], cwd=repo,
+                                            capture_output=True, check=True).stdout, b"")
+            result = subprocess.run([sys.executable, "-I", str(helper), "run", "--repo-root", str(repo),
+                                     "--commit", COMMIT, "--phase", "steady", "--", "/usr/bin/true"],
+                                    capture_output=True, timeout=10, check=False)
+            self.assertEqual(module.read_bytes(), original)
+            self.assertFalse(marker.exists(), "ignored bytecode executed despite unchanged source")
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_verification_rejects_wrong_parent_pid(self) -> None:
         source = """import os,subprocess,sys

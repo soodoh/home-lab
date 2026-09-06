@@ -11,7 +11,7 @@ import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-MODULE_PATH = ROOT / "nix/proxmox/vfio-recover.py"
+MODULE_PATH = ROOT / "infrastructure/host-lifecycle/proxmox/vfio-recover.py"
 SPEC = importlib.util.spec_from_file_location("vfio_recover", MODULE_PATH)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError("cannot load VFIO recovery module")

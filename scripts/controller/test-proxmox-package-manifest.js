@@ -25,7 +25,7 @@ const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/h
 const manifestPath = path.join(root, contract.proxmox.packages.manifest.path);
 const manifestRaw = fs.readFileSync(manifestPath, "utf8");
 const manifest = JSON.parse(manifestRaw);
-const schema = JSON.parse(fs.readFileSync(path.join(root, "nix/proxmox/package-manifest.schema.json"), "utf8"));
+const schema = JSON.parse(fs.readFileSync(path.join(root, "infrastructure/host-lifecycle/proxmox/package-manifest.schema.json"), "utf8"));
 const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
 
 function expectFailure(contractValue, manifestValue, expected, label) {

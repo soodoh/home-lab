@@ -7,13 +7,14 @@ cd "$repo_root"
 
 usage() {
   cat >&2 <<'EOF'
-usage: scripts/local-controller <plan|apply|apply-tailnet> <steady|recovery> [options]
+usage: scripts/local-controller <plan|apply|apply-tailnet> steady --generation <name> [options]
 
 Options:
   --config-dir <protected-controller-config-directory>
+  --generation <lowercase-alphanumeric-or-hyphen-name> (required, at most 64 characters)
 
 The controller accepts any clean committed revision. Both commands run validation. Plan uses
-read-only credentials, saves the exact plans under .reconcile/plans/<commit>/<operation>, and
+read-only credentials, saves exact plans under .reconcile/plans/<commit>/<operation>/<generation>,
 displays them after policy checks pass. Apply verifies those saved plans, requires an interactive
 confirmation, and only then loads separate mutation credentials. Apply never replans.
 EOF
@@ -27,6 +28,7 @@ shift 2
 case "$action" in plan|apply|apply-tailnet) ;; *) usage ;; esac
 
 config_dir=${HOME_LAB_CONTROLLER_CONFIG_DIR:-$HOME/.config/home-lab/controller}
+generation=
 while (($#)); do
   case "$1" in
     --config-dir)
@@ -34,11 +36,18 @@ while (($#)); do
       config_dir=$2
       shift 2
       ;;
+    --generation)
+      (($# >= 2)) || usage
+      [[ -z $generation ]] || usage
+      generation=$2
+      shift 2
+      ;;
     *) usage ;;
   esac
 done
 
-case "$operation" in steady|recovery) ;; *) usage ;; esac
+case "$operation" in steady) ;; *) usage ;; esac
+[[ $generation =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || usage
 operation_args=(--phase "$operation")
 expected_confirmation=
 
@@ -48,7 +57,7 @@ commit=$(git rev-parse HEAD)
   echo "local_controller=failed reason=working_tree_not_clean" >&2
   exit 65
 }
-plan_dir="$repo_root/.reconcile/plans/$commit/$operation"
+plan_dir="$repo_root/.reconcile/plans/$commit/$operation/$generation"
 manifest="$plan_dir/manifest.json"
 
 load_credentials() {
@@ -151,76 +160,8 @@ prepare_steady_authentik_input() {
 }
 
 
-verify_proxmox_host_plan() {
-  local relative path expected_file_sha expected_plan_sha expected_actions actual_file_sha
-  relative=$(jq -er '.proxmox_host_plan.file' "$manifest")
-  expected_file_sha=$(jq -er '.proxmox_host_plan.file_sha256' "$manifest")
-  expected_plan_sha=$(jq -er '.proxmox_host_plan.plan_sha256' "$manifest")
-  expected_actions=$(jq -er '.proxmox_host_plan.actions' "$manifest")
-  [[ $relative == ".reconcile/plans/$expected_plan_sha.json" && $expected_file_sha =~ ^[0-9a-f]{64}$ &&
-     $expected_plan_sha =~ ^[0-9a-f]{64}$ && $expected_actions =~ ^[0-9]+$ ]] || {
-    echo "local_controller=failed reason=proxmox_host_manifest_binding_invalid" >&2
-    exit 66
-  }
-  path="$repo_root/$relative"
-  [[ -f $path && ! -L $path ]] || {
-    echo "local_controller=failed reason=proxmox_host_plan_missing" >&2
-    exit 66
-  }
-  actual_file_sha=$(shasum -a 256 "$path" | awk '{print $1}')
-  [[ $actual_file_sha == "$expected_file_sha" ]] || {
-    echo "local_controller=failed reason=proxmox_host_plan_hash_mismatch" >&2
-    exit 66
-  }
-  python3 - "$path" "$expected_plan_sha" "$expected_actions" "$(jq -r .stage "$manifest")" <<'PY'
-import hashlib
-import json
-import datetime as dt
-import sys
-from pathlib import Path
-path = Path(sys.argv[1])
-repo = Path.cwd()
-sys.path.insert(0, str(repo / "nix/proxmox"))
-import planner
-raw = path.read_bytes()
-try:
-    value = json.loads(raw)
-except json.JSONDecodeError as error:
-    raise SystemExit("Proxmox Nix plan JSON is invalid") from error
-canonical = (json.dumps(value, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n").encode()
-if raw != canonical or not isinstance(value, dict):
-    raise SystemExit("Proxmox Nix plan is not canonical")
-required = {"actions", "applyEligible", "bindings", "blockers", "findings", "format", "freshness", "mode",
-            "observedState", "planSha256", "privatePreconditionsRequired", "status"}
-stage = sys.argv[4]
-ready = value.get("status") == "ready" and value.get("applyEligible") is True and value.get("blockers") == []
-blockers = value.get("blockers")
-findings = value.get("findings")
-external = value.get("status") == "blocked" and value.get("applyEligible") is False and value.get("actions") == [] and \
-    isinstance(blockers, list) and len(blockers) > 0 and all(
-        item.get("domain") == "opentofu" and item.get("code") == "opentofu-owner-required" for item in blockers)
-vm_start = value.get("status") == "blocked" and value.get("applyEligible") is False and value.get("actions") == [] and \
-    isinstance(blockers, list) and isinstance(findings, list) and len(blockers) == 2 and len(findings) == 2 and \
-    sum(item.get("domain") == "opentofu" and item.get("code") == "opentofu-owner-required" and item.get("target") == "vm-100" for item in blockers) == 1 and \
-    sum(item.get("domain") == "health" and item.get("code") == "review-required" and item.get("target") == "health" for item in blockers) == 1 and \
-    sum(item.get("domain") == "opentofu" and item.get("code") == "opentofu-drift" and item.get("target") == "vm-100" for item in findings) == 1 and \
-    sum(item.get("domain") == "health" and item.get("code") == "desired-state-drift" and item.get("target") == "health" for item in findings) == 1
-stage_valid = ready if stage == "converge" else vm_start if stage == "vm-start-prerequisite" else external
-if set(value) != required or value.get("format") != "home-lab-proxmox-plan-v1" or value.get("mode") != "steady" or \
-        not stage_valid or value.get("planSha256") != sys.argv[2] or \
-        not isinstance(value.get("actions"), list) or len(value["actions"]) != int(sys.argv[3]):
-    raise SystemExit("Proxmox Nix plan structure or manifest binding differs")
-projection = {key: item for key, item in value.items() if key != "planSha256"}
-if hashlib.sha256((json.dumps(projection, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n").encode()).hexdigest() != value["planSha256"]:
-    raise SystemExit("Proxmox Nix plan internal digest differs")
-try:
-    planner.validate_plan(value, json.loads((repo / "nix/proxmox/projection.json").read_bytes()),
-                          json.loads((repo / "nix/proxmox/package-manifest.json").read_bytes()))
-except (KeyError, TypeError, ValueError) as error:
-    raise SystemExit("Proxmox Nix plan semantic validation failed") from error
-if dt.datetime.now(dt.timezone.utc) > dt.datetime.fromisoformat(value["freshness"]["validUntil"].replace("Z", "+00:00")):
-    raise SystemExit("Proxmox Nix plan has expired")
-PY
+verify_proxmox_host_check() {
+  node scripts/controller/proxmox-check-evidence.js verify "$manifest" >/dev/null
 }
 
 verify_saved_plans() {
@@ -229,12 +170,13 @@ verify_saved_plans() {
     exit 66
   }
   jq -e --arg commit "$commit" --arg phase "$operation" '
-    .version == 5 and .commit == $commit and .phase == $phase and
-    (.stage == "converge" or ($phase == "recovery" and .stage == "external-owner-prerequisite") or ($phase == "steady" and .stage == "vm-start-prerequisite"))
+    .version == 6 and .commit == $commit and .phase == $phase and
+    (.stage == "converge" and .phase == "steady")
   ' "$manifest" >/dev/null || {
     echo "local_controller=failed reason=manifest_mismatch" >&2
     exit 66
   }
+  verify_proxmox_host_check
   while IFS=$'\t' read -r file expected; do
     actual=$(shasum -a 256 "$plan_dir/$file" | awk '{print $1}')
     [[ $actual == "$expected" ]] || {
@@ -242,7 +184,7 @@ verify_saved_plans() {
       exit 66
     }
   done < <(jq -r '.plans[] | [.file,.sha256] | @tsv' "$manifest")
-  verify_proxmox_host_plan
+  verify_proxmox_host_check
 }
 
 show_saved_plans() {
@@ -254,8 +196,8 @@ show_saved_plans() {
     printf '\n[%s]\n' "$root"
     tofu -chdir="infrastructure/tofu/$root" show -no-color "$plan_dir/$file"
   done < <(jq -r '.plans[] | [.root,.file] | @tsv' "$manifest")
-  printf '\n[proxmox-host-nix]\n'
-  jq . "$repo_root/$(jq -r .proxmox_host_plan.file "$manifest")"
+  printf '\n[proxmox-host-audit]\n'
+  jq . "$repo_root/$(jq -r .proxmox_host_check.file "$manifest")"
 }
 
 confirm_apply() {
@@ -279,6 +221,8 @@ confirm_apply() {
     echo "local_controller=failed reason=confirmation_invalid" >&2
     exit 66
   }
+  export RECONCILE_REVIEWED_MANIFEST_SHA256
+  RECONCILE_REVIEWED_MANIFEST_SHA256=$(manifest_sha256)
 }
 
 case "$action" in

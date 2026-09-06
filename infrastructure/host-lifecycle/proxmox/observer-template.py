@@ -219,7 +219,7 @@ def summary(status="unavailable", expected=1, observed=None, matches=None):
 
 
 def protected_summaries():
-    helper = Path("/usr/local/libexec/home-lab/proxmox-private-preparer")
+    helper = Path("/usr/local/libexec/home-lab/proxmox-protected-collector")
     unavailable = {"protectedAccess": summary(expected=SPEC["protectedAccessExpectedCount"]),
                    "protectedHardware": summary(expected=SPEC["protectedExpectedCount"])}
     try:

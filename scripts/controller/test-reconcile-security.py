@@ -38,11 +38,19 @@ class ReconcileSecurityTests(unittest.TestCase):
             "test-debian-qualification-first-boot-provenance.py",
             "test-debian-qualification-clean-receipt.py",
             "test-debian-qualification-cache-reader.py",
+            "test-maintenance-launcher.py",
+            "test-maintenance-read-only-capability.py",
+            "test-local-controller-generations.py",
+            "test-proxmox-controller-capability.py",
+            "test-proxmox-capability-protocol.py",
         ):
             with self.subTest(suite=suite):
                 self.assertEqual(
                     validation_lines.count(f"  python3 scripts/controller/{suite}"), 1
                 )
+        for suite in ("test-maintenance-report.js", "test-maintenance-local-inputs.js", "test-maintenance-publish.js"):
+            with self.subTest(suite=suite):
+                self.assertEqual(validation_lines.count(f"  node scripts/controller/{suite}"), 1)
         self.assertIn("  infrastructure/policy/test-policy.sh", validation_lines)
         policy = (REPOSITORY / "infrastructure/policy/test-policy.sh").read_text()
         for suite in ("test-normalize-ansible-plan.py", "test-tailscale-policy.py", "test-omada-host-alias.py"):
@@ -89,35 +97,35 @@ class ReconcileSecurityTests(unittest.TestCase):
         self.assertLess(reconcile, show)
         self.assertLess(show, complete)
 
-    def test_manifest_binds_and_reviews_exact_proxmox_nix_plan(self) -> None:
-        self.assertIn("proxmox_host_plan=$(plan_proxmox_host true)", self.reconciler)
-        self.assertIn("--argjson proxmox_host_plan", self.reconciler)
-        self.assertIn(".version == 5", self.reconciler)
-        self.assertIn("saved Proxmox Nix host plan is missing or changed", self.reconciler)
-        self.assertIn("[proxmox-host-nix]", self.controller)
-        self.assertIn("verify_proxmox_host_plan", self.controller)
-        self.assertIn("Proxmox Nix plan internal digest differs", self.controller)
-        self.assertIn("raw != canonical", self.controller)
-        self.assertNotIn("proxmox-nix-shadow", self.controller)
+    def test_manifest_binds_and_reviews_neutral_check_evidence(self) -> None:
+        self.assertIn("proxmox_host_check=$(plan_proxmox_host)", self.reconciler)
+        self.assertIn("--argjson proxmox_host_check", self.reconciler)
+        self.assertIn(".version == 6", self.reconciler)
+        self.assertIn("[proxmox-host-audit]", self.controller)
+        self.assertIn("verify_proxmox_host_check", self.controller)
+        for source in (self.controller, self.reconciler):
+            self.assertIn("scripts/controller/proxmox-check-evidence.js verify", source)
+            self.assertNotIn("nix/proxmox", source)
+            self.assertNotIn("nix run", source)
+        self.assertIn("RECONCILE_REVIEWED_MANIFEST_SHA256", self.reconciler)
 
-    def test_guarded_nix_order_and_vm_start_prerequisite_are_closed(self) -> None:
+    def test_locked_recheck_precedes_every_owner_and_unsupported_stages_are_closed(self) -> None:
         dispatch = self.reconciler.index('case "$action" in', self.reconciler.index("acquire_apply_lock()"))
-        steady_prerequisite = self.reconciler.index('== vm-start-prerequisite', dispatch)
-        steady_prerequisite_tofu = self.reconciler.index("apply_root proxmox", steady_prerequisite)
-        steady_exit = self.reconciler.index("requires_new_reviewed_plan=true", steady_prerequisite_tofu)
-        steady_nix = self.reconciler.index("prepare_apply_proxmox_host", steady_exit)
-        steady_tofu = self.reconciler.index("apply_root proxmox", steady_nix)
-        self.assertLess(steady_prerequisite_tofu, steady_exit)
-        self.assertLess(steady_exit, steady_nix)
-        self.assertLess(steady_nix, steady_tofu)
-        self.assertNotIn("if [[ $phase == recovery ]]", self.reconciler)
-        self.assertIn("--mode vm-start-prerequisite", self.reconciler)
-        self.assertIn('prerequisite == "vm-start"', self.reconciler)
-        self.assertIn("roots=(aws-foundation proxmox)", self.reconciler)
-        self.assertIn("if [[ $manifest_stage == vm-start-prerequisite ]]", self.reconciler)
-        self.assertIn("printf '%s\\n' aws-foundation proxmox", self.reconciler)
+        lock = self.reconciler.index("acquire_apply_lock", dispatch)
+        verify = self.reconciler.index("verify_manifest", lock)
+        recheck = self.reconciler.index("prepare_apply_proxmox_host", verify)
+        aws = self.reconciler.index("apply_root aws-foundation", recheck)
+        tofu = self.reconciler.index("apply_root proxmox", aws)
+        self.assertLess(lock, verify)
+        self.assertLess(verify, recheck)
+        self.assertLess(recheck, aws)
+        self.assertLess(aws, tofu)
+        self.assertNotIn("vm-start-prerequisite", self.reconciler)
+        self.assertNotIn("external-owner-prerequisite", self.reconciler)
+        self.assertIn('(.stage == "converge")', self.reconciler)
         self.assertIn("verify_fresh_proxmox_host_noop", self.reconciler)
-        self.assertIn("if jq -e '.actions == [] and .status == \"ready\" and .applyEligible == true'", self.reconciler)
+        self.assertIn('proxmox-check-evidence.js recheck', self.reconciler)
+        self.assertNotIn('prepare --plan-sha', self.reconciler)
 
     def test_confirmation_binds_manifest_recovery_stage_and_rejects_cross_stage_replay(self) -> None:
         self.assertIn('expected_confirmation="apply-reviewed-$operation-$recovery_stage"', self.controller)

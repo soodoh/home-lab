@@ -17,22 +17,56 @@
     "private_preparer_sha256",
     "projection_schema_sha256",
     "projection_sha256",
-    "specification_sha256"
+    "specification_sha256",
+    "controller_observer_sha256",
+    "collector_template_sha256"
   ],
   "properties": {
-    "format": { "const": "home-lab-proxmox-ansible-observer-artifact-v1" },
-    "version": { "const": 1 },
-    "contract_sha256": { "$ref": "#/$defs/sha256" },
-    "observation_schema_sha256": { "$ref": "#/$defs/sha256" },
-    "observer_sha256": { "$ref": "#/$defs/sha256" },
-    "observer_template_sha256": { "$ref": "#/$defs/sha256" },
-    "package_manifest_sha256": { "$ref": "#/$defs/sha256" },
-    "package_observer_sha256": { "$ref": "#/$defs/sha256" },
-    "package_observer_template_sha256": { "$ref": "#/$defs/sha256" },
-    "private_preparer_sha256": { "$ref": "#/$defs/sha256" },
-    "projection_schema_sha256": { "$ref": "#/$defs/sha256" },
-    "projection_sha256": { "$ref": "#/$defs/sha256" },
-    "specification_sha256": { "$ref": "#/$defs/sha256" }
+    "format": {
+      "const": "home-lab-proxmox-ansible-observer-artifact-v1"
+    },
+    "version": {
+      "const": 1
+    },
+    "contract_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "observation_schema_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "observer_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "observer_template_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "package_manifest_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "package_observer_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "package_observer_template_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "private_preparer_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "projection_schema_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "projection_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "specification_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "controller_observer_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "collector_template_sha256": {
+      "$ref": "#/$defs/sha256"
+    }
   },
   "$defs": {
     "sha256": {

@@ -25,13 +25,6 @@ const projection = projectProxmoxPolicy(contract, packageManifest);
 validateProjection(projection, projectionSchema);
 
 const neutralTemplate = read("infrastructure/host-lifecycle/proxmox/observer-template.py");
-const compatibilityTemplate = read("nix/proxmox/observer-template.py");
-assert(neutralTemplate.equals(compatibilityTemplate), "transitional Nix observer mirror differs from neutral source");
-assert(read("infrastructure/host-lifecycle/proxmox/observation.schema.json")
-  .equals(read("nix/proxmox/observation.schema.json")), "transitional observation schema mirror differs from neutral source");
-assert(read("infrastructure/host-lifecycle/proxmox/projection.schema.json")
-  .equals(read("nix/proxmox/projection.schema.json")), "transitional projection schema mirror differs from neutral source");
-
 const privatePreparerSha256 = "a".repeat(64);
 const specification = observationSpecification(projection, privatePreparerSha256);
 assert.deepEqual(Object.keys(specification).sort(), [
@@ -41,24 +34,10 @@ assert.deepEqual(Object.keys(specification).sort(), [
   "pveFirewall", "pveStorage", "services", "storage", "tailscale", "timezone",
 ].sort());
 
-const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "proxmox-ansible-observer-test-"));
+const temporaryRoot = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), "proxmox-ansible-observer-test-"));
 try {
-  const projectionPath = path.join(temporaryRoot, "projection.json");
-  fs.writeFileSync(projectionPath, canonicalJson(projection));
-  const python = spawnSync("python3", ["-c", [
-    "import importlib.util,json,pathlib,sys",
-    `source=pathlib.Path(${JSON.stringify(path.join(root, "nix/proxmox/bundle.py"))})`,
-    "spec=importlib.util.spec_from_file_location('bundle',source)",
-    "module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)",
-    "value=module.observation_specification(json.loads(pathlib.Path(sys.argv[1]).read_bytes()))",
-    "value['privatePreparerSha256']=sys.argv[2]",
-    "sys.stdout.buffer.write(module.canonical_json(value))",
-  ].join(";"), projectionPath, privatePreparerSha256], { encoding: "utf8" });
-  assert.equal(python.status, 0, python.stderr);
-  assert.equal(canonicalJson(specification), python.stdout, "neutral observation specification differs from transitional renderer");
-
   const outputDirectory = path.join(temporaryRoot, "artifact");
-  build(outputDirectory, privatePreparerSha256);
+  build(outputDirectory);
   const observer = fs.readFileSync(path.join(outputDirectory, "proxmox-observer"));
   const packageObserver = fs.readFileSync(path.join(outputDirectory, "proxmox-package-candidate-observer"));
   const specificationRaw = fs.readFileSync(path.join(outputDirectory, "observation-spec.json"));
@@ -70,9 +49,9 @@ try {
   assert.equal(manifest.observer_sha256, sha256(observer));
   assert.equal(manifest.package_observer_sha256, sha256(packageObserver));
   assert.equal(manifest.specification_sha256, sha256(specificationRaw));
-  assert.equal(manifest.private_preparer_sha256, privatePreparerSha256);
+  assert.equal(manifest.private_preparer_sha256, sha256(fs.readFileSync(path.join(outputDirectory, "proxmox-protected-collector"))))
   assert.equal(manifestRaw.toString("utf8"), canonicalJson(manifest));
-  assert.equal(specificationRaw.toString("utf8"), canonicalJson(specification));
+  assert.equal(specificationRaw.toString("utf8"), canonicalJson(observationSpecification(projection, manifest.private_preparer_sha256)));
   assert(!observer.includes("@OBSERVATION_SPEC@"));
   assert(!packageObserver.includes("@EXPECTED_PACKAGES_BASE64@"));
   for (const [name, mode] of [["proxmox-observer", 0o755], ["proxmox-package-candidate-observer", 0o755], ["observation-spec.json", 0o644], ["manifest.json", 0o644]]) {

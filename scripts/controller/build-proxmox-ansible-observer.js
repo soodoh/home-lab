@@ -16,7 +16,7 @@ const root = path.resolve(__dirname, "../..");
 const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
 const projectionSchemaPath = path.join(root, "infrastructure/host-lifecycle/proxmox/projection.schema.json");
 const observerTemplatePath = path.join(root, "infrastructure/host-lifecycle/proxmox/observer-template.py");
-const compatibilityTemplatePath = path.join(root, "nix/proxmox/observer-template.py");
+const collectorTemplatePath = path.join(root, "infrastructure/host-lifecycle/proxmox/protected-collector-template.py");
 const observationSchemaPath = path.join(root, "infrastructure/host-lifecycle/proxmox/observation.schema.json");
 const packageObserverTemplatePath = path.join(root, "infrastructure/maintenance/host/package-candidate-observer");
 
@@ -24,11 +24,7 @@ function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
-function regularFile(file) {
-  const metadata = fs.lstatSync(file);
-  if (!metadata.isFile() || metadata.nlink !== 1) throw new Error(`source is not a single-link regular file: ${file}`);
-  return fs.readFileSync(file);
-}
+const { readRegular: regularFile } = require("./neutral-input");
 
 function writeExclusive(file, content, mode) {
   const descriptor = fs.openSync(file, fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, mode);
@@ -52,7 +48,7 @@ function fsyncDirectory(directory) {
 
 function build(outputDirectory, privatePreparerSha256) {
   if (!path.isAbsolute(outputDirectory)) throw new Error("output directory must be absolute");
-  if (!/^[0-9a-f]{64}$/.test(privatePreparerSha256)) throw new Error("private preparer SHA-256 is malformed");
+
   if (fs.existsSync(outputDirectory)) throw new Error("output directory already exists");
 
   const contractRaw = regularFile(contractPath);
@@ -65,10 +61,17 @@ function build(outputDirectory, privatePreparerSha256) {
   validateProjection(projection, JSON.parse(projectionSchemaRaw.toString("utf8")));
 
   const template = regularFile(observerTemplatePath);
-  const compatibilityTemplate = regularFile(compatibilityTemplatePath);
-  if (!template.equals(compatibilityTemplate)) {
-    throw new Error("neutral observer template differs from the transitional Nix compatibility mirror");
-  }
+  const collectorTemplate = regularFile(collectorTemplatePath).toString("utf8");
+  const protectedSpec = {
+    legacyTofuAccessRequired: false, conventionalKeysAbsent: true,
+    node: projection.apiIntent.pveStorage.nodes[0], pool: projection.apiIntent.pveStorage.pool,
+    protectedAccessExpectedCount: 3, pveAccessBindings: projection.apiIntent.pveAccess.bindings,
+  };
+  if (collectorTemplate.split("'@PROTECTED_SPEC@'").length !== 2) throw new Error("collector marker cardinality differs");
+  const collector = Buffer.from(collectorTemplate.replace("'@PROTECTED_SPEC@'", JSON.stringify(canonicalJson(protectedSpec).trim())));
+  const collectorSha = sha256(collector);
+  if (privatePreparerSha256 && privatePreparerSha256 !== collectorSha) throw new Error("supplied collector hash differs from neutral source");
+  privatePreparerSha256 = collectorSha;
   const packageObserverTemplate = regularFile(packageObserverTemplatePath);
   const packageMarker = "@EXPECTED_PACKAGES_BASE64@";
   const packageTemplateText = packageObserverTemplate.toString("utf8");
@@ -83,10 +86,19 @@ function build(outputDirectory, privatePreparerSha256) {
   const observer = Buffer.from(templateText.replace(marker, JSON.stringify(specificationRaw.toString("utf8").trim())));
   const observationSchemaRaw = regularFile(observationSchemaPath);
   const projectionRaw = Buffer.from(canonicalJson(projection));
+  const controllerTemplate = regularFile(path.join(root, "infrastructure/host-lifecycle/proxmox/controller-observer-template.py")).toString("utf8");
+  if (controllerTemplate.split("'@CONTROLLER_SPEC@'").length !== 2) throw new Error("controller marker cardinality differs");
+  const activatorSha = sha256(regularFile(path.join(root, "infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator")));
+  if (controllerTemplate.split("@ACTIVATOR_SHA256@").length !== 2) throw new Error("activator marker cardinality differs");
+  const controllerObserver = Buffer.from(controllerTemplate.replace("@ACTIVATOR_SHA256@", activatorSha).replace("'@CONTROLLER_SPEC@'", JSON.stringify(canonicalJson({
+    observer_sha256: sha256(observer), collector_sha256: collectorSha,
+  }).trim())));
   const manifest = {
     format: "home-lab-proxmox-ansible-observer-artifact-v1",
     version: 1,
     contract_sha256: sha256(contractRaw),
+    controller_observer_sha256: sha256(controllerObserver),
+    collector_template_sha256: sha256(regularFile(collectorTemplatePath)),
     observation_schema_sha256: sha256(observationSchemaRaw),
     observer_sha256: sha256(observer),
     observer_template_sha256: sha256(template),
@@ -106,6 +118,8 @@ function build(outputDirectory, privatePreparerSha256) {
   fs.mkdirSync(temporary, { mode: 0o700 });
   try {
     writeExclusive(path.join(temporary, "proxmox-observer"), observer, 0o755);
+    writeExclusive(path.join(temporary, "proxmox-controller-observer"), controllerObserver, 0o755);
+    writeExclusive(path.join(temporary, "proxmox-protected-collector"), collector, 0o755);
     writeExclusive(path.join(temporary, "proxmox-package-candidate-observer"), packageObserver, 0o755);
     writeExclusive(path.join(temporary, "observation-spec.json"), specificationRaw, 0o644);
     writeExclusive(path.join(temporary, "manifest.json"), Buffer.from(canonicalJson(manifest)), 0o644);
@@ -117,6 +131,7 @@ function build(outputDirectory, privatePreparerSha256) {
     throw error;
   }
   process.stdout.write(`proxmox_ansible_observer_artifact=${outputDirectory} sha256=${manifest.observer_sha256}\n`);
+  return manifest;
 }
 
 function main() {
@@ -128,7 +143,7 @@ function main() {
     else if (argumentsList[index] === "--private-preparer-sha256" && argumentsList[index + 1]) privatePreparerSha256 = argumentsList[++index];
     else throw new Error("usage: build-proxmox-ansible-observer.js --output-dir ABSOLUTE_PATH --private-preparer-sha256 SHA256");
   }
-  if (!outputDirectory || !privatePreparerSha256) {
+  if (!outputDirectory) {
     throw new Error("usage: build-proxmox-ansible-observer.js --output-dir ABSOLUTE_PATH --private-preparer-sha256 SHA256");
   }
   build(outputDirectory, privatePreparerSha256);

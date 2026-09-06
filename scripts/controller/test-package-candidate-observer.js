@@ -36,6 +36,36 @@ with tempfile.TemporaryDirectory() as directory:
  unsafe_owner=module.file_tree((str(regular),)); assert unsafe_owner["safe"] is False
  link=path/"link"; link.symlink_to(regular)
  unsafe=module.file_tree((str(link),)); assert unsafe["safe"] is False
+# Exercise the actual proposal producer with every external command and package
+# filesystem observation confined to fakes. Retained records are real fixtures;
+# lslocks reports no holder, including after the rebooting process has exited.
+from types import SimpleNamespace
+from unittest.mock import patch
+retained="/var/lib/home-lab/reconciliation/apply.lock"
+mutex="/var/lib/home-lab/reconciliation/operation.lock"
+def command(argv, timeout):
+ assert argv[0] in ("/usr/bin/dpkg-query", "/usr/bin/apt-mark", "/usr/bin/apt-get", "/usr/bin/lslocks"), argv
+ if argv[0] == "/usr/bin/apt-get": assert "--simulate" in argv
+ return SimpleNamespace(returncode=0,stdout=b'{"locks":[]}' if argv[0] == "/usr/bin/lslocks" else b"",stderr=b"")
+with tempfile.TemporaryDirectory() as directory:
+ record=pathlib.Path(directory)/"record"
+ actual_lexists=os.path.lexists
+ def exists(candidate):
+  return actual_lexists(record) if candidate == retained else candidate == mutex
+ with patch.object(module,"run",side_effect=command), patch.object(module.os,"walk",return_value=[]), \
+      patch.object(module,"file_tree",return_value={"sha256":"a"*64,"safe":True,"unsafe_paths":[]}), \
+      patch.object(module.os.path,"lexists",side_effect=exists):
+  for kind in ("absent","regular","dangling-symlink","fifo"):
+   if kind == "regular": record.write_bytes(b"retained exact reboot owner\n")
+   elif kind == "dangling-symlink": record.symlink_to("missing-target")
+   elif kind == "fifo": os.mkfifo(record)
+   for host in ("debian","proxmox"):
+    proposal=module.observe(host)
+    assert proposal["active_lifecycle_locks"] == ([] if kind == "absent" else [retained]), (kind,proposal)
+    assert proposal["metadata_refresh_performed"] is False
+   if kind != "absent":
+    if kind == "regular": assert record.read_bytes() == b"retained exact reboot owner\n"
+    record.unlink()
 print(json.dumps({"observer":"verified"},sort_keys=True))
 `;
   const result = spawnSync("python3", ["-c", checks, renderedPath], { encoding: "utf8" });

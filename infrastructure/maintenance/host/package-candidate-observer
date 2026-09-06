@@ -199,6 +199,7 @@ def observe(host):
     lock_paths = {
         "/var/lib/iac-ansible-production.lock", "/run/lock/home-lab-backup.lock",
         "/var/lib/home-lab/reconciliation/owner.lock", "/var/lib/home-lab/reconciliation/nix.lock",
+        "/var/lib/home-lab/reconciliation/apply.lock",
         "/var/lib/home-lab/reconciliation/operation.lock", "/run/lock/home-lab-vfio-recovery.lock",
         "/run/lock/home-lab-debian-package.lock", "/run/lock/home-lab-proxmox-package.lock",
         "/run/lock/home-lab-proxmox-reboot.lock", "/var/lib/dpkg/lock", "/var/lib/dpkg/lock-frontend",
@@ -206,6 +207,8 @@ def observe(host):
     }
     retained_paths = {
         "/var/lib/iac-ansible-production.lock", "/var/lib/home-lab/reconciliation/owner.lock",
+        # Persistent apply/reboot ownership survives descriptor release.
+        "/var/lib/home-lab/reconciliation/apply.lock",
         "/var/lib/home-lab/reconciliation/nix.lock", "/var/lib/home-lab/firewall-transaction/active.json",
     }
     active_lifecycle_locks = {path for path in retained_paths if os.path.lexists(path)}

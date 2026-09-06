@@ -232,7 +232,7 @@ def main() -> None:
 
     operation = function_source(activator_source, "boot_operation")
     recovery = function_source(activator_source, "recover_boot")
-    assert operation.index("flock") < operation.index("validate_boot_plan")
+    assert operation.index("acquire_boot_conflict_locks") < operation.index("validate_boot_plan")
     assert operation.index("boot_copy") < operation.index("replace_repository_file")
     assert operation.count('"/usr/sbin/update-initramfs"') == 1
     assert '"-u", "-k", item["kernel"]' in operation

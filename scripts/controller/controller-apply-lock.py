@@ -8,11 +8,16 @@ import os
 from pathlib import Path
 import secrets
 import sys
+import types
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.dont_write_bytecode = True
-sys.path.insert(0, str(ROOT / "nix/proxmox"))
-import controller_lock
+# A clean checkout may contain ignored, unchecked-hash .pyc files. Load the
+# reviewed source directly and never add checkout directories to import lookup.
+lock_source = ROOT / "scripts/controller/controller_lock.py"
+controller_lock = types.ModuleType("home_lab_controller_lock")
+controller_lock.__file__ = str(lock_source)
+sys.modules[controller_lock.__name__] = controller_lock
+exec(compile(lock_source.read_bytes(), str(lock_source), "exec"), controller_lock.__dict__)
 
 
 def run(args: argparse.Namespace) -> int:

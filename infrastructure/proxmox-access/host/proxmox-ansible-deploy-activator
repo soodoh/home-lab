@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import pwd
 import re
+import secrets
 import stat
 import subprocess
 import sys
@@ -102,6 +103,69 @@ def parse_time(value):
 
 def file_hash(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def fingerprint(info):
+    return (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+
+def parent_fd(path):
+    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        root_info = os.fstat(fd)
+        if root_info.st_uid != 0 or root_info.st_gid != 0 or root_info.st_mode & 0o022:
+            raise ValueError("unsafe root ancestor")
+        walked = Path("/")
+        for part in path.parts[1:-1]:
+            walked /= part
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            info = os.fstat(child)
+            # Only the canonical Linux lock directory may be writable. Sticky
+            # root ownership protects existing root-owned entries, never creation.
+            sticky_lock = walked == Path("/run/lock") and stat.S_IMODE(info.st_mode) == 0o1777
+            if info.st_uid != 0 or info.st_gid != 0 or (info.st_mode & 0o022 and not sticky_lock):
+                os.close(child)
+                raise ValueError('unsafe parent')
+            os.close(fd)
+            fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
+OPERATION_LOCK = Path("/var/lib/home-lab/reconciliation/operation.lock")
+REBOOT_OWNER = Path("/var/lib/home-lab/reconciliation/apply.lock")
+HISTORICAL_OWNERS = (Path("/var/lib/home-lab/reconciliation/owner.lock"),
+                     Path("/var/lib/home-lab/reconciliation/nix.lock"))
+
+
+def acquire_mutexes(paths):
+    descriptors = []
+    try:
+        for path in paths:
+            parent = parent_fd(path)
+            try:
+                fd = os.open(path.name, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+                descriptors.append(fd)
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600:
+                    fail("mutex metadata differs")
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if fingerprint(info) != fingerprint(os.stat(path.name, dir_fd=parent, follow_symlinks=False)):
+                    fail("mutex pathname changed")
+            finally:
+                os.close(parent)
+        return descriptors
+    except BaseException:
+        for fd in descriptors:
+            os.close(fd)
+        raise
+
+
+def reject_owners():
+    if any(os.path.lexists(path) for path in (*LOCKS, *HISTORICAL_OWNERS)):
+        fail("conflicting lifecycle ownership is retained")
 
 
 def open_low_risk_lock():
@@ -326,31 +390,70 @@ def validate_package_plan(value, digest, allow_expired=False):
     return proposal
 
 
+def journal_directory(root):
+    # Provision only missing directories through validated, no-follow ancestry.
+    try:
+        parent = parent_fd(root)
+    except FileNotFoundError:
+        journal_directory(root.parent)
+        parent = parent_fd(root)
+    try:
+        try:
+            os.mkdir(root.name, 0o700, dir_fd=parent)
+        except FileExistsError:
+            pass
+        info = os.stat(root.name, dir_fd=parent, follow_symlinks=False)
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o700:
+            fail("transaction root is unsafe")
+        os.fsync(parent)
+    finally:
+        os.close(parent)
+
+
 def package_journal_path(digest):
     root = Path("/var/lib/home-lab/package-transactions")
-    root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    info = os.lstat(root)
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o700:
-        fail("package transaction root is unsafe")
+    journal_directory(root)
     return root / f"{digest}.json"
 
 
 def save_package_journal(path, value, exclusive=False):
     raw = canonical(value)
-    if exclusive:
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
-        try:
-            os.write(fd, raw); os.fsync(fd)
-        finally:
-            os.close(fd)
-        return
-    temporary = path.parent / f".{path.name}.{os.getpid()}.tmp"
-    fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    temporary = path.name if exclusive else f".{path.name}.{secrets.token_hex(16)}.tmp"
+    parent = parent_fd(path)
+    fd = None
     try:
-        os.write(fd, raw); os.fsync(fd)
+        # Callers may have just provisioned transaction directories. Persist every
+        # validated ancestry entry, including on continuation after a failed fsync.
+        for directory in reversed(path.parent.parents):
+            ancestor = parent_fd(directory / "entry")
+            try:
+                os.fsync(ancestor)
+            finally:
+                os.close(ancestor)
+        os.fsync(parent)
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        os.fchown(fd, 0, 0); os.fchmod(fd, 0o600)
+        with os.fdopen(os.dup(fd), "wb") as handle:
+            handle.write(raw); handle.flush(); os.fsync(handle.fileno())
+        if not exclusive:
+            os.replace(temporary, path.name, src_dir_fd=parent, dst_dir_fd=parent)
+        os.fsync(parent)
     finally:
-        os.close(fd)
-    os.replace(temporary, path)
+        try:
+            if fd is not None:
+                try:
+                    if not exclusive:
+                        try:
+                            named = os.stat(temporary, dir_fd=parent, follow_symlinks=False)
+                        except FileNotFoundError:
+                            named = None
+                        opened = os.fstat(fd)
+                        if named is not None and (named.st_dev, named.st_ino) == (opened.st_dev, opened.st_ino):
+                            os.unlink(temporary, dir_fd=parent); os.fsync(parent)
+                finally:
+                    os.close(fd)
+        finally:
+            os.close(parent)
 
 
 def verify_package_preconditions(proposal):
@@ -382,12 +485,18 @@ def verify_package_postconditions(proposal):
 
 
 def package_operation(value, digest, operation):
+    descriptors = acquire_mutexes((Path("/run/lock/home-lab-proxmox-package.lock"),))
+    try:
+        return package_locked(value, digest, operation)
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)
+
+
+def package_locked(value, digest, operation):
     proposal = validate_package_plan(value, digest, allow_expired=operation == "recover-package")
     if operation != "recover-package":
         verify_repo(value)
-    lock_path = "/run/lock/home-lab-proxmox-package.lock"
-    lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     journal_path = package_journal_path(digest)
     journal = json.loads(journal_path.read_bytes()) if journal_path.exists() else None
     if operation == "prepare-package":
@@ -965,33 +1074,20 @@ def boot_verify_state(journal, state):
 
 
 def acquire_boot_conflict_locks():
-    descriptors = []
-    for path in (LOW_RISK_LOCK, Path("/run/lock/home-lab-proxmox-package.lock"),
-                 Path("/run/lock/home-lab-proxmox-reboot.lock"), Path("/run/lock/home-lab-vfio-recovery.lock")):
-        descriptor = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != 0 or metadata.st_gid != 0 or metadata.st_nlink != 1:
-            os.close(descriptor)
-            fail("protected boot conflict lock metadata differs")
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except Exception:
-            os.close(descriptor)
-            for held in descriptors:
-                os.close(held)
-            raise
-        descriptors.append(descriptor)
-    return descriptors
+    # Same order as controller observation, held for the entire operation.
+    return acquire_mutexes((OPERATION_LOCK, Path("/run/lock/home-lab-vfio-recovery.lock"),
+                            Path("/run/lock/home-lab-backup.lock"), LOW_RISK_LOCK,
+                            BOOT_TRANSACTION_LOCK, Path("/run/lock/home-lab-proxmox-package.lock"),
+                            Path("/run/lock/home-lab-proxmox-reboot.lock")))
 
 
 def boot_operation(value, digest):
-    BOOT_TRANSACTION_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(BOOT_TRANSACTION_DIR, 0o700)
-    lock_fd = os.open(BOOT_TRANSACTION_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     conflict_locks = []
     try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         conflict_locks = acquire_boot_conflict_locks()
+        reject_owners()
+        BOOT_TRANSACTION_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(BOOT_TRANSACTION_DIR, 0o700)
         before = validate_boot_plan(value, digest)
         directory, journal_path = boot_transaction_paths(digest)
         if journal_path.exists():
@@ -1065,16 +1161,14 @@ def boot_operation(value, digest):
     finally:
         for descriptor in conflict_locks:
             os.close(descriptor)
-        os.close(lock_fd)
 
 
 def recover_boot(value, digest):
-    BOOT_TRANSACTION_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    lock_fd = os.open(BOOT_TRANSACTION_LOCK, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     conflict_locks = []
     try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         conflict_locks = acquire_boot_conflict_locks()
+        reject_owners()
+        BOOT_TRANSACTION_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
         validate_boot_plan(value, digest, allow_expired=True)
         directory, journal_path = boot_transaction_paths(digest)
         journal = json.loads(read_fixed(journal_path, 0, 0, 0o600, 65536))
@@ -1099,7 +1193,6 @@ def recover_boot(value, digest):
     finally:
         for descriptor in conflict_locks:
             os.close(descriptor)
-        os.close(lock_fd)
 
 
 def validate_boot_ownership_plan(value, digest):
@@ -1948,10 +2041,8 @@ def validate_reboot_plan(value, digest, allow_expired=False):
 
 
 def reboot_journal_path(digest):
-    root = Path("/var/lib/home-lab/reboot-transactions"); root.mkdir(mode=0o700, parents=True, exist_ok=True)
-    info = os.lstat(root)
-    if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or stat.S_IMODE(info.st_mode) != 0o700:
-        fail("reboot transaction root is unsafe")
+    root = Path("/var/lib/home-lab/reboot-transactions")
+    journal_directory(root)
     return root / f"{digest}.json"
 
 
@@ -1977,39 +2068,118 @@ def reboot_preconditions(expected):
     if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0:
         fail("target kernel image differs")
     for path in ("/var/lib/iac-ansible-production.lock", "/var/lib/home-lab/reconciliation/owner.lock",
-                 "/var/lib/home-lab/reconciliation/nix.lock", "/var/lib/home-lab/reconciliation/operation.lock",
+                 "/var/lib/home-lab/reconciliation/nix.lock",
                  "/var/lib/home-lab/firewall-transaction/active.json"):
         if os.path.lexists(path):
             fail("reboot conflict journal or lock exists")
     reboot_health()
 
 
+def reboot_owner_read():
+    parent = parent_fd(REBOOT_OWNER)
+    try:
+        fd = os.open(REBOOT_OWNER.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_gid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o600 or info.st_size > 4096:
+                fail("reboot owner metadata differs")
+            raw = os.read(fd, 4097)
+            if len(raw) != info.st_size or fingerprint(info) != fingerprint(os.fstat(fd)) or fingerprint(info) != fingerprint(os.stat(REBOOT_OWNER.name, dir_fd=parent, follow_symlinks=False)):
+                fail("reboot owner changed")
+            return raw, [info.st_dev, info.st_ino]
+        finally:
+            os.close(fd)
+    finally:
+        os.close(parent)
+
+
+def validate_reboot_owner(journal, digest, expected):
+    owner = journal.get("owner", {})
+    if set(owner) != {"format", "operation", "plan_sha256", "boot_id", "token"} or owner.get("format") != "home-lab-proxmox-reboot-owner-v1" or owner.get("operation") != "apply-reboot" or owner.get("plan_sha256") != digest or owner.get("boot_id") != expected["boot_id"] or not isinstance(owner.get("token"), str) or HEX64.fullmatch(owner["token"]) is None:
+        fail("reboot owner binding differs")
+    raw, identity = reboot_owner_read()
+    if raw != canonical(owner) or identity != journal.get("owner_identity"):
+        fail("reboot owner bytes or identity differ")
+
+
+def create_reboot_owner(journal, digest, expected):
+    owner = {"format": "home-lab-proxmox-reboot-owner-v1", "operation": "apply-reboot",
+             "plan_sha256": digest, "boot_id": expected["boot_id"], "token": secrets.token_hex(32)}
+    parent = parent_fd(REBOOT_OWNER)
+    try:
+        fd = os.open(REBOOT_OWNER.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
+        try:
+            os.fchown(fd, 0, 0); os.fchmod(fd, 0o600)
+            raw = canonical(owner)
+            with os.fdopen(os.dup(fd), "wb") as handle:
+                handle.write(raw); handle.flush(); os.fsync(handle.fileno())
+            info = os.fstat(fd)
+            journal["owner"] = owner; journal["owner_identity"] = [info.st_dev, info.st_ino]
+        finally:
+            os.close(fd)
+        os.fsync(parent)
+    finally:
+        os.close(parent)
+    validate_reboot_owner(journal, digest, expected)
+
+
+def release_reboot_owner(journal, digest, expected):
+    parent = parent_fd(REBOOT_OWNER)
+    try:
+        validate_reboot_owner(journal, digest, expected)
+        # Cooperating root writers serialize on operation.lock. No pathname
+        # unlink protocol can defend against an uncooperative privileged writer.
+        os.unlink(REBOOT_OWNER.name, dir_fd=parent); os.fsync(parent)
+    finally:
+        os.close(parent)
+
+
+def require_reboot_coordination():
+    # The installed VFIO writer currently releases its only shared descriptor
+    # before a queued reboot completes and does not honor retained apply.lock.
+    # No migrated/qualified executable and dependency binding exists yet.
+    fail("new reboot blocked: VFIO queued-reboot ownership protocol is unqualified")
+
+
 def reboot_operation(value, digest, operation):
+    descriptors = acquire_boot_conflict_locks()
+    try:
+        return reboot_locked(value, digest, operation)
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)
+
+
+def reboot_locked(value, digest, operation):
     expected = validate_reboot_plan(value, digest, allow_expired=operation == "verify-reboot")
     verify_repo(value, (
         "infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator",
         "scripts/controller/test-proxmox-boot-configuration-activation.py",
     ) if operation == "verify-reboot" else ())
-    conflict_locks = acquire_boot_conflict_locks()
-    if len(conflict_locks) != 4:
-        fail("reboot conflict lock acquisition differs")
-    path = reboot_journal_path(digest); journal = json.loads(path.read_bytes()) if path.exists() else None
+    if any(os.path.lexists(path) for path in (*LOCKS[1:], *HISTORICAL_OWNERS)):
+        fail("reboot conflicting owner retained")
+    path = reboot_journal_path(digest)
+    journal = json.loads(read_fixed(path, 0, 0, 0o600, 65536)) if os.path.lexists(path) else None
+    if operation != "verify-reboot" and os.path.lexists(REBOOT_OWNER):
+        fail("reboot ownership retained; reviewed verification or recovery required")
     if operation == "prepare-reboot":
         if journal is not None:
-            if journal.get("status") == "prepared": return {"reboot_transaction": "already-prepared", "plan_sha256": digest}
+            if journal.get("status") == "prepared" and journal.get("plan_sha256") == digest:
+                return {"reboot_transaction": "already-prepared", "plan_sha256": digest}
             fail("reboot transaction journal already exists")
         reboot_preconditions(expected)
         journal = {"automatic_reboot": False, "boot_id_before": expected["boot_id"], "format": "home-lab-proxmox-reboot-journal-v1",
                    "plan_sha256": digest, "status": "prepared", "target_kernel": expected["target_kernel"]}
         save_package_journal(path, journal, exclusive=True)
         return {"reboot_transaction": "prepared", "plan_sha256": digest}
-    if journal is None or journal.get("plan_sha256") != digest or journal.get("target_kernel") != expected["target_kernel"]:
+    if journal is None or journal.get("format") != "home-lab-proxmox-reboot-journal-v1" or journal.get("automatic_reboot") is not False or journal.get("plan_sha256") != digest or journal.get("target_kernel") != expected["target_kernel"] or journal.get("boot_id_before") != expected["boot_id"]:
         fail("reboot transaction journal differs")
-    if journal.get("status") == "committed":
-        return {"reboot_transaction": "already-committed", "plan_sha256": digest, "current_kernel": os.uname().release}
     if operation == "apply-reboot":
+        require_reboot_coordination()
         if journal.get("status") != "prepared": fail("reboot transaction is not prepared")
         reboot_preconditions(expected)
+        create_reboot_owner(journal, digest, expected)
+        journal["status"] = "stopping-workload"; save_package_journal(path, journal)
         native(("/usr/sbin/qm", "shutdown", "100", "--timeout", "120"), timeout=150)
         stopped = native(("/usr/sbin/qm", "status", "100"))
         if stopped.stdout.strip() != "status: stopped":
@@ -2018,11 +2188,21 @@ def reboot_operation(value, digest, operation):
         journal["status"] = "rebooting"; save_package_journal(path, journal)
         native(("/usr/bin/systemctl", "reboot"), timeout=30)
         return {"reboot_transaction": "initiated", "plan_sha256": digest}
-    if journal.get("status") != "rebooting" or Path("/proc/sys/kernel/random/boot_id").read_text().strip() == expected["boot_id"] or \
-            os.uname().release != expected["target_kernel"]:
+    if journal.get("status") not in {"rebooting", "committed"} or Path("/proc/sys/kernel/random/boot_id").read_text().strip() == expected["boot_id"] or os.uname().release != expected["target_kernel"]:
         fail("reboot postcondition differs")
-    reboot_health(); journal["status"] = "committed"; journal["boot_id_after"] = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    if journal["status"] == "committed" and journal.get("boot_id_after") != Path("/proc/sys/kernel/random/boot_id").read_text().strip():
+        fail("committed reboot boot identity differs")
+    retained = os.path.lexists(REBOOT_OWNER)
+    if retained:
+        validate_reboot_owner(journal, digest, expected)
+    elif journal["status"] != "committed":
+        fail("reboot owner missing before commit")
+    # Even a committed retry rechecks postboot evidence before removing a record.
+    reboot_health()
+    journal["status"] = "committed"; journal["boot_id_after"] = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
     save_package_journal(path, journal)
+    if retained:
+        release_reboot_owner(journal, digest, expected)
     return {"reboot_transaction": "committed", "plan_sha256": digest, "current_kernel": os.uname().release}
 
 
@@ -2033,8 +2213,18 @@ def main():
             request.get("operation") not in operations or not isinstance(request.get("plan_sha256"), str) or \
             HEX64.fullmatch(request["plan_sha256"]) is None:
         fail("deploy request differs")
-    if any(os.path.lexists(path) for path in LOCKS):
-        fail("conflicting lifecycle lock is active")
+    if request["operation"] in {"apply-boot-configuration", "recover-boot-configuration", "prepare-reboot", "apply-reboot", "verify-reboot"}:
+        return dispatch(request)
+    descriptors = acquire_mutexes((OPERATION_LOCK,))
+    try:
+        reject_owners()
+        return dispatch(request)
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)
+
+
+def dispatch(request):
     if request["operation"] == "inspect-boot-configuration":
         if request["plan_sha256"] != "0" * 64:
             fail("protected boot inspection request differs")

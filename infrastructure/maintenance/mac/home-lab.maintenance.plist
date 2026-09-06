@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>home-lab.maintenance</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>REVIEWED_ABSOLUTE_PYTHON</string><string>-I</string>
+    <string>PROTECTED_INSTALLED_LAUNCHER</string>
+    <string>--config</string><string>PROTECTED_CONFIG</string><string>--collect</string>
+  </array>
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>6</integer><key>Minute</key><integer>17</integer></dict>
+  <key>ProcessType</key><string>Background</string>
+  <key>LowPriorityIO</key><true/>
+  <key>Umask</key><integer>63</integer>
+</dict>
+</plist>

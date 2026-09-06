@@ -6,6 +6,7 @@ const fs = require("node:fs");
 const https = require("node:https");
 const path = require("node:path");
 const { load } = require("js-yaml");
+const { execFileSync } = require("node:child_process");
 
 const root = path.resolve(__dirname, "../..");
 const maxResponseBytes = 1024 * 1024;
@@ -45,7 +46,21 @@ function validateSource(source, product, observedEpoch, maxAgeDays) {
   return value;
 }
 
-function buildReport(contract, packageManifest, sources, observedAt) {
+function sourceBindings(contractRaw, manifestRaw) {
+  // Fixed read-only Git metadata only; disable filesystem-monitor execution and
+  // optional index writes. Dirty reports remain explicitly non-promotable.
+  const git = (args) => execFileSync("git", ["--no-optional-locks", "-c", "core.fsmonitor=false", ...args],
+    { cwd: root, encoding: "utf8", timeout: 5000, maxBuffer: maxResponseBytes });
+  return { source_commit: git(["rev-parse", "HEAD"]).trim(),
+    source_clean: git(["status", "--porcelain", "--untracked-files=all"]) === "",
+    contract_sha256: sha256(contractRaw), package_manifest_sha256: sha256(manifestRaw) };
+}
+
+function buildReport(contract, packageManifest, sources, observedAt, bindings) {
+  if (!bindings || Object.keys(bindings).sort().join() !== "contract_sha256,package_manifest_sha256,source_clean,source_commit" ||
+      !/^[a-f0-9]{40}$/.test(bindings.source_commit) || typeof bindings.source_clean !== "boolean" ||
+      !/^[a-f0-9]{64}$/.test(bindings.contract_sha256) ||
+      bindings.package_manifest_sha256 !== contract.proxmox.packages.manifest.sha256) throw new Error("release source binding unavailable");
   const policy = contract.lifecycle.maintenance.release_monitor;
   if (policy.automatic_apply !== false) throw new Error("release monitor cannot authorize mutation");
   const observedEpoch = parseTimestamp(observedAt, "observed_at");
@@ -100,8 +115,9 @@ function buildReport(contract, packageManifest, sources, observedAt) {
   warnings.sort();
   blockers.sort();
   return {
-    format: "home-lab-release-eol-report-v1",
-    version: 1,
+    format: "home-lab-release-eol-report-v2",
+    version: 2,
+    ...bindings,
     observed_at: observedAt,
     automatic_apply: false,
     status: blockers.length ? "blocking" : warnings.length ? "warning" : "healthy",
@@ -149,8 +165,13 @@ async function main() {
       !argumentsList.includes(item, Math.max(0, argumentsList.indexOf(item) - 1)))) {
     throw new Error("unsupported release report argument");
   }
-  const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/home-lab.yml"), "utf8"));
-  const packageManifest = JSON.parse(fs.readFileSync(path.join(root, contract.proxmox.packages.manifest.path), "utf8"));
+  const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
+  const contractRaw = fs.readFileSync(contractPath);
+  const contract = load(contractRaw.toString("utf8"));
+  const manifestPath = path.join(root, contract.proxmox.packages.manifest.path);
+  const manifestRaw = fs.readFileSync(manifestPath);
+  const packageManifest = JSON.parse(manifestRaw);
+  const bindings = sourceBindings(contractRaw, manifestRaw);
   let sources;
   if (fetch) {
     if (valueAfter("--debian-json") || valueAfter("--proxmox-json")) throw new Error("fetch and fixture inputs are mutually exclusive");
@@ -166,7 +187,9 @@ async function main() {
     sources = { debian: { raw: fs.readFileSync(path.resolve(debianPath)) }, proxmox: { raw: fs.readFileSync(path.resolve(proxmoxPath)) } };
   }
   const observedAt = valueAfter("--observed-at") ?? new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-  const report = buildReport(contract, packageManifest, sources, observedAt);
+  const after = sourceBindings(fs.readFileSync(contractPath), fs.readFileSync(manifestPath));
+  if (canonicalJson(after) !== canonicalJson(bindings)) bindings.source_clean = false;
+  const report = buildReport(contract, packageManifest, sources, observedAt, bindings);
   process.stdout.write(canonicalJson(report));
   if (report.status === "blocking") process.exitCode = 2;
 }
@@ -175,4 +198,4 @@ if (require.main === module) main().catch((error) => {
   process.stderr.write(`release-eol-report: ${error.message}\n`);
   process.exitCode = 1;
 });
-module.exports = { buildReport, canonicalJson, validateSource };
+module.exports = { buildReport, canonicalJson, validateSource, sourceBindings };

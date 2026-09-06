@@ -3,8 +3,8 @@
 `scripts/local-controller` is the public entry point for steady infrastructure reconciliation.
 
 ```bash
-scripts/local-controller plan steady
-scripts/local-controller apply steady
+scripts/local-controller plan steady --generation baseline-1
+scripts/local-controller apply steady --generation baseline-1
 ```
 
 Install the exact Ansible collection set before validation:
@@ -17,22 +17,22 @@ Validation refuses a missing or differently versioned pinned collection.
 
 The controller accepts only clean, committed revisions. Plan loads read-only credentials, validates the complete repository, creates commit-bound saved plans, runs policy checks, and displays the plans. Apply verifies those exact plans, requires the exact interactive confirmation, and loads separate mutation credentials only after confirmation.
 
-The `.reconcile/controller-apply.lock` file is a persistent descriptor mutex. Its existence and last-owner metadata do **not** establish an active transaction: `nix/proxmox/controller_lock.py` releases the lock by closing descriptors and intentionally leaves the inode and metadata in place. Inspect descriptor-lock contention without changing the file; never unlink it as stale-lock cleanup. Host owner journals and failed-operation receipts have separate recovery rules.
+The `.reconcile/controller-apply.lock` file is a persistent descriptor mutex. Its existence and last-owner metadata do **not** establish an active transaction: `scripts/controller/controller_lock.py` releases the lock by closing descriptors and intentionally leaves the inode and metadata in place. Inspect contention without changing the file; never unlink it as stale-lock cleanup. The runner loads reviewed Python source directly, not ignored bytecode caches. Host owner journals and failed-operation receipts have separate recovery rules.
 
-Proxmox mutation authority has transferred to Ansible, but this entrypoint still depends on the read-only Nix compatibility stage described below. Nix-free controller acceptance is not complete; see [the completion review](host-lifecycle-completion-review-2026-09-05.md).
+Proxmox mutation authority has transferred to Ansible. The active controller now uses neutral v6 manifests and a fixed, nonce-bound, audit-only Proxmox capability instead of a Nix runtime. Repository validation passes without Nix, but installation/policy/host-lock migration and revision-bound live qualification are still required before this path is accepted. Historical Nix sources remain rollback evidence, not an alternate enabled writer; see [the completion review](host-lifecycle-completion-review-2026-09-05.md).
 
 ## Saved plan boundary
 
-Plans are stored under `.reconcile/plans/<commit>/steady/`. The manifest binds:
+Plans are stored under `.reconcile/plans/<commit>/steady/<generation>/`. Every invocation requires an explicit lowercase alphanumeric/hyphen generation (1–64 characters). A failed or expired attempt is retained; choose a new generation at the same commit instead of deleting or overwriting its evidence. Apply must select the exact reviewed generation. The manifest binds:
 
 - the commit and backend identity;
 - every enabled OpenTofu plan file and SHA-256 value;
-- the canonical Proxmox Nix host plan and internal digest;
+- the complete neutral Proxmox audit, source/dependency hashes, host trust, scope, nonce and freshness;
 - the Compose artifact hash;
 - protected input hashes when present; and
 - Tailscale policy hashes and live ETag.
 
-Apply never substitutes a new plan. A VM-start prerequisite plan exits after the exact prerequisite action and requires a new reviewed plan before any later work.
+Apply never substitutes a new consumable plan. Read-only unrelated-root drift checks and final no-op verification plans remain safety checks, never replacement mutation plans. Legacy external-owner and VM-start prerequisite stages are explicitly rejected. The controller descriptor spans apply; the host descriptor locks cover only the immediate audit snapshot, not subsequent external-owner transactions. Those retain their own existing locks and exact transactions.
 
 ## Production authority
 
@@ -43,7 +43,7 @@ VM 100 accepts only Debian deployment authority. The controller no longer expose
 Success requires:
 
 - every enabled OpenTofu root at no-op;
-- a fresh zero-action Proxmox host plan;
+- a fresh locked, complete, zero-change Proxmox audit;
 - live Tailscale policy/state equality;
 - a zero-change Debian production audit; and
 - an exact Compose create simulation with builds and pulls disabled.
