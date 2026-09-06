@@ -164,6 +164,7 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-proxmox-controller-observer.py
   python3 scripts/controller/test-proxmox-controller-capability.py
   python3 scripts/controller/test-tailscale-access-evidence.py
+  env -i PATH="$PATH" python3 -I -B -S scripts/controller/test-proxmox-predecessor-console-evidence.py
   python3 scripts/controller/test-proxmox-capability-protocol.py
   python3 scripts/controller/test-controller-apply-lock.py
   python3 scripts/controller/test-proxmox-firewall-transaction.py

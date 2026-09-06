@@ -13,6 +13,8 @@ import tempfile
 import unittest
 
 REPOSITORY = Path(__file__).resolve().parents[2]
+CONSOLE_SUITE = "scripts/controller/test-proxmox-predecessor-console-evidence.py"
+CONSOLE_INVOCATION = f'  env -i PATH="$PATH" python3 -I -B -S {CONSOLE_SUITE}'
 
 
 class ReconcileSecurityTests(unittest.TestCase):
@@ -49,6 +51,8 @@ class ReconcileSecurityTests(unittest.TestCase):
                 self.assertEqual(
                     validation_lines.count(f"  python3 scripts/controller/{suite}"), 1
                 )
+        self.assertEqual(validation_lines.count(CONSOLE_INVOCATION), 1)
+        self.assertNotIn(f"  python3 {CONSOLE_SUITE}", validation_lines)
         for suite in ("test-maintenance-report.js", "test-maintenance-local-inputs.js", "test-maintenance-publish.js"):
             with self.subTest(suite=suite):
                 self.assertEqual(validation_lines.count(f"  node scripts/controller/{suite}"), 1)
@@ -57,6 +61,24 @@ class ReconcileSecurityTests(unittest.TestCase):
         for suite in ("test-normalize-ansible-plan.py", "test-tailscale-policy.py", "test-omada-host-alias.py"):
             with self.subTest(policy_suite=suite):
                 self.assertIn(f'python3 "$root/../../scripts/controller/{suite}"', policy.splitlines())
+
+    def test_console_registered_invocation_under_reconciler_environment(self) -> None:
+        lines = [line for line in self.reconciler.splitlines()
+                 if line.strip().endswith(CONSOLE_SUITE)]
+        self.assertEqual(lines, [CONSOLE_INVOCATION])
+        # Execute only the exact registered synthetic suite, never the reconciler
+        # or a host collector. The outer reconciler exports this PYTHON variable;
+        # inherited SSH/PYTHON context must not poison the confined test process.
+        environment = {"PATH": os.environ.get("PATH", os.defpath),
+                       "PYTHONDONTWRITEBYTECODE": "1",
+                       "PYTHONPATH": "/synthetic-untrusted",
+                       "SSH_CONNECTION": "synthetic-session"}
+        result = subprocess.run(["/bin/sh", "-ec", lines[0]], cwd=REPOSITORY,
+                                env=environment, capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("\nOK", result.stderr)
+        if os.uname().sysname == "Linux" and os.geteuid() == 0:
+            self.assertNotIn("skipped", result.stderr)
 
     def test_oauth_secret_is_supplied_through_protected_request_file(self) -> None:
         self.assertNotIn('-d "client_secret=$TAILSCALE_OAUTH_CLIENT_SECRET"', self.reconciler)

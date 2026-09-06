@@ -439,3 +439,129 @@ substitution cases and requires the exact `policy-structure` error. A mutation
 probe disabling structural validation passes the former matrix but fails the
 strengthened one. All 15 focused tests pass, including the isolated local OpenTofu
 fixture; these checks remain content-consistency evidence, not admission authority.
+
+## Bounded predecessor console measurement slice (offline source only)
+
+`infrastructure/proxmox-access/host/proxmox-predecessor-console-evidence.py` is
+an offline-developed, **non-authorizing** fixed-asset collector. Live execution
+has not been approved. It does not implement the aborted draft predecessor
+protocol, approve a profile, issue a receipt, attest physical presence, install
+anything or enable any consumer. Strict access v1, the imported Tailscale
+diagnostic, transports, sudo, installers, gates and scheduling are unchanged.
+The output is a distinct `home-lab-proxmox-predecessor-console-measurement-v1`
+object; even manually flipped authority flags do not satisfy strict v1.
+
+The fixed invocation shape is `/usr/bin/python3 -I -B -S <reviewed-source>
+--challenge <64-lowercase-hex-characters>`, not a live execution instruction.
+The shebang uses the combined `-IBS` argument. Linux, real/effective UID zero,
+that interpreter spelling, actual isolated/no-site/no-bytecode flags and absence
+of SSH/PYTHON environment indicators are required. No catalog, root, path,
+expected-hash, output-file or console-bypass argument exists. Unknown/malformed
+arguments refuse without echoing them. Startup/dependency installation remains
+unqualified; source/interpreter self-hashes would not attest execution, and none
+are presented as such.
+
+The local guard requires a foreground controlling TTY, matching no-follow named
+and descriptor identity, and Linux major 4 `/dev/tty1`–`/dev/tty63` or conventional
+`/dev/ttyS0`–`/dev/ttyS3`. It rejects generic PTYs, non-TTY stdin, `/dev/console`
+aliases, USB serial and SSH indicators; there is no WebShell/SSH support promise.
+This conservative kernel check is **not** proof of independent physical presence,
+channel, login origin or host identity. A privileged caller can fake execution
+or route a console; independent console-origin qualification stays a blocker.
+
+### Fixed source-grounded catalog, not an approved byte profile
+
+All public files are root:root, regular, single-link, at most 1 MiB. The collector
+measures metadata and SHA-256 only; it never imports or executes these files:
+
+- `proxmox-observer`, `proxmox-protected-collector`,
+  `proxmox-package-candidate-observer`, `proxmox-ansible-plan-transport` and
+  `proxmox-ansible-deploy-activator` under `/usr/local/libexec/home-lab`, mode 0755:
+  the capability transaction's fixed `TARGETS` predecessor subset and controller
+  artifact map (`build-proxmox-ansible-observer.js`). The new controller observer
+  is deliberately omitted: requiring it would recreate the bootstrap cycle.
+- `proxmox-firewall-transaction` and `proxmox-firewall-transport` in that same
+  directory, mode 0755: firewall fixed constants, deploy-upgrade source target
+  map/metadata checks and final-key-retirement fixed transport metadata.
+- `/etc/sudoers.d/ansible-plan` and `/etc/sudoers.d/firewall-apply`, mode 0440:
+  transaction target and contract account sudo file declarations. No `visudo`
+  execution or semantic sudo validation is claimed.
+
+Prerequisites are existing protected root:root directory ancestry,
+`/var/lib/home-lab/reconciliation`, and the firewall helper's exact mode-0700
+`/var/lib/home-lab/firewall-transaction`. Missing runtime is a refusal, never a
+call to firewall `ensure_dir()` or `main()`: even its inspect entry can create
+missing runtime before inspection. This snapshot does **not** authorize later
+firewall inspect. An existing root:root single-link regular `operation.lock` in
+reconciliation, mode 0600/0640 as in the controller observer, is limited to 4 KiB
+and exclusively flocked nonblocking through every measurement/recheck. Its bytes
+are never read. No domain/APT lock or universal writer exclusion is claimed.
+
+The firewall's `attestation.key` is included solely to expose the signing
+prerequisite's safe **metadata**, mode 0600, at most 128 bytes (the source reader
+bound), using Linux `O_PATH`. Its value is never opened for reading, hashed or
+emitted; this does not validate the helper's required 32-byte key value. No other
+secret/runtime-value files, keys, shadow, accounts, NSS, environment values,
+service state, proc/sys identity, repository or dynamic path inventory is read.
+
+Every shape of reconciliation `apply.lock`, `owner.lock`, `nix.lock`,
+`/var/lib/iac-ansible-production.lock` or firewall `active.json` is a blanket
+refusal. No retained bytes, PID, age, token or matching hash are read/adopted;
+inspection errors do not establish absence. All ancestry and file FDs are
+no-follow, retained and rechecked against their names. Only validated regular
+public files receive nonblocking bounded content reads; exact hashes and
+metadata are rechecked before returning. Symlinks, hardlinks, special files,
+unsafe ownership/modes, missing/replaced objects and ambiguous errors refuse.
+There are no writable-ancestor exceptions in this catalog, including sticky
+ones, and no mkdir/chmod/chown/repair/cleanup by the collector.
+
+Output is one canonical JSON object on stdout, at most 16 KiB. Exit zero and
+`status:measured` mean only that this bounded slice was measured, never a complete
+audit or readiness. Every result has `authorized:false`, `admission_eligible:false`,
+`origin:unqualified-console` and permanent console-origin, execution,
+independent-profile, host-binding, account/key-inventory, runtime/dependency and
+freshness/recovery blockers. Refusals contain no partial asset evidence, exception
+text, arbitrary argument or file body. No timestamp lifetime, expiry exception,
+automatic retry/recovery or later authorization is inferred from the challenge.
+Hashes are measurements for later comparison with separately approved expected
+bytes, not self-adopted profiles or proof of executing those bytes.
+
+The operation flock serializes cooperating writers only. Repeated byte/name/
+metadata checks are not an atomic filesystem snapshot or protection against an
+uncooperative privileged writer; read atime effects are possible. Remaining gaps
+include all account/group/password/key absence, independent host keys/identity,
+legacy/helper/profile coverage, deploy transport/sudo, firewall policy/boot units/
+recovery assets, protected runtime values, domain/APT mutex provisioning, installed
+callers/dependency closure and runtime qualification. Omitted paths must not be
+inferred absent or safe. This first slice does not complete predecessor admission.
+
+The focused `test-proxmox-predecessor-console-evidence.py` exercises real CLI
+refusals and main-entry fixed reads, metadata/hashes, sentinel non-disclosure,
+missing/hostile files and ancestry, replacements, error injection and unchanged
+strict-v1 rejection. Confined Linux tests use disposable child chroots and real
+conflicting flock holders, release/retained-owner cases and actual controlling
+PTY rejection. Positive fixtures substitute only terminal identity and the cached
+image's `/usr/local/bin/python3` interpreter spelling: **neither is hardware-console
+or installed interpreter qualification**. Mac skips are not Linux evidence.
+The suite and registration guard are wired into authoritative validation;
+full parent Nix-free validation and completed independent review now pass;
+no live collection, credentials, provider/package downloads or service changes
+are part of this source slice.
+
+The original writer failed on a WebSocket error after preserving `c69d8d5`.
+Parent verified the exact candidate and source-only archive and reproduced all
+12 original confined Linux tests. The subsequent review was aborted; its notes
+are useful findings, not completed approval. Parent strengthened the startup
+negatives to require exact interpreter/root/console reasons and forbid collection
+after PTY/non-TTY/root refusal. Separate 128/129-byte key and 4096/4097-byte mutex
+cases now check their own boundaries without reading or hashing either object.
+The collector implementation remains unchanged. Completed review of `6f517fe`
+closed both test findings but blocked plain-Python registration: its flags and
+inherited `PYTHONDONTWRITEBYTECODE` made native positive fixtures fail. Registration
+now uses `env -i PATH="$PATH" python3 -I -B -S`, with an exact guard and a regression
+executing that extracted command under synthetic SSH/PYTHON contamination.
+Parent reproduced the old failure and verified the corrected registered entry
+and all 13 native tests without skips. Five mutation probes detect removed
+interpreter/root/console guards and widened key/mutex size limits. Completed
+follow-up review of `779a2d4` found no issues and closed the registration blocker.
+These are bounded source-integration results, not permission to collect on a host.
