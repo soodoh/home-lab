@@ -42,6 +42,7 @@ class ReconcileSecurityTests(unittest.TestCase):
             "test-maintenance-read-only-capability.py",
             "test-local-controller-generations.py",
             "test-proxmox-controller-capability.py",
+            "test-tailscale-access-evidence.py",
             "test-proxmox-capability-protocol.py",
         ):
             with self.subTest(suite=suite):

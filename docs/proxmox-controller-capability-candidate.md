@@ -289,3 +289,153 @@ The original workflow failed on unsupported `acceptanceReport.nativeEvidence`; i
 failure was not rewritten as approval. After artifact recovery, a separate independent
 review of `2594ed4` found no issues and approved bounded offline source integration.
 Installed qualification, gate removal and live operations remain unauthorized.
+
+## Offline imported Tailscale content diagnostic and remaining limits
+
+`scripts/controller/tailscale-access-evidence.py` is the first **non-authorizing**
+semantic diagnostic for future capability-only predecessor work. It does not
+implement that protocol, acceptance, collection, a receipt, console attestation,
+freshness, a generation, staging, repair or a blob/attempt store. Strict access v1,
+all existing consumers and all installation/deployment/VFIO gates are unchanged.
+Even a content-consistent result with its flags manually flipped is rejected by
+the unchanged strict capability v1 validator; this is a distinct format, not an
+alternate receipt. The suite is registered in authoritative validation and its
+registration guard; full parent Nix-free validation passes after integration.
+
+Supply all six existing private files explicitly, using absolute, non-symlink
+paths; there is no stdin, latest-file selection or discovery:
+
+```text
+/usr/bin/python3 -I -B -S scripts/controller/tailscale-access-evidence.py \
+  --plan /PRIVATE/decoded-plan.json \
+  --live-before /PRIVATE/imported-before-policy.json \
+  --live-after /PRIVATE/imported-after-policy.json \
+  --headers-before /PRIVATE/imported-before-headers \
+  --headers-after /PRIVATE/imported-after-headers \
+  --expected-policy /PRIVATE/separately-selected-policy.json \
+  --expected-sha256 <explicit-lowercase-sha256-of-selected-exact-policy-bytes>
+```
+
+The executable shebang is fixed `/usr/bin/python3 -IBS` (one correctly combined
+kernel shebang argument); missing isolation, no-site or no-bytecode flags refuse.
+The helper is loaded from the adjacent fixed reviewed
+`tailscale-policy.py` **source bytes**, checked against its pinned SHA-256 and
+compiled directly, never via ignored/unchecked bytecode or an input-selected
+module. Python path/home/startup environment injection is excluded by actual
+isolated CLI tests; startup site loading and bytecode writes are disabled before
+script execution. Installed interpreter, standard libraries, source deployment
+and runtime dependency closure remain **unqualified**. The
+running script cannot certify the origin of its own interpreter/executing bytes.
+Source and helper descriptors are checked during this invocation, not attested.
+
+Output is one bounded canonical JSON object (sorted keys, compact UTF-8, terminal
+newline), format `home-lab-tailscale-access-diagnostic-v1`, always
+`authorized:false`, `admission_eligible:false`, `origin:unqualified-import`.
+Exit 0 means **only imported content consistency**; refusal is exit 1. No raw
+plan, policy, ETag, provider expression, credential, pathname or exception text is
+emitted. Diagnostics include exact recomputed SHA-256 and byte size for every
+fully bounded input set, plus canonical semantic policy and ETag hashes on
+success. Unsafe/unreadable/oversized input sets are not partially hashed into a
+successful diagnostic. Error codes are fixed and bounded, including argument
+errors. Hashes are identifiers, not proofs of provenance (and can still be
+sensitive correlators); retain output appropriately.
+
+Four permanent blockers remain on **every** result: binary-to-JSON linkage,
+live-collection origin, execution qualification and independent policy-review
+provenance. Neither filenames nor imported plan timestamps prove any of these.
+The diagnostic accepts no binary and runs no Tofu/SSH/HTTP/OAuth/Ansible/controller
+or other subprocess/network operation. It cannot establish that the bodies were
+live, that a binary produced the JSON, that policy selection was independently
+approved, or that execution was qualified. The explicit expected digest prevents
+substituting different selected bytes; calculating it yourself does **not**
+self-approve a policy. No API policy tests or live denial canaries are run.
+
+### Bounded semantic subset
+
+- Strict UTF-8 JSON objects reject duplicate keys, BOMs, invalid Unicode,
+  NaN/Infinity, floats, integers outside signed 64-bit range and wrong field
+  types. The decoded plan is at most 2 MiB; each of the three policy bodies is
+  at most 256 KiB; each header file is at most 16 KiB; total imported bytes are
+  at most 3 MiB. JSON depth is at most 48 and the aggregate parse budget is
+  100,000 nodes, including object keys and reparsed embedded policy strings.
+  Bounds refuse rather than truncate. Diagnostics are below 4 KiB in the tests.
+- Accepted plan structure is grounded in local OpenTofu 1.12.5 decoded JSON,
+  format 1.2 (1.11/1.12 version markers are syntax only, not qualifications).
+  Exactly one managed root `terraform_data.tailscale_policy[0]` must use the
+  builtin `terraform.io/builtin/terraform`, index/schema version integer zero,
+  and actions exactly `["no-op"]`. Resource changes, planned values, prior-state
+  values and root configuration must agree; module aliases, moves/imports,
+  additional/disabled/missing resources, drift, deferred work, unknown/incomplete
+  values, errors, sensitive/unknown shape changes and non-noop actions refuse.
+  The reviewed root has no outputs: any output entry/change is unsupported and
+  refuses, even if labelled no-op. Configuration expressions support the observed
+  HCL local-policy/count references or the constant synthetic fixture shape, not
+  arbitrary expression evaluation. This is not configuration/source provenance.
+- Complete before/after resource values must match, including ID, input, output
+  and null `triggers_replace`; resource output must equal input. Each original
+  embedded `policy_json` string must match its own embedded `policy_sha256`,
+  separately from canonical semantic hashing. The real reviewed helper parses
+  and extracts both policies and canonicalizes them; canonical before, after,
+  both imported bodies and the independently selected expected policy must all
+  agree.
+- The helper is supplemented with a deliberately narrow structural check for
+  the reviewed `tagOwners`, `grants`, `ssh`, `tests`, `sshTests` subset: nonempty
+  string lists, TCP ports, accept SSH actions and well-formed accept/deny test
+  entries with no overlapping outcomes. Unsupported policy features refuse.
+  This is not a full Tailscale selector/API validator, policy approval, an API
+  test runner, or proof that grants and SSH rules enforce the stated tests.
+- Headers must describe one CRLF-terminated HTTP/1.0, HTTP/1.1 or HTTP/2 **200**
+  response with JSON content type and one nonempty strong ASCII quoted ETag.
+  Both ETags must match exactly. Duplicate header names (even identical values),
+  multiple responses, redirects/errors, folding, controls, weak/conflicting
+  ETags, compression/transfer encoding and mismatched content length refuse.
+  This is a conservative imported decoded-body subset, not an HTTP client.
+- The exact unused root `tailscale` provider-config entry is the sole bounded
+  **opaque** exception (nonempty object, at most 16 KiB within all JSON bounds,
+  no alias/module markers). Extra provider keys or any resource/config reference
+  to it refuse. Its metadata, version, expressions, behavior and dependency
+  closure are **not verified**; this limitation is explicit in output. The
+  builtin-only native fixture does not observe this entry. Tests adding it use
+  synthetic metadata, not an observed production-shaped plan. No provider
+  download or live-root plan is used to bridge this gap.
+
+### Private-file and offline test boundary
+
+Inputs must already be owned by the invoking UID, mode 0400/0600, regular and
+single-link. Every path component is opened no-follow with retained directory
+FDs. Ancestry must be root/invoker-owned and not group/other writable, with only
+canonical root-owned 1777 `/tmp` or `/private/tmp` exceptions. Symlinks (including
+ancestors), FIFOs, hardlinks, unsafe modes and missing files refuse. Files are
+bounded-read through nonblocking descriptors; named inode/metadata and exact
+content are rechecked after reads and before output, including script/helper
+sources. The diagnostic never creates, chmods, truncates, unlinks or repairs
+inputs. It does not provide a simultaneous filesystem snapshot or protection
+against an uncooperative privileged writer/interpreter. Normal filesystem read
+access-time effects are not an attestation or a mutation transaction.
+
+`test-tailscale-access-evidence.py` covers actual CLI output parsed as JSON and
+rejected by the unchanged strict v1 validator (also with flags flipped), actual
+policy helper semantics, hostile plan/policy/header cases, bounds/redaction,
+private-file attacks and retained input/source/helper replacement, unchecked-hash
+bytecode and ambient Python injection, and no diagnostic filesystem writes.
+One native local test runs existing OpenTofu with builtin `terraform_data` only,
+backend disabled, refresh disabled, an empty provider mirror, checkpoint
+network checks disabled and macOS `sandbox-exec` denying all network operations.
+It hand-writes wholly synthetic disposable state,
+performs **no apply/import**, plans/decodes only that fixture and checks unchanged
+synthetic state bytes. Its CLI result retains all unqualified-import blockers.
+If local Tofu or the macOS network-denial sandbox is unavailable this case skips
+explicitly; synthetic parser fixtures remain separate, never substituted
+binary/collector provenance. The observed
+local run used OpenTofu 1.12.5 and passed without skips. No production model,
+credentials, host/API contact, Docker container, provider install/download or
+live planning was used. Neither this test nor the diagnostic qualifies a future
+collector, predecessor protocol, installed execution, review authority or access
+admission; those remain separately approved work.
+
+The independent review of `74d637c` approved this bounded diagnostic scope and
+identified a P2 structural-policy test weakness. Parent separated structural and
+substitution cases and requires the exact `policy-structure` error. A mutation
+probe disabling structural validation passes the former matrix but fails the
+strengthened one. All 15 focused tests pass, including the isolated local OpenTofu
+fixture; these checks remain content-consistency evidence, not admission authority.
