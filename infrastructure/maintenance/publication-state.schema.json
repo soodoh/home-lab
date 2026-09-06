@@ -1,0 +1,104 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:home-lab:synthetic-only:publication-state:v1",
+  "title": "Synthetic-only non-operational maintenance publication model input",
+  "description": "All storage, execution, outcome and clock assertions are synthetic test inputs, never operational evidence. Structural validation is supplemented by bounded semantic and cryptographic verification.",
+  "$ref": "#/definitions/input",
+  "definitions": {
+    "hash": {"type":"string","pattern":"^[a-f0-9]{64}$"},
+    "id": {"type":"string","pattern":"^[a-z0-9][a-z0-9-]{0,63}$"},
+    "ms": {"type":"integer","minimum":0,"maximum":4102444800000},
+    "number": {"type":"integer","minimum":1,"maximum":100000000},
+    "signature": {"type":"string","pattern":"^[A-Za-z0-9+/]{86}==$"},
+    "time": {"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "nullableHash": {"anyOf":[{"$ref":"#/definitions/hash"},{"type":"null"}]},
+    "nullableTime": {"anyOf":[{"$ref":"#/definitions/time"},{"type":"null"}]},
+    "flags": {
+      "type":"object","additionalProperties":false,
+      "required":["authorized","automatic_apply","automatic_reboot","automatic_retry_allowed","admission_enabled","live_send_enabled"],
+      "properties":{"authorized":{"const":false},"automatic_apply":{"const":false},"automatic_reboot":{"const":false},"automatic_retry_allowed":{"const":false},"admission_enabled":{"const":false},"live_send_enabled":{"const":false}}
+    },
+    "registry": {
+      "type":"array","maxItems":50,
+      "items":{"type":"object","additionalProperties":false,"required":["dedup_key","issue_number","content_sha256"],"properties":{"dedup_key":{"$ref":"#/definitions/hash"},"issue_number":{"$ref":"#/definitions/number"},"content_sha256":{"$ref":"#/definitions/hash"}}}
+    },
+    "trust": {
+      "type":"object","additionalProperties":false,
+      "required":["repository","source_commit","contract_sha256","public_key_pem","public_key_sha256"],
+      "properties":{"repository":{"const":"soodoh/home-lab"},"source_commit":{"type":"string","pattern":"^[a-f0-9]{40}$"},"contract_sha256":{"$ref":"#/definitions/hash"},"public_key_pem":{"type":"string","maxLength":256},"public_key_sha256":{"$ref":"#/definitions/hash"}}
+    },
+    "profile": {
+      "type":"object","additionalProperties":false,
+      "required":["format","identity","epoch","independent","elapsed_supported","max_width_ms","max_elapsed_ms","drift_ms"],
+      "properties":{"format":{"const":"synthetic-only-non-operational-elapsed-profile-v1"},"identity":{"$ref":"#/definitions/id"},"epoch":{"$ref":"#/definitions/id"},"independent":{"type":"boolean"},"elapsed_supported":{"type":"boolean"},"max_width_ms":{"type":"integer","minimum":1,"maximum":1000},"max_elapsed_ms":{"type":"integer","minimum":1,"maximum":1000},"drift_ms":{"type":"integer","minimum":0,"maximum":100}}
+    },
+    "pins": {
+      "type":"object","additionalProperties":false,
+      "required":["epoch","store_identity","genesis_sha256","publication_trust","state_public_key_pem","state_public_key_sha256","profile"],
+      "properties":{"epoch":{"$ref":"#/definitions/id"},"store_identity":{"$ref":"#/definitions/id"},"genesis_sha256":{"$ref":"#/definitions/hash"},"publication_trust":{"$ref":"#/definitions/trust"},"state_public_key_pem":{"type":"string","maxLength":256},"state_public_key_sha256":{"$ref":"#/definitions/hash"},"profile":{"anyOf":[{"$ref":"#/definitions/profile"},{"type":"null"}]}}
+    },
+    "clock": {
+      "type":"object","additionalProperties":false,
+      "required":["format","profile","epoch","execution","challenge","stage","predecessor","independent","elapsed_supported","reset","resumed","lower_ms","upper_ms","elapsed_start_ms","elapsed_end_ms"],
+      "properties":{"format":{"const":"synthetic-only-non-operational-time-check-v1"},"profile":{"$ref":"#/definitions/id"},"epoch":{"$ref":"#/definitions/id"},"execution":{"$ref":"#/definitions/id"},"challenge":{"$ref":"#/definitions/hash"},"stage":{"enum":["admission","provenance-sign","companion-sign","plan","heartbeat-sign","heartbeat-plan","progress-sign","initiation","outcome-sign"]},"predecessor":{"$ref":"#/definitions/hash"},"independent":{"type":"boolean"},"elapsed_supported":{"type":"boolean"},"reset":{"type":"boolean"},"resumed":{"type":"boolean"},"lower_ms":{"$ref":"#/definitions/ms"},"upper_ms":{"$ref":"#/definitions/ms"},"elapsed_start_ms":{"$ref":"#/definitions/ms"},"elapsed_end_ms":{"$ref":"#/definitions/ms"}}
+    },
+    "checks": {"type":"array","minItems":1,"maxItems":4,"items":{"$ref":"#/definitions/clock"}},
+    "values": {
+      "type":"object","additionalProperties":false,
+      "properties":{
+        "install":{"type":"integer","minimum":0,"maximum":100000000},"upgrade":{"type":"integer","minimum":0,"maximum":100000000},"downgrade":{"type":"integer","minimum":0,"maximum":100000000},"remove":{"type":"integer","minimum":0,"maximum":100000000},"metadata_age_seconds":{"type":"integer","minimum":0,"maximum":100000000},
+        "transaction_sha256":{"$ref":"#/definitions/hash"},"candidate_semantics_sha256":{"$ref":"#/definitions/hash"},"unsafe_apt":{"type":"boolean"},"incomplete_sizes":{"type":"boolean"},"active_locks":{"type":"boolean"},"required":{"type":["boolean","null"]},"backup_proven":{"const":false},
+        "current":{"type":"string","pattern":"^[0-9][a-zA-Z0-9.+:~_-]{0,63}$"},"latest":{"type":"string","pattern":"^[0-9][a-zA-Z0-9.+:~_-]{0,63}$"},"major":{"type":"integer","minimum":0,"maximum":999},"maintained":{"type":"boolean"},"eol":{"anyOf":[{"type":"null"},{"type":"string","pattern":"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}]},"source_sha256":{"$ref":"#/definitions/hash"},"source_generated_at":{"$ref":"#/definitions/time"},
+        "cloud_image":{"$ref":"#/definitions/coverage"},"standalone_tools":{"$ref":"#/definitions/coverage"},"ansible_collections":{"$ref":"#/definitions/coverage"},"opentofu_providers":{"$ref":"#/definitions/coverage"},"items":{"type":"array","maxItems":20,"items":{"type":"object","additionalProperties":false,"required":["major","issue_number"],"properties":{"major":{"type":"integer","minimum":1,"maximum":999},"issue_number":{"$ref":"#/definitions/number"}}}},"issue_number":{"$ref":"#/definitions/number"}
+      }
+    },
+    "coverage":{"type":"object","additionalProperties":false,"required":["covered","sha256"],"properties":{"covered":{"type":"boolean"},"sha256":{"$ref":"#/definitions/hash"}}},
+    "entry": {
+      "type":"object","additionalProperties":false,
+      "required":["host","topic","dedup_key","freshness","observed_at","expires_at","input_sha256","evidence_sha256","provenance","status","detail","values","authorized","automatic_apply","automatic_reboot","automatic_retry_allowed"],
+      "properties":{"host":{"enum":["debian","proxmox"]},"topic":{"enum":["package","reboot","release","pins","migrations","migration"]},"dedup_key":{"$ref":"#/definitions/hash"},"freshness":{"enum":["fresh","stale","missing","invalid"]},"observed_at":{"$ref":"#/definitions/nullableTime"},"expires_at":{"$ref":"#/definitions/nullableTime"},"input_sha256":{"$ref":"#/definitions/nullableHash"},"evidence_sha256":{"$ref":"#/definitions/nullableHash"},"provenance":{"enum":[null,"attestation-only","challenge-verified","reviewed-local-input","failed-collection"]},"status":{"enum":["blocked","failed","stale","missing","invalid"]},"detail":{"enum":["input-missing","input-stale","input-invalid","capability-unavailable","prerequisite-invalid","transport-failed","invalid-output","collection-interrupted","apt-metadata-stale","exact-impact-review-required","reboot-separate-plan-required","reboot-observation-unknown","observation-only","release-review-required","pin-review-required","manual-migration-review-required"]},"values":{"$ref":"#/definitions/values"},"authorized":{"const":false},"automatic_apply":{"const":false},"automatic_reboot":{"const":false},"automatic_retry_allowed":{"const":false}}
+    },
+    "report": {
+      "type":"object","additionalProperties":false,
+      "required":["format","source_commit","contract_sha256","observed_at","expires_at","complete","entries","report_sha256","authorized","automatic_apply","automatic_reboot","automatic_retry_allowed"],
+      "properties":{"format":{"const":"home-lab-maintenance-collection-v1"},"source_commit":{"type":"string","pattern":"^[a-f0-9]{40}$"},"contract_sha256":{"$ref":"#/definitions/hash"},"observed_at":{"$ref":"#/definitions/time"},"expires_at":{"$ref":"#/definitions/time"},"complete":{"type":"boolean"},"entries":{"type":"array","minItems":10,"maxItems":50,"items":{"$ref":"#/definitions/entry"}},"report_sha256":{"$ref":"#/definitions/hash"},"authorized":{"const":false},"automatic_apply":{"const":false},"automatic_reboot":{"const":false},"automatic_retry_allowed":{"const":false}}
+    },
+    "provenance": {
+      "type":"object","additionalProperties":false,
+      "required":["format","repository","source_commit","contract_sha256","issued_at","expires_at","collector","workflow_artifact","report_sha256","registry_sha256"],
+      "properties":{"format":{"const":"home-lab-maintenance-publication-provenance-v1"},"repository":{"const":"soodoh/home-lab"},"source_commit":{"type":"string","pattern":"^[a-f0-9]{40}$"},"contract_sha256":{"$ref":"#/definitions/hash"},"issued_at":{"$ref":"#/definitions/time"},"expires_at":{"$ref":"#/definitions/time"},"collector":{"const":"existing-mac"},"workflow_artifact":{"const":false},"report_sha256":{"$ref":"#/definitions/hash"},"registry_sha256":{"$ref":"#/definitions/hash"}}
+    },
+    "envelope":{"type":"object","additionalProperties":false,"required":["report","registry","provenance","signature"],"properties":{"report":{"$ref":"#/definitions/report"},"registry":{"$ref":"#/definitions/registry"},"provenance":{"$ref":"#/definitions/provenance"},"signature":{"$ref":"#/definitions/signature"}}},
+    "companion": {
+      "type":"object","additionalProperties":false,"required":["material","signature"],
+      "properties":{"signature":{"$ref":"#/definitions/signature"},"material":{"type":"object","additionalProperties":false,"required":["format","flags","repository","source_commit","contract_sha256","epoch","generation","state_sha256","registry_sha256","provenance_sha256","signature_sha256","intake_id","admission_expires_ms","expires_ms"],"properties":{"format":{"const":"synthetic-only-non-operational-publication-companion-v1"},"flags":{"$ref":"#/definitions/flags"},"repository":{"const":"soodoh/home-lab"},"source_commit":{"type":"string","pattern":"^[a-f0-9]{40}$"},"contract_sha256":{"$ref":"#/definitions/hash"},"epoch":{"$ref":"#/definitions/id"},"generation":{"type":"integer","minimum":0,"maximum":127},"state_sha256":{"$ref":"#/definitions/hash"},"registry_sha256":{"$ref":"#/definitions/hash"},"provenance_sha256":{"$ref":"#/definitions/hash"},"signature_sha256":{"$ref":"#/definitions/hash"},"intake_id":{"$ref":"#/definitions/id"},"admission_expires_ms":{"$ref":"#/definitions/ms"},"expires_ms":{"$ref":"#/definitions/ms"}}}}
+    },
+    "slot":{"type":"object","additionalProperties":false,"required":["dedup_key","observed_at","expires_at","freshness","status"],"properties":{"dedup_key":{"$ref":"#/definitions/hash"},"observed_at":{"$ref":"#/definitions/nullableTime"},"expires_at":{"$ref":"#/definitions/nullableTime"},"freshness":{"enum":["fresh","stale","missing","invalid"]},"status":{"enum":["blocked","failed","stale","missing","invalid"]}}},
+    "heartbeat": {
+      "type":"object","additionalProperties":false,
+      "required":["format","flags","epoch","generation","state_sha256","checked_at_ms","expires_ms","last_acceptance_sha256","classification","slots"],
+      "properties":{"format":{"const":"synthetic-only-non-operational-publisher-heartbeat-v1"},"flags":{"$ref":"#/definitions/flags"},"epoch":{"$ref":"#/definitions/id"},"generation":{"type":"integer","minimum":0,"maximum":127},"state_sha256":{"$ref":"#/definitions/hash"},"checked_at_ms":{"$ref":"#/definitions/ms"},"expires_ms":{"$ref":"#/definitions/ms"},"last_acceptance_sha256":{"$ref":"#/definitions/nullableHash"},"classification":{"enum":["never-received","stale","partial/failed","within-recorded-deadline"]},"slots":{"type":"array","maxItems":50,"items":{"$ref":"#/definitions/slot"}}}
+    },
+    "genesis":{"type":"object","additionalProperties":false,"required":["registry","heartbeat_issue_number","clock_floor_ms","profile_sha256"],"properties":{"registry":{"$ref":"#/definitions/registry"},"heartbeat_issue_number":{"$ref":"#/definitions/number"},"clock_floor_ms":{"$ref":"#/definitions/ms"},"profile_sha256":{"$ref":"#/definitions/hash"}}},
+    "candidate":{"type":"object","additionalProperties":false,"required":["execution","checks","envelope","companion"],"properties":{"execution":{"$ref":"#/definitions/id"},"checks":{"$ref":"#/definitions/checks"},"envelope":{"$ref":"#/definitions/envelope"},"companion":{"$ref":"#/definitions/companion"}}},
+    "heartbeatIntent":{"type":"object","additionalProperties":false,"required":["execution","checks","statement"],"properties":{"execution":{"$ref":"#/definitions/id"},"checks":{"$ref":"#/definitions/checks"},"statement":{"$ref":"#/definitions/heartbeat"}}},
+    "progress":{"type":"object","additionalProperties":false,"required":["execution","checks","intent_sha256","request_sha256"],"properties":{"execution":{"$ref":"#/definitions/id"},"checks":{"$ref":"#/definitions/checks"},"intent_sha256":{"$ref":"#/definitions/hash"},"request_sha256":{"$ref":"#/definitions/hash"}}},
+    "outcome":{"type":"object","additionalProperties":false,"required":["execution","checks","intent_sha256","response"],"properties":{"execution":{"$ref":"#/definitions/id"},"checks":{"$ref":"#/definitions/checks"},"intent_sha256":{"$ref":"#/definitions/hash"},"response":{"type":"object","additionalProperties":false,"required":["format","authenticated_in_model","repository","request_sha256","content_sha256","issue_number","completion"],"properties":{"format":{"const":"synthetic-only-non-operational-response-v1"},"authenticated_in_model":{"type":"boolean"},"repository":{"const":"soodoh/home-lab"},"request_sha256":{"$ref":"#/definitions/hash"},"content_sha256":{"$ref":"#/definitions/hash"},"issue_number":{"$ref":"#/definitions/number"},"completion":{"enum":["confirmed","unknown"]}}}}},
+    "event": {
+      "type":"object","additionalProperties":false,"required":["format","flags","epoch","generation","predecessor","type","payload"],
+      "properties":{"format":{"const":"synthetic-only-non-operational-publication-event-v1"},"flags":{"$ref":"#/definitions/flags"},"epoch":{"$ref":"#/definitions/id"},"generation":{"type":"integer","minimum":0,"maximum":127},"predecessor":{"$ref":"#/definitions/nullableHash"},"type":{"enum":["genesis","candidate","heartbeat","progress","outcome"]},"payload":{"oneOf":[{"$ref":"#/definitions/genesis"},{"$ref":"#/definitions/candidate"},{"$ref":"#/definitions/heartbeatIntent"},{"$ref":"#/definitions/progress"},{"$ref":"#/definitions/outcome"}]}},
+      "allOf":[
+        {"if":{"properties":{"type":{"const":"genesis"}}},"then":{"properties":{"payload":{"$ref":"#/definitions/genesis"}}}},
+        {"if":{"properties":{"type":{"const":"candidate"}}},"then":{"properties":{"payload":{"$ref":"#/definitions/candidate"}}}},
+        {"if":{"properties":{"type":{"const":"heartbeat"}}},"then":{"properties":{"payload":{"$ref":"#/definitions/heartbeatIntent"}}}},
+        {"if":{"properties":{"type":{"const":"progress"}}},"then":{"properties":{"payload":{"$ref":"#/definitions/progress"}}}},
+        {"if":{"properties":{"type":{"const":"outcome"}}},"then":{"properties":{"payload":{"$ref":"#/definitions/outcome"}}}}
+      ]
+    },
+    "execution":{"type":"object","additionalProperties":false,"required":["id","started_at_head","running","reconstructed","intent_ack","progress_ack"],"properties":{"id":{"$ref":"#/definitions/id"},"started_at_head":{"$ref":"#/definitions/hash"},"running":{"type":"boolean"},"reconstructed":{"type":"boolean"},"intent_ack":{"$ref":"#/definitions/nullableHash"},"progress_ack":{"$ref":"#/definitions/nullableHash"}}},
+    "row":{"type":"object","additionalProperties":false,"required":["key","event","signature","execution","initiation"],"properties":{"key":{"type":"string","pattern":"^[0-9]{3}$"},"event":{"$ref":"#/definitions/event"},"signature":{"$ref":"#/definitions/signature"},"execution":{"anyOf":[{"$ref":"#/definitions/execution"},{"type":"null"}]},"initiation":{"anyOf":[{"$ref":"#/definitions/clock"},{"type":"null"}]}}},
+    "store":{"type":"object","additionalProperties":false,"required":["format","identity","complete","single_version","current_generation","current_head","current_journal_sha256","rows"],"properties":{"current_journal_sha256":{"$ref":"#/definitions/hash"},"format":{"const":"synthetic-only-non-operational-store-assertion-v1"},"identity":{"$ref":"#/definitions/id"},"complete":{"type":"boolean"},"single_version":{"type":"boolean"},"current_generation":{"type":"integer","minimum":0,"maximum":127},"current_head":{"$ref":"#/definitions/hash"},"rows":{"type":"array","minItems":1,"maxItems":128,"items":{"$ref":"#/definitions/row"}}}},
+    "attempt":{"type":"object","additionalProperties":false,"required":["format","append_result","row"],"properties":{"format":{"const":"synthetic-only-non-operational-conditional-append-v1"},"append_result":{"enum":["won","lost","unknown","failed"]},"row":{"$ref":"#/definitions/row"}}},
+    "input":{"type":"object","additionalProperties":false,"required":["format","flags","pins","store","attempt"],"properties":{"format":{"const":"synthetic-only-non-operational-publication-model-v1"},"flags":{"$ref":"#/definitions/flags"},"pins":{"$ref":"#/definitions/pins"},"store":{"$ref":"#/definitions/store"},"attempt":{"anyOf":[{"$ref":"#/definitions/attempt"},{"type":"null"}]}}}
+  }
+}

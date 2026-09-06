@@ -111,6 +111,7 @@ if [[ $action == validate ]]; then
   node scripts/controller/test-maintenance-report.js
   node scripts/controller/test-maintenance-local-inputs.js
   node scripts/controller/test-maintenance-publish.js
+  node scripts/controller/test-maintenance-publication-state.js
   python3 scripts/controller/test-maintenance-launcher.py
   python3 scripts/controller/test-maintenance-read-only-capability.py
   python3 scripts/controller/test-local-controller-generations.py
