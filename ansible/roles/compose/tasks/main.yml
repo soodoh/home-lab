@@ -1,4 +1,13 @@
 ---
+- name: Require Compose invocation bindings to match the loaded Debian contract
+  ansible.builtin.assert:
+    that:
+      - compose_runtime_cli == debian.transaction.compose_command
+      - (compose_current_dir ~ '/docker-compose.yml') == debian.transaction.compose_artifact_path
+      - compose_image_override_path == debian.transaction.compose_image_lock_path
+      - compose_runtime_env_path == debian.transaction.root_environment_path
+    fail_msg: "Compose invocation bindings differ from the loaded Debian contract; refusing adoption."
+
 - name: Validate the active Compose artifact without displaying resolved configuration
   ansible.builtin.command:
     argv: "{{ compose_runtime_cli + ['config', '--quiet'] }}"

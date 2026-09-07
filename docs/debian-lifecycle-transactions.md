@@ -28,6 +28,26 @@ Legacy v1 production union evidence is **not** reinterpreted or upgraded. It rem
 
 Authority receipts are not standalone assertions. `scripts/controller/debian-lifecycle-authority-receipts.py` embeds its own source hash and produces OpenTofu receipts only after inspecting the actual saved binary with `tofu show -json`, proving each requested disk is absent before and present after as the sole VM delta, and matching the complete relevant planned VM result to protected current-state bytes. Age receipts require `age-keygen -y` and hash the complete decrypted plaintext from a full-read protected bundle. Fixed `restic-snapshot` and `restic-restore` commands verify repository/config/snapshot identity, run `restic check --read-data`, restore with `--verify` into an empty private root, and hash the restored tree before producing mutually bound manifests. `debian-access-cleanup.py` durably publishes source-hash-bound canonical per-stage operation receipts.
 
+### Ordinary Compose role invocation binding
+
+The production-gated `compose` role in `site.yml` asserts its resolved command,
+current-directory Compose artifact, image override and root environment paths
+against `debian.transaction.compose_command`, `compose_artifact_path`,
+`compose_image_lock_path` and `root_environment_path` before the role's first
+command. Missing, malformed or mismatched bindings refuse adoption; no path
+normalization or equivalent-command fallback is accepted. Existing command order,
+`HOME=/home/docker`, model counts, legacy volume checks and check-mode dry-run
+create behavior are unchanged. Inert and recovery profiles still exclude the role.
+
+This checks caller aliases against the loaded contract, not arbitrary redefinition
+of that authority or deliberate task skipping. It does not precede every command
+in `site.yml`, replace an installed startup guard, install units or authorize
+activation. The registered `test-debian-lifecycle-profiles.js` test uses real
+Ansible evaluation of the source role assertions and site Compose condition with
+explicitly mocked command endpoints, including independent binding negatives and
+guard-removal/order mutants. It is not a full site run or installed/startup proof;
+the wider installation and recovery qualification gates above remain separate.
+
 ## Installation and use
 
 Install the fixed executor, dependency policy and additive drop-ins only through `ansible/playbooks/install-debian-lifecycle-capability.yml`, with lifecycle profile `inert` or `recovery`, exactly the `debian_lifecycle_capability` tag, and `debian_lifecycle_capability_confirmation=INSTALL_DEBIAN_LIFECYCLE_TRANSACTION_CAPABILITY`. Installation and execution use the same host apply lock, so the executor cannot be replaced between checksum verification and launch. The controller derives inventory and host routing from the saved profile: `inert` can route only to the contract-bound qualification inventory host, while `recovery` and `production` route only to the production inventory host.
