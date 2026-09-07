@@ -17,3 +17,14 @@ scripts/audit-opentofu-state-objects --require-retired-empty
 ```
 
 Only after that command passes may the retired entries be removed from `state-objects.json`. This two-stage process preserves a reviewed cleanup declaration until S3 proves that every obsolete state version and delete marker is gone. Never apply a bucket-wide state expiration rule.
+
+## Shared identity is not retired state storage
+
+S3 state-prefix expiration is not IAM resource deletion and does not establish
+who deleted an IAM provider. The shared GitHub OIDC provider belongs only to
+websites' existing `diloreto-amplify-hosting/GitHubOidcProvider`, not home-lab.
+The previously inspected aws-foundation snapshot at serial 43 had zero OIDC
+entries; no state-forgetting operation or `removed` block is needed for that
+snapshot. Do not delete state files or import the provider to resolve ownership.
+See [the ownership contract and local guardrail limits](shared-oidc-ownership.md)
+for the rule, regression coverage, and separately reviewed handoff requirements.

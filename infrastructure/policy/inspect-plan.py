@@ -69,6 +69,7 @@ STORAGE_RESOURCE_MARKERS = ("zfs", "filesystem", "disk", "mount", "storage")
 NETWORK_RESOURCE_MARKERS = ("firewall", "network", "acl", "ruleset", "federated_identity")
 VM_ADDRESS = "proxmox_virtual_environment_vm.debian"
 VM_RESOURCE_TYPE = "proxmox_virtual_environment_vm"
+OIDC_RESOURCE_TYPE = "aws_iam_openid_connect_provider"
 
 
 def parse_args() -> argparse.Namespace:
@@ -256,9 +257,43 @@ def vm_start_prerequisite_failure(plan: dict[str, Any]) -> str | None:
     return None
 
 
+def oidc_ownership_failures(plan: dict[str, Any]) -> list[str]:
+    """Home-lab consumes identity; it must not own any IAM OIDC provider.
+
+    Inspect resource envelopes, never arbitrary resource values/expressions.
+    Configuration covers declarations with no instances (e.g. count = 0).
+    """
+    failures: list[str] = []
+
+    def inspect(resources: list[dict[str, Any]], location: str) -> None:
+        for resource in resources:
+            if resource.get("type") == OIDC_RESOURCE_TYPE and resource.get("mode") != "data":
+                address = resource.get("address", "<unknown>")
+                failures.append(f"{location}: {address}: managed IAM OIDC provider ownership is forbidden")
+
+    def inspect_module(module: dict[str, Any], location: str) -> None:
+        inspect(module.get("resources", []), location)
+        for child in module.get("child_modules", []):
+            inspect_module(child, f"{location}/{child.get('address', '<child>')}")
+        for name, call in module.get("module_calls", {}).items():
+            inspect_module(call.get("module", {}), f"{location}/module.{name}")
+
+    inspect(plan.get("resource_changes", []), "resource_changes")
+    inspect_module(plan.get("planned_values", {}).get("root_module", {}), "planned_values")
+    inspect_module(plan.get("prior_state", {}).get("values", {}).get("root_module", {}), "prior_state")
+    inspect_module(plan.get("configuration", {}).get("root_module", {}), "configuration")
+    return failures
+
+
 def main() -> int:
     args = parse_args()
     plan = json.loads(args.plan_json.read_text())
+    # This invariant precedes mode, allowlist, import and no-op/read shortcuts.
+    ownership_failures = oidc_ownership_failures(plan)
+    if ownership_failures:
+        for failure in sorted(set(ownership_failures)):
+            print(f"DENY: {failure}", file=sys.stderr)
+        return 1
     if args.mode == "vm-start-prerequisite":
         failure = vm_start_prerequisite_failure(plan)
         if failure:

@@ -35,6 +35,7 @@ done
 for fixture in delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial candidate-disk-unsafe boot-order-change vm-lifecycle-change; do
   expect_rejection "$fixture" normal
 done
+python3 "$root/test-oidc-ownership.py"
 python3 "$root/../../scripts/controller/test-tailscale-policy.py"
 python3 "$root/../../scripts/controller/test-omada-host-alias.py"
 python3 "$root/../../scripts/controller/test-normalize-ansible-plan.py"

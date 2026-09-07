@@ -1,0 +1,22 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [],
+  "configuration": {
+    "root_module": {
+      "module_calls": {
+        "identity": {
+          "source": "./identity",
+          "module": {
+            "resources": [{
+              "address": "aws_iam_openid_connect_provider.unused",
+              "mode": "managed",
+              "type": "aws_iam_openid_connect_provider",
+              "name": "unused",
+              "count_expression": {"constant_value": 0}
+            }]
+          }
+        }
+      }
+    }
+  }
+}

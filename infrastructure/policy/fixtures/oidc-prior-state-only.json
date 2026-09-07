@@ -1,0 +1,20 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [],
+  "prior_state": {
+    "values": {
+      "root_module": {
+        "child_modules": [{
+          "address": "module.identity",
+          "resources": [{
+            "address": "module.identity.aws_iam_openid_connect_provider.shared",
+            "mode": "managed",
+            "type": "aws_iam_openid_connect_provider",
+            "name": "shared",
+            "values": {"url": "https://token.actions.githubusercontent.com"}
+          }]
+        }]
+      }
+    }
+  }
+}
