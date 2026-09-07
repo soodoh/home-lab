@@ -43,6 +43,7 @@
     name: "{{ apt_packages_exact_locked_specs }}"
     state: present
     update_cache: false
+    auto_install_module_deps: false
   become: true
   when:
     - not ansible_check_mode

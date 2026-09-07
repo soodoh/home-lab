@@ -71,6 +71,8 @@ assert.deepEqual(aptDefaults.apt_packages_exact_locked_specs, []);
 const installTask = aptTasks.find((item) => item.name === "Install only absent requested packages without upgrading present packages");
 assert.equal(installTask["ansible.builtin.apt"].name, "{{ apt_packages_exact_locked_specs }}");
 assert.equal(installTask["ansible.builtin.apt"].update_cache, false);
+assert.equal(installTask["ansible.builtin.apt"].auto_install_module_deps, false,
+  "apt install source task must explicitly set auto_install_module_deps to boolean false");
 const packageGuard = aptTasks.find((item) => item.name === "Require a reviewed exact lock before package installation");
 for (const required of ["package_mutation_policy.require_exact_lock_for_all_updates | bool", "not (package_mutation_policy.automatic_apply | bool)",
   "apt_packages_exact_lock_authorized | bool", "apt_packages_exact_locked_names | sort == apt_packages_missing | sort"]) {

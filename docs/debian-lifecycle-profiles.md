@@ -29,7 +29,9 @@ Run `python3 scripts/controller/test-debian-inactive-path.py` for synthetic host
 
 The contract owns locale `C.UTF-8`, matching the adopted Debian host. The base role owns `/etc/locale.conf` as `root:root 0644` and `/etc/default/locale` as the compatibility symlink `../locale.conf`. The production check is zero-change.
 
-Package installation is no longer implicit. `apt_packages` can report missing packages in check mode, but any installation requires a separately supplied exact `name=version` set matching every missing package and an explicit reviewed authorization. It never refreshes APT metadata.
+Package installation is no longer implicit. `apt_packages` can report missing packages in check mode, but any installation requires a separately supplied exact `name=version` set matching every missing package and an explicit reviewed authorization. The install task sets `update_cache: false` and `auto_install_module_deps: false`. The latter disables only module dependency auto-install; probing and respawn to an already capable interpreter may still occur. Missing/corrupt APT cache repair may still refresh metadata despite `update_cache: false`.
+
+The registered lifecycle-profile test checks this explicit source task option, not Ansible dispatch or native package behavior. Package hooks, service-policy topology and crash restoration, and enable/socket/direct-start/boot effects remain unqualified. This correction authorizes no package apply, including inactive/recovery bootstrap.
 
 ## Entry points
 
