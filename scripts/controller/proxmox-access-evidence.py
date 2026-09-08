@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 import stat
 import subprocess
-import time
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / ".local/proxmox-access-evidence"
@@ -108,59 +108,95 @@ def latest_marker_plan_digest() -> str:
     return match.group(1)
 
 
-def access_cutover_state() -> str:
-    text = (ROOT / "infrastructure/contract/home-lab.yml").read_text()
-    section = text.split("      access_cutover:\n", 1)
-    match = re.search(r"^        state: (pending|ready|complete)$", section[1].split("      domain_handoffs:\n", 1)[0], re.MULTILINE) if len(section) == 2 else None
-    if match is None:
-        raise SystemExit("access cutover lifecycle state is unavailable")
-    return match.group(1)
+def boundary_command(action: str, boundary: Path, *extra: str) -> bytes:
+    result = subprocess.run((sys.executable, "-I", "-B", "-S",
+                             ROOT / "scripts/controller/controller-boundary-manifest.py",
+                             action, "--manifest", str(boundary), *extra),
+                            cwd=ROOT, capture_output=True, timeout=30)
+    if result.returncode != 0:
+        raise SystemExit("controller boundary manifest refused")
+    return result.stdout
 
 
-def controller_plan_proof(result: subprocess.CompletedProcess[bytes], started_at: float) -> dict:
-    state = access_cutover_state()
-    if state == "pending":
-        if result.returncode != 0 or b"[tailscale]" not in result.stdout or b"No changes" not in result.stdout:
-            raise SystemExit("controller did not prove a steady tailnet no-op")
-        return {"tests_present": True, "live_plan_noop": True, "expected_retirement_drift": False,
-                "controller_plan_stdout_sha256": sha(result.stdout)}
-    if result.returncode == 0 and b"[tailscale]" in result.stdout and b"No changes" in result.stdout:
-        return {"tests_present": True, "live_plan_noop": True, "expected_retirement_drift": False,
-                "controller_plan_stdout_sha256": sha(result.stdout)}
-    candidates = sorted((ROOT / ".reconcile/plans").glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
-    if result.returncode != 66 or not candidates or candidates[0].stat().st_mtime < started_at:
-        raise SystemExit("controller did not produce the expected access-retirement drift plan")
-    plan_path = candidates[0]; plan = json.loads(plan_path.read_bytes())
-    blockers = plan.get("blockers", [])
-    findings = plan.get("findings", [])
-    blocker_targets = sorted(item.get("target") for item in blockers)
-    finding_targets = sorted(item.get("target") for item in findings)
-    permitted_audit_targets = {"/etc/sudoers.d/tofu-apply", "/etc/sudoers.d/tofu-plan"}
-    ssh_target = "/etc/ssh/sshd_config.d/60-home-lab.conf"
-    def permitted_blocker(item: dict) -> bool:
-        return ((item.get("domain"), item.get("code"), item.get("target")) in {
-            ("managed-files", "review-required", ssh_target),
-            ("protected-access", "private-observation-mismatch", "protected-access"),
-        } or (item.get("domain") == "audit-absence" and item.get("code") == "manual-remediation-required"
-              and item.get("target") in permitted_audit_targets))
-    def permitted_finding(item: dict) -> bool:
-        return ((item.get("domain"), item.get("code"), item.get("target")) ==
-                ("managed-files", "desired-state-drift", ssh_target)
-                or (item.get("domain") == "audit-absence" and item.get("code") == "unexpected-presence"
-                    and item.get("target") in permitted_audit_targets))
-    if (plan_path.name != f"{plan.get('planSha256')}.json" or plan.get("status") != "blocked"
-            or plan.get("applyEligible") is not False or plan.get("actions") != [] or not blockers
-            or any(not permitted_blocker(item) for item in blockers)
-            or any(not permitted_finding(item) for item in findings)
-            or (ssh_target in blocker_targets) != (ssh_target in finding_targets)
-            or any(target in permitted_audit_targets and target not in finding_targets for target in blocker_targets)):
-        raise SystemExit("controller access-retirement drift differs from the exact expected boundary")
-    return {"tests_present": True, "live_plan_noop": True, "expected_retirement_drift": True,
-            "controller_plan_sha256": plan["planSha256"], "controller_plan_stdout_sha256": sha(result.stdout),
-            "retirement_drift_targets": sorted(set(blocker_targets + finding_targets))}
+def generation_path(commit: str, generation: str, *, absent: bool) -> Path:
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None or re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", generation) is None:
+        raise SystemExit("explicit valid controller generation required")
+    directory = ROOT
+    for index, part in enumerate((".reconcile", "plans", commit, "steady", generation)):
+        directory /= part
+        try:
+            info = directory.lstat()
+        except FileNotFoundError:
+            continue
+        if (not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid()
+                or info.st_mode & 0o022):
+            raise SystemExit("unsafe controller generation path")
+        if index == 4 and absent:
+            raise SystemExit("controller generation already exists; preserve evidence")
+    return directory / "manifest.json"
 
-def capture() -> tuple[Path, str]:
+
+def manifest_bytes(path: Path) -> bytes:
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd, "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid()
+                or stat.S_IMODE(before.st_mode) != 0o600 or before.st_nlink != 1
+                or not 0 < before.st_size <= 2 * 1024 * 1024):
+            raise SystemExit("unsafe controller manifest")
+        raw = stream.read(2 * 1024 * 1024 + 1)
+        after = os.fstat(stream.fileno())
+    named = path.lstat()
+    fields = ("st_dev", "st_ino", "st_mode", "st_uid", "st_gid", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")
+    if len(raw) != before.st_size or any(getattr(before, key) != getattr(item, key) for item in (after, named) for key in fields):
+        raise SystemExit("controller manifest changed while reading")
+    return raw
+
+
+def controller_plan_proof(result: subprocess.CompletedProcess[bytes], commit: str,
+                          generation: str, boundary: Path, binding: str) -> dict:
+    if result.returncode != 0:
+        raise SystemExit("controller generation failed; preserve evidence")
+    path = generation_path(commit, generation, absent=False)
+    raw = manifest_bytes(path)
+    boundary_command("verify", boundary, "--binding", binding, "--saved-plan", str(path))
+    verified = subprocess.run(("node", ROOT / "scripts/controller/proxmox-check-evidence.js", "verify", path),
+                              cwd=ROOT, capture_output=True, timeout=180)
+    if verified.returncode != 0:
+        raise SystemExit("saved controller generation verification refused")
+    # The shared verifier binds v6 source/dependencies, binary hashes and fresh
+    # host audit evidence. Never infer that proof from legacy display strings.
+    value = json.loads(raw)
+    if (value.get("version") != 6 or value.get("commit") != commit
+            or value.get("phase") != "steady" or value.get("stage") != "converge"):
+        raise SystemExit("controller generation source or scope differs")
+    plans = value.get("plans", [])
+    tailnet = [item for item in plans if item.get("root") == "tailscale"]
+    if (not plans or any(item.get("changed") is not False for item in plans) or len(tailnet) != 1):
+        raise SystemExit("controller generation is not a steady tailnet no-op")
+    before = tailnet[0].get("tailscale_policy_before_sha256")
+    if (not isinstance(before, str) or re.fullmatch(r"[0-9a-f]{64}", before) is None
+            or before != tailnet[0].get("tailscale_policy_after_sha256")):
+        raise SystemExit("controller generation tailnet policy differs")
+    generation_path(commit, generation, absent=False)
+    if manifest_bytes(path) != raw:
+        raise SystemExit("controller manifest changed during verification")
+    boundary_command("verify", boundary, "--binding", binding, "--saved-plan", str(path))
+    # Strict v1 consumers require these exact keys. The stdout hash is only a
+    # diagnostic; v1 cannot independently expose the selected generation binding.
+    return {"tests_present": True, "live_plan_noop": True, "expected_retirement_drift": False,
+            "controller_plan_stdout_sha256": sha(result.stdout)}
+
+
+def capture(generation: str, boundary: Path) -> tuple[Path, str]:
+    if re.fullmatch(r"[a-z0-9][a-z0-9-]{0,63}", generation) is None or not boundary.is_absolute():
+        raise SystemExit("explicit valid generation and absolute boundary manifest required")
+    inputs = boundary_command("load", boundary).decode().rstrip("\n").split("\t")
+    if len(inputs) != 3:
+        raise SystemExit("controller boundary binding differs")
+    binding = inputs[2]
     commit = clean_pushed_commit()
+    generation_path(commit, generation, absent=True)
     if not known_host_proven():
         raise SystemExit("strict Proxmox host-key fingerprint is unavailable")
     plan = run_ssh("ansible-plan@proxmox", "observe")
@@ -176,9 +212,13 @@ def capture() -> tuple[Path, str]:
         raise SystemExit("fixed deploy inspect canary differs")
     run_ssh("ansible-deploy@proxmox", "apply lifecycle-marker a;id", expected=64)
     run_ssh("proxmox@proxmox", "true")
-    controller_started = time.time()
-    controller = subprocess.run((ROOT / "scripts/local-controller", "plan", "steady"), cwd=ROOT, capture_output=True, timeout=1800)
-    tailnet_proof = controller_plan_proof(controller, controller_started)
+    root_keys = root_key_evidence()
+    generation_path(commit, generation, absent=True)
+    boundary_command("verify", boundary, "--binding", binding)
+    controller = subprocess.run((ROOT / "scripts/local-controller", "plan", "steady", "--generation", generation, "--boundary-manifest", str(boundary)), cwd=ROOT, capture_output=True, timeout=1800)
+    tailnet_proof = controller_plan_proof(controller, commit, generation, boundary, binding)
+    if clean_pushed_commit() != commit:
+        raise SystemExit("access evidence source changed during capture")
     now = datetime.now(timezone.utc).replace(microsecond=0)
     evidence = {
         "format": "home-lab-proxmox-access-evidence-draft-v1", "commit": commit,
@@ -193,7 +233,7 @@ def capture() -> tuple[Path, str]:
             "deploy_transport": {"positive": True, "injection_rejected": True, "marker_plan_sha256": marker_digest},
             "human_session": {"positive": True},
             "tailnet_policy": tailnet_proof,
-            "root_keys": root_key_evidence(),
+            "root_keys": root_keys,
             "console": {"attested": False},
         },
         "authorized": False,
@@ -227,11 +267,27 @@ def attest(path: Path) -> None:
     print(json.dumps({"evidence_sha256": receipt_digest, "path": str(receipt_path), "root_keys_complete": receipt["proofs"]["root_keys"]["complete"]}, sort_keys=True))
 
 
+class ExplicitInput(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        if getattr(namespace, self.dest, None) is not None:
+            parser.error("duplicate capture input")
+        setattr(namespace, self.dest, values)
+
+
 def main() -> None:
-    parser=argparse.ArgumentParser(); commands=parser.add_subparsers(dest="command",required=True); commands.add_parser("capture"); attested=commands.add_parser("attest-console"); attested.add_argument("draft",type=Path); args=parser.parse_args()
+    parser = argparse.ArgumentParser(allow_abbrev=False)
+    commands = parser.add_subparsers(dest="command", required=True)
+    captured = commands.add_parser("capture", allow_abbrev=False)
+    captured.add_argument("--generation", required=True, action=ExplicitInput)
+    captured.add_argument("--boundary-manifest", required=True, type=Path, action=ExplicitInput)
+    attested = commands.add_parser("attest-console", allow_abbrev=False)
+    attested.add_argument("draft", type=Path)
+    args = parser.parse_args()
     if args.command == "capture":
-        path,digest=capture(); print(json.dumps({"authorized":False,"draft_sha256":digest,"path":str(path)},sort_keys=True))
-    else: attest(args.draft.resolve())
+        path, digest = capture(args.generation, args.boundary_manifest)
+        print(json.dumps({"authorized": False, "draft_sha256": digest, "path": str(path)}, sort_keys=True))
+    else:
+        attest(args.draft.resolve())
 
 
 if __name__ == "__main__": main()

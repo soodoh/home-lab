@@ -239,11 +239,25 @@ combined and Proxmox-specific inventory hashes are captured in the saved binding
 Every remote phase rechecks these captured identities and streams the exact captured,
 hash-verified transaction bytes; it never substitutes a newly current revision.
 
-This consumer does not make the old capture command operationally qualified:
-`proxmox-access-evidence.py capture` still invokes `local-controller plan steady`
-without the now-required explicit generation. A reviewed generation-aware capture
-and predecessor/bootstrap admission path remain setup work. Do not fabricate fresh
-receipts or relax the consumer to bypass that gap.
+This consumer does not make capture operationally qualified. The source command
+`proxmox-access-evidence.py capture --generation <name> --boundary-manifest
+<absolute-path>` requires explicit validated inputs before host/controller effects,
+refuses an existing or unsafe generation, and passes both inputs to the controller.
+It selects only that clean revision's exact `steady/<generation>/manifest.json`;
+shared boundary admission and the current v6 verifier bind source, saved binaries
+and fresh host audit evidence. Every produced plan must be unchanged, with exactly
+one Tailscale record and equal valid policy hashes. Controller or verifier failure
+is terminal: no legacy retirement-drift, newest-file or stdout no-op fallback.
+
+Strict v1 retains exactly its four no-op proof fields; the stdout hash remains a
+diagnostic, not manifest proof. Consumers cannot independently establish exact
+saved-generation linkage from this receipt alone. Source/boundary/manifest rechecks
+assume cooperating writers and are not atomic snapshot or crash/race qualification.
+Offline capture tests use synthetic inputs and strict effect adapters, including a
+stubbed Node verifier; they do not qualify installed execution or its artifact audit.
+The predecessor/bootstrap admission cycle and every installation/VFIO gate remain
+unresolved and unchanged. Do not fabricate fresh receipts or relax the consumer to
+bypass those gaps.
 
 The transaction captures rollback bytes and a versioned retained journal under an
 owned iac directory before replacing helpers and sudo. Sudo syntax is checked
