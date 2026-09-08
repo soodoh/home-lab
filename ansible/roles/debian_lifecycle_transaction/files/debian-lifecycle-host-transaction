@@ -382,39 +382,61 @@ def production(plan,digest):
     before=marker.read_bytes()
     if sha(before)!=params["lifecycle_marker_sha256"]: raise SystemExit("recovery lifecycle marker changed")
     content=canonical({"source_commit":plan["base_commit"],"state":"production","updated_at":datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00","Z"),"version":1})
-    started=[]; marker_changed=False
+    started=[]; marker_fd=None; publication_attempted=False
+
+    def require_owned_marker():
+        # Keep the publication descriptor open through cleanup to prevent inode reuse.
+        # Trusted ancestry/cooperating locked writers are required; this is not a root-writer CAS.
+        safe_directory(marker.parent)
+        def identity(value):
+            return (value.st_dev,value.st_ino,value.st_mode,value.st_uid,value.st_gid,value.st_nlink,value.st_size)
+        opened=os.fstat(marker_fd); current=require_regular(marker)
+        if identity(opened)!=identity(current) or os.pread(marker_fd,len(content)+1,0)!=content or identity(os.fstat(marker_fd))!=identity(opened) or identity(require_regular(marker))!=identity(opened):
+            raise RuntimeError("production lifecycle marker ownership changed")
+
     for unit in policy["production_units"]:
         require_inactive_unit(unit)
     try:
         for unit in policy["production_units"]:
             started.append(unit); run(["/usr/bin/systemctl","start",unit])
             if run(["/usr/bin/systemctl","is-active","--quiet",unit],check=False,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL).returncode: raise RuntimeError("production unit failed to become active")
-        fd,temp=tempfile.mkstemp(prefix=".lifecycle-state-",dir=marker.parent); os.fchown(fd,0,0); os.fchmod(fd,0o600)
+        marker_fd,temp=tempfile.mkstemp(prefix=".lifecycle-state-",dir=marker.parent)
         try:
-            if os.write(fd,content)!=len(content): raise RuntimeError("short lifecycle marker write")
-            os.fsync(fd); os.close(fd)
+            os.fchown(marker_fd,0,0); os.fchmod(marker_fd,0o600)
+            if os.write(marker_fd,content)!=len(content): raise RuntimeError("short lifecycle marker write")
+            os.fsync(marker_fd)
             if sha(marker.read_bytes())!=params["lifecycle_marker_sha256"]: raise RuntimeError("recovery lifecycle marker changed during activation")
-            os.replace(temp,marker); marker_changed=True; fsync_parent(marker)
+            publication_attempted=True
+            os.replace(temp,marker); fsync_parent(marker)
         finally:
-            try: os.close(fd)
-            except OSError: pass
             if os.path.exists(temp): os.unlink(temp)
+        require_owned_marker()
         published=marker.read_bytes(); parsed=json.loads(published)
         if published!=canonical(parsed) or parsed.get("state")!="production" or parsed.get("source_commit")!=plan["base_commit"]: raise RuntimeError("production lifecycle marker postcondition failed")
-    except BaseException:
+    except BaseException as error:
         cleanup_failed=stop_started_units(started)
-        if marker_changed:
-            fd,temp=tempfile.mkstemp(prefix=".lifecycle-rollback-",dir=marker.parent); os.fchown(fd,0,0); os.fchmod(fd,0o600)
+        if publication_attempted:
             try:
-                if os.write(fd,before)!=len(before): cleanup_failed=True
-                os.fsync(fd); os.close(fd); os.replace(temp,marker); fsync_parent(marker)
-            finally:
-                try: os.close(fd)
-                except OSError: pass
-                if os.path.exists(temp): os.unlink(temp)
-            if marker.read_bytes()!=before: cleanup_failed=True
-        if cleanup_failed: raise RuntimeError("production activation rollback postcondition failed")
+                # A failed replace/fsync call is neither proof of no effect nor restoration authority.
+                require_owned_marker()
+                fd,temp=tempfile.mkstemp(prefix=".lifecycle-rollback-",dir=marker.parent)
+                try:
+                    os.fchown(fd,0,0); os.fchmod(fd,0o600)
+                    if os.write(fd,before)!=len(before): raise RuntimeError("short lifecycle marker rollback write")
+                    os.fsync(fd)
+                    require_owned_marker()
+                    os.replace(temp,marker); fsync_parent(marker)
+                finally:
+                    try: os.close(fd)
+                    finally:
+                        if os.path.exists(temp): os.unlink(temp)
+                if marker.read_bytes()!=before: cleanup_failed=True
+            except BaseException:
+                cleanup_failed=True
+        if cleanup_failed: raise RuntimeError("production activation rollback postcondition failed") from error
         raise
+    finally:
+        if marker_fd is not None: os.close(marker_fd)
 
 def state_disk(plan,digest):
     params=plan["request"]["parameters"]
