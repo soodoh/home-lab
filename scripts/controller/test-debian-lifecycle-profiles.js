@@ -61,7 +61,7 @@ for (const role of site.roles.filter((item) => item.role !== "base")) {
 }
 for (const task of site.tasks) {
   const dispatch = task["ansible.builtin.import_role"];
-  assert(["sops_age", "restic_backup"].includes(dispatch.name));
+  assert(["sops_age", "restic_backup", "tailscale"].includes(dispatch.name));
   assert.equal(dispatch.tasks_from, "tools");
   assert.equal(task.when, "lifecycle_profile in ['inert', 'recovery']");
   assert.deepEqual(task.tags, [dispatch.name]);

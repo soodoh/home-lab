@@ -122,6 +122,14 @@
       tags:
         - restic_backup
 
+    - name: Converge inactive tailscale tools only
+      ansible.builtin.import_role:
+        name: tailscale
+        tasks_from: tools
+      when: lifecycle_profile in ['inert', 'recovery']
+      tags:
+        - tailscale
+
   post_tasks:
     - name: Release the host-side production apply lock after success
       ansible.builtin.import_role:
