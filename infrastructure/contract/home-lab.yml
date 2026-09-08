@@ -1496,6 +1496,9 @@ debian:
     image_packages: [python3, python3-apt, openssh-server, cloud-init]
     packages: [rsync, locales, tzdata, qemu-guest-agent, ca-certificates]
     services: [qemu-guest-agent.service]
+  storage:
+    # Unit boot policy only; nofail is not a kernel-observed mount option.
+    local_mount_boot_options: [nofail]
   tools:
     sops:
       # renovate: datasource=github-releases depName=getsops/sops

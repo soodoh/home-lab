@@ -69,10 +69,10 @@ for (const tool of ["sops", "age"]) {
 assert(!validateTools({ ...contract.debian.tools, automatic_install: true }));
 
 // The production callers and admission/lock order stay intact. Only the three
-// inactive imports are added; none of the full roles loses its production gate.
+// tool imports plus storage declarations are inactive; full roles retain their production gate.
 for (const role of site.roles.filter((r) => r.role !== "base")) assert.equal(role.when, "lifecycle_profile == 'production'");
 assert.deepEqual(site.tasks.map((t) => t["ansible.builtin.import_role"]),
-  roles.map((name) => ({ name, tasks_from: "tools" })));
+  [...roles.map((name) => ({ name, tasks_from: "tools" })), { name: "storage", tasks_from: "inactive" }]);
 for (const task of site.tasks) {
   assert.equal(task.when, "lifecycle_profile in ['inert', 'recovery']");
   assert.deepEqual(task.tags, [task["ansible.builtin.import_role"].name]);
@@ -486,7 +486,7 @@ class ActionModule(ActionBase):
       pre_tasks: [{ name: "Seed synthetic platform", tool_witness: { module: "fixture_facts", arguments: facts }, tags: ["always"] },
         ...site.pre_tasks.map(admission)],
       roles: directTools ? [] : site.roles.filter((r) => roles.includes(r.role)),
-      tasks: directTools ? [{ "ansible.builtin.import_role": { name: "tailscale", tasks_from: "tools" }, tags: ["tailscale"] }] : site.tasks, post_tasks: site.post_tasks.map(admission),
+      tasks: directTools ? [{ "ansible.builtin.import_role": { name: "tailscale", tasks_from: "tools" }, tags: ["tailscale"] }] : site.tasks.filter((t) => roles.includes(t["ansible.builtin.import_role"].name)), post_tasks: site.post_tasks.map(admission),
     }]);
     write("extra.json", extra);
     write("state.json", state);

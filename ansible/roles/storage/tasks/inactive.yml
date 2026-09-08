@@ -1,0 +1,357 @@
+---
+- name: Require inactive Debian storage declaration authority
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'debian'
+      - lifecycle_profile in ['inert', 'recovery']
+      - ansible_facts.system == 'Linux'
+      - ansible_facts.architecture == debian.baseline.architecture
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == debian.version
+      - ansible_facts.distribution_release == debian.release
+      - debian.storage.local_mount_boot_options == ['nofail']
+      - debian.qualification.protected_mounts == [proxmox.vm.state_disk.mountpoint, vm_100.storage.games.mountpoint, vm_100.storage.shared.mountpoint]
+      - vm_100.storage.shared.mountpoint == storage.nfs.mountpoint
+      - vm_100.storage.shared.source == network.proxmox.ipv4.split('/')[0] ~ ':' ~ storage.nfs.export
+    fail_msg: Storage declarations require inactive Debian and direct contract bindings; production and activation are forbidden.
+
+- name: Bind the three storage declarations to contract paths
+  ansible.builtin.set_fact:
+    storage_inactive_mounts:
+      - kind: state
+        description: Home lab application state
+        path: "{{ proxmox.vm.state_disk.mountpoint }}"
+      - kind: games
+        description: Home lab games storage
+        path: "{{ vm_100.storage.games.mountpoint }}"
+      - kind: shared
+        description: Home lab shared NFS storage
+        path: "{{ vm_100.storage.shared.mountpoint }}"
+    storage_inactive_roots:
+      - /etc/systemd/system.control
+      - /run/systemd/system.control
+      - /run/systemd/transient
+      - /run/systemd/generator.early
+      - /etc/systemd/system
+      - /etc/systemd/system.attached
+      - /run/systemd/system
+      - /run/systemd/system.attached
+      - /run/systemd/generator
+      - /usr/local/lib/systemd/system
+      - /usr/lib/systemd/system
+      - /run/systemd/generator.late
+
+- name: Require the bounded system unit search topology
+  ansible.builtin.assert:
+    that:
+      - storage_inactive_roots == ['/etc/systemd/system.control', '/run/systemd/system.control', '/run/systemd/transient', '/run/systemd/generator.early', '/etc/systemd/system', '/etc/systemd/system.attached', '/run/systemd/system', '/run/systemd/system.attached', '/run/systemd/generator', '/usr/local/lib/systemd/system', '/usr/lib/systemd/system', '/run/systemd/generator.late']
+    fail_msg: Overriding the supported systemd search topology is forbidden.
+
+- name: Require supported canonical paths and systemd graph names
+  ansible.builtin.assert:
+    that:
+      - item.path == (proxmox.vm.state_disk.mountpoint if item.kind == 'state' else vm_100.storage[item.kind].mountpoint)
+      - item.path is match('^/(mnt|srv)/[a-z][a-z0-9-]*$')
+      - storage_inactive_mounts | map(attribute='path') | list == debian.qualification.protected_mounts
+      - storage_inactive_mounts | map(attribute='kind') | list == ['state', 'games', 'shared']
+      - storage_inactive_mounts | map(attribute='description') | list == ['Home lab application state', 'Home lab games storage', 'Home lab shared NFS storage']
+      - unit_name in debian.transaction.production_systemd_dependencies['docker.service'].Requires
+      - unit_name in debian.transaction.production_systemd_dependencies['docker.service'].After
+      - unit_name in debian.transaction.production_systemd_dependencies['home-lab-compose.service'].Requires
+      - unit_name in debian.transaction.production_systemd_dependencies['home-lab-compose.service'].After
+      - debian.transaction.storage_activation_path == '/etc/home-lab/allow-storage-activation'
+    fail_msg: Unsupported storage path or systemd graph binding; no arbitrary destination is accepted.
+  vars:
+    unit_name: "{{ item.path[1:] | replace('-', '\\x2d') | replace('/', '-') }}.mount"
+  loop: "{{ storage_inactive_mounts }}"
+
+- name: Inspect inactive storage paths again under the guarded route
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -I
+      - -B
+      - -S
+      - -c
+      - "{{ lookup('ansible.builtin.file', role_path ~ '/../debian_lifecycle_guard/files/debian-inactive-path.py') }}"
+      - "{{ item.path }}"
+  loop: "{{ storage_inactive_mounts }}"
+  register: storage_inactive_paths
+  changed_when: false
+  check_mode: false
+
+- name: Require empty or absent inactive storage paths
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - not (item.stdout | from_json).exists or (item.stdout | from_json).entry_count == 0
+    fail_msg: Inactive storage paths must remain safe, unmounted and empty.
+  loop: "{{ storage_inactive_paths.results }}"
+
+# These pathname observations assume trusted, cooperating ancestry and the existing
+# host lock. They are not descriptor-relative publication or atomic no-clobber.
+- name: Inspect supported storage declaration ancestry without following links
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: false
+  loop: "{{ ['/', '/etc', '/etc/systemd', '/etc/home-lab', '/run', '/run/systemd', '/usr', '/usr/local', '/usr/local/lib', '/usr/local/lib/systemd', '/usr/lib', '/usr/lib/systemd'] + storage_inactive_roots }}"
+  register: storage_inactive_ancestry
+  become: true
+
+- name: Require trusted existing ancestry and the fixed destination directory
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists or item.item not in ['/', '/etc', '/etc/systemd', '/etc/systemd/system', '/run', '/run/systemd', '/usr', '/usr/lib', '/usr/lib/systemd', '/usr/lib/systemd/system']
+      - >-
+        not item.stat.exists or
+        (item.stat.isdir and not item.stat.islnk and item.stat.uid == 0 and item.stat.gid == 0 and
+         item.stat.mode in ['0755', '0700', '0750'])
+    fail_msg: Storage declaration ancestry is absent or unsafe; topology repair is not provisioning.
+  loop: "{{ storage_inactive_ancestry.results }}"
+
+- name: Inspect manager system unit search path
+  ansible.builtin.command:
+    argv: [/usr/bin/systemctl, show, --property=UnitPath]
+  register: storage_inactive_unit_path
+  changed_when: false
+  check_mode: false
+
+- name: Refuse unsupported manager unit search roots
+  ansible.builtin.assert:
+    that:
+      - storage_inactive_unit_path.rc == 0
+      - storage_inactive_unit_path.stdout_lines | length == 1
+      - storage_inactive_unit_path.stdout is match('^UnitPath=/')
+      - storage_inactive_unit_path.stdout[9:].split() | difference(storage_inactive_roots + ['/lib/systemd/system']) | length == 0
+      - "'/etc/systemd/system' in storage_inactive_unit_path.stdout[9:].split()"
+    fail_msg: Unsupported or unknown systemd UnitPath; the bounded scan cannot admit custom roots.
+
+- name: Inspect the optional merged usr alias without following it
+  ansible.builtin.stat:
+    path: /lib
+    follow: false
+    get_checksum: false
+  register: storage_inactive_lib_alias
+  when: "'/lib/systemd/system' in storage_inactive_unit_path.stdout[9:].split()"
+
+- name: Require the exact root owned merged usr alias
+  ansible.builtin.assert:
+    that:
+      - storage_inactive_lib_alias.stat.exists
+      - storage_inactive_lib_alias.stat.islnk
+      - storage_inactive_lib_alias.stat.uid == 0
+      - storage_inactive_lib_alias.stat.gid == 0
+      - storage_inactive_lib_alias.stat.lnk_target == 'usr/lib'
+    fail_msg: Only the explicit merged usr lib alias is supported; arbitrary symlink ancestry is refused.
+  when: "'/lib/systemd/system' in storage_inactive_unit_path.stdout[9:].split()"
+
+- name: Inspect storage activation token without reading or adopting it
+  ansible.builtin.stat:
+    path: "{{ debian.transaction.storage_activation_path }}"
+    follow: false
+    get_checksum: false
+  register: storage_inactive_token
+  become: true
+
+- name: Require storage activation token absence
+  ansible.builtin.assert:
+    that: [not storage_inactive_token.stat.exists]
+    fail_msg: Storage activation token must be absent; ordinary declarations cannot create, remove or adopt it.
+
+- name: Discover unit root metadata without recursion or link traversal
+  ansible.builtin.find:
+    paths: "{{ item.item }}"
+    recurse: false
+    file_type: any
+    hidden: true
+    follow: false
+  loop: "{{ storage_inactive_ancestry.results }}"
+  when: item.item in storage_inactive_roots and item.stat.exists
+  register: storage_inactive_root_entries
+  become: true
+
+- name: Require complete unit root discovery
+  ansible.builtin.assert:
+    that:
+      - item.skipped_paths | default({}) | length == 0
+    fail_msg: Incomplete systemd root discovery is not absence evidence.
+  loop: "{{ storage_inactive_root_entries.results }}"
+  when: not (item.skipped | default(false))
+
+- name: Refuse foreign mount definitions and applicable drop in directories
+  ansible.builtin.assert:
+    that:
+      - item.path | basename not in ['mount.d', 'mnt-.mount.d', 'srv-.mount.d']
+      - item.path | basename not in (unit_names | map('regex_replace', '$', '.d') | list)
+      - item.path | basename not in unit_names or item.path | dirname == '/etc/systemd/system'
+    fail_msg: Foreign mount definition or applicable override requires separate review.
+  vars:
+    unit_names: "{{ storage_inactive_mounts | map(attribute='path') | map('regex_replace', '^/', '') | map('replace', '-', '\\x2d') | map('replace', '/', '-') | map('regex_replace', '$', '.mount') | list }}"
+  loop: "{{ storage_inactive_root_entries.results | selectattr('files', 'defined') | map(attribute='files') | flatten }}"
+
+- name: Require trusted wants and requires directory metadata
+  ansible.builtin.assert:
+    that:
+      - item.isdir
+      - not item.islnk
+      - item.uid == 0
+      - item.gid == 0
+      - item.mode in ['0755', '0700', '0750']
+    fail_msg: Unsafe systemd pull in directory; no symlink traversal is permitted.
+  loop: "{{ storage_inactive_root_entries.results | selectattr('files', 'defined') | map(attribute='files') | flatten }}"
+  when: item.path is match('.*\.(wants|requires)$')
+
+- name: Discover only the second metadata level of wants and requires directories
+  ansible.builtin.find:
+    paths: "{{ item.path }}"
+    recurse: false
+    file_type: any
+    hidden: true
+    follow: false
+  loop: "{{ storage_inactive_root_entries.results | selectattr('files', 'defined') | map(attribute='files') | flatten }}"
+  when: item.path is match('.*\.(wants|requires)$')
+  register: storage_inactive_pull_ins
+  become: true
+
+- name: Require complete pull in discovery
+  ansible.builtin.assert:
+    that:
+      - item.skipped_paths | default({}) | length == 0
+    fail_msg: Incomplete pull in discovery is not absence evidence.
+  loop: "{{ storage_inactive_pull_ins.results }}"
+  when: not (item.skipped | default(false))
+
+- name: Refuse mount pull in entries including dangling enable links
+  ansible.builtin.assert:
+    that:
+      - item.path | basename not in unit_names
+    fail_msg: Protected mount pull in entry exists, even if its target is absent or unloaded.
+  vars:
+    unit_names: "{{ storage_inactive_mounts | map(attribute='path') | map('regex_replace', '^/', '') | map('replace', '-', '\\x2d') | map('replace', '/', '-') | map('regex_replace', '$', '.mount') | list }}"
+  loop: "{{ storage_inactive_pull_ins.results | selectattr('files', 'defined') | map(attribute='files') | flatten }}"
+
+- name: Inspect on disk storage declarations without following destination links
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ item.path[1:] | replace('-', '\\x2d') | replace('/', '-') }}.mount"
+    follow: false
+    checksum_algorithm: sha256
+  loop: "{{ storage_inactive_mounts }}"
+  register: storage_inactive_destinations
+  become: true
+
+- name: Require absent or exact existing storage declaration bytes and metadata
+  ansible.builtin.assert:
+    that:
+      - >-
+        not observed.stat.exists or
+        (observed.stat.isreg and not observed.stat.islnk and observed.stat.nlink == 1 and
+         observed.stat.uid == 0 and observed.stat.gid == 0 and observed.stat.mode == '0644' and
+         observed.stat.checksum == lookup('ansible.builtin.template', 'inactive-mount.j2') | hash('sha256'))
+    fail_msg: Existing storage declaration differs; no repair, replacement or adoption of divergent bytes is permitted.
+  vars:
+    observed: "{{ storage_inactive_destinations.results[mount_index] }}"
+  loop: "{{ storage_inactive_mounts }}"
+  loop_control:
+    index_var: mount_index
+
+- name: Inspect loaded mount state independently immediately before publication
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/systemctl
+      - show
+      - --property=LoadState
+      - --property=ActiveState
+      - --property=SubState
+      - --property=UnitFileState
+      - --property=FragmentPath
+      - --property=DropInPaths
+      - --property=Names
+      - --property=Job
+      - "{{ item.path[1:] | replace('-', '\\x2d') | replace('/', '-') }}.mount"
+  loop: "{{ storage_inactive_mounts }}"
+  register: storage_inactive_loaded
+  changed_when: false
+  check_mode: false
+
+- name: Require explicitly inactive unaliased mount units without jobs or overrides
+  ansible.builtin.assert:
+    that:
+      - item.rc == 0
+      - item.stdout_lines | length == 8
+      - "'ActiveState=inactive' in item.stdout_lines"
+      - "'SubState=dead' in item.stdout_lines"
+      - "'DropInPaths=' in item.stdout_lines"
+      - "'Job=' in item.stdout_lines"
+      # Names is a string array: systemd v257 shell_maybe_quote(str, 0) quotes
+      # and doubles backslashes. Only this singleton encoding of bounded ASCII names is supported.
+      - >-
+        ('Names=' ~ ('"' ~ (unit_name | replace('\\', '\\\\')) ~ '"' if '\\' in unit_name else unit_name)) in item.stdout_lines
+      - >-
+        ('LoadState=not-found' in item.stdout_lines and 'UnitFileState=' in item.stdout_lines and 'FragmentPath=' in item.stdout_lines) or
+        ('LoadState=loaded' in item.stdout_lines and 'UnitFileState=disabled' in item.stdout_lines and
+         ('FragmentPath=/etc/systemd/system/' ~ unit_name) in item.stdout_lines and
+         storage_inactive_destinations.results[mount_index].stat.exists)
+    fail_msg: Mount loaded state is unknown, foreign, aliased, enabled, masked, active or queued; disk declarations are not loaded readiness.
+  vars:
+    unit_name: "{{ item.item.path[1:] | replace('-', '\\x2d') | replace('/', '-') }}.mount"
+  loop: "{{ storage_inactive_loaded.results }}"
+  loop_control:
+    index_var: mount_index
+
+- name: Reinspect activation token before publication
+  ansible.builtin.stat:
+    path: "{{ debian.transaction.storage_activation_path }}"
+    follow: false
+    get_checksum: false
+  register: storage_inactive_final_token
+  become: true
+
+- name: Require activation token to remain absent before publication
+  ansible.builtin.assert:
+    that: [not storage_inactive_final_token.stat.exists]
+    fail_msg: Activation token appeared before publication; refusing writes.
+
+- name: Publish only absent inactive storage declarations without loading them
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.template', 'inactive-mount.j2') }}"
+    dest: "/etc/systemd/system/{{ item.path[1:] | replace('-', '\\x2d') | replace('/', '-') }}.mount"
+    owner: root
+    group: root
+    mode: "0644"
+    force: false
+    follow: false
+  loop: "{{ storage_inactive_mounts }}"
+  loop_control:
+    index_var: mount_index
+  when: not storage_inactive_destinations.results[mount_index].stat.exists
+  become: true
+
+- name: Verify final disk declaration identities without loading units
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/{{ item.path[1:] | replace('-', '\\x2d') | replace('/', '-') }}.mount"
+    follow: false
+    checksum_algorithm: sha256
+  loop: "{{ storage_inactive_mounts }}"
+  register: storage_inactive_final
+  when: not ansible_check_mode
+  become: true
+
+- name: Require exact published declarations on disk only
+  ansible.builtin.assert:
+    that:
+      - observed.stat.exists
+      - observed.stat.isreg
+      - not observed.stat.islnk
+      - observed.stat.nlink == 1
+      - observed.stat.uid == 0
+      - observed.stat.gid == 0
+      - observed.stat.mode == '0644'
+      - observed.stat.checksum == lookup('ansible.builtin.template', 'inactive-mount.j2') | hash('sha256')
+    fail_msg: Final disk declaration identity differs; retain failed apply for separate review, not automatic retry.
+  vars:
+    observed: "{{ storage_inactive_final.results[mount_index] }}"
+  loop: "{{ storage_inactive_mounts }}"
+  loop_control:
+    index_var: mount_index
+  when: not ansible_check_mode

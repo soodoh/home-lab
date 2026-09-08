@@ -94,6 +94,82 @@ separate approval; VM9900's failed qualification is not retried or reclassified,
 and VM100/production disks are never rehearsal inputs. The installed production
 guard remains. Scheduled reporting is explicitly deferred under ADR 0002.
 
+### Inactive storage declarations (source only)
+
+The ordinary `storage` tag now selects only `storage/tasks/inactive.yml` on inert
+and recovery profiles, after the existing lifecycle/apply guards and host lock.
+Production storage verification and the production firewall canary remain gated
+and unchanged. The installer independently rejects production. The three shared
+Jinja-rendered mount declarations derive UUIDs, NFS source, filesystems, paths and
+options directly from the contract; names must match systemd path escaping and
+the existing production dependency graph. `debian.storage.local_mount_boot_options`
+owns the legacy local `nofail` boot policy separately from kernel-observed
+`noatime`. Both condition directives, NFS network-online Wants/After and install
+metadata are preserved. The current rendered bodies match the three cloud-init
+bodies byte for byte; cloud-init payload and hashes remain unchanged pending
+replacement qualification, not already retired ownership.
+
+This is missing-only **disk declaration**, not storage activation or repair.
+Before any copy it requires inactive/empty protected paths, trusted ancestry,
+absent activation token, no foreign definitions/overrides/pull-in links, exact
+existing body hashes and root-owned single-link regular `0644` metadata, and
+independently explicit inactive/dead mount-unit observations with no jobs, aliases
+or loaded drop-ins. Existing exact files are no-ops; divergent files refuse, even
+in check mode. Check mode predicts missing copies without writing. Final checks
+verify disk bytes only. There is no package installation (including `nfs-common`),
+device/filesystem probing, mountpoint creation, token creation/removal/adoption,
+mount, enable/start/stop/restart or daemon reload.
+
+The conservative supported system-unit search-root superset is:
+
+```text
+/etc/systemd/system.control       /run/systemd/system.control
+/run/systemd/transient            /run/systemd/generator.early
+/etc/systemd/system               /etc/systemd/system.attached
+/run/systemd/system               /run/systemd/system.attached
+/run/systemd/generator            /usr/local/lib/systemd/system
+/usr/lib/systemd/system           /run/systemd/generator.late
+```
+
+The manager's named `UnitPath` must contain no unsupported/custom roots. Only
+`/lib/systemd/system` is additionally allowed, after observing `/lib` as the exact
+root-owned `usr/lib` symlink and validating `/usr/lib/systemd/system` ancestry.
+There is no general symlink normalization. Missing optional roots are allowed;
+present unsafe ancestry refuses. Nonrecursive root metadata scans reject foreign
+exact unit definitions, exact unit drop-in directories, `mnt-.mount.d`,
+`srv-.mount.d` and global `mount.d`, including symlink entries. A second
+nonrecursive level, limited to safely owned real `*.wants`/`*.requires`
+directories, rejects exact protected-unit entries even when dangling. Unrelated
+unit definitions are not read or rejected merely for existing. This bounded
+supported topology and native systemd output/parsing still require qualification.
+
+Pathname observations and `copy force:false/follow:false` assume trusted,
+cooperating ancestry under the existing lock; they are not race-free publication,
+atomic no-clobber, crash closure or boot proof. Token and loaded state are checked
+near publication, but the complete observation is not an atomic snapshot. A
+partial copy failure can leave some declarations on disk; retain the failed apply
+for separately reviewed recovery, not automatic retry.
+
+`nfs-common`, native package effects and native parsing/loading remain separate
+prerequisites, not established by this slice. The activation executor already
+requires loaded/inactive units **before** its own later daemon reload. The separate
+capability installation reloads changed declarations; it is neither invoked here
+nor evidence that a disk-only run satisfies that order. A separately reviewed
+preparation and fresh loaded-state observation are required before activation.
+The production guard, direct dependency policy, executors and all operational
+admission remain unchanged.
+
+`test-debian-storage-provisioning.js` uses actual Ansible imports, conditions,
+assertions and template lookup with controller-only stat/find/command/copy effect
+adapters. Its guard/lock witnesses are synthetic dispatch/refusal evidence, not
+installed admission qualification. The inactive-path caller now adds only
+`-I -B -S` to its existing stdlib program invocation; its exact argv is checked
+before fixture creation, and the Linux/root helper is never executed natively by
+this test. This closes that caller only, not every Python startup path. Native
+inert convergence, loaded-unit/cold-boot/activation/recovery acceptance remain
+unproven; VM9900's failed qualification is not retried and production inputs never
+become rehearsal inputs.
+
 ## Installation and use
 
 Install the fixed executor, dependency policy and additive drop-ins only through `ansible/playbooks/install-debian-lifecycle-capability.yml`, with lifecycle profile `inert` or `recovery`, exactly the `debian_lifecycle_capability` tag, and `debian_lifecycle_capability_confirmation=INSTALL_DEBIAN_LIFECYCLE_TRANSACTION_CAPABILITY`. Installation and execution use the same host apply lock, so the executor cannot be replaced between checksum verification and launch. The controller derives inventory and host routing from the saved profile: `inert` can route only to the contract-bound qualification inventory host, while `recovery` and `production` route only to the production inventory host.

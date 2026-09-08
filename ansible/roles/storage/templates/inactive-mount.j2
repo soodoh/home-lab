@@ -1,0 +1,17 @@
+[Unit]
+Description={{ item.description }}
+{% if item.kind == 'shared' %}
+After=network-online.target
+Wants=network-online.target
+{% endif %}
+ConditionPathExists={{ debian.transaction.storage_activation_path }}
+ConditionPathIsMountPoint=!{{ item.path }}
+
+[Mount]
+What={{ vm_100.storage.shared.source if item.kind == 'shared' else '/dev/disk/by-uuid/' ~ (proxmox.vm.state_disk.filesystem_uuid if item.kind == 'state' else vm_100.storage.games.filesystem_uuid) }}
+Where={{ item.path }}
+Type={{ proxmox.vm.state_disk.filesystem if item.kind == 'state' else vm_100.storage[item.kind].filesystem }}
+Options={{ ((proxmox.vm.state_disk.mount_options if item.kind == 'state' else vm_100.storage.games.options) + debian.storage.local_mount_boot_options) | join(',') if item.kind != 'shared' else vm_100.storage.shared.options | join(',') }}
+
+[Install]
+WantedBy=multi-user.target

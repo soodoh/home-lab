@@ -130,6 +130,14 @@
       tags:
         - tailscale
 
+    - name: Converge inactive storage declarations only
+      ansible.builtin.import_role:
+        name: storage
+        tasks_from: inactive
+      when: lifecycle_profile in ['inert', 'recovery']
+      tags:
+        - storage
+
   post_tasks:
     - name: Release the host-side production apply lock after success
       ansible.builtin.import_role:

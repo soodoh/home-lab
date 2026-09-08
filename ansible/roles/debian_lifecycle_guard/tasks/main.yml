@@ -28,6 +28,9 @@
   ansible.builtin.command:
     argv:
       - /usr/bin/python3
+      - -I
+      - -B
+      - -S
       - -c
       - "{{ lookup('ansible.builtin.file', role_path ~ '/files/debian-inactive-path.py') }}"
       - "{{ item }}"
