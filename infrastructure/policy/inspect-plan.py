@@ -257,42 +257,154 @@ def vm_start_prerequisite_failure(plan: dict[str, Any]) -> str | None:
     return None
 
 
-def oidc_ownership_failures(plan: dict[str, Any]) -> list[str]:
-    """Home-lab consumes identity; it must not own any IAM OIDC provider.
+def resource_envelopes(plan: dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Walk only plan envelopes, never values/expressions that resemble resources.
 
-    Inspect resource envelopes, never arbitrary resource values/expressions.
-    Configuration covers declarations with no instances (e.g. count = 0).
+    Reject malformed containers: an unreadable envelope cannot establish that
+    identity changes are absent. Missing optional containers remain legitimate.
     """
+    result: list[tuple[str, dict[str, Any]]] = []
+
+    def mapping(value: Any, location: str) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValueError(f"{location}: malformed plan object")
+        return value
+
+    def sequence(value: Any, location: str) -> list[Any]:
+        if not isinstance(value, list):
+            raise ValueError(f"{location}: malformed plan list")
+        return value
+
+    def resource(value: Any, location: str) -> None:
+        item = mapping(value, location)
+        if not isinstance(item.get("type"), str) or not item["type"]:
+            raise ValueError(f"{location}: missing or malformed resource type")
+        result.append((location, item))
+
+    def module(value: Any, location: str) -> None:
+        item = mapping(value, location)
+        for child in sequence(item.get("resources", []), location + "/resources"):
+            resource(child, location)
+        for index, child in enumerate(sequence(item.get("child_modules", []), location + "/child_modules")):
+            module(child, f"{location}/child_modules/{index}")
+        for name, call in mapping(item.get("module_calls", {}), location + "/module_calls").items():
+            module(mapping(call, location).get("module"), f"{location}/module.{name}")
+
+    mapping(plan, "plan")
+    for name in ("resource_changes", "resource_drift"):
+        for item in sequence(plan.get(name, []), name):
+            resource(item, name)
+    for item in sequence(plan.get("deferred_changes", []), "deferred_changes"):
+        resource(mapping(item, "deferred_changes").get("resource_change"), "deferred_changes")
+    for name in ("planned_values", "configuration"):
+        module(mapping(plan.get(name, {}), name).get("root_module", {}), name)
+    prior = mapping(plan.get("prior_state", {}), "prior_state")
+    module(mapping(prior.get("values", {}), "prior_state/values").get("root_module", {}), "prior_state")
+    return result
+
+
+def oidc_ownership_failures(envelopes: list[tuple[str, dict[str, Any]]]) -> list[str]:
+    """Unconditional ownership prohibition, stronger than identity mutation denial."""
+    return [
+        f"{location}: {resource.get('address', '<unknown>')}: managed IAM OIDC provider ownership is forbidden"
+        for location, resource in envelopes
+        if resource["type"] == OIDC_RESOURCE_TYPE and resource.get("mode") != "data"
+    ]
+
+
+def known_identity_result(value: Any) -> bool:
+    """Unknown masks may contain booleans and nested containers, not truthy guesses."""
+    if isinstance(value, bool):
+        return not value
+    if isinstance(value, dict):
+        return all(known_identity_result(item) for item in value.values())
+    if isinstance(value, list):
+        return all(known_identity_result(item) for item in value)
+    return False
+
+
+def controller_identity_failures(
+    plan: dict[str, Any], envelopes: list[tuple[str, dict[str, Any]]]
+) -> list[str]:
     failures: list[str] = []
-
-    def inspect(resources: list[dict[str, Any]], location: str) -> None:
-        for resource in resources:
-            if resource.get("type") == OIDC_RESOURCE_TYPE and resource.get("mode") != "data":
-                address = resource.get("address", "<unknown>")
-                failures.append(f"{location}: {address}: managed IAM OIDC provider ownership is forbidden")
-
-    def inspect_module(module: dict[str, Any], location: str) -> None:
-        inspect(module.get("resources", []), location)
-        for child in module.get("child_modules", []):
-            inspect_module(child, f"{location}/{child.get('address', '<child>')}")
-        for name, call in module.get("module_calls", {}).items():
-            inspect_module(call.get("module", {}), f"{location}/module.{name}")
-
-    inspect(plan.get("resource_changes", []), "resource_changes")
-    inspect_module(plan.get("planned_values", {}).get("root_module", {}), "planned_values")
-    inspect_module(plan.get("prior_state", {}).get("values", {}).get("root_module", {}), "prior_state")
-    inspect_module(plan.get("configuration", {}).get("root_module", {}), "configuration")
+    # Absent flags support older complete plan documents; explicit uncertainty
+    # cannot be used to hide identity work deferred by the plan producer.
+    if ("complete" in plan and plan["complete"] is not True) or (
+        "errored" in plan and plan["errored"] is not False
+    ):
+        failures.append("incomplete/errored plan cannot establish safe identity convergence")
+    for location, resource in envelopes:
+        identity = resource["type"].startswith(("aws_iam_", "aws_rolesanywhere_"))
+        if identity and resource.get("mode") != "data":
+            label = f"{location}: {resource.get('address', '<unknown>')}: managed IAM/Roles Anywhere"
+            if not isinstance(resource.get("address"), str) or not resource["address"]:
+                failures.append(f"{label} tracking address is missing or malformed")
+                continue
+            if resource.get("mode") != "managed":
+                failures.append(f"{label} mode is missing or unrecognized")
+                continue
+            if location == "deferred_changes":
+                failures.append(f"{label} deferred identity change is forbidden")
+                continue
+            if location not in {"resource_changes", "resource_drift"}:
+                continue  # Retained ownership alone is permitted (unlike OIDC).
+            change = resource.get("change")
+            if not isinstance(change, dict):
+                failures.append(f"{label} malformed identity change")
+                continue
+            actions = change.get("actions")
+            if resource.get("previous_address") is not None:
+                failures.append(f"{label} identity tracking move requires owner intervention")
+            elif change.get("importing") is not None:
+                failures.append(f"{label} identity import is forbidden")
+            elif actions not in (["no-op"], ["read"]):
+                failures.append(f"{label} identity mutation, drift, or unknown actions are forbidden")
+            elif not known_identity_result(change.get("after_unknown", {})):
+                failures.append(f"{label} unknown or malformed identity result")
+            elif "before" not in change or not isinstance(change.get("after"), dict) or (
+                actions == ["no-op"] and change.get("before") != change["after"]
+            ) or (actions == ["read"] and change.get("before") is not None
+                  and not isinstance(change["before"], dict)):
+                failures.append(f"{label} malformed or inconsistent identity read/no-op")
+        # Preserve existing data/import/protected-field admission, but never let
+        # malformed change envelopes crash or fall into an empty-actions shortcut.
+        if location in {"resource_changes", "resource_drift", "deferred_changes"}:
+            change = resource.get("change")
+            if not isinstance(change, dict) or not isinstance(change.get("actions"), list) or not all(
+                isinstance(action, str) for action in change["actions"]
+            ):
+                failures.append(f"{location}: malformed change/actions envelope")
     return failures
+
+
+def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
 
 
 def main() -> int:
     args = parse_args()
-    plan = json.loads(args.plan_json.read_text())
-    # This invariant precedes mode, allowlist, import and no-op/read shortcuts.
-    ownership_failures = oidc_ownership_failures(plan)
+    try:
+        plan = json.loads(args.plan_json.read_text(), object_pairs_hook=reject_duplicate_keys)
+        envelopes = resource_envelopes(plan)
+    except (ValueError, RecursionError) as error:
+        print(f"DENY: malformed plan; owner intervention required to verify identity tracking: {error}", file=sys.stderr)
+        return 1
+    # Both invariants precede EVERY controller mode, allowlist and import/no-op shortcut.
+    ownership_failures = oidc_ownership_failures(envelopes)
     if ownership_failures:
         for failure in sorted(set(ownership_failures)):
             print(f"DENY: {failure}", file=sys.stderr)
+        return 1
+    identity_failures = controller_identity_failures(plan, envelopes)
+    if identity_failures:
+        for failure in sorted(set(identity_failures)):
+            print(f"DENY: {failure}; owner intervention required: independently verify source/state/plan, "
+                  "complete owner bootstrap or repair, and refresh/verify retained identity tracking before resuming", file=sys.stderr)
         return 1
     if args.mode == "vm-start-prerequisite":
         failure = vm_start_prerequisite_failure(plan)

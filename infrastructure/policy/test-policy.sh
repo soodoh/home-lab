@@ -36,6 +36,8 @@ for fixture in delete replace protection-disable ct-create ct-recreate root-disk
   expect_rejection "$fixture" normal
 done
 python3 "$root/test-oidc-ownership.py"
+python3 "$root/test-controller-identity-gate.py"
+python3 "$root/proposals/controller-identity-isolation/test-controller-identity-isolation.py"
 python3 "$root/../../scripts/controller/test-tailscale-policy.py"
 python3 "$root/../../scripts/controller/test-omada-host-alias.py"
 python3 "$root/../../scripts/controller/test-normalize-ansible-plan.py"

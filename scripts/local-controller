@@ -11,6 +11,7 @@ usage: scripts/local-controller <plan|apply|apply-tailnet> steady --generation <
 
 Options:
   --config-dir <protected-controller-config-directory>
+  --boundary-manifest <absolute-non-secret-manifest-path> (required)
   --generation <lowercase-alphanumeric-or-hyphen-name> (required, at most 64 characters)
 
 The controller accepts any clean committed revision. Both commands run validation. Plan uses
@@ -29,11 +30,18 @@ case "$action" in plan|apply|apply-tailnet) ;; *) usage ;; esac
 
 config_dir=${HOME_LAB_CONTROLLER_CONFIG_DIR:-$HOME/.config/home-lab/controller}
 generation=
+boundary_manifest=
 while (($#)); do
   case "$1" in
     --config-dir)
       (($# >= 2)) || usage
       config_dir=$2
+      shift 2
+      ;;
+    --boundary-manifest)
+      (($# >= 2)) || usage
+      [[ -z $boundary_manifest ]] || usage
+      boundary_manifest=$2
       shift 2
       ;;
     --generation)
@@ -59,6 +67,11 @@ commit=$(git rev-parse HEAD)
 }
 plan_dir="$repo_root/.reconcile/plans/$commit/$operation/$generation"
 manifest="$plan_dir/manifest.json"
+
+# No credential selection or provider preparation precedes boundary admission.
+# shellcheck source=scripts/controller/controller-boundaries.sh
+source "$repo_root/scripts/controller/controller-boundaries.sh"
+initialize_controller_boundaries
 
 load_credentials() {
   local capability=$1 file="$config_dir/$1-credentials.json" key value encoded
@@ -100,6 +113,7 @@ PY
     export "$key=$value"
   done <"$encoded"
   rm -f "$encoded"
+  verify_controller_boundaries
 }
 
 prepare_provider_tls() {
@@ -129,7 +143,9 @@ PY
 
 
 run_validation() {
-  env -u RECONCILE_ANSIBLE_EXTRA_VARS_FILE scripts/reconcile-infrastructure validate
+  verify_controller_boundaries
+  env -u RECONCILE_ANSIBLE_EXTRA_VARS_FILE scripts/reconcile-infrastructure validate \
+    --boundary-manifest "$boundary_manifest"
 }
 
 require_ordinary_mutation_authority() {
@@ -176,6 +192,7 @@ verify_saved_plans() {
     echo "local_controller=failed reason=manifest_mismatch" >&2
     exit 66
   }
+  verify_controller_boundaries "$manifest"
   verify_proxmox_host_check
   while IFS=$'\t' read -r file expected; do
     actual=$(shasum -a 256 "$plan_dir/$file" | awk '{print $1}')
@@ -232,13 +249,16 @@ case "$action" in
     prepare_steady_authentik_input
     run_validation
     prepare_steady_omada_input
-    scripts/reconcile-infrastructure plan --plan-dir "$plan_dir" "${operation_args[@]}"
+    verify_controller_boundaries
+    scripts/reconcile-infrastructure plan --plan-dir "$plan_dir" "${operation_args[@]}" \
+      --boundary-manifest "$boundary_manifest"
     show_saved_plans
     printf 'local_controller=planned operation=%s recovery_stage=%s commit=%s manifest_sha256=%s\n' \
       "$operation" "$(jq -r .stage "$manifest")" "$commit" "$(manifest_sha256)"
     ;;
   apply)
     require_ordinary_mutation_authority
+    verify_controller_boundaries "$manifest"
     use_prepared_provider_tls
     run_validation
     confirm_apply
@@ -246,13 +266,16 @@ case "$action" in
     prepare_provider_tls
     prepare_steady_authentik_input
     prepare_steady_omada_input
-    scripts/reconcile-infrastructure apply --plan-dir "$plan_dir" "${operation_args[@]}"
+    verify_controller_boundaries "$manifest"
+    scripts/reconcile-infrastructure apply --plan-dir "$plan_dir" "${operation_args[@]}" \
+      --boundary-manifest "$boundary_manifest"
     printf 'local_controller=applied operation=%s recovery_stage=%s commit=%s\n' \
       "$operation" "$(jq -r .stage "$manifest")" "$commit"
     ;;
   apply-tailnet)
     [[ $operation == steady ]] || usage
     require_ordinary_mutation_authority
+    verify_controller_boundaries "$manifest"
     use_prepared_provider_tls
     run_validation
     confirm_apply
@@ -260,7 +283,9 @@ case "$action" in
     prepare_provider_tls
     prepare_steady_authentik_input
     prepare_steady_omada_input
-    scripts/reconcile-infrastructure apply-tailnet --plan-dir "$plan_dir" "${operation_args[@]}"
+    verify_controller_boundaries "$manifest"
+    scripts/reconcile-infrastructure apply-tailnet --plan-dir "$plan_dir" "${operation_args[@]}" \
+      --boundary-manifest "$boundary_manifest"
     printf 'local_controller=applied-tailnet operation=%s recovery_stage=%s commit=%s\n' \
       "$operation" "$(jq -r .stage "$manifest")" "$commit"
     ;;

@@ -106,7 +106,12 @@ function verifyManifest(file) {
   const manifest = parse(raw);
   // Top-level reconcile checks retain provider and Compose semantics. All consumers
   // reject legacy host authority even if a caller supplies otherwise valid binaries.
-  assert.deepEqual(Object.keys(manifest).sort(), ["ansible_extra_vars_file_sha256", "backend_bucket", "commit", "compose_artifact_sha256", "offen_retirement_operation", "phase", "plans", "proxmox_host_check", "recovery_backup_identity_sha256", "recovery_expectations_sha256", "stage", "version"].sort());
+  assert.deepEqual(Object.keys(manifest).sort(), ["ansible_extra_vars_file_sha256", "backend_bucket", "commit", "compose_artifact_sha256", "controller_boundary_manifest", "offen_retirement_operation", "phase", "plans", "proxmox_host_check", "recovery_backup_identity_sha256", "recovery_expectations_sha256", "stage", "version"].sort());
+  // Boundary semantics/current-file equality are checked by the shared Python
+  // admission before this host-only reader or any provider invocation.
+  assert.deepEqual(Object.keys(manifest.controller_boundary_manifest).sort(), ["document", "path", "sha256"]);
+  assert(path.isAbsolute(manifest.controller_boundary_manifest.path));
+  assert.match(manifest.controller_boundary_manifest.sha256, /^[0-9a-f]{64}$/);
   assert.match(manifest.compose_artifact_sha256, /^[0-9a-f]{64}$/);
   assert.equal(typeof manifest.backend_bucket, "string");
   assert.equal(manifest.recovery_backup_identity_sha256, "");

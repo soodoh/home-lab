@@ -122,7 +122,19 @@ class ManifestVerificationTests(unittest.TestCase):
                     )
                 plans.append(record)
 
+            boundary_document = {
+                "version": 1, "account_id": "658271954302", "partition": "aws",
+                "plan_policy_arn": "arn:aws:iam::658271954302:policy/fixture/plan",
+                "apply_policy_arn": "arn:aws:iam::658271954302:policy/fixture/apply",
+                "provenance": {"review_reference": "synthetic-only", "plan_policy_sha256": "a" * 64,
+                               "apply_policy_sha256": "b" * 64},
+            }
+            boundary_file = temporary / "controller-boundaries.json"
+            boundary_file.write_text(json.dumps(boundary_document))
+            boundary_file.chmod(0o600)
             manifest = {
+                "controller_boundary_manifest": {"path": str(boundary_file.resolve()),
+                    "sha256": hashlib.sha256(boundary_file.read_bytes()).hexdigest(), "document": boundary_document},
                 "version": 6,
                 "commit": commit,
                 "phase": "steady",
@@ -201,6 +213,9 @@ exit 86
 
             environment = {
                 **os.environ,
+                # Ordinary validation's admitted pair is not this fixture's pair.
+                "TF_VAR_controller_plan_permissions_boundary_arn": boundary_document["plan_policy_arn"],
+                "TF_VAR_controller_apply_permissions_boundary_arn": boundary_document["apply_policy_arn"],
                 "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}",
                 "TF_BACKEND_BUCKET": "test-state-bucket",
                 "AWS_REGION": "us-east-1",
@@ -218,6 +233,7 @@ exit 86
                 "steady",
                 "--plan-dir",
                 str(plan_dir),
+                "--boundary-manifest", str(boundary_file),
             ]
 
             invalid_manifest = manifest.copy()

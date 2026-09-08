@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 from pathlib import Path
 import shutil
@@ -324,6 +325,14 @@ exec {real_node} "$@"
 '''
                 )
                 node.chmod(node.stat().st_mode | stat.S_IXUSR)
+                boundary = temporary / "controller-boundaries.json"
+                boundary_document = {"version": 1, "account_id": "658271954302", "partition": "aws",
+                    "plan_policy_arn": "arn:aws:iam::658271954302:policy/fixture/plan",
+                    "apply_policy_arn": "arn:aws:iam::658271954302:policy/fixture/apply",
+                    "provenance": {"review_reference": "synthetic-only", "plan_policy_sha256": "a" * 64,
+                                   "apply_policy_sha256": "b" * 64}}
+                boundary.write_text(json.dumps(boundary_document))
+                boundary.chmod(0o600)
                 for name in ("tofu", "ansible", "ansible-playbook"):
                     stub = binaries / name
                     stub.write_text("#!/usr/bin/env bash\nexit 0\n")
@@ -336,10 +345,14 @@ exec {real_node} "$@"
                         "steady",
                         "--plan-dir",
                         str(temporary / "plans"),
+                        "--boundary-manifest", str(boundary),
                     ],
                     cwd=REPOSITORY,
                     env={
                         **os.environ,
+                        # Reach the lock assertion with this fixture's own pair.
+                        "TF_VAR_controller_plan_permissions_boundary_arn": boundary_document["plan_policy_arn"],
+                        "TF_VAR_controller_apply_permissions_boundary_arn": boundary_document["apply_policy_arn"],
                         "PATH": f"{binaries}{os.pathsep}{os.environ['PATH']}",
                         "TF_BACKEND_BUCKET": "test-state-bucket",
                         "AWS_REGION": "us-east-1",

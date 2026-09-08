@@ -204,6 +204,12 @@ class OidcPlanTests(unittest.TestCase):
         # User/provider payloads describing a type are not resource envelopes.
         plan["resource_changes"][0]["change"]["after"]["description"] = {
             "type": OIDC_TYPE, "mode": "managed"}
+        result = self.inspect(plan)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("owner intervention required", result.stderr)
+        self.assertNotIn("managed IAM OIDC provider ownership is forbidden", result.stderr)
+        # Preserve the original payload-not-envelope safety purpose separately.
+        plan["resource_changes"][0]["type"] = "example"
         self.assert_passed(plan)
         for name in ("delete", "replace", "protection-disable", "import"):
             result = self.inspect(fixture(name), allowed=False)

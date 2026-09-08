@@ -36,7 +36,14 @@ if os.environ.get('NEUTRAL_TEST_DRIFT'):
 print(json.dumps(value,sort_keys=True,separators=(',',':')))
 `, { mode: 0o755 });
   for (const name of ["nix", "nix-store"]) fs.writeFileSync(path.join(bin, name), "#!/bin/sh\necho forbidden-Nix-call >&2\nexit 99\n", { mode: 0o755 });
+  const boundaryDocument = { version: 1, account_id: "658271954302", partition: "aws",
+    plan_policy_arn: "arn:aws:iam::658271954302:policy/fixture/plan",
+    apply_policy_arn: "arn:aws:iam::658271954302:policy/fixture/apply",
+    provenance: { review_reference: "synthetic-only", plan_policy_sha256: "a".repeat(64), apply_policy_sha256: "b".repeat(64) } };
+  // Ordinary validation exports its admitted pair; nested fixtures own their pair.
   const environment = { ...process.env, PATH: bin + path.delimiter + process.env.PATH,
+    TF_VAR_controller_plan_permissions_boundary_arn: boundaryDocument.plan_policy_arn,
+    TF_VAR_controller_apply_permissions_boundary_arn: boundaryDocument.apply_policy_arn,
     RECONCILE_PROXMOX_KNOWN_HOSTS: hosts, RECONCILE_PROXMOX_HOST_KEY_SHA256: template.snapshot.host_key, NEUTRAL_TEST_SNAPSHOT: snapshot };
   const cli = path.join(ROOT, "scripts/controller/proxmox-check-evidence.js");
   const command = (args, env = environment) => spawnSync(process.execPath, [cli, ...args], { cwd: ROOT, env, encoding: "utf8", timeout: 120000 });
@@ -45,7 +52,10 @@ print(json.dumps(value,sort_keys=True,separators=(',',':')))
   const record = JSON.parse(planned.stdout); records.push(record.file);
   const evidence = JSON.parse(fs.readFileSync(path.join(ROOT, record.file)));
   assert.equal(evidence.scope.recap.changed, 0); assert.equal(evidence.scope.recap.ok, 2);
-  const manifest = { version: 6, commit: template.commit, phase: "steady", stage: "converge", backend_bucket: "fixture",
+  const boundaryFile = path.join(directory, "controller-boundaries.json");
+  fs.writeFileSync(boundaryFile, canonicalJson(boundaryDocument), { mode: 0o600 });
+  const boundaryBinding = { path: fs.realpathSync(boundaryFile), sha256: sha(fs.readFileSync(boundaryFile)), document: boundaryDocument };
+  const manifest = { controller_boundary_manifest: boundaryBinding, version: 6, commit: template.commit, phase: "steady", stage: "converge", backend_bucket: "fixture",
     compose_artifact_sha256: "a".repeat(64), ansible_extra_vars_file_sha256: "", recovery_backup_identity_sha256: "",
     recovery_expectations_sha256: "", offen_retirement_operation: "", proxmox_host_check: record, plans: [] };
   for (const root of ["aws-foundation", "proxmox"]) {
@@ -71,7 +81,7 @@ print(json.dumps(value,sort_keys=True,separators=(',',':')))
   write(manifest);
   const wrapper = fs.readFileSync(path.join(ROOT, "scripts/local-controller"), "utf8");
   const start = wrapper.indexOf("verify_proxmox_host_check() {"), end = wrapper.indexOf("show_saved_plans() {", start);
-  const shell = `set -euo pipefail\ncd '${ROOT}'\nmanifest='${manifestFile}'\nplan_dir='${directory}'\ncommit='${manifest.commit}'\noperation=steady\n${wrapper.slice(start, end)}\nverify_saved_plans\n`;
+  const shell = `set -euo pipefail\ncd '${ROOT}'\nrepo_root='${ROOT}'\nboundary_manifest='${boundaryFile}'\nsource scripts/controller/controller-boundaries.sh\ninitialize_controller_boundaries\nmanifest='${manifestFile}'\nplan_dir='${directory}'\ncommit='${manifest.commit}'\noperation=steady\n${wrapper.slice(start, end)}\nverify_saved_plans\n`;
   const wrapperResult = spawnSync("bash", ["-c", shell], { cwd: ROOT, env: environment, encoding: "utf8" });
   assert.equal(wrapperResult.status, 0, wrapperResult.stderr);
   const invalid = structuredClone(manifest); invalid.version = 5; write(invalid);

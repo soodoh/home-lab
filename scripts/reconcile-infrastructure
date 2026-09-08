@@ -13,6 +13,7 @@ usage: scripts/reconcile-infrastructure <validate|plan|apply|apply-tailnet|verif
 Options:
   --phase steady                       Desired reconciliation phase (default: steady)
   --plan-dir <path>                    Protected saved-plan directory
+  --boundary-manifest <absolute-path>  Required non-secret controller boundary manifest
 
 Required environment:
   TF_BACKEND_BUCKET                    Existing encrypted OpenTofu state bucket
@@ -34,9 +35,16 @@ case "$action" in validate|plan|apply|apply-tailnet|verify) ;; *) usage ;; esac
 phase=steady
 plan_dir="$repo_root/.reconcile/plans"
 production_inventory=inventory/production.yml
+boundary_manifest=
 
 while (($#)); do
   case "$1" in
+    --boundary-manifest)
+      (($# >= 2)) || usage
+      [[ -z $boundary_manifest ]] || usage
+      boundary_manifest=$2
+      shift 2
+      ;;
     --phase)
       (($# >= 2)) || usage
       phase=$2
@@ -57,6 +65,10 @@ case "$plan_dir" in
   *) echo "plan directory must remain under $repo_root/.reconcile" >&2; exit 64 ;;
 esac
 [[ $plan_dir != *"/../"* && $plan_dir != */.. ]] || exit 64
+
+# shellcheck source=scripts/controller/controller-boundaries.sh
+source "$repo_root/scripts/controller/controller-boundaries.sh"
+initialize_controller_boundaries
 
 if [[ $action == apply || $action == apply-tailnet ]]; then
   node scripts/controller/check-vm-100-authority.js --require-ordinary-mutation
@@ -115,6 +127,8 @@ if [[ $action == validate ]]; then
   python3 scripts/controller/test-maintenance-launcher.py
   python3 scripts/controller/test-maintenance-read-only-capability.py
   python3 scripts/controller/test-local-controller-generations.py
+  python3 scripts/controller/test-controller-boundary-manifest.py
+  python3 scripts/controller/test-reconcile-identity-preflight.py
   node scripts/controller/test-proxmox-timezone-handoff.js
   node scripts/controller/test-proxmox-access-cutover.js
   python3 scripts/controller/test-proxmox-access-identity-stage.py
@@ -187,7 +201,7 @@ if [[ $action == validate ]]; then
   python3 scripts/test-proton-incident-retirement.py
   python3 -m py_compile scripts/*.py scripts/controller/*.py scripts/activate-restic-staging-fixture scripts/build-restic-recovery-bundle scripts/run-restic-recovery-bundle scripts/promote-qualified-proton-restic scripts/retire-proton-incident-artifacts
   node --check scripts/controller/authentik-normalize-inventory.mjs
-  shellcheck scripts/reconcile-infrastructure scripts/local-controller \
+  shellcheck scripts/reconcile-infrastructure scripts/local-controller scripts/controller/controller-boundaries.sh \
     scripts/audit-opentofu-state-objects scripts/configure-local-controller-aws \
     scripts/configure-local-provider-credentials scripts/prepare-authentik-plan-input \
     scripts/collect-proxmox-protected-inputs scripts/migrate-proxmox-zfs-stack scripts/validate-proxmox-bootstrap-keys \
@@ -490,6 +504,7 @@ PY
 
 backend_init() {
   local root=$1
+  verify_controller_boundaries
   tofu -chdir="infrastructure/tofu/$root" init -input=false -reconfigure \
     -backend-config="bucket=$backend_bucket" \
     -backend-config="region=$aws_region" \
@@ -507,6 +522,10 @@ policy_args() {
 
 root_plan_args() {
   local root=$1
+  if [[ $root == aws-foundation ]]; then
+    printf '%s\0' -var="controller_plan_permissions_boundary_arn=$boundary_plan_arn" \
+      -var="controller_apply_permissions_boundary_arn=$boundary_apply_arn"
+  fi
   if [[ $root == omada && ${TF_VAR_omada_enable_management:-false} == true ]]; then
     printf '%s\0' -var="omada_export_path=$repo_root/.local/omada/export.json"
   fi
@@ -587,7 +606,9 @@ plan_all() {
   recovery_backup_identity_sha256=$(recovery_expected_backup_identity_sha256)
   ansible_extra_vars_file_sha256=$(ansible_extra_vars_sha256)
   recovery_expectations_sha256=""
+  verify_controller_boundaries
   jq -csS \
+    --argjson controller_boundary_manifest "$boundary_binding" \
     --arg commit "$commit" \
     --arg phase "$phase" \
     --arg backend_bucket "$backend_bucket" \
@@ -600,6 +621,7 @@ plan_all() {
     --arg stage converge \
     '{version: 6, commit: $commit, phase: $phase, stage: $stage,
       backend_bucket: $backend_bucket,
+      controller_boundary_manifest: $controller_boundary_manifest,
       ansible_extra_vars_file_sha256: $ansible_extra_vars_file_sha256,
       recovery_backup_identity_sha256: $recovery_backup_identity_sha256,
       recovery_expectations_sha256: $recovery_expectations_sha256,
@@ -621,6 +643,7 @@ verify_manifest() {
      $(sha256_file "$manifest") == "$RECONCILE_REVIEWED_MANIFEST_SHA256" ]] || {
     echo "exact reviewed manifest confirmation binding is missing or changed" >&2; exit 66;
   }
+  verify_controller_boundaries "$manifest"
   jq -e '
     .version == 6 and
     (.commit | test("^[0-9a-f]{40}$")) and
@@ -643,7 +666,7 @@ verify_manifest() {
     ((.proxmox_host_check | keys | sort) == (["file", "sha256"] | sort)) and
     (.proxmox_host_check.file == (".reconcile/plans/" + .proxmox_host_check.sha256 + ".check.json")) and
     (.proxmox_host_check.sha256 | test("^[0-9a-f]{64}$")) and
-    ((keys | sort) == (["ansible_extra_vars_file_sha256", "backend_bucket", "commit", "compose_artifact_sha256", "offen_retirement_operation", "phase", "plans", "proxmox_host_check", "recovery_backup_identity_sha256", "recovery_expectations_sha256", "stage", "version"] | sort))
+    ((keys | sort) == (["ansible_extra_vars_file_sha256", "backend_bucket", "commit", "compose_artifact_sha256", "controller_boundary_manifest", "offen_retirement_operation", "phase", "plans", "proxmox_host_check", "recovery_backup_identity_sha256", "recovery_expectations_sha256", "stage", "version"] | sort))
   ' "$manifest" >/dev/null || {
     echo "saved-plan manifest metadata is invalid" >&2
     exit 66
@@ -864,25 +887,44 @@ compose_apply() {
   rm -rf "$artifact_root" "$plan_log" "$repeat_log" "$postcheck_log"
 }
 
+# Fresh safety checks are never consumable mutation plans. Keep the reviewed
+# generation untouched and remove the private binary on success or refusal.
+verify_fresh_root_noop() (
+  local root=$1 verify_log=$2 temporary_plan_dir exit_code argument
+  local plan_args=() inspect_args=()
+  temporary_plan_dir=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-verification.XXXXXX")
+  trap 'rm -rf "$temporary_plan_dir"' EXIT
+  while IFS= read -r -d '' argument; do plan_args+=("$argument"); done < <(root_plan_args "$root")
+  : >"$verify_log"
+  chmod 0600 "$verify_log"
+  set +eu
+  tofu -chdir="infrastructure/tofu/$root" plan -input=false -lock-timeout=5m -no-color \
+    -parallelism=1 -detailed-exitcode -out="$temporary_plan_dir/fresh.tfplan" "${plan_args[@]}" >"$verify_log" 2>&1
+  exit_code=$?
+  set -eu
+  [[ $exit_code == 0 || $exit_code == 2 ]] || {
+    echo "OpenTofu verification planning failed for $root; inspect the protected local verification log." >&2
+    exit 1
+  }
+  while IFS= read -r -d '' argument; do inspect_args+=("$argument"); done < <(policy_args "$root")
+  if ! TOFU_PLAN_CHDIR="infrastructure/tofu/$root" ./scripts/inspect-tofu-plan \
+    "$temporary_plan_dir/fresh.tfplan" "${inspect_args[@]}" >>"$verify_log" 2>&1; then
+    echo "OpenTofu fresh plan inspection failed for $root; owner intervention required; inspect the protected local verification log." >&2
+    exit 1
+  fi
+  [[ $exit_code == 0 ]] || {
+    echo "OpenTofu root is not converged: $root; inspect the protected local verification log." >&2
+    exit 1
+  }
+)
+
 verify_all() {
-  local root exit_code verify_log argument
+  local root
+  verify_controller_boundaries
   verify_fresh_proxmox_host_noop
   for root in "${roots[@]}"; do
     backend_init "$root"
-    plan_args=()
-    while IFS= read -r -d '' argument; do plan_args+=("$argument"); done < <(root_plan_args "$root")
-    verify_log="$plan_dir/$root.verify.log"
-    : >"$verify_log"
-    chmod 0600 "$verify_log"
-    set +eu
-    tofu -chdir="infrastructure/tofu/$root" plan -input=false -lock-timeout=5m -no-color \
-      -parallelism=1 -detailed-exitcode "${plan_args[@]}" >"$verify_log" 2>&1
-    exit_code=$?
-    set -eu
-    [[ $exit_code == 0 ]] || {
-      echo "OpenTofu root is not converged: $root; inspect the protected local verification log." >&2
-      exit 1
-    }
+    verify_fresh_root_noop "$root" "$plan_dir/$root.verify.log"
     if [[ $root == tailscale && ${TF_VAR_tailscale_enable_management:-false} == true ]]; then
       tailscale_verify_state_policy
     fi
@@ -904,25 +946,13 @@ require_tailnet_only_manifest() {
 }
 
 tailnet_only_preflight() {
-  local root exit_code verify_log argument
+  local root
+  verify_controller_boundaries "$plan_dir/manifest.json"
   require_tailnet_only_manifest
   verify_fresh_proxmox_host_noop
   for root in aws-foundation proxmox omada authentik; do
     backend_init "$root"
-    plan_args=()
-    while IFS= read -r -d '' argument; do plan_args+=("$argument"); done < <(root_plan_args "$root")
-    verify_log="$plan_dir/$root.tailnet-preflight.log"
-    : >"$verify_log"
-    chmod 0600 "$verify_log"
-    set +eu
-    tofu -chdir="infrastructure/tofu/$root" plan -input=false -lock-timeout=5m -no-color \
-      -parallelism=1 -detailed-exitcode "${plan_args[@]}" >"$verify_log" 2>&1
-    exit_code=$?
-    set -eu
-    [[ $exit_code == 0 ]] || {
-      echo "unrelated OpenTofu root differs before tailnet-only apply: $root" >&2
-      exit 1
-    }
+    verify_fresh_root_noop "$root" "$plan_dir/$root.tailnet-preflight.log"
   done
   pushd ansible >/dev/null
   ansible_require_noop "$production_inventory" playbooks/audit.yml docker-host-production

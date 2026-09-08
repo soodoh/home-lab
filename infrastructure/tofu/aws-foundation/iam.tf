@@ -59,13 +59,35 @@ data "aws_iam_policy_document" "controller_apply_trust" {
 
 
 resource "aws_iam_role" "controller_plan" {
-  name               = "home-lab-infrastructure-plan"
-  assume_role_policy = data.aws_iam_policy_document.controller_plan_trust.json
+  name                 = "home-lab-infrastructure-plan"
+  assume_role_policy   = data.aws_iam_policy_document.controller_plan_trust.json
+  permissions_boundary = var.controller_plan_permissions_boundary_arn
+
+  lifecycle {
+    precondition {
+      condition = (
+        startswith(var.controller_plan_permissions_boundary_arn, "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:policy/") &&
+        var.controller_plan_permissions_boundary_arn != var.controller_apply_permissions_boundary_arn
+      )
+      error_message = "Owner bootstrap required: plan boundary must be an external policy in this account/partition, distinct from the apply boundary. Verify owner-controlled policy content before use."
+    }
+  }
 }
 
 resource "aws_iam_role" "controller_apply" {
-  name               = "home-lab-infrastructure-apply"
-  assume_role_policy = data.aws_iam_policy_document.controller_apply_trust.json
+  name                 = "home-lab-infrastructure-apply"
+  assume_role_policy   = data.aws_iam_policy_document.controller_apply_trust.json
+  permissions_boundary = var.controller_apply_permissions_boundary_arn
+
+  lifecycle {
+    precondition {
+      condition = (
+        startswith(var.controller_apply_permissions_boundary_arn, "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:policy/") &&
+        var.controller_apply_permissions_boundary_arn != var.controller_plan_permissions_boundary_arn
+      )
+      error_message = "Owner bootstrap required: apply boundary must be an external policy in this account/partition, distinct from the plan boundary. Verify owner-controlled policy content before use."
+    }
+  }
 }
 
 resource "aws_rolesanywhere_profile" "controller_plan" {
@@ -227,26 +249,11 @@ data "aws_iam_policy_document" "state_apply" {
     resources = ["*"]
   }
   statement {
-    actions = [
-      "iam:AttachRolePolicy",
-      "iam:CreatePolicy",
-      "iam:CreatePolicyVersion",
-      "iam:DeletePolicyVersion",
-      "iam:CreateRole",
-      "iam:CreateUser",
-      "iam:Get*",
-      "iam:List*",
-      "iam:PutUserPolicy",
-      "iam:TagPolicy",
-      "iam:TagRole",
-      "iam:TagUser",
-      "iam:SetDefaultPolicyVersion",
-      "iam:UpdateAssumeRolePolicy",
-    ]
+    actions   = ["iam:Get*", "iam:List*"]
     resources = ["*"]
   }
   statement {
-    actions   = ["rolesanywhere:Create*", "rolesanywhere:Delete*", "rolesanywhere:Disable*", "rolesanywhere:Enable*", "rolesanywhere:Get*", "rolesanywhere:List*", "rolesanywhere:Put*", "rolesanywhere:TagResource", "rolesanywhere:UntagResource", "rolesanywhere:Update*"]
+    actions   = ["rolesanywhere:Get*", "rolesanywhere:List*"]
     resources = ["*"]
   }
 }
