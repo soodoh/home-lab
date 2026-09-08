@@ -1,9 +1,17 @@
 ---
+- name: Converge the bounded inactive Debian baseline
+  ansible.builtin.import_tasks: debian-inactive.yml
+  vars:
+    apt_packages_requested: "{{ debian.baseline.packages }}"
+    apt_packages_policy_rc_d: 101
+  when: lifecycle_profile | default('production') in ['inert', 'recovery']
+
 - name: Keep approved Debian base packages present without upgrades
   ansible.builtin.include_role:
     name: apt_packages
   vars:
     apt_packages_requested: "{{ base_packages }}"
+  when: lifecycle_profile | default('production') not in ['inert', 'recovery']
 
 - name: Set the contracted default Debian locale
   ansible.builtin.copy:

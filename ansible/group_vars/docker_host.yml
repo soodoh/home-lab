@@ -204,6 +204,12 @@ base_packages:
   - rsync
 base_services: []
 
+# Qualification must never inherit the production hostname.
+debian_base_hostname: >-
+  {{ debian.transaction.qualification_canary_hostname
+     if inventory_hostname == debian.transaction.qualification_canary_inventory_host
+     else vm_100.host_name }}
+
 docker_packages:
   - docker.io
   - docker-cli

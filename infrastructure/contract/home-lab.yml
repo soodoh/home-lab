@@ -1490,6 +1490,12 @@ debian:
   point_release: "13.6"
   locale: C.UTF-8
   build_id: "20260810-2566"
+  # Inactive base convergence refuses missing image prerequisites; it never bootstraps them.
+  baseline:
+    architecture: x86_64
+    image_packages: [python3, python3-apt, openssh-server, cloud-init]
+    packages: [rsync, locales, tzdata, qemu-guest-agent, ca-certificates]
+    services: [qemu-guest-agent.service]
   image:
     variant: generic
     format: qcow2

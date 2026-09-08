@@ -50,6 +50,50 @@ explicitly mocked command endpoints, including independent binding negatives and
 guard-removal/order mutants. It is not a full site run or installed/startup proof;
 the wider installation and recovery qualification gates above remain separate.
 
+### Inactive Debian base provisioning (source only)
+
+The `base` tag now has a bounded inert/recovery path. Before package facts or
+baseline writes it requires the contract's Debian release, architecture and
+kernel, image-provided Python APT bindings, and fully installed `python3`,
+`python3-apt`, `openssh-server` and `cloud-init`. Missing prerequisites are a
+refusal, not permission to bootstrap them. These observations do **not** prove
+that the guest booted the pinned image digest or qualify first contact.
+
+`debian.baseline` declares the package and service subset. Missing baseline
+packages still require the existing separately authorized exact `name=version`
+lock; there is no cache refresh, upgrade of present requested packages or implicit
+Ansible dependency installation. Inactive installs require integer `policy_rc_d:
+101`. This suppresses cooperating maintainer-script service starts only: package
+dependencies, other maintainer effects and interruption-safe restoration of any
+preexisting policy-rc.d remain native installation qualification gaps.
+
+Hostname is bound to the existing qualification inventory/hostname pair, or the
+existing VM hostname for other inert/recovery inventories; qualification cannot
+inherit the production hostname. QGA is explicitly started, never enabled or
+restarted (its Debian unit is static). Locale remains `C.UTF-8` and timezone
+remains contract-derived. Production base behavior and all production-only role
+conditions are unchanged. No access/account, enrollment, protected storage,
+Compose/guard unit body, cloud-init payload or transaction gate is replaced.
+
+The source regression in `test-debian-lifecycle-profiles.js` evaluates real
+Ansible task imports, conditions, assertions and arguments with controller-only
+synthetic endpoint plugins and no guest module execution. It covers baseline
+subschema negatives, first/second-pass modeled idempotence, check-mode state
+preservation, prerequisite/binding/lock refusal and production argument parity.
+It is neither full contract validation nor installed package/service, first-boot,
+cold-reboot or live acceptance. Only explicit modeled service calls are checked;
+mocked APT cannot establish the absence of native package side effects.
+
+This is the first durable provisioning slice of the full migration, not a reduced
+completion boundary. Tool-only SOPS/age, Tailscale and Restic seams, durable mount
+and workload unit ownership, safe recovery routing and production seed
+minimization remain implementation work. Exact image-to-boot trust, native inert
+convergence/no-op rerun and full synthetic recovery/interruption/cold-boot proof
+remain validation work. Every installed operation/package/reboot requires fresh
+separate approval; VM9900's failed qualification is not retried or reclassified,
+and VM100/production disks are never rehearsal inputs. The installed production
+guard remains. Scheduled reporting is explicitly deferred under ADR 0002.
+
 ## Installation and use
 
 Install the fixed executor, dependency policy and additive drop-ins only through `ansible/playbooks/install-debian-lifecycle-capability.yml`, with lifecycle profile `inert` or `recovery`, exactly the `debian_lifecycle_capability` tag, and `debian_lifecycle_capability_confirmation=INSTALL_DEBIAN_LIFECYCLE_TRANSACTION_CAPABILITY`. Installation and execution use the same host apply lock, so the executor cannot be replaced between checksum verification and launch. The controller derives inventory and host routing from the saved profile: `inert` can route only to the contract-bound qualification inventory host, while `recovery` and `production` route only to the production inventory host.

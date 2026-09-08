@@ -44,6 +44,7 @@
     state: present
     update_cache: false
     auto_install_module_deps: false
+    policy_rc_d: "{{ apt_packages_policy_rc_d }}"
   become: true
   when:
     - not ansible_check_mode

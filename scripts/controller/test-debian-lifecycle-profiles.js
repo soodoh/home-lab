@@ -7,6 +7,7 @@ const path = require("node:path");
 const os = require("node:os");
 const { spawnSync } = require("node:child_process");
 const { load } = require("js-yaml");
+const Ajv2020 = require("ajv/dist/2020");
 
 const root = path.resolve(__dirname, "../..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
@@ -19,6 +20,27 @@ const guardTasks = yaml("ansible/roles/debian_lifecycle_guard/tasks/main.yml");
 const aptTasks = yaml("ansible/roles/apt_packages/tasks/main.yml");
 const aptDefaults = yaml("ansible/roles/apt_packages/defaults/main.yml");
 const baseSource = read("ansible/roles/base/tasks/main.yml");
+const baseTasks = load(baseSource);
+const inactiveBaseTasks = yaml("ansible/roles/base/tasks/debian-inactive.yml");
+const baselineSchema = JSON.parse(read("infrastructure/contract/schema.json")).properties.debian;
+assert(baselineSchema.required.includes("baseline"));
+const validateBaseline = new Ajv2020({ strict: true, allErrors: true }).compile(baselineSchema.properties.baseline);
+assert(validateBaseline(contract.debian.baseline), JSON.stringify(validateBaseline.errors));
+for (const field of Object.keys(contract.debian.baseline)) {
+  for (const replacement of [undefined, null, "unapproved", []]) {
+    const invalid = structuredClone(contract.debian.baseline);
+    if (replacement === undefined) delete invalid[field];
+    else invalid[field] = replacement;
+    assert(!validateBaseline(invalid), `baseline subschema accepted invalid ${field}`);
+  }
+}
+assert(!validateBaseline({ ...contract.debian.baseline, automatic_install: true }));
+for (const field of ["image_packages", "packages", "services"]) {
+  for (const replacement of [contract.debian.baseline[field].slice(1),
+    [...contract.debian.baseline[field], "unapproved"], [...contract.debian.baseline[field], contract.debian.baseline[field][0]]]) {
+    assert(!validateBaseline({ ...contract.debian.baseline, [field]: replacement }));
+  }
+}
 const qualificationInventory = yaml("ansible/inventory/debian-qualification.yml");
 const qualificationHost = qualificationInventory.all.children.docker_host.hosts["debian-lifecycle-qualification"];
 
@@ -119,6 +141,7 @@ fixtureVars.lifecycle_profile = "production";
 const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), "compose-binding-"));
 const writeFixture = (relative, value) => fs.writeFileSync(path.join(fixtureRoot, relative), value);
 let runs = 0;
+let fixtureSucceeded = false;
 try {
   for (const directory of ["home", "tmp", "action_plugins", "roles/compose/tasks", "collections"])
     fs.mkdirSync(path.join(fixtureRoot, directory), { recursive: true });
@@ -164,6 +187,246 @@ class ActionModule(ActionBase):
   const version = spawnSync("ansible-playbook", ["--version"], { cwd: fixtureRoot, env, encoding: "utf8" });
   assert.equal(version.status, 0, `Real Ansible is required (no installation/skip): ${version.error || version.stderr}`);
   console.log(version.stdout.split("\n")[0]);
+
+  // Evaluate the actual base/imported prerequisite/apt tasks, not a second policy
+  // implementation. Only endpoint effects are modeled; no guest modules execute.
+  for (const directory of ["roles/base/tasks", "roles/apt_packages/tasks", "roles/apt_packages/defaults"])
+    fs.mkdirSync(path.join(fixtureRoot, directory), { recursive: true });
+  const pureModules = new Set(["assert", "set_fact", "debug", "include_role", "import_tasks"]);
+  const effectModules = new Set(["command", "package_facts", "apt", "copy", "file", "stat", "hostname", "systemd_service"]);
+  function mockBaseTasks(tasks) {
+    return tasks.map((source) => {
+      const task = structuredClone(source);
+      const modules = Object.keys(task).filter((key) => key.startsWith("ansible.builtin."));
+      assert.equal(modules.length, 1, `Unclassified source task: ${task.name}`);
+      const module = modules[0].slice("ansible.builtin.".length);
+      assert(pureModules.has(module) || effectModules.has(module), `Unmocked base effect: ${module}`);
+      if (module === "include_role") assert.equal(task[modules[0]].name, "apt_packages");
+      if (module === "import_tasks") assert.equal(task[modules[0]], "debian-inactive.yml");
+      if (effectModules.has(module)) {
+        task.base_witness = { module, arguments: task[modules[0]] };
+        delete task[modules[0]];
+      }
+      return task;
+    });
+  }
+  writeFixture("roles/base/tasks/main.yml", JSON.stringify(mockBaseTasks(baseTasks)));
+  writeFixture("roles/base/tasks/debian-inactive.yml", JSON.stringify(mockBaseTasks(inactiveBaseTasks)));
+  const mockedAptTasks = mockBaseTasks(aptTasks);
+  mockedAptTasks.splice(1, 0, {
+    name: "Fixture requires package facts to merge without erasing platform facts",
+    "ansible.builtin.assert": { that: [
+      "ansible_facts.packages is mapping", "ansible_facts.distribution == 'Debian'",
+      "ansible_facts.kernel == debian.qualification.kernel_release",
+    ] },
+  });
+  writeFixture("roles/apt_packages/tasks/main.yml", JSON.stringify(mockedAptTasks));
+  writeFixture("roles/apt_packages/defaults/main.yml", JSON.stringify(aptDefaults));
+  writeFixture("action_plugins/base_witness.py", `import json
+from ansible.plugins.action import ActionBase
+
+class ActionModule(ActionBase):
+    _requires_connection = False
+    def run(self, tmp=None, task_vars=None):
+        module = self._task.args["module"]
+        args = self._task.args["arguments"]
+        check = self._task.check_mode
+        with open(${JSON.stringify(path.join(fixtureRoot, "base-state.json"))}) as stream:
+            state = json.load(stream)
+        with open(${JSON.stringify(path.join(fixtureRoot, "base-events.jsonl"))}, "a") as stream:
+            stream.write(json.dumps({"module": module, "args": args, "check": check}) + "\\n")
+        before = json.dumps(state, sort_keys=True)
+        result = {"changed": False}
+        if module == "fixture_facts":
+            result["ansible_facts"] = args
+        elif module == "command":
+            argv = args["argv"]
+            stdout = ""
+            if argv == ["/usr/bin/python3", "-B", "-c", "import apt"]:
+                if not state["python_apt"]:
+                    return {"failed": True, "msg": "synthetic missing Python APT binding"}
+            elif argv[:3] == ["/usr/bin/dpkg-query", "--show", "--showformat=$" + "{db:Status-Status}"] and len(argv) == 4:
+                stdout = "installed" if argv[3] in state["packages"] else "not-installed"
+            elif argv == ["/usr/bin/locale", "-a"]:
+                stdout = "C\\nC.utf8\\nPOSIX"
+            elif argv == ["/usr/bin/timedatectl", "show", "--property=Timezone", "--value"]:
+                stdout = state["timezone"]
+            elif argv[:2] == ["/usr/bin/timedatectl", "set-timezone"] and len(argv) == 3:
+                assert not check, "timezone mutation in check mode"
+                state["timezone"] = argv[2]
+            else:
+                return {"failed": True, "msg": "unmodeled command refused: " + str(argv)}
+            result.update(rc=0, stdout=stdout, stdout_lines=stdout.splitlines())
+        elif module == "package_facts":
+            assert args == {"manager": "apt"}
+            result["ansible_facts"] = {"packages": {name: [{"version": version}] for name, version in state["packages"].items()}}
+        elif module == "stat":
+            assert args == {"path": "/usr/share/zoneinfo/America/Los_Angeles", "follow": False}
+            result["stat"] = {"isreg": True, "islnk": False}
+        elif module == "apt":
+            assert not check, "apt reached during check mode"
+            assert args["state"] == "present" and args["update_cache"] is False and args["auto_install_module_deps"] is False
+            assert set(args) <= {"name", "state", "update_cache", "auto_install_module_deps", "policy_rc_d"}
+            for spec in args["name"]:
+                name, version = spec.split("=", 1)
+                assert name not in state["packages"], "attempted upgrade"
+                state["packages"][name] = version
+        elif module in ["copy", "file"]:
+            target = args["dest"] if module == "copy" else args["path"]
+            assert target in ["/etc/locale.conf", "/etc/default/locale"], "unapproved path write"
+            state["files"][target] = args
+        elif module == "hostname":
+            assert args["use"] == "systemd"
+            state["hostname"] = args["name"]
+        elif module == "systemd_service":
+            assert args == {"name": "qemu-guest-agent.service", "state": "started", "daemon_reload": False}, "unapproved explicit service call"
+            state["services"] = [args["name"]]
+        else:
+            return {"failed": True, "msg": "unmodeled effect refused: " + module}
+        result["changed"] = before != json.dumps(state, sort_keys=True)
+        if not check and result["changed"]:
+            with open(${JSON.stringify(path.join(fixtureRoot, "base-state.json"))}, "w") as stream:
+                json.dump(state, stream)
+        return result
+`);
+  const baseVars = {
+    lifecycle_profile: "inert", lifecycle_contract_host: "debian",
+    debian: contract.debian, vm_100: { host_name: contract.vm_100.host_name },
+    package_mutation_policy: { require_exact_lock_for_all_updates: true, automatic_apply: false },
+    system_timezone: contract.system_timezone, debian_locale: groupVars.debian_locale,
+    debian_base_hostname: groupVars.debian_base_hostname,
+    base_packages: groupVars.base_packages, base_services: groupVars.base_services,
+    ansible_facts: {
+      distribution: "Debian", distribution_major_version: contract.debian.version,
+      distribution_release: contract.debian.release, architecture: contract.debian.baseline.architecture,
+      kernel: contract.debian.qualification.kernel_release,
+    },
+  };
+  const freshBaseState = () => ({
+    packages: Object.fromEntries(contract.debian.baseline.image_packages.map((name) => [name, "fixture-image-version"])),
+    python_apt: true, timezone: "UTC", hostname: "fixture-first-contact", services: [], files: {},
+  });
+  const baselineLock = contract.debian.baseline.packages.map((name) => `${name}=1.0-fixture`);
+  let baseRuns = 0;
+  function runBase(label, { vars = {}, extraVars = {}, state = freshBaseState(), check = false,
+    host = contract.debian.transaction.qualification_canary_inventory_host } = {}) {
+    writeFixture("base-inventory", `${host} ansible_connection=local\n`);
+    const { ansible_facts: seededFacts, ...playVars } = { ...baseVars, ...vars };
+    writeFixture("base-play.yml", JSON.stringify([{
+      name: "Base source fixture with controller-only synthetic endpoints", hosts: host,
+      gather_facts: false, become: false, vars: playVars,
+      pre_tasks: [{ name: "Seed synthetic platform facts without a connection",
+        base_witness: { module: "fixture_facts", arguments: seededFacts } }],
+      roles: [site.roles.find((item) => item.role === "base")],
+    }]));
+    writeFixture("base-extra.json", JSON.stringify(extraVars));
+    writeFixture("base-state.json", JSON.stringify(state));
+    writeFixture("base-events.jsonl", "");
+    const result = spawnSync("ansible-playbook", ["-i", path.join(fixtureRoot, "base-inventory"),
+      path.join(fixtureRoot, "base-play.yml"), "--extra-vars", `@${path.join(fixtureRoot, "base-extra.json")}`,
+      ...(check ? ["--check"] : [])], { cwd: fixtureRoot, env, encoding: "utf8", timeout: 30000 });
+    const output = `${result.stdout || ""}${result.stderr || ""}`;
+    writeFixture("base-last-output.txt", output);
+    assert(!result.error, `${label}: ${result.error}\n${output}`);
+    assert.notEqual(result.status, null, `${label}: ${result.signal}\n${output}`);
+    const log = fs.readFileSync(path.join(fixtureRoot, "base-events.jsonl"), "utf8").trim();
+    baseRuns++;
+    return { label, status: result.status, output, events: log ? log.split("\n").map(JSON.parse) : [],
+      state: JSON.parse(fs.readFileSync(path.join(fixtureRoot, "base-state.json"), "utf8")) };
+  }
+  const locked = { apt_packages_exact_lock_authorized: true, apt_packages_exact_locked_specs: baselineLock };
+  const writeModules = new Set(["apt", "copy", "file", "hostname", "systemd_service"]);
+  function baseSucceeded(result, zeroChange = false) {
+    assert.equal(result.status, 0, `${result.label}: ${result.output}`);
+    if (zeroChange) assert.match(result.output, /changed=0\s/, `${result.label}: ${result.output}`);
+  }
+  function baseRefused(result, original, beforeFacts = false) {
+    assert.equal(result.status, 2, `${result.label}: ${result.output}`);
+    assert.deepEqual(result.state, original, `${result.label}: state changed before refusal`);
+    assert(!result.events.some((event) => writeModules.has(event.module)), `${result.label}: write endpoint reached`);
+    if (beforeFacts) assert(!result.events.some((event) => event.module === "package_facts"));
+  }
+  for (const lifecycle_profile of ["inert", "recovery"]) {
+    const first = runBase(`first ${lifecycle_profile}`, { vars: { lifecycle_profile, ...locked } });
+    baseSucceeded(first);
+    assert.match(first.output, /changed=[1-9]/);
+    assert.equal(first.state.hostname, contract.debian.transaction.qualification_canary_hostname);
+    assert.equal(first.state.timezone, contract.system_timezone);
+    assert.deepEqual(first.state.services, contract.debian.baseline.services);
+    assert.equal(first.state.files["/etc/locale.conf"].content, "LANG=C.UTF-8\n");
+    assert.equal(first.state.files["/etc/default/locale"].src, "../locale.conf");
+    const aptEvent = first.events.find((event) => event.module === "apt");
+    assert.deepEqual(aptEvent.args, { name: baselineLock, state: "present", update_cache: false,
+      auto_install_module_deps: false, policy_rc_d: 101 });
+    assert(first.events.findIndex((event) => event.module === "package_facts") >
+      first.events.findLastIndex((event) => event.module === "command" && event.args.argv[0] === "/usr/bin/dpkg-query"));
+    const second = runBase(`second ${lifecycle_profile}`, { vars: { lifecycle_profile }, state: first.state });
+    baseSucceeded(second, true);
+    assert.deepEqual(second.state, first.state);
+    assert(!second.events.some((event) => event.module === "apt"));
+    const state = freshBaseState();
+    const checked = runBase(`check ${lifecycle_profile}`, { vars: { lifecycle_profile }, state, check: true });
+    baseSucceeded(checked);
+    assert.deepEqual(checked.state, state, "check mode mutated synthetic state");
+    assert(!checked.events.some((event) => event.module === "apt"));
+    assert(checked.events.filter((event) => writeModules.has(event.module)).every((event) => event.check));
+    baseSucceeded(runBase(`converged check ${lifecycle_profile}`, {
+      vars: { lifecycle_profile }, state: first.state, check: true,
+    }), true);
+  }
+  const ordinary = runBase("ordinary inactive hostname", { vars: locked, host: "fixture-inert" });
+  baseSucceeded(ordinary);
+  assert.equal(ordinary.state.hostname, contract.vm_100.host_name);
+  for (const check of [false, true]) {
+    for (const [field, invalid] of Object.entries({ distribution: "Ubuntu", distribution_major_version: "12",
+      distribution_release: "bookworm", architecture: "aarch64", kernel: "unapproved" })) {
+      const state = freshBaseState();
+      baseRefused(runBase(`wrong ${field}`, { state, check,
+        vars: { ansible_facts: { ...baseVars.ansible_facts, [field]: invalid } } }), state, true);
+    }
+    for (const extraVars of [
+      { debian_base_hostname: contract.vm_100.host_name }, { apt_packages_requested: ["unapproved"] },
+      { apt_packages_policy_rc_d: 0 }, { apt_packages_policy_rc_d: "101" },
+      { base_services: ["docker.service"] }, { debian_locale: "en_US.UTF-8" },
+    ]) {
+      const state = freshBaseState();
+      baseRefused(runBase("inactive binding override", { state, extraVars, check }), state, true);
+    }
+    for (const prerequisite of ["python_apt", ...contract.debian.baseline.image_packages]) {
+      const state = freshBaseState();
+      if (prerequisite === "python_apt") state.python_apt = false;
+      else delete state.packages[prerequisite];
+      baseRefused(runBase(`missing ${prerequisite}`, { state, check }), state, true);
+    }
+  }
+  for (const vars of [
+    {}, { ...locked, apt_packages_exact_lock_authorized: false },
+    { ...locked, apt_packages_exact_locked_specs: baselineLock.slice(1) },
+    { ...locked, apt_packages_exact_locked_specs: [...baselineLock, "extra=1.0-fixture"] },
+    { ...locked, apt_packages_exact_locked_specs: baselineLock.map((spec, i) => i ? spec : "wrong=1.0-fixture") },
+    { ...locked, apt_packages_exact_locked_specs: baselineLock.map((spec) => spec.split("=")[0]) },
+    { ...locked, package_mutation_policy: { require_exact_lock_for_all_updates: true, automatic_apply: true } },
+    { ...locked, package_mutation_policy: { require_exact_lock_for_all_updates: false, automatic_apply: false } },
+  ]) {
+    const state = freshBaseState();
+    baseRefused(runBase("missing or invalid package authority", { vars, state }), state);
+  }
+  const productionVars = { lifecycle_profile: "production", apt_packages_exact_lock_authorized: true,
+    apt_packages_exact_locked_specs: ["rsync=1.0-fixture"] };
+  const production = runBase("production base unchanged", { vars: productionVars });
+  baseSucceeded(production);
+  assert.deepEqual(production.events.find((event) => event.module === "apt").args,
+    { name: ["rsync=1.0-fixture"], state: "present", update_cache: false, auto_install_module_deps: false });
+  assert(!production.events.some((event) => ["hostname", "systemd_service"].includes(event.module)));
+  assert(!production.events.some((event) => event.module === "command" &&
+    ["/usr/bin/python3", "/usr/bin/dpkg-query"].includes(event.args.argv[0])));
+  baseSucceeded(runBase("production base zero-change", { vars: { lifecycle_profile: "production" }, state: production.state }), true);
+  const state = freshBaseState();
+  const productionCheck = runBase("production check unchanged", { vars: productionVars, state, check: true });
+  baseSucceeded(productionCheck);
+  assert.deepEqual(productionCheck.state, state);
+  assert(!productionCheck.events.some((event) => event.module === "apt"));
+  console.log(`debian_base_source=verified mocked_endpoints=true runs=${baseRuns} baseline_subschema=verified installed_first_boot=false`);
 
   function run(label, { tasks = composeTasks, vars = fixtureVars, check = false } = {}) {
     const mockedTasks = tasks.map((source) => {
@@ -287,8 +550,10 @@ class ActionModule(ActionBase):
     assert.equal(result.events.length, 3, "count refusal must precede volume inspection and dry-run create");
   }
   console.log(`compose_contract_bindings=verified real_ansible_mocked_endpoints=true runs=${runs} bindings=4 causal_mutants=6 modes=2`);
+  fixtureSucceeded = true;
 } finally {
-  fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  if (fixtureSucceeded) fs.rmSync(fixtureRoot, { recursive: true, force: true });
+  else console.error(`Failed synthetic fixture retained at ${fixtureRoot}`);
 }
 
 console.log("debian_lifecycle_profiles=verified profiles=3");
