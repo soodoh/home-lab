@@ -1,0 +1,211 @@
+---
+- name: Require Restic tool platform and contract bindings before effects
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'debian'
+      - ansible_facts.system == 'Linux'
+      - ansible_facts.architecture == 'x86_64'
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == debian.version
+      - ansible_facts.distribution_release == debian.release
+      - ansible_python_interpreter == '/usr/bin/python3'
+      - backups.restic.tools.restic.architecture == 'linux_amd64'
+      - backups.restic.tools.restic.installed_path == '/usr/local/bin/restic'
+      - restic_version == backups.restic.tools.restic.version
+      - restic_download_url == backups.restic.tools.restic.url
+      - restic_archive_sha256 == backups.restic.tools.restic.archive_sha256
+      - restic_binary_sha256 == backups.restic.tools.restic.installed_sha256
+      - backups.restic.tools.rclone.architecture == 'linux_amd64'
+      - backups.restic.tools.rclone.installed_path == '/usr/local/bin/rclone'
+      - rclone_version == backups.restic.tools.rclone.version
+      - rclone_download_url == backups.restic.tools.rclone.url
+      - rclone_archive_sha256 == backups.restic.tools.rclone.archive_sha256
+      - rclone_binary_sha256 == backups.restic.tools.rclone.installed_sha256
+    fail_msg: Pinned tools require the contracted Debian platform and exact direct-contract bindings.
+
+- name: Inspect Restic binary destinations without following unsafe replacements
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+    follow: false
+  loop:
+    - path: /usr/local/bin/restic
+      sha256: "{{ restic_binary_sha256 }}"
+    - path: /usr/local/bin/rclone
+      sha256: "{{ rclone_binary_sha256 }}"
+  register: restic_backup_existing_binaries
+
+- name: Reject unsafe existing Restic binary destinations
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (item.stat.exists | default(false)) or
+        ((item.stat.isreg | default(false)) and
+        not (item.stat.islnk | default(false)) and
+        (item.stat.nlink | default(0) | int) == 1)
+    fail_msg: Refusing to replace a non-regular, symlinked, or hard-linked Restic tool destination.
+  loop: "{{ restic_backup_existing_binaries.results }}"
+
+- name: Record whether pinned Restic tools require installation
+  ansible.builtin.set_fact:
+    restic_backup_install_required: >-
+      {{
+        restic_backup_existing_binaries.results
+        | rejectattr('stat.checksum', 'defined')
+        | list
+        | length > 0
+        or restic_backup_existing_binaries.results[0].stat.checksum != restic_binary_sha256
+        or restic_backup_existing_binaries.results[1].stat.checksum != rclone_binary_sha256
+        or restic_backup_existing_binaries.results[0].stat.pw_name != 'root'
+        or restic_backup_existing_binaries.results[1].stat.pw_name != 'root'
+        or restic_backup_existing_binaries.results[0].stat.gr_name != 'root'
+        or restic_backup_existing_binaries.results[1].stat.gr_name != 'root'
+        or restic_backup_existing_binaries.results[0].stat.mode != '0755'
+        or restic_backup_existing_binaries.results[1].stat.mode != '0755'
+      }}
+
+- name: Report pinned Restic tool drift during check mode
+  ansible.builtin.debug:
+    msg: The pinned Restic and rclone binaries require reconciliation.
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - restic_backup_install_required
+
+- name: Install pinned Restic tools outside check mode
+  when:
+    - not ansible_check_mode
+    - restic_backup_install_required
+  block:
+    - name: Create a root-only Restic tool workspace
+      ansible.builtin.tempfile:
+        state: directory
+        path: /var/tmp
+        prefix: restic-tools-
+      register: restic_backup_workspace
+
+    - name: Download the pinned Restic archive
+      ansible.builtin.get_url:
+        url: "{{ restic_download_url }}"
+        dest: "{{ restic_backup_workspace.path }}/restic.bz2"
+        checksum: "sha256:{{ restic_archive_sha256 }}"
+        mode: "0600"
+
+    - name: Extract the pinned Restic binary with the host Python standard library
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - -c
+          - >-
+            import bz2, shutil, sys;
+            source = bz2.open(sys.argv[1], 'rb');
+            destination = open(sys.argv[2], 'xb');
+            shutil.copyfileobj(source, destination);
+            destination.close();
+            source.close()
+          - "{{ restic_backup_workspace.path }}/restic.bz2"
+          - "{{ restic_backup_workspace.path }}/restic"
+      changed_when: true
+
+    - name: Download the pinned rclone archive
+      ansible.builtin.get_url:
+        url: "{{ rclone_download_url }}"
+        dest: "{{ restic_backup_workspace.path }}/rclone.zip"
+        checksum: "sha256:{{ rclone_archive_sha256 }}"
+        mode: "0600"
+
+    - name: Extract only the pinned rclone binary with the host Python standard library
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - -c
+          - >-
+            import shutil, stat, sys, zipfile;
+            archive = zipfile.ZipFile(sys.argv[1], 'r');
+            member = archive.getinfo(sys.argv[2]);
+            mode = (member.external_attr >> 16) & 0o170000;
+            mode != stat.S_IFLNK or sys.exit('symlink member refused');
+            source = archive.open(member, 'r');
+            destination = open(sys.argv[3], 'xb');
+            shutil.copyfileobj(source, destination);
+            destination.close();
+            source.close();
+            archive.close()
+          - "{{ restic_backup_workspace.path }}/rclone.zip"
+          - "rclone-v{{ rclone_version }}-linux-amd64/rclone"
+          - "{{ restic_backup_workspace.path }}/rclone"
+      changed_when: true
+
+    - name: Install the pinned Restic binary
+      ansible.builtin.copy:
+        src: "{{ restic_backup_workspace.path }}/restic"
+        dest: /usr/local/bin/restic
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install the pinned rclone binary
+      ansible.builtin.copy:
+        src: "{{ restic_backup_workspace.path }}/rclone"
+        dest: /usr/local/bin/rclone
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+  always:
+    - name: Remove the Restic tool workspace
+      ansible.builtin.file:
+        path: "{{ restic_backup_workspace.path }}"
+        state: absent
+      when: restic_backup_workspace.path is defined
+
+- name: Verify installed Restic tool checksums
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+    follow: false
+  loop:
+    - path: /usr/local/bin/restic
+      sha256: "{{ restic_binary_sha256 }}"
+    - path: /usr/local/bin/rclone
+      sha256: "{{ rclone_binary_sha256 }}"
+  register: restic_backup_installed_binaries
+
+- name: Require exact installed Restic tools
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - not (item.stat.islnk | default(false))
+      - (item.stat.nlink | int) == 1
+      - item.stat.pw_name == 'root'
+      - item.stat.gr_name == 'root'
+      - item.stat.mode == '0755'
+      - item.stat.checksum == item.item.sha256
+    fail_msg: Installed Restic tool differs from the pinned official release.
+  loop: "{{ restic_backup_installed_binaries.results }}"
+  when: not ansible_check_mode or not restic_backup_install_required
+
+- name: Inspect exact installed Restic version
+  ansible.builtin.command:
+    argv: [/usr/local/bin/restic, version]
+  register: restic_backup_restic_version
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode or not restic_backup_install_required
+
+- name: Inspect exact installed rclone version
+  ansible.builtin.command:
+    argv: [/usr/local/bin/rclone, version]
+  register: restic_backup_rclone_version
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode or not restic_backup_install_required
+
+- name: Require exact Restic and rclone versions
+  ansible.builtin.assert:
+    that:
+      - restic_backup_restic_version.stdout_lines | first == backups.restic.tools.restic.version_output
+      - restic_backup_rclone_version.stdout_lines | first == backups.restic.tools.rclone.version_output_prefix
+    fail_msg: Installed Restic or rclone version output differs from the contract.
+  when: not ansible_check_mode or not restic_backup_install_required

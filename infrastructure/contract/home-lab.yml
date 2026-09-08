@@ -1496,6 +1496,24 @@ debian:
     image_packages: [python3, python3-apt, openssh-server, cloud-init]
     packages: [rsync, locales, tzdata, qemu-guest-agent, ca-certificates]
     services: [qemu-guest-agent.service]
+  tools:
+    sops:
+      # renovate: datasource=github-releases depName=getsops/sops
+      version: 3.13.3
+      url: https://github.com/getsops/sops/releases/download/v3.13.3/sops-v3.13.3.linux.amd64
+      installed_sha256: e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
+      architecture: linux_amd64
+      installed_path: /usr/local/bin/sops
+    age:
+      # renovate: datasource=github-releases depName=FiloSottile/age
+      version: 1.3.1
+      url: https://github.com/FiloSottile/age/releases/download/v1.3.1/age-v1.3.1-linux-amd64.tar.gz
+      archive_sha256: bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377
+      installed_sha256: 2e305637f2a0555305e21c17fb74446acbb39b53135d43d4b744e50c287133a5
+      keygen_installed_sha256: c56ef69834e18ca4d3b953117f4481522c35fb6862a5d2871685aa4685893664
+      architecture: linux_amd64
+      installed_path: /usr/local/bin/age
+      keygen_installed_path: /usr/local/bin/age-keygen
   image:
     variant: generic
     format: qcow2

@@ -4,9 +4,9 @@
 
 ## Profiles
 
-- `inert`: only the guarded base role is reachable. Protected mounts must be absent or unmounted empty directories. Docker, Compose, Restic, and Tailscale units must be absent or disabled and inactive. Tailscale state and the production age identity must be absent.
-- `recovery`: only the guarded base role is reachable. It has the same mount and service stop gates as `inert`. A separately recovered age identity may already exist only as a single-link root-owned `0600` regular file; ordinary convergence does not create it. Tailscale state remains forbidden until its separate enrollment transaction.
-- `production`: the lifecycle marker and production invariants must pass before any production-only role is reachable. Storage, Docker, Tailscale, SOPS/age, Restic, Compose, hardware, SSH, host files, and health remain production-gated.
+- `inert`: the guarded base role and tools-only SOPS/age and Restic/rclone imports are reachable. Protected mounts must be absent or unmounted empty directories. Docker, Compose, Restic, and Tailscale units must be absent or disabled and inactive. Tailscale state and the production age identity must be absent.
+- `recovery`: the guarded base role and the same tools-only imports are reachable. It has the same mount and service stop gates as `inert`. A separately recovered age identity may already exist only as a single-link root-owned `0600` regular file; ordinary convergence does not create it. Tailscale state remains forbidden until its separate enrollment transaction.
+- `production`: the lifecycle marker and production invariants must pass before any production-only role is reachable. Storage, Docker, Tailscale, full SOPS/age and Restic roles, Compose, hardware, SSH, host files, and health remain production-gated.
 
 The guard runs before the apply guard and before the host lock. It only observes and refuses; it does not mount, enroll, restore, start, enable, or create protected state. The inactive unit set includes Docker socket activation and every declared Restic timer, target, worker, and recovery service.
 
@@ -32,6 +32,16 @@ The contract owns locale `C.UTF-8`, matching the adopted Debian host. The base r
 Package installation is no longer implicit. `apt_packages` can report missing packages in check mode, but any installation requires a separately supplied exact `name=version` set matching every missing package and an explicit reviewed authorization. The install task sets `update_cache: false` and `auto_install_module_deps: false`. The latter disables only module dependency auto-install; probing and respawn to an already capable interpreter may still occur. Missing/corrupt APT cache repair may still refresh metadata despite `update_cache: false`.
 
 The registered lifecycle-profile test checks this explicit source task option, not Ansible dispatch or native package behavior. Package hooks, service-policy topology and crash restoration, and enable/socket/direct-start/boot effects remain unqualified. This correction authorizes no package apply, including inactive/recovery bootstrap.
+
+## Pinned inactive tools
+
+The existing `sops_age` and `restic_backup` tags dispatch only each role's `tasks/tools.yml` for `inert`/`recovery`, after the unchanged site profile/apply admissions and lock acquisition and before successful lock release. No new tag or apply authorization is introduced. Each production role imports that same implementation at its original seam: Restic architecture and exact repository-mount admission still precede installation, and the SOPS recovery-identity assertions still follow installation. Restic accounts, protected trees, credentials, repositories and units remain outside the tools implementation.
+
+Existing SOPS/age pins now live in `debian.tools`; Restic/rclone remain in `backups.restic.tools`. Group variables are direct aliases, checked against these declarations before tool effects alongside Linux x86_64/Debian platform admission. Destinations are fixed `/usr/local/bin/{sops,age,age-keygen,restic,rclone}`. Existing destinations must be regular, non-symlinked and single-link; reconciliation verifies pinned checksums and root:root `0755` metadata. Tool provisioning never recovers or reads an identity, enrolls a node, inspects mounts or accounts, decrypts secrets, accesses repositories, or changes service/schedule state. The unchanged *site lifecycle guard* still observes its required inactive mount/service/identity gates; the tools implementation does not replace or bypass those admissions.
+
+No distribution package or prerequisite bootstrap is added. Native provisioning still needs working HTTPS/CA trust, `/usr/local/bin` and `/var/tmp`, Ansible's archive support and host tar/gzip for age, and `/usr/bin/python3` with bz2/zipfile for Restic/rclone. These are not newly qualified by source tests. Temporary age/Restic workspaces retain `always` cleanup on ordinary task failure; process termination, connection loss, failed cleanup and partially replaced binaries remain interruption risks, not an atomic multi-binary transaction. There is no automatic retry or rollback. SOPS remains a direct checksum-bound `get_url` install.
+
+`node scripts/controller/test-debian-tool-provisioning.js` runs real Ansible against controller-only synthetic effect adapters. It evaluates selected site dispatch, imports, conditions and arguments, with synthetic admission/lock witnesses and only the production Restic prefix through its tools import (not its account/secret/unit body). First/second/check-mode, destination/alias/platform refusals, production mount/identity guards and failure cleanup are modeled, not native download, extraction, installer, first-boot, cold-recovery or live acceptance. Unknown effects/imports in the selected task closure refuse before dispatch. Successful new fixture roots are removed; failed roots and per-run outputs are retained.
 
 ## Entry points
 

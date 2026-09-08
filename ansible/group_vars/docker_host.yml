@@ -72,17 +72,15 @@ audit_allowed_materialized_compose_service_counts: "{{ audit_allowed_declared_co
 audit_expected_stopped_compose_services: []
 audit_expected_running_compose_service_count: "{{ audit_expected_compose_service_count }}"
 
-# Pinned standalone SOPS and age tooling. No package transaction is used.
-# renovate: datasource=github-releases depName=getsops/sops
-sops_version: 3.13.3
-sops_download_url: https://github.com/getsops/sops/releases/download/v3.13.3/sops-v3.13.3.linux.amd64
-sops_sha256: e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
-# renovate: datasource=github-releases depName=FiloSottile/age
-age_version: 1.3.1
-age_download_url: https://github.com/FiloSottile/age/releases/download/v1.3.1/age-v1.3.1-linux-amd64.tar.gz
-age_archive_sha256: bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377
-age_binary_sha256: 2e305637f2a0555305e21c17fb74446acbb39b53135d43d4b744e50c287133a5
-age_keygen_binary_sha256: c56ef69834e18ca4d3b953117f4481522c35fb6862a5d2871685aa4685893664
+# Pinned standalone tooling is declared directly in the infrastructure contract.
+sops_version: "{{ debian.tools.sops.version }}"
+sops_download_url: "{{ debian.tools.sops.url }}"
+sops_sha256: "{{ debian.tools.sops.installed_sha256 }}"
+age_version: "{{ debian.tools.age.version }}"
+age_download_url: "{{ debian.tools.age.url }}"
+age_archive_sha256: "{{ debian.tools.age.archive_sha256 }}"
+age_binary_sha256: "{{ debian.tools.age.installed_sha256 }}"
+age_keygen_binary_sha256: "{{ debian.tools.age.keygen_installed_sha256 }}"
 
 # Pinned official Restic and rclone binaries. The role installs no distribution packages.
 restic_version: "{{ backups.restic.tools.restic.version }}"

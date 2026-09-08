@@ -71,7 +71,7 @@
     "debian": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["release", "version", "point_release", "locale", "build_id", "baseline", "image", "cloud_init", "os_disk", "qualification", "transaction"],
+      "required": ["release", "version", "point_release", "locale", "build_id", "baseline", "tools", "image", "cloud_init", "os_disk", "qualification", "transaction"],
       "properties": {
         "release": { "const": "trixie" },
         "version": { "const": "13" },
@@ -87,6 +87,90 @@
             "image_packages": { "const": ["python3", "python3-apt", "openssh-server", "cloud-init"] },
             "packages": { "const": ["rsync", "locales", "tzdata", "qemu-guest-agent", "ca-certificates"] },
             "services": { "const": ["qemu-guest-agent.service"] }
+          }
+        },
+        "tools": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sops",
+            "age"
+          ],
+          "properties": {
+            "sops": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "version",
+                "url",
+                "installed_sha256",
+                "architecture",
+                "installed_path"
+              ],
+              "properties": {
+                "version": {
+                  "const": "3.13.3"
+                },
+                "url": {
+                  "type": "string",
+                  "pattern": "^https://"
+                },
+                "installed_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "architecture": {
+                  "const": "linux_amd64"
+                },
+                "installed_path": {
+                  "const": "/usr/local/bin/sops"
+                }
+              }
+            },
+            "age": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "version",
+                "url",
+                "archive_sha256",
+                "installed_sha256",
+                "keygen_installed_sha256",
+                "architecture",
+                "installed_path",
+                "keygen_installed_path"
+              ],
+              "properties": {
+                "version": {
+                  "const": "1.3.1"
+                },
+                "url": {
+                  "type": "string",
+                  "pattern": "^https://"
+                },
+                "archive_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "installed_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "keygen_installed_sha256": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "architecture": {
+                  "const": "linux_amd64"
+                },
+                "installed_path": {
+                  "const": "/usr/local/bin/age"
+                },
+                "keygen_installed_path": {
+                  "const": "/usr/local/bin/age-keygen"
+                }
+              }
+            }
           }
         },
         "image": {

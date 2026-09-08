@@ -59,6 +59,13 @@ assert.equal(site.pre_tasks[profileGuardIndex]["ansible.builtin.import_role"].na
 for (const role of site.roles.filter((item) => item.role !== "base")) {
   assert.equal(role.when, "lifecycle_profile == 'production'", `${role.role} is not production-gated`);
 }
+for (const task of site.tasks) {
+  const dispatch = task["ansible.builtin.import_role"];
+  assert(["sops_age", "restic_backup"].includes(dispatch.name));
+  assert.equal(dispatch.tasks_from, "tools");
+  assert.equal(task.when, "lifecycle_profile in ['inert', 'recovery']");
+  assert.deepEqual(task.tags, [dispatch.name]);
+}
 assert.equal(audit.roles[0].role, "debian_lifecycle_guard");
 assert.equal(qualificationHost.lifecycle_profile, "inert");
 assert.equal(qualificationHost.lifecycle_contract_host, "debian");

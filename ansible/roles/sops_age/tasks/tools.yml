@@ -1,0 +1,186 @@
+---
+- name: Require SOPS and age tool platform and contract bindings before effects
+  ansible.builtin.assert:
+    that:
+      - lifecycle_contract_host == 'debian'
+      - ansible_facts.system == 'Linux'
+      - ansible_facts.architecture == 'x86_64'
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.distribution_major_version == debian.version
+      - ansible_facts.distribution_release == debian.release
+      - debian.tools.sops.architecture == 'linux_amd64'
+      - debian.tools.sops.installed_path == '/usr/local/bin/sops'
+      - debian.tools.age.architecture == 'linux_amd64'
+      - debian.tools.age.installed_path == '/usr/local/bin/age'
+      - debian.tools.age.keygen_installed_path == '/usr/local/bin/age-keygen'
+      - sops_version == debian.tools.sops.version
+      - sops_download_url == debian.tools.sops.url
+      - sops_sha256 == debian.tools.sops.installed_sha256
+      - age_version == debian.tools.age.version
+      - age_download_url == debian.tools.age.url
+      - age_archive_sha256 == debian.tools.age.archive_sha256
+      - age_binary_sha256 == debian.tools.age.installed_sha256
+      - age_keygen_binary_sha256 == debian.tools.age.keygen_installed_sha256
+    fail_msg: Pinned tools require the contracted Debian platform and exact direct-contract bindings.
+
+- name: Inspect SOPS and age binary destinations without following replacements
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+    follow: false
+  loop:
+    - path: /usr/local/bin/age
+      sha256: "{{ age_binary_sha256 }}"
+    - path: /usr/local/bin/age-keygen
+      sha256: "{{ age_keygen_binary_sha256 }}"
+  register: sops_age_existing_binaries
+
+- name: Inspect the SOPS binary destination without following replacements
+  ansible.builtin.stat:
+    path: /usr/local/bin/sops
+    checksum_algorithm: sha256
+    follow: false
+  register: sops_age_existing_sops
+
+- name: Reject unsafe existing SOPS and age binary destinations
+  ansible.builtin.assert:
+    that:
+      - >-
+        not (item.stat.exists | default(false)) or
+        ((item.stat.isreg | default(false)) and
+        not (item.stat.islnk | default(false)) and
+        (item.stat.nlink | default(0) | int) == 1)
+    fail_msg: Refusing to replace a non-regular, symlinked, or hard-linked SOPS or age destination.
+  loop: "{{ sops_age_existing_binaries.results + [sops_age_existing_sops] }}"
+
+- name: Install pinned SOPS binary
+  ansible.builtin.get_url:
+    url: "{{ sops_download_url }}"
+    dest: /usr/local/bin/sops
+    checksum: "sha256:{{ sops_sha256 }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Record whether the pinned age binaries require installation
+  ansible.builtin.set_fact:
+    sops_age_install_required: >-
+      {{
+        sops_age_existing_binaries.results
+        | rejectattr('stat.checksum', 'defined')
+        | list
+        | length > 0
+        or
+        sops_age_existing_binaries.results[0].stat.checksum != age_binary_sha256
+        or
+        sops_age_existing_binaries.results[1].stat.checksum != age_keygen_binary_sha256
+        or sops_age_existing_binaries.results[0].stat.pw_name != 'root'
+        or sops_age_existing_binaries.results[0].stat.gr_name != 'root'
+        or sops_age_existing_binaries.results[0].stat.mode != '0755'
+        or sops_age_existing_binaries.results[1].stat.pw_name != 'root'
+        or sops_age_existing_binaries.results[1].stat.gr_name != 'root'
+        or sops_age_existing_binaries.results[1].stat.mode != '0755'
+      }}
+
+- name: Report pinned age binary drift during check mode
+  ansible.builtin.debug:
+    msg: The pinned age binaries require reconciliation.
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - sops_age_install_required
+
+- name: Install pinned age binaries outside check mode
+  when:
+    - not ansible_check_mode
+    - sops_age_install_required
+  block:
+    - name: Create a root-only age installation workspace
+      ansible.builtin.tempfile:
+        state: directory
+        path: /var/tmp
+        prefix: age-install-
+      register: sops_age_workspace
+
+    - name: Download the pinned age archive
+      ansible.builtin.get_url:
+        url: "{{ age_download_url }}"
+        dest: "{{ sops_age_workspace.path }}/age.tar.gz"
+        checksum: "sha256:{{ age_archive_sha256 }}"
+        mode: "0600"
+
+    - name: Extract the age archive
+      ansible.builtin.unarchive:
+        src: "{{ sops_age_workspace.path }}/age.tar.gz"
+        dest: "{{ sops_age_workspace.path }}"
+        remote_src: true
+
+    - name: Install age
+      ansible.builtin.copy:
+        src: "{{ sops_age_workspace.path }}/age/age"
+        dest: /usr/local/bin/age
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Install age-keygen
+      ansible.builtin.copy:
+        src: "{{ sops_age_workspace.path }}/age/age-keygen"
+        dest: /usr/local/bin/age-keygen
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0755"
+  always:
+    - name: Remove the age installation workspace
+      ansible.builtin.file:
+        path: "{{ sops_age_workspace.path }}"
+        state: absent
+      when: sops_age_workspace.path is defined
+
+- name: Verify installed age binary checksums
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+    follow: false
+  loop:
+    - path: /usr/local/bin/age
+      sha256: "{{ age_binary_sha256 }}"
+    - path: /usr/local/bin/age-keygen
+      sha256: "{{ age_keygen_binary_sha256 }}"
+  register: sops_age_installed_binaries
+
+- name: Require exact installed age binaries
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - not (item.stat.islnk | default(false))
+      - (item.stat.nlink | int) == 1
+      - item.stat.pw_name == 'root'
+      - item.stat.gr_name == 'root'
+      - item.stat.mode == '0755'
+      - item.stat.checksum == item.item.sha256
+    fail_msg: "Installed age binary checksum differs from the pinned release."
+  loop: "{{ sops_age_installed_binaries.results }}"
+  when: not ansible_check_mode or not sops_age_install_required
+
+- name: Verify installed SOPS binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/sops
+    checksum_algorithm: sha256
+    follow: false
+  register: sops_age_installed_sops
+
+- name: Require exact installed SOPS binary
+  ansible.builtin.assert:
+    that:
+      - sops_age_installed_sops.stat.isreg | default(false)
+      - not (sops_age_installed_sops.stat.islnk | default(false))
+      - (sops_age_installed_sops.stat.nlink | int) == 1
+      - sops_age_installed_sops.stat.pw_name == 'root'
+      - sops_age_installed_sops.stat.gr_name == 'root'
+      - sops_age_installed_sops.stat.mode == '0755'
+      - sops_age_installed_sops.stat.checksum == sops_sha256
+    fail_msg: Installed SOPS binary differs from the pinned release or required protection.
+  when: not ansible_check_mode

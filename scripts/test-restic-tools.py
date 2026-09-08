@@ -26,6 +26,15 @@ def contract() -> dict:
     return json.loads(result.stdout)
 
 
+def restic_role_source() -> str:
+    """Expand the single fixed tools import in production order for source checks."""
+    tasks = ROOT / "ansible/roles/restic_backup/tasks"
+    source = (tasks / "main.yml").read_text()
+    seam = "- name: Converge pinned Restic tools\n  ansible.builtin.import_tasks: tools.yml\n"
+    assert source.count(seam) == 1
+    return source.replace(seam, (tasks / "tools.yml").read_text().removeprefix("---\n"))
+
+
 def main() -> None:
     value = contract()
     policy = value["backups"]["restic"]
@@ -317,7 +326,7 @@ def main() -> None:
     else:
         raise AssertionError("Proton copy headroom could cross the free-space reserve")
 
-    role = (ROOT / "ansible/roles/restic_backup/tasks/main.yml").read_text()
+    role = restic_role_source()
     audit_restic = (ROOT / "ansible/roles/audit/tasks/restic.yml").read_text()
     bootstrap = (ROOT / "scripts/bootstrap-restic-credentials").read_text()
     assert "required_sops_keys_absent" in bootstrap
@@ -1882,7 +1891,7 @@ def main() -> None:
     post_nfs_recovery = (ROOT / "ansible/playbooks/recover-post-nfs-first-run.yml").read_text()
     first_run_finalize = (ROOT / "ansible/playbooks/finalize-first-restic-backup.yml").read_text()
     timers = list((ROOT / "ansible/roles/restic_backup/templates").glob("*.timer.j2"))
-    restic_role_tasks = (ROOT / "ansible/roles/restic_backup/tasks/main.yml").read_text()
+    restic_role_tasks = restic_role_source()
     assert "daily-local.service home-lab-restic-daily-proton.service" in daily_target
     assert "Requires=home-lab-restic-daily-local.service" in proton_service
     assert "User=restic-proton" in proton_service
@@ -2004,7 +2013,7 @@ def main() -> None:
     assert not any(pattern.startswith("/srv/home-lab-state/**") for pattern in policy["excludes"])
     assert "/srv/home-lab-state/calibre-data/books/metadata.db" in policy["critical_fixtures"]
 
-    restic_role = (ROOT / "ansible/roles/restic_backup/tasks/main.yml").read_text()
+    restic_role = restic_role_source()
     assert "Inspect fixed Restic deployment ancestors" in restic_role
     assert "- { path: /usr/local/libexec, required: true }" in restic_role
     assert "- { path: /usr/local/libexec/home-lab, required: false }" in restic_role
