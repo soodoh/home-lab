@@ -1,0 +1,18 @@
+[Unit]
+Description={{ debian.systemd.compose.description }}
+Requires={{ debian.transaction.production_systemd_dependencies['home-lab-compose.service'].Requires | join(' ') }}
+After={{ (debian.transaction.production_systemd_dependencies['home-lab-compose.service'].After + [debian.systemd.network_online]) | join(' ') }}
+Wants={{ debian.systemd.network_online }}
+
+[Service]
+Type={{ debian.systemd.service_type }}
+RemainAfterExit={{ debian.systemd.remain_after_exit | ternary('yes', 'no') }}
+Environment=HOME={{ debian.systemd.compose.home }}
+WorkingDirectory={{ debian.transaction.compose_artifact_path | dirname }}
+ExecStart={{ (debian.transaction.compose_command + debian.systemd.compose.start) | join(' ') }}
+ExecStop={{ (debian.transaction.compose_command + debian.systemd.compose.stop) | join(' ') }}
+TimeoutStartSec={{ debian.systemd.compose.timeout_start }}
+TimeoutStopSec={{ debian.systemd.compose.timeout_stop }}
+
+[Install]
+WantedBy={{ debian.systemd.compose.wanted_by | join(' ') }}

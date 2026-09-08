@@ -99,6 +99,8 @@
     path: "{{ item }}"
     follow: false
     get_checksum: false
+    get_mime: false
+    get_attributes: false
   become: true
   loop:
     - "{{ compose_age_identity_path }}"

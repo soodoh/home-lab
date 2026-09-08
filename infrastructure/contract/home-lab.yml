@@ -1499,6 +1499,49 @@ debian:
   storage:
     # Unit boot policy only; nofail is not a kernel-observed mount option.
     local_mount_boot_options: [nofail]
+  # Inactive on-disk declarations only; activation and package-owned units stay separate.
+  systemd:
+    assets:
+      guard_helper:
+        path: /usr/local/sbin/home-lab-production-guard
+        source: debian_lifecycle_transaction/files/home-lab-production-guard
+        mode: "0755"
+        tag: compose
+      guard_unit:
+        path: /etc/systemd/system/home-lab-production-guard.service
+        source: debian_lifecycle_transaction/templates/home-lab-production-guard.service.j2
+        mode: "0644"
+        tag: compose
+      compose_unit:
+        path: /etc/systemd/system/home-lab-compose.service
+        source: compose/templates/home-lab-compose.service.j2
+        mode: "0644"
+        tag: compose
+      docker_dependencies:
+        path: /etc/systemd/system/docker.service.d/10-home-lab-storage.conf
+        source: docker/templates/10-home-lab-storage.conf.j2
+        mode: "0644"
+        tag: docker
+    guard:
+      sha256: ebaef168ef89defe8806237272d77a5c0dee4f62749896cc7a1955d2f6201be6
+      size: 234
+      description: Fail-closed guard for Home Lab production activation
+      after: [local-fs.target]
+      before: [docker.service, tailscaled.service, home-lab-compose.service]
+    compose:
+      description: Home lab production Compose stack
+      home: /root
+      start: [up, --detach, --pull, never, --remove-orphans]
+      stop: [stop, --timeout, '120']
+      timeout_start: 1200
+      timeout_stop: 300
+      wanted_by: [multi-user.target]
+    service_type: oneshot
+    remain_after_exit: true
+    network_online: network-online.target
+    vendor_units:
+      docker.service: /usr/lib/systemd/system/docker.service
+      docker.socket: /usr/lib/systemd/system/docker.socket
   tools:
     sops:
       # renovate: datasource=github-releases depName=getsops/sops

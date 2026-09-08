@@ -1,0 +1,11 @@
+---
+- name: Require the explicit Docker declaration tag
+  ansible.builtin.assert:
+    that:
+      - (ansible_run_tags | list) == ['docker']
+    fail_msg: Inactive Docker dependency declarations require only the docker tag, including in check mode.
+
+- name: Admit the whole inactive workload definition closure and publish only the Docker drop in
+  ansible.builtin.import_role:
+    name: debian_lifecycle_transaction
+    tasks_from: inactive-units

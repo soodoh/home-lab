@@ -1,0 +1,3 @@
+#!/bin/bash
+set -euo pipefail
+jq -e '.format == "home-lab-debian-production-activation-v1" and .phase == "committed"' /var/lib/home-lab/debian-production-activation.json >/dev/null 2>&1 || test -f /run/home-lab-production-transaction

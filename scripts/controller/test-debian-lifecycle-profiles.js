@@ -53,7 +53,7 @@ const qualificationHost = qualificationInventory.all.children.docker_host.hosts[
 assert.equal(contract.debian.locale, "C.UTF-8");
 assert.equal(groupVars.debian_locale, "{{ debian.locale }}");
 assert.deepEqual(groupVars.debian_protected_mounts, "{{ debian.qualification.protected_mounts }}");
-for (const unit of ["docker.service", "docker.socket", "home-lab-compose.service", "tailscaled.service",
+for (const unit of ["home-lab-production-guard.service", "docker.service", "docker.socket", "home-lab-compose.service", "tailscaled.service",
   ...Object.keys(groupVars.restic_audit_inert_units)]) {
   assert(groupVars.debian_lifecycle_inactive_units.includes(unit), `inactive lifecycle audit omits ${unit}`);
 }
@@ -67,8 +67,8 @@ for (const role of site.roles.filter((item) => item.role !== "base")) {
 }
 for (const task of site.tasks) {
   const dispatch = task["ansible.builtin.import_role"];
-  assert(["sops_age", "restic_backup", "tailscale", "storage"].includes(dispatch.name));
-  assert.equal(dispatch.tasks_from, dispatch.name === "storage" ? "inactive" : "tools");
+  assert(["sops_age", "restic_backup", "tailscale", "storage", "docker", "compose"].includes(dispatch.name));
+  assert.equal(dispatch.tasks_from, ["storage", "docker", "compose"].includes(dispatch.name) ? "inactive" : "tools");
   assert.equal(task.when, "lifecycle_profile in ['inert', 'recovery']");
   assert.deepEqual(task.tags, [dispatch.name]);
 }
@@ -80,6 +80,9 @@ const qualificationSsh = qualificationHost.ansible_ssh_common_args;
 for (const required of ["StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null", "UpdateHostKeys=no", "IdentityAgent=none", "IdentitiesOnly=yes", "PreferredAuthentications=publickey", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no", "RequestTTY=no"]) assert(qualificationSsh.includes(required));
 assert(qualificationHost.ansible_ssh_private_key_file.includes("HOME_LAB_DEBIAN_QUALIFICATION_PRIVATE_KEY"));
 
+assert.deepEqual(guardTasks.find((task) => task.name === "Inspect secret identity and Tailscale state boundaries")["ansible.builtin.stat"], {
+  path: "{{ item }}", follow: false, get_checksum: false, get_mime: false, get_attributes: false,
+});
 const allowedGuardModules = new Set(["ansible.builtin.assert", "ansible.builtin.command", "ansible.builtin.stat"]);
 for (const task of guardTasks) {
   const modules = Object.keys(task).filter((key) => key.startsWith("ansible.builtin."));

@@ -1,0 +1,62 @@
+---
+# One admission pass for all four assets, before even the single allowed mkdir.
+- name: Admit inactive workload declarations before any publication
+  ansible.builtin.import_tasks: inactive-unit-admission.yml
+
+- name: Create only the missing named Docker drop in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when:
+    - (ansible_run_tags | list) == ['docker']
+    - not unit_declaration_drop_directory.stat.exists
+  become: true
+
+- name: Publish only missing assets belonging to the selected declaration tag
+  ansible.builtin.copy:
+    content: "{{ lookup('ansible.builtin.file' if item.key == 'guard_helper' else 'ansible.builtin.template', role_path ~ '/../' ~ item.value.source, rstrip=False) }}"
+    dest: "{{ item.value.path }}"
+    owner: root
+    group: root
+    mode: "{{ item.value.mode }}"
+    force: false
+    follow: false
+  loop: "{{ debian.systemd.assets | dict2items }}"
+  loop_control:
+    index_var: asset_index
+  when:
+    - item.value.tag == ansible_run_tags[0]
+    - not unit_declaration_assets.results[asset_index].stat.exists
+  become: true
+
+- name: Inspect final selected declaration bytes without loading them
+  ansible.builtin.stat:
+    path: "{{ item.value.path }}"
+    follow: false
+    checksum_algorithm: sha256
+    get_mime: false
+    get_attributes: false
+  loop: "{{ debian.systemd.assets | dict2items }}"
+  register: unit_declaration_final
+  when:
+    - not ansible_check_mode
+    - item.value.tag == ansible_run_tags[0]
+  become: true
+
+- name: Require exact final selected disk identities only
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - not item.stat.islnk
+      - item.stat.nlink == 1
+      - item.stat.uid == 0
+      - item.stat.gid == 0
+      - item.stat.mode == item.item.value.mode
+      - item.stat.checksum == lookup('ansible.builtin.file' if item.item.key == 'guard_helper' else 'ansible.builtin.template', role_path ~ '/../' ~ item.item.value.source, rstrip=False) | hash('sha256')
+    fail_msg: Published declaration identity differs; retain failed apply for separate review, never automatic repair or retry.
+  loop: "{{ unit_declaration_final.results }}"
+  when: not (item.skipped | default(false))

@@ -8,6 +8,7 @@ audit_expected_locale: "{{ debian.locale }}"
 debian_locale: "{{ debian.locale }}"
 debian_protected_mounts: "{{ debian.qualification.protected_mounts }}"
 debian_lifecycle_inactive_units:
+  - home-lab-production-guard.service
   - docker.service
   - docker.socket
   - home-lab-compose.service

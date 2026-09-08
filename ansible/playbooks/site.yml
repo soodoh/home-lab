@@ -138,6 +138,22 @@
       tags:
         - storage
 
+    - name: Converge inactive Docker dependency declarations only
+      ansible.builtin.import_role:
+        name: docker
+        tasks_from: inactive
+      when: lifecycle_profile in ['inert', 'recovery']
+      tags:
+        - docker
+
+    - name: Converge inactive Compose and retained guard declarations only
+      ansible.builtin.import_role:
+        name: compose
+        tasks_from: inactive
+      when: lifecycle_profile in ['inert', 'recovery']
+      tags:
+        - compose
+
   post_tasks:
     - name: Release the host-side production apply lock after success
       ansible.builtin.import_role:
