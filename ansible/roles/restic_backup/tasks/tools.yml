@@ -95,6 +95,9 @@
       ansible.builtin.command:
         argv:
           - "{{ ansible_python_interpreter }}"
+          - -I
+          - -B
+          - -S
           - -c
           - >-
             import bz2, shutil, sys;
@@ -118,6 +121,9 @@
       ansible.builtin.command:
         argv:
           - "{{ ansible_python_interpreter }}"
+          - -I
+          - -B
+          - -S
           - -c
           - >-
             import shutil, stat, sys, zipfile;

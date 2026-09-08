@@ -26,6 +26,20 @@ const tailscaleExtractor = tools.tailscale.flatMap((task) => task.block || [])
 // Fail before fixture creation or Ansible dispatch if actual source startup drifts.
 assert.deepEqual(tailscaleExtractor.slice(0, 5), ["{{ ansible_python_interpreter }}", "-I", "-B", "-S", "-c"],
   "Tailscale extractor requires isolated stdlib startup: -I -B -S");
+const resticExtractors = Object.fromEntries([
+  ["restic", "Extract the pinned Restic binary with the host Python standard library"],
+  ["rclone", "Extract only the pinned rclone binary with the host Python standard library"],
+].map(([name, taskName]) => [name, tools.restic_backup.flatMap((task) => task.block || [])
+  .find((task) => task.name === taskName)["ansible.builtin.command"].argv]));
+for (const [name, argv] of Object.entries(resticExtractors)) {
+  assert.deepEqual(argv.slice(0, 5), ["{{ ansible_python_interpreter }}", "-I", "-B", "-S", "-c"],
+    `${name} extractor requires isolated stdlib startup: -I -B -S`);
+  assert.equal(argv.length, name === "restic" ? 8 : 9);
+}
+assert.deepEqual(resticExtractors.restic.slice(6), ["{{ restic_backup_workspace.path }}/restic.bz2",
+  "{{ restic_backup_workspace.path }}/restic"]);
+assert.deepEqual(resticExtractors.rclone.slice(6), ["{{ restic_backup_workspace.path }}/rclone.zip",
+  "rclone-v{{ rclone_version }}-linux-amd64/rclone", "{{ restic_backup_workspace.path }}/rclone"]);
 const sopsAliases = ["sops_version", "sops_download_url", "sops_sha256", "age_version", "age_download_url",
   "age_archive_sha256", "age_binary_sha256", "age_keygen_binary_sha256"];
 const resticAliases = ["restic_version", "restic_download_url", "restic_archive_sha256", "restic_binary_sha256",
@@ -124,7 +138,7 @@ try {
     fs.mkdirSync(path.join(fixture, d), { recursive: true });
   // Native LOCAL stdlib only: no guest paths, official archives, ELF execution,
   // or installer dispatch. The helper and source extractor always disable site
-  // startup/bytecode; the sole counterfactual removes only -I to expose poison.
+  // startup/bytecode; each counterfactual removes only -I to expose poison.
   const localRoot = path.join(fixture, "native-local");
   for (const d of ["", "poison", "home", "tmp", "archives", "outputs"])
     fs.mkdirSync(path.join(localRoot, d), { recursive: true, mode: 0o700 });
@@ -198,6 +212,81 @@ for kind in kinds:
   localExtract("regular", true);
   assert.deepEqual(fs.readdirSync(path.join(localRoot, "poison")), ["tarfile.py"], "bytecode must remain absent");
   console.log("tailscale_extractor_local_stdlib=verified cases=10 isolated_source_argv=true poison_counterfactual=verified native_installation=false");
+
+  // Shared Restic source gets only startup isolation changes. These four local
+  // cases exercise its actual programs, not guest installation or archive policy.
+  for (const [name, sourceArgv] of Object.entries(resticExtractors)) {
+    const toolRoot = path.join(localRoot, name);
+    for (const d of ["", "poison", "home", "tmp", "archives", "outputs"])
+      fs.mkdirSync(path.join(toolRoot, d), { mode: 0o700 });
+    const module = name === "restic" ? "bz2" : "zipfile";
+    const marker = name === "restic" ? "RESTIC_FIXTURE_BZ2_POISON_A73184C2" : "RCLONE_FIXTURE_ZIPFILE_POISON_6E049AB1";
+    fs.writeFileSync(path.join(toolRoot, "poison", `${module}.py`), `raise RuntimeError(${JSON.stringify(marker)})\n`, { mode: 0o600 });
+    const options = { cwd: path.join(toolRoot, "poison"), encoding: "utf8", timeout: 30000,
+      env: { PATH: process.env.PATH, HOME: path.join(toolRoot, "home"), TMPDIR: path.join(toolRoot, "tmp"),
+        LANG: "C.UTF-8", PYTHONPATH: path.join(toolRoot, "poison") } };
+    const archivePath = path.join(toolRoot, "archives", name === "restic" ? "restic.bz2" : "rclone.zip");
+    const member = `rclone-v${pins.rclone.version}-linux-amd64/rclone`;
+    const payload = Buffer.from(`fixture-${name}\n`);
+    const helper = spawnSync("python3", ["-I", "-B", "-S", "-c", `import bz2, sys, zipfile
+name, target, member, payload = sys.argv[1:]
+if name == 'restic':
+    with open(target, 'xb') as stream:
+        stream.write(bz2.compress(payload.encode('ascii')))
+else:
+    with zipfile.ZipFile(target, 'x') as archive:
+        archive.writestr(member, payload.encode('ascii'))
+`, name, archivePath, member, payload.toString()], options);
+    localResult(`${name}-helper`, helper);
+    assert.equal(helper.status, 0, helper.stderr);
+    assert.equal(helper.stdout, "");
+    assert.equal(helper.stderr, "");
+    assert.deepEqual(fs.readdirSync(path.join(toolRoot, "archives")), [path.basename(archivePath)]);
+    // Snapshot only this newly constructed synthetic tree to detect extra output,
+    // changed inputs, site/bytecode writes or effects outside the expected file.
+    function snapshot(relative = "") {
+      return Object.fromEntries(fs.readdirSync(path.join(toolRoot, relative)).sort().flatMap((entry) => {
+        const key = relative ? `${relative}/${entry}` : entry;
+        const target = path.join(toolRoot, key), stat = fs.lstatSync(target);
+        assert(!stat.isSymbolicLink());
+        if (stat.isDirectory()) return [[key, "directory"], ...Object.entries(snapshot(key))];
+        assert(stat.isFile() && stat.nlink === 1);
+        return [[key, fs.readFileSync(target).toString("hex")]];
+      }));
+    }
+    for (const mutant of [false, true]) {
+      const label = `${name}-${mutant ? "without-isolation" : "regular"}`;
+      const workspace = path.join(toolRoot, "outputs", label);
+      fs.mkdirSync(workspace, { mode: 0o700 });
+      const target = path.join(workspace, name);
+      const before = snapshot();
+      // Only the installed local interpreter and fixture inputs/outputs replace
+      // templates; the exact parsed source program and flags remain untouched.
+      const substitutions = new Map([[sourceArgv[0], "python3"], [sourceArgv[6], archivePath],
+        [sourceArgv.at(-1), target]]);
+      if (name === "rclone") substitutions.set(sourceArgv[7], member);
+      const argv = sourceArgv.map((value) => substitutions.get(value) ?? value);
+      assert.deepEqual(argv.slice(1, 5), ["-I", "-B", "-S", "-c"]);
+      if (mutant) argv.splice(1, 1); // Remove ONLY -I; retain -B/-S.
+      const result = spawnSync(argv[0], argv.slice(1), options);
+      localResult(label, result);
+      assert.equal(result.stdout, "");
+      if (mutant) {
+        assert.equal(result.status, 1);
+        assert.equal(result.stderr.trim().split("\n").at(-1), `RuntimeError: ${marker}`);
+        assert.deepEqual(fs.readdirSync(workspace), []);
+        assert.deepEqual(snapshot(), before, "poison must cause no unexpected effect or bytecode");
+      } else {
+        assert.equal(result.status, 0, result.stderr);
+        assert.equal(result.stderr, "");
+        const stat = fs.lstatSync(target);
+        assert(stat.isFile() && !stat.isSymbolicLink() && stat.nlink === 1);
+        assert.deepEqual(fs.readFileSync(target), payload);
+        assert.deepEqual(snapshot(), { ...before, [`outputs/${label}/${name}`]: payload.toString("hex") });
+      }
+    }
+  }
+  console.log("restic_rclone_extractors_local_stdlib=verified cases=4 isolated_source_argv=true poison_counterfactuals=2 native_installation=false");
 
   write("inventory", "fixture-debian ansible_connection=local\n");
   write("ansible.cfg", `[defaults]\nroles_path = ${fixture}/roles\naction_plugins = ${fixture}/action_plugins\ncollections_path = ${fixture}/collections\nlocal_tmp = ${fixture}/tmp\nretry_files_enabled = False\nstdout_callback = default\n[privilege_escalation]\nbecome = False\n`);
@@ -307,7 +396,7 @@ class ActionModule(ActionBase):
                 stdout = TOOLS[tool]['version_output' if tool == 'restic' else 'version_output_prefix']
                 if state.get('bad_version') == tool:
                     stdout = 'wrong version'
-            elif argv[:5] == ['/usr/bin/python3', '-I', '-B', '-S', '-c']:
+            elif argv[:5] == ['/usr/bin/python3', '-I', '-B', '-S', '-c'] and argv[5] == ${JSON.stringify(tailscaleExtractor[5])}:
                 assert not check and len(argv) == 9
                 assert argv[6] in state['archives'] and argv[6].endswith('/tailscale.tgz')
                 assert argv[7] == 'tailscale_' + TAILSCALE['version'] + '_amd64'
@@ -315,16 +404,16 @@ class ActionModule(ActionBase):
                 assert argv[5] == ${JSON.stringify(tailscaleExtractor[5])}
                 state['extracted'].extend([argv[8] + '/tailscale', argv[8] + '/tailscaled'])
                 stdout = ''
-            elif argv[:2] == ['/usr/bin/python3', '-c']:
-                assert not check and len(argv) in [5, 6]
-                assert argv[3] in state['archives']
-                if len(argv) == 5:
-                    assert argv[3].endswith('/restic.bz2') and argv[4] == argv[3].removesuffix('.bz2')
-                    assert 'bz2.open' in argv[2] and "open(sys.argv[2], 'xb')" in argv[2]
+            elif argv[:5] == ['/usr/bin/python3', '-I', '-B', '-S', '-c']:
+                assert not check and len(argv) in [8, 9]
+                assert argv[6] in state['archives']
+                if len(argv) == 8:
+                    assert argv[6].endswith('/restic.bz2') and argv[7] == argv[6].removesuffix('.bz2')
+                    assert argv[5] == ${JSON.stringify(resticExtractors.restic[5])}
                 else:
-                    assert argv[3].endswith('/rclone.zip') and argv[5] == argv[3].removesuffix('.zip')
-                    assert argv[4] == 'rclone-v' + TOOLS['rclone']['version'] + '-linux-amd64/rclone'
-                    assert 'symlink member refused' in argv[2] and "open(sys.argv[3], 'xb')" in argv[2]
+                    assert argv[6].endswith('/rclone.zip') and argv[8] == argv[6].removesuffix('.zip')
+                    assert argv[7] == 'rclone-v' + TOOLS['rclone']['version'] + '-linux-amd64/rclone'
+                    assert argv[5] == ${JSON.stringify(resticExtractors.rclone[5])}
                 state['extracted'].append(argv[-1])
                 stdout = ''
             else:

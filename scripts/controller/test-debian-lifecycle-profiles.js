@@ -22,6 +22,12 @@ const aptDefaults = yaml("ansible/roles/apt_packages/defaults/main.yml");
 const baseSource = read("ansible/roles/base/tasks/main.yml");
 const baseTasks = load(baseSource);
 const inactiveBaseTasks = yaml("ansible/roles/base/tasks/debian-inactive.yml");
+// Fail before fixture creation or Ansible dispatch. Keep system site initialization
+// for Debian python3-apt in dist-packages; this command is modeled, never run here.
+const aptImportArgv = inactiveBaseTasks.find((task) =>
+  task.name === "Require image-provided Python APT bindings without bootstrapping dependencies")["ansible.builtin.command"].argv;
+assert.deepEqual(aptImportArgv, ["/usr/bin/python3", "-I", "-B", "-c", "import apt"],
+  "Base APT import requires isolated startup with system site retained: -I -B (no -S)");
 const baselineSchema = JSON.parse(read("infrastructure/contract/schema.json")).properties.debian;
 assert(baselineSchema.required.includes("baseline"));
 const validateBaseline = new Ajv2020({ strict: true, allErrors: true }).compile(baselineSchema.properties.baseline);
@@ -249,7 +255,7 @@ class ActionModule(ActionBase):
         elif module == "command":
             argv = args["argv"]
             stdout = ""
-            if argv == ["/usr/bin/python3", "-B", "-c", "import apt"]:
+            if argv == ["/usr/bin/python3", "-I", "-B", "-c", "import apt"]:
                 if not state["python_apt"]:
                     return {"failed": True, "msg": "synthetic missing Python APT binding"}
             elif argv[:3] == ["/usr/bin/dpkg-query", "--show", "--showformat=$" + "{db:Status-Status}"] and len(argv) == 4:

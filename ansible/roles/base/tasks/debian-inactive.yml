@@ -24,6 +24,7 @@
   ansible.builtin.command:
     argv:
       - /usr/bin/python3
+      - -I
       - -B
       - -c
       - import apt
