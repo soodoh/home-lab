@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 "use strict";
+require("./test-renovate-update-policy.js");
 const assert=require("node:assert/strict"); const fs=require("node:fs"); const path=require("node:path"); const {spawnSync}=require("node:child_process");
 const root=path.resolve(__dirname,"../.."); const renovate=JSON.parse(fs.readFileSync(path.join(root,"renovate.json"))); const workflow=fs.readFileSync(path.join(root,".github/workflows/maintenance-dashboard.yml"),"utf8");
 const result=spawnSync("node",[path.join(root,"scripts/controller/maintenance-dashboard.js")],{cwd:root,encoding:"utf8",env:{...process.env,MAINTENANCE_DASHBOARD_GENERATED_AT:"2026-09-03T12:00:00Z"}});

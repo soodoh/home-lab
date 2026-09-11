@@ -40,9 +40,7 @@
         "compose-canary"
       ],
       "minimumReleaseAge": "7 days",
-      "automerge": true,
-      "automergeType": "pr",
-      "platformAutomerge": true
+      "automerge": false
     },
     {
       "description": "Require an explicit migration for PostgreSQL major releases",
