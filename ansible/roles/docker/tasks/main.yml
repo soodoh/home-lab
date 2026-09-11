@@ -1,19 +1,18 @@
 ---
-- name: Keep Debian Docker packages present without pulling images or upgrading packages
-  ansible.builtin.include_role:
-    name: apt_packages
-  vars:
-    apt_packages_requested: "{{ docker_packages }}"
+# Docker API queries can activate docker.socket; inspect systemd first.
+- name: Observe service state without contacting the Docker socket
+  ansible.builtin.service_facts:
+  register: docker_runtime_services
+  check_mode: false
 
-- name: Keep Docker enabled and started without restarting it
-  ansible.builtin.systemd_service:
-    name: "{{ item }}"
-    enabled: true
-    state: started
-    daemon_reload: false
-  become: "{{ not ansible_check_mode }}"
-  loop: "{{ docker_services }}"
+- name: Require an already running Docker daemon before version inspection
+  ansible.builtin.assert:
+    that:
+      - docker_runtime_services.ansible_facts.services.get('docker.service', {}).get('source') == 'systemd'
+      - docker_runtime_services.ansible_facts.services.get('docker.service', {}).get('state') == 'running'
+    fail_msg: Docker must already be running before version admission; refusing possible socket activation.
 
+# Admit the recorded runtime before any package or service mutation.
 - name: Inspect Docker versions through the ordinary controller path
   ansible.builtin.command:
     argv:
@@ -49,3 +48,18 @@
         ) == audit_expected_docker_client_version ~ '|' ~ audit_expected_docker_server_version
     fail_msg: >-
       Docker runtime versions changed. Do not restart Docker or converge this role until the difference is reviewed.
+
+- name: Keep Debian Docker packages present without pulling images or upgrading packages
+  ansible.builtin.include_role:
+    name: apt_packages
+  vars:
+    apt_packages_requested: "{{ docker_packages }}"
+
+- name: Keep Docker enabled and started without restarting it
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: false
+  become: "{{ not ansible_check_mode }}"
+  loop: "{{ docker_services }}"

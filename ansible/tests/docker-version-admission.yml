@@ -1,0 +1,195 @@
+---
+# Opt-in native test: use only an explicitly approved disposable Debian guest.
+# Requires root, real systemd/Docker/Ansible, all Docker packages installed, an
+# empty Docker runtime, and docker.service already running. Boot enablement
+# must be disabled for mismatch/match, enabled for steady. The latter two cases
+# require docker_test_matching_client_version and docker_test_matching_server_version.
+# Select them with -e docker_admission_case=match (then steady); default: mismatch.
+# stopped is separately authorized: verify emptiness BEFORE stopping Docker,
+# leave docker.socket listening, then pass docker_test_stopped_fixture_prepared=true.
+# It makes no Docker API query before the role: such queries can activate Docker.
+# The role under test CAN change boot enablement when defective. No packages,
+# images, containers, service stops/restarts, or fixture setup are performed here.
+# Run with an isolated ANSIBLE_CONFIG/roles_path and inline localhost inventory:
+# ansible-playbook -i localhost, docker-version-admission.yml \
+#   -e disposable_docker_test=true -e disposable_docker_test_hostname=YOUR_FIXTURE
+- name: Native Docker version admission preserves daemon and package state
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: /usr/bin/python3
+    docker_packages: [docker.io, docker-cli, docker-compose]
+    docker_services: [docker.service]
+    iac_readonly_controller: false
+    audit_docker_version_format: '{% raw %}{{.Client.Version}}|{{.Server.Version}}{% endraw %}'
+    docker_test_case: "{{ docker_admission_case | default('mismatch') }}"
+    audit_expected_docker_client_version: >-
+      {{ 'deliberately-mismatched-fixture-client' if docker_test_case in ['mismatch', 'stopped']
+         else docker_test_matching_client_version }}
+    audit_expected_docker_server_version: >-
+      {{ 'deliberately-mismatched-fixture-server' if docker_test_case in ['mismatch', 'stopped']
+         else docker_test_matching_server_version }}
+    package_mutation_policy:
+      require_exact_lock_for_all_updates: true
+      automatic_apply: false
+    docker_test_refused: false
+  tasks:
+    - name: Require explicit disposable-host consent and a real apply-mode run
+      ansible.builtin.assert:
+        that:
+          - disposable_docker_test | default(false) | bool
+          - disposable_docker_test_hostname is defined
+          - not ansible_check_mode
+          - docker_test_case in ['mismatch', 'match', 'steady', 'stopped']
+          - docker_test_case in ['mismatch', 'stopped'] or docker_test_matching_client_version is defined
+          - docker_test_case in ['mismatch', 'stopped'] or docker_test_matching_server_version is defined
+          - docker_test_case != 'stopped' or (docker_test_stopped_fixture_prepared | default(false) | bool)
+        fail_msg: This mutating regression is only for a separately approved disposable guest.
+
+    - name: Identify the actual guest
+      ansible.builtin.command:
+        argv: [/usr/bin/hostname]
+      register: docker_test_hostname
+      changed_when: false
+
+    - name: Bind this invocation to the explicitly named fixture
+      ansible.builtin.assert:
+        that: docker_test_hostname.stdout == disposable_docker_test_hostname
+
+    - name: Refuse a home-lab managed host
+      ansible.builtin.stat:
+        path: /etc/home-lab
+      register: docker_test_managed_host
+
+    - name: Require an unmanaged disposable fixture
+      ansible.builtin.assert:
+        that: not docker_test_managed_host.stat.exists
+
+    - name: Observe the real daemon before admission
+      ansible.builtin.command:
+        argv: &docker_test_systemctl
+          - /usr/bin/systemctl
+          - show
+          - docker.service
+          - --property=ActiveState
+          - --property=SubState
+          - --property=UnitFileState
+          - --property=MainPID
+          - --property=InvocationID
+          - --property=Job
+          - --all
+          - --no-pager
+      register: docker_test_before
+      changed_when: false
+
+    - name: Require the running daemon and case-specific initial boot policy
+      ansible.builtin.assert:
+        that:
+          - >-
+            ('ActiveState=inactive' if docker_test_case == 'stopped' else 'ActiveState=active')
+            in docker_test_before.stdout_lines
+          - >-
+            ('SubState=dead' if docker_test_case == 'stopped' else 'SubState=running')
+            in docker_test_before.stdout_lines
+          - >-
+            ('UnitFileState=enabled' if docker_test_case in ['steady', 'stopped'] else 'UnitFileState=disabled')
+            in docker_test_before.stdout_lines
+          - "'Job=' in docker_test_before.stdout_lines"
+          - "('MainPID=0' in docker_test_before.stdout_lines) == (docker_test_case == 'stopped')"
+
+    - name: Require an empty Docker runtime only after confirming it is running
+      ansible.builtin.command:
+        argv: "{{ item }}"
+      loop:
+        - [/usr/bin/docker, ps, --all, --quiet]
+        - [/usr/bin/docker, image, ls, --quiet]
+        - [/usr/bin/docker, volume, ls, --quiet]
+      register: docker_test_empty
+      changed_when: false
+      failed_when: docker_test_empty.rc != 0 or docker_test_empty.stdout | length > 0
+      when: docker_test_case != 'stopped'
+
+    - name: Observe the live socket without connecting to it
+      ansible.builtin.command:
+        argv: [/usr/bin/systemctl, show, docker.socket, --property=ActiveState, --property=SubState, --property=Job, --all, --no-pager]
+      register: docker_test_socket
+      changed_when: false
+      when: docker_test_case == 'stopped'
+
+    - name: Require the causal stopped-service and listening-socket condition
+      ansible.builtin.assert:
+        that:
+          - "'ActiveState=active' in docker_test_socket.stdout_lines"
+          - "'SubState=listening' in docker_test_socket.stdout_lines"
+          - "'Job=' in docker_test_socket.stdout_lines"
+      when: docker_test_case == 'stopped'
+
+    - name: Observe installed packages before admission
+      ansible.builtin.command:
+        argv: &docker_test_dpkg
+          - /usr/bin/dpkg-query
+          - -W
+          - '-f=${binary:Package}\t${Version}\t${db:Status-Status}\n'
+      register: docker_test_packages_before
+      changed_when: false
+
+    - name: Exercise the actual Docker role at its public interface
+      block:
+        - name: Invoke the real role, including its real package dependency
+          ansible.builtin.include_role:
+            name: docker
+      rescue:
+        - name: Reject any failure in a matching-version case
+          ansible.builtin.assert:
+            that: docker_test_case in ['mismatch', 'stopped']
+
+        - name: Record the refusal for the specific-message assertion below
+          ansible.builtin.set_fact:
+            docker_test_refused: true
+            docker_test_refusal_message: "{{ ansible_failed_result.msg }}"
+
+    - name: Require refusal in the mismatch and stopped cases only
+      ansible.builtin.assert:
+        that: docker_test_refused == (docker_test_case in ['mismatch', 'stopped'])
+
+    - name: Observe the real daemon after the role
+      ansible.builtin.command:
+        argv: *docker_test_systemctl
+      register: docker_test_after
+      changed_when: false
+
+    - name: Observe installed packages after the role
+      ansible.builtin.command:
+        argv: *docker_test_dpkg
+      register: docker_test_packages_after
+      changed_when: false
+
+    - name: Refusal or steady convergence must preserve boot policy and daemon identity
+      ansible.builtin.assert:
+        that: docker_test_after.stdout == docker_test_before.stdout
+        fail_msg: Docker admission changed boot enablement or running daemon identity unexpectedly.
+      when: docker_test_case in ['mismatch', 'steady', 'stopped']
+
+    - name: Matching versions may enable boot without restarting the daemon
+      ansible.builtin.assert:
+        that:
+          - "'UnitFileState=enabled' in docker_test_after.stdout_lines"
+          - >-
+            (docker_test_after.stdout_lines | reject('match', '^UnitFileState=') | list) ==
+            (docker_test_before.stdout_lines | reject('match', '^UnitFileState=') | list)
+      when: docker_test_case == 'match'
+
+    - name: All admission cases must preserve installed packages
+      ansible.builtin.assert:
+        that: docker_test_packages_after.stdout == docker_test_packages_before.stdout
+
+    - name: Require the specific refusal rather than a setup or unrelated error
+      ansible.builtin.assert:
+        that:
+          - >-
+            docker_test_refusal_message ==
+            ('Docker must already be running before version admission; refusing possible socket activation.'
+             if docker_test_case == 'stopped' else
+             'Docker runtime versions changed. Do not restart Docker or converge this role until the difference is reviewed.')
+      when: docker_test_case in ['mismatch', 'stopped']
