@@ -1,8 +1,10 @@
 # Host lifecycle Phase 0 baseline
 
+> Historical snapshot; not current runtime evidence or a current acceptance checklist. See the [current operational plan](../../host-lifecycle-completion-plan.md) and [archive index](README.md). Historical failures and evidence limits below remain unchanged.
+
 This document records the discovery baseline for consolidating Proxmox and Debian host lifecycle management under Ansible. It is evidence and design input, not mutation authority.
 
-This is a historical baseline. The current completion baseline is `docs/host-lifecycle-rebaseline-2026-09-03.md`; later evidence must not infer current authority from the 2026-08-28 observations below.
+This is a historical baseline. The current completion baseline is `docs/archive/host-lifecycle/host-lifecycle-rebaseline-2026-09-03.md`; later evidence must not infer current authority from the 2026-08-28 observations below.
 
 ## Evidence boundary
 

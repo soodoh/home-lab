@@ -1,15 +1,21 @@
 # Local controller
 
-`scripts/local-controller` is the public entry point for steady infrastructure reconciliation.
+`scripts/local-controller` is a **deferred source candidate**, not a supported current maintenance default. The attended controller/helpers are local, undeployed and unqualified; the older v6 candidate is also deferred. Bounded existing-host Nix-runtime retirement completed 2026-09-11 with no removals or configuration changes; see the [completion checklist](host-lifecycle-completion-plan.md). This does not certify new-source convergence or a clean rebuild.
 
-```bash
+The complete accepted source snapshot is preserved on local, unpublished branch `wip/deferred-attended-controller-3491395-01`, including independent improvements as well as the attended controller. Local `main` contains the non-controller integration and retains its older v6 implementation, still deferred; clean committed source establishes neither installation nor operational readiness. [ADR 0005](adr/0005-attended-operational-admission.md) remains binding whenever this controller is invoked. Admission currently rejects the legitimate persistent firewall-recovery `operation.lock` pathname; the compatibility fix is **not implemented**. Retain locks, journals and watchdogs. Unknown pending operations and uncertain independent recovery access bar relevant writes. Do not substitute ordinary `observe`, execute legacy private-preparer `summary`, downgrade to v6, or bypass via raw OpenTofu or direct ungated Ansible.
+
+## Candidate source reference — not execution instructions
+
+The examples, v7 protocols, contract additions and attended test paths below describe only `wip/deferred-attended-controller-3491395-01`, not the implementation on `main`. They are a deferred design/source reference, not installation or operation approval. Candidate-only paths can be read locally with `git show wip/deferred-attended-controller-3491395-01:<repository-relative-path>`; no checkout or helper execution is needed.
+
+```text
 scripts/local-controller plan steady --generation baseline-1 --boundary-manifest /absolute/path/to/reviewed-controller-boundaries.json
 scripts/local-controller apply steady --generation baseline-1 --boundary-manifest /absolute/path/to/reviewed-controller-boundaries.json
 ```
 
-Install the exact Ansible collection set before validation:
+Future separately approved validation requires the exact Ansible collection set; no installation is authorized here:
 
-```bash
+```text
 ansible-galaxy collection install --requirements-file ansible/collections/requirements.yml
 ```
 
@@ -19,7 +25,7 @@ The controller accepts only clean, committed revisions. Plan loads read-only cre
 
 The `.reconcile/controller-apply.lock` file is a persistent descriptor mutex. Its existence and last-owner metadata do **not** establish an active transaction: `scripts/controller/controller_lock.py` releases the lock by closing descriptors and intentionally leaves the inode and metadata in place. Inspect contention without changing the file; never unlink it as stale-lock cleanup. The runner loads reviewed Python source directly, not ignored bytecode caches. Host owner journals and failed-operation receipts have separate recovery rules.
 
-Proxmox mutation authority has transferred to Ansible. The active controller now uses neutral v6 manifests and a fixed, nonce-bound, audit-only Proxmox capability instead of a Nix runtime. Repository validation passes without Nix, but installation/policy/host-lock migration and revision-bound live qualification are still required before this path is accepted. Historical Nix sources remain rollback evidence, not an alternate enabled writer; see [the completion review](host-lifecycle-completion-review-2026-09-05.md).
+Proxmox mutation authority has transferred to Ansible. [ADR 0005](adr/0005-attended-operational-admission.md) selects manifest v7 and `attended-operational-v1` for steady planning, verification and provider admission. On that candidate branch, the `proxmox-audit.yml` / `proxmox_complete_audit` role calls fixed `observe-admission`, independently verifies seventeen domains, and records the bounded sample. This source route does not call `observe-controller` or the v6 installer, but its rejection of the existing recovery `operation.lock` remains an unresolved compatibility blocker. This is **not installed qualification**: the selected neutral collector was absent and observer/VFIO/protected dependencies still need exact native qualification under separate future approval, not as reopened retirement gates. See the [completion checklist](host-lifecycle-completion-plan.md). The [v6 capability candidate](proxmox-controller-capability-candidate.md) and its qualification consumers remain deferred and cannot consume attended evidence. Retained `nix/` data and the selected pre-v6 VFIO implementation do not execute Nix and must not be deleted while needed.
 
 ## Required non-secret controller boundary manifest
 
@@ -86,8 +92,8 @@ manifest; mutation configuration is never read early to make that claim.
 
 Saved plans bind the resolved absolute manifest path, exact raw-byte SHA-256, and complete
 document including declared provenance. Changing bytes (even formatting), provenance,
-path, or either ARN requires a new reviewed generation; legacy v6 saved manifests without
-this binding are refused. Nothing here establishes live existence, policy content,
+path, or either ARN requires a new reviewed generation; all legacy v6 saved manifests and
+manifests without this binding are refused. Nothing here establishes live existence, policy content,
 external ownership, effective authorization, session containment, or deployment approval.
 The separate owner/bootstrap, live readback, source review/immutable publication and custody,
 provisioning, recovery protection, and writer stop/drain gates remain required. Do not clean,
@@ -100,12 +106,24 @@ Plans are stored under `.reconcile/plans/<commit>/steady/<generation>/`. Every i
 - the commit and backend identity;
 - the required controller boundary manifest path, exact bytes hash, and declared provenance;
 - every enabled OpenTofu plan file and SHA-256 value;
-- the complete neutral Proxmox audit, source/dependency hashes, host trust, scope, nonce and freshness;
+- `assurance_model: attended-operational-v1`, the complete Proxmox audit, source/dependency hashes, independently pinned host trust, exact role scope and controller observation interval;
 - the Compose artifact hash;
 - protected input hashes when present; and
 - Tailscale policy hashes and live ETag.
 
-Apply never substitutes a new consumable plan. Read-only unrelated-root drift checks and final no-op verification plans remain safety checks, never replacement mutation plans. Legacy external-owner and VM-start prerequisite stages are explicitly rejected. The controller descriptor spans apply; the host descriptor locks cover only the immediate audit snapshot, not subsequent external-owner transactions. Those retain their own existing locks and exact transactions.
+Apply never substitutes a new consumable plan. Read-only unrelated-root drift checks and final no-op verification plans remain safety checks, never replacement mutation plans. Legacy external-owner and VM-start prerequisite stages are explicitly rejected. The controller descriptor spans plan, apply and verify. The fixed `observe-admission` verb samples existing lock/owner state before and after its reads and returns a required admission envelope. Shared `observe` still returns the unchanged protocol4 payload for transaction-internal snapshots while their own locks are held; ordinary observations are rejected by attended audit/evidence validation. Existing host transactions keep their locks and journals.
+
+### Attended window and producer prerequisite
+
+Before each collection, type `attended-operational-v1` at the interactive prompt. Keep other controllers, privileged/API writers, backups, recovery, packages, VFIO work and queued reboots excluded through final verification. Resolve unknown jobs and retained ownership first. Coordinate timers separately; the command does not stop them. Keep the independent console/access route and operation-specific backup/recovery readiness available. Apply confirmation is `apply-attended-steady-converge` (or `apply-attended-tailnet-steady-converge`). An elapsed/abandoned window, drift, failed collection or ambiguous mutation requires intervention and a fresh reviewed generation—not a retry, automatic cleanup or receipt restamp.
+
+Set `RECONCILE_PROXMOX_KNOWN_HOSTS` to a dedicated controller-owned mode0600 absolute file containing only the independently verified `proxmox ssh-ed25519 …` entry, and `RECONCILE_PROXMOX_HOST_KEY_SHA256` to its independently established fingerprint. Collection passes that exact file to the role with global known-hosts disabled. Evidence expires five minutes after collection starts, not after a slow audit finishes; collection itself is bounded to four minutes. Plan generation must finish and be reviewed within that bound or be replaced.
+
+For source review, render with `node scripts/controller/build-proxmox-ansible-observer.js --output-dir /absolute/new/private/artifact --assurance-model attended-operational-v1`. This does not install anything. The default builder output remains the separate gated v6 candidate; never deploy it as an attended artifact. Attended artifacts contain the neutral observer and summary-only protected collector, no controller-observer. The coherent installation set is **observer, neutral collector, updated fixed plan transport, and exact ansible-plan sudo rule**. The new transport literal dispatches only `proxmox-observer observe-admission`; the contract permits exactly that additional read-only invocation. The artifact binds the transport hash, contract-derived sudo content and admission schema. Pair-only installation cannot supply the new route. Qualify/install all four with current contract/specification and strict interpreter/protected dependencies through separate approval; preserve ordinary `observe` for all existing callers. Missing or mismatched bytes fail. Do **not** use retained private-preparer `summary`: it creates the permanent operation lock and can break the installed historical reboot contract. No installation method or rollback is authorized here. The future plan must preserve/restore the exact prior observer, transport and sudo bytes and handle absent-collector creation/rollback without deleting foreign bytes; do not reuse the gated v6 installer.
+
+Candidate-only source regression `scripts/controller/test-proxmox-observer-caller-compatibility.py` (absent from `main`) traces the actual installed-compatible network/Tailscale lock → validation → snapshot → shared-observer chain. Its `--native-installed-read-only` mode is **not run or authorized**: it requires a new exact host/lock/inspection grant, Linux root, the clean reviewed `/root/home-lab` checkout used by the historical activator with the named Git object and existing Node dependencies, exact helper/transport/sudo identities and safe preexisting lock files. It exercises read-only installed `inspect-network-lifecycle` / `inspect-tailscale-lifecycle` under their existing locks and checks that admission refuses the same lock, without repeating ownership transfers. It neither installs tools nor creates locks, stages work, writes host receipts or repairs missing prerequisites. Native transport/login, role, protected-dependency and real provider checks remain separate qualification requirements.
+
+`node scripts/controller/proxmox-check-evidence.js verify-evidence /absolute/receipt` performs offline source/freshness validation only; it neither collects facts nor authorizes apply. Collection still uses the real role, while both manifest readers and apply's immediate before-state recheck require the selected model. Samples are not atomic snapshots, leases, challenge-bound host freshness or queued-reboot custody.
 
 ## Production authority
 
@@ -116,7 +134,7 @@ VM 100 accepts only Debian deployment authority. The controller no longer expose
 Success requires:
 
 - every enabled OpenTofu root at no-op;
-- a fresh locked, complete, zero-change Proxmox audit;
+- a fresh attended, complete, zero-change Proxmox audit (not an executed host convergence);
 - live Tailscale policy/state equality;
 - a zero-change Debian production audit; and
 - an exact Compose create simulation with builds and pulls disabled.

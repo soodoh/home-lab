@@ -1,6 +1,8 @@
 # Lifecycle-aware Ansible design
 
-This is the target design. Phase 0 authorizes documentation only; role/playbook implementation begins after review of this document and ADR 0001.
+This document records the earlier lifecycle design, not the current implementation backlog. Bounded existing-host Nix-runtime retirement completed 2026-09-11 with no removals or configuration changes under [ADR 0004](adr/0004-operational-nix-retirement.md); [ADR 0003](adr/0003-bounded-attended-migration.md) retains the attended method. Use the [completion checklist](host-lifecycle-completion-plan.md) for evidence and coverage limits and the [archive index](archive/host-lifecycle/README.md) for historical phases/reviews. Fresh bootstrap/full-rebuild certification and new controller/observer frameworks are deferred; a future clean rebuild remains uncertified. Historical inventories and the sequence below are not mandatory operational acceptance gates or installed proof. Existing executable gates remain enforced until explicitly replaced and qualified. Both hosts are already Ansible-owned; do not repeat the ownership cutover.
+
+The attended controller/helpers are preserved in the complete accepted snapshot on local, unpublished branch `wip/deferred-attended-controller-3491395-01`, alongside independent improvements. Local `main` integrates the non-controller changes and retains older v6 source. Both implementations remain deferred, undeployed and unqualified, not current maintenance defaults; clean Git source is not installed capability. [ADR 0005](adr/0005-attended-operational-admission.md) still binds every invocation; its unresolved admission rejection of the legitimate persistent firewall-recovery `operation.lock` is not permission to clear it or bypass guards. See the [local controller source reference](local-controller.md). Runtime retirement proves neither universal Nix absence nor fresh boot/backup/recovery success or new-source convergence.
 
 ## State model
 
@@ -97,6 +99,8 @@ The bootstrap transition must:
 
 ## Package automation
 
+These are source policies, not verified live settings. Current unattended-upgrade settings and remote CI/Renovate activation are unverified. Tailscale declares update-check true and auto-apply false. Docker proposals require manual merge (including the seven-day FlareSolverr canary); merge grants no deployment authority. Tracked weekly/monthly GitHub jobs are advisory artifacts only; [ADR 0002](adr/0002-advisory-maintenance-reporting.md) defers daily host collection and issue sending. Preserve the [historical automatic-deployment proof](compose-deployment.md#renovate-canary-lane-historical); its present remote activation is unverified.
+
 - **Debian:** produce candidate and exact-lock reports only. Every package mutation, including a Debian Security update, requires a separately reviewed exact package transaction. Unattended package mutation is forbidden and automatic reboot remains disabled.
 - **Proxmox:** automate inventory, metadata refresh and proposal creation only. Package apply remains a protected attended session because PVE, kernel, ZFS and firmware must move as a compatible reviewed set. Preserve the exact-manifest model rather than `latest`.
 - **Compose images:** automation may propose digest updates and regenerate the reviewed lock/model diff. The host never performs an unplanned build or pull during steady apply.
@@ -118,7 +122,7 @@ Recovery preserves the existing separation:
 - Production storage activation is an explicit lifecycle transition; the currently unmanaged `/etc/home-lab/allow-storage-activation` token must become a contract-governed, audited object.
 - Recovery has its own exact confirmation and owner journal but uses the same top-level controller and host mutual-exclusion protocol.
 
-## Implementation acceptance sequence
+## Historical implementation sequence (not current acceptance)
 
 1. Pin required Ansible collections and add syntax/argument/behavior tests.
 2. Implement lifecycle observation and state assertions only; compare to Phase 0 evidence.

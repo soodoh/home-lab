@@ -1,5 +1,7 @@
 # Host lifecycle completion rebaseline — 2026-09-03
 
+> Historical snapshot; not current runtime evidence or a current acceptance checklist. See the [current operational plan](../../host-lifecycle-completion-plan.md) and [archive index](README.md). Historical failures and evidence limits below remain unchanged.
+
 This is the Gate 0 read-only rebaseline for completing the plan in `~/Desktop/ansible-debian-cloud-init-refactor.md`. The source plan SHA-256 is `1e74b68607cc3ee940059e6e8363b9cd05f970b5690ef2666fa52424fe352d7b`. Observation began from clean, pushed commit `98287a11dc0d3af5f6440d672f3eac1ed8bbc3c4`.
 
 This document is evidence and backlog authority only. It does not authorize production mutation.

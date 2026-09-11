@@ -1,6 +1,8 @@
 # Proxmox Nix apply-engine retirement assessment
 
-The retained Nix engine is now an audit and recovery boundary, not the package owner. Read-only observation uses the fixed `ansible-plan@proxmox` Tailscale transport. The local `tofu-plan` LAN SSH identity is no longer used by live planning.
+Current work is tracked in the [operational retirement checklist](host-lifecycle-completion-plan.md) under [ADR 0004](adr/0004-operational-nix-retirement.md). The transaction results below are historical evidence, not fresh host observations or a new deletion grant; consult the later [access handoff](proxmox-access-handoff.md) for subsequent identity-retirement records. Keep this runbook while recovery consumers remain.
+
+The retained Nix engine is an audit and recovery boundary, not the package owner. Read-only observation uses the fixed `ansible-plan@proxmox` Tailscale transport. The local `tofu-plan` LAN SSH identity is no longer used by live planning.
 
 ## Mutation closure
 

@@ -3,8 +3,9 @@
 - Status: Accepted
 - Date: 2026-08-28
 - Decision owners: home-lab operators
-- Review prerequisite: `docs/host-lifecycle-phase-0.md`
+- Review prerequisite: `docs/archive/host-lifecycle/host-lifecycle-phase-0.md`
 - Accepted by: operator instruction to continue after Phase 0 review
+- Scope amendments: [ADR 0003](0003-bounded-attended-migration.md) selects bounded attended migration and local development recovery; [ADR 0004](0004-operational-nix-retirement.md) supersedes only its completion boundary with operational Nix retirement on the existing hosts. A future clean rebuild remains uncertified. Unchanged production safety and per-operation authorization remain in force.
 
 ## Context
 

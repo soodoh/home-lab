@@ -1,6 +1,8 @@
 # Disposable official-PVE qualification
 
-Gate 3 now follows the accepted `production-pve-disposable-vm` route in `infrastructure/contract/home-lab.yml` and the ADR amendment. Proxmox parity is qualified against the production PVE host; Debian first contact is qualified in disposable VM 9900 on that host. The operator accepts shared-hypervisor and host-outage risk, but VM 100, production disks, production state, and production guest credentials remain prohibited inputs.
+This is a retained qualification/recovery runbook, not the immediate operational backlog. [ADR 0004](adr/0004-operational-nix-retirement.md) defers broad fresh-install/recovery certification; follow the [operational retirement checklist](host-lifecycle-completion-plan.md) for current work. The failed VM9900 lineage remains failed, no previous grant is renewed, and all gates below still apply to any separately approved resumption.
+
+The recorded Gate 3 route follows the accepted `production-pve-disposable-vm` route in `infrastructure/contract/home-lab.yml` and the ADR amendment. Proxmox parity is qualified against the production PVE host; Debian first contact is qualified in disposable VM 9900 on that host. The operator accepts shared-hypervisor and host-outage risk, but VM 100, production disks, production state, and production guest credentials remain prohibited inputs.
 
 ## Target admission
 
@@ -75,4 +77,4 @@ The initial capability/Tailscale-grant gate below the original route has been su
 
 The latest inspected private invocation-failure record, at 2026-09-05T19:34:17Z, identifies restart plan `09f7429ea9d5a0bf9d059470c8eb16fe10faf56b81e87fcfbaa942081f9c2976`, failure `incorrect-snippet-receipt-path`, and a post-failure VM9900 state of `stopped`. This is historical local evidence, not a fresh live observation. Automatic retry is explicitly forbidden. Preserve the receipts and state; re-establish current host trust, VM100 invariants, VM9900 state and locks, then obtain fresh admission and a separately reviewed new plan. Do not resume an expired plan or delete persistent mutex files.
 
-Clean first boot must ultimately use a new foundation/start chain without restart/repair receipts. Packages, reboot, root-disk changes, resource destruction, authority cutover, and credential removal still require fresh exact approval. See [the completion review](host-lifecycle-completion-review-2026-09-05.md) before scheduling further qualification.
+Clean first boot must ultimately use a new foundation/start chain without restart/repair receipts. Packages, reboot, root-disk changes, resource destruction, authority cutover, and credential removal still require fresh exact approval. See [the completion review](archive/host-lifecycle/host-lifecycle-completion-review-2026-09-05.md) before scheduling further qualification.

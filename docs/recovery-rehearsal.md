@@ -10,11 +10,11 @@ It validates the contract and provider locks, exercises hostile archive and volu
 
 ## Current qualification boundary
 
-Substantive cold recovery remains **incomplete**. [ADR 0001](adr/0001-ansible-host-lifecycle.md#amendment--shared-hypervisor-qualification-route) accepts production PVE plus disposable VM9900 instead of requiring an independent physical hypervisor. This accepts shared-host risk; a guest firewall is not hypervisor isolation. VM100, production disks, application state and guest credentials are never rehearsal inputs. The guarded qualification controllers do not yet provide an accepted end-to-end synthetic recovery route; redirecting a production recovery inventory is not a substitute.
+Substantive cold recovery remains **incomplete and deferred from operational retirement acceptance** under [ADR 0004](adr/0004-operational-nix-retirement.md); a future clean rebuild is uncertified. Use the [operational checklist](host-lifecycle-completion-plan.md) for the existing-host path. The requirements below apply if this separate recovery qualification is resumed; they are not a prerequisite to every operational retirement step. [ADR 0001](adr/0001-ansible-host-lifecycle.md#amendment--shared-hypervisor-qualification-route) accepts production PVE plus disposable VM9900 instead of requiring an independent physical hypervisor. This accepts shared-host risk; a guest firewall is not hypervisor isolation. VM100, production disks, application state and guest credentials are never rehearsal inputs. The guarded qualification controllers do not yet provide an accepted end-to-end synthetic recovery route; redirecting a production recovery inventory is not a substitute.
 
-Each operation still requires fresh target/trust, lock, backup and console prerequisites, its exact saved plan and applicable separate confirmation. The [failed first-boot invocation](host-lifecycle-completion-review-2026-09-05.md#interrupted-qualification-investigation) remains failed: no automatic retry, assumed current VM state or repaired guest relabeled as clean first boot. New failed-operation recovery requires separate approval.
+Each operation still requires fresh target/trust, lock, backup and console prerequisites, its exact saved plan and applicable separate confirmation. The [failed first-boot invocation](archive/host-lifecycle/host-lifecycle-completion-review-2026-09-05.md#interrupted-qualification-investigation) remains failed: no automatic retry, assumed current VM state or repaired guest relabeled as clean first boot. New failed-operation recovery requires separate approval.
 
-The qualification must demonstrate:
+When separately resumed, full cold-recovery qualification must demonstrate:
 
 - a new exact foundation, snippet, start, guest-key and booted-cache provenance chain;
 - minimal-image prerequisites, native x86_64 inactive-path checks, inert convergence and a second zero-change run;

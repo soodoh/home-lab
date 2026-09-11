@@ -1,5 +1,7 @@
 # Host lifecycle Phase 2: additive access capability
 
+> Historical snapshot; not current runtime evidence or a current acceptance checklist. See the [current operational plan](../../host-lifecycle-completion-plan.md) and [archive index](README.md). Historical failures and evidence limits below remain unchanged.
+
 Phase 2 remains additive. No conventional key, legacy tofu identity, token escrow, OpenSSH setting, or console recovery path has been retired.
 
 ## Completed

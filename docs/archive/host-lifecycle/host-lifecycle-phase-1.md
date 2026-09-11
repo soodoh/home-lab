@@ -1,5 +1,7 @@
 # Host lifecycle Phase 1: observation and maintenance-plan fixtures
 
+> Historical snapshot; not current runtime evidence or a current acceptance checklist. See the [current operational plan](../../host-lifecycle-completion-plan.md) and [archive index](README.md). Historical failures and evidence limits below remain unchanged.
+
 ## Scope and boundaries
 
 Phase 1 adds contract-backed, read-only Ansible observation for lifecycle state, package proposals, and reboot evidence. It does not authorize or implement lifecycle transitions, APT metadata refresh, package installation, reboot, access cutover, firewall mutation, recovery activation, Nix ownership handoff, or disk adoption.

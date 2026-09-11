@@ -1,14 +1,18 @@
 # Host lifecycle completion review — 2026-09-05
 
+> Historical snapshot; not current runtime evidence or a current acceptance checklist. See the [current operational plan](../../host-lifecycle-completion-plan.md) and [archive index](README.md). Historical failures and evidence limits below remain unchanged.
+
 Status: **incomplete; repository hardening only, not production acceptance**.
+
+Historical review and evidence below remain unchanged apart from navigation. Current completion scope and sequencing are defined by [ADR 0004](../../adr/0004-operational-nix-retirement.md) and the [operational checklist](../../host-lifecycle-completion-plan.md); do not treat deferred reporting, full-rebuild qualification or superseded framework proposals below as new operational acceptance gates.
 
 Reviewed the Desktop plan `ansible-debian-cloud-init-refactor.md` (SHA-256 `1e74b68607cc3ee940059e6e8363b9cd05f970b5690ef2666fa52424fe352d7b`) against clean starting revision `d0b085212199605478cab9ccb91214629ae76ad0`, the current contract, ADR amendments, implementation, committed evidence and selected private qualification receipts. No production or disposable-host mutation was performed in this review. Historical evidence is not a fresh host observation.
 
 ## Current authority, not the original assumptions
 
-- Ansible already owns both hosts. The [aggregate Proxmox cutover](proxmox-aggregate-authority-cutover-2026-09-04.md) records 17-domain parity and five no-op OpenTofu roots. Do not repeat that cutover.
+- Ansible already owns both hosts. The [aggregate Proxmox cutover](../../proxmox-aggregate-authority-cutover-2026-09-04.md) records 17-domain parity and five no-op OpenTofu roots. Do not repeat that cutover.
 - The steady controller still builds, validates and consumes Nix compatibility material. Ansible ownership does **not** mean Nix-free controller acceptance or runtime retirement is complete.
-- [ADR 0001 §6](adr/0001-ansible-host-lifecycle.md) supersedes automatic Debian security updates, merge-authorized package installation and automatic reboot. Every mutation requires a separately reviewed exact transaction. Do not add the original unattended apply lanes.
+- [ADR 0001 §6](../../adr/0001-ansible-host-lifecycle.md) supersedes automatic Debian security updates, merge-authorized package installation and automatic reboot. Every mutation requires a separately reviewed exact transaction. Do not add the original unattended apply lanes.
 - The accepted qualification route uses production PVE plus disposable VM9900, not an independent physical PVE host. Production VM100, its disks, guest credentials and application state remain prohibited rehearsal inputs.
 - The adopted contract uses `C.UTF-8`, not the original proposed `en_US.UTF-8`. Current role/tests preserve that declared policy.
 - OpenTofu still does not represent the existing `scsi3` root as a disk block. Its contract/audit protection must remain; no production adoption is authorized.

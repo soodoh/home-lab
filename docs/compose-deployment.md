@@ -100,11 +100,13 @@ Authorized retry [`30854028095`](https://github.com/soodoh/home-lab/actions/runs
 
 The initial cutover, failed-lock clearance, and rollback enable variables were removed after use. `/srv/docker-compose/current` and `/etc/docker-compose/production.env` are active. Ongoing deployments preserve one exact previous artifact and environment for separately approved rollback; the initial legacy-checkout rollback has been retired.
 
-## Protected ongoing deployment
+## Deployment source and historical GitHub gates
 
-`scripts/local-controller` is the deployment path. It validates and hashes the exact candidate, stores the saved manifest locally, uses separate plan/apply credentials, stages the exact artifact and isolated candidate environment, displays restricted model differences, and produces a hash-locked check-mode deployment plan before activation.
+The attended `scripts/local-controller` route on local, unpublished branch `wip/deferred-attended-controller-3491395-01` is a deferred, undeployed and unqualified source candidate, not main's implementation or a supported current deployment command; see [its source reference and blockers](local-controller.md). The GitHub enable variables and job behavior below record the historical deployment design, not verified current remote activation. Current tracked workflows contain only advisory artifact jobs and do not contain that deployment lane; cached source absence does not prove it disabled remotely. No source merge is deployment authority.
 
-The apply job is independently disabled unless `COMPOSE_AUTO_APPLY_ENABLED=true`. A changed merged plan must still match the current `main` tip and reproduce the deterministic secret-free deployment-plan hash. Deployment refuses service additions/removals, Docker create/remove actions, and `services/data/**` changes that lack an explicit restart decision. It pulls only services whose reviewed image reference changed, preserves current as `previous` plus a root-only previous environment, and rotates the hash-verified artifact. Immediately before convergence it dry-runs the exact dependency-aware `up` command and requires its recreate, start, stop, and complete action service sets to remain within the reviewed recreation set, with no creates or removals. Only then does it converge that exact service set without builds or orphan removal; the post-check uses the same dependency model and must be action-free. No image or volume pruning occurs.
+That branch's candidate `scripts/local-controller` source describes the deployment path; main's retained older v6 implementation is also deferred, not a fallback. It validates and hashes the exact candidate, stores the saved manifest locally, uses separate plan/apply credentials, stages the exact artifact and isolated candidate environment, displays restricted model differences, and produces a hash-locked check-mode deployment plan before activation.
+
+The historical GitHub apply job was independently disabled unless `COMPOSE_AUTO_APPLY_ENABLED=true`. A changed merged plan must still match the current `main` tip and reproduce the deterministic secret-free deployment-plan hash. Deployment refuses service additions/removals, Docker create/remove actions, and `services/data/**` changes that lack an explicit restart decision. It pulls only services whose reviewed image reference changed, preserves current as `previous` plus a root-only previous environment, and rotates the hash-verified artifact. Immediately before convergence it dry-runs the exact dependency-aware `up` command and requires its recreate, start, stop, and complete action service sets to remain within the reviewed recreation set, with no creates or removals. Only then does it converge that exact service set without builds or orphan removal; the post-check uses the same dependency model and must be action-free. No image or volume pruning occurs.
 
 The two exact host-consumed Restic policy files, `services/data/restic/excludes` and `services/data/restic/files-from`, may accompany a reviewed Compose artifact only through `deploy-reviewed-restic-policy:<artifact-hash>` authorization. That lane requires active Restic, terminal Offen retirement, the exact two-file manual-only set, unchanged service membership, and zero create/remove actions; all ordinary recreation guards still apply.
 
@@ -116,7 +118,7 @@ Every apply attempt retains the production lock on failure. Success requires an 
 
 ### Host-checkout independence
 
-Active audit, health, Compose preflight, Wolf-file comparison, deployment, and rollback operations all resolve the exact stable artifact with explicit project name, project directory, environment file, and Compose file arguments. The production environment metadata gate requires `root:root 0600`. No workflow runs `git pull` on the server or reads a host checkout. A merge from any machine therefore follows the same GitHub-controlled artifact path.
+Active audit, health, Compose preflight, Wolf-file comparison, deployment, and rollback operations all resolve the exact stable artifact with explicit project name, project directory, environment file, and Compose file arguments. The production environment metadata gate requires `root:root 0600`. No workflow runs `git pull` on the server or reads a host checkout. Historically, a merge from any machine followed that GitHub-controlled artifact path; this is not a claim that the lane is currently active.
 
 The Debian production endpoint is `docker-host` with dedicated deployment identity `ansible-deploy`; the `docker` workload account is reserved for interactive administration. Both identities authenticate through Tailscale SSH under the tailnet SSH policy, without conventional `authorized_keys`. Strict SSH host-key checking remains mandatory for the Tailscale SSH endpoint. `infrastructure/evidence/vm-100-debian-ssh-host-key.json` records the guest OpenSSH ED25519 key independently read through Proxmox QGA and remains the trusted key for LAN recovery access.
 
@@ -130,7 +132,9 @@ Checkout-retirement proof was performed before the repository rename, with `/hom
 
 The retired checkout and its inactive plaintext `.env` were then removed. Runtime artifacts, root-only environments, images, containers, volumes, and the production lock were unchanged throughout this proof.
 
-### Renovate canary lane
+### Renovate canary lane (historical)
+
+**Historical authorization and proof, preserved below.** Present-tense statements in this section and its completed-proof subsection describe the then-enabled lane, not current activation. Current `renovate.json` requires explicit manual merge for FlareSolverr, removes PR/platform automerge permissions, and retains the canary label and seven-day age. This source-only change does not deploy or disable a live lane. Actual remote CI/Renovate activation remains **unverified**; the old enable variables and proven deployment must not be inferred absent from today's tracked workflow list.
 
 The automatic apply lane is initially restricted to `flaresolverr`, a stateless service without a Compose-managed volume. A candidate is canary-eligible only when all checks agree that:
 
