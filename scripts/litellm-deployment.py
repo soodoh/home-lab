@@ -740,8 +740,8 @@ class NativeHost:
     def snapshot(self, request, contract, owned=None):
         self.conflicts(owned)
         daemon = self.daemon()
-        jobs = json.loads(self.command(["/usr/bin/systemctl", "list-jobs", "--output=json", "--no-pager"]))
-        require(jobs == [], "queued systemd work exists")
+        jobs = self.command(["/usr/bin/systemctl", "list-jobs", "--no-legend", "--no-pager"])
+        require(jobs == "", "systemd job output is nonempty (queued work or unexpected output)")
         current, current_hash = self.artifact(CURRENT)
         previous, previous_hash = self.artifact(PREVIOUS)
         files = {name: self.file_identity(name, mode) for name, mode in RECOVERY_FILES.items()}

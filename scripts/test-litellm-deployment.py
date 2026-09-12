@@ -59,6 +59,61 @@ def load():
     return module
 
 
+class NativeSnapshotJobTests(unittest.TestCase):
+    def check_job_gate(self, output=None, returncode=0, refusal=None):
+        m = load()
+        calls = []
+        daemon_argv = ["/usr/bin/systemctl", "show", "docker.service",
+                       "--property=ActiveState,SubState,MainPID"]
+        jobs_argv = ["/usr/bin/systemctl", "list-jobs", "--no-legend", "--no-pager"]
+
+        def run(command, **kwargs):
+            calls.append(command)
+            if command == daemon_argv:
+                return subprocess.CompletedProcess(command, 0,
+                    "MainPID=12\nSubState=running\nActiveState=active\n", "")
+            self.assertEqual(command[:2], jobs_argv[:2])
+            # systemd list-jobs prints plaintext; --no-legend suppresses the idle message.
+            stdout = output if output is not None else ("" if "--no-legend" in command else "No jobs running.\n")
+            return subprocess.CompletedProcess(command, returncode, stdout, "")
+
+        class ReachedArtifacts(Exception):
+            pass
+
+        host = m.NativeHost(ROOT, run, ROOT)
+        with patch.object(host, "conflicts") as conflicts, \
+                patch.object(host, "artifact", side_effect=ReachedArtifacts) as artifact:
+            if refusal is None:
+                with self.assertRaises(ReachedArtifacts):
+                    host.snapshot({}, {})
+                artifact.assert_called_once_with(m.CURRENT)
+            else:
+                with self.assertRaises(SystemExit) as raised:
+                    host.snapshot({}, {})
+                self.assertEqual(str(raised.exception), refusal)
+                artifact.assert_not_called()
+            conflicts.assert_called_once_with(None)
+        # Exact all-jobs argv: no filters, JSON output flag, Docker call or retry.
+        self.assertEqual(calls, [daemon_argv, jobs_argv])
+
+    def test_snapshot_documented_no_jobs_reaches_artifact_boundary(self):
+        self.check_job_gate()
+
+    def test_snapshot_queued_job_row_refuses_without_exposing_output(self):
+        self.check_job_gate("123 example.service start waiting\n",
+                            refusal="systemd job output is nonempty (queued work or unexpected output)")
+
+    def test_snapshot_unexpected_text_json_and_whitespace_refuse(self):
+        for output in ("unexpected text\n", "No jobs running.\n", "[]", "[]\n", " ", "\n", "\t\r\n"):
+            with self.subTest(output=repr(output)):
+                self.check_job_gate(output,
+                                    refusal="systemd job output is nonempty (queued work or unexpected output)")
+
+    def test_snapshot_failed_job_command_refuses_even_with_empty_stdout(self):
+        self.check_job_gate("", returncode=1,
+                            refusal="native command failed (output suppressed); retain ownership, no retry")
+
+
 class OperatorTests(unittest.TestCase):
     def test_plan_rejects_refused_partial_capture_without_external_effects(self):
         m = load()
@@ -1117,7 +1172,10 @@ class DockerFixture:
     def run(self, command, **kwargs):
         output = ""
         if command[0] == "/usr/bin/systemctl":
-            output = "[]" if "list-jobs" in command else "MainPID=12\nSubState=running\nActiveState=active\n"
+            if "list-jobs" in command:
+                output = "" if "--no-legend" in command else "No jobs running.\n"
+            else:
+                output = "MainPID=12\nSubState=running\nActiveState=active\n"
             if self.output_overflow:
                 output += " " * (16 * 1024 * 1024 + 1)
         elif command[0] == "/usr/bin/findmnt":
