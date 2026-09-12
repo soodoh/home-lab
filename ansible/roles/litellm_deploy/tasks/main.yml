@@ -1,0 +1,335 @@
+---
+# Module arguments come directly from the validated phase-bound buffer, never overrideable effect vars.
+- name: Allocate an exclusive protected transport workspace
+  ansible.builtin.command:
+  args: >-
+    {{ lookup('ansible.builtin.pipe', ([ansible_playbook_python, '-I', '-B',
+    playbook_dir + '/../../scripts/litellm-deployment.py', 'validate-bundle', '--phase', 'allocate', '--view', 'arguments',
+    '--workspace', litellm_bundle, '--known-hosts',
+    lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS'),
+    '--overrides', ((['litellm_workspace'] if litellm_workspace is defined else []) +
+    (['litellm_argv'] if litellm_argv is defined else []) +
+    (['litellm_output'] if litellm_output is defined else []) +
+    (['litellm_source'] if litellm_source is defined else [])) | to_json,
+    '--transport', ({
+    'host': ansible_host, 'user': ansible_user,
+    'connection': ansible_connection | default('ssh'), 'port': ansible_port,
+    'ssh_executable': ansible_ssh_executable, 'ssh_args': ansible_ssh_args,
+    'ssh_common_args': ansible_ssh_common_args, 'ssh_extra_args': ansible_ssh_extra_args,
+    'sftp_extra_args': ansible_sftp_extra_args, 'scp_extra_args': ansible_scp_extra_args,
+    'private_key_file': ansible_private_key_file, 'password': ansible_password,
+    'retries': ansible_ssh_retries, 'host_key_checking': ansible_host_key_checking,
+    'ssh_host_key_checking': ansible_ssh_host_key_checking,
+    'become': ansible_become, 'become_method': ansible_become_method,
+    'become_user': ansible_become_user, 'become_exe': ansible_become_exe,
+    'become_flags': ansible_become_flags, 'python_interpreter': ansible_python_interpreter,
+    'transfer_method': ansible_ssh_transfer_method,
+    'shell_type': ansible_shell_type, 'shell_executable': ansible_shell_executable,
+    'use_tty': ansible_ssh_use_tty, 'pipelining': ansible_pipelining,
+    'ssh_pipelining': ansible_ssh_pipelining, 'facts_modules': ansible_facts_modules,
+    'check_mode': ansible_check_mode, 'inventory_hostname': inventory_hostname,
+    'legacy': {
+    'host': ansible_ssh_host | default('docker-host'),
+    'user': ansible_ssh_user | default('ansible-deploy'),
+    'port': ansible_ssh_port | default(22),
+    'key': ansible_ssh_private_key_file | default(''),
+    'password': ansible_ssh_pass | default(''),
+    'become_password': ansible_become_password | default(''),
+    'become_pass': ansible_become_pass | default(''),
+    'sudo_exe': ansible_sudo_exe | default('/usr/bin/sudo'),
+    'sudo_flags': ansible_sudo_flags | default('-H -S -n'),
+    'sudo_user': ansible_sudo_user | default('root'),
+    'sudo_pass': ansible_sudo_pass | default('')}} | to_json)] | map('quote') | join(' '))) | from_json }}
+  become: true
+  no_log: true
+  environment:
+    HOME: /
+    LANG: C.UTF-8
+    PATH: /usr/sbin:/usr/bin:/sbin:/bin
+  changed_when: true
+  when: >-
+    lookup('ansible.builtin.pipe', ([ansible_playbook_python, '-I', '-B',
+    playbook_dir + '/../../scripts/litellm-deployment.py', 'validate-bundle', '--phase', 'allocate',
+    '--workspace', litellm_bundle, '--known-hosts',
+    lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS'),
+    '--overrides', ((['litellm_workspace'] if litellm_workspace is defined else []) +
+    (['litellm_argv'] if litellm_argv is defined else []) +
+    (['litellm_output'] if litellm_output is defined else []) +
+    (['litellm_source'] if litellm_source is defined else [])) | to_json,
+    '--transport', ({
+    'host': ansible_host, 'user': ansible_user,
+    'connection': ansible_connection | default('ssh'), 'port': ansible_port,
+    'ssh_executable': ansible_ssh_executable, 'ssh_args': ansible_ssh_args,
+    'ssh_common_args': ansible_ssh_common_args, 'ssh_extra_args': ansible_ssh_extra_args,
+    'sftp_extra_args': ansible_sftp_extra_args, 'scp_extra_args': ansible_scp_extra_args,
+    'private_key_file': ansible_private_key_file, 'password': ansible_password,
+    'retries': ansible_ssh_retries, 'host_key_checking': ansible_host_key_checking,
+    'ssh_host_key_checking': ansible_ssh_host_key_checking,
+    'become': ansible_become, 'become_method': ansible_become_method,
+    'become_user': ansible_become_user, 'become_exe': ansible_become_exe,
+    'become_flags': ansible_become_flags, 'python_interpreter': ansible_python_interpreter,
+    'transfer_method': ansible_ssh_transfer_method,
+    'shell_type': ansible_shell_type, 'shell_executable': ansible_shell_executable,
+    'use_tty': ansible_ssh_use_tty, 'pipelining': ansible_pipelining,
+    'ssh_pipelining': ansible_ssh_pipelining, 'facts_modules': ansible_facts_modules,
+    'check_mode': ansible_check_mode, 'inventory_hostname': inventory_hostname,
+    'legacy': {
+    'host': ansible_ssh_host | default('docker-host'),
+    'user': ansible_ssh_user | default('ansible-deploy'),
+    'port': ansible_ssh_port | default(22),
+    'key': ansible_ssh_private_key_file | default(''),
+    'password': ansible_ssh_pass | default(''),
+    'become_password': ansible_become_password | default(''),
+    'become_pass': ansible_become_pass | default(''),
+    'sudo_exe': ansible_sudo_exe | default('/usr/bin/sudo'),
+    'sudo_flags': ansible_sudo_flags | default('-H -S -n'),
+    'sudo_user': ansible_sudo_user | default('root'),
+    'sudo_pass': ansible_sudo_pass | default('')}} | to_json)] | map('quote') | join(' '))) == 'validated'
+
+- name: Transfer the exact approved envelope and source bundle without secret materialization
+  ansible.builtin.copy:
+  args: >-
+    {{ lookup('ansible.builtin.pipe', ([ansible_playbook_python, '-I', '-B',
+    playbook_dir + '/../../scripts/litellm-deployment.py', 'validate-bundle', '--phase', 'transfer', '--view', 'arguments',
+    '--workspace', litellm_bundle, '--known-hosts',
+    lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS'),
+    '--overrides', ((['litellm_workspace'] if litellm_workspace is defined else []) +
+    (['litellm_argv'] if litellm_argv is defined else []) +
+    (['litellm_output'] if litellm_output is defined else []) +
+    (['litellm_source'] if litellm_source is defined else [])) | to_json,
+    '--transport', ({
+    'host': ansible_host, 'user': ansible_user,
+    'connection': ansible_connection | default('ssh'), 'port': ansible_port,
+    'ssh_executable': ansible_ssh_executable, 'ssh_args': ansible_ssh_args,
+    'ssh_common_args': ansible_ssh_common_args, 'ssh_extra_args': ansible_ssh_extra_args,
+    'sftp_extra_args': ansible_sftp_extra_args, 'scp_extra_args': ansible_scp_extra_args,
+    'private_key_file': ansible_private_key_file, 'password': ansible_password,
+    'retries': ansible_ssh_retries, 'host_key_checking': ansible_host_key_checking,
+    'ssh_host_key_checking': ansible_ssh_host_key_checking,
+    'become': ansible_become, 'become_method': ansible_become_method,
+    'become_user': ansible_become_user, 'become_exe': ansible_become_exe,
+    'become_flags': ansible_become_flags, 'python_interpreter': ansible_python_interpreter,
+    'transfer_method': ansible_ssh_transfer_method,
+    'shell_type': ansible_shell_type, 'shell_executable': ansible_shell_executable,
+    'use_tty': ansible_ssh_use_tty, 'pipelining': ansible_pipelining,
+    'ssh_pipelining': ansible_ssh_pipelining, 'facts_modules': ansible_facts_modules,
+    'check_mode': ansible_check_mode, 'inventory_hostname': inventory_hostname,
+    'legacy': {
+    'host': ansible_ssh_host | default('docker-host'),
+    'user': ansible_ssh_user | default('ansible-deploy'),
+    'port': ansible_ssh_port | default(22),
+    'key': ansible_ssh_private_key_file | default(''),
+    'password': ansible_ssh_pass | default(''),
+    'become_password': ansible_become_password | default(''),
+    'become_pass': ansible_become_pass | default(''),
+    'sudo_exe': ansible_sudo_exe | default('/usr/bin/sudo'),
+    'sudo_flags': ansible_sudo_flags | default('-H -S -n'),
+    'sudo_user': ansible_sudo_user | default('root'),
+    'sudo_pass': ansible_sudo_pass | default('')}} | to_json)] | map('quote') | join(' '))) | from_json }}
+  become: true
+  no_log: true
+  when: >-
+    lookup('ansible.builtin.pipe', ([ansible_playbook_python, '-I', '-B',
+    playbook_dir + '/../../scripts/litellm-deployment.py', 'validate-bundle', '--phase', 'transfer',
+    '--workspace', litellm_bundle, '--known-hosts',
+    lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS'),
+    '--overrides', ((['litellm_workspace'] if litellm_workspace is defined else []) +
+    (['litellm_argv'] if litellm_argv is defined else []) +
+    (['litellm_output'] if litellm_output is defined else []) +
+    (['litellm_source'] if litellm_source is defined else [])) | to_json,
+    '--transport', ({
+    'host': ansible_host, 'user': ansible_user,
+    'connection': ansible_connection | default('ssh'), 'port': ansible_port,
+    'ssh_executable': ansible_ssh_executable, 'ssh_args': ansible_ssh_args,
+    'ssh_common_args': ansible_ssh_common_args, 'ssh_extra_args': ansible_ssh_extra_args,
+    'sftp_extra_args': ansible_sftp_extra_args, 'scp_extra_args': ansible_scp_extra_args,
+    'private_key_file': ansible_private_key_file, 'password': ansible_password,
+    'retries': ansible_ssh_retries, 'host_key_checking': ansible_host_key_checking,
+    'ssh_host_key_checking': ansible_ssh_host_key_checking,
+    'become': ansible_become, 'become_method': ansible_become_method,
+    'become_user': ansible_become_user, 'become_exe': ansible_become_exe,
+    'become_flags': ansible_become_flags, 'python_interpreter': ansible_python_interpreter,
+    'transfer_method': ansible_ssh_transfer_method,
+    'shell_type': ansible_shell_type, 'shell_executable': ansible_shell_executable,
+    'use_tty': ansible_ssh_use_tty, 'pipelining': ansible_pipelining,
+    'ssh_pipelining': ansible_ssh_pipelining, 'facts_modules': ansible_facts_modules,
+    'check_mode': ansible_check_mode, 'inventory_hostname': inventory_hostname,
+    'legacy': {
+    'host': ansible_ssh_host | default('docker-host'),
+    'user': ansible_ssh_user | default('ansible-deploy'),
+    'port': ansible_ssh_port | default(22),
+    'key': ansible_ssh_private_key_file | default(''),
+    'password': ansible_ssh_pass | default(''),
+    'become_password': ansible_become_password | default(''),
+    'become_pass': ansible_become_pass | default(''),
+    'sudo_exe': ansible_sudo_exe | default('/usr/bin/sudo'),
+    'sudo_flags': ansible_sudo_flags | default('-H -S -n'),
+    'sudo_user': ansible_sudo_user | default('root'),
+    'sudo_pass': ansible_sudo_pass | default('')}} | to_json)] | map('quote') | join(' '))) == 'validated'
+
+- name: Run the guarded one-shot transaction with all native checks in one process
+  ansible.builtin.command:
+  args: >-
+    {{ lookup('ansible.builtin.pipe', ([ansible_playbook_python, '-I', '-B',
+    playbook_dir + '/../../scripts/litellm-deployment.py', 'validate-bundle', '--phase', 'execute', '--view', 'arguments',
+    '--workspace', litellm_bundle, '--known-hosts',
+    lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS'),
+    '--overrides', ((['litellm_workspace'] if litellm_workspace is defined else []) +
+    (['litellm_argv'] if litellm_argv is defined else []) +
+    (['litellm_output'] if litellm_output is defined else []) +
+    (['litellm_source'] if litellm_source is defined else [])) | to_json,
+    '--transport', ({
+    'host': ansible_host, 'user': ansible_user,
+    'connection': ansible_connection | default('ssh'), 'port': ansible_port,
+    'ssh_executable': ansible_ssh_executable, 'ssh_args': ansible_ssh_args,
+    'ssh_common_args': ansible_ssh_common_args, 'ssh_extra_args': ansible_ssh_extra_args,
+    'sftp_extra_args': ansible_sftp_extra_args, 'scp_extra_args': ansible_scp_extra_args,
+    'private_key_file': ansible_private_key_file, 'password': ansible_password,
+    'retries': ansible_ssh_retries, 'host_key_checking': ansible_host_key_checking,
+    'ssh_host_key_checking': ansible_ssh_host_key_checking,
+    'become': ansible_become, 'become_method': ansible_become_method,
+    'become_user': ansible_become_user, 'become_exe': ansible_become_exe,
+    'become_flags': ansible_become_flags, 'python_interpreter': ansible_python_interpreter,
+    'transfer_method': ansible_ssh_transfer_method,
+    'shell_type': ansible_shell_type, 'shell_executable': ansible_shell_executable,
+    'use_tty': ansible_ssh_use_tty, 'pipelining': ansible_pipelining,
+    'ssh_pipelining': ansible_ssh_pipelining, 'facts_modules': ansible_facts_modules,
+    'check_mode': ansible_check_mode, 'inventory_hostname': inventory_hostname,
+    'legacy': {
+    'host': ansible_ssh_host | default('docker-host'),
+    'user': ansible_ssh_user | default('ansible-deploy'),
+    'port': ansible_ssh_port | default(22),
+    'key': ansible_ssh_private_key_file | default(''),
+    'password': ansible_ssh_pass | default(''),
+    'become_password': ansible_become_password | default(''),
+    'become_pass': ansible_become_pass | default(''),
+    'sudo_exe': ansible_sudo_exe | default('/usr/bin/sudo'),
+    'sudo_flags': ansible_sudo_flags | default('-H -S -n'),
+    'sudo_user': ansible_sudo_user | default('root'),
+    'sudo_pass': ansible_sudo_pass | default('')}} | to_json)] | map('quote') | join(' '))) | from_json }}
+  become: true
+  no_log: true
+  environment:
+    HOME: /
+    LANG: C.UTF-8
+    PATH: /usr/sbin:/usr/bin:/sbin:/bin
+  changed_when: true
+  when: >-
+    lookup('ansible.builtin.pipe', ([ansible_playbook_python, '-I', '-B',
+    playbook_dir + '/../../scripts/litellm-deployment.py', 'validate-bundle', '--phase', 'execute',
+    '--workspace', litellm_bundle, '--known-hosts',
+    lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS'),
+    '--overrides', ((['litellm_workspace'] if litellm_workspace is defined else []) +
+    (['litellm_argv'] if litellm_argv is defined else []) +
+    (['litellm_output'] if litellm_output is defined else []) +
+    (['litellm_source'] if litellm_source is defined else [])) | to_json,
+    '--transport', ({
+    'host': ansible_host, 'user': ansible_user,
+    'connection': ansible_connection | default('ssh'), 'port': ansible_port,
+    'ssh_executable': ansible_ssh_executable, 'ssh_args': ansible_ssh_args,
+    'ssh_common_args': ansible_ssh_common_args, 'ssh_extra_args': ansible_ssh_extra_args,
+    'sftp_extra_args': ansible_sftp_extra_args, 'scp_extra_args': ansible_scp_extra_args,
+    'private_key_file': ansible_private_key_file, 'password': ansible_password,
+    'retries': ansible_ssh_retries, 'host_key_checking': ansible_host_key_checking,
+    'ssh_host_key_checking': ansible_ssh_host_key_checking,
+    'become': ansible_become, 'become_method': ansible_become_method,
+    'become_user': ansible_become_user, 'become_exe': ansible_become_exe,
+    'become_flags': ansible_become_flags, 'python_interpreter': ansible_python_interpreter,
+    'transfer_method': ansible_ssh_transfer_method,
+    'shell_type': ansible_shell_type, 'shell_executable': ansible_shell_executable,
+    'use_tty': ansible_ssh_use_tty, 'pipelining': ansible_pipelining,
+    'ssh_pipelining': ansible_ssh_pipelining, 'facts_modules': ansible_facts_modules,
+    'check_mode': ansible_check_mode, 'inventory_hostname': inventory_hostname,
+    'legacy': {
+    'host': ansible_ssh_host | default('docker-host'),
+    'user': ansible_ssh_user | default('ansible-deploy'),
+    'port': ansible_ssh_port | default(22),
+    'key': ansible_ssh_private_key_file | default(''),
+    'password': ansible_ssh_pass | default(''),
+    'become_password': ansible_become_password | default(''),
+    'become_pass': ansible_become_pass | default(''),
+    'sudo_exe': ansible_sudo_exe | default('/usr/bin/sudo'),
+    'sudo_flags': ansible_sudo_flags | default('-H -S -n'),
+    'sudo_user': ansible_sudo_user | default('root'),
+    'sudo_pass': ansible_sudo_pass | default('')}} | to_json)] | map('quote') | join(' '))) == 'validated'
+
+- name: Return only the bounded non-secret result
+  ansible.builtin.fetch:
+  args: >-
+    {{ lookup('ansible.builtin.pipe', ([ansible_playbook_python, '-I', '-B',
+    playbook_dir + '/../../scripts/litellm-deployment.py', 'validate-bundle', '--phase', 'fetch', '--view', 'arguments',
+    '--workspace', litellm_bundle, '--known-hosts',
+    lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS'),
+    '--overrides', ((['litellm_workspace'] if litellm_workspace is defined else []) +
+    (['litellm_argv'] if litellm_argv is defined else []) +
+    (['litellm_output'] if litellm_output is defined else []) +
+    (['litellm_source'] if litellm_source is defined else [])) | to_json,
+    '--transport', ({
+    'host': ansible_host, 'user': ansible_user,
+    'connection': ansible_connection | default('ssh'), 'port': ansible_port,
+    'ssh_executable': ansible_ssh_executable, 'ssh_args': ansible_ssh_args,
+    'ssh_common_args': ansible_ssh_common_args, 'ssh_extra_args': ansible_ssh_extra_args,
+    'sftp_extra_args': ansible_sftp_extra_args, 'scp_extra_args': ansible_scp_extra_args,
+    'private_key_file': ansible_private_key_file, 'password': ansible_password,
+    'retries': ansible_ssh_retries, 'host_key_checking': ansible_host_key_checking,
+    'ssh_host_key_checking': ansible_ssh_host_key_checking,
+    'become': ansible_become, 'become_method': ansible_become_method,
+    'become_user': ansible_become_user, 'become_exe': ansible_become_exe,
+    'become_flags': ansible_become_flags, 'python_interpreter': ansible_python_interpreter,
+    'transfer_method': ansible_ssh_transfer_method,
+    'shell_type': ansible_shell_type, 'shell_executable': ansible_shell_executable,
+    'use_tty': ansible_ssh_use_tty, 'pipelining': ansible_pipelining,
+    'ssh_pipelining': ansible_ssh_pipelining, 'facts_modules': ansible_facts_modules,
+    'check_mode': ansible_check_mode, 'inventory_hostname': inventory_hostname,
+    'legacy': {
+    'host': ansible_ssh_host | default('docker-host'),
+    'user': ansible_ssh_user | default('ansible-deploy'),
+    'port': ansible_ssh_port | default(22),
+    'key': ansible_ssh_private_key_file | default(''),
+    'password': ansible_ssh_pass | default(''),
+    'become_password': ansible_become_password | default(''),
+    'become_pass': ansible_become_pass | default(''),
+    'sudo_exe': ansible_sudo_exe | default('/usr/bin/sudo'),
+    'sudo_flags': ansible_sudo_flags | default('-H -S -n'),
+    'sudo_user': ansible_sudo_user | default('root'),
+    'sudo_pass': ansible_sudo_pass | default('')}} | to_json)] | map('quote') | join(' '))) | from_json }}
+  become: true
+  no_log: true
+  when: >-
+    lookup('ansible.builtin.pipe', ([ansible_playbook_python, '-I', '-B',
+    playbook_dir + '/../../scripts/litellm-deployment.py', 'validate-bundle', '--phase', 'fetch',
+    '--workspace', litellm_bundle, '--known-hosts',
+    lookup('ansible.builtin.env', 'HOME_LAB_DEBIAN_PRODUCTION_KNOWN_HOSTS'),
+    '--overrides', ((['litellm_workspace'] if litellm_workspace is defined else []) +
+    (['litellm_argv'] if litellm_argv is defined else []) +
+    (['litellm_output'] if litellm_output is defined else []) +
+    (['litellm_source'] if litellm_source is defined else [])) | to_json,
+    '--transport', ({
+    'host': ansible_host, 'user': ansible_user,
+    'connection': ansible_connection | default('ssh'), 'port': ansible_port,
+    'ssh_executable': ansible_ssh_executable, 'ssh_args': ansible_ssh_args,
+    'ssh_common_args': ansible_ssh_common_args, 'ssh_extra_args': ansible_ssh_extra_args,
+    'sftp_extra_args': ansible_sftp_extra_args, 'scp_extra_args': ansible_scp_extra_args,
+    'private_key_file': ansible_private_key_file, 'password': ansible_password,
+    'retries': ansible_ssh_retries, 'host_key_checking': ansible_host_key_checking,
+    'ssh_host_key_checking': ansible_ssh_host_key_checking,
+    'become': ansible_become, 'become_method': ansible_become_method,
+    'become_user': ansible_become_user, 'become_exe': ansible_become_exe,
+    'become_flags': ansible_become_flags, 'python_interpreter': ansible_python_interpreter,
+    'transfer_method': ansible_ssh_transfer_method,
+    'shell_type': ansible_shell_type, 'shell_executable': ansible_shell_executable,
+    'use_tty': ansible_ssh_use_tty, 'pipelining': ansible_pipelining,
+    'ssh_pipelining': ansible_ssh_pipelining, 'facts_modules': ansible_facts_modules,
+    'check_mode': ansible_check_mode, 'inventory_hostname': inventory_hostname,
+    'legacy': {
+    'host': ansible_ssh_host | default('docker-host'),
+    'user': ansible_ssh_user | default('ansible-deploy'),
+    'port': ansible_ssh_port | default(22),
+    'key': ansible_ssh_private_key_file | default(''),
+    'password': ansible_ssh_pass | default(''),
+    'become_password': ansible_become_password | default(''),
+    'become_pass': ansible_become_pass | default(''),
+    'sudo_exe': ansible_sudo_exe | default('/usr/bin/sudo'),
+    'sudo_flags': ansible_sudo_flags | default('-H -S -n'),
+    'sudo_user': ansible_sudo_user | default('root'),
+    'sudo_pass': ansible_sudo_pass | default('')}} | to_json)] | map('quote') | join(' '))) == 'validated'

@@ -1,5 +1,7 @@
 # Repository-driven Compose deployment
 
+For the separately approved config-only LiteLLM operation, see [attended LiteLLM deployment](litellm-deployment.md). Its dedicated observation/offline-plan/apply path does not invoke the deferred controller or relax the ordinary deployment guards described here. Source availability is not installed or deployed verification.
+
 ## Phase 3 staging design
 
 The deployment artifact is selected by `scripts/compose-artifact.py` from the exact Git checkout. It includes only:
