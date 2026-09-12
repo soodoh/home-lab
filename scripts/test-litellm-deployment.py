@@ -45,7 +45,8 @@ def source_git(command, **kwargs):
     if command[:2] == ["git", "status"]:
         return subprocess.CompletedProcess(command, 0, "", "")
     if command[:2] == ["git", "ls-files"]:
-        return REAL_RUN(command, **kwargs)
+        return REAL_RUN(["/usr/bin/git", "--no-optional-locks", "-c", "core.fsmonitor=false", *command[1:]],
+                        **kwargs)
     raise AssertionError("unexpected external operation: " + repr(command))
 from unittest.mock import patch
 
@@ -112,6 +113,312 @@ class NativeSnapshotJobTests(unittest.TestCase):
     def test_snapshot_failed_job_command_refuses_even_with_empty_stdout(self):
         self.check_job_gate("", returncode=1,
                             refusal="native command failed (output suppressed); retain ownership, no retry")
+
+
+class SharedNetworkSnapshotFixture:
+    """Synthetic files and OS outputs; snapshot/command/execute remain real."""
+    def __init__(self, root):
+        self.m, self.root = load(), root
+        m = self.m
+        self.calls, self.hash_calls = [], []
+        self.stop_before = None
+        self.pending = None
+        self.services = {"litellm": {"image": "sha256:" + "a" * 64},
+                         "tunnel": {"image": "sha256:" + "b" * 64},
+                         "reader": {"image": "sha256:" + "c" * 64}}
+        self.services["reader"].update(network_mode="service:tunnel", depends_on={
+            "tunnel": {"condition": "service_healthy", "restart": True, "required": True}})
+        self.a = {"litellm": "a" * 64, "tunnel": "b" * 64, "reader": "c" * 64}
+        self.b = dict(self.a, reader="d" * 64)
+        self.hash_suffix = {"A": "", "B": ""}
+        self.rows = []
+        for number, (name, service) in enumerate(self.services.items(), 1):
+            cid = str(number) * 64
+            self.rows.append({"Id": cid, "Image": service["image"], "Config": {
+                "Labels": {"com.docker.compose.service": name, "com.docker.compose.config-hash": self.b[name]},
+                "Hostname": cid[:12]}, "State": {"Running": True, "Pid": 100, "StartedAt": "old"},
+                "RestartCount": 0, "HostConfig": {}, "NetworkSettings": {"Networks": {}}, "Mounts": []})
+        self.rows[2]["HostConfig"]["NetworkMode"] = "container:" + "2" * 64
+        mounts = [{"type": "bind", "source": source, "target": target, "read_only": readonly}
+                  for source, target, readonly in (
+                      (m.CURRENT + "/services/data/litellm/config.yaml", "/app/config.yaml", True),
+                      (m.CURRENT + "/services/data/litellm/custom_callbacks.py", "/app/custom_callbacks.py", True),
+                      ("/srv/home-lab-state/litellm-data", "/data", False))]
+        self.services["litellm"].update(volumes=mounts, command=[
+            "--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000"])
+        self.rows[0]["Config"]["Cmd"] = self.services["litellm"]["command"]
+        self.rows[0]["Mounts"] = [{"Source": x["source"], "Destination": x["target"],
+                                  "Type": "bind", "RW": not x["read_only"]} for x in mounts]
+        self.model = {"name": "docker-compose", "services": self.services, "networks": {}}
+        # Previous declarations deliberately have a different service set and image identity.
+        self.previous = {"name": "docker-compose", "services": {"retired": {"image": "sha256:" + "e" * 64}}}
+        self.images = {s["image"]: {"Id": s["image"], "Config": {}}
+                       for s in [*self.services.values(), self.previous["services"]["retired"]]}
+        self.override = {"services": {n: {"image": s["image"]} for n, s in self.services.items()}}
+        self.lock = {"schema": 1, "images": [{"service": n, "image_id": s["image"], "reference": s["image"]}
+                                             for n, s in self.services.items()]}
+        self.request = {"image_lock": self.lock}
+        self.files = {m.OVERRIDE: self.override, "/var/lib/docker-compose/current-images.json": self.lock,
+                      "/var/lib/docker-compose/previous-images.json": {"schema": 1, "images": [
+                          {"service": "retired", "image_id": "sha256:" + "e" * 64, "reference": "sha256:" + "e" * 64}]}}
+        self.raw_files = {"/var/lib/docker-compose/current-artifact.sha256": b"current-hash",
+                          m.CURRENT + "/services/apps.yml": self.services["litellm"]["image"].encode(),
+                          "/etc/hostname": b"synthetic", "/etc/machine-id": b"synthetic",
+                          "/proc/sys/kernel/random/boot_id": b"synthetic"}
+        token = root / "srv/home-lab-state/litellm-data"
+        token.mkdir(parents=True, mode=0o700)
+        self.host = m.NativeHost(root, self.run, root)
+        self.docker = ["/usr/bin/docker", "--host", "unix:///var/run/docker.sock", "--config", str(root / "docker-cli-config")]
+        def compose(directory, env):
+            return self.docker + ["compose", "--ansi", "never", "--project-name", "docker-compose",
+                "--project-directory", str(root / directory.lstrip("/")), "--env-file", str(root / env.lstrip("/")),
+                "--file", str(root / directory.lstrip("/") / "docker-compose.yml")]
+        self.current_argv = compose(m.CURRENT, m.ENV) + ["--file", str(root / m.OVERRIDE.lstrip("/"))]
+        self.previous_argv = compose(m.PREVIOUS, "/etc/docker-compose/previous.env")
+        self.hash_argv = {"A": self.current_argv + ["config", "--hash", "*"],
+                          "B": self.current_argv + ["--file", "-", "config", "--hash", "*"]}
+        self.expected_stdin = '{"services":{"reader":{"network_mode":"container:' + "2" * 64 + '"}}}\n'
+        self.daemon_argv = ["/usr/bin/systemctl", "show", "docker.service", "--property=ActiveState,SubState,MainPID"]
+
+    def run(self, argv, **kw):
+        previous_call = self.calls[-1] if self.calls else None
+        self.calls.append(argv)
+        assert kw["env"] == {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": "/", "LANG": "C.UTF-8"}
+        assert kw["timeout"] == 60 and kw["text"] is True
+        assert isinstance(kw["stdout"], int) and isinstance(kw["stderr"], int)
+        assert kw["input"] is None or argv == self.hash_argv["B"]
+        if argv == self.daemon_argv:
+            stopped = self.pending == self.stop_before and self.stop_before is not None
+            out = "ActiveState=inactive\nSubState=dead\nMainPID=0\n" if stopped else "ActiveState=active\nSubState=running\nMainPID=12\n"
+        elif argv == ["/usr/bin/systemctl", "list-jobs", "--no-legend", "--no-pager"]:
+            out = ""
+        elif argv == ["/usr/bin/findmnt", "--json", "--target", "/srv/home-lab-state/litellm-data", "--output", "TARGET,SOURCE,FSTYPE,UUID,OPTIONS"]:
+            out = json.dumps({"filesystems": [{"target": "/srv/home-lab-state", "uuid": "synthetic", "fstype": "ext4", "options": "rw"}]})
+        else:
+            assert argv[:5] == self.docker
+            assert self.host.docker_config.stat().st_mode & 0o777 == 0o700
+            assert not list(self.host.docker_config.iterdir())
+            if argv == self.current_argv + ["config", "--format", "json"]:
+                out = json.dumps(self.model)
+            elif argv == self.previous_argv + ["config", "--format", "json"]:
+                out = json.dumps(self.previous)
+            elif argv in self.hash_argv.values():
+                assert previous_call == self.daemon_argv, "hash command lacks immediate running-daemon gate"
+                which = "A" if argv == self.hash_argv["A"] else "B"
+                self.hash_calls.append(which)
+                if which == "B":
+                    assert isinstance(kw["input"], str) and 0 < len(kw["input"].encode()) <= 4096
+                    assert kw["input"] == self.expected_stdin
+                out = "\n".join(n + " " + h for n, h in (self.a if which == "A" else self.b).items()) + self.hash_suffix[which]
+                self.pending = "B"
+            elif argv == self.docker + ["ps", "--all", "--quiet", "--filter", "label=com.docker.compose.project=docker-compose"]:
+                out = "\n".join(r.get("Id", "missing") for r in self.rows)
+            elif argv == self.docker + ["inspect", *[r.get("Id", "missing") for r in self.rows]]:
+                out = json.dumps(self.rows)
+            elif argv[:-1] == self.docker + ["image", "inspect"] and argv[-1] in self.images:
+                out = json.dumps([self.images[argv[-1]]])
+                if argv[-1] == "sha256:" + "e" * 64:
+                    self.pending = "A"
+            else:
+                raise AssertionError("unexpected OS operation: " + repr(argv))
+        return subprocess.CompletedProcess(argv, 0, out, "")
+
+    def snapshot(self):
+        def read(path, *args):
+            name = "/" + str(path.relative_to(self.root))
+            return json.dumps(self.files[name]).encode() if name in self.files else self.raw_files[name]
+        with patch.object(self.host, "conflicts"), patch.object(self.host, "artifact", side_effect=lambda p: (
+                {}, "current-hash" if p == self.m.CURRENT else "previous-hash")), \
+                patch.object(self.host, "file_identity", return_value={}), patch.object(self.m, "bounded_bytes", side_effect=read):
+            return self.host.snapshot(self.request, {"proxmox": {"vm": {"state_disk": {
+                "mountpoint": "/srv/home-lab-state", "filesystem_uuid": "synthetic", "filesystem": "ext4"}}}})
+
+
+class SharedNetworkSnapshotTests(unittest.TestCase):
+    def test_declared_peer_creation_hash_accepts_only_exact_network_stdin(self):
+        with workspace() as directory:
+            fixture = SharedNetworkSnapshotFixture(Path(directory))
+            state = fixture.snapshot()
+            self.assertEqual(set(state["containers"]), {"litellm", "tunnel", "reader"})
+            self.assertEqual(fixture.hash_calls, ["A", "B"])
+            self.assertEqual(state["containers"]["reader"]["id"], "3" * 64)
+
+    def test_peer_name_and_full_id_come_from_current_declarations_and_runtime(self):
+        with workspace() as directory:
+            f = SharedNetworkSnapshotFixture(Path(directory))
+            f.services["gateway"] = f.services.pop("tunnel")
+            f.services["reader"]["network_mode"] = "service:gateway"
+            f.services["reader"]["depends_on"]["gateway"] = f.services["reader"]["depends_on"].pop("tunnel")
+            f.rows[1]["Config"]["Labels"]["com.docker.compose.service"] = "gateway"
+            f.rows[1]["Id"] = "5" * 64
+            f.rows[1]["Config"]["Hostname"] = "5" * 12
+            f.rows[2]["HostConfig"]["NetworkMode"] = "container:" + "5" * 64
+            f.expected_stdin = f.expected_stdin.replace("2" * 64, "5" * 64)
+            f.a["gateway"] = f.a.pop("tunnel")
+            f.b["gateway"] = f.b.pop("tunnel")
+            f.lock["images"][1]["service"] = "gateway"
+            f.override["services"]["gateway"] = f.override["services"].pop("tunnel")
+            f.snapshot()
+            self.assertEqual(f.hash_calls, ["A", "B"])
+
+    def test_no_sharer_uses_ordinary_hash_without_stdin_or_second_hash(self):
+        with workspace() as directory:
+            f = SharedNetworkSnapshotFixture(Path(directory))
+            f.services["reader"].pop("network_mode")
+            f.services["reader"].pop("depends_on")
+            f.rows[2]["HostConfig"] = {}
+            f.rows[2]["Config"]["Labels"]["com.docker.compose.config-hash"] = f.a["reader"]
+            f.snapshot()
+            self.assertEqual(f.hash_calls, ["A"])
+            f.a["reader"] = "f" * 64
+            with self.assertRaisesRegex(SystemExit, "configuration identity differs"):
+                f.snapshot()
+            self.assertEqual(f.hash_calls, ["A", "A"])
+
+    def test_shared_namespace_requires_unique_full_exact_declared_peer(self):
+        for failure in ("wrong-peer", "unknown-peer", "short-peer", "peer-name", "missing-mode",
+                        "unknown-declaration", "self-peer", "missing-peer", "duplicate-service",
+                        "duplicate-id", "missing-id", "short-id", "invalid-id"):
+            with self.subTest(failure=failure), workspace() as directory:
+                f = SharedNetworkSnapshotFixture(Path(directory))
+                if failure in ("wrong-peer", "unknown-peer", "short-peer", "peer-name"):
+                    peer = {"wrong-peer": "1" * 64, "unknown-peer": "9" * 64,
+                            "short-peer": "2" * 12, "peer-name": "tunnel"}[failure]
+                    f.rows[2]["HostConfig"]["NetworkMode"] = "container:" + peer
+                elif failure == "missing-mode":
+                    f.rows[2]["HostConfig"].clear()
+                elif failure in ("unknown-declaration", "self-peer"):
+                    f.services["reader"]["network_mode"] = "service:" + ("absent" if failure == "unknown-declaration" else "reader")
+                elif failure == "missing-peer":
+                    f.rows.pop(1)
+                elif failure == "duplicate-service":
+                    f.rows.append(copy.deepcopy(f.rows[1]))
+                elif failure == "duplicate-id":
+                    f.rows[0]["Id"] = f.rows[1]["Id"]
+                elif failure == "missing-id":
+                    f.rows[1].pop("Id")
+                else:
+                    f.rows[1]["Id"] = "2" * 12 if failure == "short-id" else "z" * 64
+                with self.assertRaisesRegex(SystemExit, "peer|runtime service"):
+                    f.snapshot()
+                self.assertEqual(f.hash_calls, [])
+
+    def test_semantic_network_drift_refuses_even_with_matching_hashes(self):
+        for name in ("reader", "tunnel"):
+            with self.subTest(service=name), workspace() as directory:
+                f = SharedNetworkSnapshotFixture(Path(directory))
+                row = next(r for r in f.rows if r["Config"]["Labels"]["com.docker.compose.service"] == name)
+                row["NetworkSettings"]["Networks"] = {"unexpected": {"NetworkID": "synthetic"}}
+                with self.assertRaisesRegex(SystemExit, "network mode/membership differs"):
+                    f.snapshot()
+                self.assertEqual(f.hash_calls, ["A", "B"])
+
+    def test_hash_identity_keysets_and_rows_remain_strict(self):
+        for failure in ("shared-label-A", "shared-label-other", "ordinary-label", "non-sharer-B",
+                        "A-missing", "B-missing", "A-extra", "B-extra", "A-duplicate", "B-duplicate",
+                        "A-short-row", "B-short-row", "A-extra-field", "B-extra-field", "A-bad-hash", "B-bad-hash"):
+            with self.subTest(failure=failure), workspace() as directory:
+                f = SharedNetworkSnapshotFixture(Path(directory))
+                if failure.startswith("shared-label"):
+                    f.rows[2]["Config"]["Labels"]["com.docker.compose.config-hash"] = (
+                        f.a["reader"] if failure == "shared-label-A" else "f" * 64)
+                elif failure == "ordinary-label":
+                    f.rows[0]["Config"]["Labels"]["com.docker.compose.config-hash"] = "f" * 64
+                elif failure == "non-sharer-B":
+                    f.b["tunnel"] = "f" * 64
+                    f.rows[1]["Config"]["Labels"]["com.docker.compose.config-hash"] = f.b["tunnel"]
+                else:
+                    which, change = failure.split("-", 1)
+                    hashes = f.a if which == "A" else f.b
+                    if change == "missing":
+                        del hashes["reader"]
+                    elif change == "extra":
+                        hashes["foreign"] = "f" * 64
+                    elif change == "bad-hash":
+                        hashes["reader"] = "not-a-sha256"
+                    else:
+                        f.hash_suffix[which] = {"duplicate": "\nreader " + hashes["reader"],
+                            "short-row": "\nreader", "extra-field": "\nreader " + "f" * 64 + " extra"}[change]
+                with self.assertRaisesRegex(SystemExit, "configuration identity|hash|Compose hash row"):
+                    f.snapshot()
+
+    def test_installed_override_and_previous_declarations_are_not_concealed(self):
+        for failure in ("override", "previous-image", "previous-service"):
+            with self.subTest(failure=failure), workspace() as directory:
+                f = SharedNetworkSnapshotFixture(Path(directory))
+                if failure == "override":
+                    f.override["services"]["reader"]["image"] = "sha256:" + "f" * 64
+                elif failure == "previous-image":
+                    f.previous["services"]["retired"]["image"] = "sha256:" + "f" * 64
+                else:
+                    f.previous["services"]["unexpected"] = {"image": "sha256:" + "e" * 64}
+                with self.assertRaisesRegex(SystemExit, "override/image|previous image|previous-images.json service set"):
+                    f.snapshot()
+                self.assertEqual(f.hash_calls, [])
+
+    def test_projection_refuses_unsupported_dependency_semantics(self):
+        for dependency in (None, {}, {"condition": "service_started", "restart": True, "required": True},
+                           {"condition": "service_healthy", "restart": False, "required": True},
+                           {"condition": "service_healthy", "restart": True, "required": False},
+                           {"condition": "service_healthy", "restart": True, "required": True, "unknown": True}):
+            with self.subTest(dependency=dependency), workspace() as directory:
+                f = SharedNetworkSnapshotFixture(Path(directory))
+                f.services["reader"]["depends_on"] = {"tunnel": dependency}
+                with self.assertRaisesRegex(SystemExit, "unsupported shared network dependency"):
+                    f.snapshot()
+                self.assertEqual(f.hash_calls, [])
+
+    def test_unresolved_dependency_container_refuses_before_hashing(self):
+        for dependencies in (["tunnel"], "tunnel"):
+            with self.subTest(dependencies=dependencies), workspace() as directory:
+                f = SharedNetworkSnapshotFixture(Path(directory))
+                f.services["reader"]["depends_on"] = dependencies
+                with self.assertRaisesRegex(SystemExit, "unsupported shared network dependency"):
+                    f.snapshot()
+                self.assertEqual(f.hash_calls, [])
+
+    def test_projection_bound_precedes_second_hash_call(self):
+        with workspace() as directory:
+            f = SharedNetworkSnapshotFixture(Path(directory))
+            # A declared service name alone can exceed the narrowly qualified stdin cap.
+            name = "reader-" + "x" * 4096
+            f.services[name] = f.services.pop("reader")
+            f.rows[2]["Config"]["Labels"]["com.docker.compose.service"] = name
+            f.override["services"][name] = f.override["services"].pop("reader")
+            f.lock["images"][2]["service"] = name
+            f.a[name] = f.a.pop("reader")
+            with self.assertRaisesRegex(SystemExit, "projection byte limit exceeded"):
+                f.snapshot()
+            self.assertEqual(f.hash_calls, ["A"])
+
+    def test_stopped_daemon_refuses_before_each_hash_call_without_retry(self):
+        for which in ("A", "B"):
+            with self.subTest(which=which), workspace() as directory:
+                f = SharedNetworkSnapshotFixture(Path(directory))
+                f.stop_before = which
+                with self.assertRaisesRegex(SystemExit, "Docker must already be running"):
+                    f.snapshot()
+                self.assertEqual(f.hash_calls, [] if which == "A" else ["A"])
+                self.assertEqual(f.calls[-1], f.daemon_argv)
+
+    def test_unrelated_snapshot_identities_remain_exact_at_adoption(self):
+        with workspace() as directory:
+            f = SharedNetworkSnapshotFixture(Path(directory))
+            before = f.snapshot()
+            after = copy.deepcopy(before)
+            after["containers"]["litellm"].update(id="4" * 64, started="new")
+            after["startup"] = {"config_sha256": "f" * 64, "liveness": True}
+            after["current"] = {f.m.CONFIG: {"sha256": "f" * 64}}
+            after["current_sha256"] = "new-artifact"
+            request = {"artifact": after["current"], "artifact_sha256": after["current_sha256"]}
+            f.m.verify_adoption(before, after, request)
+            for name in ("reader", "tunnel"):
+                for field in before["containers"][name]:
+                    with self.subTest(service=name, field=field):
+                        changed = copy.deepcopy(after)
+                        changed["containers"][name][field] = "changed"
+                        with self.assertRaisesRegex(SystemExit, "unrelated service changed"):
+                            f.m.verify_adoption(before, changed, request)
 
 
 class OperatorTests(unittest.TestCase):
@@ -1149,7 +1456,7 @@ class DockerFixture:
                            "Domainname": "", "Cmd": service.get("command"), "Entrypoint": None,
                            "Env": ["DRIFT=true"] if self.environment_drift else [],
                            "User": None, "WorkingDir": None,
-                           "Labels": {"com.docker.compose.service": name, "com.docker.compose.config-hash": "hash-" + name}},
+                           "Labels": {"com.docker.compose.service": name, "com.docker.compose.config-hash": ("a" if name == "litellm" else "b") * 64}},
                 "State": {"Running": True, "Pid": 200 if new else 100, "StartedAt": "new" if new else "old"},
                 "RestartCount": 0, "HostConfig": {"NetworkMode": "host"} if self.host_network and name == "other" else {}, "NetworkSettings": {"Networks": {}},
                 "Mounts": [{"Source": x["source"], "Destination": x["target"], "Type": "bind", "RW": not x["read_only"]} for x in mounts]})
@@ -1197,7 +1504,7 @@ class DockerFixture:
                         "up", "--detach", "--no-build", "--pull", "never", "--no-deps", "--force-recreate", "litellm"], args
                     output = "Container litellm Recreated\nContainer litellm Started\n" + self.extra_action
                 elif "--hash" in args:
-                    output = "litellm hash-litellm\nother hash-other\n"
+                    output = "litellm " + "a" * 64 + "\nother " + "b" * 64 + "\n"
                 elif "config" in args:
                     if str(self.root / "srv/docker-compose/previous") in args:
                         assert args == ["compose", "--ansi", "never", "--project-name", "docker-compose",

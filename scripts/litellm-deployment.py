@@ -573,6 +573,19 @@ class NativeHost:
         # The current override must never conceal the previous artifact's declarations.
         return command + ["--file", str(self.path(OVERRIDE))] if directory == CURRENT else command
 
+    def compose_hashes(self, services, projection=None):
+        command = self.compose() + (["--file", "-"] if projection is not None else [])
+        self.daemon()
+        output = self.command(command + ["config", "--hash", "*"], data=projection)
+        hashes = {}
+        for line in output.splitlines():
+            fields = line.split()
+            require(len(fields) == 2 and fields[0] in services and fields[0] not in hashes and
+                    re.fullmatch(r"[0-9a-f]{64}", fields[1]), "malformed/duplicate Compose hash row")
+            hashes[fields[0]] = fields[1]
+        require(set(hashes) == set(services), "resolved Compose hash service-set differs")
+        return hashes
+
     def retained_image_matches(self, reference, inspected):
         require(isinstance(reference, str) and bool(reference), "retained image reference absent")
         if reference.startswith("sha256:"):
@@ -765,6 +778,7 @@ class NativeHost:
                 total += len(raw)
                 content = sha(raw)
             token_files[path.relative_to(token_path).as_posix()] = [stat.S_IMODE(info.st_mode), info.st_uid, info.st_gid, content]
+        self.daemon()
         model = json.loads(self.command(self.compose() + ["config", "--format", "json"]))
         services = model["services"]
         require(model.get("name") == "docker-compose" and "litellm" in services, "wrong Compose project")
@@ -781,6 +795,7 @@ class NativeHost:
         require(set(override) == {"services"} and set(override["services"]) <= set(services), "installed override shape differs")
         for name, entry in override["services"].items():
             require(entry == {"image": runtime[name]["Image"]}, "installed override/image ID disagreement")
+        self.daemon()
         previous_model = json.loads(self.command(self.compose(PREVIOUS) + ["config", "--format", "json"]))
         require(previous_model.get("name") == "docker-compose" and previous_model.get("services"),
                 "previous Compose project absent or differs")
@@ -812,8 +827,40 @@ class NativeHost:
         require(len(pinned) == 1 and runtime["litellm"]["Image"] == pinned[0]["image_id"] and
                 pinned[0]["reference"] in bounded_bytes(self.path(CURRENT + "/services/apps.yml")).decode(),
                 "LiteLLM image differs from committed retention association")
-        config_hashes = dict(line.split() for line in self.command(self.compose() + ["config", "--hash", "*"]).splitlines())
-        require(set(config_hashes) == set(services) and all(runtime[name]["Config"]["Labels"].get(
+        projection = {}
+        for name, service in services.items():
+            mode = service.get("network_mode")
+            if not isinstance(mode, str) or not mode.startswith("service:"):
+                continue
+            peer = mode.split(":", 1)[1]
+            require(peer in runtime and peer != name, "declared shared network peer absent or invalid")
+            peer_id = runtime[peer].get("Id")
+            require(isinstance(peer_id, str) and re.fullmatch(r"[0-9a-f]{64}", peer_id) and
+                    sum(row.get("Id") == peer_id for row in rows) == 1,
+                    "shared network peer ID absent/invalid/ambiguous")
+            require(runtime[name]["HostConfig"].get("NetworkMode") == "container:" + peer_id,
+                    "shared network namespace differs from declared peer ID")
+            # A healthy dependency cannot be the implicit service_started edge added by Compose.
+            # Keep that explicit edge in the original files; never guess or project dependencies.
+            dependencies = service.get("depends_on")
+            require(isinstance(dependencies, dict), "unsupported shared network dependency semantics")
+            dependency = dependencies.get(peer)
+            require(isinstance(dependency, dict) and dependency.get("condition") == "service_healthy" and
+                    dependency.get("restart") is True and dependency.get("required") is True and
+                    set(dependency) == {"condition", "restart", "required"},
+                    "unsupported shared network dependency semantics")
+            projection[name] = {"network_mode": "container:" + peer_id}
+        config_hashes = self.compose_hashes(services)
+        if projection:
+            # Compose resolves service namespaces to container IDs before creation-time hashing.
+            # Only this verified representation changes; the installed image override stays applied.
+            data = canonical({"services": projection})
+            require(len(data) <= 4096, "shared network hash projection byte limit exceeded")
+            equivalent_hashes = self.compose_hashes(services, data.decode())
+            require(all(config_hashes[name] == equivalent_hashes[name] for name in services if name not in projection),
+                    "shared network projection changed unrelated service hash")
+            config_hashes = equivalent_hashes
+        require(all(runtime[name]["Config"]["Labels"].get(
                 "com.docker.compose.config-hash") == value for name, value in config_hashes.items()),
                 "resolved Compose/runtime configuration identity differs")
         containers = {}
