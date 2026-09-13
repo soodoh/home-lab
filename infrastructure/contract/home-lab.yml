@@ -1,5 +1,50 @@
 ---
 version: 1
+# Offline packaging/review only; existing host and backup policy remain operational owners.
+compose_deployment:
+  version: 1
+  assets:
+    - {path: services/data/Caddyfile, kind: file, disposition: compose-bind}
+    - {path: services/data/gluetun, kind: directory, disposition: compose-bind}
+    - {path: services/data/litellm/config.yaml, kind: file, disposition: compose-bind}
+    - {path: services/data/litellm/custom_callbacks.py, kind: file, disposition: compose-bind}
+    - {path: services/data/backup-gpg-public.asc, kind: file, disposition: retained-only}
+    - path: services/data/restic/excludes
+      kind: file
+      disposition: host-consumed
+      host: {consumer: restic, destination: /etc/home-lab/restic/excludes, adoption: pending-review}
+    - path: services/data/restic/files-from
+      kind: file
+      disposition: host-consumed
+      host: {consumer: restic, destination: /etc/home-lab/restic/files-from, adoption: pending-review}
+    - path: services/data/wolf/wolf-input.conf
+      kind: file
+      disposition: host-consumed
+      host: {consumer: wolf, destination: /etc/modules-load.d/wolf-input.conf, adoption: out-of-domain}
+    - path: services/data/wolf/85-wolf-virtual-inputs.rules
+      kind: file
+      disposition: host-consumed
+      host: {consumer: wolf, destination: /etc/udev/rules.d/85-wolf-virtual-inputs.rules, adoption: out-of-domain}
+    - path: services/data/wolf/waybar-disabled
+      kind: file
+      disposition: host-consumed
+      host: {consumer: wolf, destination: /mnt/games/wolf/cfg/waybar-disabled, adoption: pending-review}
+    - path: services/data/wolf/sway-borderless-frontends.conf
+      kind: file
+      disposition: host-consumed
+      host: {consumer: wolf, destination: /mnt/games/wolf/cfg/sway-borderless-frontends.conf, adoption: pending-review}
+    - path: services/data/wolf/es-de/es_systems.xml
+      kind: file
+      disposition: host-consumed
+      host: {consumer: wolf, destination: /mnt/games/wolf/cfg/es-de/es_systems.xml, adoption: pending-review}
+    - path: services/data/wolf/es-de/wolf-xbox-one.cfg
+      kind: file
+      disposition: host-consumed
+      host: {consumer: wolf, destination: /mnt/games/wolf/cfg/es-de/wolf-xbox-one.cfg, adoption: pending-review}
+    - path: services/data/wolf/es-de/dolphin-config.sh
+      kind: file
+      disposition: host-consumed
+      host: {consumer: wolf, destination: "/mnt/games/roms/dolphin-config/Configure Dolphin.sh", adoption: pending-review}
 system_name: home-lab
 system_timezone: America/Los_Angeles
 lifecycle:

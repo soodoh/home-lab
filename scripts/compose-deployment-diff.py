@@ -3,6 +3,8 @@
 
 from argparse import ArgumentParser
 import json
+import importlib.util
+import re
 from pathlib import Path
 
 
@@ -11,6 +13,169 @@ def load_object(path: Path) -> dict[str, object]:
     if not isinstance(value, dict):
         raise SystemExit("plan input must be a JSON object")
     return value
+
+
+def review_plan(old: dict, new: dict, evidence: dict, old_policy: dict, new_policy: dict) -> dict:
+    """Pure offline reducer. The legacy CLI below remains an operational compatibility lane.
+
+    Supplied mount rows are sanitized review claims, NOT authenticated native captures.
+    Roots are questions for a later collector, never dependency closure or effect argv.
+    """
+    spec = importlib.util.spec_from_file_location('compose_artifact_review', Path(__file__).with_name('compose-artifact.py'))
+    artifact = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(artifact)
+    artifact.validate_manifest(old)
+    artifact.validate_manifest(new)
+    artifact.validate_policy(old_policy)
+    artifact.validate_policy(new_policy)
+    if (not isinstance(evidence, dict)
+            or set(evidence) != {'format', 'old_manifest_sha256', 'new_manifest_sha256', 'old', 'new'}
+            or evidence['format'] != 'compose-consumer-review-v1'
+            or evidence['old_manifest_sha256'] != old['sha256']
+            or evidence['new_manifest_sha256'] != new['sha256']):
+        raise ValueError('invalid review consumer bindings')
+    rows = []
+    blockers = set()
+    manifests = {'old': {e['path']: e for e in old['entries']},
+                 'new': {e['path']: e for e in new['entries']}}
+    for side in ('old', 'new'):
+        values = evidence[side]
+        if not isinstance(values, list) or len(values) > 1024:
+            raise ValueError('invalid consumer count')
+        seen = set()
+        sources = set()
+        targets = {}
+        for row in values:
+            if (not isinstance(row, dict) or set(row) != {'service', 'kind', 'source', 'target', 'access'}
+                    or not isinstance(row['service'], str)
+                    or not re.fullmatch(r'[a-z0-9][a-z0-9-]{0,63}', row['service'])
+                    or row['kind'] not in ('file', 'directory', 'config', 'secret')
+                    or row['access'] not in ('read-only', 'writable', 'mixed-mutable', 'unknown')):
+                raise ValueError('invalid consumer row')
+            artifact.strict_path(row['source'])
+            target = row['target']
+            if (not isinstance(target, str) or not 1 <= len(target) <= 240
+                    or not re.fullmatch(r'/(?:[A-Za-z0-9_. -]+(?:/[A-Za-z0-9_. -]+)*)?', target)
+                    or any(part in ('.', '..') for part in target.split('/'))):
+                raise ValueError('invalid consumer target')
+            # Conservative ambiguity only, not an implementation of Compose mount resolution.
+            for earlier in targets.setdefault(row['service'], []):
+                if (target == earlier or target.startswith(earlier.rstrip('/') + '/')
+                        or earlier.startswith(target.rstrip('/') + '/')):
+                    pair = ':'.join(sorted((earlier, target)))
+                    blockers.add(side + ':ambiguous-target:' + row['service'] + ':' + pair)
+            targets[row['service']].append(target)
+            identity = artifact.canonical(row)
+            if identity in seen:
+                raise ValueError('duplicate consumer row')
+            seen.add(identity)
+            source_identity = (row['service'], row['source'], target)
+            if source_identity in sources:
+                blockers.add(side + ':ambiguous-consumer:' + row['service'] + ':' + row['source'])
+            sources.add(source_identity)
+            if row['access'] in ('mixed-mutable', 'unknown'):
+                blockers.add(side + ':consumer-' + row['access'] + ':' + row['service'])
+            present = (any(name.startswith(row['source'] + '/') for name in manifests[side])
+                       if row['kind'] == 'directory' else row['source'] in manifests[side])
+            if not present:
+                blockers.add(side + ':missing-consumer-source:' + row['source'])
+            rows.append({'side': side, **row})
+    deltas = []
+    roots = set()
+    for name in sorted(manifests['old'].keys() | manifests['new'].keys()):
+        before, after = manifests['old'].get(name), manifests['new'].get(name)
+        changes = []
+        if before is None:
+            changes.append('added')
+        elif after is None:
+            changes.append('removed')
+        else:
+            if before['sha256'] != after['sha256'] or before['size'] != after['size']:
+                changes.append('byte-changed')
+            if before['mode'] != after['mode']:
+                changes.append('mode-changed')
+        if not changes:
+            continue
+        consumers = [row for row in rows if name == row['source'] or
+                     (row['kind'] == 'directory' and name.startswith(row['source'] + '/'))]
+        reasons = {'pending-native-actions-and-adoption'}
+        roots.update(row['service'] for row in consumers)
+        if after is None and any(
+                row['side'] == 'new' and (row['kind'] != 'directory' or not any(
+                    path.startswith(row['source'] + '/') for path in manifests['new']))
+                for row in consumers):
+            reasons.add('removed-source-required-by-target')
+            blockers.add(name + ':removed-source-required-by-target')
+        for side, policy in (('old', old_policy), ('new', new_policy)):
+            if name not in manifests[side]:
+                continue
+            asset = artifact.asset_policy(name, policy)
+            if asset is not None and asset['disposition'] == 'host-consumed':
+                host = asset['host']
+                reasons.add('host-consumer-' + host['adoption'])
+                blockers.add(name + ':host-consumer-' + host['adoption'])
+                consumers.append({'side': side, 'kind': 'host', **host})
+            elif asset is not None and asset['disposition'] == 'retained-only':
+                reasons.add('retained-only-change-requires-disposition')
+                blockers.add(name + ':retained-only-change-requires-disposition')
+            elif name.startswith('services/data/') and (asset is None or not consumers):
+                blockers.add(name + ':unknown-consumer-or-policy')
+                reasons.add('unknown-consumer-or-policy')
+        if name.startswith('secrets/'):
+            blockers.add(name + ':separate-secret-lifecycle-required')
+            reasons.add('separate-secret-lifecycle-required')
+        if name.startswith('scripts/'):
+            reasons.add('execution-helper-code-review-required')
+        if any(row.get('access') == 'writable' for row in consumers):
+            reasons.add('writable-source-mutation-evidence-required')
+        deltas.append({'path': name, 'changes': changes, 'consumers': consumers, 'reasons': sorted(reasons)})
+    if old_policy != new_policy:
+        blockers.add('consumer-policy-change-requires-review')
+    return {'format': 'compose-offline-plan-v1', 'status': 'blocked' if blockers else 'review-only',
+            'executable': False, 'process_adoption': False, 'evidence_authority': 'untrusted-review-input',
+            'artifact_no_change': not deltas, 'deltas': deltas, 'blockers': sorted(blockers),
+            'roots_requiring_native_evidence': sorted(roots),
+            'pending': ['admitted-native-evidence', 'image-and-runtime-identities', 'lifecycle-and-recovery-support'],
+            'unavailable': ['observe', 'apply', 'verify', 'recovery']}
+
+
+def review_offline_evidence(value: dict, bindings: dict, old: dict, new: dict) -> dict:
+    """Reduce saved synthetic claims only; never dispatch the compatibility CLIs.
+
+    --evidence is compose-offline-evidence-v1 with exact selection/consumer bindings,
+    project/tool, three independent generations, runtime, actions and optional transition.
+    Digests bind supplied content to itself, NOT source/host authority or native grammar.
+    """
+    import hashlib
+    def digest(item):
+        return hashlib.sha256(json.dumps(item, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    def helper(name):
+        spec = importlib.util.spec_from_file_location(name.replace('-', '_'), Path(__file__).with_name(name + '.py'))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    if (not isinstance(value, dict) or set(value) != {'format', 'bindings', 'project', 'tool',
+            'generations', 'runtime', 'actions', 'transition'}
+            or value['format'] != 'compose-offline-evidence-v1' or value['bindings'] != bindings
+            or not isinstance(value['project'], str) or not re.fullmatch('[a-z0-9][a-z0-9-]{0,63}', value['project'])):
+        raise ValueError('invalid offline evidence bindings')
+    tool = value['tool']
+    if (not isinstance(tool, dict) or set(tool) != {'name', 'version', 'binary_sha256'}
+            or tool['name'] != 'compose' or not isinstance(tool['version'], str)
+            or not re.fullmatch('[A-Za-z0-9_.-]{1,64}', tool['version'])
+            or not isinstance(tool['binary_sha256'], str) or not re.fullmatch('[0-9a-f]{64}', tool['binary_sha256'])):
+        raise ValueError('invalid unqualified tool identity')
+    generations = value['generations']
+    if not isinstance(generations, dict) or set(generations) != {'current', 'candidate', 'previous'}:
+        raise ValueError('independent image generations required')
+    images = helper('compose-image-lock').review_generations(generations, value['project'], old, new, value['transition'])
+    runtime = helper('compose-model-inventory').review_runtime(value['runtime'], generations['current'],
+                                                              value['project'], digest(tool))
+    actions = helper('compose-action-plan').review_actions(value['actions'], generations['candidate'],
+                                                          runtime, digest(tool))
+    return {'native_qualified': False, 'evidence_authority': 'untrusted-review-input',
+            'runtime': runtime, 'actions': actions, 'images': images,
+            'blockers': sorted(set(actions['blockers']) | set(images['blockers']))}
 
 
 def main() -> None:

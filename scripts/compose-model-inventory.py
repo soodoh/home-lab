@@ -374,6 +374,96 @@ def runtime_inventory(args: Namespace) -> dict[str, object]:
     }
 
 
+def review_runtime(value: dict, current: dict, project: str, tool_sha256: str) -> dict:
+    """Validate supplied actual-to-actual facts, not desired Docker configuration.
+
+    Completeness is only against the supplied ID inventory and generation model.
+    Config/HostConfig stay opaque protected fingerprints; stopped instances are retained.
+    No collector, default/health/hash reconstruction, filesystem or daemon access occurs.
+    """
+    def token(item):
+        return isinstance(item, str) and re.fullmatch(r'[A-Za-z0-9/][A-Za-z0-9_.:/@-]{0,239}', item) is not None
+    def full_id(item):
+        return isinstance(item, str) and re.fullmatch('[0-9a-f]{64}', item) is not None
+    def bounded_rows(item):
+        return isinstance(item, list) and len(item) <= 1024
+    fields = {'generation_sha256', 'tool_sha256', 'project', 'complete', 'container_ids',
+              'resource_ids', 'containers', 'resources'}
+    if (not isinstance(value, dict) or set(value) != fields or value['complete'] is not True
+            or value['generation_sha256'] != stable_hash(current) or value['tool_sha256'] != tool_sha256
+            or value['project'] != project or not all(bounded_rows(value[k]) for k in
+                ('container_ids', 'resource_ids', 'containers', 'resources'))):
+        raise ValueError('invalid or incomplete runtime review bindings')
+    # Image resources are unsupported here: image identity is independently
+    # validated through generation/container associations, also used by Image actions.
+    resources = {}; resource_names = set()
+    for row in value['resources']:
+        if (not isinstance(row, dict) or set(row) != {'kind', 'name', 'id'}
+                or not isinstance(row['kind'], str) or row['kind'] not in ('network', 'volume', 'bind', 'tmpfs', 'preparation')
+                or not token(row['name']) or not token(row['id'])
+                or (row['kind'] == 'network' and not full_id(row['id']))):
+            raise ValueError('invalid runtime resource')
+        key = (row['kind'], row['name'])
+        if row['id'] in resources or key in resource_names:
+            raise ValueError('duplicate or aliased runtime resource identity')
+        resources[row['id']] = row
+        resource_names.add(key)
+    expected = value['resource_ids']
+    if (any(not token(i) for i in expected) or len(set(expected)) != len(expected)
+            or set(expected) != set(resources)):
+        raise ValueError('incomplete runtime resource inventory')
+    services = set(); ids = set(); aliases = set(); endpoints = set()
+    images = {row['service']: row for row in current['images']}
+    for row in value['containers']:
+        if (not isinstance(row, dict) or set(row) != {'id', 'name', 'project', 'service', 'image_id',
+                'image_reference', 'state', 'pid', 'started_at', 'restart_count', 'config_sha256',
+                'host_config_sha256', 'mounts', 'networks'}
+                or not full_id(row['id']) or not token(row['name']) or row['project'] != project
+                or not isinstance(row['service'], str) or row['service'] not in current['model']['services']
+                or not isinstance(row['state'], str) or row['state'] not in ('running', 'stopped')
+                or type(row['pid']) is not int or not 0 <= row['pid'] <= 2**31-1
+                or (row['pid'] > 0) != (row['state'] == 'running')
+                or type(row['restart_count']) is not int or not 0 <= row['restart_count'] <= 2**31-1
+                or not isinstance(row['started_at'], str)
+                or not re.fullmatch(r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z', row['started_at'])
+                or not full_id(row['config_sha256']) or not full_id(row['host_config_sha256'])
+                or not bounded_rows(row['mounts']) or not bounded_rows(row['networks'])):
+            raise ValueError('invalid actual container identity')
+        if row['service'] in services or row['id'] in ids or {row['name'], row['id']} & aliases or row['name'] == row['id']:
+            raise ValueError('duplicate or aliased container/service identity')
+        services.add(row['service']); ids.add(row['id']); aliases.update((row['name'], row['id']))
+        image = images.get(row['service'])
+        if image is None or row['image_id'] != image['image_id'] or row['image_reference'] != image['reference']:
+            raise ValueError('runtime image generation association mismatch')
+        targets = set(); memberships = set()
+        for mount in row['mounts']:
+            if (not isinstance(mount, dict) or set(mount) != {'type', 'source', 'target', 'resource_id', 'read_only'}
+                    or not isinstance(mount['type'], str) or mount['type'] not in ('bind', 'volume', 'tmpfs')
+                    or not token(mount['source']) or not token(mount['target']) or not mount['target'].startswith('/')
+                    or any(p in ('.', '..') for p in mount['target'].split('/'))
+                    or type(mount['read_only']) is not bool or not token(mount['resource_id'])):
+                raise ValueError('invalid actual mount identity')
+            resource = resources.get(mount['resource_id'])
+            if (resource is None or resource['kind'] != mount['type'] or resource['name'] != mount['source']
+                    or mount['target'] in targets):
+                raise ValueError('duplicate or inconsistent mount/resource association')
+            targets.add(mount['target'])
+        for network in row['networks']:
+            if (not isinstance(network, dict) or set(network) != {'resource_id', 'endpoint_id'}
+                    or not full_id(network['resource_id']) or not full_id(network['endpoint_id'])):
+                raise ValueError('invalid actual network identity')
+            resource = resources.get(network['resource_id'])
+            if (resource is None or resource['kind'] != 'network' or network['resource_id'] in memberships
+                    or network['endpoint_id'] in endpoints):
+                raise ValueError('duplicate or inconsistent network/resource association')
+            memberships.add(network['resource_id']); endpoints.add(network['endpoint_id'])
+    expected = value['container_ids']
+    if (any(not full_id(i) for i in expected) or len(set(expected)) != len(expected) or set(expected) != ids
+            or services != set(current['model']['services'])):
+        raise ValueError('incomplete runtime container inventory')
+    return value
+
+
 def parse_args() -> Namespace:
     parser = ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)

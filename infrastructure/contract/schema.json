@@ -4,9 +4,41 @@
   "title": "Home lab infrastructure contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "system_name", "system_timezone", "lifecycle", "recovery", "vm_100", "network", "proxmox", "storage", "debian", "omada", "tailscale", "aws", "nextcloud", "backups"],
+  "required": ["version", "system_name", "system_timezone", "lifecycle", "recovery", "vm_100", "network", "proxmox", "storage", "debian", "omada", "tailscale", "aws", "nextcloud", "backups", "compose_deployment"],
   "properties": {
     "version": { "const": 1 },
+    "compose_deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "assets"],
+      "properties": {
+        "version": { "const": 1 },
+        "assets": {
+          "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["path", "kind", "disposition"],
+            "properties": {
+              "path": { "type": "string", "maxLength": 240, "pattern": "^(?!.*(?:^|/)\\.\\.?(?:/|$))services/data/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$" },
+              "kind": { "enum": ["file", "directory"] },
+              "disposition": { "enum": ["compose-bind", "host-consumed", "retained-only"] },
+              "host": {
+                "type": "object", "additionalProperties": false,
+                "required": ["consumer", "destination", "adoption"],
+                "properties": {
+                  "consumer": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+                  "destination": { "type": "string", "maxLength": 240, "pattern": "^(?!.*(?:^|/)\\.\\.?(?:/|$))/(?:[A-Za-z0-9_. -]+/)*[A-Za-z0-9_. -]+$" },
+                  "adoption": { "enum": ["pending-review", "out-of-domain"] }
+                }
+              }
+            },
+            "if": { "properties": { "disposition": { "const": "host-consumed" } } },
+            "then": { "required": ["host"], "properties": { "host": {}, "kind": { "const": "file" } } },
+            "else": { "not": { "properties": { "host": {} }, "required": ["host"] } }
+          }
+        }
+      }
+    },
     "system_name": { "const": "home-lab" },
     "system_timezone": { "const": "America/Los_Angeles" },
     "lifecycle": { "$ref": "#/$defs/lifecyclePolicy" },
