@@ -227,6 +227,14 @@ recorded because maintenance was not rerun or reset. Fixing mount traversal is
 not proof that a full repository check/prune/subset verification will succeed; do
 not run destructive maintenance merely to clear the historical status.
 
+## Proton incident source retirement
+
+The [source retirement audit](proton-source-retirement.md) removes the completed
+TOTP cutover lane and superseded v2 migration writer only. Password-reset diagnostics,
+staged qualification recovery and VM recovery remain pending transaction-specific
+closure review. Incident resolution does not make every retained journal terminal.
+No installed helpers, host files, receipts, locks or backup behavior changed.
+
 ## Local source checks
 
 From the repository root, without deployment or secret decryption:
