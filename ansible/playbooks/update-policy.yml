@@ -1,0 +1,117 @@
+---
+- name: Keep automatic installation disabled while retaining update checks
+  hosts: home_lab
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  tasks:
+    - name: Read the existing apt periodic settings
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/apt-config
+          - shell
+          - PackageListUpdates
+          - APT::Periodic::Update-Package-Lists
+          - UnattendedInstall
+          - APT::Periodic::Unattended-Upgrade
+      register: apt_periodic_before
+      changed_when: false
+      check_mode: false
+      when: update_policy_manage_apt | default(false) | bool
+
+    - name: Retain the observed daily package-list update policy
+      ansible.builtin.assert:
+        that:
+          - "\"PackageListUpdates='1'\" in apt_periodic_before.stdout_lines"
+        fail_msg: Review changed package-list settings before managing this policy.
+      when: update_policy_manage_apt | default(false) | bool
+
+    - name: Disable unattended installation in the existing apt periodic file
+      ansible.builtin.lineinfile:
+        path: /etc/apt/apt.conf.d/20auto-upgrades
+        regexp: '^\s*APT::Periodic::Unattended-Upgrade\s+'
+        line: 'APT::Periodic::Unattended-Upgrade "0";'
+        owner: root
+        group: root
+        mode: '0644'
+      when: update_policy_manage_apt | default(false) | bool
+
+    - name: Read Tailscale preferences without logging private fields
+      ansible.builtin.command:
+        argv: [/usr/bin/tailscale, debug, prefs]
+      register: tailscale_preferences_before
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require the observed Tailscale preference types
+      ansible.builtin.assert:
+        that:
+          - (tailscale_preferences_before.stdout | from_json).AutoUpdate.Apply is boolean
+          - (tailscale_preferences_before.stdout | from_json).AutoUpdate.Check is boolean
+          - (tailscale_preferences_before.stdout | from_json).RunSSH is boolean
+      no_log: true
+
+    - name: Show the Tailscale change in check mode
+      ansible.builtin.debug:
+        msg: Would disable Tailscale automatic installation, retaining checks and SSH.
+      changed_when: true
+      when:
+        - ansible_check_mode
+        - (tailscale_preferences_before.stdout | from_json).AutoUpdate.Apply
+
+    # No native core module manages this preference. The upstream CLI changes only
+    # the named option; querying first makes this task idempotent. In check mode
+    # the command is skipped and the task above reports the proposed change.
+    - name: Disable Tailscale automatic installation
+      ansible.builtin.command:
+        argv: [/usr/bin/tailscale, set, '--auto-update=false']
+      when:
+        - not ansible_check_mode
+        - (tailscale_preferences_before.stdout | from_json).AutoUpdate.Apply
+      changed_when: true
+
+    - name: Read the effective apt policy after application
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/apt-config
+          - shell
+          - PackageListUpdates
+          - APT::Periodic::Update-Package-Lists
+          - UnattendedInstall
+          - APT::Periodic::Unattended-Upgrade
+      register: apt_periodic_after
+      changed_when: false
+      when:
+        - not ansible_check_mode
+        - update_policy_manage_apt | default(false) | bool
+
+    - name: Verify unattended installation is disabled and package checks remain
+      ansible.builtin.assert:
+        that:
+          - "\"PackageListUpdates='1'\" in apt_periodic_after.stdout_lines"
+          - "\"UnattendedInstall='0'\" in apt_periodic_after.stdout_lines"
+      when:
+        - not ansible_check_mode
+        - update_policy_manage_apt | default(false) | bool
+
+    - name: Read effective Tailscale preferences after application
+      ansible.builtin.command:
+        argv: [/usr/bin/tailscale, debug, prefs]
+      register: tailscale_preferences_after
+      changed_when: false
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Verify automatic installation is disabled without changing checks or SSH
+      ansible.builtin.assert:
+        that:
+          - not (tailscale_preferences_after.stdout | from_json).AutoUpdate.Apply
+          - >-
+            (tailscale_preferences_after.stdout | from_json).AutoUpdate.Check ==
+            (tailscale_preferences_before.stdout | from_json).AutoUpdate.Check
+          - >-
+            (tailscale_preferences_after.stdout | from_json).RunSSH ==
+            (tailscale_preferences_before.stdout | from_json).RunSSH
+      no_log: true
+      when: not ansible_check_mode

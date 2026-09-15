@@ -12,7 +12,6 @@ CONTRACT = ROOT / "infrastructure/contract/home-lab.yml"
 PROVIDER = ROOT / "ansible/roles/proxmox_network_lifecycle/tasks/main.yml"
 CONSUMER = ROOT / "ansible/roles/proxmox_network_consumers/tasks/main.yml"
 PLAYBOOK = ROOT / "ansible/playbooks/proxmox-network-plan.yml"
-DOC = ROOT / "docs/proxmox-networking-tailscale-handoff.md"
 
 
 def main() -> None:
@@ -21,7 +20,6 @@ def main() -> None:
     provider = PROVIDER.read_text(encoding="utf-8")
     consumer = CONSUMER.read_text(encoding="utf-8")
     playbook = PLAYBOOK.read_text(encoding="utf-8")
-    documentation = DOC.read_text(encoding="utf-8")
     combined = provider + consumer
 
     pending = {"current_owner": "nix", "target_owner": "ansible", "state": "pending",
@@ -64,9 +62,6 @@ def main() -> None:
     assert "proxmox_network_lifecycle" in playbook
     assert "proxmox_network_consumers" in playbook
     assert playbook.count("gather_facts: false") == 2
-    assert "OpenTofu/controller-owned" in documentation
-    assert "excluded-from-this-handoff" in documentation
-    assert "separately-authorized-watchdog" in documentation
     print("proxmox_network_lifecycle_tests=passed")
 
 

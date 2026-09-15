@@ -1,0 +1,122 @@
+---
+# Same-content/metadata adoption only. Content rollout needs coordinated policy
+# and retained-journal review; these checks do not serialize privileged writers.
+- name: Inspect existing Restic runtime ancestors
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  loop:
+    - /
+    - /etc
+    - /etc/home-lab
+    - /etc/home-lab/restic
+    - /usr
+    - /usr/local
+    - /usr/local/libexec
+    - /usr/local/libexec/home-lab
+  register: restic_runtime_ancestors
+
+- name: Require existing root-controlled Restic runtime ancestors
+  ansible.builtin.assert:
+    that:
+      - item.stat.isdir | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.uid == 0
+      - item.stat.mode[-2] not in ['2', '3', '6', '7']
+      - item.stat.mode[-1] not in ['2', '3', '6', '7']
+    fail_msg: Runtime adoption requires existing non-symlink root-controlled directories.
+    quiet: true
+  loop: "{{ restic_runtime_ancestors.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Inspect the existing Restic policy file before reading it
+  ansible.builtin.stat:
+    path: /etc/home-lab/restic-policy.json
+    follow: false
+    get_checksum: false
+    get_mime: false
+  register: restic_runtime_policy_file
+
+- name: Require a protected existing regular Restic policy file
+  ansible.builtin.assert:
+    that:
+      - restic_runtime_policy_file.stat.isreg | default(false)
+      - not (restic_runtime_policy_file.stat.islnk | default(false))
+      - restic_runtime_policy_file.stat.nlink == 1
+      - restic_runtime_policy_file.stat.uid == 0
+      - restic_runtime_policy_file.stat.mode[-2] not in ['2', '3', '6', '7']
+      - restic_runtime_policy_file.stat.mode[-1] not in ['2', '3', '6', '7']
+    fail_msg: Runtime adoption requires an existing protected single-link regular policy file.
+    quiet: true
+
+# Read here rather than depending on tools-native's registered policy value.
+- name: Read the existing policy for Restic runtime-file adoption
+  ansible.builtin.slurp:
+    src: /etc/home-lab/restic-policy.json
+  register: restic_runtime_policy
+  no_log: true
+
+- name: Require reviewed runtime source and fixed bindings to match installed policy
+  ansible.builtin.assert:
+    that:
+      - restic_systemd.runner_path == '/usr/local/libexec/home-lab/restic-backup'
+      - policy.runner.path == '/usr/local/libexec/home-lab/restic-backup'
+      - policy.runner.policy_path == '/etc/home-lab/restic-policy.json'
+      - policy.runner.files_from_path == '/etc/home-lab/restic/files-from'
+      - policy.runner.exclude_file_path == '/etc/home-lab/restic/excludes'
+      - >-
+        lookup('ansible.builtin.file', playbook_dir + '/../../scripts/restic-backup',
+        rstrip=false, lstrip=false) | hash('sha256') == policy.runner.sha256
+      - >-
+        lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/files-from',
+        rstrip=false, lstrip=false).splitlines() == policy.sources | map(attribute='path') | list
+      - >-
+        lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/excludes',
+        rstrip=false, lstrip=false).splitlines() == policy.excludes
+    fail_msg: Runtime source must match installed policy; content changes need coordinated policy and journal review.
+    quiet: true
+  vars:
+    policy: "{{ restic_runtime_policy.content | b64decode | from_json }}"
+  no_log: true
+
+- name: Inspect the three existing Restic runtime files
+  ansible.builtin.stat:
+    path: "{{ item.dest }}"
+    follow: false
+    checksum_algorithm: sha256
+    get_mime: false
+  loop:
+    - src: "{{ playbook_dir }}/../../scripts/restic-backup"
+      dest: /usr/local/libexec/home-lab/restic-backup
+    - src: "{{ playbook_dir }}/../../services/data/restic/files-from"
+      dest: /etc/home-lab/restic/files-from
+    - src: "{{ playbook_dir }}/../../services/data/restic/excludes"
+      dest: /etc/home-lab/restic/excludes
+  register: restic_runtime_files
+
+- name: Refuse missing unsafe or content-drifted Restic runtime files before any copy
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - not (item.stat.islnk | default(false))
+      - item.stat.nlink == 1
+      - item.stat.uid == 0
+      - item.stat.mode[-2] not in ['2', '3', '6', '7']
+      - item.stat.mode[-1] not in ['2', '3', '6', '7']
+      - >-
+        item.stat.checksum == lookup('ansible.builtin.file', item.item.src,
+        rstrip=false, lstrip=false) | hash('sha256')
+    fail_msg: Runtime adoption requires root-controlled single-link regular files with exactly the reviewed source bytes.
+    quiet: true
+  loop: "{{ restic_runtime_files.results }}"
+  loop_control:
+    label: "{{ item.item.dest }}"
+
+- name: Maintain shared Restic input files after same-content guards
+  ansible.builtin.import_tasks: inputs.yml
+
+- name: Maintain shared Restic runner after same-content guards
+  ansible.builtin.import_tasks: runner.yml

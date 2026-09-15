@@ -2,7 +2,7 @@
 
 ## Status
 
-The foundation is active for Compose. The trusted local controller stages the exact encrypted repository artifact, and the host decrypts it with `/etc/sops/age/keys.txt` into root-owned `/etc/docker-compose/production.env`; the legacy checkout `.env` is not a runtime input.
+The retained Compose staging roles use an exact encrypted repository artifact, and the host decrypts it with `/etc/sops/age/keys.txt` for protected staging and eventual root-owned `/etc/docker-compose/production.env`; the legacy checkout `.env` is not a runtime input.
 
 The repository contains only:
 

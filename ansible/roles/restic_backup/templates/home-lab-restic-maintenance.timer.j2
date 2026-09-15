@@ -2,7 +2,7 @@
 Description=Schedule Home Lab Restic monthly maintenance
 
 [Timer]
-OnCalendar={{ backups.restic.schedule.maintenance_calendar }}
+OnCalendar={{ restic_systemd.maintenance_calendar }}
 Persistent=false
 RandomizedDelaySec=1h
 Unit=home-lab-restic-maintenance.target

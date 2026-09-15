@@ -1,6 +1,6 @@
-# Proxmox local Nix bootstrap
+# Retained Proxmox bootstrap and recovery protocol
 
-This is the only fresh-host bootstrap and must be launched as root at a physical Proxmox console with a tested LAN root session retained. Nix remains controller-side; no Nix daemon or store is installed on Proxmox.
+Historical recovery reference for retained bootstrap/session assets, not the approved native adoption route or a qualified fresh rebuild. Use only after a separately reviewed recovery decision at a physical Proxmox console with tested independent access. The old protocol keeps Nix controller-side; no Nix daemon/store is installed on Proxmox. See [recovery](../recovery/README.md) before interpreting the commands below.
 
 ## Prepare protected inputs
 

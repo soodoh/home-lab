@@ -1,6 +1,13 @@
 # Nextcloud 34 configuration and maintenance runbook
 
-This runbook activates the contract in `infrastructure/contract/home-lab.yml`. It does not add health monitoring, SMTP, 2FA enforcement, AppAPI deployment, or direct upload-directory cleanup.
+This is a retained migration/recovery reference, not a current deployment quick start.
+Before execution, reconcile its old service set and backup-scheduler assumptions
+with the actual installation and obtain separate approval. The source-only native
+transition has not qualified its activation path. See [migrations](migrations.md).
+The September 14 observation found the five intended mounts and cron already
+running; do not repeat initial migration/activation steps. Application acceptance
+and old-copy retention still require verification. This historical procedure does
+not add SMTP, 2FA enforcement, AppAPI or direct upload-directory cleanup.
 
 ## Review boundary
 
@@ -142,4 +149,4 @@ Before old-path deletion:
 
 Build a private exact-path cleanup manifest with device, inode, size, mtime, and path identities. Its allowlist may include only stale old application/config/custom-app/theme copies and an approved legacy rotated log. It must exclude `data`, `files`, `files_versions`, and `files_trashbin`. Apply only after approval of the manifest hash.
 
-Finally, outside either backup trigger window, start `daily-local-backup` and `weekly-remote-backup`. Verify they schedule normally and do not immediately run unless explicitly intended.
+The original procedure ended by restarting `daily-local-backup` and `weekly-remote-backup`. Those Offen services are retired: do not reinstall or start them. Before execution, replace this step with a separately reviewed restoration of the actual Restic timer state outside trigger windows, verifying no unintended immediate run.

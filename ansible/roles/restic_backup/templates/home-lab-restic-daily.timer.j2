@@ -2,7 +2,7 @@
 Description=Schedule the Home Lab chained Restic daily workflow
 
 [Timer]
-OnCalendar={{ backups.restic.schedule.daily_calendar }}
+OnCalendar={{ restic_systemd.daily_calendar }}
 Persistent=false
 RandomizedDelaySec=0
 Unit=home-lab-restic-daily.target

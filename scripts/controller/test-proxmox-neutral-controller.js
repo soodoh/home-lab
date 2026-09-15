@@ -76,17 +76,7 @@ print(json.dumps(value,sort_keys=True,separators=(',',':')))
     const invalid = structuredClone(manifest); change(invalid); write(invalid);
     assert.equal(command(["verify", manifestFile]).status, 66);
   }
-  // The public wrapper's second reader invokes the same semantic validator BEFORE
-  // any provider binary display/hash traversal or loading apply credentials.
-  write(manifest);
-  const wrapper = fs.readFileSync(path.join(ROOT, "scripts/local-controller"), "utf8");
-  const start = wrapper.indexOf("verify_proxmox_host_check() {"), end = wrapper.indexOf("show_saved_plans() {", start);
-  const shell = `set -euo pipefail\ncd '${ROOT}'\nrepo_root='${ROOT}'\nboundary_manifest='${boundaryFile}'\nsource scripts/controller/controller-boundaries.sh\ninitialize_controller_boundaries\nmanifest='${manifestFile}'\nplan_dir='${directory}'\ncommit='${manifest.commit}'\noperation=steady\n${wrapper.slice(start, end)}\nverify_saved_plans\n`;
-  const wrapperResult = spawnSync("bash", ["-c", shell], { cwd: ROOT, env: environment, encoding: "utf8" });
-  assert.equal(wrapperResult.status, 0, wrapperResult.stderr);
-  const invalid = structuredClone(manifest); invalid.version = 5; write(invalid);
-  assert.notEqual(spawnSync("bash", ["-c", shell], { cwd: ROOT, env: environment }).status, 0);
-  console.log("neutral_controller=passed real_ansible_check_both_readers_recheck_no_nix_no_hosts=true");
+  console.log("neutral_controller=passed retained_verifier_no_hosts=true");
 } finally {
   for (const file of records) fs.rmSync(path.join(ROOT, file), { force: true });
   fs.rmSync(directory, { recursive: true, force: true });

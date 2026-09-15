@@ -83,7 +83,22 @@ age_archive_sha256: "{{ debian.tools.age.archive_sha256 }}"
 age_binary_sha256: "{{ debian.tools.age.installed_sha256 }}"
 age_keygen_binary_sha256: "{{ debian.tools.age.keygen_installed_sha256 }}"
 
+# Legacy convergence/recovery bridge only. Native hosts.yml owns its unit inputs independently.
+restic_systemd: "{{ restic_systemd_legacy_contract }}"
+restic_systemd_legacy_contract:
+  runner_path: "{{ backups.restic.runner.path }}"
+  lock_path: "{{ backups.restic.runner.lock_path }}"
+  journal_path: "{{ backups.restic.runner.journal_path }}"
+  accepted_path: "{{ backups.restic.runner.accepted_path }}"
+  games_mountpoint: "{{ backups.restic.repositories.games.mountpoint }}"
+  games_repository_path: "{{ backups.restic.repositories.games.path }}"
+  nfs_mountpoint: "{{ backups.restic.repositories.nfs.mountpoint }}"
+  daily_calendar: "{{ backups.restic.schedule.daily_calendar }}"
+  maintenance_calendar: "{{ backups.restic.schedule.maintenance_calendar }}"
+
 # Pinned official Restic and rclone binaries. The role installs no distribution packages.
+restic_version_output: "{{ backups.restic.tools.restic.version_output }}"
+rclone_version_output: "{{ backups.restic.tools.rclone.version_output_prefix }}"
 restic_version: "{{ backups.restic.tools.restic.version }}"
 restic_download_url: "{{ backups.restic.tools.restic.url }}"
 restic_archive_sha256: "{{ backups.restic.tools.restic.archive_sha256 }}"

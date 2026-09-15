@@ -72,7 +72,7 @@ try {
       'confirmation != policy.confirmation', 'vm_status != "stopped"', '"vfio-pci"']) assert(source.includes(text), `VFIO compatibility missing: ${text}`);
   }
   assert(read("scripts/controller/controller_lock.py").equals(read("nix/proxmox/controller_lock.py")), "controller descriptor protocol changed");
-  const active = ["scripts/reconcile-infrastructure", "scripts/local-controller", "scripts/controller/controller-apply-lock.py", "scripts/controller/proxmox-check-evidence.js",
+  const active = ["scripts/controller/controller-apply-lock.py", "scripts/controller/proxmox-check-evidence.js",
     "scripts/controller/neutral-input.js", "scripts/controller/proxmox-ansible-audit.js", "scripts/controller/build-proxmox-ansible-observer.js", "scripts/controller/proxmox-host-projection.js"];
   for (const file of active) assert(!read(file).toString().includes("nix/proxmox"), `active Nix source import: ${file}`);
   execFileSync(process.execPath, [path.join(ROOT, "scripts/controller/test-proxmox-neutral-projection.js"), "--scan-path", first], { cwd: ROOT });

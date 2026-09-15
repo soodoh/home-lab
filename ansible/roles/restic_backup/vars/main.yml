@@ -1,0 +1,11 @@
+---
+restic_systemd_unit_names:
+  - home-lab-restic-daily-local.service
+  - home-lab-restic-daily-proton.service
+  - home-lab-restic-daily.target
+  - home-lab-restic-daily.timer
+  - home-lab-restic-recover.service
+  - home-lab-restic-maintenance-local.service
+  - home-lab-restic-maintenance-proton.service
+  - home-lab-restic-maintenance.target
+  - home-lab-restic-maintenance.timer

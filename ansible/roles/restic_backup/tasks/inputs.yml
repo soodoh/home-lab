@@ -1,0 +1,13 @@
+---
+- name: Install generated Restic inputs
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: restic-proton
+    mode: "0440"
+  loop:
+    - src: "{{ playbook_dir }}/../../services/data/restic/files-from"
+      dest: /etc/home-lab/restic/files-from
+    - src: "{{ playbook_dir }}/../../services/data/restic/excludes"
+      dest: /etc/home-lab/restic/excludes

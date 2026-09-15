@@ -27,12 +27,21 @@ def contract() -> dict:
 
 
 def restic_role_source() -> str:
-    """Expand the single fixed tools import in production order for source checks."""
+    """Expand fixed shared task imports for source checks; never execute them."""
     tasks = ROOT / "ansible/roles/restic_backup/tasks"
     source = (tasks / "main.yml").read_text()
-    seam = "- name: Converge pinned Restic tools\n  ansible.builtin.import_tasks: tools.yml\n"
-    assert source.count(seam) == 1
-    return source.replace(seam, (tasks / "tools.yml").read_text().removeprefix("---\n"))
+    for name, filename in (
+        ("Converge pinned Restic tools", "tools.yml"),
+        ("Install and verify shared pinned Restic tools", "tools-install.yml"),
+        ("Configure shared confined Restic identity", "identity.yml"),
+        ("Install shared generated Restic inputs", "inputs.yml"),
+        ("Install shared Restic runner", "runner.yml"),
+        ("Render shared Restic unit definitions", "units.yml"),
+    ):
+        seam = f"- name: {name}\n  ansible.builtin.import_tasks: {filename}\n"
+        assert source.count(seam) == 1
+        source = source.replace(seam, (tasks / filename).read_text().removeprefix("---\n"))
+    return source
 
 
 def main() -> None:
@@ -534,9 +543,6 @@ def main() -> None:
     assert role.index("Refuse ordinary convergence before guarded authentication transition") < role.index("Install canonical SOPS ciphertext")
     sops_install = role.split("Install canonical SOPS ciphertext", 1)[1].split("Gather confined Restic identity records", 1)[0]
     assert "no_log: true" in sops_install
-    reconcile = (ROOT / "scripts/reconcile-infrastructure").read_text()
-    steady_tags = reconcile.split("apply_debian_steady()", 1)[1].split("compose_apply()", 1)[0]
-    assert "restic_backup" in steady_tags
     assert "restic-proton" in role and "groups: []" in role and "shell: /usr/sbin/nologin" in role
     assert "enabled: false" in role and "state: stopped" in role
     assert "Inspect inert Restic unit state before enforcement" in role
@@ -1885,8 +1891,8 @@ def main() -> None:
     daily_target = (ROOT / "ansible/roles/restic_backup/templates/home-lab-restic-daily.target.j2").read_text()
     local_service = (ROOT / "ansible/roles/restic_backup/templates/home-lab-restic-daily-local.service.j2").read_text()
     local_mount_requirement = next(line for line in local_service.splitlines() if line.startswith("RequiresMountsFor="))
-    assert "repositories.games.mountpoint" in local_mount_requirement
-    assert "repositories.nfs.mountpoint" not in local_mount_requirement
+    assert "restic_systemd.games_mountpoint" in local_mount_requirement
+    assert "restic_systemd.nfs_mountpoint" not in local_mount_requirement
     proton_service = (ROOT / "ansible/roles/restic_backup/templates/home-lab-restic-daily-proton.service.j2").read_text()
     post_nfs_recovery = (ROOT / "ansible/playbooks/recover-post-nfs-first-run.yml").read_text()
     first_run_finalize = (ROOT / "ansible/playbooks/finalize-first-restic-backup.yml").read_text()
@@ -1898,8 +1904,8 @@ def main() -> None:
     inaccessible_paths = next(line for line in proton_service.splitlines() if line.startswith("InaccessiblePaths="))
     assert "/mnt/games" not in inaccessible_paths.removeprefix("InaccessiblePaths=").split()
     assert "TemporaryFileSystem=/mnt/games:ro" in proton_service
-    assert "BindReadOnlyPaths={{ backups.restic.repositories.games.path }}" in proton_service
-    assert "ReadWritePaths=/var/lib/home-lab-restic/replication /var/lib/restic-proton {{ backups.restic.runner.lock_path }}" in proton_service
+    assert "BindReadOnlyPaths={{ restic_systemd.games_repository_path }}" in proton_service
+    assert "ReadWritePaths=/var/lib/home-lab-restic/replication /var/lib/restic-proton {{ restic_systemd.lock_path }}" in proton_service
     assert "Converge the confined Proton mount namespace repair" in post_nfs_recovery
     assert "Reload systemd unconditionally after the confined namespace repair" in post_nfs_recovery
     assert "daemon_reload: true" in post_nfs_recovery
@@ -1914,7 +1920,6 @@ def main() -> None:
     assert "Require no interrupted backup before scheduling convergence" not in restic_role_tasks
 
     compose_deploy = (ROOT / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
-    compose_deploy_playbook = (ROOT / "ansible/playbooks/deploy-compose.yml").read_text()
     compose_rollback = (ROOT / "ansible/roles/compose_rollback/tasks/main.yml").read_text()
     assert "current-artifact.sha256" in compose_deploy
     retired_offen_tooling = [
@@ -1972,8 +1977,6 @@ def main() -> None:
     assert "Stop Restic timers during Calibre authority reconciliation" in compose_deploy
     assert "Install reconciled Restic source policy files" in compose_deploy
     assert "Verify installed reconciled Restic policy semantics" in compose_deploy
-    assert "'adopt' if compose_deploy_resume" in compose_deploy_playbook
-    assert "compose_deploy_expected_owner_sha256" in compose_deploy_playbook
     assert "Restrict Compose deployment resume to the exact interrupted Calibre transaction" in compose_deploy
     assert "compose_deploy_dependency_args" not in compose_deploy
     assert "current-artifact.sha256" in compose_rollback
@@ -2091,11 +2094,6 @@ def main() -> None:
     assert "sorted(set(groups)) != [PROTON_ID]" in initialization_helper
     assert "finalize-owner-bound-restic-repository-initialization" in initialization_finalize
     assert "apply_lock_expected_owner_sha256" in initialization_finalize
-
-    restic_documentation = (ROOT / "docs/restic-backups.md").read_text()
-    assert "iac_failed_lock_expected_operation=restic_backup" in restic_documentation
-    assert "operation-specific owner lock must remain until exact R2 evidence authorizes finalize" in restic_documentation
-    assert "Proton Trash cleanup are forbidden recovery actions" in restic_documentation
 
     foundation = (ROOT / "infrastructure/tofu/aws-foundation/main.tf").read_text()
     state_manifest = json.loads((ROOT / "infrastructure/tofu/aws-foundation/state-objects.json").read_text())

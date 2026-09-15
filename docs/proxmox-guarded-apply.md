@@ -1,15 +1,16 @@
 # Proxmox guarded apply
 
-> **Historical protocol reference, not current apply authority.** The accepted
-> [Ansible ADR](adr/0001-ansible-host-lifecycle.md) supersedes the Nix ownership
-> described below. The [neutral controller](local-controller.md) does not invoke
-> these Nix stages; its capability installation and live acceptance are still
-> gated. Retain this protocol for reviewed rollback/external-consumer evidence,
-> not as an alternative enabled writer.
+> **Historical recovery protocol, not current apply authority.** Native SSH/become
+> adoption supersedes the old controller policies. Retain these exact session
+> status/rollback instructions for installed assets; see [recovery](../recovery/README.md).
+> The universal launchers are removed. This is not an alternative enabled writer.
 
 ## Retained pre-transfer protocol
 
-Protocol v4 is the Proxmox host production authority after the local Nix bootstrap. `scripts/local-controller plan` runs the fixed Nix host planner, binds the exact ready plan SHA-256, repository-relative path, file SHA-256, and action count into the saved controller manifest, and displays the canonical plan for review. Apply verifies those bindings and consumes that same plan through `prepare` and `apply`; it never replans. Steady runs guarded Nix before Proxmox OpenTofu. Recovery remains a separate procedure that must restore Debian authority before Compose activation. Final verification requires a fresh zero-action Nix host plan.
+Protocol v4 below describes the pre-transfer Nix host session mechanism. New mutation
+through this legacy protocol is not the supported native direction. Retained sessions
+may still require its exact status/rollback behavior; source deletion does not
+close their journals or retire installed transports.
 
 ```sh
 nix run --no-update-lock-file --no-write-lock-file 'path:./nix#proxmox-host' -- apply \

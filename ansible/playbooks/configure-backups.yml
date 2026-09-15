@@ -1,0 +1,23 @@
+---
+# Existing-host configuration only: no bootstrap, activation or backup execution.
+- name: Configure the adopted backup tools runtime files and systemd definitions
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  tasks:
+    - name: Converge pinned tools only when compatible with installed backup policy
+      ansible.builtin.import_role:
+        name: restic_backup
+        tasks_from: tools-native
+    - name: Preserve the existing confined backup account
+      ansible.builtin.import_role:
+        name: restic_backup
+        tasks_from: identity-native
+    - name: Adopt existing same-content Restic runtime files
+      ansible.builtin.import_role:
+        name: restic_backup
+        tasks_from: runtime-native
+    - name: Configure existing Restic units without changing active or enabled state
+      ansible.builtin.import_role:
+        name: restic_backup
+        tasks_from: systemd

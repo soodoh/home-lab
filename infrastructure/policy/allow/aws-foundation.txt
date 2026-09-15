@@ -1,6 +1,6 @@
 # Reviewed state and recovery foundation resources. Deletion remains forbidden.
 # Managed IAM OIDC ownership is forbidden independently of this allowlist.
-# See docs/shared-oidc-ownership.md; data-only lookups do not grant ownership.
+# See docs/decisions.md; data-only lookups do not grant ownership.
 aws_s3_bucket.state
 aws_s3_bucket_versioning.state
 aws_s3_bucket_server_side_encryption_configuration.state

@@ -21,6 +21,20 @@ const sharedRoles = ["sops_age", "restic_backup"];
 const roles = [...sharedRoles, "tailscale"];
 const mains = Object.fromEntries(roles.map((r) => [r, yaml(`ansible/roles/${r}/tasks/main.yml`)]));
 const tools = Object.fromEntries(roles.map((r) => [r, yaml(`ansible/roles/${r}/tasks/tools.yml`)]));
+// Expand only the fixed shared installer seam; both callers retain their guards.
+const resticInstaller = yaml("ansible/roles/restic_backup/tasks/tools-install.yml");
+function expandResticInstaller(tasks) {
+  assert.equal(tasks.at(-1)["ansible.builtin.import_tasks"], "tools-install.yml");
+  assert(!tasks.slice(0, -1).some((t) => t["ansible.builtin.import_tasks"]));
+  return [...tasks.slice(0, -1), ...resticInstaller];
+}
+tools.restic_backup = expandResticInstaller(tools.restic_backup);
+const nativeTools = expandResticInstaller(yaml("ansible/roles/restic_backup/tasks/tools-native.yml"));
+const nativeHost = yaml("ansible/inventory/host_vars/docker-host.yml");
+assert(!JSON.stringify(nativeTools).includes("backups."));
+assert(!JSON.stringify(nativeTools).includes("lifecycle_contract_host"));
+assert(!JSON.stringify(nativeTools).includes("lookup("));
+for (const t of nativeTools.filter((t) => t["ansible.builtin.slurp"] || t.vars?.desired_tools)) assert.equal(t.no_log, true);
 const tailscaleExtractor = tools.tailscale.flatMap((task) => task.block || [])
   .find((task) => task.name === "Extract only both regular Tailscale tool members")["ansible.builtin.command"].argv;
 // Fail before fixture creation or Ansible dispatch if actual source startup drifts.
@@ -43,7 +57,8 @@ assert.deepEqual(resticExtractors.rclone.slice(6), ["{{ restic_backup_workspace.
 const sopsAliases = ["sops_version", "sops_download_url", "sops_sha256", "age_version", "age_download_url",
   "age_archive_sha256", "age_binary_sha256", "age_keygen_binary_sha256"];
 const resticAliases = ["restic_version", "restic_download_url", "restic_archive_sha256", "restic_binary_sha256",
-  "rclone_version", "rclone_download_url", "rclone_archive_sha256", "rclone_binary_sha256"];
+  "rclone_version", "rclone_download_url", "rclone_archive_sha256", "rclone_binary_sha256",
+  "restic_version_output", "rclone_version_output"];
 const tailscaleAliases = ["tailscale_client_path", "tailscale_client_sha256", "tailscale_daemon_path",
   "tailscale_daemon_sha256", "tailscale_expected_version"];
 const tailscalePin = contract.tailscale.docker_host_client;
@@ -69,10 +84,11 @@ for (const tool of ["sops", "age"]) {
 assert(!validateTools({ ...contract.debian.tools, automatic_install: true }));
 
 // The production callers and admission/lock order stay intact. Only the three
-// tool imports plus storage declarations are inactive; full roles retain their production gate.
+// tool imports plus storage/Docker/Compose declarations are inactive; full roles retain their production gate.
 for (const role of site.roles.filter((r) => r.role !== "base")) assert.equal(role.when, "lifecycle_profile == 'production'");
 assert.deepEqual(site.tasks.map((t) => t["ansible.builtin.import_role"]),
-  [...roles.map((name) => ({ name, tasks_from: "tools" })), { name: "storage", tasks_from: "inactive" }]);
+  [...roles.map((name) => ({ name, tasks_from: "tools" })),
+    ...["storage", "docker", "compose"].map((name) => ({ name, tasks_from: "inactive" }))]);
 for (const task of site.tasks) {
   assert.equal(task.when, "lifecycle_profile in ['inert', 'recovery']");
   assert.deepEqual(task.tags, [task["ansible.builtin.import_role"].name]);
@@ -91,7 +107,7 @@ assert.equal(mains.restic_backup[3]["ansible.builtin.import_tasks"], "tools.yml"
 assert.equal(mains.restic_backup[4].name, "Inspect fixed restic-proton identity targets");
 
 const pure = new Set(["assert", "set_fact", "debug", "import_tasks"]);
-const effects = new Set(["stat", "get_url", "tempfile", "unarchive", "copy", "file", "command"]);
+const effects = new Set(["stat", "slurp", "get_url", "tempfile", "unarchive", "copy", "file", "command"]);
 function adapt(tasks) {
   return tasks.map((source) => {
     const t = structuredClone(source);
@@ -123,6 +139,7 @@ const selectedMains = { sops_age: mains.sops_age, restic_backup: mains.restic_ba
   tailscale: [{ name: "Production Tailscale dispatch witness only", "ansible.builtin.debug": { msg: "production body not executed" } }] };
 const adaptedTools = Object.fromEntries(roles.map((r) => [r, adapt(tools[r])]));
 const adaptedMains = Object.fromEntries(roles.map((r) => [r, adapt(selectedMains[r])]));
+const adaptedNativeTools = adapt(nativeTools);
 for (const module of ["shell", "service", "include_role", "uri", "unknown"]) {
   assert.throws(() => adapt([{ name: "unreviewed", [`ansible.builtin.${module}`]: {} }]), assert.AssertionError);
 }
@@ -213,8 +230,8 @@ for kind in kinds:
   assert.deepEqual(fs.readdirSync(path.join(localRoot, "poison")), ["tarfile.py"], "bytecode must remain absent");
   console.log("tailscale_extractor_local_stdlib=verified cases=10 isolated_source_argv=true poison_counterfactual=verified native_installation=false");
 
-  // Shared Restic source gets only startup isolation changes. These four local
-  // cases exercise its actual programs, not guest installation or archive policy.
+  // These four local cases exercise the shared Restic extractor programs, not
+  // guest installation or the modeled archive/hash refusal cases below.
   for (const [name, sourceArgv] of Object.entries(resticExtractors)) {
     const toolRoot = path.join(localRoot, name);
     for (const d of ["", "poison", "home", "tmp", "archives", "outputs"])
@@ -294,9 +311,10 @@ else:
     write(`roles/${r}/tasks/main.yml`, adaptedMains[r]);
     write(`roles/${r}/tasks/tools.yml`, adaptedTools[r]);
   }
+  write("roles/restic_backup/tasks/tools-native.yml", adaptedNativeTools);
   // This adapter never calls _execute_module, a connection, a subprocess, an
   // artifact URL or any tool path. Paths below describe only JSON model keys.
-  write("action_plugins/tool_witness.py", `import json
+  write("action_plugins/tool_witness.py", `import base64, json
 from ansible.plugins.action import ActionBase
 
 PINS = ${JSON.stringify({ ...paths, ...tailscalePaths })}
@@ -331,7 +349,11 @@ class ActionModule(ActionBase):
             if state.get('refuse_admission') == args['name']:
                 return dict(failed=True, msg='synthetic admission refused')
             return result
-        if module == 'stat':
+        if module == 'slurp':
+            assert args == dict(src='/etc/home-lab/restic-policy.json')
+            policy = state.get('policy', dict(tools={name: TOOLS[name] for name in ['restic', 'rclone']}))
+            result['content'] = base64.b64encode(json.dumps(policy).encode()).decode()
+        elif module == 'stat':
             target = args['path']
             if target == '/fixture/recovery-identity':
                 assert args == dict(path=target)
@@ -340,6 +362,12 @@ class ActionModule(ActionBase):
                 assert args == dict(path=target, follow=False, get_checksum=False)
                 result['stat'] = state.get('parents', {}).get(target, dict(exists=True, isdir=True, islnk=False,
                     pw_name='root', gr_name='root', mode='1777' if target == '/var/tmp' else '0755'))
+            elif target in state['extracted'] and '/restic-tools-' in target:
+                assert args == dict(path=target, checksum_algorithm='sha256', follow=False)
+                name = target.rsplit('/', 1)[1]
+                result['stat'] = binary(TOOLS[name]['installed_sha256'])
+                if state.get('staged_target') == name:
+                    result['stat'].update(state['staged_drift'])
             elif target in state['extracted'] and '/tailscale-tools-' in target:
                 assert args == dict(path=target, checksum_algorithm='sha256', follow=False)
                 name = target.rsplit('/', 1)[1]
@@ -451,7 +479,8 @@ class ActionModule(ActionBase):
   assert.equal(version.status, 0, `Existing Ansible required; no install/skip: ${version.error || version.stderr}`);
   console.log(version.stdout.split("\n")[0]);
   const platform = { system: "Linux", architecture: "x86_64", distribution: "Debian",
-    distribution_major_version: contract.debian.version, distribution_release: contract.debian.release };
+    distribution_major_version: contract.debian.version, distribution_release: contract.debian.release,
+    python: { version: { major: 3 } } };
   const variables = {
     lifecycle_profile: "inert", lifecycle_contract_host: "debian", ansible_python_interpreter: "/usr/bin/python3",
     debian: { version: contract.debian.version, release: contract.debian.release, tools: contract.debian.tools },
@@ -470,8 +499,9 @@ class ActionModule(ActionBase):
     t.tool_witness = { module: "admission", arguments: { name: task.name } };
     return t;
   };
-  function run(label, { profile = "inert", tag, state = fresh(), extra = {}, facts = platform, check = false, directTools = false } = {}) {
-    const vars = { ...variables, lifecycle_profile: profile };
+  function run(label, { profile = "inert", tag, state = fresh(), extra = {}, facts = platform, check = false, directTools = false, native = false } = {}) {
+    // No legacy variables/admission tasks enter native tests.
+    const vars = native ? { ...nativeHost, ansible_python_interpreter: "/usr/bin/python3" } : { ...variables, lifecycle_profile: profile };
     if (profile === "production") {
       vars.compose_age_identity_path = "/fixture/recovery-identity";
       vars.backups = { restic: { tools: contract.backups.restic.tools, repositories: {
@@ -484,9 +514,9 @@ class ActionModule(ActionBase):
     write("play.yml", [{ name: "Selected site tools dispatch with synthetic effects", hosts: "fixture-debian",
       gather_facts: false, become: false, vars,
       pre_tasks: [{ name: "Seed synthetic platform", tool_witness: { module: "fixture_facts", arguments: facts }, tags: ["always"] },
-        ...site.pre_tasks.map(admission)],
-      roles: directTools ? [] : site.roles.filter((r) => roles.includes(r.role)),
-      tasks: directTools ? [{ "ansible.builtin.import_role": { name: "tailscale", tasks_from: "tools" }, tags: ["tailscale"] }] : site.tasks.filter((t) => roles.includes(t["ansible.builtin.import_role"].name)), post_tasks: site.post_tasks.map(admission),
+        ...(native ? [] : site.pre_tasks.map(admission))],
+      roles: native || directTools ? [] : site.roles.filter((r) => roles.includes(r.role)),
+      tasks: native ? [{ "ansible.builtin.import_role": { name: "restic_backup", tasks_from: "tools-native" } }] : directTools ? [{ "ansible.builtin.import_role": { name: "tailscale", tasks_from: "tools" }, tags: ["tailscale"] }] : site.tasks.filter((t) => roles.includes(t["ansible.builtin.import_role"].name)), post_tasks: native ? [] : site.post_tasks.map(admission),
     }]);
     write("extra.json", extra);
     write("state.json", state);
@@ -496,7 +526,7 @@ class ActionModule(ActionBase):
     { cwd: fixture, env, encoding: "utf8", timeout: 30000 });
     const output = `${result.stdout || ""}${result.stderr || ""}`;
     const log = fs.readFileSync(path.join(fixture, "events.jsonl"), "utf8").trim();
-    const observed = { label, status: result.status, output, events: log ? log.split("\n").map(JSON.parse) : [],
+    const observed = { label, native, status: result.status, output, events: log ? log.split("\n").map(JSON.parse) : [],
       state: JSON.parse(fs.readFileSync(path.join(fixture, "state.json"), "utf8")) };
     const id = String(++runs).padStart(3, "0");
     write(`runs/${id}.json`, observed);
@@ -506,6 +536,11 @@ class ActionModule(ActionBase):
   function passed(r, noChange = false) {
     assert.equal(r.status, 0, `${r.label}: ${r.output}`);
     if (noChange) assert.match(r.output, /changed=0\s/, `${r.label}: ${r.output}`);
+    if (r.native) {
+      assert.equal(toolEvents(r)[0].module, "slurp");
+      assert(!r.events.some((e) => e.module === "admission"));
+      return;
+    }
     const names = r.events.map((e) => e.args.name);
     const acquire = names.indexOf(site.pre_tasks.at(-1).name), release = names.indexOf(site.post_tasks[0].name);
     assert(acquire >= 0 && release > acquire);
@@ -519,6 +554,74 @@ class ActionModule(ActionBase):
   const toolEvents = (r) => r.events.filter((e) => effects.has(e.module));
   const writes = (r) => toolEvents(r).filter((e) => ["get_url", "tempfile", "unarchive", "copy", "file"].includes(e.module));
   function beforeEffects(r) { refused(r); assert.deepEqual(toolEvents(r), []); }
+
+  // Native guard and drift behavior: real Ansible with synthetic module effects,
+  // not a native module install or live preview. No contract is in native vars.
+  const nativeRun = (label, options = {}) => run(`native ${label}`, { ...options, native: true });
+  for (const check of [false, true]) {
+    const exact = nativeRun("no drift", { state: converged(), check });
+    passed(exact, true); assert.deepEqual(exact.state, converged()); assert.deepEqual(writes(exact), []);
+    assert.equal(exact.events.filter((e) => e.module === "command").length, 2);
+    for (const target of ["/usr/local/bin/restic", "/usr/local/bin/rclone"]) {
+      for (const drift of [null, { checksum: "0".repeat(64) }, { mode: "0777" }]) {
+        const state = converged();
+        if (drift) Object.assign(state.binaries[target], drift); else delete state.binaries[target];
+        const r = nativeRun(`drift ${target} ${JSON.stringify(drift)}`, { state, check });
+        passed(r); assert.match(r.output, /changed=[1-9]/);
+        if (check) {
+          assert.deepEqual(r.state, state); assert.deepEqual(writes(r), []);
+          assert(!r.events.some((e) => e.module === "command"), "never execute drifted tools in check mode");
+        } else {
+          assert.deepEqual(r.state.binaries, converged().binaries);
+          assert.deepEqual(r.state.workspaces, []);
+          const staged = r.events.filter((e) => e.task.endsWith("Inspect both staged Restic tool checksums before installation"));
+          assert.equal(staged.length, 2);
+          assert(r.events.indexOf(staged[1]) < r.events.findIndex((e) => e.module === "copy"));
+        }
+      }
+      for (const unsafe of [{ islnk: true }, { nlink: 2 }]) {
+        const state = converged(); Object.assign(state.binaries[target], unsafe);
+        const r = nativeRun("unsafe destination", { state, check });
+        refused(r, /Refusing to replace/); assert.deepEqual(r.state, state); assert.deepEqual(writes(r), []);
+      }
+    }
+    for (const tool of ["restic", "rclone"]) {
+      for (const field of Object.keys(pins[tool])) {
+        const policy = { tools: structuredClone(contract.backups.restic.tools), unrelated: "NATIVE_POLICY_PRIVATE_MARKER" };
+        policy.tools[tool][field] = "mismatch";
+        const state = { ...converged(), policy };
+        const r = nativeRun(`policy mismatch ${tool}.${field}`, { state, check });
+        refused(r); assert.deepEqual(r.state, state);
+        assert.deepEqual(toolEvents(r).map((e) => e.module), ["slurp"], "policy refuses before any binary inspection or effect");
+        assert(!r.output.includes("NATIVE_POLICY_PRIVATE_MARKER"));
+      }
+    }
+    const unrelated = nativeRun("unrelated policy ignored", { check, state: { ...converged(),
+      policy: { tools: contract.backups.restic.tools, unrelated: "NATIVE_POLICY_PRIVATE_MARKER" } } });
+    passed(unrelated, true); assert(!unrelated.output.includes("NATIVE_POLICY_PRIVATE_MARKER"));
+    beforeEffects(nativeRun("opt-in absent", { check, extra: { restic_tools_existing_host: false } }));
+    beforeEffects(nativeRun("wrong platform", { check, facts: { ...platform, architecture: "aarch64" } }));
+    beforeEffects(nativeRun("wrong Python", { check, facts: { ...platform, python: { version: { major: 2 } } } }));
+    const missingPolicy = nativeRun("missing policy", { check, state: { ...fresh(),
+      failure: "Read the existing Restic runtime policy without exposing its contents" } });
+    refused(missingPolicy); assert.deepEqual(writes(missingPolicy), []);
+  }
+  for (const native of [false, true]) {
+    for (const staged_target of ["restic", "rclone"]) {
+      for (const staged_drift of [{ checksum: "0".repeat(64) }, { isreg: false }, { islnk: true }, { nlink: 2 }]) {
+        const r = run("staged Restic refusal", { native, ...(native ? {} : { tag: "restic_backup" }),
+          state: { ...fresh(), staged_target, staged_drift } });
+        refused(r, /no binary may be installed/);
+        assert(!r.events.some((e) => e.module === "copy"));
+        assert.deepEqual(r.state.binaries, {}); assert.deepEqual(r.state.workspaces, []);
+      }
+    }
+    for (const failure of ["Download the pinned Restic archive", "Download the pinned rclone archive"]) {
+      const r = run("modeled archive checksum failure", { native, ...(native ? {} : { tag: "restic_backup" }),
+        state: { ...fresh(), failure } });
+      refused(r); assert(!r.events.some((e) => e.module === "copy")); assert.deepEqual(r.state.workspaces, []);
+    }
+  }
 
   for (const profile of ["inert", "recovery", "production"]) {
     for (const tag of sharedRoles) {

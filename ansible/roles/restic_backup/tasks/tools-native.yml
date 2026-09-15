@@ -1,0 +1,49 @@
+---
+- name: Require the existing Debian amd64 Python 3 backup tools platform
+  ansible.builtin.assert:
+    that:
+      - restic_tools_existing_host | default(false) == true
+      - ansible_facts.system == 'Linux'
+      - ansible_facts.architecture == 'x86_64'
+      - ansible_facts.distribution == 'Debian'
+      - ansible_python_interpreter == '/usr/bin/python3'
+      - ansible_facts.python.version.major == 3
+    fail_msg: Native tool adoption requires an existing Debian amd64 backup host with Python 3.
+    quiet: true
+
+# The unchanged runner uses policy tool paths/version lines in preflight. Never
+# install incompatible pins or bootstrap/rewrite policy through this path.
+- name: Read the existing Restic runtime policy without exposing its contents
+  ansible.builtin.slurp:
+    src: /etc/home-lab/restic-policy.json
+  register: restic_backup_runtime_policy
+  no_log: true
+
+- name: Require native tool pins to match only the installed runtime policy tools
+  ansible.builtin.assert:
+    that:
+      - (restic_backup_runtime_policy.content | b64decode | from_json).tools == desired_tools
+    fail_msg: Tool pins must match installed runtime policy; upgrades require coordinated policy changes.
+    quiet: true
+  vars:
+    desired_tools:
+      restic:
+        version: "{{ restic_version }}"
+        architecture: linux_amd64
+        url: "{{ restic_download_url }}"
+        archive_sha256: "{{ restic_archive_sha256 }}"
+        installed_sha256: "{{ restic_binary_sha256 }}"
+        installed_path: /usr/local/bin/restic
+        version_output: "{{ restic_version_output }}"
+      rclone:
+        version: "{{ rclone_version }}"
+        architecture: linux_amd64
+        url: "{{ rclone_download_url }}"
+        archive_sha256: "{{ rclone_archive_sha256 }}"
+        installed_sha256: "{{ rclone_binary_sha256 }}"
+        installed_path: /usr/local/bin/rclone
+        version_output_prefix: "{{ rclone_version_output }}"
+  no_log: true
+
+- name: Install and verify shared pinned Restic tools
+  ansible.builtin.import_tasks: tools-install.yml

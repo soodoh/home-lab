@@ -12,7 +12,6 @@ CONTRACT = ROOT / "infrastructure/contract/home-lab.yml"
 PROVIDER = ROOT / "ansible/roles/proxmox_storage_lifecycle/tasks/main.yml"
 CONSUMER = ROOT / "ansible/roles/proxmox_storage_consumers/tasks/main.yml"
 PLAYBOOK = ROOT / "ansible/playbooks/proxmox-storage-plan.yml"
-DOC = ROOT / "docs/proxmox-storage-nfs-handoff.md"
 
 
 def main() -> None:
@@ -21,7 +20,6 @@ def main() -> None:
     provider = PROVIDER.read_text(encoding="utf-8")
     consumer = CONSUMER.read_text(encoding="utf-8")
     playbook = PLAYBOOK.read_text(encoding="utf-8")
-    documentation = DOC.read_text(encoding="utf-8")
 
     expected_pending = {"current_owner": "nix", "target_owner": "ansible", "state": "pending",
                         "parity_required": True, "single_writer": True}
@@ -53,10 +51,6 @@ def main() -> None:
     assert "proxmox_storage_lifecycle" in playbook
     assert "proxmox_storage_consumers" in playbook
     assert playbook.count("gather_facts: false") == 2
-    assert "Pool topology and disks should remain outside" not in documentation
-    assert "audit-only prerequisites" in documentation
-    assert "remains owned by OpenTofu/PVE API" in documentation
-    assert "must not share one authorization" in documentation
     print("proxmox_storage_lifecycle_tests=passed")
 
 

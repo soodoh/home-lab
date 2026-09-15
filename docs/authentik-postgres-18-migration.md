@@ -1,5 +1,12 @@
 # Authentik PostgreSQL 16 to 18 migration
 
+**Historical forward procedure: do not rerun on the current installation.**
+The September 14 observation found the running database using the PostgreSQL 18
+layout and the old PostgreSQL 16 directory retained. See [remaining acceptance and
+rollback checks](migrations.md#authentik-postgresql); observation did not verify
+functional acceptance or backup/restore integrity. Commands below describe the
+original cutover and its rollback constraints, not today's next action.
+
 ## Purpose
 
 The PostgreSQL 18 container cannot open the PostgreSQL 16 data directory directly. The official image also changed its persistent-data layout:
@@ -20,7 +27,7 @@ The dump and cold copy contain sensitive Authentik data. Keep them root-only and
 
 ## Deployment boundary
 
-Stage and review the exact committed Compose artifact through the normal repository-driven deployment flow, but do **not** converge the PostgreSQL service yet. The active artifact must still describe PostgreSQL 16 while the staged candidate describes PostgreSQL 18.
+This retained procedure is not authorized for execution by source simplification. First qualify and separately approve artifact staging/publication; there is no supported general deployment entrypoint today. Stage and review the exact committed Compose artifact, but do **not** converge the PostgreSQL service yet. The active artifact must still describe PostgreSQL 16 while the staged candidate describes PostgreSQL 18.
 
 Run the migration on the Docker host as root. Substitute the reviewed candidate artifact hash below:
 
@@ -266,7 +273,7 @@ Complete these functional checks before publishing the candidate as current:
 - confirm PostgreSQL, server, and worker logs contain no restore or migration errors; and
 - verify Home Assistant remains healthy after Authentik returns.
 
-Once these checks pass, run the existing protected `steady` apply for this exact committed candidate. Because the containers already match the candidate, the repeated Compose action plan must propose no further PostgreSQL recreation before the artifact is promoted to `/srv/docker-compose/current`.
+Once these checks pass, publication still requires a separately reviewed artifact-promotion procedure; the old `steady` controller apply is removed. The candidate must propose no further PostgreSQL recreation before promotion to `/srv/docker-compose/current`. Do not begin this migration until that publication boundary is resolved.
 
 ## Rollback before candidate promotion
 

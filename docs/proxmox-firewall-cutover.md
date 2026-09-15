@@ -4,11 +4,11 @@
 
 This document defines the required transaction for the one-time Proxmox firewall cutover. It is a reviewed design only. It does not authorize installation or live activation.
 
-Controller-side Nix is the Proxmox host production authority. Trusted human operators and local root remain inside the host trust boundary; a malicious root operator can always bypass PVE, systemd, SSH, and helper controls, and this design does not claim otherwise. The firewall transaction remains an isolated fixed PVE API/CLI authority so unrelated host actions cannot leave a newly enabled default-deny firewall active after failure.
+The surrounding controller architecture is retired; this retained autonomous firewall/recovery protocol has not been replaced by native adoption. Trusted human operators and local root remain inside the host trust boundary; a malicious root operator can always bypass PVE, systemd, SSH, and helper controls, and this design does not claim otherwise. The firewall transaction remains an isolated fixed PVE API/CLI authority so unrelated host actions cannot leave a newly enabled default-deny firewall active after failure.
 
 The existing ordinary template write to `/etc/pve/firewall/cluster.fw` must be retired before execution. `/etc/pve` remains PVE API/CLI-owned. All firewall reads and mutations use fixed `pvesh` commands; no helper opens, writes, renames, or unlinks a path below `/etc/pve`.
 
-Current live qualification has established a disabled firewall, default options that differ from the contract, and zero cluster rules. The desired terminal policy is:
+Historical pre-cutover qualification observed a disabled firewall, default options differing from the contract, and zero cluster rules; this is not current installed state. The desired terminal policy is:
 
 - firewall enabled;
 - inbound default `DROP`;

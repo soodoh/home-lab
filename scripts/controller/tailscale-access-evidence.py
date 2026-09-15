@@ -2,7 +2,7 @@
 """Offline imported content diagnostic; never access evidence or admission authority.
 
 Invoke directly (fixed isolated shebang), or /usr/bin/python3 -I -B -S SCRIPT ... .
-See docs/proxmox-controller-capability-candidate.md for bounds and exclusions.
+See docs/decisions.md for bounds and exclusions.
 """
 from __future__ import annotations
 

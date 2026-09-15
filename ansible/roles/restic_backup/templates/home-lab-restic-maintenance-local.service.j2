@@ -1,6 +1,6 @@
 [Unit]
 Description=Home Lab Restic monthly local maintenance
-RequiresMountsFor={{ backups.restic.repositories.games.mountpoint }} {{ backups.restic.repositories.nfs.mountpoint }}
+RequiresMountsFor={{ restic_systemd.games_mountpoint }} {{ restic_systemd.nfs_mountpoint }}
 After=network-online.target
 Before=home-lab-restic-maintenance-proton.service
 
@@ -10,11 +10,11 @@ User=root
 Group=root
 UMask=0027
 Environment=HOME_LAB_RESTIC_MAINTENANCE_SCOPE=local
-ExecStart={{ backups.restic.runner.path }} maintenance
+ExecStart={{ restic_systemd.runner_path }} maintenance
 TimeoutStartSec=12h
 KillSignal=SIGINT
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=read-only
 ProtectSystem=strict
-ReadWritePaths={{ backups.restic.repositories.games.mountpoint }}/restic {{ backups.restic.repositories.nfs.mountpoint }}/restic /var/lib/home-lab-restic /var/cache/home-lab-restic {{ backups.restic.runner.lock_path }}
+ReadWritePaths={{ restic_systemd.games_mountpoint }}/restic {{ restic_systemd.nfs_mountpoint }}/restic /var/lib/home-lab-restic /var/cache/home-lab-restic {{ restic_systemd.lock_path }}

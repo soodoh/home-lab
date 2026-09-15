@@ -27,31 +27,6 @@ capability = load('proxmox-controller-observer-capability')
 
 
 class ControllerCapabilityTests(unittest.TestCase):
-    def test_actual_attestation_producer_to_capability_consumer(self):
-        access, now = self.access_fixture()
-        path = ROOT / 'scripts/controller/proxmox-access-evidence.py'
-        producer = types.ModuleType('fixture_access_producer'); producer.__file__ = str(path)
-        exec(compile(path.read_bytes(), str(path), 'exec'), producer.__dict__)
-        draft = {key: copy.deepcopy(value) for key, value in access.items() if key not in ('format', 'draft_sha256', 'console_attested_at')}
-        draft.update(format='home-lab-proxmox-access-evidence-draft-v1', authorized=False)
-        draft['proofs']['console'] = {'attested': False}
-        class Clock(capability.dt.datetime):
-            @classmethod
-            def now(cls, tz=None): return now
-        with tempfile.TemporaryDirectory() as temp:
-            directory = Path(temp); raw = producer.canonical(draft); digest = producer.sha(raw)
-            draft_path = directory / (digest + '.draft.json'); draft_path.write_bytes(raw); draft_path.chmod(0o600)
-            with patch.object(producer, 'OUTPUT', directory), patch.object(producer, 'datetime', Clock), \
-                    patch.object(producer, 'clean_pushed_commit', return_value='a'*40), \
-                    patch.object(producer, 'file_sha', side_effect=lambda path: 'b'*64 if path.name == 'home-lab.yml' else 'c'*64), \
-                    patch.object(producer, 'print', create=True), \
-                    patch.dict(os.environ, {'PROXMOX_CONSOLE_ATTESTATION_CONFIRMED': 'attest-proxmox-physical-console-' + digest}):
-                producer.attest(draft_path)
-            receipt_path = next(path for path in directory.iterdir() if not path.name.endswith('.draft.json'))
-            receipt, receipt_raw = capability.private(receipt_path)
-            capability.validate_access(receipt, receipt_raw, 'a'*40, 'b'*64, 'c'*64, now)
-            self.assertEqual(receipt['draft_sha256'], digest)
-
     def test_admission_uses_captured_bindings_and_exact_private_receipts(self):
         access, now = self.access_fixture()
         backup = {'format': 'home-lab-proxmox-reboot-backup-attestation-v1', 'commit': 'a'*40,
@@ -172,11 +147,6 @@ class ControllerCapabilityTests(unittest.TestCase):
                                        now + capability.dt.timedelta(hours=1))
         with self.assertRaises(ValueError): validate(value, capability.canonical(value) + b' ')
         with self.assertRaises(ValueError): validate(value, b' ' * 262145)
-        tree = ast.parse((ROOT / 'scripts/controller/proxmox-access-evidence.py').read_text())
-        producer = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == 'root_key_evidence')
-        catalog = next(node.value for node in producer.body if isinstance(node, ast.Assign) and
-                       any(isinstance(target, ast.Name) and target.id == 'attributed' for target in node.targets))
-        self.assertEqual(capability.ACCESS_ATTRIBUTIONS, ast.literal_eval(catalog))
         record = {'bits': 256, 'fingerprint': next(iter(capability.ACCESS_ATTRIBUTIONS)), 'comment': 'fixture', 'type': 'ED25519'}
         known = copy.deepcopy(value)
         known['proofs']['root_keys'].update(records=[record], total_count=1, attributed_count=1)

@@ -145,11 +145,6 @@ assert.deepEqual(policy.retire_root_supplementary_groups, ["apex"]);
 assert.equal(policy.root_key_attributions["SHA256:/qSECkXxkpCIjTkBwa8XZZdRW2/seScon5uAKGlLC80"], "obsolete-proxmox-root-identity");
 assert.equal(policy.root_key_attributions["SHA256:SNH3GBfBBvbkycl78DbrIjbaC0rJxkvue+KF9qhpXrs"], "obsolete-proxmox-root-identity");
 
-const accessEvidence = read("scripts/controller/proxmox-access-evidence.py");
-for (const required of ["PROXMOX_CONSOLE_ATTESTATION_CONFIRMED", "StrictHostKeyChecking=yes", "live_plan_noop", "root_keys", "os.O_EXCL", "os.O_NOFOLLOW", "SHA256:/qSECkXxkpCIjTkBwa8XZZdRW2/seScon5uAKGlLC80", "SHA256:SNH3GBfBBvbkycl78DbrIjbaC0rJxkvue+KF9qhpXrs"]) {
-  assert(accessEvidence.includes(required), `access evidence capture omits ${required}`);
-}
-assert(!accessEvidence.includes("StrictHostKeyChecking=no"));
 const readinessSource = read("scripts/controller/proxmox-access-readiness.js");
 for (const required of ["home-lab-proxmox-access-evidence-v1", "planProxmoxAccessCutover", "receipt_sha256", "live_evidence_sha256", "O_EXCL"]) {
   assert(readinessSource.includes(required), `access readiness planner omits ${required}`);

@@ -1,0 +1,22 @@
+---
+# Shared declarations; callers establish whether creation or existing-host adoption is allowed.
+- name: Create confined restic-proton group
+  ansible.builtin.group:
+    name: restic-proton
+    gid: "{{ restic_proton_gid }}"
+    system: true
+    state: present
+
+- name: Create confined restic-proton user
+  ansible.builtin.user:
+    name: restic-proton
+    uid: "{{ restic_proton_uid }}"
+    group: restic-proton
+    groups: []
+    append: false
+    create_home: false
+    home: /var/lib/restic-proton
+    shell: /usr/sbin/nologin
+    password_lock: true
+    system: true
+    state: present

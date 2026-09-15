@@ -1,26 +1,56 @@
-# Repository Guidelines
+# Repository work
 
-## Project Structure & Module Organization
-This repository is a Docker Compose monorepo for a home server. The root [`docker-compose.yml`](./docker-compose.yml) is the entrypoint and merges the stack files in `services/*.yml` via Compose `include`. Each file groups related services, for example `services/infra.yml`, `services/servarr.yml`, and `services/hass.yml`. Runtime config and helper assets live under `services/data/`, including the shared [`services/data/Caddyfile`](./services/data/Caddyfile) and Gluetun hook scripts in `services/data/gluetun/`.
+## Start here
 
-## Build, Test, and Development Commands
-Use Docker Compose from the repo root so `.env` is loaded automatically.
+- For host, provider, deployment or validation work, read [operations](docs/operations.md).
+- For backup, secrets, rollback or storage changes, read [recovery](recovery/README.md).
+- For database, access or resource adoption, read [migrations](docs/migrations.md).
+- Before retiring helpers or changing ownership, read [decisions](docs/decisions.md) and trace callers, installers and recovery consumers together.
 
-- `docker compose config` validates and renders the merged configuration.
-- `docker compose up -d` starts every stack.
-- `docker compose up -d jellyfin` starts or updates a single service.
-- `docker compose logs -f caddy` tails logs for one service.
-- `docker compose pull` refreshes container images before deployment.
-- `bunx commitlint --edit .git/COMMIT_EDITMSG` checks a commit message manually.
+## Current boundary
 
-## Coding Style & Naming Conventions
-Compose files use two-space YAML indentation. Keep services grouped by domain in the existing `services/*.yml` files instead of creating one file per container. Reuse YAML anchors for shared settings such as logging and backup env blocks when possible. Prefer lowercase, hyphenated names for files, service IDs, container names, volumes, and networks. Keep helper scripts in `services/data/` executable and narrowly scoped.
+This is an OpenTofu/Ansible/Compose repository in an incremental native-tool transition.
+Native read-only observation uses `ansible/inventory/hosts.yml` and
+`ansible/playbooks/observe-hosts.yml` over existing Tailscale SSH/become. The narrow
+`update-policy.yml` owns manual-install policy; `configure-backups.yml` now adopts
+the same pinned Restic/rclone tools, confined service account and nine existing unit
+definitions, plus same-content runner/input metadata. The full path passed a
+zero-change live preview; source bytes and scope must match installed policy.
+Missing accounts or UID/GID drift fail before account changes.
+Native pins must match installed
+runtime-policy tools before effects; upgrades require
+coordinated policy changes, not independent pin bumps. Enabled/active states remain
+untouched. Broader adoption is pending; there is no general deploy command.
+Surviving legacy playbooks may mutate hosts even under check mode; inspect them
+before invocation. Source deletion does not retire installed helpers or timers.
 
-## Testing & Validation Guidelines
-There is no automated unit test suite here; validation is configuration-focused. Run `docker compose config` after every change and start the affected service with `docker compose up -d <service>` when practical. For routing or VPN-related edits, inspect logs with `docker compose logs -f <service>` to confirm the container boots cleanly and expected ports or hooks are applied.
+Preserve service images, project/volume names, storage identities, HCL addresses,
+imports, firewall behavior and backup scope unless that change is explicitly approved.
+Keep `.local`, `.reconcile`, `.terraform`, state, credentials, journals, locks and
+recovery bundles intact. Never clear locks or disable watchdogs to pass a check.
 
-## Commit & Pull Request Guidelines
-Commits follow Conventional Commits, for example `feat: add vikunja` or `fix: remove env var`. `lefthook` runs `commitlint` on `commit-msg`, so keep commit subjects short and formatted correctly. Pull requests should describe the operational impact, list changed services or networks, note any required `.env` additions, and include relevant log snippets or screenshots when a UI or reverse-proxy route changes.
+## Layout and editing
 
-## Security & Configuration Tips
-Do not commit secrets from `.env`, `.authentik.env`, or `.openfit.env`. Treat image tag bumps, port changes, and network edits as production changes: review exposed ports, VPN routing, backup labels, and persistent volume mappings before merging.
+- `docker-compose.yml` includes domain-grouped `services/*.yml`; runtime hooks and app config live in `services/data/`.
+- `infrastructure/tofu/` contains separate provider roots and locks.
+- `ansible/` contains inventories, variables, roles and retained migration/recovery plays.
+- `infrastructure/contract/` still feeds legacy consumers; change those dependencies together rather than rewriting hashes to admit a change.
+- `scripts/` contains local tests and surviving runtime/recovery helpers. Tests are not all read-only: inspect their subprocesses and fixtures first.
+
+Use two-space YAML indentation and existing domain groupings. Keep executable helper
+modes. Prefer native tool definitions and narrow runtime helpers over new launchers,
+transaction manifests or receipt frameworks. CLAUDE.md remains an alias here.
+
+## Verify and report
+
+Run safe focused local tests for changed helpers, parse changed YAML, check local
+Markdown links, and run `docker compose config --quiet` without rendering secrets.
+Use `tofu fmt -check` for HCL edits. The documented native observation playbook is
+read-only; provider init/plan, other live Ansible plays, Docker up/pull and restore
+require separate operational authority. Installing missing
+tools is not implicit validation permission. Report missing tools and failed checks.
+
+Never print decrypted SOPS data, resolved Compose config, state or saved plans.
+Report changed/deleted files, tests/commands and outcomes, retained dependencies and
+operational blockers. Follow Conventional Commits when a commit is requested;
+staging, committing and pushing require authorization.

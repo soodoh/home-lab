@@ -1,0 +1,49 @@
+---
+- name: Observe hosts through native Ansible without changing configuration
+  hosts: home_lab
+  gather_facts: false
+  tasks:
+    - name: Gather selected operating system facts without environment variables
+      ansible.builtin.setup:
+        gather_subset:
+          - '!all'
+          - '!min'
+          - distribution
+          - kernel
+          - python
+          - service_mgr
+
+    - name: Read the effective privileged identity
+      ansible.builtin.command:
+        argv: [/usr/bin/id, -u]
+      register: observed_uid
+      changed_when: false
+      check_mode: false
+
+    - name: Verify native privilege escalation
+      ansible.builtin.assert:
+        that:
+          - observed_uid.stdout == '0'
+        fail_msg: Native host observation requires the reviewed sudo access.
+
+    - name: Gather service state without contacting application sockets
+      ansible.builtin.service_facts:
+
+    - name: Summarize the observed host
+      ansible.builtin.debug:
+        msg:
+          distribution: "{{ ansible_facts.distribution }}"
+          version: "{{ ansible_facts.distribution_version }}"
+          kernel: "{{ ansible_facts.kernel }}"
+          python: "{{ ansible_facts.python.executable }}"
+          service_manager: "{{ ansible_facts.service_mgr }}"
+          effective_uid: "{{ observed_uid.stdout }}"
+          services: >-
+            {{ ansible_facts.services | dict2items |
+               selectattr('key', 'in', [
+                 'ssh.service', 'tailscaled.service', 'docker.service',
+                 'chrony.service', 'unattended-upgrades.service',
+                 'home-lab-restic-daily-local.service',
+                 'home-lab-restic-daily-proton.service',
+                 'proxmox-firewall.service', 'pve-firewall.service'
+               ]) | items2dict }}

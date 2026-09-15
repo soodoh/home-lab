@@ -77,6 +77,5 @@ python3 -m py_compile "$repo_root/scripts/compose-recovery-plan.py" "$repo_root/
 "$repo_root/scripts/test-restic-recovery-bundle"
 "$repo_root/scripts/test-restic-activation-fixture"
 "$repo_root/scripts/test-restic-recovery-vm"
-grep -q 'restore-critical-backup --restic-snapshot-id' "$repo_root/recovery/README.md"
 grep -q '^recovery_restic_snapshot_id:' "$repo_root/recovery/extra-vars.example.yml"
 echo "recovery tool safety fixtures passed"

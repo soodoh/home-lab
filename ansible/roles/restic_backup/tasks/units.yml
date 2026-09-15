@@ -1,0 +1,11 @@
+---
+# Render-only seam shared with legacy convergence; activation belongs to the caller.
+- name: Install Restic systemd unit definitions
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ restic_systemd_unit_names }}"
+  register: restic_backup_units

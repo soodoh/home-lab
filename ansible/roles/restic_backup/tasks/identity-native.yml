@@ -1,0 +1,30 @@
+---
+- name: Require the fixed confined Restic identity
+  ansible.builtin.assert:
+    that:
+      - restic_proton_uid == 60000
+      - restic_proton_gid == 60000
+    fail_msg: Native adoption preserves the existing confined UID/GID 60000.
+    quiet: true
+
+- name: Read the existing confined Restic account and group
+  ansible.builtin.getent:
+    database: "{{ item }}"
+    key: restic-proton
+    fail_key: true
+  loop:
+    - passwd
+    - group
+  no_log: true
+
+- name: Refuse account creation or numeric identity changes
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.getent_passwd['restic-proton'][1] | int == restic_proton_uid
+      - ansible_facts.getent_passwd['restic-proton'][2] | int == restic_proton_gid
+      - ansible_facts.getent_group['restic-proton'][1] | int == restic_proton_gid
+    fail_msg: The confined account and group must already have their fixed numeric identity.
+    quiet: true
+
+- name: Configure the existing confined Restic identity
+  ansible.builtin.import_tasks: identity.yml
