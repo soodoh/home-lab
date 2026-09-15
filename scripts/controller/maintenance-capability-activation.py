@@ -6,7 +6,6 @@ from protected_execution import acquire_transfer_lock
 ROOT=Path(__file__).resolve().parents[2]; OUTPUT=ROOT/".local/maintenance-capabilities"; LOCK=ROOT/".local/locks/maintenance-capability.lock"
 SOURCES={
  "package-identity":["infrastructure/maintenance/host/debian-package-apply-transport","infrastructure/maintenance/host/debian-package-transaction","infrastructure/maintenance/host/package-candidate-observer"],
- "unattended-retirement":["infrastructure/maintenance/host/unattended-retirement-observer","infrastructure/maintenance/host/unattended-retirement-transaction"],
  "debian-reboot":["infrastructure/maintenance/host/debian-reboot-transaction"],
 }
 def canonical(v): return (json.dumps(v,sort_keys=True,separators=(",",":"))+"\n").encode()
@@ -17,7 +16,7 @@ def commit():
  if c!=git("rev-parse","origin/main") or git("status","--porcelain=v1","--untracked-files=all"): raise SystemExit("capability plan requires clean pushed HEAD")
  return c
 def source_hashes(kind):
- names={"package-identity":["transport","executor","observer"],"unattended-retirement":["observer","executor"],"debian-reboot":["executor"]}[kind]
+ names={"package-identity":["transport","executor","observer"],"debian-reboot":["executor"]}[kind]
  return {name:sha((ROOT/path).read_bytes()) for name,path in zip(names,SOURCES[kind])}
 def save(kind):
  now=dt.datetime.now(dt.timezone.utc).replace(microsecond=0); material={"format":"home-lab-maintenance-capability-plan-v1","kind":kind,"host":"debian","commit":commit(),"contract_sha256":sha((ROOT/"infrastructure/contract/home-lab.yml").read_bytes()),"inventory_sha256":sha((ROOT/"ansible/inventory/production.yml").read_bytes()),"source_hashes":source_hashes(kind),"created_at":now.isoformat().replace("+00:00","Z"),"expires_at":(now+dt.timedelta(minutes=30)).isoformat().replace("+00:00","Z"),"authorized":False,"automatic_apply":False}

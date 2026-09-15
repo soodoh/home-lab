@@ -4,7 +4,7 @@
     that:
       - lifecycle_profile == 'production'
       - lifecycle_contract_host == 'debian'
-      - maintenance_capability_kind in ['package-identity', 'unattended-retirement', 'debian-reboot']
+      - maintenance_capability_kind in ['package-identity', 'debian-reboot']
       - maintenance_capability_plan_sha256 is match('^[0-9a-f]{64}$')
       - maintenance_capability_approved_sha256 == maintenance_capability_plan_sha256
       - maintenance_capability_source_hashes == maintenance_capability_expected_source_hashes
@@ -73,18 +73,3 @@
     group: root
     mode: '0755'
   when: maintenance_capability_kind == 'debian-reboot'
-
-- name: Install exact unattended retirement programs
-  become: true
-  ansible.builtin.copy:
-    dest: "{{ item.dest }}"
-    content: "{{ item.content }}"
-    owner: root
-    group: root
-    mode: '0755'
-  loop:
-    - dest: /usr/local/libexec/home-lab/unattended-retirement-observer
-      content: "{{ lookup('ansible.builtin.file', role_path + '/../../../infrastructure/maintenance/host/unattended-retirement-observer', rstrip=False) }}"
-    - dest: /usr/local/libexec/home-lab/unattended-retirement-transaction
-      content: "{{ lookup('ansible.builtin.file', role_path + '/../../../infrastructure/maintenance/host/unattended-retirement-transaction', rstrip=False) }}"
-  when: maintenance_capability_kind == 'unattended-retirement'

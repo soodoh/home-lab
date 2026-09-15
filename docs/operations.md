@@ -67,7 +67,35 @@ only `tailscale set --auto-update=false` when needed, and verifies the result. I
 check mode it reports the proposed CLI change without executing it. A successful
 preview is not an immutable transaction. A second actual run changed nothing on
 both hosts. This is not the old retirement policy that disabled all apt timers;
-legacy planners/bootstrap source are not authoritative for these adopted settings.
+legacy contract/bootstrap source are not authoritative for these adopted settings.
+
+### Superseded unattended-retirement source
+
+On September 15, 2026 at 20:41 UTC, separately approved read-only SSH/sudo checks
+on Debian `docker-host` found both `unattended-retirement-*` helpers absent from
+`/usr/local/libexec/home-lab/`, the `/var/lib/home-lab/unattended-retirement`
+plan/journal tree absent, and no retirement or production apply lock. No relevant
+held apt/retirement locks, retirement processes or systemd jobs were observed.
+A bounded scan of 433 systemd, cron and sudoers entries found no lane references.
+The running unattended-upgrades process was the normal shutdown-wait helper;
+it and its service were left alone. Effective apt values remained package-list
+updates `1`, unattended installation `0`; both apt timers were enabled/active.
+This is a scoped observation, not proof of historical nonexecution or exclusivity.
+
+The lane-only planner, test, planning playbook/role, observer and executor were
+removed, along with their shared-installer branches. Package/reboot capability
+installation and its guards remain; unsupported kinds are rejected before source
+lookup or apply-lock acquisition. Native `update-policy.yml` is unchanged.
+No host components were installed/uninstalled and no legacy lane was executed.
+
+The local plan `f6e231c4a7ba7ae3ec6826dfa310cc756ada05c7268f7b797f224fe902405578`
+(expired September 3, explicitly unauthorized), its historical logs and all other
+operational evidence remain intact. The contract's `unattended_upgrade_retirement`
+field and schema are retained as inert legacy data: surviving maintenance plans
+bind whole-contract hashes. They do not authorize disabling timers/list updates;
+no receipts or hashes were rewritten. Historical code remains in Git. An unexpected
+retained plan/journal on another host or restored system needs separate inspection
+and a recovery decision, not replay of the superseded policy.
 
 ## Backup unit definitions
 
