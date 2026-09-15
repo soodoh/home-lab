@@ -9,11 +9,14 @@ completed password-reset/authentication lane, quota diagnostic and one-off stage
 qualification supervisors. VM recovery remains: some exact lineages are completed
 or superseded, but others remain interrupted/unknown and installed consumers exist.
 
-No live mutation, credential change, Proton request, repository operation, recovery
-execution, provider initialization/plan, installed-file/resource deletion, commit
-or push was performed. All evidence, local journals/manifests, locks, bundles,
-credentials and state remain intact. Historical source is available in Git, not
-an instruction to replay old writers. No new cleanup framework was introduced.
+Those source passes performed no live mutation, credential change, Proton request,
+repository operation, recovery execution, provider initialization/plan,
+installed-file/resource deletion, commit or push. A subsequent, separately approved
+[host-artifact retirement](#approved-host-artifact-retirement) from repository
+baseline `9c41fd4` removed exactly two obsolete files on September 15, 2026.
+All evidence, local journals/manifests, locks, bundles, credentials and state remain
+intact. Historical source is available in Git, not an instruction to replay old
+writers. No new cleanup framework was introduced.
 
 ## Source retired in the initial pass
 
@@ -28,10 +31,11 @@ The live `/var/lib/restic-proton/migration-v2.json` now independently confirms
 and snapshot `e0ac47b09716b3a1632a9fce21ada5f53b82980ecce6723fa7a682b9117fc139`.
 Its SHA-256 is `3213ceff96d067da22c5b243a213f39a00e7f9cce74905fc53c5d5229ac1f4a5`.
 This is **completed historical migration, subsequently superseded**, not current
-repository health. The installed `/var/lib/restic-proton/migrate-proton-restic-v2`
-remains UID/GID 60000, mode 0700, SHA-256
-`b0ea9aeb571c0f5f87df68f947ff3e692b290eaf5ded8737aef0c6d0053fbca9`.
-It was not executed or deleted. The incident receipt's `canonical_creation=copied`,
+repository health. At that source-pass inspection, the installed
+`/var/lib/restic-proton/migrate-proton-restic-v2` remained UID/GID 60000, mode 0700,
+SHA-256 `b0ea9aeb571c0f5f87df68f947ff3e692b290eaf5ded8737aef0c6d0053fbca9`.
+It was not executed or deleted during that pass; its separately approved removal
+is recorded below. The incident receipt's `canonical_creation=copied`,
 `trash=cleanup-started`, and creation failure's `receipt_committed=false` remain
 immutable; none is permission to resume obsolete destructive operations.
 
@@ -108,8 +112,9 @@ close earlier owners.
 - Both Restic timers remained loaded, active and enabled.
   `/usr/local/libexec/home-lab/qualify-proton-backup` remains root:60000 0750,
   SHA-256 `081416b7d0b51aec8e906abf77767bfb1eed1e8040eb9c12730ac5128c35a9e7`.
-  An old `cleanup-damaged-proton-restic-v1` bytecode cache also remains installed;
-  its presence was recorded, not treated as an active caller or deleted.
+  An old `cleanup-damaged-proton-restic-v1` bytecode cache also remained installed
+  during that inspection; its presence was recorded, not treated as an active
+  caller. Its separately approved removal is recorded below.
 
 ## Source retired in this follow-up
 
@@ -132,6 +137,84 @@ After deletion, remaining tracked references to these writers are documentation
 and retired-source assertions only. A final tracked-file scan found no reference
 to any of the twelve deleted files' exact baseline hashes. Protected runtime,
 role, contract, service, provider and evidence paths remain byte-identical to HEAD.
+
+## Approved host-artifact retirement
+
+On **September 15, 2026, 22:08–22:11 UTC**, operator-authorized read-only inspection
+on Debian `docker-host` established the following exact candidates. The operator
+then explicitly approved removal of **only these two files**, conditional on
+unchanged identities/hashes and fresh dependency checks.
+
+| Removed exact path | Pre-removal metadata | SHA-256 |
+| --- | --- | --- |
+| `/var/lib/restic-proton/migrate-proton-restic-v2` | Single-link regular file; `restic-proton:restic-proton` (60000:60000), 0700, 10,836 bytes; device 2049, inode 137415 | `b0ea9aeb571c0f5f87df68f947ff3e692b290eaf5ded8737aef0c6d0053fbca9` |
+| `/usr/local/libexec/home-lab/__pycache__/cleanup-damaged-proton-restic-v1cpython-313.pyc` | Single-link regular file; root:root, 0640, 35,895 bytes; device 2049, inode 137630 | `52694eb34cba63c543f279103c0fac0bf7f5a0002a8052e3ed8540fa7c6c038e` |
+
+The writer matched historical Git source at `fa7214f^:scripts/migrate-proton-restic-v2`.
+The cache contained its expected retired source path; that executable was already
+absent. Neither artifact was executed, imported or replayed. All ancestors were
+non-symlink directories with the observed owners/modes. The writer's parent remains
+60000:60000 0700; the shared cache directory remains root:root 0755.
+
+### Fresh dependency checks and exact removal
+
+- All **632 tracked files** were scanned for both helper names and candidate hashes.
+  References were confined to this audit, retirement tests and the legacy role's
+  existing removal task for the old cleanup executable. No tracked installer,
+  active caller or recovery/bundle consumer requires either removed artifact.
+  The role was not invoked or changed.
+- Immediately before deletion, **581 regular host files**, with **152 symlink
+  entries** inspected and regular targets deduplicated, had no caller references
+  or aliases to either candidate. Scope was systemd configuration/generators,
+  cron/spool entries, sudoers, `/usr/local/libexec`, `/usr/local/bin` and the known
+  crontab/anacrontab/rc.local files. No read errors occurred. One unrelated dangling
+  generated `systemd-networkd.service` link remained untouched. The initial size
+  exclusions for rclone and SOPS were subsequently scanned; the final scan had no
+  size exclusions. **45 loaded service definitions** also had no matching execution
+  or source-path references.
+- The final `/proc` sample inspected **735 processes**: no helper-name matches,
+  Restic/rclone/qualification or UID 60000 processes, candidate open descriptors,
+  mapped inodes or executable/cwd inode users were found. No systemd job or relevant
+  held lock was observed; production apply lock and transient qualification result
+  were absent. These bounded checks are not an exclusive maintenance window or
+  proof against arbitrary renamed copies or concurrent privileged writers.
+- At **22:14:48 UTC**, after rechecking hashes, device/inode, owner/group, mode,
+  link count, size and modification/change timestamps, a one-off Python stdin
+  command unlinked only the two approved basenames through open non-symlink parent
+  directory descriptors. Both candidates were validated before the first unlink;
+  each binding was rechecked immediately before its unlink. No recursive removal,
+  directory cleanup, new helper installation, lock acquisition or service action
+  occurred. The command used native strict-trust SSH/sudo, not an Ansible playbook.
+
+### Verified preservation and remaining boundaries
+
+Immediate verification passed, followed by a separate SSH check at **22:15:16 UTC**:
+
+- Both exact paths are absent. Parent directory identities/ownership/modes remain;
+  their entry sets differ by only the approved basename in each. The neighboring
+  `restic-backupcpython-313.pyc` and `retire-offen-localcpython-313.pyc` remain.
+- **21 retained files** kept identical metadata and hashes across removal: the five
+  installed active Restic helpers, both neighboring caches, `migration-v2.json`,
+  backup lock, runtime policy, two input files and all nine unit definitions.
+- **20 top-level JSON records** under `/var/lib/home-lab-restic` and
+  `/var/lib/restic-proton` retained their path/owner/group/mode/link-count/size/hash
+  inventory digest `6971991bf2dfc8e748f126ea776b2a845674644a23e38998a99c81b5c89ae78e`.
+  `migration-v2.json` remains 60000:60000 0600 with SHA-256
+  `3213ceff96d067da22c5b243a213f39a00e7f9cce74905fc53c5d5229ac1f4a5` and its historical
+  `verified` / `full_read_data_check=true` result. No receipt or journal was rewritten.
+- All nine units' observed states, execution timestamps and timer scheduling
+  properties were identical before/after. Both timers remain active/enabled;
+  recovery remains enabled. The historical Proton maintenance exit status remains
+  1. This retirement did not run or qualify backup, maintenance or recovery.
+- `/run/lock/home-lab-backup.lock` retains its inode and root:60000 0660 metadata;
+  the final held-lock sample found no relevant holder. No lock was cleared.
+
+Only the two approved unlinks changed host artifacts; journals, evidence, locks,
+credentials, repositories and active backup/recovery tools were preserved.
+No Proton request, repository operation, secret decryption, credential change,
+VM9900/Proxmox access, disk/ACL/transport change or qualification-infrastructure
+operation was performed. The VM and generic qualification blockers below are
+unchanged. No commit or push was authorized or performed.
 
 ## Retained qualification and backup dependencies
 
@@ -244,7 +327,6 @@ inspected.
 | VM recovery runner, validator, Tofu root/locks, transport/capability and VM fixture helpers | For the 22 nonterminal journals without the ten exact disk-adoption links: bind each owner/manifest to a terminal operation or exact successor (including moved state/key/snippet identities). Establish plaintext cleanup for `/tmp/restic-recovery-transfer`, `/var/tmp/restic-recovery-input`, `/var/tmp/restic-recovery/bundle.*`, `/var/tmp/restic-fixture` and `/srv/home-lab-recovery/restic-proton-proof` on the exact historical disk/VM, or explicit owner-approved preservation/recovery disposition. The three successful run records and today's different VM cannot substitute for this. Keep `prove-restic-recovery-vm`, `test-restic-activation-fixture` and `activate-restic-staging-fixture` meanwhile. |
 | Live VM9900, disks, firewall, ACL, lifecycle snippet and installed recovery transport/capability | Review lifecycle ownership and actual capability/ACL/key scope together with retained recovery consumers before proposing retirement. Bind both changed installed transports to their authorized successor installation evidence; the old capability's `committed` label does not explain the hash drift. Any guest boot/mount, recovery, provider operation, ACL/key change or exact resource/installed-file deletion needs a **separate explicit approval**. Never apply an old Proton destroy plan to the lifecycle VM. |
 | Generic qualification/empty/resume recovery and immutable reset evidence | Remaining installed role/recovery consumers need an independently reviewed replacement or deliberate retirement decision before source removal. Published evidence remains a consumer input even though its writers are gone. A newly found owner/staged result needs its own transaction-specific inspection, not reuse of these closed IDs or generic lock clearing. |
-| Installed obsolete v2 writer and incident bytecode cache | No source dependency remains for the v2 writer, but deletion requires explicit approval of the exact installed path/hash/metadata and a fresh caller/process check. Keep `migration-v2.json`, all incident records and locks regardless. This pass does not request or assume repository cleanup. |
 | Commit/push | Review this source diff and authorize commit and, separately, push. Neither was performed. |
 
 ## Validation and review provenance
@@ -279,6 +361,23 @@ focused tests were inspected before execution. Parent-observed outcomes:
   printed. Validation needs the existing protected inputs through a separately
   approved secret-handling path; no dummy values or decryption were substituted.
 
-The diff is limited to twelve source/test deletions, dedicated-block removal and
-retired-source assertions in `scripts/test-restic-tools.py`, and updates to this
-file, `docs/operations.md` and `recovery/README.md`. No dependencies were installed.
+That source follow-up diff was limited to twelve source/test deletions,
+dedicated-block removal and retired-source assertions in
+`scripts/test-restic-tools.py`, and updates to this file, `docs/operations.md` and
+`recovery/README.md`. No dependencies were installed.
+
+The subsequent approved host retirement changes only this file and
+`docs/operations.md` in the repository; no runtime source, tests, YAML, HCL,
+evidence or pins changed. Its host checks and preservation results are recorded
+above. No independent review or delegation was requested or claimed.
+
+Host-retirement local validation:
+
+- Local Markdown path/anchor checks — **15 links across both changed documents
+  passed**; `git diff --check` passed.
+- `docker compose config --quiet` — **blocked (exit 1)** by missing
+  `INTERNAL_HOST_IP`, `LITELLM_MASTER_KEY` and `OPENROUTER_API_KEY`, with additional
+  unset-variable warnings. No secrets were decrypted, dummy inputs substituted or
+  resolved Compose configuration printed.
+- No helper test, YAML parse, HCL check, Ansible playbook or provider operation was
+  needed for this documentation-only repository diff. No dependencies were installed.

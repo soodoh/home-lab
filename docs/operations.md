@@ -236,8 +236,18 @@ and one-off staged qualification supervisors. Generic qualification recovery and
 its immutable evidence consumers remain. VM journals have only partial exact
 lineage closure; VM9900 currently belongs to Debian lifecycle qualification, and
 installed recovery transport/capability consumers remain. Incident resolution or
-newer backups do not make every retained journal terminal. No installed helpers,
-host files, receipts, locks or backup behavior changed.
+newer backups do not make every retained journal terminal. Those source passes
+changed no installed helpers, host files, receipts, locks or backup behavior.
+
+At **22:14:48 UTC on September 15**, a separately approved
+[exact-file host retirement](proton-source-retirement.md#approved-host-artifact-retirement)
+removed only `/var/lib/restic-proton/migrate-proton-restic-v2` and
+`/usr/local/libexec/home-lab/__pycache__/cleanup-damaged-proton-restic-v1cpython-313.pyc`
+after fresh identity/hash and caller/process checks. Both paths were verified
+absent; parent directories, neighboring caches, migration journal, incident
+evidence, active helpers, policy/inputs, backup lock and unit definitions/states
+were preserved. No backup/recovery job or repository operation ran. VM9900,
+disks, ACLs, transports and qualification infrastructure were not touched.
 
 ## Local source checks
 
