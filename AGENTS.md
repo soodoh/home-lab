@@ -10,17 +10,11 @@
 ## Current boundary
 
 This is an OpenTofu/Ansible/Compose repository in an incremental native-tool transition.
-Native read-only observation uses `ansible/inventory/hosts.yml` and
-`ansible/playbooks/observe-hosts.yml` over existing Tailscale SSH/become. The narrow
-`update-policy.yml` owns manual-install policy; `configure-backups.yml` now adopts
-the same pinned Restic/rclone tools, confined service account and nine existing unit
-definitions, plus same-content runner/input metadata. The full path passed a
-zero-change live preview; source bytes and scope must match installed policy.
-Missing accounts or UID/GID drift fail before account changes.
-Native pins must match installed
-runtime-policy tools before effects; upgrades require
-coordinated policy changes, not independent pin bumps. Enabled/active states remain
-untouched. Broader adoption is pending; there is no general deploy command.
+Read [operations](docs/operations.md) for supported observation, manual-update and
+backup-configuration scope and dated outcomes before invoking any playbook.
+Backup adoption requires existing identities, tool-policy equality and same-content
+runtime files; it leaves enabled/active states untouched. Broader adoption is
+pending; there is no general deploy command.
 Surviving legacy playbooks may mutate hosts even under check mode; inspect them
 before invocation. Source deletion does not retire installed helpers or timers.
 

@@ -23,7 +23,9 @@ and `unreachable=0`. Backup unit states/execution timestamps and runner/policy/i
 hashes were unchanged; update checks and Tailscale SSH remained enabled.
 No backup/maintenance job, Compose deployment, provider apply or cleanup was run.
 This confirms scoped convergence, not backup integrity or restore readiness.
-The per-slice preview observations below describe the state before this release.
+Earlier per-slice reviews/previews on September 14 (units, tools, account) and
+September 15 (runtime files) were zero-change checks without expanded applies;
+they are superseded as deployment status by these normal runs.
 
 ## Native host observation
 
@@ -96,12 +98,9 @@ ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
   -i ansible/inventory/hosts.yml ansible/playbooks/configure-backups.yml --check --diff
 ```
 
-The consolidation passed independent source review and a live `--check --diff`
-on September 14 (PDT): `changed=0`, `failed=0`, `unreachable=0`; systemd reload was
-skipped. All nine rendered units match the captured installed bytes and root:root
-0644 metadata. No apply was needed or performed for this expansion. Inspection
-found both timers active/enabled, boot recovery enabled, and no unit drop-ins.
-This establishes configuration parity, not successful maintenance or restoration.
+The September 14 inspection found all nine units matching rendered bytes and
+root:root 0644 metadata, both timers active/enabled, boot recovery enabled and no
+unit drop-ins. This is configuration parity, not maintenance or restoration proof.
 
 ### Pinned backup tools
 
@@ -126,12 +125,8 @@ Check mode reports drift without downloading, extracting, installing or executin
 drifted tools. Verified no-drift binaries may run their version commands. This is
 not an atomic pair upgrade or protection against concurrent privileged path writers.
 
-This expansion changes no desired versions, units, runner, backup data or activation
-policy. Independent source review passed. The combined live `--check --diff` on
-September 14 (PDT) reported `ok=16`, `changed=0`, `failed=0`, `unreachable=0`.
-Policy consistency, binary metadata/hashes, version commands and all unit templates
-passed; download/extraction/copy and reload tasks were skipped. No expanded apply
-was needed or performed. This does not test a real reinstall or archive availability.
+No desired versions, units, runner, backup data or activation policy changed.
+Zero-change validation does not test a real reinstall or archive availability.
 
 Local `scripts/controller/test-debian-tool-provisioning.js` passed 444 Ansible
 controller-only synthetic-effect cases and 14 tiny real stdlib extractor cases;
@@ -147,29 +142,20 @@ migration. Existing restrictions remain: primary group only, locked password,
 No data tree ownership is managed here. Legacy identity-collision/source-ownership
 guards still precede those same declarations in the legacy main entrypoint.
 
-Read-only inspection on September 14 (PDT) found that exact identity, primary group
-only and a locked password. Independent source review passed. The full native play's
-live `--check --diff`, including the real account modules, reported `ok=21`,
-`changed=0`, `failed=0`, `unreachable=0`; downloads, installs and reload were skipped.
-No apply was needed or performed. No account, credential or data ownership changed.
-
 `scripts/test-restic-systemd.py` checks native task scope and rendered unit semantics
 with Jinja2/PyYAML. It also executes only the identity assertion tasks through local
 Ansible with nine synthetic fact sets, including absent and mismatched identities.
 It never invokes account modules, imports a role, queries NSS or contacts hosts.
-The separate live preview verifies user/group check-mode behavior for this host,
+The live preview covered user/group check-mode behavior for this existing host,
 not account migration, bootstrap or recovery.
 
 ### Same-content backup runtime files
 
-The September 15 (PDT) `runtime-native` slice adopts only the existing
+`runtime-native` adopts only the existing
 `/usr/local/libexec/home-lab/restic-backup` (root:root 0755) and
-`/etc/home-lab/restic/{files-from,excludes}` (root:restic-proton 0440). Independent
-review and the full live `--check --diff` passed: `ok=31`, `changed=0`, `failed=0`,
-`unreachable=0`. All three runtime files were unchanged; binary downloads/installs
-and systemd reload were skipped. No apply was needed or performed. The files remain
-byte-identical to source with their desired metadata; runner hash, 46 source paths
-and 67 exclusions match installed runtime policy.
+`/etc/home-lab/restic/{files-from,excludes}` (root:restic-proton 0440).
+September 15 validation found all three byte-identical to source with desired
+metadata; runner hash, 46 source paths and 67 exclusions matched installed policy.
 
 Before any runtime-file copy, core stat/assert tasks require existing non-symlink,
 root-controlled ancestors, a protected single-link regular policy, and three existing
@@ -236,8 +222,14 @@ checking needs the existing collections and inventory configuration; it does not
 prove check-mode behavior or deployment readiness. Report missing dependencies
 rather than automatically installing them.
 
-Do not use `validate-provider-locks` or `rehearse-recovery --static` as passive
-validation: the latter calls the former, which regenerates provider locks.
+`scripts/validate-provider-locks` is **mutating manual maintenance**, not passive
+validation: it runs `tofu providers lock` for five roots/three platforms and only
+then checks Git differences. It can contact providers and rewrite lock files;
+execution requires separate approval. Keep the existing locks unchanged for source checks.
+The misleading aggregate recovery rehearsal launcher has been removed.
+For the opt-in Docker role test, read the
+[disposable-fixture requirements](docker-version-admission-qualification.md) first:
+it can change boot enablement and is not a production or ordinary local check.
 The retained `validate-contract` is a legacy consistency check, not a universal
 operation prerequisite or proof of recovery; it still requires local historical
 evidence absent from a clean checkout (see [decisions](decisions.md)).
@@ -250,8 +242,8 @@ evidence absent from a clean checkout (see [decisions](decisions.md)).
    account can execute arbitrary root code; check mode and tags do not constrain it.
 2. Per OpenTofu root, identify the actual backend/workspace and imported resource
    bindings before initialization. Use the existing partial backend declaration
-   with reviewed nonsecret backend inputs; do not copy a second backend block from
-   the legacy example. Keep provider locks and protected state history.
+   with reviewed nonsecret backend inputs; **do not add a duplicate backend block**.
+   Keep provider locks and protected state history.
 3. Once separately authorized, use native `init -lockfile=readonly`, `validate`,
    `plan -out=<private-file>`, privately review `show`, then apply that exact plan.
    Do not initialize against guessed buckets or run the VM9900 roots concurrently.
@@ -330,12 +322,9 @@ approved host adoption; source-only edits do not install or reload these files.
 
 ## Observed baseline — 2026-09-14
 
-The list below records the **pre-change** inventory. Subsequently, the approved
-native policy disabled Debian unattended installation and Proxmox Tailscale
-auto-apply. Postchecks confirmed package-list updates remain enabled, Tailscale
-checking stays true and SSH stays enabled on both hosts. Apply changed one task
-per host; the second run changed zero, with no failures or unreachable hosts.
-Other findings below remain outstanding.
+The list below records the **pre-change** inventory, not current desired state.
+The [manual-update policy](#manual-update-policy) subsequently corrected automatic
+installation; other findings remain outstanding except as explicitly noted.
 
 Read-only SSH and native Ansible observation succeeded on both hosts with effective
 UID 0 and `changed=0`. This is a dated observation, not a configuration declaration

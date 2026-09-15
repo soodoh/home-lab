@@ -7,9 +7,6 @@ pnpm-debug.log*
 __pycache__/
 *.pyc
 
-# pnpm
-pnpm-debug.log*
-
 # local env files
 .env
 *.env

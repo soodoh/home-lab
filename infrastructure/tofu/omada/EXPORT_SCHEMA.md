@@ -1,6 +1,7 @@
 # Required ignored Omada export
 
-`omada_export_path` must point to a root-only, ignored JSON file with this shape:
+`omada_export_path` must point to a root-only, ignored JSON file with this shape.
+Values below are synthetic examples, not desired reservation identities:
 
 ```json
 {

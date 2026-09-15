@@ -86,14 +86,9 @@ Ansible Core 2.19.4 and Docker client/server 26.1.5+dfsg1. The exact fourteen
 setup packages were installed once from verified Debian archives, with no
 upgrades/removals. Docker had no containers, images or volumes.
 
-Independent review found that the reorder-only candidate could still activate
-stopped Docker via its listening socket. A separately approved native RED proved
-this happened even with Ansible reporting `changed=0`. The native running-state
-guard was added only after that RED, and the test's own state check was moved
-before its Docker API queries.
-
-The **same final test bytes** were exercised in all six cases, against original,
-reorder-only and final guarded role bytes:
+The **same final test bytes** covered six cases. The reorder-only candidate's
+socket activation despite `changed=0` required the final running-state guard and
+test-state observation before Docker API queries:
 
 | Case | Actual result |
 | --- | --- |
@@ -126,6 +121,7 @@ this fixture: running-daemon admission and refusal of an observed stopped daemon
 with a listening socket. It does not qualify missing-package installation,
 the fixed read-only helper, the Ubuntu x86_64 / Ansible2.21.2 controller lock,
 production startup/activation, VM9900 first boot, recovery or the whole migration.
-The fixture remains running; automatic APT units remain runtime-masked (cleared
-by reboot), with the diagnosed failed timer state retained. No production
-operation, commit or publication was performed by this slice.
+At the September 10 observation, the fixture remained running and automatic APT
+units were runtime-masked (cleared by reboot), with the diagnosed failed timer
+state retained. This is not current fixture inventory or cleanup authority. No
+production operation, commit or publication was performed by that slice.

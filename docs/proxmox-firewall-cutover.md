@@ -6,7 +6,7 @@ This document defines the required transaction for the one-time Proxmox firewall
 
 The surrounding controller architecture is retired; this retained autonomous firewall/recovery protocol has not been replaced by native adoption. Trusted human operators and local root remain inside the host trust boundary; a malicious root operator can always bypass PVE, systemd, SSH, and helper controls, and this design does not claim otherwise. The firewall transaction remains an isolated fixed PVE API/CLI authority so unrelated host actions cannot leave a newly enabled default-deny firewall active after failure.
 
-The existing ordinary template write to `/etc/pve/firewall/cluster.fw` must be retired before execution. `/etc/pve` remains PVE API/CLI-owned. All firewall reads and mutations use fixed `pvesh` commands; no helper opens, writes, renames, or unlinks a path below `/etc/pve`.
+The ordinary template writer to `/etc/pve/firewall/cluster.fw` was a historical retirement prerequisite; its old roles are absent from source. Before execution, independently verify that no installed competing writer remains. `/etc/pve` remains PVE API/CLI-owned. All firewall reads and mutations use fixed `pvesh` commands; no helper opens, writes, renames, or unlinks a path below `/etc/pve`.
 
 Historical pre-cutover qualification observed a disabled firewall, default options differing from the contract, and zero cluster rules; this is not current installed state. The desired terminal policy is:
 
@@ -203,7 +203,3 @@ Repository and subprocess tests must cover:
 The host implementation lives under `infrastructure/proxmox-firewall/host` and is installed transactionally by `scripts/bootstrap-proxmox-nix-host`; the controller is `scripts/controller/proxmox-firewall.py`. The controller reads only the fixed root-owned controller key and canonical protected configuration under `~/.config/home-lab/controller/`; its public plan never contains those values. Its closed commands are `plan`, exact-hash `apply`, `status`, and exact-session `rollback`. Repository changes alone do not authorize production execution.
 
 Independent review must pass after implementation and test evidence. Only then may an operator separately approve helper installation and, later, live activation with a physical console and tested LAN rollback session open.
-
-## Historical APT cleanup
-
-The previously observed zero-byte stale APT source was an independent cutover issue and has been removed. Firewall approval never authorized that cleanup, and APT cleanup approval never authorized firewall activation.

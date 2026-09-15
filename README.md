@@ -9,13 +9,9 @@ controller, abandoned Compose admission implementation, reporting platform and
 completed one-shot entrypoints have been removed. There is no supported general
 deployment entrypoint yet. Retained legacy roles are not a shortcut around that gap.
 
-Native **read-only observation** works on both hosts through existing Tailscale
-SSH/become. The first native policy is also applied: automatic package installation
-on Debian and Tailscale auto-apply on Proxmox are disabled, while checks remain
-enabled. The Proton maintenance unit's mount-confinement defect is fixed through
-native Ansible too, without starting maintenance. Second runs changed nothing.
-No accounts, application data or provider state were migrated; see
-[operations](docs/operations.md).
+Supported native scope is limited to read-only observation, manual-update policy
+and existing-host backup configuration; see [operations](docs/operations.md) for
+scope, safety limits and dated deployment outcomes.
 
 - [Operations](docs/operations.md): local checks, intended native workflow and retained implementation.
 - [Recovery](recovery/README.md): snapshot staging, independent credentials and rollback boundaries.

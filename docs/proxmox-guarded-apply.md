@@ -2,7 +2,7 @@
 
 > **Historical recovery protocol, not current apply authority.** Native SSH/become
 > adoption supersedes the old controller policies. Retain these exact session
-> status/rollback instructions for installed assets; see [recovery](../recovery/README.md).
+> status/rollback semantics for installed assets; see [recovery](../recovery/README.md).
 > The universal launchers are removed. This is not an alternative enabled writer.
 
 ## Retained pre-transfer protocol
@@ -12,14 +12,14 @@ through this legacy protocol is not the supported native direction. Retained ses
 may still require its exact status/rollback behavior; source deletion does not
 close their journals or retire installed transports.
 
-```sh
-nix run --no-update-lock-file --no-write-lock-file 'path:./nix#proxmox-host' -- apply \
-  --repo-root "$PWD" \
-  --plan-sha <reviewed-64-hex-plan-hash> \
-  --approve-plan-sha <same-64-hex-plan-hash>
-```
+**Invocation gap:** the retained `proxmox-host` planner exposes only `plan`,
+`prepare` and `apply`, not standalone `status` or `rollback` commands. The host
+session transitions below are protocol semantics, not a copy-paste recovery CLI.
+Inspect the exact retained session/bindings and obtain a separately reviewed
+recovery invocation; do not retry `apply` as a passive status query.
 
-No other apply arguments are accepted. The controller derives `.reconcile/plans/<hash>.json`, `.reconcile/plans/<hash>.private.json`, and `.reconcile/controller-apply.lock`. Both plan files must be canonical, single-link, real mode-`0600` files. New mutation requires a clean worktree whose `HEAD` exactly equals `refs/remotes/origin/main`, an unexpired ready steady plan and sidecar, exact explicit approval, and matching Git, bundle, schema, observer, and activator hashes. Expiry forbids new mutation but does not prevent exact status or rollback of an already retained matching host session.
+Historical apply accepted only `--repo-root`, `--plan-sha` and the identical
+`--approve-plan-sha`. The controller derives `.reconcile/plans/<hash>.json`, `.reconcile/plans/<hash>.private.json`, and `.reconcile/controller-apply.lock`. Both plan files must be canonical, single-link, real mode-`0600` files. New mutation requires a clean worktree whose `HEAD` exactly equals `refs/remotes/origin/main`, an unexpired ready steady plan and sidecar, exact explicit approval, and matching Git, bundle, schema, observer, and activator hashes. Expiry forbids new mutation but does not prevent exact status or rollback of an already retained matching host session.
 The reviewed host plan remains valid for 1,800 seconds from observation. This bounded window accommodates the mandatory full validation suite and human manifest review while still requiring apply-time host binding, protected-state, and plan-expiry checks. The host-generated private sidecar remains capped at 300 seconds and never extends beyond the reviewed plan.
 
 The private sidecar is produced only by `proxmox-host prepare` through the fixed root `proxmox-private-preparer prepare` entry point after the console-only transport bootstrap. The observer invokes only the exact installed preparer `summary` bytes and receives five access and three hardware checks reduced to status/count/boolean summaries. `prepare` accepts the full exact canonical plan, rechecks installed bindings and protected state, rejects package/watchdog/API/OpenTofu/reboot actions, and generates opaque challenges, sessions, keyed summaries, and the complete sidecar MAC. The controller writes the response once as a no-follow mode-`0600` file and prints only a creation summary.

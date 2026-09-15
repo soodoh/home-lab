@@ -17,63 +17,28 @@ No new universal manifest, launcher or qualification platform replaces it.
 
 ## First native adoption
 
-On September 14, ordinary SSH/become over existing Tailscale access was verified
-on both hosts without changing accounts/keys. `observe-hosts.yml` is read-only.
-The operator then approved `update-policy.yml`: disable Debian unattended package
-installation and Proxmox Tailscale auto-apply while retaining update checks. Apply
-changed exactly those two settings; a second run changed nothing.
+Native SSH/become uses existing Tailscale access rather than replacing accounts or
+keys. `update-policy.yml` owns manual-install policy independently of the legacy
+contract. The older unattended-retirement planner (which disables apt timers/list
+updates) and cloud-init automatic-install defaults are superseded for existing
+hosts; do not run them to undo the adopted policy.
 
-This native play now owns those settings independently of the legacy contract.
-The older unattended-retirement planner (which disables apt timers/list updates)
-and cloud-init automatic-install defaults are superseded for the existing hosts.
-Do not run them to undo the adopted policy. No general host convergence, package
-upgrade, service restart, reboot, firewall or data migration was authorized by
-this narrow change. Legacy source can be removed as its remaining consumers retire.
+`configure-backups.yml` owns narrowly guarded existing-host configuration, not
+bootstrap or activation. Native variables own unit inputs and tool pins; shared
+render/install/account/copy declarations keep legacy entrypoint guards intact.
+The `restic_systemd_legacy_contract` bridge retains transitional values for legacy
+convergence and the historical single-unit post-NFS repair without widening that
+repair. Byte parity is not a permanent obligation to match old receipt hashes.
+Runtime policy, backup scope and retained-journal reconciliation remain legacy
+responsibilities: tool upgrades and content rollout need coordinated policy/journal
+review, not independent pin bumps or receipt regeneration.
 
-The confined Proton maintenance unit was also adopted through native
-`configure-backups.yml` on September 14 after a reproduced `mount_identity` failure.
-It uses the daily unit's read-only temporary games filesystem and repository-only
-binds. The approved apply changed only that unit and reloaded systemd definitions;
-no maintenance was started, no repository was modified and no timer was reconfigured.
-The runner and its mount/UUID validation remain unchanged. Linux mount probes and
-an unchanged second Ansible run prove this narrow fix, not full maintenance success.
-
-The subsequent source-only consolidation expands `configure-backups.yml` to all
-nine existing unit definitions, sharing render-only tasks with legacy convergence.
-Native host variables own these unit inputs; the deprecated contract retains
-transitional duplicate values for legacy/recovery consumers through
-`restic_systemd_legacy_contract`. Local before/after rendering proves current byte
-parity, not a permanent requirement to match the old contract or receipt hashes.
-The historical single-unit post-NFS recovery repair still uses that bridge without
-expanding its repair scope. No active-state or boot-enable management is adopted.
-Independent review passed; a live check-mode preview reported zero changes, so no
-expanded apply was performed. This is configuration parity, not backup bootstrap.
-
-The next slice adds the same pinned Restic/rclone tools to that native play.
-Independent review and the combined live preview passed with zero changes; no
-installation, download or reload was needed or performed. Native variables own pins;
-a no-log comparison with only the installed runtime policy's tools prevents
-incompatible replacement. No policy is installed or rewritten. Native and legacy
-callers share one installer, but legacy exact contract guards remain at their
-original entrypoint. Versions, runner, unit templates, credentials and activation
-are unchanged. Future tool upgrades need coordinated runtime-policy changes and
-Proton qualification, not independent automated pin bumps or receipt regeneration.
-
-The confined service account is also adopted: an existing `restic-proton` UID/GID
-60000 is required before shared core account declarations. Source review passed,
-and the combined live preview changed nothing; no account apply was performed.
-Missing or renumbered identities are not repaired implicitly. Human access, home
-creation/movement and recursive data ownership remain outside this slice. See
-[account validation status](operations.md#confined-backup-account).
-
-The September 15 (PDT) runtime-file slice passed source review and a zero-change
-full live preview; no apply was performed. It shares copy declarations with legacy main,
-preserving its inputs → policy → runner → remaining helpers order and safeguards.
-Native adoption refuses missing/unsafe files and all content drift before those
-copies; it may maintain metadata only when source bytes and installed policy agree.
-Policy/scope ownership and retained-journal reconciliation are not migrated. Future
-content rollout requires coordinated policy/journal review; no backup-health claim
-or activation authority follows. See [runtime-file limits](operations.md#same-content-backup-runtime-files).
+[Operations](operations.md#latest-scoped-deployment) is canonical for dated outcomes
+and supported scope, including [unit-state exclusions](operations.md#backup-unit-definitions),
+[existing-account refusal](operations.md#confined-backup-account) and
+[same-content metadata limits](operations.md#same-content-backup-runtime-files).
+These adoptions confer no general host convergence, upgrade, restart, reboot,
+firewall, data migration or backup-health authority.
 
 ## Why legacy code remains
 

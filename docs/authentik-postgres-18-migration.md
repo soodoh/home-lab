@@ -4,32 +4,57 @@
 The September 14 observation found the running database using the PostgreSQL 18
 layout and the old PostgreSQL 16 directory retained. See [remaining acceptance and
 rollback checks](migrations.md#authentik-postgresql); observation did not verify
-functional acceptance or backup/restore integrity. Commands below describe the
-original cutover and its rollback constraints, not today's next action.
+functional acceptance or backup/restore integrity.
 
 ## Purpose
 
-The PostgreSQL 18 container cannot open the PostgreSQL 16 data directory directly. The official image also changed its persistent-data layout:
+PostgreSQL 18 cannot open the PostgreSQL 16 data directory directly. The official
+image also changed its persistent-data layout:
 
 - PostgreSQL 16 stores data at `/var/lib/postgresql/data`;
 - PostgreSQL 18 stores data at `/var/lib/postgresql/18/docker`; and
-- PostgreSQL 18 expects the persistent volume to be mounted at `/var/lib/postgresql`.
+- PostgreSQL 18 expects the persistent volume mounted at `/var/lib/postgresql`.
 
-The Compose change in [`services/authentik.yml`](../services/authentik.yml) therefore requires a logical dump and restore. A normal image-only deployment must not perform this migration.
-
-This procedure preserves three rollback inputs:
-
-1. a PostgreSQL custom-format logical dump;
-2. the original cluster renamed to `postgresql-16` inside `authentik-data`; and
-3. a cold copy in a separate Docker volume.
-
-The dump and cold copy contain sensitive Authentik data. Keep them root-only and delete them only after the rollback window closes and a new encrypted backup is verified.
+The [`services/authentik.yml`](../services/authentik.yml) change required a logical
+dump/restore, not an image-only deployment. The original forward commands are in
+Git history for this file (baseline `1165675`), not a current setup procedure.
+The procedure required stopping Authentik/Redis writers before dumping, validating
+the dump's table of contents, stopping PostgreSQL, preserving the old cluster,
+initializing 18 and restoring with `pg_restore --exit-on-error --clean --if-exists --create`.
+It required analyze to rebuild optimizer statistics and comparison of extensions,
+public-table counts and `django_migrations` counts against the stopped source before
+starting applications. This is procedural provenance, not completed acceptance proof.
 
 ## Deployment boundary
 
-This retained procedure is not authorized for execution by source simplification. First qualify and separately approve artifact staging/publication; there is no supported general deployment entrypoint today. Stage and review the exact committed Compose artifact, but do **not** converge the PostgreSQL service yet. The active artifact must still describe PostgreSQL 16 while the staged candidate describes PostgreSQL 18.
+There is no supported general deployment entrypoint today. Artifact staging,
+publication and rollback invocation require separate review and approval. Do not
+use the removed controller or retained roles as an implicit replacement.
 
-Run the migration on the Docker host as root. Substitute the reviewed candidate artifact hash below:
+Preserve all three sensitive, root-only rollback inputs:
+
+1. the custom-format `authentik-postgres-16.dump` and its validated `.toc` in the migration directory;
+2. the original cluster renamed to `postgresql-16` inside `authentik-data`;
+3. the cold copy in the separate Docker backup volume.
+
+Preserve before/after extension/count records, the exact PostgreSQL 16 image and
+both generations' artifacts/environments/image locks. Do not delete any input
+until the rollback window closes and a new encrypted backup is independently verified.
+
+## Historical rollback inputs
+
+The rollback example below describes **pre-promotion** identities. They must be
+recovered from the exact retained migration, not inferred from today's container
+or substituted with the current bind mount. The original procedure derived
+`old_image` and `authentik_volume` from the stopped PostgreSQL 16 container,
+required `postgres:16-alpine@sha256:*` and the `authentik-data` Compose volume
+label, then made the cold copy with no network and a read-only source mount.
+It refused an existing backup volume or `postgresql-16` destination.
+
+These Bash definitions preserve the original example's variable context; they
+are not an instruction to recreate staging or a migration directory. The final
+volume/image lookups apply only to the original stopped PostgreSQL 16 container,
+not today's PostgreSQL 18/bind-mounted installation:
 
 ```bash
 sudo -i
@@ -43,6 +68,7 @@ current_env=/etc/docker-compose/production.env
 candidate_root="/srv/docker-compose/staging/$candidate_hash"
 candidate_env="/etc/docker-compose/staging/$candidate_hash.env"
 migration_root="/var/lib/authentik-postgres-migration/$candidate_hash"
+backup_volume="authentik-postgres-16-backup-${candidate_hash:0:12}"
 
 current=(
   /usr/bin/docker compose
@@ -60,226 +86,49 @@ candidate=(
 )
 
 [[ $candidate_hash =~ ^[0-9a-f]{64}$ ]]
-[[ -d $current_root && -d $candidate_root ]]
+[[ -d $current_root && -d $candidate_root && -d $migration_root ]]
 [[ -f $current_env && -f $candidate_env ]]
 [[ $(stat -c '%U:%G:%a' "$current_env") == root:root:600 ]]
 [[ $(stat -c '%U:%G:%a' "$candidate_env") == root:root:600 ]]
 cmp --silent "$current_env" "$candidate_env"
 [[ $(python "$candidate_root/scripts/compose-artifact.py" \
   --root "$candidate_root" --no-git hash) == "$candidate_hash" ]]
-install -d -m 0700 "$migration_root"
-```
-
-The environment identity check intentionally prevents combining the database migration with a secret or configuration change.
-
-## 1. Verify the current and candidate models
-
-Resolve each Compose model in memory and verify only the PostgreSQL fields required by this migration:
-
-```bash
-"${current[@]}" config --format json | python -c '
-import json, sys
-service = json.load(sys.stdin)["services"]["postgres"]
-assert service["image"].startswith("postgres:16-alpine@sha256:")
-mount = next(item for item in service["volumes"] if item["source"] == "authentik-data")
-assert mount["target"] == "/var/lib/postgresql/data"
-assert mount["volume"]["subpath"] == "postgresql"
-'
-
-"${candidate[@]}" config --format json | python -c '
-import json, sys
-service = json.load(sys.stdin)["services"]["postgres"]
-assert service["image"] == "postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"
-mount = next(item for item in service["volumes"] if item["source"] == "authentik-data")
-assert mount["target"] == "/var/lib/postgresql"
-assert mount["volume"]["subpath"] == "postgresql"
-'
-
-[[ $(docker inspect authentik-postgres --format '{{.State.Status}}') == running ]]
-[[ $(docker exec authentik-postgres sh -ec 'cat "$PGDATA/PG_VERSION"') == 16 ]]
-```
-
-Pull the already reviewed PostgreSQL 18 image before downtime:
-
-```bash
-"${candidate[@]}" pull postgres
-```
-
-## 2. Stop writers and create the logical backup
-
-Stop Authentik before taking the dump so the migration has a fixed write boundary. Redis is stopped with the application stack, while PostgreSQL remains running for the dump.
-
-```bash
-"${current[@]}" stop authentik-server authentik-worker redis
-
-"${current[@]}" exec -T postgres sh -ec '
-  psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --tuples-only --no-align \
-    --command="SELECT extname FROM pg_extension ORDER BY extname"' \
-  >"$migration_root/extensions-before.txt"
-
-"${current[@]}" exec -T postgres sh -ec '
-  psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --tuples-only --no-align \
-    --command="SELECT count(*) FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_type = '\''BASE TABLE'\''; SELECT count(*) FROM django_migrations"' \
-  >"$migration_root/counts-before.txt"
-
-"${current[@]}" exec -T postgres sh -ec '
-  exec pg_dump --format=custom --create \
-    --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"' \
-  >"$migration_root/authentik-postgres-16.dump"
-
-test -s "$migration_root/authentik-postgres-16.dump"
-"${current[@]}" exec -T postgres pg_restore --list \
-  <"$migration_root/authentik-postgres-16.dump" \
-  >"$migration_root/authentik-postgres-16.toc"
-test -s "$migration_root/authentik-postgres-16.toc"
-```
-
-Stop PostgreSQL only after the dump and table-of-contents validation succeed:
-
-```bash
-"${current[@]}" stop postgres
-```
-
-## 3. Preserve the physical PostgreSQL 16 cluster
-
-Derive the actual volume and image from the stopped container rather than assuming an engine volume name:
-
-```bash
 old_image=$(docker inspect authentik-postgres --format '{{.Config.Image}}')
 authentik_volume=$(docker inspect authentik-postgres --format \
   '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}')
-
 [[ $old_image == postgres:16-alpine@sha256:* ]]
 [[ -n $authentik_volume ]]
 [[ $(docker volume inspect "$authentik_volume" --format \
   '{{index .Labels "com.docker.compose.volume"}}') == authentik-data ]]
-
-backup_volume="authentik-postgres-16-backup-${candidate_hash:0:12}"
-! docker volume inspect "$backup_volume" >/dev/null 2>&1
-docker volume create "$backup_volume" >/dev/null
-
-docker run --rm --network none --entrypoint sh \
-  --mount "type=volume,source=$authentik_volume,target=/from,readonly" \
-  --mount "type=volume,source=$backup_volume,target=/to" \
-  "$old_image" -ec '
-    test "$(cat /from/postgresql/PG_VERSION)" = 16
-    test -z "$(find /to -mindepth 1 -print -quit)"
-    mkdir /to/postgresql
-    cp -a /from/postgresql/. /to/postgresql/
-    test "$(cat /to/postgresql/PG_VERSION)" = 16
-  '
 ```
 
-Retain the original cluster inside `authentik-data` and create the empty subpath PostgreSQL 18 will initialize:
+An approved invocation must establish `authentik_volume` from retained evidence,
+verify the exact 64-hex candidate artifact hash/content, existing paths, root:root
+0600 environments and root-only migration directory, and use root with
+`set -euo pipefail` and `umask 077`. The original environments had to be byte-equal:
+a database migration must not be combined with secret/configuration changes.
+`current` meant PostgreSQL 16 and `candidate` meant PostgreSQL 18; those meanings
+no longer follow automatically from these paths after publication. The historical
+18 image was `postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15`.
 
-```bash
-docker run --rm --network none --entrypoint sh \
-  --mount "type=volume,source=$authentik_volume,target=/volume" \
-  "$old_image" -ec '
-    test "$(cat /volume/postgresql/PG_VERSION)" = 16
-    test ! -e /volume/postgresql-16
-    mv /volume/postgresql /volume/postgresql-16
-    mkdir /volume/postgresql
-  '
-```
+## Functional acceptance
 
-Do not start the complete Compose project at this point.
+Before declaring the migration accepted or retiring rollback:
 
-## 4. Initialize PostgreSQL 18 and restore
-
-Start only PostgreSQL using the staged candidate:
-
-```bash
-"${candidate[@]}" up --detach --no-deps --force-recreate postgres
-
-for _ in $(seq 1 60); do
-  status=$(docker inspect authentik-postgres --format \
-    '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}')
-  [[ $status == healthy ]] && break
-  [[ $status != exited && $status != dead ]] || {
-    docker logs --tail 100 authentik-postgres >&2
-    exit 1
-  }
-  sleep 2
-done
-[[ $status == healthy ]]
-[[ $(docker exec authentik-postgres sh -ec 'cat "$PGDATA/PG_VERSION"') == 18 ]]
-[[ $(docker exec authentik-postgres sh -ec 'printf %s "$PGDATA"') == /var/lib/postgresql/18/docker ]]
-```
-
-Restore the dump with the target database connection set to `postgres`. `--clean --create` replaces the empty database initialized from the unchanged `POSTGRES_*` environment values.
-
-```bash
-"${candidate[@]}" exec -T postgres sh -ec '
-  exec pg_restore --exit-on-error --clean --if-exists --create \
-    --username="$POSTGRES_USER" --dbname=postgres' \
-  <"$migration_root/authentik-postgres-16.dump"
-
-"${candidate[@]}" exec -T postgres sh -ec '
-  exec vacuumdb --analyze-in-stages \
-    --username="$POSTGRES_USER" --dbname="$POSTGRES_DB"'
-```
-
-The staged analyze rebuilds optimizer statistics that are not carried by a logical dump. Compare extensions and stable schema counts with the stopped PostgreSQL 16 source:
-
-```bash
-"${candidate[@]}" exec -T postgres sh -ec '
-  psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --tuples-only --no-align \
-    --command="SELECT extname FROM pg_extension ORDER BY extname"' \
-  >"$migration_root/extensions-after.txt"
-
-"${candidate[@]}" exec -T postgres sh -ec '
-  psql --username="$POSTGRES_USER" --dbname="$POSTGRES_DB" --tuples-only --no-align \
-    --command="SELECT count(*) FROM information_schema.tables WHERE table_schema = '\''public'\'' AND table_type = '\''BASE TABLE'\''; SELECT count(*) FROM django_migrations"' \
-  >"$migration_root/counts-after.txt"
-
-cmp --silent "$migration_root/extensions-before.txt" "$migration_root/extensions-after.txt"
-cmp --silent "$migration_root/counts-before.txt" "$migration_root/counts-after.txt"
-```
-
-## 5. Start and verify Authentik
-
-Start Redis first, then the Authentik processes. The Compose health dependencies prevent future normal starts from racing unhealthy PostgreSQL or Redis containers.
-
-```bash
-"${candidate[@]}" up --detach --no-deps redis
-for _ in $(seq 1 30); do
-  redis_status=$(docker inspect authentik-redis --format \
-    '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}')
-  [[ $redis_status == healthy ]] && break
-  sleep 2
-done
-[[ $redis_status == healthy ]]
-
-"${candidate[@]}" up --detach --no-deps authentik-server authentik-worker
-for _ in $(seq 1 60); do
-  server_status=$(docker inspect authentik-server --format \
-    '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}')
-  [[ $server_status == healthy ]] && break
-  sleep 2
-done
-[[ $server_status == healthy ]]
-[[ $(docker inspect authentik-worker --format '{{.State.Status}}') == running ]]
-
-"${candidate[@]}" ps postgres redis authentik-server authentik-worker
-"${candidate[@]}" logs --since 10m postgres authentik-server authentik-worker
-```
-
-Complete these functional checks before publishing the candidate as current:
-
-- log in to the Authentik admin interface;
-- confirm the dashboard and directory objects load;
+- verify PostgreSQL health, `PG_VERSION=18` and `PGDATA=/var/lib/postgresql/18/docker`;
+- verify Redis/server health and a running worker;
+- compare the retained extension/schema-count records;
+- log in to the Authentik admin interface and load dashboard/directory objects;
 - authenticate through at least one protected application;
-- confirm PostgreSQL, server, and worker logs contain no restore or migration errors; and
-- verify Home Assistant remains healthy after Authentik returns.
-
-Once these checks pass, publication still requires a separately reviewed artifact-promotion procedure; the old `steady` controller apply is removed. The candidate must propose no further PostgreSQL recreation before promotion to `/srv/docker-compose/current`. Do not begin this migration until that publication boundary is resolved.
+- check PostgreSQL/server/worker logs for restore or migration errors without disclosing sensitive output;
+- verify Home Assistant remains healthy;
+- verify the active artifact is idempotent and proposes no further PostgreSQL recreation.
 
 ## Rollback before candidate promotion
 
-Rollback loses any writes accepted by PostgreSQL 18 after cutover. Keep the maintenance window closed to users until validation finishes.
-
-Stop the candidate services and retain the failed PostgreSQL 18 cluster separately:
+**Historical example only:** review all inputs above before any recovery invocation.
+Rollback loses writes accepted by PostgreSQL 18 after cutover. Keep writers/users
+out throughout the reviewed maintenance window; retain the failed 18 cluster.
 
 ```bash
 "${candidate[@]}" stop authentik-server authentik-worker redis postgres
@@ -306,20 +155,23 @@ done
 "${current[@]}" up --detach redis authentik-server authentik-worker
 ```
 
-If the candidate has already been promoted, stop all Authentik writers before changing database directories and use the repository's separately reviewed Compose rollback path to restore the PostgreSQL 16 artifact. Do not attempt to start PostgreSQL 16 against the PostgreSQL 18 directory.
+If the candidate has already been promoted, stop all Authentik writers before
+changing directories and separately review how to restore the exact PostgreSQL 16
+artifact. This document does not supply a qualified post-promotion invocation.
+Never start PostgreSQL 16 against the PostgreSQL 18 directory.
 
 ## Cleanup
 
-Keep all three rollback inputs until:
+Keep all three rollback inputs until the artifact is active/idempotent, functional
+acceptance passes, and a new encrypted scheduled backup containing PostgreSQL 18
+has completed with independently verified integrity/restore coverage. The original
+archive ciphertext/checksum-replica checks are historical; they do not substitute
+for [current Restic recovery verification](../recovery/README.md).
 
-1. the candidate artifact is active and idempotent;
-2. functional verification has passed;
-3. a new encrypted scheduled backup containing the PostgreSQL 18 cluster has completed; and
-4. that backup's ciphertext and checksum replicas have been verified.
-
-During this window, scheduled backups include both `postgresql/18/docker` and `postgresql-16`, so archive size will temporarily increase.
-
-After the rollback window, remove only the reviewed `postgresql-16` subdirectory, the exact migration backup volume printed above, and the root-only migration directory. Never use an unrestricted volume prune.
+Both `postgresql/18/docker` and retained `postgresql-16` consume backup storage
+during the rollback window. Only after an explicit rollback-retirement decision
+may the exact reviewed old subdirectory, migration backup volume and root-only
+migration directory be removed. Never use an unrestricted volume prune.
 
 ## References
 

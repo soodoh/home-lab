@@ -1,17 +1,14 @@
 # Nextcloud 34 configuration and maintenance runbook
 
-This is a retained migration/recovery reference, not a current deployment quick start.
-Before execution, reconcile its old service set and backup-scheduler assumptions
-with the actual installation and obtain separate approval. The source-only native
-transition has not qualified its activation path. See [migrations](migrations.md).
+This is a retained migration/recovery reference, not a deployment quick start.
 The September 14 observation found the five intended mounts and cron already
-running; do not repeat initial migration/activation steps. Application acceptance
-and old-copy retention still require verification. This historical procedure does
-not add SMTP, 2FA enforcement, AppAPI or direct upload-directory cleanup.
+running; **do not rerun forward migration or initial activation**. Application
+acceptance and old-copy retention still require verification. See
+[migrations](migrations.md) for outstanding gates.
 
 ## Review boundary
 
-Production activation requires:
+Any separately approved recovery or maintenance requires:
 
 - a clean reviewed commit and clean working tree;
 - the independently restored pre-change config/theme recovery point;
@@ -20,65 +17,38 @@ Production activation requires:
 - at least 2 GiB free under `/srv/home-lab-state`;
 - old `/mnt/storage/media/nextcloud` application copies retained for seven days after full proof.
 
-The external `/mnt/storage/media/nextcloud/data` tree remains under its existing retention decision. It is mounted in place and is never copied into, restored over, or deleted with managed application state.
+The external `/mnt/storage/media/nextcloud/data` tree remains under its existing
+retention decision. It is mounted in place and is never copied into, restored over,
+or deleted with managed application state. The other four mounts hold managed
+application code, config, custom apps and themes under `/srv/home-lab-state`.
 
-## Stage the reviewed artifact
+## Historical staging and five-mount migration
 
-From the clean reviewed commit:
+The original forward procedure is in Git history for this file (baseline
+`1165675`). Its paired `stage-compose.yml` and `deploy-nextcloud-migration.yml`
+plays remain source/recovery dependencies, not a supported native deployment path.
+The procedure required an exact `compose_artifact_hash` and
+`compose_artifact_controller_dir`, lock-held metadata-preserving/checksum
+synchronization, stopped writers, activation of four local paths and proof that
+the external-data device/inode was unchanged. It allowed no image-version changes
+or removal of old NFS application/config copies. It required an explicit Caddy
+restart for changed bind-mounted configuration and initially stopped cron/backup
+schedulers. These requirements are not completed acceptance proof.
 
-```sh
-artifact_hash=$(python3 scripts/compose-artifact.py hash)
-cd ansible
-ANSIBLE_CONFIG=ansible.cfg ansible-playbook -i inventory/production.yml \
-  playbooks/stage-compose.yml \
-  -e "compose_artifact_hash=$artifact_hash" \
-  -e "compose_artifact_controller_dir=$PWD/.." \
-  -e compose_stage_confirmed=true
-```
-
-Staging decrypts the canonical SOPS dotenv only in a root-only temporary directory. It atomically materializes these mode-`0600`, root-owned files without logging values:
+Staging confines canonical SOPS decryption to a root-only temporary directory and
+materializes these root-owned mode-0600 files without logging values:
 
 - `/etc/docker-compose/credentials/nextcloud-mysql-password`;
 - `/etc/docker-compose/credentials/nextcloud-mariadb-root-password`.
 
-Review the staged artifact, secret-free model inventory, image availability, action plan, backup schedule, and current service inventory before activation.
-
-## Check and activate the five-mount migration
-
-First run the migration playbook in check mode. Apply only when the plan contains:
-
-- one new service: `nextcloud-cron`;
-- bounded recreation of Nextcloud web/database and the backup schedulers affected by mount changes, plus an explicit Caddy restart for the changed bind-mounted configuration;
-- no image-version change;
-- no removal or replacement of external user data.
-
-```sh
-ANSIBLE_CONFIG=ansible.cfg ansible-playbook -i inventory/production.yml \
-  playbooks/deploy-nextcloud-migration.yml --check \
-  -e "compose_artifact_hash=$artifact_hash" \
-  -e nextcloud_path_migration_confirmation=activate-reviewed-nextcloud-five-mount-paths \
-  -e compose_deploy_nextcloud_migration_confirmation=deploy-reviewed-nextcloud-five-mount-migration
-```
-
-Apply with both confirmations plus `compose_deploy_confirmed=true`. The playbook:
-
-1. acquires the global production lock;
-2. makes an initial metadata-preserving copy while web remains available;
-3. stops both backup schedulers;
-4. enables native maintenance mode and stops the web writer;
-5. performs a final checksum-proven synchronization;
-6. atomically activates the four `/srv/home-lab-state` paths;
-7. proves the external-data device and inode are unchanged;
-8. deploys `_FILE` credentials, MariaDB upgrade settings, Caddy HSTS, and the reviewed mounts, then explicitly restarts Caddy to load its changed bind-mounted configuration;
-9. starts MariaDB before web and recreates cron and backup schedulers in a stopped state;
-10. applies the declared native Nextcloud settings and disables maintenance mode;
-11. verifies `occ status`, the external HSTS value, and the intentionally stopped services before releasing the lock.
-
-The old NFS application/config copies remain untouched.
+Retain the selected artifact hash, current/previous artifacts and environments,
+image locks, old paths, database recovery point and any migration journal before
+reviewing rollback. Reconcile actual service/timer state rather than substituting
+new names into the historical procedure.
 
 ## Web proof before cron
 
-Require all of the following before starting cron:
+These remain acceptance checks, not instructions to start already-running cron:
 
 - `occ status --output=json` reports installed, not in maintenance mode, and no database upgrade;
 - `/var/www/html/data` resolves to `/mnt/storage/media/nextcloud/data`;
@@ -91,16 +61,9 @@ Require all of the following before starting cron:
 
 ## Start cron and observe native maintenance
 
-Start only the reviewed cron container:
-
-```sh
-docker compose start nextcloud-cron
-docker inspect nextcloud-cron --format '{{.Path}} {{.State.Status}}'
-docker exec nextcloud-cron crontab -l
-```
-
-Require `/cron.sh` as PID 1 and the installed five-minute `cron.php` schedule. Observe at least two cadences. Do not manually execute arbitrary queued job IDs.
-
+Initial cron startup is historical. Verify `/cron.sh` as PID 1 and the installed
+five-minute `cron.php` schedule; observe at least two cadences under separate
+operational approval. Do not manually execute arbitrary queued job IDs.
 Record only aggregate, secret-free evidence:
 
 - last-cron timestamp and pending-job count;
@@ -108,45 +71,65 @@ Record only aggregate, secret-free evidence:
 - upload-staging bytes and oldest timestamp;
 - current and rotated log sizes.
 
-The pre-change queue contained metadata jobs but no registered `UploadCleanup` class. Let normal cron register or run the current native cleanup path. Never use `rm` in user upload directories. Investigate permissions or exact job errors if the stale 2024 chunks are not removed natively.
-
-Delete the oversized rotated log only after native rotation is proven and an exact private cleanup manifest is separately approved.
+The pre-change queue contained metadata jobs but no registered `UploadCleanup`
+class. Let normal cron register or run the current native cleanup path. Never use
+`rm` in user upload directories. Investigate permissions or exact job errors if
+stale chunks are not removed natively. Delete the oversized rotated log only after
+native rotation is proven and an exact private cleanup manifest is separately approved.
 
 ## Database maintenance
 
-Run every operation separately during the UTC maintenance window beginning at hour `6`, with fresh setup checks and the proven database recovery point available:
+Each operation requires separate approval during the UTC maintenance window
+beginning at hour `6`, fresh setup checks and a proven database recovery point.
+The historical sequence was `occ setupchecks --output=json`,
+`occ db:add-missing-indices`, `occ maintenance:repair --include-expensive`, then
+setup checks again, as `www-data`. A reviewed invocation must bind the explicit
+[production project/artifact/environment](operations.md#stable-application-and-host-identities),
+not checkout Compose defaults.
 
-```sh
-docker compose exec --user www-data nextcloud php occ setupchecks --output=json
-docker compose exec --user www-data nextcloud php occ db:add-missing-indices
-docker compose exec --user www-data nextcloud php occ maintenance:repair --include-expensive
-docker compose exec --user www-data nextcloud php occ setupchecks --output=json
-```
+For non-DYNAMIC tables, use only the documentation URL and exact affected table
+names emitted by the installed Nextcloud 34 setup check. Do not copy SQL from an
+older release. Re-run setup checks immediately afterward and restore the database
+on any database error through a separately reviewed recovery invocation.
 
-For non-DYNAMIC tables, use only the documentation URL and exact affected table names emitted by the installed Nextcloud 34 setup check. Do not copy SQL from an older release. Re-run setup checks immediately afterward and restore the database on any database error.
-
-Classify recent log errors without recording private paths, filenames, tokens, or user content. AppAPI, single-server ID, SMTP, 2FA enforcement, and monitoring findings remain accepted scope exclusions.
+Classify recent log errors without recording private paths, filenames, tokens or
+user content. AppAPI, single-server ID, SMTP, 2FA enforcement, monitoring and direct
+upload-directory cleanup remain scope exclusions.
 
 ## Rollback
 
-While old paths and the previous artifact remain available, derive and review the normal rollback plan, then use `playbooks/rollback-nextcloud-migration.yml` with:
+The retained `ansible/playbooks/rollback-nextcloud-migration.yml` requires a reviewed
+rollback plan, the old paths and previous artifact, and:
 
 ```text
 compose_rollback_nextcloud_migration_confirmation=rollback-reviewed-nextcloud-five-mount-migration
 ```
 
-The bounded rollback stops cron/web/backup writers, removes only the new cron container, converges the previous 41-service artifact against the untouched old parent mount, and retains the new paths for diagnosis. It never modifies external user data.
+Its historical bounded rollback stops cron/web/backup writers, removes only the
+new cron container and converges the previous **41-service** artifact against the
+untouched old parent mount, retaining new paths for diagnosis and never modifying
+external user data. That service count and its Offen scheduler assumptions are
+historical, not a currently runnable recovery recipe. A separately reviewed
+invocation must reconcile these with actual retained inputs; do not guess a
+replacement or run the play unchanged merely because it remains in source.
 
 ## Recovery and cleanup gate
 
 Before old-path deletion:
 
-- run `./scripts/test-restic-recovery-bundle` and `./scripts/test-restic-restore-branch`;
-- rehearse a fresh restore of config, custom apps/themes, MariaDB, SOPS-backed secret files, and pinned application code while retaining external data;
+- inspect and safely run the focused `scripts/test-restic-recovery-bundle` and `scripts/test-restic-restore-branch` checks;
+- separately rehearse a fresh restore of config, custom apps/themes, MariaDB, SOPS-backed secret files and pinned application code while retaining external data;
 - prove the previous-artifact rollback;
 - confirm representative user-file counts and hashes are unchanged;
-- retain the old copies for seven days after these proofs.
+- retain old copies for seven days after these proofs.
 
-Build a private exact-path cleanup manifest with device, inode, size, mtime, and path identities. Its allowlist may include only stale old application/config/custom-app/theme copies and an approved legacy rotated log. It must exclude `data`, `files`, `files_versions`, and `files_trashbin`. Apply only after approval of the manifest hash.
+Build a private exact-path cleanup manifest with device, inode, size, mtime and
+path identities. Its allowlist may include only stale old application/config/
+custom-app/theme copies and an approved legacy rotated log. It must exclude
+`data`, `files`, `files_versions` and `files_trashbin`. Apply only after approval
+of the manifest hash.
 
-The original procedure ended by restarting `daily-local-backup` and `weekly-remote-backup`. Those Offen services are retired: do not reinstall or start them. Before execution, replace this step with a separately reviewed restoration of the actual Restic timer state outside trigger windows, verifying no unintended immediate run.
+The original final restart of `daily-local-backup` and `weekly-remote-backup` is
+obsolete: Offen is retired; do not reinstall or start it. Recovery must separately
+review restoration of actual Restic timer state outside trigger windows, verifying
+no unintended immediate run.

@@ -7,7 +7,7 @@ The retained Compose staging roles use an exact encrypted repository artifact, a
 The repository contains only:
 
 - SOPS dotenv ciphertext at `secrets/production.sops.env`;
-- its sorted 89-name and non-secret blank-line manifests;
+- its sorted variable-name and non-secret blank-line manifests;
 - controller-only recovery publication credentials at `secrets/recovery-publication.sops.json`, encrypted to the same two recipients; and
 - two public age recipients in `.sops.yaml`: active Debian production and independent recovery.
 
@@ -48,24 +48,17 @@ The off-site recovery publication credential is now escrowed as `secrets/recover
 
 ## Encryption and exact reconstruction
 
-SOPS dotenv encryption preserves all variable names, values, comments, and ordering, but SOPS 3.13.3 removes blank lines. The original source had 20 blank lines. Exact reconstruction was proved before activation:
+SOPS dotenv encryption preserves all variable names, values, comments, and ordering, but SOPS 3.13.3 removes blank lines. Exact reconstruction uses the manifests paired with the selected ciphertext:
 
 1. `scripts/extract-dotenv-keys.py` records sorted names and non-secret blank-line positions.
 2. SOPS encrypts the source as dotenv using the single `.sops.yaml` creation rule.
 3. `scripts/restore-dotenv-layout.py` deterministically restores those blank lines after decryption.
 4. Root-only verification decrypted into a mode `0700` temporary directory, reconstructed the layout, and used `cmp --silent` against the migration source.
 
-The initial 90-variable migration verification reported:
-
-```text
-server_sops_decryption=pass
-source_byte_match=pass
-variable_name_sets=pass count=90
-```
-
-The migrated source checksum and metadata were unchanged during encryption. Production now uses only the root-owned reconstructed environment.
-
-Retiring five obsolete service variables and their encrypted section comment reduces the current manifest from 94 to 89 names and the reconstructed layout from 138 to 131 source lines with 19 blank-line positions. Protected local verification matches all decrypted key names to that exact manifest; the historical 90-variable byte-match evidence remains unchanged.
+Initial byte-match verification and subsequent variable retirement are recorded in
+Git history; their counts are not current validation inputs. Use the exact selected
+ciphertext's name/layout manifests, preserving source checksum and metadata during
+encryption. Production uses only the root-owned reconstructed environment.
 
 ## Secret-free validation
 

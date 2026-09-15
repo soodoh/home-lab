@@ -92,4 +92,4 @@ It accepts only the exact current `backup,iso,vztmpl` content set and only adds 
 
 Do not remove journals or ownership locks manually. Protected inputs and the session key use their separate fixed refresh/rotation tools and explicit gates.
 
-After bootstrap, prove that the fixed plan identity works and arbitrary SSH commands are denied. The controller then owns Proxmox host convergence through the exact manifest-bound Nix `plan`/guarded `prepare`/`apply`/fresh-zero-action `verify` flow. OpenTofu remains authoritative for VM 100 and PVE hardware mappings. Reboot remains a separate reviewed operation.
+After any separately approved bootstrap recovery, prove that the fixed plan identity works and arbitrary SSH commands are denied. The legacy controller no longer owns supported host convergence; see [current native scope](operations.md#what-is-available-now). The retained planner accepts only `plan`, `prepare` and `apply`, not a convergence `verify` command. Its [session recovery protocol](proxmox-guarded-apply.md) needs a separately reviewed invocation. OpenTofu retains VM 100 and PVE hardware-mapping ownership; reboot remains a separate reviewed operation.

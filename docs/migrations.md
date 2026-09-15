@@ -89,7 +89,8 @@ usability.
   writer. The universal reconciler that issued policy API writes is removed.
   Native provider adoption/import and concurrency semantics remain follow-on work;
   running the current root will not converge tailnet policy.
-- **Omada:** the LAN/reservation root reads a private export. Verify imports,
+- **Omada:** the LAN/reservation root reads a private export in the
+  [required input shape](../infrastructure/tofu/omada/EXPORT_SCHEMA.md). Verify imports,
   desired ownership, TLS/CA and certificate hostname (`Omada`) before replacing
   that input. Setting management false after adoption may propose destruction.
 - **Authentik API:** source expects 23 applications/18 proxies/5 OAuth providers/
@@ -103,9 +104,9 @@ usability.
 - **Access/host convergence:** native SSH/become observation now works over the
   existing Tailscale route; no account/key changes were needed. Retain other routes
   and verify independent console access before risky work. The approved native
-  `update-policy.yml` corrected Debian unattended apt installation and Proxmox
-  Tailscale auto-apply on September 14; checks remain enabled and the second run
-  was unchanged. Other host domains and legacy bootstrap policy still need adoption.
+  [manual-update policy](operations.md#manual-update-policy) supersedes legacy
+  automatic-install settings. Other host domains and legacy bootstrap policy
+  still need adoption.
 - **Recovery/VM9900:** VM9900 was observed present and stopped on September 14;
   preserve failed qualification and state ownership. Separate local backends do
   not isolate two roots using the same VMID on production PVE. Stopped state alone

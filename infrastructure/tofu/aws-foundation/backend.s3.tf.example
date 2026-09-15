@@ -1,8 +1,0 @@
-# Copy to backend.generated.tf only after this root has created the bucket.
-terraform {
-  backend "s3" {
-    key          = "home-lab/aws-foundation/tofu.tfstate"
-    encrypt      = true
-    use_lockfile = true
-  }
-}
