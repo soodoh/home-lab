@@ -170,10 +170,14 @@ requires `iac_failed_lock_expected_operation=restic_backup` and separately appro
 qualification, initialization, first-run, firewall or retirement transactions.
 Use their exact journal-aware recovery paths after inspection. Never rerun a
 completed incident operation or delete lock/retirement artifacts to unblock work.
-The [Proton source retirement audit](../docs/proton-source-retirement.md) distinguishes
-removed forward writers from retained password-reset, staged qualification and VM
-recovery dependencies. Their presence is not authorization to invoke them; exact
-transaction closure and live recovery readiness remain separate gates.
+The [Proton source retirement audit](../docs/proton-source-retirement.md) records
+exact recovery receipts and read-only host checks supporting removal of the completed
+password-reset/authentication writers and one-off staged qualification supervisors.
+Their immutable evidence is still consumed by generic qualification/empty/resume
+recovery. VM recovery remains with partially resolved journal lineage and installed
+consumers; VM9900 now belongs to Debian lifecycle qualification. Retained source is
+not authorization to invoke it; transaction closure and live recovery readiness
+remain separate gates.
 
 VM9900 restore fixtures demonstrated staging/structural validation without running
 applications (historically 22,031 files/6,982,221,998 bytes); they did not qualify

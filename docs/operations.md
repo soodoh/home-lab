@@ -230,10 +230,14 @@ not run destructive maintenance merely to clear the historical status.
 ## Proton incident source retirement
 
 The [source retirement audit](proton-source-retirement.md) removes the completed
-TOTP cutover lane and superseded v2 migration writer only. Password-reset diagnostics,
-staged qualification recovery and VM recovery remain pending transaction-specific
-closure review. Incident resolution does not make every retained journal terminal.
-No installed helpers, host files, receipts, locks or backup behavior changed.
+TOTP cutover lane, superseded v2 migration writer and, after September 15 read-only
+inspection, the transaction-closed password-reset/authentication, quota diagnostic
+and one-off staged qualification supervisors. Generic qualification recovery and
+its immutable evidence consumers remain. VM journals have only partial exact
+lineage closure; VM9900 currently belongs to Debian lifecycle qualification, and
+installed recovery transport/capability consumers remain. Incident resolution or
+newer backups do not make every retained journal terminal. No installed helpers,
+host files, receipts, locks or backup behavior changed.
 
 ## Local source checks
 
