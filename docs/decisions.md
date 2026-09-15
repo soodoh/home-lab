@@ -9,26 +9,25 @@ reboot, database migration and recovery operations explicit and separate.
 This supersedes the old controller/admission ADRs. There is no requirement to
 finish their deferred successor before simplifying unrelated source.
 
-The first pass removes universal launchers, abandoned Compose admission and
-source-only LiteLLM deployment machinery, advisory reporting workflows/platform,
-inert experiments/proposals and completed one-shot handoff/incident entrypoints.
-Published history remains in Git; abandoned unpublished work is not archived.
-No new universal manifest, launcher or qualification platform replaces it.
+Source cleanup removes universal launchers, abandoned admission/reporting machinery,
+inert experiments and isolated unconsumed helpers/schema definitions. Published
+forward recipes remain in Git, not current setup guidance. Retained evidence records
+and installed/recovery consumers are a separate boundary; no new universal manifest,
+launcher or qualification platform replaces the old controller.
 
 ## First native adoption
 
-Native SSH/become uses existing Tailscale access rather than replacing accounts or
-keys. `update-policy.yml` owns manual-install policy independently of the legacy
-contract. The older unattended-retirement planner (which disables apt timers/list
-updates) and cloud-init automatic-install defaults are superseded for existing
-hosts; do not run them to undo the adopted policy.
+Native SSH/become deliberately reuses Tailscale access, accounts and keys.
+Manual-install policy is independent of the legacy contract: the old unattended
+retirement (disable timers/list updates) and cloud-init automatic-install defaults
+must not undo it.
 
 `configure-backups.yml` owns narrowly guarded existing-host configuration, not
 bootstrap or activation. Native variables own unit inputs and tool pins; shared
 render/install/account/copy declarations keep legacy entrypoint guards intact.
-The `restic_systemd_legacy_contract` bridge retains transitional values for legacy
-convergence and the historical single-unit post-NFS repair without widening that
-repair. Byte parity is not a permanent obligation to match old receipt hashes.
+The `restic_systemd_legacy_contract` bridge remains necessary for legacy convergence
+and the bounded post-NFS single-unit repair. Byte parity is not a permanent
+obligation to match old receipt hashes.
 Runtime policy, backup scope and retained-journal reconciliation remain legacy
 responsibilities: tool upgrades and content rollout need coordinated policy/journal
 review, not independent pin bumps or receipt regeneration.

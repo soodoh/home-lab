@@ -13,7 +13,6 @@ const production = yaml("ansible/inventory/proxmox-production.yml");
 const bootstrap = yaml("ansible/inventory/proxmox-bootstrap.yml");
 const groupVars = yaml("ansible/group_vars/proxmox_host.yml");
 const playbook = yaml("ansible/playbooks/proxmox-audit.yml");
-const site = yaml("ansible/playbooks/proxmox-site.yml");
 const tasks = yaml("ansible/roles/proxmox_complete_audit/tasks/main.yml");
 
 const host = production.all.children.proxmox_host.hosts["proxmox-host-production"];
@@ -48,9 +47,7 @@ assert.equal(playbook.length, 1);
 assert.equal(playbook[0].hosts, "proxmox_host");
 assert.equal(playbook[0].gather_facts, false);
 assert.equal(playbook[0].become, false);
-assert.equal(playbook[0].roles[0].role, "proxmox_complete_audit");
-assert.equal(site.length, 1);
-assert.equal(site[0]["ansible.builtin.import_playbook"], "proxmox-audit.yml");
+assert.deepEqual(playbook[0].roles, [{ role: "proxmox_complete_audit" }]);
 
 const allowedModules = new Set(["ansible.builtin.assert", "ansible.builtin.command", "ansible.builtin.debug", "ansible.builtin.set_fact", "ansible.builtin.stat"]);
 for (const task of tasks) {

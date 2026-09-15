@@ -20,6 +20,11 @@ class ControllerTests(unittest.TestCase):
  def setUp(self):
   self.m=load(); self.temp=tempfile.TemporaryDirectory(); root=Path(self.temp.name)
   self.m.LOCK_ROOT=root; self.m.PLAN_DIR=root/"plans"; self.m.CONFIG=root/"config.json"; self.m.KEY=root/"key"; self.m.PROTECTED_UID=os.getuid(); self.m.PROTECTED_GID=os.getgid()
+  # Exercise real directory guards only under the fixture; ROOT otherwise locates source assets.
+  ensure_plan_dir=self.m.ensure_plan_dir
+  def fixture_plan_dir():
+   with mock.patch.object(self.m,"ROOT",root): ensure_plan_dir()
+  self.m.ensure_plan_dir=fixture_plan_dir
   self.m.KEY.write_bytes(b"c"*32); self.m.KEY.chmod(0o600)
   self.config={"archNfsSshTarget":"ansible-deploy@arch-canary","lanSshTarget":"tofu-apply@lan-canary",
    "lanTlsUrl":"https://lan-canary:8006/api2/json/version","pveCaPem":"-----BEGIN CERTIFICATE-----\nopaque\n-----END CERTIFICATE-----",
@@ -52,7 +57,7 @@ class ControllerTests(unittest.TestCase):
   with mock.patch.object(self.m,"git_identity",return_value=("a"*40,"b"*40)),mock.patch.object(self.m,"canaries",return_value=failed):
    with self.assertRaises(RuntimeError) as caught: self.m.apply(sha,sha)
   shareable+=str(caught.exception)
-  for path in (ROOT/"nix/proxmox/fixture-observation.json",ROOT/"docs/proxmox-firewall-cutover.md",ROOT/"infrastructure/policy/proxmox-firewall-plan.schema.json"):
+  for path in (ROOT/"nix/proxmox/fixture-observation.json",ROOT/"docs/legacy-host-recovery.md",ROOT/"infrastructure/policy/proxmox-firewall-plan.schema.json"):
    shareable+=path.read_text()
   for value in self.config.values():
    self.assertNotIn(value,shareable); self.assertNotIn(self.m.hashlib.sha256(value.encode()).hexdigest(),shareable)

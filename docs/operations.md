@@ -2,16 +2,13 @@
 
 ## What is available now
 
-Native observation and manual-update policy are verified. The backup configuration
-path, including pinned tools, the confined account, same-content runtime files and
-nine unit definitions, passed source review, a zero-change live preview and two
-normal zero-change runs.
-Broader host/application adoption is pending: there is **no supported general deploy or host-convergence
-command** in this checkout. Historical Ansible ownership does not make
-`proxmox-site.yml` a native convergence play: it imports an audit. Debian `site.yml`
-still includes lifecycle,
-lock and backup prerequisites. Directly invoking retained mutation roles is not
-an approved replacement for the removed controller.
+Supported native scope is observation, manual-update policy and guarded existing-host
+backup configuration (tools, account, same-content runtime files and nine unit
+definitions). [Dated outcomes](#latest-scoped-deployment) do not expand that scope.
+Broader host/application adoption is pending: there is **no supported general deploy
+or host-convergence command**. `proxmox-audit.yml` is only an audit; Debian `site.yml`
+still includes lifecycle, lock and backup prerequisites. Directly invoking retained
+mutation roles is not an approved replacement for the removed controller.
 
 ## Latest scoped deployment
 
@@ -23,9 +20,8 @@ and `unreachable=0`. Backup unit states/execution timestamps and runner/policy/i
 hashes were unchanged; update checks and Tailscale SSH remained enabled.
 No backup/maintenance job, Compose deployment, provider apply or cleanup was run.
 This confirms scoped convergence, not backup integrity or restore readiness.
-Earlier per-slice reviews/previews on September 14 (units, tools, account) and
-September 15 (runtime files) were zero-change checks without expanded applies;
-they are superseded as deployment status by these normal runs.
+This supersedes the September 14–15 per-slice previews as deployment status;
+no reinstall, content rollout, activation or restore was qualified.
 
 ## Native host observation
 
@@ -146,8 +142,7 @@ guards still precede those same declarations in the legacy main entrypoint.
 with Jinja2/PyYAML. It also executes only the identity assertion tasks through local
 Ansible with nine synthetic fact sets, including absent and mismatched identities.
 It never invokes account modules, imports a role, queries NSS or contacts hosts.
-The live preview covered user/group check-mode behavior for this existing host,
-not account migration, bootstrap or recovery.
+These fixtures do not prove account-module effects, migration, bootstrap or recovery.
 
 ### Same-content backup runtime files
 
@@ -177,9 +172,8 @@ resolve retained operations or establish backup health.
 
 `scripts/test-restic-runtime.py` checks source routes/shared declarations and runs
 only real local Ansible assertions over synthetic stat/policy facts and isolated
-copies of the three source files. Its 49 refusal/no-log cases are not native copy or
-installation proof. The separate live preview confirms the current host requires
-no changes; it does not qualify a metadata repair or content rollout.
+copies of the three source files. Its 49 refusal/no-log cases are not native copy,
+metadata repair, installation or content-rollout proof.
 
 ### Proton maintenance unit
 
@@ -215,6 +209,12 @@ python3 -B scripts/test-compose-artifact.py
 python3 -B scripts/test-compose-action-plan.py
 ```
 
+Bare Compose validation requires interpolation inputs already available locally;
+it does not decrypt `secrets/production.sops.env`. With the matching controller-local
+recovery identity, use the [SOPS-backed quiet validation](sops-age.md#controller-local-compose-validation)
+instead. It supplies inputs without creating a plaintext environment file or
+starting containers.
+
 These fixture tests do not contact Docker or hosts. Inspect other tests before
 execution: some opt-in tests use Ansible or disposable infrastructure.
 Use YAML parsing/lint and `tofu fmt -check` for relevant edits. Ansible syntax
@@ -222,7 +222,7 @@ checking needs the existing collections and inventory configuration; it does not
 prove check-mode behavior or deployment readiness. Report missing dependencies
 rather than automatically installing them.
 
-`scripts/validate-provider-locks` is **mutating manual maintenance**, not passive
+`scripts/update-provider-locks` is **mutating manual maintenance**, not passive
 validation: it runs `tofu providers lock` for five roots/three platforms and only
 then checks Git differences. It can contact providers and rewrite lock files;
 execution requires separate approval. Keep the existing locks unchanged for source checks.
@@ -284,9 +284,10 @@ VM100's source identity is Debian 13 `docker-host`, LAN `192.168.0.100`, tailnet
 interactive workload account. Native observation uses the existing Tailscale SSH
 route. Fixed Proxmox transports remain installed for legacy consumers; no access
 route has been removed or replaced.
-The independently captured LAN guest key is recorded in
-`infrastructure/evidence/vm-100-debian-ssh-host-key.json`; verify current trust
-rather than accepting a new key on first use.
+The guest key captured through Proxmox QGA and matched by tailnet keyscan is
+recorded in `infrastructure/evidence/vm-100-debian-ssh-host-key.json`; that record
+does not establish an independent LAN capture. Verify current trust rather than
+accepting a new key on first use.
 
 Keep `/srv/home-lab-state`, games UUID `31602ce7-0054-498a-9f24-f51ca491e7b3`
 at `/mnt/games`, and the NFS mount identities intact. Backup temporary storage is

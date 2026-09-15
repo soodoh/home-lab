@@ -45,7 +45,7 @@ function main() {
       v => { v.host_key = "SHA256:" + "b".repeat(43); }, v => { v.target = "ansible-deploy@proxmox"; },
       v => { v.snapshot.observed_at = "2000-01-01T00:00:00Z"; }, v => { v.expires_at = "2099-01-01T00:00:00Z"; },
       v => { v.scope.tags = []; }, v => { v.scope.tags = ["audit", "packages"]; }, v => { v.scope.tags = ["packages"]; },
-      v => { v.scope.playbook = "ansible/playbooks/proxmox-site.yml"; }, v => { v.scope.inventory = "ansible/inventory/proxmox-bootstrap.yml"; },
+      v => { v.scope.playbook = "ansible/playbooks/proxmox-audit.yml"; }, v => { v.scope.inventory = "ansible/inventory/proxmox-bootstrap.yml"; },
       v => { v.scope.normalized += "changed scope"; }, v => { v.scope.recap.changed = 1; }, v => { v.scope.recap.failed = 1; },
       v => { v.scope.recap.ignored = 1; }, v => { v.scope.recap.skipped = 1; }, v => { v.snapshot.locks = "unlocked"; },
       v => { delete v.snapshot.observation.domains.protectedHardware; }, v => { v.protected_facts_sha256 = "0".repeat(64); },

@@ -68,24 +68,21 @@ snapshot; pending replicas must survive retention. Every nonzero Restic result,
 including exit 3, is failure. The interruption journal drives boot-time recovery.
 Preserve its owner and restart intent across controller or host failure.
 
-Source declares active scheduling: one non-persistent 05:00 daily target
-(local/NFS then confined Proton), and one non-persistent monthly maintenance target.
-There is no independent Proton timer. Native configuration leaves enabled/active
-states untouched; legacy activation still requires the evidence below. See [operational status](../docs/operations.md#latest-scoped-deployment)
-and [maintenance validation limits](../docs/operations.md#proton-maintenance-unit):
-zero-change convergence, successful daily unit exits and mount probes do not prove
+Source declares one non-persistent 05:00 daily target (local/NFS then confined
+Proton) and one non-persistent monthly maintenance target; no independent Proton
+timer. Preserve actual enabled/active states; legacy activation still requires the
+evidence below. [Operational outcomes](../docs/operations.md#latest-scoped-deployment)
+and [mount probes](../docs/operations.md#proton-maintenance-unit) do not prove
 snapshot integrity, full maintenance success or restore readiness.
 `restic-proton` stays UID/GID **60000**, without login, supplementary groups or
-production-tree access. Native [account configuration](../docs/operations.md#confined-backup-account)
-requires the existing identity; it does not create accounts or renumber ownership.
-Do not reuse the historically conflicting UID 999 or recursively chown application data. Preserve
-`/run/lock/home-lab-backup.lock` and its root:60000 ownership/coordination.
+production-tree access. Do not reuse the historically conflicting UID 999 or
+recursively chown application data. Preserve `/run/lock/home-lab-backup.lock` and
+its root:60000 ownership/coordination.
 
 The contract and rendered `services/data/restic/{files-from,excludes}` still own
 backup scope. Native [runtime-file adoption](../docs/operations.md#same-content-backup-runtime-files)
-maintains same-content metadata only, refusing content drift and untrusted file
-permissions. Policy/scope and retained journals are not migrated; content changes
-require coordinated policy/journal review, not receipt regeneration.
+is same-content metadata maintenance, not a recovery installer. Content/tool-policy
+changes require coordinated policy/journal review, never receipt regeneration.
 Preserve path classes: `replace-tree`, `replace-entries`, `preserve`,
 `regenerate`, `retain`, `external`; they are not interchangeable. External-data
 services remain `state-restored-user-data-pending` until independent data is
@@ -103,11 +100,9 @@ Retain Restic **0.19.1**, archive SHA-256
 and rclone **1.76.0-beta.10267.220fe7619**, archive SHA-256
 `8d836165cfc92b273f8735dc91e4158c55267dfa69f9e35ed838805802a89dec`.
 Installed-binary hashes are separate and remain in source policy/bundle inputs.
-Native [tool configuration](../docs/operations.md#pinned-backup-tools) requires
-installed runtime-policy tool equality before effects; it never bootstraps or
-rewrites policy. Upgrades need coordinated policy/bundle inputs and Proton
-qualification, not independent pin bumps. Zero-change validation is not reinstall
-or recovery proof.
+Upgrades need coordinated runtime-policy/bundle inputs and Proton qualification,
+not independent pin bumps. Native [tool configuration](../docs/operations.md#pinned-backup-tools)
+is existing-policy-bound, not backup bootstrap or recovery proof.
 rclone 1.75.0 could report successful uploads with truncated Proton packs (upstream
 #9722; fix `a06df7a2de46ee15932a0fbfa27bc4bb0045acf8`). A stable replacement needs
 its own pinned backend/full-data restore proof; source deletion does not qualify it.
@@ -158,12 +153,10 @@ proof and without logging values or reusing historical transaction confirmations
 
 ## Host/network and interrupted-operation recovery
 
-Retain the [firewall watchdog protocol](../docs/proxmox-firewall-cutover.md),
-[bootstrap recovery](../docs/proxmox-bootstrap.md) and
-[legacy session protocol](../docs/proxmox-guarded-apply.md).
-Those are emergency references for surviving source, not enabled new writers.
-The session reference does not supply a standalone status/rollback CLI; an actual
-retained-session recovery needs a separately reviewed invocation.
+Retain the distinct [bootstrap, session and autonomous firewall protocols](../docs/legacy-host-recovery.md).
+These are emergency references, not enabled new writers. The host-session protocol
+has no standalone status/rollback CLI; a retained-session recovery needs a
+separately reviewed invocation.
 Preserve strict host-key checking, independent console, VM100 disk identities,
 ZFS topology, NFS mount/export state and selected VFIO helper/policy. The deploy
 transport also handles Restic recovery network identity and snippet staging/removal;

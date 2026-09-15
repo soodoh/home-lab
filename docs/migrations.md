@@ -12,30 +12,217 @@ container mounted `/srv/home-lab-state/authentik-data/postgresql` at
 `/var/lib/postgresql`, containing `18/docker/PG_VERSION=18`. The retained
 `postgresql-16/PG_VERSION=16` was also present. Do not rerun the forward migration.
 
-Keep the [PostgreSQL 16 → 18 runbook](authentik-postgres-18-migration.md) for
-migration provenance and rollback constraints. Verify functional acceptance,
-backup/restore coverage and custody of the dump/cold copy before retiring the old
-directory or closing rollback. Those checks were not performed by observation.
-No generic Compose update or automatic database rollback is safe here. Future
-artifact publication needs a native implementation, not the removed controller.
+PostgreSQL 16 used `/var/lib/postgresql/data`; 18 uses
+`PGDATA=/var/lib/postgresql/18/docker` and the parent mount `/var/lib/postgresql`.
+18 cannot open a 16 cluster directly. This was a logical dump/restore, not an
+image-only update. Original forward commands are in Git (`1165675`, former
+`docs/authentik-postgres-18-migration.md`). They stopped Authentik/Redis writers,
+validated the dump table of contents, stopped PostgreSQL and preserved the old
+cluster, then restored into 18 with exit-on-error, rebuilt optimizer statistics
+and compared extensions, public-table and `django_migrations` counts against the
+stopped source. This provenance does not prove acceptance.
 
-## Nextcloud, Calibre and Caro
+### Acceptance and custody
 
-Keep the [Nextcloud five-mount/configuration and rollback procedure](nextcloud-34-configuration.md)
-and its paired playbooks/roles. External data at
-`/mnt/storage/media/nextcloud/data` stays mounted in place: never copy into, restore
-over or recursively delete it with managed application state. Keep old NFS
-application/config/custom-app/theme copies for seven days after full recovery,
-rollback and user-data proofs. Cron activation, database maintenance and exact
-old-path/log cleanup remain separate approvals.
+Preserve all three sensitive root-only rollback inputs:
 
-The old Nextcloud procedure predates Offen retirement. Its references to the two
-Offen schedulers and fixed service counts are historical, not current startup
-instructions. On September 14 both Nextcloud and its cron container were running
-with the five intended mounts; cron therefore is not awaiting initial activation.
-Do not rerun forward migration/start steps. Verify application integrity, retained
-old copies and remaining rollback requirements before claiming completion. Use the
-actual Restic timers and service set; do not reinstall or start Offen.
+1. `authentik-postgres-16.dump` and validated `.toc` under
+   `/var/lib/authentik-postgres-migration/<candidate-hash>`;
+2. the original `postgresql-16` cluster under `authentik-data`;
+3. the cold copy in `authentik-postgres-16-backup-<first-12-candidate-hash>`.
+
+Keep before/after extension/count records, the exact digest-pinned
+`postgres:16-alpine@sha256:*` image, both generations' artifacts/environments/image
+locks and the failed 18 cluster. The historical 18 image was
+`postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15`.
+The old Docker volume had the `authentik-data` Compose label; its identity came
+from the stopped 16 container, not today's bind mount. The original cold-copy
+operation used no network and a read-only source and refused existing backup
+volume or `postgresql-16` destinations. Do not recreate or overwrite them.
+
+Before acceptance or rollback retirement, verify:
+
+- PostgreSQL health, `PG_VERSION=18` and the exact PGDATA above;
+- Redis/server health and a running worker;
+- retained extension/schema-count comparisons;
+- Authentik admin login and dashboard/directory objects;
+- authentication through at least one protected application;
+- PostgreSQL/server/worker logs free of restore/migration errors, without exposing sensitive output;
+- Home Assistant health;
+- active artifact idempotence, with no further PostgreSQL recreation proposed;
+- a new encrypted scheduled backup containing 18, with independently verified
+  integrity and [restore coverage](../recovery/README.md), not old archive-replica checks.
+
+### Rollback limits
+
+There is no qualified post-promotion invocation or general deploy command here.
+No generic Compose update or automatic database rollback is safe. Review actual
+retained inputs before separately approving artifact publication or recovery; the
+removed controller and retained roles are not implicit replacements.
+
+An invocation must recover the old volume/image identity from retained evidence,
+verify the exact 64-hex candidate artifact/content and existing paths, root:root
+0600 environments and root-only migration directory. Use root, fail-fast shell
+handling (`set -euo pipefail`) and `umask 077`. The original current/candidate
+environments had to be byte-equal: do not combine database migration with secret
+or configuration changes. Bind the explicit
+[project/artifact/environment paths](operations.md#stable-application-and-host-identities).
+After promotion, “current” no longer means 16 and “candidate” no longer reliably
+means the retained 18 generation.
+
+Rollback loses writes accepted by 18 after cutover. Stop all Authentik/Redis/database
+writers and keep users out throughout the reviewed window. Preserve the failed 18
+cluster separately (the old pre-promotion procedure used `postgresql-18-failed`
+and refused an existing destination), restore the exact 16 artifact and old
+cluster, and verify database health before admitting writers. Never start 16
+against the 18 directory; images cannot undo database migration.
+
+Both clusters consume backup space until explicit rollback retirement. Only after
+all acceptance and new-backup proofs may an approved exact old subdirectory,
+backup volume and root-only migration directory be removed. Never use unrestricted
+volume prune.
+
+References: [Authentik upgrade guidance](https://docs.goauthentik.io/troubleshooting/postgres/upgrade_docker/),
+[image PGDATA change](https://github.com/docker-library/docs/blob/master/postgres/README.md#pgdata),
+[PostgreSQL 18 upgrade](https://www.postgresql.org/docs/18/upgrading.html).
+
+## Nextcloud
+
+On September 14 both Nextcloud and cron were running with the five intended
+mounts. **Do not rerun forward migration or initial activation.** Application
+integrity, retained copies and rollback acceptance remain outstanding. Keep the
+paired migration/configuration/rollback playbooks and roles as recovery inputs,
+not a supported standalone native deployment path.
+
+### Review boundary
+
+Any separately approved recovery or maintenance requires:
+
+- a clean reviewed commit and clean working tree;
+- the independently restored pre-change config/theme recovery point;
+- the current reduced database backup and canonical SOPS/recovery material;
+- no active deployment, backup, restore, database maintenance, or storage migration;
+- at least 2 GiB free under `/srv/home-lab-state`;
+- old `/mnt/storage/media/nextcloud` application copies retained for seven days after full proof.
+
+The external `/mnt/storage/media/nextcloud/data` tree remains under its existing
+retention decision. It is mounted in place and is never copied into, restored over,
+or deleted with managed application state. The other four mounts hold managed
+application code, config, custom apps and themes under `/srv/home-lab-state`.
+
+### Historical staging and five-mount migration
+
+The original forward procedure is in Git (`1165675`, former
+`docs/nextcloud-34-configuration.md`). Its paired `stage-compose.yml` and `deploy-nextcloud-migration.yml`
+plays remain source/recovery dependencies, not a supported native deployment path.
+The procedure required an exact `compose_artifact_hash` and
+`compose_artifact_controller_dir`, lock-held metadata-preserving/checksum
+synchronization, stopped writers, activation of four local paths and proof that
+the external-data device/inode was unchanged. It allowed no image-version changes
+or removal of old NFS application/config copies. It required an explicit Caddy
+restart for changed bind-mounted configuration and initially stopped cron/backup
+schedulers. These requirements are not completed acceptance proof.
+
+Staging confines canonical SOPS decryption to a root-only temporary directory and
+materializes these root-owned mode-0600 files without logging values:
+
+- `/etc/docker-compose/credentials/nextcloud-mysql-password`;
+- `/etc/docker-compose/credentials/nextcloud-mariadb-root-password`.
+
+Retain the selected artifact hash, current/previous artifacts and environments,
+image locks, old paths, database recovery point and any migration journal before
+reviewing rollback. Reconcile actual service/timer state rather than substituting
+new names into the historical procedure.
+
+### Web acceptance
+
+These remain acceptance checks, not instructions to start already-running cron:
+
+- `occ status --output=json` reports installed, not in maintenance mode, and no database upgrade;
+- `/var/www/html/data` resolves to `/mnt/storage/media/nextcloud/data`;
+- config, current themes, and any custom apps are visible;
+- login, representative file listing/read, WebDAV, and a representative upload succeed;
+- HTTPS URL generation remains correct;
+- only Caddy at `172.23.0.250` is trusted and real client addresses are correct;
+- the external response contains exactly `Strict-Transport-Security: max-age=15552000`;
+- Compose inspection and logs contain file references, not password values.
+
+### Cron and native maintenance acceptance
+
+Initial cron startup is historical. Verify `/cron.sh` as PID 1 and the installed
+five-minute `cron.php` schedule; observe at least two cadences under separate
+operational approval. Do not manually execute arbitrary queued job IDs.
+Record only aggregate, secret-free evidence:
+
+- last-cron timestamp and pending-job count;
+- class counts and last-run values for native upload cleanup and `OC\Log\Rotate` when registered;
+- upload-staging bytes and oldest timestamp;
+- current and rotated log sizes.
+
+The pre-change queue contained metadata jobs but no registered `UploadCleanup`
+class. Let normal cron register or run the current native cleanup path. Never use
+`rm` in user upload directories. Investigate permissions or exact job errors if
+stale chunks are not removed natively. Delete the oversized rotated log only after
+native rotation is proven and an exact private cleanup manifest is separately approved.
+
+### Database maintenance
+
+Each operation requires separate approval during the UTC maintenance window
+beginning at hour `6`, fresh setup checks and a proven database recovery point.
+The historical sequence was `occ setupchecks --output=json`,
+`occ db:add-missing-indices`, `occ maintenance:repair --include-expensive`, then
+setup checks again, as `www-data`. A reviewed invocation must bind the explicit
+[production project/artifact/environment](operations.md#stable-application-and-host-identities),
+not checkout Compose defaults.
+
+For non-DYNAMIC tables, use only the documentation URL and exact affected table
+names emitted by the installed Nextcloud 34 setup check. Do not copy SQL from an
+older release. Re-run setup checks immediately afterward and restore the database
+on any database error through a separately reviewed recovery invocation.
+
+Classify recent log errors without recording private paths, filenames, tokens or
+user content. AppAPI, single-server ID, SMTP, 2FA enforcement, monitoring and direct
+upload-directory cleanup remain scope exclusions.
+
+### Rollback
+
+The retained `ansible/playbooks/rollback-nextcloud-migration.yml` requires a reviewed
+rollback plan, the old paths and previous artifact, and:
+
+```text
+compose_rollback_nextcloud_migration_confirmation=rollback-reviewed-nextcloud-five-mount-migration
+```
+
+Its historical bounded rollback stops cron/web/backup writers, removes only the
+new cron container and converges the previous **41-service** artifact against the
+untouched old parent mount, retaining new paths for diagnosis and never modifying
+external user data. That service count and its Offen scheduler assumptions are
+historical, not a currently runnable recovery recipe. A separately reviewed
+invocation must reconcile these with actual retained inputs; do not guess a
+replacement or run the play unchanged merely because it remains in source.
+
+### Recovery and cleanup gate
+
+Before old-path deletion:
+
+- inspect and safely run the focused `scripts/test-restic-recovery-bundle` and `scripts/test-restic-restore-branch` checks;
+- separately rehearse a fresh restore of config, custom apps/themes, MariaDB, SOPS-backed secret files and pinned application code while retaining external data;
+- prove the previous-artifact rollback;
+- confirm representative user-file counts and hashes are unchanged;
+- retain old copies for seven days after these proofs.
+
+Build a private exact-path cleanup manifest with device, inode, size, mtime and
+path identities. Its allowlist may include only stale old application/config/
+custom-app/theme copies and an approved legacy rotated log. It must exclude
+`data`, `files`, `files_versions` and `files_trashbin`. Apply only after approval
+of the manifest hash.
+
+The original final restart of `daily-local-backup` and `weekly-remote-backup` is
+obsolete: Offen is retired; do not reinstall or start it. Recovery must separately
+review restoration of actual Restic timer state outside trigger windows, verifying
+no unintended immediate run.
+
+## Calibre and Caro
 
 The complete Calibre library (`metadata.db`, books and covers) belongs at
 `/srv/home-lab-state/calibre-data/books` and is included in Restic. The NFS copy is

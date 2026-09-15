@@ -288,10 +288,16 @@ if (stateDisk.interface !== "scsi2" || stateDisk.serial !== "QUAL-NIXOS-128G" ||
   throw new Error("production state disk must retain the exact scsi2 filesystem identity and lifecycle");
 }
 
+const applyGuard = load(fs.readFileSync(path.join(root, "ansible/roles/apply_guard/tasks/main.yml"), "utf8"));
+const authorityGuard = applyGuard.find(task => task["ansible.builtin.assert"]?.that.includes("vm_100.deployment_authority == 'debian'"));
+if (!authorityGuard || authorityGuard.when !== "not ansible_check_mode") {
+  throw new Error("Ansible convergence does not require Debian authority");
+}
+
 const validVmAuthority = structuredClone(contract);
 validVmAuthority.vm_100.deployment_authority = "debian";
 check(validVmAuthority, true, "VM 100 accepts Debian authority");
-for (const authority of ["arch", "migration-in-progress", "nixos", "flatcar", "dual"]) {
+for (const authority of ["arch", "migration-in-progress", "nixos", "flatcar", "dual", undefined]) {
   const invalidVmAuthority = structuredClone(contract);
   invalidVmAuthority.vm_100.deployment_authority = authority;
   check(invalidVmAuthority, false, `VM 100 rejects retired authority ${authority}`);
@@ -410,15 +416,40 @@ for (const objectPath of closedRequiredPolicyObjects) {
   }
 }
 
-function collectPolicyRecords(value, records = []) {
-  if (Array.isArray(value)) {
-    for (const item of value) collectPolicyRecords(item, records);
-  } else if (value && typeof value === "object") {
-    if (typeof value.kind === "string") records.push(value);
-    for (const nested of Object.values(value)) collectPolicyRecords(nested, records);
+function collectPolicyRecords(document) {
+  const records = [];
+  function visit(value) {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+    } else if (value && typeof value === "object") {
+      if (typeof value.kind === "string") records.push(value);
+      for (const nested of Object.values(value)) visit(nested);
+    }
   }
+  for (const domain of [document.network, document.proxmox, document.storage]) visit(domain);
   return records;
 }
+// Asset kinds belong to Compose, not host-policy dispatch. Unknown host kinds
+// must still reach the rejection check rather than disappearing during collection.
+const collectionFixture = {
+  compose_deployment: { assets: [{ kind: "file" }, { kind: "directory" }] },
+  network: { policy: { kind: "managed-file" } },
+  proxmox: { policies: [{ kind: "unknown-host-policy" }] },
+  storage: { policy: { kind: "runtime-protected-directory" } },
+};
+const collectedKinds = collectPolicyRecords(collectionFixture).map(record => record.kind);
+if (JSON.stringify(collectedKinds) !== JSON.stringify([
+  "managed-file", "unknown-host-policy", "runtime-protected-directory",
+])) {
+  throw new Error("host-policy collection must exclude Compose assets without hiding unknown host kinds");
+}
+const invalidAssetKind = structuredClone(contract);
+invalidAssetKind.compose_deployment.assets[0].kind = "managed-file";
+check(invalidAssetKind, false, "Compose asset kinds cannot become host-policy kinds");
+const invalidHostKind = structuredClone(contract);
+invalidHostKind.network.ownership.interfaces_file.kind = "file";
+check(invalidHostKind, false, "host-policy kinds cannot become Compose asset kinds");
+
 const policyRecords = collectPolicyRecords(contract);
 const managedFiles = policyRecords.filter((record) => record.kind === "managed-file");
 const protectedManagedFiles = policyRecords.filter((record) => record.kind === "protected-managed-file");

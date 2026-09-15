@@ -1,8 +1,132 @@
-# Proxmox firewall cutover design
+# Legacy host recovery
 
-## Status and authority
+**Emergency reference for retained assets, not current mutation authority or a
+qualified fresh rebuild.** Native adoption has not replaced these recovery
+protocols. There is no general deploy command. Inspect installed generations,
+exact journals/owners and independent console/LAN access before a separately
+reviewed recovery invocation. Do not rerun completed bootstrap or cutover steps,
+clear locks, disable watchdogs, or fabricate sidecars/receipts.
+See [current scope](operations.md#what-is-available-now) and
+[staging-only data recovery](../recovery/README.md).
 
-This document defines the required transaction for the one-time Proxmox firewall cutover. It is a reviewed design only. It does not authorize installation or live activation.
+- [Bootstrap interruption](#bootstrap-interruption) covers console-installed assets.
+- [Retained host sessions](#retained-host-sessions) covers the old Nix protocol.
+- [Autonomous firewall recovery](#autonomous-firewall-recovery) is a distinct
+  PVE transaction with its own watchdog and two boot phases, not Ansible rescue.
+
+## Bootstrap interruption
+
+The old protocol keeps Nix controller-side; no Nix daemon/store is installed on
+Proxmox. Historical forward ceremonies are in Git at `b65857a`, in the former
+`docs/proxmox-bootstrap.md`. They are not native setup instructions.
+
+Recovery must establish the exact reviewed/pushed source, installed bundle and
+protected input identities. Hardware/access tokens, keys, disk/pool identities and
+USB serials stay in root-owned mode-0600 inputs, never the Nix store, Git, plans,
+logs or evidence. The three distinct public-key sets use fixed root-owned mode-0600
+`/root/.config/home-lab/proxmox-{plan,apply,firewall}-authorized-keys` files.
+The controller-built `path:./nix#proxmox-host-bundle` supplied only `bundle` and
+`bundle.sha256` under `/var/lib/home-lab/bootstrap/incoming/`.
+
+The official Debian-based bare-metal PVE baseline remains a deterministic manual assertion boundary: exact hostname/static bridge with console attached, existing
+ZFS pool identified by independently verified protected GUID, ONLINE health and
+exact six-mirror topology, existing dataset/storage preserved, exact official
+packages/services/binaries, and contract-bound Tailscale hostname/tag/DNS/routes/
+netfilter/SSH preferences. Missing identity is not permission to discover, import,
+create, format, upgrade or delete infrastructure. This reference does not qualify
+that baseline or authorize rebuilding it.
+
+The access bootstrap's historical scope was exactly `tofu-plan`, `tofu-apply`,
+`firewall-apply` and the locked non-SSH `proxmox` audit identity, separated forced
+keys, contract SSH/sudo policy, fixed PVE roles/ACLs and privilege-separated tokens
+with one-time root-only escrows. Current ownership may differ. The fixed apply
+transport restricted both shell and forced command, with no supplementary groups
+and sudo only for preparer `prepare` and activator `session`. It accepted no
+caller-selected paths, identities, commands or token values. Interrupted creation
+rolls back created authority; retained recovery must use its exact journal.
+
+The host bootstrap accepts only `check`, `install`, `verify` and gated `recover`.
+It checks target, Git/bundle/input identity, space and authority locks. Its journaled
+installation includes observer, private preparer, activator, firewall transaction/
+transport/boot helpers, canonical policy, systemd units/drop-ins and root-only
+attestation key. It reloads definitions, enables boot recovery and the persistent
+rollback timer, starts the watchdog, and verifies exact bytes, key metadata,
+enablement and watchdog activity. Installation **does not activate firewall policy**.
+Never replace these assets from a guessed source generation to repair a hash mismatch.
+
+For a separately approved retained interruption, from an actual controlling Linux
+virtual console `/dev/ttyN`, select only the gate matching the journal:
+
+| Retained operation | Required environment gate | Fixed recovery command |
+| --- | --- | --- |
+| Access bootstrap/convergence | `PROXMOX_NIX_ACCESS_RECOVER_CONFIRMED=recover-reviewed-access-bootstrap` | `scripts/bootstrap-proxmox-nix-access recover` |
+| Helper installation | `PROXMOX_NIX_BOOTSTRAP_RECOVER_CONFIRMED=recover-reviewed-helper-transaction` | `scripts/bootstrap-proxmox-nix-host recover` |
+| Apply-role refresh | `PROXMOX_NIX_ACCESS_ROLE_REFRESH_RECOVER_CONFIRMED=recover-reviewed-role-refresh` | `scripts/bootstrap-proxmox-nix-access recover` |
+| VM9900 plan ACL refresh | `PROXMOX_NIX_ACCESS_QUALIFICATION_ACL_RECOVER_CONFIRMED=recover-reviewed-qualification-acl` | `scripts/bootstrap-proxmox-nix-access recover` |
+| Import-storage prerequisite | `PROXMOX_NIX_IMPORT_STORAGE_RECOVER_CONFIRMED=recover-reviewed-import-storage` | `scripts/bootstrap-proxmox-nix-access recover` |
+
+These are distinct exact-before-state transactions, not generic repair switches.
+Legacy access convergence only accepted the proved old `/bin/bash`, unforced key,
+sudo group and `NOPASSWD: ALL` apply state after proving every other account/key/
+access file/token escrow/input. Role refresh only added contract-required `SDN.Use`
+to the exact existing `HomeLabTofuApply` privileges. Qualification ACL refresh only
+added the existing disk-inspection role at `/vms/9900` after the VM existed, without
+changing roles/tokens/production ACLs/keys/accounts/sudo. Import-storage refresh
+only added `import` to existing `local` content `backup,iso,vztmpl`, without creating
+or deleting storage, images, volumes or VMs. Retain each journal and before-image.
+Protected input refresh and session-key rotation have their own fixed tools/gates.
+
+After approved recovery, verify the fixed plan identity and denial of arbitrary
+SSH commands, not merely connectivity. Keep strict host-key checking and tested
+independent console/LAN access. OpenTofu retains VM100 and hardware-mapping ownership;
+reboot is separate. The retained planner exposes only `plan`, `prepare`, `apply`;
+its session recovery invocation gap is described below.
+
+## Retained host sessions
+
+Protocol v4 below describes the pre-transfer Nix host session mechanism. New mutation
+through this legacy protocol is not the supported native direction. Retained sessions
+may still require its exact status/rollback behavior; source deletion does not
+close their journals or retire installed transports.
+
+**Invocation gap:** the retained `proxmox-host` planner exposes only `plan`,
+`prepare` and `apply`, not standalone `status` or `rollback` commands. The host
+session transitions below are protocol semantics, not a copy-paste recovery CLI.
+Inspect the exact retained session/bindings and obtain a separately reviewed
+recovery invocation; do not retry `apply` as a passive status query.
+
+Historical apply accepted only `--repo-root`, `--plan-sha` and the identical
+`--approve-plan-sha`. The controller derives `.reconcile/plans/<hash>.json`, `.reconcile/plans/<hash>.private.json`, and `.reconcile/controller-apply.lock`. Both plan files must be canonical, single-link, real mode-`0600` files. New mutation requires a clean worktree whose `HEAD` exactly equals `refs/remotes/origin/main`, an unexpired ready steady plan and sidecar, exact explicit approval, and matching Git, bundle, schema, observer, and activator hashes. Expiry forbids new mutation but does not prevent exact status or rollback of an already retained matching host session.
+The reviewed host plan remains valid for 1,800 seconds from observation. This bounded window accommodates the mandatory full validation suite and human manifest review while still requiring apply-time host binding, protected-state, and plan-expiry checks. The host-generated private sidecar remains capped at 300 seconds and never extends beyond the reviewed plan.
+
+The private sidecar is produced only by `proxmox-host prepare` through the fixed root `proxmox-private-preparer prepare` entry point after the console-only transport bootstrap. The observer invokes only the exact installed preparer `summary` bytes and receives five access and three hardware checks reduced to status/count/boolean summaries. `prepare` accepts the full exact canonical plan, rechecks installed bindings and protected state, rejects package/watchdog/API/OpenTofu/reboot actions, and generates opaque challenges, sessions, keyed summaries, and the complete sidecar MAC. The controller writes the response once as a no-follow mode-`0600` file and prints only a creation summary.
+
+The private sidecar is produced only by the protected preparation workflow. It contains bounded opaque challenge/session handles and keyed attestations, not identities or stable unkeyed identity hashes. Its action-manifest hash is the canonical digest of the complete ordered `plan.actions` array. A host-session MAC authenticates the complete canonical sidecar signing projection—every binding, timestamp, gate, package-session field, protected summary/MAC, plan, challenge, session, and action-manifest hash—excluding only the host-session MAC field itself. Independent protected-access and protected-hardware MACs are still required. The host validates all MACs with its root-only session key. The generated activator embeds the noncircular reviewed observer, activation/private/plan schema, projection, package-manifest, and flake-lock hashes. Its own hash is checked from the installed helper. The bundle-content hash and exact Git commit cannot be embedded without a circular or build-time Git dependency, so they are trusted only when authenticated by the complete host-keyed sidecar and matched by the clean controller plan. Missing installed protocol-v4 helpers or session key fails `bootstrap-required`; do not hand-create a sidecar as a workaround.
+
+### Locking and activation
+
+The outer reconciler opens the fixed no-follow, user-owned, mode-`0600`, single-link `.reconcile/controller-apply.lock`, takes one nonblocking descriptor `flock`, and overwrites/fsyncs canonical commit/phase/owner metadata while held. It re-executes with an inherited descriptor plus ephemeral token; the reconciler verifies exact descriptor identity, metadata, parent PID, commit and phase. Nested guarded host/firewall apply validates and borrows that ownership (falling back to token + proof that the same file remains contended only when an intermediary closed the descriptor), and never reacquires or unlinks it. Standalone guarded apply acquires the same protocol directly. The file is inert and retained after close; process death or controller reboot releases the mutex without manual deletion. Before begin, apply queries exact host status. No retained session may begin only while fresh; a clean retained `begun` session resumes with the identical begin request; any prior/pending/failed/rollback mutation is rolled back and reported recovered without continuing; released recovery is reported; and released commit is fully re-observed before being reported already applied. The authenticated sidecar `createdAt` is the deterministic begin/ownership timestamp across controller restarts. The host ownership lock, per-transition mutex file, journals, and rollback root remain fixed under `/var/lib/home-lab/reconciliation/`. Every begin/action/status/commit/rollback transition holds a nonblocking descriptor-backed `flock` on the no-follow root-owned mode-`0600` single-link mutex file. Under that mutex, Ansible rejects Nix ownership before creating its persistent lock, while the Nix activator/preparer reject persistent Ansible ownership; no authority performs the persistent check before taking the shared mutex. Process death or reboot releases serialization automatically; `busy` means a live process still holds the descriptor. Transitions are journaled durably before their responses. After both ownership locks exist, the fixed `tofu-plan@proxmox` observer re-observes only saved affected preconditions. A mismatch stops without action derivation or replanning.
+
+Begin carries the complete ordered action array. The activator validates its canonical digest against the private sidecar and validates every action/catalog/sequence/dependency before filesystem setup. It then persists the exact manifest and an authenticated `initializing` journal containing the exact begin request digest and intended ownership record before creating `apply.lock`. Exact begin retry or status under the live flock creates or validates that lock and durably advances to `begun`; a crash before the initialization journal has no ownership, and a later exact begin removes only known no-follow setup files before restarting. Unowned journal-less generations do not poison challenge replay and are safely reclaimed before retention is evaluated. Each later action and commit must exactly match the retained plan manifest. Retained challenge/session journals prevent replay. Each closed action envelope contains one saved action, and the activator independently checks and same-inode captures the immediate precondition. It derives target paths, desired bytes, owners, modes, and native commands internally. Initially dispatchable domains are automatic nonprotected managed files, managed fragments, managed artifacts, and the explicitly guarded `chrony.service`. SSH and Tailscale services are access-critical/watchdog-required and nonautomatic; NFS is data-critical and nonautomatic. Other access-critical/watchdog, account, package, API, audit-deletion, protected, and OpenTofu-owned actions remain rejected.
+
+Each target is captured once in a bounded root-only rollback session using no-follow descriptors. Aggregate raw rollback bytes are capped at 32 MiB, and the canonical base64-expanded manifest is independently capped at 48 MiB before every write; reads use that identical serialized limit, so a successful capture cannot make its manifest unreadable. Regular-file reads require identical pre/post `fstat` fingerprints (device, inode, size, mode, owner, group, link count, mtime, and ctime); symlink reads require identical pre/post no-follow `lstat` fingerprints. The host-private fingerprint is retained and fully revalidated immediately before every replace, unlink, or symlink rename. A newly created begin generation that fails setup is removed only through no-follow descriptors and only when it contains known root-owned regular setup files; preexisting or unknown entries are never removed.
+
+Before capture or mutation, an action persists an exact `action-pending` record containing only its request digest, action ID, sequence, and closed stage. Capture is then durable before mutation. Status under the flock reconciles a lost process: an exact postcondition finalizes completion (or requires one exact retry of an idempotent fixed post-write operation), an unchanged same-fingerprint precondition becomes `action-retryable`, and any other state becomes durable failure eligible for rollback. The controller makes at most one exact retry after a successful status proves that matching retryable intent; it never retries caller-selected work. Completed action history is usable only in a nonrollback `applying` state and can never prove success after rollback begins.
+
+Rollback persists the exact reverse captured-action order as `rollback-in-progress` before restoring anything. After every idempotent restore it durably moves one action ID from remaining to restored, so an exact retry repeats at most the interrupted restore and resumes the saved order. Every action is postcondition-checked; final re-observation happens while locks remain held. Busy or unknown status retains the session and never starts a concurrent rollback. Commit and verified recovery first persist an explicit release-pending journal plus terminal result, then unlink and directory-`fsync` the ownership lock, and only afterward persist `released-committed` or `released-recovered`. Status under the live-only operation mutex reconciles release-pending state by verifying a matching ownership lock (or its already-durable absence), finishing release, and persisting the released terminal state. Strict journal/manifest consistency checks validate exact begin/action/terminal result shapes, completed action order, pending progress, `nextSequence`, capture coverage, and terminal results. A committed or commit-pending state requires every planned action to be captured and completed in exact order; recovered state binds the exact reverse restored set and never proves actions remain applied. The controller proves only released terminal states. Rollback restoration failure retains host ownership and diagnostics; an interruption during ownership release remains release-pending and recoverable rather than being mislabeled as restoration failure.
+
+The reconciler requires `RECONCILE_PROXMOX_NO_CONCURRENT_MUTATION_CONFIRMED=confirm-no-concurrent-proxmox-mutation` for every guarded host apply. It derives watchdog necessity only from the exact saved action array. When any saved action requires the watchdog, it additionally requires `RECONCILE_PROXMOX_CONSOLE_CONFIRMED=physical-console-ready`, `RECONCILE_PROXMOX_LAN_ROLLBACK_CONFIRMED=tested-lan-rollback-ready`, and `RECONCILE_PROXMOX_BACKUPS_CONFIRMED=reviewed-backups-ready`; those flags are not passed for a plan that does not require them.
+
+A reboot-required action reports `rebootRequired=true`; no reboot command exists. Reboot remains a separate reviewed operation.
+
+### Package boundary
+
+Package drift is represented as one complete-installed-map blocker. The private schema reserves an aggregate sealed package-session shape, but missing or null sessions cannot authorize package actions and non-null sessions remain bootstrap-gated. Apply never refreshes APT metadata, runs a solver, or performs a package transaction in this milestone.
+
+## Autonomous firewall recovery
+
+The following retained design describes the one-time cutover and autonomous recovery.
+It is not evidence of current installed state or authorization to repeat activation.
 
 The surrounding controller architecture is retired; this retained autonomous firewall/recovery protocol has not been replaced by native adoption. Trusted human operators and local root remain inside the host trust boundary; a malicious root operator can always bypass PVE, systemd, SSH, and helper controls, and this design does not claim otherwise. The firewall transaction remains an isolated fixed PVE API/CLI authority so unrelated host actions cannot leave a newly enabled default-deny firewall active after failure.
 
@@ -20,9 +144,9 @@ Historical pre-cutover qualification observed a disabled firewall, default optio
 
 The unrestricted IPv4 source applies only to the Tailscale UDP listener. IPv6 underlay support is out of scope and remains a documented residual risk.
 
-## Components
+### Components
 
-### Nix bootstrap ownership
+#### Nix bootstrap ownership
 
 The console Nix host bootstrap installs and byte-verifies these fixed assets from `infrastructure/proxmox-firewall/host`:
 
@@ -36,7 +160,7 @@ The helper embeds the projected reviewed firewall policy. It accepts no caller-s
 
 Ordinary guarded Nix convergence observes firewall policy but cannot perform the isolated activation transaction.
 
-### Host helper interface
+#### Host helper interface
 
 The host helper exposes only:
 
@@ -64,7 +188,7 @@ Before authorization, the fixed local-console `isolate-tofu-apply` command durab
 
 The helper uses fixed runtime locations under `/var/lib/home-lab/firewall-transaction/`, the shared mutex `/var/lib/home-lab/reconciliation/operation.lock`, and rejects any retained legacy ownership lock `/var/lib/iac-ansible-production.lock`. It rejects an active or retained Nix ownership lock before beginning. Runtime files are root-owned, no-follow, single-link, mode `0600` or `0700` as appropriate, atomically replaced, and directory-fsynced.
 
-### Controller interface
+#### Controller interface
 
 A separate fixed controller command exposes only:
 
@@ -89,9 +213,9 @@ The controller acquires the existing controller-wide apply lock. A canonical mod
 
 Apply consumes only that reviewed plan and never replans.
 
-## Host transaction
+### Host transaction
 
-### 1. Prepared
+#### 1. Prepared
 
 `begin` first validates the plan SHA, freshness, installed bindings, exact policy catalogue, and host-keyed `inspect` attestation. While holding the shared mutex, it re-reads the complete live option and rule state and requires byte-for-byte canonical equality with the plan's exact normalized before-state and PVE digest. The reviewed one-time before-state is firewall disabled and zero cluster rules, but those broad facts alone are never sufficient. A stale or changed digest/state fails before mutation.
 
@@ -99,13 +223,13 @@ The helper uses the PVE digest as compare-and-swap input wherever the API accept
 
 The journal records only non-secret protocol state and the exact raw PVE values required for host-local rollback. Rollback bytes never leave the host. The helper creates the persistent ownership lock only while holding the shared mutex.
 
-### 2. Watchdog-bound
+#### 2. Watchdog-bound
 
 The enabled calendar timer is a continuously active watchdog rather than a per-transaction timer. Before creating the initial `prepared` journal, the helper proves the timer is active and reads its stable activation token. The first atomic journal write contains that non-null token, the snapshot, session, and deadline. The transaction never restarts or stops the watchdog, eliminating every pre-arm journal window. Failure to prove the watchdog active and tokenized aborts before journal or firewall mutation.
 
 The enabled persistent calendar timer invokes only `rollback-if-pending`. Early calendar delivery returns temporary failure until the exact journal deadline, while `Persistent=true` queues missed delivery across reboot. Terminal and boot-owned journals are reconciled before comparing the pre-reboot monotonic token, so a queued delivery cannot retry forever solely because the monotonic clock changed. The helper binds delivery to the timer activation token recorded in the current journal. Its fixed service retries every two seconds with no start-limit when the shared mutex is busy; a busy-lock result is never treated as successful timer delivery. Retries continue until the service acquires the mutex and rolls back or reconciles a durable commit/rollback decision. Controller termination, SSH loss, or host-helper interruption leaves the continuous watchdog active. Host staging has a fixed 60-second budget. Post-activation canaries run concurrently, each with exactly three five-second connection attempts and two one-second gaps, under a 30-second aggregate controller deadline. `commit` refuses to start unless at least 120 seconds remain before the host deadline, preserving a fixed rollback margin.
 
-### 3. Staged
+#### 3. Staged
 
 While the firewall is disabled, the helper uses fixed `pvesh` operations to:
 
@@ -117,7 +241,7 @@ While the firewall is disabled, the helper uses fixed `pvesh` operations to:
 
 Staging fails on unknown, duplicate, disabled, additional, or malformed rules. Every intermediate state and returned digest must match the next state derived by the fixed catalogue. The helper never enables a partially verified policy.
 
-### 4. Activated
+#### 4. Activated
 
 Enable is changed last. The helper then requires all of the following:
 
@@ -128,7 +252,7 @@ Enable is changed last. The helper then requires all of the following:
 
 The journal advances to `activated` only after these postconditions pass. Any synchronous failure after the initial watchdog binding attempts immediate rollback and leaves the continuous watchdog as a backstop.
 
-### 5. Controller canaries
+#### 5. Controller canaries
 
 Before `begin`, the controller uses the immutable private sidecar to record all pre-activation baselines. A direct Tailscale path is mandatory: a DERP-only, unavailable, or ambiguous baseline blocks the plan and cannot be approved. After activation, the controller opens entirely new connections; existing sessions cannot satisfy a canary. TLS probes use an explicit no-proxy opener, so inherited `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` values cannot alter sidecar-bound LAN or tailnet routing.
 
@@ -145,13 +269,13 @@ All six canaries launch concurrently under the fixed attempt and aggregate budge
 
 Any missing, malformed, expired, or failed canary causes the controller to request rollback. If that request cannot be delivered, the continuous host watchdog remains active.
 
-### 6. Committed
+#### 6. Committed
 
 `commit` has a fixed 30-second aggregate execution deadline. Every `pvesh`, `systemctl`, and backend-status subprocess has a five-second timeout and at most two attempts separated by one second; exhausting either bound aborts without recording a commit decision and releases the shared mutex so the retrying timer can roll back. `commit` takes the shared mutex, rejects an expired or non-`activated` session, validates the exact session-, plan-, and private-configuration-bound canary result, checks the 120-second margin, and re-observes the complete API/backend state within those bounds. It then durably advances through `commit-release-pending` and `commit-lock-released` before the terminal `committed` state. Once `commit-release-pending` is durable, exact retries and watchdog delivery complete only that release decision. Ownership-lock removal is idempotent and reconciled against the journal and actual filesystem state; the watchdog remains active.
 
 A crash or exact retry in any release state resumes release; it never rolls back a durable commit decision and never leaves a terminal journal with an unexplained retained timer or ownership lock. `rollback-if-pending` and boot recovery complete commit release when they observe `commit-release-pending` or either later release state. Read-only `status` never mutates locks, timers, journals, or API state and therefore safely coexists with the enclosing fixed transaction status checks. A delayed commit cannot commit a later session because every request is bound to the helper-generated session identifier and plan SHA.
 
-### 7. Rollback
+#### 7. Rollback
 
 Rollback has a fixed 60-second aggregate attempt deadline. Every `pvesh`, `systemctl`, and backend-status subprocess uses the same five-second timeout, at most two attempts, and one-second gap as commit. It takes the shared mutex and transitions through durable per-operation checkpoints, `rollback-started`, `rollback-verified`, `rollback-release-pending`, and `rollback-lock-released` to terminal `rolled-back`:
 
@@ -175,7 +299,7 @@ A second post-recovery verifier is ordered after and requires the configuration-
 
 The rollback timer service is explicitly ordered after the post-recovery verifier. A persistent missed firing therefore remains queued until both boot phases finish; it then observes the terminal decision and exits without policy mutation. The distinct `boot-config-recover` and `boot-post-recover` commands own boot phases. `rollback-if-pending` also treats `boot-recovery-active`, `boot-config-restored`, and `boot-commit-config-verified` as boot-owned states and returns temporary failure rather than entering ordinary rollback. A boot with no journal makes both recovery units and any missed timer firing deterministic no-ops. Unknown or malformed runtime remnants keep both backends blocked for console inspection.
 
-## Testing required before approval
+### Testing required before approval
 
 Repository and subprocess tests must cover:
 

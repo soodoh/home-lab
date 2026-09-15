@@ -72,6 +72,26 @@ Secret-free validation runs locally without an age identity and cannot decrypt p
 6. validates that the non-secret layout accounts for the exact ciphertext content-line count; and
 7. verifies that only the canonical ciphertext and metadata manifests are tracked.
 
+## Controller-local Compose validation
+
+Compose does not decrypt the committed ciphertext automatically. When the protected
+local recovery identity is available, SOPS can supply the decrypted values directly
+to the validation subprocess:
+
+```sh
+SOPS_AGE_KEY_FILE="$HOME/.config/sops/home-lab-recovery/independent-recovery.agekey" \
+  sops exec-env secrets/production.sops.env \
+  'docker compose --project-name docker-compose -f docker-compose.yml config --quiet'
+```
+
+Run from the repository root. This is secret-backed validation, not the secret-free
+ciphertext check above: plaintext values exist in the child process environment,
+but no plaintext dotenv file is created. Do not print that environment, enable shell
+tracing, or omit `--quiet`. It does not start containers or qualify deployment.
+Use `exec-env` rather than a one-shot stdin env file; included Compose files may
+read interpolation inputs more than once. Exact dotenv layout reconstruction remains
+required for production file publication, not for this environment-only check.
+
 ## Safety boundaries
 
 - Do not use `SOPS_AGE_KEY`, which would place a private identity in an environment value.

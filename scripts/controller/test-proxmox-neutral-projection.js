@@ -19,11 +19,8 @@ const packageManifest = JSON.parse(fs.readFileSync(path.join(root, contract.prox
 
 const projected = projectProxmoxPolicy(contract, packageManifest);
 const rendered = canonicalJson(projected);
-const tracked = rendered;
-
 validateProjection(projected, schema);
-if (tracked !== rendered) throw new Error("tracked Proxmox Nix projection differs from pure allowlist output");
-if (canonicalJson(JSON.parse(tracked)) !== tracked) throw new Error("tracked Proxmox Nix projection is not canonical JSON");
+if (canonicalJson(JSON.parse(rendered)) !== rendered) throw new Error("neutral projection is not canonical JSON");
 if (canonicalJson(projectProxmoxPolicy(structuredClone(contract), structuredClone(packageManifest))) !== rendered) {
   throw new Error("projection bytes are not stable across equivalent inputs");
 }
@@ -302,7 +299,19 @@ function assertForbiddenValuesAbsent(content, label) {
     if (forbidden && content.includes(forbidden)) throw new Error(`${label} contains protected value ${JSON.stringify(forbidden)}`);
   }
 }
-assertForbiddenValuesAbsent(tracked, "tracked projection");
+assertForbiddenValuesAbsent(rendered, "neutral projection");
+
+// Frozen recovery inputs are validated independently, never regenerated from active source.
+const retainedRaw = fs.readFileSync(path.join(root, "nix/proxmox/projection.json"), "utf8");
+const retained = JSON.parse(retainedRaw);
+const retainedSchema = JSON.parse(fs.readFileSync(path.join(root, "nix/proxmox/projection.schema.json"), "utf8"));
+validateProjection(retained, retainedSchema);
+if (canonicalJson(retained) !== retainedRaw) throw new Error("retained projection is not canonical JSON");
+assertForbiddenValuesAbsent(retainedRaw, "retained projection");
+if (retained.managedFiles.find(file => file.path === vfioRecovery.executable_file.path)?.content !==
+    fs.readFileSync(path.join(root, "nix/proxmox/vfio-recover.py"), "utf8")) {
+  throw new Error("retained VFIO projection differs from its historical source");
+}
 
 function isPythonCachePath(scanRoot, current) {
   const relative = path.relative(scanRoot, current);
@@ -355,4 +364,4 @@ if (scanArgument !== -1) {
   scanTree(scanRoot);
 }
 
-console.log(`proxmox_nix_projection_tests=passed forbidden_values=${forbiddenValues.size}`);
+console.log(`proxmox_neutral_projection_tests=passed forbidden_values=${forbiddenValues.size}`);

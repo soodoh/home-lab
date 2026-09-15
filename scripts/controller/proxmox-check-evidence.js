@@ -28,7 +28,7 @@ function parse(raw) {
 function git(args) { return execFileSync("git", args, { cwd: ROOT, encoding: "utf8" }).trim(); }
 function dependencies() {
   // Explicit source/dependency inventory; never read .local, .env or encrypted secrets.
-  const files = git(["ls-files", "--", "ansible", "scripts/controller", "scripts/local-controller", "scripts/reconcile-infrastructure",
+  const files = git(["ls-files", "--", "ansible", "scripts/controller",
     "infrastructure/contract", "infrastructure/host-lifecycle/proxmox", "infrastructure/proxmox-access", "infrastructure/maintenance/host/package-candidate-observer", "package.json", "bun.lock"])
     .split("\n").filter(Boolean).sort();
   return Object.fromEntries(files.map(file => [file, sha(readRegular(path.join(ROOT, file), 16 * LIMIT))]));
