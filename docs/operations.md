@@ -4,13 +4,28 @@
 
 Native observation and manual-update policy are verified. The backup configuration
 path, including pinned tools, the confined account, same-content runtime files and
-nine unit definitions, passed source review and a zero-change live preview.
+nine unit definitions, passed source review, a zero-change live preview and two
+normal zero-change runs.
 Broader host/application adoption is pending: there is **no supported general deploy or host-convergence
 command** in this checkout. Historical Ansible ownership does not make
 `proxmox-site.yml` a native convergence play: it imports an audit. Debian `site.yml`
 still includes lifecycle,
 lock and backup prerequisites. Directly invoking retained mutation roles is not
 an approved replacement for the removed controller.
+
+## Latest scoped deployment
+
+On September 15, 2026 (PDT), commit `154659cf` was pushed to `main` and deployed
+through native Ansible. `update-policy.yml` ran on both hosts and
+`configure-backups.yml` ran on `docker-host`, after fresh zero-change previews.
+Both normal applies and their second normal runs reported `changed=0`, `failed=0`
+and `unreachable=0`. Backup unit states/execution timestamps and runner/policy/input
+hashes were unchanged; update checks and Tailscale SSH remained enabled.
+No backup/maintenance job, Compose deployment, provider apply or cleanup was run.
+This confirms scoped convergence, not backup integrity or restore readiness.
+The per-slice preview observations below describe the state before this release.
+
+## Native host observation
 
 Native host observation now works through ordinary SSH/become over Tailscale:
 
