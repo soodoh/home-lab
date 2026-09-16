@@ -233,11 +233,17 @@ The [source retirement audit](proton-source-retirement.md) removes the completed
 TOTP cutover lane, superseded v2 migration writer and, after September 15 read-only
 inspection, the transaction-closed password-reset/authentication, quota diagnostic
 and one-off staged qualification supervisors. Generic qualification recovery and
-its immutable evidence consumers remain. VM journals have only partial exact
-lineage closure; VM9900 currently belongs to Debian lifecycle qualification, and
-installed recovery transport/capability consumers remain. Incident resolution or
-newer backups do not make every retained journal terminal. Those source passes
-changed no installed helpers, host files, receipts, locks or backup behavior.
+its immutable evidence consumers remain. The later
+[VM reconciliation](proton-source-retirement.md#vm-recovery--partial-lineage-closure-source-retained)
+records 16 unresolved attempts, six additional resource-cohort bindings and explained
+transport succession; resource destruction/supersession is not plaintext-cleanup proof.
+**Leave VM9900 unchanged: it belongs to Debian lifecycle qualification. Never apply
+an old Proton destroy plan to it.** Active recovery capabilities and consumer inputs
+remain; lifecycle continuation/retirement is a separate task. The audit holds the
+[exact local archive/delete candidates](proton-source-retirement.md#historical-material--disposition-choices-pending-approval),
+all pending approval, with no retention schedule or further host operations.
+Those source passes and read-only reconciliation changed no installed helpers,
+receipts, locks or backup behavior; the separately authorized exception is below.
 
 At **22:14:48 UTC on September 15**, a separately approved
 [exact-file host retirement](proton-source-retirement.md#approved-host-artifact-retirement)
@@ -283,6 +289,11 @@ it can change boot enablement and is not a production or ordinary local check.
 The retained `validate-contract` is a legacy consistency check, not a universal
 operation prerequisite or proof of recovery; it still requires local historical
 evidence absent from a clean checkout (see [decisions](decisions.md)).
+
+The closed [custody audit](decisions.md#custody-is-separate-from-receipt-cleanup)
+leaves independent recovery access and two local qualification-state dependencies
+unresolved. Those gaps do not block bounded receipt-dependency source cleanup;
+working logging/backup configuration and operational safety gates remain unchanged.
 
 ## Intended native adoption workflow — not deployment authorization
 

@@ -40,7 +40,7 @@ Its public recipient is `age1atumjua6hxyls6z8v20tsgy72304x72lqjstwmwzqy5ma4txyfs
 
 ## Independent recovery identity
 
-The independent recovery recipient is `age1ddk0qtwjclc2za5afrz5pl4j5kley02rqv2vh0s07c27a8t5u58sph58qm`. Its private identity and GPG escrow are controller-local under `~/.config/sops/home-lab-recovery`, mode `0600` in a mode `0700` directory. The GPG ciphertext also has a byte-identical external recovery copy.
+The independent recovery recipient is `age1ddk0qtwjclc2za5afrz5pl4j5kley02rqv2vh0s07c27a8t5u58sph58qm`. Its private identity and GPG escrow are controller-local under `~/.config/sops/home-lab-recovery`, mode `0600` in a mode `0700` directory. An external GPG ciphertext copy was previously documented, but off-machine custody is not verified. The recovery key is currently on this developer machine; independent custody remains an [open operator-owned gap](decisions.md#custody-is-separate-from-receipt-cleanup), not a prerequisite for source-only cleanup.
 
 Retired runtime and rollback recipients were removed from `.sops.yaml` and both current ciphertext documents with `sops updatekeys`. Independent-recovery decryption and secret-free recipient validation passed after the final removal.
 

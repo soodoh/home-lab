@@ -6,8 +6,10 @@ The initial source-only pass in `fa7214f` used baseline `c4e7371`. This follow-u
 starts from `fa7214f` and includes operator-authorized read-only local and live-host
 inspection on **September 15, 2026**, beginning at **21:42 UTC**. It retires the
 completed password-reset/authentication lane, quota diagnostic and one-off staged
-qualification supervisors. VM recovery remains: some exact lineages are completed
-or superseded, but others remain interrupted/unknown and installed consumers exist.
+qualification supervisors. The later read-only reconciliation below, against
+`42611822`, leaves **16 attempts without an exact terminal/successor binding** and
+identifies six additional resource-cohort bindings. Installed consumers remain.
+Resource destruction/supersession is separate from proven plaintext cleanup.
 
 Those source passes performed no live mutation, credential change, Proton request,
 repository operation, recovery execution, provider initialization/plan,
@@ -235,18 +237,18 @@ integrity. See [operations](operations.md) and [recovery](../recovery/README.md)
 
 ## VM recovery — partial lineage closure, source retained
 
-The same **39** local `.reconcile/restic-recovery-vm/*/journal.json` files remain:
+The **September 15, 2026, 22:19–22:27 UTC** read-only reconciliation used local
+records and native SSH/sudo inventory on Proxmox, against repository `42611822`.
+No guest was accessed, booted or mounted; no decryption, provider/recovery execution,
+access change or deletion occurred. Subsequent documentation work used those
+observations and safe local inspection only; it performed no further host operations.
+These are dated findings, not new operational receipts or permanent absence proofs.
 
-| Label | Count | Classification |
-| --- | ---: | --- |
-| `destroy-applied` | 7 | Recorded destruction completed for these owners; not seven successful restores. |
-| `run-disk-prepared` | 10 | Interrupted historical runs with exact later prior-journal adoption links; superseded disk lineage, not retroactive `run-complete`. |
-| `new` | 5 | `3070f90b`, `7162e6d0`, `7ad128e4`, `a69e697c`, `e6702439`: no recorded progress; unknown beyond the journal. |
-| `create-planned` | 4 | `2014ab99`, `605fd090`, `67f898b9`, `edf1b64e`: nonterminal plan; expiry is not closure. |
-| `create-replanning` | 4 | `09d091e5`, `1a2a555a`, `40e45e08`, `c3692087`: nonterminal; no complete predecessor/cleanup proof established here. |
-| `create-applying` | 2 | `01f52f18`, `4b81eaa1`: interrupted/unknown outcome; do not retry against today's VM9900. |
-| `create-applied` | 4 | `7430c19c`, `83151f5b`, `9f28d39e`, `d97c6f41`: create recorded, run/cleanup outcome unresolved. |
-| `run-pretransfer-observed` | 3 | `29b89b29`, `b0caa543`, `cc58d83e`: interrupted/unknown transfer and cleanup outcome. |
+The same **39** local `.reconcile/restic-recovery-vm/*/journal.json` files remain.
+Their immutable labels are: seven `destroy-applied`, ten `run-disk-prepared`, five
+`new`, four `create-planned`, four `create-replanning`, two `create-applying`, four
+`create-applied` and three `run-pretransfer-observed`. The evidence-based
+classification below does not rewrite those labels or certify failed-run cleanup.
 
 Directory prefixes below are unique within this inventory; all full directories,
 source bindings, keys and manifests remain unchanged.
@@ -254,8 +256,9 @@ source bindings, keys and manifests remain unchanged.
 For all seven terminal directories (`0e6fd718`, `3b0870dc`, `5931961f`, `72909b57`,
 `cfe57952`, `e6e4a2f5`, `f91421b1`), `destroy-applied.json` owner equals the journal
 and destroy manifest owner, and its `state_after_sha256` matches the retained
-state file bytes. State contents and saved plans were not printed or interpreted.
-Only **three** also record `plaintext-cleanup-and-evidence-complete` / `run-complete`
+state file bytes. The later inspection also found those seven states empty.
+Only nonsecret identity/equality summaries were returned, never raw state or saved
+plans. Only **three** also record `plaintext-cleanup-and-evidence-complete` / `run-complete`
 and have `run-evidence.json` with `state=restored-verified`:
 
 | Directory | `run-evidence.json` SHA-256 |
@@ -283,23 +286,133 @@ remains `create-applying`, journal SHA-256
 `a5af4cc60fe634f5cc33a5c93c390e6447e5df85ed7ef046c5bf19fdc191050d`,
 without a matched prior-disk link or run evidence. Its missing local state is not
 proof of nonexecution. Generic adoption checkpoints without an exact predecessor
-binding were not counted as transaction closure.
+binding were not counted as transaction closure. All ten links also match the
+predecessor create-marker state hash, successor manifest state-before hash and
+expected `RESTIC-RECOVERY-128G` serial hash.
+
+### Six additional resource-cohort bindings
+
+| Previously unresolved attempts | Destroy-completed successor | Shared state SHA-256 |
+| --- | --- | --- |
+| `83151f5b`, `d97c6f41`, `b0caa543` | `f91421b1` | `e51c6b1258bd5de511a1fa7f17509f92bbd423d2860abbaceee275371ec97442` |
+| `cc58d83e`, `29b89b29` | `3b0870dc` | `782a07d7d422a35b9ec55f950f9a3a6fc71489f067105fe9b9e5a16505f1b0b5` |
+| `9f28d39e` | `53b6fd50`, then `0e6fd718` | `c4089ac5a2a426626d429b6e745078732efe7004fa04f958c3a8d779f7da6273` |
+
+For each cohort, `create-applied.json` state-after equals successor
+`create-manifest.json` state-before; journal/manifest/marker owners agree, successor
+journals record adoption, and matching user/host public keys survive in the terminal
+successor directory. These are **resource-cohort bindings**, not new exact
+predecessor-journal receipts. Repeated identical state hashes do not uniquely identify
+every immediate handoff. None proves the interrupted attempts' plaintext cleanup.
+
+`f91421b1` preserves both predecessor public-key hashes, but its manifest cloud-init
+hash differs from the predecessors and retained cloud-init bytes. Historical source
+added privileged-root/sudo configuration. Preserve this distinction; do not rewrite
+its manifest to assert snippet equality or successful guest configuration.
+
+The resulting resource classification is **3 restore/cleanup/destroy completed,
+4 destruction-only, 16 superseded, 16 unresolved**. Destruction-only owners are
+`0e6fd718`, `3b0870dc`, `cfe57952`, `f91421b1`. The 16 superseded owners are the ten
+prior-journal-linked attempts plus these six cohort-bound attempts; their journals
+remain nonterminal. Only three attempts have positive recorded cleanup evidence.
+
+### Sixteen attempts still needing an owner disposition
+
+| Attempts | Evidence and remaining uncertainty |
+| --- | --- |
+| `3070f90b`, `7162e6d0`, `7ad128e4` | `new`, but saved-plan artifacts exist. No terminal owner binding; not proof of nonexecution. |
+| `a69e697c`, `e6702439` | `new`, retained key material, no recorded progress. |
+| `2014ab99`, `605fd090`, `67f898b9`, `edf1b64e` | Earlier apply checkpoints and retained replans; current states empty, no terminal receipt. |
+| `09d091e5` | Legacy state adoption recorded; state still owns one download matching live `/var/lib/vz/import/home-lab-restic-recovery-debian-20260810-2566.qcow2`. The recovery HCL also references that image. |
+| `c3692087`, `1a2a555a`, `40e45e08` | Adoption checkpoints lack exact predecessor-journal bindings. Their historical implementation moved state only, not keys; individual keys remain. |
+| `01f52f18` | `create-applying`; no terminal receipt or sufficiently exact successor binding found. |
+| `4b81eaa1` | `create-applying`; PVE records successful VM9900 creation at August 26, 10:03:37 UTC, contemporaneous with its apply checkpoint. Missing local state does not prove nonexecution; exact owner-chain closure remains missing. |
+| `7430c19c` | Create recorded, bounded-destroy artifacts and empty serial-2 state retained, but no destroy receipt. PVE records destruction at August 26, 10:24:31 UTC, including cloud-init and both disks. This corroborates removal, not owner-bound cleanup. |
+
+The plausible early sequence from `4b81eaa1` through the adoption attempts to
+`7430c19c` remains a reconstruction, not a certified chain. The relevant PVE task is
+`UPID:proxmox:00176CA2:01E3E03E:6A8EBEDF:qmdestroy:9900:root@pam!tofu-apply:`;
+its retained log SHA-256 is
+`eacf63d234c13cfb4d8d0ab81f2b162d7c7c74bc1fb5d95c7176b56d5be25e28`.
+VMID, timestamps and reused disk names alone do not identify a transaction owner.
+
+### Plaintext cleanup is a separate finding
+
+Only the three `run-complete` records above positively record cleanup. A cleanup
+function or `finally` block is not evidence that it completed on a failed run.
+`29b89b29` reached `run-disk-prepared` before a later retry ended at
+`run-pretransfer-observed`; its final label is not a transfer boundary.
+
+Historical source, checked against the selected manifests' runner hashes, used
+`/run/restic-recovery-input`, `/run/restic-recovery/bundle.*` and `/run/restic-fixture`
+before moving to `/var/tmp/restic-recovery-input`, `/var/tmp/restic-recovery/bundle.*`
+and `/var/tmp/restic-fixture`. Both generations also used
+`/tmp/restic-recovery-transfer` and `/srv/home-lab-recovery/restic-proton-proof`.
+Any disposition must cover the applicable historical paths, not only current code.
+Their absence on the PVE host says nothing about former guest contents.
+Logical-volume removal is not secure erasure or proof about other copies/snapshots.
+
+Local VM directories retain 23 SSH private keys, 22 host private keys, four
+cloud-init files, 13 state files and eight state backups, all observed non-symlink
+mode 0600. Cloud-init contains host private keys and is sensitive. The ten exact
+disk links and six cohorts do not retroactively prove cleanup of every predecessor's
+keys, guest workspace or copied input. Where further proof is unavailable, use the
+preferred administrative disposition below, not a synthetic cleanup receipt.
 
 ### Live VM/resource boundary
 
-At **21:43 UTC**, Proxmox VM9900 was stopped and named
+At **21:43 UTC**, reconfirmed during **22:19–22:27 UTC**, Proxmox VM9900 was stopped and named
 `home-lab-debian-lifecycle-qualification`, tagged
 `debian-lifecycle;disposable;qualification`. Its boot disk is
 `local-lvm:vm-9900-disk-0`, 32 GiB, serial `DEB-LIFE-ROOT-32G`; cloud-init is
-`local-lvm:vm-9900-cloudinit`. Read-only LVM inventory found those two volumes;
-ZFS volume inventory found no `vm-9900-*`. The current config hash was
+`local-lvm:vm-9900-cloudinit`. LVM including hidden-volume inventory found only those
+two VM9900 volumes; ZFS volume/snapshot inventory found no `vm-9900-*`.
+Boot LV UUID is `OKJ0NY-Uiqm-CkgE-jRbL-FqH2-GzoE-uExP6U`; cloud-init LV UUID is
+`teapke-MKJb-JJWB-fc48-LtE9-yc23-KugY3b`. The current config hash was
 `b77c18e41896a4986e8b89c6b4772b257db56c50a4a61e20f600b08eaf139afa`.
 This is **another lane's current VM**, not an abandoned Proton restore fixture.
 
-The Restic cloud-init snippet is absent. The lifecycle snippet remains root:root
+Current MAC `BC:24:11:61:ED:75` matches the VM in
+`.local/qualification-route/clean-first-boot-foundation-final/state.tfstate`, SHA-256
+`87ca813d8a68913208f2223ef9d6446fbd7751c939571e825c05ad1b1dea511b`.
+In that same directory, `cd6a77371f93fa19699af14e7f8c46454999167a118c8f77597f5850155927a8.receipt.json`
+is the interrupted-restart recovery-stop receipt and binds those state bytes.
+`09f7429ea9d5a0bf9d059470c8eb16fe10faf56b81e87fcfbaa942081f9c2976.invocation-failure.json`
+records `incorrect-snippet-receipt-path`, the same state hash, stopped VM and no
+automatic retry. It requires fresh observation and separately authorized new planning.
+
+The retained `03ce83efae9185e07da2047ff7f6075cbe969dd4ce88710e957135068ebade4e.json`
+reports a verified clean-first-boot observation for this lifecycle generation on
+September 5 at 18:13:36 UTC. Its foundation/start references and canonical observation
+hash match retained records; observed installed helper/transport hashes match its
+producer fields. This historical scoped receipt does not resolve the later restart,
+requalify today's guest, or prove Restic restore, cold rebuild or production activation.
+
+`/var/lib/vz/snippets/home-lab-restic-recovery-cloud-init.yaml` is absent.
+`/var/lib/vz/snippets/home-lab-debian-lifecycle-qualification.yaml` remains root:root
 0600, SHA-256 `a66a0d7e284a7c46cdf4e91e1096373efeaceaed867fa7aadd756981f0bb67ae`.
-The VM firewall file and `/vms/9900` ACL for `root@pam!tofu-plan` /
-`HomeLabTofuPlanDiskInspect` remain. No VM config lock, relevant held lock,
+The VM firewall file remains, SHA-256
+`2ca450cc2b81a9b5108d68a6f6bee6c134fdae90ed6f91bb4423bc107c588644`, with DROP
+policies, bounded controller SSH, DHCP and private/CGNAT egress denies before public
+egress. This is configuration observation, not a new isolation test.
+The `/vms/9900` ACL for `root@pam!tofu-plan` / `HomeLabTofuPlanDiskInspect` remains;
+that role grants **VM.Config.Disk** as well as VM.Audit. Local
+`clean-first-boot-foundation-final/acl-apply-result.json` binds plan `716ffefd…`
+in `.local/proxmox-vm9900-plan-acl/`. Shared root-level plan/apply token ACLs remain;
+both tokens have privilege separation and no expiry, not Proton-only scope.
+
+`qualification-apply` remains UID/GID 1900 with fixed
+`debian-qualification-snippet-transport` shell and its sudo capability. Its `.ssh`
+directory was empty; conventional sshd public-key authentication was disabled.
+The lifecycle snippet key matches `.local/qualification-route/guest-key.pub`,
+fingerprint `SHA256:Di2jPsrFj81QWSSdVA4PFHXTW+wqXxO8ev03JgmmRNU`.
+The retained `c7936fb2…host-key-receipt.json` in the current lifecycle directory
+binds fingerprint `SHA256:B72eI8kFMiU0DUKHjMtx+lWaQ4AWvHGtE5HU+nRkk2Q` to its
+historical stopped state and clean-boot receipt, not a fresh guest key observation.
+Local `guest-key` and `pve-key` remain protected 0600 files; a retained key alone
+does not prove current authorization or independent recovery custody.
+
+No VM config lock, relevant held lock,
 production/reconciliation apply lock, firewall transaction marker or systemd job
 was observed. The local `transaction.lock` remains mode 0600; `lsof -t` found no
 open holder (exit 1), not a reservation or deletion authorization.
@@ -312,22 +425,96 @@ with actual callers in `proxmox-ansible-deploy-transport` and
 and transport lock remain. Its protected root:root 0600 `state.json`, SHA-256
 `708af9c013eea53a8158df668d75261037f05a5f95a3718811029494ace269dc`,
 records `status=committed` with plan/receipt-plan equal to that directory ID.
-Its installed-after hashes still match sudoers, but **do not match either transport**.
-The current Restic transport does match current repository source; this alone does
-not establish the historical handoff for both replacements. Preserve the committed
-record and before-images; do not replay its installer or rewrite receipt hashes.
-Full ACL/key scope, replacement lineage and guest-disk plaintext absence remain
-unverified. No VM was started, mounted, reused or removed; no guest secrets were
-inspected.
+Its installed-after hashes still match sudoers, but differ from both current
+transports. **The later inspection explains this succession**, as follows.
 
-## Remaining blockers and exact next gates
+### Explained transport succession
 
-| Retained dependency | Evidence/approval needed |
-| --- | --- |
-| VM recovery runner, validator, Tofu root/locks, transport/capability and VM fixture helpers | For the 22 nonterminal journals without the ten exact disk-adoption links: bind each owner/manifest to a terminal operation or exact successor (including moved state/key/snippet identities). Establish plaintext cleanup for `/tmp/restic-recovery-transfer`, `/var/tmp/restic-recovery-input`, `/var/tmp/restic-recovery/bundle.*`, `/var/tmp/restic-fixture` and `/srv/home-lab-recovery/restic-proton-proof` on the exact historical disk/VM, or explicit owner-approved preservation/recovery disposition. The three successful run records and today's different VM cannot substitute for this. Keep `prove-restic-recovery-vm`, `test-restic-activation-fixture` and `activate-restic-staging-fixture` meanwhile. |
-| Live VM9900, disks, firewall, ACL, lifecycle snippet and installed recovery transport/capability | Review lifecycle ownership and actual capability/ACL/key scope together with retained recovery consumers before proposing retirement. Bind both changed installed transports to their authorized successor installation evidence; the old capability's `committed` label does not explain the hash drift. Any guest boot/mount, recovery, provider operation, ACL/key change or exact resource/installed-file deletion needs a **separate explicit approval**. Never apply an old Proton destroy plan to the lifecycle VM. |
-| Generic qualification/empty/resume recovery and immutable reset evidence | Remaining installed role/recovery consumers need an independently reviewed replacement or deliberate retirement decision before source removal. Published evidence remains a consumer input even though its writers are gone. A newly found owner/staged result needs its own transaction-specific inspection, not reuse of these closed IDs or generic lock clearing. |
-| Commit/push | Review this source diff and authorize commit and, separately, push. Neither was performed. |
+The exact successor plan is
+`.local/proxmox-deploy-upgrade/44faa63889fd6dabd381087d77252e2750f1e0dc7636f45053dc105e3fbf8944.json`;
+its bytes hash to its filename. Authorization
+`authorized-35d626c892167c21ff7be3e2dd8aaef90b3e3be6831c73a5470f61bbe1dca761.json`
+in that directory binds the plan and commit `53b6fd50…`, September 1, 20:36:52 UTC.
+The live `/var/lib/home-lab/deploy-upgrade/<full-plan-hash>/receipt.json` is committed,
+SHA-256 `597e74231ca232b278bb16582b9f69a9c58a6cdc49eacf2e92f7e38a34155689`,
+and records both transports and the observer as changed.
+
+| Transport basename under `/usr/local/libexec/home-lab/` | Original capability after / successor before SHA-256 | Successor after / current installed SHA-256 |
+| --- | --- | --- |
+| `proxmox-ansible-deploy-transport` | `3ea5fc22784626c4d2e981c892be6a58470c8ce413b48206062c9c83429e4809` | `78ea4536a580dce08ffed3edd43a19b77c12407a9ed8d35c2f1bf17a808e8a39` |
+| `proxmox-restic-recovery-transport` | `2cf14845477402bd7f6bc8627399640b4d01110a0f6cee5bda7b89ccccef2fd5` | `186d6adf91649182d063165e50a4ab961968876c8a65254be53b6258bd2e95e1` |
+
+The successor's live `rollback.json` bytes hash to
+`0588d3d3ae84775d97c0d9fac5b41e0b19b1e4e1291ce3d001c9942ca4775a96`;
+its stored before-images independently hash to both predecessor values above.
+This closes the previously unexplained replacement lineage, not the consumers'
+retirement gate. Do not replay the original installer or rewrite its receipt hashes.
+Guest-disk plaintext absence remains unverified.
+
+## Historical material — disposition choices pending approval
+
+Preserve current runtime/recovery dependencies and active qualification state.
+**Leave VM9900 unchanged; continuation or retirement is a separate task.** No active
+recovery capability is being retired. There is no retention schedule or new framework.
+
+For inactive historical attempts with evidence gaps, the operator prefers
+**historical outcome unknown; attempt abandoned; no replay** over further open-ended
+investigation. This is an administrative disposition, not a change to journals or
+receipts, proof of plaintext cleanup, or release of files with surviving consumers.
+Keep known destruction/supersession facts alongside the unknown cleanup outcome.
+`09d091e5` and its live import-image dependency are excluded and require a separate
+resource-ownership decision; neither its state nor that image is a disposal candidate.
+
+### Small local candidate list
+
+All paths below are relative to **`.reconcile/restic-recovery-vm/`**; filenames are
+literal, not globs. Sizes are regular-file logical bytes, not allocated/reclaimable
+space. Local inspection found all ten files single-link, non-symlink, mode 0600.
+No sensitive contents were printed or decrypted, and no further host inspection ran.
+
+| ID | Exact relative paths | Total bytes | Sensitivity / remaining consumer | Recommended disposition, pending approval |
+| --- | --- | ---: | --- | --- |
+| A | `a69e697cac4118adaa4956156d2d8b03f8a68a97/ssh-key`<br>`a69e697cac4118adaa4956156d2d8b03f8a68a97/ssh-key.pub` | 524 | Private SSH key plus public key. Only the historical attempt route in `prove-restic-recovery-vm` was identified; no recorded progress. External key reuse is unverified. | Encrypted archive, not direct deletion. Abandoning replay does not revoke any deployed copy. |
+| B | `e6702439a5682df14d73e197078c6a3a160b9473/ssh-key`<br>`e6702439a5682df14d73e197078c6a3a160b9473/ssh-key.pub`<br>`e6702439a5682df14d73e197078c6a3a160b9473/ssh-host-key`<br>`e6702439a5682df14d73e197078c6a3a160b9473/ssh-host-key.pub` | 1,053 | Private user/host keys plus public keys. Same historical consumer/unknown reuse boundary as A; no recorded progress. | Encrypted archive, not direct deletion. |
+| C1 | `1a2a555a1f54c2bad486833ce52354a7c57f5e26/diagnostic.tfplan` | 7,114 | Sensitive saved diagnostic plan. No tracked caller or retained journal/manifest reference found; historical diagnostic use only. | Delete this file only if loss of its diagnostic evidence is accepted; keep the distinct `create.tfplan`, journal, keys and state-related records. |
+| C2 | `40e45e0853d6a0e63e24915a6a43b864240b467c/diag.tfplan` | 8,515 | Sensitive saved diagnostic plan. Same reference boundary as C1; equal size does not make it a duplicate of `create.tfplan`. | Delete this file only, with the same diagnostic-evidence acceptance as C1. |
+| D | `7430c19cd23c47d6af42348f49aa56669f82fe7f/bounded-destroy.tfplan`<br>`7430c19cd23c47d6af42348f49aa56669f82fe7f/bounded-destroy-plan.json` | 28,710 | Sensitive saved plan/JSON; historical destruction reconstruction remains its purpose. No tracked caller or retained journal/manifest reference found, but no owner-bound destroy receipt exists. | Encrypted archive, not direct deletion or replay. Keep the journal, create evidence and both state generations untouched. |
+
+**Total: 10 files, 45,916 bytes** — archive candidates A/B/D: **30,287 bytes**;
+direct-delete candidates C1/C2: **15,629 bytes**. This is a deliberately small
+shortlist, not a claim that whole transaction directories are disposable or a
+repository-wide space-reclamation estimate.
+
+Before adding this list, the local reference scan covered 632 tracked regular files
+and 93 Restic VM journal/manifest/prior-disk records; it found no candidate exact-path
+or file-hash references. References added here are documentation only.
+Both diagnostic plans are byte-distinct from their retained create
+plans. Generic filename-based historical consumers are identified above; the scan
+is not proof against arbitrary external callers or key reuse. Any eventual action
+must recheck exact file identity and references; it must not acquire/clear a lock,
+replay a plan or rewrite a binding to make disposal possible.
+The proposed direct-delete files are bound to these observed SHA-256s:
+
+- C1: `11d9ce358738fd16fca8acac23f041679057d4c65f9acc8caed28e28f8147f18`.
+- C2: `86b6c4ec74d4bc7ae00824b27e90e892244bff478b3d7878d522e394fc766758`.
+
+### Exclusions and next decisions
+
+- Keep all journals, receipts, manifests, state/backups, locks, bundles, before-images
+  and active credentials outside this shortlist. Terminal status alone is insufficient:
+  `restic_backup` still consumes restore/Offen proofs; generic qualification recovery
+  consumes the closed reset records; `proton-canonical-recovery-bundles.json` references
+  `72909b57`'s run-evidence hash. Keep that exact evidence accessible. Installed transport
+  callers and current lifecycle state/key consumers remain as documented above.
+- Approve or reject **C1/C2 exact-file deletion**, explicitly accepting loss of those
+  diagnostic plans while the attempts remain outcome-unknown and abandoned.
+- For **A/B/D**, approve archive-only copying and choose the exact protected destination
+  and encryption recipient. Leave originals untouched; any later removal requires
+  separate approval after archive verification and consumer checks. No key rotation,
+  decryption or archive creation is authorized by this document.
+- Unlinking is not secure erasure on SSD/thin/COW storage or proof that backup copies
+  vanished. No snapshot, shared credential or remote object-version disposal is included.
+  No host operation, operational-artifact change, commit or push has been authorized.
 
 ## Validation and review provenance
 
@@ -381,3 +568,22 @@ Host-retirement local validation:
   resolved Compose configuration printed.
 - No helper test, YAML parse, HCL check, Ansible playbook or provider operation was
   needed for this documentation-only repository diff. No dependencies were installed.
+
+### VM reconciliation documentation validation
+
+The reconciliation used the earlier authorized read-only inspection; the subsequent
+retention/documentation pass made **no further host connection or operation**.
+Historical evidence checks found all 37 top-level VM manifests' saved-plan hashes
+matching, all seven archived manifests matching journal references and all 14
+hash-prefixed archived plan files matching. No receipt, state or journal was changed.
+
+For the documentation-only diff in this file, `docs/operations.md` and
+`recovery/README.md`:
+
+- Local Markdown path/anchor checks: **28 links passed**; `git diff --check` passed.
+- `docker compose config --quiet`: **blocked (exit 1)** by missing
+  `INTERNAL_HOST_IP`, `LITELLM_MASTER_KEY` and `OPENROUTER_API_KEY`, with additional
+  unset-variable warnings. No decryption, dummy inputs or resolved configuration.
+- No helper, YAML or HCL changed; no runtime test, Ansible/provider operation,
+  dependency installation, archival, deletion, commit or push was performed.
+  The archive/delete choices above remain pending approval; no schedule is proposed.

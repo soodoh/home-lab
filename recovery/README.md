@@ -12,6 +12,10 @@ The old generic controller is removed, not an alternative recovery path.
 Keep independent recovery access, protected state, credentials, current/previous
 application generations and all retained operation journals. A failed or ambiguous
 operation requires inspection and a specific recovery decision, not lock deletion.
+The closed [custody audit](../docs/decisions.md#custody-is-separate-from-receipt-cleanup)
+separates remote provider state from unresolved independent recovery access and
+two local qualification-state dependencies. The operator owns external-escrow
+verification; metadata alone does not qualify recovery.
 
 ## Select and restore to staging
 
@@ -146,7 +150,9 @@ part of the Compose artifact or production installation.
 
 [SOPS/age custody and decryption constraints](../docs/sops-age.md) remain required:
 production identity `/etc/sops/age/keys.txt` (0600, parent 0700), independent identity
-and GPG escrow under `~/.config/sops/home-lab-recovery` plus external ciphertext copy.
+and GPG escrow under `~/.config/sops/home-lab-recovery`. The recovery key is currently
+on the developer machine; custody of the documented external ciphertext copy remains
+unverified. Independent off-machine custody is an open gap, not established recovery access.
 Bootstrap must not overwrite rotating rclone client state. Obscured rclone values
 are plaintext-equivalent. Restore/rotate credentials only with independent recovery
 proof and without logging values or reusing historical transaction confirmations.
@@ -174,10 +180,13 @@ The [Proton source retirement audit](../docs/proton-source-retirement.md) record
 exact recovery receipts and read-only host checks supporting removal of the completed
 password-reset/authentication writers and one-off staged qualification supervisors.
 Their immutable evidence is still consumed by generic qualification/empty/resume
-recovery. VM recovery remains with partially resolved journal lineage and installed
-consumers; VM9900 now belongs to Debian lifecycle qualification. Retained source is
-not authorization to invoke it; transaction closure and live recovery readiness
-remain separate gates.
+recovery. The audit is canonical for VM lineage, historical plaintext-cleanup limits,
+transport succession and [pending historical-material choices](../docs/proton-source-retirement.md#historical-material--disposition-choices-pending-approval).
+For inactive attempts, **historical outcome unknown; attempt abandoned; no replay**
+does not certify cleanup or release files with surviving consumers. Current bundles,
+identities, consumer-required evidence and active recovery capabilities remain.
+VM9900 belongs to Debian lifecycle qualification: leave it unchanged and never apply
+an old Proton destroy plan. Its continuation/retirement is a separate task.
 
 VM9900 restore fixtures demonstrated staging/structural validation without running
 applications (historically 22,031 files/6,982,221,998 bytes); they did not qualify

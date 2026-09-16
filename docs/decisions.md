@@ -65,6 +65,34 @@ which is excluded locally and untracked: a clean checkout cannot satisfy that
 legacy validation dependency. Do not publish it blindly or substitute a fake
 proof. Historical source tests are not current backup health.
 
+## Custody is separate from receipt cleanup
+
+The read-only custody audit is closed. Ordinary provider state is remote in the
+five configured S3 backends, not dependent on developer-local state copies.
+Remote object/version metadata establishes existence, not correct contents,
+decryptability or successful recovery. Bundle B's restricted HEAD access is not
+absence. Current state objects use SSE-S3 despite KMS bucket defaults; this is
+not authorization to rewrite encryption or a prerequisite for safe source work.
+
+Two local qualification-state dependencies remain unresolved: Debian lifecycle's
+`.local/qualification-route/clean-first-boot-foundation-final/state.tfstate` and
+Restic recovery's `.reconcile/restic-recovery-vm/09d091e5c9f44eafaf5a8b89576c9929e1fa5644/tofu.tfstate`.
+Preserve both and their recovery inputs. Leave VM9900 unchanged; neither state
+migration nor retirement is authorized by closing this audit.
+
+The recovery key is currently on this developer machine; **off-machine custody
+is not verified and remains an open gap**. The operator will verify external escrow
+and independently available recovery access, including required credentials and
+backend coordinates. Current automation still consumes developer-local credentials;
+documentation and additional copies
+on that same machine are not verified independent custody. Retrieval, decryption
+and recovery exercises require separate approval.
+
+Keep working logging and backup configuration unchanged. Explicit journald policy
+is optional follow-up. These custody gaps, further historical evidence collection
+and KMS changes are **not prerequisites for receipt-dependency source cleanup**.
+Such cleanup must still preserve operational guards and supported scope.
+
 ## Ownership and evidence limits
 
 - The shared AWS GitHub OIDC provider
