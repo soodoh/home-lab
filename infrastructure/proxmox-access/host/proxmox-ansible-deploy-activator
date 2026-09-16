@@ -235,9 +235,12 @@ def verify_low_risk_authority(domain, value):
                       "          state: transferred\n          parity_required: true\n          single_writer: true")
     if expected_block not in (REPO / "infrastructure/contract/home-lab.yml").read_text():
         fail("low-risk domain ownership is not transferred to Ansible")
-    projection = json.loads((REPO / "nix/proxmox/projection.json").read_text())
+    import yaml
+    policy = yaml.safe_load((REPO / "ansible/inventory/host_vars/proxmox.yml").read_text())["proxmox_maintenance_policy"]
+    if not isinstance(policy, dict) or set(policy) != {"repository_files", "keyrings", "chrony_service"}:
+        fail("native maintenance policy shape differs")
     if domain == "apt-repositories":
-        desired_files = {item["path"]: item for item in projection["managedFiles"] if item["path"] in APT_SOURCE_PATHS}
+        desired_files = {item["path"]: item for item in policy["repository_files"] if item["path"] in APT_SOURCE_PATHS}
         if tuple(sorted(desired_files)) != tuple(sorted(APT_SOURCE_PATHS)):
             fail("contracted repository projection cardinality differs")
         for item in value["records"]:
@@ -245,14 +248,13 @@ def verify_low_risk_authority(domain, value):
             if desired is None or item["content"] != desired["content"] or item["after_sha256"] != hashlib.sha256(desired["content"].encode()).hexdigest() or \
                     desired.get("owner") != "root" or desired.get("group") != "root" or desired.get("mode") != "0644":
                 fail("repository activation is not bound to contracted content")
-        desired_keyrings = {item["path"]: item for item in projection["managedArtifacts"] if item["path"] in APT_KEYRING_PATHS}
+        desired_keyrings = {item["path"]: item for item in policy["keyrings"] if item["path"] in APT_KEYRING_PATHS}
         expected_keyrings = [{"path": path, "sha256": desired_keyrings[path]["sha256"],
-                              "symlink_target": desired_keyrings[path]["symlinkTarget"]} for path in APT_KEYRING_PATHS]
+                              "symlink_target": desired_keyrings[path]["symlink_target"]} for path in APT_KEYRING_PATHS]
         if value["keyrings"] != expected_keyrings:
             fail("repository activation is not bound to contracted keyrings")
     else:
-        services = {item["name"]: item for item in projection["nativeServices"]}
-        if services.get("chrony.service") != {"enabled": True, "name": "chrony.service", "state": "started"} or \
+        if policy["chrony_service"] != {"active": True, "enabled": True} or \
                 value["desired"] != {"active": True, "enabled": True}:
             fail("chrony activation is not bound to contracted service state")
 
@@ -329,8 +331,12 @@ def apt_metadata():
 
 def solver_changes():
     result = native(("/usr/bin/apt-get", "--simulate", "--option", "Debug::NoLocking=1", "--option", "APT::Get::Show-Upgraded=true", "dist-upgrade"))
-    install_pattern = re.compile(r"^Inst (\S+)(?: \[([^]]+)\])? \((\S+)(?: (.*))?\)$")
-    remove_pattern = re.compile(r"^Remv (\S+)(?: \[([^]]+)\])?")
+    # Match the candidate observer's dependency-note grammar without dropping
+    # any bytes from the solver hash or accepting unknown trailing output.
+    package_name = r"[a-z0-9][a-z0-9+.-]*(?::[a-z0-9][a-z0-9-]*)?"
+    dependency_note = rf"(?: \[(?:{package_name}(?: {package_name})* ?)?\])?"
+    install_pattern = re.compile(r"^Inst (\S+)(?: \[([^]]+)\])? \((\S+)(?: (.*))?\)" + dependency_note + r"$")
+    remove_pattern = re.compile(r"^Remv (\S+)(?: \[([^]]+)\])?" + dependency_note + r"$")
     changes = []
     for line in result.stdout.splitlines():
         match = install_pattern.match(line)
@@ -1911,7 +1917,7 @@ def validate_package_ownership_plan(value, digest):
     verify_repo(value)
     bindings = {"activator_sha256": file_hash(Path(__file__)),
                 "contract_schema_sha256": file_hash(REPO / "infrastructure/contract/schema.json"),
-                "package_manifest_sha256": file_hash(REPO / "nix/proxmox/package-manifest.json"),
+                "package_manifest_sha256": file_hash(REPO / "infrastructure/host-lifecycle/proxmox/package-manifest.json"),
                 "playbook_sha256": file_hash(REPO / "ansible/playbooks/packages-plan.yml"),
                 "role_sha256": file_hash(REPO / "ansible/roles/package_lifecycle/tasks/main.yml"),
                 "consumer_role_sha256": file_hash(REPO / "ansible/roles/package_lifecycle/defaults/main.yml"),

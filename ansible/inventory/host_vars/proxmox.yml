@@ -1,0 +1,103 @@
+---
+# Read-only native observation inputs; no bootstrap, adoption or mutation authority.
+proxmox_observe_required_services:
+  - ssh.service
+  - tailscaled.service
+  - chrony.service
+  - nfs-server.service
+  - pve-cluster.service
+  - pvedaemon.service
+  - pveproxy.service
+  - pve-firewall.service
+  - proxmox-firewall.service
+
+# Same desired repository/chrony policy as the retained generation, now native
+# inputs. Reading this policy does not authorize repository writes or restarts.
+proxmox_maintenance_policy:
+  repository_files:
+    - path: /etc/apt/sources.list
+      owner: root
+      group: root
+      mode: '0644'
+      content: |
+        # Repository definitions are managed in /etc/apt/sources.list.d/*.sources.
+    - path: /etc/apt/sources.list.d/debian-security.sources
+      owner: root
+      group: root
+      mode: '0644'
+      content: |
+        Types: deb
+        URIs: http://security.debian.org/debian-security
+        Suites: trixie-security
+        Components: main contrib non-free-firmware
+        Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+    - path: /etc/apt/sources.list.d/debian.sources
+      owner: root
+      group: root
+      mode: '0644'
+      content: |
+        Types: deb
+        URIs: http://deb.debian.org/debian
+        Suites: trixie trixie-updates
+        Components: main contrib non-free-firmware
+        Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+    - path: /etc/apt/sources.list.d/pve-no-subscription.sources
+      owner: root
+      group: root
+      mode: '0644'
+      content: |
+        Types: deb
+        URIs: http://download.proxmox.com/debian/pve
+        Suites: trixie
+        Components: pve-no-subscription
+        Signed-By: /usr/share/keyrings/proxmox-archive-keyring.gpg
+    - path: /etc/apt/sources.list.d/tailscale.sources
+      owner: root
+      group: root
+      mode: '0644'
+      content: |
+        Types: deb
+        URIs: https://pkgs.tailscale.com/stable/debian
+        Suites: trixie
+        Components: main
+        Signed-By: /usr/share/keyrings/tailscale-archive-keyring.gpg
+  keyrings:
+    - path: /usr/share/keyrings/debian-archive-keyring.gpg
+      sha256: 506b815cbb32d9b6066b4a2aa524071e071761e7e7f68c3ac74f3061ba852017
+      symlink_target: debian-archive-keyring.pgp
+    - path: /usr/share/keyrings/proxmox-archive-keyring.gpg
+      sha256: 136673be77aba35dcce385b28737689ad64fd785a797e57897589aed08db6e45
+      symlink_target: null
+    - path: /usr/share/keyrings/tailscale-archive-keyring.gpg
+      sha256: 3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39
+      symlink_target: null
+  chrony_service:
+    active: true
+    enabled: true
+
+# Observation only: stale metadata is reported, never refreshed to pass a check.
+proxmox_package_observe_max_age_seconds: 86400
+
+# Existing sealed host inputs supply identities/credentials, never runner artifacts.
+# Keep this policy aligned with the separately managed PVE access declarations.
+proxmox_observe_protected_spec:
+  legacyTofuAccessRequired: false
+  conventionalKeysAbsent: true
+  node: proxmox
+  pool: storage
+  protectedAccessExpectedCount: 3
+  pveAccessBindings:
+    - principal: apply
+      primaryAcl: /
+      privilegeSeparation: true
+      role: HomeLabTofuApply
+      additionalAcls: []
+    - principal: plan
+      primaryAcl: /
+      privilegeSeparation: true
+      role: HomeLabTofuPlan
+      additionalAcls:
+        - path: /vms/100
+          role: HomeLabTofuPlanDiskInspect
+        - path: /vms/9900
+          role: HomeLabTofuPlanDiskInspect

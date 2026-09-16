@@ -40,8 +40,8 @@ class SchemaTests(unittest.TestCase):
                    "boot-commit-config-verified", "Persistent=true", "120 seconds", "32 MiB", "48 MiB",
                    "Unknown or malformed runtime remnants keep both backends blocked"):
    self.assertIn(boundary,docs)
- def test_ansible_proxmox_surface_is_audit_only_during_nix_ownership(self):
-  audit=(ROOT/"ansible/playbooks/proxmox-audit.yml").read_text(); self.assertIn("role: proxmox_complete_audit",audit); self.assertIn("become: false",audit); self.assertNotIn("ansible-deploy",audit); self.assertNotIn("proxmox_firewall",audit)
+ def test_retained_package_planning_does_not_grant_firewall_authority(self):
+  plan=(ROOT/"ansible/playbooks/proxmox-packages-plan.yml").read_text(); self.assertIn("role: proxmox_complete_audit",plan); self.assertIn("become: false",plan); self.assertNotIn("ansible-deploy",plan); self.assertNotIn("proxmox_firewall",plan)
   self.assertFalse((ROOT/"ansible/roles/proxmox_firewall").exists()); self.assertFalse((ROOT/"ansible/roles/proxmox_host").exists())
   inventory=(ROOT/"ansible/inventory/infrastructure.yml").read_text(); self.assertNotIn("proxmox_hosts:",inventory)
  def test_boot_and_timer_units_have_fixed_two_phase_order(self):

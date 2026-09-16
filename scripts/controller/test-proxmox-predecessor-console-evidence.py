@@ -8,8 +8,6 @@ Real CLI non-TTY and controlling PTY cases use the unmodified guard.
 import sys
 sys.dont_write_bytecode = True
 
-import copy
-import datetime
 import fcntl
 import hashlib
 import io
@@ -39,9 +37,6 @@ def load(path):
 
 
 collector = load(SCRIPT)
-protected = load(ROOT / 'scripts/controller/protected_execution.py')
-with patch.dict(sys.modules, {'protected_execution': protected}):
-    capability = load(ROOT / 'scripts/controller/proxmox-controller-observer-capability.py')
 CHALLENGE = 'a1' * 32
 SENTINEL = b'SECRET-SENTINEL-NEVER-READ-OR-HASH'
 NATIVE = sys.platform == 'linux' and os.geteuid() == 0
@@ -82,16 +77,6 @@ def assert_output(test, code, value, raw, measured=False):
         test.assertNotIn('barriers_absent', value)
 
 
-def reject_v1(test, value):
-    for flipped in (False, True):
-        candidate = copy.deepcopy(value)
-        candidate.update(authorized=flipped, admission_eligible=flipped)
-        with test.assertRaises(ValueError):
-            capability.validate_access(candidate, collector.canonical(candidate),
-                                       'a' * 40, 'b' * 64, 'c' * 64,
-                                       datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc))
-
-
 class CliTests(unittest.TestCase):
     def cli(self, flags=('-I', '-B', '-S'), args=('--challenge', CHALLENGE), env=None):
         result = subprocess.run([sys.executable, *flags, str(SCRIPT), *args],
@@ -102,7 +87,7 @@ class CliTests(unittest.TestCase):
         return value
 
     def test_real_cli_non_tty_and_arguments(self):
-        reject_v1(self, self.cli())
+        self.cli()  # Output remains explicitly non-authorizing; installer is retired.
         for args in ((), ('--help',), ('--challenge', 'secret-path'),
                      ('--challenge', CHALLENGE, '--root', '/secret'),
                      ('--challenge', 'a' * 65), ('--challenge', 'A' * 64),
@@ -231,7 +216,6 @@ sys.exit(namespace["main"]())
                 self.assertEqual(asset['metadata'], collector.metadata(path.stat()))
             for asset in value['metadata_only']:
                 self.assertEqual(set(asset), {'path', 'metadata'})
-            reject_v1(self, value)
         self.confined(action)
 
     def test_missing_each_asset_and_runtime_no_mutation(self):

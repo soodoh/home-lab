@@ -66,9 +66,62 @@ with tempfile.TemporaryDirectory() as directory:
    if kind != "absent":
     if kind == "regular": assert record.read_bytes() == b"retained exact reboot owner\n"
     record.unlink()
+# APT 3.0.3 produces both [] and [fixture-app:arm64 ] after the version/origin
+# tuple while ordering real dependency upgrades. Replay those exact synthetic
+# forms through both existing parsers; no APT/native command is executed here.
+activator={"__name__":"fixture_activator","__file__":sys.argv[2]}
+activator_source=pathlib.Path(sys.argv[2]).read_text()
+assert activator_source.count("\ntry:\n    main()") == 1
+# Match the existing confined protocol harness: never run the stdin dispatcher.
+activator_source=activator_source.split("\ntry:\n    main()")[0]
+with patch.object(module.subprocess,"Popen",side_effect=AssertionError("subprocess forbidden during load")):
+ exec(compile(activator_source,sys.argv[2],"exec"),activator)
+def transition_command(argv, timeout=300):
+ if argv[0] == "/usr/bin/apt-get":
+  assert "--simulate" in argv
+  return SimpleNamespace(returncode=0,stdout=solver_raw,stderr=b"")
+ if argv[0] == "/usr/bin/dpkg-query": return SimpleNamespace(returncode=0,stdout=b"ii \tfixture-app\t1\n",stderr=b"")
+ if argv[0] == "/usr/bin/apt-mark": return SimpleNamespace(returncode=0,stdout=b"",stderr=b"")
+ if argv[0] == "/usr/bin/dpkg": return SimpleNamespace(returncode=1,stdout=b"",stderr=b"")
+ if argv[0] == "/usr/bin/apt-cache": return SimpleNamespace(returncode=0,stdout=b"  Candidate: 2\n",stderr=b"")
+ if argv[0] == "/usr/bin/lslocks": return SimpleNamespace(returncode=0,stdout=b'{"locks":[]}',stderr=b"")
+ raise AssertionError(argv)
+def activation_command(argv, **kwargs):
+ result=transition_command(argv)
+ return SimpleNamespace(returncode=result.returncode,stdout=result.stdout.decode(),stderr=result.stderr.decode())
+activator["native"]=activation_command
+with patch.object(module,"run",side_effect=transition_command), patch.object(module.os,"walk",return_value=[]), \
+     patch.object(module,"file_tree",return_value={"sha256":"a"*64,"safe":True,"unsafe_paths":[]}), \
+     patch.object(module.os.path,"lexists",return_value=False), \
+     patch.object(module.subprocess,"Popen",side_effect=AssertionError("native commands forbidden")):
+ for suffix in ("", " []", " [fixture-app:arm64 ]", " [fixture-app:arm64 fixture-lib:arm64 ]"):
+  for line, action in (("Inst fixture-app [1] (2 localhost [all])", "upgrade"),
+                       ("Inst fixture-app (2 localhost [all])", "install"),
+                       ("Remv fixture-app [1]", "remove")):
+   solver_raw=(line+suffix+"\n").encode()
+   proposal=module.observe("proxmox")
+   expected={"action":action,"candidate_version":None if action == "remove" else "2",
+             "name":"fixture-app","origin":"" if action == "remove" else "localhost [all]",
+             "previous_version":None if action == "install" else "1","security":False}
+   observed=dict(proposal["changes"][0]); observed.pop("policy_sha256")
+   assert observed == expected,(solver_raw,observed)
+   activated, solver_hash=activator["solver_changes"]()
+   assert activated == [expected]
+   assert solver_hash == module.digest(solver_raw)
+   assert proposal["solver"]["stdout_sha256"] == module.digest(solver_raw)
+ for line in ("Inst fixture-app [1] (2 localhost [all])", "Remv fixture-app [1]"):
+  for suffix in (" garbage", " [] garbage", " [fixture-app:arm64 ] garbage", " [bad=name ]", " [unclosed"):
+   solver_raw=(line+suffix+"\n").encode()
+   try: module.observe("proxmox")
+   except RuntimeError as error: assert str(error) == "unrecognized APT transition"
+   else: raise AssertionError("observer accepted unknown transition suffix")
+   try: activator["solver_changes"]()
+   except ValueError as error: assert str(error) == "unrecognized APT solver transition"
+   else: raise AssertionError("activator accepted unknown transition suffix")
 print(json.dumps({"observer":"verified"},sort_keys=True))
 `;
-  const result = spawnSync("python3", ["-c", checks, renderedPath], { encoding: "utf8" });
+  const result = spawnSync("python3", ["-B", "-c", checks, renderedPath,
+    path.join(root, "infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator")], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), { observer: "verified" });
 } finally {

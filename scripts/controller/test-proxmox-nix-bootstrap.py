@@ -858,7 +858,7 @@ a.runtime.atomic(target,b"journal",0o600)
         self.assertIn("SSH_ORIGINAL_COMMAND",transport); self.assertIn("proxmox-activator session",transport)
         self.assertNotIn("$@",transport)
         self.assertFalse((ROOT/"ansible/roles/proxmox_host").exists())
-        audit=(ROOT/"ansible/playbooks/proxmox-audit.yml").read_text(); self.assertIn("role: proxmox_complete_audit",audit); self.assertIn("become: false",audit); self.assertNotIn("ansible-deploy",audit); self.assertNotIn("apply_guard",audit)
+        plan=(ROOT/"ansible/playbooks/proxmox-packages-plan.yml").read_text(); self.assertIn("role: proxmox_complete_audit",plan); self.assertIn("become: false",plan); self.assertNotIn("ansible-deploy",plan); self.assertNotIn("apply_guard",plan)
 
 
 if __name__ == "__main__": unittest.main()

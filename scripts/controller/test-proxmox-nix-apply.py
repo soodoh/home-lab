@@ -6,7 +6,11 @@ from __future__ import annotations
 import base64
 import copy
 import datetime as dt
+from contextlib import ExitStack, redirect_stderr
+import hashlib
+import hmac
 import importlib.util
+import io
 import json
 import os
 import stat
@@ -24,12 +28,349 @@ NIX = ROOT / "nix"
 sys.path.insert(0, str(NIX / "proxmox"))
 import planner
 import apply as guarded_apply
+import prepare as private_prepare
 
 bundle_spec = importlib.util.spec_from_file_location("proxmox_bundle_apply_tests", NIX / "proxmox/bundle.py")
 if bundle_spec is None or bundle_spec.loader is None:
     raise RuntimeError("unable to load bundle builder")
 bundle = importlib.util.module_from_spec(bundle_spec)
 bundle_spec.loader.exec_module(bundle)
+
+
+class ProxmoxNixRetirementBoundaryTests(unittest.TestCase):
+    """Offline retirement limits, not evidence of installed or recovered sessions."""
+
+    def test_current_freeze_blocks_prepare_and_apply_before_retained_session_access(self) -> None:
+        projection = json.loads((NIX / "proxmox/projection.json").read_bytes())
+        self.assertIs(projection["nixMutationFrozen"], True)
+        args = SimpleNamespace(repo_root=str(ROOT), plan_sha="a" * 64, approve_plan_sha="a" * 64)
+        # Do not execute bundle verification: it invokes the rendered observer.
+        # In particular, no real .reconcile inputs or retained sessions are read.
+        effects = (
+            (guarded_apply, "load_secure_canonical"), (guarded_apply, "controller_lock"),
+            (guarded_apply, "send_session"), (private_prepare, "send"),
+            (private_prepare, "write_exclusive"), (planner, "open_live_output_directory"),
+            (subprocess, "run"),
+        )
+        for entrypoint in (guarded_apply.apply, private_prepare.prepare):
+            with self.subTest(entrypoint=entrypoint.__name__), ExitStack() as stack:
+                inputs = stack.enter_context(patch.object(
+                    planner, "bundle_inputs", return_value=({}, projection, {}, {})))
+                guards = [stack.enter_context(patch.object(
+                    module, name, side_effect=AssertionError(f"unexpected effect: {name}")))
+                    for module, name in effects]
+                with self.assertRaisesRegex(ValueError, "frozen"):
+                    entrypoint(args, Path("fixed"), Path("fixed.sha"), Path("source"))
+                inputs.assert_called_once()
+                for guard in guards:
+                    guard.assert_not_called()
+
+    def test_no_standalone_session_recovery_cli(self) -> None:
+        for command in ("status", "rollback"):
+            with self.subTest(command=command), patch.object(
+                    sys, "argv", ["proxmox-host", command, "--repo-root", str(ROOT)]), \
+                    redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                planner.parse_args()
+            self.assertEqual(error.exception.code, 64)
+
+    def test_every_allowlisted_nix_file_remains_source_bound(self) -> None:
+        # Copy only known source files; never traverse operational artifacts or
+        # execute helpers. Missing files and byte substitutions must fail closed.
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / "nix"
+            for relative in planner.APPROVED_SOURCE_FILES:
+                target = source / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((NIX / relative).read_bytes())
+            planner.sanitized_source_binding(source, NIX)
+            for relative in sorted(planner.APPROVED_SOURCE_FILES):
+                target = source / relative
+                original = target.read_bytes()
+                with self.subTest(file=relative, change="missing"):
+                    target.unlink()
+                    with self.assertRaisesRegex(ValueError, "exact allowlist"):
+                        planner.sanitized_source_binding(source, NIX)
+                with self.subTest(file=relative, change="substituted"):
+                    target.write_bytes(original + b"\n")
+                    with self.assertRaisesRegex(ValueError, "source binding failed"):
+                        planner.sanitized_source_binding(source, NIX)
+                target.write_bytes(original)
+            planner.sanitized_source_binding(source, NIX)
+
+
+# Retained observer -> preparer dependency regression. No installed helper runs.
+LIBEXEC = "/usr/local/libexec/home-lab/"
+ACTIVATOR = LIBEXEC + "proxmox-activator"
+PREPARER = LIBEXEC + "proxmox-private-preparer"
+OBSERVER = LIBEXEC + "proxmox-observer"
+RUNTIME = "/var/lib/home-lab/reconciliation/"
+OBSERVATION_HELPER_HASHES = {
+    "proxmox-observer": "edb7ff95e6b8bfbfaa0227a07c521c2fe26e1f53e92b29d21d67ea17c4f3553f",
+    "proxmox-private-preparer": "7d667609e11f4b66be75b45c5c04176fc4c6712fdc72e1f6254d220eab494b75",
+}
+
+
+def observation_canonical(value):
+    return (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+class ObservationFixtureOS:
+    """Map absolute helper paths to a temporary tree; never expose host paths."""
+    def __init__(self, root):
+        self.root, self.fds, self.reads, self.output = root, {}, [], []
+
+    def mapped(self, path, dir_fd=None):
+        virtual = str(path)
+        if not virtual.startswith("/"):
+            virtual = str(Path(self.fds[dir_fd]) / virtual)
+        if ".." in Path(virtual).parts:
+            raise AssertionError("fixture traversal")
+        self.reads.append(virtual)
+        if virtual == ACTIVATOR:
+            raise AssertionError("observation touched the activator")
+        return virtual, self.root / virtual.lstrip("/")
+
+    def open(self, path, flags, mode=0o777, *, dir_fd=None):
+        virtual, real = self.mapped(path, dir_fd)
+        if flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC):
+            if virtual != RUNTIME + "operation.lock":
+                raise AssertionError("unexpected fixture write")
+        fd = os.open(real, flags, mode)
+        self.fds[fd] = virtual
+        return fd
+
+    def close(self, fd):
+        os.close(fd)
+        self.fds.pop(fd, None)
+
+    @staticmethod
+    def as_root(info):
+        # Model root UID/GID only; preserve real mode, type, links and fingerprints.
+        fields = {name: getattr(info, name) for name in dir(info) if name.startswith("st_")}
+        return SimpleNamespace(**{**fields, "st_uid": 0, "st_gid": 0})
+
+    def fstat(self, fd):
+        assert fd in self.fds
+        return self.as_root(os.fstat(fd))
+
+    def stat(self, path, *, dir_fd=None, follow_symlinks=True):
+        _, real = self.mapped(path, dir_fd)
+        return self.as_root(os.stat(real, follow_symlinks=follow_symlinks))
+
+    def read(self, fd, size):
+        assert fd in self.fds
+        return os.read(fd, size)
+
+    def write(self, fd, raw):
+        assert fd == 1, "only canonical fixture stdout may be written"
+        self.output.append(raw)
+        return len(raw)
+
+    def __getattr__(self, name):
+        if name.startswith("O_"):
+            return getattr(os, name)
+        raise AssertionError("unmodelled OS effect: " + name)
+
+
+class ProxmoxObservationWithoutActivatorTests(unittest.TestCase):
+    """Real rendered protected-observation path; simulated host/HTTP/root metadata."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.fs = ObservationFixtureOS(self.root)
+        fs = self.fs
+
+        class FixturePath(type(Path())):
+            def lstat(self):
+                return fs.stat(str(self), follow_symlinks=False)
+
+            def read_bytes(self):
+                _, real = fs.mapped(str(self))
+                return real.read_bytes()
+
+        projection = json.loads((NIX / "proxmox/projection.json").read_bytes())
+        self.modules = {}
+        for name, expected in OBSERVATION_HELPER_HASHES.items():
+            raw = bundle.expected_helper_content(name, projection)
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), expected,
+                             "reassess the inspected installed generation before updating this test")
+            self.put(LIBEXEC + name, raw, 0o755)
+            module = {"__name__": "fixture_" + name, "__file__": LIBEXEC + name, "Path": FixturePath}
+            exec(compile(raw, name, "exec"), module)
+            module.update(Path=FixturePath, os=self.fs)
+            self.modules[name] = module
+        self.observer = self.modules["proxmox-observer"]
+        self.preparer = self.modules["proxmox-private-preparer"]
+        # Rebind constants created at template import to virtual fixture Paths.
+        for name in ("ROOT", "PROTECTED", "PROTECTED_MAC", "KEY", "INSTALL", "OPERATION_LOCK", "APPLY_LOCK", "ANSIBLE_LOCK"):
+            self.preparer[name] = FixturePath(str(self.preparer[name]))
+        self.preparer["pwd"] = SimpleNamespace(getpwnam=lambda name: SimpleNamespace(pw_uid=0, pw_gid=0))
+        self.calls = []
+        self.dispatches = 0
+        self.http_status = 200
+        fake_subprocess = SimpleNamespace(run=self.command, DEVNULL=subprocess.DEVNULL,
+                                          TimeoutExpired=subprocess.TimeoutExpired)
+        self.observer["subprocess"] = self.preparer["subprocess"] = fake_subprocess
+        self.observer["sys"] = SimpleNamespace(argv=[OBSERVER, "observe"])
+        self.preparer["sys"] = SimpleNamespace(argv=[PREPARER, "summary"])
+        # Isolate unrelated public observer domains; do not stub observe(),
+        # protected_summaries(), run/run_result, main(), summaries(), or readers.
+        for name in ("file_record", "fragment_record", "artifact_record", "audit_record"):
+            self.observer[name] = lambda item: ({"target": item["target"]}, True)
+        self.observer["unexpected_regular_count"] = lambda *args: 0
+        self.observer["public_summaries"] = lambda: [self.observer["summary"]()] * 7
+        for name in ("accounts", "packages", "services", "timezone"):
+            self.observer[name] = lambda: self.observer["records_domain"](None)
+        self.observer["host"] = lambda: {"fixture": True}
+        self.key = b"synthetic-session-key-" * 2
+        self.members = [f"/dev/disk/by-id/synthetic-member-{i:02d}" for i in range(12)]
+        self.state = {
+            "format": "home-lab-proxmox-protected-inputs-v1",
+            "access": {
+                "planKeys": ["ssh-ed25519 " + base64.b64encode(b"A" * 32).decode()],
+                "applyKeys": ["ssh-ed25519 " + base64.b64encode(b"B" * 32).decode()],
+                "firewallKeys": ["ssh-ed25519 " + base64.b64encode(b"C" * 32).decode()],
+                "planTokenIdentity": "root@pam!tofu-plan", "applyTokenIdentity": "root@pam!tofu-apply",
+                "planToken": "root@pam!tofu-plan=synthetic-plan-token",
+                "applyToken": "root@pam!tofu-apply=synthetic-apply-token",
+            },
+            "hardware": {"gamesDiskIdentity": "/dev/disk/by-id/synthetic-games", "poolGuid": "123456789",
+                         "poolMembers": self.members, "usbMappings": [
+                             {"mapping": "zigbee-cp210x", "port": "1-2", "serial": "synthetic-usb-a"},
+                             {"mapping": "zwave-cp210x", "port": "1-3", "serial": "synthetic-usb-b"}]},
+        }
+        self.put(RUNTIME + "session.key", self.key)
+        self.put(RUNTIME + "operation.lock", b"")
+        for principal in ("plan", "apply"):
+            self.put(f"/root/.config/home-lab/proxmox-{principal}-token.env",
+                     ("PROXMOX_VE_API_TOKEN=" + self.state["access"][principal + "Token"] + "\n").encode())
+        self.write_state()
+        # No install manifest is supplied either: reading it must fail, not be mocked.
+        self.http = patch("urllib.request.urlopen", side_effect=self.request)
+        self.http.start()
+        self.addCleanup(self.http.stop)
+
+    def put(self, path, raw, mode=0o600):
+        real = self.root / path.lstrip("/")
+        real.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        real.write_bytes(raw)
+        real.chmod(mode)
+
+    def write_state(self):
+        raw = observation_canonical(self.state)
+        self.put(RUNTIME + "protected-inputs.json", raw)
+        self.put(RUNTIME + "protected-inputs.mac", hmac.new(self.key, raw, hashlib.sha256).hexdigest().encode() + b"\n")
+
+    def request(self, request, **kwargs):
+        self.assertEqual(request.full_url, "https://127.0.0.1:8006/api2/json/version")
+        self.assertIn(request.get_header("Authorization"), ["PVEAPIToken=" + self.state["access"][p + "Token"] for p in ("plan", "apply")])
+        status = self.http_status
+
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def read(self, maximum): return b"{}"
+        response = Response()
+        response.status = status
+        return response
+
+    def command(self, args, **kwargs):
+        args = tuple(args)
+        self.calls.append(args)
+        if args == (PREPARER, "summary"):
+            self.dispatches += 1
+            saved = self.fs.output
+            self.fs.output = []
+            try:
+                code = self.preparer["main"]()
+                return subprocess.CompletedProcess(args, code, b"".join(self.fs.output), b"")
+            except ValueError:
+                return subprocess.CompletedProcess(args, 1, b"", b"fixture preparer refused")
+            finally:
+                self.fs.output = saved
+        if args[:3] == ("/usr/bin/pvesh", "get", "/access/acl"):
+            raw = observation_canonical([{"path": path, "propagate": 1, "roleid": role, "ugid": "root@pam!tofu-" + principal}
+                             for principal, path, role in (("apply", "/", "HomeLabTofuApply"),
+                                 ("plan", "/", "HomeLabTofuPlan"), ("plan", "/vms/100", "HomeLabTofuPlanDiskInspect"),
+                                 ("plan", "/vms/9900", "HomeLabTofuPlanDiskInspect"))])
+        elif args in [("/usr/bin/pvesh", "get", f"/access/users/root@pam/token/tofu-{p}", "--output-format", "json") for p in ("plan", "apply")]:
+            raw = b'{"privsep":1}\n'
+        elif args in [("/usr/bin/pvesh", "get", "/cluster/mapping/usb/" + m, "--output-format", "json") for m in ("zigbee-cp210x", "zwave-cp210x")]:
+            raw = observation_canonical({"map": [{"node": "proxmox", "path": "1-2" if args[2].endswith("zigbee-cp210x") else "1-3"}]})
+        elif args == ("/usr/sbin/qm", "config", "100"):
+            raw = b"scsi1: /dev/disk/by-id/synthetic-games,backup=0\n"
+        elif args == ("/usr/sbin/zpool", "get", "-H", "-o", "value", "guid", "storage"):
+            raw = b"123456789\n"
+        elif args == ("/usr/sbin/zpool", "status", "-P", "storage"):
+            raw = ("\n".join(line for i in range(6) for line in
+                   (f"  mirror-{i} ONLINE", f"    {self.members[2*i]} ONLINE", f"    {self.members[2*i+1]} ONLINE")) + "\n").encode()
+        elif args == ("/usr/bin/udevadm", "info", "--export-db"):
+            raw = b"P: /devices/usb1/1-2\nE: DEVTYPE=usb_device\nE: ID_SERIAL_SHORT=synthetic-usb-a\n\nP: /devices/usb1/1-3\nE: DEVTYPE=usb_device\nE: ID_SERIAL_SHORT=synthetic-usb-b\n"
+        else:
+            raise AssertionError("unmodelled command; no real subprocess is allowed")
+        return subprocess.CompletedProcess(args, 0, raw, b"")
+
+    def observe(self):
+        self.fs.output = []
+        # A leaked real subprocess/network path must never silently reach the host.
+        with patch("subprocess.run", side_effect=AssertionError("real subprocess forbidden")):
+            self.assertEqual(self.observer["main"](), 0)
+        self.assertFalse(self.fs.fds, "all real temporary descriptors must be released")
+        self.assertNotIn(ACTIVATOR, self.fs.reads)
+        raw = b"".join(self.fs.output)
+        for private in (b"synthetic-", self.key, self.state["hardware"]["poolGuid"].encode()):
+            self.assertNotIn(private, raw)
+        value = json.loads(raw)
+        self.assertEqual(raw, observation_canonical(value))
+        return {name: value["domains"][name] for name in ("protectedAccess", "protectedHardware")}
+
+    def test_actual_summary_path_is_identical_with_activator_absent(self):
+        self.put(ACTIVATOR, b"synthetic activator must never be opened", 0o755)
+        before = self.observe()
+        (self.root / ACTIVATOR.lstrip("/")).unlink()
+        self.fs.reads.clear()
+        after = self.observe()
+        self.assertEqual(before, after)
+        self.assertEqual(after, {name: {"expectedCount": 3, "observedCount": 3, "matches": True, "status": "complete"}
+                                 for name in ("protectedAccess", "protectedHardware")})
+        self.assertEqual(self.dispatches, 2)
+        for name in ("protected-inputs.json", "protected-inputs.mac", "session.key", "operation.lock"):
+            self.assertIn(RUNTIME + name, self.fs.reads)
+        self.assertNotIn(RUNTIME + "install-manifest.json", self.fs.reads)
+        self.assertFalse((self.root / ACTIVATOR.lstrip("/")).exists())
+        self.assertTrue(self.calls)
+
+    def test_missing_key_and_bad_mac_still_fail_closed(self):
+        for defect in ("key", "mac"):
+            with self.subTest(defect=defect):
+                self.put(RUNTIME + "session.key", self.key)
+                self.write_state()
+                if defect == "key": (self.root / (RUNTIME + "session.key").lstrip("/")).unlink()
+                else: self.put(RUNTIME + "protected-inputs.mac", b"0" * 64 + b"\n")
+                self.assertTrue(all(x["status"] == "unavailable" for x in self.observe().values()))
+
+    def test_preparer_hash_and_mode_are_still_checked_before_dispatch(self):
+        p = self.root / PREPARER.lstrip("/")
+        original = p.read_bytes()
+        for defect in ("bytes", "mode"):
+            with self.subTest(defect=defect):
+                self.put(PREPARER, original + (b"\n" if defect == "bytes" else b""), 0o644 if defect == "mode" else 0o755)
+                self.assertTrue(all(x["status"] == "unavailable" for x in self.observe().values()))
+                self.assertEqual(self.dispatches, 0)
+
+    def test_hardware_token_and_retained_owner_guards_are_not_bypassed(self):
+        self.state["hardware"]["poolGuid"] = "987654321"
+        self.write_state()
+        self.assertFalse(self.observe()["protectedHardware"]["matches"])
+        self.state["hardware"]["poolGuid"] = "123456789"
+        self.write_state()
+        self.http_status = 403
+        self.assertFalse(self.observe()["protectedAccess"]["matches"])
+        self.http_status = 200
+        self.put("/var/lib/iac-ansible-production.lock", b"synthetic owner")
+        self.assertTrue(all(x["status"] == "unavailable" for x in self.observe().values()))
 
 
 class ProxmoxNixApplyTests(unittest.TestCase):
@@ -181,15 +522,6 @@ class ProxmoxNixApplyTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "approval"):
             guarded_apply.apply(args, Path("fixed"), Path("fixed.sha"), Path("source"))
         inputs.assert_not_called()
-        transport.assert_not_called()
-
-    def test_lifecycle_freeze_rejects_apply_before_plan_or_transport(self) -> None:
-        args = SimpleNamespace(repo_root=str(ROOT), plan_sha="a" * 64, approve_plan_sha="a" * 64)
-        frozen = copy.deepcopy(self.projection)
-        frozen["nixMutationFrozen"] = True
-        with patch.object(planner, "bundle_inputs", return_value=(self.bindings, frozen, self.manifest, self.metadata)), \
-                patch.object(guarded_apply, "send_session") as transport, self.assertRaisesRegex(ValueError, "frozen"):
-            guarded_apply.apply(args, Path("fixed"), Path("fixed.sha"), Path("source"))
         transport.assert_not_called()
 
     def test_complete_sidecar_mac_covers_all_private_fields_and_protected_macs_remain_independent(self) -> None:

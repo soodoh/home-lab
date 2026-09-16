@@ -143,8 +143,13 @@ def observe(host):
     holds = sorted(line for line in holds_result.stdout.decode("utf-8", "strict").splitlines() if line)
     stdout = solver.stdout.decode("utf-8", "strict")
     changes = []
-    install_pattern = re.compile(r"^Inst (\S+)(?: \[([^]]+)\])? \((\S+)(?: (.*))?\)$")
-    remove_pattern = re.compile(r"^Remv (\S+)(?: \[([^]]+)\])?")
+    # APT appends dependency-order diagnostics such as [] or [libfoo:amd64 ].
+    # Accept only that bounded grammar, not arbitrary trailing output. Keep the
+    # complete solver output in its hash; these notes are not package actions.
+    package_name = r"[a-z0-9][a-z0-9+.-]*(?::[a-z0-9][a-z0-9-]*)?"
+    dependency_note = rf"(?: \[(?:{package_name}(?: {package_name})* ?)?\])?"
+    install_pattern = re.compile(r"^Inst (\S+)(?: \[([^]]+)\])? \((\S+)(?: (.*))?\)" + dependency_note + r"$")
+    remove_pattern = re.compile(r"^Remv (\S+)(?: \[([^]]+)\])?" + dependency_note + r"$")
     for line in stdout.splitlines():
         match = install_pattern.match(line)
         if match:

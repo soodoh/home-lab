@@ -9,7 +9,6 @@ import sys
 sys.dont_write_bytecode = True
 
 import copy
-import datetime
 import hashlib
 import json
 import os
@@ -366,20 +365,11 @@ class CliFixture:
 
 
 class FileAndCliTests(CliFixture, unittest.TestCase):
-    def test_real_cli_to_unchanged_strict_v1_consumer(self):
+    def test_real_cli_is_non_authorizing_and_preserves_inputs(self):
         before = self.snapshot()
-        output = self.cli()
+        output = self.cli()  # cli() checks authorized/admission_eligible remain false.
         self.assertTrue(output["content_consistent"], output)
         self.assertEqual(before, self.snapshot())
-        protected = load(SCRIPT.with_name("protected_execution.py"))
-        with patch.dict(sys.modules, {"protected_execution": protected}):
-            capability = load(SCRIPT.with_name("proxmox-controller-observer-capability.py"))
-        now = datetime.datetime(2026, 1, 1, tzinfo=datetime.timezone.utc)
-        for flipped in (False, True):
-            candidate = copy.deepcopy(output)
-            candidate.update(authorized=flipped, admission_eligible=flipped)
-            with self.assertRaises(ValueError):
-                capability.validate_access(candidate, diag.canonical(candidate), "a" * 40, "b" * 64, "c" * 64, now)
 
     def test_cli_argument_errors_and_nonisolated_invocation(self):
         for args in ([str(SCRIPT)], self.command() + ["--private-secret-path"],

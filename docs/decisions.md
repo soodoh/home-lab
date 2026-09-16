@@ -15,6 +15,29 @@ forward recipes remain in Git, not current setup guidance. Retained evidence rec
 and installed/recovery consumers are a separate boundary; no new universal manifest,
 launcher or qualification platform replaces the old controller.
 
+## Disposable controllers and live validation
+
+New native workflows must work from a fresh checkout on a disposable runner.
+Desired configuration and repeatable checks belong in source; current readiness
+comes from fresh host observations and operation-specific postconditions, not
+agent-session inventories, developer-local plans or committed success receipts.
+CI logs are diagnostic history, not authorization inputs. Missing historical
+completion records do not by themselves block unrelated source retirement.
+
+Keep recovery state separate from validation results. Required interruption
+journals, ownership, before-images and autonomous rollback belong durably on the
+host or in independently available protected storage. Remote OpenTofu state and
+reviewed saved-plan handling remain native tool responsibilities. Runner loss
+must not lose recovery intent or disable watchdogs. Fresh observation is not
+exclusive ownership: recheck preconditions under the operation's coordination.
+
+This direction does not waive surviving legacy consumer checks, resolve a live
+interruption, prove backup restorability or authorize artifact deletion. Migrate
+those consumers deliberately rather than fabricating receipts, pinning new checks
+to old observations, or introducing another admission framework. Production CI
+needs trusted workflows, protected approval, reviewed short-lived access and
+coordination with host-local writers; none is configured by this decision.
+
 ## First native adoption
 
 Native SSH/become deliberately reuses Tailscale access, accounts and keys.
@@ -37,7 +60,12 @@ and supported scope, including [unit-state exclusions](operations.md#backup-unit
 [existing-account refusal](operations.md#confined-backup-account) and
 [same-content metadata limits](operations.md#same-content-backup-runtime-files).
 These adoptions confer no general host convergence, upgrade, restart, reboot,
-firewall, data migration or backup-health authority.
+firewall, data migration or backup-health authority. The
+[native Proxmox capability observation](operations.md#native-proxmox-capability-observation)
+now checks protected identities without installed Nix helpers or prior runner
+artifacts. Native maintenance variables also replace selected Nix data reads in
+current source, but that activator change is not deployed and the wider legacy
+audit/maintenance/recovery consumers remain.
 
 ## Why legacy code remains
 
@@ -46,7 +74,7 @@ firewall, data migration or backup-health authority.
 | `infrastructure/contract/`, schemas, renderers and validators | HCL, host roles, Restic and recovery still read these values. Migrate each consumer into typed native inputs before removing the global contract. |
 | Compose artifact/model/action/diff/image helpers, staging/deploy/rollback roles | Legacy migration, data recovery and installed image-retention consumers remain. Offline admission-only reducers were removed; native deployment is not yet implemented. |
 | Restic runner, bootstrap/init/first-run/qualification helpers and recovery plays | Writer quiescence, interrupted-backup recovery, repository identity, pending-copy retention and retained operation journals remain real dependencies. |
-| Proxmox observers, check-evidence, package/reboot/access executors and transports | Surviving maintenance and recovery consumers still use them. Source hash/receipt requirements are unchanged, not waived to admit deletions. |
+| Proxmox observers, package/reboot/access executors and transports | Surviving maintenance and recovery consumers still use them. The orphaned controller-check/evidence branch was [retired separately](legacy-nix-retirement.md#controller-check-source-retirement--september-16-2026); surviving source hash/receipt requirements are unchanged, not waived to admit deletions. |
 | Firewall transaction, boot recovery and persistent watchdog | Autonomous rollback must survive controller/network loss; Ansible rescue cannot provide that. |
 | Selected `nix/` Python/data, VFIO, bootstrap/session recovery | Installed activators, before-images and emergency protocols still depend on them. Source ownership transfer did not remove installed copies. |
 | VM9900 qualification and recovery roots/helpers | Possible live VM, disks, snippets, ACLs, keys and failed-operation state require separately authorized inventory/retirement. |

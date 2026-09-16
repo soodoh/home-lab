@@ -6,8 +6,9 @@ protocols. There is no general deploy command. Inspect installed generations,
 exact journals/owners and independent console/LAN access before a separately
 reviewed recovery invocation. Do not rerun completed bootstrap or cutover steps,
 clear locks, disable watchdogs, or fabricate sidecars/receipts.
-See [current scope](operations.md#what-is-available-now) and
-[staging-only data recovery](../recovery/README.md).
+See [current scope](operations.md#what-is-available-now),
+[staging-only data recovery](../recovery/README.md), and the
+[source retirement assessment](legacy-nix-retirement.md).
 
 - [Bootstrap interruption](#bootstrap-interruption) covers console-installed assets.
 - [Retained host sessions](#retained-host-sessions) covers the old Nix protocol.
@@ -45,9 +46,13 @@ and sudo only for preparer `prepare` and activator `session`. It accepted no
 caller-selected paths, identities, commands or token values. Interrupted creation
 rolls back created authority; retained recovery must use its exact journal.
 
-The host bootstrap accepts only `check`, `install`, `verify` and gated `recover`.
-It checks target, Git/bundle/input identity, space and authority locks. Its journaled
-installation includes observer, private preparer, activator, firewall transaction/
+The host bootstrap exposes `check`, `install`, `verify`, gated `recover` and the
+narrow `diagnose-recovery` branch. **`check` and `verify` are not passive inspection:**
+they create/permission directories, acquire locks and reconcile pending files.
+The diagnostic branch is not a complete inventory or recovery proof. Ask for
+separate live inspection approval rather than invoking these as source checks.
+The installation path checks target, Git/bundle/input identity, space and authority
+locks. Its journaled installation includes observer, private preparer, activator, firewall transaction/
 transport/boot helpers, canonical policy, systemd units/drop-ins and root-only
 attestation key. It reloads definitions, enables boot recovery and the persistent
 rollback timer, starts the watchdog, and verifies exact bytes, key metadata,
@@ -90,8 +95,15 @@ may still require its exact status/rollback behavior; source deletion does not
 close their journals or retire installed transports.
 
 **Invocation gap:** the retained `proxmox-host` planner exposes only `plan`,
-`prepare` and `apply`, not standalone `status` or `rollback` commands. The host
-session transitions below are protocol semantics, not a copy-paste recovery CLI.
+`prepare` and `apply`, not standalone `status` or `rollback` commands. Current
+`nixMutationFrozen=true` rejects `prepare` and `apply` after bundle validation but
+before saved-plan/sidecar reads and retained-session status/rollback. The older
+expired-plan recovery branches below are therefore not reachable through current
+`apply`. Do not unfreeze policy or rewrite bindings to reach them.
+
+The host session transitions below are protocol semantics, not a copy-paste
+recovery CLI. Host-session `status` can reconcile initialization, action and
+release checkpoints under its mutex; unlike firewall `status`, it is not passive.
 Inspect the exact retained session/bindings and obtain a separately reviewed
 recovery invocation; do not retry `apply` as a passive status query.
 

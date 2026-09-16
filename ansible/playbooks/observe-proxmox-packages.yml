@@ -1,0 +1,8 @@
+---
+- name: Observe native Proxmox package candidates without saving a maintenance plan
+  hosts: proxmox
+  gather_facts: false
+  any_errors_fatal: true
+  roles:
+    - role: proxmox_observe
+    - role: proxmox_package_observe

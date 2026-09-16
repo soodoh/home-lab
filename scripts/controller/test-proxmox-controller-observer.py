@@ -8,6 +8,8 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import types
 import unittest
@@ -140,6 +142,172 @@ class ControllerObserverTests(unittest.TestCase):
         self.assertIn(Path('/var/lib/dpkg/lock-frontend'), module.APT_LOCKS)
         self.assertEqual(len(module.LOCKS), len(set(module.LOCKS)))
         self.assertEqual(set(module.LOCKS) & set(module.JOURNALS), set())
+
+
+class NativeObservationTests(unittest.TestCase):
+    """Real Ansible assertions only: no role execution, SSH, NSS or native host calls."""
+
+    def test_protected_response_assertions_fail_closed_without_printing_input(self):
+        loader = "const fs=require('node:fs'), y=require('js-yaml'); process.stdout.write(JSON.stringify(y.load(fs.readFileSync(process.argv[1], 'utf8'))));"
+        loaded = subprocess.run(['node', '-e', loader,
+                                 str(ROOT / 'ansible/roles/proxmox_observe/tasks/main.yml')],
+                                cwd=ROOT, capture_output=True, text=True, check=True)
+        tasks = json.loads(loaded.stdout)
+        selected = [task for task in tasks if 'ansible.builtin.assert' in task and
+                    'proxmox_observe_protected.stdout' in json.dumps(task)]
+        self.assertEqual(len(selected), 3)
+        self.assertTrue(all(task.get('no_log') is True for task in selected))
+        service_assert = next(task for task in tasks if task['name'] == 'Verify required services are loaded and active')
+        owner_assert = next(task for task in tasks if task['name'] == 'Refuse a retained operation owner without reconciling it')
+        record = {'expectedCount': 3, 'observedCount': 3, 'matches': True, 'status': 'complete'}
+        valid = {'protectedAccess': record, 'protectedHardware': record}
+        cases = [
+            ('valid', json.dumps(valid), '', 0, True),
+            ('malformed', 'SYNTHETIC_PRIVATE_SENTINEL', '', 0, False),
+            ('extra-field', json.dumps({**valid, 'private': 'SYNTHETIC_PRIVATE_SENTINEL'}), '', 0, False),
+            ('missing-domain', json.dumps({'protectedAccess': record}), '', 0, False),
+            ('unavailable', json.dumps({**valid, 'protectedAccess': {'expectedCount': 3, 'observedCount': None,
+                                                                  'matches': None, 'status': 'unavailable'}}), '', 0, False),
+            ('hardware-drift', json.dumps({**valid, 'protectedHardware': {**record, 'matches': False,
+                                                                        'observedCount': 2}}), '', 0, False),
+            ('oversized', 'SYNTHETIC_PRIVATE_SENTINEL' * 200, '', 0, False),
+            ('stderr', json.dumps(valid), 'SYNTHETIC_PRIVATE_SENTINEL', 0, False),
+            ('nonzero', json.dumps(valid), '', 1, False),
+        ]
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            config = directory / 'ansible.cfg'
+            config.write_text('[defaults]\nhost_key_checking=True\nretry_files_enabled=False\n')
+            environment = {**os.environ, 'ANSIBLE_CONFIG': str(config), 'ANSIBLE_NOCOLOR': '1',
+                           'ANSIBLE_LOCAL_TEMP': str(directory / 'tmp'), 'ANSIBLE_STDOUT_CALLBACK': 'default',
+                           'ANSIBLE_LOG_PATH': str(directory / 'ansible.log')}
+            for label, stdout, stderr, rc, success in cases:
+                with self.subTest(case=label):
+                    play = [{'name': 'Isolated response assertion fixture', 'hosts': 'localhost',
+                             'connection': 'local', 'gather_facts': False,
+                             'vars': {'proxmox_observe_protected': {'stdout': stdout, 'stderr': stderr, 'rc': rc}},
+                             'tasks': selected}]
+                    playbook = directory / 'assertions.json'
+                    playbook.write_text(json.dumps(play))
+                    result = subprocess.run(['ansible-playbook', '-i', 'localhost,', '-c', 'local', str(playbook)],
+                                            cwd=directory, env=environment, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode == 0, success, label + '\n' + result.stdout + result.stderr)
+                    self.assertNotIn('SYNTHETIC_PRIVATE_SENTINEL', result.stdout + result.stderr)
+            for state, load, owner, success in [('active', 'loaded', False, True),
+                                                ('inactive', 'loaded', False, False),
+                                                ('active', 'not-found', False, False),
+                                                ('active', 'loaded', True, False)]:
+                with self.subTest(service=state, load=load, retained_owner=owner):
+                    variables = {
+                        'proxmox_observe_services': {'results': [{'item': 'nfs-server.service', 'stdout_lines':
+                            ['LoadState=' + load, 'ActiveState=' + state, 'SubState=exited']}]},
+                        'proxmox_observe_owners': {'results': [{'item': '/synthetic/apply.lock', 'stat': {'exists': owner}}]},
+                    }
+                    playbook.write_text(json.dumps([{'hosts': 'localhost', 'connection': 'local',
+                        'gather_facts': False, 'vars': variables, 'tasks': [service_assert, owner_assert]}]))
+                    result = subprocess.run(['ansible-playbook', '-i', 'localhost,', '-c', 'local', str(playbook)],
+                                            cwd=directory, env=environment, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+            self.assertNotIn('SYNTHETIC_PRIVATE_SENTINEL', (directory / 'ansible.log').read_text())
+
+    def test_native_package_response_assertions_and_redacted_diagnostics(self):
+        loader = "const fs=require('node:fs'), y=require('js-yaml'); process.stdout.write(JSON.stringify(y.load(fs.readFileSync(process.argv[1], 'utf8'))));"
+        loaded = subprocess.run(['node', '-e', loader,
+                                 str(ROOT / 'ansible/roles/proxmox_package_observe/tasks/main.yml')],
+                                cwd=ROOT, capture_output=True, text=True, check=True)
+        tasks = json.loads(loaded.stdout)
+        # Never run the remote collector or its commands in this local fixture.
+        selected = tasks[2:]
+        self.assertEqual(len(selected), 6)
+        self.assertIn('ansible.builtin.fail', selected[0])
+        self.assertTrue(all(task.get('no_log') is True for task in selected[1:-1]))
+        self.assertTrue(all('ansible.builtin.command' not in task for task in selected))
+        sample = {'version': 2, 'host': 'proxmox', 'metadata_refresh_performed': False,
+                  'installed_records': 1, 'expected_manifest_records': 1, 'manifest_matches': True,
+                  'apt_tree_safe': True, 'size_parse_complete': False, 'metadata_age_seconds': 10,
+                  'solver': {'returncode': 0}, 'holds': [], 'kept_back': [], 'active_lifecycle_locks': [],
+                  'change_counts': {'install': 0, 'upgrade': 1, 'downgrade': 0, 'remove': 0}}
+        cases = [('valid', json.dumps(sample), '', 0, True),
+                 ('malformed', 'SYNTHETIC_PRIVATE_SENTINEL', '', 0, False),
+                 ('wrong-host', json.dumps({**sample, 'host': 'debian'}), '', 0, False),
+                 ('refresh', json.dumps({**sample, 'metadata_refresh_performed': True}), '', 0, False),
+                 ('bool-count', json.dumps({**sample, 'installed_records': True}), '', 0, False),
+                 ('bad-change-count', json.dumps({**sample, 'change_counts': {**sample['change_counts'], 'upgrade': -1}}), '', 0, False),
+                 ('missing-key', json.dumps({key: value for key, value in sample.items() if key != 'solver'}), '', 0, False),
+                 ('stderr', json.dumps(sample), 'SYNTHETIC_PRIVATE_SENTINEL', 0, False),
+                 ('nonzero', json.dumps(sample), '', 1, False),
+                 ('unavailable-metadata', json.dumps({**sample, 'metadata_age_seconds': None}), '', 0, True),
+                 ('redaction', json.dumps({**sample, 'holds': ['SYNTHETIC_PRIVATE_SENTINEL']}), '', 0, True)]
+        categories = {
+            'package observer command unavailable': 'native-command-unavailable',
+            'package observer command exceeded bound': 'native-command-output-limit',
+            'package inventory unavailable': 'inventory-unavailable',
+            'APT policy unavailable': 'apt-policy-unavailable',
+            'APT policy candidate differs': 'apt-candidate-mismatch',
+            'unrecognized APT transition': 'apt-transition-unrecognized',
+            'version comparison unavailable': 'version-comparison-unavailable',
+            'APT state changed during observation': 'apt-state-changed',
+            'APT state read differs': 'apt-state-read-differs',
+            'lock observation unavailable': 'lock-observation-unavailable',
+        }
+        expected_errors = {}
+        for message, category in categories.items():
+            for ending in ('', '\n'):
+                label = category + repr(ending)
+                cases.append((label, '', 'package-candidate-observer: ' + message + ending, 1, False))
+                expected_errors[label] = 'Package observation failed: ' + category + '.'
+        cases.append(('unknown-private-error', '', 'package-candidate-observer: SYNTHETIC_PRIVATE_SENTINEL', 1, False))
+        expected_errors['unknown-private-error'] = 'unclassified; raw diagnostics withheld.'
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            config = directory / 'ansible.cfg'
+            config.write_text('[defaults]\nhost_key_checking=True\nretry_files_enabled=False\n')
+            environment = {**os.environ, 'ANSIBLE_CONFIG': str(config), 'ANSIBLE_NOCOLOR': '1',
+                           'ANSIBLE_LOCAL_TEMP': str(directory / 'tmp'), 'ANSIBLE_STDOUT_CALLBACK': 'default',
+                           'ANSIBLE_LOG_PATH': str(directory / 'ansible.log')}
+            # Render and stream the actual stdin expression into a local hash-only
+            # process. Never execute the collector or its native host commands.
+            expected_packages = json.loads((ROOT / 'infrastructure/host-lifecycle/proxmox/package-manifest.json').read_text())['packages']
+            encoded = base64.b64encode(json.dumps(expected_packages).encode()).decode()
+            expected_source = (ROOT / 'infrastructure/maintenance/host/package-candidate-observer').read_text().rstrip().replace('@EXPECTED_PACKAGES_BASE64@', encoded) + '\n'
+            render_tasks = [
+                {'ansible.builtin.set_fact': {'fixture_source': tasks[1]['ansible.builtin.command']['stdin']}, 'no_log': True},
+                {'ansible.builtin.command': {'argv': [sys.executable, '-I', '-B', '-c',
+                    'import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'],
+                    'stdin': tasks[1]['ansible.builtin.command']['stdin']},
+                    'register': 'fixture_stream_hash', 'changed_when': False, 'no_log': True},
+                {'ansible.builtin.assert': {'that': [
+                    "fixture_stream_hash.stdout == fixture_expected_sha256",
+                    "'@EXPECTED_PACKAGES_BASE64@' not in fixture_source",
+                    "((lookup('ansible.builtin.file', role_path + '/../../../infrastructure/host-lifecycle/proxmox/package-manifest.json') | from_json).packages | to_json | b64encode) in fixture_source",
+                ]}, 'no_log': True},
+            ]
+            playbook = directory / 'render.json'
+            playbook.write_text(json.dumps([{'hosts': 'localhost', 'connection': 'local', 'gather_facts': False,
+                'vars': {'role_path': str(ROOT / 'ansible/roles/proxmox_package_observe'),
+                         'fixture_expected_sha256': hashlib.sha256(expected_source.encode()).hexdigest()},
+                'tasks': render_tasks}]))
+            result = subprocess.run(['ansible-playbook', '-i', 'localhost,', '-c', 'local', str(playbook)],
+                                    cwd=directory, env=environment, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            for label, stdout, stderr, rc, success in cases:
+                with self.subTest(case=label):
+                    variables = {'proxmox_package_observe_raw': {'stdout': stdout, 'stderr': stderr, 'rc': rc},
+                                 'proxmox_package_observe_max_age_seconds': 86400}
+                    playbook = directory / 'assertions.json'
+                    playbook.write_text(json.dumps([{'hosts': 'localhost', 'connection': 'local',
+                        'gather_facts': False, 'vars': variables, 'tasks': selected}]))
+                    result = subprocess.run(['ansible-playbook', '-i', 'localhost,', '-c', 'local', str(playbook)],
+                                            cwd=directory, env=environment, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode == 0, success, label + '\n' + result.stdout + result.stderr)
+                    self.assertNotIn('SYNTHETIC_PRIVATE_SENTINEL', result.stdout + result.stderr)
+                    if label in expected_errors:
+                        self.assertIn(expected_errors[label], result.stdout)
+                        self.assertNotIn('"apply_authorized"', result.stdout)
+                    if success:
+                        self.assertIn('"apply_authorized": false', result.stdout)
+                        self.assertIn('"metadata_refresh_performed": false', result.stdout)
+            self.assertNotIn('SYNTHETIC_PRIVATE_SENTINEL', (directory / 'ansible.log').read_text())
 
 
 if __name__ == '__main__': unittest.main()

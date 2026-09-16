@@ -78,9 +78,21 @@ def handoff_state(domain: str) -> dict:
     return state
 
 
+def maintenance_policy() -> dict:
+    script = """const fs=require('node:fs');const {load}=require('js-yaml');const value=load(fs.readFileSync(process.argv[1],'utf8'));process.stdout.write(JSON.stringify(value.proxmox_maintenance_policy));"""
+    result = subprocess.run(("node", "-e", script, str(ROOT / "ansible/inventory/host_vars/proxmox.yml")),
+                            cwd=ROOT, capture_output=True, text=True, timeout=30)
+    if result.returncode or result.stderr:
+        raise SystemExit("native maintenance policy parsing failed")
+    policy = json.loads(result.stdout)
+    if not isinstance(policy, dict) or set(policy) != {"repository_files", "keyrings", "chrony_service"}:
+        raise SystemExit("native maintenance policy shape differs")
+    return policy
+
+
 def repository_material(observation: dict) -> tuple[list[dict], list[dict]]:
-    projection = json.loads((ROOT / "nix/proxmox/projection.json").read_text())
-    desired_files = {item["path"]: item for item in projection["managedFiles"] if item["path"] in SOURCE_PATHS}
+    policy = maintenance_policy()
+    desired_files = {item["path"]: item for item in policy["repository_files"] if item["path"] in SOURCE_PATHS}
     if tuple(sorted(desired_files)) != tuple(sorted(SOURCE_PATHS)):
         raise SystemExit("projected repository source cardinality differs")
     observed_files = {item["target"]: item for item in observation["domains"]["managedFiles"]["records"] if item["target"] in SOURCE_PATHS}
@@ -92,7 +104,7 @@ def repository_material(observation: dict) -> tuple[list[dict], list[dict]]:
         if observed != {"contentMatches": True, "groupMatches": True, "mode": "0644", "ownerMatches": True, "target": path, "type": "file"}:
             raise SystemExit("fixed observer does not prove repository parity")
         records.append({"after_sha256": digest, "before_sha256": digest, "content": content, "gid": 0, "mode": "0644", "path": path, "uid": 0})
-    desired_artifacts = {item["path"]: item for item in projection["managedArtifacts"] if item["path"] in KEYRING_PATHS}
+    desired_artifacts = {item["path"]: item for item in policy["keyrings"] if item["path"] in KEYRING_PATHS}
     observed_artifacts = {item["target"]: item for item in observation["domains"]["managedArtifacts"]["records"] if item["target"] in KEYRING_PATHS}
     if observation["domains"]["managedArtifacts"]["status"] != "complete" or tuple(sorted(desired_artifacts)) != tuple(sorted(KEYRING_PATHS) ) or tuple(sorted(observed_artifacts)) != tuple(sorted(KEYRING_PATHS)):
         raise SystemExit("fixed observer keyring cardinality differs")
@@ -102,7 +114,7 @@ def repository_material(observation: dict) -> tuple[list[dict], list[dict]]:
         if not all(observed.get(name) is True for name in ("contentMatches", "groupMatches", "ownerMatches", "symlinkTargetMatches")) or observed.get("mode") != "0644":
             raise SystemExit("fixed observer does not prove keyring parity")
         artifact = desired_artifacts[path]
-        keyrings.append({"path": path, "sha256": artifact["sha256"], "symlink_target": artifact["symlinkTarget"]})
+        keyrings.append({"path": path, "sha256": artifact["sha256"], "symlink_target": artifact["symlink_target"]})
     return records, keyrings
 
 

@@ -6,8 +6,10 @@ const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { load } = require("js-yaml");
-const { projectProxmoxPolicy } = require("./proxmox-host-projection");
+const { canonicalJson, projectProxmoxPolicy } = require("./proxmox-host-projection");
 const { build, sha256 } = require("./build-proxmox-ansible-observer");
+const { audit } = require("./proxmox-ansible-audit");
+const { readRegular } = require("./neutral-input");
 const ROOT = path.resolve(__dirname, "../..");
 const read = file => fs.readFileSync(path.join(ROOT, file));
 const neutral = "infrastructure/host-lifecycle/proxmox/";
@@ -72,8 +74,60 @@ try {
       'confirmation != policy.confirmation', 'vm_status != "stopped"', '"vfio-pci"']) assert(source.includes(text), `VFIO compatibility missing: ${text}`);
   }
   assert(read("scripts/controller/controller_lock.py").equals(read("nix/proxmox/controller_lock.py")), "controller descriptor protocol changed");
-  const active = ["scripts/controller/controller-apply-lock.py", "scripts/controller/proxmox-check-evidence.js",
-    "scripts/controller/neutral-input.js", "scripts/controller/proxmox-ansible-audit.js", "scripts/controller/build-proxmox-ansible-observer.js", "scripts/controller/proxmox-host-projection.js"];
+  // The controller admission branch is retired, not replaced by a weaker verifier.
+  for (const file of ["scripts/controller/proxmox-check-evidence.js", "ansible/playbooks/proxmox-controller-check.yml",
+    neutral + "check-evidence.schema.json", "scripts/controller/test-proxmox-check-evidence.js",
+    "scripts/controller/test-proxmox-neutral-controller.js"]) {
+    assert(!fs.existsSync(path.join(ROOT, file)), `retired controller-check source remains: ${file}`);
+  }
+  // Keep shared audit/reader regressions without the retired receipt framework or
+  // its operational-artifact reads. All observations and hostile files are fixtures.
+  const observation = JSON.parse(read(neutral + "fixture-observation.json"));
+  observation.observerSha256 = manifest.observer_sha256;
+  const observationFile = path.join(dir, "observation.json");
+  const check = value => {
+    fs.writeFileSync(observationFile, canonicalJson(value), { mode: 0o600 });
+    return audit(first, observationFile);
+  };
+  const result = check(observation);
+  assert.equal(result.parity, true);
+  assert.equal(result.domain_count, 17);
+  for (const mutate of [
+    v => { delete v.domains.protectedHardware; },
+    v => { v.domains.protectedHardware.matches = false; },
+    v => { v.domains.protectedAccess.matches = false; },
+    v => { v.domains.vm.matches = false; },
+    v => { v.observerSha256 = "0".repeat(64); },
+    v => { v.extra = true; },
+  ]) {
+    const invalid = structuredClone(observation); mutate(invalid);
+    assert.throws(() => check(invalid));
+  }
+  for (const raw of [canonicalJson(observation) + " ", Buffer.alloc(1024 * 1024 + 1)]) {
+    fs.writeFileSync(observationFile, raw);
+    assert.throws(() => audit(first, observationFile));
+  }
+  check(observation);
+  for (const name of ["proxmox-observer", "proxmox-protected-collector", "proxmox-controller-observer"]) {
+    const file = path.join(first, name), raw = fs.readFileSync(file);
+    try {
+      fs.appendFileSync(file, "\n# synthetic artifact substitution\n");
+      assert.throws(() => audit(first, observationFile));
+    } finally { fs.writeFileSync(file, raw); }
+  }
+  const raw = Buffer.from(canonicalJson(observation));
+  assert(readRegular(observationFile, raw.length, true).equals(raw));
+  assert.throws(() => readRegular(observationFile, raw.length - 1));
+  const link = path.join(dir, "symlink"); fs.symlinkSync(observationFile, link);
+  assert.throws(() => readRegular(link));
+  const hardlink = path.join(dir, "hardlink"); fs.linkSync(observationFile, hardlink);
+  assert.throws(() => readRegular(observationFile)); fs.unlinkSync(hardlink);
+  fs.chmodSync(observationFile, 0o644); assert.throws(() => readRegular(observationFile, raw.length, true));
+  const fifo = path.join(dir, "fifo"); execFileSync("mkfifo", [fifo]); assert.throws(() => readRegular(fifo));
+  const alias = path.join(dir, "alias"); fs.symlinkSync(dir, alias);
+  assert.throws(() => readRegular(path.join(alias, "observation.json")));
+  const active = ["scripts/controller/controller-apply-lock.py", "scripts/controller/neutral-input.js",
+    "scripts/controller/proxmox-ansible-audit.js", "scripts/controller/build-proxmox-ansible-observer.js", "scripts/controller/proxmox-host-projection.js"];
   for (const file of active) assert(!read(file).toString().includes("nix/proxmox"), `active Nix source import: ${file}`);
   execFileSync(process.execPath, [path.join(ROOT, "scripts/controller/test-proxmox-neutral-projection.js"), "--scan-path", first], { cwd: ROOT });
   // The same confidentiality scanner must fail on injected source/runtime identity.
@@ -81,5 +135,5 @@ try {
   fs.writeFileSync(injected, "HOMELAB_ZFS_POOL_GUID\n");
   assert.throws(() => execFileSync(process.execPath, [path.join(ROOT, "scripts/controller/test-proxmox-neutral-projection.js"), "--scan-path", first], { cwd: ROOT, stdio: "pipe" }));
   fs.unlinkSync(injected);
-  console.log("neutral_artifact=passed deterministic_allowlist_source_and_output_confidentiality_asset_parity=true");
+  console.log("neutral_artifact=passed deterministic_allowlist_source_and_output_confidentiality_asset_parity=true shared_audit_and_reader=verified");
 } finally { fs.rmSync(dir, { recursive: true, force: true }); }

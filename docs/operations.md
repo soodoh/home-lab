@@ -6,8 +6,8 @@ Supported native scope is observation, manual-update policy and guarded existing
 backup configuration (tools, account, same-content runtime files and nine unit
 definitions). [Dated outcomes](#latest-scoped-deployment) do not expand that scope.
 Broader host/application adoption is pending: there is **no supported general deploy
-or host-convergence command**. `proxmox-audit.yml` is only an audit; Debian `site.yml`
-still includes lifecycle, lock and backup prerequisites. Directly invoking retained
+or host-convergence command**. Debian `site.yml` still includes lifecycle, lock
+and backup prerequisites. Directly invoking retained
 mutation roles is not an approved replacement for the removed controller.
 
 ## Latest scoped deployment
@@ -40,6 +40,118 @@ existing `ansible-deploy` Debian account and `proxmox` administrator account wit
 sudo, not Proxmox's restricted `ansible-deploy` transport. Tailscale authenticates
 the connection; no new keys/accounts or Linux sshd changes are needed for this path.
 Host-key aliases must already be trusted in `~/.ssh/known_hosts`; mismatches fail.
+
+### Native Proxmox capability observation
+
+```sh
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
+  -i ansible/inventory/hosts.yml ansible/playbooks/observe-proxmox.yml --check
+```
+
+This separate read-only play uses ordinary SSH/become, source-owned inputs in
+`ansible/inventory/host_vars/proxmox.yml`, core facts/stat/assert tasks and native
+read commands. It checks nine loaded/active services (including NFS's active
+oneshot unit), the enabled/active firewall watchdog, five repository files and
+absence of five persistent ownership markers. It does not acquire locks, refresh
+apt, reconcile journals, restart services or install helpers.
+
+The existing neutral protected collector is streamed to isolated Python over
+stdin. It reads sealed host-local inputs, key/MAC and token escrows, performs
+read-only native hardware/PVE queries and loopback token checks, and returns only
+bounded access/hardware summaries under `no_log`. Proxy settings are explicitly
+cleared for credential-bearing loopback requests. It neither invokes installed
+Nix helpers nor reads `nix/`, an artifact directory, old plans or receipts. No
+new collector is installed and no replacement receipt is produced. SSH/sudo logs
+and Ansible's normal temporary module files remain ordinary observation effects.
+
+September 16 validation passed 19 tasks with `changed=0`, `failed=0` and
+`unreachable=0`, including protected access/hardware parity. The first attempt
+incorrectly required the NFS oneshot to be running; native `systemctl show`
+confirmed active/exited success, and the corrected loaded/active check passed.
+This play deliberately reports **not full host parity, not an exclusive snapshot,
+not maintenance authorization**. It does not replace the retained 17-domain
+package-planning audit, package solver, keyring audit, firewall-policy/backend
+validation, restore checks or independent recovery access. Persistent marker
+absence is not proof that no mutex is held or no prepared transaction exists.
+
+Native repository/keyring/chrony declarations also replace direct Nix projection
+reads in current low-risk controller/activator source. Desired bytes/hashes are
+unchanged. The current activator's package-ownership binding now uses the existing
+canonical non-Nix package manifest with identical bytes. **These activator changes
+are source-only and not deployed**; no old host checkout, saved plan or journal
+was rewritten. Legacy observation/authority/recovery guards remain, and future
+activation needs its own compatibility review and approval.
+
+### Native Proxmox package sampling
+
+```sh
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
+  -i ansible/inventory/hosts.yml ansible/playbooks/observe-proxmox-packages.yml --check
+```
+
+This source-validated play first runs the capability observation above, then
+streams the existing neutral package observer to isolated Python. Its expected
+package list comes directly from the canonical non-Nix manifest. It reads current
+dpkg/APT data, runs the existing APT simulation and samples retained/held ownership;
+it never refreshes metadata, acquires a lock, installs a helper or saves a plan.
+Output is limited to counts and boolean diagnostics; raw solver data is hidden.
+Stale/missing metadata, manifest drift, held packages, conflicting owners and
+incomplete size estimates remain visible limitations, not reasons to mutate the
+host to make a check pass.
+
+Local syntax, source-boundary and real Ansible response-assertion fixtures have
+passed. The first authorized PVE run passed 20 tasks with `changed=0`, then stopped
+at a nonzero package-collector exit. Capability checks passed, but **live package
+observation is not qualified**. Raw diagnostics remained hidden. A separately approved single diagnostic rerun
+reported `apt-transition-unrecognized` (`ok=21`, `changed=0`, `failed=1`). Its fixed
+error classifier exposes only allowlisted categories, never raw stderr, and keeps
+every nonzero result fatal.
+
+An isolated, network-disabled APT 3.0.3 fixture then reproduced the refusal on
+valid dependency annotations (`[]` and `[fixture-app:arm64 ]`). The package
+observer and current activator source now parse those notes narrowly, reject
+unknown trailing text and retain the full solver-output hash. Both real-APT
+fixtures and both-parser regressions pass. The activator was not deployed. One
+separately approved qualification run after the fix still reported
+`apt-transition-unrecognized` (`ok=21`, `changed=0`, `failed=1`, `unreachable=0`).
+The fix is therefore insufficient for PVE, and production diagnostics are stopped.
+Further parser work needs an operator-provided redacted failing transition or a
+separately approved minimal local fixture; do not broaden the grammar by guessing
+or retry progressively modified collectors against production.
+
+Like the underlying observer, this is a nonexclusive sample, not complete host
+parity or package apply authority. The old complete-audit/package activation
+interfaces remain unchanged until native forward-maintenance replacements are
+qualified. Neither this play's results nor previous runner artifacts can authorize
+a mutation.
+
+### Live validation, not controller-local receipts
+
+Future disposable-runner workflows follow the
+[live-validation decision](decisions.md#disposable-controllers-and-live-validation).
+The observation play above already requires no prior outcome artifacts; it checks
+native access and service facts, not full helper, hardware or application parity.
+The Proxmox capability play above adds repeatable source-owned checks. Further
+domain checks should likewise use native observation rather than consume this
+document's dated results.
+
+On September 16 at 20:50 UTC, separately authorized PVE-only native inspection
+confirmed ordinary SSH/become, the retained account/sudo and baseline OpenSSH
+settings, observer/preparer bytes, and active/enabled firewall watchdog. Sampled
+ownership paths were absent and no relevant held locks, matching processes or
+pending systemd jobs appeared. A prepared package journal still exists; it is
+not evidence of a running process or permission to replay or discard it.
+
+The deploy activator and plan transport **do not match current source**. The
+former lacks later locking/queued-reboot guards; the latter lacks the undeployed
+controller-observer route. The installed plan sudo rule likewise omits that route,
+matching the retained Nix projection rather than the newer contract declaration.
+No helpers were invoked, replaced or upgraded. Current-source tests therefore
+cannot qualify installed package/boot/reboot behavior. See the
+[bounded findings and console-source retirement](legacy-nix-retirement.md#live-state-boundary-and-console-source-retirement--september-16-2026).
+This is neither comprehensive host health nor a standing maintenance window;
+Docker, hardware/API policy, backups and independent recovery access were outside
+this inspection. Do not turn this dated result into a future workflow gate.
 
 The next target is ordinary OpenTofu saved plans and
 `community.docker.docker_compose_v2`. That collection and a native deployment role

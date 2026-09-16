@@ -13,13 +13,8 @@ PLAN = ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-plan-transport
 DEPLOY = ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-deploy-transport"
 DEPLOY_ACTIVATOR = ROOT / "infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator"
 FIREWALL = ROOT / "infrastructure/proxmox-firewall/host/proxmox-firewall-transport"
-CAPABILITY = ROOT / "scripts/controller/proxmox-plan-capability.py"
-DEPLOY_CAPABILITY = ROOT / "scripts/controller/proxmox-deploy-capability.py"
-DEPLOY_UPGRADE = ROOT / "scripts/controller/proxmox-deploy-upgrade.py"
-PRIVATE_PREPARER_UPGRADE = ROOT / "scripts/physical-console-install-proxmox-private-preparer-upgrade"
 PACKAGE_ACTIVATION = ROOT / "scripts/controller/proxmox-package-activation.py"
 REBOOT_ACTIVATION = ROOT / "scripts/controller/proxmox-reboot-activation.py"
-PACKAGE_OBSERVER_CAPABILITY = ROOT / "scripts/controller/proxmox-package-observer-capability.py"
 
 
 def invoke(path: Path, *args: str, original: str | None = None) -> int:
@@ -63,6 +58,12 @@ def main() -> None:
         (("-c", "/bin/sh"), None), (("-c", f"inspect lifecycle-marker {digest}"), "inspect"),
     ):
         assert invoke(DEPLOY, *args, original=original) == 64
+    check_sources()
+    print("proxmox_access_transports=verified")
+
+
+def check_sources() -> None:
+    """Source-only assertions; unlike main(), never invoke a transport command."""
     deploy_source = DEPLOY.read_text()
     activator_source = DEPLOY_ACTIVATOR.read_text()
     assert "eval" not in deploy_source and "sh -c" not in deploy_source
@@ -83,26 +84,13 @@ def main() -> None:
     assert "proxmox-package-candidate-observer observe proxmox" in plan_source
     assert "SSH_ORIGINAL_COMMAND" in plan_source
     assert "eval" not in plan_source and "sh -c" not in plan_source
-    capability_source = CAPABILITY.read_text()
-    for required in ("PROXMOX_PLAN_CAPABILITY_CONFIRMED", "os.O_EXCL", "os.O_NOFOLLOW", "ansible-plan ALL=(root) NOPASSWD"):
-        assert required in capability_source
-    assert "NOPASSWD: ALL" not in capability_source and "authorized_keys\", \"w" not in capability_source
-    observer_capability_source = PACKAGE_OBSERVER_CAPABILITY.read_text()
-    for required in ("PROXMOX_PACKAGE_OBSERVER_CAPABILITY_CONFIRMED", "package_observer_sha256", "before_sha256", "os.O_EXCL", "os.O_NOFOLLOW", "visudo --check", "observe proxmox", "UpdateHostKeys=no", "IdentitiesOnly=yes", "RequestTTY=no", "ClearAllForwardings=yes", "PermitLocalCommand=no", "acquire_transfer_lock", "/var/lib/iac-ansible-production.lock", "artifact changed during observation", "lslocks", "unsafe-metadata", "retained host lock requires inspection"):
-        assert required in observer_capability_source
-    assert "NOPASSWD: ALL" not in observer_capability_source
-    deploy_capability_source = DEPLOY_CAPABILITY.read_text()
-    for required in ("PROXMOX_DEPLOY_CAPABILITY_CONFIRMED", "os.O_EXCL", "os.O_NOFOLLOW", "saved-action-plans-only"):
-        assert required in deploy_capability_source
-    assert "authorized_keys\", \"w" not in deploy_capability_source
-    upgrade_source = DEPLOY_UPGRADE.read_text()
-    for required in ("PROXMOX_DEPLOY_UPGRADE_CONFIRMED", "after_sha256", "saved-actions-and-read-only-compatibility-only", "proxmox-observer", "proxmox-private-preparer", "proxmox-firewall-transaction", "os.O_EXCL", "os.O_NOFOLLOW"):
-        assert required in upgrade_source
-    preparer_upgrade_source = PRIVATE_PREPARER_UPGRADE.read_text()
-    for required in ("physical /dev/ttyN console required", "proxmox-private-preparer", "protectedAccess", "protectedHardware", "private-preparer.before", "os.O_EXCL", "os.O_NOFOLLOW"):
-        assert required in preparer_upgrade_source
-    assert "proxmox-activator session" not in preparer_upgrade_source
-    print("proxmox_access_transports=verified")
+    for name in ("proxmox-plan-capability.py", "proxmox-package-observer-capability.py",
+                 "proxmox-deploy-capability.py", "proxmox-deploy-upgrade.py"):
+        retired = ROOT / "scripts/controller" / name
+        assert not retired.exists() and not retired.is_symlink(), f"retired installer remains: {name}"
+    for kind in ("deploy", "observer", "private-preparer"):
+        retired = ROOT / "scripts" / f"physical-console-install-proxmox-{kind}-upgrade"
+        assert not retired.exists() and not retired.is_symlink(), f"retired console installer remains: {kind}"
 
 
 if __name__ == "__main__":

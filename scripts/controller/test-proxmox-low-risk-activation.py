@@ -52,6 +52,10 @@ def expect_failure(action, expected: str) -> None:
 
 
 def main() -> None:
+    for relative in ('ansible/playbooks/proxmox-low-risk-plan.yml',
+                     'ansible/roles/proxmox_low_risk_lifecycle/tasks/main.yml',
+                     'ansible/roles/proxmox_low_risk_lifecycle/defaults/main.yml'):
+        assert not (ROOT / relative).exists() and not (ROOT / relative).is_symlink(), relative
     activator = load_activator()
     controller = load(CONTROLLER, "proxmox_low_risk_controller")
     now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
@@ -97,7 +101,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         repo = Path(temporary)
         (repo / "infrastructure/contract").mkdir(parents=True)
-        (repo / "nix/proxmox").mkdir(parents=True)
+        (repo / "ansible/inventory/host_vars").mkdir(parents=True)
         contract_path = repo / "infrastructure/contract/home-lab.yml"
         contract_path.write_text(
             "        apt_repositories:\n          current_owner: nix\n          target_owner: ansible\n"
@@ -111,20 +115,26 @@ def main() -> None:
             "        chrony_service:\n          current_owner: ansible\n          target_owner: ansible\n"
             "          state: transferred\n          parity_required: true\n          single_writer: true\n"
         )
-        projection = {
-            "managedFiles": [{"content": item["content"], "group": "root", "mode": "0644", "owner": "root", "path": item["path"]}
-                             for item in records],
-            "managedArtifacts": [{"path": item["path"], "sha256": item["sha256"], "symlinkTarget": item["symlink_target"]}
-                                 for item in keyrings],
-            "nativeServices": [{"enabled": True, "name": "chrony.service", "state": "started"}],
+        policy = {
+            "repository_files": [{"content": item["content"], "group": "root", "mode": "0644", "owner": "root", "path": item["path"]}
+                                 for item in records],
+            "keyrings": keyrings,
+            "chrony_service": {"active": True, "enabled": True},
         }
-        (repo / "nix/proxmox/projection.json").write_text(json.dumps(projection))
+        policy_path = repo / "ansible/inventory/host_vars/proxmox.yml"
+        policy_path.write_text(json.dumps({"proxmox_maintenance_policy": policy}))
+        assert not (repo / "nix").exists(), "native policy fixture must not require Nix source"
         activator.REPO = repo
         activator.verify_low_risk_authority("apt-repositories", plan)
         activator.verify_low_risk_authority("chrony-service", chrony_plan)
         malicious = copy.deepcopy(plan); malicious["records"][0]["content"] += "deb http://evil.invalid stable main\n"
         malicious["records"][0]["after_sha256"] = hashlib.sha256(malicious["records"][0]["content"].encode()).hexdigest()
         expect_failure(lambda: activator.verify_low_risk_authority("apt-repositories", malicious), "contracted content")
+        policy["chrony_service"]["active"] = False
+        policy_path.write_text(json.dumps({"proxmox_maintenance_policy": policy}))
+        expect_failure(lambda: activator.verify_low_risk_authority("chrony-service", chrony_plan), "contracted service state")
+        policy_path.write_text(json.dumps({"proxmox_maintenance_policy": {}}))
+        expect_failure(lambda: activator.verify_low_risk_authority("apt-repositories", plan), "policy shape differs")
     activator.REPO = original_repo
 
     original_native = activator.native
@@ -171,6 +181,24 @@ def main() -> None:
     wrong_keyring_digest = hashlib.sha256(canonical(wrong_keyring)).hexdigest()
     expect_failure(lambda: activator.validate_repository_plan(wrong_keyring, wrong_keyring_digest), "keyring record differs")
 
+    native_policy = controller.maintenance_policy()
+    assert [item["path"] for item in native_policy["repository_files"]] == list(controller.SOURCE_PATHS)
+    assert [item["content"] for item in native_policy["repository_files"]] == contents
+    observation = {"domains": {
+        "managedFiles": {"status": "complete", "records": [
+            {"contentMatches": True, "groupMatches": True, "mode": "0644", "ownerMatches": True,
+             "target": item["path"], "type": "file"} for item in native_policy["repository_files"]]},
+        "managedArtifacts": {"status": "complete", "records": [
+            {"contentMatches": True, "groupMatches": True, "ownerMatches": True, "symlinkTargetMatches": True,
+             "mode": "0644", "target": item["path"]} for item in native_policy["keyrings"]]}}}
+    observed_records, observed_keyrings = controller.repository_material(observation)
+    assert observed_records == records
+    assert observed_keyrings == native_policy["keyrings"]
+    observation["domains"]["managedFiles"]["records"][0]["contentMatches"] = False
+    expect_failure(lambda: controller.repository_material(observation), "repository parity")
+    assert 'nix/proxmox' not in CONTROLLER.read_text()
+    assert 'nix/proxmox' not in ACTIVATOR.read_text()
+    assert 'infrastructure/host-lifecycle/proxmox/package-manifest.json' in ACTIVATOR.read_text()
     assert controller.handoff_state("apt_repositories")["current_owner"] == "ansible"
     assert controller.handoff_state("chrony_service")["current_owner"] == "ansible"
     for command in ("apply apt-repositories bad", "apply apt-repositories " + "a" * 64 + ";id", "apply chrony-service bad", "recover chrony-service ../x", "shell", "stage low-risk ../x"):

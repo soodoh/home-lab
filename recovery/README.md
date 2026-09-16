@@ -17,6 +17,13 @@ separates remote provider state from unresolved independent recovery access and
 two local qualification-state dependencies. The operator owns external-escrow
 verification; metadata alone does not qualify recovery.
 
+Future native actions must not depend on a previous runner's local validation
+artifacts or committed success receipts. Re-observe current host state; retain
+necessary interruption/rollback state on the host or in independently available
+protected storage so runner loss is recoverable. This distinction does not waive
+existing legacy recovery inputs, establish independent custody, or make a healthy
+service a restore test. See the [disposable-controller decision](../docs/decisions.md#disposable-controllers-and-live-validation).
+
 ## Select and restore to staging
 
 This procedure requires separate operational approval; it is not a source check.
@@ -161,8 +168,11 @@ proof and without logging values or reusing historical transaction confirmations
 
 Retain the distinct [bootstrap, session and autonomous firewall protocols](../docs/legacy-host-recovery.md).
 These are emergency references, not enabled new writers. The host-session protocol
-has no standalone status/rollback CLI; a retained-session recovery needs a
-separately reviewed invocation.
+has no standalone status/rollback CLI; the current Nix freeze also rejects
+`apply` before retained-session recovery. A retained-session recovery needs a
+separately reviewed invocation, not an unfreeze or rewritten source hashes. The
+[source retirement assessment](../docs/legacy-nix-retirement.md) traces remaining
+installers, consumers and native replacement requirements.
 Preserve strict host-key checking, independent console, VM100 disk identities,
 ZFS topology, NFS mount/export state and selected VFIO helper/policy. The deploy
 transport also handles Restic recovery network identity and snippet staging/removal;

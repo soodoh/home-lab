@@ -1,0 +1,6 @@
+---
+- name: Observe native Proxmox capabilities without installed Nix helpers
+  hosts: proxmox
+  gather_facts: false
+  roles:
+    - role: proxmox_observe

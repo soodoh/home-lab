@@ -1,0 +1,202 @@
+---
+- name: Require the native Proxmox observation scope
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == 'proxmox'
+      - ansible_connection == 'ssh'
+      - ansible_become | bool
+      - proxmox_observe_protected_spec.node == 'proxmox'
+      - proxmox_observe_protected_spec.pool == 'storage'
+      - proxmox_observe_protected_spec.legacyTofuAccessRequired == false
+      - proxmox_observe_protected_spec.conventionalKeysAbsent == true
+      - proxmox_observe_protected_spec.protectedAccessExpectedCount == 3
+    fail_msg: Native observation requires the reviewed Proxmox SSH/become inventory.
+
+- name: Gather minimal operating system facts without environment variables
+  ansible.builtin.setup:
+    gather_subset: ['!all', '!min', distribution, kernel, python, service_mgr]
+
+- name: Read the effective privileged identity
+  ansible.builtin.command:
+    argv: [/usr/bin/id, -u]
+  register: proxmox_observe_uid
+  changed_when: false
+  check_mode: false
+
+- name: Require the existing privileged Debian systemd host
+  ansible.builtin.assert:
+    that:
+      - proxmox_observe_uid.stdout == '0'
+      - ansible_facts.distribution == 'Debian'
+      - ansible_facts.service_mgr == 'systemd'
+      - ansible_facts.python.executable == '/usr/bin/python3'
+    fail_msg: Native Proxmox observation requires root and the reviewed host platform.
+
+- name: Read loaded required-service state including active oneshot units
+  ansible.builtin.command:
+    argv: [/usr/bin/systemctl, show, "{{ item }}", --no-pager, '--property=LoadState,ActiveState']
+  loop: "{{ proxmox_observe_required_services }}"
+  register: proxmox_observe_services
+  changed_when: false
+  check_mode: false
+  timeout: 20
+
+- name: Verify required services are loaded and active
+  ansible.builtin.assert:
+    that:
+      - "'LoadState=loaded' in item.stdout_lines"
+      - "'ActiveState=active' in item.stdout_lines"
+    fail_msg: A required Proxmox service is unavailable.
+    quiet: true
+  loop: "{{ proxmox_observe_services.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Read loaded autonomous firewall watchdog properties
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/systemctl
+      - show
+      - home-lab-proxmox-firewall-rollback.timer
+      - --no-pager
+      - --property=LoadState,ActiveState,UnitFileState
+  register: proxmox_observe_watchdog
+  changed_when: false
+  check_mode: false
+
+- name: Verify the autonomous watchdog remains enabled and active
+  ansible.builtin.assert:
+    that:
+      - "'LoadState=loaded' in proxmox_observe_watchdog.stdout_lines"
+      - "'ActiveState=active' in proxmox_observe_watchdog.stdout_lines"
+      - "'UnitFileState=enabled' in proxmox_observe_watchdog.stdout_lines"
+    fail_msg: Native observation does not replace or repair the firewall watchdog.
+
+- name: Read native repository-file metadata and content hashes
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    checksum_algorithm: sha256
+    get_checksum: true
+    get_mime: false
+    get_attributes: false
+  loop: "{{ proxmox_maintenance_policy.repository_files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: proxmox_observe_repositories
+
+- name: Verify source-defined repository files without changing them or refreshing apt
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - not item.stat.islnk
+      - item.stat.nlink == 1
+      - item.stat.uid == 0
+      - item.stat.gid == 0
+      - item.stat.mode == item.item.mode
+      - item.stat.checksum == (item.item.content | hash('sha256'))
+    fail_msg: A native repository file differs; no repair or apt refresh was attempted.
+    quiet: true
+  loop: "{{ proxmox_observe_repositories.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+- name: Observe persistent ownership markers without opening or acquiring locks
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  loop:
+    - /var/lib/iac-ansible-production.lock
+    - /var/lib/home-lab/reconciliation/apply.lock
+    - /var/lib/home-lab/reconciliation/owner.lock
+    - /var/lib/home-lab/reconciliation/nix.lock
+    - /var/lib/home-lab/firewall-transaction/active.json
+  register: proxmox_observe_owners
+
+- name: Refuse a retained operation owner without reconciling it
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists
+    fail_msg: A retained operation owner requires separate inspection; nothing was cleared.
+    quiet: true
+  loop: "{{ proxmox_observe_owners.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Read the source-owned protected collector without building an artifact
+  ansible.builtin.set_fact:
+    proxmox_observe_collector_source: >-
+      {{ lookup('ansible.builtin.file', role_path ~ '/../../../infrastructure/host-lifecycle/proxmox/protected-collector-template.py', rstrip=false) }}
+  no_log: true
+
+- name: Verify the collector has exactly one specification placeholder
+  ansible.builtin.assert:
+    that:
+      - proxmox_observe_collector_source.count("'@PROTECTED_SPEC@'") == 1
+    fail_msg: The source-owned protected collector template differs.
+  no_log: true
+
+- name: Observe protected access and hardware using ephemeral read-only source
+  ansible.builtin.command:
+    argv: [/usr/bin/python3, -I, -B, '-', summary]
+    stdin: >-
+      {{ proxmox_observe_collector_source.replace("'@PROTECTED_SPEC@'", proxmox_observe_protected_spec | to_json | to_json) }}
+    stdin_add_newline: false
+  environment:
+    http_proxy: ''
+    https_proxy: ''
+    all_proxy: ''
+    HTTP_PROXY: ''
+    HTTPS_PROXY: ''
+    ALL_PROXY: ''
+    no_proxy: 127.0.0.1,localhost
+    NO_PROXY: 127.0.0.1,localhost
+  register: proxmox_observe_protected
+  changed_when: false
+  check_mode: false
+  no_log: true
+  timeout: 120
+
+- name: Require a bounded protected-summary response
+  ansible.builtin.assert:
+    that:
+      - proxmox_observe_protected.rc == 0
+      - proxmox_observe_protected.stderr == ''
+      - proxmox_observe_protected.stdout | length <= 4096
+    fail_msg: Protected observation did not return a bounded summary.
+  no_log: true
+
+- name: Verify exact protected-summary shape
+  ansible.builtin.assert:
+    that:
+      - (proxmox_observe_protected.stdout | from_json) is mapping
+      - (proxmox_observe_protected.stdout | from_json).keys() | sort == ['protectedAccess', 'protectedHardware']
+    fail_msg: Protected observation returned an unexpected summary.
+  no_log: true
+
+- name: Require successful protected access and hardware checks
+  ansible.builtin.assert:
+    that:
+      - (proxmox_observe_protected.stdout | from_json)[item] == {'expectedCount':3, 'observedCount':3, 'matches':true, 'status':'complete'}
+    fail_msg: Protected access or hardware does not match the sealed host inputs.
+  loop: [protectedAccess, protectedHardware]
+  no_log: true
+
+- name: Summarize this bounded native observation
+  ansible.builtin.debug:
+    msg:
+      native_ssh_become: verified
+      required_services: active
+      firewall_watchdog: enabled-active
+      persistent_owners: absent
+      protected_access: matches
+      protected_hardware: matches
+      repository_files: match-native-policy
+      scope: capability-observation-only
+      maintenance_authorized: false
+      complete_host_parity: false
+      exclusive_snapshot: false
