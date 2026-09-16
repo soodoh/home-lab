@@ -8,26 +8,29 @@ const { load } = require("js-yaml");
 const Ajv2020 = require("ajv/dist/2020");
 const { validateVmArtifactReferences } = require("./controller/validate-vm-artifact-references");
 const { validateProxmoxHostPolicy } = require("./controller/validate-proxmox-host-policy");
-const { validateProtonQualificationEvidence, validateResticInitializationEvidence, validateResticFirstRunEvidence, validateResticPolicy, validateSharedNetworkStopOrder } = require("./controller/validate-restic-policy");
+const { validateResticPolicy, validateSharedNetworkStopOrder } = require("./controller/validate-restic-policy");
 const {
   validateProxmoxPackageArtifactBinding,
   validateProxmoxPackagePolicy,
 } = require("./controller/validate-proxmox-package-policy");
 
+// This is an offline source check, not operational admission. Retired modes must
+// fail explicitly, never fall through to source-only validation.
+const args = process.argv.slice(2);
+if (args.some((arg) => ["--historical-evidence", "--operational"].includes(arg))) {
+  console.error("--historical-evidence and --operational are retired; no validation performed.");
+  process.exit(2);
+}
+if (args.length) {
+  console.error("usage: scripts/validate-contract (source-only; no arguments)");
+  process.exit(2);
+}
 const root = path.resolve(__dirname, "..");
 const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
 const schemaPath = path.join(root, "infrastructure/contract/schema.json");
 const servarrPath = path.join(root, "services/servarr.yml");
 const packageManifestPath = path.join(root, "infrastructure/host-lifecycle/proxmox/package-manifest.json");
 const packageManifestSchemaPath = path.join(root, "infrastructure/host-lifecycle/proxmox/package-manifest.schema.json");
-const protonQualificationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/proton-qualification.schema.json");
-const resticInitializationEvidenceSchemaPath = path.join(root, "infrastructure/evidence/restic-repository-initialization.schema.json");
-const resticFirstRunEvidenceSchemaPath = path.join(root, "infrastructure/evidence/restic-first-run.schema.json");
-const offenRetirementManifestPath = path.join(root, "infrastructure/retirement/offen-retirement-manifest.json");
-const offenRetirementManifestSchemaPath = path.join(root, "infrastructure/retirement/offen-retirement-manifest.schema.json");
-const offenRetirementEvidenceSchemaPath = path.join(root, "infrastructure/evidence/offen-retirement.schema.json");
-const offenRetirementStagedEvidenceSchemaPath = path.join(root, "infrastructure/evidence/offen-retirement-staged.schema.json");
-const operational = process.argv.includes("--operational");
 
 const contract = load(fs.readFileSync(contractPath, "utf8"));
 const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
@@ -35,23 +38,9 @@ const servarrServices = load(fs.readFileSync(servarrPath, "utf8")).services;
 const packageManifestRaw = fs.readFileSync(packageManifestPath, "utf8");
 const packageManifest = JSON.parse(packageManifestRaw);
 const packageManifestSchema = JSON.parse(fs.readFileSync(packageManifestSchemaPath, "utf8"));
-const protonQualificationEvidenceSchema = JSON.parse(fs.readFileSync(protonQualificationEvidenceSchemaPath, "utf8"));
-const resticInitializationEvidenceSchema = JSON.parse(fs.readFileSync(resticInitializationEvidenceSchemaPath, "utf8"));
-const resticFirstRunEvidenceSchema = JSON.parse(fs.readFileSync(resticFirstRunEvidenceSchemaPath, "utf8"));
-const offenRetirementManifestRaw = fs.readFileSync(offenRetirementManifestPath);
-const offenRetirementManifest = JSON.parse(offenRetirementManifestRaw);
-const offenRetirementManifestSchema = JSON.parse(fs.readFileSync(offenRetirementManifestSchemaPath, "utf8"));
-const offenRetirementEvidenceSchema = JSON.parse(fs.readFileSync(offenRetirementEvidenceSchemaPath, "utf8"));
-const offenRetirementStagedEvidenceSchema = JSON.parse(fs.readFileSync(offenRetirementStagedEvidenceSchemaPath, "utf8"));
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validate = ajv.compile(schema);
 const validatePackageManifest = ajv.compile(packageManifestSchema);
-const validateProtonQualificationSchema = ajv.compile(protonQualificationEvidenceSchema);
-const validateResticInitializationSchema = ajv.compile(resticInitializationEvidenceSchema);
-const validateResticFirstRunSchema = ajv.compile(resticFirstRunEvidenceSchema);
-const validateOffenRetirementManifest = ajv.compile(offenRetirementManifestSchema);
-const validateOffenRetirementEvidence = ajv.compile(offenRetirementEvidenceSchema);
-const validateOffenRetirementStagedEvidence = ajv.compile(offenRetirementStagedEvidenceSchema);
 
 if (!validate(contract)) {
   for (const error of validate.errors || []) {
@@ -61,79 +50,7 @@ if (!validate(contract)) {
 }
 
 const failures = [];
-if (!validateOffenRetirementManifest(offenRetirementManifest)) {
-  failures.push("Offen retirement manifest does not match its exact schema");
-}
-const offenRetirement = contract.backups.legacy_offen.retirement;
-const offenRetirementManifestSha256 = crypto.createHash("sha256").update(offenRetirementManifestRaw).digest("hex");
-if (offenRetirement.manifest_file !== path.relative(root, offenRetirementManifestPath)
-    || offenRetirement.manifest_sha256 !== offenRetirementManifestSha256
-    || offenRetirementManifest.acceptance !== offenRetirement.acceptance) {
-  failures.push("Offen retirement contract and immutable manifest binding differ");
-}
-if (offenRetirement.state === "retirement-finalizing" && offenRetirement.evidence_file !== null) {
-  const evidencePath = path.join(root, offenRetirement.evidence_file || "");
-  if (offenRetirement.evidence_file !== "infrastructure/evidence/offen-retirement-finalizing.json" || !fs.existsSync(evidencePath)) {
-    failures.push("Finalizing Offen contract evidence path is invalid");
-  } else {
-    const evidenceRaw = fs.readFileSync(evidencePath);
-    const evidence = JSON.parse(evidenceRaw);
-    const evidenceSha256 = crypto.createHash("sha256").update(evidenceRaw).digest("hex");
-    if (!validateOffenRetirementStagedEvidence(evidence)) {
-      failures.push(`Offen finalizing evidence schema failed: ${JSON.stringify(validateOffenRetirementStagedEvidence.errors)}`);
-    }
-    if (evidenceSha256 !== offenRetirement.evidence_sha256
-        || evidence.manifest_sha256 !== offenRetirement.manifest_sha256
-        || evidence.phase !== "retirement-finalizing"
-        || evidence.bundle_b_before_head_sha256 !== evidence.bundle_b_after_head_sha256) {
-      failures.push("Offen finalizing evidence semantic binding differs");
-    }
-  }
-}
-if (offenRetirement.state === "retired") {
-  const evidencePath = path.join(root, offenRetirement.evidence_file || "");
-  if (!offenRetirement.evidence_file || !fs.existsSync(evidencePath)) {
-    failures.push("Retired Offen contract requires committed retirement evidence");
-  } else {
-    const evidenceRaw = fs.readFileSync(evidencePath);
-    const evidence = JSON.parse(evidenceRaw);
-    const evidenceSha256 = crypto.createHash("sha256").update(evidenceRaw).digest("hex");
-    if (!validateOffenRetirementEvidence(evidence)) {
-      failures.push(`Offen retirement evidence schema failed: ${JSON.stringify(validateOffenRetirementEvidence.errors)}`);
-    }
-    if (evidenceSha256 !== offenRetirement.evidence_sha256
-        || evidence.manifest_sha256 !== offenRetirement.manifest_sha256
-        || evidence.state !== "retired"
-        || evidence.aws.bundle_b_before_head_sha256 !== evidence.aws.bundle_b_after_head_sha256
-        || JSON.stringify(evidence.preserved) !== JSON.stringify(offenRetirementManifest.preserve)) {
-      failures.push("Offen retirement evidence semantic binding differs");
-    }
-  }
-}
-const legacyOffen = contract.backups.legacy_offen;
-if (JSON.stringify(offenRetirementManifest.compose.services) !== JSON.stringify(legacyOffen.scheduler_services)
-    || offenRetirementManifest.compose.planned_source_service_count !== offenRetirement.planned_source_service_count
-    || offenRetirementManifest.compose.materialized_service_count_before !== offenRetirement.materialized_service_count_before) {
-  failures.push("Offen retirement service scope differs from the contract");
-}
-const retirementPaths = new Set(offenRetirementManifest.local.archives.map((entry) => entry.path));
-for (const archive of legacyOffen.migration_archive_preservation.archives) {
-  for (const rootPath of legacyOffen.local_paths) {
-    for (const subdirectory of ["", `/${legacyOffen.migration_archive_preservation.protected_subdirectory}`]) {
-      if (!retirementPaths.has(`${rootPath}${subdirectory}/${archive.basename}`)) {
-        failures.push(`Offen retirement manifest omits reviewed archive ${archive.basename}`);
-      }
-    }
-  }
-}
-for (const [field, evidencePath] of [
-  ["first_run_sha256", "infrastructure/evidence/restic-first-run.json"],
-  ["restore_proof_sha256", "infrastructure/evidence/restic-restore-proof.json"],
-  ["schedule_activation_sha256", "infrastructure/evidence/restic-schedule-activation.json"],
-]) {
-  const observed = crypto.createHash("sha256").update(fs.readFileSync(path.join(root, evidencePath))).digest("hex");
-  if (offenRetirementManifest.restic_evidence[field] !== observed) failures.push(`Offen retirement ${field} differs`);
-}
+
 const proxmoxTofuRoot = path.join(root, "infrastructure/tofu/proxmox");
 const proxmoxSource = fs.readdirSync(proxmoxTofuRoot)
   .filter((name) => name.endsWith(".tf"))
@@ -226,49 +143,11 @@ const protonQualificationHelperSha256 = crypto.createHash("sha256").update(fs.re
 if (protonQualificationHelperSha256 !== protonQualification.helper_sha256) {
   failures.push("Proton qualification helper SHA-256 differs from the contract");
 }
-const protonEvidencePath = path.join(root, protonQualification.evidence_file);
-if (protonQualification.state === "qualified") {
-  if (!fs.existsSync(protonEvidencePath)) failures.push("qualified Proton state requires retained evidence");
-  else {
-    const rawProtonEvidence = fs.readFileSync(protonEvidencePath);
-    let protonEvidence;
-    try {
-      protonEvidence = JSON.parse(rawProtonEvidence);
-    } catch {
-      failures.push("Proton qualification evidence is not valid JSON");
-    }
-    if (protonEvidence) {
-      if (!validateProtonQualificationSchema(protonEvidence)) failures.push("Proton qualification evidence does not match its schema");
-      else failures.push(...validateProtonQualificationEvidence(resticPolicy, protonEvidence, rawProtonEvidence));
-    }
-  }
-} else if (fs.existsSync(protonEvidencePath)) {
-  failures.push("pending or ready Proton qualification must not retain committed evidence");
-}
 const resticInitialization = resticPolicy.initialization;
 const resticInitializationHelperPath = path.join(root, "scripts/initialize-restic-repositories");
 const resticInitializationHelperSha256 = crypto.createHash("sha256").update(fs.readFileSync(resticInitializationHelperPath)).digest("hex");
 if (resticInitializationHelperSha256 !== resticInitialization.helper_sha256) {
   failures.push("Restic initialization helper SHA-256 differs from the contract");
-}
-const resticInitializationEvidencePath = path.join(root, resticInitialization.evidence_file);
-if (resticInitialization.state === "initialized") {
-  if (!fs.existsSync(resticInitializationEvidencePath)) failures.push("initialized Restic state requires retained evidence");
-  else {
-    const rawInitializationEvidence = fs.readFileSync(resticInitializationEvidencePath);
-    let initializationEvidence;
-    try {
-      initializationEvidence = JSON.parse(rawInitializationEvidence);
-    } catch {
-      failures.push("Restic initialization evidence is not valid JSON");
-    }
-    if (initializationEvidence) {
-      if (!validateResticInitializationSchema(initializationEvidence)) failures.push("Restic initialization evidence does not match its schema");
-      else failures.push(...validateResticInitializationEvidence(resticPolicy, initializationEvidence, rawInitializationEvidence));
-    }
-  }
-} else if (fs.existsSync(resticInitializationEvidencePath)) {
-  failures.push("ready Restic initialization must not retain committed evidence");
 }
 const firstRun = resticPolicy.first_run;
 for (const [file, expected, label] of [
@@ -278,28 +157,6 @@ for (const [file, expected, label] of [
 ]) {
   const observed = crypto.createHash("sha256").update(fs.readFileSync(path.join(root, file))).digest("hex");
   if (observed !== expected) failures.push(`${label} SHA-256 differs from the contract`);
-}
-const firstRunEvidencePath = path.join(root, firstRun.evidence_file);
-const firstRunAwsEvidencePath = path.join(root, firstRun.aws_evidence_file);
-if (firstRun.state === "completed") {
-  if (!fs.existsSync(firstRunAwsEvidencePath)) failures.push("completed Restic first run requires retained AWS proof evidence");
-  else {
-    const rawAwsEvidence = fs.readFileSync(firstRunAwsEvidencePath);
-    const observedAwsEvidenceSha256 = crypto.createHash("sha256").update(rawAwsEvidence).digest("hex");
-    if (observedAwsEvidenceSha256 !== firstRun.aws_evidence_sha256) failures.push("Restic first-run AWS proof SHA-256 differs from the contract");
-  }
-  if (!fs.existsSync(firstRunEvidencePath)) failures.push("completed Restic first run requires retained evidence");
-  else {
-    const raw = fs.readFileSync(firstRunEvidencePath); let evidence;
-    try { evidence = JSON.parse(raw); } catch { failures.push("Restic first-run evidence is not valid JSON"); }
-    if (evidence) {
-      if (!validateResticFirstRunSchema(evidence)) failures.push("Restic first-run evidence does not match its schema");
-      else failures.push(...validateResticFirstRunEvidence(resticPolicy, evidence, raw));
-    }
-  }
-} else {
-  if (fs.existsSync(firstRunEvidencePath)) failures.push("ready Restic first run must not retain committed evidence");
-  if (fs.existsSync(firstRunAwsEvidencePath)) failures.push("ready Restic first run must not retain committed AWS proof evidence");
 }
 const sourcePaths = resticPolicy.sources.map((entry) => entry.path);
 const renderedFilesFrom = `${sourcePaths.join("\n")}\n`;
@@ -313,17 +170,9 @@ if (!fs.existsSync(excludesPath) || fs.readFileSync(excludesPath, "utf8") !== re
   failures.push("generated Restic excludes differs from the contract");
 }
 
-
-if (operational) {
-  const required = [
-    [contract.aws.state_bucket, "aws.state_bucket"],
-    [contract.aws.recovery_bucket, "aws.recovery_bucket"],
-  ];
-  for (const [value, name] of required) if (!value) failures.push(`${name} is required for operational recovery`);
-}
-
 if (failures.length) {
   for (const failure of failures) console.error(`contract: ${failure}`);
   process.exit(1);
 }
-console.log(`contract valid${operational ? " and operationally complete" : ""}`);
+console.log("contract source valid; historical evidence not checked");
+console.log("Not backup health, restore qualification, or permission to deploy.");

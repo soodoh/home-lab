@@ -61,9 +61,15 @@ Unknown operation state requires inspection and a specific recovery decision.
 Backup schedule activation still checks the exact Restic restore-proof hash and
 terminal Offen receipt. Keep those evidence files and the retirement manifest.
 The contract also references `infrastructure/evidence/restic-first-run-aws.json`,
-which is excluded locally and untracked: a clean checkout cannot satisfy that
-legacy validation dependency. Do not publish it blindly or substitute a fake
-proof. Historical source tests are not current backup health.
+which is excluded by `.git/info/exclude` locally and untracked. `validate-contract`
+no longer reads this receipt or any other historical inputs: its historical modes
+were removed, and both retired flags fail explicitly rather than silently selecting
+[offline source validation](operations.md#offline-contract-source-validation).
+The pre-removal tracked-caller recheck found only documentation, not operational
+callers; the isolated regression test covers flag rejection. First-run run/resume/finalize
+playbooks separately produce or verify this receipt; their requirements, shared
+policy validators and runtime/recovery gates are unchanged. Do not publish it
+blindly or substitute a fake proof. Source tests are not current backup health.
 
 ## Custody is separate from receipt cleanup
 

@@ -286,9 +286,37 @@ The misleading aggregate recovery rehearsal launcher has been removed.
 For the opt-in Docker role test, read the
 [disposable-fixture requirements](docker-version-admission-qualification.md) first:
 it can change boot enablement and is not a production or ordinary local check.
-The retained `validate-contract` is a legacy consistency check, not a universal
-operation prerequisite or proof of recovery; it still requires local historical
-evidence absent from a clean checkout (see [decisions](decisions.md)).
+
+### Offline contract source validation
+
+With Node and the declared JS dependencies already available (no install or network
+is performed), run:
+
+```sh
+node scripts/validate-contract
+node scripts/controller/test-contract-source.js
+node scripts/controller/test-contract-schema.js
+node scripts/controller/test-restic-policy.js
+```
+
+The source-only validator checks configuration schema/semantics, source helper/package
+bindings and generated Restic input parity. It does not read historical receipts,
+the Offen retirement manifest, credentials, `.local` or `.reconcile`. Existing
+legacy outcome fields are checked for structural consistency, not asserted as true.
+Source success is **not backup health, restore qualification or deployment permission**.
+
+Historical modes have been removed. `--historical-evidence` and `--operational`
+explicitly exit with status 2 before validation; they never fall back to source-only
+success. All other arguments are also rejected. Receipt requirements in
+[operational consumers](decisions.md#why-legacy-code-remains), including first-run
+finalization and lock release, remain unchanged.
+
+The offline regression exports only source inputs into a temporary checkout, with
+an empty home/environment, Node 24 read-only filesystem permissions, no subprocess
+permission and network tripwires. Missing receipts and synthetic malformed receipts
+must not block source checks; synthetic invalid configuration must fail. Retired
+flags must exit 2 without printing source success, even with malformed inputs.
+The other two tests inspect source and synthetic objects only, never execute host roles.
 
 The closed [custody audit](decisions.md#custody-is-separate-from-receipt-cleanup)
 leaves independent recovery access and two local qualification-state dependencies
