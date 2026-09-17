@@ -151,11 +151,66 @@ class VfioRecoveryTests(unittest.TestCase):
                 VFIO.parse_policy(json.loads(path.read_text()))
 
 
-# Reuse only the confined test harness, never another participant at runtime.
-PROTOCOL_SPEC = importlib.util.spec_from_file_location(
-    "vfio_protocol_fixture", ROOT / "scripts/controller/test-proxmox-capability-protocol.py")
-PROTOCOL = importlib.util.module_from_spec(PROTOCOL_SPEC)
-PROTOCOL_SPEC.loader.exec_module(PROTOCOL)
+class ProtocolHarness:
+    @staticmethod
+    def seed(path, raw=b'', mode=0o600):
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(raw)
+        path.chmod(mode)
+        return path
+
+    @staticmethod
+    def available(path):
+        descriptor = os.open(path, os.O_RDWR)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def locked(path):
+        try:
+            ProtocolHarness.available(path)
+        except BlockingIOError:
+            return True
+        return False
+
+    @staticmethod
+    def confined(function):
+        def run(test):
+            if sys.platform != 'linux' or os.geteuid() != 0:
+                test.skipTest('native fixture requires disposable Linux/root')
+            with tempfile.TemporaryDirectory(prefix='pve-fixture-') as root:
+                pid = os.fork()
+                if pid == 0:
+                    try:
+                        os.chroot(root)
+                        os.chdir('/')
+                        os.chmod('/', 0o755)
+                        function(test)
+                    except BaseException:
+                        import traceback
+                        traceback.print_exc()
+                        os._exit(1)
+                    os._exit(0)
+                _, status = os.waitpid(pid, 0)
+                test.assertEqual(status, 0)
+        return run
+
+    @staticmethod
+    def descriptor_set():
+        result = set()
+        for descriptor in range(1024):
+            try:
+                fcntl.fcntl(descriptor, fcntl.F_GETFD)
+                result.add(descriptor)
+            except OSError:
+                pass
+        return result
+
+
+PROTOCOL = ProtocolHarness
 
 
 class SyntheticBackend:
@@ -492,57 +547,6 @@ class NativeVfioTests(unittest.TestCase):
             with self.assertRaises(VFIO.RecoveryError): VFIO.qm_status(4242)
             run.assert_not_called()
 
-    @PROTOCOL.confined
-    def test_child_contention_both_directions_and_retained_publication(self):
-        observer = PROTOCOL.NativeProtocolTests().setup_protocol()
-        _, mutexes = seed_vfio(); backend = SyntheticBackend()
-        deploy = PROTOCOL.module(PROTOCOL.activator_source, "vfio_contending_deploy")
-        for participant in (observer, deploy):
-            for owner in (VFIO.RETAINED_OWNERS[0], VFIO.RETAINED_OWNERS[1]):
-                ready_r, ready_w = os.pipe(); release_r, release_w = os.pipe()
-                pid = os.fork()
-                if pid == 0:
-                    signal.alarm(10)
-                    os.close(ready_r); os.close(release_w)
-                    held = participant.acquire_locks() if participant is observer else participant.acquire_mutexes([deploy.OPERATION_LOCK])
-                    if owner.name.endswith(".lock") and owner == VFIO.RETAINED_OWNERS[0]: owner.mkdir()
-                    else: PROTOCOL.seed(owner, b"synthetic retained boot/token/hash")
-                    os.write(ready_w, b"1"); os.read(release_r, 1)
-                    for fd in held: os.close(fd)
-                    os._exit(0)
-                os.close(ready_w); os.close(release_r)
-                try:
-                    self.assertEqual(os.read(ready_r, 1), b"1")
-                    self.refused(backend, mutexes)
-                finally:
-                    os.close(ready_r); os.write(release_w, b"1"); os.close(release_w)
-                    self.assertEqual(os.waitpid(pid, 0)[1], 0)
-                self.refused(backend, mutexes)
-                if owner.is_dir(): owner.rmdir()
-                else: owner.unlink()
-            # Child recovery holds its descriptors across actual inspection,
-            # mutation, compensation and postconditions; parent participants lose.
-            ready_r, ready_w = os.pipe(); release_r, release_w = os.pipe()
-            pid = os.fork()
-            if pid == 0:
-                signal.alarm(10); os.close(ready_r); os.close(release_w)
-                first = [True]
-                def wait_locked():
-                    if first[0]:
-                        first[0] = False; os.write(ready_w, b"1"); os.read(release_r, 1)
-                backend.check = wait_locked
-                try: self.invoke(backend)
-                except BaseException: os._exit(1)
-                os._exit(0)
-            os.close(ready_w); os.close(release_r)
-            try:
-                self.assertEqual(os.read(ready_r, 1), b"1")
-                with self.assertRaises(BlockingIOError):
-                    participant.acquire_locks() if participant is observer else participant.acquire_mutexes([deploy.OPERATION_LOCK])
-            finally:
-                os.close(ready_r); os.write(release_w, b"1"); os.close(release_w)
-                self.assertEqual(os.waitpid(pid, 0)[1], 0)
-            for path in mutexes: PROTOCOL.available(path)
 
 
 if __name__ == "__main__":

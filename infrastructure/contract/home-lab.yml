@@ -124,9 +124,9 @@ lifecycle:
           automatic_apply: false
           automatic_reboot: false
         proxmox:
-          candidate_scope: all-upgrades
+          candidate_scope: explicit-exact-version-or-dist-upgrade
           allowed_apply_scope: reviewed-exact-set
-          apply_authority: protected-session
+          apply_authority: native-ansible-become
           automatic_apply: false
           automatic_reboot: false
     package_apply_identity:
@@ -280,22 +280,18 @@ lifecycle:
           state: transferred
           parity_required: true
           single_writer: true
-        nix_mutation_engine:
-          current_owner: nix
-          target_owner: ansible
-          state: ready
-          parity_required: true
-          single_writer: true
       access_cutover:
-        state: ready
+        state: complete
         target_identities:
           human: proxmox
-          plan: ansible-plan
-          apply: ansible-deploy
+          plan: proxmox
+          apply: proxmox
+          recovery: ansible-deploy
           firewall: firewall-apply
         retire_identities:
           - tofu-plan
           - tofu-apply
+          - ansible-plan
         retire_root_supplementary_groups:
           - apex
         root_key_attributions:
@@ -307,21 +303,21 @@ lifecycle:
           "SHA256:SNH3GBfBBvbkycl78DbrIjbaC0rJxkvue+KF9qhpXrs": obsolete-proxmox-root-identity
         required_tailnet_users:
           - proxmox
-          - ansible-plan
           - ansible-deploy
           - firewall-apply
         forbidden_tailnet_users:
           - root
           - tofu-plan
           - tofu-apply
-        plan_privilege_model: fixed-reduced-observer
-        apply_privilege_model: saved-plan-bound
+          - ansible-plan
+        plan_privilege_model: native-ansible-become
+        apply_privilege_model: native-ansible-become
         firewall_privilege_model: fixed-transaction-transport
         firewall_magicdns_target: firewall-apply@proxmox
-        conventional_keys_target: absent
+        conventional_keys_target: single-inert-pve-root-key
         pubkey_authentication_target: false
         permit_root_login_target: false
-        remove_conventional_keys_last: true
+        remove_legacy_conventional_keys_last: true
         physical_console_required: true
     debian:
       desired_state: production
@@ -639,7 +635,7 @@ proxmox:
     service_accounts:
       - name: tofu-plan
         home: /home/tofu-plan
-        shell: /bin/bash
+        shell: /usr/sbin/nologin
         create_home: true
         password_lock: true
         groups: []
@@ -652,29 +648,30 @@ proxmox:
           group: tofu-plan
           mode: "0700"
         authorized_keys:
-          file:
-            kind: runtime-protected-file
-            projectable: false
-            materialization: metadata-only
-            path: /home/tofu-plan/.ssh/authorized_keys
-            owner: tofu-plan
-            group: tofu-plan
-            mode: "0600"
-          secret_ref: PROXMOX_PLAN_SSH_PUBLIC_KEYS
-          forced_command: 'restrict,command="sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe"'
+          state: absent
+          files:
+            - kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /home/tofu-plan/.ssh/authorized_keys
+              owner: tofu-plan
+              group: tofu-plan
+              mode: "0600"
+            - kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /home/tofu-plan/.ssh/authorized_keys2
+              owner: tofu-plan
+              group: tofu-plan
+              mode: "0600"
         sudo:
-          state: present
-          file:
-            kind: managed-file
-            projectable: true
-            path: /etc/sudoers.d/tofu-plan
-            owner: root
-            group: root
-            mode: "0440"
-          rule: "tofu-plan ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-observer observe"
+          kind: audit-absence
+          projectable: true
+          absence: file
+          path: /etc/sudoers.d/tofu-plan
       - name: tofu-apply
         home: /home/tofu-apply
-        shell: /usr/local/libexec/home-lab/proxmox-apply-transport
+        shell: /usr/sbin/nologin
         create_home: true
         password_lock: true
         groups: []
@@ -687,26 +684,27 @@ proxmox:
           group: tofu-apply
           mode: "0700"
         authorized_keys:
-          file:
-            kind: runtime-protected-file
-            projectable: false
-            materialization: metadata-only
-            path: /home/tofu-apply/.ssh/authorized_keys
-            owner: tofu-apply
-            group: tofu-apply
-            mode: "0600"
-          secret_ref: PROXMOX_APPLY_SSH_PUBLIC_KEYS
-          forced_command: 'restrict,command="/usr/local/libexec/home-lab/proxmox-apply-transport"'
+          state: absent
+          files:
+            - kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /home/tofu-apply/.ssh/authorized_keys
+              owner: tofu-apply
+              group: tofu-apply
+              mode: "0600"
+            - kind: runtime-protected-file
+              projectable: false
+              materialization: metadata-only
+              path: /home/tofu-apply/.ssh/authorized_keys2
+              owner: tofu-apply
+              group: tofu-apply
+              mode: "0600"
         sudo:
-          state: present
-          file:
-            kind: managed-file
-            projectable: true
-            path: /etc/sudoers.d/tofu-apply
-            owner: root
-            group: root
-            mode: "0440"
-          rule: "tofu-apply ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-private-preparer prepare, /usr/local/libexec/home-lab/proxmox-activator session"
+          kind: audit-absence
+          projectable: true
+          absence: file
+          path: /etc/sudoers.d/tofu-apply
       - name: firewall-apply
         home: /home/firewall-apply
         shell: /usr/local/libexec/home-lab/proxmox-firewall-transport
@@ -750,7 +748,7 @@ proxmox:
           rule: "firewall-apply ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-firewall-transaction inspect, /usr/local/libexec/home-lab/proxmox-firewall-transaction begin, /usr/local/libexec/home-lab/proxmox-firewall-transaction status, /usr/local/libexec/home-lab/proxmox-firewall-transaction commit, /usr/local/libexec/home-lab/proxmox-firewall-transaction rollback"
       - name: ansible-plan
         home: /home/ansible-plan
-        shell: /usr/local/libexec/home-lab/proxmox-ansible-plan-transport
+        shell: /usr/sbin/nologin
         create_home: true
         password_lock: true
         groups: []
@@ -780,15 +778,10 @@ proxmox:
               group: ansible-plan
               mode: "0600"
         sudo:
-          state: present
-          file:
-            kind: managed-file
-            projectable: true
-            path: /etc/sudoers.d/ansible-plan
-            owner: root
-            group: root
-            mode: "0440"
-          rule: "ansible-plan ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-observer observe, /usr/local/libexec/home-lab/proxmox-package-candidate-observer observe proxmox, /usr/local/libexec/home-lab/proxmox-controller-observer observe"
+          kind: audit-absence
+          projectable: true
+          absence: file
+          path: /etc/sudoers.d/ansible-plan
       - name: ansible-deploy
         home: /home/ansible-deploy
         shell: /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport
@@ -829,7 +822,7 @@ proxmox:
             owner: root
             group: root
             mode: "0440"
-          rule: "ansible-deploy ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator, /usr/local/libexec/home-lab/proxmox-restic-recovery-transport"
+          rule: "ansible-deploy ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-restic-recovery-transport"
     human_accounts:
       - name: proxmox
         comment: Home Lab Proxmox Administrator
@@ -1156,9 +1149,6 @@ proxmox:
       - role: firewall
         name: proxmox-firewall
         version: 1.2.3
-    manifest:
-      path: infrastructure/host-lifecycle/proxmox/package-manifest.json
-      sha256: e772a1cf30083f86dc36ebf8209efdcbaf8a61f44156eb7e883827cf0c49a235
     prohibited:
       - build-essential
       - cargo

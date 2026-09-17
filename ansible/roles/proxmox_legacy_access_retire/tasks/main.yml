@@ -1,0 +1,250 @@
+---
+- name: Require the exact attended legacy-access retirement gate
+  ansible.builtin.assert:
+    that:
+      - proxmox_legacy_access_retirement_confirmed | default('') == 'retire-committed-legacy-access'
+    fail_msg: Legacy helper and access retirement requires its exact operation gate.
+
+- name: Find retained operation-specific journals without following links
+  ansible.builtin.find:
+    paths: "{{ item }}"
+    patterns: "*.json"
+    recurse: true
+    file_type: file
+    follow: false
+  loop:
+    - /var/lib/home-lab/boot-configuration-transactions
+    - /var/lib/home-lab/boot-ownership-transactions
+    - /var/lib/home-lab/zfs-ownership-transactions
+    - /var/lib/home-lab/nfs-ownership-transactions
+    - /var/lib/home-lab/network-ownership-transactions
+    - /var/lib/home-lab/tailscale-ownership-transactions
+    - /var/lib/home-lab/package-ownership-transactions
+  register: proxmox_legacy_journal_finds
+  changed_when: false
+
+- name: Require exactly one retained record in every retired operation domain
+  ansible.builtin.assert:
+    that:
+      - item.matched == 1
+    fail_msg: Retained operation journal count changed; stop for recovery review.
+  loop: "{{ proxmox_legacy_journal_finds.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  no_log: true
+
+- name: Read retained operation journal status for retirement refusal
+  ansible.builtin.slurp:
+    src: "{{ item.files[0].path }}"
+  loop: "{{ proxmox_legacy_journal_finds.results }}"
+  register: proxmox_legacy_journals
+  no_log: true
+
+- name: Require every retired operation domain to be committed
+  ansible.builtin.assert:
+    that:
+      - (item.content | b64decode | from_json).status == 'committed'
+    fail_msg: A retained operation is not committed; keep the legacy recovery helper.
+  loop: "{{ proxmox_legacy_journals.results }}"
+  no_log: true
+
+- name: Read package transaction journals without changing them
+  ansible.builtin.find:
+    paths: /var/lib/home-lab/package-transactions
+    patterns: "*.json"
+    recurse: false
+    file_type: file
+    follow: false
+  register: proxmox_legacy_package_journal_find
+  changed_when: false
+
+- name: Read package transaction statuses for retirement refusal
+  ansible.builtin.slurp:
+    src: "{{ item.path }}"
+  loop: "{{ proxmox_legacy_package_journal_find.files }}"
+  register: proxmox_legacy_package_journals
+  no_log: true
+
+- name: Require only the reviewed committed or prepared package history
+  ansible.builtin.assert:
+    that:
+      - proxmox_legacy_package_journal_find.matched == 4
+      - >-
+        (proxmox_legacy_package_journals.results |
+         map(attribute='content') | map('b64decode') | map('from_json') |
+         map(attribute='status') | select('equalto', 'prepared') | list | length) == 1
+      - >-
+        (proxmox_legacy_package_journals.results |
+         map(attribute='content') | map('b64decode') | map('from_json') |
+         map(attribute='status') | select('equalto', 'committed') | list | length) == 3
+    fail_msg: Package transaction history changed; stop for operation-specific review.
+  no_log: true
+
+- name: Verify the persistent operation mutex is not currently held
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/lslocks
+      - --json
+      - --output
+      - PATH
+  register: proxmox_legacy_operation_locks
+  changed_when: false
+  failed_when: >-
+    proxmox_legacy_operation_locks.rc != 0 or
+    '/var/lib/home-lab/reconciliation/operation.lock' in proxmox_legacy_operation_locks.stdout
+  check_mode: false
+  no_log: true
+
+- name: Define legacy files retired by this cutover
+  ansible.builtin.set_fact:
+    proxmox_legacy_retired_files:
+      - /usr/local/libexec/home-lab/proxmox-observer
+      - /usr/local/libexec/home-lab/proxmox-private-preparer
+      - /usr/local/libexec/home-lab/proxmox-ansible-plan-transport
+      - /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator
+      - /usr/local/libexec/home-lab/proxmox-package-candidate-observer
+      - /usr/local/libexec/home-lab/proxmox-controller-observer
+      - /usr/local/libexec/home-lab/proxmox-apply-transport
+      - /etc/sudoers.d/tofu-plan
+      - /etc/sudoers.d/tofu-apply
+      - /etc/sudoers.d/ansible-plan
+    proxmox_legacy_backup_root: /var/lib/home-lab/legacy-access-retirement/2026-09-16
+    proxmox_legacy_retained_checksums:
+      /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../infrastructure/proxmox-access/host/proxmox-ansible-deploy-transport', rstrip=false) | hash('sha1') }}"
+      /etc/sudoers.d/ansible-deploy: "{{ 'ansible-deploy ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-restic-recovery-transport\n' | hash('sha1') }}"
+
+- name: Read legacy target metadata without following links
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: true
+  loop: "{{ proxmox_legacy_retired_files + ['/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport', '/etc/sudoers.d/ansible-deploy'] }}"
+  register: proxmox_legacy_target_stats
+
+- name: Refuse unexpected installed legacy target types or ownership
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists or item.stat.isreg
+      - not item.stat.exists or not item.stat.islnk
+      - not item.stat.exists or item.stat.pw_name == 'root'
+      - not item.stat.exists or item.stat.gr_name == 'root'
+    fail_msg: Installed legacy target metadata differs; no file was retired.
+  loop: "{{ proxmox_legacy_target_stats.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  no_log: true
+
+- name: Create the permanent root-only retirement before-image directory
+  ansible.builtin.file:
+    path: "{{ proxmox_legacy_backup_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+
+- name: Preserve installed bytes before replacement or unlink
+  ansible.builtin.copy:
+    src: "{{ item.item }}"
+    dest: "{{ proxmox_legacy_backup_root }}/{{ item.item | basename }}"
+    remote_src: true
+    force: false
+    owner: root
+    group: root
+    mode: "0600"
+  loop: "{{ proxmox_legacy_target_stats.results }}"
+  when:
+    - item.stat.exists
+    - not ansible_check_mode
+  no_log: true
+
+- name: Read preserved retirement before-images before unlinking sources
+  ansible.builtin.stat:
+    path: "{{ proxmox_legacy_backup_root }}/{{ item.item | basename }}"
+    follow: false
+    get_checksum: true
+  loop: "{{ proxmox_legacy_target_stats.results }}"
+  when:
+    - item.stat.exists
+    - not ansible_check_mode
+  register: proxmox_legacy_backup_stats
+  no_log: true
+
+- name: Require exact root-only before-images before unlinking sources
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - not item.stat.islnk
+      - item.stat.pw_name == 'root'
+      - item.stat.gr_name == 'root'
+      - item.stat.mode == '0600'
+      - >-
+        item.stat.checksum == item.item.stat.checksum or
+        (item.item.item in proxmox_legacy_retained_checksums and
+         item.item.stat.checksum == proxmox_legacy_retained_checksums[item.item.item])
+    fail_msg: A retirement before-image differs; no legacy source was unlinked.
+  loop: "{{ proxmox_legacy_backup_stats.results }}"
+  when:
+    - not ansible_check_mode
+    - not (item.skipped | default(false))
+  no_log: true
+
+- name: Install the Restic-only deploy transport
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../../infrastructure/proxmox-access/host/proxmox-ansible-deploy-transport"
+    dest: /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport
+    owner: root
+    group: root
+    mode: "0755"
+    backup: true
+  register: proxmox_legacy_deploy_transport_install
+
+- name: Restrict ansible-deploy sudo to Restic recovery
+  ansible.builtin.copy:
+    content: "ansible-deploy ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-restic-recovery-transport\n"
+    dest: /etc/sudoers.d/ansible-deploy
+    owner: root
+    group: root
+    mode: "0440"
+    backup: true
+    validate: /usr/sbin/visudo -cf %s
+  register: proxmox_legacy_deploy_sudo_install
+
+- name: Disable retired plan/apply service-account shells
+  ansible.builtin.user:
+    name: "{{ item }}"
+    shell: /usr/sbin/nologin
+    password_lock: true
+  loop:
+    - tofu-plan
+    - tofu-apply
+    - ansible-plan
+
+- name: Remove obsolete helpers and sudo grants after preserving before-images
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ proxmox_legacy_retired_files }}"
+
+- name: Re-read retired and retained target metadata
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop: "{{ proxmox_legacy_retired_files + ['/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport', '/etc/sudoers.d/ansible-deploy'] }}"
+  register: proxmox_legacy_post_stats
+  when: not ansible_check_mode
+
+- name: Verify exact installed retirement boundary
+  ansible.builtin.assert:
+    that:
+      - >-
+        (proxmox_legacy_post_stats.results[:(proxmox_legacy_retired_files | length)] |
+         selectattr('stat.exists', 'equalto', true) | list | length) == 0
+      - proxmox_legacy_post_stats.results[-2].stat.isreg
+      - proxmox_legacy_post_stats.results[-2].stat.mode == '0755'
+      - proxmox_legacy_post_stats.results[-2].stat.checksum == proxmox_legacy_deploy_transport_install.checksum
+      - proxmox_legacy_post_stats.results[-1].stat.isreg
+      - proxmox_legacy_post_stats.results[-1].stat.mode == '0440'
+      - proxmox_legacy_post_stats.results[-1].stat.checksum == proxmox_legacy_deploy_sudo_install.checksum
+    fail_msg: Installed legacy access retirement postcondition differs.
+  when: not ansible_check_mode

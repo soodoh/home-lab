@@ -1,0 +1,6 @@
+---
+# Choose exactly one scope. No implicit all-package operation.
+proxmox_package_specs: []
+proxmox_package_dist_upgrade: false
+# Metadata refresh is a separate reviewed write, never implied by package scope.
+proxmox_package_refresh_metadata: false

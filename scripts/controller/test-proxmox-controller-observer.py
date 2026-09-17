@@ -1,148 +1,16 @@
 #!/usr/bin/env python3
-"""Offline fixed snapshot protocol, collector parity and real descriptor contention."""
-import ast
-import base64
+"""Native observation fixtures and opt-in real Linux module tests."""
 import fcntl
 import hashlib
-import io
 import json
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import types
 import unittest
-from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / 'infrastructure/host-lifecycle/proxmox/controller-observer-template.py'
-
-
-def load():
-    module = types.ModuleType('controller_observer')
-    module.__file__ = str(SOURCE)
-    source = SOURCE.read_text().replace("'@CONTROLLER_SPEC@'", repr(json.dumps({'observer_sha256': hashlib.sha256(b'observer').hexdigest(), 'collector_sha256': hashlib.sha256(b'collector').hexdigest()})))
-    source = source.replace("@ACTIVATOR_SHA256@", hashlib.sha256(b"activator").hexdigest())
-    exec(compile(source, str(SOURCE), 'exec'), module.__dict__)
-    return module
-
-
-class ControllerObserverTests(unittest.TestCase):
-    def test_summary_functions_preserve_retained_protected_collector_semantics(self):
-        old = ast.parse((ROOT / 'nix/proxmox/private-preparer-template.py').read_text())
-        new = ast.parse((ROOT / 'infrastructure/host-lifecycle/proxmox/protected-collector-template.py').read_text())
-        original = {n.name: ast.dump(n, include_attributes=False) for n in old.body if isinstance(n, ast.FunctionDef)}
-        retained = {n.name: ast.dump(n, include_attributes=False) for n in new.body if isinstance(n, ast.FunctionDef)}
-        self.assertGreater(len(retained), 20)
-        for name, body in retained.items():
-            self.assertEqual(body, original[name], name)
-        self.assertNotIn('prepare', retained)
-        self.assertNotIn('validate_plan', retained)
-        self.assertNotIn('install_manifest', retained)
-        source = (ROOT / 'infrastructure/host-lifecycle/proxmox/protected-collector-template.py').read_text()
-        self.assertIn("sys.argv[1:] != [\"summary\"]", source)
-
-    def test_fixed_invocation_rejects_every_non_nonce_or_legacy_verb(self):
-        module = load()
-        for raw in [b'', b'a' * 64, b'a' * 63 + b'\n', b'a' * 64 + b'\nextra', b'{"command":"apply"}\n']:
-            with self.subTest(raw=raw), mock.patch.object(module.os, 'geteuid', return_value=0), \
-                    mock.patch.object(module.sys, 'argv', ['helper', 'observe']), \
-                    mock.patch.object(module.sys, 'stdin', types.SimpleNamespace(buffer=io.BytesIO(raw))), \
-                    mock.patch.object(module, 'observe') as observe:
-                with self.assertRaises(ValueError): module.main()
-                observe.assert_not_called()
-        for argv in [['helper'], ['helper', 'apply'], ['helper', 'observe', 'extra']]:
-            with mock.patch.object(module.os, 'geteuid', return_value=0), mock.patch.object(module.sys, 'argv', argv):
-                with self.assertRaises(ValueError): module.main()
-
-    def test_nonce_installed_producer_host_key_and_scope_are_bound(self):
-        module = load()
-        def content(path, *_):
-            if path.name == 'proxmox-ansible-deploy-activator': return b'activator'
-            if path.name == 'proxmox-observer': return b'observer'
-            if path.name == 'proxmox-protected-collector': return b'collector'
-            if path.name == 'ssh_host_ed25519_key.pub': return b'ssh-ed25519 ' + base64.b64encode(b'synthetic-host-key') + b' fixture\n'
-            return b'controller'
-        result = types.SimpleNamespace(returncode=0, stderr=b'', stdout=b'{"fixture":true}\n')
-        with mock.patch.object(module, 'acquire_locks', return_value=[]), mock.patch.object(module, 'read_fixed', side_effect=content), \
-                mock.patch.object(module.subprocess, 'run', return_value=result) as run:
-            observed = module.observe('a' * 64)
-            self.assertEqual(observed['nonce'], 'a' * 64)
-            self.assertEqual(observed['producer_sha256'], hashlib.sha256(b'controller').hexdigest())
-            self.assertEqual(observed['host_key'], 'SHA256:' + base64.b64encode(hashlib.sha256(b'synthetic-host-key').digest()).decode().rstrip('='))
-            self.assertEqual(observed['locks'], 'snapshot-exclusive-v1')
-            self.assertEqual(observed['scope'], 'audit')
-            self.assertEqual(run.call_args.args[0], ['/usr/local/libexec/home-lab/proxmox-observer', 'observe'])
-
-    def test_changed_producer_fails_before_observer_runs(self):
-        module = load()
-        with mock.patch.object(module, 'acquire_locks', return_value=[]), mock.patch.object(module, 'read_fixed', return_value=b'wrong'), \
-                mock.patch.object(module.subprocess, 'run') as run:
-            with self.assertRaises(ValueError): module.observe('a' * 64)
-            run.assert_not_called()
-
-    def test_old_installed_activator_protocol_refuses_observation(self):
-        module = load()
-        def content(path, *_):
-            return {'proxmox-observer': b'observer', 'proxmox-protected-collector': b'collector'}.get(path.name, b'old-activator')
-        with mock.patch.object(module, 'acquire_locks', return_value=[]), mock.patch.object(module, 'read_fixed', side_effect=content), mock.patch.object(module.subprocess, 'run') as run:
-            with self.assertRaisesRegex(ValueError, 'mutex participant mismatch'): module.observe('a' * 64)
-            run.assert_not_called()
-
-    def test_real_lock_contention_interruption_and_persistent_inode(self):
-        module = load()
-        with tempfile.TemporaryDirectory() as name:
-            root = Path(name)
-            lock = root / 'operation.lock'
-            module.LOCKS = [lock]; module.APT_LOCKS = []; module.JOURNALS = []
-            original_fstat = os.fstat
-            def root_info(fd):
-                info = original_fstat(fd)
-                return types.SimpleNamespace(**{name: (0 if name in ("st_uid", "st_gid") else getattr(info, name)) for name in ("st_dev", "st_ino", "st_mode", "st_uid", "st_gid", "st_nlink", "st_size", "st_mtime_ns", "st_ctime_ns")})
-            with mock.patch.object(module, 'parent_fd', side_effect=lambda p: os.open(p.parent, os.O_RDONLY)), \
-                    mock.patch.object(module.os, 'fstat', side_effect=root_info), \
-                    mock.patch.object(module, 'fingerprint', side_effect=lambda i: (i.st_dev, i.st_ino, i.st_mode, i.st_nlink)):
-                # Read-only observation cannot provision even a missing mutex.
-                with self.assertRaises(FileNotFoundError): module.acquire_locks()
-                self.assertFalse(lock.exists())
-                lock.touch(mode=0o600)
-                # Missing later mutex releases all earlier acquired descriptors.
-                missing = root / 'missing.lock'; module.LOCKS = [lock, missing]
-                with self.assertRaises(FileNotFoundError): module.acquire_locks()
-                self.assertFalse(missing.exists())
-                probe = os.open(lock, os.O_RDWR)
-                try: fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                finally: os.close(probe)
-                module.LOCKS = [lock]
-                descriptors = module.acquire_locks()
-                inode = lock.stat().st_ino
-                with self.assertRaises(BlockingIOError): module.acquire_locks()
-                for fd in descriptors: os.close(fd)
-                # Owner journal presence is never mistaken for an unlocked file.
-                journal = root / 'apply.lock'; journal.write_bytes(b'failed-session')
-                module.JOURNALS = [journal]
-                with self.assertRaises(ValueError): module.acquire_locks()
-                self.assertEqual(journal.read_bytes(), b'failed-session')
-                self.assertEqual(lock.stat().st_ino, inode)
-                probe = os.open(lock, os.O_RDWR)
-                try: fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                finally: os.close(probe)
-                self.assertEqual(lock.stat().st_ino, inode)
-                # Symlinks cannot be converted into locks or silently removed.
-                module.JOURNALS = []; module.LOCKS = [root / 'alias']; (root / 'alias').symlink_to(lock)
-                with self.assertRaises(OSError): module.acquire_locks()
-                self.assertTrue((root / 'alias').is_symlink())
-
-    def test_existing_protocol_paths_remain_distinct(self):
-        module = load()
-        self.assertIn(Path('/var/lib/home-lab/reconciliation/operation.lock'), module.LOCKS)
-        self.assertIn(Path('/var/lib/iac-ansible-production.lock'), module.JOURNALS)
-        self.assertIn(Path('/var/lib/home-lab/firewall-transaction/active.json'), module.JOURNALS)
-        self.assertIn(Path('/var/lib/dpkg/lock-frontend'), module.APT_LOCKS)
-        self.assertEqual(len(module.LOCKS), len(set(module.LOCKS)))
-        self.assertEqual(set(module.LOCKS) & set(module.JOURNALS), set())
-
 
 class NativeObservationTests(unittest.TestCase):
     """Real Ansible assertions only: no role execution, SSH, NSS or native host calls."""
@@ -155,10 +23,13 @@ class NativeObservationTests(unittest.TestCase):
         tasks = json.loads(loaded.stdout)
         selected = [task for task in tasks if 'ansible.builtin.assert' in task and
                     'proxmox_observe_protected.stdout' in json.dumps(task)]
-        self.assertEqual(len(selected), 3)
+        self.assertEqual(len(selected), 4)
         self.assertTrue(all(task.get('no_log') is True for task in selected))
         service_assert = next(task for task in tasks if task['name'] == 'Verify required services are loaded and active')
-        owner_assert = next(task for task in tasks if task['name'] == 'Refuse a retained operation owner without reconciling it')
+        owners = json.loads(subprocess.run(['node', '-e', loader,
+            str(ROOT / 'ansible/roles/proxmox_observe/tasks/owners.yml')],
+            cwd=ROOT, capture_output=True, text=True, check=True).stdout)
+        owner_assert = next(task for task in owners if task['name'] == 'Refuse a retained operation owner without reconciling it')
         record = {'expectedCount': 3, 'observedCount': 3, 'matches': True, 'status': 'complete'}
         valid = {'protectedAccess': record, 'protectedHardware': record}
         cases = [
@@ -210,104 +81,346 @@ class NativeObservationTests(unittest.TestCase):
                     self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
             self.assertNotIn('SYNTHETIC_PRIVATE_SENTINEL', (directory / 'ansible.log').read_text())
 
-    def test_native_package_response_assertions_and_redacted_diagnostics(self):
+    def test_native_package_inventory_assertions_and_redaction(self):
         loader = "const fs=require('node:fs'), y=require('js-yaml'); process.stdout.write(JSON.stringify(y.load(fs.readFileSync(process.argv[1], 'utf8'))));"
-        loaded = subprocess.run(['node', '-e', loader,
-                                 str(ROOT / 'ansible/roles/proxmox_package_observe/tasks/main.yml')],
-                                cwd=ROOT, capture_output=True, text=True, check=True)
-        tasks = json.loads(loaded.stdout)
-        # Never run the remote collector or its commands in this local fixture.
-        selected = tasks[2:]
-        self.assertEqual(len(selected), 6)
-        self.assertIn('ansible.builtin.fail', selected[0])
-        self.assertTrue(all(task.get('no_log') is True for task in selected[1:-1]))
-        self.assertTrue(all('ansible.builtin.command' not in task for task in selected))
-        sample = {'version': 2, 'host': 'proxmox', 'metadata_refresh_performed': False,
-                  'installed_records': 1, 'expected_manifest_records': 1, 'manifest_matches': True,
-                  'apt_tree_safe': True, 'size_parse_complete': False, 'metadata_age_seconds': 10,
-                  'solver': {'returncode': 0}, 'holds': [], 'kept_back': [], 'active_lifecycle_locks': [],
-                  'change_counts': {'install': 0, 'upgrade': 1, 'downgrade': 0, 'remove': 0}}
-        cases = [('valid', json.dumps(sample), '', 0, True),
-                 ('malformed', 'SYNTHETIC_PRIVATE_SENTINEL', '', 0, False),
-                 ('wrong-host', json.dumps({**sample, 'host': 'debian'}), '', 0, False),
-                 ('refresh', json.dumps({**sample, 'metadata_refresh_performed': True}), '', 0, False),
-                 ('bool-count', json.dumps({**sample, 'installed_records': True}), '', 0, False),
-                 ('bad-change-count', json.dumps({**sample, 'change_counts': {**sample['change_counts'], 'upgrade': -1}}), '', 0, False),
-                 ('missing-key', json.dumps({key: value for key, value in sample.items() if key != 'solver'}), '', 0, False),
-                 ('stderr', json.dumps(sample), 'SYNTHETIC_PRIVATE_SENTINEL', 0, False),
-                 ('nonzero', json.dumps(sample), '', 1, False),
-                 ('unavailable-metadata', json.dumps({**sample, 'metadata_age_seconds': None}), '', 0, True),
-                 ('redaction', json.dumps({**sample, 'holds': ['SYNTHETIC_PRIVATE_SENTINEL']}), '', 0, True)]
-        categories = {
-            'package observer command unavailable': 'native-command-unavailable',
-            'package observer command exceeded bound': 'native-command-output-limit',
-            'package inventory unavailable': 'inventory-unavailable',
-            'APT policy unavailable': 'apt-policy-unavailable',
-            'APT policy candidate differs': 'apt-candidate-mismatch',
-            'unrecognized APT transition': 'apt-transition-unrecognized',
-            'version comparison unavailable': 'version-comparison-unavailable',
-            'APT state changed during observation': 'apt-state-changed',
-            'APT state read differs': 'apt-state-read-differs',
-            'lock observation unavailable': 'lock-observation-unavailable',
-        }
-        expected_errors = {}
-        for message, category in categories.items():
-            for ending in ('', '\n'):
-                label = category + repr(ending)
-                cases.append((label, '', 'package-candidate-observer: ' + message + ending, 1, False))
-                expected_errors[label] = 'Package observation failed: ' + category + '.'
-        cases.append(('unknown-private-error', '', 'package-candidate-observer: SYNTHETIC_PRIVATE_SENTINEL', 1, False))
-        expected_errors['unknown-private-error'] = 'unclassified; raw diagnostics withheld.'
+        tasks = json.loads(subprocess.run(['node', '-e', loader,
+            str(ROOT / 'ansible/roles/proxmox_package_observe/tasks/main.yml')],
+            cwd=ROOT, capture_output=True, text=True, check=True).stdout)
+        # Exercise actual assertions/reporting, never package_facts or host commands.
+        selected = [tasks[3], tasks[5], tasks[6]]
+        self.assertTrue(all(task.get('no_log') is True for task in selected[:-1]))
+        self.assertTrue(all('ansible.builtin.assert' in task for task in selected[:-1]))
+        self.assertIn('ansible.builtin.debug', selected[-1])
+        sentinel = 'SYNTHETIC_PRIVATE_SENTINEL'
+        valid = {'ansible_facts': {'packages': {sentinel: [{'version': sentinel}]}},
+                 'proxmox_package_audit': {'rc': 0, 'stdout': '', 'stderr': ''},
+                 'proxmox_package_holds': {'rc': 0, 'stderr': '', 'stdout_lines': [sentinel]}}
+        cases = [('valid-private-inventory', {}, True),
+                 ('unfinished-dpkg', {'proxmox_package_audit': {'rc': 0, 'stdout': sentinel, 'stderr': ''}}, False),
+                 ('dpkg-failure', {'proxmox_package_audit': {'rc': 1, 'stdout': '', 'stderr': sentinel}}, False),
+                 ('holds-failure', {'proxmox_package_holds': {'rc': 1, 'stderr': sentinel}}, False),
+                 ('holds-stderr', {'proxmox_package_holds': {'rc': 0, 'stderr': sentinel}}, False),
+                 ('empty-inventory', {'ansible_facts': {'packages': {}}}, False),
+                 ('missing-inventory', {'ansible_facts': {}}, False),
+                 ('malformed-inventory', {'ansible_facts': {'packages': sentinel}}, False)]
         with tempfile.TemporaryDirectory() as name:
             directory = Path(name)
             config = directory / 'ansible.cfg'
-            config.write_text('[defaults]\nhost_key_checking=True\nretry_files_enabled=False\n')
+            config.write_text('[defaults]\nhost_key_checking=True\nretry_files_enabled=False\nfact_caching=memory\n')
             environment = {**os.environ, 'ANSIBLE_CONFIG': str(config), 'ANSIBLE_NOCOLOR': '1',
                            'ANSIBLE_LOCAL_TEMP': str(directory / 'tmp'), 'ANSIBLE_STDOUT_CALLBACK': 'default',
                            'ANSIBLE_LOG_PATH': str(directory / 'ansible.log')}
-            # Render and stream the actual stdin expression into a local hash-only
-            # process. Never execute the collector or its native host commands.
-            expected_packages = json.loads((ROOT / 'infrastructure/host-lifecycle/proxmox/package-manifest.json').read_text())['packages']
-            encoded = base64.b64encode(json.dumps(expected_packages).encode()).decode()
-            expected_source = (ROOT / 'infrastructure/maintenance/host/package-candidate-observer').read_text().rstrip().replace('@EXPECTED_PACKAGES_BASE64@', encoded) + '\n'
-            render_tasks = [
-                {'ansible.builtin.set_fact': {'fixture_source': tasks[1]['ansible.builtin.command']['stdin']}, 'no_log': True},
-                {'ansible.builtin.command': {'argv': [sys.executable, '-I', '-B', '-c',
-                    'import hashlib,sys;print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'],
-                    'stdin': tasks[1]['ansible.builtin.command']['stdin']},
-                    'register': 'fixture_stream_hash', 'changed_when': False, 'no_log': True},
-                {'ansible.builtin.assert': {'that': [
-                    "fixture_stream_hash.stdout == fixture_expected_sha256",
-                    "'@EXPECTED_PACKAGES_BASE64@' not in fixture_source",
-                    "((lookup('ansible.builtin.file', role_path + '/../../../infrastructure/host-lifecycle/proxmox/package-manifest.json') | from_json).packages | to_json | b64encode) in fixture_source",
-                ]}, 'no_log': True},
-            ]
-            playbook = directory / 'render.json'
-            playbook.write_text(json.dumps([{'hosts': 'localhost', 'connection': 'local', 'gather_facts': False,
-                'vars': {'role_path': str(ROOT / 'ansible/roles/proxmox_package_observe'),
-                         'fixture_expected_sha256': hashlib.sha256(expected_source.encode()).hexdigest()},
-                'tasks': render_tasks}]))
-            result = subprocess.run(['ansible-playbook', '-i', 'localhost,', '-c', 'local', str(playbook)],
-                                    cwd=directory, env=environment, capture_output=True, text=True, timeout=30)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            for label, stdout, stderr, rc, success in cases:
+            for label, changes, success in cases:
                 with self.subTest(case=label):
-                    variables = {'proxmox_package_observe_raw': {'stdout': stdout, 'stderr': stderr, 'rc': rc},
-                                 'proxmox_package_observe_max_age_seconds': 86400}
                     playbook = directory / 'assertions.json'
                     playbook.write_text(json.dumps([{'hosts': 'localhost', 'connection': 'local',
-                        'gather_facts': False, 'vars': variables, 'tasks': selected}]))
+                        'gather_facts': False, 'vars': {**valid, **changes}, 'tasks': selected}]))
                     result = subprocess.run(['ansible-playbook', '-i', 'localhost,', '-c', 'local', str(playbook)],
-                                            cwd=directory, env=environment, capture_output=True, text=True, timeout=30)
+                        cwd=directory, env=environment, capture_output=True, text=True, timeout=30)
                     self.assertEqual(result.returncode == 0, success, label + '\n' + result.stdout + result.stderr)
-                    self.assertNotIn('SYNTHETIC_PRIVATE_SENTINEL', result.stdout + result.stderr)
-                    if label in expected_errors:
-                        self.assertIn(expected_errors[label], result.stdout)
-                        self.assertNotIn('"apply_authorized"', result.stdout)
+                    self.assertNotIn(sentinel, result.stdout + result.stderr)
                     if success:
-                        self.assertIn('"apply_authorized": false', result.stdout)
-                        self.assertIn('"metadata_refresh_performed": false', result.stdout)
-            self.assertNotIn('SYNTHETIC_PRIVATE_SENTINEL', (directory / 'ansible.log').read_text())
+                        for field in ('apply_authorized', 'metadata_refresh_performed', 'candidate_preview_performed'):
+                            self.assertIn('"' + field + '": false', result.stdout)
+                        self.assertIn('"installed_package_names": 1', result.stdout)
+                    else:
+                        self.assertNotIn('"apply_authorized"', result.stdout)
+            self.assertNotIn(sentinel, (directory / 'ansible.log').read_text())
+
+    def test_native_package_scope_requires_an_explicit_choice(self):
+        loader = "const fs=require('node:fs'), y=require('js-yaml'); process.stdout.write(JSON.stringify(y.load(fs.readFileSync(process.argv[1], 'utf8'))));"
+        tasks = json.loads(subprocess.run(['node', '-e', loader,
+            str(ROOT / 'ansible/roles/proxmox_package_maintenance/tasks/main.yml')],
+            cwd=ROOT, capture_output=True, text=True, check=True).stdout)
+        selected = tasks[:2]
+        self.assertTrue(all('ansible.builtin.assert' in task for task in selected))
+        cases = [(['fixture-app=1.2-3'], False, True),
+                 (['fixture-app:amd64=1:2.0~rc1-1+deb13u1'], False, True),
+                 ([], True, True), ([], False, False),
+                 (['fixture-app=1'], True, False), ('fixture-app=1', False, False),
+                 (['fixture-app=1', 'fixture-app=2'], False, False),
+                 (['fixture-app'], False, False), (['fixture-app=*'], False, False),
+                 (['/tmp/package.deb'], False, False), (['fixture-app=1;true'], False, False),
+                 (['fixture-app=1'], 'false', False), ([123], False, False)]
+        with tempfile.TemporaryDirectory() as name:
+            directory = Path(name)
+            config = directory / 'ansible.cfg'
+            config.write_text('[defaults]\nretry_files_enabled=False\n')
+            environment = {**os.environ, 'ANSIBLE_CONFIG': str(config), 'ANSIBLE_NOCOLOR': '1',
+                           'ANSIBLE_LOCAL_TEMP': str(directory / 'tmp'), 'ANSIBLE_STDOUT_CALLBACK': 'default'}
+            for specs, upgrade, success in cases:
+                with self.subTest(specs=specs, upgrade=upgrade):
+                    playbook = directory / 'assertions.json'
+                    # Controller-only assertions: no connection, facts or APT
+                    # action is included. A synthetic alias tests the real guard.
+                    playbook.write_text(json.dumps([{'hosts': 'proxmox', 'gather_facts': False,
+                        'vars': {'ansible_connection': 'ssh', 'ansible_become': True,
+                                 'proxmox_package_specs': specs, 'proxmox_package_dist_upgrade': upgrade,
+                                 'proxmox_package_refresh_metadata': False},
+                        'tasks': selected}]))
+                    result = subprocess.run(['ansible-playbook', '-i', 'proxmox,', str(playbook)],
+                        cwd=directory, env=environment, capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+
+
+@unittest.skipUnless(os.environ.get('HOME_LAB_NATIVE_APT_TESTS') == '1',
+                     'opt-in isolated Linux APT fixture; never a host validation command')
+class NativeAptModuleTests(unittest.TestCase):
+    """Real core modules and synthetic debs, confined to a networkless container.
+
+    Requires the separately approved test image with Ansible and python3-apt.
+    No repository/home mounts. Root is read-only; all package data, databases,
+    metadata and logs live beneath a fresh /tmp directory. Never run on PVE.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        if not (sys.platform == 'linux' and os.geteuid() == 0 and
+                Path('/.dockerenv').is_file() and
+                Path('/opt/home-lab-native-apt-fixture').is_file() and
+                os.statvfs('/').f_flag & os.ST_RDONLY):
+            raise RuntimeError('native APT tests require the approved read-only-root container')
+        routes = Path('/proc/net/route').read_text().splitlines()[1:]
+        if any(line.split()[1] == '00000000' for line in routes):
+            raise RuntimeError('native APT tests require networking disabled')
+        import yaml
+        cls.maintenance = yaml.safe_load((ROOT / 'ansible/roles/proxmox_package_maintenance/tasks/main.yml').read_text())
+        cls.inventory = yaml.safe_load((ROOT / 'ansible/roles/proxmox_package_observe/tasks/main.yml').read_text())
+        cls.configuration = yaml.safe_load((ROOT / 'ansible/roles/proxmox_maintenance/tasks/main.yml').read_text())
+        # Scope assertions are tested separately with real Ansible above. Only
+        # native module tasks run here, under synthetic local connection/state.
+        assert all('ansible.builtin.assert' in task for task in cls.maintenance[:2])
+        assert 'ansible.builtin.assert' in cls.inventory[0]
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory(prefix='native-apt-')
+        self.addCleanup(self.temporary.cleanup)
+        self.directory = Path(self.temporary.name)
+        self.repo = self.directory / 'repo'; self.repo.mkdir()
+        self.db = self.directory / 'dpkg'; self.db.mkdir()
+        (self.db / 'status').write_text('')
+        self.payload = self.directory / 'installed'; self.payload.mkdir()
+        self.debs = []
+        apt_config = self.directory / 'apt.conf'
+        sources = self.directory / 'sources.list'
+        sources.write_text(f'deb [trusted=yes] file:{self.repo} ./\n')
+        apt_config.write_text(f'''
+Dir::Etc::sourcelist "{sources}";
+Dir::Etc::sourceparts "-";
+Dir::State "{self.directory}/apt-state";
+Dir::State::status "{self.db}/status";
+Dir::Cache "{self.directory}/apt-cache";
+Dir::Log "{self.directory}/apt-log";
+DPkg::Options {{ "--admindir={self.db}"; "--log={self.directory}/dpkg.log"; }};
+APT::Sandbox::User "root";
+''')
+        for path in ('apt-state/lists/partial', 'apt-cache/archives/partial', 'apt-log'):
+            (self.directory / path).mkdir(parents=True)
+        config = self.directory / 'ansible.cfg'
+        config.write_text(f'[defaults]\nretry_files_enabled=False\nfact_caching=memory\nremote_tmp={self.directory}/remote-tmp\n')
+        self.environment = {**os.environ, 'HOME': str(self.directory),
+                            'APT_CONFIG': str(apt_config), 'DPKG_ADMINDIR': str(self.db),
+                            'ANSIBLE_CONFIG': str(config), 'ANSIBLE_NOCOLOR': '1',
+                            'ANSIBLE_LOCAL_TEMP': str(self.directory / 'ansible-tmp'),
+                            'ANSIBLE_STDOUT_CALLBACK': 'default',
+                            'ANSIBLE_LOG_PATH': str(self.directory / 'ansible.log')}
+
+    def command(self, argv, **kwargs):
+        return subprocess.run(argv, env=self.environment, capture_output=True, text=True, timeout=60, **kwargs)
+
+    def package(self, name, version, extra='', fail_configure=False, conffile=False):
+        build = self.directory / f'build-{name}-{version}'
+        control = build / 'DEBIAN'; control.mkdir(parents=True)
+        metadata = (f'Package: {name}\nVersion: {version}\nArchitecture: all\n'
+                    f'Maintainer: Fixture <fixture@example.invalid>\nDescription: isolated synthetic fixture\n{extra}')
+        (control / 'control').write_text(metadata)
+        target = self.payload / (name + ('.conf' if conffile else '.txt'))
+        staged = build / target.relative_to('/')
+        staged.parent.mkdir(parents=True, exist_ok=True); staged.write_text(version + '\n')
+        if conffile: (control / 'conffiles').write_text(str(target) + '\n')
+        if fail_configure:
+            (control / 'postinst').write_text('#!/bin/sh\nexit 23\n')
+            (control / 'postinst').chmod(0o755)
+        deb = self.repo / f'{name}_{version}_all.deb'
+        result = self.command(['/usr/bin/dpkg-deb', '--build', '--root-owner-group', str(build), str(deb)])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.debs.append((deb, metadata))
+        return deb
+
+    def index(self):
+        records = []
+        for deb, metadata in self.debs:
+            raw = deb.read_bytes()
+            records.append(metadata + f'Filename: ./{deb.name}\nSize: {len(raw)}\n'
+                           f'SHA256: {hashlib.sha256(raw).hexdigest()}\n')
+        (self.repo / 'Packages').write_text('\n'.join(records))
+        result = self.command(['/usr/bin/apt-get', 'update'])
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def run_tasks(self, tasks, variables=None, check=False, success=True):
+        playbook = self.directory / 'fixture.json'
+        playbook.write_text(json.dumps([{'hosts': 'localhost', 'connection': 'local', 'gather_facts': False,
+            'vars': {'ansible_python_interpreter': '/usr/bin/python3', **(variables or {})},
+            'tasks': tasks}]))
+        argv = ['ansible-playbook', '-i', 'localhost,', '-c', 'local', str(playbook)]
+        if check: argv.append('--check')
+        result = self.command(argv)
+        self.assertNotIn('UNREACHABLE!', result.stdout, result.stdout + result.stderr)
+        self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
+        return result.stdout
+
+    def maintain(self, specs=None, dist=False, check=False, success=True):
+        return self.run_tasks(self.maintenance[2:],
+            {'proxmox_package_specs': specs or [], 'proxmox_package_dist_upgrade': dist,
+             'proxmox_package_refresh_metadata': False}, check, success)
+
+    def version(self, name):
+        result = self.command(['/usr/bin/dpkg-query', '--show', '--showformat=${Version}', name])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout
+
+    def test_install_preview_upgrade_and_idempotence(self):
+        self.package('fixture-app', '1'); self.package('fixture-app', '2'); self.index()
+        self.maintain(['fixture-app=1'])
+        before = (self.db / 'status').read_bytes()
+        output = self.maintain(['fixture-app=2'], check=True)
+        self.assertIn('"package_change_reported": true', output)
+        self.assertEqual((self.db / 'status').read_bytes(), before)
+        self.assertEqual(self.version('fixture-app'), '1')
+        self.maintain(['fixture-app=2'])
+        self.assertEqual(self.version('fixture-app'), '2')
+        self.assertIn('"package_change_reported": false', self.maintain(['fixture-app=2']))
+        output = self.run_tasks(self.inventory[1:])
+        self.assertIn('"installed_package_names": 1', output)
+        self.assertIn('"dpkg_audit": "clean"', output)
+        self.assertIn('"held_packages": 0', output)
+
+    def test_native_dist_upgrade(self):
+        self.package('fixture-app', '1'); self.package('fixture-app', '2'); self.index()
+        self.maintain(['fixture-app=1'])
+        self.maintain(dist=True, check=True)
+        self.assertEqual(self.version('fixture-app'), '1')
+        self.maintain(dist=True)
+        self.assertEqual(self.version('fixture-app'), '2')
+
+    def test_removal_is_refused(self):
+        self.package('fixture-app', '1')
+        self.package('fixture-app', '2', extra='Conflicts: fixture-guard\n')
+        self.package('fixture-guard', '1'); self.index()
+        self.maintain(['fixture-app=1', 'fixture-guard=1'])
+        self.maintain(['fixture-app=2'], success=False)
+        self.assertEqual(self.version('fixture-app'), '1')
+        self.assertEqual(self.version('fixture-guard'), '1')
+
+    def test_holds_and_downgrades_are_not_overridden(self):
+        self.package('fixture-app', '1'); self.package('fixture-app', '2'); self.index()
+        self.maintain(['fixture-app=1'])
+        result = self.command(['/usr/bin/dpkg', '--set-selections'], input='fixture-app hold\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('"held_packages": 1', self.run_tasks(self.inventory[1:]))
+        self.maintain(['fixture-app=2'], success=False)
+        self.assertEqual(self.version('fixture-app'), '1')
+        result = self.command(['/usr/bin/dpkg', '--set-selections'], input='fixture-app install\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.maintain(['fixture-app=2'])
+        self.maintain(['fixture-app=1'], success=False)
+        self.assertEqual(self.version('fixture-app'), '2')
+
+    def test_package_contention_preserves_lock_and_installed_state(self):
+        self.package('fixture-app', '1'); self.package('fixture-app', '2'); self.index()
+        self.maintain(['fixture-app=1'])
+        lock = self.db / 'lock-frontend'
+        descriptor = os.open(lock, os.O_RDWR | os.O_CREAT, 0o640)
+        try:
+            inode = os.fstat(descriptor).st_ino
+            fcntl.lockf(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.maintain(['fixture-app=2'], success=False)
+            self.assertEqual(lock.stat().st_ino, inode)
+            self.assertEqual(self.version('fixture-app'), '1')
+        finally:
+            os.close(descriptor)
+
+    def test_failed_configuration_is_not_repaired_by_inventory(self):
+        self.package('fixture-broken', '1', fail_configure=True); self.index()
+        self.maintain(['fixture-broken=1'], success=False)
+        status = (self.db / 'status').read_bytes()
+        self.assertIn(b'half-configured', status)
+        self.assertTrue((self.directory / 'dpkg.log').is_file())
+        self.assertTrue((self.directory / 'apt-log/history.log').is_file())
+        self.run_tasks(self.inventory[1:], success=False)
+        self.assertEqual((self.db / 'status').read_bytes(), status)
+
+    def test_existing_conffile_is_preserved(self):
+        self.package('fixture-config', '1', conffile=True)
+        self.package('fixture-config', '2', conffile=True); self.index()
+        self.maintain(['fixture-config=1'])
+        config = self.payload / 'fixture-config.conf'; config.write_text('operator-content\n')
+        self.maintain(['fixture-config=2'])
+        self.assertEqual(config.read_text(), 'operator-content\n')
+        self.assertEqual(config.with_suffix('.conf.dpkg-dist').read_text(), '2\n')
+
+    def configuration_fixture(self):
+        # Rebase only fixed /etc/apt paths; execute real stat/find/assert/copy
+        # tasks. A non-systemd container cannot qualify the chrony service task.
+        apt_dir = self.directory / 'etc/apt'; sources = apt_dir / 'sources.list.d'
+        sources.mkdir(parents=True)
+        records = []
+        for path in (apt_dir / 'sources.list', sources / 'fixture.sources'):
+            path.write_text('before\n'); path.chmod(0o644)
+            records.append({'path': str(path), 'content': 'after\n', 'mode': '0644', 'owner': 'root', 'group': 'root'})
+        key = self.directory / 'fixture.pgp'; key.write_bytes(b'public fixture key'); key.chmod(0o644)
+        link = self.directory / 'fixture.gpg'; link.symlink_to(key.name)
+        policy = {'repository_files': records,
+                  'keyrings': [{'path': str(link), 'symlink_target': key.name,
+                                'sha256': hashlib.sha256(key.read_bytes()).hexdigest()}],
+                  'chrony_service': {'active': True, 'enabled': True}}
+        tasks = json.loads(json.dumps(self.configuration).replace('/etc/apt', str(apt_dir)))
+        files_only = [task for task in tasks if 'ansible.builtin.systemd_service' not in task]
+        self.assertEqual(len(tasks) - len(files_only), 1)
+        return files_only, policy, sources
+
+    def test_native_copy_preview_before_images_and_idempotence(self):
+        tasks, policy, _ = self.configuration_fixture()
+        variables = {'proxmox_maintenance_policy': policy}
+        self.run_tasks(tasks, variables, check=True)
+        for record in policy['repository_files']:
+            path = Path(record['path'])
+            self.assertEqual(path.read_text(), 'before\n')
+            self.assertEqual(list(path.parent.glob(path.name + '.*~')), [])
+        self.run_tasks(tasks, variables)
+        for record in policy['repository_files']:
+            path = Path(record['path'])
+            self.assertEqual(path.read_text(), 'after\n')
+            backups = list(path.parent.glob(path.name + '.*~'))
+            self.assertEqual(len(backups), 1)
+            self.assertEqual(backups[0].read_text(), 'before\n')
+        output = self.run_tasks(tasks, variables)
+        self.assertIn('"repository_changes": 0', output)
+        for record in policy['repository_files']:
+            path = Path(record['path'])
+            self.assertEqual(len(list(path.parent.glob(path.name + '.*~'))), 1)
+
+    def test_native_copy_refuses_unknown_sources_before_writing(self):
+        tasks, policy, sources = self.configuration_fixture()
+        (sources / 'unknown.sources').write_text('unreviewed\n')
+        self.run_tasks(tasks, {'proxmox_maintenance_policy': policy}, success=False)
+        for record in policy['repository_files']:
+            self.assertEqual(Path(record['path']).read_text(), 'before\n')
+        self.assertEqual((sources / 'unknown.sources').read_text(), 'unreviewed\n')
+
+    def test_native_copy_refuses_alias_and_changed_key_before_writing(self):
+        tasks, policy, _ = self.configuration_fixture()
+        path = Path(policy['repository_files'][0]['path'])
+        target = self.directory / 'alias-target'; target.write_text('untouched\n')
+        path.unlink(); path.symlink_to(target)
+        self.run_tasks(tasks, {'proxmox_maintenance_policy': policy}, success=False)
+        self.assertTrue(path.is_symlink()); self.assertEqual(target.read_text(), 'untouched\n')
+        # Repair only this fixture's alias to test the independent signing-key refusal.
+        path.unlink(); path.write_text('before\n'); path.chmod(0o644)
+        policy['keyrings'][0]['sha256'] = '0' * 64
+        self.run_tasks(tasks, {'proxmox_maintenance_policy': policy}, success=False)
+        for record in policy['repository_files']:
+            self.assertEqual(Path(record['path']).read_text(), 'before\n')
 
 
 if __name__ == '__main__': unittest.main()

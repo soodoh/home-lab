@@ -8,40 +8,12 @@ const { load } = require("js-yaml");
 
 const root = path.resolve(__dirname, "../..");
 const yaml = (relative) => load(fs.readFileSync(path.join(root, relative), "utf8"));
-const tasks = yaml("ansible/roles/proxmox_package_plan/tasks/main.yml");
-const play = yaml("ansible/playbooks/proxmox-packages-plan.yml")[0];
-const inventory = yaml("ansible/inventory/proxmox-production.yml");
-const group = yaml("ansible/group_vars/proxmox_host.yml");
-const allowed = new Set(["ansible.builtin.assert", "ansible.builtin.command", "ansible.builtin.debug", "ansible.builtin.set_fact", "ansible.builtin.slurp", "ansible.builtin.stat"]);
-for (const task of tasks) {
-  const modules = Object.keys(task).filter((key) => key.startsWith("ansible.builtin."));
-  assert.equal(modules.length, 1, `${task.name} must use one builtin module`);
-  assert(allowed.has(modules[0]), `${task.name} has mutation module ${modules[0]}`);
+for (const retired of ["ansible/roles/proxmox_package_plan", "ansible/roles/proxmox_complete_audit",
+  "ansible/playbooks/proxmox-packages-plan.yml", "ansible/inventory/proxmox-production.yml"]) {
+  assert(!fs.existsSync(path.join(root, retired)), `retired custom package planning source remains: ${retired}`);
 }
-const fetch = tasks.find((task) => task.name === "Fetch the bounded Proxmox package candidate through ansible-plan");
-assert(fetch);
-assert.equal(fetch.changed_when, false);
-assert.equal(fetch.check_mode, false);
-assert.equal(fetch.no_log, true);
-const argv = fetch["ansible.builtin.command"].argv;
-for (const required of ["proxmox_controller_ssh_options", "UserKnownHostsFile=", "proxmox_plan_ssh_target", "proxmox_package_observer_remote_command"]) {
-  assert(argv.includes(required), `fixed package fetch omits ${required}`);
-}
-const publish = tasks.find((task) => task.name === "Publish Proxmox package readiness without authorizing apply");
-assert.equal(publish["ansible.builtin.set_fact"].proxmox_package_plan_observation.apply_authorized, false);
-assert.equal(group.proxmox_package_observer_remote_command, "observe-package");
-assert.deepEqual(play.roles.map((role) => role.role), ["proxmox_complete_audit", "proxmox_package_plan"]);
-assert.equal(play.become, false);
-assert.equal(inventory.all.children.proxmox_host.hosts["proxmox-host-production"].ansible_connection, "local");
-const source = fs.readFileSync(path.join(root, "ansible/roles/proxmox_package_plan/tasks/main.yml"), "utf8");
-for (const required of ["package_observer_sha256", "package_observer_template_sha256", "apt-state-tree-unsafe", "package-size-evidence-incomplete", "saved-reviewed-plan-required"]) {
-  assert(source.includes(required), `Proxmox package plan omits ${required}`);
-}
-for (const forbidden of ["ansible-deploy", "apt-get", "become: true", "shell:", "raw:"]) {
-  assert(!source.includes(forbidden), `Proxmox package plan exposes ${forbidden}`);
-}
-// Native sampling is independently runnable from a fresh checkout. It must not
-// become a bypass into the retained complete-audit or activation interfaces.
+// Native inventory is independently runnable from a fresh checkout and grants no
+// mutation authority.
 const nativePlay = yaml("ansible/playbooks/observe-proxmox-packages.yml")[0];
 const nativeTasks = yaml("ansible/roles/proxmox_package_observe/tasks/main.yml");
 assert.equal(nativePlay.hosts, "proxmox");
@@ -51,30 +23,61 @@ assert.deepEqual(nativePlay.roles.map((role) => role.role), ["proxmox_observe", 
 for (const task of nativeTasks) {
   const modules = Object.keys(task).filter((key) => key.startsWith("ansible.builtin."));
   assert.equal(modules.length, 1);
-  assert(new Set(["ansible.builtin.assert", "ansible.builtin.command", "ansible.builtin.debug", "ansible.builtin.set_fact", "ansible.builtin.fail"]).has(modules[0]));
+  assert(new Set(["ansible.builtin.assert", "ansible.builtin.command", "ansible.builtin.debug", "ansible.builtin.package_facts"]).has(modules[0]));
 }
 const nativeCommands = nativeTasks.filter((task) => task["ansible.builtin.command"]);
-assert.equal(nativeCommands.length, 1);
-const sample = nativeCommands[0];
-assert.deepEqual(sample["ansible.builtin.command"].argv, ["/usr/bin/python3", "-I", "-B", "-", "observe", "proxmox"]);
-assert.equal(sample.changed_when, false);
-assert.equal(sample.failed_when, false); // Deferred only to the immediately following fixed-category failure.
-const failure = nativeTasks[nativeTasks.indexOf(sample) + 1];
-assert(failure["ansible.builtin.fail"]);
-assert.equal(failure.when, "proxmox_package_observe_raw.rc | default(-1) != 0");
-assert.equal(sample.check_mode, false);
-assert.equal(sample.no_log, true);
-assert.equal(sample.timeout, 600);
-const stdin = sample["ansible.builtin.command"].stdin;
-assert(stdin.includes("infrastructure/maintenance/host/package-candidate-observer"));
-assert(stdin.includes("infrastructure/host-lifecycle/proxmox/package-manifest.json"));
+assert.deepEqual(nativeCommands.map((task) => task["ansible.builtin.command"].argv), [
+  ["/usr/bin/dpkg", "--audit"], ["/usr/bin/apt-mark", "showhold"],
+]);
+for (const sample of nativeCommands) {
+  assert.equal(sample.changed_when, false);
+  assert.equal(sample.failed_when, undefined);
+  assert.equal(sample.check_mode, false);
+  assert.equal(sample.no_log, true);
+  assert.equal(sample.timeout, 60);
+}
+const facts = nativeTasks.find((task) => task["ansible.builtin.package_facts"]);
+assert.deepEqual(facts["ansible.builtin.package_facts"], {manager: "apt", strategy: "first"});
+assert.equal(facts.no_log, true);
 const nativeSource = JSON.stringify(nativeTasks);
-for (const forbidden of ["nix/", ".local/", ".reconcile/", "artifact_dir", "ansible-plan", "ansible-deploy", "save-host-maintenance-plan", "cacheable"])
+for (const forbidden of ["nix/", ".local/", ".reconcile/", "artifact_dir", "ansible-plan", "ansible-deploy", "save-host-maintenance-plan", "cacheable", "package-candidate-observer", "package-manifest", "apt-get"])
   assert(!nativeSource.includes(forbidden), `native sampling depends on ${forbidden}`);
 const nativeReport = nativeTasks.find((task) => task["ansible.builtin.debug"])["ansible.builtin.debug"].msg;
 assert.equal(nativeReport.apply_authorized, false);
 assert.equal(nativeReport.metadata_refresh_performed, false);
-assert(!JSON.stringify(nativeReport).includes("proxmox_package_observe_raw"));
-assert.equal(yaml("ansible/inventory/host_vars/proxmox.yml").proxmox_package_observe_max_age_seconds,
-  yaml("infrastructure/contract/home-lab.yml").lifecycle.maintenance.package_plan.max_metadata_age_seconds);
-console.log("proxmox_package_plan=verified");
+assert.equal(nativeReport.candidate_preview_performed, false);
+assert.equal(nativeReport.held_packages, "{{ proxmox_package_holds.stdout_lines | length }}");
+
+// The maintenance path uses core APT, not our collector, manifest or saved plans.
+// Its exact no-refresh no-op production cutover completed without package changes.
+const maintenancePlay = yaml("ansible/playbooks/maintain-proxmox-packages.yml")[0];
+assert.equal(maintenancePlay.hosts, "proxmox");
+assert.equal(maintenancePlay.serial, 1);
+assert.equal(maintenancePlay.any_errors_fatal, true);
+assert.deepEqual(maintenancePlay.roles.map((role) => role.role),
+  ["proxmox_observe", "proxmox_package_observe", "proxmox_package_maintenance"]);
+assert.equal(maintenancePlay.pre_tasks, undefined);
+const maintenance = yaml("ansible/roles/proxmox_package_maintenance/tasks/main.yml");
+assert(maintenance.every((task) => Object.keys(task).some((key) =>
+  ["ansible.builtin.apt", "ansible.builtin.assert", "ansible.builtin.debug"].includes(key))));
+const aptTasks = maintenance.filter((task) => task["ansible.builtin.apt"]);
+assert.equal(aptTasks.length, 2);
+for (const task of aptTasks) {
+  const apt = task["ansible.builtin.apt"];
+  for (const field of ["auto_install_module_deps", "allow_downgrade", "allow_change_held_packages", "allow_unauthenticated", "autoremove", "autoclean", "clean", "force"])
+    assert.equal(apt[field], false, field);
+  assert.equal(apt.fail_on_autoremove, true);
+  assert.equal(apt.force_apt_get, true);
+  assert.equal(apt.lock_timeout, 0);
+  assert.equal(apt.cache_valid_time, 0);
+  assert.equal(apt.update_cache, "{{ proxmox_package_refresh_metadata }}");
+  assert.equal(apt.dpkg_options, "force-confold");
+  assert.equal(task.check_mode, undefined);
+  assert.equal(task.no_log, true);
+  assert.equal(task.diff, false);
+}
+assert.equal(aptTasks[0]["ansible.builtin.apt"].name, "{{ proxmox_package_specs }}");
+assert.equal(aptTasks[1]["ansible.builtin.apt"].upgrade, "dist");
+for (const forbidden of ["nix/", ".local/", ".reconcile/", "manifest", "collector", "receipt", "activator", "save-host-maintenance-plan", "command", "shell"])
+  assert(!JSON.stringify(maintenance).includes(forbidden), forbidden);
+console.log("proxmox_native_package_inventory_and_maintenance=verified legacy_plan=absent");

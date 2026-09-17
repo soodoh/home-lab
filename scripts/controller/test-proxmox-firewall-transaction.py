@@ -74,7 +74,7 @@ class HostTests(unittest.TestCase):
             (self.m.SYSTEMD/name).write_text(name); (self.m.SYSTEMD/name).chmod(0o644)
         for service in ("pve-firewall.service","proxmox-firewall.service"):
             directory=self.m.SYSTEMD/(service+".d"); directory.mkdir(); (directory/"50-home-lab-firewall-recovery.conf").write_text("dropin"); (directory/"50-home-lab-firewall-recovery.conf").chmod(0o644)
-        projection=json.loads((ROOT/"nix/proxmox/projection.json").read_bytes()); self.policy=projection["apiIntent"]["pveFirewall"]
+        self.policy=json.loads((ROOT/"infrastructure/proxmox-firewall/host/proxmox-firewall-policy.json").read_bytes())
         self.m.POLICY.write_bytes(self.m.canonical(self.policy)); self.m.POLICY.chmod(0o644)
         self.m.EXPECTED_UID=self.m.POLICY.stat().st_uid; self.m.EXPECTED_GID=self.m.POLICY.stat().st_gid; self.m.require_isolated_access=lambda:None; self.runner=FakeRunner()
     def tearDown(self): self.temp.cleanup()

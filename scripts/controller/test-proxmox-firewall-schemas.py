@@ -25,9 +25,9 @@ class SchemaTests(unittest.TestCase):
   text=FILES[0].read_text()
   for field in ("lanSshTarget","lanTlsUrl","tailnetSshTarget","tailnetTlsUrl","pveCaPem","tailscalePingTarget","archNfsSshTarget"):
    self.assertNotIn(field,text)
- def test_bootstrap_and_protected_preparer_require_distinct_firewall_key(self):
-  prepare=(ROOT/"scripts/prepare-proxmox-nix-protected-inputs").read_text(); docs=(ROOT/"docs/legacy-host-recovery.md").read_text()
-  self.assertIn('proxmox-firewall-authorized-keys',prepare); self.assertIn('proxmox-{plan,apply,firewall}-authorized-keys',docs)
+ def test_protected_key_inputs_keep_distinct_firewall_identity(self):
+  docs=(ROOT/"docs/legacy-host-recovery.md").read_text()
+  self.assertIn('proxmox-{plan,apply,firewall}-authorized-keys',docs)
   validator=ROOT/"scripts/validate-proxmox-bootstrap-keys"; base={**os.environ,"PROXMOX_PLAN_SSH_PUBLIC_KEYS":"ssh-ed25519 AAAA plan-a\nssh-ed25519 AAAB plan-b","PROXMOX_APPLY_SSH_PUBLIC_KEYS":"ssh-ed25519 AAAC apply","PROXMOX_FIREWALL_SSH_PUBLIC_KEYS":"ssh-ed25519 AAAD firewall"}
   self.assertEqual(subprocess.run((validator,),env=base,capture_output=True).returncode,0)
   overlap=dict(base); overlap["PROXMOX_FIREWALL_SSH_PUBLIC_KEYS"]="ssh-ed25519 AAAB different-firewall-comment"
@@ -40,9 +40,9 @@ class SchemaTests(unittest.TestCase):
                    "boot-commit-config-verified", "Persistent=true", "120 seconds", "32 MiB", "48 MiB",
                    "Unknown or malformed runtime remnants keep both backends blocked"):
    self.assertIn(boundary,docs)
- def test_retained_package_planning_does_not_grant_firewall_authority(self):
-  plan=(ROOT/"ansible/playbooks/proxmox-packages-plan.yml").read_text(); self.assertIn("role: proxmox_complete_audit",plan); self.assertIn("become: false",plan); self.assertNotIn("ansible-deploy",plan); self.assertNotIn("proxmox_firewall",plan)
-  self.assertFalse((ROOT/"ansible/roles/proxmox_firewall").exists()); self.assertFalse((ROOT/"ansible/roles/proxmox_host").exists())
+ def test_native_package_maintenance_does_not_grant_firewall_authority(self):
+  plan=(ROOT/"ansible/playbooks/maintain-proxmox-packages.yml").read_text(); self.assertIn("role: proxmox_package_maintenance",plan); self.assertNotIn("ansible-deploy",plan); self.assertNotIn("proxmox_firewall",plan)
+  self.assertFalse((ROOT/"ansible/playbooks/proxmox-packages-plan.yml").exists()); self.assertFalse((ROOT/"ansible/roles/proxmox_firewall").exists()); self.assertFalse((ROOT/"ansible/roles/proxmox_host").exists())
   inventory=(ROOT/"ansible/inventory/infrastructure.yml").read_text(); self.assertNotIn("proxmox_hosts:",inventory)
  def test_boot_and_timer_units_have_fixed_two_phase_order(self):
   files=ROOT/"infrastructure/proxmox-firewall/host"

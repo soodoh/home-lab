@@ -9,81 +9,24 @@ const { load } = require("js-yaml");
 const root = path.resolve(__dirname, "../..");
 const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
 const yaml = (relative) => load(read(relative));
-const production = yaml("ansible/inventory/proxmox-production.yml");
-const bootstrap = yaml("ansible/inventory/proxmox-bootstrap.yml");
-const groupVars = yaml("ansible/group_vars/proxmox_host.yml");
-const playbook = yaml("ansible/playbooks/proxmox-packages-plan.yml");
-assert(!fs.existsSync(path.join(root, "ansible/playbooks/proxmox-audit.yml")), "obsolete standalone audit entrypoint remains");
-const tasks = yaml("ansible/roles/proxmox_complete_audit/tasks/main.yml");
-
-const host = production.all.children.proxmox_host.hosts["proxmox-host-production"];
-assert.equal(host.ansible_connection, "local");
-assert.equal(host.lifecycle_contract_host, "proxmox");
-assert.equal(host.lifecycle_profile, "production");
-assert.equal(host.proxmox_audit_profile, "complete");
-assert.equal(host.proxmox_plan_identity, "ansible-plan");
-assert.equal(host.proxmox_deploy_identity, "ansible-deploy");
-assert.notEqual(host.proxmox_plan_identity, host.proxmox_deploy_identity);
-assert.equal(host.proxmox_plan_ssh_target, "ansible-plan@proxmox");
-assert(!("ansible_user" in host), "fixed production audit must not expose a generic Ansible SSH shell");
-assert(host.proxmox_observer_artifact_dir.includes("HOME_LAB_PROXMOX_OBSERVER_ARTIFACT"));
-
-for (const required of ["-F", "/dev/null", "BatchMode=yes", "StrictHostKeyChecking=yes", "UpdateHostKeys=no",
-  "IdentitiesOnly=yes", "ClearAllForwardings=yes", "PermitLocalCommand=no", "RequestTTY=no"]) {
-  assert(groupVars.proxmox_controller_ssh_options.includes(required), `fixed audit SSH policy omits ${required}`);
-}
-assert.equal(groupVars.proxmox_observer_remote_command, "observe");
-assert.equal(groupVars.proxmox_complete_audit_domain_count, 17);
-
-const bootstrapHost = bootstrap.all.children.proxmox_host.hosts["proxmox-host-bootstrap"];
-assert.equal(bootstrapHost.lifecycle_profile, "bootstrap");
-for (const required of ["StrictHostKeyChecking=yes", "UpdateHostKeys=no", "UserKnownHostsFile=", "IdentitiesOnly=yes"]) {
-  assert(bootstrapHost.ansible_ssh_common_args.includes(required), `bootstrap SSH policy omits ${required}`);
-}
-assert(!bootstrapHost.ansible_ssh_common_args.includes("StrictHostKeyChecking=no"));
-assert(bootstrapHost.ansible_host.includes("HOME_LAB_PROXMOX_BOOTSTRAP_HOST"));
-assert(bootstrapHost.ansible_ssh_common_args.includes("HOME_LAB_PROXMOX_BOOTSTRAP_KNOWN_HOSTS"));
-
-assert.equal(playbook.length, 1);
-assert.equal(playbook[0].hosts, "proxmox_host");
-assert.equal(playbook[0].gather_facts, false);
-assert.equal(playbook[0].become, false);
-assert.deepEqual(playbook[0].roles, [{ role: "proxmox_complete_audit" }, { role: "proxmox_package_plan" }]);
-
-const allowedModules = new Set(["ansible.builtin.assert", "ansible.builtin.command", "ansible.builtin.debug", "ansible.builtin.set_fact", "ansible.builtin.stat"]);
-for (const task of tasks) {
-  const modules = Object.keys(task).filter((key) => key.startsWith("ansible.builtin."));
-  assert.equal(modules.length, 1, `${task.name} must use exactly one Ansible module`);
-  assert(allowedModules.has(modules[0]), `${task.name} uses mutation-capable module ${modules[0]}`);
-  if (modules[0] === "ansible.builtin.command") {
-    assert.equal(task.changed_when, false, `${task.name} must report no change`);
-    assert.equal(task.check_mode, false, `${task.name} must remain observable in check mode`);
-    assert.equal(task.no_log, true, `${task.name} must suppress the full observation`);
-  }
+for (const retired of ["ansible/inventory/proxmox-production.yml", "ansible/inventory/proxmox-bootstrap.yml",
+  "ansible/group_vars/proxmox_host.yml", "ansible/playbooks/proxmox-packages-plan.yml",
+  "ansible/roles/proxmox_complete_audit", "ansible/roles/proxmox_package_plan",
+  "scripts/controller/build-proxmox-ansible-observer.js", "scripts/controller/proxmox-ansible-audit.js"]) {
+  assert(!fs.existsSync(path.join(root, retired)), `retired artifact/audit source remains: ${retired}`);
 }
 
-const roleSource = read("ansible/roles/proxmox_complete_audit/tasks/main.yml");
-for (const required of ["ansible-plan", "UserKnownHostsFile=", "proxmox-ansible-audit.js", "stdin_add_newline: true"]) {
-  assert(roleSource.includes(required), `complete audit role omits ${required}`);
-}
-for (const forbidden of ["StrictHostKeyChecking=no", "accept-new", "ansible_user: proxmox", "/usr/local/libexec/home-lab/proxmox-observer"]) {
-  assert(!roleSource.includes(forbidden), `complete audit role retains forbidden dependency ${forbidden}`);
-}
-const validatorSource = read("scripts/controller/proxmox-ansible-audit.js");
-for (const forbidden of ["nix/proxmox", "child_process", "execSync", "spawnSync", "shell: true"]) {
-  assert(!validatorSource.includes(forbidden), `neutral validator retains forbidden dependency ${forbidden}`);
-}
-
-// Native capability observation is separate from the retained 17-domain audit.
-// It must work without an artifact directory, installed Nix helpers or old receipts.
+// Native capability observation works without an artifact directory, installed
+// Nix helpers or old receipts.
 const nativePlay = yaml("ansible/playbooks/observe-proxmox.yml");
 assert.equal(nativePlay.length, 1);
 assert.equal(nativePlay[0].hosts, "proxmox");
 assert.equal(nativePlay[0].gather_facts, false);
 assert.deepEqual(nativePlay[0].roles, [{ role: "proxmox_observe" }]);
 const nativeVars = yaml("ansible/inventory/host_vars/proxmox.yml");
-const nativeTasks = yaml("ansible/roles/proxmox_observe/tasks/main.yml");
-const nativeSource = read("ansible/roles/proxmox_observe/tasks/main.yml");
+const nativeTasks = yaml("ansible/roles/proxmox_observe/tasks/main.yml").flatMap((task) =>
+  task["ansible.builtin.import_tasks"] === "owners.yml" ? yaml("ansible/roles/proxmox_observe/tasks/owners.yml") : [task]);
+const nativeSource = read("ansible/roles/proxmox_observe/tasks/main.yml") + read("ansible/roles/proxmox_observe/tasks/owners.yml");
 for (const forbidden of ["nix/", "bootstrap-proxmox", ".local/", ".reconcile/", "manifest.json", "proxmox-observer observe", "proxmox-private-preparer"])
   assert(!nativeSource.includes(forbidden), `native observation depends on ${forbidden}`);
 const nativeAllowed = new Set(["assert", "setup", "command", "service_facts", "stat", "set_fact", "debug"]);
@@ -118,24 +61,60 @@ assert.equal(collect.environment.no_proxy, "127.0.0.1,localhost");
 for (const task of nativeTasks.filter((t) => t["ansible.builtin.assert"] && JSON.stringify(t).includes("proxmox_observe_protected.stdout")))
   assert.equal(task.no_log, true, "raw protected responses must not enter failure logs");
 const spec = nativeVars.proxmox_observe_protected_spec;
-assert.equal(spec.legacyTofuAccessRequired, false);
-assert.equal(spec.conventionalKeysAbsent, true);
+assert.equal(spec.conventionalKeyPolicy, "single-inert-pve-root-key");
+assert.equal(spec.permittedRootKeyFingerprint, "SHA256:Je+jcqxxdCTlcMc8sZToiF3oZrLIJ+N6mxNhiosUIXw");
 assert.equal(spec.protectedAccessExpectedCount, 3);
 assert.equal(spec.node, "proxmox");
 assert.equal(spec.pool, "storage");
-const { projectProxmoxPolicy } = require("./proxmox-host-projection");
-const contract = yaml("infrastructure/contract/home-lab.yml");
-const projection = projectProxmoxPolicy(contract, JSON.parse(read(contract.proxmox.packages.manifest.path)));
-assert.deepEqual(spec.pveAccessBindings, projection.apiIntent.pveAccess.bindings);
+assert(Array.isArray(spec.pveAccessBindings) && spec.pveAccessBindings.length > 0);
+const collectorSource = read("infrastructure/host-lifecycle/proxmox/protected-collector-template.py");
+for (const required of ["def inert_root_key_ok()", 'os.readlink(ROOT_KEY_LINK) != str(PVE_ROOT_KEY)',
+  '"pubkeyauthentication no" in effective', '"permitrootlogin no" in effective',
+  'observed == SPEC["permittedRootKeyFingerprint"]'])
+  assert(collectorSource.includes(required), `protected collector lacks inert-root-key guard: ${required}`);
 const nativePolicy = nativeVars.proxmox_maintenance_policy;
-assert.deepEqual(nativePolicy.repository_files, projection.managedFiles.filter((file) =>
-  file.path === "/etc/apt/sources.list" || file.path.startsWith("/etc/apt/sources.list.d/")));
-assert.deepEqual(nativePolicy.keyrings, projection.managedArtifacts.map((file) => ({
-  path: file.path, sha256: file.sha256, symlink_target: file.symlinkTarget,
-})));
+assert.equal(nativePolicy.repository_files.length, 5);
+assert.equal(nativePolicy.keyrings.length, 3);
+for (const file of nativePolicy.repository_files) {
+  assert(file.path === "/etc/apt/sources.list" || file.path.startsWith("/etc/apt/sources.list.d/"));
+  assert.equal(file.owner, "root");
+  assert.equal(file.group, "root");
+  assert.equal(file.mode, "0644");
+}
+for (const keyring of nativePolicy.keyrings) {
+  assert(keyring.path.startsWith("/usr/share/keyrings/"));
+  assert.match(keyring.sha256, /^[0-9a-f]{64}$/u);
+}
 assert.deepEqual(nativePolicy.chrony_service, { active: true, enabled: true });
+const retirementPlay = yaml("ansible/playbooks/retire-proxmox-legacy-access.yml")[0];
+assert.deepEqual(retirementPlay.roles, [{ role: "proxmox_observe" }, { role: "proxmox_legacy_access_retire" }]);
+const retirementSource = read("ansible/roles/proxmox_legacy_access_retire/tasks/main.yml");
+for (const required of ["proxmox_legacy_retained_checksums", "force: false", "item.stat.checksum == item.item.stat.checksum or",
+  "Verify exact installed retirement boundary", "proxmox-restic-recovery-transport"])
+  assert(retirementSource.includes(required), `legacy retirement lacks guarded boundary: ${required}`);
 const nativeSummary = nativeTasks.at(-1)["ansible.builtin.debug"].msg;
 assert.equal(nativeSummary.complete_host_parity, false);
 assert.equal(nativeSummary.exclusive_snapshot, false);
 assert.equal(nativeSummary.maintenance_authorized, false);
-console.log("proxmox_complete_audit=verified domains=17 native_capability_source=verified");
+const configurePlay = yaml("ansible/playbooks/configure-proxmox-maintenance.yml")[0];
+assert.equal(configurePlay.hosts, "proxmox");
+assert(configurePlay.pre_tasks[0]["ansible.builtin.assert"].that.includes("inventory_hostname == 'proxmox'"));
+assert.deepEqual(configurePlay.pre_tasks.at(-1)["ansible.builtin.import_role"], {name: "proxmox_observe", tasks_from: "owners"});
+const configuration = yaml("ansible/roles/proxmox_maintenance/tasks/main.yml");
+for (const task of configuration) {
+  const modules = Object.keys(task).filter((key) => key.startsWith("ansible.builtin."));
+  assert.equal(modules.length, 1);
+  assert(["ansible.builtin.assert", "ansible.builtin.stat", "ansible.builtin.find", "ansible.builtin.copy", "ansible.builtin.systemd_service", "ansible.builtin.debug"].includes(modules[0]));
+  assert.equal(task.check_mode, undefined);
+}
+const copyTask = configuration.find((task) => task["ansible.builtin.copy"]);
+assert.equal(copyTask["ansible.builtin.copy"].backup, true);
+assert.equal(copyTask["ansible.builtin.copy"].follow, false);
+assert.equal(copyTask["ansible.builtin.copy"].unsafe_writes, false);
+assert.equal(copyTask.diff, false);
+assert.equal(copyTask.no_log, true);
+assert.deepEqual(configuration.find((task) => task["ansible.builtin.systemd_service"])["ansible.builtin.systemd_service"],
+  {name: "chrony.service", enabled: true, state: "started"});
+for (const forbidden of ["nix/", "manifest", "receipt", "activator", "shell", "command", "ansible.builtin.apt", "state: absent"])
+  assert(!JSON.stringify(configuration).includes(forbidden), forbidden);
+console.log("proxmox_native_observation_and_configuration=verified legacy_artifact_audit=absent");

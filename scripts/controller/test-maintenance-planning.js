@@ -14,8 +14,6 @@ const rebootTasks = readYaml("ansible/roles/reboot_lifecycle/tasks/main.yml");
 const packagePlaybook = readYaml("ansible/playbooks/packages-plan.yml")[0];
 const rebootPlaybook = readYaml("ansible/playbooks/reboot-plan.yml")[0];
 const contract = readYaml("infrastructure/contract/home-lab.yml");
-const nixPlanner = fs.readFileSync(path.join(root, "nix/proxmox/planner.py"), "utf8");
-const nixActivator = fs.readFileSync(path.join(root, "nix/proxmox/activator-template.py"), "utf8");
 
 function task(tasks, name) {
   const matches = tasks.filter((item) => item.name === name);
@@ -111,8 +109,9 @@ for (const forbidden of [
 const rebootPublish = task(rebootTasks, "Publish reboot plan readiness without authorizing reboot");
 assert.equal(rebootPublish["ansible.builtin.set_fact"].reboot_lifecycle_observation.reboot_authorized, false);
 
+assert.equal(packagePlaybook.hosts, "docker_host");
+assert.equal(rebootPlaybook.hosts, "docker_host");
 for (const playbook of [packagePlaybook, rebootPlaybook]) {
-  assert.equal(playbook.hosts, "docker_host:proxmox_host");
   assert.equal(playbook.gather_facts, false);
   assert.equal(playbook.any_errors_fatal, true);
   assert.equal(playbook.serial, 1);
@@ -130,7 +129,8 @@ assert.equal(packagePolicy.apply_time_replan, false);
 assert.equal(packagePolicy.hosts.debian.allowed_apply_scope, "reviewed-exact-set");
 assert.equal(packagePolicy.hosts.debian.apply_authority, "exact-saved-package-transaction");
 assert.equal(packagePolicy.hosts.proxmox.allowed_apply_scope, "reviewed-exact-set");
-assert.equal(packagePolicy.hosts.proxmox.apply_authority, "protected-session");
+assert.equal(packagePolicy.hosts.proxmox.candidate_scope, "explicit-exact-version-or-dist-upgrade");
+assert.equal(packagePolicy.hosts.proxmox.apply_authority, "native-ansible-become");
 assert.equal(packagePolicy.hosts.debian.automatic_apply, false);
 assert.equal(packagePolicy.hosts.proxmox.automatic_apply, false);
 assert.equal(packagePolicy.hosts.debian.automatic_reboot, false);
@@ -138,9 +138,6 @@ assert.equal(packagePolicy.hosts.proxmox.automatic_reboot, false);
 assert.deepEqual(contract.lifecycle.hosts.proxmox.domain_handoffs.package_set, {
   current_owner: "ansible", target_owner: "ansible", state: "transferred", parity_required: true, single_writer: true,
 });
-assert(nixPlanner.includes("aggregate package actions remain closed until protected bootstrap"));
-assert(!nixActivator.includes("reconcile-package-set"));
-
 const rebootPolicy = contract.lifecycle.maintenance.reboot_plan;
 assert.equal(rebootPolicy.automatic, false);
 assert.equal(rebootPolicy.one_host_per_transaction, true);
@@ -153,4 +150,29 @@ assert(rebootPolicy.conflict_locks.includes("/run/lock/home-lab-debian-package.l
 assert.deepEqual(rebootPolicy.workload_order.proxmox, ["vm-100-shutdown", "host-reboot", "host-audit", "vm-100-startup", "debian-audit"]);
 assert(rebootPolicy.postchecks.debian.includes("production-audit"));
 
-console.log("maintenance_planning=verified");
+const nativeRebootPlay = readYaml("ansible/playbooks/reboot-proxmox.yml")[0];
+const nativeRebootTasks = readYaml("ansible/roles/proxmox_reboot/tasks/main.yml");
+assert.equal(nativeRebootPlay.hosts, "proxmox");
+assert.equal(nativeRebootPlay.serial, 1);
+assert.equal(nativeRebootPlay.any_errors_fatal, true);
+assert.deepEqual(nativeRebootPlay.roles.map((item) => item.role),
+  ["proxmox_observe", "proxmox_package_observe", "proxmox_reboot"]);
+const rebootBlock = nativeRebootTasks.find((item) => item.name === "Execute the attended native reboot with autonomous VM recovery");
+const nativeReboot = rebootBlock.block.find((item) => item["ansible.builtin.reboot"]);
+assert(nativeReboot);
+assert.equal(nativeReboot["ansible.builtin.reboot"].test_command, "/usr/sbin/pveversion");
+assert.equal(nativeReboot["ansible.builtin.reboot"].reboot_timeout, 900);
+const timer = rebootBlock.block.find((item) => item.name === "Arm a transient controller-loss rollback for VM 100");
+assert.deepEqual(timer["ansible.builtin.command"].argv.slice(0, 3),
+  ["/usr/bin/systemd-run", "--unit=home-lab-proxmox-vm100-recovery", "--on-active={{ proxmox_reboot_rollback_seconds }}s"]);
+assert(timer["ansible.builtin.command"].argv.includes("/usr/sbin/qm"));
+assert(timer["ansible.builtin.command"].argv.includes("start"));
+const nativeSource = JSON.stringify(nativeRebootTasks);
+for (const required of ["onboot: 1", "home-lab-restic-daily-local.service", "/usr/sbin/zpool", "pool 'storage' is healthy", "proxmox_reboot_console_confirmed", "proxmox_reboot_backup_confirmed", "proxmox_reboot_boot_id_after", "include_role"])
+  assert(nativeSource.includes(required), required);
+for (const forbidden of ["nix/", ".local/", ".reconcile/", "manifest", "receipt", "plan_sha256", "activator"])
+  assert(!nativeSource.includes(forbidden), forbidden);
+assert.equal(nativeRebootTasks.filter((item) => item["ansible.builtin.reboot"]).length, 0,
+  "reboot module must remain nested in the explicit block");
+assert(nativeSource.includes("not ansible_check_mode"));
+console.log("maintenance_planning=verified native_reboot=source-guarded");

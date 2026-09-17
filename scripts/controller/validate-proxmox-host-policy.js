@@ -80,7 +80,9 @@ function validateProxmoxHostPolicy(contract) {
     failures.push("native service set must contain exactly the required time, NFS, SSH, and Tailscale services");
   }
 
-  const finalAccess = proxmoxLifecycle.access_cutover.conventional_keys_target === "absent";
+  const finalAccess = ["absent", "single-inert-pve-root-key"].includes(
+    proxmoxLifecycle.access_cutover.conventional_keys_target,
+  );
   const serviceAccounts = proxmox.access.service_accounts;
   const serviceAccountNames = serviceAccounts.map((account) => account.name);
   const serviceAccountHomes = serviceAccounts.map((account) => account.home);
@@ -93,9 +95,9 @@ function validateProxmoxHostPolicy(contract) {
   if (duplicates(serviceAccountKeyRefs).length) failures.push("Proxmox service-account key references must be unique");
   if (duplicates(sudoersPaths).length) failures.push("Proxmox service-account sudoers paths must be unique");
   const expectedServiceAccounts = new Map([
-    ["tofu-plan", "PROXMOX_PLAN_SSH_PUBLIC_KEYS"],
-    ["tofu-apply", "PROXMOX_APPLY_SSH_PUBLIC_KEYS"],
-    ["firewall-apply", finalAccess ? null : "PROXMOX_FIREWALL_SSH_PUBLIC_KEYS"],
+    ["tofu-plan", null],
+    ["tofu-apply", null],
+    ["firewall-apply", null],
     ["ansible-plan", null],
     ["ansible-deploy", null],
   ]);
@@ -127,9 +129,7 @@ function validateProxmoxHostPolicy(contract) {
       failures.push(`service account ${account.name} authorized-keys path must stay under its home`);
     }
     const expectedShell = account.name === "firewall-apply" ? "/usr/local/libexec/home-lab/proxmox-firewall-transport" :
-      account.name === "tofu-apply" ? "/usr/local/libexec/home-lab/proxmox-apply-transport" :
-      account.name === "ansible-plan" ? "/usr/local/libexec/home-lab/proxmox-ansible-plan-transport" :
-      account.name === "ansible-deploy" ? "/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport" : "/bin/bash";
+      account.name === "ansible-deploy" ? "/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport" : "/usr/sbin/nologin";
     if (account.shell !== expectedShell || !account.create_home || !account.password_lock) {
       failures.push(`service account ${account.name} must retain its locked login identity`);
     }
@@ -137,48 +137,34 @@ function validateProxmoxHostPolicy(contract) {
   const planAccount = serviceAccounts.find((account) => account.name === "tofu-plan");
   const applyAccount = serviceAccounts.find((account) => account.name === "tofu-apply");
   const firewallAccount = serviceAccounts.find((account) => account.name === "firewall-apply");
-  const observerCommand = "/usr/local/libexec/home-lab/proxmox-observer observe";
-  const packageObserverCommand = "/usr/local/libexec/home-lab/proxmox-package-candidate-observer observe proxmox";
-  const forcedPlanCommand = `restrict,command="sudo -n -- ${observerCommand}"`;
-  if (planAccount && (planAccount.groups.length || planAccount.sudo?.state !== "present" ||
-      planAccount.sudo?.file?.path !== `/etc/sudoers.d/${planAccount.name}` ||
-      planAccount.sudo?.rule !== `${planAccount.name} ALL=(root) NOPASSWD: ${observerCommand}` ||
-      planAccount.authorized_keys?.forced_command !== forcedPlanCommand)) {
-    failures.push("tofu-plan must have only the fixed observer capability during parity");
+  const retiredAccessIsInert = (account) => account.groups.length === 0 &&
+    account.authorized_keys?.state === "absent" && account.sudo?.kind === "audit-absence" &&
+    account.sudo?.absence === "file" && account.sudo?.path === `/etc/sudoers.d/${account.name}`;
+  if (planAccount && !retiredAccessIsInert(planAccount)) {
+    failures.push("tofu-plan must remain locked with no key or sudo capability");
   }
-  const applyTransport = "/usr/local/libexec/home-lab/proxmox-apply-transport";
-  const applySudo = "tofu-apply ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-private-preparer prepare, /usr/local/libexec/home-lab/proxmox-activator session";
-  if (applyAccount && (applyAccount.groups.length || applyAccount.sudo?.state !== "present" ||
-      applyAccount.sudo?.file?.path !== `/etc/sudoers.d/${applyAccount.name}` ||
-      applyAccount.sudo?.rule !== applySudo ||
-      applyAccount.authorized_keys?.forced_command !== `restrict,command="${applyTransport}"`)) {
-    failures.push("tofu-apply must expose only the fixed preparation and activation session capability");
+  if (applyAccount && !retiredAccessIsInert(applyAccount)) {
+    failures.push("tofu-apply must remain locked with no key or sudo capability");
   }
   const firewallHelper = "/usr/local/libexec/home-lab/proxmox-firewall-transaction";
   const firewallSudo = `firewall-apply ALL=(root) NOPASSWD: ${["inspect","begin","status","commit","rollback"].map((command) => `${firewallHelper} ${command}`).join(", ")}`;
-  const firewallAccessValid = finalAccess
-    ? firewallAccount?.authorized_keys?.state === "absent"
-    : firewallAccount?.authorized_keys?.forced_command === 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport"';
+  const firewallAccessValid = firewallAccount?.authorized_keys?.state === "absent";
   if (firewallAccount && (firewallAccount.groups.length || firewallAccount.sudo?.state !== "present" ||
       firewallAccount.sudo?.file?.path !== "/etc/sudoers.d/firewall-apply" || firewallAccount.sudo?.rule !== firewallSudo ||
       !firewallAccessValid)) {
     failures.push("firewall-apply must have only the fixed firewall transport capability");
   }
   const ansiblePlanAccount = serviceAccounts.find((account) => account.name === "ansible-plan");
-  if (ansiblePlanAccount && (ansiblePlanAccount.groups.length || ansiblePlanAccount.sudo?.state !== "present" ||
-      ansiblePlanAccount.sudo?.file?.path !== "/etc/sudoers.d/ansible-plan" ||
-      ansiblePlanAccount.sudo?.rule !== `ansible-plan ALL=(root) NOPASSWD: ${observerCommand}, ${packageObserverCommand}, /usr/local/libexec/home-lab/proxmox-controller-observer observe` ||
-      ansiblePlanAccount.authorized_keys?.state !== "absent")) {
-    failures.push("ansible-plan must expose only the fixed Tailscale observer transport");
+  if (ansiblePlanAccount && !retiredAccessIsInert(ansiblePlanAccount)) {
+    failures.push("ansible-plan must remain locked with no key or sudo capability");
   }
   const ansibleDeployAccount = serviceAccounts.find((account) => account.name === "ansible-deploy");
-  const deployActivator = "/usr/local/libexec/home-lab/proxmox-ansible-deploy-activator";
   const resticRecoveryTransport = "/usr/local/libexec/home-lab/proxmox-restic-recovery-transport";
   if (ansibleDeployAccount && (ansibleDeployAccount.groups.length || ansibleDeployAccount.sudo?.state !== "present" ||
       ansibleDeployAccount.sudo?.file?.path !== "/etc/sudoers.d/ansible-deploy" ||
-      ansibleDeployAccount.sudo?.rule !== `ansible-deploy ALL=(root) NOPASSWD: ${deployActivator}, ${resticRecoveryTransport}` ||
+      ansibleDeployAccount.sudo?.rule !== `ansible-deploy ALL=(root) NOPASSWD: ${resticRecoveryTransport}` ||
       ansibleDeployAccount.authorized_keys?.state !== "absent")) {
-    failures.push("ansible-deploy must expose only the fixed saved-plan and Restic recovery transports");
+    failures.push("ansible-deploy must expose only the fixed Restic recovery transport");
   }
 
   const humanNames = proxmox.access.human_accounts.map((account) => account.name);

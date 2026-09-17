@@ -46,31 +46,23 @@ and sudo only for preparer `prepare` and activator `session`. It accepted no
 caller-selected paths, identities, commands or token values. Interrupted creation
 rolls back created authority; retained recovery must use its exact journal.
 
-The host bootstrap exposes `check`, `install`, `verify`, gated `recover` and the
-narrow `diagnose-recovery` branch. **`check` and `verify` are not passive inspection:**
-they create/permission directories, acquire locks and reconcile pending files.
-The diagnostic branch is not a complete inventory or recovery proof. Ask for
-separate live inspection approval rather than invoking these as source checks.
-The installation path checks target, Git/bundle/input identity, space and authority
-locks. Its journaled installation includes observer, private preparer, activator, firewall transaction/
-transport/boot helpers, canonical policy, systemd units/drop-ins and root-only
-attestation key. It reloads definitions, enables boot recovery and the persistent
-rollback timer, starts the watchdog, and verifies exact bytes, key metadata,
-enablement and watchdog activity. Installation **does not activate firewall policy**.
-Never replace these assets from a guessed source generation to repair a hash mismatch.
+The historical host bootstrap exposed `check`, `install`, `verify`, gated
+`recover` and `diagnose-recovery`; even its checks could reconcile pending files.
+Its journaled installation included generated helpers plus autonomous-firewall
+assets. The final bounded native inspection found the install journal and all
+access/convergence/role/ACL/import journals absent. Their active-checkout writers
+and dispatchers were therefore retired with `nix/`; **there is no supported current
+bootstrap recovery command and the old Git version is not standing authority**.
 
-For a separately approved retained interruption, from an actual controlling Linux
-virtual console `/dev/ttyN`, select only the gate matching the journal:
+For historical analysis only, exact source is available at checkpoint `d7a4e208`
+and in the preserved host checkout. Previous-generation/install-manifest records,
+sealed runtime inputs and old before-images remain untouched. If a future inspection
+contradicts the final absence result, stop and review that exact generation at the
+physical console; do not check out and execute it merely because it exists.
+Autonomous firewall recovery remains independently installed and source-owned.
 
-| Retained operation | Required environment gate | Fixed recovery command |
-| --- | --- | --- |
-| Access bootstrap/convergence | `PROXMOX_NIX_ACCESS_RECOVER_CONFIRMED=recover-reviewed-access-bootstrap` | `scripts/bootstrap-proxmox-nix-access recover` |
-| Helper installation | `PROXMOX_NIX_BOOTSTRAP_RECOVER_CONFIRMED=recover-reviewed-helper-transaction` | `scripts/bootstrap-proxmox-nix-host recover` |
-| Apply-role refresh | `PROXMOX_NIX_ACCESS_ROLE_REFRESH_RECOVER_CONFIRMED=recover-reviewed-role-refresh` | `scripts/bootstrap-proxmox-nix-access recover` |
-| VM9900 plan ACL refresh | `PROXMOX_NIX_ACCESS_QUALIFICATION_ACL_RECOVER_CONFIRMED=recover-reviewed-qualification-acl` | `scripts/bootstrap-proxmox-nix-access recover` |
-| Import-storage prerequisite | `PROXMOX_NIX_IMPORT_STORAGE_RECOVER_CONFIRMED=recover-reviewed-import-storage` | `scripts/bootstrap-proxmox-nix-access recover` |
-
-These are distinct exact-before-state transactions, not generic repair switches.
+The historical operations below were distinct exact-before-state transactions,
+not generic repair switches.
 Legacy access convergence only accepted the proved old `/bin/bash`, unforced key,
 sudo group and `NOPASSWD: ALL` apply state after proving every other account/key/
 access file/token escrow/input. Role refresh only added contract-required `SDN.Use`
@@ -336,6 +328,6 @@ Repository and subprocess tests must cover:
 - boot configuration-recovery/post-verification/timer ordering, persistent missed firings, boot-owned state rejection, indefinite readiness cycles, queued backend starts, failure-stop handling, postcondition retry, and release-state fixtures; and
 - scans proving protected values and stable protected hashes do not enter plans, logs, fixtures, or shareable evidence.
 
-The host implementation lives under `infrastructure/proxmox-firewall/host` and is installed transactionally by `scripts/bootstrap-proxmox-nix-host`; the controller is `scripts/controller/proxmox-firewall.py`. The controller reads only the fixed root-owned controller key and canonical protected configuration under `~/.config/home-lab/controller/`; its public plan never contains those values. Its closed commands are `plan`, exact-hash `apply`, `status`, and exact-session `rollback`. Repository changes alone do not authorize production execution.
+The host implementation lives under `infrastructure/proxmox-firewall/host`; its historical Nix bootstrap installer is retired, while the installed autonomous runtime remains active. The controller is `scripts/controller/proxmox-firewall.py`. The controller reads only the fixed root-owned controller key and canonical protected configuration under `~/.config/home-lab/controller/`; its public plan never contains those values. Its closed commands are `plan`, exact-hash `apply`, `status`, and exact-session `rollback`. Repository changes alone do not authorize production execution.
 
 Independent review must pass after implementation and test evidence. Only then may an operator separately approve helper installation and, later, live activation with a physical console and tested LAN rollback session open.

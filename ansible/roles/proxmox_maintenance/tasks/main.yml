@@ -1,0 +1,165 @@
+---
+- name: Preserve the reviewed chrony service policy
+  ansible.builtin.assert:
+    that:
+      - proxmox_maintenance_policy.chrony_service == {'active':true, 'enabled':true}
+
+- name: Read repository parent metadata without following aliases
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  loop: "{{ proxmox_maintenance_policy.repository_files | map(attribute='path') | map('dirname') | unique }}"
+  register: proxmox_maintenance_parents
+
+- name: Require existing protected repository directories
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isdir
+      - not item.stat.islnk
+      - item.stat.uid == 0
+      - item.stat.gid == 0
+      - item.stat.mode in ['0755', '0750', '0700']
+    quiet: true
+  loop: "{{ proxmox_maintenance_parents.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Read existing repository file metadata
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  loop: "{{ proxmox_maintenance_policy.repository_files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: proxmox_maintenance_repositories
+
+- name: Require existing root-owned regular repository files before adoption
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - not item.stat.islnk
+      - item.stat.nlink == 1
+      - item.stat.uid == 0
+      - item.stat.gid == 0
+    quiet: true
+    fail_msg: This role adopts existing files; it does not bootstrap or replace aliases.
+  loop: "{{ proxmox_maintenance_repositories.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+- name: Find active repository definitions without removing unknown files
+  ansible.builtin.find:
+    paths: /etc/apt/sources.list.d
+    patterns: ['*.sources', '*.list']
+    file_type: any
+    hidden: true
+    follow: false
+    recurse: false
+  register: proxmox_maintenance_sources
+
+- name: Refuse unreviewed active repository definitions
+  ansible.builtin.assert:
+    that:
+      - proxmox_maintenance_sources.skipped_paths | length == 0
+      - >-
+        proxmox_maintenance_sources.files | map(attribute='path') | sort ==
+        proxmox_maintenance_policy.repository_files |
+        rejectattr('path', 'equalto', '/etc/apt/sources.list') | map(attribute='path') | sort
+    fail_msg: Active repository definitions differ; no files were deleted or adopted implicitly.
+
+- name: Read expected signing-key links without replacing keys
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  loop: "{{ proxmox_maintenance_policy.keyrings }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: proxmox_maintenance_key_links
+
+- name: Verify signing-key identities and exact allowed symlinks
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.uid == 0
+      - item.stat.gid == 0
+      - item.stat.nlink == 1
+      - >-
+        (item.item.symlink_target is none and item.stat.isreg and not item.stat.islnk) or
+        (item.item.symlink_target is not none and item.stat.islnk and
+         item.stat.lnk_target == item.item.symlink_target)
+    quiet: true
+  loop: "{{ proxmox_maintenance_key_links.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+- name: Read expected signing-key contents through verified links
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: true
+    checksum_algorithm: sha256
+    get_checksum: true
+    get_mime: false
+    get_attributes: false
+  loop: "{{ proxmox_maintenance_policy.keyrings }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: proxmox_maintenance_keys
+
+- name: Verify existing signing-key bytes without downloading replacements
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg
+      - item.stat.uid == 0
+      - item.stat.gid == 0
+      - item.stat.nlink == 1
+      - item.stat.mode == '0644'
+      - item.stat.checksum == item.item.sha256
+    quiet: true
+  loop: "{{ proxmox_maintenance_keys.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+
+- name: Maintain native repository content with host-local before-images
+  ansible.builtin.copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+    backup: true
+    follow: false
+    unsafe_writes: false
+  loop: "{{ proxmox_maintenance_policy.repository_files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: proxmox_maintenance_copy
+  diff: false
+  no_log: true
+
+- name: Keep chrony enabled and started without restarting a healthy service
+  ansible.builtin.systemd_service:
+    name: chrony.service
+    enabled: true
+    state: started
+
+- name: Report native maintenance configuration scope
+  ansible.builtin.debug:
+    msg:
+      check_mode: "{{ ansible_check_mode }}"
+      repository_changes: "{{ proxmox_maintenance_copy.results | selectattr('changed', 'equalto', true) | list | length }}"
+      metadata_refresh_performed: false
+      package_changes: false
+      automatic_reboot: false
+      scope: Existing repository files and chrony service only; not bootstrap or an atomic multi-file transaction.

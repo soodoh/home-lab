@@ -1,6 +1,6 @@
 ---
-- name: Build read-only host package proposals from existing metadata
-  hosts: docker_host:proxmox_host
+- name: Build read-only Debian host package proposals from existing metadata
+  hosts: docker_host
   gather_facts: false
   any_errors_fatal: true
   serial: 1
@@ -14,14 +14,4 @@
     - role: package_lifecycle
       vars:
         package_lifecycle_emit: true
-        package_lifecycle_expected_packages: >-
-          {{
-            (
-              lookup(
-                'ansible.builtin.file',
-                playbook_dir + '/../../' + proxmox.packages.manifest.path
-              ) | from_json
-            ).packages
-            if lifecycle_contract_host == 'proxmox'
-            else []
-          }}
+        package_lifecycle_expected_packages: []

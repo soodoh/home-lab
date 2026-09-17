@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 """Read-only protected summary collector. Retains sealed runtime format, not mutation authority."""
 
+import base64
+
 import datetime as dt
 
 import fcntl
@@ -8,6 +10,8 @@ import fcntl
 import hashlib
 
 import hmac
+
+import grp
 
 import json
 
@@ -51,9 +55,13 @@ SSH_DIRECTORY = "/" + "." + "ssh"
 
 KEY_NAMES = ("authorized" + "_" + "keys", "authorized" + "_" + "keys2")
 
+PVE_ROOT_KEY = Path(PVE_ROOT + "/priv/authorized_keys")
+
+ROOT_KEY_LINK = Path("/root/.ssh/authorized_keys")
+
 AUTHORIZED_KEY_ABSENCE_CATALOG = tuple(sorted({
-    *(PVE_ROOT + "/priv/" + name for name in KEY_NAMES),
-    *(("/" + "root") + SSH_DIRECTORY + "/" + name for name in KEY_NAMES),
+    PVE_ROOT + "/priv/authorized_keys2",
+    "/root/.ssh/authorized_keys2",
     *(f"/home/{account}" + SSH_DIRECTORY + "/" + name for account in ("proxmox", "firewall-apply", "ansible-plan", "ansible-deploy", "tofu-plan", "tofu-apply") for name in KEY_NAMES),
 }))
 
@@ -179,6 +187,39 @@ def read_fixed(path, required_mode=0o600, owner_name="root"):
             after = os.fstat(file_fd)
             if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != \
                     (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                return None
+            return b"".join(chunks).decode("utf-8", "strict")
+        finally:
+            os.close(file_fd)
+    except (OSError, KeyError, UnicodeError):
+        return None
+    finally:
+        os.close(fd)
+
+def read_fixed_group(path, owner_name, group_name, required_mode=0o600):
+    fd = os.open("/", os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        for component in path.parts[1:-1]:
+            child = os.open(component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            info = os.fstat(child)
+            if not stat.S_ISDIR(info.st_mode) or stat.S_IMODE(info.st_mode) & 0o022:
+                os.close(child); return None
+            os.close(fd); fd = child
+        file_fd = os.open(path.name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+        try:
+            before = os.fstat(file_fd)
+            if not stat.S_ISREG(before.st_mode) or before.st_uid != pwd.getpwnam(owner_name).pw_uid or \
+                    before.st_gid != grp.getgrnam(group_name).gr_gid or before.st_nlink != 1 or \
+                    stat.S_IMODE(before.st_mode) != required_mode or before.st_size > 256 * 1024:
+                return None
+            chunks = []
+            remaining = before.st_size
+            while remaining:
+                block = os.read(file_fd, min(65536, remaining))
+                if not block: return None
+                chunks.append(block); remaining -= len(block)
+            after = os.fstat(file_fd)
+            if fingerprint(before) != fingerprint(after):
                 return None
             return b"".join(chunks).decode("utf-8", "strict")
         finally:
@@ -410,19 +451,32 @@ def pve_mapping_matches(raw, expected):
         ("id" not in item or isinstance(item["id"], str) and
          re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{4}", item["id"]) is not None)
 
+def inert_root_key_ok():
+    try:
+        link = os.lstat(ROOT_KEY_LINK)
+        if not stat.S_ISLNK(link.st_mode) or link.st_uid != 0 or link.st_gid != 0 or \
+                os.readlink(ROOT_KEY_LINK) != str(PVE_ROOT_KEY):
+            return False
+        text = read_fixed_group(PVE_ROOT_KEY, "root", "www-data")
+        active = [line.split() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")] if text is not None else []
+        if len(active) != 1 or len(active[0]) < 2 or re.fullmatch(r"(?:ssh|ecdsa)-[^\s]+", active[0][0]) is None:
+            return False
+        decoded = base64.b64decode(active[0][1], validate=True)
+        observed = "SHA256:" + base64.b64encode(hashlib.sha256(decoded).digest()).decode("ascii").rstrip("=")
+        sshd = run(("/usr/sbin/sshd", "-T", "-C", "user=root,host=proxmox,addr=127.0.0.1,laddr=127.0.0.1,lport=22"))
+        effective = set(sshd.decode("utf-8", "strict").splitlines()) if sshd is not None else set()
+        return observed == SPEC["permittedRootKeyFingerprint"] and \
+            "pubkeyauthentication no" in effective and "permitrootlogin no" in effective
+    except (OSError, UnicodeError, ValueError):
+        return False
+
 def summaries():
     try:
         state = runtime_state()
         access = state["access"]
-        home = Path("/home")
-        human_ok = all(absent_fixed(home / "proxmox" / ".ssh" / name) for name in ("authorized_keys", "authorized_keys2"))
-        if SPEC["conventionalKeysAbsent"]:
-            conventional_ok = all(absent_fixed(Path(path)) for path in AUTHORIZED_KEY_ABSENCE_CATALOG)
-            firewall_ok = None
-        else:
-            firewall_text = read_fixed(home / "firewall-apply" / ".ssh" / "authorized_keys", owner_name="firewall-apply")
-            firewall_forced = 'restrict,command="/usr/local/libexec/home-lab/proxmox-firewall-transport" '
-            firewall_ok = firewall_text == "".join(firewall_forced + key + "\n" for key in access["firewallKeys"])
+        if SPEC["conventionalKeyPolicy"] != "single-inert-pve-root-key":
+            raise ValueError("protected conventional-key policy differs")
+        conventional_ok = inert_root_key_ok() and all(absent_fixed(Path(path)) for path in AUTHORIZED_KEY_ABSENCE_CATALOG)
         escrow = Path("/root") / ".config" / "home-lab"
         plan_escrow = read_fixed(escrow / "proxmox-plan-token.env")
         apply_escrow = read_fixed(escrow / "proxmox-apply-token.env")
@@ -436,14 +490,7 @@ def summaries():
         apply_token_ok = apply_escrow == "PROXMOX_VE_API_TOKEN=" + access["applyToken"] + "\n" and \
             token_valid(access["applyToken"]) and token_policy_valid(access["applyToken"], "apply", acl_records,
                                                                    access["applyTokenIdentity"])
-        access_checks = [conventional_ok, plan_token_ok, apply_token_ok] if SPEC["conventionalKeysAbsent"] else [human_ok, firewall_ok, plan_token_ok, apply_token_ok]
-        if SPEC["legacyTofuAccessRequired"]:
-            plan_forced = 'restrict,command="sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe" '
-            apply_forced = 'restrict,command="/usr/local/libexec/home-lab/proxmox-apply-transport" '
-            plan_text = read_fixed(home / "tofu-plan" / ".ssh" / "authorized_keys", owner_name="tofu-plan")
-            apply_text = read_fixed(home / "tofu-apply" / ".ssh" / "authorized_keys", owner_name="tofu-apply")
-            access_checks.extend((plan_text == "".join(plan_forced + key + "\n" for key in access["planKeys"]),
-                                  apply_text == "".join(apply_forced + key + "\n" for key in access["applyKeys"])))
+        access_checks = [conventional_ok, plan_token_ok, apply_token_ok]
         access_summary = summary_record(access_checks)
 
         hardware = state["hardware"]

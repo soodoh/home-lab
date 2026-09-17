@@ -1,124 +1,61 @@
 ---
-- name: Require an explicit native package observation age policy
+- name: Require the native Proxmox package inventory scope
   ansible.builtin.assert:
     that:
       - inventory_hostname == 'proxmox'
-      - proxmox_package_observe_max_age_seconds is integer
-      - proxmox_package_observe_max_age_seconds > 0
+      - ansible_connection == 'ssh'
+      - ansible_become | bool
 
-- name: Sample package candidates from existing metadata without installed helpers
-  become: true
+- name: Gather installed packages using the native APT bindings
+  ansible.builtin.package_facts:
+    manager: apt
+    strategy: first
+  no_log: true
+  timeout: 60
+
+- name: Check dpkg for unfinished package configuration without repairing it
   ansible.builtin.command:
-    argv:
-      - /usr/bin/python3
-      - -I
-      - -B
-      - '-'
-      - observe
-      - proxmox
-    stdin: >-
-      {{
-        lookup('ansible.builtin.file', role_path + '/../../../infrastructure/maintenance/host/package-candidate-observer') |
-        replace('@EXPECTED_PACKAGES_BASE64@',
-          (lookup('ansible.builtin.file', role_path + '/../../../infrastructure/host-lifecycle/proxmox/package-manifest.json') |
-           from_json).packages | to_json | b64encode)
-      }}
-  register: proxmox_package_observe_raw
+    argv: [/usr/bin/dpkg, --audit]
+  register: proxmox_package_audit
   changed_when: false
-  failed_when: false
   check_mode: false
   no_log: true
-  timeout: 600
+  timeout: 60
 
-# Only fixed strings leave the protected result. Unknown stderr, tracebacks and
-# command output are never copied into the failure message. Nonzero stays fatal.
-- name: Report a fixed package observation failure category
-  ansible.builtin.fail:
-    msg: >-
-      {{
-        {
-          'package-candidate-observer: package observer command unavailable': 'Package observation failed: native-command-unavailable.',
-          'package-candidate-observer: package observer command exceeded bound': 'Package observation failed: native-command-output-limit.',
-          'package-candidate-observer: package inventory unavailable': 'Package observation failed: inventory-unavailable.',
-          'package-candidate-observer: APT policy unavailable': 'Package observation failed: apt-policy-unavailable.',
-          'package-candidate-observer: APT policy candidate differs': 'Package observation failed: apt-candidate-mismatch.',
-          'package-candidate-observer: unrecognized APT transition': 'Package observation failed: apt-transition-unrecognized.',
-          'package-candidate-observer: version comparison unavailable': 'Package observation failed: version-comparison-unavailable.',
-          'package-candidate-observer: APT state changed during observation': 'Package observation failed: apt-state-changed.',
-          'package-candidate-observer: APT state read differs': 'Package observation failed: apt-state-read-differs.',
-          'package-candidate-observer: lock observation unavailable': 'Package observation failed: lock-observation-unavailable.'
-        }.get((proxmox_package_observe_raw.stderr | default('') | string).rstrip(),
-              'Package observation failed: unclassified; raw diagnostics withheld.')
-      }}
-  when: proxmox_package_observe_raw.rc | default(-1) != 0
-
-- name: Require a bounded successful package observation response
+- name: Refuse unfinished package configuration
   ansible.builtin.assert:
     that:
-      - proxmox_package_observe_raw.rc == 0
-      - proxmox_package_observe_raw.stderr == ''
-      - proxmox_package_observe_raw.stdout | length > 0
-      - proxmox_package_observe_raw.stdout | length <= 4194304
+      - proxmox_package_audit.rc == 0
+      - proxmox_package_audit.stdout == ''
+      - proxmox_package_audit.stderr == ''
+    fail_msg: dpkg requires separate inspection; no package repair was attempted.
   no_log: true
 
-- name: Decode the native package sample only in memory
-  ansible.builtin.set_fact:
-    proxmox_package_observe_sample: "{{ proxmox_package_observe_raw.stdout | from_json }}"
+- name: Read held package selections without changing them
+  ansible.builtin.command:
+    argv: [/usr/bin/apt-mark, showhold]
+  register: proxmox_package_holds
+  changed_when: false
+  check_mode: false
   no_log: true
+  timeout: 60
 
-- name: Validate native package sample fields before reporting them
+- name: Require successful native package reads
   ansible.builtin.assert:
     that:
-      - proxmox_package_observe_sample is mapping
-      - proxmox_package_observe_sample.version is integer
-      - proxmox_package_observe_sample.version == 2
-      - proxmox_package_observe_sample.host == 'proxmox'
-      - proxmox_package_observe_sample.metadata_refresh_performed is sameas false
-      - proxmox_package_observe_sample.installed_records is integer
-      - proxmox_package_observe_sample.installed_records >= 0
-      - proxmox_package_observe_sample.expected_manifest_records is integer
-      - proxmox_package_observe_sample.expected_manifest_records >= 0
-      - proxmox_package_observe_sample.manifest_matches is boolean
-      - proxmox_package_observe_sample.apt_tree_safe is boolean
-      - proxmox_package_observe_sample.size_parse_complete is boolean
-      - proxmox_package_observe_sample.metadata_age_seconds is none or proxmox_package_observe_sample.metadata_age_seconds is integer
-      - proxmox_package_observe_sample.solver is mapping
-      - proxmox_package_observe_sample.solver.returncode is integer
-      - proxmox_package_observe_sample.holds is sequence and proxmox_package_observe_sample.holds is not string and proxmox_package_observe_sample.holds is not mapping
-      - proxmox_package_observe_sample.kept_back is sequence and proxmox_package_observe_sample.kept_back is not string and proxmox_package_observe_sample.kept_back is not mapping
-      - proxmox_package_observe_sample.active_lifecycle_locks is sequence and proxmox_package_observe_sample.active_lifecycle_locks is not string and proxmox_package_observe_sample.active_lifecycle_locks is not mapping
-      - proxmox_package_observe_sample.change_counts is mapping
-      - proxmox_package_observe_sample.change_counts.keys() | sort == ['downgrade', 'install', 'remove', 'upgrade']
+      - ansible_facts.packages is mapping
+      - ansible_facts.packages | length > 0
+      - proxmox_package_holds.rc == 0
+      - proxmox_package_holds.stderr == ''
   no_log: true
 
-- name: Validate package change counts without exposing solver output
-  ansible.builtin.assert:
-    that:
-      - proxmox_package_observe_sample.change_counts[item] is integer
-      - proxmox_package_observe_sample.change_counts[item] >= 0
-  loop:
-    - install
-    - upgrade
-    - downgrade
-    - remove
-  no_log: true
-
-- name: Report package observations without granting maintenance authority
+- name: Report installed inventory without predicting a solver transaction
   ansible.builtin.debug:
     msg:
-      installed_records: "{{ proxmox_package_observe_sample.installed_records }}"
-      expected_manifest_records: "{{ proxmox_package_observe_sample.expected_manifest_records }}"
-      manifest_matches: "{{ proxmox_package_observe_sample.manifest_matches }}"
-      metadata_fresh: >-
-        {{ proxmox_package_observe_sample.metadata_age_seconds is integer and
-           0 <= proxmox_package_observe_sample.metadata_age_seconds <= proxmox_package_observe_max_age_seconds }}
-      solver_succeeded: "{{ proxmox_package_observe_sample.solver.returncode == 0 }}"
-      apt_tree_safe: "{{ proxmox_package_observe_sample.apt_tree_safe }}"
-      size_parse_complete: "{{ proxmox_package_observe_sample.size_parse_complete }}"
-      held_packages: "{{ proxmox_package_observe_sample.holds | length }}"
-      kept_back_packages: "{{ proxmox_package_observe_sample.kept_back | length }}"
-      active_lifecycle_locks: "{{ proxmox_package_observe_sample.active_lifecycle_locks | length }}"
-      change_counts: "{{ proxmox_package_observe_sample.change_counts }}"
+      installed_package_names: "{{ ansible_facts.packages | length }}"
+      held_packages: "{{ proxmox_package_holds.stdout_lines | length }}"
+      dpkg_audit: clean
       metadata_refresh_performed: false
+      candidate_preview_performed: false
       apply_authorized: false
-      scope: Nonexclusive read-only sample; not a complete audit, saved plan, backup proof or installed-writer qualification.
+      scope: Nonexclusive installed inventory; not a solver preview, recovery decision or maintenance authorization.

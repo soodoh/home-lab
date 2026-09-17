@@ -1,0 +1,25 @@
+---
+- name: Observe persistent ownership markers without opening or acquiring locks
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  loop:
+    - /var/lib/iac-ansible-production.lock
+    - /var/lib/home-lab/reconciliation/apply.lock
+    - /var/lib/home-lab/reconciliation/owner.lock
+    - /var/lib/home-lab/reconciliation/nix.lock
+    - /var/lib/home-lab/firewall-transaction/active.json
+  register: proxmox_observe_owners
+
+- name: Refuse a retained operation owner without reconciling it
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists
+    fail_msg: A retained operation owner requires separate inspection; nothing was cleared.
+    quiet: true
+  loop: "{{ proxmox_observe_owners.results }}"
+  loop_control:
+    label: "{{ item.item }}"

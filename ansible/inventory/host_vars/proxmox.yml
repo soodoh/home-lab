@@ -75,14 +75,11 @@ proxmox_maintenance_policy:
     active: true
     enabled: true
 
-# Observation only: stale metadata is reported, never refreshed to pass a check.
-proxmox_package_observe_max_age_seconds: 86400
-
 # Existing sealed host inputs supply identities/credentials, never runner artifacts.
 # Keep this policy aligned with the separately managed PVE access declarations.
 proxmox_observe_protected_spec:
-  legacyTofuAccessRequired: false
-  conventionalKeysAbsent: true
+  conventionalKeyPolicy: single-inert-pve-root-key
+  permittedRootKeyFingerprint: SHA256:Je+jcqxxdCTlcMc8sZToiF3oZrLIJ+N6mxNhiosUIXw
   node: proxmox
   pool: storage
   protectedAccessExpectedCount: 3

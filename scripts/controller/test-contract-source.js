@@ -21,15 +21,13 @@ const inputs = [
   "scripts/validate-contract",
   ...[
     "validate-vm-artifact-references", "validate-proxmox-host-policy",
-    "validate-proxmox-package-policy", "proxmox-package-manifest", "validate-restic-policy",
+    "validate-proxmox-package-policy", "validate-restic-policy",
   ].map((name) => `scripts/controller/${name}.js`),
   ...[
     "qualify-proton-backup", "initialize-restic-repositories", "restic-backup",
     "run-first-restic-backup", "prove-aws-recovery-hold",
   ].map((name) => `scripts/${name}`),
   contractPath, "infrastructure/contract/schema.json",
-  "infrastructure/host-lifecycle/proxmox/package-manifest.json",
-  "infrastructure/host-lifecycle/proxmox/package-manifest.schema.json",
   "services/servarr.yml", "services/data/restic/files-from", "services/data/restic/excludes",
   ...fs.readdirSync(path.join(root, "infrastructure/tofu/proxmox"))
     .filter((name) => name.endsWith(".tf"))
@@ -144,7 +142,6 @@ try {
     ["semantic writer coverage", (value) => { value.backups.restic.sources.find((entry) => entry.mutable_database).writers = ["synthetic-unmanaged-writer"]; }, /mutable database writer .* is not stopped/],
     ["critical exclusion", (value) => { value.backups.restic.excludes.push(value.backups.restic.critical_fixtures[0]); }, /Restic exclusion matches critical fixture/],
     ["helper source binding", (value) => { value.backups.restic.runner.sha256 = "0".repeat(64); }, /Restic runner SHA-256 differs/],
-    ["package source binding", (value) => { value.proxmox.packages.manifest.sha256 = "0".repeat(64); }, /package manifest SHA-256 differs/],
     ["declared legacy state consistency", (value) => { value.backups.restic.first_run.snapshots.nfs = value.backups.restic.first_run.snapshots.games; }, /completed Restic first run requires exact distinct snapshots/],
   ]) {
     const fixture = structuredClone(contract);

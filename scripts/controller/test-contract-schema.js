@@ -37,7 +37,7 @@ if (validateProxmoxHostPolicy(contract).length) {
 
 const invalidProxmoxLifecycleOwner = structuredClone(contract);
 invalidProxmoxLifecycleOwner.lifecycle.hosts.proxmox.current_mutation_owner = "nix";
-checkSemantic(invalidProxmoxLifecycleOwner, "transferred to Ansible", "Proxmox lifecycle owner changes only at reviewed handoff");
+check(invalidProxmoxLifecycleOwner, false, "Proxmox lifecycle owner remains Ansible");
 const invalidDebianBootstrapAuthority = structuredClone(contract);
 invalidDebianBootstrapAuthority.lifecycle.hosts.debian.bootstrap_authority = "physical-console";
 checkSemantic(invalidDebianBootstrapAuthority, "Debian lifecycle ownership", "Debian lifecycle bootstrap authority remains explicit");
@@ -105,9 +105,6 @@ check(missingTailscaleHandoff, false, "Proxmox Tailscale node handoff policy is 
 const missingPackageHandoff = structuredClone(contract);
 delete missingPackageHandoff.lifecycle.hosts.proxmox.domain_handoffs.package_set;
 check(missingPackageHandoff, false, "Proxmox package-set handoff policy is required");
-const missingNixMutationHandoff = structuredClone(contract);
-delete missingNixMutationHandoff.lifecycle.hosts.proxmox.domain_handoffs.nix_mutation_engine;
-check(missingNixMutationHandoff, false, "Proxmox Nix mutation-engine handoff policy is required");
 const invalidResolverOwnership = structuredClone(contract);
 invalidResolverOwnership.network.ownership.resolver_management = "ansible";
 check(invalidResolverOwnership, false, "resolver ownership is excluded from this handoff");
@@ -383,7 +380,7 @@ const closedRequiredPolicyObjects = [
   "proxmox.access.service_accounts.0",
   "proxmox.access.service_accounts.0.ssh_directory",
   "proxmox.access.service_accounts.0.authorized_keys",
-  "proxmox.access.service_accounts.0.authorized_keys.file",
+  "proxmox.access.service_accounts.0.authorized_keys.files.0",
   "proxmox.access.service_accounts.1.sudo",
   "proxmox.access.human_accounts.0",
   "proxmox.access.human_accounts.0.authorized_keys",
@@ -459,7 +456,7 @@ if (protectedManagedFiles.some((record) => record.projectable !== false)) throw 
 const knownPolicyKinds = new Set(["managed-file", "protected-managed-file", "managed-file-metadata", "managed-directory", "runtime-protected-file", "runtime-protected-directory", "audit-absence", "api-owned"]);
 if (policyRecords.some((record) => !knownPolicyKinds.has(record.kind))) throw new Error("contract contains an unknown projector-dispatch kind");
 if (contract.proxmox.apt.repository_file_metadata.kind !== "managed-file-metadata" ||
-    contract.proxmox.access.service_accounts[0].sudo.file.kind !== "managed-file" ||
+    contract.proxmox.access.service_accounts[0].sudo.kind !== "audit-absence" ||
     contract.proxmox.vfio.absence_policy.some((record) => record.kind !== "audit-absence")) {
   throw new Error("metadata and absence expectations must use structurally truthful projector kinds");
 }
@@ -504,8 +501,8 @@ const hostKeyModeDrift = structuredClone(contract);
 hostKeyModeDrift.proxmox.ssh.host_key_sentinel.mode = "0640";
 checkSemantic(hostKeyModeDrift, "host-key sentinel", "host-key sentinel mode drift");
 const authorizedKeysOwnerDrift = structuredClone(contract);
-authorizedKeysOwnerDrift.proxmox.access.service_accounts[0].authorized_keys.file.owner = "root";
-checkSemantic(authorizedKeysOwnerDrift, "authorized-keys path", "authorized_keys owner drift");
+authorizedKeysOwnerDrift.proxmox.access.service_accounts[0].authorized_keys.files[0].owner = "root";
+checkSemantic(authorizedKeysOwnerDrift, "must forbid conventional authorized keys", "authorized_keys owner drift");
 const sshDirectoryModeDrift = structuredClone(contract);
 sshDirectoryModeDrift.proxmox.access.service_accounts[0].ssh_directory.mode = "0750";
 checkSemantic(sshDirectoryModeDrift, "authorized-keys path", "SSH directory mode drift");
@@ -576,11 +573,6 @@ for (const [field, value] of [["name", 42], ["version", 42], ["version", null]])
 const duplicateDirectPackage = structuredClone(contract);
 duplicateDirectPackage.proxmox.packages.direct.push(structuredClone(duplicateDirectPackage.proxmox.packages.direct[0]));
 check(duplicateDirectPackage, false, "duplicate direct package entry");
-
-const missingPackageManifestReference = structuredClone(contract);
-delete missingPackageManifestReference.proxmox.packages.manifest;
-check(missingPackageManifestReference, false, "missing package manifest reference");
-
 
 const customRom = structuredClone(contract);
 customRom.proxmox.vm.pci.gpu.rom_file = "unmanaged.rom";
@@ -671,10 +663,6 @@ const malformedFirewallPort = structuredClone(contract);
 malformedFirewallPort.proxmox.firewall.rules[0].destination_port = 70000;
 check(malformedFirewallPort, false, "invalid firewall destination port");
 
-const wrongKeyReference = structuredClone(contract);
-wrongKeyReference.proxmox.access.service_accounts[0].authorized_keys.secret_ref = "PROXMOX_OTHER_SSH_PUBLIC_KEYS";
-checkSemantic(wrongKeyReference, "unexpected authorized-key reference", "wrong service-account key reference");
-
 const malformedSecretReference = structuredClone(contract);
 malformedSecretReference.proxmox.tailscale.auth_key_secret_ref = "tailscale-key";
 check(malformedSecretReference, false, "malformed Tailscale auth-key reference");
@@ -689,19 +677,19 @@ checkSemantic(unrelatedService, "native service set", "missing required native s
 
 const privilegedPlanAccount = structuredClone(contract);
 privilegedPlanAccount.proxmox.access.service_accounts[0].groups.push("sudo");
-checkSemantic(privilegedPlanAccount, "tofu-plan must have only the fixed observer capability", "privileged plan account");
+checkSemantic(privilegedPlanAccount, "tofu-plan must remain locked", "privileged plan account");
 
 const extraApplyGroup = structuredClone(contract);
 extraApplyGroup.proxmox.access.service_accounts[1].groups.push("docker");
-checkSemantic(extraApplyGroup, "tofu-apply must expose only the fixed preparation and activation session capability", "extra apply-account group");
+checkSemantic(extraApplyGroup, "tofu-apply must remain locked", "extra apply-account group");
 
 const unlockedServiceAccount = structuredClone(contract);
 unlockedServiceAccount.proxmox.access.service_accounts[0].password_lock = false;
 checkSemantic(unlockedServiceAccount, "locked login identity", "unlocked service account");
 
 const movedServiceSudoers = structuredClone(contract);
-movedServiceSudoers.proxmox.access.service_accounts[1].sudo.file.path = "/etc/sudoers.d/other-apply";
-checkSemantic(movedServiceSudoers, "tofu-apply must expose only the fixed preparation and activation session capability", "moved service-account sudoers path");
+movedServiceSudoers.proxmox.access.service_accounts[1].sudo.path = "/etc/sudoers.d/other-apply";
+checkSemantic(movedServiceSudoers, "tofu-apply must remain locked", "moved service-account sudoers path");
 
 const unlockedHumanAccount = structuredClone(contract);
 unlockedHumanAccount.proxmox.access.human_accounts[0].password_lock = false;

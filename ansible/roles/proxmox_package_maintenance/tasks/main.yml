@@ -1,0 +1,83 @@
+---
+- name: Require one explicit native package scope
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == 'proxmox'
+      - ansible_connection == 'ssh'
+      - ansible_become | bool
+      - proxmox_package_specs is sequence and proxmox_package_specs is not string and proxmox_package_specs is not mapping
+      - proxmox_package_dist_upgrade is boolean
+      - proxmox_package_refresh_metadata is boolean
+      - not ansible_check_mode or not proxmox_package_refresh_metadata
+      - (proxmox_package_specs | length > 0) != proxmox_package_dist_upgrade
+      - proxmox_package_specs | map('regex_replace', '=.*$', '') | unique | length == proxmox_package_specs | length
+    fail_msg: Choose exact name=version packages or an explicitly reviewed dist-upgrade, never both.
+
+- name: Require exact package versions rather than wildcards or expressions
+  ansible.builtin.assert:
+    that:
+      - item is string
+      - item is match('^[a-z0-9][a-z0-9+.-]*(?::[a-z0-9][a-z0-9-]*)?=[0-9][A-Za-z0-9.+:~\-]*$')
+    fail_msg: Native selected-package maintenance requires exact name=version entries.
+  loop: "{{ proxmox_package_specs }}"
+
+# Check mode uses existing metadata. Normal operation refreshes it, then resolves
+# again; this is deliberately not a saved solver plan. Ansible's own APT module
+# can also repair missing/corrupt lists, including in check mode. Consequently
+# this play is not the strict read-only inventory entrypoint.
+- name: Maintain explicitly selected package versions using native APT
+  ansible.builtin.apt:
+    name: "{{ proxmox_package_specs }}"
+    state: present
+    update_cache: "{{ proxmox_package_refresh_metadata }}"
+    cache_valid_time: 0
+    auto_install_module_deps: false
+    force_apt_get: true
+    fail_on_autoremove: true
+    allow_downgrade: false
+    allow_change_held_packages: false
+    allow_unauthenticated: false
+    autoremove: false
+    autoclean: false
+    clean: false
+    force: false
+    lock_timeout: 0
+    dpkg_options: force-confold
+  when: not proxmox_package_dist_upgrade
+  register: proxmox_package_selected_result
+  no_log: true
+  diff: false
+
+- name: Perform explicitly reviewed native distribution package maintenance
+  ansible.builtin.apt:
+    upgrade: dist
+    update_cache: "{{ proxmox_package_refresh_metadata }}"
+    cache_valid_time: 0
+    auto_install_module_deps: false
+    force_apt_get: true
+    fail_on_autoremove: true
+    allow_downgrade: false
+    allow_change_held_packages: false
+    allow_unauthenticated: false
+    autoremove: false
+    autoclean: false
+    clean: false
+    force: false
+    lock_timeout: 0
+    dpkg_options: force-confold
+  when: proxmox_package_dist_upgrade
+  register: proxmox_package_dist_result
+  no_log: true
+  diff: false
+
+- name: Report the native package result without exposing solver output
+  ansible.builtin.debug:
+    msg:
+      check_mode: "{{ ansible_check_mode }}"
+      package_change_reported: >-
+        {{ (proxmox_package_selected_result.changed | default(false)) or
+           (proxmox_package_dist_result.changed | default(false)) }}
+      immutable_plan: false
+      metadata_refresh_requested: "{{ proxmox_package_refresh_metadata }}"
+      automatic_reboot: false
+      scope: Native APT result only; operation-specific service and recovery checks are still required.

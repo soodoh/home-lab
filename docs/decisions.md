@@ -38,6 +38,23 @@ to old observations, or introducing another admission framework. Production CI
 needs trusted workflows, protected approval, reviewed short-lived access and
 coordination with host-local writers; none is configured by this decision.
 
+## Built-in-first Nix retirement
+
+Preserve useful package, reboot and low-risk operations, not the legacy planning
+framework or its exact CLI. Prefer core Ansible package facts/APT, copy/template,
+service and reboot modules. Native check/review/apply replaces the custom saved
+solver-plan model; it is not an immutable transaction. No custom APT display-output
+parser, redacted production transition or replacement receipt system is required.
+
+Keep inventory separate from mutation previews: even Ansible APT check mode can
+repair missing/corrupt metadata. Retain operation-specific host coordination and
+necessary interruption recovery, but do not reconstruct a universal controller
+around built-ins. Durable native tool state may support forward repair; it is not
+proof of automatic rollback. Autonomous firewall recovery and genuine hardware
+safety functions remain narrow exceptions, not reasons to preserve unused writers.
+Existing capabilities/recovery stay until replacements are qualified. Source work
+and the checkpoint commit do not approve package actions, reboots or access changes.
+
 ## First native adoption
 
 Native SSH/become deliberately reuses Tailscale access, accounts and keys.
@@ -74,11 +91,12 @@ audit/maintenance/recovery consumers remain.
 | `infrastructure/contract/`, schemas, renderers and validators | HCL, host roles, Restic and recovery still read these values. Migrate each consumer into typed native inputs before removing the global contract. |
 | Compose artifact/model/action/diff/image helpers, staging/deploy/rollback roles | Legacy migration, data recovery and installed image-retention consumers remain. Offline admission-only reducers were removed; native deployment is not yet implemented. |
 | Restic runner, bootstrap/init/first-run/qualification helpers and recovery plays | Writer quiescence, interrupted-backup recovery, repository identity, pending-copy retention and retained operation journals remain real dependencies. |
-| Proxmox observers, package/reboot/access executors and transports | Surviving maintenance and recovery consumers still use them. The orphaned controller-check/evidence branch was [retired separately](legacy-nix-retirement.md#controller-check-source-retirement--september-16-2026); surviving source hash/receipt requirements are unchanged, not waived to admit deletions. |
-| Firewall transaction, boot recovery and persistent watchdog | Autonomous rollback must survive controller/network loss; Ansible rescue cannot provide that. |
-| Selected `nix/` Python/data, VFIO, bootstrap/session recovery | Installed activators, before-images and emergency protocols still depend on them. Source ownership transfer did not remove installed copies. |
+| Proxmox deploy activator/transport | The final read found all boot/network/storage/NFS/Tailscale/package ownership journals committed. The retained prepared package record is preserved as historical evidence. The installed activator was removed in the approved September 17 cleanup; the deploy transport is now the source-owned Restic-only route. |
+| Installed Proxmox observer/private preparer/plan transport | Active source callers and installed helper/access generations are retired. The approved cleanup preserved root-only before-images, removed obsolete helpers/sudo, disabled obsolete shells and passed a zero-change second normal run. The known PVE root key remains inert behind the checked root-specific effective sshd public-key/root-login refusals and is checked by native observation. |
+| Firewall transaction, boot recovery and persistent watchdog | Autonomous rollback must survive controller/network loss; Ansible rescue cannot provide that. Its source/runtime is independent of the removed Nix tree. |
+| Historical Nix recovery material | Active `nix/`, bundle/planner/bootstrap and protected-input writer source is retired. Preserve the old host checkout, previous generation, install manifest, sealed inputs and historical Git checkpoint until their explicit disposition; do not reintroduce them as current automation. |
 | VM9900 qualification and recovery roots/helpers | Possible live VM, disks, snippets, ACLs, keys and failed-operation state require separately authorized inventory/retirement. |
-| JS dependencies and provider locks | Contract/projection/policy consumers still need AJV/js-yaml. Removing reporting does not eliminate Node/Bun dependencies. |
+| JS dependencies and provider locks | Contract and policy consumers still need AJV/js-yaml. Retiring the Proxmox projection does not eliminate Node/Bun dependencies. |
 
 Do not regenerate historical hashes, fabricate receipts, clear journals, stop
 watchdogs or erase locks to make the reduced source pass legacy admission. A

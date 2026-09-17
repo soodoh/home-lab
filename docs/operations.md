@@ -2,11 +2,13 @@
 
 ## What is available now
 
-Supported native scope is observation, manual-update policy and guarded existing-host
-backup configuration (tools, account, same-content runtime files and nine unit
-definitions). [Dated outcomes](#latest-scoped-deployment) do not expand that scope.
-Broader host/application adoption is pending: there is **no supported general deploy
-or host-convergence command**. Debian `site.yml` still includes lifecycle, lock
+Supported native scope is observation, manual-update policy, Proxmox repository/
+chrony convergence, and guarded existing-host backup configuration (tools, account,
+same-content runtime files and nine unit definitions). Native Proxmox package
+maintenance and reboot have source-qualified entrypoints but retain separate live
+cutover gates below. [Dated outcomes](#latest-scoped-deployment) do not expand that
+scope. Broader host/application adoption is pending: there is **no supported general
+deploy or host-convergence command**. Debian `site.yml` still includes lifecycle, lock
 and backup prerequisites. Directly invoking retained
 mutation roles is not an approved replacement for the removed controller.
 
@@ -69,18 +71,16 @@ September 16 validation passed 19 tasks with `changed=0`, `failed=0` and
 incorrectly required the NFS oneshot to be running; native `systemctl show`
 confirmed active/exited success, and the corrected loaded/active check passed.
 This play deliberately reports **not full host parity, not an exclusive snapshot,
-not maintenance authorization**. It does not replace the retained 17-domain
-package-planning audit, package solver, keyring audit, firewall-policy/backend
-validation, restore checks or independent recovery access. Persistent marker
+not maintenance authorization**. It does not replace operation-specific package
+preview, firewall-policy/backend validation, restore checks or independent
+recovery access. The former 17-domain artifact audit and custom solver are retired. Persistent marker
 absence is not proof that no mutex is held or no prepared transaction exists.
 
-Native repository/keyring/chrony declarations also replace direct Nix projection
-reads in current low-risk controller/activator source. Desired bytes/hashes are
-unchanged. The current activator's package-ownership binding now uses the existing
-canonical non-Nix package manifest with identical bytes. **These activator changes
-are source-only and not deployed**; no old host checkout, saved plan or journal
-was rewritten. Legacy observation/authority/recovery guards remain, and future
-activation needs its own compatibility review and approval.
+Native repository/keyring/chrony declarations replace direct Nix projection
+reads. Desired bytes/hashes are unchanged. The low-risk controller, deploy
+activator source, full-machine package manifest and projection were retired after
+native cutover rather than retained as a second authority. No old host checkout,
+saved plan or journal was rewritten.
 
 ### Native Proxmox package sampling
 
@@ -89,41 +89,189 @@ ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
   -i ansible/inventory/hosts.yml ansible/playbooks/observe-proxmox-packages.yml --check
 ```
 
-This source-validated play first runs the capability observation above, then
-streams the existing neutral package observer to isolated Python. Its expected
-package list comes directly from the canonical non-Nix manifest. It reads current
-dpkg/APT data, runs the existing APT simulation and samples retained/held ownership;
-it never refreshes metadata, acquires a lock, installs a helper or saves a plan.
-Output is limited to counts and boolean diagnostics; raw solver data is hidden.
-Stale/missing metadata, manifest drift, held packages, conflicting owners and
-incomplete size estimates remain visible limitations, not reasons to mutate the
-host to make a check pass.
+This play first runs the capability observation above, then uses
+`ansible.builtin.package_facts` with the APT backend, `dpkg --audit` and
+`apt-mark showhold`. It does not run a custom collector, parse solver output,
+compare a full-machine package manifest, refresh metadata or save a plan.
+Missing Python APT bindings fail rather than being installed. Package facts and
+native command output are protected by `no_log`; only counts and a clean-dpkg
+summary are published. The configured default fact cache is in-memory; do not
+configure a persistent fact cache for protected observations.
 
-Local syntax, source-boundary and real Ansible response-assertion fixtures have
-passed. The first authorized PVE run passed 20 tasks with `changed=0`, then stopped
-at a nonzero package-collector exit. Capability checks passed, but **live package
-observation is not qualified**. Raw diagnostics remained hidden. A separately approved single diagnostic rerun
-reported `apt-transition-unrecognized` (`ok=21`, `changed=0`, `failed=1`). Its fixed
-error classifier exposes only allowlisted categories, never raw stderr, and keeps
-every nonzero result fatal.
+**Installed inventory is not a candidate preview.** This deliberately narrower
+entrypoint does not claim candidate freshness, a frozen dependency solution,
+complete host parity, exclusive ownership or maintenance authority. Source and
+controller-local assertion/redaction tests pass. A separately approved single
+PVE run on September 16 passed **26 tasks, changed=0, failed=0, unreachable=0**:
+1,355 installed package names, no holds and a clean dpkg audit. No solver or metadata
+refresh ran. This approval and all three prior package-read approvals are consumed.
 
-An isolated, network-disabled APT 3.0.3 fixture then reproduced the refusal on
-valid dependency annotations (`[]` and `[fixture-app:arm64 ]`). The package
-observer and current activator source now parse those notes narrowly, reject
-unknown trailing text and retain the full solver-output hash. Both real-APT
-fixtures and both-parser regressions pass. The activator was not deployed. One
-separately approved qualification run after the fix still reported
-`apt-transition-unrecognized` (`ok=21`, `changed=0`, `failed=1`, `unreachable=0`).
-The fix is therefore insufficient for PVE, and production diagnostics are stopped.
-Further parser work needs an operator-provided redacted failing transition or a
-separately approved minimal local fixture; do not broaden the grammar by guessing
-or retry progressively modified collectors against production.
+The superseded parser-based prototype failed three separately approved PVE runs,
+most recently with `apt-transition-unrecognized`, even after an isolated matching
+parser defect was fixed. That history is retained in the
+[retirement assessment](legacy-nix-retirement.md#native-package-observation-without-forwarding-mutation-authority).
+**No production transition or further parser diagnosis is needed for retirement.**
+The shared parser remains only for its legacy callers until those migrate.
 
-Like the underlying observer, this is a nonexclusive sample, not complete host
-parity or package apply authority. The old complete-audit/package activation
-interfaces remain unchanged until native forward-maintenance replacements are
-qualified. Neither this play's results nor previous runner artifacts can authorize
-a mutation.
+### Native package maintenance — adopted with exact scope
+
+`ansible/playbooks/maintain-proxmox-packages.yml` uses core `ansible.builtin.apt`
+after native capability/inventory checks. Choose exactly one operation:
+`proxmox_package_specs` containing exact `name=version` entries, or the explicit
+boolean `proxmox_package_dist_upgrade=true`. Neither is selected by default.
+A separately approved PVE cutover used exact installed scope
+`pve-manager=9.2.11`: check mode passed 31 tasks and the normal no-op invocation
+passed 30, both with `changed=0`, `failed=0`, `unreachable=0`. Neither refreshed
+metadata nor changed a package; the retained prepared legacy journal was untouched.
+Combined with the isolated real-module mutation cases below, this removed the
+source-only check guard. It qualifies the entrypoint and safety boundary, not a
+particular future package change.
+
+The tasks prohibit removals, downgrades, held-package overrides, unauthenticated
+packages, dependency auto-installation and cache cleanup. They preserve the
+legacy `force-confold` conffile policy. Metadata refresh is an independent boolean
+that defaults false and is refused in check mode; callers must approve it separately.
+Without refresh, existing metadata is used and its freshness is not established. There is no saved solver plan or custom receipt. Exact requested
+versions do not freeze transitive dependencies, and check results do not authorize
+later changes. Native APT output stays under `no_log`, with only a change boolean
+reported; do not mistake it for a detailed human-reviewed solver diff.
+
+**APT check mode is not a strict no-write boundary.** Inspection of the installed
+Ansible implementation found that `get_cache()` can call `apt-get update` to
+repair missing/corrupt lists even with `update_cache=false` and check mode.
+Use the inventory-only play above for no-refresh observations. A maintenance
+preview therefore needs approval covering possible metadata repair. The approved
+no-refresh preview above performed no repair or change. Do not wrap the module in
+another custom parser.
+
+APT/dpkg locks serialize package tools, not backups, firewall/VFIO work or reboot.
+`serial: 1` only serializes this play; `lock_timeout: 0` refuses package contention.
+Before each change, recheck host-local writer coordination and define explicit
+operation-specific service postconditions. Native dpkg status and APT/dpkg logs
+survive runner loss; they support inspection and forward repair, not automatic
+package rollback or permission to replay an interrupted legacy operation. The
+retained prepared package record remains historical evidence: it was neither
+replayed nor deleted during native cutover.
+
+### Native maintenance configuration — adopted
+
+`ansible/playbooks/configure-proxmox-maintenance.yml` uses core stat/find/assert,
+`copy` and `systemd_service` for the five existing repository files and chrony.
+It checks existing root-owned files/directories, exact signing-key links/hashes
+and unknown active source definitions before writing. It neither bootstraps
+missing files nor downloads keys, deletes unknown repositories, refreshes APT,
+changes packages or restarts a healthy chrony service. Desired values remain in
+`ansible/inventory/host_vars/proxmox.yml`, unchanged from the previous policy.
+
+Copies use native atomic replacement and host-local `backup: true` before-images;
+file contents/diffs remain hidden. Copies are individually atomic, **not a
+multi-file transaction**. On interruption, stop and inspect current files and
+host-local backups, then explicitly choose completion or exact-file restoration.
+Do not roll back unrelated subsequent changes or blindly replay the old installer.
+The play shares only the native persistent-owner checks, not the full legacy audit.
+Marker absence is not exclusion; application still needs a coordinated window.
+
+A separately approved September 16 cutover ran one check preview and two normal
+runs. The preview passed 18 tasks and each normal run passed 17; all three reported
+`changed=0`, `failed=0`, `unreachable=0`. No repository bytes, keyring, service,
+APT metadata or package changed. The source-only check guard was then removed;
+future use still requires the narrow play and ordinary operational approval.
+
+### Isolated native module qualification — September 16, 2026
+
+The approved dedicated Colima profile stayed within two CPUs, 4 GiB RAM and
+20 GiB total disks, with no home/repository/credential mounts or SSH-agent
+forwarding. Debian/PyPI downloads installed Python APT and Ansible Core 2.21.2
+only into a disposable test image based on the previously pinned official Python
+image. No controller or production dependency was installed.
+
+Ten `NativeAptModuleTests` in the existing controller-observer suite passed on
+Linux/root, **not skipped**. Real core APT tasks exercised exact installation,
+no-change preview state, upgrades, idempotence, dist-upgrade, removal/hold/downgrade
+refusals, actual POSIX package-lock contention, conffile preservation and failed
+configuration retained in native dpkg/APT state/logs. Real stat/find/copy tasks
+exercised preview nonmutation, host-local before-images, idempotence and unknown
+source/alias/key refusals. Synthetic package repositories and every mutable file
+were under container `/tmp`; runtime networking was disabled and root read-only.
+Only four allowlisted source files were streamed into the container.
+
+The first fixture attempt failed because Ansible's default remote temp directory
+was under read-only `/root`; the fixture now keeps both local and remote temporary
+files under its private `/tmp` tree and rejects unreachable results. The final ten
+cases passed in 18.712 seconds. The non-systemd container does **not** qualify
+chrony service management, PVE package effects, reboot/VFIO or independent recovery.
+Containers were removed and the dedicated VM stopped; default Docker context was
+unchanged. Normal controller tests explicitly skip these opt-in Linux cases rather
+than counting them as executions.
+
+### Native Proxmox reboot — attended run completed September 17, 2026
+
+`ansible/playbooks/reboot-proxmox.yml` composes native capability/package checks
+with a dedicated reboot role. It requires VM100 already running with `onboot: 1`,
+backup writers inactive, no retained ownership marker, explicit attended console
+and backup confirmation, and an absent transient recovery unit. Check mode performs
+only those reads.
+
+For an approved real run, `systemd-run` arms a host-local transient timer that
+starts VM100 if the controller disappears after shutdown but before reboot. The
+play shuts down VM100 with `qm`, uses `ansible.builtin.reboot`, reruns protected
+host observation and waits for VM100's existing on-boot recovery. This is narrow
+controller-loss protection, not a new plan/receipt framework. The timer and VM
+on-boot policy are durable on the affected host/controller boundary; no runner
+artifact is needed. A separately approved live check-mode run passed 37 tasks with
+`changed=0`, `failed=0`, `unreachable=0`. The approved normal run then armed the
+timer, stopped VM100 and rebooted PVE. The controller command ended while the
+Ansible reboot module was waiting for reconnection, but independent postboot reads
+confirmed boot time `2026-09-17 15:01:32`, VM100 running and the transient recovery
+timer absent. Native observation subsequently passed all 20 tasks, including the
+protected VM disk, ZFS topology and USB mappings. This qualifies one attended
+reboot and native VM recovery, not application-level workload health or unattended
+future reboots.
+
+Postboot ZFS status reported pool `storage` ONLINE, a completed 15.7 GiB resilver
+with zero scan errors and no known data errors, but one device checksum counter of
+one. The operator explicitly deferred that storage warning. It was not cleared or
+repaired. The reboot role retains its strict `pool 'storage' is healthy` pre/post
+refusal, so another run remains blocked until ZFS reports fully healthy or a new
+operation-specific decision changes that boundary.
+
+### Active Nix source retirement — September 16, 2026
+
+After the final bounded inspection found every bootstrap/access interruption
+journal absent, two low-risk and two reboot journals committed, and no generic
+activator, the active `nix/` tree, flake, planner, bundle, generated templates,
+bootstrap/access/protected-input writers and Nix-only tests were removed. The
+custom artifact/17-domain package audit and completed access/boot/network/storage
+plan producers were also retired rather than re-created around Ansible. Native
+observation, package facts/APT, repository/chrony and reboot source are the current
+paths. Historical hashes/plans were not rewritten.
+
+The old PVE checkout, sealed inputs, previous generation, install manifest,
+committed journals and one prepared package record remain untouched. A later
+bounded read found every boot/network/storage/NFS/Tailscale/package ownership
+record committed and active apply/firewall/legacy owners absent. The persistent
+operation mutex path existed but was not opened or acquired. Installed observer/private-preparer/plan/deploy helpers were a separate cleanup
+boundary after source retirement. Autonomous firewall source/runtime and deploy
+transport Restic recovery are not Nix dependencies and remain.
+
+On September 17 the approved native installed-access retirement rechecked retained
+operation statuses and the operation mutex, preserved root-only before-images,
+disabled the three obsolete plan/apply shells, removed obsolete sudo grants and
+helpers, and narrowed `ansible-deploy` to Restic recovery. The strengthened preview
+passed 37 tasks and predicted five change groups. The normal run passed 42 tasks
+with six changed task groups; after an idempotence assertion was corrected to
+distinguish preserved original bytes from the newly installed retained files, a
+second normal run passed 42 tasks with `changed=0`.
+
+PVE restored its conventional root key path during reboot. The retained file
+contains only the source-attributed `current-proxmox-root-identity`, and
+`/root/.ssh/authorized_keys` is the expected link to the PVE-managed file.
+The checked root-specific effective sshd context still has public-key authentication and root login disabled. The
+operator explicitly chose to preserve this inert PVE state. Native protected
+observation now verifies that exact fingerprint/link, both effective sshd refusals,
+and absence of every other conventional key path; it does not admit additional
+keys. The contract access cutover is complete. Historical journals, old checkout,
+sealed inputs, prepared package record and before-images remain preserved.
 
 ### Live validation, not controller-local receipts
 

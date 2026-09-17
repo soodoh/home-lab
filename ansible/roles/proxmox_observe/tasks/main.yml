@@ -7,8 +7,8 @@
       - ansible_become | bool
       - proxmox_observe_protected_spec.node == 'proxmox'
       - proxmox_observe_protected_spec.pool == 'storage'
-      - proxmox_observe_protected_spec.legacyTofuAccessRequired == false
-      - proxmox_observe_protected_spec.conventionalKeysAbsent == true
+      - proxmox_observe_protected_spec.conventionalKeyPolicy == 'single-inert-pve-root-key'
+      - proxmox_observe_protected_spec.permittedRootKeyFingerprint == 'SHA256:Je+jcqxxdCTlcMc8sZToiF3oZrLIJ+N6mxNhiosUIXw'
       - proxmox_observe_protected_spec.protectedAccessExpectedCount == 3
     fail_msg: Native observation requires the reviewed Proxmox SSH/become inventory.
 
@@ -102,30 +102,8 @@
   loop_control:
     label: "{{ item.item.path }}"
 
-- name: Observe persistent ownership markers without opening or acquiring locks
-  ansible.builtin.stat:
-    path: "{{ item }}"
-    follow: false
-    get_checksum: false
-    get_mime: false
-    get_attributes: false
-  loop:
-    - /var/lib/iac-ansible-production.lock
-    - /var/lib/home-lab/reconciliation/apply.lock
-    - /var/lib/home-lab/reconciliation/owner.lock
-    - /var/lib/home-lab/reconciliation/nix.lock
-    - /var/lib/home-lab/firewall-transaction/active.json
-  register: proxmox_observe_owners
-
-- name: Refuse a retained operation owner without reconciling it
-  ansible.builtin.assert:
-    that:
-      - not item.stat.exists
-    fail_msg: A retained operation owner requires separate inspection; nothing was cleared.
-    quiet: true
-  loop: "{{ proxmox_observe_owners.results }}"
-  loop_control:
-    label: "{{ item.item }}"
+- name: Check retained ownership using shared native observations
+  ansible.builtin.import_tasks: owners.yml
 
 - name: Read the source-owned protected collector without building an artifact
   ansible.builtin.set_fact:
@@ -178,12 +156,18 @@
     fail_msg: Protected observation returned an unexpected summary.
   no_log: true
 
-- name: Require successful protected access and hardware checks
+- name: Require successful protected access checks
   ansible.builtin.assert:
     that:
-      - (proxmox_observe_protected.stdout | from_json)[item] == {'expectedCount':3, 'observedCount':3, 'matches':true, 'status':'complete'}
-    fail_msg: Protected access or hardware does not match the sealed host inputs.
-  loop: [protectedAccess, protectedHardware]
+      - (proxmox_observe_protected.stdout | from_json).protectedAccess == {'expectedCount':3, 'observedCount':3, 'matches':true, 'status':'complete'}
+    fail_msg: Protected access does not match the sealed host inputs.
+  no_log: true
+
+- name: Require successful protected hardware checks
+  ansible.builtin.assert:
+    that:
+      - (proxmox_observe_protected.stdout | from_json).protectedHardware == {'expectedCount':3, 'observedCount':3, 'matches':true, 'status':'complete'}
+    fail_msg: Protected hardware does not match the sealed host inputs.
   no_log: true
 
 - name: Summarize this bounded native observation

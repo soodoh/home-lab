@@ -3,9 +3,10 @@
 ## First slice: source boundary, not host retirement
 
 The first slice documented dependencies and added offline refusal regressions;
-the separately authorized September 16 inventory below establishes a bounded
-installed-state observation. Neither slice removed runtime source or installed
-components. The [supported scope](operations.md#what-is-available-now) is unchanged.
+the separately authorized September 16 inventories below established bounded
+installed state. Later sections record native replacement and final active-source
+retirement. Installed historical components and recovery records were a separate
+boundary; the approved helper/access cleanup is recorded below, while recovery records remain preserved. See the [supported scope](operations.md#what-is-available-now).
 
 Even `fixture-observation.json` belongs to the retained planner's exact source
 allowlist. Those bindings protect existing generations, **not perpetual residence
@@ -19,15 +20,15 @@ firewall recovery. Historical forward ceremonies are not current setup guidance.
 
 | Source / entrypoint | Callers, installation and retained dependency |
 | --- | --- |
-| [`nix/flake.nix`](../nix/flake.nix), [`bundle.py`](../nix/proxmox/bundle.py) | The flake builds the controller-side bundle and wraps `planner.py`. The bundle renders the observer, private preparer and activator from templates, projection, schemas, package manifest and flake-lock bindings. PVE receives copied Python helpers, not a Nix daemon/store. |
-| [`planner.py`](../nix/proxmox/planner.py), `prepare.py`, `apply.py`, `controller_lock.py` | `APPROVED_SOURCE_FILES` and `sanitized_source_binding` require the complete `nix/` file set and byte equality with the fixed application source. Bundle verification checks canonical content, schemas and rendered helper bytes; plans/sidecars additionally bind Git commit/tree and helper identities. The controller lock protocol and retained status/rollback logic remain dependencies. |
-| [`bootstrap-proxmox-nix-host`](../scripts/bootstrap-proxmox-nix-host) | Imports `bundle.py` even for recovery. Installs the three Nix helpers plus access/deploy transports and activator, firewall transaction/transport/boot helper, policy, five units and backend drop-ins from its fixed target map. Installation enables boot recovery and the persistent watchdog. Recovery consumes `install-journal.json`, `previous-generation.json`, captured bytes and exact ownership. `recover_previous_active` requires the previous activator hash to match the retained apply owner before restoring that generation. |
-| [`bootstrap-proxmox-nix-access`](../scripts/bootstrap-proxmox-nix-access) | Imports the host bootstrap utilities and loads the Nix projection. Separate access, convergence, role, VM9900 ACL and import-storage journals drive distinct gated rollback branches. Source identity checks and exact captured keys/sudo/account/API before-state remain required; current projection is not proof that an old journal is compatible. |
-| Protected input and key helpers | [`collect-proxmox-protected-inputs`](../scripts/collect-proxmox-protected-inputs) produces `/root/home-lab-hardware.env`, consumed by [`prepare-proxmox-nix-protected-inputs`](../scripts/prepare-proxmox-nix-protected-inputs). Preparation, [refresh](../scripts/refresh-proxmox-nix-protected-inputs) and [session-key rotation](../scripts/rotate-proxmox-nix-session-key) import bootstrap utilities. Runtime protected inputs/MAC and session key are consumed by the private preparer/activator; rotation explicitly validates retained terminal journals/manifests. Do not regenerate identities or rotate keys as cleanup. |
-| Physical-console upgrades | The deploy, observer and private-preparer console writers are [retired below](#live-state-boundary-and-console-source-retirement--september-16-2026). They advanced the host checkout and replaced helpers; their shell traps were not standalone recovery tools. Installed generations, host checkout and before-images remain untouched. Missing historical receipts are not a prerequisite for unrelated source retirement. |
-| Other legacy installers and executors | The controller deploy-upgrade producer, its direct Nix bundle-renderer import and the console writers are retired below. Current [`proxmox-ansible-deploy-activator`](../infrastructure/proxmox-access/host/proxmox-ansible-deploy-activator) and low-risk controller source now read native maintenance inputs; the package-ownership binding uses the canonical non-Nix manifest. Installed older generations still read their old checkout's Nix inputs. This source migration is not deployed. Existing low-risk observation and saved-plan/recovery consumers remain; no historical hashes were rewritten. |
-| Observer and VFIO succession | The neutral builder and `infrastructure/host-lifecycle/proxmox/` supply a separate observer/protected collector and guarded VFIO implementation. Neutral tests distinguish the intended active-source VFIO from retained Nix VFIO; the latter is embedded in the retained projection and is still installed. Both generations remain source consumers. Shared installed names such as `proxmox-observer` do not identify which generation is present. Legacy boot/network roles, remaining audits and the plan transport still invoke that installed name; the obsolete timezone parity consumer is retired below. |
-| Access and Restic recovery | [`proxmox-ansible-plan-transport`](../infrastructure/proxmox-access/host/proxmox-ansible-plan-transport) dispatches fixed observers. [`proxmox-ansible-deploy-transport`](../infrastructure/proxmox-access/host/proxmox-ansible-deploy-transport) retains package/boot recovery and Restic network identity plus hash-bound snippet staging/removal, consumed by [`prove-restic-recovery-vm`](../scripts/prove-restic-recovery-vm). Native SSH does not retire these consumers or their capability transaction state. |
+| Historical `nix/flake.nix` and `bundle.py` | The removed flake built the controller-side bundle and wrapped the removed planner. It rendered the observer, private preparer and activator. PVE received copied Python helpers, never a Nix daemon/store. Exact source remains in Git checkpoint `d7a4e208` and the preserved host checkout/recovery records, not the active tree. |
+| Historical `planner.py`, `prepare.py`, `apply.py`, `controller_lock.py` | The removed controller bound the complete Nix source tree, Git identity, schemas and helper bytes. Its custom planning/admission model is not a current recovery dependency and was not recreated around Ansible. Historical plans/hashes remain unchanged. |
+| Historical `bootstrap-proxmox-nix-host` | The removed forward installer installed three generated helpers plus access/deploy and autonomous-firewall assets. The bounded final inspection found its install journal absent and generic activator already absent. Previous-generation/install-manifest records remain root-owned on PVE; autonomous firewall source and runtime remain independently maintained. |
+| Historical `bootstrap-proxmox-nix-access` | The removed writer created/converged access and had exact-journal rollback branches. The final inspection found every access/convergence/role/ACL/import journal absent. Current access is observed natively; old forward setup is not an emergency command. |
+| Historical protected-input and key writers | `collect-proxmox-protected-inputs` still documents the sealed hardware source, but the removed prepare/refresh/session-key writers no longer have a current forward consumer. Existing sealed runtime inputs/MAC/session key and host checkout are preserved; do not regenerate or rotate them as cleanup. |
+| Physical-console upgrades | The deploy, observer and private-preparer console writers are [retired below](#live-state-boundary-and-console-source-retirement--september-16-2026). They advanced the host checkout and replaced helpers; their shell traps were not standalone recovery tools. The installed obsolete generation was removed September 17 after new before-images were captured; the host checkout, old generations and all before-images remain untouched. Missing historical receipts are not a prerequisite for unrelated source retirement. |
+| Other legacy installers and executors | Deploy-upgrade, low-risk, package/reboot activation, lifecycle-marker and Restic capability installers are retired. Their custom plan/receipt/hash-bound architecture was not recreated. The approved September 17 installed cleanup removed the obsolete helper generation while preserving root-only before-images, older host checkout and every journal. |
+| Observation and VFIO succession | Native Ansible plus the source-owned protected collector replaced generated observers for routine reads. The generic observer template, neutral builder/projection, artifact schemas, installed observer/private preparer and legacy boot/network/audit consumers are retired. Guarded native VFIO recovery remains and protected postboot hardware observation passed after the attended reboot. |
+| Access and Restic recovery | The plan transport and deploy activator are retired in both source and installed state. [`proxmox-ansible-deploy-transport`](../infrastructure/proxmox-access/host/proxmox-ansible-deploy-transport) is installed as the Restic-only route consumed by [`prove-restic-recovery-vm`](../scripts/prove-restic-recovery-vm). Obsolete account shells/sudo are inert; autonomous firewall access remains independent. |
 | Autonomous firewall | The [firewall protocol](legacy-host-recovery.md#autonomous-firewall-recovery) has its own transaction key/journal, shared operation mutex, continuously active rollback timer and two boot phases. It is not an ordinary Nix action or replaceable by controller-side Ansible rescue. Retain the required autonomous runtime. Its completed historical installer can be considered separately once its own transactions and recovery generation are accounted for. |
 
 The contract, retained runtime schemas, surviving source-hash checks, historical
@@ -644,7 +645,36 @@ plus active oneshot/inactive/missing-unit/retained-owner cases. The native play'
 initial running-service assumption failed on active/exited NFS and was corrected
 using live `systemctl show`, not by changing NFS or relaxing to any service state.
 
-### Remaining completion gates
+### Built-in-first replacement after checkpoint d7a4e208
+
+The checkpoint committed the accumulated source retirement and observations;
+nothing was pushed. The subsequent source replaces the parser-based package
+observation role with core package facts, `dpkg --audit` and `apt-mark showhold`.
+It reports installed inventory only, with no old manifest, solver, hash binding,
+plan or receipt. Existing fixture tests now cover the native result boundaries
+and exact package-scope validation rather than the removed response adapter.
+
+`maintain-proxmox-packages.yml` and `proxmox_package_maintenance` provide core APT
+tasks for explicit exact-version packages or a selected dist-upgrade. Inspection
+of Ansible found possible metadata repair even in APT check mode; its preview is
+not the strict read-only inventory operation. See [current scope and interruption
+limits](operations.md#native-package-maintenance--adopted-with-exact-scope).
+The approved inventory-only PVE run passed 26 tasks with `changed=0`, no holds and
+clean dpkg state. The later exact package preview and normal no-op cutover also
+passed without refresh or change. The approved isolated image supplied its own
+Python APT/Ansible dependencies; ten real Linux/root APT and copy-module cases
+passed. The dedicated VM is stopped. See [qualification scope](operations.md#isolated-native-module-qualification--september-16-2026).
+Repository/chrony configuration was likewise adopted through native no-change
+runs. No production package or configuration bytes changed.
+
+Before final retirement, bootstrap recovery was independently decoupled from the
+renderer import and covered with isolated dispatch/release regressions. The later
+bounded live inspection found every bootstrap/access journal absent, permitting
+those active-checkout dispatchers and protected-input writers to be removed with
+`nix/`. Exact historical source remains at checkpoint `d7a4e208`; no historical
+source binding or on-host recovery artifact was rewritten.
+
+### Remaining completion gates at checkpoint d7a4e208 (superseded below)
 
 - The operator selected **replacement before retirement** for forward package,
   reboot and low-risk capabilities. Preserve those interfaces and their recovery
@@ -676,12 +706,16 @@ using live `systemctl show`, not by changing NFS or relaxing to any service stat
   obsolete tests. Preserve the host's old checkout and all historical recovery
   material until their explicit disposition decision.
 
-Complete Nix retirement is still false. No helper replacement, account/sudo change,
-package operation, reboot, firewall change, archive cleanup or commit occurred.
+At checkpoint `d7a4e208`, complete Nix retirement was still false. That commit
+changed no helper, account/sudo, package, reboot, firewall or archive state.
 
 ## Native package observation, without forwarding mutation authority
 
-`ansible/playbooks/observe-proxmox-packages.yml` adds a native package sample after
+This section records the **superseded parser-based prototype**, preserved in
+checkpoint `d7a4e208`, not the current inventory implementation. Its source tests
+and three authorized live runs below are historical results, not current gates.
+
+`ansible/playbooks/observe-proxmox-packages.yml` initially added a package sample after
 `proxmox_observe`. It streams the existing neutral package observer over stdin
 with the canonical non-Nix manifest, without installed helpers, artifact builders,
 controller-local plans or outcome receipts. It performs only existing-metadata
@@ -730,57 +764,75 @@ a matching parser defect rather than complete production causality. One separate
 approved qualification run after the fix still reported
 `apt-transition-unrecognized`, with `ok=21`, `changed=0`, `failed=1`,
 `unreachable=0`. The parser fix is insufficient for PVE. Production diagnostics
-are stopped: obtain an operator-provided redacted failing transition or a separately
-approved minimal local fixture before changing more parsing behavior. Do not
-broaden the grammar speculatively or retry progressively modified collectors.
+are stopped. This blocks that prototype only. The operator chose built-in-first
+replacement, so no redacted production transition or further parser debugging is
+required for Nix retirement. Do not broaden the grammar speculatively or retry
+progressively modified collectors.
 
 No check was weakened to admit an old plan, and no saved bindings or receipts
-were regenerated. Live package observation and native forward maintenance/recovery
-remain unqualified and in progress. The operator's replacement-before-retirement
-choice still governs: no remaining forward interface may be deleted on the
-strength of these partial results.
+were regenerated. This parser experiment is historical; current package inventory
+and maintenance use core Ansible.
+
+## Final active-source retirement
+
+The built-in-first continuation supersedes the checkpoint gates above:
+
+- Native installed package inventory passed one approved PVE run: 26 tasks,
+  `changed=0`, `failed=0`, `unreachable=0`, clean dpkg state and no holds.
+- Ten isolated Linux/root tests exercised real core APT and copy modules, including
+  lock contention, interrupted dpkg state, conffile preservation and before-images.
+- Repository/chrony adoption passed one preview and two normal PVE runs, all with
+  `changed=0` and no failures.
+- Native package preview and normal no-op application passed a separately approved
+  PVE cutover for exact installed `pve-manager=9.2.11`, with no metadata refresh or
+  change. An attended native reboot later completed; VM100 recovered through its
+  on-boot policy and protected postboot hardware observation passed.
+- The final bounded state inspection found bootstrap/access journals absent,
+  low-risk and reboot journals committed, three package journals committed and
+  one package journal prepared. The prepared record was preserved, not replayed,
+  cleared or treated as active execution.
+- Active `nix/`, flake/planner/bundle/bootstrap/protected-input writers, custom
+  artifact/package audit and completed one-shot plan producers were removed.
+  Historical Git checkpoint `d7a4e208`, old host checkout, sealed inputs,
+  previous-generation/install-manifest records and all host journals remain.
+
+**Active-source and installed-helper/access Nix retirement are complete.** The
+approved September 17 cleanup preview passed 37 tasks, and the normal run preserved
+root-only before-images, removed the obsolete observer/private-preparer/plan/deploy
+helpers and sudo grants, disabled the obsolete account shells, and installed the
+Restic-only deploy route. After fixing a retained-before-image idempotence assertion,
+a second normal run passed 42 tasks with `changed=0`.
+
+Every inspected boot/network/storage/NFS/Tailscale/package ownership record remains
+committed; the prepared package journal, persistent mutex inode, historical checkout,
+sealed inputs and all other journals remain preserved. The post-reboot PVE-managed
+root key contains only the known current root identity and is inert in the checked root-specific sshd context because public-key authentication
+and root login are disabled; native observation now
+checks that exact boundary. Autonomous firewall recovery, Restic transport and
+native VFIO source remain. The acknowledged ZFS checksum counter was neither
+cleared nor repaired, and the strict future-reboot health refusal remains.
 
 ## Focused local regressions
 
 ```sh
-python3 -B scripts/controller/test-proxmox-nix-apply.py ProxmoxNixRetirementBoundaryTests
-python3 -B scripts/controller/test-proxmox-nix-apply.py ProxmoxObservationWithoutActivatorTests
-node scripts/controller/test-proxmox-timezone-handoff.js
 node scripts/controller/test-proxmox-complete-audit.js
 node scripts/controller/test-proxmox-package-plan.js
-node scripts/controller/test-package-candidate-observer.js
-node scripts/controller/test-proxmox-neutral-artifact.js
+node scripts/controller/test-maintenance-planning.js
+node scripts/controller/test-contract-schema.js
+node scripts/controller/test-contract-source.js
 python3 -B scripts/controller/test-proxmox-controller-capability.py
 python3 -B scripts/controller/test-proxmox-controller-observer.py
-python3 -B scripts/controller/test-proxmox-predecessor-console-evidence.py CliTests.test_real_cli_non_tty_and_arguments
-python3 -B scripts/controller/test-tailscale-access-evidence.py FileAndCliTests.test_real_cli_is_non_authorizing_and_preserves_inputs
-python3 -B scripts/controller/test-proxmox-firewall-schemas.py SchemaTests.test_retained_package_planning_does_not_grant_firewall_authority
-python3 -B scripts/controller/test-proxmox-nix-bootstrap.py ProxmoxNixBootstrapTests.test_contract_closes_apply_and_forces_both_service_identities
+python3 -B scripts/controller/test-proxmox-firewall-schemas.py
+python3 -B scripts/controller/test-proxmox-firewall-transaction.py
 ```
 
-The low-risk activation fixture additionally requires PyYAML. The controller's
-default `python3` lacked it; that invocation failed without installing anything.
-The fixture passed using the already-installed Ansible tool environment's Python.
-Use that existing environment for `scripts/controller/test-proxmox-low-risk-activation.py`.
-
-The first uses the current frozen projection, mocks bundle verification and all
-subprocess/transport/plan/sidecar/lock effects in the entrypoint tests, checks
-standalone recovery-command rejection, and tests missing/substituted allowlisted
-source files only in a temporary copy. It does not execute generated helpers,
-contact hosts or read retained operational artifacts. These tests establish source
-refusal behavior, not installed-state parity or successful recovery.
-
-The second renders and hash-pins the actual installed observer/preparer generation,
-then exercises observer `main`/`observe`/`protected_summaries`/dispatch → preparer
-`main`/`summary` with and without a fixture activator. Protected readers, MAC/key
-validation, parsers and fixture-only locking are real; root metadata, host command
-responses, token HTTP responses and unrelated observer domains are simulated.
-The successful canonical protected summaries are identical; no install manifest
-is supplied and any activator read fails the fixture. Missing keys/bad MACs,
-preparer hash/mode changes, hardware/token failures and Ansible ownership still
-cause refusal or nonmatching/unavailable observations. It invokes no installed
-helper, SSH, real network or host command. This proves the protected-observation
-dependency, not complete host parity or recovery qualification.
+Normal controller runs skip the opt-in Linux/root APT/copy cases. Their approved
+container invocation and limits are recorded in
+[operations](operations.md#isolated-native-module-qualification--september-16-2026).
+The native observation fixture executes real local Ansible assertions but no host
+commands. Syntax checks cover observation, configuration, package maintenance and
+reboot playbooks. Deleted Nix-only tests are not evidence required by current
+operations; the checkpoint preserves their historical result.
 
 Earlier slices passed all nine selected Python methods, the timezone/complete-audit/package-plan
 and neutral-artifact JS tests, Python compilation, JS syntax, 57 local Markdown

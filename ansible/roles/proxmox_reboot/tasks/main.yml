@@ -1,0 +1,222 @@
+---
+- name: Require the fixed native reboot scope and explicit human prerequisites
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == 'proxmox'
+      - ansible_connection == 'ssh'
+      - ansible_become | bool
+      - proxmox_reboot_vm_id == 100
+      - proxmox_reboot_rollback_seconds is integer
+      - proxmox_reboot_rollback_seconds >= 300
+      - proxmox_reboot_confirmed is boolean
+      - proxmox_reboot_console_confirmed is boolean
+      - proxmox_reboot_backup_confirmed is boolean
+      - ansible_check_mode or not proxmox_reboot_confirmed or (proxmox_reboot_console_confirmed and proxmox_reboot_backup_confirmed)
+    fail_msg: A real reboot requires explicit reboot, console and backup confirmation.
+
+- name: Read VM 100 boot policy without exposing its configuration
+  ansible.builtin.command:
+    argv: [/usr/sbin/qm, config, "{{ proxmox_reboot_vm_id }}", --current]
+  register: proxmox_reboot_vm_configuration
+  changed_when: false
+  check_mode: false
+  no_log: true
+  timeout: 30
+
+- name: Require VM 100 automatic boot recovery before stopping it
+  ansible.builtin.assert:
+    that:
+      - proxmox_reboot_vm_configuration.rc == 0
+      - proxmox_reboot_vm_configuration.stderr == ''
+      - >-
+        proxmox_reboot_vm_configuration.stdout_lines |
+        select('equalto', 'onboot: 1') | list | length == 1
+    fail_msg: VM 100 must already have onboot enabled; no setting was changed.
+  no_log: true
+
+- name: Read VM 100 state
+  ansible.builtin.command:
+    argv: [/usr/sbin/qm, status, "{{ proxmox_reboot_vm_id }}"]
+  register: proxmox_reboot_vm_before
+  changed_when: false
+  check_mode: false
+  timeout: 30
+
+- name: Require VM 100 to be running before the reviewed reboot
+  ansible.builtin.assert:
+    that:
+      - "proxmox_reboot_vm_before.stdout == 'status: running'"
+      - proxmox_reboot_vm_before.stderr == ''
+
+- name: Read the current boot identity
+  ansible.builtin.slurp:
+    src: /proc/sys/kernel/random/boot_id
+  register: proxmox_reboot_boot_id_before
+  no_log: true
+
+- name: Read backup writer states
+  ansible.builtin.command:
+    argv: [/usr/bin/systemctl, is-active, "{{ item }}"]
+  loop:
+    - home-lab-restic-daily-local.service
+    - home-lab-restic-daily-proton.service
+    - home-lab-restic-maintenance-proton.service
+  register: proxmox_reboot_backup_units
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  timeout: 30
+
+- name: Require every backup writer to be inactive
+  ansible.builtin.assert:
+    that:
+      - item.rc in [3, 4]
+      - item.stdout in ['inactive', 'unknown']
+    quiet: true
+    fail_msg: A backup writer is active or its state is ambiguous; nothing was stopped.
+  loop: "{{ proxmox_reboot_backup_units.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Read protected ZFS pool health before reboot
+  ansible.builtin.command:
+    argv: [/usr/sbin/zpool, status, -x, storage]
+  register: proxmox_reboot_zpool_before
+  changed_when: false
+  check_mode: false
+  timeout: 30
+
+- name: Require a healthy protected ZFS pool before reboot
+  ansible.builtin.assert:
+    that:
+      - "(proxmox_reboot_zpool_before.stdout | trim) == \"pool 'storage' is healthy\""
+      - proxmox_reboot_zpool_before.stderr == ''
+    fail_msg: Protected ZFS pool health differs; no reboot was attempted.
+
+- name: Read transient VM recovery unit state
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/systemctl
+      - show
+      - home-lab-proxmox-vm100-recovery.timer
+      - --property=LoadState,ActiveState
+      - --no-pager
+  register: proxmox_reboot_recovery_unit
+  changed_when: false
+  check_mode: false
+
+- name: Refuse an existing transient VM recovery owner
+  ansible.builtin.assert:
+    that:
+      - "'LoadState=not-found' in proxmox_reboot_recovery_unit.stdout_lines"
+      - "'ActiveState=inactive' in proxmox_reboot_recovery_unit.stdout_lines"
+    fail_msg: The native VM recovery timer already exists; inspect it without replacing it.
+
+- name: Report native reboot readiness without rebooting in check mode
+  ansible.builtin.debug:
+    msg:
+      vm_100: running-onboot
+      backups: inactive
+      protected_host_observation: passed
+      package_state: clean
+      rollback_timer: absent
+      reboot_confirmed: "{{ proxmox_reboot_confirmed }}"
+      check_mode: "{{ ansible_check_mode }}"
+      automatic_reboot: false
+
+- name: Execute the attended native reboot with autonomous VM recovery
+  when:
+    - not ansible_check_mode
+    - proxmox_reboot_confirmed
+    - proxmox_reboot_console_confirmed
+    - proxmox_reboot_backup_confirmed
+  block:
+    - name: Arm a transient controller-loss rollback for VM 100
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/systemd-run
+          - --unit=home-lab-proxmox-vm100-recovery
+          - --on-active={{ proxmox_reboot_rollback_seconds }}s
+          - --timer-property=AccuracySec=1s
+          - --property=Type=oneshot
+          - /usr/sbin/qm
+          - start
+          - "{{ proxmox_reboot_vm_id }}"
+      changed_when: true
+      timeout: 30
+
+    - name: Stop VM 100 cleanly before host reboot
+      ansible.builtin.command:
+        argv: [/usr/sbin/qm, shutdown, "{{ proxmox_reboot_vm_id }}", --timeout, '300']
+      changed_when: true
+      timeout: 330
+
+    - name: Require VM 100 to reach stopped state
+      ansible.builtin.command:
+        argv: [/usr/sbin/qm, status, "{{ proxmox_reboot_vm_id }}"]
+      register: proxmox_reboot_vm_stopped
+      changed_when: false
+      until: "proxmox_reboot_vm_stopped.stdout == 'status: stopped'"
+      retries: 30
+      delay: 2
+
+    - name: Reboot Proxmox using the native Ansible module
+      ansible.builtin.reboot:
+        connect_timeout: 10
+        reboot_timeout: 900
+        pre_reboot_delay: 0
+        post_reboot_delay: 20
+        test_command: /usr/sbin/pveversion
+        msg: Approved native home-lab maintenance reboot
+
+    - name: Recheck protected host capabilities after reboot
+      ansible.builtin.include_role:
+        name: proxmox_observe
+
+    - name: Read protected ZFS pool health after reboot
+      ansible.builtin.command:
+        argv: [/usr/sbin/zpool, status, -x, storage]
+      register: proxmox_reboot_zpool_after
+      changed_when: false
+      timeout: 30
+
+    - name: Require a healthy protected ZFS pool after reboot
+      ansible.builtin.assert:
+        that:
+          - "(proxmox_reboot_zpool_after.stdout | trim) == \"pool 'storage' is healthy\""
+          - proxmox_reboot_zpool_after.stderr == ''
+
+    - name: Wait for VM 100 automatic boot recovery
+      ansible.builtin.command:
+        argv: [/usr/sbin/qm, status, "{{ proxmox_reboot_vm_id }}"]
+      register: proxmox_reboot_vm_after
+      changed_when: false
+      until: "proxmox_reboot_vm_after.stdout == 'status: running'"
+      retries: 60
+      delay: 5
+
+    - name: Read the new boot identity
+      ansible.builtin.slurp:
+        src: /proc/sys/kernel/random/boot_id
+      register: proxmox_reboot_boot_id_after
+      no_log: true
+
+    - name: Require a new boot and recovered workload
+      ansible.builtin.assert:
+        that:
+          - proxmox_reboot_boot_id_after.content | b64decode | trim != proxmox_reboot_boot_id_before.content | b64decode | trim
+          - "proxmox_reboot_vm_after.stdout == 'status: running'"
+        fail_msg: Native reboot postconditions differ; keep console access and inspect the host.
+      no_log: true
+  rescue:
+    - name: Attempt VM 100 forward recovery if the host is reachable
+      ansible.builtin.command:
+        argv: [/usr/sbin/qm, start, "{{ proxmox_reboot_vm_id }}"]
+      register: proxmox_reboot_rescue_start
+      changed_when: proxmox_reboot_rescue_start.rc == 0
+      failed_when: false
+      timeout: 120
+
+    - name: Preserve failure for attended recovery
+      ansible.builtin.fail:
+        msg: Native reboot did not satisfy postconditions; the transient timer/onboot policy remains the recovery path.

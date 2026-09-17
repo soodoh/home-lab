@@ -451,22 +451,17 @@
       "additionalProperties": false,
       "required": ["current_owner", "target_owner", "state", "parity_required", "single_writer"],
       "properties": {
-        "current_owner": { "enum": ["nix", "ansible"] },
+        "current_owner": { "const": "ansible" },
         "target_owner": { "const": "ansible" },
-        "state": { "enum": ["pending", "ready", "transferred"] },
+        "state": { "const": "transferred" },
         "parity_required": { "const": true },
         "single_writer": { "const": true }
-      },
-      "allOf": [{
-        "if": { "properties": { "state": { "const": "transferred" } }, "required": ["state"] },
-        "then": { "properties": { "current_owner": { "const": "ansible" } } },
-        "else": { "properties": { "current_owner": { "const": "nix" } } }
-      }]
+      }
     },
     "lifecycleDomainHandoffs": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["timezone", "apt_repositories", "chrony_service", "boot_configuration", "zfs_dataset", "nfs_export_service", "network_interfaces", "tailscale_node", "package_set", "nix_mutation_engine"],
+      "required": ["timezone", "apt_repositories", "chrony_service", "boot_configuration", "zfs_dataset", "nfs_export_service", "network_interfaces", "tailscale_node", "package_set"],
       "properties": {
         "timezone": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "apt_repositories": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
@@ -476,28 +471,28 @@
         "nfs_export_service": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "network_interfaces": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
         "tailscale_node": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
-        "package_set": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" },
-        "nix_mutation_engine": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
+        "package_set": { "$ref": "#/$defs/lifecycleDomainHandoffPolicy" }
       }
     },
     "lifecycleAccessCutoverPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["state", "target_identities", "retire_identities", "retire_root_supplementary_groups", "root_key_attributions", "required_tailnet_users", "forbidden_tailnet_users", "plan_privilege_model", "apply_privilege_model", "firewall_privilege_model", "firewall_magicdns_target", "conventional_keys_target", "pubkey_authentication_target", "permit_root_login_target", "remove_conventional_keys_last", "physical_console_required"],
+      "required": ["state", "target_identities", "retire_identities", "retire_root_supplementary_groups", "root_key_attributions", "required_tailnet_users", "forbidden_tailnet_users", "plan_privilege_model", "apply_privilege_model", "firewall_privilege_model", "firewall_magicdns_target", "conventional_keys_target", "pubkey_authentication_target", "permit_root_login_target", "remove_legacy_conventional_keys_last", "physical_console_required"],
       "properties": {
-        "state": { "enum": ["pending", "ready", "cutover", "complete"] },
+        "state": { "const": "complete" },
         "target_identities": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["human", "plan", "apply", "firewall"],
+          "required": ["human", "plan", "apply", "recovery", "firewall"],
           "properties": {
             "human": { "const": "proxmox" },
-            "plan": { "const": "ansible-plan" },
-            "apply": { "const": "ansible-deploy" },
+            "plan": { "const": "proxmox" },
+            "apply": { "const": "proxmox" },
+            "recovery": { "const": "ansible-deploy" },
             "firewall": { "const": "firewall-apply" }
           }
         },
-        "retire_identities": { "const": ["tofu-plan", "tofu-apply"] },
+        "retire_identities": { "const": ["tofu-plan", "tofu-apply", "ansible-plan"] },
         "retire_root_supplementary_groups": { "const": ["apex"] },
         "root_key_attributions": {
           "type": "object",
@@ -512,16 +507,16 @@
             "SHA256:SNH3GBfBBvbkycl78DbrIjbaC0rJxkvue+KF9qhpXrs": { "const": "obsolete-proxmox-root-identity" }
           }
         },
-        "required_tailnet_users": { "const": ["proxmox", "ansible-plan", "ansible-deploy", "firewall-apply"] },
-        "forbidden_tailnet_users": { "const": ["root", "tofu-plan", "tofu-apply"] },
-        "plan_privilege_model": { "const": "fixed-reduced-observer" },
-        "apply_privilege_model": { "const": "saved-plan-bound" },
+        "required_tailnet_users": { "const": ["proxmox", "ansible-deploy", "firewall-apply"] },
+        "forbidden_tailnet_users": { "const": ["root", "tofu-plan", "tofu-apply", "ansible-plan"] },
+        "plan_privilege_model": { "const": "native-ansible-become" },
+        "apply_privilege_model": { "const": "native-ansible-become" },
         "firewall_privilege_model": { "const": "fixed-transaction-transport" },
         "firewall_magicdns_target": { "const": "firewall-apply@proxmox" },
-        "conventional_keys_target": { "const": "absent" },
+        "conventional_keys_target": { "const": "single-inert-pve-root-key" },
         "pubkey_authentication_target": { "const": false },
         "permit_root_login_target": { "const": false },
-        "remove_conventional_keys_last": { "const": true },
+        "remove_legacy_conventional_keys_last": { "const": true },
         "physical_console_required": { "const": true }
       }
     },
@@ -548,7 +543,7 @@
       "required": ["desired_state", "current_mutation_owner", "target_mutation_owner", "bootstrap_authority", "steady_transport", "break_glass", "marker"],
       "properties": {
         "desired_state": { "$ref": "#/$defs/lifecycleState" },
-        "current_mutation_owner": { "enum": ["ansible", "nix"] },
+        "current_mutation_owner": { "const": "ansible" },
         "target_mutation_owner": { "const": "ansible" },
         "bootstrap_authority": { "enum": ["physical-console", "physical-console-or-localhost"] },
         "steady_transport": { "const": "tailscale-ssh" },
@@ -613,9 +608,9 @@
               "additionalProperties": false,
               "required": ["candidate_scope", "allowed_apply_scope", "apply_authority", "automatic_apply", "automatic_reboot"],
               "properties": {
-                "candidate_scope": { "const": "all-upgrades" },
+                "candidate_scope": { "const": "explicit-exact-version-or-dist-upgrade" },
                 "allowed_apply_scope": { "const": "reviewed-exact-set" },
-                "apply_authority": { "const": "protected-session" },
+                "apply_authority": { "const": "native-ansible-become" },
                 "automatic_apply": { "const": false },
                 "automatic_reboot": { "const": false }
               }
@@ -1515,15 +1510,6 @@
         "version": { "$ref": "#/$defs/debianVersion" }
       }
     },
-    "packageManifestReference": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["path", "sha256"],
-      "properties": {
-        "path": { "const": "infrastructure/host-lifecycle/proxmox/package-manifest.json" },
-        "sha256": { "$ref": "#/$defs/sha256" }
-      }
-    },
     "pveKernelRelease": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+-[0-9]+-pve$" },
     "absolutePath": { "type": "string", "pattern": "^/(?!.*(?:^|/)\\.\\.?(?:/|$))(?:[A-Za-z0-9._+:-]+/)*[A-Za-z0-9._+:-]+$" },
     "unixIdentity": { "type": "string", "pattern": "^[a-z_][a-z0-9_-]*$" },
@@ -1766,21 +1752,6 @@
       }
     },
     "secretReference": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+$" },
-    "authorizedKeysPolicy": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["file", "secret_ref", "forced_command"],
-      "properties": {
-        "file": { "$ref": "#/$defs/runtimeProtectedFilePolicy" },
-        "secret_ref": { "$ref": "#/$defs/secretReference" },
-        "forced_command": { "oneOf": [
-          { "const": "restrict,command=\"sudo -n -- /usr/local/libexec/home-lab/proxmox-observer observe\"" },
-          { "const": "restrict,command=\"/usr/local/libexec/home-lab/proxmox-firewall-transport\"" },
-          { "const": "restrict,command=\"/usr/local/libexec/home-lab/proxmox-apply-transport\"" },
-          { "type": "null" }
-        ] }
-      }
-    },
     "presentSudoPolicy": {
       "type": "object",
       "additionalProperties": false,
@@ -1806,7 +1777,7 @@
         "password_lock": { "type": "boolean" },
         "groups": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/unixIdentity" } },
         "ssh_directory": { "$ref": "#/$defs/runtimeProtectedDirectoryPolicy" },
-        "authorized_keys": { "oneOf": [{ "$ref": "#/$defs/authorizedKeysPolicy" }, { "$ref": "#/$defs/absentAuthorizedKeysPolicy" }] },
+        "authorized_keys": { "$ref": "#/$defs/absentAuthorizedKeysPolicy" },
         "sudo": { "$ref": "#/$defs/sudoPolicy" }
       }
     },
@@ -1979,12 +1950,11 @@
     "hostPackagePolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["architecture", "direct", "critical", "manifest", "prohibited", "permitted_manual"],
+      "required": ["architecture", "direct", "critical", "prohibited", "permitted_manual"],
       "properties": {
         "architecture": { "const": "amd64" },
         "direct": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/versionedPackage" } },
         "critical": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/criticalPackage" } },
-        "manifest": { "$ref": "#/$defs/packageManifestReference" },
         "prohibited": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/packageName" } },
         "permitted_manual": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/packageName" } }
       }

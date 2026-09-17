@@ -57,7 +57,7 @@ class ControllerTests(unittest.TestCase):
   with mock.patch.object(self.m,"git_identity",return_value=("a"*40,"b"*40)),mock.patch.object(self.m,"canaries",return_value=failed):
    with self.assertRaises(RuntimeError) as caught: self.m.apply(sha,sha)
   shareable+=str(caught.exception)
-  for path in (ROOT/"nix/proxmox/fixture-observation.json",ROOT/"docs/legacy-host-recovery.md",ROOT/"infrastructure/policy/proxmox-firewall-plan.schema.json"):
+  for path in (ROOT/"docs/legacy-host-recovery.md", ROOT/"infrastructure/policy/proxmox-firewall-plan.schema.json"):
    shareable+=path.read_text()
   for value in self.config.values():
    self.assertNotIn(value,shareable); self.assertNotIn(self.m.hashlib.sha256(value.encode()).hexdigest(),shareable)

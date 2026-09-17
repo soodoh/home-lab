@@ -1,0 +1,19 @@
+---
+- name: Review native Proxmox repository and chrony configuration
+  hosts: proxmox
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require the reviewed native host and privilege route
+      ansible.builtin.assert:
+        that:
+          - inventory_hostname == 'proxmox'
+          - ansible_connection == 'ssh'
+          - ansible_become | bool
+    - name: Refuse retained operation owners without taking over their state
+      ansible.builtin.import_role:
+        name: proxmox_observe
+        tasks_from: owners
+  roles:
+    - role: proxmox_maintenance

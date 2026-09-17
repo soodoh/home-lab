@@ -9,10 +9,7 @@ const Ajv2020 = require("ajv/dist/2020");
 const { validateVmArtifactReferences } = require("./controller/validate-vm-artifact-references");
 const { validateProxmoxHostPolicy } = require("./controller/validate-proxmox-host-policy");
 const { validateResticPolicy, validateSharedNetworkStopOrder } = require("./controller/validate-restic-policy");
-const {
-  validateProxmoxPackageArtifactBinding,
-  validateProxmoxPackagePolicy,
-} = require("./controller/validate-proxmox-package-policy");
+const { validateProxmoxPackagePolicy } = require("./controller/validate-proxmox-package-policy");
 
 // This is an offline source check, not operational admission. Retired modes must
 // fail explicitly, never fall through to source-only validation.
@@ -29,18 +26,11 @@ const root = path.resolve(__dirname, "..");
 const contractPath = path.join(root, "infrastructure/contract/home-lab.yml");
 const schemaPath = path.join(root, "infrastructure/contract/schema.json");
 const servarrPath = path.join(root, "services/servarr.yml");
-const packageManifestPath = path.join(root, "infrastructure/host-lifecycle/proxmox/package-manifest.json");
-const packageManifestSchemaPath = path.join(root, "infrastructure/host-lifecycle/proxmox/package-manifest.schema.json");
-
 const contract = load(fs.readFileSync(contractPath, "utf8"));
 const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
 const servarrServices = load(fs.readFileSync(servarrPath, "utf8")).services;
-const packageManifestRaw = fs.readFileSync(packageManifestPath, "utf8");
-const packageManifest = JSON.parse(packageManifestRaw);
-const packageManifestSchema = JSON.parse(fs.readFileSync(packageManifestSchemaPath, "utf8"));
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validate = ajv.compile(schema);
-const validatePackageManifest = ajv.compile(packageManifestSchema);
 
 if (!validate(contract)) {
   for (const error of validate.errors || []) {
@@ -80,17 +70,7 @@ for (const key of ["gpu", "gpu_audio"]) {
 const usbSerialRefs = ["zigbee", "zwave"].map((key) => contract.proxmox.vm.usb[key].serial_secret_ref);
 if (new Set(usbSerialRefs).size !== usbSerialRefs.length) failures.push("USB serial secret references must be unique");
 failures.push(...validateProxmoxHostPolicy(contract));
-if (!validatePackageManifest(packageManifest)) {
-  failures.push(`Proxmox package manifest schema failed: ${JSON.stringify(validatePackageManifest.errors)}`);
-} else {
-  failures.push(...validateProxmoxPackagePolicy(contract, packageManifest));
-  failures.push(...validateProxmoxPackageArtifactBinding(
-    contract,
-    packageManifest,
-    packageManifestRaw,
-    path.relative(root, packageManifestPath),
-  ));
-}
+failures.push(...validateProxmoxPackagePolicy(contract));
 const distinctFallback = contract.proxmox.kernels.current !== contract.proxmox.kernels.fallback;
 const expectedRetentionCount = distinctFallback ? 2 : 1;
 if (contract.proxmox.kernels.retention_count !== expectedRetentionCount) {

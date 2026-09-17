@@ -172,11 +172,20 @@ has no standalone status/rollback CLI; the current Nix freeze also rejects
 `apply` before retained-session recovery. A retained-session recovery needs a
 separately reviewed invocation, not an unfreeze or rewritten source hashes. The
 [source retirement assessment](../docs/legacy-nix-retirement.md) traces remaining
-installers, consumers and native replacement requirements.
+historical installers, consumers and native replacement boundaries. The final
+bounded inspection found every bootstrap/access interruption journal absent, so
+the forward installers and their active-checkout recovery dispatchers were retired
+with the Nix tree. Their exact source remains at Git checkpoint `d7a4e208` and in
+the preserved old host checkout; that historical code is not standing mutation
+authority. Previous-generation/install-manifest records, sealed inputs and before-images
+remain intact. The approved September 17 installed cleanup removed the obsolete
+observer/private-preparer/plan/deploy generation and disabled obsolete account
+shells while preserving those records. Autonomous firewall recovery is independent
+and unchanged.
 Preserve strict host-key checking, independent console, VM100 disk identities,
-ZFS topology, NFS mount/export state and selected VFIO helper/policy. The deploy
-transport also handles Restic recovery network identity and snippet staging/removal;
-removing it would strand recovery. A network-disconnected controller cannot execute
+ZFS topology, NFS mount/export state and selected VFIO helper/policy. The retained
+source-owned deploy transport handles only Restic recovery network identity and
+snippet staging/removal; removing it would strand recovery. A network-disconnected controller cannot execute
 Ansible rescue; the firewall's persistent watchdog must remain available.
 
 For a failed `restic_backup` convergence, inspect the exact owner at

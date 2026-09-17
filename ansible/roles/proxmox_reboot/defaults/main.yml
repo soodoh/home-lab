@@ -1,0 +1,6 @@
+---
+proxmox_reboot_confirmed: false
+proxmox_reboot_console_confirmed: false
+proxmox_reboot_backup_confirmed: false
+proxmox_reboot_vm_id: 100
+proxmox_reboot_rollback_seconds: 600
