@@ -181,12 +181,12 @@ work under the boundaries, and independent live readback matches the reviewed ha
 The AWS foundation root is the first isolated provider leaf removed from the
 global contract seam. It owns the fixed one-day incomplete multipart-upload cleanup
 as a local safety invariant. Active state-object retention and resource addresses
-remain unchanged. A fresh no-drift plan now proposes only removal of the ten live
-lifecycle rules for the five already absent retired keys; all five active lock-history
-rules remain. That lifecycle update has not been applied and requires separate
-authorization. The legacy Offen field remains because recovery-hold proof and
-first-run recovery still consume it; this change is not authority to prune that
-contract subtree.
+remain unchanged. The separately authorized lifecycle apply removed the ten live
+rules for the five already absent retired keys and retained all five active
+lock-history rules unchanged. A post-apply state-object audit found no unexpected
+versions or delete markers, and a fresh provider plan reported zero changes. The
+legacy Offen field remains because recovery-hold proof and first-run recovery still
+consume it; this change is not authority to prune that contract subtree.
 
 Do not regenerate historical hashes, fabricate receipts, clear journals, stop
 watchdogs or erase locks to make the reduced source pass legacy admission. A

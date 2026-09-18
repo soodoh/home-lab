@@ -307,10 +307,11 @@ LiteLLM recreation and separate liveness/provider-model acceptance decision.
   published reduced version 14. A reviewed refresh-only saved plan recorded exactly
   those three owner changes in the retained foundation state. Both controller
   identities still issue successfully and live boundary/policy hashes match the
-  controller-local manifest. A fresh no-drift foundation plan now contains only the
-  state-bucket lifecycle update that removes ten rules for five already absent
-  retired keys while preserving all five active lock-history rules. That provider
-  update remains unapplied pending separate authorization.
+  controller-local manifest. The separately authorized state-bucket lifecycle apply
+  removed ten rules for five already absent retired keys while preserving all five
+  active lock-history rules unchanged. A post-apply exact-key audit found no
+  unexpected versions or delete markers, and a fresh foundation plan reported zero
+  changes.
 - **Omada:** the LAN/reservation root reads a private export in the
   [required input shape](../infrastructure/tofu/omada/EXPORT_SCHEMA.md). Its remote
   state contains exactly one network and eight reservations, and a fresh provider

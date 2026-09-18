@@ -783,9 +783,12 @@ two role updates and one apply-policy update in existing state; applying that sa
 refresh plan changed state only. Both Roles Anywhere identities then issued
 successfully. Independent readback matched both boundary canonical hashes and the
 reduced apply-policy hash. A fresh plan had no drift and passed policy inspection; its
-only action removes ten obsolete lifecycle rules for the five retired, already empty
-state keys while retaining the five active lock-history rules. No foundation resource
-plan has applied that lifecycle change.
+only action removed ten obsolete lifecycle rules for the five retired, already empty
+state keys while retaining the five active lock-history rules byte-for-byte. The
+separately authorized apply used that exact saved plan and completed successfully. A
+post-apply exact-key audit found no unexpected versions or delete markers, and a fresh
+provider-backed plan returned exit 0 with no changes. Temporary lifecycle plans and
+logs were removed; the owner bootstrap bundle remains preserved.
 
 ## Local source checks
 
