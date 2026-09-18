@@ -3,8 +3,9 @@
 ## Status and authority
 
 Full VM9900 retirement was selected. The two separately reviewed provider phases
-were applied on September 18, 2026; host-capability, Tailscale-policy and final source
-retirement remain pending and require separate explicit approval.
+and the bounded host-capability phase were applied on September 18, 2026. Tailscale
+policy and final source retirement remain pending and require separate explicit
+approval.
 
 The initial observation at approximately 20:45 UTC used clean commit
 `5c7b8e2d95431f006d57fdab5732da3329d52e68`. Native Proxmox observation passed 20
@@ -39,6 +40,15 @@ removed the now-invalid `/vms/9900` ACL when the VM was deleted, so current cont
 native-observer and host-retirement inputs must use the two-ACL plan-token baseline.
 No host file, account, Tailscale policy, recovery bundle, credential, journal or
 historical evidence was removed by either provider phase.
+
+Post-provider source alignment commit
+`375b3aed7c546e49877e1112dc68ac1e54d199c0` passed a 46-task check-mode preview.
+The separately approved normal play then passed 59 tasks with two bounded changed
+tasks: it retained and locked both dedicated accounts with `/usr/sbin/nologin`, and
+removed exactly seven snippet/helper/transport/sudo files. It preserved both homes,
+empty `.ssh` directories, five diagnostic entries, the exact capability record,
+VM100 and both retained plan-token ACLs. The shared operation owner was released.
+No Tailscale policy was changed by the host phase.
 
 ## Historical ownership and retained capability
 
@@ -114,33 +124,26 @@ lineage:
 Do not run this controller while the Debian generation owns VMID 9900. Separate
 local backends are not hypervisor isolation.
 
-### Installed capabilities remain live
+### Host forward capabilities are retired
 
-The following Debian qualification capability remains installed:
+The dedicated accounts remain as identity tombstones rather than being deleted:
 
-- `qualification-apply` UID/GID 1900, no supplementary groups, fixed transport
-  shell, and an empty `.ssh` directory;
-- the qualification snippet, helper, forced transport and sudo rule;
-- five entries in the root-only qualification diagnostic directory.
+- `qualification-apply` remains UID/GID 1900 with its home and empty `.ssh`
+  directory, but is password-locked with `/usr/sbin/nologin`;
+- Proxmox-side `ansible-deploy` remains UID 996/GID 994 with its home and empty
+  `.ssh` directory, but is password-locked with `/usr/sbin/nologin`.
 
-The `/vms/9900` plan-token ACL is already absent: PVE removed it with VM9900. The
-root and `/vms/100` plan-token bindings remain exact and must be preserved.
+The Debian snippet, qualification helper/transport/sudo rule, Restic transport,
+Proxmox `ansible-deploy` transport and sudo rule are absent. The `/vms/9900` ACL is
+absent while root and `/vms/100` plan-token bindings remain exact.
 
-The following Restic recovery capability remains installed:
-
-- the exact source-owned Restic transport, SHA-256
-  `186d6adf91649182d063165e50a4ab961968876c8a65254be53b6258bd2e95e1`;
-- its restricted `ansible-deploy` transport and sudo rule;
-- the committed capability record under
-  `/var/lib/home-lab/restic-recovery-capability/240db6d859e21f633e3cbe9bed93414c8ebeda58a9717d70d02566744776d4b5`,
-  whose state SHA-256 remains
-  `708af9c013eea53a8158df668d75261037f05a5f95a3718811029494ace269dc`.
-
-No listed qualification/recovery lock path existed, no matching lock was held, no
-relevant process was found and systemd had no queued job. That does not reserve a
-window or authorize cleanup. The capability record, diagnostic entries and retained
-host before-images are evidence; do not delete or rewrite them when removing their
-forward callers.
+Five diagnostic entries and the committed capability record under
+`/var/lib/home-lab/restic-recovery-capability/240db6d859e21f633e3cbe9bed93414c8ebeda58a9717d70d02566744776d4b5`
+remain. Its state SHA-256 is
+`708af9c013eea53a8158df668d75261037f05a5f95a3718811029494ace269dc`.
+The shared operation owner was released. Tailscale grants naming the two inert
+accounts remain until the separate full-policy change; they no longer have a usable
+host account route.
 
 ## Recovery boundary
 
@@ -219,15 +222,13 @@ one broad play.
    delete and no VM, disk, snippet, ACL or other image action. After separate
    approval, apply removed the exact import path and emptied the state. The previous
    generation and unchanged journal remain preserved; `tofu state rm` was not used.
-5. **Pending — retire host access after provider cleanup.** Remove the Debian snippet,
-   disable the qualification account, and remove its sudo/helper/transport. Require
-   `/vms/9900` already absent while preserving root and `/vms/100` plan-token access.
-   Disable the Proxmox-side `ansible-deploy` forced route and remove its sudo rule and
-   the two Restic transports. Inventory UID-owned files before deleting either
-   account or home.
-   Preserve the diagnostic directory, committed capability directory and all
-   before-images. Leave local snippet-storage support, the firewall watchdog,
-   native `proxmox` access and VM100 ACLs unchanged.
+5. **Completed — retire host access after provider cleanup.** The Debian snippet,
+   qualification sudo/helper/transport, Proxmox-side `ansible-deploy` route and sudo
+   rule, and the Restic transport were removed. Both accounts remain locked and inert;
+   their homes were preserved. `/vms/9900` was already absent while root and
+   `/vms/100` plan-token access remained exact. Diagnostics, capability evidence,
+   before-images, local snippet-storage support, the firewall watchdog, native
+   `proxmox` access and VM100 remained unchanged.
 6. **Pending — narrow Tailscale policy separately.** Remove `qualification-apply` and the now
    unused Proxmox-side `ansible-deploy` SSH grants/tests while preserving Docker-host
    `ansible-deploy`, `proxmox` and `firewall-apply`. Follow the full-policy ETag/live
@@ -261,7 +262,11 @@ failure after Debian apply was limited to its stale three-ACL plan-token declara
 PVE had removed `/vms/9900` with the VM. Current source narrows that declaration to
 the exact two retained plan-token bindings before any host-capability mutation. The
 post-provider host-retirement check-mode preview then passed 46 tasks with two
-explicit preview-only changes, no failures and no live mutation.
+explicit preview-only changes, no failures and no live mutation. After separate
+approval, the normal play passed 59 tasks with two bounded changed tasks. A final
+read-only native observation passed 20 tasks with `changed=0`; a ten-task exact host
+postcondition play confirmed both accounts locked/inert, seven files absent, homes
+and evidence retained, and the operation owner released.
 
 ## Explicit non-options
 
