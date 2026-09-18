@@ -45,7 +45,7 @@ for required in (
     "186d6adf91649182d063165e50a4ab961968876c8a65254be53b6258bd2e95e1",
     "root@pam!tofu-plan",
     "HomeLabTofuPlanDiskInspect",
-    "/vms/9900",
+    "post-provider plan-token ACL baseline",
     "/vms/100",
     "/usr/sbin/nologin",
     "/var/lib/home-lab/restic-recovery-capability/240db6d859e21f633e3cbe9bed93414c8ebeda58a9717d70d02566744776d4b5/state.json",
@@ -60,6 +60,8 @@ for forbidden in (
     "recurse: true",
     "rm -rf",
     "tofu state rm",
+    "/vms/9900",
+    "/usr/sbin/pveum\n      - acl\n      - delete",
     "/var/lib/home-lab/restic-recovery-capability\n    state: absent",
     "/var/lib/home-lab/reconciliation/qualification-diagnostic-attempts\n    state: absent",
 ):

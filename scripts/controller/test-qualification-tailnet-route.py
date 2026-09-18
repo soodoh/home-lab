@@ -9,6 +9,6 @@ assert 'accept = ["proxmox", "ansible-deploy", "firewall-apply", "qualification-
 assert 'deny   = ["ansible-plan", "docker", "root", "tofu-plan", "tofu-apply"]' in policy
 assert "- ansible-plan" in contract and policy.count('"ansible-plan"') == 1
 assert "temporary_tailnet_user: qualification-apply" in contract and "conventional_ssh_key_allowed: false" in contract
-assert "- path: /vms/9900" in contract and contract.count("role: HomeLabTofuPlanDiskInspect") == 3
+assert "- path: /vms/9900" not in contract and contract.count("role: HomeLabTofuPlanDiskInspect") == 2
 assert "/home/qualification-apply/.ssh/authorized_keys" in role and "state: absent" in role and "restrict,command=" not in role
 print("qualification_tailnet_route=verified conventional_keys=false root_denied=true")

@@ -96,5 +96,3 @@ proxmox_observe_protected_spec:
       additionalAcls:
         - path: /vms/100
           role: HomeLabTofuPlanDiskInspect
-        - path: /vms/9900
-          role: HomeLabTofuPlanDiskInspect

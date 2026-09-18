@@ -30,16 +30,17 @@ class NativeObservationTests(unittest.TestCase):
             str(ROOT / 'ansible/roles/proxmox_observe/tasks/owners.yml')],
             cwd=ROOT, capture_output=True, text=True, check=True).stdout)
         owner_assert = next(task for task in owners if task['name'] == 'Refuse a retained operation owner without reconciling it')
-        record = {'expectedCount': 3, 'observedCount': 3, 'matches': True, 'status': 'complete'}
-        valid = {'protectedAccess': record, 'protectedHardware': record}
+        access_record = {'expectedCount': 3, 'observedCount': 3, 'matches': True, 'status': 'complete'}
+        hardware_record = {'expectedCount': 3, 'observedCount': 3, 'matches': True, 'status': 'complete'}
+        valid = {'protectedAccess': access_record, 'protectedHardware': hardware_record}
         cases = [
             ('valid', json.dumps(valid), '', 0, True),
             ('malformed', 'SYNTHETIC_PRIVATE_SENTINEL', '', 0, False),
             ('extra-field', json.dumps({**valid, 'private': 'SYNTHETIC_PRIVATE_SENTINEL'}), '', 0, False),
-            ('missing-domain', json.dumps({'protectedAccess': record}), '', 0, False),
+            ('missing-domain', json.dumps({'protectedAccess': access_record}), '', 0, False),
             ('unavailable', json.dumps({**valid, 'protectedAccess': {'expectedCount': 3, 'observedCount': None,
                                                                   'matches': None, 'status': 'unavailable'}}), '', 0, False),
-            ('hardware-drift', json.dumps({**valid, 'protectedHardware': {**record, 'matches': False,
+            ('hardware-drift', json.dumps({**valid, 'protectedHardware': {**hardware_record, 'matches': False,
                                                                         'observedCount': 2}}), '', 0, False),
             ('oversized', 'SYNTHETIC_PRIVATE_SENTINEL' * 200, '', 0, False),
             ('stderr', json.dumps(valid), 'SYNTHETIC_PRIVATE_SENTINEL', 0, False),

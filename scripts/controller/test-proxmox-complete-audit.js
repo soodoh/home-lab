@@ -64,6 +64,7 @@ const spec = nativeVars.proxmox_observe_protected_spec;
 assert.equal(spec.conventionalKeyPolicy, "single-inert-pve-root-key");
 assert.equal(spec.permittedRootKeyFingerprint, "SHA256:Je+jcqxxdCTlcMc8sZToiF3oZrLIJ+N6mxNhiosUIXw");
 assert.equal(spec.protectedAccessExpectedCount, 3);
+assert(!JSON.stringify(spec.pveAccessBindings).includes("/vms/9900"));
 assert.equal(spec.node, "proxmox");
 assert.equal(spec.pool, "storage");
 assert(Array.isArray(spec.pveAccessBindings) && spec.pveAccessBindings.length > 0);

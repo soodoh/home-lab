@@ -193,17 +193,14 @@
   changed_when: false
   check_mode: false
 
-- name: Require the reviewed before or completed plan-token ACL baseline
+- name: Require the post-provider plan-token ACL baseline
   ansible.builtin.assert:
     that:
       - >-
-        (vm9900_retirement_acl_before.stdout | from_json) in [[
+        (vm9900_retirement_acl_before.stdout | from_json) == [
         {'path': '/', 'propagate': 1, 'roleid': 'HomeLabTofuPlan', 'ugid': 'root@pam!tofu-plan'},
-        {'path': '/vms/100', 'propagate': 1, 'roleid': 'HomeLabTofuPlanDiskInspect', 'ugid': 'root@pam!tofu-plan'}], [
-        {'path': '/', 'propagate': 1, 'roleid': 'HomeLabTofuPlan', 'ugid': 'root@pam!tofu-plan'},
-        {'path': '/vms/100', 'propagate': 1, 'roleid': 'HomeLabTofuPlanDiskInspect', 'ugid': 'root@pam!tofu-plan'},
-        {'path': '/vms/9900', 'propagate': 1, 'roleid': 'HomeLabTofuPlanDiskInspect', 'ugid': 'root@pam!tofu-plan'}]]
-    fail_msg: The plan-token ACL baseline differs; no ACL was removed.
+        {'path': '/vms/100', 'propagate': 1, 'roleid': 'HomeLabTofuPlanDiskInspect', 'ugid': 'root@pam!tofu-plan'}]
+    fail_msg: Plan-token access differs from the post-provider baseline.
 
 - name: Read retained evidence identities
   ansible.builtin.stat:
@@ -259,30 +256,6 @@
     msg: Both VM9900-only forced-transport accounts will be disabled without deleting their homes.
   changed_when: true
   when: ansible_check_mode
-
-- name: Remove only the VM9900 plan-token ACL
-  ansible.builtin.command:
-    argv:
-      - /usr/sbin/pveum
-      - acl
-      - delete
-      - /vms/9900
-      - --tokens
-      - root@pam!tofu-plan
-      - --roles
-      - HomeLabTofuPlanDiskInspect
-  when:
-    - not ansible_check_mode
-    - (vm9900_retirement_acl_before.stdout | from_json | length) == 3
-  changed_when: true
-
-- name: Preview exact VM9900 ACL removal
-  ansible.builtin.debug:
-    msg: The root@pam!tofu-plan HomeLabTofuPlanDiskInspect ACL at /vms/9900 will be removed.
-  changed_when: true
-  when:
-    - ansible_check_mode
-    - (vm9900_retirement_acl_before.stdout | from_json | length) == 3
 
 - name: Remove exact forward capability files
   ansible.builtin.file:
@@ -353,7 +326,7 @@
   check_mode: false
   when: not ansible_check_mode
 
-- name: Require VM100 plan access preserved and only VM9900 removed
+- name: Require the post-provider plan-token ACL baseline preserved
   ansible.builtin.assert:
     that:
       - >-
