@@ -1,0 +1,28 @@
+---
+- name: Retire exact VM9900 qualification capabilities after provider cleanup
+  hosts: proxmox
+  gather_facts: true
+  serial: 1
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Re-observe native Proxmox capabilities before retirement
+      ansible.builtin.import_role:
+        name: proxmox_observe
+
+    - name: Acquire the shared Proxmox operation owner
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: vm9900-capability-retirement
+        apply_lock_guard_path: /var/lib/home-lab/reconciliation/operation.lock
+  roles:
+    - role: vm9900_capability_retire
+  post_tasks:
+    - name: Release the shared Proxmox operation owner after complete success
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: vm9900-capability-retirement
+        apply_lock_guard_path: /var/lib/home-lab/reconciliation/operation.lock

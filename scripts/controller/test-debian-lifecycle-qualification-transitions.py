@@ -45,6 +45,11 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as directory:
  except SystemExit as error: assert "prior-admission-lineage" in str(error)
  finally: module.common.run_json=original_run_json
  prior_value={"observed_at":"2026-01-01T00:00:00Z","expires_at":"2026-01-01T00:30:00Z","stable":"same"}; current_value={**prior_value,"observed_at":"2026-09-05T14:00:00Z","expires_at":"2026-09-05T14:30:00Z"}; prior_admission.write_text(json.dumps(prior_value,sort_keys=True,separators=(",",":"))+"\n"); current_admission=Path(directory)/"current-admission.json"; current_admission.write_text(json.dumps(current_value,sort_keys=True,separators=(",",":"))+"\n"); current_admission.chmod(0o600); stopped={**direct,"admission_sha256":module.sha(prior_admission.read_bytes()),"format":"home-lab-debian-qualification-stop-receipt-v1","operation":"stop","vm_started":False}; path.write_text(json.dumps(stopped,sort_keys=True,separators=(",",":"))+"\n"); args.admission=current_admission; fresh={"admission_mode":"fresh","isolation_attestation_sha256":module.sha(current_admission.read_bytes()),"target_id":"production-pve-vm9900-qualification"}; assert module.prior(args,"destroy",fresh)[0]==stopped
+ interrupted={**stopped,"format":"home-lab-debian-qualification-interrupted-restart-stop-receipt-v1","failed_authorization_sha256":"2"*64,"failed_plan_sha256":"3"*64}; path.write_text(json.dumps(interrupted,sort_keys=True,separators=(",",":"))+"\n"); assert module.prior(args,"destroy",fresh)[0]==interrupted
+ malformed=dict(interrupted); malformed.pop("failed_plan_sha256"); path.write_text(json.dumps(malformed,sort_keys=True,separators=(",",":"))+"\n")
+ try: module.prior(args,"destroy",fresh); raise AssertionError("unbound interrupted stop accepted for destroy")
+ except SystemExit as error: assert "prior-receipt" in str(error)
+ path.write_text(json.dumps(stopped,sort_keys=True,separators=(",",":"))+"\n")
  try: module.prior(args,"destroy",{**fresh,"admission_mode":"expired-offline-diagnostic"}); raise AssertionError("expired destroy lineage accepted")
  except SystemExit as error: assert "destroy-lineage-requires-fresh-admission" in str(error)
  cross_start={**direct,"admission_sha256":module.sha(prior_admission.read_bytes())}; path.write_text(json.dumps(cross_start,sort_keys=True,separators=(",",":"))+"\n"); assert module.prior(args,"stop",fresh)[0]==cross_start

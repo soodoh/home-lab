@@ -665,7 +665,9 @@ records 16 unresolved attempts, six additional resource-cohort bindings and expl
 transport succession; resource destruction/supersession is not plaintext-cleanup proof.
 **Leave VM9900 unchanged: it belongs to Debian lifecycle qualification. Never apply
 an old Proton destroy plan to it.** Active recovery capabilities and consumer inputs
-remain; lifecycle continuation/retirement is a separate task. The audit holds the
+remain. The read-only [VM9900 retirement assessment](vm9900-retirement-assessment.md)
+proposes separately authorized disposition options; none is approved by this dated
+observation. The audit holds the
 [exact local archive/delete candidates](proton-source-retirement.md#historical-material--disposition-choices-pending-approval),
 all pending approval, with no retention schedule or further host operations.
 Those source passes and read-only reconciliation changed no installed helpers,

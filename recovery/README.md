@@ -210,7 +210,9 @@ For inactive attempts, **historical outcome unknown; attempt abandoned; no repla
 does not certify cleanup or release files with surviving consumers. Current bundles,
 identities, consumer-required evidence and active recovery capabilities remain.
 VM9900 belongs to Debian lifecycle qualification: leave it unchanged and never apply
-an old Proton destroy plan. Its continuation/retirement is a separate task.
+an old Proton destroy plan. The read-only
+[retirement assessment](../docs/vm9900-retirement-assessment.md) proposes bounded
+options, but does not authorize continuation, destruction or state changes.
 
 VM9900 restore fixtures demonstrated staging/structural validation without running
 applications (historically 22,031 files/6,982,221,998 bytes); they did not qualify

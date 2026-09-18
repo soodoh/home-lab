@@ -1,0 +1,399 @@
+---
+- name: Require exact VM9900 capability-retirement authority
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == 'proxmox'
+      - ansible_user == 'proxmox'
+      - ansible_become | bool
+      - >-
+        ansible_check_mode or
+        (vm9900_capability_retirement_confirmation | default('')) ==
+        'RETIRE_REVIEWED_VM9900_HOST_CAPABILITIES'
+    fail_msg: Normal retirement requires the exact VM9900 host-capability confirmation.
+
+- name: Read current PVE VM inventory
+  ansible.builtin.command:
+    argv: [/usr/bin/pvesh, get, /cluster/resources, --type, vm, --output-format, json]
+  register: vm9900_retirement_vms
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Require VM9900 absent and protected VM100 running
+  ansible.builtin.assert:
+    that:
+      - >-
+        (vm9900_retirement_vms.stdout | from_json |
+        selectattr('vmid', 'equalto', 9900) | list | length) == 0
+      - >-
+        (vm9900_retirement_vms.stdout | from_json |
+        selectattr('vmid', 'equalto', 100) |
+        selectattr('name', 'equalto', 'docker-host') |
+        selectattr('status', 'equalto', 'running') | list | length) == 1
+    fail_msg: VM9900 provider cleanup or protected VM100 identity is incomplete.
+  no_log: true
+
+- name: Read LVM names without changing activation
+  ansible.builtin.command:
+    argv: [/usr/sbin/lvs, --noheadings, --options, lv_name]
+  register: vm9900_retirement_lvs
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Read ZFS dataset names
+  ansible.builtin.command:
+    argv: [/usr/sbin/zfs, list, -H, -t, filesystem,volume,snapshot, -o, name]
+  register: vm9900_retirement_zfs
+  changed_when: false
+  check_mode: false
+  failed_when: vm9900_retirement_zfs.rc not in [0, 1]
+  no_log: true
+
+- name: Require every VM9900 disk object absent
+  ansible.builtin.assert:
+    that:
+      - vm9900_retirement_lvs.stdout is not search('(^|\s)vm-9900-')
+      - vm9900_retirement_zfs.stdout is not search('vm-9900-')
+    fail_msg: A VM9900 LVM or ZFS object remains; host capability retirement is blocked.
+  no_log: true
+
+- name: Read provider-owned paths that must already be absent
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop:
+    - /etc/pve/firewall/9900.fw
+    - /var/lib/vz/import/debian-20260810-2566-qualification.qcow2
+    - /var/lib/vz/import/home-lab-restic-recovery-debian-20260810-2566.qcow2
+    - /var/lib/vz/snippets/home-lab-restic-recovery-cloud-init.yaml
+  register: vm9900_retirement_provider_paths
+
+- name: Refuse host cleanup while a provider-owned path remains
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists
+    fail_msg: A provider-owned VM9900 path remains; no access capability was removed.
+    quiet: true
+  loop: "{{ vm9900_retirement_provider_paths.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Define exact installed capability identities
+  ansible.builtin.set_fact:
+    vm9900_retirement_expected_files:
+      /var/lib/vz/snippets/home-lab-debian-lifecycle-qualification.yaml:
+        mode: '0600'
+        sha256: a66a0d7e284a7c46cdf4e91e1096373efeaceaed867fa7aadd756981f0bb67ae
+      /usr/local/libexec/home-lab/debian-qualification-snippet-transaction:
+        mode: '0755'
+        sha256: 830b8b26b011967e70f9851114ba185a1cb0de399db81446d704ca4ee7564009
+      /usr/local/libexec/home-lab/debian-qualification-snippet-transport:
+        mode: '0755'
+        sha256: e2de3b8f5bd2ba016f8264a3ae45264984985338b854492f3cc04670b6e107bd
+      /etc/sudoers.d/qualification-apply:
+        mode: '0440'
+        sha256: 73e97eac84d28a55bc941ac572e40bf0ce5451bee60f0567dfae5de3595d2eb5
+      /usr/local/libexec/home-lab/proxmox-restic-recovery-transport:
+        mode: '0755'
+        sha256: 186d6adf91649182d063165e50a4ab961968876c8a65254be53b6258bd2e95e1
+      /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport:
+        mode: '0755'
+        sha256: 739ba3e61c780bcaa98d58964ae74d8a34077d0bea40483340b6f814afbd1f00
+      /etc/sudoers.d/ansible-deploy:
+        mode: '0440'
+        sha256: 55daf53c6a5eb39aaff0c31feb28023833e2b49ba08d0b9bde55f8981b0a5c7c
+
+- name: Read exact installed capability files
+  ansible.builtin.stat:
+    path: "{{ item.key }}"
+    follow: false
+    checksum_algorithm: sha256
+    get_checksum: true
+  loop: "{{ vm9900_retirement_expected_files | dict2items }}"
+  register: vm9900_retirement_files
+  no_log: true
+
+- name: Require each capability file exact or already absent
+  ansible.builtin.assert:
+    that:
+      - >-
+        not item.stat.exists or
+        (item.stat.isreg and not item.stat.islnk and
+        item.stat.pw_name == 'root' and item.stat.gr_name == 'root' and
+        item.stat.nlink == 1 and item.stat.mode == item.item.value.mode and
+        item.stat.checksum == item.item.value.sha256)
+    fail_msg: An installed VM9900 capability differs; no retirement was attempted.
+  loop: "{{ vm9900_retirement_files.results }}"
+  no_log: true
+
+- name: Read exact service-account records
+  ansible.builtin.command:
+    argv: [/usr/bin/getent, passwd, "{{ item }}"]
+  loop: [qualification-apply, ansible-deploy]
+  register: vm9900_retirement_accounts
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Require exact account identities and forced shells
+  ansible.builtin.assert:
+    that:
+      - vm9900_retirement_accounts.results[0].stdout.split(':')[0] == 'qualification-apply'
+      - vm9900_retirement_accounts.results[0].stdout.split(':')[2] == '1900'
+      - vm9900_retirement_accounts.results[0].stdout.split(':')[3] == '1900'
+      - vm9900_retirement_accounts.results[0].stdout.split(':')[5] == '/home/qualification-apply'
+      - >-
+        vm9900_retirement_accounts.results[0].stdout.split(':')[6] in
+        ['/usr/local/libexec/home-lab/debian-qualification-snippet-transport', '/usr/sbin/nologin']
+      - vm9900_retirement_accounts.results[1].stdout.split(':')[0] == 'ansible-deploy'
+      - vm9900_retirement_accounts.results[1].stdout.split(':')[2] == '996'
+      - vm9900_retirement_accounts.results[1].stdout.split(':')[3] == '994'
+      - vm9900_retirement_accounts.results[1].stdout.split(':')[5] == '/home/ansible-deploy'
+      - >-
+        vm9900_retirement_accounts.results[1].stdout.split(':')[6] in
+        ['/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport', '/usr/sbin/nologin']
+    fail_msg: A VM9900 service-account identity differs; no retirement was attempted.
+  no_log: true
+
+- name: Read service-account SSH directory entries
+  ansible.builtin.find:
+    paths: "{{ item }}"
+    hidden: true
+    recurse: false
+    file_type: any
+  loop:
+    - /home/qualification-apply/.ssh
+    - /home/ansible-deploy/.ssh
+  register: vm9900_retirement_ssh_entries
+
+- name: Require both forced-transport accounts to have no conventional SSH entries
+  ansible.builtin.assert:
+    that:
+      - item.matched == 0
+    fail_msg: A service-account SSH directory is not empty; account retirement is blocked.
+    quiet: true
+  loop: "{{ vm9900_retirement_ssh_entries.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Read the exact plan-token ACL subset
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -I
+      - -B
+      - -c
+      - >-
+        import json,subprocess;
+        rows=json.loads(subprocess.run(['/usr/bin/pvesh','get','/access/acl','--output-format','json'],check=True,text=True,capture_output=True).stdout);
+        selected=sorted(({'path':r.get('path'),'propagate':int(r.get('propagate',0)),'roleid':r.get('roleid'),'ugid':r.get('ugid')} for r in rows if r.get('ugid')=='root@pam!tofu-plan'),key=lambda r:(r['path'],r['roleid']));
+        print(json.dumps(selected,sort_keys=True,separators=(',',':')))
+  register: vm9900_retirement_acl_before
+  changed_when: false
+  check_mode: false
+
+- name: Require the reviewed before or completed plan-token ACL baseline
+  ansible.builtin.assert:
+    that:
+      - >-
+        (vm9900_retirement_acl_before.stdout | from_json) in [[
+        {'path': '/', 'propagate': 1, 'roleid': 'HomeLabTofuPlan', 'ugid': 'root@pam!tofu-plan'},
+        {'path': '/vms/100', 'propagate': 1, 'roleid': 'HomeLabTofuPlanDiskInspect', 'ugid': 'root@pam!tofu-plan'}], [
+        {'path': '/', 'propagate': 1, 'roleid': 'HomeLabTofuPlan', 'ugid': 'root@pam!tofu-plan'},
+        {'path': '/vms/100', 'propagate': 1, 'roleid': 'HomeLabTofuPlanDiskInspect', 'ugid': 'root@pam!tofu-plan'},
+        {'path': '/vms/9900', 'propagate': 1, 'roleid': 'HomeLabTofuPlanDiskInspect', 'ugid': 'root@pam!tofu-plan'}]]
+    fail_msg: The plan-token ACL baseline differs; no ACL was removed.
+
+- name: Read retained evidence identities
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    checksum_algorithm: sha256
+    get_checksum: "{{ item.checksum }}"
+  loop:
+    - path: /var/lib/home-lab/restic-recovery-capability/240db6d859e21f633e3cbe9bed93414c8ebeda58a9717d70d02566744776d4b5/state.json
+      checksum: true
+    - path: /var/lib/home-lab/reconciliation/qualification-diagnostic-attempts
+      checksum: false
+  register: vm9900_retirement_evidence_before
+  no_log: true
+
+- name: Require retained capability and diagnostic evidence
+  ansible.builtin.assert:
+    that:
+      - vm9900_retirement_evidence_before.results[0].stat.exists
+      - vm9900_retirement_evidence_before.results[0].stat.isreg
+      - vm9900_retirement_evidence_before.results[0].stat.mode == '0600'
+      - vm9900_retirement_evidence_before.results[0].stat.checksum == '708af9c013eea53a8158df668d75261037f05a5f95a3718811029494ace269dc'
+      - vm9900_retirement_evidence_before.results[1].stat.exists
+      - vm9900_retirement_evidence_before.results[1].stat.isdir
+      - vm9900_retirement_evidence_before.results[1].stat.mode == '0700'
+    fail_msg: Retained VM9900 evidence differs; no capability was removed.
+  no_log: true
+
+- name: Count retained diagnostic entries
+  ansible.builtin.find:
+    paths: /var/lib/home-lab/reconciliation/qualification-diagnostic-attempts
+    hidden: true
+    recurse: false
+    file_type: any
+  register: vm9900_retirement_diagnostics_before
+
+- name: Require the observed diagnostic evidence set
+  ansible.builtin.assert:
+    that:
+      - vm9900_retirement_diagnostics_before.matched == 5
+    fail_msg: Qualification diagnostic evidence changed; no capability was removed.
+
+- name: Disable both retired forced-transport accounts
+  ansible.builtin.user:
+    name: "{{ item }}"
+    shell: /usr/sbin/nologin
+    password_lock: true
+  loop: [qualification-apply, ansible-deploy]
+  when: not ansible_check_mode
+
+- name: Preview exact account disablement
+  ansible.builtin.debug:
+    msg: Both VM9900-only forced-transport accounts will be disabled without deleting their homes.
+  changed_when: true
+  when: ansible_check_mode
+
+- name: Remove only the VM9900 plan-token ACL
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/pveum
+      - acl
+      - delete
+      - /vms/9900
+      - --tokens
+      - root@pam!tofu-plan
+      - --roles
+      - HomeLabTofuPlanDiskInspect
+  when:
+    - not ansible_check_mode
+    - (vm9900_retirement_acl_before.stdout | from_json | length) == 3
+  changed_when: true
+
+- name: Preview exact VM9900 ACL removal
+  ansible.builtin.debug:
+    msg: The root@pam!tofu-plan HomeLabTofuPlanDiskInspect ACL at /vms/9900 will be removed.
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - (vm9900_retirement_acl_before.stdout | from_json | length) == 3
+
+- name: Remove exact forward capability files
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ vm9900_retirement_expected_files.keys() | list }}"
+  when: not ansible_check_mode
+
+- name: Preview exact forward capability file removal
+  ansible.builtin.debug:
+    msg: "The seven reviewed VM9900 forward capability files will be removed."
+  changed_when: true
+  when: ansible_check_mode
+
+- name: Re-read service-account records
+  ansible.builtin.command:
+    argv: [/usr/bin/getent, passwd, "{{ item }}"]
+  loop: [qualification-apply, ansible-deploy]
+  register: vm9900_retirement_accounts_after
+  changed_when: false
+  check_mode: false
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Require both accounts retained but inert
+  ansible.builtin.assert:
+    that:
+      - item.stdout.split(':')[6] == '/usr/sbin/nologin'
+    fail_msg: A retired service account still has an active shell.
+    quiet: true
+  loop: "{{ vm9900_retirement_accounts_after.results }}"
+  when: not ansible_check_mode
+  no_log: true
+
+- name: Re-read removed paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+  loop: "{{ vm9900_retirement_expected_files.keys() | list }}"
+  register: vm9900_retirement_files_after
+  when: not ansible_check_mode
+
+- name: Require every forward capability path absent
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists
+    fail_msg: A retired VM9900 forward capability path remains.
+    quiet: true
+  loop: "{{ vm9900_retirement_files_after.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not ansible_check_mode
+
+- name: Re-read the plan-token ACL subset
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - -I
+      - -B
+      - -c
+      - >-
+        import json,subprocess;
+        rows=json.loads(subprocess.run(['/usr/bin/pvesh','get','/access/acl','--output-format','json'],check=True,text=True,capture_output=True).stdout);
+        selected=sorted(({'path':r.get('path'),'propagate':int(r.get('propagate',0)),'roleid':r.get('roleid'),'ugid':r.get('ugid')} for r in rows if r.get('ugid')=='root@pam!tofu-plan'),key=lambda r:(r['path'],r['roleid']));
+        print(json.dumps(selected,sort_keys=True,separators=(',',':')))
+  register: vm9900_retirement_acl_after
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Require VM100 plan access preserved and only VM9900 removed
+  ansible.builtin.assert:
+    that:
+      - >-
+        (vm9900_retirement_acl_after.stdout | from_json) == [
+        {'path': '/', 'propagate': 1, 'roleid': 'HomeLabTofuPlan', 'ugid': 'root@pam!tofu-plan'},
+        {'path': '/vms/100', 'propagate': 1, 'roleid': 'HomeLabTofuPlanDiskInspect', 'ugid': 'root@pam!tofu-plan'}]
+    fail_msg: Plan-token ACL postconditions differ.
+  when: not ansible_check_mode
+
+- name: Re-read retained evidence identities
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    checksum_algorithm: sha256
+    get_checksum: "{{ item.checksum }}"
+  loop:
+    - path: /var/lib/home-lab/restic-recovery-capability/240db6d859e21f633e3cbe9bed93414c8ebeda58a9717d70d02566744776d4b5/state.json
+      checksum: true
+    - path: /var/lib/home-lab/reconciliation/qualification-diagnostic-attempts
+      checksum: false
+  register: vm9900_retirement_evidence_after
+  when: not ansible_check_mode
+  no_log: true
+
+- name: Recount retained diagnostic entries
+  ansible.builtin.find:
+    paths: /var/lib/home-lab/reconciliation/qualification-diagnostic-attempts
+    hidden: true
+    recurse: false
+    file_type: any
+  register: vm9900_retirement_diagnostics_after
+  when: not ansible_check_mode
+
+- name: Require evidence preservation after capability retirement
+  ansible.builtin.assert:
+    that:
+      - vm9900_retirement_evidence_after.results[0].stat.checksum == vm9900_retirement_evidence_before.results[0].stat.checksum
+      - vm9900_retirement_evidence_after.results[0].stat.mode == '0600'
+      - vm9900_retirement_evidence_after.results[1].stat.mode == '0700'
+      - vm9900_retirement_diagnostics_after.matched == vm9900_retirement_diagnostics_before.matched
+    fail_msg: Retained VM9900 evidence changed during capability retirement.
+  when: not ansible_check_mode
+  no_log: true

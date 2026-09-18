@@ -128,7 +128,9 @@ present recovery image, while the Restic snippet is absent. Those different stat
 lineages do not isolate the shared hypervisor identity. Keep both VM9900 roots,
 provider locks, inventories, snippets, evidence, installed capability source and
 recovery consumers until the recovery-image and failed-operation lineage receive a
-separate retirement decision.
+separate retirement decision. The read-only
+[VM9900 retirement assessment](vm9900-retirement-assessment.md) records the fresh
+ownership boundary and proposes a phased disposition; it authorizes no mutation.
 
 The disposable disk-adoption source is retired. Its current local state is empty;
 the immediately preceding state generation records VM9951 and four disks on the
@@ -220,7 +222,8 @@ Two local qualification-state dependencies remain unresolved: Debian lifecycle's
 `.local/qualification-route/clean-first-boot-foundation-final/state.tfstate` and
 Restic recovery's `.reconcile/restic-recovery-vm/09d091e5c9f44eafaf5a8b89576c9929e1fa5644/tofu.tfstate`.
 Preserve both and their recovery inputs. Leave VM9900 unchanged; neither state
-migration nor retirement is authorized by closing this audit.
+migration nor retirement is authorized by closing this audit or by the subsequent
+[retirement assessment](vm9900-retirement-assessment.md).
 
 The recovery key is currently on this developer machine; **off-machine custody
 is not verified and remains an open gap**. The operator will verify external escrow
