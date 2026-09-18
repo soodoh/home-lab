@@ -159,12 +159,15 @@ and hostname-alias tooling still feed its retained root.
 An exact state-bucket inventory found zero versions or delete markers for every
 formerly retired key. Those five entries and their expired-object lifecycle-rule
 scaffolding are removed from desired source. The live bucket lifecycle configuration
-is unchanged. The required boundary ARNs are absent from controller inputs and the
-live roles have no attached permissions boundary. Two matching named external policy
-candidates exist; using their exact ARNs produced a four-update plan covering the
-state apply policy, both controller roles and the state lifecycle configuration.
-That is not an isolated cleanup plan. Do not apply it until the owner independently
-verifies both boundary-policy contents and reviews all four updates together.
+is unchanged. The required boundary ARNs and reviewed boundary manifest are absent,
+and the live roles have no attached permissions boundary. The similarly named
+`home-lab-opentofu-state-plan` and `home-lab-opentofu-state-apply` policies are the
+roles' controller-owned permissions policies; the boundary validator explicitly
+forbids using them as their own boundaries. A diagnostic plan produced with those
+invalid inputs was not applied and is not review or authorization evidence. No
+plausible external boundary policy currently exists in the account. The owner must
+supply distinct policy ARNs, reviewed content hashes and provenance before a valid
+AWS foundation plan can be produced.
 
 The AWS foundation root is the first isolated provider leaf removed from the
 global contract seam. It owns the fixed one-day incomplete multipart-upload cleanup
