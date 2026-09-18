@@ -23,7 +23,7 @@ class ComposeImageLockTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
         self.args = Namespace(current=root / "current.json", previous=root / "previous.json",
-                              check_registry=False, until="168h")
+                              retained_root=root / "retained-images", check_registry=False, until="168h")
         self.write(self.args.current, "a")
         self.write(self.args.previous, "b")
         self.addCleanup(patch.stopall)
@@ -58,6 +58,17 @@ class ComposeImageLockTests(unittest.TestCase):
         self.assertEqual(prune, ["docker", "image", "prune", "--all", "--force", "--filter", "until=168h"])
         self.assertEqual(calls[-1], ["docker", "container", "rm", "--force", "container-a", "container-b"])
         self.assertFalse(any("manifest" in args for args in calls))
+
+    def test_retained_and_interrupted_generations_are_also_protected(self):
+        self.args.retained_root.mkdir()
+        self.write(self.args.retained_root / "older.json", "c")
+        self.write(self.args.current.parent / "deploy-candidate-previous-images.json", "d")
+        LOCK.prune(self.args)
+        calls = [call.args[0] for call in self.run.call_args_list]
+        creates = [args for args in calls if args[1] == "create"]
+        self.assertEqual({args[-1] for args in creates}, {"sha256:" + x * 64 for x in "abcd"})
+        prune = next(args for args in calls if args[1:3] == ["image", "prune"])
+        self.assertTrue(all(calls.index(args) < calls.index(prune) for args in creates))
 
     def test_missing_or_empty_previous_lock_refuses_before_prune(self):
         for missing in (True, False):

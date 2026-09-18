@@ -84,12 +84,23 @@ artifacts. Native maintenance variables also replace selected Nix data reads in
 current source, but that activator change is not deployed and the wider legacy
 audit/maintenance/recovery consumers remain.
 
+The [native Compose workflow](operations.md#native-compose-qualification) uses
+fresh tracked source plus actual remote state and limits mutation to an explicit
+`flaresolverr` canary. Host-side SOPS decryption, same-content environment refusal,
+production ownership, current/previous generations and image locks remain the
+safety boundary. It creates no approval receipt and consumes no previous runner
+result. Live observation and its source-bound check mode are qualified; normal
+container mutation, database and Restic activation remain separately unauthorized.
+That is sufficient to refuse the legacy **general** deployment lane, but not to
+remove operation-specific migration/recovery code or the installed image-pruning
+helper.
+
 ## Why legacy code remains
 
 | Retained source | Actual reason / retirement boundary |
 | --- | --- |
 | `infrastructure/contract/`, schemas, renderers and validators | HCL, host roles, Restic and recovery still read these values. Migrate each consumer into typed native inputs before removing the global contract. |
-| Compose artifact/model/action/diff/image helpers, staging/deploy/rollback roles | Legacy migration, data recovery and installed image-retention consumers remain. Offline admission-only reducers were removed; native deployment is not yet implemented. |
+| Compose artifact/model/action/diff/image helpers, operation-specific staging/deploy/rollback roles | Legacy migration, data recovery and installed image-retention consumers remain. General staging/deployment is refused; native check qualification deliberately does not replace those operation-specific recovery consumers. |
 | Restic runner, bootstrap/init/first-run/qualification helpers and recovery plays | Writer quiescence, interrupted-backup recovery, repository identity, pending-copy retention and retained operation journals remain real dependencies. |
 | Proxmox deploy activator/transport | The final read found all boot/network/storage/NFS/Tailscale/package ownership journals committed. The retained prepared package record is preserved as historical evidence. The installed activator was removed in the approved September 17 cleanup; the deploy transport is now the source-owned Restic-only route. |
 | Installed Proxmox observer/private preparer/plan transport | Active source callers and installed helper/access generations are retired. The approved cleanup preserved root-only before-images, removed obsolete helpers/sudo, disabled obsolete shells and passed a zero-change second normal run. The known PVE root key remains inert behind the checked root-specific effective sshd public-key/root-login refusals and is checked by native observation. |

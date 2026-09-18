@@ -1,0 +1,924 @@
+---
+- name: Validate the bounded native Compose deployment request
+  ansible.builtin.assert:
+    that:
+      - compose_native_requested_services | length > 0
+      - compose_native_requested_services | difference(compose_native_allowed_services) | length == 0
+      - compose_native_force_recreate_services | difference(compose_native_requested_services) | length == 0
+      - compose_native_requested_services | unique | length == compose_native_requested_services | length
+      - compose_native_force_recreate_services | unique | length == compose_native_force_recreate_services | length
+      - ansible_check_mode or compose_native_apply_confirmed | bool
+    fail_msg: >-
+      Native Compose deployment requires an explicit allowed service set, an optional subset for forced
+      recreation, and compose_native_apply_confirmed=true outside check mode.
+
+- name: Compute the reviewed tracked-source Compose artifact identity
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - "{{ compose_native_controller_root }}/scripts/compose-artifact.py"
+      - --root
+      - "{{ compose_native_controller_root }}"
+      - hash
+  delegate_to: localhost
+  become: false
+  register: compose_native_controller_artifact
+  changed_when: false
+  check_mode: false
+
+- name: Require an exact tracked-source artifact identity
+  ansible.builtin.assert:
+    that:
+      - compose_native_controller_artifact.stdout is match('^[0-9a-f]{64}$')
+    fail_msg: The reviewed checkout did not produce an exact Compose artifact identity.
+
+- name: Define immutable candidate paths
+  ansible.builtin.set_fact:
+    compose_native_candidate_hash: "{{ compose_native_controller_artifact.stdout }}"
+    compose_native_candidate_dir: "{{ compose_native_staging_root }}/{{ compose_native_controller_artifact.stdout }}"
+    compose_native_candidate_env_path: "{{ compose_native_staged_env_root }}/{{ compose_native_controller_artifact.stdout }}.env"
+    compose_native_interrupted_image_path: "/var/lib/docker-compose/deploy-{{ compose_native_controller_artifact.stdout }}-previous-images.json"
+
+- name: Recompute the active artifact identity from live host state
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_python_interpreter }}"
+      - "{{ compose_native_current_dir }}/scripts/compose-artifact.py"
+      - --root
+      - "{{ compose_native_current_dir }}"
+      - --no-git
+      - hash
+  become: true
+  register: compose_native_active_artifact
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Report the source-only check boundary
+  ansible.builtin.debug:
+    msg:
+      candidate_hash: "{{ compose_native_candidate_hash }}"
+      active_hash: "{{ compose_native_active_artifact.stdout }}"
+      artifact_change: "{{ compose_native_candidate_hash != compose_native_active_artifact.stdout }}"
+      requested_services: "{{ compose_native_requested_services }}"
+      forced_recreation: "{{ compose_native_force_recreate_services }}"
+      note: Check mode does not stage protected inputs or mutate the host; apply repeats every live check.
+  changed_when: compose_native_candidate_hash != compose_native_active_artifact.stdout or compose_native_force_recreate_services | length > 0
+  when: ansible_check_mode
+
+- name: Stage, publish, and converge the reviewed Compose generation
+  when: not ansible_check_mode
+  block:
+    - name: Require explicit recreation for the initial canary when artifact bytes change
+      ansible.builtin.assert:
+        that:
+          - >-
+            compose_native_candidate_hash == compose_native_active_artifact.stdout or
+            compose_native_force_recreate_services | sort == compose_native_requested_services | sort
+        fail_msg: The initial canary scope requires every requested service to be explicitly recreated when artifact bytes change.
+
+    - name: Create stable native Compose directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+      become: true
+      loop:
+        - {path: "{{ compose_native_deployment_root }}", mode: "0755"}
+        - {path: "{{ compose_native_staging_root }}", mode: "0755"}
+        - {path: /etc/docker-compose, mode: "0700"}
+        - {path: "{{ compose_native_staged_env_root }}", mode: "0700"}
+        - {path: /var/lib/docker-compose, mode: "0711"}
+        - {path: "{{ compose_native_retained_image_root }}", mode: "0700"}
+
+    - name: Inspect immutable candidate paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      become: true
+      register: compose_native_candidate_paths
+      loop:
+        - "{{ compose_native_candidate_dir }}"
+        - "{{ compose_native_candidate_env_path }}"
+        - "{{ compose_native_interrupted_image_path }}"
+
+    - name: Refuse an unresolved deployment image checkpoint
+      ansible.builtin.assert:
+        that:
+          - not (compose_native_candidate_paths.results[2].stat.exists | default(false))
+        fail_msg: Preserve and inspect the existing deployment image checkpoint before retrying.
+
+    - name: Materialize a missing deterministic candidate
+      when: not (compose_native_candidate_paths.results[0].stat.exists | default(false))
+      block:
+        - name: Create a private runner artifact directory
+          ansible.builtin.tempfile:
+            state: directory
+            prefix: home-lab-compose-native-
+          delegate_to: localhost
+          become: false
+          register: compose_native_controller_workspace
+
+        - name: Copy only tracked deterministic artifact paths into the private runner directory
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_playbook_python }}"
+              - "{{ compose_native_controller_root }}/scripts/compose-artifact.py"
+              - --root
+              - "{{ compose_native_controller_root }}"
+              - copy
+              - "{{ compose_native_controller_workspace.path }}"
+          delegate_to: localhost
+          become: false
+          register: compose_native_materialized_artifact
+          changed_when: true
+
+        - name: Require the materialized artifact identity
+          ansible.builtin.assert:
+            that:
+              - compose_native_materialized_artifact.stdout == compose_native_candidate_hash
+            fail_msg: Materialized candidate bytes differ from the reviewed tracked source.
+
+        - name: Create a root-owned incoming candidate directory
+          ansible.builtin.tempfile:
+            state: directory
+            path: "{{ compose_native_staging_root }}"
+            prefix: .incoming-
+          become: true
+          register: compose_native_candidate_incoming
+
+        - name: Transfer only the deterministic artifact
+          ansible.builtin.copy:
+            src: "{{ compose_native_controller_workspace.path }}/"
+            dest: "{{ compose_native_candidate_incoming.path }}/"
+            owner: root
+            group: root
+            mode: preserve
+            directory_mode: "0755"
+          become: true
+
+        - name: Verify the incoming candidate identity on the host
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_python_interpreter }}"
+              - "{{ compose_native_candidate_incoming.path }}/scripts/compose-artifact.py"
+              - --root
+              - "{{ compose_native_candidate_incoming.path }}"
+              - --no-git
+              - hash
+          become: true
+          register: compose_native_incoming_artifact
+          changed_when: false
+
+        - name: Require exact incoming candidate bytes
+          ansible.builtin.assert:
+            that:
+              - compose_native_incoming_artifact.stdout == compose_native_candidate_hash
+            fail_msg: Host candidate bytes differ after transfer.
+
+        - name: Atomically publish the immutable candidate directory
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/mv
+              - --no-target-directory
+              - --
+              - "{{ compose_native_candidate_incoming.path }}"
+              - "{{ compose_native_candidate_dir }}"
+          become: true
+          changed_when: true
+      always:
+        - name: Remove the private runner artifact directory
+          ansible.builtin.file:
+            path: "{{ compose_native_controller_workspace.path | default('/nonexistent-compose-native-runner') }}"
+            state: absent
+          delegate_to: localhost
+          become: false
+          when: compose_native_controller_workspace.path | default('') | length > 0
+
+        - name: Remove an unpublished incoming candidate directory
+          ansible.builtin.file:
+            path: "{{ compose_native_candidate_incoming.path | default('/nonexistent-compose-native-incoming') }}"
+            state: absent
+          become: true
+          when:
+            - compose_native_candidate_incoming.path | default('') | length > 0
+            - compose_native_candidate_incoming.path != compose_native_candidate_dir
+
+    - name: Verify the immutable candidate identity
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - "{{ compose_native_candidate_dir }}/scripts/compose-artifact.py"
+          - --root
+          - "{{ compose_native_candidate_dir }}"
+          - --no-git
+          - hash
+      become: true
+      register: compose_native_host_candidate_artifact
+      changed_when: false
+
+    - name: Require the immutable candidate to match reviewed source
+      ansible.builtin.assert:
+        that:
+          - compose_native_host_candidate_artifact.stdout == compose_native_candidate_hash
+        fail_msg: Existing host staging does not match the reviewed source artifact.
+
+    - name: Inventory artifact byte differences against the active generation
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/diff
+          - --brief
+          - --recursive
+          - --no-dereference
+          - --
+          - "{{ compose_native_current_dir }}"
+          - "{{ compose_native_candidate_dir }}"
+      become: true
+      register: compose_native_artifact_differences
+      changed_when: false
+      failed_when: compose_native_artifact_differences.rc not in [0, 1]
+      no_log: true
+
+    - name: Refuse artifact changes outside the canary and same-content SOPS inputs
+      ansible.builtin.assert:
+        that:
+          - compose_native_allowed_changed_paths | select('in', item) | list | length == 1
+        fail_msg: The initial native deployment contains an artifact change outside its explicit canary scope.
+      loop: "{{ compose_native_artifact_differences.stdout_lines }}"
+      no_log: true
+
+    - name: Freeze database and Restic policy source during native canary adoption
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/cmp
+          - --silent
+          - --
+          - "{{ compose_native_current_dir }}/{{ item }}"
+          - "{{ compose_native_candidate_dir }}/{{ item }}"
+      become: true
+      loop:
+        - services/authentik.yml
+        - services/nextcloud.yml
+        - services/data/restic/files-from
+        - services/data/restic/excludes
+      changed_when: false
+      no_log: true
+
+    - name: Create a root-only candidate decryption workspace
+      ansible.builtin.tempfile:
+        state: directory
+        path: /etc/docker-compose
+        prefix: .native-decrypt-
+      become: true
+      register: compose_native_decrypt_workspace
+      no_log: true
+
+    - name: Decrypt the candidate production environment on the host
+      ansible.builtin.command:
+        argv:
+          - "{{ compose_native_sops_path }}"
+          - decrypt
+          - --input-type
+          - dotenv
+          - --output-type
+          - dotenv
+          - --output
+          - "{{ compose_native_decrypt_workspace.path }}/canonical.env"
+          - "{{ compose_native_candidate_dir }}/secrets/production.sops.env"
+      environment:
+        SOPS_AGE_KEY_FILE: "{{ compose_native_age_identity_path }}"
+      become: true
+      changed_when: true
+      no_log: true
+
+    - name: Restore the exact candidate dotenv layout
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - "{{ compose_native_candidate_dir }}/scripts/restore-dotenv-layout.py"
+          - "{{ compose_native_decrypt_workspace.path }}/canonical.env"
+          - "{{ compose_native_candidate_dir }}/secrets/production.env.layout.json"
+          - "{{ compose_native_decrypt_workspace.path }}/production.env"
+      become: true
+      changed_when: true
+      no_log: true
+
+    - name: Refuse credential or environment changes in the initial native scope
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/cmp
+          - --silent
+          - --
+          - "{{ compose_native_decrypt_workspace.path }}/production.env"
+          - "{{ compose_native_runtime_env_path }}"
+      become: true
+      changed_when: false
+      no_log: true
+
+    - name: Install the same-content root-only candidate environment
+      ansible.builtin.copy:
+        src: "{{ compose_native_decrypt_workspace.path }}/production.env"
+        dest: "{{ compose_native_candidate_env_path }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      diff: false
+      no_log: true
+
+    - name: Validate the candidate Compose model without rendering it
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - compose
+          - --project-name
+          - "{{ compose_native_project_name }}"
+          - --project-directory
+          - "{{ compose_native_candidate_dir }}"
+          - --env-file
+          - "{{ compose_native_candidate_env_path }}"
+          - --file
+          - "{{ compose_native_candidate_dir }}/docker-compose.yml"
+          - --file
+          - "{{ compose_native_image_override_path }}"
+          - config
+          - --quiet
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      changed_when: false
+      no_log: true
+
+    - name: List candidate services without rendering configuration
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - compose
+          - --project-name
+          - "{{ compose_native_project_name }}"
+          - --project-directory
+          - "{{ compose_native_candidate_dir }}"
+          - --env-file
+          - "{{ compose_native_candidate_env_path }}"
+          - --file
+          - "{{ compose_native_candidate_dir }}/docker-compose.yml"
+          - --file
+          - "{{ compose_native_image_override_path }}"
+          - config
+          - --services
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      register: compose_native_candidate_services
+      changed_when: false
+      no_log: true
+
+    - name: Read the protected normalized candidate model for narrow safety assertions
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - compose
+          - --project-name
+          - "{{ compose_native_project_name }}"
+          - --project-directory
+          - "{{ compose_native_candidate_dir }}"
+          - --env-file
+          - "{{ compose_native_candidate_env_path }}"
+          - --file
+          - "{{ compose_native_candidate_dir }}/docker-compose.yml"
+          - --file
+          - "{{ compose_native_image_override_path }}"
+          - config
+          - --format
+          - json
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      register: compose_native_candidate_model_raw
+      changed_when: false
+      no_log: true
+
+    - name: Parse the protected normalized candidate model
+      ansible.builtin.set_fact:
+        compose_native_candidate_model: "{{ compose_native_candidate_model_raw.stdout | from_json }}"
+      no_log: true
+
+    - name: Refuse canary network or mount topology changes
+      ansible.builtin.assert:
+        that:
+          - compose_native_candidate_model.services[compose_native_canary_service].network_mode == compose_native_canary_network_mode
+          - compose_native_candidate_model.services[compose_native_canary_service].volumes | length == compose_native_canary_mounts | length
+        fail_msg: The canary network mode or mount count changed outside the native deployment scope.
+      no_log: true
+
+    - name: Require every normalized candidate canary mount identity
+      ansible.builtin.assert:
+        that:
+          - >-
+            compose_native_candidate_model.services[compose_native_canary_service].volumes |
+            selectattr('type', 'equalto', item.type) |
+            selectattr('source', 'equalto', item.source) |
+            selectattr('target', 'equalto', item.target) | list | length == 1
+        fail_msg: The candidate canary mount source target or type changed.
+      loop: "{{ compose_native_canary_mounts }}"
+      no_log: true
+
+    - name: Refuse service additions removals or renames
+      ansible.builtin.assert:
+        that:
+          - compose_native_candidate_services.stdout_lines | length == compose_native_expected_service_count | int
+          - compose_native_candidate_services.stdout_lines | sort == compose_native_declared_services.stdout_lines | sort
+        fail_msg: The initial native scope does not permit service-set changes.
+      no_log: true
+
+    - name: Capture the live pre-deployment image generation durably
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - "{{ compose_native_current_dir }}/scripts/compose-image-lock.py"
+          - capture
+          - --project
+          - "{{ compose_native_project_name }}"
+          - --output
+          - "{{ compose_native_interrupted_image_path }}"
+      become: true
+      changed_when: true
+      no_log: true
+
+    - name: Recheck the backup mutex immediately before publication
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/flock
+          - --exclusive
+          - --nonblock
+          - --
+          - "{{ compose_native_backup_lock_path }}"
+          - /usr/bin/true
+      become: true
+      changed_when: false
+      no_log: true
+
+    - name: Publish a changed source generation while retaining current and previous inputs
+      when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+      block:
+        - name: Inspect the previous artifact and environment
+          ansible.builtin.stat:
+            path: "{{ item }}"
+            follow: false
+            get_checksum: false
+            get_mime: false
+          become: true
+          register: compose_native_previous_paths
+          loop:
+            - "{{ compose_native_previous_dir }}"
+            - "{{ compose_native_previous_env_path }}"
+
+        - name: Require a complete protected previous generation
+          ansible.builtin.assert:
+            that:
+              - compose_native_previous_paths.results[0].stat.isdir | default(false)
+              - not (compose_native_previous_paths.results[0].stat.islnk | default(false))
+              - compose_native_previous_paths.results[1].stat.isreg | default(false)
+              - not (compose_native_previous_paths.results[1].stat.islnk | default(false))
+              - compose_native_previous_paths.results[1].stat.pw_name == 'root'
+              - compose_native_previous_paths.results[1].stat.gr_name == 'root'
+              - compose_native_previous_paths.results[1].stat.mode == '0600'
+            fail_msg: The retained previous generation is incomplete or unsafe.
+
+        - name: Compute the retained previous artifact identity
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_python_interpreter }}"
+              - "{{ compose_native_previous_dir }}/scripts/compose-artifact.py"
+              - --root
+              - "{{ compose_native_previous_dir }}"
+              - --no-git
+              - hash
+          become: true
+          register: compose_native_previous_artifact
+          changed_when: false
+          no_log: true
+
+        - name: Inspect the hash-addressed previous archive
+          ansible.builtin.stat:
+            path: "{{ compose_native_staging_root }}/{{ compose_native_previous_artifact.stdout }}"
+            follow: false
+            get_checksum: false
+            get_mime: false
+          become: true
+          register: compose_native_previous_archive
+          no_log: true
+
+        - name: Archive an older previous artifact before replacing the previous pointer
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/cp
+              - --archive
+              - --
+              - "{{ compose_native_previous_dir }}"
+              - "{{ compose_native_staging_root }}/{{ compose_native_previous_artifact.stdout }}"
+          become: true
+          changed_when: true
+          when: not (compose_native_previous_archive.stat.exists | default(false))
+          no_log: true
+
+        - name: Verify the hash-addressed older previous artifact
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_python_interpreter }}"
+              - "{{ compose_native_staging_root }}/{{ compose_native_previous_artifact.stdout }}/scripts/compose-artifact.py"
+              - --root
+              - "{{ compose_native_staging_root }}/{{ compose_native_previous_artifact.stdout }}"
+              - --no-git
+              - hash
+          become: true
+          register: compose_native_previous_archive_hash
+          changed_when: false
+          no_log: true
+
+        - name: Require the exact older previous archive identity
+          ansible.builtin.assert:
+            that:
+              - compose_native_previous_archive_hash.stdout == compose_native_previous_artifact.stdout
+            fail_msg: Existing hash-addressed previous archive bytes differ.
+          no_log: true
+
+        - name: Preserve the older previous environment beside its archived artifact
+          ansible.builtin.copy:
+            src: "{{ compose_native_previous_env_path }}"
+            dest: "{{ compose_native_staged_env_root }}/{{ compose_native_previous_artifact.stdout }}.env"
+            remote_src: true
+            owner: root
+            group: root
+            mode: "0600"
+            force: false
+          become: true
+          no_log: true
+
+        - name: Require the archived older previous environment to match
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/cmp
+              - --silent
+              - --
+              - "{{ compose_native_previous_env_path }}"
+              - "{{ compose_native_staged_env_root }}/{{ compose_native_previous_artifact.stdout }}.env"
+          become: true
+          changed_when: false
+          no_log: true
+
+        - name: Create an incoming current artifact directory
+          ansible.builtin.tempfile:
+            state: directory
+            path: "{{ compose_native_deployment_root }}"
+            prefix: .native-current-
+          become: true
+          register: compose_native_incoming_current
+
+        - name: Copy the immutable candidate into the incoming current directory
+          ansible.builtin.copy:
+            src: "{{ compose_native_candidate_dir }}/"
+            dest: "{{ compose_native_incoming_current.path }}/"
+            remote_src: true
+            owner: root
+            group: root
+            mode: preserve
+            directory_mode: "0755"
+          become: true
+
+        - name: Verify the incoming current artifact identity
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_python_interpreter }}"
+              - "{{ compose_native_incoming_current.path }}/scripts/compose-artifact.py"
+              - --root
+              - "{{ compose_native_incoming_current.path }}"
+              - --no-git
+              - hash
+          become: true
+          register: compose_native_incoming_current_hash
+          changed_when: false
+
+        - name: Require exact incoming current bytes
+          ansible.builtin.assert:
+            that:
+              - compose_native_incoming_current_hash.stdout == compose_native_candidate_hash
+            fail_msg: Incoming current bytes differ from the immutable candidate.
+
+        - name: Remove the replaced previous pointer after archival
+          ansible.builtin.file:
+            path: "{{ compose_native_previous_dir }}"
+            state: absent
+          become: true
+
+        - name: Move the active artifact to previous
+          ansible.builtin.command:
+            argv: [/usr/bin/mv, --no-target-directory, --, "{{ compose_native_current_dir }}", "{{ compose_native_previous_dir }}"]
+          become: true
+          changed_when: true
+
+        - name: Atomically publish the candidate as current
+          ansible.builtin.command:
+            argv: [/usr/bin/mv, --no-target-directory, --, "{{ compose_native_incoming_current.path }}", "{{ compose_native_current_dir }}"]
+          become: true
+          changed_when: true
+
+        - name: Preserve the active environment as previous
+          ansible.builtin.copy:
+            src: "{{ compose_native_runtime_env_path }}"
+            dest: "{{ compose_native_previous_env_path }}"
+            remote_src: true
+            owner: root
+            group: root
+            mode: "0600"
+          become: true
+          no_log: true
+
+        - name: Activate the same-content candidate environment
+          ansible.builtin.copy:
+            src: "{{ compose_native_candidate_env_path }}"
+            dest: "{{ compose_native_runtime_env_path }}"
+            remote_src: true
+            owner: root
+            group: root
+            mode: "0600"
+          become: true
+          diff: false
+          no_log: true
+
+    - name: Preview the full published model before container changes
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_native_current_dir }}"
+        project_name: "{{ compose_native_project_name }}"
+        files: "{{ compose_native_files }}"
+        env_files:
+          - "{{ compose_native_runtime_env_path }}"
+        state: present
+        pull: missing
+        build: never
+        recreate: auto
+        remove_orphans: false
+        renew_anon_volumes: false
+        wait: false
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      register: compose_native_published_preview
+      check_mode: true
+      no_log: true
+
+    - name: Refuse non-container topology changes or changes outside the canary scope
+      ansible.builtin.assert:
+        that:
+          - item.what not in ['network', 'volume']
+          - item.what in ['image', 'image-layer'] or item.id in compose_native_requested_services
+        fail_msg: The published model proposes an action outside the approved canary services.
+      loop: "{{ compose_native_published_preview.actions }}"
+      no_log: true
+
+    - name: Converge requested services with automatic recreation
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_native_current_dir }}"
+        project_name: "{{ compose_native_project_name }}"
+        files: "{{ compose_native_files }}"
+        env_files:
+          - "{{ compose_native_runtime_env_path }}"
+        services: "{{ compose_native_requested_services | difference(compose_native_force_recreate_services) }}"
+        dependencies: false
+        state: present
+        pull: missing
+        build: never
+        recreate: auto
+        remove_orphans: false
+        renew_anon_volumes: false
+        wait: true
+        wait_timeout: "{{ compose_native_wait_timeout }}"
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      register: compose_native_automatic_convergence
+      when: compose_native_requested_services | difference(compose_native_force_recreate_services) | length > 0
+      no_log: true
+
+    - name: Converge explicitly selected bind-file restart services
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_native_current_dir }}"
+        project_name: "{{ compose_native_project_name }}"
+        files: "{{ compose_native_files }}"
+        env_files:
+          - "{{ compose_native_runtime_env_path }}"
+        services: "{{ compose_native_force_recreate_services }}"
+        dependencies: false
+        state: present
+        pull: missing
+        build: never
+        recreate: always
+        remove_orphans: false
+        renew_anon_volumes: false
+        wait: true
+        wait_timeout: "{{ compose_native_wait_timeout }}"
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      register: compose_native_forced_convergence
+      when: compose_native_force_recreate_services | length > 0
+      no_log: true
+
+    - name: Require the complete published model to be converged
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_native_current_dir }}"
+        project_name: "{{ compose_native_project_name }}"
+        files: "{{ compose_native_files }}"
+        env_files:
+          - "{{ compose_native_runtime_env_path }}"
+        state: present
+        pull: never
+        build: never
+        recreate: auto
+        remove_orphans: false
+        renew_anon_volumes: false
+        wait: false
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      register: compose_native_post_preview
+      check_mode: true
+      no_log: true
+
+    - name: Assert complete post-deployment convergence
+      ansible.builtin.assert:
+        that:
+          - not compose_native_post_preview.changed
+          - compose_native_post_preview.containers | length == compose_native_expected_service_count | int
+        fail_msg: The published Compose model still proposes changes after canary convergence.
+      no_log: true
+
+    - name: List running services after native convergence
+      ansible.builtin.command:
+        argv: "{{ compose_native_runtime_cli + ['ps', '--status', 'running', '--services'] }}"
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      register: compose_native_post_running_services
+      changed_when: false
+      no_log: true
+
+    - name: Require the complete running project after native convergence
+      ansible.builtin.assert:
+        that:
+          - compose_native_post_running_services.stdout_lines | length == compose_native_expected_service_count | int
+          - compose_native_post_running_services.stdout_lines | sort == compose_native_candidate_services.stdout_lines | sort
+        fail_msg: The complete running service set was not preserved.
+      no_log: true
+
+    - name: Recheck required container health after native convergence
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - inspect
+          - --format
+          - "{% raw %}{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}{% endraw %}"
+          - "{{ item }}"
+      become: true
+      register: compose_native_post_health
+      loop: "{{ compose_native_required_healthy_containers }}"
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: compose_native_post_health.stdout == 'healthy'
+      no_log: true
+
+    - name: Archive the older previous image generation before pointer rotation
+      ansible.builtin.copy:
+        src: "{{ compose_native_previous_image_lock_path }}"
+        dest: "{{ compose_native_retained_image_root }}/{{ compose_native_previous_artifact.stdout }}.json"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+        force: false
+      become: true
+      when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+      no_log: true
+
+    - name: Require the archived older previous image generation to match
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/cmp
+          - --silent
+          - --
+          - "{{ compose_native_previous_image_lock_path }}"
+          - "{{ compose_native_retained_image_root }}/{{ compose_native_previous_artifact.stdout }}.json"
+      become: true
+      changed_when: false
+      when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+      no_log: true
+
+    - name: Preserve the pre-deployment current images under their artifact identity
+      ansible.builtin.copy:
+        src: "{{ compose_native_interrupted_image_path }}"
+        dest: "{{ compose_native_retained_image_root }}/{{ compose_native_active_artifact.stdout }}.json"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+        force: false
+      become: true
+      when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+      no_log: true
+
+    - name: Require the retained pre-deployment current image generation to match
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/cmp
+          - --silent
+          - --
+          - "{{ compose_native_interrupted_image_path }}"
+          - "{{ compose_native_retained_image_root }}/{{ compose_native_active_artifact.stdout }}.json"
+      become: true
+      changed_when: false
+      when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+      no_log: true
+
+    - name: Retain the pre-deployment image set as the rollback generation
+      ansible.builtin.copy:
+        src: "{{ compose_native_interrupted_image_path }}"
+        dest: "{{ compose_native_previous_image_lock_path }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+      no_log: true
+
+    - name: Capture the converged current image generation
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - "{{ compose_native_current_dir }}/scripts/compose-image-lock.py"
+          - capture
+          - --project
+          - "{{ compose_native_project_name }}"
+          - --output
+          - "{{ compose_native_current_image_lock_path }}"
+      become: true
+      changed_when: true
+      when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+      no_log: true
+
+    - name: Verify current previous and retained image generations after convergence
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - "{{ compose_native_current_dir }}/scripts/compose-image-lock.py"
+          - verify
+          - --current
+          - "{{ compose_native_current_image_lock_path }}"
+          - --previous
+          - "{{ compose_native_previous_image_lock_path }}"
+          - --check-registry
+      become: true
+      changed_when: false
+      no_log: true
+
+    - name: Publish the exact active artifact identity for backup acceptance
+      ansible.builtin.copy:
+        content: "{{ compose_native_candidate_hash }}\n"
+        dest: "{{ compose_native_artifact_identity_path }}"
+        owner: root
+        group: root
+        mode: "0444"
+      become: true
+      no_log: true
+
+    - name: Remove the consumed interruption image checkpoint after complete success
+      ansible.builtin.file:
+        path: "{{ compose_native_interrupted_image_path }}"
+        state: absent
+      become: true
+      no_log: true
+
+    - name: Report only the bounded successful native deployment summary
+      ansible.builtin.debug:
+        msg:
+          project: "{{ compose_native_project_name }}"
+          artifact_hash: "{{ compose_native_candidate_hash }}"
+          requested_services: "{{ compose_native_requested_services }}"
+          forced_recreation: "{{ compose_native_force_recreate_services }}"
+          running_services: "{{ compose_native_post_running_services.stdout_lines | length }}"
+          database_migration_performed: false
+          restic_activation_performed: false
+  always:
+    - name: Remove the root-only candidate decryption workspace
+      ansible.builtin.file:
+        path: "{{ compose_native_decrypt_workspace.path | default('/nonexistent-compose-native-decrypt') }}"
+        state: absent
+      become: true
+      no_log: true
+      when: compose_native_decrypt_workspace.path | default('') | length > 0

@@ -4,10 +4,18 @@
     that:
       - compose_artifact_hash is match('^[0-9a-f]{64}$')
       - compose_artifact_controller_dir | length > 0
+      - >-
+        (compose_stage_retained_operation | default('')) in [
+          'nextcloud-five-mount-recovery',
+          'calibre-local-rollback',
+          'restic-policy-recovery',
+          'archive-compose-recovery'
+        ]
       - ansible_check_mode or (compose_stage_confirmed | default(false) | ansible.builtin.bool)
     fail_msg: >-
-      Compose staging requires a 64-character artifact hash, an exact controller artifact directory,
-      and compose_stage_confirmed=true outside check mode.
+      General Compose staging is retired. Retained operation-specific staging requires a
+      64-character artifact hash, an exact controller artifact directory, an allowlisted
+      compose_stage_retained_operation, and compose_stage_confirmed=true outside check mode.
 
 - name: Recompute the controller artifact hash
   ansible.builtin.command:

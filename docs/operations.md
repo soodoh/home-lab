@@ -3,14 +3,16 @@
 ## What is available now
 
 Supported native scope is observation, manual-update policy, Proxmox repository/
-chrony convergence, and guarded existing-host backup configuration (tools, account,
-same-content runtime files and nine unit definitions). Native Proxmox package
-maintenance and reboot have source-qualified entrypoints but retain separate live
-cutover gates below. [Dated outcomes](#latest-scoped-deployment) do not expand that
-scope. Broader host/application adoption is pending: there is **no supported general
-deploy or host-convergence command**. Debian `site.yml` still includes lifecycle, lock
-and backup prerequisites. Directly invoking retained
-mutation roles is not an approved replacement for the removed controller.
+chrony convergence, guarded existing-host backup configuration (tools, account,
+same-content runtime files and nine unit definitions), and native Compose
+observation. Native Proxmox package maintenance and reboot have source-qualified
+entrypoints but retain separate live cutover gates below. [Dated outcomes](#latest-scoped-deployment)
+do not expand that scope. Broader host/application adoption is pending: there is
+**no supported general deploy or host-convergence command**. The native Compose
+`flaresolverr` canary has passed live observation and a source-bound check-mode
+run, but no normal deployment. Debian `site.yml` still includes lifecycle, lock
+and backup prerequisites. Directly invoking retained mutation roles is not an
+approved replacement for the removed controller.
 
 ## Latest scoped deployment
 
@@ -312,9 +314,94 @@ This is neither comprehensive host health nor a standing maintenance window;
 Docker, hardware/API policy, backups and independent recovery access were outside
 this inspection. Do not turn this dated result into a future workflow gate.
 
-The next target is ordinary OpenTofu saved plans and
-`community.docker.docker_compose_v2`. That collection and a native deployment role
-have not been adopted here. Observation does not authorize configuration changes.
+Ordinary OpenTofu saved plans remain a next target. Source now contains a pinned
+`community.docker.docker_compose_v2` observation and canary deployment role. Live
+observation and a check-mode source/active boundary run have qualified its read
+path on `docker-host`; this does not authorize configuration changes.
+
+### Native Compose qualification
+
+`ansible/playbooks/observe-compose.yml` is the intended read-only entrypoint for a
+fresh runner. It loads only native inventory variables, not the global contract or
+legacy `docker_host` group variables. It checks the active root-owned artifact,
+environment, override and image locks; installed SOPS/age identities; actual games,
+state and NFS mounts; backup files, writer units, interruption journal and mutex;
+production/reconciliation ownership paths; systemd jobs; declared/running services,
+digest-pinned images and required health; local availability of every image in
+current, previous, retained and interrupted locks; and a
+`community.docker.docker_compose_v2` dry run against live containers. Registry
+availability is not treated as recovery proof and remains a fail-closed prune-time
+check; deployment observation does not consume unauthenticated registry quota.
+Its bounded summary explicitly does not claim restore readiness. It consumes no
+receipt, `.local`, `.reconcile` or prior runner result.
+
+`ansible/playbooks/deploy-compose.yml` is check-mode qualified but has not performed
+a normal deployment. Its initial mutation allowlist contains only `flaresolverr`.
+It re-runs observation, acquires the durable production owner lock,
+derives an artifact hash directly from tracked checkout bytes, stages only the
+existing deterministic artifact selection, decrypts SOPS only on the host and
+requires the resulting environment to be byte-identical to production. Credential,
+service-set, database migration, mount/topology and Restic-policy changes are out
+of scope. Any changed artifact requires explicit canary recreation.
+
+The module calls fix `project_name=docker-compose`, disable builds, use
+`pull=missing`, prohibit orphan and anonymous-volume replacement, wait for running/
+healthy state, and use automatic recreation except for an explicitly supplied
+forced-recreation subset. A full-project module preview must contain no network,
+volume or non-canary action before convergence, and a full-project post-preview
+must be idempotent. The role preserves `current`, `previous`, hash-addressed older
+artifacts/environments and a durable pre-deployment image checkpoint. The narrow
+image-lock helper extension makes prune protect hash-addressed retained and
+interrupted generations in addition to current/previous; it neither prunes volumes
+nor changes the installed cron wrapper. On failure the production owner and
+checkpoint remain for inspection; the workflow never clears a lock or attempts
+database rollback. Only complete success updates current/previous image locks and
+releases ownership.
+
+A fresh runner needs reviewed Ansible Core 2.21.x, the pinned collections installed
+from `ansible/collections/requirements.yml`, Tailscale connectivity and the trusted
+`docker-host` known-host entry. It does not need a SOPS private key. The source
+invocation shape, for a separately approved future check, is:
+
+```sh
+ansible-galaxy collection install --requirements-file ansible/collections/requirements.yml
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
+  -i ansible/inventory/hosts.yml ansible/playbooks/deploy-compose.yml --check \
+  -e '{"compose_native_requested_services":["flaresolverr"]}'
+```
+
+On September 18, 2026, live observation passed with all 38 declared services
+running, 38 immutable image references, both required health checks, exact canary
+mounts, inactive backup writers, no active-model drift and locally available
+rollback images. The subsequent approved check-mode invocation passed 44 tasks
+with no failures or unreachable hosts. Its one reported change was the intentional
+source/active artifact-boundary summary; check mode staged nothing and changed no
+container or protected host input. An intermediate registry check hit Docker Hub's
+unauthenticated rate limit, so deployment observation now proves local retained
+image availability while the installed prune path keeps its fail-closed registry
+check. This result is not a restore test or normal deployment.
+
+A normal invocation additionally requires
+`compose_native_apply_confirmed=true`; setting it or omitting `--check` remains a
+separate mutation approval. A changed artifact also requires
+`compose_native_force_recreate_services=["flaresolverr"]`. Check mode intentionally
+does not stage protected inputs, so it reports the source/active identity boundary
+rather than pretending to preview an unpublished generation. An approved normal
+run must repeat all live checks. No GitHub workflow exists until short-lived
+Tailscale identity, authoritative host-key custody and protected-environment
+approval are decided. The production SOPS identity remains host-only.
+
+The general legacy stage/deploy lane is retired: `compose_stage` and its review
+entrypoint now require an explicit allowlisted retained operation, and
+`compose_deploy` refuses every plan that is not its exact Nextcloud migration,
+Restic-policy recovery or interrupted Calibre rollback lane. These internals remain
+only because deleting them would strand recovery inputs. Both rollback plays still
+use `compose_rollback`, and archive recovery still uses `compose_recovery`.
+`compose-artifact.py` remains a first-run/retirement dependency.
+`compose-image-lock.py` remains consumed by those roles and by installed
+`/usr/local/sbin/home-lab-safe-image-prune`; that helper continues image-only
+pruning and protects retained/interrupted generation locks. No installed helper,
+artifact, environment, lock or journal was removed.
 
 ## Manual-update policy
 
@@ -534,6 +621,7 @@ From the repository root, without deployment or secret decryption:
 docker compose config --quiet
 python3 -B scripts/test-compose-artifact.py
 python3 -B scripts/test-compose-action-plan.py
+python3 -B scripts/test-compose-native.py
 ```
 
 Bare Compose validation requires interpolation inputs already available locally;

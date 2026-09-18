@@ -27,3 +27,80 @@ rclone_download_url: "https://beta.rclone.org/v1.76.0-beta.10267.220fe7619/rclon
 rclone_archive_sha256: "8d836165cfc92b273f8735dc91e4158c55267dfa69f9e35ed838805802a89dec"
 rclone_binary_sha256: "acd2c7aca2996c884a8cd0012b27d74213bc7d02c514d9711166b5023e51ca49"
 rclone_version_output: "rclone v1.76.0-beta.10267.220fe7619"
+
+# Native Compose adoption. This is deliberately independent of the legacy
+# docker_host group variables and global contract.
+compose_native_project_name: docker-compose
+compose_native_controller_root: "{{ playbook_dir }}/../.."
+compose_native_home: /home/docker
+compose_native_deployment_root: /srv/docker-compose
+compose_native_current_dir: /srv/docker-compose/current
+compose_native_previous_dir: /srv/docker-compose/previous
+compose_native_staging_root: /srv/docker-compose/staging
+compose_native_runtime_env_path: /etc/docker-compose/production.env
+compose_native_previous_env_path: /etc/docker-compose/previous.env
+compose_native_staged_env_root: /etc/docker-compose/staging
+compose_native_image_override_path: /var/lib/home-lab/production-image-override.json
+compose_native_current_image_lock_path: /var/lib/docker-compose/current-images.json
+compose_native_previous_image_lock_path: /var/lib/docker-compose/previous-images.json
+compose_native_retained_image_root: /var/lib/docker-compose/retained-images
+compose_native_artifact_identity_path: /var/lib/docker-compose/current-artifact.sha256
+compose_native_apply_lock_path: /var/lib/iac-ansible-production.lock
+compose_native_reconciliation_lock_paths:
+  - /var/lib/home-lab/reconciliation/apply.lock
+  - /var/lib/home-lab/reconciliation/operation.lock
+compose_native_expected_service_count: 38
+compose_native_allowed_services:
+  - flaresolverr
+compose_native_allowed_changed_paths:
+  - services/servarr.yml
+  - scripts/compose-image-lock.py
+  - .sops.yaml
+  - secrets/production.sops.env
+  - secrets/production.env.keys
+  - secrets/production.env.layout.json
+compose_native_canary_service: flaresolverr
+compose_native_canary_network_mode: service:gluetun
+compose_native_canary_mounts:
+  - type: bind
+    source: /srv/home-lab-state/flaresolverr-data
+    target: /config
+compose_native_required_healthy_containers:
+  - gluetun
+  - seerr
+compose_native_wait_timeout: 600
+compose_native_sops_path: /usr/local/bin/sops
+compose_native_sops_sha256: e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
+compose_native_age_path: /usr/local/bin/age
+compose_native_age_sha256: 2e305637f2a0555305e21c17fb74446acbb39b53135d43d4b744e50c287133a5
+compose_native_age_identity_path: /etc/sops/age/keys.txt
+compose_native_secret_files:
+  - /etc/docker-compose/credentials/nextcloud-mysql-password
+  - /etc/docker-compose/credentials/nextcloud-mariadb-root-password
+compose_native_mounts:
+  - path: /mnt/games
+    source: ""
+    fstype: ext4
+    uuid: 31602ce7-0054-498a-9f24-f51ca491e7b3
+  - path: /srv/home-lab-state
+    source: ""
+    fstype: ext4
+    uuid: d4a19647-7879-4079-9fc9-b3e79711b449
+  - path: /mnt/storage
+    source: 192.168.0.123:/storage/docker
+    fstype: nfs4
+    uuid: ""
+compose_native_backup_paths:
+  - path: /usr/local/libexec/home-lab/restic-backup
+    mode: "0755"
+  - path: /etc/home-lab/restic-policy.json
+    mode: "0440"
+  - path: /etc/home-lab/restic/files-from
+    mode: "0440"
+  - path: /etc/home-lab/restic/excludes
+    mode: "0440"
+compose_native_backup_writer_units:
+  - home-lab-restic-daily-local.service
+  - home-lab-restic-daily-proton.service
+  - home-lab-restic-maintenance-local.service
+  - home-lab-restic-maintenance-proton.service

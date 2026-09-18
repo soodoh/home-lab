@@ -9,6 +9,18 @@
   vars:
     compose_stage_review_path: "/run/docker-compose-stage-review-{{ compose_artifact_hash }}.json"
   tasks:
+    - name: Refuse review through the retired general staging lane
+      ansible.builtin.assert:
+        that:
+          - >-
+            (compose_stage_retained_operation | default('')) in [
+              'nextcloud-five-mount-recovery',
+              'calibre-local-rollback',
+              'restic-policy-recovery',
+              'archive-compose-recovery'
+            ]
+        fail_msg: General Compose staging is retired; review requires an allowlisted retained operation.
+
     - name: Review staged Compose through a root-only report file
       block:
         - name: Remove any stale staging review report

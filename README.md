@@ -7,11 +7,14 @@ Ansible become—not rebuild the installation around a custom controller.
 This checkout is in an **incremental native-tool transition**. The universal
 controller, abandoned Compose admission implementation, reporting platform and
 completed one-shot entrypoints have been removed. There is no supported general
-deployment entrypoint yet. Retained legacy roles are not a shortcut around that gap.
+application deployment entrypoint: the legacy general Compose lane now refuses
+execution, while its exact migration/recovery consumers remain preserved.
 
-Supported native scope is limited to read-only observation, manual-update policy
-and existing-host backup configuration; see [operations](docs/operations.md) for
-scope, safety limits and dated deployment outcomes.
+Supported native scope includes read-only host and Compose observation, manual-update
+policy and existing-host backup configuration. The native Compose canary passed a
+live observation and source-bound check-mode qualification; no container mutation
+was run, so normal deployment still requires separate approval. See
+[operations](docs/operations.md) for its scope and safety limits.
 
 - [Operations](docs/operations.md): local checks, intended native workflow and retained implementation.
 - [Recovery](recovery/README.md): snapshot staging, independent credentials and rollback boundaries.

@@ -1,0 +1,32 @@
+---
+- name: Deploy an explicitly bounded Compose canary through native Ansible
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Re-observe live Compose backup and coordination state
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+    - name: Acquire the durable production ownership lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: compose-native-canary
+  tasks:
+    - name: Stage publish and converge the reviewed Compose generation
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: deploy
+  post_tasks:
+    - name: Release exact production ownership only after complete success
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: compose-native-canary

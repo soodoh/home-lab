@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture and verify current/previous Compose images before destructive pruning."""
+"""Capture and protect current, previous, and retained Compose image generations."""
 
 from argparse import ArgumentParser, Namespace
 from datetime import datetime, timezone
@@ -96,17 +96,33 @@ def read_lock(path: Path, label: str) -> list[dict[str, Any]]:
     return document["images"]
 
 
-def verify(args: Namespace) -> None:
-    current = read_lock(args.current, "current")
-    previous = read_lock(args.previous, "previous")
-    if not current:
-        fail("current_lock_empty")
-    if not previous:
-        fail("previous_lock_empty")
+def retained_lock_paths(args: Namespace) -> list[Path]:
+    root = getattr(args, "retained_root", None) or args.current.parent / "retained-images"
+    paths = sorted(root.glob("*.json")) if root.is_dir() else []
+    paths.extend(sorted(args.current.parent.glob("deploy-*-previous-images.json")))
+    excluded = {args.current.resolve(), args.previous.resolve()}
+    return [path for path in paths if path.resolve() not in excluded]
 
+
+def verified_locks(args: Namespace) -> list[tuple[str, list[dict[str, Any]]]]:
+    locks = [("current", read_lock(args.current, "current")),
+             ("previous", read_lock(args.previous, "previous"))]
+    locks.extend((f"retained_{index}", read_lock(path, f"retained_{index}"))
+                 for index, path in enumerate(retained_lock_paths(args)))
+    if not locks[0][1]:
+        fail("current_lock_empty")
+    if not locks[1][1]:
+        fail("previous_lock_empty")
+    if any(not records for _, records in locks[2:]):
+        fail("retained_lock_empty")
+    return locks
+
+
+def verify(args: Namespace) -> None:
+    locks = verified_locks(args)
     checked_ids: set[str] = set()
     checked_digests: set[str] = set()
-    for lock_name, records in (("current", current), ("previous", previous)):
+    for lock_name, records in locks:
         services: set[str] = set()
         for record in records:
             service = record.get("service")
@@ -143,8 +159,9 @@ def verify(args: Namespace) -> None:
 
     print(
         "compose_image_lock=verified "
-        f"current_services={len(current)} previous_services={len(previous)} "
-        f"local_images={len(checked_ids)} registry_digests={len(checked_digests)}"
+        f"current_services={len(locks[0][1])} previous_services={len(locks[1][1])} "
+        f"retained_locks={len(locks) - 2} local_images={len(checked_ids)} "
+        f"registry_digests={len(checked_digests)}"
     )
 
 
@@ -195,7 +212,7 @@ def difference(args: Namespace) -> None:
 
 def prune(args: Namespace) -> None:
     verify(args)
-    records = read_lock(args.current, "current") + read_lock(args.previous, "previous")
+    records = [record for _, lock in verified_locks(args) for record in lock]
     image_ids = sorted({record["image_id"] for record in records})
     protection_containers: list[str] = []
     try:
@@ -245,6 +262,7 @@ def main() -> None:
     verify_parser.add_argument("--current", type=Path, required=True)
     verify_parser.add_argument("--previous", type=Path, required=True)
     verify_parser.add_argument("--check-registry", action="store_true")
+    verify_parser.add_argument("--retained-root", type=Path)
     verify_parser.set_defaults(handler=verify)
 
     activate_parser = subparsers.add_parser("activate")
@@ -261,6 +279,7 @@ def main() -> None:
     prune_parser.add_argument("--current", type=Path, required=True)
     prune_parser.add_argument("--previous", type=Path, required=True)
     prune_parser.add_argument("--check-registry", action="store_true")
+    prune_parser.add_argument("--retained-root", type=Path)
     prune_parser.add_argument("--until", default="168h")
     prune_parser.set_defaults(handler=prune)
 

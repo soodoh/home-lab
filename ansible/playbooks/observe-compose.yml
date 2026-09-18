@@ -1,0 +1,11 @@
+---
+- name: Observe live Compose readiness without changing host configuration
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  tasks:
+    - name: Observe active Compose backup and coordination state
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe

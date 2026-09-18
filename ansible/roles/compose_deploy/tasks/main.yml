@@ -251,6 +251,18 @@
     fail_msg: "The Calibre local mount transition requires exact artifact-bound rollback authorization."
   no_log: true
 
+- name: Refuse the retired general Compose deployment lane
+  ansible.builtin.assert:
+    that:
+      - >-
+        compose_deploy_nextcloud_migration or
+        compose_deploy_restic_policy_artifact or
+        compose_deploy_calibre_local_rollback
+    fail_msg: >-
+      General legacy Compose deployment is retired. This role remains only for its exact
+      Nextcloud migration, Restic-policy recovery, and interrupted Calibre rollback consumers.
+  no_log: true
+
 - name: Remove root-only deployment plan files
   ansible.builtin.file:
     path: "{{ item }}"

@@ -3,7 +3,10 @@
 These are retained hazards and next adoption boundaries, not permission to run
 mutations. The [September 14 read-only observation](operations.md#observed-baseline--2026-09-14)
 updates selected installed-state assumptions; it does not close migration or
-rollback-retirement checks.
+rollback-retirement checks. The check-qualified
+[native Compose canary](operations.md#native-compose-qualification) refuses
+database, service-set, mount, credential and Restic-policy changes; it neither
+completes nor retires any migration below.
 
 ## Authentik PostgreSQL
 
@@ -113,8 +116,11 @@ application code, config, custom apps and themes under `/srv/home-lab-state`.
 ### Historical staging and five-mount migration
 
 The original forward procedure is in Git (`1165675`, former
-`docs/nextcloud-34-configuration.md`). Its paired `stage-compose.yml` and `deploy-nextcloud-migration.yml`
-plays remain source/recovery dependencies, not a supported native deployment path.
+`docs/nextcloud-34-configuration.md`). Its paired `stage-compose.yml` and
+`deploy-nextcloud-migration.yml` plays remain source/recovery dependencies, not a
+supported deployment path. Generic staging now refuses execution unless
+`compose_stage_retained_operation` names an allowlisted recovery case; the retained
+`compose_deploy` role likewise refuses every non-operation-specific plan.
 The procedure required an exact `compose_artifact_hash` and
 `compose_artifact_controller_dir`, lock-held metadata-preserving/checksum
 synchronization, stopped writers, activation of four local paths and proof that
