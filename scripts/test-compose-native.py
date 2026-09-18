@@ -7,6 +7,7 @@ reviewed source; live qualification is separate.
 """
 
 from pathlib import Path
+import hashlib
 import re
 import unittest
 
@@ -16,6 +17,7 @@ OBSERVE = ROOT / "ansible/roles/compose_native/tasks/observe.yml"
 DEPLOY = ROOT / "ansible/roles/compose_native/tasks/deploy.yml"
 DEFAULTS = ROOT / "ansible/roles/compose_native/defaults/main.yml"
 HOST = ROOT / "ansible/inventory/host_vars/docker-host.yml"
+RELEASE = ROOT / "ansible/playbooks/release-failed-compose-canary.yml"
 
 
 class NativeComposeSourceTests(unittest.TestCase):
@@ -106,7 +108,7 @@ class NativeComposeSourceTests(unittest.TestCase):
             "compose_native_previous_dir", "compose_native_previous_env_path",
             "compose_native_current_image_lock_path", "compose_native_previous_image_lock_path",
             "compose_native_interrupted_image_path", "compose_native_retained_image_root", "compose_native_backup_lock_path",
-            "compose_native_allowed_changed_paths", "services/authentik.yml", "services/nextcloud.yml",
+            "compose_native_allowed_changed_paths", "services/nextcloud.yml",
             "services/data/restic/files-from", "compose_native_canary_mounts",
             "database_migration_performed: false", "restic_activation_performed: false",
         ):
@@ -136,15 +138,59 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertIn("--retained-root", final_verify)
         self.assertNotIn("--check-registry", final_verify)
 
+    def test_narrow_canary_defers_litellm_and_prepares_exact_lock_release(self):
+        active_litellm_sha256 = "6a93d7caee70b924d80c628250441a78be5ebe9844735982ab9c532e4f4595d2"
+        litellm = (ROOT / "services/data/litellm/config.yaml").read_bytes()
+        self.assertEqual(hashlib.sha256(litellm).hexdigest(), active_litellm_sha256)
+
+        host = self.text(HOST)
+        self.assertIn("- scripts/compose-artifact.py", host)
+        self.assertIn("- services/authentik.yml", host)
+        self.assertIn("compose_native_backup_lock_path: /run/lock/home-lab-backup.lock", host)
+        self.assertNotIn("- services/data/litellm/config.yaml", host)
+
+        deploy = self.text(DEPLOY)
+        self.assertIn("services/data/litellm/config.yaml", deploy)
+        self.assertIn("compose_native_active_model.services[item]", deploy)
+        self.assertIn("compose_native_candidate_model.services[item]", deploy)
+        self.assertIn("compose_native_requested_services", deploy)
+        candidate_model = deploy.split(
+            "- name: Read the candidate model as it will resolve from the published directory", 1
+        )[1].split("- name:", 1)[0]
+        self.assertIn('"{{ compose_native_current_dir }}"', candidate_model)
+        self.assertIn('"{{ compose_native_candidate_dir }}/docker-compose.yml"', candidate_model)
+        self.assertNotIn('"{{ compose_native_candidate_dir }}"\n          - --env-file', candidate_model)
+
+        release = self.text(RELEASE)
+        for marker in (
+            "compose_native_failed_owner_sha256",
+            "compose_native_failed_release_confirmed",
+            "compose_native_failed_candidate_hash",
+            "compose_native_failed_active_hash",
+            "apply_lock_action: adopt",
+            "apply_lock_action: release",
+            "compose-native-canary",
+            "candidate_environment_exists: false",
+            "interruption_checkpoint_exists: false",
+            "Check mode validated the retained boundary but did not release ownership",
+            "compose_native_artifact_identity_path",
+            "compose_native_backup_lock_path",
+        ):
+            self.assertIn(marker, release)
+        self.assertGreaterEqual(release.count("check_mode: false"), 3)
+        self.assertNotIn("state: absent", release)
+
     def test_failure_and_authorization_documentation_matches_boundaries(self):
         operations = " ".join(self.text(ROOT / "docs/operations.md").split())
         self.assertIn("Failures after checkpoint capture retain the production owner and checkpoint", operations)
         self.assertIn("A refusal before checkpoint capture retains the owner but creates no checkpoint", operations)
-        self.assertIn("authorized one normal canary attempt", operations)
-        self.assertIn("expires after that attempt", operations)
-        self.assertIn("does not authorize a retry after failure", operations)
-        self.assertIn("does not claim that the normal run occurred", operations)
-        self.assertIn("same clean committed checkout", operations)
+        self.assertIn("one authorized normal attempt", operations)
+        self.assertIn("authorized attempt is consumed", operations)
+        self.assertIn("retry, lock release, candidate deletion and container mutation are not authorized", operations)
+        self.assertIn("same explicit clean source commit", operations)
+        self.assertIn("fbd84ff2fd70b0a7cd6a560930db0a66f8f88b56cd5472a9fe167bc404fe04b5", operations)
+        self.assertIn("5af8bb373ce87c55ad50b3237805c9b8413f5f2bf8df5bd11671d6fc66329706", operations)
+        self.assertIn("release is prepared but not authorized", operations)
 
     def test_general_legacy_deployment_is_retired_but_recovery_consumers_remain(self):
         stage = self.text(ROOT / "ansible/roles/compose_stage/tasks/main.yml")

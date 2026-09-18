@@ -271,6 +271,17 @@ based only on delivery failure. Native replacement must explicitly recreate
 LiteLLM for changed bind-file contents and distinguish liveness from provider/model
 usability.
 
+The September 18 native canary attempt found commit `a43c4b17`'s model update still
+undeployed: active config SHA-256 remained
+`6a93d7caee70b924d80c628250441a78be5ebe9844735982ab9c532e4f4595d2`,
+LiteLLM was running with zero restarts, and three retained transport workspaces plus
+three capture-attempt markers remained under `/var/lib/docker-compose`. No matching
+`/srv/docker-compose/.litellm-*` recovery directory existed. The canary refused
+before publication or container mutation. Current source restores the active config
+bytes and defers the model update rather than admitting it through the canary. The
+historical commit remains in Git; reintroduction requires an explicit native
+LiteLLM recreation and separate liveness/provider-model acceptance decision.
+
 ## Provider and host adoption gaps
 
 - **Proxmox VM100:** `scsi1` games, `scsi2` state, `scsi3` boot and `ide2` cloud-init

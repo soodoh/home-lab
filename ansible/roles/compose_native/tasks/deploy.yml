@@ -318,7 +318,7 @@
       loop: "{{ compose_native_artifact_differences.stdout_lines }}"
       no_log: true
 
-    - name: Freeze database and Restic policy source during native canary adoption
+    - name: Freeze database LiteLLM and Restic policy source during native canary adoption
       ansible.builtin.command:
         argv:
           - /usr/bin/cmp
@@ -328,8 +328,8 @@
           - "{{ compose_native_candidate_dir }}/{{ item }}"
       become: true
       loop:
-        - services/authentik.yml
         - services/nextcloud.yml
+        - services/data/litellm/config.yaml
         - services/data/restic/files-from
         - services/data/restic/excludes
       changed_when: false
@@ -445,7 +445,17 @@
       changed_when: false
       no_log: true
 
-    - name: Read the protected normalized candidate model for narrow safety assertions
+    - name: Read the protected normalized active model for narrow safety assertions
+      ansible.builtin.command:
+        argv: "{{ compose_native_runtime_cli + ['config', '--format', 'json'] }}"
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      register: compose_native_active_model_raw
+      changed_when: false
+      no_log: true
+
+    - name: Read the candidate model as it will resolve from the published directory
       ansible.builtin.command:
         argv:
           - /usr/bin/docker
@@ -453,7 +463,7 @@
           - --project-name
           - "{{ compose_native_project_name }}"
           - --project-directory
-          - "{{ compose_native_candidate_dir }}"
+          - "{{ compose_native_current_dir }}"
           - --env-file
           - "{{ compose_native_candidate_env_path }}"
           - --file
@@ -470,9 +480,36 @@
       changed_when: false
       no_log: true
 
-    - name: Parse the protected normalized candidate model
+    - name: Parse the protected normalized active and candidate models
       ansible.builtin.set_fact:
+        compose_native_active_model: "{{ compose_native_active_model_raw.stdout | from_json }}"
         compose_native_candidate_model: "{{ compose_native_candidate_model_raw.stdout | from_json }}"
+      no_log: true
+
+    - name: Refuse changes to non-service Compose topology
+      ansible.builtin.assert:
+        that:
+          - >-
+            (compose_native_candidate_model.networks | default({})) ==
+            (compose_native_active_model.networks | default({}))
+          - >-
+            (compose_native_candidate_model.volumes | default({})) ==
+            (compose_native_active_model.volumes | default({}))
+          - >-
+            (compose_native_candidate_model.configs | default({})) ==
+            (compose_native_active_model.configs | default({}))
+          - >-
+            (compose_native_candidate_model.secrets | default({})) ==
+            (compose_native_active_model.secrets | default({}))
+        fail_msg: Networks volumes configs or secrets changed outside the native canary scope.
+      no_log: true
+
+    - name: Refuse normalized model changes outside requested services
+      ansible.builtin.assert:
+        that:
+          - compose_native_active_model.services[item] == compose_native_candidate_model.services[item]
+        fail_msg: "Service {{ item }} changed outside the requested native deployment scope."
+      loop: "{{ compose_native_declared_services.stdout_lines | difference(compose_native_requested_services) }}"
       no_log: true
 
     - name: Refuse canary network or mount topology changes

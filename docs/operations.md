@@ -10,8 +10,9 @@ entrypoints but retain separate live cutover gates below. [Dated outcomes](#late
 do not expand that scope. Broader host/application adoption is pending: there is
 **no supported general deploy or host-convergence command**. The native Compose
 `flaresolverr` canary has passed live observation and a source-bound check-mode
-run. One bounded normal canary attempt is authorized under the gates below but has
-not been executed. Debian `site.yml` still includes lifecycle, lock
+run. Its one authorized normal attempt refused an out-of-scope artifact delta
+before publication or container mutation and retained production ownership. No
+retry or ownership release is authorized. Debian `site.yml` still includes lifecycle, lock
 and backup prerequisites. Directly invoking retained mutation roles is not an
 approved replacement for the removed controller.
 
@@ -343,7 +344,9 @@ derives an artifact hash directly from tracked checkout bytes, stages only the
 existing deterministic artifact selection, decrypts SOPS only on the host and
 requires the resulting environment to be byte-identical to production. Credential,
 service-set, database migration, mount/topology and Restic-policy changes are out
-of scope. Any changed artifact requires explicit canary recreation.
+of scope. LiteLLM config bytes are frozen, and every non-requested normalized
+service plus top-level network/volume/config/secret topology must equal active
+state. Any changed artifact requires explicit canary recreation.
 
 The module calls fix `project_name=docker-compose`, disable builds, pull only the
 explicit canary services with `policy=missing`, and then use `pull=never` for
@@ -364,52 +367,70 @@ locks and releases ownership.
 
 A fresh runner needs reviewed Ansible Core 2.21.x, the pinned collections installed
 from `ansible/collections/requirements.yml`, Tailscale connectivity and the trusted
-`docker-host` known-host entry. It does not need a SOPS private key. The approved
-invocation sequence is:
-
-```sh
-ansible-galaxy collection install --requirements-file ansible/collections/requirements.yml
-commit=$(/usr/bin/git --no-optional-locks rev-parse --verify HEAD)
-ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
-  -i ansible/inventory/hosts.yml ansible/playbooks/deploy-compose.yml --check \
-  -e "compose_native_expected_source_commit=$commit" \
-  -e '{"compose_native_requested_services":["flaresolverr"],
-       "compose_native_force_recreate_services":["flaresolverr"]}'
-# Only after that source-bound check passes from the same clean committed checkout:
-ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
-  -i ansible/inventory/hosts.yml ansible/playbooks/deploy-compose.yml \
-  -e "compose_native_expected_source_commit=$commit" \
-  -e '{"compose_native_requested_services":["flaresolverr"],
-       "compose_native_force_recreate_services":["flaresolverr"],
-       "compose_native_apply_confirmed":true}'
-```
+`docker-host` known-host entry. It does not need a SOPS private key. Check mode
+intentionally does not stage protected inputs; it reports the source/active identity
+boundary rather than pretending to preview an unpublished generation. Any future
+check and normal run must use the same explicit clean source commit. No GitHub
+workflow exists until short-lived Tailscale identity, authoritative host-key custody
+and protected-environment approval are decided. The production SOPS identity
+remains host-only.
 
 On September 18, 2026, live observation passed with all 38 declared services
 running, 38 immutable image references, both required health checks, exact canary
 mounts, inactive backup writers, no active-model drift and locally available
-rollback images. The subsequent approved check-mode invocation passed 44 tasks
-with no failures or unreachable hosts. Its one reported change was the intentional
-source/active artifact-boundary summary; check mode staged nothing and changed no
-container or protected host input. An intermediate registry check hit Docker Hub's
-unauthenticated rate limit, so deployment observation now proves local retained
-image availability while the installed prune path keeps its fail-closed registry
-check. This result is not a restore test or normal deployment.
+rollback images. The original approved check-mode invocation passed 44 tasks. An
+intermediate registry check hit Docker Hub's unauthenticated rate limit, so
+observation now proves local retained image availability while the installed prune
+path keeps its fail-closed registry check.
 
-A normal invocation additionally requires
-`compose_native_apply_confirmed=true`, and a changed artifact requires
-`compose_native_force_recreate_services=["flaresolverr"]`. The repository owner
-has authorized one normal canary attempt from this committed fix after a fresh
-observation and the source-bound check above pass from the same clean committed
-checkout. Both invocations must use the same explicit source commit value.
-The authorization covers only `flaresolverr`, expires after that attempt, and does
-not authorize a retry after failure, another service, database migration, Restic
-activation, general Compose convergence, cleanup or rollback. Check mode
-intentionally does not stage protected inputs, so it reports the source/active
-identity boundary rather than pretending to preview an unpublished generation.
-The normal run repeats all live checks. No GitHub workflow exists until short-lived
-Tailscale identity, authoritative host-key custody and protected-environment
-approval are decided. The production SOPS identity remains host-only. This source
-commit records authorization; it does not claim that the normal run occurred.
+Commit `b5408f2e` was then pushed to `main`. Its same-commit check passed 49 tasks
+with no failures or unreachable hosts; the one reported change was the intentional
+artifact boundary from active
+`2f12e384fdc0ce759d23b0bd9e16ad402d3ecd2985b4ecdfe048127f1c5748be`
+to candidate
+`fbd84ff2fd70b0a7cd6a560930db0a66f8f88b56cd5472a9fe167bc404fe04b5`.
+The one authorized normal attempt acquired production ownership and staged that
+exact candidate, then refused three out-of-scope paths before environment staging,
+artifact publication, image pull, checkpoint capture or container mutation:
+
+- `scripts/compose-artifact.py` contained controller Git hardening;
+- `services/authentik.yml` contained only a documentation-comment update;
+- `services/data/litellm/config.yaml` contained the separately undeployed model update.
+
+The two admitted differences were `.sops.yaml` recovery-publication metadata and
+`scripts/compose-image-lock.py`. The failed play reported 65 successful, seven
+changed and one failed task. It retained
+`/var/lib/iac-ansible-production.lock` with owner SHA-256
+`5af8bb373ce87c55ad50b3237805c9b8413f5f2bf8df5bd11671d6fc66329706`,
+the exact candidate under `/srv/docker-compose/staging/`, and the newly created
+empty mode-0700 retained-image directory. It created no candidate environment or
+interruption checkpoint and left `current`, its artifact marker, containers and
+image generations unchanged. The authorized attempt is consumed; retry, lock
+release, candidate deletion and container mutation are not authorized.
+
+A subsequent approved read-only audit passed ten tasks with `changed=0`. It
+recomputed both artifact identities, confirmed the exact five changed paths, found
+no archived image record or unpublished incoming directory, and preserved the
+staged candidate. A second five-task read found LiteLLM running with restart count
+zero, active config SHA-256
+`6a93d7caee70b924d80c628250441a78be5ebe9844735982ab9c532e4f4595d2`,
+three retained `.litellm-*` workspaces, three retained capture-attempt markers and
+no `/srv/docker-compose/.litellm-*` recovery directory. Those retained records are
+not success evidence and remain untouched.
+
+The narrow follow-up source restores LiteLLM config to those exact active bytes,
+adds only the helper and comment paths to the artifact allowlist, freezes LiteLLM
+bytes, and requires every non-requested normalized service plus network/volume/
+config/secret topology to equal the active model. Its source-only candidate hash is
+`3e5600bfa5ff9441d729e4e81634854435cea13f15568337adbc87911468569e`;
+that is not a live qualification or deployment approval.
+`ansible/playbooks/release-failed-compose-canary.yml` binds the exact owner,
+active and failed-candidate hashes, requires the audited pre-publication state,
+adopts/releases only that owner and preserves the staged evidence. That release is
+prepared but not authorized. A separately approved release, committed/pushed
+source, fresh same-commit check and new normal-attempt decision are all still
+required. There is no authorization to combine the deferred LiteLLM change with
+the canary.
 
 The general legacy stage/deploy lane is retired: `compose_stage` and its review
 entrypoint now require an explicit allowlisted retained operation, and

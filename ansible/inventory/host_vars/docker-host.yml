@@ -46,6 +46,7 @@ compose_native_previous_image_lock_path: /var/lib/docker-compose/previous-images
 compose_native_retained_image_root: /var/lib/docker-compose/retained-images
 compose_native_artifact_identity_path: /var/lib/docker-compose/current-artifact.sha256
 compose_native_apply_lock_path: /var/lib/iac-ansible-production.lock
+compose_native_backup_lock_path: /run/lock/home-lab-backup.lock
 compose_native_reconciliation_lock_paths:
   - /var/lib/home-lab/reconciliation/apply.lock
   - /var/lib/home-lab/reconciliation/operation.lock
@@ -54,6 +55,8 @@ compose_native_allowed_services:
   - flaresolverr
 compose_native_allowed_changed_paths:
   - services/servarr.yml
+  - services/authentik.yml
+  - scripts/compose-artifact.py
   - scripts/compose-image-lock.py
   - .sops.yaml
   - secrets/production.sops.env
