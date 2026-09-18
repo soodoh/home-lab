@@ -26,20 +26,17 @@ locals {
   recovery_incomplete_multipart_abort_days = 1
   state_object_manifest                    = jsondecode(file("${path.module}/state-objects.json"))
   active_state_keys                        = local.state_object_manifest.active
-  retired_state_keys                       = local.state_object_manifest.retired
 }
 
 check "state_object_manifest" {
   assert {
     condition = (
       length(local.active_state_keys) > 0 &&
-      length(local.retired_state_keys) > 0 &&
-      length(setintersection(toset(local.active_state_keys), toset(local.retired_state_keys))) == 0 &&
-      alltrue([for key in concat(local.active_state_keys, local.retired_state_keys) : can(regex("^home-lab/[a-z0-9-]+/tofu\\.tfstate$", key))]) &&
-      local.state_object_manifest.noncurrent_lock_retention_days == 1 &&
-      local.state_object_manifest.retired_object_expiration_days == 1
+      length(local.active_state_keys) == length(toset(local.active_state_keys)) &&
+      alltrue([for key in local.active_state_keys : can(regex("^home-lab/[a-z0-9-]+/tofu\\.tfstate$", key))]) &&
+      local.state_object_manifest.noncurrent_lock_retention_days == 1
     )
-    error_message = "The OpenTofu state object manifest must contain disjoint exact active and retired state keys with one-day cleanup windows."
+    error_message = "The OpenTofu state object manifest must contain unique exact active state keys with one-day noncurrent lock retention."
   }
 }
 
@@ -171,43 +168,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "state" {
     }
   }
 
-  dynamic "rule" {
-    for_each = toset(local.retired_state_keys)
-
-    content {
-      id     = "expire-retired-state-${replace(replace(rule.value, "/", "-"), ".", "-")}"
-      status = "Enabled"
-
-      filter {
-        prefix = rule.value
-      }
-
-      expiration {
-        days = local.state_object_manifest.retired_object_expiration_days
-      }
-
-      noncurrent_version_expiration {
-        noncurrent_days = local.state_object_manifest.retired_object_expiration_days
-      }
-    }
-  }
-
-  dynamic "rule" {
-    for_each = toset(local.retired_state_keys)
-
-    content {
-      id     = "remove-retired-markers-${replace(replace(rule.value, "/", "-"), ".", "-")}"
-      status = "Enabled"
-
-      filter {
-        prefix = rule.value
-      }
-
-      expiration {
-        expired_object_delete_marker = true
-      }
-    }
-  }
 }
 
 resource "aws_s3_bucket_server_side_encryption_configuration" "state" {

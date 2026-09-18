@@ -116,12 +116,63 @@ image-pruning helper.
 | VM9900 qualification and recovery roots/helpers | Possible live VM, disks, snippets, ACLs, keys and failed-operation state require separately authorized inventory/retirement. |
 | JS dependencies and provider locks | Contract and policy consumers still need AJV/js-yaml. Retiring the Proxmox projection does not eliminate Node/Bun dependencies. |
 
+### Qualification and provider-adoption retirement boundary
+
+The September 18 source and live audit confirms that VM9900 still belongs to the
+Debian lifecycle root. Its preserved local state binds the qualification image,
+VM 9900 and firewall options/rules; the live stopped VM uses the Debian lifecycle
+name, root-disk serial and cloud-init snippet. Its dedicated ACL, account, sudo rule,
+snippet transport, transaction helper, diagnostic directory and snippet remain
+installed. The preserved Restic reconciliation state separately binds the still
+present recovery image, while the Restic snippet is absent. Those different state
+lineages do not isolate the shared hypervisor identity. Keep both VM9900 roots,
+provider locks, inventories, snippets, evidence, installed capability source and
+recovery consumers until the recovery-image and failed-operation lineage receive a
+separate retirement decision.
+
+The disposable disk-adoption source is retired. Its current local state is empty;
+the immediately preceding state generation records VM9951 and four disks on the
+`qual-lvmthin` datastore. A bounded live read found VM9951 absent, no matching ACL,
+and the qualification datastore itself absent. The ignored provider cache and both
+state generations remain as historical evidence; no VM, disk or datastore was
+changed.
+
+The production Proxmox candidate move is also retired after remote state showed the
+sole VM address as `proxmox_virtual_environment_vm.debian`, with no
+`proxmox_virtual_environment_vm.debian_readopted` or `arch` address; a fresh
+provider-backed plan then reported zero changes. VM100's disk tombstone, imports and
+resource address are unchanged. Tailscale remote state binds only
+`terraform_data.tailscale_policy[0]`, so the unused provider declaration and lock are
+removed. A protected API read confirmed that live policy differs from source; the
+placeholder plan proposes only a local `terraform_data` update and cannot deploy
+that difference. Keep the placeholder root/backend and treat provider adoption as
+unresolved.
+
+Omada remote state exactly matches its one network and eight reservations, and
+Authentik remote state exactly matches all 79 declared managed addresses plus two
+data lookups. Fresh provider-backed plans for both roots reported zero changes.
+Their roots, imports, encrypted inputs and preparation tooling remain active. Only
+Authentik's one-shot account-creation bootstrap and hard-coded inventory normalizer
+were removed: neither was a state, rotation or recovery consumer. Omada's export
+and hostname-alias tooling still feed its retained root.
+
+An exact state-bucket inventory found zero versions or delete markers for every
+formerly retired key. Those five entries and their expired-object lifecycle-rule
+scaffolding are removed from desired source. The live bucket lifecycle configuration
+is unchanged. The required boundary ARNs are absent from controller inputs and the
+live roles have no attached permissions boundary. Two matching named external policy
+candidates exist; using their exact ARNs produced a four-update plan covering the
+state apply policy, both controller roles and the state lifecycle configuration.
+That is not an isolated cleanup plan. Do not apply it until the owner independently
+verifies both boundary-policy contents and reviews all four updates together.
+
 The AWS foundation root is the first isolated provider leaf removed from the
-global contract seam. It now owns the fixed one-day incomplete multipart-upload
-cleanup as a local safety invariant; resource addresses, lifecycle rule IDs and
-state-object retention remain unchanged. No provider init, plan or apply was run.
-The legacy Offen field remains because recovery-hold proof and first-run recovery
-still consume it; this change is not authority to prune that contract subtree.
+global contract seam. It owns the fixed one-day incomplete multipart-upload cleanup
+as a local safety invariant. Active state-object retention and resource addresses
+remain unchanged; only lifecycle rules for already absent retired keys leave desired
+source. No provider apply was run. The legacy Offen field remains because
+recovery-hold proof and first-run recovery still consume it; this change is not
+authority to prune that contract subtree.
 
 Do not regenerate historical hashes, fabricate receipts, clear journals, stop
 watchdogs or erase locks to make the reduced source pass legacy admission. A
@@ -181,11 +232,12 @@ Such cleanup must still preserve operational guards and supported scope.
 - Roles Anywhere IAM resources remain useful native credential infrastructure;
   names containing `local_controller` are not permission to delete them. External
   boundary ARNs do not establish the deployed policy contents or custody.
-- `state-objects.json` drives exact backend IAM keys and S3 lifecycle prefixes.
-  Active state history is retained; retired state and noncurrent lock versions
-  expire after one day. Prefix matching is not equality. Retire manifest entries
-  only after a separately authorized exact-key inventory proves every retired
-  version/delete marker absent. No bucket-wide expiration or state deletion.
+- `state-objects.json` drives exact active backend IAM keys and noncurrent lock
+  lifecycle prefixes. Active state history remains retained. The September 18
+  exact-key inventory proved every formerly retired version and delete marker
+  absent before their entries were removed from source. Prefix matching is not
+  equality; any future retirement needs the same exact inventory gate. No
+  bucket-wide expiration or state deletion.
 - Historical aggregate Ansible ownership and bounded Nix-runtime retirement
   (2026-09-11, no removals) did not qualify clean boot, new-source convergence or
   universal recovery. Completed key/domain handoffs are not repeatable setup steps.

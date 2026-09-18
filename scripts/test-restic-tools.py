@@ -895,8 +895,16 @@ def main() -> None:
     assert "current_object_retention_days" not in foundation
     assert 'resource "aws_s3_bucket_lifecycle_configuration" "state"' in foundation
     assert "noncurrent_version_expiration" in foundation
-    assert state_manifest["noncurrent_lock_retention_days"] == 1
-    assert state_manifest["retired_object_expiration_days"] == 1
+    assert state_manifest == {
+        "active": [
+            "home-lab/authentik/tofu.tfstate",
+            "home-lab/aws-foundation/tofu.tfstate",
+            "home-lab/omada/tofu.tfstate",
+            "home-lab/proxmox/tofu.tfstate",
+            "home-lab/tailscale/tofu.tfstate",
+        ],
+        "noncurrent_lock_retention_days": 1,
+    }
     recovery_lifecycle = foundation[foundation.index('resource "aws_s3_bucket_lifecycle_configuration" "recovery"'):]
     assert "noncurrent_version_expiration" not in recovery_lifecycle
     assert 'id     = "incomplete-multipart-cleanup"' in recovery_lifecycle

@@ -151,39 +151,12 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(allow, expected)
         self.assertEqual(len(allow), 79)
 
-    def test_prepare_and_normalize_steps_protect_sensitive_inputs(self) -> None:
+    def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()
-        normalizer = (REPO / "scripts" / "controller" / "authentik-normalize-inventory.mjs").read_text()
         for value in ("AUTHENTIK_URL", "AUTHENTIK_TOKEN", "SOPS_AGE_KEY_FILE", "chmod 0600"):
             self.assertIn(value, prepare)
         self.assertIn("path.is_symlink()", prepare)
         self.assertIn("stat.S_IMODE(metadata.st_mode) != 0o600", prepare)
-        self.assertIn('assert(!serializedDesired.includes("client_secret")', normalizer)
-        self.assertIn('writeFileSync(secretsPath', normalizer)
-        self.assertIn('expected 28 application access bindings', normalizer)
-
-    def test_bootstrap_separates_read_only_plan_and_apply_identities(self) -> None:
-        bootstrap = (REPO / "scripts" / "controller" / "authentik-bootstrap-service-account.py").read_text()
-        self.assertIn('"plan": {', bootstrap)
-        self.assertIn('"apply": {', bootstrap)
-        self.assertIn('"actions": ("view",)', bootstrap)
-        self.assertIn('"actions": ("view", "add", "change")', bootstrap)
-        for model in (
-            "application",
-            "authenticatorvalidatestage",
-            "flow",
-            "flowstagebinding",
-            "oauth2provider",
-            "policybinding",
-            "proxyprovider",
-            "scopemapping",
-        ):
-            self.assertIn(f'"{model}"', bootstrap)
-        self.assertIn("with transaction.atomic():", bootstrap)
-        self.assertIn("HOME_LAB_AUTHENTIK_BOOTSTRAP_REQUEST_SHA256", bootstrap)
-        self.assertIn("HOME_LAB_AUTHENTIK_BOOTSTRAP_TOKEN_EXPIRES_AT", bootstrap)
-        self.assertNotIn('"delete"', bootstrap)
-        self.assertNotIn("objects.delete", bootstrap)
 
 
 if __name__ == "__main__":

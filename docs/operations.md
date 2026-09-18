@@ -707,8 +707,9 @@ prove check-mode behavior or deployment readiness. Report missing dependencies
 rather than automatically installing them.
 
 `scripts/update-provider-locks` is **mutating manual maintenance**, not passive
-validation: it runs `tofu providers lock` for five roots/three platforms and only
-then checks Git differences. It can contact providers and rewrite lock files;
+validation: it runs `tofu providers lock` for four provider roots/three platforms
+and only then checks Git differences. The Tailscale policy placeholder uses only
+built-in `terraform_data` and has no provider lock. The script can contact providers and rewrite lock files;
 execution requires separate approval. Keep the existing locks unchanged for source checks.
 The misleading aggregate recovery rehearsal launcher has been removed.
 For the opt-in Docker role test, read the

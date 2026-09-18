@@ -287,34 +287,44 @@ LiteLLM recreation and separate liveness/provider-model acceptance decision.
 - **Proxmox VM100:** `scsi1` games, `scsi2` state, `scsi3` boot and `ide2` cloud-init
   identities stay fixed. The production HCL does not fully model the boot disk;
   ignored disk-list positions encode adoption history. Do not reorder/remove the
-  tombstone or change addresses/imports. Existing image/snippet prerequisites and
-  the stale candidate move require separate state-aware adoption, not cosmetic cleanup.
+  tombstone or change addresses/imports. Remote state now contains only
+  `proxmox_virtual_environment_vm.debian`; the stale candidate move is retired.
 - **Tailscale:** the Tofu root is a `terraform_data` placeholder, not a policy
-  writer. The universal reconciler that issued policy API writes is removed.
-  Source policy now removes the retired `ansible-plan` SSH user and tests require
-  that denial, but running the current root will not converge the live tailnet.
-  Native provider adoption/import, current-policy comparison and concurrency
-  semantics remain follow-on work; do not claim that source correction as deployed.
+  writer. Remote state likewise contains only that built-in placeholder, so the
+  unused Tailscale provider declaration and lock are retired. The universal
+  reconciler that issued policy API writes is removed. Source policy denies the
+  retired `ansible-plan` SSH user. A protected API read confirmed that live policy
+  differs from source; the placeholder plan proposes only a local `terraform_data`
+  update and cannot converge the tailnet. Native provider adoption and concurrency
+  semantics remain follow-on work; do not claim source policy as deployed.
 - **Omada:** the LAN/reservation root reads a private export in the
-  [required input shape](../infrastructure/tofu/omada/EXPORT_SCHEMA.md). Verify imports,
-  desired ownership, TLS/CA and certificate hostname (`Omada`) before replacing
-  that input. Setting management false after adoption may propose destruction.
+  [required input shape](../infrastructure/tofu/omada/EXPORT_SCHEMA.md). Its remote
+  state contains exactly one network and eight reservations, and a fresh provider
+  plan reported zero changes. Preserve TLS/CA and certificate hostname (`Omada`)
+  when replacing that input. Setting management false after adoption may propose
+  destruction.
 - **Authentik API:** source expects 23 applications/18 proxies/5 OAuth providers/
-  28 bindings; historical adoption reported 25/19/6/30 and 85 imported objects.
-  Verify actual desired and imported identities before plan. Factory objects and
+  28 bindings. Remote state contains exactly the 79 current managed addresses plus
+  two data lookups, and a fresh provider plan reported zero changes. Factory objects and
   users/groups/runtime identities remain database-owned. Proxy factory mapping
   membership is deliberately omitted from resource configuration. Client secrets
   remain encrypted separately and also occur in protected resource state; tokens
   are ephemeral inputs. Historical token expiry was `2026-11-25T19:16:43Z`—verify
-  current credentials privately rather than assuming they still work.
+  current credentials privately rather than assuming they still work. The one-shot
+  account-creation bootstrap and hard-coded inventory normalizer are retired; they
+  could neither rotate existing identities nor establish current desired state.
+  Their historical implementation remains in Git, not as a current recovery path.
 - **Access/host convergence:** native SSH/become observation now works over the
   existing Tailscale route; no account/key changes were needed. Retain other routes
   and verify independent console access before risky work. The approved native
   [manual-update policy](operations.md#manual-update-policy) supersedes legacy
   automatic-install settings. Other host domains and legacy bootstrap policy
   still need adoption.
-- **Recovery/VM9900:** VM9900 was observed present and stopped on September 14;
-  preserve failed qualification and state ownership. Separate local backends do
+- **Recovery/VM9900:** a September 18 bounded live read found the stopped VM using
+  the Debian lifecycle identity, disk serial and snippet. Its ACL, qualification
+  account, sudo rule, helper and transport remain installed. The Restic snippet is
+  absent, but its separately tracked recovery image still exists and the retained
+  Restic state/recovery controller consume that lineage. Separate local backends do
   not isolate two roots using the same VMID on production PVE. Stopped state alone
-  does not authorize reuse or destruction.
-  Fresh boot and end-to-end production activation remain unqualified.
+  does not authorize reuse or destruction. Fresh boot and end-to-end production
+  activation remain unqualified.
