@@ -11,8 +11,9 @@ do not expand that scope. Broader host/application adoption is pending: there is
 **no supported general deploy or host-convergence command**. The native Compose
 `flaresolverr` canary has passed live observation and a source-bound check-mode
 run. Its one authorized normal attempt refused an out-of-scope artifact delta
-before publication or container mutation and retained production ownership. No
-retry or ownership release is authorized. Debian `site.yml` still includes lifecycle, lock
+before publication or container mutation. The exact retained owner was later
+released under separate authorization while preserving the failed candidate. No
+retry or deployment is authorized. Debian `site.yml` still includes lifecycle, lock
 and backup prerequisites. Directly invoking retained mutation roles is not an
 approved replacement for the removed controller.
 
@@ -426,9 +427,16 @@ config/secret topology to equal the active model. Its source-only candidate hash
 that is not a live qualification or deployment approval.
 `ansible/playbooks/release-failed-compose-canary.yml` binds the exact owner,
 active and failed-candidate hashes, requires the audited pre-publication state,
-adopts/releases only that owner and preserves the staged evidence. That release is
-prepared but not authorized. A separately approved release, committed/pushed
-source, fresh same-commit check and new normal-attempt decision are all still
+adopts/releases only that owner and preserves the staged evidence. After commit
+`1676a419` was pushed, its separately authorized check-mode run passed 13 tasks
+with one expected preview change and no failures. The separately authorized normal
+run then passed 17 tasks with one reported change: it released only owner SHA-256
+`5af8bb373ce87c55ad50b3237805c9b8413f5f2bf8df5bd11671d6fc66329706`.
+It preserved failed candidate
+`fbd84ff2fd70b0a7cd6a560930db0a66f8f88b56cd5472a9fe167bc404fe04b5`,
+found no candidate environment or interruption checkpoint, and performed no
+container mutation. That release authority is consumed. A committed/pushed record,
+fresh same-commit observation/check and new normal-attempt decision are still
 required. There is no authorization to combine the deferred LiteLLM change with
 the canary.
 

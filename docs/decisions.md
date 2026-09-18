@@ -92,9 +92,10 @@ safety boundary. It creates no approval receipt and consumes no previous runner
 result. Live observation and its source-bound check mode are qualified. The one
 authorized normal `flaresolverr` attempt refused an out-of-scope undeployed
 LiteLLM config before publication or container mutation and retained production
-ownership. That attempt is consumed. Exact owner release and a narrower candidate
-are prepared but not authorized; database, Restic and LiteLLM activation remain
-unauthorized. This is sufficient to refuse the legacy **general** deployment lane,
+ownership. That attempt is consumed. The exact owner was subsequently released
+under separate authorization while preserving the failed candidate; the narrower
+candidate is source-qualified only. Retry, database, Restic and LiteLLM activation
+remain unauthorized. This is sufficient to refuse the legacy **general** deployment lane,
 but not to remove operation-specific migration/recovery code or the installed
 image-pruning helper.
 

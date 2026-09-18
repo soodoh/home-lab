@@ -190,7 +190,8 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertIn("same explicit clean source commit", operations)
         self.assertIn("fbd84ff2fd70b0a7cd6a560930db0a66f8f88b56cd5472a9fe167bc404fe04b5", operations)
         self.assertIn("5af8bb373ce87c55ad50b3237805c9b8413f5f2bf8df5bd11671d6fc66329706", operations)
-        self.assertIn("release is prepared but not authorized", operations)
+        self.assertIn("That release authority is consumed", operations)
+        self.assertIn("performed no container mutation", operations)
 
     def test_general_legacy_deployment_is_retired_but_recovery_consumers_remain(self):
         stage = self.text(ROOT / "ansible/roles/compose_stage/tasks/main.yml")
