@@ -116,6 +116,13 @@ image-pruning helper.
 | VM9900 qualification and recovery roots/helpers | Possible live VM, disks, snippets, ACLs, keys and failed-operation state require separately authorized inventory/retirement. |
 | JS dependencies and provider locks | Contract and policy consumers still need AJV/js-yaml. Retiring the Proxmox projection does not eliminate Node/Bun dependencies. |
 
+The AWS foundation root is the first isolated provider leaf removed from the
+global contract seam. It now owns the fixed one-day incomplete multipart-upload
+cleanup as a local safety invariant; resource addresses, lifecycle rule IDs and
+state-object retention remain unchanged. No provider init, plan or apply was run.
+The legacy Offen field remains because recovery-hold proof and first-run recovery
+still consume it; this change is not authority to prune that contract subtree.
+
 Do not regenerate historical hashes, fabricate receipts, clear journals, stop
 watchdogs or erase locks to make the reduced source pass legacy admission. A
 persistent lock inode is not necessarily contention; its owner/journal and actual

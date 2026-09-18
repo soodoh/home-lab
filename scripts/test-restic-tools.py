@@ -884,6 +884,11 @@ def main() -> None:
 
     foundation = (ROOT / "infrastructure/tofu/aws-foundation/main.tf").read_text()
     state_manifest = json.loads((ROOT / "infrastructure/tofu/aws-foundation/state-objects.json").read_text())
+    assert offen["incomplete_multipart_abort_days"] == 1
+    assert "infrastructure/contract" not in foundation
+    assert "local.contract" not in foundation
+    assert "recovery_incomplete_multipart_abort_days = 1" in foundation
+    assert "days_after_initiation = local.recovery_incomplete_multipart_abort_days" in foundation
     assert "resource \"aws_s3_bucket\" \"state\"" in foundation
     assert "prevent_destroy = true" in foundation
     assert "critical-backup-retention" not in foundation

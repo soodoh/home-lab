@@ -23,10 +23,10 @@ provider "aws" {
 }
 
 locals {
-  contract              = yamldecode(file("${path.module}/../../contract/home-lab.yml"))
-  state_object_manifest = jsondecode(file("${path.module}/state-objects.json"))
-  active_state_keys     = local.state_object_manifest.active
-  retired_state_keys    = local.state_object_manifest.retired
+  recovery_incomplete_multipart_abort_days = 1
+  state_object_manifest                    = jsondecode(file("${path.module}/state-objects.json"))
+  active_state_keys                        = local.state_object_manifest.active
+  retired_state_keys                       = local.state_object_manifest.retired
 }
 
 check "state_object_manifest" {
@@ -295,7 +295,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "recovery" {
     filter {}
 
     abort_incomplete_multipart_upload {
-      days_after_initiation = local.contract.backups.legacy_offen.incomplete_multipart_abort_days
+      days_after_initiation = local.recovery_incomplete_multipart_abort_days
     }
   }
 
