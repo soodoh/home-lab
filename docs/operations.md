@@ -725,7 +725,14 @@ same import with the state-writing apply profile succeeded. Protected before/aft
 reads showed unchanged policy bytes and ETag. Remote state now has exactly the native
 policy resource and retained placeholder. A fresh temporary post-import plan passed
 the allowlisted plan inspector and proposed exactly two updates, one for each address.
-The plan was removed and no policy apply occurred.
+
+The separately authorized apply used a new temporary saved plan after its two actions
+and four bounded policy-list differences were checked. A protected read immediately
+before apply matched the planned-before policy. The apply removed `ansible-plan` from
+two SSH grants, moved its SSH test expectation from accept to deny and updated the
+local placeholder. A protected post-apply read exactly matched planned-after content;
+the policy body and ETag changed. A fresh provider-backed plan then returned exit 0
+with no changes. Temporary plans and logs were removed.
 
 ## Local source checks
 
