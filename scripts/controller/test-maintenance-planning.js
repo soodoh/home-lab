@@ -167,6 +167,34 @@ assert.deepEqual(timer["ansible.builtin.command"].argv.slice(0, 3),
   ["/usr/bin/systemd-run", "--unit=home-lab-proxmox-vm100-recovery", "--on-active={{ proxmox_reboot_rollback_seconds }}s"]);
 assert(timer["ansible.builtin.command"].argv.includes("/usr/sbin/qm"));
 assert(timer["ansible.builtin.command"].argv.includes("start"));
+const backupStateTask = nativeRebootTasks.find((item) => item.name === "Read backup writer states on the Docker host");
+assert.equal(backupStateTask.delegate_to, "docker-host");
+assert.deepEqual(backupStateTask["ansible.builtin.command"].argv, [
+  "/usr/bin/systemctl", "show", "{{ item }}", "--property=LoadState", "--property=ActiveState", "--no-pager",
+]);
+assert.deepEqual(backupStateTask.loop, [
+  "home-lab-restic-daily-local.service",
+  "home-lab-restic-daily-proton.service",
+  "home-lab-restic-maintenance-local.service",
+  "home-lab-restic-maintenance-proton.service",
+]);
+const backupRefusal = nativeRebootTasks.find((item) => item.name === "Require every Docker-host backup writer to be loaded and inactive");
+assert.deepEqual(backupRefusal["ansible.builtin.assert"].that, [
+  "item.rc == 0",
+  "item.stderr == ''",
+  "'LoadState=loaded' in item.stdout_lines",
+  "'ActiveState=inactive' in item.stdout_lines",
+]);
+const backupReady = (result) => result.rc === 0 && result.stderr === "" &&
+  result.stdout_lines.includes("LoadState=loaded") && result.stdout_lines.includes("ActiveState=inactive");
+assert(backupReady({rc: 0, stderr: "", stdout_lines: ["LoadState=loaded", "ActiveState=inactive"]}));
+for (const rejected of [
+  {rc: 0, stderr: "", stdout_lines: ["LoadState=not-found", "ActiveState=inactive"]},
+  {rc: 0, stderr: "", stdout_lines: ["LoadState=masked", "ActiveState=inactive"]},
+  {rc: 0, stderr: "", stdout_lines: ["LoadState=error", "ActiveState=inactive"]},
+  {rc: 0, stderr: "", stdout_lines: ["LoadState=loaded", "ActiveState=failed"]},
+  {rc: 0, stderr: "", stdout_lines: ["LoadState=loaded", "ActiveState=activating"]},
+]) assert(!backupReady(rejected));
 const nativeSource = JSON.stringify(nativeRebootTasks);
 for (const required of ["onboot: 1", "home-lab-restic-daily-local.service", "/usr/sbin/zpool", "pool 'storage' is healthy", "proxmox_reboot_console_confirmed", "proxmox_reboot_backup_confirmed", "proxmox_reboot_boot_id_after", "include_role"])
   assert(nativeSource.includes(required), required);

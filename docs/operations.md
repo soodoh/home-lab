@@ -42,6 +42,10 @@ existing `ansible-deploy` Debian account and `proxmox` administrator account wit
 sudo, not Proxmox's restricted `ansible-deploy` transport. Tailscale authenticates
 the connection; no new keys/accounts or Linux sshd changes are needed for this path.
 Host-key aliases must already be trusted in `~/.ssh/known_hosts`; mismatches fail.
+The source Tailscale policy no longer grants the retired `ansible-plan` identity,
+but the current Tofu root is only a policy placeholder and cannot deploy that
+change. Live tailnet reconciliation remains blocked on the provider-adoption work
+recorded in [migrations](migrations.md#provider-and-host-adoption-gaps).
 
 ### Native Proxmox capability observation
 
@@ -208,9 +212,11 @@ than counting them as executions.
 
 `ansible/playbooks/reboot-proxmox.yml` composes native capability/package checks
 with a dedicated reboot role. It requires VM100 already running with `onboot: 1`,
-backup writers inactive, no retained ownership marker, explicit attended console
-and backup confirmation, and an absent transient recovery unit. Check mode performs
-only those reads.
+all four Docker-host Restic writers explicitly loaded and inactive, no retained
+ownership marker, explicit attended console and backup confirmation, and an absent
+transient recovery unit. The backup checks are delegated to `docker-host`; missing,
+failed, activating or otherwise ambiguous units refuse the reboot. Check mode
+performs only those reads.
 
 For an approved real run, `systemd-run` arms a host-local transient timer that
 starts VM100 if the controller disappears after shutdown but before reboot. The
@@ -261,7 +267,10 @@ helpers, and narrowed `ansible-deploy` to Restic recovery. The strengthened prev
 passed 37 tasks and predicted five change groups. The normal run passed 42 tasks
 with six changed task groups; after an idempotence assertion was corrected to
 distinguish preserved original bytes from the newly installed retained files, a
-second normal run passed 42 tasks with `changed=0`.
+second normal run passed 42 tasks with `changed=0`. The retained role now also pins
+the reviewed SHA-256, mode and single-link identity of every expected predecessor
+and permanent before-image, and refuses to publish sudo unless the exact retained
+Restic recovery transport is present.
 
 PVE restored its conventional root key path during reboot. The retained file
 contains only the source-attributed `current-proxmox-root-identity`, and
@@ -631,8 +640,9 @@ ambiguous locks. Never substitute `docker image prune -a` or volume pruning.
 VM100's source identity is Debian 13 `docker-host`, LAN `192.168.0.100`, tailnet
 `100.116.163.42`. The deployment account is `ansible-deploy`; `docker` is the
 interactive workload account. Native observation uses the existing Tailscale SSH
-route. Fixed Proxmox transports remain installed for legacy consumers; no access
-route has been removed or replaced.
+route. The fixed Proxmox firewall route and Restic-only recovery transport remain
+installed. Obsolete Nix plan/apply routes were removed by the separately approved
+installed-access retirement described above.
 The guest key captured through Proxmox QGA and matched by tailnet keyscan is
 recorded in `infrastructure/evidence/vm-100-debian-ssh-host-key.json`; that record
 does not establish an independent LAN capture. Verify current trust rather than

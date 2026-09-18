@@ -274,8 +274,10 @@ usability.
   the stale candidate move require separate state-aware adoption, not cosmetic cleanup.
 - **Tailscale:** the Tofu root is a `terraform_data` placeholder, not a policy
   writer. The universal reconciler that issued policy API writes is removed.
-  Native provider adoption/import and concurrency semantics remain follow-on work;
-  running the current root will not converge tailnet policy.
+  Source policy now removes the retired `ansible-plan` SSH user and tests require
+  that denial, but running the current root will not converge the live tailnet.
+  Native provider adoption/import, current-policy comparison and concurrency
+  semantics remain follow-on work; do not claim that source correction as deployed.
 - **Omada:** the LAN/reservation root reads a private export in the
   [required input shape](../infrastructure/tofu/omada/EXPORT_SCHEMA.md). Verify imports,
   desired ownership, TLS/CA and certificate hostname (`Omada`) before replacing

@@ -109,14 +109,47 @@
       - /etc/sudoers.d/tofu-apply
       - /etc/sudoers.d/ansible-plan
     proxmox_legacy_backup_root: /var/lib/home-lab/legacy-access-retirement/2026-09-16
-    proxmox_legacy_retained_checksums:
-      /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../infrastructure/proxmox-access/host/proxmox-ansible-deploy-transport', rstrip=false) | hash('sha1') }}"
-      /etc/sudoers.d/ansible-deploy: "{{ 'ansible-deploy ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-restic-recovery-transport\n' | hash('sha1') }}"
+    proxmox_legacy_retired_checksums:
+      /usr/local/libexec/home-lab/proxmox-observer: edb7ff95e6b8bfbfaa0227a07c521c2fe26e1f53e92b29d21d67ea17c4f3553f
+      /usr/local/libexec/home-lab/proxmox-private-preparer: 7d667609e11f4b66be75b45c5c04176fc4c6712fdc72e1f6254d220eab494b75
+      /usr/local/libexec/home-lab/proxmox-ansible-plan-transport: 7210d4cbf51da161db9946ff95e407ef55775646c9fac4bd1110455bab481522
+      /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator: 7d27fafa16e962eb99fe256dd34557a8c234e3651414efd18a3fa370aca8c999
+      /usr/local/libexec/home-lab/proxmox-package-candidate-observer: e67e1d05149a35476ab8449f8d369d7f9921fd4474b0508064aaa7c1ef603070
+      /etc/sudoers.d/ansible-plan: 40d2e94a05d23d48e3e368b2b059260c08e94ced8815cd2ac23635c869d05166
+    proxmox_legacy_original_checksums:
+      /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport: 78ea4536a580dce08ffed3edd43a19b77c12407a9ed8d35c2f1bf17a808e8a39
+      /etc/sudoers.d/ansible-deploy: e5044677b990c7be9eb6baa87af2247827b7659b71b7f21c54a42e1ef3ec01cd
+    proxmox_legacy_desired_checksums:
+      /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../infrastructure/proxmox-access/host/proxmox-ansible-deploy-transport', rstrip=false) | hash('sha256') }}"
+      /etc/sudoers.d/ansible-deploy: "{{ 'ansible-deploy ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-restic-recovery-transport\n' | hash('sha256') }}"
+    proxmox_legacy_expected_modes:
+      /usr/local/libexec/home-lab/proxmox-observer: '0755'
+      /usr/local/libexec/home-lab/proxmox-private-preparer: '0755'
+      /usr/local/libexec/home-lab/proxmox-ansible-plan-transport: '0755'
+      /usr/local/libexec/home-lab/proxmox-ansible-deploy-activator: '0755'
+      /usr/local/libexec/home-lab/proxmox-package-candidate-observer: '0755'
+      /usr/local/libexec/home-lab/proxmox-controller-observer: '0755'
+      /usr/local/libexec/home-lab/proxmox-apply-transport: '0755'
+      /etc/sudoers.d/tofu-plan: '0440'
+      /etc/sudoers.d/tofu-apply: '0440'
+      /etc/sudoers.d/ansible-plan: '0440'
+      /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport: '0755'
+      /etc/sudoers.d/ansible-deploy: '0440'
+    proxmox_legacy_before_image_checksums:
+      proxmox-observer: edb7ff95e6b8bfbfaa0227a07c521c2fe26e1f53e92b29d21d67ea17c4f3553f
+      proxmox-private-preparer: 7d667609e11f4b66be75b45c5c04176fc4c6712fdc72e1f6254d220eab494b75
+      proxmox-ansible-plan-transport: 7210d4cbf51da161db9946ff95e407ef55775646c9fac4bd1110455bab481522
+      proxmox-ansible-deploy-activator: 7d27fafa16e962eb99fe256dd34557a8c234e3651414efd18a3fa370aca8c999
+      proxmox-package-candidate-observer: e67e1d05149a35476ab8449f8d369d7f9921fd4474b0508064aaa7c1ef603070
+      ansible-plan: 40d2e94a05d23d48e3e368b2b059260c08e94ced8815cd2ac23635c869d05166
+      proxmox-ansible-deploy-transport: 78ea4536a580dce08ffed3edd43a19b77c12407a9ed8d35c2f1bf17a808e8a39
+      ansible-deploy: e5044677b990c7be9eb6baa87af2247827b7659b71b7f21c54a42e1ef3ec01cd
 
 - name: Read legacy target metadata without following links
   ansible.builtin.stat:
     path: "{{ item }}"
     follow: false
+    checksum_algorithm: sha256
     get_checksum: true
   loop: "{{ proxmox_legacy_retired_files + ['/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport', '/etc/sudoers.d/ansible-deploy'] }}"
   register: proxmox_legacy_target_stats
@@ -128,7 +161,16 @@
       - not item.stat.exists or not item.stat.islnk
       - not item.stat.exists or item.stat.pw_name == 'root'
       - not item.stat.exists or item.stat.gr_name == 'root'
-    fail_msg: Installed legacy target metadata differs; no file was retired.
+      - not item.stat.exists or item.stat.nlink == 1
+      - not item.stat.exists or item.stat.mode == proxmox_legacy_expected_modes[item.item]
+      - >-
+        not item.stat.exists or
+        (item.item in proxmox_legacy_retired_checksums and
+         (item.stat.checksum | default('')) == proxmox_legacy_retired_checksums[item.item]) or
+        (item.item in proxmox_legacy_original_checksums and
+         (item.stat.checksum | default('')) in
+         [proxmox_legacy_original_checksums[item.item], proxmox_legacy_desired_checksums[item.item]])
+    fail_msg: Installed legacy target identity differs; no file was retired.
   loop: "{{ proxmox_legacy_target_stats.results }}"
   loop_control:
     label: "{{ item.item }}"
@@ -157,19 +199,17 @@
     - not ansible_check_mode
   no_log: true
 
-- name: Read preserved retirement before-images before unlinking sources
+- name: Read every expected retirement before-image
   ansible.builtin.stat:
-    path: "{{ proxmox_legacy_backup_root }}/{{ item.item | basename }}"
+    path: "{{ proxmox_legacy_backup_root }}/{{ item.key }}"
     follow: false
+    checksum_algorithm: sha256
     get_checksum: true
-  loop: "{{ proxmox_legacy_target_stats.results }}"
-  when:
-    - item.stat.exists
-    - not ansible_check_mode
+  loop: "{{ proxmox_legacy_before_image_checksums | dict2items }}"
   register: proxmox_legacy_backup_stats
   no_log: true
 
-- name: Require exact root-only before-images before unlinking sources
+- name: Require exact permanent root-only before-images
   ansible.builtin.assert:
     that:
       - item.stat.exists
@@ -177,17 +217,33 @@
       - not item.stat.islnk
       - item.stat.pw_name == 'root'
       - item.stat.gr_name == 'root'
+      - item.stat.nlink == 1
       - item.stat.mode == '0600'
-      - >-
-        item.stat.checksum == item.item.stat.checksum or
-        (item.item.item in proxmox_legacy_retained_checksums and
-         item.item.stat.checksum == proxmox_legacy_retained_checksums[item.item.item])
+      - (item.stat.checksum | default('')) == item.item.value
     fail_msg: A retirement before-image differs; no legacy source was unlinked.
   loop: "{{ proxmox_legacy_backup_stats.results }}"
-  when:
-    - not ansible_check_mode
-    - not (item.skipped | default(false))
   no_log: true
+
+- name: Read the retained Restic recovery transport identity
+  ansible.builtin.stat:
+    path: /usr/local/libexec/home-lab/proxmox-restic-recovery-transport
+    follow: false
+    checksum_algorithm: sha256
+    get_checksum: true
+  register: proxmox_legacy_recovery_transport
+
+- name: Verify the exact retained Restic recovery transport
+  ansible.builtin.assert:
+    that:
+      - proxmox_legacy_recovery_transport.stat.exists
+      - proxmox_legacy_recovery_transport.stat.isreg
+      - not proxmox_legacy_recovery_transport.stat.islnk
+      - proxmox_legacy_recovery_transport.stat.pw_name == 'root'
+      - proxmox_legacy_recovery_transport.stat.gr_name == 'root'
+      - proxmox_legacy_recovery_transport.stat.nlink == 1
+      - proxmox_legacy_recovery_transport.stat.mode == '0755'
+      - (proxmox_legacy_recovery_transport.stat.checksum | default('')) == '186d6adf91649182d063165e50a4ab961968876c8a65254be53b6258bd2e95e1'
+    fail_msg: The retained Restic recovery transport identity differs; no sudo capability was published.
 
 - name: Install the Restic-only deploy transport
   ansible.builtin.copy:

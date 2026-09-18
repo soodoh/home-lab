@@ -54,26 +54,36 @@
   register: proxmox_reboot_boot_id_before
   no_log: true
 
-- name: Read backup writer states
+- name: Read backup writer states on the Docker host
   ansible.builtin.command:
-    argv: [/usr/bin/systemctl, is-active, "{{ item }}"]
+    argv:
+      - /usr/bin/systemctl
+      - show
+      - "{{ item }}"
+      - --property=LoadState
+      - --property=ActiveState
+      - --no-pager
   loop:
     - home-lab-restic-daily-local.service
     - home-lab-restic-daily-proton.service
+    - home-lab-restic-maintenance-local.service
     - home-lab-restic-maintenance-proton.service
   register: proxmox_reboot_backup_units
   changed_when: false
   failed_when: false
   check_mode: false
+  delegate_to: docker-host
   timeout: 30
 
-- name: Require every backup writer to be inactive
+- name: Require every Docker-host backup writer to be loaded and inactive
   ansible.builtin.assert:
     that:
-      - item.rc in [3, 4]
-      - item.stdout in ['inactive', 'unknown']
+      - item.rc == 0
+      - item.stderr == ''
+      - "'LoadState=loaded' in item.stdout_lines"
+      - "'ActiveState=inactive' in item.stdout_lines"
     quiet: true
-    fail_msg: A backup writer is active or its state is ambiguous; nothing was stopped.
+    fail_msg: A Docker-host backup writer is active, missing, unloaded or ambiguous; nothing was stopped.
   loop: "{{ proxmox_reboot_backup_units.results }}"
   loop_control:
     label: "{{ item.item }}"

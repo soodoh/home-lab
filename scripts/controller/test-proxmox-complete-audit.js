@@ -88,10 +88,17 @@ for (const keyring of nativePolicy.keyrings) {
 assert.deepEqual(nativePolicy.chrony_service, { active: true, enabled: true });
 const retirementPlay = yaml("ansible/playbooks/retire-proxmox-legacy-access.yml")[0];
 assert.deepEqual(retirementPlay.roles, [{ role: "proxmox_observe" }, { role: "proxmox_legacy_access_retire" }]);
+const retirementTasks = yaml("ansible/roles/proxmox_legacy_access_retire/tasks/main.yml");
 const retirementSource = read("ansible/roles/proxmox_legacy_access_retire/tasks/main.yml");
-for (const required of ["proxmox_legacy_retained_checksums", "force: false", "item.stat.checksum == item.item.stat.checksum or",
-  "Verify exact installed retirement boundary", "proxmox-restic-recovery-transport"])
+for (const required of ["proxmox_legacy_retired_checksums", "proxmox_legacy_original_checksums", "checksum_algorithm: sha256",
+  "force: false", "Verify the exact retained Restic recovery transport", "Verify exact installed retirement boundary"])
   assert(retirementSource.includes(required), `legacy retirement lacks guarded boundary: ${required}`);
+assert(!retirementSource.includes("item.stat.checksum == item.item.stat.checksum or"));
+const recoveryTransportCheck = retirementTasks.find((task) => task.name === "Verify the exact retained Restic recovery transport");
+assert(recoveryTransportCheck);
+assert(recoveryTransportCheck["ansible.builtin.assert"].that.includes("proxmox_legacy_recovery_transport.stat.nlink == 1"));
+assert(recoveryTransportCheck["ansible.builtin.assert"].that.includes("proxmox_legacy_recovery_transport.stat.mode == '0755'"));
+assert(recoveryTransportCheck["ansible.builtin.assert"].that.some((condition) => condition.includes("186d6adf91649182d063165e50a4ab961968876c8a65254be53b6258bd2e95e1")));
 const nativeSummary = nativeTasks.at(-1)["ansible.builtin.debug"].msg;
 assert.equal(nativeSummary.complete_host_parity, false);
 assert.equal(nativeSummary.exclusive_snapshot, false);
