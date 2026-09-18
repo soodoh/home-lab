@@ -41,7 +41,7 @@ state = {
         "type": "proxmox_download_file",
         "name": "recovery_image",
         "provider": 'provider["registry.opentofu.org/bpg/proxmox"]',
-        "instances": [{"schema_version": 0, "attributes": attributes, "sensitive_attributes": []}],
+        "instances": [{"index_key": 0, "schema_version": 0, "attributes": attributes, "sensitive_attributes": []}],
     }],
     "check_results": None,
 }
@@ -59,6 +59,7 @@ with tempfile.TemporaryDirectory(dir=ROOT / ".local") as directory:
     try:
         expected = module.inspect_initial_state(raw)
         assert expected["id"] == module.IMAGE_ID
+        assert module.ADDRESS == "proxmox_download_file.recovery_image[0]"
         plan = {"resource_changes": [{"address": module.ADDRESS, "type": "proxmox_download_file", "change": {"actions": ["delete"], "before": attributes, "after": None, "after_unknown": {}}}]}
         assert module.inspect_plan(plan) == expected
 
@@ -86,6 +87,16 @@ with tempfile.TemporaryDirectory(dir=ROOT / ".local") as directory:
             assert "initial-state-scope" in str(error)
         else:
             raise AssertionError("multi-resource state passed")
+        wrong_index = copy.deepcopy(state)
+        wrong_index["resources"][0]["instances"][0]["index_key"] = 1
+        wrong_index_raw = json.dumps(wrong_index, indent=2).encode() + b"\n"
+        module.INITIAL_STATE_SHA256 = hashlib.sha256(wrong_index_raw).hexdigest()
+        try:
+            module.inspect_initial_state(wrong_index_raw)
+        except SystemExit as error:
+            assert "initial-state-scope" in str(error)
+        else:
+            raise AssertionError("wrong resource instance index passed")
         module.INITIAL_STATE_SHA256 = hashlib.sha256(raw).hexdigest()
         preserved = module.preserve_state_before(root, raw)
         assert preserved.read_bytes() == raw and preserved.stat().st_mode & 0o777 == 0o600

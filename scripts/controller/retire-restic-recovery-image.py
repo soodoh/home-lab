@@ -26,7 +26,7 @@ LINEAGE_ROOT = ROOT / ".reconcile/restic-recovery-vm/09d091e5c9f44eafaf5a8b89576
 STATE = LINEAGE_ROOT / "tofu.tfstate"
 JOURNAL = LINEAGE_ROOT / "journal.json"
 LOCK = ROOT / ".reconcile/restic-recovery-vm/transaction.lock"
-ADDRESS = "proxmox_download_file.recovery_image"
+ADDRESS = "proxmox_download_file.recovery_image[0]"
 IMAGE_ID = "local:import/home-lab-restic-recovery-debian-20260810-2566.qcow2"
 INITIAL_STATE_SHA256 = "6fa9556295404743504e60566cdb9dca7ddd7796ed415844ba1734eec40ea88d"
 JOURNAL_SHA256 = "8b8130d85b1019bf13711c730ca1b696311ed24e88adbdf5c47a771ae52f0aeb"
@@ -131,7 +131,7 @@ def inspect_initial_state(raw: bytes) -> dict[str, object]:
     if not isinstance(resource, dict) or (resource.get("mode"), resource.get("type"), resource.get("name")) != ("managed", "proxmox_download_file", "recovery_image"):
         fail("initial-state-scope")
     instances = resource.get("instances")
-    if not isinstance(instances, list) or len(instances) != 1 or not isinstance(instances[0], dict):
+    if not isinstance(instances, list) or len(instances) != 1 or not isinstance(instances[0], dict) or instances[0].get("index_key") != 0:
         fail("initial-state-scope")
     attributes = instances[0].get("attributes")
     expected = expected_image()
