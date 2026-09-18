@@ -717,6 +717,16 @@ remain frozen. Import, plan, and apply can acquire the S3 lock; neither state-lo
 history nor import is a live-policy deployment. Until an authorized apply succeeds,
 the protected API comparison—not source—is authoritative for deployed policy.
 
+On September 18, 2026 (PDT), the dedicated credential passed bounded policy-read and
+plan-validation checks. An initial import using the read-only AWS plan profile read
+the policy but could not upload state (`PutObject` returned 403); remote state and the
+live policy remained unchanged and no local recovery state was created. Retrying the
+same import with the state-writing apply profile succeeded. Protected before/after
+reads showed unchanged policy bytes and ETag. Remote state now has exactly the native
+policy resource and retained placeholder. A fresh temporary post-import plan passed
+the allowlisted plan inspector and proposed exactly two updates, one for each address.
+The plan was removed and no policy apply occurred.
+
 ## Local source checks
 
 From the repository root, without deployment or secret decryption:

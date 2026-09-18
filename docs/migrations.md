@@ -289,17 +289,16 @@ LiteLLM recreation and separate liveness/provider-model acceptance decision.
   ignored disk-list positions encode adoption history. Do not reorder/remove the
   tombstone or change addresses/imports. Remote state now contains only
   `proxmox_virtual_environment_vm.debian`; the stale candidate move is retired.
-- **Tailscale:** remote state currently contains only the protected
-  `terraform_data.tailscale_policy[0]` placeholder. Source now declares the pinned
-  native `tailscale_acl.policy[0]` full-policy owner alongside that placeholder;
-  import has not occurred and no policy write is authorized. The universal
-  reconciler and its unused ETag evidence helpers are removed. Source policy denies
-  the retired `ansible-plan` SSH user, while a protected API read confirmed that live
-  policy differs. The native provider validates the policy during planning and
-  refuses to create over non-default content without import, but updates do not use
-  an ETag precondition. Freeze dashboard edits, import the current policy, produce a
-  fresh reviewed plan and obtain separate apply authorization before claiming source
-  policy as deployed.
+- **Tailscale:** remote state contains the protected
+  `terraform_data.tailscale_policy[0]` placeholder and imported native
+  `tailscale_acl.policy[0]` full-policy owner. Import used the dedicated OAuth client
+  and changed state only; live policy bytes and ETag remained unchanged. The fresh
+  post-import plan contains exactly two allowlisted updates for those addresses and
+  passes the plan inspector. The universal reconciler and its unused ETag evidence
+  helpers are removed. Source policy denies the retired `ansible-plan` SSH user,
+  while live policy still differs. Provider updates do not use an ETag precondition.
+  Freeze dashboard edits, produce another fresh reviewed plan and obtain separate
+  apply authorization before claiming source policy as deployed.
 - **Omada:** the LAN/reservation root reads a private export in the
   [required input shape](../infrastructure/tofu/omada/EXPORT_SCHEMA.md). Its remote
   state contains exactly one network and eight reservations, and a fresh provider

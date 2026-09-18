@@ -141,15 +141,17 @@ The production Proxmox candidate move is also retired after remote state showed 
 sole VM address as `proxmox_virtual_environment_vm.debian`, with no
 `proxmox_virtual_environment_vm.debian_readopted` or `arch` address; a fresh
 provider-backed plan then reported zero changes. VM100's disk tombstone, imports and
-resource address are unchanged. Tailscale remote state still binds only
-`terraform_data.tailscale_policy[0]`, while a protected API read confirmed that live
-policy differs from source. The selected native ownership path restores the pinned
-Tailscale provider and declares `tailscale_acl.policy[0]` as the complete policy-file
-owner. The placeholder remains protected until adoption is complete so source work
-does not rewrite its existing state address. The old custom ETag evidence helpers are
-retired because they cannot apply the native resource. Provider updates overwrite the
-complete policy without an ETag precondition, so import, a fresh reviewed plan and
-apply require separate authorization and a freeze on concurrent dashboard edits.
+resource address are unchanged. Tailscale remote state now binds both the retained
+`terraform_data.tailscale_policy[0]` placeholder and the imported native
+`tailscale_acl.policy[0]` complete policy-file owner. Import used the separately
+provisioned least-privileged OAuth client and changed state only; protected reads
+confirmed the live policy body and ETag were unchanged. A fresh post-import plan
+contains exactly two updates, one to the native policy and one to the placeholder,
+and passed the plan inspector. No policy apply is authorized or complete, and live
+policy still differs from source. The old custom ETag evidence helpers are retired
+because they cannot apply the native resource. Provider updates overwrite the
+complete policy without an ETag precondition, so any apply requires separate
+authorization and a freeze on concurrent dashboard edits.
 
 Omada remote state exactly matches its one network and eight reservations, and
 Authentik remote state exactly matches all 79 declared managed addresses plus two
