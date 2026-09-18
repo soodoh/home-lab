@@ -301,6 +301,16 @@ LiteLLM recreation and separate liveness/provider-model acceptance decision.
   removed. Provider updates do not use an ETag precondition, so future changes
   require a fresh live comparison, frozen dashboard edits and separate apply
   authorization.
+- **AWS controller identities:** the independent owner created and attached distinct
+  action-ceiling boundaries to both Roles Anywhere roles, archived the complete
+  managed-policy version set, removed oldest nondefault apply-policy version 9 and
+  published reduced version 14. A reviewed refresh-only saved plan recorded exactly
+  those three owner changes in the retained foundation state. Both controller
+  identities still issue successfully and live boundary/policy hashes match the
+  controller-local manifest. A fresh no-drift foundation plan now contains only the
+  state-bucket lifecycle update that removes ten rules for five already absent
+  retired keys while preserving all five active lock-history rules. That provider
+  update remains unapplied pending separate authorization.
 - **Omada:** the LAN/reservation root reads a private export in the
   [required input shape](../infrastructure/tofu/omada/EXPORT_SCHEMA.md). Its remote
   state contains exactly one network and eight reservations, and a fresh provider

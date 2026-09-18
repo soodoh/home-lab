@@ -737,6 +737,56 @@ its source and policy fixture were removed at the same boundary. Remote state no
 contains only the native policy owner, and a fresh provider-backed plan returned exit
 0 with no changes. Temporary plans and logs were removed.
 
+## AWS controller permissions boundaries
+
+The plan and apply Roles Anywhere roles now use distinct external owner policies:
+`home-lab-controller-plan-boundary` and
+`home-lab-controller-apply-boundary`. Each copies its role's reviewed desired Allows
+and adds an unconditional `DenyActionsOutsideRetainedBaseline` action ceiling. A
+boundary limits identity-policy grants; it is not an attached grant and does not
+make other account principals safe. The apply role retains S3/KMS foundation
+administration but no longer has IAM or Roles Anywhere mutation authority beyond
+`Get*`/`List*` reads.
+
+The non-secret reviewed binding is
+`~/.config/home-lab/controller/reviewed-controller-boundaries.json`. Its exact file
+path, bytes and provenance remain an input boundary; the validator does not by itself
+prove live policy content. The independently controlled bootstrap bundle under
+`~/.config/home-lab/owner/aws-controller-boundaries/` contains the reviewed policy
+bytes, all pre-cutover managed-policy versions, owner mutation result and refresh-only
+saved plan. Preserve that bundle and its independent recovery copy.
+
+For a read-only foundation plan, load the manifest without printing it and pass its
+exact pair as root variables:
+
+```sh
+manifest=$HOME/.config/home-lab/controller/reviewed-controller-boundaries.json
+IFS=$'\t' read -r plan_boundary apply_boundary boundary_binding < <(
+  python3 -B -E -s -S scripts/controller/controller-boundary-manifest.py \
+    load --manifest "$manifest"
+)
+TF_VAR_controller_plan_permissions_boundary_arn=$plan_boundary \
+TF_VAR_controller_apply_permissions_boundary_arn=$apply_boundary \
+tofu -chdir=infrastructure/tofu/aws-foundation plan
+```
+
+Keep `boundary_binding` for any saved-plan workflow that verifies the accepted
+manifest; do not substitute similarly named controller-owned state policies. Normal
+plan locking can add lock-object history. Applying a saved plan requires the apply
+AWS profile and separate authorization.
+
+On September 18, 2026 (PDT), the independent owner created both reviewed boundary
+policies, attached them to the matching roles and replaced broad apply-policy version
+13 with reduced version 14. All five prior versions were archived before oldest
+nondefault version 9 was deleted. A reviewed refresh-only plan recorded exactly the
+two role updates and one apply-policy update in existing state; applying that saved
+refresh plan changed state only. Both Roles Anywhere identities then issued
+successfully. Independent readback matched both boundary canonical hashes and the
+reduced apply-policy hash. A fresh plan had no drift and passed policy inspection; its
+only action removes ten obsolete lifecycle rules for the five retired, already empty
+state keys while retaining the five active lock-history rules. No foundation resource
+plan has applied that lifecycle change.
+
 ## Local source checks
 
 From the repository root, without deployment or secret decryption:
