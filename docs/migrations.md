@@ -289,17 +289,18 @@ LiteLLM recreation and separate liveness/provider-model acceptance decision.
   ignored disk-list positions encode adoption history. Do not reorder/remove the
   tombstone or change addresses/imports. Remote state now contains only
   `proxmox_virtual_environment_vm.debian`; the stale candidate move is retired.
-- **Tailscale:** remote state contains the protected
-  `terraform_data.tailscale_policy[0]` placeholder and native
-  `tailscale_acl.policy[0]` full-policy owner. Import used the dedicated OAuth client
-  and changed state only; live policy bytes and ETag remained unchanged. A separately
-  authorized, inspected apply then removed the retired `ansible-plan` identity from
-  two SSH grants, moved its policy test from accept to deny and advanced the local
-  placeholder. Protected post-apply reads matched the planned policy, the ETag
-  changed, and a fresh provider plan reported zero changes. The universal reconciler
-  and its unused ETag evidence helpers are removed. Provider updates do not use an
-  ETag precondition, so future changes require a fresh live comparison, frozen
-  dashboard edits and separate apply authorization.
+- **Tailscale:** remote state contains only native
+  `tailscale_acl.policy[0]`, the full-policy owner. Import used the dedicated OAuth
+  client and changed state only; live policy bytes and ETag remained unchanged. A
+  separately authorized, inspected apply then removed the retired `ansible-plan`
+  identity from two SSH grants and moved its policy test from accept to deny.
+  Protected post-apply reads matched the planned policy and the ETag changed. The
+  redundant `terraform_data` placeholder was then explicitly removed from state and
+  source without changing live policy; a fresh native-only provider plan reported
+  zero changes. The universal reconciler and its unused ETag evidence helpers are
+  removed. Provider updates do not use an ETag precondition, so future changes
+  require a fresh live comparison, frozen dashboard edits and separate apply
+  authorization.
 - **Omada:** the LAN/reservation root reads a private export in the
   [required input shape](../infrastructure/tofu/omada/EXPORT_SCHEMA.md). Its remote
   state contains exactly one network and eight reservations, and a fresh provider

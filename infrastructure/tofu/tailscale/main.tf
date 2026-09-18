@@ -122,19 +122,6 @@ locals {
   policy_json = jsonencode(local.policy)
 }
 
-resource "terraform_data" "tailscale_policy" {
-  count = var.tailscale_enable_management ? 1 : 0
-
-  input = {
-    policy_json   = local.policy_json
-    policy_sha256 = sha256(local.policy_json)
-  }
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
 resource "tailscale_acl" "policy" {
   count = var.tailscale_enable_management ? 1 : 0
 

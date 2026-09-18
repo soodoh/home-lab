@@ -450,9 +450,7 @@ def main() -> int:
         if actions in ([], ["no-op"], ["read"]):
             continue
         observed_actions += 1
-        if (
-            address == "terraform_data.tailscale_policy[0]" or resource_type == "tailscale_acl"
-        ) and address not in allow:
+        if resource_type == "tailscale_acl" and address not in allow:
             failures.append(f"{address}: Tailscale policy mutation requires an explicit reviewed allowlist")
             continue
         if resource_type in {

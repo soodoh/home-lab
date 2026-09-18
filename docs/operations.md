@@ -686,15 +686,15 @@ disks, ACLs, transports and qualification infrastructure were not touched.
 `infrastructure/tofu/tailscale` declares `tailscale_acl.policy[0]` as the native
 owner of the tailnet's complete policy file when `tailscale_enable_management=true`.
 It pins provider `0.29.2`, keeps `overwrite_existing_content=false`, disables reset
-on destroy and uses `prevent_destroy`. The existing `terraform_data` placeholder is
-retained until adoption is complete; do not remove it with a state rewrite.
+on destroy and uses `prevent_destroy`. The completed adoption removed the former
+`terraform_data` placeholder from both remote state and source; do not recreate it.
 
 The provider's create guard refuses to overwrite a non-default policy before import,
 and planning validates policy syntax and embedded tests against Tailscale. Its update
 path does **not** send the previously observed ETag, however, and therefore does not
-protect against a dashboard edit after planning. Before adoption, establish an
-independent recovery/admin path, freeze dashboard edits and provision a dedicated
-OAuth client with only the policy permissions required by the provider. Supply its
+protect against a dashboard edit after planning. Before any change, establish an
+independent recovery/admin path, freeze dashboard edits and use the dedicated OAuth
+client with only the policy permissions required by the provider. Supply its
 ID and secret through `TAILSCALE_OAUTH_CLIENT_ID` and
 `TAILSCALE_OAUTH_CLIENT_SECRET`; never place the secret in source or a plan file.
 Set `TAILSCALE_TAILNET` explicitly when the credential's owning tailnet is not an
@@ -722,17 +722,20 @@ plan-validation checks. An initial import using the read-only AWS plan profile r
 the policy but could not upload state (`PutObject` returned 403); remote state and the
 live policy remained unchanged and no local recovery state was created. Retrying the
 same import with the state-writing apply profile succeeded. Protected before/after
-reads showed unchanged policy bytes and ETag. Remote state now has exactly the native
-policy resource and retained placeholder. A fresh temporary post-import plan passed
-the allowlisted plan inspector and proposed exactly two updates, one for each address.
+reads showed unchanged policy bytes and ETag. Remote state then had the native policy
+resource and retained placeholder. A fresh temporary post-import plan passed the
+allowlisted plan inspector and proposed exactly two updates, one for each address.
 
 The separately authorized apply used a new temporary saved plan after its two actions
 and four bounded policy-list differences were checked. A protected read immediately
 before apply matched the planned-before policy. The apply removed `ansible-plan` from
 two SSH grants, moved its SSH test expectation from accept to deny and updated the
 local placeholder. A protected post-apply read exactly matched planned-after content;
-the policy body and ETag changed. A fresh provider-backed plan then returned exit 0
-with no changes. Temporary plans and logs were removed.
+the policy body and ETag changed. After convergence, the explicitly authorized state
+removal retired the redundant placeholder without changing the policy body or ETag;
+its source and policy fixture were removed at the same boundary. Remote state now
+contains only the native policy owner, and a fresh provider-backed plan returned exit
+0 with no changes. Temporary plans and logs were removed.
 
 ## Local source checks
 

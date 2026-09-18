@@ -141,20 +141,21 @@ The production Proxmox candidate move is also retired after remote state showed 
 sole VM address as `proxmox_virtual_environment_vm.debian`, with no
 `proxmox_virtual_environment_vm.debian_readopted` or `arch` address; a fresh
 provider-backed plan then reported zero changes. VM100's disk tombstone, imports and
-resource address are unchanged. Tailscale remote state now binds both the retained
-`terraform_data.tailscale_policy[0]` placeholder and the imported native
-`tailscale_acl.policy[0]` complete policy-file owner. Import used the separately
-provisioned least-privileged OAuth client and changed state only; protected reads
-confirmed the live policy body and ETag were unchanged. The separately authorized
-apply used a fresh inspected two-update saved plan, with the live policy re-read and
-matched to the planned-before value immediately before apply. It removed the retired
-`ansible-plan` identity from two SSH grants and moved its policy test from accept to
-deny; the local placeholder advanced to the same source policy. Protected post-apply
-reads matched the planned-after policy, the ETag changed, and a fresh provider plan
-reported zero changes. The old custom ETag evidence helpers are retired because they
-cannot apply the native resource. Provider updates overwrite the complete policy
-without an ETag precondition, so future changes still require a fresh pre-apply
-comparison, separate authorization and a freeze on concurrent dashboard edits.
+resource address are unchanged. Tailscale remote state now binds only
+`tailscale_acl.policy[0]`, the native complete policy-file owner. Import used the
+separately provisioned least-privileged OAuth client and changed state only;
+protected reads confirmed the live policy body and ETag were unchanged. The
+separately authorized apply used a fresh inspected two-update saved plan, with the
+live policy re-read and matched to the planned-before value immediately before
+apply. It removed the retired `ansible-plan` identity from two SSH grants and moved
+its policy test from accept to deny. Protected post-apply reads matched the
+planned-after policy and the ETag changed. After that convergence, the now-redundant
+`terraform_data.tailscale_policy[0]` placeholder was explicitly removed from state
+and its source/policy fixtures were retired; before/after reads again proved no live
+policy change, and a fresh native-only provider plan reported zero changes. The old
+custom ETag evidence helpers remain retired. Provider updates overwrite the complete
+policy without an ETag precondition, so future changes still require a fresh
+pre-apply comparison, separate authorization and frozen dashboard edits.
 
 Omada remote state exactly matches its one network and eight reservations, and
 Authentik remote state exactly matches all 79 declared managed addresses plus two

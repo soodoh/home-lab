@@ -19,11 +19,9 @@ python3 "$policy" "$fixtures/custom-rom-removal.json"
 python3 "$policy" "$fixtures/hardware-mapping-transition.json"
 python3 "$policy" "$fixtures/vm-start-prerequisite.json" --mode vm-start-prerequisite
 python3 "$policy" "$fixtures/candidate-disk-attach.json"
-for fixture in tailscale-policy-update tailscale-acl-update; do
-  expect_rejection "$fixture" normal
-  python3 "$policy" "$fixtures/$fixture.json" \
-    --allow-change-file "$root/allow/tailscale.txt"
-done
+expect_rejection tailscale-acl-update normal
+python3 "$policy" "$fixtures/tailscale-acl-update.json" \
+  --allow-change-file "$root/allow/tailscale.txt"
 expect_rejection import normal
 import_allow=$(mktemp)
 trap 'rm -f "$import_allow"' EXIT
