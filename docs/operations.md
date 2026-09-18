@@ -270,7 +270,9 @@ distinguish preserved original bytes from the newly installed retained files, a
 second normal run passed 42 tasks with `changed=0`. The retained role now also pins
 the reviewed SHA-256, mode and single-link identity of every expected predecessor
 and permanent before-image, and refuses to publish sudo unless the exact retained
-Restic recovery transport is present.
+Restic recovery transport is present. After commit `8a7a0705` was pushed, a normal
+revalidation passed 44 tasks with `changed=0`, `failed=0` and `unreachable=0`;
+all exact identities and the installed postcondition remained intact.
 
 PVE restored its conventional root key path during reboot. The retained file
 contains only the source-attributed `current-proxmox-root-identity`, and
