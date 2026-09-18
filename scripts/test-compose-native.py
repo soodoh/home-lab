@@ -68,20 +68,38 @@ class NativeComposeSourceTests(unittest.TestCase):
             "community.docker.docker_compose_v2", "check_mode: true",
             "compose_native_backup_journal_path", "compose_native_apply_lock_path",
             "compose_native_reconciliation_lock_paths", "restore_readiness_proven: false",
+            "compose_native_backup_lock_state", "exec 9<", "--retained-root",
         ):
             self.assertIn(required, source)
         for forbidden in (".local", ".reconcile", "receipt", "historical-evidence", "activate-recovered-data"):
             self.assertNotIn(forbidden, source)
         self.assertNotIn("state: absent", source)
         self.assertNotIn("ansible.builtin.systemd_service", source)
+        mutex = source.split("- name: Require the existing backup mutex to be immediately available", 1)[1].split("- name:", 1)[0]
+        self.assertIn("/usr/bin/bash", mutex)
+        self.assertIn('exec 9< "$1"', mutex)
+        self.assertIn("/usr/bin/flock --exclusive --nonblock 9", mutex)
+        self.assertNotIn("/usr/bin/flock\n      - --exclusive", mutex)
+        image_verify = source.split("- name: Verify current previous and retained rollback images are locally available", 1)[1].split("- name:", 1)[0]
+        self.assertIn("ansible.builtin.script:", image_verify)
+        self.assertIn("{{ role_path }}/../../../scripts/compose-image-lock.py", image_verify)
+        self.assertNotIn("{{ compose_native_current_dir }}/scripts/compose-image-lock.py", image_verify)
 
     def test_deployment_has_deliberate_compose_and_secret_policy(self):
         source = self.text(DEPLOY)
+        for required in (
+            "compose_native_expected_source_commit",
+            "compose_native_controller_status.stdout == ''",
+            "compose_native_controller_commit.stdout == compose_native_expected_source_commit",
+            "--porcelain=v1",
+            "--untracked-files=no",
+        ):
+            self.assertIn(required, source)
         modules = source.count("community.docker.docker_compose_v2:")
         self.assertGreaterEqual(modules, 4)
         for required in (
             "project_name: \"{{ compose_native_project_name }}\"",
-            "pull: missing", "pull: never", "build: never", "recreate: auto", "dependencies: false",
+            "policy: missing", "pull: never", "build: never", "recreate: auto", "dependencies: false",
             "recreate: always", "remove_orphans: false", "renew_anon_volumes: false",
             "wait: true", "wait_timeout:", "compose_native_force_recreate_services",
             "SOPS_AGE_KEY_FILE", "/usr/bin/cmp", "compose_native_runtime_env_path",
@@ -100,6 +118,34 @@ class NativeComposeSourceTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, source)
 
+        pull = source.split("- name: Pull only approved canary images", 1)[1].split("- name:", 1)[0]
+        self.assertIn("community.docker.docker_compose_v2_pull:", pull)
+        self.assertIn("services: \"{{ compose_native_requested_services }}\"", pull)
+        self.assertIn("include_deps: false", pull)
+        self.assertIn("policy: missing", pull)
+
+        preview = source.split("- name: Preview the full published model before container changes", 1)[1].split("- name:", 1)[0]
+        self.assertIn("pull: never", preview)
+        self.assertNotIn("pull: missing", preview)
+        action_guard = source.split("- name: Refuse full-project actions outside the canary containers", 1)[1].split("- name:", 1)[0]
+        self.assertIn("item.what == 'container'", action_guard)
+        self.assertIn("item.id in compose_native_requested_services", action_guard)
+        self.assertNotIn("image-layer", action_guard)
+
+        final_verify = source.split("- name: Verify current previous and retained image generations after convergence", 1)[1].split("- name:", 1)[0]
+        self.assertIn("--retained-root", final_verify)
+        self.assertNotIn("--check-registry", final_verify)
+
+    def test_failure_and_authorization_documentation_matches_boundaries(self):
+        operations = " ".join(self.text(ROOT / "docs/operations.md").split())
+        self.assertIn("Failures after checkpoint capture retain the production owner and checkpoint", operations)
+        self.assertIn("A refusal before checkpoint capture retains the owner but creates no checkpoint", operations)
+        self.assertIn("authorized one normal canary attempt", operations)
+        self.assertIn("expires after that attempt", operations)
+        self.assertIn("does not authorize a retry after failure", operations)
+        self.assertIn("does not claim that the normal run occurred", operations)
+        self.assertIn("same clean committed checkout", operations)
+
     def test_general_legacy_deployment_is_retired_but_recovery_consumers_remain(self):
         stage = self.text(ROOT / "ansible/roles/compose_stage/tasks/main.yml")
         deploy = self.text(ROOT / "ansible/roles/compose_deploy/tasks/main.yml")
@@ -107,6 +153,8 @@ class NativeComposeSourceTests(unittest.TestCase):
         for marker in (
             "compose_stage_retained_operation",
             "nextcloud-five-mount-recovery",
+            "calibre-local-rollback",
+            "restic-policy-recovery",
             "archive-compose-recovery",
             "General Compose staging is retired",
         ):

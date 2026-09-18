@@ -10,7 +10,8 @@ entrypoints but retain separate live cutover gates below. [Dated outcomes](#late
 do not expand that scope. Broader host/application adoption is pending: there is
 **no supported general deploy or host-convergence command**. The native Compose
 `flaresolverr` canary has passed live observation and a source-bound check-mode
-run, but no normal deployment. Debian `site.yml` still includes lifecycle, lock
+run. One bounded normal canary attempt is authorized under the gates below but has
+not been executed. Debian `site.yml` still includes lifecycle, lock
 and backup prerequisites. Directly invoking retained mutation roles is not an
 approved replacement for the removed controller.
 
@@ -344,30 +345,43 @@ requires the resulting environment to be byte-identical to production. Credentia
 service-set, database migration, mount/topology and Restic-policy changes are out
 of scope. Any changed artifact requires explicit canary recreation.
 
-The module calls fix `project_name=docker-compose`, disable builds, use
-`pull=missing`, prohibit orphan and anonymous-volume replacement, wait for running/
-healthy state, and use automatic recreation except for an explicitly supplied
-forced-recreation subset. A full-project module preview must contain no network,
-volume or non-canary action before convergence, and a full-project post-preview
-must be idempotent. The role preserves `current`, `previous`, hash-addressed older
-artifacts/environments and a durable pre-deployment image checkpoint. The narrow
-image-lock helper extension makes prune protect hash-addressed retained and
-interrupted generations in addition to current/previous; it neither prunes volumes
-nor changes the installed cron wrapper. On failure the production owner and
-checkpoint remain for inspection; the workflow never clears a lock or attempts
-database rollback. Only complete success updates current/previous image locks and
-releases ownership.
+The module calls fix `project_name=docker-compose`, disable builds, pull only the
+explicit canary services with `policy=missing`, and then use `pull=never` for
+full-project preview and convergence. They prohibit orphan and anonymous-volume
+replacement, wait for running/healthy state, and use automatic recreation except
+for an explicitly supplied forced-recreation subset. A full-project module preview
+must contain only canary-container actions before convergence, and a full-project
+post-preview must be idempotent. The role preserves `current`, `previous`,
+hash-addressed older artifacts/environments and a durable pre-deployment image
+checkpoint. The narrow image-lock helper extension makes prune protect
+hash-addressed retained and interrupted generations in addition to current/previous;
+it neither prunes volumes nor changes the installed cron wrapper. Failures after
+checkpoint capture retain the production owner and checkpoint for inspection. A
+refusal before checkpoint capture retains the owner but creates no checkpoint
+because no deployment generation has changed. The workflow never clears a lock or
+attempts database rollback. Only complete success updates current/previous image
+locks and releases ownership.
 
 A fresh runner needs reviewed Ansible Core 2.21.x, the pinned collections installed
 from `ansible/collections/requirements.yml`, Tailscale connectivity and the trusted
-`docker-host` known-host entry. It does not need a SOPS private key. The source
-invocation shape, for a separately approved future check, is:
+`docker-host` known-host entry. It does not need a SOPS private key. The approved
+invocation sequence is:
 
 ```sh
 ansible-galaxy collection install --requirements-file ansible/collections/requirements.yml
+commit=$(/usr/bin/git --no-optional-locks rev-parse --verify HEAD)
 ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
   -i ansible/inventory/hosts.yml ansible/playbooks/deploy-compose.yml --check \
-  -e '{"compose_native_requested_services":["flaresolverr"]}'
+  -e "compose_native_expected_source_commit=$commit" \
+  -e '{"compose_native_requested_services":["flaresolverr"],
+       "compose_native_force_recreate_services":["flaresolverr"]}'
+# Only after that source-bound check passes from the same clean committed checkout:
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
+  -i ansible/inventory/hosts.yml ansible/playbooks/deploy-compose.yml \
+  -e "compose_native_expected_source_commit=$commit" \
+  -e '{"compose_native_requested_services":["flaresolverr"],
+       "compose_native_force_recreate_services":["flaresolverr"],
+       "compose_native_apply_confirmed":true}'
 ```
 
 On September 18, 2026, live observation passed with all 38 declared services
@@ -382,14 +396,20 @@ image availability while the installed prune path keeps its fail-closed registry
 check. This result is not a restore test or normal deployment.
 
 A normal invocation additionally requires
-`compose_native_apply_confirmed=true`; setting it or omitting `--check` remains a
-separate mutation approval. A changed artifact also requires
-`compose_native_force_recreate_services=["flaresolverr"]`. Check mode intentionally
-does not stage protected inputs, so it reports the source/active identity boundary
-rather than pretending to preview an unpublished generation. An approved normal
-run must repeat all live checks. No GitHub workflow exists until short-lived
+`compose_native_apply_confirmed=true`, and a changed artifact requires
+`compose_native_force_recreate_services=["flaresolverr"]`. The repository owner
+has authorized one normal canary attempt from this committed fix after a fresh
+observation and the source-bound check above pass from the same clean committed
+checkout. Both invocations must use the same explicit source commit value.
+The authorization covers only `flaresolverr`, expires after that attempt, and does
+not authorize a retry after failure, another service, database migration, Restic
+activation, general Compose convergence, cleanup or rollback. Check mode
+intentionally does not stage protected inputs, so it reports the source/active
+identity boundary rather than pretending to preview an unpublished generation.
+The normal run repeats all live checks. No GitHub workflow exists until short-lived
 Tailscale identity, authoritative host-key custody and protected-environment
-approval are decided. The production SOPS identity remains host-only.
+approval are decided. The production SOPS identity remains host-only. This source
+commit records authorization; it does not claim that the normal run occurred.
 
 The general legacy stage/deploy lane is retired: `compose_stage` and its review
 entrypoint now require an explicit allowlisted retained operation, and
@@ -621,6 +641,7 @@ From the repository root, without deployment or secret decryption:
 docker compose config --quiet
 python3 -B scripts/test-compose-artifact.py
 python3 -B scripts/test-compose-action-plan.py
+python3 -B scripts/test-compose-image-lock.py
 python3 -B scripts/test-compose-native.py
 ```
 

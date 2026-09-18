@@ -22,6 +22,7 @@ compose_native_allowed_changed_paths: []
 compose_native_canary_service: ""
 compose_native_canary_network_mode: ""
 compose_native_canary_mounts: []
+compose_native_expected_source_commit: ""
 compose_native_requested_services: []
 compose_native_force_recreate_services: []
 compose_native_required_healthy_containers: []

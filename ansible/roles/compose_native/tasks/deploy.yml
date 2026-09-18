@@ -7,10 +7,77 @@
       - compose_native_force_recreate_services | difference(compose_native_requested_services) | length == 0
       - compose_native_requested_services | unique | length == compose_native_requested_services | length
       - compose_native_force_recreate_services | unique | length == compose_native_force_recreate_services | length
+      - compose_native_expected_source_commit is match('^[0-9a-f]{40}$')
       - ansible_check_mode or compose_native_apply_confirmed | bool
     fail_msg: >-
       Native Compose deployment requires an explicit allowed service set, an optional subset for forced
-      recreation, and compose_native_apply_confirmed=true outside check mode.
+      recreation, an exact expected source commit, and compose_native_apply_confirmed=true outside check mode.
+
+- name: Inspect tracked controller checkout state
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/git
+      - --no-optional-locks
+      - -c
+      - core.fsmonitor=false
+      - status
+      - --porcelain=v1
+      - --untracked-files=no
+      - --ignore-submodules=none
+    chdir: "{{ compose_native_controller_root }}"
+  delegate_to: localhost
+  become: false
+  register: compose_native_controller_status
+  changed_when: false
+  check_mode: false
+  environment:
+    HOME: /
+    LANG: C
+    LC_ALL: C
+    PATH: /usr/bin:/bin
+    GIT_CONFIG_GLOBAL: /dev/null
+    GIT_CONFIG_NOSYSTEM: "1"
+    GIT_OPTIONAL_LOCKS: "0"
+    GIT_NO_LAZY_FETCH: "1"
+    GIT_NO_REPLACE_OBJECTS: "1"
+    GIT_TERMINAL_PROMPT: "0"
+    GIT_ALLOW_PROTOCOL: ""
+
+- name: Read the exact controller source commit
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/git
+      - --no-optional-locks
+      - -c
+      - core.fsmonitor=false
+      - rev-parse
+      - --verify
+      - HEAD^{commit}
+    chdir: "{{ compose_native_controller_root }}"
+  delegate_to: localhost
+  become: false
+  register: compose_native_controller_commit
+  changed_when: false
+  check_mode: false
+  environment:
+    HOME: /
+    LANG: C
+    LC_ALL: C
+    PATH: /usr/bin:/bin
+    GIT_CONFIG_GLOBAL: /dev/null
+    GIT_CONFIG_NOSYSTEM: "1"
+    GIT_OPTIONAL_LOCKS: "0"
+    GIT_NO_LAZY_FETCH: "1"
+    GIT_NO_REPLACE_OBJECTS: "1"
+    GIT_TERMINAL_PROMPT: "0"
+    GIT_ALLOW_PROTOCOL: ""
+
+- name: Require the exact clean committed controller source
+  ansible.builtin.assert:
+    that:
+      - compose_native_controller_status.stdout == ''
+      - compose_native_controller_commit.stdout == compose_native_expected_source_commit
+    fail_msg: The controller checkout is dirty or differs from the explicitly authorized source commit.
 
 - name: Compute the reviewed tracked-source Compose artifact identity
   ansible.builtin.command:
@@ -450,15 +517,17 @@
       changed_when: true
       no_log: true
 
-    - name: Recheck the backup mutex immediately before publication
+    - name: Recheck the existing backup mutex immediately before publication
       ansible.builtin.command:
         argv:
-          - /usr/bin/flock
-          - --exclusive
-          - --nonblock
-          - --
+          - /usr/bin/bash
+          - -c
+          - >-
+            set -euo pipefail;
+            exec 9< "$1";
+            /usr/bin/flock --exclusive --nonblock 9 /usr/bin/true
+          - compose-native-backup-lock-probe
           - "{{ compose_native_backup_lock_path }}"
-          - /usr/bin/true
       become: true
       changed_when: false
       no_log: true
@@ -651,6 +720,22 @@
           diff: false
           no_log: true
 
+    - name: Pull only approved canary images
+      community.docker.docker_compose_v2_pull:
+        project_src: "{{ compose_native_current_dir }}"
+        project_name: "{{ compose_native_project_name }}"
+        files: "{{ compose_native_files }}"
+        env_files:
+          - "{{ compose_native_runtime_env_path }}"
+        services: "{{ compose_native_requested_services }}"
+        include_deps: false
+        ignore_buildable: true
+        policy: missing
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      no_log: true
+
     - name: Preview the full published model before container changes
       community.docker.docker_compose_v2:
         project_src: "{{ compose_native_current_dir }}"
@@ -659,7 +744,7 @@
         env_files:
           - "{{ compose_native_runtime_env_path }}"
         state: present
-        pull: missing
+        pull: never
         build: never
         recreate: auto
         remove_orphans: false
@@ -672,12 +757,12 @@
       check_mode: true
       no_log: true
 
-    - name: Refuse non-container topology changes or changes outside the canary scope
+    - name: Refuse full-project actions outside the canary containers
       ansible.builtin.assert:
         that:
-          - item.what not in ['network', 'volume']
-          - item.what in ['image', 'image-layer'] or item.id in compose_native_requested_services
-        fail_msg: The published model proposes an action outside the approved canary services.
+          - item.what == 'container'
+          - item.id in compose_native_requested_services
+        fail_msg: The published model proposes an action outside the approved canary containers.
       loop: "{{ compose_native_published_preview.actions }}"
       no_log: true
 
@@ -691,7 +776,7 @@
         services: "{{ compose_native_requested_services | difference(compose_native_force_recreate_services) }}"
         dependencies: false
         state: present
-        pull: missing
+        pull: never
         build: never
         recreate: auto
         remove_orphans: false
@@ -715,7 +800,7 @@
         services: "{{ compose_native_force_recreate_services }}"
         dependencies: false
         state: present
-        pull: missing
+        pull: never
         build: never
         recreate: always
         remove_orphans: false
@@ -882,7 +967,8 @@
           - "{{ compose_native_current_image_lock_path }}"
           - --previous
           - "{{ compose_native_previous_image_lock_path }}"
-          - --check-registry
+          - --retained-root
+          - "{{ compose_native_retained_image_root }}"
       become: true
       changed_when: false
       no_log: true

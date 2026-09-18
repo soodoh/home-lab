@@ -70,6 +70,27 @@ class ComposeImageLockTests(unittest.TestCase):
         prune = next(args for args in calls if args[1:3] == ["image", "prune"])
         self.assertTrue(all(calls.index(args) < calls.index(prune) for args in creates))
 
+    def test_verify_ignores_historical_locks_without_explicit_scope(self):
+        self.args.retained_root.mkdir()
+        (self.args.retained_root / "unrelated.json").write_text('{"schema":1,"images":[]}')
+        self.args.retained_root = None
+        LOCK.verify(self.args)
+        inspected = {
+            args[-1] for args in (call.args[0] for call in self.run.call_args_list)
+            if args[1:3] == ["image", "inspect"]
+        }
+        self.assertEqual(inspected, {"sha256:" + x * 64 for x in "ab"})
+
+    def test_verify_checks_historical_locks_when_explicitly_requested(self):
+        self.args.retained_root.mkdir()
+        self.write(self.args.retained_root / "older.json", "c")
+        LOCK.verify(self.args)
+        inspected = {
+            args[-1] for args in (call.args[0] for call in self.run.call_args_list)
+            if args[1:3] == ["image", "inspect"]
+        }
+        self.assertEqual(inspected, {"sha256:" + x * 64 for x in "abc"})
+
     def test_missing_or_empty_previous_lock_refuses_before_prune(self):
         for missing in (True, False):
             if missing:

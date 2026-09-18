@@ -13,7 +13,8 @@ execution, while its exact migration/recovery consumers remain preserved.
 Supported native scope includes read-only host and Compose observation, manual-update
 policy and existing-host backup configuration. The native Compose canary passed a
 live observation and source-bound check-mode qualification; no container mutation
-was run, so normal deployment still requires separate approval. See
+was run. One gated `flaresolverr` canary attempt is now authorized after a fresh
+observation and preview bound to the same clean committed checkout. See
 [operations](docs/operations.md) for its scope and safety limits.
 
 - [Operations](docs/operations.md): local checks, intended native workflow and retained implementation.

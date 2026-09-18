@@ -89,11 +89,13 @@ fresh tracked source plus actual remote state and limits mutation to an explicit
 `flaresolverr` canary. Host-side SOPS decryption, same-content environment refusal,
 production ownership, current/previous generations and image locks remain the
 safety boundary. It creates no approval receipt and consumes no previous runner
-result. Live observation and its source-bound check mode are qualified; normal
-container mutation, database and Restic activation remain separately unauthorized.
-That is sufficient to refuse the legacy **general** deployment lane, but not to
-remove operation-specific migration/recovery code or the installed image-pruning
-helper.
+result. Live observation and its source-bound check mode are qualified. The owner
+has authorized one gated normal `flaresolverr` canary attempt from the committed
+fix after a fresh observation and preview bound to the same clean committed
+checkout; database and Restic
+activation remain unauthorized. That is sufficient to refuse the legacy
+**general** deployment lane, but not to remove operation-specific migration/recovery
+code or the installed image-pruning helper.
 
 ## Why legacy code remains
 

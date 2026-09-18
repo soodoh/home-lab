@@ -104,11 +104,14 @@ def retained_lock_paths(args: Namespace) -> list[Path]:
     return [path for path in paths if path.resolve() not in excluded]
 
 
-def verified_locks(args: Namespace) -> list[tuple[str, list[dict[str, Any]]]]:
+def verified_locks(
+    args: Namespace, include_retained: bool = False
+) -> list[tuple[str, list[dict[str, Any]]]]:
     locks = [("current", read_lock(args.current, "current")),
              ("previous", read_lock(args.previous, "previous"))]
-    locks.extend((f"retained_{index}", read_lock(path, f"retained_{index}"))
-                 for index, path in enumerate(retained_lock_paths(args)))
+    if include_retained:
+        locks.extend((f"retained_{index}", read_lock(path, f"retained_{index}"))
+                     for index, path in enumerate(retained_lock_paths(args)))
     if not locks[0][1]:
         fail("current_lock_empty")
     if not locks[1][1]:
@@ -118,8 +121,12 @@ def verified_locks(args: Namespace) -> list[tuple[str, list[dict[str, Any]]]]:
     return locks
 
 
-def verify(args: Namespace) -> None:
-    locks = verified_locks(args)
+def verify(
+    args: Namespace, include_retained: bool | None = None
+) -> list[tuple[str, list[dict[str, Any]]]]:
+    if include_retained is None:
+        include_retained = getattr(args, "retained_root", None) is not None
+    locks = verified_locks(args, include_retained=include_retained)
     checked_ids: set[str] = set()
     checked_digests: set[str] = set()
     for lock_name, records in locks:
@@ -163,6 +170,7 @@ def verify(args: Namespace) -> None:
         f"retained_locks={len(locks) - 2} local_images={len(checked_ids)} "
         f"registry_digests={len(checked_digests)}"
     )
+    return locks
 
 
 def activate(args: Namespace) -> None:
@@ -211,8 +219,8 @@ def difference(args: Namespace) -> None:
 
 
 def prune(args: Namespace) -> None:
-    verify(args)
-    records = [record for _, lock in verified_locks(args) for record in lock]
+    locks = verify(args, include_retained=True)
+    records = [record for _, lock in locks for record in lock]
     image_ids = sorted({record["image_id"] for record in records})
     protection_containers: list[str] = []
     try:

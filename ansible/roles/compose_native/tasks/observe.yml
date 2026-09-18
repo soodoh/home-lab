@@ -99,15 +99,37 @@
   loop_control:
     label: "{{ item.item }}"
 
-- name: Require the backup mutex to be immediately available
+- name: Inspect the existing backup mutex
+  ansible.builtin.stat:
+    path: "{{ compose_native_backup_lock_path }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  become: true
+  register: compose_native_backup_lock_state
+
+- name: Require the adopted non-recreatable backup mutex identity
+  ansible.builtin.assert:
+    that:
+      - compose_native_backup_lock_state.stat.isreg | default(false)
+      - not (compose_native_backup_lock_state.stat.islnk | default(false))
+      - compose_native_backup_lock_state.stat.nlink == 1
+      - compose_native_backup_lock_state.stat.uid == 0
+      - compose_native_backup_lock_state.stat.gid == restic_proton_gid | int
+      - compose_native_backup_lock_state.stat.mode == '0660'
+    fail_msg: The backup mutex is missing or differs from its adopted root:restic-proton 0660 identity.
+
+- name: Require the existing backup mutex to be immediately available
   ansible.builtin.command:
     argv:
-      - /usr/bin/flock
-      - --exclusive
-      - --nonblock
-      - --
+      - /usr/bin/bash
+      - -c
+      - >-
+        set -euo pipefail;
+        exec 9< "$1";
+        /usr/bin/flock --exclusive --nonblock 9 /usr/bin/true
+      - compose-native-backup-lock-probe
       - "{{ compose_native_backup_lock_path }}"
-      - /usr/bin/true
   become: true
   changed_when: false
   check_mode: false
@@ -364,15 +386,13 @@
   no_log: true
 
 - name: Verify current previous and retained rollback images are locally available
-  ansible.builtin.command:
-    argv:
-      - "{{ ansible_python_interpreter }}"
-      - "{{ compose_native_current_dir }}/scripts/compose-image-lock.py"
-      - verify
-      - --current
-      - "{{ compose_native_current_image_lock_path }}"
-      - --previous
-      - "{{ compose_native_previous_image_lock_path }}"
+  ansible.builtin.script:
+    cmd: >-
+      {{ role_path }}/../../../scripts/compose-image-lock.py verify
+      --current {{ compose_native_current_image_lock_path }}
+      --previous {{ compose_native_previous_image_lock_path }}
+      --retained-root {{ compose_native_retained_image_root }}
+    executable: "{{ ansible_python_interpreter }}"
   become: true
   changed_when: false
   check_mode: false
