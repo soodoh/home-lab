@@ -289,14 +289,17 @@ LiteLLM recreation and separate liveness/provider-model acceptance decision.
   ignored disk-list positions encode adoption history. Do not reorder/remove the
   tombstone or change addresses/imports. Remote state now contains only
   `proxmox_virtual_environment_vm.debian`; the stale candidate move is retired.
-- **Tailscale:** the Tofu root is a `terraform_data` placeholder, not a policy
-  writer. Remote state likewise contains only that built-in placeholder, so the
-  unused Tailscale provider declaration and lock are retired. The universal
-  reconciler that issued policy API writes is removed. Source policy denies the
-  retired `ansible-plan` SSH user. A protected API read confirmed that live policy
-  differs from source; the placeholder plan proposes only a local `terraform_data`
-  update and cannot converge the tailnet. Native provider adoption and concurrency
-  semantics remain follow-on work; do not claim source policy as deployed.
+- **Tailscale:** remote state currently contains only the protected
+  `terraform_data.tailscale_policy[0]` placeholder. Source now declares the pinned
+  native `tailscale_acl.policy[0]` full-policy owner alongside that placeholder;
+  import has not occurred and no policy write is authorized. The universal
+  reconciler and its unused ETag evidence helpers are removed. Source policy denies
+  the retired `ansible-plan` SSH user, while a protected API read confirmed that live
+  policy differs. The native provider validates the policy during planning and
+  refuses to create over non-default content without import, but updates do not use
+  an ETag precondition. Freeze dashboard edits, import the current policy, produce a
+  fresh reviewed plan and obtain separate apply authorization before claiming source
+  policy as deployed.
 - **Omada:** the LAN/reservation root reads a private export in the
   [required input shape](../infrastructure/tofu/omada/EXPORT_SCHEMA.md). Its remote
   state contains exactly one network and eight reservations, and a fresh provider

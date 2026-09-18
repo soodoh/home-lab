@@ -19,9 +19,11 @@ python3 "$policy" "$fixtures/custom-rom-removal.json"
 python3 "$policy" "$fixtures/hardware-mapping-transition.json"
 python3 "$policy" "$fixtures/vm-start-prerequisite.json" --mode vm-start-prerequisite
 python3 "$policy" "$fixtures/candidate-disk-attach.json"
-expect_rejection tailscale-policy-update normal
-python3 "$policy" "$fixtures/tailscale-policy-update.json" \
-  --allow-change-file "$root/allow/tailscale.txt"
+for fixture in tailscale-policy-update tailscale-acl-update; do
+  expect_rejection "$fixture" normal
+  python3 "$policy" "$fixtures/$fixture.json" \
+    --allow-change-file "$root/allow/tailscale.txt"
+done
 expect_rejection import normal
 import_allow=$(mktemp)
 trap 'rm -f "$import_allow"' EXIT
@@ -37,7 +39,6 @@ for fixture in delete replace protection-disable ct-create ct-recreate root-disk
 done
 python3 "$root/test-oidc-ownership.py"
 python3 "$root/test-controller-identity-gate.py"
-python3 "$root/../../scripts/controller/test-tailscale-policy.py"
 python3 "$root/../../scripts/controller/test-omada-host-alias.py"
 python3 "$root/../../scripts/controller/test-normalize-ansible-plan.py"
 

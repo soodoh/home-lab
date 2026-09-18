@@ -134,3 +134,15 @@ resource "terraform_data" "tailscale_policy" {
     prevent_destroy = true
   }
 }
+
+resource "tailscale_acl" "policy" {
+  count = var.tailscale_enable_management ? 1 : 0
+
+  acl                        = local.policy_json
+  overwrite_existing_content = false
+  reset_acl_on_destroy       = false
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}

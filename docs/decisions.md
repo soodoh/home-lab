@@ -141,12 +141,15 @@ The production Proxmox candidate move is also retired after remote state showed 
 sole VM address as `proxmox_virtual_environment_vm.debian`, with no
 `proxmox_virtual_environment_vm.debian_readopted` or `arch` address; a fresh
 provider-backed plan then reported zero changes. VM100's disk tombstone, imports and
-resource address are unchanged. Tailscale remote state binds only
-`terraform_data.tailscale_policy[0]`, so the unused provider declaration and lock are
-removed. A protected API read confirmed that live policy differs from source; the
-placeholder plan proposes only a local `terraform_data` update and cannot deploy
-that difference. Keep the placeholder root/backend and treat provider adoption as
-unresolved.
+resource address are unchanged. Tailscale remote state still binds only
+`terraform_data.tailscale_policy[0]`, while a protected API read confirmed that live
+policy differs from source. The selected native ownership path restores the pinned
+Tailscale provider and declares `tailscale_acl.policy[0]` as the complete policy-file
+owner. The placeholder remains protected until adoption is complete so source work
+does not rewrite its existing state address. The old custom ETag evidence helpers are
+retired because they cannot apply the native resource. Provider updates overwrite the
+complete policy without an ETag precondition, so import, a fresh reviewed plan and
+apply require separate authorization and a freeze on concurrent dashboard edits.
 
 Omada remote state exactly matches its one network and eight reservations, and
 Authentik remote state exactly matches all 79 declared managed addresses plus two

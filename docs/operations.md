@@ -48,10 +48,10 @@ existing `ansible-deploy` Debian account and `proxmox` administrator account wit
 sudo, not Proxmox's restricted `ansible-deploy` transport. Tailscale authenticates
 the connection; no new keys/accounts or Linux sshd changes are needed for this path.
 Host-key aliases must already be trusted in `~/.ssh/known_hosts`; mismatches fail.
-The source Tailscale policy no longer grants the retired `ansible-plan` identity,
-but the current Tofu root is only a policy placeholder and cannot deploy that
-change. Live tailnet reconciliation remains blocked on the provider-adoption work
-recorded in [migrations](migrations.md#provider-and-host-adoption-gaps).
+The source Tailscale policy no longer grants the retired `ansible-plan` identity.
+The Tofu root now declares a native full-policy resource, but it is not imported and
+no live write is authorized. Follow the provider-adoption procedure below; do not
+claim the source policy is deployed.
 
 ### Native Proxmox capability observation
 
@@ -681,6 +681,42 @@ evidence, active helpers, policy/inputs, backup lock and unit definitions/states
 were preserved. No backup/recovery job or repository operation ran. VM9900,
 disks, ACLs, transports and qualification infrastructure were not touched.
 
+## Tailscale policy provider adoption
+
+`infrastructure/tofu/tailscale` declares `tailscale_acl.policy[0]` as the native
+owner of the tailnet's complete policy file when `tailscale_enable_management=true`.
+It pins provider `0.29.2`, keeps `overwrite_existing_content=false`, disables reset
+on destroy and uses `prevent_destroy`. The existing `terraform_data` placeholder is
+retained until adoption is complete; do not remove it with a state rewrite.
+
+The provider's create guard refuses to overwrite a non-default policy before import,
+and planning validates policy syntax and embedded tests against Tailscale. Its update
+path does **not** send the previously observed ETag, however, and therefore does not
+protect against a dashboard edit after planning. Before adoption, establish an
+independent recovery/admin path, freeze dashboard edits and provision a dedicated
+OAuth client with only the policy permissions required by the provider. Supply its
+ID and secret through `TAILSCALE_OAUTH_CLIENT_ID` and
+`TAILSCALE_OAUTH_CLIENT_SECRET`; never place the secret in source or a plan file.
+Set `TAILSCALE_TAILNET` explicitly when the credential's owning tailnet is not an
+adequate unambiguous default.
+
+Import mutates remote state but not the live policy and requires separate exact
+operational authorization:
+
+```sh
+tofu -chdir=infrastructure/tofu/tailscale import \
+  -var=tailscale_enable_management=true \
+  'tailscale_acl.policy[0]' acl
+```
+
+Immediately produce a saved plan with the same variable, inspect it through
+`infrastructure/policy/inspect-plan.py` and the reviewed
+`infrastructure/policy/allow/tailscale.txt`, then re-read the live policy before any
+apply. Apply only that saved plan under separate authorization while dashboard edits
+remain frozen. Import, plan, and apply can acquire the S3 lock; neither state-lock
+history nor import is a live-policy deployment. Until an authorized apply succeeds,
+the protected API comparison—not source—is authoritative for deployed policy.
+
 ## Local source checks
 
 From the repository root, without deployment or secret decryption:
@@ -707,10 +743,10 @@ prove check-mode behavior or deployment readiness. Report missing dependencies
 rather than automatically installing them.
 
 `scripts/update-provider-locks` is **mutating manual maintenance**, not passive
-validation: it runs `tofu providers lock` for four provider roots/three platforms
-and only then checks Git differences. The Tailscale policy placeholder uses only
-built-in `terraform_data` and has no provider lock. The script can contact providers and rewrite lock files;
-execution requires separate approval. Keep the existing locks unchanged for source checks.
+validation: it runs `tofu providers lock` for five provider roots/three platforms
+and only then checks Git differences. This includes the pinned Tailscale policy
+provider. The script can contact providers and rewrite lock files; execution requires
+separate approval. Keep the existing locks unchanged for source checks.
 The misleading aggregate recovery rehearsal launcher has been removed.
 For the opt-in Docker role test, read the
 [disposable-fixture requirements](docker-version-admission-qualification.md) first:
