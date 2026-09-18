@@ -9,11 +9,12 @@ observation. Native Proxmox package maintenance and reboot have source-qualified
 entrypoints but retain separate live cutover gates below. [Dated outcomes](#latest-scoped-deployment)
 do not expand that scope. Broader host/application adoption is pending: there is
 **no supported general deploy or host-convergence command**. The native Compose
-`flaresolverr` canary has passed live observation and a source-bound check-mode
-run. Its one authorized normal attempt refused an out-of-scope artifact delta
-before publication or container mutation. The exact retained owner was later
-released under separate authorization while preserving the failed candidate. No
-retry or deployment is authorized. Debian `site.yml` still includes lifecycle, lock
+`flaresolverr` canary has passed live observation and source-bound check mode.
+Its first normal attempt refused an out-of-scope artifact delta before publication
+or container mutation; the exact retained owner was later released while preserving
+the failed candidate. A second authorized attempt stopped before ownership or
+staging when a Restic interruption journal appeared. Both attempts are consumed;
+no retry or deployment is authorized. Debian `site.yml` still includes lifecycle, lock
 and backup prerequisites. Directly invoking retained mutation roles is not an
 approved replacement for the removed controller.
 
@@ -406,8 +407,8 @@ changed and one failed task. It retained
 the exact candidate under `/srv/docker-compose/staging/`, and the newly created
 empty mode-0700 retained-image directory. It created no candidate environment or
 interruption checkpoint and left `current`, its artifact marker, containers and
-image generations unchanged. The authorized attempt is consumed; retry, lock
-release, candidate deletion and container mutation are not authorized.
+image generations unchanged. At that point the authorized attempt was consumed;
+retry, lock release, candidate deletion and container mutation were not authorized.
 
 A subsequent approved read-only audit passed ten tasks with `changed=0`. It
 recomputed both artifact identities, confirmed the exact five changed paths, found
@@ -435,10 +436,28 @@ run then passed 17 tasks with one reported change: it released only owner SHA-25
 It preserved failed candidate
 `fbd84ff2fd70b0a7cd6a560930db0a66f8f88b56cd5472a9fe167bc404fe04b5`,
 found no candidate environment or interruption checkpoint, and performed no
-container mutation. That release authority is consumed. A committed/pushed record,
-fresh same-commit observation/check and new normal-attempt decision are still
-required. There is no authorization to combine the deferred LiteLLM change with
-the canary.
+container mutation. That release authority is consumed.
+
+Commit `c5df0686` recorded that closure and was pushed from a clean checkout.
+Fresh observation then passed 38 tasks with `changed=0`: all 38 services were
+running with immutable images, required health checks passed, backup writers were
+inactive and active-model drift was absent. The same-commit canary check passed 49
+tasks with one expected source-boundary preview change, candidate
+`3e5600bfa5ff9441d729e4e81634854435cea13f15568337adbc87911468569e`,
+and no failure. One separately authorized normal attempt repeated the live gates
+but found `/var/lib/home-lab-restic/interruption.json` after the mutex check. It
+stopped after 12 successful tasks with `changed=0` and one failure, before
+production ownership, candidate staging, environment decryption, checkpointing,
+publication, image pull or container work. That attempt is consumed.
+
+A separately approved eight-task read-only audit then found the Restic interruption
+journal absent, no relevant backup process, all four writer units loaded/inactive,
+and the existing mutex available. It also confirmed no production owner and no
+candidate directory, candidate environment or image checkpoint for the new hash.
+The audit performed no recovery. Journal appearance and disappearance alone do not
+prove which backup outcome occurred, and they do not authorize a canary retry or
+journal manipulation. There is no authorization to combine the deferred LiteLLM
+change with the canary.
 
 The general legacy stage/deploy lane is retired: `compose_stage` and its review
 entrypoint now require an explicit allowlisted retained operation, and

@@ -15,8 +15,11 @@ policy and existing-host backup configuration. The native Compose canary passed 
 live observation and source-bound check-mode qualification. Its one authorized
 normal attempt refused an out-of-scope source delta before publication or container
 mutation. The exact retained owner was subsequently released under separate
-authorization while preserving the failed candidate. No retry or deployment is
-currently authorized. See [operations](docs/operations.md) for the audited state and next gates.
+authorization while preserving the failed candidate. A later same-commit canary
+attempt stopped before ownership or staging when a Restic interruption journal
+appeared; its read-only follow-up found that journal absent and performed no recovery.
+That attempt is consumed and no retry is authorized. See
+[operations](docs/operations.md) for the audited state and next gates.
 
 - [Operations](docs/operations.md): local checks, intended native workflow and retained implementation.
 - [Recovery](recovery/README.md): snapshot staging, independent credentials and rollback boundaries.

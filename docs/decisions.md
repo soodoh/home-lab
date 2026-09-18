@@ -94,7 +94,10 @@ authorized normal `flaresolverr` attempt refused an out-of-scope undeployed
 LiteLLM config before publication or container mutation and retained production
 ownership. That attempt is consumed. The exact owner was subsequently released
 under separate authorization while preserving the failed candidate; the narrower
-candidate is source-qualified only. Retry, database, Restic and LiteLLM activation
+candidate then passed fresh observation and same-commit check mode, but its one
+new normal attempt stopped before ownership or staging when a Restic interruption
+journal appeared. A later read-only audit found the journal absent and performed no
+recovery. The attempt is consumed; retry, database, Restic and LiteLLM activation
 remain unauthorized. This is sufficient to refuse the legacy **general** deployment lane,
 but not to remove operation-specific migration/recovery code or the installed
 image-pruning helper.
