@@ -95,6 +95,14 @@ disk, bridge, VLAN or firewall policy was created or changed. No provider init, 
 or state read occurred. Evidence is recorded in
 [`nextcloud-isolated-target-survey-2026-09-19.json`](../infrastructure/evidence/nextcloud-isolated-target-survey-2026-09-19.json).
 
+The follow-on source-only design adds a disabled-by-default stopped-foundation root
+at `infrastructure/tofu/nextcloud-recovery-qualification/`. It fixes VMID 9000, 6 GiB
+memory, a 64 GiB `local-lvm` disk, DROP/DROP VM firewall and optional retrieval NIC;
+it exposes no startup input and installs no cloud-init packages. Local static refusal
+tests and `tofu fmt -check` pass. The root has not been initialized, provider-schema
+validated, planned or applied, and owns no lock or state. This source does not change
+the survey's blocked operational status.
+
 Native repository/keyring/chrony declarations replace direct Nix projection
 reads. Desired bytes/hashes are unchanged. The low-risk controller, deploy
 activator source, full-machine package manifest and projection were retired after

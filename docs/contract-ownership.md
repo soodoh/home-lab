@@ -84,7 +84,10 @@ rollback:
   `verify-active-compose-artifact.yml`, `plan-compose-recovery.yml`,
   `recover-compose.yml`, `rollback-compose.yml`,
   `deploy-nextcloud-migration.yml`, `rollback-nextcloud-migration.yml`,
-  `migrate-preserved-backup-data.yml` and `scripts/test-nextcloud-config`
+  `migrate-preserved-backup-data.yml`,
+  `infrastructure/tofu/nextcloud-recovery-qualification/`,
+  `scripts/controller/test-nextcloud-recovery-foundation.py` and
+  `scripts/test-nextcloud-config`
 
 The semantic consumers behind those playbooks include `compose_stage`,
 `compose_deploy`, `compose_recovery`, `compose_rollback`,

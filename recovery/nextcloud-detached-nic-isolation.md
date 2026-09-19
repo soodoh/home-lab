@@ -30,6 +30,9 @@ is not independent infrastructure.
 | VMID | `9000`, currently absent |
 | Node | `proxmox` |
 | Root/work disk | New blank 64 GiB disk on `local-lvm` |
+| Guest memory | 6 GiB, still subject to fresh host-reserve admission before startup |
+| Tool delivery | Exact pinned archives during retrieval; no cloud-init package install |
+| Provider authority | Stopped foundation and optional NIC only; no startup input |
 | Bridge during retrieval | Existing `vmbr0` only |
 | NIC during service proof | Absent from PVE configuration |
 | Production VM | VM100, never modified |
@@ -66,11 +69,19 @@ requires fresh observation and separate authorization.
 
 ## Foundation and ownership requirements
 
-A new narrow provider root would be required. Do not add the recovery guest to the
-VM100 root, reuse retired VM9900 state, adopt historical local state, or issue direct
-`qm`/`pvesh` mutations around provider ownership.
+The disabled-by-default
+`infrastructure/tofu/nextcloud-recovery-qualification/` root now models only the
+stopped foundation. It fixes VMID 9000, a 64 GiB `local-lvm` disk, 6 GiB memory,
+checksum-pinned Debian image, root-owned cloud-init snippet, DROP/DROP VM firewall
+and optional retrieval NIC. Its interface deliberately exposes no startup input.
+Pinned tools remain later retrieval inputs rather than mutable cloud-init packages.
 
-Before any provider plan, define and review:
+The root has not been initialized, validated against a downloaded provider schema,
+planned or applied, and no lock/state exists for it. Do not add the recovery guest to
+the VM100 root, reuse retired VM9900 state, adopt historical local state, or issue
+direct `qm`/`pvesh` mutations around provider ownership.
+
+Before any provider plan, review and complete:
 
 - exact resource addresses for one stopped VM, one blank disk, one cloud-init snippet,
   one NIC, VM firewall options and fixed ordered rules;
@@ -78,8 +89,8 @@ Before any provider plan, define and review:
   retired qualification roots;
 - one ephemeral guest SSH key and exact controller IPv4, neither equal to VM100 or
   the Proxmox host;
-- CPU/RAM allocation plus a required post-allocation host-memory reserve; the survey's
-  13,829,181,440 free bytes does not itself admit an allocation;
+- the fixed 6 GiB guest allocation plus a required post-allocation host-memory
+  reserve; the survey's 13,829,181,440 free bytes does not itself admit startup;
 - `on_boot=false`, `protection=false`, no production pool, no backup/replication,
   unique disk serials and destroy limited to the admitted resources; and
 - creation stopped by default, with starting controlled by a separate explicit input
@@ -184,8 +195,9 @@ failure. Stop rather than reattach the NIC to a running recovery stack.
 
 The detached-NIC design is not executable until all of these are closed:
 
-- no new provider root, state ownership or reviewed stopped-foundation source exists;
-- no RAM allocation and host reserve are admitted;
+- the stopped-only provider root has no initialized provider lock, reviewed state
+  ownership, schema validation or plan evidence;
+- the 6 GiB allocation lacks a fresh startup-time host-memory reserve admission;
 - no current bundle is bound to the September 19 copied snapshot;
 - the exact base image/runtime/tool input and independent application-artifact path
   are not assembled;
@@ -194,5 +206,12 @@ The detached-NIC design is not executable until all of these are closed:
 - no reviewed provider-only NIC-removal plan or post-detach observer exists; and
 - external Nextcloud user data remains outside Restic.
 
-Closing these blockers requires source design and local tests first. It does not
-implicitly authorize provider init/plan, guest creation or live firewall changes.
+The local static test
+`scripts/controller/test-nextcloud-recovery-foundation.py` verifies the stopped-only
+interface, exact five-resource set, disabled defaults, disk/memory identities,
+firewall ordering, IPv6 refusal and absence of package/start authority. `tofu fmt
+-check` also passes. These checks do not validate provider semantics.
+
+Closing the remaining blockers requires review and local provider-schema validation
+before any operational work. It does not implicitly authorize provider init/plan,
+guest creation or live firewall changes.
