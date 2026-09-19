@@ -28,6 +28,7 @@ compose_native_force_recreate_services: []
 compose_native_required_healthy_containers: []
 compose_native_wait_timeout: 600
 compose_native_apply_confirmed: false
+compose_native_generation: {}
 compose_native_sops_path: /usr/local/bin/sops
 compose_native_sops_sha256: ""
 compose_native_age_path: /usr/local/bin/age

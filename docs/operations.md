@@ -377,6 +377,16 @@ workflow exists until short-lived Tailscale identity, authoritative host-key cus
 and protected-environment approval are decided. The production SOPS identity
 remains host-only.
 
+The canary now hands its already prepared and validated hash-addressed inputs to the
+small [`compose_native` generation activation interface](compose-generation-activation.md).
+That interface centralizes native full-project preview, requested-service activation,
+health/idempotence checks and current/previous artifact, environment and image
+publication. It does not select operations, decrypt inputs, migrate data or grant
+authority. The retained caller/recovery inventory documents why `compose_stage`,
+`compose_deploy`, `compose_rollback`, `compose_recovery` and their helpers remain.
+Only the canary caller is migrated in this first source slice; no live qualification,
+retry or deployment authority is added.
+
 On September 18, 2026, live observation passed with all 38 declared services
 running, 38 immutable image references, both required health checks, exact canary
 mounts, inactive backup writers, no active-model drift and locally available

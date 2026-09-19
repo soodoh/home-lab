@@ -15,6 +15,7 @@ import unittest
 ROOT = Path(__file__).resolve().parent.parent
 OBSERVE = ROOT / "ansible/roles/compose_native/tasks/observe.yml"
 DEPLOY = ROOT / "ansible/roles/compose_native/tasks/deploy.yml"
+GENERATION = ROOT / "ansible/roles/compose_native/tasks/generation.yml"
 DEFAULTS = ROOT / "ansible/roles/compose_native/defaults/main.yml"
 HOST = ROOT / "ansible/inventory/host_vars/docker-host.yml"
 RELEASE = ROOT / "ansible/playbooks/release-failed-compose-canary.yml"
@@ -88,7 +89,7 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertNotIn("{{ compose_native_current_dir }}/scripts/compose-image-lock.py", image_verify)
 
     def test_deployment_has_deliberate_compose_and_secret_policy(self):
-        source = self.text(DEPLOY)
+        source = self.text(DEPLOY) + self.text(GENERATION)
         for required in (
             "compose_native_expected_source_commit",
             "compose_native_controller_status.stdout == ''",
@@ -120,7 +121,7 @@ class NativeComposeSourceTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, source)
 
-        pull = source.split("- name: Pull only approved canary images", 1)[1].split("- name:", 1)[0]
+        pull = source.split("- name: Pull only operation-approved generation images", 1)[1].split("- name:", 1)[0]
         self.assertIn("community.docker.docker_compose_v2_pull:", pull)
         self.assertIn("services: \"{{ compose_native_requested_services }}\"", pull)
         self.assertIn("include_deps: false", pull)
@@ -129,7 +130,7 @@ class NativeComposeSourceTests(unittest.TestCase):
         preview = source.split("- name: Preview the full published model before container changes", 1)[1].split("- name:", 1)[0]
         self.assertIn("pull: never", preview)
         self.assertNotIn("pull: missing", preview)
-        action_guard = source.split("- name: Refuse full-project actions outside the canary containers", 1)[1].split("- name:", 1)[0]
+        action_guard = source.split("- name: Refuse full-project actions outside the requested containers", 1)[1].split("- name:", 1)[0]
         self.assertIn("item.what == 'container'", action_guard)
         self.assertIn("item.id in compose_native_requested_services", action_guard)
         self.assertNotIn("image-layer", action_guard)
@@ -137,6 +138,48 @@ class NativeComposeSourceTests(unittest.TestCase):
         final_verify = source.split("- name: Verify current previous and retained image generations after convergence", 1)[1].split("- name:", 1)[0]
         self.assertIn("--retained-root", final_verify)
         self.assertNotIn("--check-registry", final_verify)
+
+    def test_generation_activation_has_one_small_prepared_input_interface(self):
+        deploy = self.text(DEPLOY)
+        generation = self.text(GENERATION)
+        prepared = deploy.split(
+            "- name: Prepare the bounded native generation activation input", 1
+        )[1].split("- name:", 1)[0]
+        include = deploy.split(
+            "- name: Reuse the native Compose generation activation interface", 1
+        )[1].split("- name:", 1)[0]
+        self.assertIn("ansible.builtin.include_tasks: generation.yml", include)
+        self.assertIn(
+            'compose_native_generation: "{{ compose_native_prepared_generation }}"', include
+        )
+        for key in (
+            "operation", "artifact_hash", "active_artifact_hash", "artifact_dir",
+            "environment_path", "image_checkpoint_path", "services",
+            "force_recreate_services", "expected_services", "expected_service_count",
+            "required_healthy_containers",
+        ):
+            self.assertRegex(prepared, rf"(?m)^          {key}:")
+
+        for boundary in (
+            "Validate the prepared native Compose generation",
+            "compose_native_staging_root ~ '/' ~ (compose_native_generation.artifact_hash | default(''))",
+            "compose_native_staged_env_root ~ '/' ~ (compose_native_generation.artifact_hash | default('')) ~ '.env'",
+            "Capture the live pre-deployment image generation durably",
+            "Recheck the existing backup mutex immediately before publication",
+            "Publish a changed source generation while retaining current and previous inputs",
+            "Preview the full published model before container changes",
+            "Recheck required container health after native convergence",
+            "Assert complete post-deployment convergence",
+            "Archive the older previous image generation before pointer rotation",
+            "Publish the exact active artifact identity for backup acceptance",
+        ):
+            self.assertIn(boundary, generation)
+        self.assertGreaterEqual(generation.count("community.docker.docker_compose_v2:"), 4)
+        self.assertIn("community.docker.docker_compose_v2_pull:", generation)
+        self.assertNotIn("materialize-compose-secret-files.py", generation)
+        self.assertNotIn("activate-recovered-data.py", generation)
+        self.assertNotIn("nextcloud", generation.lower())
+        self.assertNotIn("calibre", generation.lower())
 
     def test_narrow_canary_defers_litellm_and_prepares_exact_lock_release(self):
         active_litellm_sha256 = "6a93d7caee70b924d80c628250441a78be5ebe9844735982ab9c532e4f4595d2"

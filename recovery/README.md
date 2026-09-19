@@ -26,8 +26,12 @@ follows that boundary by retaining host generations, ownership and image state;
 its live observation/check qualification did not activate recovered data, consume
 Restic staging or prove restore readiness. General legacy deployment now refuses
 execution, while exact operation-specific staging/deployment internals remain as
-recovery inputs. This distinction does not waive existing legacy recovery inputs,
-establish independent custody, or make a healthy service a restore test. See the
+recovery inputs. The first [native generation-activation slice](../docs/compose-generation-activation.md)
+extracts only the qualified canary's publication, Compose, health and idempotence
+mechanics; it does not replace archive data activation, rollback planning, migration
+journals or installed recovery consumers. This distinction does not waive existing
+legacy recovery inputs, establish independent custody, or make a healthy service a
+restore test. See the
 [disposable-controller decision](../docs/decisions.md#disposable-controllers-and-live-validation).
 
 ## Select and restore to staging

@@ -1,0 +1,557 @@
+---
+- name: Validate the prepared native Compose generation
+  ansible.builtin.assert:
+    that:
+      - compose_native_generation is mapping
+      - compose_native_generation.operation | default('') is match('^[a-z0-9][a-z0-9-]+$')
+      - compose_native_generation.artifact_hash | default('') is match('^[0-9a-f]{64}$')
+      - compose_native_generation.active_artifact_hash | default('') is match('^[0-9a-f]{64}$')
+      - >-
+        compose_native_generation.artifact_dir | default('') ==
+        compose_native_staging_root ~ '/' ~ (compose_native_generation.artifact_hash | default(''))
+      - >-
+        compose_native_generation.environment_path | default('') ==
+        compose_native_staged_env_root ~ '/' ~ (compose_native_generation.artifact_hash | default('')) ~ '.env'
+      - >-
+        compose_native_generation.image_checkpoint_path | default('') ==
+        '/var/lib/docker-compose/deploy-' ~ (compose_native_generation.artifact_hash | default('')) ~
+        '-previous-images.json'
+      - compose_native_generation.services | default([]) | length > 0
+      - >-
+        compose_native_generation.services | default([]) | unique | length ==
+        compose_native_generation.services | default([]) | length
+      - >-
+        compose_native_generation.services | default([]) |
+        difference(compose_native_generation.expected_services | default([])) | length == 0
+      - >-
+        compose_native_generation.force_recreate_services | default([]) | unique | length ==
+        compose_native_generation.force_recreate_services | default([]) | length
+      - >-
+        compose_native_generation.force_recreate_services | default([]) |
+        difference(compose_native_generation.services | default([])) | length == 0
+      - >-
+        compose_native_generation.expected_services | default([]) | sort ==
+        compose_native_generation.expected_services | default([]) | unique | sort
+      - >-
+        compose_native_generation.required_healthy_containers | default([]) | unique | length ==
+        compose_native_generation.required_healthy_containers | default([]) | length
+      - >-
+        compose_native_generation.expected_services | default([]) | length ==
+        compose_native_generation.expected_service_count | default(0) | int
+      - not ansible_check_mode
+    fail_msg: >-
+      compose_native generation activation accepts only an operation-prepared hash-addressed
+      artifact/environment/checkpoint and explicit unique service, recreation, and health inputs.
+
+- name: Bind the small generation interface to private implementation facts
+  ansible.builtin.set_fact:
+    compose_native_candidate_hash: "{{ compose_native_generation.artifact_hash }}"
+    compose_native_candidate_dir: "{{ compose_native_generation.artifact_dir }}"
+    compose_native_candidate_env_path: "{{ compose_native_generation.environment_path }}"
+    compose_native_interrupted_image_path: "{{ compose_native_generation.image_checkpoint_path }}"
+    compose_native_requested_services: "{{ compose_native_generation.services }}"
+    compose_native_force_recreate_services: "{{ compose_native_generation.force_recreate_services | default([]) }}"
+    compose_native_candidate_services:
+      stdout_lines: "{{ compose_native_generation.expected_services }}"
+    compose_native_expected_service_count: "{{ compose_native_generation.expected_service_count }}"
+    compose_native_required_healthy_containers: "{{ compose_native_generation.required_healthy_containers | default([]) }}"
+    compose_native_active_artifact:
+      stdout: "{{ compose_native_generation.active_artifact_hash }}"
+  no_log: true
+
+- name: Capture the live pre-deployment image generation durably
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_python_interpreter }}"
+      - "{{ compose_native_current_dir }}/scripts/compose-image-lock.py"
+      - capture
+      - --project
+      - "{{ compose_native_project_name }}"
+      - --output
+      - "{{ compose_native_interrupted_image_path }}"
+  become: true
+  changed_when: true
+  no_log: true
+
+- name: Recheck the existing backup mutex immediately before publication
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/bash
+      - -c
+      - >-
+        set -euo pipefail;
+        exec 9< "$1";
+        /usr/bin/flock --exclusive --nonblock 9 /usr/bin/true
+      - compose-native-backup-lock-probe
+      - "{{ compose_native_backup_lock_path }}"
+  become: true
+  changed_when: false
+  no_log: true
+
+- name: Publish a changed source generation while retaining current and previous inputs
+  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+  block:
+    - name: Inspect the previous artifact and environment
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      become: true
+      register: compose_native_previous_paths
+      loop:
+        - "{{ compose_native_previous_dir }}"
+        - "{{ compose_native_previous_env_path }}"
+
+    - name: Require a complete protected previous generation
+      ansible.builtin.assert:
+        that:
+          - compose_native_previous_paths.results[0].stat.isdir | default(false)
+          - not (compose_native_previous_paths.results[0].stat.islnk | default(false))
+          - compose_native_previous_paths.results[1].stat.isreg | default(false)
+          - not (compose_native_previous_paths.results[1].stat.islnk | default(false))
+          - compose_native_previous_paths.results[1].stat.pw_name == 'root'
+          - compose_native_previous_paths.results[1].stat.gr_name == 'root'
+          - compose_native_previous_paths.results[1].stat.mode == '0600'
+        fail_msg: The retained previous generation is incomplete or unsafe.
+
+    - name: Compute the retained previous artifact identity
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - "{{ compose_native_previous_dir }}/scripts/compose-artifact.py"
+          - --root
+          - "{{ compose_native_previous_dir }}"
+          - --no-git
+          - hash
+      become: true
+      register: compose_native_previous_artifact
+      changed_when: false
+      no_log: true
+
+    - name: Inspect the hash-addressed previous archive
+      ansible.builtin.stat:
+        path: "{{ compose_native_staging_root }}/{{ compose_native_previous_artifact.stdout }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      become: true
+      register: compose_native_previous_archive
+      no_log: true
+
+    - name: Archive an older previous artifact before replacing the previous pointer
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/cp
+          - --archive
+          - --
+          - "{{ compose_native_previous_dir }}"
+          - "{{ compose_native_staging_root }}/{{ compose_native_previous_artifact.stdout }}"
+      become: true
+      changed_when: true
+      when: not (compose_native_previous_archive.stat.exists | default(false))
+      no_log: true
+
+    - name: Verify the hash-addressed older previous artifact
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - "{{ compose_native_staging_root }}/{{ compose_native_previous_artifact.stdout }}/scripts/compose-artifact.py"
+          - --root
+          - "{{ compose_native_staging_root }}/{{ compose_native_previous_artifact.stdout }}"
+          - --no-git
+          - hash
+      become: true
+      register: compose_native_previous_archive_hash
+      changed_when: false
+      no_log: true
+
+    - name: Require the exact older previous archive identity
+      ansible.builtin.assert:
+        that:
+          - compose_native_previous_archive_hash.stdout == compose_native_previous_artifact.stdout
+        fail_msg: Existing hash-addressed previous archive bytes differ.
+      no_log: true
+
+    - name: Preserve the older previous environment beside its archived artifact
+      ansible.builtin.copy:
+        src: "{{ compose_native_previous_env_path }}"
+        dest: "{{ compose_native_staged_env_root }}/{{ compose_native_previous_artifact.stdout }}.env"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+        force: false
+      become: true
+      no_log: true
+
+    - name: Require the archived older previous environment to match
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/cmp
+          - --silent
+          - --
+          - "{{ compose_native_previous_env_path }}"
+          - "{{ compose_native_staged_env_root }}/{{ compose_native_previous_artifact.stdout }}.env"
+      become: true
+      changed_when: false
+      no_log: true
+
+    - name: Create an incoming current artifact directory
+      ansible.builtin.tempfile:
+        state: directory
+        path: "{{ compose_native_deployment_root }}"
+        prefix: .native-current-
+      become: true
+      register: compose_native_incoming_current
+
+    - name: Copy the immutable candidate into the incoming current directory
+      ansible.builtin.copy:
+        src: "{{ compose_native_candidate_dir }}/"
+        dest: "{{ compose_native_incoming_current.path }}/"
+        remote_src: true
+        owner: root
+        group: root
+        mode: preserve
+        directory_mode: "0755"
+      become: true
+
+    - name: Verify the incoming current artifact identity
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - "{{ compose_native_incoming_current.path }}/scripts/compose-artifact.py"
+          - --root
+          - "{{ compose_native_incoming_current.path }}"
+          - --no-git
+          - hash
+      become: true
+      register: compose_native_incoming_current_hash
+      changed_when: false
+
+    - name: Require exact incoming current bytes
+      ansible.builtin.assert:
+        that:
+          - compose_native_incoming_current_hash.stdout == compose_native_candidate_hash
+        fail_msg: Incoming current bytes differ from the immutable candidate.
+
+    - name: Remove the replaced previous pointer after archival
+      ansible.builtin.file:
+        path: "{{ compose_native_previous_dir }}"
+        state: absent
+      become: true
+
+    - name: Move the active artifact to previous
+      ansible.builtin.command:
+        argv: [/usr/bin/mv, --no-target-directory, --, "{{ compose_native_current_dir }}", "{{ compose_native_previous_dir }}"]
+      become: true
+      changed_when: true
+
+    - name: Atomically publish the candidate as current
+      ansible.builtin.command:
+        argv: [/usr/bin/mv, --no-target-directory, --, "{{ compose_native_incoming_current.path }}", "{{ compose_native_current_dir }}"]
+      become: true
+      changed_when: true
+
+    - name: Preserve the active environment as previous
+      ansible.builtin.copy:
+        src: "{{ compose_native_runtime_env_path }}"
+        dest: "{{ compose_native_previous_env_path }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      no_log: true
+
+    - name: Activate the same-content candidate environment
+      ansible.builtin.copy:
+        src: "{{ compose_native_candidate_env_path }}"
+        dest: "{{ compose_native_runtime_env_path }}"
+        remote_src: true
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      diff: false
+      no_log: true
+
+- name: Pull only operation-approved generation images
+  community.docker.docker_compose_v2_pull:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files: "{{ compose_native_files }}"
+    env_files:
+      - "{{ compose_native_runtime_env_path }}"
+    services: "{{ compose_native_requested_services }}"
+    include_deps: false
+    ignore_buildable: true
+    policy: missing
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  no_log: true
+
+- name: Preview the full published model before container changes
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files: "{{ compose_native_files }}"
+    env_files:
+      - "{{ compose_native_runtime_env_path }}"
+    state: present
+    pull: never
+    build: never
+    recreate: auto
+    remove_orphans: false
+    renew_anon_volumes: false
+    wait: false
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  register: compose_native_published_preview
+  check_mode: true
+  no_log: true
+
+- name: Refuse full-project actions outside the requested containers
+  ansible.builtin.assert:
+    that:
+      - item.what == 'container'
+      - item.id in compose_native_requested_services
+    fail_msg: The published model proposes an action outside the operation-approved containers.
+  loop: "{{ compose_native_published_preview.actions }}"
+  no_log: true
+
+- name: Converge requested services with automatic recreation
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files: "{{ compose_native_files }}"
+    env_files:
+      - "{{ compose_native_runtime_env_path }}"
+    services: "{{ compose_native_requested_services | difference(compose_native_force_recreate_services) }}"
+    dependencies: false
+    state: present
+    pull: never
+    build: never
+    recreate: auto
+    remove_orphans: false
+    renew_anon_volumes: false
+    wait: true
+    wait_timeout: "{{ compose_native_wait_timeout }}"
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  register: compose_native_automatic_convergence
+  when: compose_native_requested_services | difference(compose_native_force_recreate_services) | length > 0
+  no_log: true
+
+- name: Converge explicitly selected bind-file restart services
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files: "{{ compose_native_files }}"
+    env_files:
+      - "{{ compose_native_runtime_env_path }}"
+    services: "{{ compose_native_force_recreate_services }}"
+    dependencies: false
+    state: present
+    pull: never
+    build: never
+    recreate: always
+    remove_orphans: false
+    renew_anon_volumes: false
+    wait: true
+    wait_timeout: "{{ compose_native_wait_timeout }}"
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  register: compose_native_forced_convergence
+  when: compose_native_force_recreate_services | length > 0
+  no_log: true
+
+- name: Require the complete published model to be converged
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files: "{{ compose_native_files }}"
+    env_files:
+      - "{{ compose_native_runtime_env_path }}"
+    state: present
+    pull: never
+    build: never
+    recreate: auto
+    remove_orphans: false
+    renew_anon_volumes: false
+    wait: false
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  register: compose_native_post_preview
+  check_mode: true
+  no_log: true
+
+- name: Assert complete post-deployment convergence
+  ansible.builtin.assert:
+    that:
+      - not compose_native_post_preview.changed
+      - compose_native_post_preview.containers | length == compose_native_expected_service_count | int
+    fail_msg: The published Compose model still proposes changes after generation convergence.
+  no_log: true
+
+- name: List running services after native convergence
+  ansible.builtin.command:
+    argv: "{{ compose_native_runtime_cli + ['ps', '--status', 'running', '--services'] }}"
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  register: compose_native_post_running_services
+  changed_when: false
+  no_log: true
+
+- name: Require the complete running project after native convergence
+  ansible.builtin.assert:
+    that:
+      - compose_native_post_running_services.stdout_lines | length == compose_native_expected_service_count | int
+      - compose_native_post_running_services.stdout_lines | sort == compose_native_candidate_services.stdout_lines | sort
+    fail_msg: The complete running service set was not preserved.
+  no_log: true
+
+- name: Recheck required container health after native convergence
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - inspect
+      - --format
+      - "{% raw %}{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}{% endraw %}"
+      - "{{ item }}"
+  become: true
+  register: compose_native_post_health
+  loop: "{{ compose_native_required_healthy_containers }}"
+  changed_when: false
+  retries: 30
+  delay: 10
+  until: compose_native_post_health.stdout == 'healthy'
+  no_log: true
+
+- name: Archive the older previous image generation before pointer rotation
+  ansible.builtin.copy:
+    src: "{{ compose_native_previous_image_lock_path }}"
+    dest: "{{ compose_native_retained_image_root }}/{{ compose_native_previous_artifact.stdout }}.json"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+  become: true
+  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+  no_log: true
+
+- name: Require the archived older previous image generation to match
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/cmp
+      - --silent
+      - --
+      - "{{ compose_native_previous_image_lock_path }}"
+      - "{{ compose_native_retained_image_root }}/{{ compose_native_previous_artifact.stdout }}.json"
+  become: true
+  changed_when: false
+  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+  no_log: true
+
+- name: Preserve the pre-deployment current images under their artifact identity
+  ansible.builtin.copy:
+    src: "{{ compose_native_interrupted_image_path }}"
+    dest: "{{ compose_native_retained_image_root }}/{{ compose_native_active_artifact.stdout }}.json"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0600"
+    force: false
+  become: true
+  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+  no_log: true
+
+- name: Require the retained pre-deployment current image generation to match
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/cmp
+      - --silent
+      - --
+      - "{{ compose_native_interrupted_image_path }}"
+      - "{{ compose_native_retained_image_root }}/{{ compose_native_active_artifact.stdout }}.json"
+  become: true
+  changed_when: false
+  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+  no_log: true
+
+- name: Retain the pre-deployment image set as the rollback generation
+  ansible.builtin.copy:
+    src: "{{ compose_native_interrupted_image_path }}"
+    dest: "{{ compose_native_previous_image_lock_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+  no_log: true
+
+- name: Capture the converged current image generation
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_python_interpreter }}"
+      - "{{ compose_native_current_dir }}/scripts/compose-image-lock.py"
+      - capture
+      - --project
+      - "{{ compose_native_project_name }}"
+      - --output
+      - "{{ compose_native_current_image_lock_path }}"
+  become: true
+  changed_when: true
+  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
+  no_log: true
+
+- name: Verify current previous and retained image generations after convergence
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_python_interpreter }}"
+      - "{{ compose_native_current_dir }}/scripts/compose-image-lock.py"
+      - verify
+      - --current
+      - "{{ compose_native_current_image_lock_path }}"
+      - --previous
+      - "{{ compose_native_previous_image_lock_path }}"
+      - --retained-root
+      - "{{ compose_native_retained_image_root }}"
+  become: true
+  changed_when: false
+  no_log: true
+
+- name: Publish the exact active artifact identity for backup acceptance
+  ansible.builtin.copy:
+    content: "{{ compose_native_candidate_hash }}\n"
+    dest: "{{ compose_native_artifact_identity_path }}"
+    owner: root
+    group: root
+    mode: "0444"
+  become: true
+  no_log: true
+
+- name: Remove the consumed interruption image checkpoint after complete success
+  ansible.builtin.file:
+    path: "{{ compose_native_interrupted_image_path }}"
+    state: absent
+  become: true
+  no_log: true
+
+- name: Report only the bounded successful generation activation summary
+  ansible.builtin.debug:
+    msg:
+      operation: "{{ compose_native_generation.operation }}"
+      project: "{{ compose_native_project_name }}"
+      artifact_hash: "{{ compose_native_candidate_hash }}"
+      requested_services: "{{ compose_native_requested_services }}"
+      forced_recreation: "{{ compose_native_force_recreate_services }}"
+      running_services: "{{ compose_native_post_running_services.stdout_lines | length }}"
