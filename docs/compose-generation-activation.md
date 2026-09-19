@@ -38,8 +38,8 @@ operation authorization. The activation task is not a public standalone playbook
 | Path | What it prepares or owns | Current activation boundary |
 | --- | --- | --- |
 | `deploy-compose.yml` / `compose_native:deploy` | Clean committed source, deterministic hash-addressed artifact, host-only environment decryption, same-content environment check, normalized topology/service comparison and explicit canary recreation scope | Uses the extracted native generation interface. This is the only migrated caller in the first slice. |
-| `stage-compose.yml`, `review-compose-stage.yml` / `compose_stage` | Exact legacy artifact/environment, Nextcloud secret files and protected desired/runtime inventories for four allowlisted retained operations | Retained unchanged. General staging remains refused. Its inventories still feed legacy deployment and archive-recovery preflight. |
-| `deploy-nextcloud-migration.yml` / `compose_deploy` | Historical Nextcloud writer/path migration, latent exact Restic-policy recovery and obsolete Calibre NFS-to-local reconciliation code | Retained pending caller-by-caller retirement. The applied Nextcloud migration must not be rerun. A September 19 audit showed the Calibre NFS copy is stale relative to active local data, so that lane must not run and is a deletion candidate. There is no general deploy entrypoint. |
+| `stage-compose.yml`, `review-compose-stage.yml` / `compose_stage` | Exact legacy artifact/environment, Nextcloud secret files and protected desired/runtime inventories for three allowlisted retained operations | General staging remains refused. The obsolete Calibre operation is no longer allowlisted; retained inventories still feed Nextcloud/Restic deployment and archive-recovery preflight. |
+| `deploy-nextcloud-migration.yml` / `compose_deploy` | Historical Nextcloud writer/path migration and latent exact Restic-policy recovery | Retained pending caller-by-caller retirement. The applied Nextcloud migration must not be rerun. The obsolete Calibre authorization/resume and NFS-to-local reconciliation branch was removed after verified private-staging restore. There is no general deploy entrypoint. |
 | `rollback-compose.yml`, `rollback-nextcloud-migration.yml` / `compose_rollback` | Exact reviewed previous artifact/environment/image locks, optional historical Nextcloud service removal and rollback action identity | Retained unchanged. Both plays still depend on the custom action-plan and image-lock helpers until a native preview can preserve their exact service-removal and pre-publication recovery semantics. |
 | `plan-compose-recovery.yml`, `recover-compose.yml` / `compose_recovery` | Selected archive identity, empty recovery target, first-host path/volume admission, explicit recovered-data activation, host-file reconciliation and ordered Nextcloud startup | Retained unchanged. It still consumes `compose_recovery_preflight`, `prepare-recovery-volumes.py`, `activate-recovered-data.py`, `host_files`, `health`, staging inventories and image locks. It accepts the older `backup/` archive layout only; it must never consume a Restic staging tree. |
 | `compose-artifact.py`, `compose-image-lock.py` and installed safe-image-prune | Deterministic generation identity and retained/interrupted rollback-image protection | Retained. The native slice calls them for identities and image generations; the installed prune consumer remains supported. |
@@ -95,7 +95,8 @@ coordination remain unresolved prerequisites.
 
 Migrate one recovery caller at a time only after its operation-specific preparation
 can hand the activation seam a complete, validated generation. Preserve explicit
-Nextcloud, Calibre and archive-recovery data logic outside the seam. A later slice
+Nextcloud and archive-recovery data logic outside the seam. The separate historical
+Calibre/Caro preserved-data play remains blocked pending its own recovery review. A later slice
 may add narrowly reviewed publication strategies for previous-generation rollback or
 fresh-host recovery; it must not generalize database migration, data activation,
 locks, journals or approval into a universal transaction format.

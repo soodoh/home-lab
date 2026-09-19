@@ -253,7 +253,7 @@ The 2026-08-27 Calibre local correction recorded artifact
 - NFS `32f2e3c378df0238c3e99da59701dc7e33fe73a13f88eda01b02f0c1e2f4e9ed`;
 - Proton `41f4fac702126014bb6989b09dd158a2f9a3c56e4a99440df799bb55e4a28d55`.
 
-The retained `compose_deploy` role still contains the historical
+The legacy `compose_deploy` role formerly contained the historical
 `rollback-calibre-to-local:<artifact-hash>` lane. A September 19 read-only retirement
 audit found no retained production owner and found `calibre`,
 `calibre-web-automated` and `bookshelf` running with zero restarts and exact local
@@ -264,16 +264,21 @@ the historical 2,195 files and 8,004,796,531 bytes. Both contain `metadata.db`.
 The NFS generation is therefore a historical rollback source, not a current mirror;
 replaying the old checksum/delete lane would discard newer local data.
 
-Do not resume or invoke that lane. It is now a source-retirement candidate rather
-than an operational recovery path. The completed
+The completed
 [private-staging restore rehearsal](../recovery/nextcloud-calibre-restore-rehearsal.md)
 proved native verified restoration, SQLite integrity, and exact snapshot manifests;
 all 2,254 current live library path/size records occur in the restored snapshot.
-The restored snapshot also contains five older files totaling 4,071,565 bytes. This
-closes the restore-proof prerequisite but does not delete either generation or retire
-NFS rollback. That disposition still requires a separately reviewed decision. The
-general deploy entrypoint remains non-operational; direct role invocation is not a
-substitute.
+The restored snapshot also contains five older files totaling 4,071,565 bytes. The
+obsolete Compose staging allowlist entry, authorization/resume gates and NFS-to-local
+checksum/delete tasks are removed, so that lane can no longer be invoked. No live or
+NFS data, Restic policy, timer or retained staging tree was changed by source
+retirement.
+
+The NFS generation remains retained until a separately reviewed disposition; source
+retirement does not declare it deletable. The coupled historical
+`migrate-preserved-backup-data.yml` play still includes Calibre and Caro and remains
+blocked from replay pending a separate Caro/recovery review. The general deploy
+entrypoint remains non-operational; direct role invocation is not a substitute.
 
 ## Retired LiteLLM deployment lane
 

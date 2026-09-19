@@ -552,14 +552,17 @@ service adoption remains a separate source and operational decision.
 
 The general legacy stage/deploy lane is retired: `compose_stage` and its review
 entrypoint now require an explicit allowlisted retained operation, and
-`compose_deploy` refuses every plan that is not its historical Nextcloud migration,
-Restic-policy recovery or Calibre NFS-to-local lane. A September 19 read-only
-retirement audit reconfirmed the applied Nextcloud and Calibre layouts. It also found
-the active Calibre library has 59 more files and 67,416,991 more logical bytes than
-the retained NFS copy, so the old checksum/delete lane must not run and is now a
-source-deletion candidate. The remaining internals are retained only while recovery
-and acceptance callers are closed individually. Both rollback plays still use
-`compose_rollback`, and archive recovery still uses `compose_recovery`.
+`compose_deploy` refuses every plan that is not its historical Nextcloud migration
+or Restic-policy recovery lane. A September 19 read-only retirement audit reconfirmed
+the applied Nextcloud and Calibre layouts and found the active Calibre library had
+59 more files and 67,416,991 more logical bytes than the retained NFS copy. After the
+verified private-staging restore, the obsolete Calibre staging allowlist entry,
+authorization/resume gates and NFS-to-local checksum/delete tasks were removed. No
+host, live/NFS data, Restic policy, timer or retained staging tree changed during
+source retirement. The coupled Calibre/Caro preserved-data play remains blocked
+pending separate Caro/recovery review. The remaining internals are retained only
+while recovery and acceptance callers are closed individually. Both rollback plays
+still use `compose_rollback`, and archive recovery still uses `compose_recovery`.
 `compose-artifact.py` remains a first-run/retirement dependency.
 `compose-image-lock.py` remains consumed by those roles and by installed
 `/usr/local/sbin/home-lab-safe-image-prune`; that helper continues image-only

@@ -257,7 +257,6 @@ class NativeComposeSourceTests(unittest.TestCase):
         for marker in (
             "compose_stage_retained_operation",
             "nextcloud-five-mount-recovery",
-            "calibre-local-rollback",
             "restic-policy-recovery",
             "archive-compose-recovery",
             "General Compose staging is retired",
@@ -265,13 +264,21 @@ class NativeComposeSourceTests(unittest.TestCase):
             self.assertIn(marker, stage)
         self.assertIn("compose_stage_retained_operation", review)
         self.assertIn("Refuse the retired general Compose deployment lane", deploy)
+        self.assertIn("not (compose_deploy_resume | default(false)", deploy)
         for marker in (
             "compose_deploy_nextcloud_migration",
             "compose_deploy_restic_policy_artifact",
-            "compose_deploy_calibre_local_rollback",
             "General legacy Compose deployment is retired",
         ):
             self.assertIn(marker, deploy)
+        for retired in (
+            "calibre-local-rollback",
+            "compose_deploy_calibre_local_rollback",
+            "rollback-calibre-to-local:",
+        ):
+            self.assertNotIn(retired, stage)
+            self.assertNotIn(retired, review)
+            self.assertNotIn(retired, deploy)
 
         expected = [
             ("ansible/playbooks/deploy-nextcloud-migration.yml", "role: compose_deploy"),

@@ -132,9 +132,10 @@ the live external tree's device/inode identity.
 ## Acceptance and remaining blockers
 
 A successful rehearsal proves native extraction and byte verification of the selected
-backup generation. It is sufficient supporting evidence to delete the obsolete
-Calibre NFS-to-local reconciliation code after a separate source-retirement review.
-It does **not** by itself retire Nextcloud rollback or old paths. Nextcloud still
+backup generation. The separately approved source-retirement review used this proof
+to remove the obsolete Compose Calibre NFS-to-local reconciliation lane while
+preserving both data generations. It does **not** by itself retire Nextcloud rollback
+or old paths. Nextcloud still
 requires:
 
 - isolated MariaDB/application recovery or another reviewed database-integrity proof;

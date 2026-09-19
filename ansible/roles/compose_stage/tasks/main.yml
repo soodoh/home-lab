@@ -7,7 +7,6 @@
       - >-
         (compose_stage_retained_operation | default('')) in [
           'nextcloud-five-mount-recovery',
-          'calibre-local-rollback',
           'restic-policy-recovery',
           'archive-compose-recovery'
         ]

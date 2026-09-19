@@ -748,23 +748,16 @@ def main() -> None:
     assert "deploy-reviewed-restic-policy:" in compose_deploy
     assert "services/data/restic/excludes" in compose_deploy
     assert "services/data/restic/files-from" in compose_deploy
-    assert "rollback-calibre-to-local:" in compose_deploy
-    assert "Verify the live Calibre rollback boundary" in compose_deploy
-    assert "Reconcile the authoritative NFS Calibre library into retained local storage" in compose_deploy
-    assert "Verify the reconciled local Calibre SQLite database" in compose_deploy
-    assert "/mnt/storage/media/calibre/books/" in compose_deploy
-    assert "/srv/home-lab-state/calibre-data/books/" in compose_deploy
-    assert "compose_deploy_calibre_local_rollback_resume" in compose_deploy
-    assert "compose_deploy_plan.changed_paths == []" in compose_deploy
-    assert "compose_deploy_artifact_hashes.results[1].stdout == compose_artifact_hash" in compose_deploy
-    assert "not compose_deploy_calibre_local_rollback_resume" in compose_deploy
-    assert "expected_running = {{ (not compose_deploy_calibre_local_rollback_resume)" in compose_deploy
-    assert "--output TARGET,SOURCE,FSTYPE,UUID" in compose_deploy
-    assert "proxmox.vm.state_disk.filesystem_uuid" in compose_deploy
-    assert "Stop Restic timers during Calibre authority reconciliation" in compose_deploy
-    assert "Install reconciled Restic source policy files" in compose_deploy
-    assert "Verify installed reconciled Restic policy semantics" in compose_deploy
-    assert "Restrict Compose deployment resume to the exact interrupted Calibre transaction" in compose_deploy
+    for retired_calibre_lane in (
+        "rollback-calibre-to-local:",
+        "Verify the live Calibre rollback boundary",
+        "Reconcile the authoritative NFS Calibre library into retained local storage",
+        "compose_deploy_calibre_local_rollback",
+        "Stop Restic timers during Calibre authority reconciliation",
+        "Install reconciled Restic source policy files",
+        "Restrict Compose deployment resume to the exact interrupted Calibre transaction",
+    ):
+        assert retired_calibre_lane not in compose_deploy
     assert "compose_deploy_dependency_args" not in compose_deploy
     assert "current-artifact.sha256" in compose_rollback
 
