@@ -70,7 +70,24 @@ Admit a fresh isolated target only when all of these are reviewed:
 - an exact destroy plan limited to the admitted target and disks.
 
 If the target shares the production hypervisor or storage pool, record that remaining
-fault-domain risk. No currently admitted target exists.
+fault-domain risk.
+
+### September 19 target survey
+
+An authorized native read-only survey found VMID 9000 unused, VM100 as the only
+running guest, VM9900 absent, and sufficient 64 GiB disk capacity on `local-lvm` and
+the `storage` ZFS pool. `local-lvm` is the preferred disk candidate because using the
+production `storage` pool would add an avoidable shared-data fault domain. The node
+reported 13,829,181,440 bytes free memory; guest allocation and required host reserve
+remain unadmitted.
+
+The target is **blocked** because `vmbr0` is the only bridge and has a physical port;
+there is no active isolated bridge. Do not treat attachment to `vmbr0` plus an
+unreviewed firewall toggle as equivalent isolation, and do not create a bridge, VLAN,
+firewall policy or guest under this survey authority. A reviewed network design must
+provide retrieval-only egress followed by startup-time default denial before VMID
+9000 can be admitted. Secret-free survey evidence is recorded in
+[`nextcloud-isolated-target-survey-2026-09-19.json`](../infrastructure/evidence/nextcloud-isolated-target-survey-2026-09-19.json).
 
 ## Protected inputs
 

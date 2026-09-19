@@ -85,6 +85,16 @@ preview, firewall-policy/backend validation, restore checks or independent
 recovery access. The former 17-domain artifact audit and custom solver are retired. Persistent marker
 absence is not proof that no mutex is held or no prepared transaction exists.
 
+A separately authorized September 19 target-capacity survey first repeated this
+native observation: 20 tasks passed with `changed=0`, `failed=0` and
+`unreachable=0`. Fixed `pvesh get` calls then reported only bounded VMID, storage,
+network and memory summaries. VMID 9000 is unused and `local-lvm` has sufficient
+space for a 64 GiB target disk, but no active bridge without physical ports exists.
+The Nextcloud isolated target therefore remains blocked on network design; no guest,
+disk, bridge, VLAN or firewall policy was created or changed. No provider init, plan
+or state read occurred. Evidence is recorded in
+[`nextcloud-isolated-target-survey-2026-09-19.json`](../infrastructure/evidence/nextcloud-isolated-target-survey-2026-09-19.json).
+
 Native repository/keyring/chrony declarations replace direct Nix projection
 reads. Desired bytes/hashes are unchanged. The low-risk controller, deploy
 activator source, full-machine package manifest and projection were retired after

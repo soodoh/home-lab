@@ -173,7 +173,11 @@ and admit one target against all of these conditions:
 
 If the target shares the production hypervisor or storage pool, document that
 remaining fault-domain risk. A unique VMID prevents identity collision; it does not
-by itself provide genuine isolation.
+by itself provide genuine isolation. The September 19
+[read-only target survey](../infrastructure/evidence/nextcloud-isolated-target-survey-2026-09-19.json)
+found unused VMID 9000 and sufficient `local-lvm` disk capacity, but no isolated
+bridge. It authorizes no provisioning or network change and leaves target admission
+blocked on a reviewed network design.
 
 ## Separately authorized run plan
 
