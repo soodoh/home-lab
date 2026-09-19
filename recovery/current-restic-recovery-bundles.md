@@ -75,19 +75,57 @@ ciphertext/results, and removes the entire output root on failure. Bundle A and 
 therefore have independent encryption randomness and storage destinations, but one
 intentional recovery-key dependency.
 
-A live controller procedure must additionally:
+The source-only controller entrypoint is
+[`ansible/playbooks/build-current-restic-recovery-bundles.yml`](../ansible/playbooks/build-current-restic-recovery-bundles.yml).
+It has not been executed and does not grant its own live authority. It deliberately
+refuses check mode because staging, SOPS execution and encrypted output creation are
+the operation being approved.
 
-1. re-observe the exact snapshot, tags, ancestry, policy, artifact, repository and
-   inactive writer/lock state;
-2. stage only the metadata, encrypted SOPS document and reviewed source helpers into
-   a new root-owned mode-0700 host workspace;
-3. invoke the builder under `no_log` without returning decrypted values;
-4. fetch only encrypted bundles and secret-free results into a new protected
-   controller directory; and
-5. remove and verify absence of the host workspace even on interruption.
+Before a future invocation, create a new mode-0700 controller output parent and
+copy [`current-restic-bundle-build.example.yml`](current-restic-bundle-build.example.yml)
+to an ignored mode-0600 extra-vars file containing only exact approval, commit,
+input path and hash values. Do not put credentials in extra vars. The entrypoint
+shape is:
 
-No callable playbook is added yet because those host effects and credential access
-need their own reviewed implementation and authorization.
+```sh
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
+  -i ansible/inventory/hosts.yml \
+  ansible/playbooks/build-current-restic-recovery-bundles.yml \
+  -e @<protected-build-authorization.yml>
+```
+
+The playbook requires:
+
+- a clean exact reviewed commit and explicit build confirmation;
+- owner-protected metadata and passive observation files with reviewed hashes;
+- an observation no older than one hour and a selected snapshot younger than 24
+  hours at invocation time;
+- exact observation-to-metadata snapshot, repository, policy and artifact bindings;
+- four loaded, successful and inactive Restic writer units;
+- absent interruption and apply-ownership paths;
+- exact pinned SOPS, age, Restic and rclone host binaries plus the protected active
+  SOPS identity; and
+- a new output root under an existing owner-only mode-0700 parent.
+
+It stages only metadata, the encrypted SOPS document and reviewed source helpers
+into a new root-owned host workspace. The build runs under the backup flock and
+SOPS `exec-env --pristine` with `no_log`; decrypted values are passed only to the
+pair builder, which creates a reduced child environment. The playbook verifies the
+four host outputs, creates the new local output root only after successful build,
+fetches only encrypted bundles and secret-free results, then verifies local hashes
+against the host files.
+
+An Ansible `always` block removes and verifies absence of the host workspace. A
+native transient systemd timer is armed immediately after workspace creation to
+remove it after 30 minutes if the controller is interrupted, and is disarmed on
+normal return. A controller failure in the small interval between workspace
+creation and timer arming can leave an empty private directory; inspect and remove
+that exact directory before retrying. Partial controller outputs are removed on a
+controlled failure.
+
+A fresh passive chain observation remains a prerequisite; this playbook validates
+but does not generate that evidence. Live host connection, SOPS decryption, bundle
+creation and transfer still require separate explicit authorization.
 
 ## Publication remains separate
 
@@ -106,9 +144,14 @@ the canonical historical bundle. Preserve all prior bundle versions and evidence
 
 ```sh
 python3 -B scripts/controller/test-current-restic-recovery-bundles.py
+python3 -B scripts/controller/test-current-restic-recovery-controller.py
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
+  -i ansible/inventory/hosts.yml \
+  ansible/playbooks/build-current-restic-recovery-bundles.yml --syntax-check
 bash scripts/test-restic-recovery-bundle
 ```
 
 The tests exercise the public planner and pair-builder interfaces with synthetic
-contract, credential and binary adapters. They prove no live host, credential,
-repository or AWS behavior.
+contract, credential and binary adapters, and inspect the controller safety
+boundary. Syntax checking parses but does not run the playbook. These checks prove
+no live host, credential, repository or AWS behavior.

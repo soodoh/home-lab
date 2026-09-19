@@ -1,0 +1,12 @@
+---
+# Copy to an ignored owner-only file, replace every placeholder from a fresh
+# reviewed observation, then set the boolean and exact confirmation only after
+# separate live-build authorization. This file contains no credentials.
+restic_recovery_bundle_build_confirmed: false
+restic_recovery_bundle_build_confirmation: ""
+restic_recovery_bundle_reviewed_commit: "0000000000000000000000000000000000000000"
+restic_recovery_bundle_metadata_path: /absolute/path/to/current/metadata.json
+restic_recovery_bundle_metadata_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+restic_recovery_bundle_observation_path: /absolute/path/to/fresh/observation.json
+restic_recovery_bundle_observation_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+restic_recovery_bundle_output_root: /absolute/path/to/new/output-root

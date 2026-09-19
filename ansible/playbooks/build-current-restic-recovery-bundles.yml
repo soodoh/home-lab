@@ -1,0 +1,517 @@
+---
+- name: Guardedly build and retrieve current encrypted Restic recovery bundles
+  hosts: docker-host
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    restic_recovery_bundle_files:
+      - bundle-a.age
+      - bundle-a-result.json
+      - bundle-b.age
+      - bundle-b-result.json
+    restic_recovery_bundle_writer_units:
+      - home-lab-restic-daily-local.service
+      - home-lab-restic-daily-proton.service
+      - home-lab-restic-maintenance-local.service
+      - home-lab-restic-maintenance-proton.service
+    restic_recovery_bundle_guard_paths:
+      - /var/lib/home-lab-restic/interruption.json
+      - /var/lib/iac-ansible-production.lock
+      - /var/lib/home-lab/reconciliation/apply.lock
+      - /var/lib/home-lab/reconciliation/operation.lock
+  pre_tasks:
+    - name: Require exact separately approved build inputs
+      ansible.builtin.assert:
+        that:
+          - not ansible_check_mode
+          - restic_recovery_bundle_build_confirmed | default(false) | bool
+          - restic_recovery_bundle_build_confirmation | default('') == 'build-two-current-encrypted-restic-recovery-bundles'
+          - restic_recovery_bundle_host_workspace is not defined
+          - restic_recovery_bundle_cleanup_unit is not defined
+          - >-
+            restic_recovery_bundle_files ==
+            ['bundle-a.age', 'bundle-a-result.json', 'bundle-b.age', 'bundle-b-result.json']
+          - >-
+            restic_recovery_bundle_writer_units ==
+            ['home-lab-restic-daily-local.service', 'home-lab-restic-daily-proton.service',
+             'home-lab-restic-maintenance-local.service', 'home-lab-restic-maintenance-proton.service']
+          - >-
+            restic_recovery_bundle_guard_paths ==
+            ['/var/lib/home-lab-restic/interruption.json', '/var/lib/iac-ansible-production.lock',
+             '/var/lib/home-lab/reconciliation/apply.lock', '/var/lib/home-lab/reconciliation/operation.lock']
+          - compose_native_sops_path == '/usr/local/bin/sops'
+          - compose_native_sops_sha256 == 'e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b'
+          - compose_native_age_path == '/usr/local/bin/age'
+          - compose_native_age_sha256 == '2e305637f2a0555305e21c17fb74446acbb39b53135d43d4b744e50c287133a5'
+          - compose_native_age_identity_path == '/etc/sops/age/keys.txt'
+          - restic_binary_sha256 == '20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639'
+          - rclone_binary_sha256 == 'acd2c7aca2996c884a8cd0012b27d74213bc7d02c514d9711166b5023e51ca49'
+          - restic_recovery_bundle_reviewed_commit | default('') is match('^[0-9a-f]{40}$')
+          - restic_recovery_bundle_metadata_path | default('') is match('^/')
+          - restic_recovery_bundle_metadata_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - restic_recovery_bundle_observation_path | default('') is match('^/')
+          - restic_recovery_bundle_observation_sha256 | default('') is match('^[0-9a-f]{64}$')
+          - restic_recovery_bundle_output_root | default('') is match('^/')
+          - restic_recovery_bundle_output_root != '/'
+        fail_msg: Current recovery-bundle build authority or exact inputs are absent.
+
+    - name: Inspect controller commit and cleanliness
+      ansible.builtin.command:
+        argv: "{{ ['/usr/bin/git', '-C', playbook_dir ~ '/../..'] + item }}"
+      loop:
+        - [rev-parse, HEAD]
+        - [status, --porcelain]
+      delegate_to: localhost
+      become: false
+      register: restic_recovery_bundle_controller_git
+      changed_when: false
+      check_mode: false
+
+    - name: Require exact clean reviewed controller commit
+      ansible.builtin.assert:
+        that:
+          - restic_recovery_bundle_controller_git.results[0].stdout == restic_recovery_bundle_reviewed_commit
+          - restic_recovery_bundle_controller_git.results[1].stdout == ''
+
+    - name: Inspect protected controller inputs and output paths
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - {name: metadata, path: "{{ restic_recovery_bundle_metadata_path }}"}
+        - {name: observation, path: "{{ restic_recovery_bundle_observation_path }}"}
+        - {name: encrypted_credentials, path: "{{ playbook_dir }}/../../secrets/production.sops.env"}
+        - {name: metadata_planner, path: "{{ playbook_dir }}/../../scripts/prepare-restic-recovery-bundle-metadata"}
+        - {name: pair_builder, path: "{{ playbook_dir }}/../../scripts/build-current-restic-recovery-bundles"}
+        - {name: generic_builder, path: "{{ playbook_dir }}/../../scripts/build-restic-recovery-bundle"}
+        - {name: restore_runner, path: "{{ playbook_dir }}/../../scripts/restore-critical-backup"}
+        - {name: output_parent, path: "{{ restic_recovery_bundle_output_root | dirname }}"}
+        - {name: output_root, path: "{{ restic_recovery_bundle_output_root }}"}
+      delegate_to: localhost
+      become: false
+      register: restic_recovery_bundle_controller_paths
+
+    - name: Require exact protected controller inputs and a new output root
+      ansible.builtin.assert:
+        that:
+          - by_name.metadata.stat.isreg | default(false)
+          - not (by_name.metadata.stat.islnk | default(false))
+          - by_name.metadata.stat.checksum == restic_recovery_bundle_metadata_sha256
+          - (by_name.metadata.stat.size | default(0) | int) > 0
+          - (by_name.metadata.stat.size | default(0) | int) <= 131072
+          - by_name.metadata.stat.mode in ['0400', '0600']
+          - (by_name.metadata.stat.nlink | default(0) | int) == 1
+          - not (by_name.metadata.stat.wgrp | default(true))
+          - not (by_name.metadata.stat.woth | default(true))
+          - by_name.observation.stat.isreg | default(false)
+          - not (by_name.observation.stat.islnk | default(false))
+          - by_name.observation.stat.checksum == restic_recovery_bundle_observation_sha256
+          - (by_name.observation.stat.size | default(0) | int) > 0
+          - (by_name.observation.stat.size | default(0) | int) <= 131072
+          - (by_name.observation.stat.nlink | default(0) | int) == 1
+          - not (by_name.observation.stat.wgrp | default(true))
+          - not (by_name.observation.stat.woth | default(true))
+          - by_name.encrypted_credentials.stat.isreg | default(false)
+          - not (by_name.encrypted_credentials.stat.islnk | default(false))
+          - by_name.encrypted_credentials.stat.mode == '0600'
+          - (by_name.encrypted_credentials.stat.nlink | default(0) | int) == 1
+          - by_name.metadata_planner.stat.isreg | default(false)
+          - by_name.metadata_planner.stat.executable | default(false)
+          - by_name.pair_builder.stat.isreg | default(false)
+          - by_name.pair_builder.stat.executable | default(false)
+          - by_name.generic_builder.stat.isreg | default(false)
+          - by_name.generic_builder.stat.executable | default(false)
+          - by_name.restore_runner.stat.isreg | default(false)
+          - by_name.restore_runner.stat.executable | default(false)
+          - by_name.output_parent.stat.isdir | default(false)
+          - not (by_name.output_parent.stat.islnk | default(false))
+          - by_name.output_parent.stat.mode == '0700'
+          - by_name.output_parent.stat.pw_name in ['root', lookup('env', 'USER')]
+          - not (by_name.output_root.stat.exists | default(false))
+          - not (by_name.output_root.stat.islnk | default(false))
+        fail_msg: Protected controller inputs or fresh output-root admission failed.
+      vars:
+        by_name: "{{ dict(restic_recovery_bundle_controller_paths.results | map(attribute='item.name') | zip(restic_recovery_bundle_controller_paths.results)) }}"
+
+    - name: Load bounded observation and metadata inputs
+      ansible.builtin.set_fact:
+        restic_recovery_bundle_observation: "{{ lookup('ansible.builtin.file', restic_recovery_bundle_observation_path) | from_json }}"
+        restic_recovery_bundle_metadata: "{{ lookup('ansible.builtin.file', restic_recovery_bundle_metadata_path) | from_json }}"
+      no_log: true
+
+    - name: Require fresh observation and exact metadata binding
+      ansible.builtin.assert:
+        that:
+          - restic_recovery_bundle_observation.version == 1
+          - restic_recovery_bundle_observation.state == 'observed-current-chain'
+          - restic_recovery_bundle_observation.event == 'natural-systemd-timer'
+          - not restic_recovery_bundle_observation.interruption
+          - restic_recovery_bundle_observation.pending == 0
+          - (current_epoch | int) >= (observed_epoch | int)
+          - ((current_epoch | int) - (observed_epoch | int)) <= 3600
+          - (current_epoch | int) >= (snapshot_epoch | int)
+          - ((current_epoch | int) - (snapshot_epoch | int)) < 86400
+          - restic_recovery_bundle_metadata.version == 1
+          - restic_recovery_bundle_metadata.original_snapshot_id == restic_recovery_bundle_observation.latest_chain.games
+          - restic_recovery_bundle_metadata.snapshot_id == restic_recovery_bundle_observation.latest_chain.proton
+          - restic_recovery_bundle_metadata.repository_id == restic_recovery_bundle_observation.repositories.proton
+          - restic_recovery_bundle_metadata.policy_sha256 == restic_recovery_bundle_observation.policy_sha256
+          - restic_recovery_bundle_metadata.artifact_sha256 == restic_recovery_bundle_observation.artifact_sha256
+        fail_msg: Observation is stale or the reviewed metadata does not bind it exactly.
+      vars:
+        observed_epoch: "{{ (restic_recovery_bundle_observation.observed_at | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int }}"
+        snapshot_time: "{{ restic_recovery_bundle_observation.latest_chain.snapshot_time | regex_replace('\\.[0-9]+Z$', 'Z') }}"
+        snapshot_epoch: "{{ (snapshot_time | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int }}"
+        current_epoch: "{{ now(utc=true, fmt='%s') | int }}"
+      no_log: true
+
+    - name: Inspect inactive Restic writer units
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/systemctl
+          - show
+          - --property=LoadState
+          - --property=ActiveState
+          - --property=SubState
+          - --property=Result
+          - "{{ item }}"
+      loop: "{{ restic_recovery_bundle_writer_units }}"
+      register: restic_recovery_bundle_writer_status
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require every Restic writer loaded, successful and inactive
+      ansible.builtin.assert:
+        that:
+          - item.rc == 0
+          - item.stdout_lines | sort == ['ActiveState=inactive', 'LoadState=loaded', 'Result=success', 'SubState=dead']
+      loop: "{{ restic_recovery_bundle_writer_status.results }}"
+      no_log: true
+
+    - name: Inspect host interruption and apply ownership paths
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop: "{{ restic_recovery_bundle_guard_paths }}"
+      register: restic_recovery_bundle_host_guards
+      no_log: true
+
+    - name: Require absent interruption and apply ownership paths
+      ansible.builtin.assert:
+        that:
+          - not (item.stat.exists | default(false))
+      loop: "{{ restic_recovery_bundle_host_guards.results }}"
+      no_log: true
+
+    - name: Inspect exact host SOPS, age and Restic tool identities
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - {name: sops, path: "{{ compose_native_sops_path }}", checksum: "{{ compose_native_sops_sha256 }}"}
+        - {name: age, path: "{{ compose_native_age_path }}", checksum: "{{ compose_native_age_sha256 }}"}
+        - {name: restic, path: /usr/local/bin/restic, checksum: "{{ restic_binary_sha256 }}"}
+        - {name: rclone, path: /usr/local/bin/rclone, checksum: "{{ rclone_binary_sha256 }}"}
+      register: restic_recovery_bundle_host_tools
+      no_log: true
+
+    - name: Require exact protected host tools
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.checksum == item.item.checksum
+          - item.stat.mode == '0755'
+          - item.stat.pw_name == 'root'
+          - (item.stat.nlink | default(0) | int) == 1
+          - not (item.stat.wgrp | default(true))
+          - not (item.stat.woth | default(true))
+      loop: "{{ restic_recovery_bundle_host_tools.results }}"
+      no_log: true
+
+    - name: Inspect host SOPS age identity
+      ansible.builtin.stat:
+        path: "{{ compose_native_age_identity_path }}"
+        follow: false
+      register: restic_recovery_bundle_host_identity
+      no_log: true
+
+    - name: Require protected host SOPS age identity
+      ansible.builtin.assert:
+        that:
+          - restic_recovery_bundle_host_identity.stat.isreg | default(false)
+          - not (restic_recovery_bundle_host_identity.stat.islnk | default(false))
+          - restic_recovery_bundle_host_identity.stat.pw_name == 'root'
+          - restic_recovery_bundle_host_identity.stat.mode in ['0400', '0600']
+          - (restic_recovery_bundle_host_identity.stat.nlink | default(0) | int) == 1
+      no_log: true
+
+  tasks:
+    - name: Build, verify and retrieve encrypted bundles in an ephemeral host workspace
+      block:
+        - name: Create new private host workspace
+          ansible.builtin.tempfile:
+            state: directory
+            path: /var/tmp
+            prefix: home-lab-current-restic-bundles-
+          register: restic_recovery_bundle_host_temp
+          no_log: true
+
+        - name: Inspect new private host workspace
+          ansible.builtin.stat:
+            path: "{{ restic_recovery_bundle_host_temp.path }}"
+            follow: false
+          register: restic_recovery_bundle_host_temp_stat
+          no_log: true
+
+        - name: Require exact new private host workspace
+          ansible.builtin.assert:
+            that:
+              - restic_recovery_bundle_host_temp.path is match('^/var/tmp/home-lab-current-restic-bundles-[^/]+$')
+              - restic_recovery_bundle_host_temp_stat.stat.isdir | default(false)
+              - not (restic_recovery_bundle_host_temp_stat.stat.islnk | default(false))
+              - restic_recovery_bundle_host_temp_stat.stat.pw_name == 'root'
+              - restic_recovery_bundle_host_temp_stat.stat.mode == '0700'
+          no_log: true
+
+        - name: Remember exact host workspace
+          ansible.builtin.set_fact:
+            restic_recovery_bundle_host_workspace: "{{ restic_recovery_bundle_host_temp.path }}"
+          no_log: true
+
+        - name: Derive unique transient cleanup unit
+          ansible.builtin.set_fact:
+            restic_recovery_bundle_cleanup_unit: >-
+              home-lab-restic-bundle-cleanup-{{ (restic_recovery_bundle_host_workspace | basename | hash('sha256'))[:16] }}
+          no_log: true
+
+        - name: Arm bounded host-workspace cleanup for controller interruption
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/systemd-run
+              - "--unit={{ restic_recovery_bundle_cleanup_unit }}"
+              - --on-active=30m
+              - --timer-property=AccuracySec=1s
+              - --collect
+              - /usr/bin/rm
+              - --recursive
+              - --force
+              - --one-file-system
+              - --
+              - "{{ restic_recovery_bundle_host_workspace }}"
+          changed_when: true
+          no_log: true
+
+        - name: Stage reviewed metadata, encrypted credentials and helpers
+          ansible.builtin.copy:
+            src: "{{ item.src }}"
+            dest: "{{ restic_recovery_bundle_host_workspace }}/{{ item.dest }}"
+            owner: root
+            group: root
+            mode: "{{ item.mode }}"
+          loop:
+            - {src: "{{ restic_recovery_bundle_metadata_path }}", dest: metadata.json, mode: "0600"}
+            - {src: "{{ playbook_dir }}/../../secrets/production.sops.env", dest: production.sops.env, mode: "0600"}
+            - {src: "{{ playbook_dir }}/../../scripts/build-current-restic-recovery-bundles", dest: build-current-restic-recovery-bundles, mode: "0755"}
+            - {src: "{{ playbook_dir }}/../../scripts/build-restic-recovery-bundle", dest: build-restic-recovery-bundle, mode: "0755"}
+            - {src: "{{ playbook_dir }}/../../scripts/restore-critical-backup", dest: restore-critical-backup, mode: "0755"}
+          no_log: true
+
+        - name: Build two encrypted bundles under the backup lock and pristine SOPS environment
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/flock
+              - --nonblock
+              - /run/lock/home-lab-backup.lock
+              - "{{ compose_native_sops_path }}"
+              - exec-env
+              - --pristine
+              - "{{ restic_recovery_bundle_host_workspace }}/production.sops.env"
+              - >-
+                /usr/bin/env
+                RECOVERY_BUNDLE_BUILD_CONFIRMED=build-two-current-encrypted-restic-recovery-bundles
+                HOME_LAB_RESTIC_BINARY=/usr/local/bin/restic
+                HOME_LAB_RCLONE_BINARY=/usr/local/bin/rclone
+                HOME_LAB_AGE_BINARY={{ compose_native_age_path | quote }}
+                /usr/bin/python3 -I -B -S
+                {{ (restic_recovery_bundle_host_workspace ~ '/build-current-restic-recovery-bundles') | quote }}
+                --metadata {{ (restic_recovery_bundle_host_workspace ~ '/metadata.json') | quote }}
+                --output-root {{ (restic_recovery_bundle_host_workspace ~ '/bundles') | quote }}
+          environment:
+            SOPS_AGE_KEY_FILE: "{{ compose_native_age_identity_path }}"
+          register: restic_recovery_bundle_build
+          changed_when: true
+          check_mode: false
+          no_log: true
+
+        - name: Inspect exact host bundle outputs
+          ansible.builtin.stat:
+            path: "{{ restic_recovery_bundle_host_workspace }}/bundles/{{ item }}"
+            checksum_algorithm: sha256
+            follow: false
+          loop: "{{ restic_recovery_bundle_files }}"
+          register: restic_recovery_bundle_host_outputs
+          no_log: true
+
+        - name: Load host bundle results
+          ansible.builtin.slurp:
+            src: "{{ restic_recovery_bundle_host_workspace }}/bundles/{{ item }}"
+          loop:
+            - bundle-a-result.json
+            - bundle-b-result.json
+          register: restic_recovery_bundle_host_results
+          no_log: true
+
+        - name: Require exact protected and internally consistent host outputs
+          ansible.builtin.assert:
+            that:
+              - item.stat.isreg | default(false)
+              - not (item.stat.islnk | default(false))
+              - item.stat.mode == '0600'
+              - item.stat.pw_name == 'root'
+              - (item.stat.nlink | default(0) | int) == 1
+              - (item.stat.size | int) > 0
+          loop: "{{ restic_recovery_bundle_host_outputs.results }}"
+          no_log: true
+
+        - name: Require distinct encrypted outputs and one plaintext identity
+          ansible.builtin.assert:
+            that:
+              - build_result.state == 'built-encrypted-distinct'
+              - build_result.version == 1
+              - result_a.state == 'encrypted'
+              - result_b.state == 'encrypted'
+              - result_a.version == 1
+              - result_b.version == 1
+              - result_a.ciphertext_sha256 == by_name['bundle-a.age'].stat.checksum
+              - result_b.ciphertext_sha256 == by_name['bundle-b.age'].stat.checksum
+              - result_a.ciphertext_sha256 != result_b.ciphertext_sha256
+              - result_a.plaintext_sha256 == result_b.plaintext_sha256
+              - result_a.plaintext_sha256 == build_result.plaintext_sha256
+              - result_a.recipient_sha256 == result_b.recipient_sha256
+              - result_a.recipient_sha256 == build_result.recipient_sha256
+              - build_result.metadata_sha256 == restic_recovery_bundle_metadata_sha256
+          vars:
+            build_result: "{{ restic_recovery_bundle_build.stdout | from_json }}"
+            result_a: "{{ restic_recovery_bundle_host_results.results[0].content | b64decode | from_json }}"
+            result_b: "{{ restic_recovery_bundle_host_results.results[1].content | b64decode | from_json }}"
+            by_name: "{{ dict(restic_recovery_bundle_host_outputs.results | map(attribute='item') | zip(restic_recovery_bundle_host_outputs.results)) }}"
+          no_log: true
+
+        - name: Create new private controller output root
+          ansible.builtin.file:
+            path: "{{ restic_recovery_bundle_output_root }}"
+            state: directory
+            mode: "0700"
+          delegate_to: localhost
+          become: false
+
+        - name: Fetch only encrypted bundles and secret-free results
+          ansible.builtin.fetch:
+            src: "{{ restic_recovery_bundle_host_workspace }}/bundles/{{ item }}"
+            dest: "{{ restic_recovery_bundle_output_root }}/{{ item }}"
+            flat: true
+            validate_checksum: true
+          loop: "{{ restic_recovery_bundle_files }}"
+          no_log: true
+
+        - name: Normalize fetched output modes
+          ansible.builtin.file:
+            path: "{{ restic_recovery_bundle_output_root }}/{{ item }}"
+            state: file
+            mode: "0600"
+          loop: "{{ restic_recovery_bundle_files }}"
+          delegate_to: localhost
+          become: false
+
+        - name: Inspect fetched output identities
+          ansible.builtin.stat:
+            path: "{{ restic_recovery_bundle_output_root }}/{{ item }}"
+            checksum_algorithm: sha256
+            follow: false
+          loop: "{{ restic_recovery_bundle_files }}"
+          delegate_to: localhost
+          become: false
+          register: restic_recovery_bundle_local_outputs
+
+        - name: Require fetched identities match verified host outputs
+          ansible.builtin.assert:
+            that:
+              - item.stat.isreg | default(false)
+              - not (item.stat.islnk | default(false))
+              - item.stat.mode == '0600'
+              - (item.stat.nlink | default(0) | int) == 1
+              - item.stat.checksum == host_by_name[item.item].stat.checksum
+          loop: "{{ restic_recovery_bundle_local_outputs.results }}"
+          vars:
+            host_by_name: "{{ dict(restic_recovery_bundle_host_outputs.results | map(attribute='item') | zip(restic_recovery_bundle_host_outputs.results)) }}"
+
+      rescue:
+        - name: Remove partial controller output root
+          ansible.builtin.file:
+            path: "{{ restic_recovery_bundle_output_root }}"
+            state: absent
+          delegate_to: localhost
+          become: false
+          no_log: true
+
+        - name: Stop after controlled bundle-build failure
+          ansible.builtin.fail:
+            msg: Current Restic recovery-bundle build failed; partial outputs were removed.
+
+      always:
+        - name: Disarm transient host-workspace cleanup after controller return
+          ansible.builtin.command:
+            argv:
+              - /usr/bin/systemctl
+              - stop
+              - "{{ cleanup_unit }}.timer"
+              - "{{ cleanup_unit }}.service"
+          vars:
+            cleanup_workspace: >-
+              {{ restic_recovery_bundle_host_workspace |
+                 default(restic_recovery_bundle_host_temp.path | default(''), true) }}
+            cleanup_unit: >-
+              {{ restic_recovery_bundle_cleanup_unit |
+                 default('home-lab-restic-bundle-cleanup-' ~ (cleanup_workspace | basename | hash('sha256'))[:16], true) }}
+          changed_when: false
+          failed_when: false
+          when: cleanup_workspace is match('^/var/tmp/home-lab-current-restic-bundles-[^/]+$')
+          no_log: true
+
+        - name: Remove private host workspace
+          ansible.builtin.file:
+            path: "{{ cleanup_workspace }}"
+            state: absent
+          vars:
+            cleanup_workspace: >-
+              {{ restic_recovery_bundle_host_workspace |
+                 default(restic_recovery_bundle_host_temp.path | default(''), true) }}
+          when: cleanup_workspace is match('^/var/tmp/home-lab-current-restic-bundles-[^/]+$')
+          no_log: true
+
+        - name: Inspect host workspace cleanup
+          ansible.builtin.stat:
+            path: "{{ cleanup_workspace }}"
+            follow: false
+          vars:
+            cleanup_workspace: >-
+              {{ restic_recovery_bundle_host_workspace |
+                 default(restic_recovery_bundle_host_temp.path | default(''), true) }}
+          register: restic_recovery_bundle_host_workspace_after
+          when: cleanup_workspace is match('^/var/tmp/home-lab-current-restic-bundles-[^/]+$')
+          no_log: true
+
+        - name: Require host workspace absence
+          ansible.builtin.assert:
+            that:
+              - not (restic_recovery_bundle_host_workspace_after.stat.exists | default(false))
+          vars:
+            cleanup_workspace: >-
+              {{ restic_recovery_bundle_host_workspace |
+                 default(restic_recovery_bundle_host_temp.path | default(''), true) }}
+          when: cleanup_workspace is match('^/var/tmp/home-lab-current-restic-bundles-[^/]+$')
+          no_log: true
