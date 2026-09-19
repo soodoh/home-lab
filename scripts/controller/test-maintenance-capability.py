@@ -4,13 +4,30 @@ import contextlib
 import hashlib
 import importlib.util
 import io
+import os
 from pathlib import Path
+import shutil
 import sys
 import unittest
 from unittest.mock import patch
 
-from jinja2 import Environment, StrictUndefined, UndefinedError
-import yaml
+try:
+    from jinja2 import Environment, StrictUndefined, UndefinedError
+    import yaml
+except ModuleNotFoundError as error:
+    if error.name not in {"jinja2", "yaml"} or os.environ.get("HOME_LAB_ANSIBLE_TEST_REEXEC") == "1":
+        raise
+    launcher_name = shutil.which("ansible-playbook")
+    if launcher_name is None:
+        raise RuntimeError("ansible-playbook is required for the maintenance capability test") from error
+    launcher = Path(launcher_name)
+    first_line = launcher.read_text(encoding="utf-8").splitlines()[0]
+    interpreter_name = first_line.removeprefix("#!")
+    interpreter = Path(interpreter_name)
+    if first_line == interpreter_name or not interpreter.is_absolute() or not interpreter.is_file():
+        raise RuntimeError("ansible-playbook must use an absolute Python interpreter") from error
+    environment = {**os.environ, "HOME_LAB_ANSIBLE_TEST_REEXEC": "1"}
+    os.execve(interpreter, [str(interpreter), str(Path(__file__).resolve()), *sys.argv[1:]], environment)
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / 'scripts/controller/maintenance-capability-activation.py'

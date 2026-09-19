@@ -408,7 +408,10 @@ class KernelAbiTests(unittest.TestCase):
         self.assertIs(task["check_mode"], False)
         self.assertNotIn("failed_when", task)
         self.assertEqual(task["when"], "lifecycle_profile in ['inert', 'recovery']")
-        self.assertEqual(task["ansible.builtin.command"]["argv"][:2], ["/usr/bin/python3", "-c"])
+        self.assertEqual(
+            task["ansible.builtin.command"]["argv"][:5],
+            ["/usr/bin/python3", "-I", "-B", "-S", "-c"],
+        )
 
 
 if __name__ == "__main__":

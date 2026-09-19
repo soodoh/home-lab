@@ -10,7 +10,10 @@ const { load } = require("js-yaml");
 const root = path.resolve(__dirname, "../..");
 const ansibleRoot = path.join(root, "ansible");
 const requirements = load(fs.readFileSync(path.join(ansibleRoot, "collections/requirements.yml"), "utf8"));
-assert.deepEqual(requirements, { collections: [{ name: "community.general", version: "13.2.0" }] });
+assert.deepEqual(requirements, { collections: [
+  { name: "community.docker", version: "5.3.0" },
+  { name: "community.general", version: "13.2.0" },
+] });
 const installed = JSON.parse(execFileSync("ansible-galaxy", ["collection", "list", "--format", "json"], { encoding: "utf8" }));
 const installedCollections = Object.values(installed).flatMap((value) => Object.entries(value));
 for (const requirement of requirements.collections) {

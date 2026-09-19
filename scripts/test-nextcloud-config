@@ -114,10 +114,28 @@ def main() -> None:
         fail("cron_exposure")
     if any("docker-volume-backup.stop-during-backup" in service.get("labels", {}) for service in services.values()):
         fail("legacy_backup_label")
-    if environment(cron).get("PHP_MEMORY_LIMIT") != policy["php_memory_limit"]:
+    cron_environment = environment(cron)
+    if cron_environment.get("PHP_MEMORY_LIMIT") != policy["php_memory_limit"]:
         fail("cron_php_memory_limit")
 
     web_environment = environment(web)
+    expected_smtp_environment = {
+        "MAIL_DOMAIN": "$NEXTCLOUD_MAIL_DOMAIN",
+        "MAIL_FROM_ADDRESS": "$NEXTCLOUD_MAIL_FROM_ADDRESS",
+        "SMTP_AUTHTYPE": "$NEXTCLOUD_SMTP_AUTHTYPE",
+        "SMTP_HOST": "$NEXTCLOUD_SMTP_HOST",
+        "SMTP_NAME": "$NEXTCLOUD_SMTP_USERNAME",
+        "SMTP_PASSWORD": "$NEXTCLOUD_SMTP_PASSWORD",
+        "SMTP_PORT": "$NEXTCLOUD_SMTP_PORT",
+        "SMTP_SECURE": "$NEXTCLOUD_SMTP_SECURE",
+    }
+    for current in (web_environment, cron_environment):
+        smtp_environment = {
+            key: value for key, value in current.items()
+            if key.startswith("SMTP_") or key.startswith("MAIL_")
+        }
+        if smtp_environment != expected_smtp_environment:
+            fail("smtp_environment")
     required_web_environment = {
         "APACHE_DISABLE_REWRITE_IP": "1",
         "TRUSTED_PROXIES": policy["trusted_proxy"],
@@ -164,7 +182,7 @@ def main() -> None:
         fail("hsts_scope_too_broad")
 
     nextcloud_source = (ROOT / "services/nextcloud.yml").read_text(encoding="utf-8")
-    forbidden = ("healthcheck:", "openmetrics", "prometheus", "smtp_", "nextcloud-exporter")
+    forbidden = ("healthcheck:", "openmetrics", "prometheus", "nextcloud-exporter")
     if any(value.lower() in nextcloud_source.lower() for value in forbidden):
         fail("excluded_feature_introduced")
     if policy["paths"]["data"]["resolved_source"].startswith(policy["managed_state_root"] + "/"):
