@@ -6,11 +6,10 @@ run Ansible tasks. They verify the intended safety boundary remains visible in
 reviewed source; live qualification is separate.
 """
 
-from pathlib import Path
 import hashlib
 import re
 import unittest
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OBSERVE = ROOT / "ansible/roles/compose_native/tasks/observe.yml"
@@ -19,6 +18,7 @@ GENERATION = ROOT / "ansible/roles/compose_native/tasks/generation.yml"
 DEFAULTS = ROOT / "ansible/roles/compose_native/defaults/main.yml"
 HOST = ROOT / "ansible/inventory/host_vars/docker-host.yml"
 RELEASE = ROOT / "ansible/playbooks/release-failed-compose-canary.yml"
+INTERRUPTED_RECOVERY = ROOT / "ansible/playbooks/recover-interrupted-compose-canary.yml"
 
 
 class NativeComposeSourceTests(unittest.TestCase):
@@ -155,8 +155,8 @@ class NativeComposeSourceTests(unittest.TestCase):
         for key in (
             "operation", "artifact_hash", "active_artifact_hash", "artifact_dir",
             "environment_path", "image_checkpoint_path", "services",
-            "force_recreate_services", "expected_services", "expected_service_count",
-            "required_healthy_containers",
+            "force_recreate_services", "action_container_names", "expected_services",
+            "expected_service_count", "required_healthy_containers",
         ):
             self.assertRegex(prepared, rf"(?m)^          {key}:")
 
@@ -168,18 +168,55 @@ class NativeComposeSourceTests(unittest.TestCase):
             "Recheck the existing backup mutex immediately before publication",
             "Publish a changed source generation while retaining current and previous inputs",
             "Preview the full published model before container changes",
+            "Preview the complete model after requested-service convergence",
+            "Refuse post-recreation actions outside exact replacement containers",
+            "Settle Compose 2.26 replacement metadata through dependency-aware auto convergence",
+            "Require the complete published model to be idempotent",
             "Recheck required container health after native convergence",
             "Assert complete post-deployment convergence",
             "Archive the older previous image generation before pointer rotation",
             "Publish the exact active artifact identity for backup acceptance",
         ):
             self.assertIn(boundary, generation)
-        self.assertGreaterEqual(generation.count("community.docker.docker_compose_v2:"), 4)
+        self.assertGreaterEqual(generation.count("community.docker.docker_compose_v2:"), 6)
         self.assertIn("community.docker.docker_compose_v2_pull:", generation)
         self.assertNotIn("materialize-compose-secret-files.py", generation)
         self.assertNotIn("activate-recovered-data.py", generation)
         self.assertNotIn("nextcloud", generation.lower())
         self.assertNotIn("calibre", generation.lower())
+        settle = generation.split(
+            "- name: Settle Compose 2.26 replacement metadata through dependency-aware auto convergence", 1
+        )[1].split("- name:", 1)[0]
+        self.assertIn("services: \"{{ compose_native_force_recreate_services }}\"", settle)
+        self.assertIn("dependencies: true", settle)
+        self.assertIn("recreate: auto", settle)
+        self.assertIn("when: compose_native_post_preview.changed", settle)
+
+    def test_interrupted_canary_has_one_exact_forward_recovery(self):
+        recovery = self.text(INTERRUPTED_RECOVERY)
+        for marker in (
+            "7c690c6c26290d3863c8cd1c4a101c99c33ca85de26b42b2ad0dcac3c12030c4",
+            "2f12e384fdc0ce759d23b0bd9e16ad402d3ecd2985b4ecdfe048127f1c5748be",
+            "3e5600bfa5ff9441d729e4e81634854435cea13f15568337adbc87911468569e",
+            "31a2fe455d849ab38d373709ee39cd6378406708c1de29e43b6e410eb21ca213",
+            "compose_interrupted_recovery_confirmed",
+            "apply_lock_action: adopt",
+            "apply_lock_action: release",
+            "apply_lock_expected_owner_sha256",
+            "Require the exact two-action replacement boundary",
+            "Settle the exact canary through dependency-aware auto convergence",
+            "dependencies: true",
+            "Require a zero-change complete project preview",
+            "Archive the exact older previous image generation",
+            "Preserve pre-deployment current images under the old active artifact",
+            "Publish the checkpoint as the previous image generation",
+            "Publish the exact active candidate artifact identity",
+            "Remove the consumed interruption checkpoint after complete success",
+        ):
+            self.assertIn(marker, recovery)
+        self.assertNotIn("activate-recovered-data.py", recovery)
+        self.assertNotIn("compose_recovery", recovery)
+        self.assertNotIn("docker image prune", recovery)
 
     def test_narrow_canary_defers_litellm_and_prepares_exact_lock_release(self):
         active_litellm_sha256 = "6a93d7caee70b924d80c628250441a78be5ebe9844735982ab9c532e4f4595d2"

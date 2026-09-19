@@ -29,6 +29,14 @@
       - >-
         compose_native_generation.force_recreate_services | default([]) |
         difference(compose_native_generation.services | default([])) | length == 0
+      - compose_native_generation.action_container_names | default([]) | length > 0
+      - >-
+        compose_native_generation.action_container_names | default([]) | unique | length ==
+        compose_native_generation.action_container_names | default([]) | length
+      - >-
+        compose_native_generation.action_container_names | default([]) |
+        select('match', '^[A-Za-z0-9][A-Za-z0-9_.-]+$') | list | length ==
+        compose_native_generation.action_container_names | default([]) | length
       - >-
         compose_native_generation.expected_services | default([]) | sort ==
         compose_native_generation.expected_services | default([]) | unique | sort
@@ -51,12 +59,21 @@
     compose_native_interrupted_image_path: "{{ compose_native_generation.image_checkpoint_path }}"
     compose_native_requested_services: "{{ compose_native_generation.services }}"
     compose_native_force_recreate_services: "{{ compose_native_generation.force_recreate_services | default([]) }}"
+    compose_native_action_container_names: "{{ compose_native_generation.action_container_names }}"
+    compose_native_action_container_expression: >-
+      {{ compose_native_generation.action_container_names | map('regex_escape') | join('|') }}
     compose_native_candidate_services:
       stdout_lines: "{{ compose_native_generation.expected_services }}"
     compose_native_expected_service_count: "{{ compose_native_generation.expected_service_count }}"
     compose_native_required_healthy_containers: "{{ compose_native_generation.required_healthy_containers | default([]) }}"
     compose_native_active_artifact:
       stdout: "{{ compose_native_generation.active_artifact_hash }}"
+  no_log: true
+
+- name: Bind the exact allowed post-recreation container action pattern
+  ansible.builtin.set_fact:
+    compose_native_action_container_pattern: >-
+      ^(?:{{ compose_native_action_container_expression }}|[0-9a-f]{12}_(?:{{ compose_native_action_container_expression }}))$
   no_log: true
 
 - name: Capture the live pre-deployment image generation durably
@@ -370,7 +387,7 @@
   when: compose_native_force_recreate_services | length > 0
   no_log: true
 
-- name: Require the complete published model to be converged
+- name: Preview the complete model after requested-service convergence
   community.docker.docker_compose_v2:
     project_src: "{{ compose_native_current_dir }}"
     project_name: "{{ compose_native_project_name }}"
@@ -391,11 +408,86 @@
   check_mode: true
   no_log: true
 
+- name: Require the exact post-recreation action count and statuses
+  ansible.builtin.assert:
+    that:
+      - compose_native_force_recreate_services | length > 0
+      - >-
+        compose_native_post_preview.actions | default([]) | length ==
+        compose_native_action_container_names | length * 2
+      - >-
+        compose_native_post_preview.actions | default([]) | map(attribute='status') |
+        select('equalto', 'Recreate') | list | length ==
+        compose_native_action_container_names | length
+      - >-
+        compose_native_post_preview.actions | default([]) | map(attribute='status') |
+        select('equalto', 'Starting') | list | length ==
+        compose_native_action_container_names | length
+    fail_msg: Post-recreation convergence did not propose the exact replacement action shape.
+  when: compose_native_post_preview.changed
+  no_log: true
+
+- name: Refuse post-recreation actions outside exact replacement containers
+  ansible.builtin.assert:
+    that:
+      - item.what == 'container'
+      - item.id is match(compose_native_action_container_pattern)
+      - item.status in ['Recreate', 'Starting']
+    fail_msg: >-
+      Post-recreation convergence proposed an action outside the exact operation-approved
+      replacement containers.
+  loop: "{{ compose_native_post_preview.actions | default([]) }}"
+  no_log: true
+
+- name: Settle Compose 2.26 replacement metadata through dependency-aware auto convergence
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files: "{{ compose_native_files }}"
+    env_files:
+      - "{{ compose_native_runtime_env_path }}"
+    services: "{{ compose_native_force_recreate_services }}"
+    dependencies: true
+    state: present
+    pull: never
+    build: never
+    recreate: auto
+    remove_orphans: false
+    renew_anon_volumes: false
+    wait: true
+    wait_timeout: "{{ compose_native_wait_timeout }}"
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  when: compose_native_post_preview.changed
+  no_log: true
+
+- name: Require the complete published model to be idempotent
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files: "{{ compose_native_files }}"
+    env_files:
+      - "{{ compose_native_runtime_env_path }}"
+    state: present
+    pull: never
+    build: never
+    recreate: auto
+    remove_orphans: false
+    renew_anon_volumes: false
+    wait: false
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  register: compose_native_final_preview
+  check_mode: true
+  no_log: true
+
 - name: Assert complete post-deployment convergence
   ansible.builtin.assert:
     that:
-      - not compose_native_post_preview.changed
-      - compose_native_post_preview.containers | length == compose_native_expected_service_count | int
+      - not compose_native_final_preview.changed
+      - compose_native_final_preview.containers | length == compose_native_expected_service_count | int
     fail_msg: The published Compose model still proposes changes after generation convergence.
   no_log: true
 

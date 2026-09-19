@@ -551,6 +551,8 @@
           image_checkpoint_path: "{{ compose_native_interrupted_image_path }}"
           services: "{{ compose_native_requested_services }}"
           force_recreate_services: "{{ compose_native_force_recreate_services }}"
+          action_container_names:
+            - "{{ compose_native_canary_service }}"
           expected_services: "{{ compose_native_candidate_services.stdout_lines }}"
           expected_service_count: "{{ compose_native_expected_service_count }}"
           required_healthy_containers: "{{ compose_native_required_healthy_containers }}"

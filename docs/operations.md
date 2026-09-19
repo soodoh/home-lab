@@ -497,6 +497,26 @@ qualification. The attempt is consumed: do not retry, release ownership, remove 
 checkpoint or alter current/previous state without a separately reviewed recovery
 decision. Deferred LiteLLM, database, Restic and migration effects remain untouched.
 
+Read-only production hashing and a disposable Compose **2.26.1** fixture isolated
+the failure. `--force-recreate --no-deps` leaves a named service with an existing
+`depends_on` edge divergent from the next dependency-aware full-project load; the
+next dry run proposes the observed recreate/start pair. Removing the explicit
+container name, including dependencies in forced convergence or using restart
+instead made the fixture idempotent. A targeted dependency-aware `recreate=auto`
+convergence settled the
+replacement without recreating its dependency, and the following full preview was
+zero-change. The opt-in regression is
+`scripts/test-compose-native-recreate.py`; it requires an explicit disposable
+Docker context, an independently supplied Compose 2.26.1 binary and an already-local
+image, and always removes its fixture.
+
+Source now guards that exact post-recreation action shape before the settling pass.
+`recover-interrupted-compose-canary.yml` is an operation-specific forward-recovery
+proposal bound to the retained owner, three artifact generations, old marker,
+byte-identical environments and image checkpoint. It remains unexecuted. Its check
+and normal modes require separate review; do not infer recovery authorization from
+the disposable fixture or this source change.
+
 The general legacy stage/deploy lane is retired: `compose_stage` and its review
 entrypoint now require an explicit allowlisted retained operation, and
 `compose_deploy` refuses every plan that is not its exact Nextcloud migration,

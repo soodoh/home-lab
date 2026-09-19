@@ -71,9 +71,14 @@ behavior or deployment readiness. Neither check initializes a provider or author
 deployment. The separately authorized live attempt documented in
 [operations](operations.md#native-compose-qualification) reached this interface but
 failed its immediate full-project idempotence assertion after publication and the
-bounded canary recreation. The retained owner and image checkpoint now require an
-operation-specific recovery decision; the interface is not live-qualified and must
-not be retried from this state.
+bounded canary recreation. A disposable Compose 2.26.1 regression isolated the
+`--force-recreate --no-deps` interaction with a named service that has a dependency.
+The interface now permits only the exact requested replacement actions and settles
+them through dependency-aware automatic convergence before requiring a final
+zero-change preview. `recover-interrupted-compose-canary.yml` binds a proposed
+forward completion to the retained owner and generations. Neither source path has
+been run against production; the retained owner and image checkpoint still require
+a separately reviewed recovery decision.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production
