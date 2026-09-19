@@ -92,10 +92,17 @@ References: [Authentik upgrade guidance](https://docs.goauthentik.io/troubleshoo
 ## Nextcloud
 
 On September 14 both Nextcloud and cron were running with the five intended
-mounts. **Do not rerun forward migration or initial activation.** Application
-integrity, retained copies and rollback acceptance remain outstanding. Keep the
-paired migration/configuration/rollback playbooks and roles as recovery inputs,
-not a supported standalone native deployment path.
+mounts. **Do not rerun forward migration or initial activation.** A September 19
+read-only retirement audit reconfirmed `nextcloud`, `nextcloud-cron` and
+`nextcloud-db` running with zero restarts, exact application/database mounts and
+read-only secret mounts. `occ status --output=json` reported Nextcloud 34.0.2.1
+installed, outside maintenance mode and requiring no database upgrade; cron retained
+`/cron.sh` as its entrypoint. The four local application paths and external data
+path exist, while all old NFS application/config/custom-app/theme paths remain.
+Application login/WebDAV/upload acceptance, fresh restore proof and rollback
+retirement remain outstanding. Keep the paired migration/configuration/rollback
+playbooks and roles as recovery inputs for now, not a supported standalone native
+deployment path.
 
 ### Review boundary
 
@@ -245,16 +252,22 @@ The 2026-08-27 Calibre local correction recorded artifact
 - NFS `32f2e3c378df0238c3e99da59701dc7e33fe73a13f88eda01b02f0c1e2f4e9ed`;
 - Proton `41f4fac702126014bb6989b09dd158a2f9a3c56e4a99440df799bb55e4a28d55`.
 
-The retained `compose_deploy` role contains the interrupted Calibre lane, bound to
-`rollback-calibre-to-local:<artifact-hash>`. It requires exact three-consumer and
-two-policy-file scope, endpoint/device/UUID identity checks, stops both Restic
-timers, holds the backup mutex, reconciles NFS into local with checksum/delete
-semantics, checks zero difference and SQLite integrity, then activates policy
-before container convergence. A resume must adopt only the exact retained owner
-and repeat all guards. The general deploy entrypoint was already non-operational
-and is removed; the retained role is **not** a newly supported standalone recovery
-command. A separately reviewed recovery invocation is needed for an actual retained
-operation; preserve its inputs meanwhile.
+The retained `compose_deploy` role still contains the historical
+`rollback-calibre-to-local:<artifact-hash>` lane. A September 19 read-only retirement
+audit found no retained production owner and found `calibre`,
+`calibre-web-automated` and `bookshelf` running with zero restarts and exact local
+library mounts. The installed Restic source list includes the four intended local
+Calibre paths and excludes the NFS library. The active local library now contains
+2,254 files and 8,072,213,522 logical bytes, while the retained NFS copy still has
+the historical 2,195 files and 8,004,796,531 bytes. Both contain `metadata.db`.
+The NFS generation is therefore a historical rollback source, not a current mirror;
+replaying the old checksum/delete lane would discard newer local data.
+
+Do not resume or invoke that lane. It is now a source-retirement candidate rather
+than an operational recovery path. Preserve both data generations until a current
+Restic restore proves the local library and a separately reviewed decision retires
+NFS rollback. The general deploy entrypoint remains non-operational; direct role
+invocation is not a substitute.
 
 ## Retired LiteLLM deployment lane
 
