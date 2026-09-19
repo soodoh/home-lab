@@ -218,6 +218,7 @@ replacement or run the play unchanged merely because it remains in source.
 
 Before old-path deletion:
 
+- review and separately authorize the [Nextcloud and Calibre private-staging restore rehearsal](../recovery/nextcloud-calibre-restore-rehearsal.md) against a new natural snapshot;
 - inspect and safely run the focused `scripts/test-restic-recovery-bundle` and `scripts/test-restic-restore-branch` checks;
 - separately rehearse a fresh restore of config, custom apps/themes, MariaDB, SOPS-backed secret files and pinned application code while retaining external data;
 - prove the previous-artifact rollback;
@@ -264,10 +265,11 @@ The NFS generation is therefore a historical rollback source, not a current mirr
 replaying the old checksum/delete lane would discard newer local data.
 
 Do not resume or invoke that lane. It is now a source-retirement candidate rather
-than an operational recovery path. Preserve both data generations until a current
-Restic restore proves the local library and a separately reviewed decision retires
-NFS rollback. The general deploy entrypoint remains non-operational; direct role
-invocation is not a substitute.
+than an operational recovery path. Preserve both data generations until the
+[private-staging restore rehearsal](../recovery/nextcloud-calibre-restore-rehearsal.md)
+proves a new natural snapshot contains the local library and a separately reviewed
+decision retires NFS rollback. The general deploy entrypoint remains non-operational;
+direct role invocation is not a substitute.
 
 ## Retired LiteLLM deployment lane
 
