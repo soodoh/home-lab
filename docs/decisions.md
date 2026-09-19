@@ -238,17 +238,23 @@ their preceding generations and all recovery inputs. Do not apply historical pla
 remove state, erase lineage or treat closure as permission to reuse VMID 9900; see
 the [retirement assessment](vm9900-retirement-assessment.md).
 
-The recovery key is currently on this developer machine; **off-machine custody
-is not verified and remains an open gap**. The operator will verify external escrow
-and independently available recovery access, including required credentials and
-backend coordinates. Current automation still consumes developer-local credentials;
-documentation and additional copies
-on that same machine are not verified independent custody. Retrieval, decryption
-and recovery exercises require separate approval.
+The recovery key remains on this developer machine and in the home Vaultwarden
+service, but neither location is an independent recovery boundary. On September 19
+the operator confirmed an exact plaintext copy on an offline USB stored securely
+offsite. That closes the age-key location-custody gap without placing key material
+or its physical location in Git. Historical GPG ciphertext remains preserved as an
+optional legacy envelope; it is not a required recovery dependency and its separate
+decryptability is not implied by the USB confirmation.
+
+Independent repository availability, publication-credential decryption, AWS/KMS
+access and exact recovery-bundle retrieval remain unverified. The prepared
+[read-only retrieval drill](../recovery/aws-bundle-retrieval.md) is not execution
+authority. Credential use, cloud reads, bundle decryption and recovery exercises
+require separate approval.
 
 Keep working logging and backup configuration unchanged. Explicit journald policy
-is optional follow-up. These custody gaps, further historical evidence collection
-and KMS changes are **not prerequisites for receipt-dependency source cleanup**.
+is optional follow-up. These remaining recovery gaps, further historical evidence
+collection and KMS changes are **not prerequisites for receipt-dependency source cleanup**.
 Such cleanup must still preserve operational guards and supported scope.
 
 ## Ownership and evidence limits

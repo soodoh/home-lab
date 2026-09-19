@@ -1,0 +1,387 @@
+#!/usr/bin/env python3
+"""Verify read-only access to the exact historical AWS recovery bundle."""
+from __future__ import annotations
+
+import datetime as dt
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import secrets
+import shlex
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+from typing import Any
+
+EXPECTED_RECIPIENT = "age1ddk0qtwjclc2za5afrz5pl4j5kley02rqv2vh0s07c27a8t5u58sph58qm"
+CONFIRMATION = "retrieve-exact-historical-bundle-read-only"
+HEX = re.compile(r"^[0-9a-f]{64}$")
+TIMESTAMP = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+INTERNAL_ARGUMENT = "--credential-child"
+ALLOWED_AWS_ENV = {
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_S3_BUCKET_NAME",
+}
+
+
+class RetrievalFailure(Exception):
+    def __init__(self, reason: str, stderr: bytes = b"") -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.stderr = stderr
+
+
+def digest(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def fail(reason: str, stderr: bytes = b"") -> None:
+    raise RetrievalFailure(reason, stderr)
+
+
+def duplicate_free_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            fail("evidence_json")
+        value[key] = item
+    return value
+
+
+def protected_metadata(path: Path, *, directory: bool = False, executable: bool = False) -> os.stat_result:
+    try:
+        metadata = path.lstat()
+    except OSError:
+        fail("protected_path")
+    expected_type = stat.S_ISDIR if directory else stat.S_ISREG
+    if (
+        path.is_symlink()
+        or not expected_type(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or (not directory and metadata.st_nlink != 1)
+        or stat.S_IMODE(metadata.st_mode) & 0o022
+        or (executable and not metadata.st_mode & stat.S_IXUSR)
+    ):
+        fail("protected_path")
+    return metadata
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    protected_metadata(path)
+    try:
+        raw = path.read_bytes()
+        if len(raw) > 64 * 1024:
+            fail("evidence_json")
+        value = json.loads(raw, object_pairs_hook=duplicate_free_object)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        fail("evidence_json")
+    if not isinstance(value, dict):
+        fail("evidence_json")
+    return value
+
+
+def command(arguments: list[str], environment: dict[str, str], *, timeout: int = 120) -> bytes:
+    try:
+        result = subprocess.run(
+            arguments,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+            timeout=timeout,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        fail("command_execution")
+    if result.returncode != 0:
+        fail("provider_request", result.stderr)
+    return result.stdout
+
+
+def json_command(arguments: list[str], environment: dict[str, str], *, timeout: int = 120) -> dict[str, Any]:
+    raw = command(arguments, environment, timeout=timeout)
+    if len(raw) > 16 * 1024 * 1024:
+        fail("provider_json")
+    try:
+        value = json.loads(raw, object_pairs_hook=duplicate_free_object)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        fail("provider_json")
+    if not isinstance(value, dict):
+        fail("provider_json")
+    return value
+
+
+def validate_credential_document(path: Path) -> None:
+    value = load_json(path)
+    secret_fields = {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_S3_BUCKET_NAME"}
+    if set(value) != secret_fields | {"sops"}:
+        fail("credential_document")
+    if any(not isinstance(value[field], str) or not value[field].startswith("ENC[") for field in secret_fields):
+        fail("credential_document")
+    sops = value.get("sops")
+    age = sops.get("age") if isinstance(sops, dict) else None
+    if (
+        not isinstance(age, list)
+        or not any(isinstance(item, dict) and item.get("recipient") == EXPECTED_RECIPIENT for item in age)
+    ):
+        fail("credential_document")
+
+
+def evidence(repo: Path) -> dict[str, Any]:
+    canonical = load_json(repo / "infrastructure/evidence/proton-canonical-recovery-bundles.json")
+    rotation = load_json(repo / "infrastructure/evidence/aws-recovery-publication-credential-rotation.json")
+    fields = {
+        "bytes": canonical.get("bundle_b_bytes"),
+        "ciphertext_sha256": canonical.get("bundle_b_ciphertext_sha256"),
+        "object_key_sha256": canonical.get("bundle_b_object_key_sha256"),
+        "version_id_sha256": canonical.get("bundle_b_version_id_sha256"),
+        "principal_arn_sha256": rotation.get("principal_arn_sha256"),
+    }
+    if canonical.get("version") != 1 or rotation.get("version") != 1:
+        fail("evidence_shape")
+    if type(fields["bytes"]) is not int or fields["bytes"] <= 0:
+        fail("evidence_shape")
+    if any(not isinstance(fields[name], str) or HEX.fullmatch(fields[name]) is None for name in fields if name != "bytes"):
+        fail("evidence_shape")
+    return fields
+
+
+def binary_from_environment(name: str, fallback: str) -> Path:
+    configured = os.environ.get(name)
+    value = configured if configured else shutil.which(fallback)
+    if not value:
+        fail("operator_binary")
+    path = Path(value)
+    protected_metadata(path, executable=True)
+    return path
+
+
+def aws_environment(home: Path) -> dict[str, str]:
+    unexpected = {
+        key for key in os.environ
+        if key.startswith("AWS_") and key not in ALLOWED_AWS_ENV
+    }
+    if unexpected or any(not os.environ.get(key) for key in ALLOWED_AWS_ENV):
+        fail("credential_shape")
+    return {
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(home),
+        "LC_ALL": "C",
+        "TZ": "UTC",
+        "AWS_ACCESS_KEY_ID": os.environ["AWS_ACCESS_KEY_ID"],
+        "AWS_SECRET_ACCESS_KEY": os.environ["AWS_SECRET_ACCESS_KEY"],
+        "AWS_DEFAULT_REGION": "us-west-2",
+        "AWS_REGION": "us-west-2",
+        "AWS_PAGER": "",
+        "AWS_EC2_METADATA_DISABLED": "true",
+        "AWS_SHARED_CREDENTIALS_FILE": "/dev/null",
+        "AWS_CONFIG_FILE": "/dev/null",
+    }
+
+
+def child_main(repo: Path) -> None:
+    token = os.environ.get("RECOVERY_INTERNAL_TOKEN", "")
+    workspace_value = os.environ.get("RECOVERY_INTERNAL_WORKSPACE", "")
+    expected_token = os.environ.get("RECOVERY_INTERNAL_EXPECTED_TOKEN", "")
+    if not re.fullmatch(r"[0-9a-f]{64}", token) or token != expected_token or not workspace_value:
+        fail("internal_invocation")
+    workspace = Path(workspace_value)
+    metadata = protected_metadata(workspace, directory=True)
+    if stat.S_IMODE(metadata.st_mode) != 0o700:
+        fail("workspace_metadata")
+    expected = evidence(repo)
+    aws = binary_from_environment("HOME_LAB_AWS_BINARY", "aws")
+    environment = aws_environment(workspace)
+    bucket = os.environ["AWS_S3_BUCKET_NAME"]
+    if not bucket or any(ord(character) < 32 or ord(character) == 127 for character in bucket):
+        fail("credential_shape")
+
+    identity = json_command([str(aws), "sts", "get-caller-identity", "--output", "json", "--no-cli-pager"], environment)
+    arn = identity.get("Arn")
+    if not isinstance(arn, str) or digest(arn.encode()) != expected["principal_arn_sha256"]:
+        fail("principal_identity")
+
+    versions = json_command([
+        str(aws), "s3api", "list-object-versions", "--bucket", bucket,
+        "--output", "json", "--no-cli-pager",
+    ], environment)
+    values = versions.get("Versions", [])
+    markers = versions.get("DeleteMarkers", [])
+    if not isinstance(values, list) or not isinstance(markers, list):
+        fail("version_listing")
+    matches = []
+    for item in values:
+        if not isinstance(item, dict):
+            fail("version_listing")
+        key = item.get("Key")
+        version_id = item.get("VersionId")
+        if (
+            isinstance(key, str)
+            and isinstance(version_id, str)
+            and digest(key.encode()) == expected["object_key_sha256"]
+            and digest(version_id.encode()) == expected["version_id_sha256"]
+            and item.get("Size") == expected["bytes"]
+            and type(item.get("IsLatest")) is bool
+        ):
+            matches.append(item)
+    if len(matches) != 1:
+        fail("exact_version")
+    selected = matches[0]
+    if any(
+        isinstance(item, dict)
+        and item.get("Key") == selected["Key"]
+        and item.get("VersionId") == selected["VersionId"]
+        for item in markers
+    ):
+        fail("exact_version")
+
+    destination = workspace / "bundle.age"
+    if destination.exists() or destination.is_symlink():
+        fail("download_destination")
+    response = json_command([
+        str(aws), "s3api", "get-object", "--bucket", bucket,
+        "--key", selected["Key"], "--version-id", selected["VersionId"],
+        "--checksum-mode", "ENABLED", "--output", "json", "--no-cli-pager",
+        str(destination),
+    ], environment, timeout=600)
+    downloaded = protected_metadata(destination)
+    if stat.S_IMODE(downloaded.st_mode) not in {0o400, 0o600}:
+        fail("download_metadata")
+    try:
+        with destination.open("rb") as stream:
+            os.fsync(stream.fileno())
+            observed_hash = hashlib.file_digest(stream, "sha256").hexdigest()
+    except OSError:
+        fail("download_read")
+    if (
+        downloaded.st_size != expected["bytes"]
+        or observed_hash != expected["ciphertext_sha256"]
+        or response.get("ContentLength") != expected["bytes"]
+        or response.get("ServerSideEncryption") != "aws:kms"
+        or response.get("VersionId") != selected["VersionId"]
+    ):
+        fail("download_identity")
+    result = {
+        "aws_identity": "matched",
+        "bundle_bytes": expected["bytes"],
+        "bundle_ciphertext_sha256": expected["ciphertext_sha256"],
+        "exact_version": "matched",
+        "kms_encryption": "matched",
+        "selected_version_current": selected["IsLatest"],
+        "state": "retrieved-verified",
+        "verified_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "version": 1,
+    }
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+
+
+def parent_main(repo: Path) -> None:
+    if os.environ.get("RECOVERY_READ_ONLY_CONFIRMED") != CONFIRMATION:
+        fail("confirmation_required")
+    if any(key.startswith("AWS_") for key in os.environ):
+        fail("ambient_aws_environment")
+    unexpected_sops = {key for key in os.environ if key.startswith("SOPS_") and key != "SOPS_AGE_KEY_FILE"}
+    if unexpected_sops:
+        fail("ambient_sops_environment")
+    age_key_value = os.environ.get("SOPS_AGE_KEY_FILE", "")
+    workspace_parent_value = os.environ.get("RECOVERY_RETRIEVAL_WORKSPACE_PARENT", "")
+    if not age_key_value or not workspace_parent_value:
+        fail("required_environment")
+    age_key = Path(age_key_value)
+    age_metadata = protected_metadata(age_key)
+    if stat.S_IMODE(age_metadata.st_mode) not in {0o400, 0o600}:
+        fail("age_key_metadata")
+    workspace_parent = Path(workspace_parent_value)
+    parent_metadata = protected_metadata(workspace_parent, directory=True)
+    if stat.S_IMODE(parent_metadata.st_mode) != 0o700:
+        fail("workspace_metadata")
+
+    sops = binary_from_environment("HOME_LAB_SOPS_BINARY", "sops")
+    aws = binary_from_environment("HOME_LAB_AWS_BINARY", "aws")
+    age_keygen = binary_from_environment("HOME_LAB_AGE_KEYGEN_BINARY", "age-keygen")
+    credential = repo / "secrets/recovery-publication.sops.json"
+    validate_credential_document(credential)
+    expected = evidence(repo)
+    recipient_environment = {"PATH": "/usr/bin:/bin", "HOME": str(workspace_parent), "LC_ALL": "C", "TZ": "UTC"}
+    try:
+        recipient = command([str(age_keygen), "-y", str(age_key)], recipient_environment).decode().strip()
+    except UnicodeDecodeError:
+        fail("age_recipient")
+    if recipient != EXPECTED_RECIPIENT:
+        fail("age_recipient")
+
+    workspace = Path(tempfile.mkdtemp(prefix="bundle-retrieval.", dir=workspace_parent))
+    workspace.chmod(0o700)
+    token = secrets.token_hex(32)
+    child_command = shlex.join([
+        sys.executable, "-I", "-B", "-E", "-s", "-S", str(Path(__file__).resolve()), INTERNAL_ARGUMENT,
+    ])
+    sops_environment = {
+        "PATH": "/usr/bin:/bin",
+        "HOME": str(workspace),
+        "LC_ALL": "C",
+        "TZ": "UTC",
+        "SOPS_AGE_KEY_FILE": str(age_key),
+        "RECOVERY_INTERNAL_TOKEN": token,
+        "RECOVERY_INTERNAL_EXPECTED_TOKEN": token,
+        "RECOVERY_INTERNAL_WORKSPACE": str(workspace),
+        "HOME_LAB_AWS_BINARY": str(aws),
+    }
+    try:
+        raw = command([str(sops), "exec-env", str(credential), child_command], sops_environment, timeout=900)
+        if len(raw) > 16 * 1024:
+            fail("child_output")
+        try:
+            result = json.loads(raw, object_pairs_hook=duplicate_free_object)
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            fail("child_output")
+        expected_keys = {
+            "aws_identity", "bundle_bytes", "bundle_ciphertext_sha256", "exact_version",
+            "kms_encryption", "selected_version_current", "state", "verified_at", "version",
+        }
+        if (
+            not isinstance(result, dict)
+            or set(result) != expected_keys
+            or result.get("aws_identity") != "matched"
+            or result.get("bundle_bytes") != expected["bytes"]
+            or result.get("bundle_ciphertext_sha256") != expected["ciphertext_sha256"]
+            or result.get("exact_version") != "matched"
+            or result.get("kms_encryption") != "matched"
+            or result.get("state") != "retrieved-verified"
+            or result.get("version") != 1
+            or type(result.get("selected_version_current")) is not bool
+            or not isinstance(result.get("verified_at"), str)
+            or TIMESTAMP.fullmatch(result["verified_at"]) is None
+        ):
+            fail("child_output")
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+    if workspace.exists() or workspace.is_symlink():
+        fail("workspace_cleanup")
+    result["state"] = "retrieved-verified-removed"
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+
+
+def main() -> None:
+    os.umask(0o077)
+    repo = Path(__file__).resolve().parent.parent
+    if sys.argv[1:] == [INTERNAL_ARGUMENT]:
+        child_main(repo)
+    elif sys.argv[1:]:
+        fail("usage")
+    else:
+        parent_main(repo)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except RetrievalFailure as error:
+        suffix = f" stderr_sha256={digest(error.stderr)}" if error.stderr else ""
+        print(f"aws_recovery_bundle_access=failed reason={error.reason}{suffix}", file=sys.stderr)
+        raise SystemExit(1)

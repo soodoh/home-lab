@@ -12,10 +12,11 @@ The old generic controller is removed, not an alternative recovery path.
 Keep independent recovery access, protected state, credentials, current/previous
 application generations and all retained operation journals. A failed or ambiguous
 operation requires inspection and a specific recovery decision, not lock deletion.
-The closed [custody audit](../docs/decisions.md#custody-is-separate-from-receipt-cleanup)
-separates remote provider state from unresolved independent recovery access and
-two local qualification-state dependencies. The operator owns external-escrow
-verification; metadata alone does not qualify recovery.
+The [custody decision](../docs/decisions.md#custody-is-separate-from-receipt-cleanup)
+separates remote provider state, independently held key material and actual bundle
+retrieval. The operator-confirmed offsite USB closes age-key location custody, but
+metadata and key possession alone do not qualify AWS access, bundle retrieval or
+recovery.
 
 Future native actions must not depend on a previous runner's local validation
 artifacts or committed success receipts. Re-observe current host state; retain
@@ -161,13 +162,15 @@ credential at `secrets/recovery-publication.sops.json` is controller-only, never
 part of the Compose artifact or production installation.
 
 [SOPS/age custody and decryption constraints](../docs/sops-age.md) remain required:
-production identity `/etc/sops/age/keys.txt` (0600, parent 0700), independent identity
-and GPG escrow under `~/.config/sops/home-lab-recovery`. The recovery key is currently
-on the developer machine; custody of the documented external ciphertext copy remains
-unverified. Independent off-machine custody is an open gap, not established recovery access.
-Bootstrap must not overwrite rotating rclone client state. Obscured rclone values
-are plaintext-equivalent. Restore/rotate credentials only with independent recovery
-proof and without logging values or reusing historical transaction confirmations.
+production identity `/etc/sops/age/keys.txt` (0600, parent 0700), the controller-local
+independent identity and its operator-confirmed exact copy on an offline offsite USB.
+The USB is the canonical independent key path; the home Vaultwarden copy is only a
+convenience, and historical GPG ciphertext is a preserved optional legacy envelope.
+The separately authorized [AWS retrieval drill](aws-bundle-retrieval.md) must still
+prove publication-credential and exact bundle access. Bootstrap must not overwrite
+rotating rclone client state. Obscured rclone values are plaintext-equivalent.
+Restore/rotate credentials only with independent recovery proof and without logging
+values or reusing historical transaction confirmations.
 
 ## Host/network and interrupted-operation recovery
 
@@ -188,10 +191,11 @@ observer/private-preparer/plan/deploy generation and disabled obsolete account
 shells while preserving those records. Autonomous firewall recovery is independent
 and unchanged.
 Preserve strict host-key checking, independent console, VM100 disk identities,
-ZFS topology, NFS mount/export state and selected VFIO helper/policy. The retained
-source-owned deploy transport handles only Restic recovery network identity and
-snippet staging/removal; removing it would strand recovery. A network-disconnected controller cannot execute
-Ansible rescue; the firewall's persistent watchdog must remain available.
+ZFS topology, NFS mount/export state and selected VFIO helper/policy. The dedicated
+Proxmox Restic transport and its snippet staging/removal path are retired; do not
+reconstruct them. The Docker-host `ansible-deploy` lifecycle/recovery route remains,
+but it is not independent recovery access. A network-disconnected controller cannot
+execute Ansible rescue; the firewall's persistent watchdog must remain available.
 
 For a failed `restic_backup` convergence, inspect the exact owner at
 `/var/lib/iac-ansible-production.lock`. The retained `clear-failed-apply-lock.yml`
@@ -225,4 +229,7 @@ production activation or clean rebuild. Generic Restic bundle, restore and criti
 backup recovery remain supported independently of the removed VM harness. Retain
 transaction directories when plaintext cleanup fails. The eight-hour recovery
 objective remains unqualified until a timed end-to-end isolated exercise succeeds.
-Source tests and the retired VM harness do not satisfy that live recovery gate.
+Source tests and the retired VM harness do not satisfy that live recovery gate. The
+[current readiness assessment and qualification plan](../docs/recovery-readiness-assessment.md)
+separates independent staging proof from service activation and lists the required
+admission, custody and authorization gates.

@@ -866,9 +866,11 @@ must not block source checks; synthetic invalid configuration must fail. Retired
 flags must exit 2 without printing source success, even with malformed inputs.
 The other two tests inspect source and synthetic objects only, never execute host roles.
 
-The closed [custody audit](decisions.md#custody-is-separate-from-receipt-cleanup)
-leaves independent recovery access unresolved. The two former local
-qualification-state dependencies are now empty after exact separately authorized
+The [custody decision](decisions.md#custody-is-separate-from-receipt-cleanup)
+now records confirmed offline offsite USB custody for the independent age identity;
+repository availability, publication-credential use and exact AWS bundle retrieval
+remain unverified. The two former local qualification-state dependencies are now
+empty after exact separately authorized
 resource deletes, but their states, predecessor generations and recovery inputs remain
 preserved as historical lineage. Working logging/backup configuration and operational
 safety gates remain unchanged.

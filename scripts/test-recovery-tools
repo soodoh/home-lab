@@ -71,6 +71,7 @@ PY
 
 # Shared recovery surfaces remain executable after Offen-only retirement.
 python3 -m py_compile "$repo_root/scripts/compose-recovery-plan.py" "$repo_root/scripts/compose-action-plan.py" "$repo_root/scripts/compose-model-inventory.py"
+python3 -B "$repo_root/scripts/controller/test-aws-recovery-bundle-access.py"
 "$repo_root/scripts/test-nextcloud-config"
 "$repo_root/scripts/test-compose-secret-files"
 "$repo_root/scripts/test-restic-restore-branch"
