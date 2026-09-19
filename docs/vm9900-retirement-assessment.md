@@ -251,17 +251,18 @@ one broad play.
    body/ETag matched; planned-after and post-apply live policy matched.
 7. **Completed — retire source only after live closure.** Both VM9900 Tofu roots,
    controllers, plan inspectors, fixtures, installed-capability setup/retirement
-   source and dedicated tests are removed. The disposable `qualification-canary`
+   source and dedicated tests are removed in commit
+   `5b0a1f040abf50e9c5b078e0d4cadb701c54804a`. The disposable `qualification-canary`
    route and its retained-lock recovery are removed without changing the production
    lifecycle operations. Contract and protected-access expectations now omit the
    retired Proxmox route. Historical evidence schemas and every ignored `.local`,
    `.reconcile` and `.terraform` artifact remain.
-8. **Pending — final retained-root verification.** Native Proxmox observation passed
-   after the policy update, the Tailscale root returned a fresh zero-change plan,
-   focused tests and source validation passed, and protected Compose validation
-   completed without printing resolved configuration. Fresh post-retirement plans
-   for the retained Proxmox, AWS, Omada and Authentik roots still require separate
-   operational authority.
+8. **Completed — final retained-root verification.** Native Proxmox observation
+   passed after the policy update. Fresh provider-backed plans for Tailscale,
+   retained Proxmox, AWS foundation, Omada and Authentik all returned zero changes
+   from clean pushed source. Focused tests, contract/policy checks, source parsing,
+   Markdown links, formatting, Ansible syntax checks, generic Restic fixtures and
+   protected quiet Compose validation passed without printing resolved configuration.
 
 ## Validation and retained evidence
 
