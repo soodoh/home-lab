@@ -47,9 +47,6 @@ for (const field of ["image_packages", "packages", "services"]) {
     assert(!validateBaseline({ ...contract.debian.baseline, [field]: replacement }));
   }
 }
-const qualificationInventory = yaml("ansible/inventory/debian-qualification.yml");
-const qualificationHost = qualificationInventory.all.children.docker_host.hosts["debian-lifecycle-qualification"];
-
 assert.equal(contract.debian.locale, "C.UTF-8");
 assert.equal(groupVars.debian_locale, "{{ debian.locale }}");
 assert.deepEqual(groupVars.debian_protected_mounts, "{{ debian.qualification.protected_mounts }}");
@@ -73,12 +70,6 @@ for (const task of site.tasks) {
   assert.deepEqual(task.tags, [dispatch.name]);
 }
 assert.equal(audit.roles[0].role, "debian_lifecycle_guard");
-assert.equal(qualificationHost.lifecycle_profile, "inert");
-assert.equal(qualificationHost.lifecycle_contract_host, "debian");
-assert.equal(qualificationHost.ansible_user, "ansible-deploy");
-const qualificationSsh = qualificationHost.ansible_ssh_common_args;
-for (const required of ["StrictHostKeyChecking=yes", "GlobalKnownHostsFile=/dev/null", "UpdateHostKeys=no", "IdentityAgent=none", "IdentitiesOnly=yes", "PreferredAuthentications=publickey", "PasswordAuthentication=no", "KbdInteractiveAuthentication=no", "RequestTTY=no"]) assert(qualificationSsh.includes(required));
-assert(qualificationHost.ansible_ssh_private_key_file.includes("HOME_LAB_DEBIAN_QUALIFICATION_PRIVATE_KEY"));
 
 assert.deepEqual(guardTasks.find((task) => task.name === "Inspect secret identity and Tailscale state boundaries")["ansible.builtin.stat"], {
   path: "{{ item }}", follow: false, get_checksum: false, get_mime: false, get_attributes: false,
@@ -325,7 +316,7 @@ class ActionModule(ActionBase):
   const baselineLock = contract.debian.baseline.packages.map((name) => `${name}=1.0-fixture`);
   let baseRuns = 0;
   function runBase(label, { vars = {}, extraVars = {}, state = freshBaseState(), check = false,
-    host = contract.debian.transaction.qualification_canary_inventory_host } = {}) {
+    host = "fixture-inert" } = {}) {
     writeFixture("base-inventory", `${host} ansible_connection=local\n`);
     const { ansible_facts: seededFacts, ...playVars } = { ...baseVars, ...vars };
     writeFixture("base-play.yml", JSON.stringify([{
@@ -366,7 +357,7 @@ class ActionModule(ActionBase):
     const first = runBase(`first ${lifecycle_profile}`, { vars: { lifecycle_profile, ...locked } });
     baseSucceeded(first);
     assert.match(first.output, /changed=[1-9]/);
-    assert.equal(first.state.hostname, contract.debian.transaction.qualification_canary_hostname);
+    assert.equal(first.state.hostname, contract.vm_100.host_name);
     assert.equal(first.state.timezone, contract.system_timezone);
     assert.deepEqual(first.state.services, contract.debian.baseline.services);
     assert.equal(first.state.files["/etc/locale.conf"].content, "LANG=C.UTF-8\n");
@@ -401,7 +392,7 @@ class ActionModule(ActionBase):
         vars: { ansible_facts: { ...baseVars.ansible_facts, [field]: invalid } } }), state, true);
     }
     for (const extraVars of [
-      { debian_base_hostname: contract.vm_100.host_name }, { apt_packages_requested: ["unapproved"] },
+      { debian_base_hostname: "unapproved-hostname" }, { apt_packages_requested: ["unapproved"] },
       { apt_packages_policy_rc_d: 0 }, { apt_packages_policy_rc_d: "101" },
       { base_services: ["docker.service"] }, { debian_locale: "en_US.UTF-8" },
     ]) {

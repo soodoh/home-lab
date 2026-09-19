@@ -109,28 +109,34 @@ image-pruning helper.
 | `infrastructure/contract/`, schemas, renderers and validators | HCL, host roles, Restic and recovery still read these values. Migrate each consumer into typed native inputs before removing the global contract. |
 | Compose artifact/model/action/diff/image helpers, operation-specific staging/deploy/rollback roles | Legacy migration, data recovery and installed image-retention consumers remain. General staging/deployment is refused; native check qualification deliberately does not replace those operation-specific recovery consumers. |
 | Restic runner, bootstrap/init/first-run/qualification helpers and recovery plays | Writer quiescence, interrupted-backup recovery, repository identity, pending-copy retention and retained operation journals remain real dependencies. |
-| Proxmox deploy activator/transport | The final read found all boot/network/storage/NFS/Tailscale/package ownership journals committed. The retained prepared package record is preserved as historical evidence. The installed activator was removed in the approved September 17 cleanup; the deploy transport is now the source-owned Restic-only route. |
+| Proxmox deploy activator/transport | The final read found all boot/network/storage/NFS/Tailscale/package ownership journals committed. The retained prepared package record is preserved as historical evidence. The installed activator was removed in the approved September 17 cleanup; the later VM9900 closure retired the remaining Restic-only deploy transport, account capability and source. |
 | Installed Proxmox observer/private preparer/plan transport | Active source callers and installed helper/access generations are retired. The approved cleanup preserved root-only before-images, removed obsolete helpers/sudo, disabled obsolete shells and passed a zero-change second normal run. The known PVE root key remains inert behind the checked root-specific effective sshd public-key/root-login refusals and is checked by native observation. |
 | Firewall transaction, boot recovery and persistent watchdog | Autonomous rollback must survive controller/network loss; Ansible rescue cannot provide that. Its source/runtime is independent of the removed Nix tree. |
 | Historical Nix recovery material | Active `nix/`, bundle/planner/bootstrap and protected-input writer source is retired. Preserve the old host checkout, previous generation, install manifest, sealed inputs and historical Git checkpoint until their explicit disposition; do not reintroduce them as current automation. |
-| VM9900 qualification and recovery roots/helpers | Possible live VM, disks, snippets, ACLs, keys and failed-operation state require separately authorized inventory/retirement. |
+| VM9900 qualification and recovery roots/helpers | Live provider and host capability retirement is complete; callable source is removed. Preserve ignored state/cache generations, journals, plans, receipts, diagnostics and capability evidence as historical lineage. |
 | JS dependencies and provider locks | Contract and policy consumers still need AJV/js-yaml. Retiring the Proxmox projection does not eliminate Node/Bun dependencies. |
 
 ### Qualification and provider-adoption retirement boundary
 
-The September 18 source and live audit confirms that VM9900 still belongs to the
-Debian lifecycle root. Its preserved local state binds the qualification image,
-VM 9900 and firewall options/rules; the live stopped VM uses the Debian lifecycle
-name, root-disk serial and cloud-init snippet. Its dedicated ACL, account, sudo rule,
-snippet transport, transaction helper, diagnostic directory and snippet remain
-installed. The preserved Restic reconciliation state separately binds the still
-present recovery image, while the Restic snippet is absent. Those different state
-lineages do not isolate the shared hypervisor identity. Keep both VM9900 roots,
-provider locks, inventories, snippets, evidence, installed capability source and
-recovery consumers until the recovery-image and failed-operation lineage receive a
-separate retirement decision. The read-only
-[VM9900 retirement assessment](vm9900-retirement-assessment.md) records the fresh
-ownership boundary and proposes a phased disposition; it authorizes no mutation.
+The September 18 source and live audit established the exact Debian and Restic
+VM9900 ownership lineages before retirement. Separately approved saved plans then
+deleted the stopped Debian VM, its two LVs, firewall resources and Debian image, and
+deleted the Restic root's sole indexed image. Both preserved local states now contain
+no resources. PVE removed `/vms/9900` with the VM. A later bounded host phase locked
+the two dedicated Proxmox accounts, removed the seven exact capability files and
+preserved homes, diagnostics, capability evidence and before-images. A guarded native
+Tailscale full-policy update removed the two retired Proxmox SSH users; immediate
+live-before body/ETag comparison, planned-after comparison and a fresh zero-change
+plan passed.
+
+Callable VM9900 roots, controllers, plan inspectors, fixtures, setup/retirement
+plays and dedicated tests are removed. The disposable Debian `qualification-canary`
+transaction route and its now-unneeded retained-lock recovery are also removed;
+production lifecycle recovery operations remain. The
+[VM9900 retirement assessment](vm9900-retirement-assessment.md) records exact plan,
+state, policy and preservation evidence. Keep every ignored `.local`, `.reconcile`
+and `.terraform` generation, journal, plan, receipt, diagnostic and evidence record;
+source deletion is not permission to erase them or reuse VMID 9900.
 
 The disposable disk-adoption source is retired. Its current local state is empty;
 the immediately preceding state generation records VM9951 and four disks on the
@@ -155,9 +161,14 @@ planned-after policy and the ETag changed. After that convergence, the now-redun
 `terraform_data.tailscale_policy[0]` placeholder was explicitly removed from state
 and its source/policy fixtures were retired; before/after reads again proved no live
 policy change, and a fresh native-only provider plan reported zero changes. The old
-custom ETag evidence helpers remain retired. Provider updates overwrite the complete
-policy without an ETag precondition, so future changes still require a fresh
-pre-apply comparison, separate authorization and frozen dashboard edits.
+custom ETag evidence helpers remain retired. The later VM9900 closure update used the
+same guarded procedure: one native policy update, exactly four SSH/test list changes,
+immediate planned-before/body/ETag equality and exact planned-after live equality.
+It removed only the retired Proxmox `ansible-deploy` and `qualification-apply` users;
+Docker-host `ansible-deploy`, `proxmox`, `firewall-apply`, grants and network tests
+remain. Provider updates overwrite the complete policy without an ETag precondition,
+so future changes still require a fresh pre-apply comparison, separate authorization
+and frozen dashboard edits.
 
 Omada remote state exactly matches its one network and eight reservations, and
 Authentik remote state exactly matches all 79 declared managed addresses plus two
@@ -218,12 +229,14 @@ decryptability or successful recovery. Bundle B's restricted HEAD access is not
 absence. Current state objects use SSE-S3 despite KMS bucket defaults; this is
 not authorization to rewrite encryption or a prerequisite for safe source work.
 
-Two local qualification-state dependencies remain unresolved: Debian lifecycle's
+The two former local qualification-state dependencies are now closed but remain
+preserved: Debian lifecycle's
 `.local/qualification-route/clean-first-boot-foundation-final/state.tfstate` and
-Restic recovery's `.reconcile/restic-recovery-vm/09d091e5c9f44eafaf5a8b89576c9929e1fa5644/tofu.tfstate`.
-Preserve both and their recovery inputs. Leave VM9900 unchanged; neither state
-migration nor retirement is authorized by closing this audit or by the subsequent
-[retirement assessment](vm9900-retirement-assessment.md).
+Restic recovery's `.reconcile/restic-recovery-vm/09d091e5c9f44eafaf5a8b89576c9929e1fa5644/tofu.tfstate`
+contain no resources after exact separately authorized deletes. Preserve both states,
+their preceding generations and all recovery inputs. Do not apply historical plans,
+remove state, erase lineage or treat closure as permission to reuse VMID 9900; see
+the [retirement assessment](vm9900-retirement-assessment.md).
 
 The recovery key is currently on this developer machine; **off-machine custody
 is not verified and remains an open gap**. The operator will verify external escrow

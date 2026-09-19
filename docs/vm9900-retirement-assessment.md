@@ -2,10 +2,11 @@
 
 ## Status and authority
 
-Full VM9900 retirement was selected. The two separately reviewed provider phases
-and the bounded host-capability phase were applied on September 18, 2026. Tailscale
-policy and final source retirement remain pending and require separate explicit
-approval.
+Full VM9900 retirement was selected and completed in separately reviewed phases on
+September 18, 2026. Both provider-owned lineages are empty, the bounded host
+capability is retired, the live Tailscale policy denies the retired Proxmox users,
+and callable VM9900 source is removed. Historical state, journals, plans, receipts,
+diagnostics, capability evidence and ignored provider caches remain preserved.
 
 The initial observation at approximately 20:45 UTC used clean commit
 `5c7b8e2d95431f006d57fdab5732da3329d52e68`. Native Proxmox observation passed 20
@@ -49,6 +50,20 @@ removed exactly seven snippet/helper/transport/sudo files. It preserved both hom
 empty `.ssh` directories, five diagnostic entries, the exact capability record,
 VM100 and both retained plan-token ACLs. The shared operation owner was released.
 No Tailscale policy was changed by the host phase.
+
+Source policy commit `f114010d` removed only the Proxmox-side `ansible-deploy` and
+`qualification-apply` SSH users while retaining Docker-host `ansible-deploy`,
+`proxmox` and `firewall-apply`. The separately authorized saved full-policy plan had
+SHA-256 `01b8243709d10090e9374aa96aafbdf4257dc34c262e30b5ffa84c84450962e7`
+and authorization SHA-256
+`f9fc43bd3c7171681f18c51b27a259220505f771a2b2251d922ae4eecf515c47`.
+Its sole action updated `tailscale_acl.policy[0]`; its four semantic differences were
+the two Proxmox SSH user lists and matching accept/deny test lists. A protected read
+immediately before apply matched both the planned-before policy and original ETag.
+The post-apply policy matched planned-after SHA-256
+`a2f51c28f1f59c4ac9339cdbf27ae7ab6c370afafb5bec13cd628d58a86eed6e`,
+the ETag changed, remote state retained exactly the native ACL owner and a fresh
+provider plan returned zero changes.
 
 ## Historical ownership and retained capability
 
@@ -229,21 +244,24 @@ one broad play.
    `/vms/100` plan-token access remained exact. Diagnostics, capability evidence,
    before-images, local snippet-storage support, the firewall watchdog, native
    `proxmox` access and VM100 remained unchanged.
-6. **Pending — narrow Tailscale policy separately.** Remove `qualification-apply` and the now
-   unused Proxmox-side `ansible-deploy` SSH grants/tests while preserving Docker-host
-   `ansible-deploy`, `proxmox` and `firewall-apply`. Follow the full-policy ETag/live
-   comparison procedure and use a separately authorized saved plan.
-7. **Pending — retire source only after live closure.** Remove both VM9900 Tofu roots,
-   controllers, plan inspectors, fixtures, install/retirement playbooks and dedicated
-   tests. Remove the disposable `qualification-canary` execution route without
-   disturbing production lifecycle recovery operations. Update the contract and
-   native protected-access expectations together. Keep historical evidence schemas
-   and every ignored `.local`, `.reconcile` and `.terraform` artifact.
-8. **Pending — final verification.** Re-run native Proxmox observation with the reviewed
-   post-retirement access expectation, require fresh zero-change provider plans for
-   retained roots, verify Tailscale live policy against source, run focused tests,
-   parse changed YAML, check Markdown links, run `tofu fmt -check`, and run protected
-   Compose validation without printing resolved configuration.
+6. **Completed — narrow Tailscale policy separately.** A fresh protected read and
+   exact one-update saved plan removed `qualification-apply` and the Proxmox-side
+   `ansible-deploy` from live SSH grants/tests while preserving Docker-host
+   `ansible-deploy`, `proxmox` and `firewall-apply`. Planned-before and pre-apply live
+   body/ETag matched; planned-after and post-apply live policy matched.
+7. **Completed — retire source only after live closure.** Both VM9900 Tofu roots,
+   controllers, plan inspectors, fixtures, installed-capability setup/retirement
+   source and dedicated tests are removed. The disposable `qualification-canary`
+   route and its retained-lock recovery are removed without changing the production
+   lifecycle operations. Contract and protected-access expectations now omit the
+   retired Proxmox route. Historical evidence schemas and every ignored `.local`,
+   `.reconcile` and `.terraform` artifact remain.
+8. **Pending — final retained-root verification.** Native Proxmox observation passed
+   after the policy update, the Tailscale root returned a fresh zero-change plan,
+   focused tests and source validation passed, and protected Compose validation
+   completed without printing resolved configuration. Fresh post-retirement plans
+   for the retained Proxmox, AWS, Omada and Authentik roots still require separate
+   operational authority.
 
 ## Validation and retained evidence
 

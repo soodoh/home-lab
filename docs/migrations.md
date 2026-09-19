@@ -335,11 +335,11 @@ LiteLLM recreation and separate liveness/provider-model acceptance decision.
   [manual-update policy](operations.md#manual-update-policy) supersedes legacy
   automatic-install settings. Other host domains and legacy bootstrap policy
   still need adoption.
-- **Recovery/VM9900:** a September 18 bounded live read found the stopped VM using
-  the Debian lifecycle identity, disk serial and snippet. Its ACL, qualification
-  account, sudo rule, helper and transport remain installed. The Restic snippet is
-  absent, but its separately tracked recovery image still exists and the retained
-  Restic state/recovery controller consume that lineage. Separate local backends do
-  not isolate two roots using the same VMID on production PVE. Stopped state alone
-  does not authorize reuse or destruction. Fresh boot and end-to-end production
-  activation remain unqualified.
+- **Recovery/VM9900:** the September 18 bounded audit established exact Debian and
+  Restic ownership before separately approved retirement. Exact saved plans removed
+  the stopped VM, its LVs/firewall/image and the distinct Restic image through their
+  owning states; both states are now empty. The dedicated Proxmox capability and
+  Tailscale grants are retired, callable source is removed, and VM100 remains
+  unchanged. Preserve all ignored state/cache generations, journals, plans, receipts,
+  diagnostics and evidence. Never apply historical plans or reuse VMID 9900. Fresh
+  boot and end-to-end production activation remain unqualified.

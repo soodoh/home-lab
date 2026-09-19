@@ -1,9 +1,0 @@
----
-- name: Retire committed Proxmox legacy helper access
-  hosts: proxmox
-  gather_facts: false
-  serial: 1
-  any_errors_fatal: true
-  roles:
-    - role: proxmox_observe
-    - role: proxmox_legacy_access_retire

@@ -107,7 +107,7 @@ class ProductionDependencies(unittest.TestCase):
         declaration = schema["properties"]["debian"]["properties"]["transaction"]
         self.assertEqual(declaration["properties"]["production_systemd_dependencies"]["const"], GRAPH)
         self.assertIn("production_systemd_dependencies", declaration["required"])
-        self.assertEqual(UNITS, list(host.QUALIFICATION_UNITS))
+        self.assertEqual(UNITS, list(host.PRODUCTION_UNITS))
         for unit in UNITS[:2]:
             for prop in ("Requires", "After"):
                 self.assertTrue({"home-lab-production-guard.service", "mnt-games.mount", "mnt-storage.mount", r"srv-home\x2dlab\x2dstate.mount"}.issubset(GRAPH[unit][prop]))
@@ -270,7 +270,7 @@ if (validate(contract)) throw Error('missing graph accepted');
                 elif argv[:2] == ["/usr/bin/systemctl", "show"]:
                     text = shown(GRAPH[argv[2]]) if argv[-1] == "--property=Requires,After" else "LoadState=loaded\nActiveState=inactive\nSubState=dead\n"
                 return subprocess.CompletedProcess(argv, 0, text, "")
-            with patch.object(host, "safe_directory"), patch.object(host, "read_root_regular", side_effect=lambda path, *args: artifacts[str(path)]), patch.object(host, "require_regular"), patch.object(host, "verify_mount"), patch.object(host, "STORAGE_TOKEN", token), patch.object(host, "LIFECYCLE_MARKER", marker), patch.object(host.os, "fchown"), patch.object(host, "run", side_effect=run):
+            with patch.object(host, "safe_directory"), patch.object(host, "read_root_regular", side_effect=lambda path, *args: artifacts[str(path)]), patch.object(host, "require_regular", side_effect=lambda path, *args, **kwargs: os.lstat(path) if Path(path) == marker else None), patch.object(host, "verify_mount"), patch.object(host, "STORAGE_TOKEN", token), patch.object(host, "LIFECYCLE_MARKER", marker), patch.object(host.os, "fchown"), patch.object(host, "run", side_effect=run):
                 host.production(self.plan, "a" * 64)
             starts = [argv[2] for argv in commands if argv[:2] == ["/usr/bin/systemctl", "start"]]
             self.assertEqual(starts, UNITS)
@@ -278,12 +278,6 @@ if (validate(contract)) throw Error('missing graph accepted');
                 start = commands.index(["/usr/bin/systemctl", "start", unit])
                 self.assertEqual(commands[start + 1], ["/usr/bin/systemctl", "is-active", "--quiet", unit])
             self.assertEqual(json.loads(marker.read_bytes())["state"], "production")
-
-    def test_canary_has_no_policy_or_production_state_dependency(self):
-        request = {"receipt_root": str(host.QUALIFICATION_ROOT), "inactive_units": UNITS}
-        with patch.object(host, "production_dependency_policy", side_effect=AssertionError("production policy reached")), patch.object(host, "run", return_value=subprocess.CompletedProcess([], 3, "", "")), patch.object(host, "safe_directory"), patch.object(host.Path, "exists", return_value=True), patch.object(host, "publish_exclusive") as publish:
-            host.qualification({"profile": "inert", "request": {"parameters": request}}, "a" * 64)
-        self.assertEqual(publish.call_count, 1)
 
 
 if __name__ == "__main__":

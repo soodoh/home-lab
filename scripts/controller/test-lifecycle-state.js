@@ -14,7 +14,6 @@ const tasks = readYaml("ansible/roles/lifecycle_state/tasks/main.yml");
 const observePlaybook = readYaml("ansible/playbooks/lifecycle-observe.yml");
 const assertPlaybook = readYaml("ansible/playbooks/lifecycle-assert.yml");
 const inventory = readYaml("ansible/inventory/production.yml");
-const inertInventory = readYaml("ansible/inventory/debian-inert.yml");
 const sitePlaybook = readYaml("ansible/playbooks/site.yml")[0];
 const contract = readYaml("infrastructure/contract/home-lab.yml");
 
@@ -129,14 +128,6 @@ for (const required of ["GlobalKnownHostsFile=/dev/null", "IdentityAgent=none", 
   assert(dockerHost.ansible_ssh_common_args.includes(required), `protected Debian transaction SSH policy omits ${required}`);
 }
 assert(proxmoxHost.ansible_ssh_common_args.includes("HOME_LAB_PROXMOX_PRODUCTION_KNOWN_HOSTS"));
-
-const inertHost = inertInventory.all.children.docker_host.hosts["docker-host-inert"];
-assert.equal(inertHost.lifecycle_contract_host, "debian");
-assert.equal(inertHost.lifecycle_profile, "inert");
-for (const required of ["BatchMode=yes", "StrictHostKeyChecking=yes", "UpdateHostKeys=no", "UserKnownHostsFile=", "IdentitiesOnly=yes", "RequestTTY=no"]) {
-  assert(inertHost.ansible_ssh_common_args.includes(required), `inert inventory SSH policy omits ${required}`);
-}
-assert(!inertHost.ansible_ssh_common_args.includes("StrictHostKeyChecking=no"));
 
 const profileGuard = sitePlaybook.pre_tasks.find((item) => item.name === "Require an explicit Debian lifecycle profile");
 assert(profileGuard, "site.yml must require a lifecycle profile");

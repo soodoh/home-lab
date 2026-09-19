@@ -13,11 +13,7 @@
       - apt_packages_policy_rc_d is integer
       - apt_packages_policy_rc_d == 101
       - base_services == []
-      - >-
-        debian_base_hostname ==
-        (debian.transaction.qualification_canary_hostname
-         if inventory_hostname == debian.transaction.qualification_canary_inventory_host
-         else vm_100.host_name)
+      - debian_base_hostname == vm_100.host_name
     fail_msg: Inactive base convergence requires the contracted Debian platform, hostname, package bindings and service-start suppression.
 
 - name: Require image-provided Python APT bindings without bootstrapping dependencies

@@ -49,40 +49,6 @@ system_name: home-lab
 system_timezone: America/Los_Angeles
 lifecycle:
   version: 1
-  qualification_route:
-    mode: production-pve-disposable-vm
-    pve_host: proxmox
-    vmid: 9900
-    shared_hypervisor_risk_accepted: true
-    host_outage_risk_accepted: true
-    production_vm_mutation_allowed: false
-    production_disk_attachment_allowed: false
-    production_state_allowed: false
-    reuse_production_api_plan_apply_identities: true
-    temporary_tailnet_user: qualification-apply
-    conventional_ssh_key_allowed: false
-    non_destructive_gated_applies_authorized: true
-    historical_stopped_receipt_lineage_with_fresh_admission: true
-    cross_admission_safe_stop_with_fresh_admission: true
-    interrupted_restart_safe_stop:
-      stop_only: true
-      vmid: 9900
-      requires_failed_receipt_absent: true
-      requires_exact_failed_artifact_hashes: true
-      requires_separate_saved_plan_approval: true
-    offline_diagnostic:
-      read_only: true
-      requires_stopped_receipt: true
-      disk_volume: local-lvm:vm-9900-disk-0
-      admission_expiry_grace_seconds: 14400
-      attempt_journal_directory: /var/lib/home-lab/reconciliation/qualification-diagnostic-attempts
-      historical_stopped_receipt_lineage_with_fresh_admission: true
-    separate_exact_approval:
-      - package
-      - reboot
-      - root-disk
-      - destructive
-    selected_at: "2026-09-04T00:10:00Z"
   states:
     - inert
     - bootstrap
@@ -782,47 +748,6 @@ proxmox:
           projectable: true
           absence: file
           path: /etc/sudoers.d/ansible-plan
-      - name: ansible-deploy
-        home: /home/ansible-deploy
-        shell: /usr/local/libexec/home-lab/proxmox-ansible-deploy-transport
-        create_home: true
-        password_lock: true
-        groups: []
-        ssh_directory:
-          kind: runtime-protected-directory
-          projectable: false
-          materialization: metadata-only
-          path: /home/ansible-deploy/.ssh
-          owner: ansible-deploy
-          group: ansible-deploy
-          mode: "0700"
-        authorized_keys:
-          state: absent
-          files:
-            - kind: runtime-protected-file
-              projectable: false
-              materialization: metadata-only
-              path: /home/ansible-deploy/.ssh/authorized_keys
-              owner: ansible-deploy
-              group: ansible-deploy
-              mode: "0600"
-            - kind: runtime-protected-file
-              projectable: false
-              materialization: metadata-only
-              path: /home/ansible-deploy/.ssh/authorized_keys2
-              owner: ansible-deploy
-              group: ansible-deploy
-              mode: "0600"
-        sudo:
-          state: present
-          file:
-            kind: managed-file
-            projectable: true
-            path: /etc/sudoers.d/ansible-deploy
-            owner: root
-            group: root
-            mode: "0440"
-          rule: "ansible-deploy ALL=(root) NOPASSWD: /usr/local/libexec/home-lab/proxmox-restic-recovery-transport"
     human_accounts:
       - name: proxmox
         comment: Home Lab Proxmox Administrator
@@ -1017,7 +942,6 @@ proxmox:
       - { path: /etc/network/interfaces, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/ssh/sshd_config.d/60-home-lab.conf, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/ansible-plan, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
-      - { path: /etc/sudoers.d/ansible-deploy, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/firewall-apply, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/proxmox, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { path: /etc/sudoers.d/tofu-apply, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
@@ -1653,9 +1577,6 @@ debian:
     storage_activation_path: /etc/home-lab/allow-storage-activation
     state_disk_journal_root: /var/lib/home-lab/debian-state-disk-transactions
     host_apply_lock_path: /var/lib/iac-ansible-production.lock
-    qualification_canary_hostname: debian-lifecycle-qualification
-    qualification_canary_inventory_host: debian-lifecycle-qualification
-    qualification_canary_receipt_root: /var/lib/home-lab/debian-lifecycle-qualification-canaries
     compose_command: [/usr/bin/docker, compose, --project-name, docker-compose, --project-directory, /srv/docker-compose/current, --env-file, /etc/docker-compose/production.env, --file, /srv/docker-compose/current/docker-compose.yml, --file, /var/lib/home-lab/production-image-override.json]
     compose_artifact_path: /srv/docker-compose/current/docker-compose.yml
     compose_image_lock_path: /var/lib/home-lab/production-image-override.json

@@ -663,11 +663,11 @@ its immutable evidence consumers remain. The later
 [VM reconciliation](proton-source-retirement.md#vm-recovery--partial-lineage-closure-source-retained)
 records 16 unresolved attempts, six additional resource-cohort bindings and explained
 transport succession; resource destruction/supersession is not plaintext-cleanup proof.
-**Leave VM9900 unchanged: it belongs to Debian lifecycle qualification. Never apply
-an old Proton destroy plan to it.** Active recovery capabilities and consumer inputs
-remain. The read-only [VM9900 retirement assessment](vm9900-retirement-assessment.md)
-proposes separately authorized disposition options; none is approved by this dated
-observation. The audit holds the
+The dated audit originally required leaving VM9900 unchanged. Its later separately
+approved [retirement](vm9900-retirement-assessment.md) deleted both exact provider
+lineages, retired the host/Tailscale capability and removed callable source. Never
+apply an old Proton or qualification plan, and preserve all historical state,
+journals, receipts and consumer inputs. The audit still holds the
 [exact local archive/delete candidates](proton-source-retirement.md#historical-material--disposition-choices-pending-approval),
 all pending approval, with no retention schedule or further host operations.
 Those source passes and read-only reconciliation changed no installed helpers,
@@ -738,6 +738,14 @@ removal retired the redundant placeholder without changing the policy body or ET
 its source and policy fixture were removed at the same boundary. Remote state now
 contains only the native policy owner, and a fresh provider-backed plan returned exit
 0 with no changes. Temporary plans and logs were removed.
+
+The later VM9900 closure used the same guarded full-policy procedure. The authorized
+saved plan updated only `tailscale_acl.policy[0]` with four reviewed SSH/test list
+differences, removing the retired Proxmox-side `ansible-deploy` and
+`qualification-apply` users while preserving Docker-host `ansible-deploy`,
+`proxmox`, `firewall-apply`, grants and network tests. The live body and ETag matched
+the planned-before policy immediately before apply; the post-apply body matched
+planned-after, the ETag changed and a fresh plan returned zero changes.
 
 ## AWS controller permissions boundaries
 
@@ -859,9 +867,11 @@ flags must exit 2 without printing source success, even with malformed inputs.
 The other two tests inspect source and synthetic objects only, never execute host roles.
 
 The closed [custody audit](decisions.md#custody-is-separate-from-receipt-cleanup)
-leaves independent recovery access and two local qualification-state dependencies
-unresolved. Those gaps do not block bounded receipt-dependency source cleanup;
-working logging/backup configuration and operational safety gates remain unchanged.
+leaves independent recovery access unresolved. The two former local
+qualification-state dependencies are now empty after exact separately authorized
+resource deletes, but their states, predecessor generations and recovery inputs remain
+preserved as historical lineage. Working logging/backup configuration and operational
+safety gates remain unchanged.
 
 ## Intended native adoption workflow — not deployment authorization
 
@@ -875,8 +885,10 @@ working logging/backup configuration and operational safety gates remain unchang
    Keep provider locks and protected state history.
 3. Once separately authorized, use native `init -lockfile=readonly`, `validate`,
    `plan -out=<private-file>`, privately review `show`, then apply that exact plan.
-   Do not initialize against guessed buckets or run the VM9900 roots concurrently.
-   A state lock serializes one state key, not UI/API writers or other tools.
+   Do not initialize against guessed buckets. The retired VM9900 roots are no longer
+   callable source; preserve their ignored caches and local state rather than trying
+   to reconstruct them. A state lock serializes one state key, not UI/API writers or
+   other tools.
 4. Adopt benign Ansible domains using explicit inventory and become. Review
    check-mode limitations and the full changed scope. Keep storage, network,
    packages and reboot in separate maintenance windows. A second run should be
@@ -911,9 +923,11 @@ ambiguous locks. Never substitute `docker image prune -a` or volume pruning.
 VM100's source identity is Debian 13 `docker-host`, LAN `192.168.0.100`, tailnet
 `100.116.163.42`. The deployment account is `ansible-deploy`; `docker` is the
 interactive workload account. Native observation uses the existing Tailscale SSH
-route. The fixed Proxmox firewall route and Restic-only recovery transport remain
-installed. Obsolete Nix plan/apply routes were removed by the separately approved
-installed-access retirement described above.
+route. The fixed Proxmox firewall route remains installed. The Proxmox-side
+Restic/VM9900 transport and its dedicated `ansible-deploy` capability are retired;
+the Docker-host `ansible-deploy` lifecycle/recovery route is unchanged. Obsolete Nix
+plan/apply routes were removed by the separately approved installed-access retirement
+described above.
 The guest key captured through Proxmox QGA and matched by tailnet keyscan is
 recorded in `infrastructure/evidence/vm-100-debian-ssh-host-key.json`; that record
 does not establish an independent LAN capture. Verify current trust rather than

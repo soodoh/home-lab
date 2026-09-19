@@ -99,9 +99,8 @@ function validateProxmoxHostPolicy(contract) {
     ["tofu-apply", null],
     ["firewall-apply", null],
     ["ansible-plan", null],
-    ["ansible-deploy", null],
   ]);
-  if (serviceAccounts.length !== expectedServiceAccounts.size) failures.push("exactly five Proxmox service accounts are required");
+  if (serviceAccounts.length !== expectedServiceAccounts.size) failures.push("exactly four Proxmox service accounts are required");
   for (const account of serviceAccounts) {
     const expectedKeyReference = expectedServiceAccounts.get(account.name);
     if (expectedKeyReference === undefined || (expectedKeyReference !== null && expectedKeyReference !== account.authorized_keys.secret_ref)) {
@@ -128,8 +127,7 @@ function validateProxmoxHostPolicy(contract) {
         account.authorized_keys.file.projectable || account.authorized_keys.file.materialization !== "metadata-only") {
       failures.push(`service account ${account.name} authorized-keys path must stay under its home`);
     }
-    const expectedShell = account.name === "firewall-apply" ? "/usr/local/libexec/home-lab/proxmox-firewall-transport" :
-      account.name === "ansible-deploy" ? "/usr/local/libexec/home-lab/proxmox-ansible-deploy-transport" : "/usr/sbin/nologin";
+    const expectedShell = account.name === "firewall-apply" ? "/usr/local/libexec/home-lab/proxmox-firewall-transport" : "/usr/sbin/nologin";
     if (account.shell !== expectedShell || !account.create_home || !account.password_lock) {
       failures.push(`service account ${account.name} must retain its locked login identity`);
     }
@@ -158,15 +156,6 @@ function validateProxmoxHostPolicy(contract) {
   if (ansiblePlanAccount && !retiredAccessIsInert(ansiblePlanAccount)) {
     failures.push("ansible-plan must remain locked with no key or sudo capability");
   }
-  const ansibleDeployAccount = serviceAccounts.find((account) => account.name === "ansible-deploy");
-  const resticRecoveryTransport = "/usr/local/libexec/home-lab/proxmox-restic-recovery-transport";
-  if (ansibleDeployAccount && (ansibleDeployAccount.groups.length || ansibleDeployAccount.sudo?.state !== "present" ||
-      ansibleDeployAccount.sudo?.file?.path !== "/etc/sudoers.d/ansible-deploy" ||
-      ansibleDeployAccount.sudo?.rule !== `ansible-deploy ALL=(root) NOPASSWD: ${resticRecoveryTransport}` ||
-      ansibleDeployAccount.authorized_keys?.state !== "absent")) {
-    failures.push("ansible-deploy must expose only the fixed Restic recovery transport");
-  }
-
   const humanNames = proxmox.access.human_accounts.map((account) => account.name);
   if (duplicates(humanNames).length) failures.push("Proxmox human-account names must be unique");
   if (proxmox.access.human_accounts.length !== 1 || proxmox.access.human_accounts[0].name !== "proxmox") {

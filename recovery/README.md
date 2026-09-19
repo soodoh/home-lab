@@ -209,16 +209,20 @@ transport succession and [pending historical-material choices](../docs/proton-so
 For inactive attempts, **historical outcome unknown; attempt abandoned; no replay**
 does not certify cleanup or release files with surviving consumers. Current bundles,
 identities, consumer-required evidence and active recovery capabilities remain.
-VM9900 belongs to Debian lifecycle qualification: leave it unchanged and never apply
-an old Proton destroy plan. The read-only
-[retirement assessment](../docs/vm9900-retirement-assessment.md) proposes bounded
-options, but does not authorize continuation, destruction or state changes.
+VM9900 and both provider-owned import images are retired through their exact owning
+states; those states now contain no resources. The dedicated Proxmox capability and
+Tailscale grants are also retired, and callable VM9900 source is removed. Never apply
+an old Proton or qualification plan, reconstruct a retired root against the preserved
+state, use `state rm`, erase lineage or treat closure as permission to reuse VMID
+9900. The [retirement assessment](../docs/vm9900-retirement-assessment.md) records the
+exact plans, live-policy binding and postconditions. Preserve all ignored `.local`,
+`.reconcile` and `.terraform` generations, journals, plans, receipts, diagnostics,
+capability evidence and recovery inputs.
 
-VM9900 restore fixtures demonstrated staging/structural validation without running
-applications (historically 22,031 files/6,982,221,998 bytes); they did not qualify
-production activation or clean rebuild. Recovery and lifecycle qualification roots
-share VM9900 on production PVE: separate local state is not hypervisor isolation.
-Check actual VM/disks/snippets/ACLs/firewall/keys and failed-operation lineage before
-any use or cleanup. Retain transaction directories when plaintext cleanup fails.
-The eight-hour recovery objective remains unqualified until a timed end-to-end
-isolated exercise succeeds. None of these live gates is satisfied by source tests.
+The historical VM9900 restore fixtures demonstrated staging/structural validation
+without running applications (22,031 files/6,982,221,998 bytes); they did not qualify
+production activation or clean rebuild. Generic Restic bundle, restore and critical
+backup recovery remain supported independently of the removed VM harness. Retain
+transaction directories when plaintext cleanup fails. The eight-hour recovery
+objective remains unqualified until a timed end-to-end isolated exercise succeeds.
+Source tests and the retired VM harness do not satisfy that live recovery gate.

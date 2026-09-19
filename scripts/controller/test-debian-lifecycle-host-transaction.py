@@ -10,7 +10,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
  storage_sha="1"*64; token.write_text(f"plan_sha256={storage_sha}\n"); before=module.canonical({"source_commit":"a"*40,"state":"recovery","updated_at":"2026-09-04T00:00:00Z","version":1}); marker.write_bytes(before)
  for path,content in ((identity,b"identity"),(artifact,b"artifact"),(image,b"images"),(environment,b"env")): path.write_bytes(content)
  restic.write_bytes(module.canonical({"commit":"a"*40,"format":"home-lab-restic-recovery-activation-receipt-v1","producer_sha256":"f"*64,"repository_id":"1"*64,"restore_manifest_sha256":"2"*64,"snapshot_id":"3"*64,"snapshot_manifest_sha256":"4"*64,"status":"verified","target":"debian","tree_sha256":"5"*64,"version":1}))
- module.STORAGE_TOKEN=token; module.LIFECYCLE_MARKER=marker; module.require_regular=lambda *args,**kwargs:None; module.require_root_regular=lambda *args,**kwargs:None; module.read_root_regular=lambda path,*args,**kwargs:Path(path).read_bytes(); module.safe_directory=lambda path:Path(path); module.verify_mount=lambda *args,**kwargs:None; original_fchown=module.os.fchown; module.os.fchown=lambda *args:None
+ module.STORAGE_TOKEN=token; module.LIFECYCLE_MARKER=marker; module.require_regular=lambda path,*args,**kwargs:os.lstat(path); module.require_root_regular=lambda *args,**kwargs:None; module.read_root_regular=lambda path,*args,**kwargs:Path(path).read_bytes(); module.safe_directory=lambda path:Path(path); module.verify_mount=lambda *args,**kwargs:None; original_fchown=module.os.fchown; module.os.fchown=lambda *args:None
  active=set(); commands=[]; fail_start=False
  def fake(argv,check=True,**kwargs):
   commands.append(tuple(argv))
@@ -32,7 +32,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
  module.fsync_parent=fail_first_marker_sync
  params={"mounts":[],"storage_plan_sha256":storage_sha,"identity_recipient":"age1recipient","tailscale_hostname":"docker-host","tailscale_tags":["tag:docker-host"],"systemd_dependencies":{"unit.service":{"Requires":["dep.mount"],"After":["dep.mount"]}},"lifecycle_marker_sha256":module.sha(before),"compose_artifact_path":str(artifact),"compose_artifact_sha256":module.sha(artifact.read_bytes()),"compose_image_lock_path":str(image),"compose_image_lock_sha256":module.sha(image.read_bytes()),"compose_command":["/usr/bin/docker","compose"],"root_environment_path":str(environment),"root_environment_sha256":module.sha(environment.read_bytes()),"restic_recovery_receipt_path":str(restic),"restic_recovery_receipt_sha256":module.sha(restic.read_bytes())}
  policy={"format":"home-lab-debian-production-dependencies-v1","contract_sha256":"d"*64,"production_units":["unit.service"],"systemd_dependencies":params["systemd_dependencies"]}
- module.PRODUCTION_DEPENDENCY_POLICY=root/"dependencies.json"; module.PRODUCTION_DEPENDENCY_POLICY.write_bytes(module.canonical(policy)); original_units=module.QUALIFICATION_UNITS; module.QUALIFICATION_UNITS=("unit.service",)
+ module.PRODUCTION_DEPENDENCY_POLICY=root/"dependencies.json"; module.PRODUCTION_DEPENDENCY_POLICY.write_bytes(module.canonical(policy)); original_units=module.PRODUCTION_UNITS; module.PRODUCTION_UNITS=("unit.service",)
  plan={"base_commit":"a"*40,"bindings":{"authority_producer_sha256":"f"*64,"contract_sha256":"d"*64,"production_dependency_policy_sha256":module.sha(module.canonical(policy))},"request":{"format":"home-lab-debian-lifecycle-request-v2","parameters":params},"precondition":{"format":"home-lab-debian-lifecycle-observation-v2","identity":{"path":str(identity)}}}
  try: module.production(plan,"b"*64)
  except OSError as error: assert "injected" in str(error)
@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
  except RuntimeError as error: assert "production activation rollback postcondition failed" in str(error)
  else: raise AssertionError("unverified production rollback accepted")
  assert marker.read_bytes()==before and active==set() and ("/usr/bin/systemctl","stop","unit.service") in commands
- module.os.fchown=original_fchown; module.QUALIFICATION_UNITS=original_units
+ module.os.fchown=original_fchown; module.PRODUCTION_UNITS=original_units
 with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
  root=Path(raw); journal_root=root/"journals"; module.STATE_JOURNAL_ROOT=journal_root; module.safe_directory=lambda path:Path(path); module.device=lambda *args:("/dev/fake",1)
  original_lstat=module.os.lstat; original_fchown=module.os.fchown
@@ -100,25 +100,4 @@ with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
  def root_fstat(fd):
   value=original_fstat(fd); return SimpleNamespace(st_mode=value.st_mode,st_uid=0,st_gid=0,st_nlink=value.st_nlink)
  module.os.fstat=root_fstat; assert module.flock_active(path) is False; descriptor=os.open(path,os.O_RDWR); fcntl.flock(descriptor,fcntl.LOCK_EX|fcntl.LOCK_NB); assert module.flock_active(path) is True; os.close(descriptor); module.os.fstat=original_fstat
-with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
- root=Path(raw); module.QUALIFICATION_ROOT=root/"canaries"; original_fchown=module.os.fchown; original_safe=module.safe_directory; original_run=module.run; module.os.fchown=lambda *args:None; module.safe_directory=lambda path:Path(path); digest="e"*64; params={"receipt_root":str(module.QUALIFICATION_ROOT),"inactive_units":list(module.QUALIFICATION_UNITS)}; plan={"profile":"inert","request":{"parameters":params}}
- module.run=lambda *args,**kwargs:result(returncode=0)
- try: module.qualification(plan,digest)
- except SystemExit as error: assert "production unit is active" in str(error)
- else: raise AssertionError("active production unit passed qualification")
- assert not module.QUALIFICATION_ROOT.exists()
- def unknown_unit(argv,**kwargs): return result("loaded\n",0) if "show" in argv else result(returncode=4)
- module.run=unknown_unit
- try: module.qualification(plan,digest)
- except SystemExit as error: assert "absence is unverifiable" in str(error)
- else: raise AssertionError("unknown production unit passed qualification")
- assert not module.QUALIFICATION_ROOT.exists()
- def absent_unit(argv,**kwargs): return result("not-found\n",0) if "show" in argv else result(returncode=4)
- module.run=absent_unit; module.qualification(plan,digest); receipt=json.loads((module.QUALIFICATION_ROOT/f"{digest}.json").read_bytes()); assert receipt["plan_sha256"]==digest and receipt["profile"]=="inert" and set(receipt["unit_states"].values())=={"absent"}; module.os.fchown=original_fchown; module.safe_directory=original_safe; module.run=original_run
-with tempfile.TemporaryDirectory(dir=ROOT/".local") as raw:
- root=Path(raw); machine=root/"machine-id"; machine.write_bytes(b"machine\n"); module.LIFECYCLE_MARKER=root/"missing"/"lifecycle-state.json"; original_run=module.run; original_uname=module.os.uname; original_path=module.Path; original_lstat=module.os.lstat
- def root_directory_lstat(path):
-  value=original_lstat(path)
-  return SimpleNamespace(st_mode=value.st_mode,st_uid=0,st_gid=0) if module.stat.S_ISDIR(value.st_mode) else value
- module.run=lambda *args,**kwargs:result("256 SHA256:test root (ED25519)\n"); module.os.uname=lambda:SimpleNamespace(nodename="debian-lifecycle-qualification"); module.os.lstat=root_directory_lstat; module.Path=lambda value:machine if value=="/etc/machine-id" else original_path(value); host={"hostname":"debian-lifecycle-qualification","machine_id_sha256":module.sha(machine.read_bytes()),"host_key_fingerprint":"SHA256:test"}; module.verify_target({"operation":"qualification-canary","profile":"inert","precondition":{"host":host}}); module.QUALIFICATION_ROOT=root/"missing"/"canaries"; original_fchown=module.os.fchown; module.os.fchown=lambda *args:None; module.run=lambda *args,**kwargs:result(returncode=3); digest="a"*64; module.qualification({"profile":"inert","request":{"parameters":{"receipt_root":str(module.QUALIFICATION_ROOT),"inactive_units":list(module.QUALIFICATION_UNITS)}}},digest); assert (module.QUALIFICATION_ROOT/f"{digest}.json").is_file(); module.run=original_run; module.os.uname=original_uname; module.os.lstat=original_lstat; module.os.fchown=original_fchown; module.Path=original_path
-print("debian_lifecycle_host_transaction=verified rollback=true no_retry=true interruption=true locks=true qualification=true marker_absence=true")
+print("debian_lifecycle_host_transaction=verified rollback=true no_retry=true interruption=true locks=true")

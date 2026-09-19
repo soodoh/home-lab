@@ -326,16 +326,13 @@
         "transaction": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["executor_path", "age_identity_path", "storage_activation_path", "state_disk_journal_root", "host_apply_lock_path", "qualification_canary_hostname", "qualification_canary_inventory_host", "qualification_canary_receipt_root", "compose_command", "compose_artifact_path", "compose_image_lock_path", "root_environment_path", "production_units", "production_dependency_policy_path", "production_systemd_dependencies"],
+          "required": ["executor_path", "age_identity_path", "storage_activation_path", "state_disk_journal_root", "host_apply_lock_path", "compose_command", "compose_artifact_path", "compose_image_lock_path", "root_environment_path", "production_units", "production_dependency_policy_path", "production_systemd_dependencies"],
           "properties": {
             "executor_path": { "const": "/usr/local/libexec/home-lab/debian-lifecycle-host-transaction" },
             "age_identity_path": { "const": "/etc/sops/age/keys.txt" },
             "storage_activation_path": { "const": "/etc/home-lab/allow-storage-activation" },
             "state_disk_journal_root": { "const": "/var/lib/home-lab/debian-state-disk-transactions" },
             "host_apply_lock_path": { "const": "/var/lib/iac-ansible-production.lock" },
-            "qualification_canary_hostname": { "const": "debian-lifecycle-qualification" },
-            "qualification_canary_inventory_host": { "const": "debian-lifecycle-qualification" },
-            "qualification_canary_receipt_root": { "const": "/var/lib/home-lab/debian-lifecycle-qualification-canaries" },
             "compose_command": { "const": ["/usr/bin/docker", "compose", "--project-name", "docker-compose", "--project-directory", "/srv/docker-compose/current", "--env-file", "/etc/docker-compose/production.env", "--file", "/srv/docker-compose/current/docker-compose.yml", "--file", "/var/lib/home-lab/production-image-override.json"] },
             "compose_artifact_path": { "const": "/srv/docker-compose/current/docker-compose.yml" },
             "compose_image_lock_path": { "const": "/var/lib/home-lab/production-image-override.json" },
@@ -739,51 +736,9 @@
     "lifecyclePolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["version", "qualification_route", "states", "transitions", "maintenance", "hosts"],
+      "required": ["version", "states", "transitions", "maintenance", "hosts"],
       "properties": {
         "version": { "const": 1 },
-        "qualification_route": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["mode", "pve_host", "vmid", "shared_hypervisor_risk_accepted", "host_outage_risk_accepted", "production_vm_mutation_allowed", "production_disk_attachment_allowed", "production_state_allowed", "reuse_production_api_plan_apply_identities", "temporary_tailnet_user", "conventional_ssh_key_allowed", "non_destructive_gated_applies_authorized", "historical_stopped_receipt_lineage_with_fresh_admission", "cross_admission_safe_stop_with_fresh_admission", "interrupted_restart_safe_stop", "offline_diagnostic", "separate_exact_approval", "selected_at"],
-          "properties": {
-            "mode": { "const": "production-pve-disposable-vm" },
-            "pve_host": { "const": "proxmox" },
-            "vmid": { "const": 9900 },
-            "shared_hypervisor_risk_accepted": { "const": true },
-            "host_outage_risk_accepted": { "const": true },
-            "production_vm_mutation_allowed": { "const": false },
-            "production_disk_attachment_allowed": { "const": false },
-            "production_state_allowed": { "const": false },
-            "reuse_production_api_plan_apply_identities": { "const": true },
-            "temporary_tailnet_user": { "const": "qualification-apply" },
-            "conventional_ssh_key_allowed": { "const": false },
-            "non_destructive_gated_applies_authorized": { "const": true },
-            "historical_stopped_receipt_lineage_with_fresh_admission": { "const": true },
-            "cross_admission_safe_stop_with_fresh_admission": { "const": true },
-            "interrupted_restart_safe_stop": {
-              "const": {
-                "stop_only": true,
-                "vmid": 9900,
-                "requires_failed_receipt_absent": true,
-                "requires_exact_failed_artifact_hashes": true,
-                "requires_separate_saved_plan_approval": true
-              }
-            },
-            "offline_diagnostic": {
-              "const": {
-                "read_only": true,
-                "requires_stopped_receipt": true,
-                "disk_volume": "local-lvm:vm-9900-disk-0",
-                "admission_expiry_grace_seconds": 14400,
-                "attempt_journal_directory": "/var/lib/home-lab/reconciliation/qualification-diagnostic-attempts",
-                "historical_stopped_receipt_lineage_with_fresh_admission": true
-              }
-            },
-            "separate_exact_approval": { "const": ["package", "reboot", "root-disk", "destructive"] },
-            "selected_at": { "const": "2026-09-04T00:10:00Z" }
-          }
-        },
         "states": { "const": ["inert", "bootstrap", "production", "maintenance", "recovery", "retired"] },
         "transitions": { "$ref": "#/$defs/lifecycleTransitions" },
         "maintenance": { "$ref": "#/$defs/lifecycleMaintenancePolicy" },
@@ -1439,7 +1394,7 @@
           }
         },
         "managed_file_policies": {
-          "type": "array", "minItems": 18, "maxItems": 18,
+          "type": "array", "minItems": 17, "maxItems": 17,
           "items": {
             "type": "object", "additionalProperties": false,
             "required": ["path", "safety_class", "automatic", "requires_approval", "requires_reboot", "requires_watchdog"],
@@ -1849,7 +1804,7 @@
       "required": ["sudo_validation", "service_accounts", "human_accounts", "pve"],
       "properties": {
         "sudo_validation": { "$ref": "#/$defs/sudoValidationPolicy" },
-        "service_accounts": { "type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true, "items": { "$ref": "#/$defs/unixServiceAccount" } },
+        "service_accounts": { "type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true, "items": { "$ref": "#/$defs/unixServiceAccount" } },
         "human_accounts": { "type": "array", "minItems": 1, "maxItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/humanAccessAccount" } },
         "pve": {
           "type": "object",
