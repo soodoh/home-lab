@@ -26,8 +26,8 @@ qualified.
 | Scheduled backup configuration | The nine installed unit definitions matched source on September 14; the daily units last reported success that day. | Configuration and exit status only; no current snapshot or restore integrity was observed. |
 | Canonical off-site repository | The canonical Proton repository was promoted after a zero-error full-data read on September 2. A natural daily chain succeeded on September 3. | Strong dated evidence, but not present-tense health and not proof of the latest recovery point. Monthly maintenance still has an unresolved historical failure. |
 | Exact staging restore | `restore-critical-backup` binds repository, snapshot, copied ancestry, policy, Compose artifact and pinned binaries, restores only to an empty private staging tree, and uses `restic restore --verify`. | Retained and source-tested. Historical VM9900 execution restored 22,031 files and 6,982,221,998 bytes without starting services. |
-| Independent recovery bundle | Canonical bundle B was independently encrypted, versioned in KMS-backed AWS storage, retrieved and restored in the historical exercise. | The evidence is dated and binds an old exact snapshot. It is a break-glass baseline, not proof of the current 24-hour RPO. Current private retrieval and decryption have not been re-verified. |
-| Recovery credentials | The bundle format carries only the Restic and dedicated Proton recovery fields, with optional TOTP, and excludes host tokens. The publication credential is SOPS-encrypted to production and independent recipients. | The independent age key is available, but publication-credential usability and AWS/KMS access remain unverified. |
+| Independent recovery bundle | Canonical bundle B was independently encrypted, versioned in KMS-backed AWS storage, retrieved and restored in the historical exercise. A September 19 read-only drill retrieved and removed the exact current historical ciphertext again. | The evidence binds an old exact snapshot. It is a break-glass baseline, not proof of the current 24-hour RPO; current bundle decryption was not exercised. |
+| Recovery credentials | The bundle format carries only the Restic and dedicated Proton recovery fields, with optional TOTP, and excludes host tokens. The publication credential is SOPS-encrypted to production and independent recipients. | The September 19 drill verified publication-credential usability, expected AWS caller and KMS-backed object access using the operator-accepted equivalent controller key. Proton/Restic credentials remained encrypted. |
 | Independent age identity | On September 19 the operator confirmed an exact plaintext identity copy on an offline USB stored securely offsite. The controller-local and home Vaultwarden copies are not independent boundaries. | Key location custody is closed. Historical GPG ciphertext is optional legacy material, not a required recovery dependency. |
 | Recovery compute | The retired VM9900 harness and its provider roots, host transport and access grants are absent. | Correctly retired. There is intentionally no callable replacement provisioning path yet. |
 | Application artifacts | Restic includes protected production environment data and application state. Source retains Compose definitions and pinned images; host generations and image state are retained separately. | A snapshot's artifact tag is an identity, not the artifact itself. Independent custody and reconstruction of the matching source/image generation must be proven. |
@@ -49,9 +49,11 @@ not current, questions:
   application startup and explicitly leaves external user data pending.
 - `aws-recovery-publication-credential-rotation.json` records the publication
   credential rotation and then-current object check.
+- `aws-recovery-bundle-access-2026-09-19.json` records the later expected-caller,
+  exact-version, KMS, ciphertext and cleanup result.
 
-None establishes today's latest snapshot, current bundle object/version, current
-publication-credential usability, available recovery compute, or service activation.
+None establishes today's latest backup snapshot, a bundle bound to that snapshot,
+available recovery compute, bundle decryption or service activation.
 The existing bundle's embedded snapshot ID also prevents silently
 substituting a newer daily snapshot. A current exercise needs a newly reviewed
 snapshot selection and newly bound bundle; historical confirmations or receipts
@@ -76,11 +78,11 @@ host credentials or an old runner workspace:
 8. a separately retained, artifact-matched application generation and an isolated
    activation procedure if service RTO is in scope.
 
-Bundle B is not independently retrievable merely because AWS metadata and an
-offsite key exist. The publication credential must decrypt successfully, and KMS/S3
-access must work from the recovery environment. Bundle A on the developer machine
-is not an off-machine bundle-access proof. The prepared
-[AWS retrieval drill](../recovery/aws-bundle-retrieval.md) remains unexecuted.
+The September 19 [AWS retrieval drill](../recovery/aws-bundle-retrieval.md) proved
+that the accepted identity copy decrypts the publication credential and retrieves
+the exact historical KMS-backed bundle version. It used the controller copy rather
+than literally reading the confirmed USB, and did not decrypt the bundle. Bundle A
+on the developer machine remains outside off-machine bundle-access proof.
 
 ## Qualification scope
 
@@ -242,6 +244,7 @@ plan or destroy evidence merely to obtain a passing result.
    the new activation path. This must not reconstruct the retired VM9900 roots.
 
 Until these decisions and a separately authorized timed run are complete, report
-recovery as **exact private staging supported; independent age-key custody confirmed;
-AWS bundle retrieval unverified; application activation unavailable; 24-hour RPO
-and eight-hour RTO unqualified**.
+recovery as **exact private staging supported; independent age-key custody and exact
+historical AWS bundle retrieval confirmed; current bundle decryption and restore
+unverified; application activation unavailable; 24-hour RPO and eight-hour RTO
+unqualified**.

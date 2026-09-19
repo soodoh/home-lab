@@ -246,11 +246,15 @@ or its physical location in Git. Historical GPG ciphertext remains preserved as 
 optional legacy envelope; it is not a required recovery dependency and its separate
 decryptability is not implied by the USB confirmation.
 
-Independent repository availability, publication-credential decryption, AWS/KMS
-access and exact recovery-bundle retrieval remain unverified. The prepared
-[read-only retrieval drill](../recovery/aws-bundle-retrieval.md) is not execution
-authority. Credential use, cloud reads, bundle decryption and recovery exercises
-require separate approval.
+The separately authorized September 19
+[read-only retrieval drill](../recovery/aws-bundle-retrieval.md) used the
+controller-local identity after the operator accepted it as an exact equivalent of
+the confirmed USB copy. It proved publication-credential decryption, the expected
+AWS caller, KMS-backed retrieval of the exact historical current bundle version,
+ciphertext identity and cleanup. It did not literally read the USB, establish an
+independent repository checkout, decrypt the bundle or restore data. Future
+credential use, cloud reads, bundle decryption and recovery exercises require
+separate approval.
 
 Keep working logging and backup configuration unchanged. Explicit journald policy
 is optional follow-up. These remaining recovery gaps, further historical evidence

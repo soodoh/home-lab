@@ -2,14 +2,22 @@
 
 ## Status and authority
 
-This runbook is **prepared, not executed**. Source review does not authorize age-key
-use, SOPS decryption, AWS authentication, S3/KMS reads, bundle download or any
-cloud mutation. A live drill requires explicit authorization for those exact reads.
+The first separately authorized execution completed on September 19, 2026. It used
+the controller-local identity after the operator confirmed it was an exact copy of
+the offline offsite USB identity and explicitly accepted that equivalence for this
+drill. The helper decrypted the publication credential only into its child
+environment, matched the expected AWS caller, retrieved the exact evidence-bound
+KMS-encrypted version, matched 114,746,920 bytes and ciphertext SHA-256, and removed
+the download and private workspace. The selected version was current at observation
+time. The secret-free result is
+[`aws-recovery-bundle-access-2026-09-19.json`](../infrastructure/evidence/aws-recovery-bundle-access-2026-09-19.json).
 
-The drill proves only that the independently held age identity can unlock the
-publication credential and retrieve the exact historical canonical bundle
-ciphertext. It does not decrypt the bundle, contact Proton or Restic, restore data,
-prove a current recovery point, or qualify RPO/RTO.
+This proves that the confirmed identity can unlock the publication credential and
+retrieve the exact historical canonical bundle ciphertext. It was not a literal
+USB-mounted execution, and it did not decrypt the bundle, contact Proton or Restic,
+restore data, prove a current recovery point, or qualify RPO/RTO. Future age-key
+use, SOPS decryption, AWS authentication, S3/KMS reads, bundle download or cloud
+mutation still requires separate authorization.
 
 ## Fixed scope
 

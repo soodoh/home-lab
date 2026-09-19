@@ -166,9 +166,11 @@ production identity `/etc/sops/age/keys.txt` (0600, parent 0700), the controller
 independent identity and its operator-confirmed exact copy on an offline offsite USB.
 The USB is the canonical independent key path; the home Vaultwarden copy is only a
 convenience, and historical GPG ciphertext is a preserved optional legacy envelope.
-The separately authorized [AWS retrieval drill](aws-bundle-retrieval.md) must still
-prove publication-credential and exact bundle access. Bootstrap must not overwrite
-rotating rclone client state. Obscured rclone values are plaintext-equivalent.
+The separately authorized [AWS retrieval drill](aws-bundle-retrieval.md) used the
+operator-accepted equivalent controller copy and proved publication-credential,
+AWS/KMS and exact historical bundle access on September 19; it did not decrypt the
+bundle or prove a current recovery point. Bootstrap must not overwrite rotating
+rclone client state. Obscured rclone values are plaintext-equivalent.
 Restore/rotate credentials only with independent recovery proof and without logging
 values or reusing historical transaction confirmations.
 

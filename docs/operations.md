@@ -867,10 +867,12 @@ flags must exit 2 without printing source success, even with malformed inputs.
 The other two tests inspect source and synthetic objects only, never execute host roles.
 
 The [custody decision](decisions.md#custody-is-separate-from-receipt-cleanup)
-now records confirmed offline offsite USB custody for the independent age identity;
-repository availability, publication-credential use and exact AWS bundle retrieval
-remain unverified. The two former local qualification-state dependencies are now
-empty after exact separately authorized
+records confirmed offline offsite USB custody for the independent age identity. A
+separately authorized September 19 read-only drill used the operator-accepted
+identical controller copy and verified publication-credential use plus exact
+AWS/KMS historical bundle retrieval and cleanup. It did not literally read the USB,
+prove an independent repository checkout, decrypt the bundle or restore data. The
+two former local qualification-state dependencies are now empty after exact separately authorized
 resource deletes, but their states, predecessor generations and recovery inputs remain
 preserved as historical lineage. Working logging/backup configuration and operational
 safety gates remain unchanged.
