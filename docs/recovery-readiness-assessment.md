@@ -26,14 +26,14 @@ qualify the ongoing objective. The eight-hour recovery objective remains unquali
 | Scheduled backup configuration | The nine installed unit definitions matched source on September 14. A September 19 passive observation matched successful September 18 units to one exact games → NFS → Proton chain with zero pending entries. | Current point-in-time chain and schedule evidence; no backup was forced and no restore integrity was tested. |
 | Canonical off-site repository | The canonical Proton repository was promoted after a zero-error full-data read on September 2. The September 19 observer opened the exact repository and matched its latest copied snapshot. | Present-tense read and identity proof for that snapshot, but not a repository check or full-data read. Monthly maintenance still has an unresolved historical failure. |
 | Exact staging restore | `restore-critical-backup` binds repository, snapshot, copied ancestry, policy, Compose artifact and pinned binaries, restores only to an empty private staging tree, and uses `restic restore --verify`. | Retained and source-tested. Historical VM9900 execution restored 22,031 files and 6,982,221,998 bytes without starting services. |
-| Independent recovery bundle | Canonical bundle B was independently encrypted, versioned in KMS-backed AWS storage, retrieved and restored in the historical exercise. A September 19 read-only drill retrieved and removed the exact current historical ciphertext again. Source-only tooling and ignored metadata now bind the observed September 18 chain. | The available ciphertext still binds an old snapshot. The current metadata is not a bundle; credential-backed build, publication, decryption and restore remain unexecuted. |
-| Recovery credentials | The bundle format carries only the Restic and dedicated Proton recovery fields, with optional TOTP, and excludes host tokens. The publication credential is SOPS-encrypted to production and independent recipients. | The September 19 drill verified publication-credential usability, expected AWS caller and KMS-backed object access using the operator-accepted equivalent controller key. Proton/Restic credentials remained encrypted. |
+| Independent recovery bundle | Canonical historical bundle B remains versioned in KMS-backed AWS storage. On September 19 a separately authorized live build created two distinct 114,746,920-byte ciphertexts bound to the observed September 18 chain and the independent recipient. | Current bundle creation and protected local custody passed. Bundle B remains unpublished; independent retrieval, decryption and restore remain unexecuted. |
+| Recovery credentials | The bundle format carries only the Restic and dedicated Proton recovery fields, with optional TOTP, and excludes host tokens. The publication credential is SOPS-encrypted to production and independent recipients. | The live build exercised protected host SOPS decryption and reduced-environment bundle creation without exposing values. Credentials remain encrypted inside the new bundles; bundle decryption was not exercised. |
 | Independent age identity | On September 19 the operator confirmed an exact plaintext identity copy on an offline USB stored securely offsite. The controller-local and home Vaultwarden copies are not independent boundaries. | Key location custody is closed. Historical GPG ciphertext is optional legacy material, not a required recovery dependency. |
 | Recovery compute | The retired VM9900 harness and its provider roots, host transport and access grants are absent. | Correctly retired. There is intentionally no callable replacement provisioning path yet. |
 | Application artifacts | Restic includes protected production environment data and application state. Source retains Compose definitions and pinned images; host generations and image state are retained separately. | A snapshot's artifact tag is an identity, not the artifact itself. Independent custody and reconstruction of the matching source/image generation must be proven. |
 | Application activation | The contract exposes staging only. Existing activation code expects the old `backup/` archive format and must reject Restic staging. External-data services remain pending. | Blocked pending an isolated activation design and proof. A staging restore cannot qualify service RTO. |
 | External/user data | Nextcloud external data and other excluded or regenerable classes are deliberately outside the application-state snapshot. | Must have separate availability checks or explicit degraded-service acceptance. |
-| RPO/RTO | Contract objectives are 24 hours and 8 hours. The September 18 source snapshot was 54,790 seconds old when observed. | The RPO passed at that observation point but is not qualified as an ongoing guarantee. The service RTO remains unqualified. |
+| RPO/RTO | Contract objectives are 24 hours and 8 hours. The September 18 source snapshot was 58,532 seconds old at the fresh pre-build observation. | The RPO passed at build admission but is not qualified as an ongoing guarantee. The service RTO remains unqualified. |
 
 ### Evidence limits
 
@@ -53,14 +53,14 @@ historical; the September 19 observations are bounded point-in-time checks:
   credential rotation and then-current object check.
 - `aws-recovery-bundle-access-2026-09-19.json` records the later expected-caller,
   exact-version, KMS, ciphertext and cleanup result.
+- `current-restic-recovery-bundles-2026-09-19.json` records the fresh observation,
+  current metadata, two distinct local ciphertexts and post-build host cleanup.
 
-The September 19 observation establishes the latest snapshot at that instant, but
-none of the evidence establishes a bundle bound to that snapshot, ongoing schedule
-success, available recovery compute, bundle decryption or service activation. The
-existing bundle's embedded snapshot ID also prevents silently
-substituting a newer daily snapshot. A current exercise needs a newly reviewed
-snapshot selection and newly bound bundle; historical confirmations or receipts
-must not be replayed.
+The September 19 build establishes a bundle bound to the selected snapshot and
+independent recipient. It does not establish publication, independent retrieval,
+bundle decryption, restore integrity, available recovery compute, ongoing schedule
+success or service activation. The bundle's embedded snapshot ID prevents silently
+substituting a newer daily snapshot; historical confirmations must not be replayed.
 
 ### Independent dependency chain
 
@@ -184,10 +184,10 @@ identities and outcomes.
    select one exact completed daily snapshot and verify repository ID, tags,
    ancestry, timestamp and expected policy/artifact identities. Do not initialize,
    unlock, forget, prune or repair.
-3. **Prepare current protected inputs.** Verify the confirmed USB identity before
-   touching credentials. In an owner-only temporary workspace, build a new metadata-bound
-   bundle using the reviewed pinned binaries and runner. Do not place secrets in
-   arguments, logs, shell history or Git.
+3. **Prepare current protected inputs.** **Completed for the selected chain on
+   September 19.** The authorized build used an owner-only temporary workspace,
+   reviewed pinned binaries and runner, produced two metadata-bound ciphertexts,
+   and removed the host workspace. The bundles remain encrypted locally.
 4. **Publish and retrieve independently.** Publish a new version without replacing
    history, verify its KMS/version metadata and ciphertext hash, then retrieve it
    using the documented independent path rather than the creating process's local
@@ -248,6 +248,7 @@ plan or destroy evidence merely to obtain a passing result.
 
 Until these decisions and a separately authorized timed run are complete, report
 recovery as **exact private staging supported; independent age-key custody and exact
-historical AWS bundle retrieval confirmed; September 19 point-in-time RPO passed;
-current bundle creation/decryption and restore unverified; application activation
-unavailable; ongoing 24-hour RPO and eight-hour RTO unqualified**.
+historical AWS bundle retrieval confirmed; September 19 point-in-time RPO and
+current local bundle creation passed; current publication, independent retrieval,
+decryption and restore unverified; application activation unavailable; ongoing
+24-hour RPO and eight-hour RTO unqualified**.

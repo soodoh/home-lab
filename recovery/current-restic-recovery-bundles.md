@@ -1,11 +1,12 @@
-# Current Restic recovery-bundle preparation
+# Current Restic recovery bundles
 
 ## Status and authority
 
-Source preparation is complete; no current bundle has been built or published.
-Preparing source and metadata does not authorize SOPS decryption, production
-credential access, host workspace creation, bundle creation, controller transfer or
-AWS writes. Each live phase requires separate approval.
+A separately authorized live build completed on September 19. Two distinct current
+encrypted bundles now exist in protected controller-local storage. Bundle B has not
+been published; neither bundle has been decrypted or restored, and AWS was not
+contacted. Build authority is consumed and does not authorize publication,
+decryption, restore or another live invocation.
 
 The September 19 passive observation selected this exact natural chain:
 
@@ -15,10 +16,12 @@ The September 19 passive observation selected this exact natural chain:
 - policy SHA-256 `81b1f0dd0f1a2fd596c13ee3b6a79e7bb181ae5d0b80e3e942ab69f96d77a6ff`;
 - artifact SHA-256 `2f12e384fdc0ce759d23b0bd9e16ad402d3ecd2985b4ecdfe048127f1c5748be`.
 
-The observation is
+The retained point-in-time observation is
 [`natural-restic-daily-2026-09-18.json`](../infrastructure/evidence/natural-restic-daily-2026-09-18.json).
-It met the 24-hour objective at observation time. Re-observe before a later build;
-do not claim a stale plan as a current recovery point.
+Immediately before the live build, a fresh private observation revalidated the same
+chain at `2026-09-19T04:22:05Z`, with snapshot age 58,532 seconds, no interruption,
+no pending replication and inactive successful writers. Its SHA-256 is
+`e7bf314b36551b04d3ed3b8a7752020710d966d977c73b15327ba50334832754`.
 
 ## Secret-free metadata plan
 
@@ -42,11 +45,10 @@ The planner:
 - refuses an existing output, writable input, malformed identity or repository
   mismatch.
 
-The prepared ignored metadata is
-`.local/restic-current-bundle/2026-09-18-50c0a57f/metadata.json`, SHA-256
+The fresh build metadata retained the same exact content identity, SHA-256
 `bd5bf9e21da50e0e36b1cb38b5714db513d36626c5318169bb74e75877a2dad8`.
-Preserve it as a reviewed input, but do not treat its existence as a built bundle or
-live-current proof.
+Its existence alone is not build proof; the tracked live outcome is
+[`current-restic-recovery-bundles-2026-09-19.json`](../infrastructure/evidence/current-restic-recovery-bundles-2026-09-19.json).
 
 ## Separately authorized bundle build
 
@@ -75,11 +77,11 @@ ciphertext/results, and removes the entire output root on failure. Bundle A and 
 therefore have independent encryption randomness and storage destinations, but one
 intentional recovery-key dependency.
 
-The source-only controller entrypoint is
+The controller entrypoint is
 [`ansible/playbooks/build-current-restic-recovery-bundles.yml`](../ansible/playbooks/build-current-restic-recovery-bundles.yml).
-It has not been executed and does not grant its own live authority. It deliberately
-refuses check mode because staging, SOPS execution and encrypted output creation are
-the operation being approved.
+Its authorized run passed 36 tasks with eight changed task groups, no failures and
+no unreachable hosts. It deliberately refuses check mode because staging, SOPS
+execution and encrypted output creation are the operation being approved.
 
 Before a future invocation, create a new mode-0700 controller output parent and
 copy [`current-restic-bundle-build.example.yml`](current-restic-bundle-build.example.yml)
@@ -123,9 +125,20 @@ creation and timer arming can leave an empty private directory; inspect and remo
 that exact directory before retrying. Partial controller outputs are removed on a
 controlled failure.
 
-A fresh passive chain observation remains a prerequisite; this playbook validates
-but does not generate that evidence. Live host connection, SOPS decryption, bundle
-creation and transfer still require separate explicit authorization.
+The two mode-0600 outputs each contain 114,746,920 bytes. Their ciphertext
+SHA-256 values are respectively
+`8d2026d97ffef00666a708e00460a7c11aad48535e900e5be42af77ea462e4b2` and
+`ac648bc28652d72811bb1496a865702863a447c9c6323758461cd91e9787c17d`.
+They share plaintext SHA-256
+`1ad80df3f3c7706004e995d40e3d7b6078d85ddbd667a92ba08d52a007547507`
+and recipient SHA-256
+`492589a8d4a4a0670834f2d5ad9d6ef000186e66171d10d72740b9b30f20cbbf`.
+Post-build observation found no residual workspace or transient cleanup unit, and
+all four writer units remained inactive/successful.
+
+A fresh passive chain observation remains a prerequisite for any future build; this
+playbook validates but does not generate that evidence. Another host connection,
+SOPS decryption, bundle creation or transfer requires new explicit authorization.
 
 ## Publication remains separate
 
@@ -145,6 +158,7 @@ the canonical historical bundle. Preserve all prior bundle versions and evidence
 ```sh
 python3 -B scripts/controller/test-current-restic-recovery-bundles.py
 python3 -B scripts/controller/test-current-restic-recovery-controller.py
+node scripts/controller/test-current-restic-recovery-bundle-evidence.js
 ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
   -i ansible/inventory/hosts.yml \
   ansible/playbooks/build-current-restic-recovery-bundles.yml --syntax-check

@@ -436,6 +436,7 @@
           delegate_to: localhost
           become: false
           register: restic_recovery_bundle_local_outputs
+          no_log: true
 
         - name: Require fetched identities match verified host outputs
           ansible.builtin.assert:
@@ -448,6 +449,7 @@
           loop: "{{ restic_recovery_bundle_local_outputs.results }}"
           vars:
             host_by_name: "{{ dict(restic_recovery_bundle_host_outputs.results | map(attribute='item') | zip(restic_recovery_bundle_host_outputs.results)) }}"
+          no_log: true
 
       rescue:
         - name: Remove partial controller output root

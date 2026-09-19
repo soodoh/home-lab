@@ -572,6 +572,24 @@ is point-in-time RPO and copy-chain evidence, not data-integrity, restore or ong
 schedule qualification. Empty post-reboot maintenance runtime fields do not erase
 the preserved September 1 maintenance failure.
 
+### Current recovery-bundle build — September 19, 2026
+
+A fresh separately authorized passive observation at 04:22 UTC matched the same
+exact chain at age 58,532 seconds, with no interruption or pending replication.
+The guarded bundle controller then passed 36 tasks with eight changed task groups,
+no failures and no unreachable hosts. Under the backup lock and SOPS
+`exec-env --pristine`, it created two distinct 114,746,920-byte ciphertexts for the
+independently held recipient, fetched only ciphertext and secret-free results, and
+removed its host workspace. A follow-up read found no matching workspace or
+transient cleanup unit; all four writer units remained inactive/successful.
+
+The exact outcome is recorded in
+`infrastructure/evidence/current-restic-recovery-bundles-2026-09-19.json`. Bundle A
+and B currently remain in protected controller-local storage. AWS was not contacted,
+B was not published, and neither bundle was decrypted or restored. This qualifies
+current local bundle creation only; it does not establish independent retrieval,
+Gate 1 staging, service activation, ongoing RPO or RTO.
+
 ### Pinned backup tools
 
 Native host variables own the same Restic **0.19.1** and Proton-qualified rclone
