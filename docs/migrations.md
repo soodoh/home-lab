@@ -218,9 +218,9 @@ replacement or run the play unchanged merely because it remains in source.
 
 Before old-path deletion:
 
-- review and separately authorize the [Nextcloud and Calibre private-staging restore rehearsal](../recovery/nextcloud-calibre-restore-rehearsal.md) against a new natural snapshot;
-- inspect and safely run the focused `scripts/test-restic-recovery-bundle` and `scripts/test-restic-restore-branch` checks;
-- separately rehearse a fresh restore of config, custom apps/themes, MariaDB, SOPS-backed secret files and pinned application code while retaining external data;
+- preserve the completed [Nextcloud and Calibre private-staging restore rehearsal](../recovery/nextcloud-calibre-restore-rehearsal.md) and its exact snapshot/manifests;
+- keep the passing focused `scripts/test-restic-recovery-bundle` and `scripts/test-restic-restore-branch` checks;
+- separately prove isolated logical MariaDB/application recovery with SOPS-backed secret files and pinned application code while retaining external data;
 - prove the previous-artifact rollback;
 - confirm representative user-file counts and hashes are unchanged;
 - retain old copies for seven days after these proofs.
@@ -265,11 +265,15 @@ The NFS generation is therefore a historical rollback source, not a current mirr
 replaying the old checksum/delete lane would discard newer local data.
 
 Do not resume or invoke that lane. It is now a source-retirement candidate rather
-than an operational recovery path. Preserve both data generations until the
+than an operational recovery path. The completed
 [private-staging restore rehearsal](../recovery/nextcloud-calibre-restore-rehearsal.md)
-proves a new natural snapshot contains the local library and a separately reviewed
-decision retires NFS rollback. The general deploy entrypoint remains non-operational;
-direct role invocation is not a substitute.
+proved native verified restoration, SQLite integrity, and exact snapshot manifests;
+all 2,254 current live library path/size records occur in the restored snapshot.
+The restored snapshot also contains five older files totaling 4,071,565 bytes. This
+closes the restore-proof prerequisite but does not delete either generation or retire
+NFS rollback. That disposition still requires a separately reviewed decision. The
+general deploy entrypoint remains non-operational; direct role invocation is not a
+substitute.
 
 ## Retired LiteLLM deployment lane
 

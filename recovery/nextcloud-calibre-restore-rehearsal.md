@@ -28,15 +28,21 @@ The evidence must establish:
 - original snapshot age below 24 hours and `cadence=daily`;
 - policy SHA-256
   `81b1f0dd0f1a2fd596c13ee3b6a79e7bb181ae5d0b80e3e942ab69f96d77a6ff`;
-- artifact tag
-  `3e5600bfa5ff9441d729e4e81634854435cea13f15568337adbc87911468569e`;
+- either the active artifact tag or a retained predecessor whose exact
+  Nextcloud/Calibre service files, runtime environment and scoped image locks are
+  proven equal to the active artifact;
 - games repository ID
   `b15627185df9b10a95b5dffe7d194dbccdba6ba4eb8a038ee03e750fedbde08f`;
 - one exact new 64-hex games snapshot ID, copied ancestry through NFS and Proton,
   and zero pending copies.
 
 Record the reviewed observation path and SHA-256 in the execution authorization.
-Never infer the snapshot from `latest` during execution.
+Never infer the snapshot from `latest` during execution. The September 19
+[admission observation](../infrastructure/evidence/restic-restore-rehearsal-admission-2026-09-19.json)
+is accepted for this narrow rehearsal: its exact prior artifact is retained, and the
+relevant Compose files, runtime environment and scoped image locks are equal to the
+active artifact. This exception does not admit unrelated services or arbitrary prior
+artifacts.
 
 ## Fixed execution inputs
 
@@ -45,11 +51,12 @@ Never infer the snapshot from `latest` during execution.
 | Repository | `/mnt/games/restic/home-lab` |
 | Repository ID | `b15627185df9b10a95b5dffe7d194dbccdba6ba4eb8a038ee03e750fedbde08f` |
 | Policy SHA-256 | `81b1f0dd0f1a2fd596c13ee3b6a79e7bb181ae5d0b80e3e942ab69f96d77a6ff` |
-| Artifact SHA-256 | `3e5600bfa5ff9441d729e4e81634854435cea13f15568337adbc87911468569e` |
+| Snapshot artifact SHA-256 | `2f12e384fdc0ce759d23b0bd9e16ad402d3ecd2985b4ecdfe048127f1c5748be` |
+| Active equivalent artifact SHA-256 | `3e5600bfa5ff9441d729e4e81634854435cea13f15568337adbc87911468569e` |
 | Restic binary SHA-256 | `20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639` |
 | Restore helper | `scripts/restore-critical-backup` from the reviewed clean commit |
 | Target | `/srv/home-lab-recovery/restic-migration-retirement` |
-| Snapshot | Exact ID from the new reviewed passive observation |
+| Snapshot | `abbf7d3543bb031ab80d97b69dde24de3b8c1a23ad47e4bb8c471a8dbbde128f` |
 | Password file | Existing reviewed games-repository password file; never print or copy it into Git |
 
 The target parent must be a real root-owned mode-0700 or mode-0750 directory. The
@@ -68,10 +75,10 @@ export RECOVERY_RESTIC_REPOSITORY=/mnt/games/restic/home-lab
 export RECOVERY_RESTIC_PASSWORD_FILE=<reviewed-root-only-password-file>
 export RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID=b15627185df9b10a95b5dffe7d194dbccdba6ba4eb8a038ee03e750fedbde08f
 export RECOVERY_EXPECTED_POLICY_SHA256=81b1f0dd0f1a2fd596c13ee3b6a79e7bb181ae5d0b80e3e942ab69f96d77a6ff
-export RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256=3e5600bfa5ff9441d729e4e81634854435cea13f15568337adbc87911468569e
+export RECOVERY_EXPECTED_COMPOSE_ARTIFACT_SHA256=2f12e384fdc0ce759d23b0bd9e16ad402d3ecd2985b4ecdfe048127f1c5748be
 export RECOVERY_EXPECTED_RESTIC_SHA256=20d4142678d0d95ec11a4759def1b73fd9190abc9ca19e4b62d067c0b387e639
 scripts/restore-critical-backup \
-  --restic-snapshot-id <exact-reviewed-games-snapshot-id> \
+  --restic-snapshot-id abbf7d3543bb031ab80d97b69dde24de3b8c1a23ad47e4bb8c471a8dbbde128f \
   --confirmed-empty-target
 ```
 
@@ -137,3 +144,16 @@ requires:
 Record only snapshot/repository/policy/artifact identities, target identity, counts,
 hashes, SQLite result and the helper's bounded success line. Never commit credentials,
 restored plaintext or a rendered Compose configuration.
+
+## Recorded outcome — September 19, 2026
+
+The authorized rehearsal completed with native byte verification at the fixed target.
+Both application manifest comparisons passed, Calibre `metadata.db` passed read-only
+integrity checking, expected MariaDB engine metadata was present, and all current live
+Calibre path/size records were represented in the snapshot. Production container and
+external Nextcloud data identities remained unchanged. See the
+[secret-free outcome evidence](../infrastructure/evidence/restic-restore-rehearsal-2026-09-19.json).
+
+The target remains private and retained for review. It consumes approximately 19.35
+GB and must not be activated, treated as a fresh-server rebuild, passed to the older
+archive activator, or deleted without a separate decision.

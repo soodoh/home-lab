@@ -77,7 +77,9 @@ PY
 
 password="$work/restic-password"
 printf '%s\n' 'fixture-password-that-is-longer-than-thirty-two-bytes' >"$password"
-chmod 0600 "$password"
+# Installed credentials are root-owned and group-readable by the confined backup
+# account. The recovery helper must accept that same protected runtime mode.
+chmod 0440 "$password"
 restic_sha=$(sha256sum "$bin_root/restic" | awk '{print $1}')
 rclone_sha=$(sha256sum "$bin_root/rclone" | awk '{print $1}')
 

@@ -667,6 +667,66 @@ is point-in-time RPO and copy-chain evidence, not data-integrity, restore or ong
 schedule qualification. Empty post-reboot maintenance runtime fields do not erase
 the preserved September 1 maintenance failure.
 
+### Restore-rehearsal admission observation — September 19, 2026
+
+After native Compose qualification, an authorized passive observation held the
+existing backup coordination lock and used only Restic `--no-lock --no-cache`
+repository reads. All four writer units were loaded, successful and inactive; no
+production owner, interruption journal, external Restic/rclone process or accepted
+pending copy was present. The exact September 19 games → NFS → Proton chain was
+37,638 seconds old, used the current policy, and matched all three repository IDs.
+
+The source snapshot was naturally taken before Compose qualification and is tagged
+with artifact `2f12e384…`, while the active marker is `3e5600bf…`. A subsequent
+read-only comparison established narrow equivalence for the recovery scope: both
+exact artifact roots remain retained; `docker-compose.yml`, the Nextcloud, apps and
+servarr service files, and Caddyfile are byte-identical; the runtime and previous
+environments match; and the seven Nextcloud/Calibre writer image-lock projections
+match. Changes outside this application and recovery scope do not affect the staged
+Restic proof.
+
+The chain was therefore admitted only for the private-staging migration-retirement
+rehearsal, using its exact `2f12e384…` tag. It does not prove recovery of arbitrary
+`3e5600bf…` services or permit `latest` selection. Secret-free admission evidence is
+recorded in
+[`restic-restore-rehearsal-admission-2026-09-19.json`](../infrastructure/evidence/restic-restore-rehearsal-admission-2026-09-19.json).
+No backup, check, maintenance, copy, restore, forget/prune or repair was run during
+admission.
+
+### Private-staging restore rehearsal — September 19, 2026
+
+A separately authorized rehearsal restored exact games snapshot `abbf7d3543bb…`
+into root-owned mode-0700
+`/srv/home-lab-recovery/restic-migration-retirement` while holding the backup
+coordination lock. Native `restic restore --verify` completed successfully. The
+19,352,267,628-byte snapshot contained 45,585 files. Production services were never
+stopped or activated: all 38 running container identities and the external Nextcloud
+data device/inode remained unchanged.
+
+The restored Calibre roots exactly matched the snapshot path/type/size manifest;
+restored `metadata.db` returned `ok` from read-only `PRAGMA integrity_check`. All
+2,254 current live library path/size records occur in the snapshot. The snapshot
+also retains five older files totaling 4,071,565 bytes, which is expected historical
+retention rather than a missing-current-data result. The restored Nextcloud database,
+config, custom-app and theme roots also exactly matched the snapshot manifest and
+contained expected MariaDB engine metadata. External Nextcloud user data was not
+staged. This proves extraction and structural recovery, not logical MariaDB recovery
+or Nextcloud login/WebDAV/upload acceptance.
+
+The first controller attempt created only the empty private directories and failed
+before repository contact because its temporary playbook resolved the helper source
+relative to `/tmp`. Two subsequent invocations copied the helper to `/run` but direct
+execution was refused by the host's `noexec` mount before the helper ran. Diagnosis
+also found the source helper rejected the installed protected credential mode 0440;
+the helper and fixture now admit that same mode. A no-restore preflight then passed
+through `/bin/bash`, and the exact tested helper completed the restore. No failed
+attempt wrote snapshot data, and the volatile helper and proof lock are absent.
+
+The staging tree is intentionally retained for review and currently consumes
+19,352,267,858 bytes, leaving 6,117,150,720 bytes available on its filesystem. Cleanup
+requires a separate decision. Secret-free outcome evidence is recorded in
+[`restic-restore-rehearsal-2026-09-19.json`](../infrastructure/evidence/restic-restore-rehearsal-2026-09-19.json).
+
 ### Current recovery-bundle build — September 19, 2026
 
 A fresh separately authorized passive observation at 04:22 UTC matched the same
