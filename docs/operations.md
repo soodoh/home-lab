@@ -469,6 +469,34 @@ prove which backup outcome occurred, and they do not authorize a canary retry or
 journal manipulation. There is no authorization to combine the deferred LiteLLM
 change with the canary.
 
+Commit `5da1f4e` extracted the prepared-generation activation interface and was
+pushed from a clean checkout after local independent-recovery-key Compose
+validation, focused tests and syntax checks passed. A newly authorized same-commit
+check repeated all live gates and passed 49 tasks with the expected one-change
+source boundary from active
+`2f12e384fdc0ce759d23b0bd9e16ad402d3ecd2985b4ecdfe048127f1c5748be`
+to candidate
+`3e5600bfa5ff9441d729e4e81634854435cea13f15568337adbc87911468569e`.
+The one authorized normal attempt passed preparation, same-content environment,
+model-scope and publication checks, recreated only `flaresolverr`, then failed the
+new full-project idempotence assertion: the immediate native module preview still
+proposed `flaresolverr` recreation plus its replacement-container start. The play
+reported **110 successful, 19 changed and one failed task**.
+
+A bounded read-only failure inspection found `flaresolverr` running with restart
+count zero on the expected immutable image, but confirmed the Compose preview still
+reported those two actions. Current now contains the exact candidate and previous
+the exact old artifact; production and previous environments remain byte-identical.
+The old active-artifact marker was not advanced. The workflow correctly retained
+production owner SHA-256
+`7c690c6c26290d3863c8cd1c4a101c99c33ca85de26b42b2ad0dcac3c12030c4`
+and the candidate's pre-deployment image checkpoint. No image-lock rotation,
+checkpoint consumption or owner release completed. This is an interrupted
+post-publication activation, not a successful deployment or native-interface
+qualification. The attempt is consumed: do not retry, release ownership, remove the
+checkpoint or alter current/previous state without a separately reviewed recovery
+decision. Deferred LiteLLM, database, Restic and migration effects remain untouched.
+
 The general legacy stage/deploy lane is retired: `compose_stage` and its review
 entrypoint now require an explicit allowlisted retained operation, and
 `compose_deploy` refuses every plan that is not its exact Nextcloud migration,

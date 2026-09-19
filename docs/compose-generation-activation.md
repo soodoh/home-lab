@@ -67,8 +67,13 @@ the local controller reported Ansible Core 2.21.2 and the pinned `community.dock
 5.3.0 collection; syntax checks for both `deploy-compose.yml` and
 `observe-compose.yml` passed without contacting a host. This confirms the bounded
 controller toolchain and playbook parsing only—not SSH connectivity, live check-mode
-behavior or deployment readiness. Neither check decrypts a secret, initializes a
-provider or authorizes deployment.
+behavior or deployment readiness. Neither check initializes a provider or authorizes
+deployment. The separately authorized live attempt documented in
+[operations](operations.md#native-compose-qualification) reached this interface but
+failed its immediate full-project idempotence assertion after publication and the
+bounded canary recreation. The retained owner and image checkpoint now require an
+operation-specific recovery decision; the interface is not live-qualified and must
+not be retried from this state.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production
