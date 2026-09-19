@@ -44,7 +44,10 @@ This procedure requires separate operational approval; it is not a source check.
    provenance, not automatic choices for today's restore.
 3. Retrieve a verified independently encrypted bundle if the host is unavailable.
    `build-restic-recovery-bundle` and `run-restic-recovery-bundle` retain this path;
-   their tool/runner/source bindings are not waived by source simplification.
+   their tool/runner/source bindings are not waived by source simplification. The
+   [current bundle preparation](current-restic-recovery-bundles.md) separates the
+   secret-free metadata plan from the still-unauthorized credential-backed build
+   and publication phases.
 4. Prepare an empty root-owned mode-0700 `/srv/home-lab-recovery/restic-*` directory;
    its real non-symlink parent must be root-owned mode 0700 or 0750. Keep plaintext
    off the small system disk and preserve production/user-data paths.

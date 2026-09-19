@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Prepare exact current Restic recovery-bundle metadata from observed evidence."""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import stat
+import subprocess
+import sys
+from typing import Any
+
+HEX = re.compile(r"^[0-9a-f]{64}$")
+TIMESTAMP = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?Z$")
+
+
+class MetadataFailure(Exception):
+    pass
+
+
+def fail(reason: str) -> None:
+    raise MetadataFailure(reason)
+
+
+def digest(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
+def duplicate_free_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            fail("json")
+        value[key] = item
+    return value
+
+
+def protected(path: Path, *, directory: bool = False, executable: bool = False) -> os.stat_result:
+    try:
+        metadata = path.lstat()
+    except OSError:
+        fail("protected_path")
+    expected = stat.S_ISDIR if directory else stat.S_ISREG
+    if (
+        path.is_symlink()
+        or not expected(metadata.st_mode)
+        or metadata.st_uid != os.geteuid()
+        or (not directory and metadata.st_nlink != 1)
+        or stat.S_IMODE(metadata.st_mode) & 0o022
+        or (executable and not metadata.st_mode & stat.S_IXUSR)
+    ):
+        fail("protected_path")
+    return metadata
+
+
+def load_json(path: Path) -> tuple[dict[str, Any], bytes]:
+    protected(path)
+    try:
+        raw = path.read_bytes()
+        if len(raw) > 128 * 1024:
+            fail("json")
+        value = json.loads(raw, object_pairs_hook=duplicate_free_object)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        fail("json")
+    if not isinstance(value, dict):
+        fail("json")
+    return value, raw
+
+
+def require_hex(value: object, reason: str) -> str:
+    if not isinstance(value, str) or HEX.fullmatch(value) is None:
+        fail(reason)
+    return value
+
+
+def validate_observation(value: dict[str, Any]) -> None:
+    required = {
+        "age_seconds", "artifact_sha256", "event", "interruption", "latest_chain",
+        "observed_at", "pending", "policy_sha256", "repositories", "state", "units", "version",
+    }
+    if set(value) != required or value.get("version") != 1 or value.get("state") != "observed-current-chain":
+        fail("observation_shape")
+    if value.get("event") != "natural-systemd-timer" or value.get("interruption") is not False or value.get("pending") != 0:
+        fail("observation_state")
+    if type(value.get("age_seconds")) is not int or not 0 <= value["age_seconds"] < 24 * 60 * 60:
+        fail("observation_rpo")
+    if not isinstance(value.get("observed_at"), str) or TIMESTAMP.fullmatch(value["observed_at"]) is None:
+        fail("observation_time")
+    require_hex(value.get("artifact_sha256"), "observation_identity")
+    require_hex(value.get("policy_sha256"), "observation_identity")
+    chain = value.get("latest_chain")
+    if not isinstance(chain, dict) or set(chain) != {"games", "nfs", "proton", "snapshot_time"}:
+        fail("observation_chain")
+    for key in ("games", "nfs", "proton"):
+        require_hex(chain.get(key), "observation_chain")
+    if not isinstance(chain.get("snapshot_time"), str) or TIMESTAMP.fullmatch(chain["snapshot_time"]) is None:
+        fail("observation_time")
+    repositories = value.get("repositories")
+    if not isinstance(repositories, dict) or set(repositories) != {"games", "nfs", "proton"}:
+        fail("observation_repositories")
+    for key in repositories:
+        require_hex(repositories[key], "observation_repositories")
+    if not isinstance(value.get("units"), dict):
+        fail("observation_shape")
+
+
+def contract_projection(repo: Path) -> dict[str, Any]:
+    configured = os.environ.get("HOME_LAB_NODE_BINARY")
+    node_value = configured if configured else shutil.which("node")
+    if not node_value:
+        fail("node_binary")
+    node = Path(node_value)
+    protected(node, executable=True)
+    contract = repo / "infrastructure/contract/home-lab.yml"
+    protected(contract)
+    source = """
+const fs=require('fs'), yaml=require('js-yaml');
+const value=yaml.load(fs.readFileSync(process.argv[1], 'utf8')).backups.restic;
+process.stdout.write(JSON.stringify({
+  restic_sha256:value.tools.restic.installed_sha256,
+  rclone_sha256:value.tools.rclone.installed_sha256,
+  repository_id:value.repositories.proton.id,
+}));
+"""
+    environment = {"PATH": "/usr/bin:/bin", "HOME": "/var/empty", "LC_ALL": "C"}
+    try:
+        result = subprocess.run(
+            [str(node), "-e", source, str(contract)], stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=environment,
+            timeout=30, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        fail("contract_projection")
+    if result.returncode != 0 or len(result.stdout) > 4096:
+        fail("contract_projection")
+    try:
+        value = json.loads(result.stdout, object_pairs_hook=duplicate_free_object)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        fail("contract_projection")
+    if not isinstance(value, dict) or set(value) != {"restic_sha256", "rclone_sha256", "repository_id"}:
+        fail("contract_projection")
+    for item in value.values():
+        require_hex(item, "contract_projection")
+    return value
+
+
+def write_new(path: Path, content: bytes) -> None:
+    parent = path.parent
+    metadata = protected(parent, directory=True)
+    if stat.S_IMODE(metadata.st_mode) != 0o700 or path.exists() or path.is_symlink():
+        fail("output_path")
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+    except OSError:
+        fail("output_write")
+
+
+def main() -> None:
+    os.umask(0o077)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--observation", required=True)
+    parser.add_argument("--output", required=True)
+    arguments = parser.parse_args()
+    repo = Path(__file__).resolve().parent.parent
+    observation, observation_raw = load_json(Path(arguments.observation))
+    validate_observation(observation)
+    contract = contract_projection(repo)
+    if observation["repositories"]["proton"] != contract["repository_id"]:
+        fail("repository_binding")
+    first_run_path = repo / "infrastructure/evidence/restic-first-run.json"
+    qualification_path = repo / "infrastructure/evidence/proton-qualification.json"
+    runner_path = repo / "scripts/restore-critical-backup"
+    protected(first_run_path)
+    protected(qualification_path)
+    protected(runner_path, executable=True)
+    metadata = {
+        "artifact_sha256": observation["artifact_sha256"],
+        "first_run_evidence_sha256": digest(first_run_path.read_bytes()),
+        "original_snapshot_id": observation["latest_chain"]["games"],
+        "policy_sha256": observation["policy_sha256"],
+        "qualification_evidence_sha256": digest(qualification_path.read_bytes()),
+        "rclone_sha256": contract["rclone_sha256"],
+        "repository": "rclone:proton_backup:Backups/home-lab-restic",
+        "repository_id": contract["repository_id"],
+        "restic_sha256": contract["restic_sha256"],
+        "restore_runner_sha256": digest(runner_path.read_bytes()),
+        "snapshot_id": observation["latest_chain"]["proton"],
+        "version": 1,
+    }
+    content = (json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    output = Path(arguments.output)
+    write_new(output, content)
+    result = {
+        "metadata_sha256": digest(content),
+        "observation_sha256": digest(observation_raw),
+        "state": "metadata-prepared",
+        "version": 1,
+    }
+    print(json.dumps(result, sort_keys=True, separators=(",", ":")))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except MetadataFailure as error:
+        print(f"restic_recovery_bundle_metadata=failed reason={error}", file=sys.stderr)
+        raise SystemExit(1)
