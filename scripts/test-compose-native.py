@@ -18,7 +18,6 @@ GENERATION = ROOT / "ansible/roles/compose_native/tasks/generation.yml"
 DEFAULTS = ROOT / "ansible/roles/compose_native/defaults/main.yml"
 HOST = ROOT / "ansible/inventory/host_vars/docker-host.yml"
 RELEASE = ROOT / "ansible/playbooks/release-failed-compose-canary.yml"
-INTERRUPTED_RECOVERY = ROOT / "ansible/playbooks/recover-interrupted-compose-canary.yml"
 
 
 class NativeComposeSourceTests(unittest.TestCase):
@@ -191,32 +190,6 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertIn("dependencies: true", settle)
         self.assertIn("recreate: auto", settle)
         self.assertIn("when: compose_native_post_preview.changed", settle)
-
-    def test_interrupted_canary_has_one_exact_forward_recovery(self):
-        recovery = self.text(INTERRUPTED_RECOVERY)
-        for marker in (
-            "7c690c6c26290d3863c8cd1c4a101c99c33ca85de26b42b2ad0dcac3c12030c4",
-            "2f12e384fdc0ce759d23b0bd9e16ad402d3ecd2985b4ecdfe048127f1c5748be",
-            "3e5600bfa5ff9441d729e4e81634854435cea13f15568337adbc87911468569e",
-            "31a2fe455d849ab38d373709ee39cd6378406708c1de29e43b6e410eb21ca213",
-            "compose_interrupted_recovery_confirmed",
-            "apply_lock_action: adopt",
-            "apply_lock_action: release",
-            "apply_lock_expected_owner_sha256",
-            "Require the exact two-action replacement boundary",
-            "Settle the exact canary through dependency-aware auto convergence",
-            "dependencies: true",
-            "Require a zero-change complete project preview",
-            "Archive the exact older previous image generation",
-            "Preserve pre-deployment current images under the old active artifact",
-            "Publish the checkpoint as the previous image generation",
-            "Publish the exact active candidate artifact identity",
-            "Remove the consumed interruption checkpoint after complete success",
-        ):
-            self.assertIn(marker, recovery)
-        self.assertNotIn("activate-recovered-data.py", recovery)
-        self.assertNotIn("compose_recovery", recovery)
-        self.assertNotIn("docker image prune", recovery)
 
     def test_narrow_canary_defers_litellm_and_prepares_exact_lock_release(self):
         active_litellm_sha256 = "6a93d7caee70b924d80c628250441a78be5ebe9844735982ab9c532e4f4595d2"

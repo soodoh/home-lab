@@ -75,10 +75,13 @@ bounded canary recreation. A disposable Compose 2.26.1 regression isolated the
 `--force-recreate --no-deps` interaction with a named service that has a dependency.
 The interface now permits only the exact requested replacement actions and settles
 them through dependency-aware automatic convergence before requiring a final
-zero-change preview. `recover-interrupted-compose-canary.yml` binds a proposed
-forward completion to the retained owner and generations. Neither source path has
-been run against production; the retained owner and image checkpoint still require
-a separately reviewed recovery decision.
+zero-change preview. Commit `bc870b8e` bound an exact forward completion to the
+retained owner and generations. Its separately authorized normal run completed the
+interrupted publication, preserved rollback image generations, advanced the marker,
+consumed the checkpoint and released ownership; fresh native observation then passed
+with 38 running services and a zero-change preview. That operation-specific recovery
+authorization is consumed. The repaired reusable generation role has not yet received
+a separate normal canary qualification, so broader service adoption remains pending.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production

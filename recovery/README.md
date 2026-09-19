@@ -29,13 +29,14 @@ execution, while exact operation-specific staging/deployment internals remain as
 recovery inputs. The first [native generation-activation slice](../docs/compose-generation-activation.md)
 extracts only the qualified canary's publication, Compose, health and idempotence
 mechanics; it does not replace archive data activation, rollback planning, migration
-journals or installed recovery consumers. The retained September 19 canary owner and
-checkpoint remain live recovery inputs. The exact forward-completion proposal in
-`ansible/playbooks/recover-interrupted-compose-canary.yml` is bound to that owner and
-three known artifact generations; it is unexecuted and requires a separately reviewed
-recovery decision. It is not a general recovery command. This distinction does not
-waive existing legacy recovery inputs, establish independent custody, or make a
-healthy service a restore test. See the
+journals or installed recovery consumers. The September 19 canary owner and
+checkpoint were consumed only after the separately authorized exact forward recovery
+proved full-project idempotence, service health and image-generation preservation.
+The marker now identifies the recovered candidate and fresh native observation is
+zero-change. Commit `bc870b8e` records the consumed exact recovery; its callable
+one-off play was removed after postconditions passed and must not be reconstructed or
+rerun. This distinction does not waive existing legacy recovery inputs,
+establish independent custody, or make a healthy service a restore test. See the
 [disposable-controller decision](../docs/decisions.md#disposable-controllers-and-live-validation).
 
 ## Select and restore to staging

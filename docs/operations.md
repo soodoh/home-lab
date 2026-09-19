@@ -511,11 +511,31 @@ Docker context, an independently supplied Compose 2.26.1 binary and an already-l
 image, and always removes its fixture.
 
 Source now guards that exact post-recreation action shape before the settling pass.
-`recover-interrupted-compose-canary.yml` is an operation-specific forward-recovery
-proposal bound to the retained owner, three artifact generations, old marker,
-byte-identical environments and image checkpoint. It remains unexecuted. Its check
-and normal modes require separate review; do not infer recovery authorization from
-the disposable fixture or this source change.
+Commit `bc870b8e` added that fix and an operation-specific forward recovery bound to
+the retained owner, three artifact generations, old marker, byte-identical
+environments and exact image-lock capture times. It was pushed from a clean checkout.
+Its same-commit check mode passed 16 tasks with two expected preview changes and
+reconfirmed the exact two-action `flaresolverr` boundary.
+
+The separately authorized normal forward recovery then passed **36 tasks with eight
+changes and no failures**. It adopted only the retained owner, settled
+`flaresolverr` through dependency-aware automatic convergence, required a zero-change
+full-project preview, preserved all 38 running services and required health checks,
+archived the older previous images under artifact `31a2fe455d`, retained the old
+active images under artifact `2f12e384fd`, published new current/previous image
+locks and advanced the active marker to `3e5600bfa5`. Only after those checks did it
+consume the checkpoint and release the owner. No database migration or Restic policy
+activation occurred.
+
+Fresh native observation passed 38 tasks with `changed=0`: ownership and interruption
+state were absent, all 38 services were running on digest-pinned images, required
+health checks passed, backup writers were inactive, rollback images were locally
+available and the full Compose preview was zero-change. A final four-task bounded
+check confirmed the owner and checkpoint absent, both retained image generations
+present and the marker exact. The recovery authorization is consumed, and the
+callable one-off recovery play was removed after those postconditions passed. The
+repaired reusable generation role still requires its own separately authorized
+normal canary qualification before broader adoption.
 
 The general legacy stage/deploy lane is retired: `compose_stage` and its review
 entrypoint now require an explicit allowlisted retained operation, and
