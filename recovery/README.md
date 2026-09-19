@@ -79,9 +79,12 @@ This procedure requires separate operational approval; it is not a source check.
    and outcomes. Production activation remains blocked pending an isolated tested
    procedure with stopped writers, preservation rules and interruption recovery.
 
-The [Nextcloud and Calibre restore rehearsal](nextcloud-calibre-restore-rehearsal.md)
-binds this staging procedure to a new natural local snapshot and explicit
-migration-retirement checks. It is a review plan, not execution authority.
+The completed [Nextcloud and Calibre restore rehearsal](nextcloud-calibre-restore-rehearsal.md)
+binds this staging procedure to an exact natural local snapshot and explicit
+migration-retirement checks. The follow-on
+[Nextcloud isolated logical recovery plan](nextcloud-isolated-recovery-plan.md)
+separates database, application-control-plane and external-user-data claims. Neither
+document grants execution authority.
 
 Allowed repositories are `/mnt/games/restic/home-lab`,
 `/mnt/storage/restic/home-lab`, installed

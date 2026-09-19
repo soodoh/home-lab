@@ -120,7 +120,10 @@ Success requires:
 ### Gate 2 — isolated application rebuild and activation
 
 Qualifies the actual service RTO. Do not authorize this gate until its missing source
-and side-effect controls have been designed, tested locally and reviewed.
+and side-effect controls have been designed, tested locally and reviewed. The
+[Nextcloud isolated logical recovery plan](../recovery/nextcloud-isolated-recovery-plan.md)
+is a bounded database/control-plane precursor; because external user data is absent
+from Restic, it is not Gate 2 qualification by itself.
 
 Success additionally requires:
 

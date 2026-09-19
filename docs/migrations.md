@@ -220,7 +220,7 @@ Before old-path deletion:
 
 - preserve the completed [Nextcloud and Calibre private-staging restore rehearsal](../recovery/nextcloud-calibre-restore-rehearsal.md) and its exact snapshot/manifests;
 - keep the passing focused `scripts/test-restic-recovery-bundle` and `scripts/test-restic-restore-branch` checks;
-- separately prove isolated logical MariaDB/application recovery with SOPS-backed secret files and pinned application code while retaining external data;
+- review and separately authorize the [Nextcloud isolated logical recovery plan](../recovery/nextcloud-isolated-recovery-plan.md) with SOPS-backed secret files, pinned application code and no production external-data mount;
 - prove the previous-artifact rollback;
 - confirm representative user-file counts and hashes are unchanged;
 - retain old copies for seven days after these proofs.
