@@ -17,14 +17,14 @@ isolation boundary.
 ## Assessment
 
 The repository retains a strong **exact Restic snapshot to private staging** path,
-but not a qualified fresh-server or application-activation path. The eight-hour
-recovery objective and 24-hour recovery-point objective are therefore not currently
-qualified.
+but not a qualified fresh-server or application-activation path. The September 19
+observation met the 24-hour recovery-point objective at that instant; it does not
+qualify the ongoing objective. The eight-hour recovery objective remains unqualified.
 
 | Capability | Current evidence | Assessment |
 |---|---|---|
-| Scheduled backup configuration | The nine installed unit definitions matched source on September 14; the daily units last reported success that day. | Configuration and exit status only; no current snapshot or restore integrity was observed. |
-| Canonical off-site repository | The canonical Proton repository was promoted after a zero-error full-data read on September 2. A natural daily chain succeeded on September 3. | Strong dated evidence, but not present-tense health and not proof of the latest recovery point. Monthly maintenance still has an unresolved historical failure. |
+| Scheduled backup configuration | The nine installed unit definitions matched source on September 14. A September 19 passive observation matched successful September 18 units to one exact games → NFS → Proton chain with zero pending entries. | Current point-in-time chain and schedule evidence; no backup was forced and no restore integrity was tested. |
+| Canonical off-site repository | The canonical Proton repository was promoted after a zero-error full-data read on September 2. The September 19 observer opened the exact repository and matched its latest copied snapshot. | Present-tense read and identity proof for that snapshot, but not a repository check or full-data read. Monthly maintenance still has an unresolved historical failure. |
 | Exact staging restore | `restore-critical-backup` binds repository, snapshot, copied ancestry, policy, Compose artifact and pinned binaries, restores only to an empty private staging tree, and uses `restic restore --verify`. | Retained and source-tested. Historical VM9900 execution restored 22,031 files and 6,982,221,998 bytes without starting services. |
 | Independent recovery bundle | Canonical bundle B was independently encrypted, versioned in KMS-backed AWS storage, retrieved and restored in the historical exercise. A September 19 read-only drill retrieved and removed the exact current historical ciphertext again. | The evidence binds an old exact snapshot. It is a break-glass baseline, not proof of the current 24-hour RPO; current bundle decryption was not exercised. |
 | Recovery credentials | The bundle format carries only the Restic and dedicated Proton recovery fields, with optional TOTP, and excludes host tokens. The publication credential is SOPS-encrypted to production and independent recipients. | The September 19 drill verified publication-credential usability, expected AWS caller and KMS-backed object access using the operator-accepted equivalent controller key. Proton/Restic credentials remained encrypted. |
@@ -33,16 +33,18 @@ qualified.
 | Application artifacts | Restic includes protected production environment data and application state. Source retains Compose definitions and pinned images; host generations and image state are retained separately. | A snapshot's artifact tag is an identity, not the artifact itself. Independent custody and reconstruction of the matching source/image generation must be proven. |
 | Application activation | The contract exposes staging only. Existing activation code expects the old `backup/` archive format and must reject Restic staging. External-data services remain pending. | Blocked pending an isolated activation design and proof. A staging restore cannot qualify service RTO. |
 | External/user data | Nextcloud external data and other excluded or regenerable classes are deliberately outside the application-state snapshot. | Must have separate availability checks or explicit degraded-service acceptance. |
-| RPO/RTO | Contract objectives are 24 hours and 8 hours. | Neither is qualified by source tests, dated backup exits or the historical staging exercise. |
+| RPO/RTO | Contract objectives are 24 hours and 8 hours. The September 18 source snapshot was 54,790 seconds old when observed. | The RPO passed at that observation point but is not qualified as an ongoing guarantee. The service RTO remains unqualified. |
 
 ### Evidence limits
 
-The important retained evidence is internally consistent but answers historical,
-not current, questions:
+The important retained evidence is internally consistent. Most records are
+historical; the September 19 observations are bounded point-in-time checks:
 
 - `proton-qualified-promotion.json` records the September 2 canonical repository
   promotion and full read.
 - `natural-restic-daily-2026-09-03.json` records one natural scheduled chain.
+- `natural-restic-daily-2026-09-18.json` records the current tagged three-repository
+  chain, zero pending entries and its observed age.
 - `proton-canonical-recovery-bundles.json` records canonical bundle B publication
   and its exact ciphertext identity.
 - `proton-canonical-recovery-vm.json` records a verified staging restore without
@@ -52,9 +54,10 @@ not current, questions:
 - `aws-recovery-bundle-access-2026-09-19.json` records the later expected-caller,
   exact-version, KMS, ciphertext and cleanup result.
 
-None establishes today's latest backup snapshot, a bundle bound to that snapshot,
-available recovery compute, bundle decryption or service activation.
-The existing bundle's embedded snapshot ID also prevents silently
+The September 19 observation establishes the latest snapshot at that instant, but
+none of the evidence establishes a bundle bound to that snapshot, ongoing schedule
+success, available recovery compute, bundle decryption or service activation. The
+existing bundle's embedded snapshot ID also prevents silently
 substituting a newer daily snapshot. A current exercise needs a newly reviewed
 snapshot selection and newly bound bundle; historical confirmations or receipts
 must not be replayed.
@@ -245,6 +248,6 @@ plan or destroy evidence merely to obtain a passing result.
 
 Until these decisions and a separately authorized timed run are complete, report
 recovery as **exact private staging supported; independent age-key custody and exact
-historical AWS bundle retrieval confirmed; current bundle decryption and restore
-unverified; application activation unavailable; 24-hour RPO and eight-hour RTO
-unqualified**.
+historical AWS bundle retrieval confirmed; September 19 point-in-time RPO passed;
+current bundle creation/decryption and restore unverified; application activation
+unavailable; ongoing 24-hour RPO and eight-hour RTO unqualified**.

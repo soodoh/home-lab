@@ -552,6 +552,26 @@ The September 14 inspection found all nine units matching rendered bytes and
 root:root 0644 metadata, both timers active/enabled, boot recovery enabled and no
 unit drop-ins. This is configuration parity, not maintenance or restoration proof.
 
+### Latest passive backup observation — September 19, 2026
+
+A separately authorized read-only observation found the natural September 18 daily
+local and Proton units completed successfully at 12:09 and 12:17 UTC. No writer,
+deployment lock or interruption journal was active, and accepted pending replication
+was zero. While holding only the existing host coordination lock, the observer used
+Restic `--no-lock --no-cache` reads to match the current policy and artifact tags,
+all three exact repository IDs, and one unique games → NFS → Proton chain. The
+source snapshot was 54,790 seconds old at observation, within the 24-hour objective.
+The secret-free identities are recorded in
+`infrastructure/evidence/natural-restic-daily-2026-09-18.json`.
+
+The first Ansible attempt rendered the stdin marker as `[None]` and exited before
+the observer script ran; it contacted no repository and changed nothing. The
+corrected retry reported `changed=0`, `failed=0` and `unreachable=0`. Neither attempt
+ran a backup, repository check, maintenance, forget/prune, restore or repair. This
+is point-in-time RPO and copy-chain evidence, not data-integrity, restore or ongoing
+schedule qualification. Empty post-reboot maintenance runtime fields do not erase
+the preserved September 1 maintenance failure.
+
 ### Pinned backup tools
 
 Native host variables own the same Restic **0.19.1** and Proton-qualified rclone

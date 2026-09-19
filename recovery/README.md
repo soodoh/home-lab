@@ -88,9 +88,14 @@ Preserve its owner and restart intent across controller or host failure.
 Source declares one non-persistent 05:00 daily target (local/NFS then confined
 Proton) and one non-persistent monthly maintenance target; no independent Proton
 timer. Preserve actual enabled/active states; legacy activation still requires the
-evidence below. [Operational outcomes](../docs/operations.md#latest-scoped-deployment)
-and [mount probes](../docs/operations.md#proton-maintenance-unit) do not prove
-snapshot integrity, full maintenance success or restore readiness.
+evidence below. The September 19
+[passive observation](../docs/operations.md#latest-passive-backup-observation--september-19-2026)
+matched one current, fully copied September 18 games → NFS → Proton chain with zero
+pending entries and a source age below 24 hours. It used `--no-lock --no-cache` reads
+and ran no backup or maintenance; it is point-in-time chain/RPO evidence, not restore
+integrity. Other [operational outcomes](../docs/operations.md#latest-scoped-deployment)
+and [mount probes](../docs/operations.md#proton-maintenance-unit) likewise do not
+prove snapshot integrity, full maintenance success or restore readiness.
 `restic-proton` stays UID/GID **60000**, without login, supplementary groups or
 production-tree access. Do not reuse the historically conflicting UID 999 or
 recursively chown application data. Preserve `/run/lock/home-lab-backup.lock` and
