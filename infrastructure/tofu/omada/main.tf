@@ -1,5 +1,4 @@
 locals {
-  contract = yamldecode(file("${path.module}/../../contract/home-lab.yml"))
   export = var.omada_enable_management ? jsondecode(file(var.omada_export_path)) : {
     exported_at        = ""
     controller_version = ""
@@ -21,7 +20,7 @@ provider "omada" {
 check "export_identity" {
   assert {
     condition = !var.omada_enable_management || (
-      local.export.controller_version == local.contract.omada.controller_version &&
+      local.export.controller_version == var.omada_domain.controller_version &&
       local.export.site.id != "" &&
       local.export.site.name != "" &&
       local.export.network.id != "" &&

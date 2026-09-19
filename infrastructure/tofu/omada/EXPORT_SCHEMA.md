@@ -1,6 +1,8 @@
 # Required ignored Omada export
 
-`omada_export_path` must point to a root-only, ignored JSON file with this shape.
+This root owns its non-secret controller version and endpoint in
+`domain.auto.tfvars.json`. `omada_export_path` remains a separate explicit input
+and must point to a root-only, ignored JSON file with this shape.
 Values below are synthetic examples, not desired reservation identities:
 
 ```json

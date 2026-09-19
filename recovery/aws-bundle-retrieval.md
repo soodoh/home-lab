@@ -179,4 +179,5 @@ requires a specific diagnosis and separately reviewed recovery decision.
 Success closes only the independent **key → publication credential → AWS/KMS → exact
 historical bundle ciphertext** path. Gate 1 still requires a current evidence-bound
 bundle, isolated target and verified Restic staging restore. Gate 2 remains required
-to qualify application activation and the eight-hour service RTO.
+to qualify application activation against the assessment-only eight-hour
+service-recovery criterion.

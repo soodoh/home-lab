@@ -1,4 +1,5 @@
 ---
+system_timezone: America/Los_Angeles
 audit_home_dir: /home/docker
 
 audit_expected_distribution: Debian

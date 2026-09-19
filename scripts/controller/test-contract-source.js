@@ -29,9 +29,6 @@ const inputs = [
   ].map((name) => `scripts/${name}`),
   contractPath, "infrastructure/contract/schema.json",
   "services/servarr.yml", "services/data/restic/files-from", "services/data/restic/excludes",
-  ...fs.readdirSync(path.join(root, "infrastructure/tofu/proxmox"))
-    .filter((name) => name.endsWith(".tf"))
-    .map((name) => `infrastructure/tofu/proxmox/${name}`),
 ];
 
 function put(relative, content) {

@@ -3,5 +3,5 @@ output "docker_host_vm_id" {
 }
 
 output "docker_host_mac" {
-  value = local.contract.network.docker_host.mac
+  value = var.proxmox_vm.network.docker_host_mac
 }

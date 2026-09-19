@@ -300,7 +300,7 @@ class ActionModule(ActionBase):
     lifecycle_profile: "inert", lifecycle_contract_host: "debian",
     debian: contract.debian, vm_100: { host_name: contract.vm_100.host_name },
     package_mutation_policy: { require_exact_lock_for_all_updates: true, automatic_apply: false },
-    system_timezone: contract.system_timezone, debian_locale: groupVars.debian_locale,
+    system_timezone: groupVars.system_timezone, debian_locale: groupVars.debian_locale,
     debian_base_hostname: groupVars.debian_base_hostname,
     base_packages: groupVars.base_packages, base_services: groupVars.base_services,
     ansible_facts: {
@@ -358,7 +358,7 @@ class ActionModule(ActionBase):
     baseSucceeded(first);
     assert.match(first.output, /changed=[1-9]/);
     assert.equal(first.state.hostname, contract.vm_100.host_name);
-    assert.equal(first.state.timezone, contract.system_timezone);
+    assert.equal(first.state.timezone, groupVars.system_timezone);
     assert.deepEqual(first.state.services, contract.debian.baseline.services);
     assert.equal(first.state.files["/etc/locale.conf"].content, "LANG=C.UTF-8\n");
     assert.equal(first.state.files["/etc/default/locale"].src, "../locale.conf");

@@ -237,8 +237,9 @@ The historical VM9900 restore fixtures demonstrated staging/structural validatio
 without running applications (22,031 files/6,982,221,998 bytes); they did not qualify
 production activation or clean rebuild. Generic Restic bundle, restore and critical
 backup recovery remain supported independently of the removed VM harness. Retain
-transaction directories when plaintext cleanup fails. The eight-hour recovery
-objective remains unqualified until a timed end-to-end isolated exercise succeeds.
+transaction directories when plaintext cleanup fails. The assessment-only eight-hour
+service-recovery criterion remains unqualified until a timed end-to-end isolated
+exercise succeeds.
 Source tests and the retired VM harness do not satisfy that live recovery gate. The
 [current readiness assessment and qualification plan](../docs/recovery-readiness-assessment.md)
 separates independent staging proof from service activation and lists the required

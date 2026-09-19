@@ -882,14 +882,18 @@ is performed), run:
 node scripts/validate-contract
 node scripts/controller/test-contract-source.js
 node scripts/controller/test-contract-schema.js
+node scripts/controller/test-domain-input-ownership.js
 node scripts/controller/test-restic-policy.js
 ```
 
-The source-only validator checks configuration schema/semantics, source helper/package
-bindings and generated Restic input parity. It does not read historical receipts,
-the Offen retirement manifest, credentials, `.local` or `.reconcile`. Existing
-legacy outcome fields are checked for structural consistency, not asserted as true.
-Source success is **not backup health, restore qualification or deployment permission**.
+The source-only contract validator checks compatibility-schema semantics,
+source helper/package bindings and generated Restic input parity. Provider roots
+are checked separately through their typed root-local inputs; see the
+[contract ownership inventory](contract-ownership.md). Neither check reads
+historical receipts, the Offen retirement manifest, credentials, `.local` or
+`.reconcile`. Existing legacy outcome fields are checked for structural consistency,
+not asserted as true. Source success is **not backup health, restore qualification
+or deployment permission**.
 
 Historical modes have been removed. `--historical-evidence` and `--operational`
 explicitly exit with status 2 before validation; they never fall back to source-only

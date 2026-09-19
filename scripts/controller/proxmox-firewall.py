@@ -31,7 +31,7 @@ CONFIG = Path.home() / ".config/home-lab/controller/proxmox-firewall-canaries.js
 KEY = Path.home() / ".config/home-lab/controller/proxmox-firewall-controller.key"
 HELPER_SOURCE = ROOT / "infrastructure/proxmox-firewall/host/proxmox-firewall-transaction.py"
 LOCK_ROOT = ROOT
-POLICY_SOURCE = ROOT / "infrastructure/contract/home-lab.yml"
+POLICY_SOURCE = ROOT / "infrastructure/proxmox-firewall/host/proxmox-firewall-policy.json"
 PLAN_SCHEMA = ROOT / "infrastructure/policy/proxmox-firewall-plan.schema.json"
 PRIVATE_SCHEMA = ROOT / "infrastructure/policy/proxmox-firewall-private.schema.json"
 REQUEST_SCHEMA = ROOT / "infrastructure/policy/proxmox-firewall-request.schema.json"
@@ -325,8 +325,9 @@ def validate_inspection(value: Any) -> dict[str, Any]:
 
 
 def load_projection_policy() -> dict[str, Any]:
-    source = "const fs=require('fs'),{load}=require('js-yaml'); const f=load(fs.readFileSync(process.argv[1],'utf8')).proxmox.firewall; console.log(JSON.stringify({ownership:f.ownership,activation:f.activation,options:f.options,rules:f.rules}));"
-    return json.loads(subprocess.check_output(["node", "-e", source, str(POLICY_SOURCE)], cwd=ROOT))
+    value = json.loads(POLICY_SOURCE.read_bytes())
+    exact(value, {"activation", "options", "ownership", "rules"}, "firewall policy")
+    return value
 
 
 def make_plan() -> str:

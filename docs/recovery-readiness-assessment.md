@@ -19,7 +19,8 @@ isolation boundary.
 The repository retains a strong **exact Restic snapshot to private staging** path,
 but not a qualified fresh-server or application-activation path. The September 19
 observation met the 24-hour recovery-point objective at that instant; it does not
-qualify the ongoing objective. The eight-hour recovery objective remains unqualified.
+qualify the ongoing objective. The assessment-only eight-hour service-recovery
+criterion remains unqualified.
 
 | Capability | Current evidence | Assessment |
 |---|---|---|
@@ -33,7 +34,7 @@ qualify the ongoing objective. The eight-hour recovery objective remains unquali
 | Application artifacts | Restic includes protected production environment data and application state. Source retains Compose definitions and pinned images; host generations and image state are retained separately. | A snapshot's artifact tag is an identity, not the artifact itself. Independent custody and reconstruction of the matching source/image generation must be proven. |
 | Application activation | The contract exposes staging only. Existing activation code expects the old `backup/` archive format and must reject Restic staging. External-data services remain pending. | Blocked pending an isolated activation design and proof. A staging restore cannot qualify service RTO. |
 | External/user data | Nextcloud external data and other excluded or regenerable classes are deliberately outside the application-state snapshot. | Must have separate availability checks or explicit degraded-service acceptance. |
-| RPO/RTO | Contract objectives are 24 hours and 8 hours. The September 18 source snapshot was 58,532 seconds old at the fresh pre-build observation. | The RPO passed at build admission but is not qualified as an ongoing guarantee. The service RTO remains unqualified. |
+| RPO/RTO | The lifecycle backup-age admission remains 24 hours. The former eight-hour contract value is retained here only as a recovery-assessment criterion. The September 18 source snapshot was 58,532 seconds old at the fresh pre-build observation. | The RPO passed at build admission but is not qualified as an ongoing guarantee. The assessment-only eight-hour service-recovery criterion remains unqualified. |
 
 ### Evidence limits
 
@@ -96,7 +97,7 @@ recovery.
 
 Qualifies independently retrieving, decrypting and restoring one current exact
 snapshot to a private isolated staging tree. It does not start applications or
-claim the eight-hour service RTO.
+satisfy the assessment-only eight-hour service-recovery criterion.
 
 Success requires:
 
@@ -113,7 +114,7 @@ Success requires:
   into its fixed empty root-owned target;
 - representative protected files and database structures pass offline checks,
   with only secret-free counts, hashes and outcomes recorded; and
-- elapsed time from declared disaster to verified staging is at most eight hours,
+- for this assessment, elapsed time from declared disaster to verified staging is at most eight hours,
   reported as **staging RTO only**.
 
 ### Gate 2 — isolated application rebuild and activation
@@ -138,11 +139,12 @@ Success additionally requires:
   or routes;
 - representative authenticated read checks for each critical service and an
   explicit result for every external-data dependency; and
-- completion within eight hours from the declared disaster point, including
-  infrastructure provisioning, custody retrieval, restore, activation and checks.
+- completion against the assessment-only criterion within eight hours from the
+  declared disaster point, including infrastructure provisioning, custody retrieval,
+  restore, activation and checks.
 
-A Gate 1 success must not be reported as Gate 2 or as qualification of the contract
-RTO.
+A Gate 1 success must not be reported as Gate 2 or as qualification against the
+assessment-only eight-hour service-recovery criterion.
 
 ## Isolated target admission
 
@@ -251,4 +253,5 @@ recovery as **exact private staging supported; independent age-key custody and e
 historical AWS bundle retrieval confirmed; September 19 point-in-time RPO and
 current local bundle creation passed; current publication, independent retrieval,
 decryption and restore unverified; application activation unavailable; ongoing
-24-hour RPO and eight-hour RTO unqualified**.
+24-hour RPO and the assessment-only eight-hour service-recovery criterion
+unqualified**.

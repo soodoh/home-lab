@@ -297,34 +297,6 @@ function validateProxmoxHostPolicy(contract) {
     failures.push("NFS export must equal the protected ZFS dataset mountpoint");
   }
 
-  const dockerHostAddress = contract.network.docker_host.ipv4.split("/")[0];
-  const expectedFirewallRules = [
-    ["IN", "ACCEPT", contract.network.cidr, "tcp", 22, "nolog"],
-    ["IN", "ACCEPT", contract.network.cidr, "tcp", 8006, "nolog"],
-    ["IN", "ACCEPT", `${dockerHostAddress}/32`, "tcp", 2049, "nolog"],
-    ["IN", "ACCEPT", "0.0.0.0/0", "udp", 41641, "nolog"],
-    ["IN", "ACCEPT", "100.64.0.0/10", "tcp", 22, "nolog"],
-    ["IN", "ACCEPT", "100.64.0.0/10", "tcp", 8006, "nolog"],
-  ];
-  const firewallRules = proxmox.firewall.rules.map((rule) => [
-    rule.direction,
-    rule.action,
-    rule.source,
-    rule.protocol,
-    rule.destination_port,
-    rule.log,
-  ]);
-  if (JSON.stringify(firewallRules) !== JSON.stringify(expectedFirewallRules)) {
-    failures.push("Proxmox firewall rules must match the reviewed management and NFS policy");
-  }
-  if (!proxmox.firewall.options.enable || proxmox.firewall.options.policy_in !== "DROP" || proxmox.firewall.options.policy_out !== "ACCEPT") {
-    failures.push("Proxmox firewall must remain enabled with default-deny ingress");
-  }
-  if (proxmox.firewall.kind !== "api-owned" || proxmox.firewall.ownership !== "pve-api" ||
-      proxmox.firewall.activation !== "pve-api" || proxmox.firewall.projectable) {
-    failures.push("PVE firewall must remain non-projectable API-owned state");
-  }
-
   const expectedUsbPortRefs = new Map([
     ["zigbee", "HOMELAB_ZIGBEE_USB_PORT"],
     ["zwave", "HOMELAB_ZWAVE_USB_PORT"],

@@ -1,6 +1,6 @@
 "use strict";
 
-function validateVmArtifactReferences(contract, proxmoxSource) {
+function validateVmArtifactReferences(contract) {
   const failures = [];
   const vm = contract.proxmox.vm;
   const declaredBootDevices = new Set([
@@ -21,12 +21,6 @@ function validateVmArtifactReferences(contract, proxmoxSource) {
         `proxmox.vm.pci.${name}.rom_file is forbidden until its source, SHA-256, and host provisioning are declared`,
       );
     }
-  }
-
-  if (/^[\t ]*rom_file[\t ]*=/m.test(proxmoxSource) || /\bromfile[\t ]*=/.test(proxmoxSource)) {
-    failures.push(
-      "Proxmox Tofu cannot reference a custom ROM until its source, SHA-256, and host provisioning are declared",
-    );
   }
 
   return failures;

@@ -4,54 +4,10 @@
   "title": "Home lab infrastructure contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "system_name", "system_timezone", "lifecycle", "recovery", "vm_100", "network", "proxmox", "storage", "debian", "omada", "tailscale", "aws", "nextcloud", "backups", "compose_deployment"],
+  "required": ["version", "lifecycle", "vm_100", "network", "proxmox", "storage", "debian", "tailscale", "nextcloud", "backups"],
   "properties": {
     "version": { "const": 1 },
-    "compose_deployment": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["version", "assets"],
-      "properties": {
-        "version": { "const": 1 },
-        "assets": {
-          "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
-          "items": {
-            "type": "object", "additionalProperties": false,
-            "required": ["path", "kind", "disposition"],
-            "properties": {
-              "path": { "type": "string", "maxLength": 240, "pattern": "^(?!.*(?:^|/)\\.\\.?(?:/|$))services/data/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$" },
-              "kind": { "enum": ["file", "directory"] },
-              "disposition": { "enum": ["compose-bind", "host-consumed", "retained-only"] },
-              "host": {
-                "type": "object", "additionalProperties": false,
-                "required": ["consumer", "destination", "adoption"],
-                "properties": {
-                  "consumer": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
-                  "destination": { "type": "string", "maxLength": 240, "pattern": "^(?!.*(?:^|/)\\.\\.?(?:/|$))/(?:[A-Za-z0-9_. -]+/)*[A-Za-z0-9_. -]+$" },
-                  "adoption": { "enum": ["pending-review", "out-of-domain"] }
-                }
-              }
-            },
-            "if": { "properties": { "disposition": { "const": "host-consumed" } } },
-            "then": { "required": ["host"], "properties": { "host": {}, "kind": { "const": "file" } } },
-            "else": { "not": { "properties": { "host": {} }, "required": ["host"] } }
-          }
-        }
-      }
-    },
-    "system_name": { "const": "home-lab" },
-    "system_timezone": { "const": "America/Los_Angeles" },
     "lifecycle": { "$ref": "#/$defs/lifecyclePolicy" },
-    "recovery": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["evidence_max_age_days", "critical_rpo_hours", "critical_rto_hours"],
-      "properties": {
-        "evidence_max_age_days": { "type": "integer", "minimum": 1, "maximum": 365 },
-        "critical_rpo_hours": { "type": "integer", "maximum": 24 },
-        "critical_rto_hours": { "type": "integer", "maximum": 8 }
-      }
-    },
     "vm_100": { "$ref": "#/$defs/vm100Scaffold" },
     "network": {
       "type": "object",
@@ -71,10 +27,9 @@
     "proxmox": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["node", "api_endpoint", "grub", "vfio", "apt", "services", "access", "ssh", "tailscale", "health", "planning_policy", "firewall", "packages", "kernels", "root_cleanup", "vm"],
+      "required": ["node", "grub", "vfio", "apt", "services", "access", "ssh", "tailscale", "health", "planning_policy", "packages", "kernels", "root_cleanup", "vm"],
       "properties": {
         "node": { "type": "string", "minLength": 1 },
-        "api_endpoint": { "type": "string", "pattern": "^https://" },
         "grub": { "$ref": "#/$defs/grubPolicy" },
         "vfio": { "$ref": "#/$defs/vfioPolicy" },
         "apt": { "$ref": "#/$defs/aptPolicy" },
@@ -84,7 +39,6 @@
         "tailscale": { "$ref": "#/$defs/proxmoxTailscalePolicy" },
         "health": { "$ref": "#/$defs/proxmoxHealthPolicy" },
         "planning_policy": { "$ref": "#/$defs/proxmoxPlanningPolicy" },
-        "firewall": { "$ref": "#/$defs/proxmoxFirewallPolicy" },
         "packages": { "$ref": "#/$defs/hostPackagePolicy" },
         "kernels": { "$ref": "#/$defs/kernelPolicy" },
         "root_cleanup": { "$ref": "#/$defs/rootCleanupPolicy" },
@@ -357,22 +311,11 @@
         }
       }
     },
-    "omada": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["controller_version", "endpoint", "export_path"],
-      "properties": {
-        "controller_version": { "type": "string" },
-        "endpoint": { "type": "string", "pattern": "^https://" },
-        "export_path": { "type": "string", "minLength": 1 }
-      }
-    },
     "tailscale": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["owner_identity", "docker_host_client", "tags", "required_endpoints"],
+      "required": ["docker_host_client", "tags"],
       "properties": {
-        "owner_identity": { "const": "soodoh@github" },
         "docker_host_client": {
           "type": "object",
           "additionalProperties": false,
@@ -400,20 +343,7 @@
             "docker_host": { "type": "string", "pattern": "^tag:" },
             "proxmox": { "type": "string", "pattern": "^tag:" }
           }
-        },
-        "required_endpoints": { "type": "array", "minItems": 4, "items": { "type": "string" }, "uniqueItems": true }
-      }
-    },
-    "aws": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["region", "recovery_region", "state_bucket", "recovery_bucket", "kms_alias"],
-      "properties": {
-        "region": { "type": "string", "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$" },
-        "recovery_region": { "type": "string", "pattern": "^[a-z]{2}-[a-z]+-[0-9]+$" },
-        "state_bucket": { "anyOf": [{ "$ref": "#/$defs/bucket" }, { "type": "null" }] },
-        "recovery_bucket": { "anyOf": [{ "$ref": "#/$defs/bucket" }, { "type": "null" }] },
-        "kms_alias": { "type": "string", "pattern": "^alias/" }
+        }
       }
     },
     "nextcloud": { "$ref": "#/$defs/nextcloudPolicy" },
@@ -1426,7 +1356,6 @@
     "mac": { "type": "string", "pattern": "^([0-9A-F]{2}:){5}[0-9A-F]{2}$" },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "sha256Digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
-    "bucket": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$" },
     "packageName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9+.-]+$" },
     "debianVersion": {
       "type": "string",
@@ -1853,19 +1782,6 @@
         "auth_key_secret_ref": { "$ref": "#/$defs/secretReference" }
       }
     },
-    "firewallRule": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["direction", "action", "source", "protocol", "destination_port", "log"],
-      "properties": {
-        "direction": { "enum": ["IN", "OUT"] },
-        "action": { "enum": ["ACCEPT", "DROP", "REJECT"] },
-        "source": { "$ref": "#/$defs/cidr" },
-        "protocol": { "enum": ["tcp", "udp"] },
-        "destination_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
-        "log": { "enum": ["nolog", "info", "warning", "err", "crit", "alert", "emerg"] }
-      }
-    },
     "proxmoxHealthPolicy": {
       "type": "object",
       "additionalProperties": false,
@@ -1877,29 +1793,6 @@
         "tailscale_backend_state": { "const": "Running" },
         "require_vm": { "type": "boolean" },
         "vm_status": { "enum": ["running", "stopped"] }
-      }
-    },
-    "proxmoxFirewallPolicy": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["kind", "ownership", "activation", "projectable", "compatibility_config_path", "options", "rules"],
-      "properties": {
-        "kind": { "const": "api-owned" },
-        "ownership": { "const": "pve-api" },
-        "activation": { "const": "pve-api" },
-        "projectable": { "const": false },
-        "compatibility_config_path": { "const": "/etc/pve/firewall/cluster.fw" },
-        "options": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["enable", "policy_in", "policy_out"],
-          "properties": {
-            "enable": { "type": "boolean" },
-            "policy_in": { "enum": ["ACCEPT", "DROP", "REJECT"] },
-            "policy_out": { "enum": ["ACCEPT", "DROP", "REJECT"] }
-          }
-        },
-        "rules": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/firewallRule" } }
       }
     },
     "hostPackagePolicy": {

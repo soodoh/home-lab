@@ -1,12 +1,6 @@
-variable "tailscale_enable_management" {
-  type    = bool
-  default = false
-}
-
 locals {
-  contract       = yamldecode(file("${path.module}/../../contract/home-lab.yml"))
-  tags           = local.contract.tailscale.tags
-  owner_identity = local.contract.tailscale.owner_identity
+  tags           = var.tailscale_policy_identity.tags
+  owner_identity = var.tailscale_policy_identity.owner_identity
 
   policy = {
     tagOwners = {

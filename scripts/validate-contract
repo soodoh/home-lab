@@ -41,13 +41,7 @@ if (!validate(contract)) {
 
 const failures = [];
 
-const proxmoxTofuRoot = path.join(root, "infrastructure/tofu/proxmox");
-const proxmoxSource = fs.readdirSync(proxmoxTofuRoot)
-  .filter((name) => name.endsWith(".tf"))
-  .sort()
-  .map((name) => fs.readFileSync(path.join(proxmoxTofuRoot, name), "utf8"))
-  .join("\n");
-failures.push(...validateVmArtifactReferences(contract, proxmoxSource));
+failures.push(...validateVmArtifactReferences(contract));
 const refs = contract.storage.zfs.members.map((member) => member.secret_ref);
 if (new Set(refs).size !== refs.length) failures.push("ZFS member secret references must be unique");
 for (let mirror = 0; mirror < contract.storage.zfs.mirror_topology.count; mirror += 1) {

@@ -106,7 +106,7 @@ image-pruning helper.
 
 | Retained source | Actual reason / retirement boundary |
 | --- | --- |
-| `infrastructure/contract/`, schemas, renderers and validators | HCL, host roles, Restic and recovery still read these values. Migrate each consumer into typed native inputs before removing the global contract. |
+| `infrastructure/contract/`, schema, renderers and validators | OpenTofu roots now own typed root-local inputs and Omada has left the contract. Retained host lifecycle, Restic, Compose/Nextcloud recovery and whole-document plan bindings still consume the compatibility document. Follow the [consumer inventory and deletion gate](contract-ownership.md) rather than adding another global field. |
 | Compose artifact/model/action/diff/image helpers, operation-specific staging/deploy/rollback roles | Legacy migration, data recovery and installed image-retention consumers remain. General staging/deployment is refused; native check qualification deliberately does not replace those operation-specific recovery consumers. |
 | Restic runner, bootstrap/init/first-run/qualification helpers and recovery plays | Writer quiescence, interrupted-backup recovery, repository identity, pending-copy retention and retained operation journals remain real dependencies. |
 | Proxmox deploy activator/transport | The final read found all boot/network/storage/NFS/Tailscale/package ownership journals committed. The retained prepared package record is preserved as historical evidence. The installed activator was removed in the approved September 17 cleanup; the later VM9900 closure retired the remaining Restic-only deploy transport, account capability and source. |

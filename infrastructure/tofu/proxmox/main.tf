@@ -1,6 +1,6 @@
 locals {
-  vm                    = local.contract.proxmox.vm
-  node                  = local.contract.proxmox.node
+  vm                    = var.proxmox_vm.vm
+  node                  = var.proxmox_vm.node
   use_hardware_mappings = local.vm.hardware_attachment_mode == "managed"
 }
 
@@ -11,7 +11,7 @@ resource "proxmox_virtual_environment_vm" "debian" {
 
   machine       = local.vm.machine
   kvm_arguments = local.vm.cpu.kvm_arguments
-  boot_order    = local.contract.debian.os_disk.boot_order
+  boot_order    = var.proxmox_vm.boot_order
   scsi_hardware = "virtio-scsi-single"
   on_boot       = local.vm.on_boot
   started       = local.vm.started
@@ -84,9 +84,9 @@ resource "proxmox_virtual_environment_vm" "debian" {
   }
 
   network_device {
-    bridge      = local.contract.network.bridge
+    bridge      = var.proxmox_vm.network.bridge
     firewall    = true
-    mac_address = local.contract.network.docker_host.mac
+    mac_address = var.proxmox_vm.network.docker_host_mac
     model       = "virtio"
   }
 
@@ -136,23 +136,23 @@ resource "proxmox_virtual_environment_vm" "debian" {
   }
 
   initialization {
-    datastore_id = local.contract.debian.cloud_init.drive_datastore
-    interface    = local.contract.debian.cloud_init.drive_interface
+    datastore_id = var.proxmox_vm.cloud_init.drive_datastore
+    interface    = var.proxmox_vm.cloud_init.drive_interface
     upgrade      = true
     user_data_file_id = format(
       "%s:snippets/%s",
-      local.contract.debian.cloud_init.datastore,
-      basename(local.contract.debian.cloud_init.user_data.snippet_path),
+      var.proxmox_vm.cloud_init.datastore,
+      basename(var.proxmox_vm.cloud_init.user_data_snippet_path),
     )
     meta_data_file_id = format(
       "%s:snippets/%s",
-      local.contract.debian.cloud_init.datastore,
-      basename(local.contract.debian.cloud_init.meta_data.snippet_path),
+      var.proxmox_vm.cloud_init.datastore,
+      basename(var.proxmox_vm.cloud_init.meta_data_snippet_path),
     )
     network_data_file_id = format(
       "%s:snippets/%s",
-      local.contract.debian.cloud_init.datastore,
-      basename(local.contract.debian.cloud_init.network_data.snippet_path),
+      var.proxmox_vm.cloud_init.datastore,
+      basename(var.proxmox_vm.cloud_init.network_data_snippet_path),
     )
   }
 

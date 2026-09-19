@@ -12,7 +12,6 @@ const root = path.resolve(__dirname, "../..");
 const contract = load(fs.readFileSync(path.join(root, "infrastructure/contract/home-lab.yml"), "utf8"));
 const schema = JSON.parse(fs.readFileSync(path.join(root, "infrastructure/contract/schema.json"), "utf8"));
 const validate = new Ajv2020({ allErrors: true, strict: true }).compile(schema);
-const proxmoxSource = fs.readFileSync(path.join(root, "infrastructure/tofu/proxmox/main.tf"), "utf8");
 const productionInventory = fs.readFileSync(path.join(root, "ansible/inventory/production.yml"), "utf8");
 const infrastructureInventory = fs.readFileSync(path.join(root, "ansible/inventory/infrastructure.yml"), "utf8");
 
@@ -266,9 +265,7 @@ check(retiredOffen, true, "attested Offen retirement accepts exact retired state
 const invalidRetiredOffen = structuredClone(retiredOffen);
 invalidRetiredOffen.backups.legacy_offen.retirement.evidence_sha256 = null;
 check(invalidRetiredOffen, false, "retired Offen requires attested evidence hash");
-if (!contract.tailscale.required_endpoints.includes("docker-host:22") ||
-    !contract.tailscale.required_endpoints.includes("docker-host:8043") ||
-    !productionInventory.includes("ansible_host: docker-host") ||
+if (!productionInventory.includes("ansible_host: docker-host") ||
     !productionInventory.includes("ansible_user: ansible-deploy") ||
     !productionInventory.includes("ansible_python_interpreter: /usr/bin/python3") ||
     !infrastructureInventory.includes("ansible_host: docker-host") ||
@@ -280,9 +277,8 @@ const stateDisk = contract.proxmox.vm.state_disk;
 if (stateDisk.interface !== "scsi2" || stateDisk.serial !== "QUAL-NIXOS-128G" ||
     stateDisk.filesystem_uuid !== "d4a19647-7879-4079-9fc9-b3e79711b449" ||
     stateDisk.filesystem_label !== "home-lab-state" || stateDisk.mountpoint !== "/srv/home-lab-state" ||
-    stateDisk.size_gb !== 128 || stateDisk.backup !== true ||
-    !proxmoxSource.includes("serial       = local.vm.state_disk.serial")) {
-  throw new Error("production state disk must retain the exact scsi2 filesystem identity and lifecycle");
+    stateDisk.size_gb !== 128 || stateDisk.backup !== true) {
+  throw new Error("legacy host and recovery policy must retain the exact scsi2 filesystem identity and lifecycle");
 }
 
 const applyGuard = load(fs.readFileSync(path.join(root, "ansible/roles/apply_guard/tasks/main.yml"), "utf8"));
@@ -394,7 +390,6 @@ const closedRequiredPolicyObjects = [
   "proxmox.tailscale",
   "proxmox.services.0",
   "proxmox.health",
-  "proxmox.firewall",
   "proxmox.vm.usb.zigbee",
   "storage.zfs.arc_config",
   "storage.zfs.mirror_topology",
@@ -440,9 +435,6 @@ if (JSON.stringify(collectedKinds) !== JSON.stringify([
 ])) {
   throw new Error("host-policy collection must exclude Compose assets without hiding unknown host kinds");
 }
-const invalidAssetKind = structuredClone(contract);
-invalidAssetKind.compose_deployment.assets[0].kind = "managed-file";
-check(invalidAssetKind, false, "Compose asset kinds cannot become host-policy kinds");
 const invalidHostKind = structuredClone(contract);
 invalidHostKind.network.ownership.interfaces_file.kind = "file";
 check(invalidHostKind, false, "host-policy kinds cannot become Compose asset kinds");
@@ -466,9 +458,6 @@ if (managedFiles.some((file) => file.path === "/etc/pve" || file.path.startsWith
 const unsafeRepositoryMetadata = structuredClone(contract);
 unsafeRepositoryMetadata.proxmox.apt.repository_file_metadata.mode = "0666";
 check(unsafeRepositoryMetadata, false, "APT repository files reject group/world-write access");
-if (contract.proxmox.firewall.ownership !== "pve-api" || contract.proxmox.firewall.activation !== "pve-api") {
-  throw new Error("PVE firewall must remain API-owned and API-activated");
-}
 for (const [index, file] of managedFiles.entries()) {
   const unsafePath = structuredClone(contract);
   collectPolicyRecords(unsafePath).filter((record) => record.kind === "managed-file")[index].path = `../${file.path.split("/").at(-1)}`;
@@ -580,14 +569,9 @@ check(customRom, false, "custom ROM without artifact declaration");
 
 const undeclaredBootDevice = structuredClone(contract);
 undeclaredBootDevice.proxmox.vm.boot_order.push("ide2");
-const bootFailures = validateVmArtifactReferences(undeclaredBootDevice, proxmoxSource);
+const bootFailures = validateVmArtifactReferences(undeclaredBootDevice);
 if (!bootFailures.some((failure) => failure.includes("undeclared device ide2"))) {
   throw new Error(`undeclared boot device unexpectedly passed: ${JSON.stringify(bootFailures)}`);
-}
-
-const romFailures = validateVmArtifactReferences(contract, `${proxmoxSource}\n  rom_file = "unmanaged.rom"\n`);
-if (!romFailures.some((failure) => failure.includes("source, SHA-256, and host provisioning"))) {
-  throw new Error(`unmanaged Tofu ROM unexpectedly passed: ${JSON.stringify(romFailures)}`);
 }
 
 
@@ -654,14 +638,6 @@ if (JSON.stringify(currentKeyringTargets) !== JSON.stringify(expectedKeyringTarg
 const wrongSshUsers = structuredClone(contract);
 wrongSshUsers.proxmox.ssh.allow_users = ["root", "tofu-apply", "tofu-plan"];
 checkSemantic(wrongSshUsers, "SSH allow-users", "wrong SSH allow-users order");
-
-const wrongFirewallRule = structuredClone(contract);
-wrongFirewallRule.proxmox.firewall.rules[0].source = "192.168.1.0/24";
-checkSemantic(wrongFirewallRule, "firewall rules must match", "wrong firewall source");
-
-const malformedFirewallPort = structuredClone(contract);
-malformedFirewallPort.proxmox.firewall.rules[0].destination_port = 70000;
-check(malformedFirewallPort, false, "invalid firewall destination port");
 
 const malformedSecretReference = structuredClone(contract);
 malformedSecretReference.proxmox.tailscale.auth_key_secret_ref = "tailscale-key";

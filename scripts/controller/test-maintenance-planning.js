@@ -141,7 +141,7 @@ assert.deepEqual(contract.lifecycle.hosts.proxmox.domain_handoffs.package_set, {
 const rebootPolicy = contract.lifecycle.maintenance.reboot_plan;
 assert.equal(rebootPolicy.automatic, false);
 assert.equal(rebootPolicy.one_host_per_transaction, true);
-assert.equal(rebootPolicy.backup_max_age_hours, contract.recovery.critical_rpo_hours);
+assert.equal(rebootPolicy.backup_max_age_hours, 24);
 assert.deepEqual(rebootPolicy.console_required_hosts, ["proxmox"]);
 assert.equal(rebootPolicy.max_plan_age_seconds, 1800);
 assert.equal(rebootPolicy.debian_window.backup_buffer_seconds, 10800);

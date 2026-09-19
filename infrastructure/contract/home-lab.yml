@@ -1,52 +1,5 @@
 ---
 version: 1
-# Offline packaging/review only; existing host and backup policy remain operational owners.
-compose_deployment:
-  version: 1
-  assets:
-    - {path: services/data/Caddyfile, kind: file, disposition: compose-bind}
-    - {path: services/data/gluetun, kind: directory, disposition: compose-bind}
-    - {path: services/data/litellm/config.yaml, kind: file, disposition: compose-bind}
-    - {path: services/data/litellm/custom_callbacks.py, kind: file, disposition: compose-bind}
-    - {path: services/data/backup-gpg-public.asc, kind: file, disposition: retained-only}
-    - path: services/data/restic/excludes
-      kind: file
-      disposition: host-consumed
-      host: {consumer: restic, destination: /etc/home-lab/restic/excludes, adoption: pending-review}
-    - path: services/data/restic/files-from
-      kind: file
-      disposition: host-consumed
-      host: {consumer: restic, destination: /etc/home-lab/restic/files-from, adoption: pending-review}
-    - path: services/data/wolf/wolf-input.conf
-      kind: file
-      disposition: host-consumed
-      host: {consumer: wolf, destination: /etc/modules-load.d/wolf-input.conf, adoption: out-of-domain}
-    - path: services/data/wolf/85-wolf-virtual-inputs.rules
-      kind: file
-      disposition: host-consumed
-      host: {consumer: wolf, destination: /etc/udev/rules.d/85-wolf-virtual-inputs.rules, adoption: out-of-domain}
-    - path: services/data/wolf/waybar-disabled
-      kind: file
-      disposition: host-consumed
-      host: {consumer: wolf, destination: /mnt/games/wolf/cfg/waybar-disabled, adoption: pending-review}
-    - path: services/data/wolf/sway-borderless-frontends.conf
-      kind: file
-      disposition: host-consumed
-      host: {consumer: wolf, destination: /mnt/games/wolf/cfg/sway-borderless-frontends.conf, adoption: pending-review}
-    - path: services/data/wolf/es-de/es_systems.xml
-      kind: file
-      disposition: host-consumed
-      host: {consumer: wolf, destination: /mnt/games/wolf/cfg/es-de/es_systems.xml, adoption: pending-review}
-    - path: services/data/wolf/es-de/wolf-xbox-one.cfg
-      kind: file
-      disposition: host-consumed
-      host: {consumer: wolf, destination: /mnt/games/wolf/cfg/es-de/wolf-xbox-one.cfg, adoption: pending-review}
-    - path: services/data/wolf/es-de/dolphin-config.sh
-      kind: file
-      disposition: host-consumed
-      host: {consumer: wolf, destination: "/mnt/games/roms/dolphin-config/Configure Dolphin.sh", adoption: pending-review}
-system_name: home-lab
-system_timezone: America/Los_Angeles
 lifecycle:
   version: 1
   states:
@@ -311,10 +264,6 @@ lifecycle:
         remove_keys_before_tightening: true
         physical_console_required: true
         one_change_class_per_transaction: true
-recovery:
-  evidence_max_age_days: 90
-  critical_rpo_hours: 24
-  critical_rto_hours: 8
 vm_100:
   vmid: 100
   host_name: docker-host
@@ -424,7 +373,6 @@ network:
     mac: BC:24:11:89:19:5A
 proxmox:
   node: proxmox
-  api_endpoint: https://proxmox:8006/api2/json
   grub:
     file:
       kind: managed-file
@@ -958,53 +906,6 @@ proxmox:
       - { domain: pve-access, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
       - { domain: pve-firewall, safety_class: access-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: true }
       - { domain: pve-storage, safety_class: data-critical, automatic: false, requires_approval: true, requires_reboot: false, requires_watchdog: false }
-  firewall:
-    kind: api-owned
-    ownership: pve-api
-    activation: pve-api
-    projectable: false
-    compatibility_config_path: /etc/pve/firewall/cluster.fw
-    options:
-      enable: true
-      policy_in: DROP
-      policy_out: ACCEPT
-    rules:
-      - direction: IN
-        action: ACCEPT
-        source: 192.168.0.0/24
-        protocol: tcp
-        destination_port: 22
-        log: nolog
-      - direction: IN
-        action: ACCEPT
-        source: 192.168.0.0/24
-        protocol: tcp
-        destination_port: 8006
-        log: nolog
-      - direction: IN
-        action: ACCEPT
-        source: 192.168.0.100/32
-        protocol: tcp
-        destination_port: 2049
-        log: nolog
-      - direction: IN
-        action: ACCEPT
-        source: 0.0.0.0/0
-        protocol: udp
-        destination_port: 41641
-        log: nolog
-      - direction: IN
-        action: ACCEPT
-        source: 100.64.0.0/10
-        protocol: tcp
-        destination_port: 22
-        log: nolog
-      - direction: IN
-        action: ACCEPT
-        source: 100.64.0.0/10
-        protocol: tcp
-        destination_port: 8006
-        log: nolog
   packages:
     architecture: amd64
     direct:
@@ -1598,12 +1499,7 @@ debian:
       home-lab-restic-maintenance.timer:
         Requires: []
         After: [home-lab-compose.service]
-omada:
-  controller_version: 6.2.14.11
-  endpoint: https://Omada:8043
-  export_path: .local/omada/export.json
 tailscale:
-  owner_identity: soodoh@github
   docker_host_client:
     installation: official-static-archive
     # renovate: datasource=github-releases depName=tailscale/tailscale
@@ -1621,17 +1517,6 @@ tailscale:
   tags:
     docker_host: tag:docker-host
     proxmox: tag:proxmox
-  required_endpoints:
-    - docker-host:22
-    - proxmox:22
-    - proxmox:8006
-    - docker-host:8043
-aws:
-  region: us-east-1
-  recovery_region: us-west-2
-  state_bucket: null
-  recovery_bucket: null
-  kms_alias: alias/home-lab-opentofu
 nextcloud:
   web_service: nextcloud
   cron_service: nextcloud-cron
