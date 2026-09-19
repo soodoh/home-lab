@@ -80,8 +80,12 @@ retained owner and generations. Its separately authorized normal run completed t
 interrupted publication, preserved rollback image generations, advanced the marker,
 consumed the checkpoint and released ownership; fresh native observation then passed
 with 38 running services and a zero-change preview. That operation-specific recovery
-authorization is consumed. The repaired reusable generation role has not yet received
-a separate normal canary qualification, so broader service adoption remains pending.
+authorization is consumed. Commit `b93919a3` then passed the reusable role's corrected
+same-commit check and separately authorized normal canary run. The role recreated only
+`flaresolverr`, admitted the exact replacement action pair, settled it without
+dependency recreation, consumed its fresh checkpoint and finished with zero-change
+observation. This live qualification covers only the exact canary scope; broader
+service adoption remains pending.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production

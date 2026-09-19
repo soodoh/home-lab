@@ -89,18 +89,15 @@ fresh tracked source plus actual remote state and limits mutation to an explicit
 `flaresolverr` canary. Host-side SOPS decryption, same-content environment refusal,
 production ownership, current/previous generations and image locks remain the
 safety boundary. It creates no approval receipt and consumes no previous runner
-result. Live observation and its source-bound check mode are qualified. The one
-authorized normal `flaresolverr` attempt refused an out-of-scope undeployed
-LiteLLM config before publication or container mutation and retained production
-ownership. That attempt is consumed. The exact owner was subsequently released
-under separate authorization while preserving the failed candidate; the narrower
-candidate then passed fresh observation and same-commit check mode, but its one
-new normal attempt stopped before ownership or staging when a Restic interruption
-journal appeared. A later read-only audit found the journal absent and performed no
-recovery. The attempt is consumed; retry, database, Restic and LiteLLM activation
-remain unauthorized. This is sufficient to refuse the legacy **general** deployment lane,
-but not to remove operation-specific migration/recovery code or the installed
-image-pruning helper.
+result. After exact forward recovery closed the interrupted publication, commit
+`b93919a3` passed the repaired reusable role's corrected same-commit check, separately
+authorized normal canary activation and zero-change post-observation. Only
+`flaresolverr` was recreated; the exact Compose 2.26 replacement pair was settled
+through dependency-aware automatic convergence, and no database, Restic policy,
+secret or artifact generation changed. This qualifies the exact canary mechanism,
+not a general deployment lane or other service scope. It is sufficient to refuse the
+legacy **general** deployment lane, but not to remove operation-specific
+migration/recovery code or the installed image-pruning helper.
 
 ## Why legacy code remains
 

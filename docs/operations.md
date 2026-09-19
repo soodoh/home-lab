@@ -9,14 +9,13 @@ observation. Native Proxmox package maintenance and reboot have source-qualified
 entrypoints but retain separate live cutover gates below. [Dated outcomes](#latest-scoped-deployment)
 do not expand that scope. Broader host/application adoption is pending: there is
 **no supported general deploy or host-convergence command**. The native Compose
-`flaresolverr` canary has passed live observation and source-bound check mode.
-Its first normal attempt refused an out-of-scope artifact delta before publication
-or container mutation; the exact retained owner was later released while preserving
-the failed candidate. A second authorized attempt stopped before ownership or
-staging when a Restic interruption journal appeared. Both attempts are consumed;
-no retry or deployment is authorized. Debian `site.yml` still includes lifecycle, lock
-and backup prerequisites. Directly invoking retained mutation roles is not an
-approved replacement for the removed controller.
+`flaresolverr` canary has now passed source-bound check mode, normal generation
+activation and zero-change post-observation through the repaired native interface.
+That qualification covers only the exact bounded canary; it does not authorize other
+services, database/filesystem migration, Restic policy activation or an unattended
+deployment lane. Debian `site.yml` still includes lifecycle, lock and backup
+prerequisites. Directly invoking retained mutation roles is not an approved
+replacement for the removed controller.
 
 ## Latest scoped deployment
 
@@ -533,9 +532,23 @@ health checks passed, backup writers were inactive, rollback images were locally
 available and the full Compose preview was zero-change. A final four-task bounded
 check confirmed the owner and checkpoint absent, both retained image generations
 present and the marker exact. The recovery authorization is consumed, and the
-callable one-off recovery play was removed after those postconditions passed. The
-repaired reusable generation role still requires its own separately authorized
-normal canary qualification before broader adoption.
+callable one-off recovery play was removed after those postconditions passed.
+
+Commit `b93919a3` recorded and removed the consumed recovery path and was pushed from
+a clean checkout. An initial read-only qualification invocation omitted the required
+explicit service inputs and failed at request validation after 39 successful tasks,
+with `changed=0` and no ownership or host mutation. The corrected same-commit check
+passed 49 tasks with one expected forced-recreation preview change. Its separately
+authorized normal run then passed **98 tasks with nine changes and no failures**:
+it acquired and released production ownership, captured and consumed a fresh image
+checkpoint, force-recreated only `flaresolverr`, admitted only the exact replacement
+recreate/start pair, settled it through dependency-aware automatic convergence and
+required the final full-project preview to be zero-change. No artifact generation,
+environment, database or Restic policy changed. A final native observation passed 38
+tasks with `changed=0`, all 38 services running, required health checks passing,
+rollback images available and no ownership or active-model drift. The repaired
+interface is therefore live-qualified for this exact canary scope only; broader
+service adoption remains a separate source and operational decision.
 
 The general legacy stage/deploy lane is retired: `compose_stage` and its review
 entrypoint now require an explicit allowlisted retained operation, and
