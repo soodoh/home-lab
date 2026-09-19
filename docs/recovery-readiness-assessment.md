@@ -176,8 +176,11 @@ remaining fault-domain risk. A unique VMID prevents identity collision; it does 
 by itself provide genuine isolation. The September 19
 [read-only target survey](../infrastructure/evidence/nextcloud-isolated-target-survey-2026-09-19.json)
 found unused VMID 9000 and sufficient `local-lvm` disk capacity, but no isolated
-bridge. It authorizes no provisioning or network change and leaves target admission
-blocked on a reviewed network design.
+bridge. It authorizes no provisioning or network change. The follow-on
+[detached-NIC design](../recovery/nextcloud-detached-nic-isolation.md) requires
+firewall-confined retrieval followed by provider-verified NIC removal before service
+startup; its open source, bundle, memory and firewall-test blockers leave target
+admission incomplete.
 
 ## Separately authorized run plan
 

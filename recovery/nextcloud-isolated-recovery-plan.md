@@ -86,8 +86,11 @@ there is no active isolated bridge. Do not treat attachment to `vmbr0` plus an
 unreviewed firewall toggle as equivalent isolation, and do not create a bridge, VLAN,
 firewall policy or guest under this survey authority. A reviewed network design must
 provide retrieval-only egress followed by startup-time default denial before VMID
-9000 can be admitted. Secret-free survey evidence is recorded in
-[`nextcloud-isolated-target-survey-2026-09-19.json`](../infrastructure/evidence/nextcloud-isolated-target-survey-2026-09-19.json).
+9000 can be admitted. The reviewed
+[detached-NIC isolation design](nextcloud-detached-nic-isolation.md) conditionally
+avoids a new bridge by requiring firewall-confined retrieval and provider-verified
+physical NIC removal before service startup. Secret-free survey evidence is recorded
+in [`nextcloud-isolated-target-survey-2026-09-19.json`](../infrastructure/evidence/nextcloud-isolated-target-survey-2026-09-19.json).
 
 ## Protected inputs
 

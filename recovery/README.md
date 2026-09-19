@@ -83,8 +83,10 @@ The completed [Nextcloud and Calibre restore rehearsal](nextcloud-calibre-restor
 binds this staging procedure to an exact natural local snapshot and explicit
 migration-retirement checks. The follow-on
 [Nextcloud isolated logical recovery plan](nextcloud-isolated-recovery-plan.md)
-separates database, application-control-plane and external-user-data claims. Neither
-document grants execution authority.
+separates database, application-control-plane and external-user-data claims. Its
+[detached-NIC isolation design](nextcloud-detached-nic-isolation.md) evaluates a
+firewall-confined retrieval phase followed by physical virtual-NIC removal; it is not
+provider or firewall authority. None of these documents grants execution authority.
 
 Allowed repositories are `/mnt/games/restic/home-lab`,
 `/mnt/storage/restic/home-lab`, installed
