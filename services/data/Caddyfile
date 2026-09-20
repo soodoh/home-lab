@@ -1,3 +1,4 @@
+# Compose does not detect byte changes in this bind-mounted file; deploy with an explicit Caddy recreation.
 auth.diloreto.com,
 calibre.diloreto.com,
 caromanga.diloreto.com,
