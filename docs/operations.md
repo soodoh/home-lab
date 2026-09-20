@@ -410,8 +410,17 @@ health/idempotence checks and current/previous artifact, environment and image
 publication. It does not select operations, decrypt inputs, migrate data or grant
 authority. The retained caller/recovery inventory documents why `compose_stage`,
 `compose_deploy`, `compose_rollback`, `compose_recovery` and their helpers remain.
-Only the canary caller is migrated in this first source slice; no live qualification,
-retry or deployment authority is added.
+Only the canary caller was migrated in that first source slice.
+
+The caller source now accepts any explicit subset of services that already exists in
+both complete models. It uses native Compose configuration output to validate the
+service set, derive configured container names and compare digest-pinned image
+resolution with and without the retained host override. A reviewed changed-path list
+and forced-recreation subset remain explicit inputs; no service catalogue, impact
+analyzer or deployment manifest was added. The environment, service set, top-level
+networks/volumes/configs/secrets and Restic policy inputs remain immutable. This is a
+source refactor only: broader live qualification, retry or deployment authority is
+not added, and override-masked image changes are refused.
 
 On September 18, 2026, live observation passed with all 38 declared services
 running, 38 immutable image references, both required health checks, exact canary

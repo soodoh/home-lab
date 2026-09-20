@@ -12,8 +12,6 @@
       - compose_native_retained_image_root == '/var/lib/docker-compose/retained-images'
       - compose_native_sops_sha256 is match('^[0-9a-f]{64}$')
       - compose_native_age_sha256 is match('^[0-9a-f]{64}$')
-      - compose_native_canary_service in compose_native_allowed_services
-      - compose_native_canary_mounts | length > 0
     fail_msg: Native Compose observation requires the adopted production identities.
 
 - name: Inspect protected active Compose and tool paths
@@ -350,39 +348,6 @@
   loop: "{{ compose_native_required_health.results }}"
   loop_control:
     label: "{{ item.item }}"
-  no_log: true
-
-- name: Inspect actual canary container mounts
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/docker
-      - inspect
-      - --format
-      - "{% raw %}{{json .Mounts}}{% endraw %}"
-      - "{{ compose_native_canary_service }}"
-  become: true
-  register: compose_native_canary_live_mounts
-  changed_when: false
-  check_mode: false
-  no_log: true
-
-- name: Require the exact actual canary mount count
-  ansible.builtin.assert:
-    that:
-      - compose_native_canary_live_mounts.stdout | from_json | length == compose_native_canary_mounts | length
-    fail_msg: The running canary has an unexpected mount set.
-  no_log: true
-
-- name: Require every actual canary mount identity
-  ansible.builtin.assert:
-    that:
-      - >-
-        compose_native_canary_live_mounts.stdout | from_json |
-        selectattr('Type', 'equalto', item.type) |
-        selectattr('Source', 'equalto', item.source) |
-        selectattr('Destination', 'equalto', item.target) | list | length == 1
-    fail_msg: The running canary mount source target or type differs from native inventory.
-  loop: "{{ compose_native_canary_mounts }}"
   no_log: true
 
 - name: Verify current previous and retained rollback images are locally available

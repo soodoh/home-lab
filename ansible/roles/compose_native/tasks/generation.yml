@@ -22,6 +22,10 @@
         compose_native_generation.services | default([]) | length
       - >-
         compose_native_generation.services | default([]) |
+        select('match', '^[A-Za-z0-9][A-Za-z0-9_.-]+$') | list | length ==
+        compose_native_generation.services | default([]) | length
+      - >-
+        compose_native_generation.services | default([]) |
         difference(compose_native_generation.expected_services | default([])) | length == 0
       - >-
         compose_native_generation.force_recreate_services | default([]) | unique | length ==
@@ -61,7 +65,8 @@
     compose_native_force_recreate_services: "{{ compose_native_generation.force_recreate_services | default([]) }}"
     compose_native_action_container_names: "{{ compose_native_generation.action_container_names }}"
     compose_native_action_container_expression: >-
-      {{ compose_native_generation.action_container_names | map('regex_escape') | join('|') }}
+      {{ (compose_native_generation.services + compose_native_generation.action_container_names) |
+         unique | map('regex_escape') | join('|') }}
     compose_native_candidate_services:
       stdout_lines: "{{ compose_native_generation.expected_services }}"
     compose_native_expected_service_count: "{{ compose_native_generation.expected_service_count }}"
@@ -334,7 +339,7 @@
   ansible.builtin.assert:
     that:
       - item.what == 'container'
-      - item.id in compose_native_requested_services
+      - item.id is match(compose_native_action_container_pattern)
     fail_msg: The published model proposes an action outside the operation-approved containers.
   loop: "{{ compose_native_published_preview.actions }}"
   no_log: true

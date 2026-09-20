@@ -11,15 +11,12 @@ application deployment entrypoint: the legacy general Compose lane now refuses
 execution, while its exact migration/recovery consumers remain preserved.
 
 Supported native scope includes read-only host and Compose observation, manual-update
-policy and existing-host backup configuration. The native Compose canary passed a
-live observation and source-bound check-mode qualification. Its one authorized
-normal attempt refused an out-of-scope source delta before publication or container
-mutation. The exact retained owner was subsequently released under separate
-authorization while preserving the failed candidate. A later same-commit canary
-attempt stopped before ownership or staging when a Restic interruption journal
-appeared; its read-only follow-up found that journal absent and performed no recovery.
-That attempt is consumed and no retry is authorized. See
-[operations](docs/operations.md) for the audited state and next gates.
+policy and existing-host backup configuration. The repaired native Compose canary
+completed generation activation and zero-change post-observation. The forward caller
+source now accepts any explicit subset of the existing service set while retaining
+same-environment, same-topology and explicit recreation boundaries; broader live use
+is not yet qualified or authorized. Historical interrupted/refused attempts and their
+consumed authorities remain documented in [operations](docs/operations.md).
 
 - [Operations](docs/operations.md): local checks, intended native workflow and retained implementation.
 - [Recovery](recovery/README.md): snapshot staging, independent credentials and rollback boundaries.

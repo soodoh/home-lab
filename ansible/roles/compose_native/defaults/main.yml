@@ -17,11 +17,25 @@ compose_native_artifact_identity_path: /var/lib/docker-compose/current-artifact.
 compose_native_apply_lock_path: /var/lib/iac-ansible-production.lock
 compose_native_reconciliation_lock_paths: []
 compose_native_expected_service_count: 0
-compose_native_allowed_services: []
-compose_native_allowed_changed_paths: []
-compose_native_canary_service: ""
-compose_native_canary_network_mode: ""
-compose_native_canary_mounts: []
+compose_native_expected_changed_paths: []
+compose_native_protected_service_fields:
+  - cap_add
+  - cap_drop
+  - configs
+  - devices
+  - group_add
+  - ipc
+  - network_mode
+  - networks
+  - pid
+  - ports
+  - privileged
+  - read_only
+  - secrets
+  - security_opt
+  - tmpfs
+  - userns_mode
+  - volumes
 compose_native_expected_source_commit: ""
 compose_native_requested_services: []
 compose_native_force_recreate_services: []

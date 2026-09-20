@@ -6,7 +6,6 @@ run Ansible tasks. They verify the intended safety boundary remains visible in
 reviewed source; live qualification is separate.
 """
 
-import hashlib
 import re
 import unittest
 from pathlib import Path
@@ -37,9 +36,9 @@ class NativeComposeSourceTests(unittest.TestCase):
             self.assertIn(f"tasks_from: {task}", source)
         deploy_play = self.text(ROOT / "ansible/playbooks/deploy-compose.yml")
         self.assertIn("name: apply_lock", deploy_play)
-        self.assertIn("apply_lock_operation: compose-native-canary", deploy_play)
+        self.assertIn("apply_lock_operation: compose-native-deploy", deploy_play)
 
-    def test_inventory_fixes_project_paths_mounts_and_canary_scope(self):
+    def test_inventory_fixes_project_paths_and_mounts_without_service_manifest(self):
         source = self.text(HOST)
         required = {
             "compose_native_project_name": "docker-compose",
@@ -53,8 +52,13 @@ class NativeComposeSourceTests(unittest.TestCase):
         }
         for key, value in required.items():
             self.assertRegex(source, rf"(?m)^{re.escape(key)}: {re.escape(value)}$")
-        allowed = source.split("compose_native_allowed_services:", 1)[1].split("compose_native_allowed_changed_paths:", 1)[0]
-        self.assertEqual(re.findall(r"(?m)^  - (\S+)$", allowed), ["flaresolverr"])
+        for retired_scope in (
+            "compose_native_allowed_services",
+            "compose_native_allowed_changed_paths",
+            "compose_native_canary_service",
+            "compose_native_canary_mounts",
+        ):
+            self.assertNotIn(retired_scope, source)
         for identity in (
             "31602ce7-0054-498a-9f24-f51ca491e7b3",
             "d4a19647-7879-4079-9fc9-b3e79711b449",
@@ -108,8 +112,10 @@ class NativeComposeSourceTests(unittest.TestCase):
             "compose_native_previous_dir", "compose_native_previous_env_path",
             "compose_native_current_image_lock_path", "compose_native_previous_image_lock_path",
             "compose_native_interrupted_image_path", "compose_native_retained_image_root", "compose_native_backup_lock_path",
-            "compose_native_allowed_changed_paths", "services/nextcloud.yml",
-            "services/data/restic/files-from", "compose_native_canary_mounts",
+            "compose_native_expected_changed_paths", "compose_native_requested_container_names",
+            "compose_native_protected_service_fields", "Refuse protected topology changes inside requested services",
+            "compose_native_source_candidate_images", "compose_native_effective_candidate_images",
+            "services/data/restic/files-from",
             "database_migration_performed: false", "restic_activation_performed: false",
         ):
             self.assertIn(required, source)
@@ -131,7 +137,7 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertNotIn("pull: missing", preview)
         action_guard = source.split("- name: Refuse full-project actions outside the requested containers", 1)[1].split("- name:", 1)[0]
         self.assertIn("item.what == 'container'", action_guard)
-        self.assertIn("item.id in compose_native_requested_services", action_guard)
+        self.assertIn("item.id is match(compose_native_action_container_pattern)", action_guard)
         self.assertNotIn("image-layer", action_guard)
 
         final_verify = source.split("- name: Verify current previous and retained image generations after convergence", 1)[1].split("- name:", 1)[0]
@@ -191,19 +197,24 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertIn("recreate: auto", settle)
         self.assertIn("when: compose_native_post_preview.changed", settle)
 
-    def test_narrow_canary_defers_litellm_and_prepares_exact_lock_release(self):
-        active_litellm_sha256 = "6a93d7caee70b924d80c628250441a78be5ebe9844735982ab9c532e4f4595d2"
-        litellm = (ROOT / "services/data/litellm/config.yaml").read_bytes()
-        self.assertEqual(hashlib.sha256(litellm).hexdigest(), active_litellm_sha256)
-
+    def test_general_caller_uses_native_models_and_preserves_exact_historical_release(self):
         host = self.text(HOST)
-        self.assertIn("- scripts/compose-artifact.py", host)
-        self.assertIn("- services/authentik.yml", host)
         self.assertIn("compose_native_backup_lock_path: /run/lock/home-lab-backup.lock", host)
-        self.assertNotIn("- services/data/litellm/config.yaml", host)
+        self.assertNotIn("compose_native_canary", host)
+
+        defaults = self.text(DEFAULTS)
+        self.assertIn("compose_native_expected_changed_paths: []", defaults)
+        for protected in ("volumes", "networks", "network_mode", "devices", "ports", "privileged", "secrets"):
+            self.assertRegex(defaults, rf"(?m)^  - {protected}$")
+        self.assertNotIn("compose_native_allowed_services", defaults)
 
         deploy = self.text(DEPLOY)
-        self.assertIn("services/data/litellm/config.yaml", deploy)
+        self.assertNotIn("services/data/litellm/config.yaml", deploy)
+        self.assertNotIn("services/nextcloud.yml", deploy)
+        self.assertIn("compose_native_expected_changed_paths", deploy)
+        self.assertIn("compose_native_requested_container_names", deploy)
+        self.assertIn("Candidate images must be digest pinned and identical", deploy)
+        self.assertNotIn("compose-impact", deploy)
         self.assertIn("compose_native_active_model.services[item]", deploy)
         self.assertIn("compose_native_candidate_model.services[item]", deploy)
         self.assertIn("compose_native_requested_services", deploy)

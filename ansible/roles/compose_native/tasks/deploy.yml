@@ -3,15 +3,34 @@
   ansible.builtin.assert:
     that:
       - compose_native_requested_services | length > 0
-      - compose_native_requested_services | difference(compose_native_allowed_services) | length == 0
       - compose_native_force_recreate_services | difference(compose_native_requested_services) | length == 0
       - compose_native_requested_services | unique | length == compose_native_requested_services | length
       - compose_native_force_recreate_services | unique | length == compose_native_force_recreate_services | length
+      - compose_native_expected_changed_paths | unique | length == compose_native_expected_changed_paths | length
+      - compose_native_protected_service_fields | length > 0
+      - >-
+        compose_native_protected_service_fields | unique | length ==
+        compose_native_protected_service_fields | length
+      - >-
+        compose_native_protected_service_fields |
+        select('match', '^[a-z][a-z0-9_]*$') | list | length ==
+        compose_native_protected_service_fields | length
       - compose_native_expected_source_commit is match('^[0-9a-f]{40}$')
       - ansible_check_mode or compose_native_apply_confirmed | bool
     fail_msg: >-
-      Native Compose deployment requires an explicit allowed service set, an optional subset for forced
-      recreation, an exact expected source commit, and compose_native_apply_confirmed=true outside check mode.
+      Native Compose deployment requires an explicit unique service set, an optional subset for forced
+      recreation, exact expected artifact paths, an exact source commit, and confirmation outside check mode.
+
+- name: Refuse unsafe expected artifact paths
+  ansible.builtin.assert:
+    that:
+      - item is match('^[A-Za-z0-9._/-]+$')
+      - not item.startswith('/')
+      - "'/../' not in '/' ~ item ~ '/'"
+      - "'/./' not in '/' ~ item ~ '/'"
+      - "'//' not in item"
+    fail_msg: Expected artifact paths must be safe normalized repository-relative paths.
+  loop: "{{ compose_native_expected_changed_paths }}"
 
 - name: Inspect tracked controller checkout state
   ansible.builtin.command:
@@ -136,14 +155,6 @@
 - name: Stage, publish, and converge the reviewed Compose generation
   when: not ansible_check_mode
   block:
-    - name: Require explicit recreation for the initial canary when artifact bytes change
-      ansible.builtin.assert:
-        that:
-          - >-
-            compose_native_candidate_hash == compose_native_active_artifact.stdout or
-            compose_native_force_recreate_services | sort == compose_native_requested_services | sort
-        fail_msg: The initial canary scope requires every requested service to be explicitly recreated when artifact bytes change.
-
     - name: Create stable native Compose directories
       ansible.builtin.file:
         path: "{{ item.path }}"
@@ -310,15 +321,32 @@
       failed_when: compose_native_artifact_differences.rc not in [0, 1]
       no_log: true
 
-    - name: Refuse artifact changes outside the canary and same-content SOPS inputs
+    - name: Require the reviewed artifact-change boundary
       ansible.builtin.assert:
         that:
-          - compose_native_allowed_changed_paths | select('in', item) | list | length == 1
-        fail_msg: The initial native deployment contains an artifact change outside its explicit canary scope.
+          - >-
+            (compose_native_candidate_hash == compose_native_active_artifact.stdout) ==
+            (compose_native_expected_changed_paths | length == 0)
+        fail_msg: Expected artifact paths do not match whether the reviewed generation changed.
+      no_log: true
+
+    - name: Refuse unreviewed artifact differences
+      ansible.builtin.assert:
+        that:
+          - compose_native_expected_changed_paths | select('in', item) | list | length == 1
+        fail_msg: The candidate contains an artifact difference outside the explicitly reviewed paths.
       loop: "{{ compose_native_artifact_differences.stdout_lines }}"
       no_log: true
 
-    - name: Freeze database LiteLLM and Restic policy source during native canary adoption
+    - name: Require every reviewed artifact path to differ exactly once
+      ansible.builtin.assert:
+        that:
+          - compose_native_artifact_differences.stdout_lines | select('search', item | regex_escape) | list | length == 1
+        fail_msg: An expected artifact path is absent or ambiguous in the candidate difference.
+      loop: "{{ compose_native_expected_changed_paths }}"
+      no_log: true
+
+    - name: Keep Restic policy source outside general Compose deployment
       ansible.builtin.command:
         argv:
           - /usr/bin/cmp
@@ -328,8 +356,6 @@
           - "{{ compose_native_candidate_dir }}/{{ item }}"
       become: true
       loop:
-        - services/nextcloud.yml
-        - services/data/litellm/config.yaml
         - services/data/restic/files-from
         - services/data/restic/excludes
       changed_when: false
@@ -445,6 +471,77 @@
       changed_when: false
       no_log: true
 
+    - name: List source candidate images without the host override
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - compose
+          - --project-name
+          - "{{ compose_native_project_name }}"
+          - --project-directory
+          - "{{ compose_native_candidate_dir }}"
+          - --env-file
+          - "{{ compose_native_candidate_env_path }}"
+          - --file
+          - "{{ compose_native_candidate_dir }}/docker-compose.yml"
+          - config
+          - --images
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      register: compose_native_source_candidate_images
+      changed_when: false
+      no_log: true
+
+    - name: List effective candidate images with the host override
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - compose
+          - --project-name
+          - "{{ compose_native_project_name }}"
+          - --project-directory
+          - "{{ compose_native_candidate_dir }}"
+          - --env-file
+          - "{{ compose_native_candidate_env_path }}"
+          - --file
+          - "{{ compose_native_candidate_dir }}/docker-compose.yml"
+          - --file
+          - "{{ compose_native_image_override_path }}"
+          - config
+          - --images
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      register: compose_native_effective_candidate_images
+      changed_when: false
+      no_log: true
+
+    - name: Refuse mutable or override-masked candidate images
+      ansible.builtin.assert:
+        that:
+          - compose_native_source_candidate_images.stdout_lines | length > 0
+          - >-
+            compose_native_source_candidate_images.stdout_lines |
+            select('match', '^(?:.+@)?sha256:[0-9a-f]{64}$') | list | length ==
+            compose_native_source_candidate_images.stdout_lines | length
+          - >-
+            compose_native_source_candidate_images.stdout_lines | sort ==
+            compose_native_effective_candidate_images.stdout_lines | sort
+        fail_msg: >-
+          Candidate images must be digest pinned and identical with or without the retained host override.
+          Image-override changes remain a separate operation.
+      no_log: true
+
+    - name: Require requested services to exist in both complete models
+      ansible.builtin.assert:
+        that:
+          - compose_native_requested_services | difference(compose_native_declared_services.stdout_lines) | length == 0
+          - compose_native_requested_services | difference(compose_native_candidate_services.stdout_lines) | length == 0
+          - compose_native_candidate_services.stdout_lines | sort == compose_native_declared_services.stdout_lines | sort
+        fail_msg: Requested services must exist in unchanged active and candidate service sets.
+      no_log: true
+
     - name: Read the protected normalized active model for narrow safety assertions
       ansible.builtin.command:
         argv: "{{ compose_native_runtime_cli + ['config', '--format', 'json'] }}"
@@ -501,7 +598,7 @@
           - >-
             (compose_native_candidate_model.secrets | default({})) ==
             (compose_native_active_model.secrets | default({}))
-        fail_msg: Networks volumes configs or secrets changed outside the native canary scope.
+        fail_msg: General deployment does not permit top-level network volume config or secret changes.
       no_log: true
 
     - name: Refuse normalized model changes outside requested services
@@ -512,24 +609,41 @@
       loop: "{{ compose_native_declared_services.stdout_lines | difference(compose_native_requested_services) }}"
       no_log: true
 
-    - name: Refuse canary network or mount topology changes
-      ansible.builtin.assert:
-        that:
-          - compose_native_candidate_model.services[compose_native_canary_service].network_mode == compose_native_canary_network_mode
-          - compose_native_candidate_model.services[compose_native_canary_service].volumes | length == compose_native_canary_mounts | length
-        fail_msg: The canary network mode or mount count changed outside the native deployment scope.
-      no_log: true
-
-    - name: Require every normalized candidate canary mount identity
+    - name: Refuse protected topology changes inside requested services
       ansible.builtin.assert:
         that:
           - >-
-            compose_native_candidate_model.services[compose_native_canary_service].volumes |
-            selectattr('type', 'equalto', item.type) |
-            selectattr('source', 'equalto', item.source) |
-            selectattr('target', 'equalto', item.target) | list | length == 1
-        fail_msg: The candidate canary mount source target or type changed.
-      loop: "{{ compose_native_canary_mounts }}"
+            (compose_native_active_model.services[item.0][item.1] | default(none)) ==
+            (compose_native_candidate_model.services[item.0][item.1] | default(none))
+        fail_msg: >-
+          Requested service {{ item.0 }} changes protected Compose field {{ item.1 }};
+          use a separate topology operation.
+      loop: "{{ compose_native_requested_services | product(compose_native_protected_service_fields) | list }}"
+      no_log: true
+
+    - name: Start the requested service-to-container identity set
+      ansible.builtin.set_fact:
+        compose_native_requested_container_names: []
+      no_log: true
+
+    - name: Derive requested container names from the native candidate model
+      ansible.builtin.set_fact:
+        compose_native_requested_container_names: >-
+          {{ compose_native_requested_container_names +
+             [compose_native_candidate_model.services[item].container_name | default(item, true)] }}
+      loop: "{{ compose_native_requested_services }}"
+      no_log: true
+
+    - name: Require unique requested container identities
+      ansible.builtin.assert:
+        that:
+          - compose_native_requested_container_names | length == compose_native_requested_services | length
+          - compose_native_requested_container_names | unique | length == compose_native_requested_container_names | length
+          - >-
+            compose_native_requested_container_names |
+            select('match', '^[A-Za-z0-9][A-Za-z0-9_.-]+$') | list | length ==
+            compose_native_requested_container_names | length
+        fail_msg: Requested services do not resolve to unique safe container identities.
       no_log: true
 
     - name: Refuse service additions removals or renames
@@ -543,7 +657,7 @@
     - name: Prepare the bounded native generation activation input
       ansible.builtin.set_fact:
         compose_native_prepared_generation:
-          operation: compose-native-canary
+          operation: compose-native-deploy
           artifact_hash: "{{ compose_native_candidate_hash }}"
           active_artifact_hash: "{{ compose_native_active_artifact.stdout }}"
           artifact_dir: "{{ compose_native_candidate_dir }}"
@@ -551,8 +665,7 @@
           image_checkpoint_path: "{{ compose_native_interrupted_image_path }}"
           services: "{{ compose_native_requested_services }}"
           force_recreate_services: "{{ compose_native_force_recreate_services }}"
-          action_container_names:
-            - "{{ compose_native_canary_service }}"
+          action_container_names: "{{ compose_native_requested_container_names }}"
           expected_services: "{{ compose_native_candidate_services.stdout_lines }}"
           expected_service_count: "{{ compose_native_expected_service_count }}"
           required_healthy_containers: "{{ compose_native_required_healthy_containers }}"

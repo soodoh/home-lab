@@ -28,16 +28,25 @@ active artifact identity, and consumes the checkpoint only after full success.
 Builds, orphan removal, anonymous-volume replacement and automatic rollback remain
 disabled.
 
-This is a refactor of the existing canary behavior, not a new deployment approval or
-a universal manifest, launcher, plan, or receipt. `deploy.yml` still owns source
-selection, SOPS handling, normalized-model comparison, canary scope and all
-operation authorization. The activation task is not a public standalone playbook.
+This began as a refactor of the qualified canary behavior. The current source now
+uses the same seam for an explicit subset of any service already present in both the
+active and candidate models; it does not carry a separate service catalogue or
+canary-specific mount manifest. `deploy.yml` still owns source selection, SOPS
+handling, normalized-model comparison and operation authorization. It requires an
+exact reviewed changed-path list, refuses service-set and top-level topology changes,
+keeps the decrypted environment byte-identical, derives container names from native
+`docker compose config --format json`, and requires source images to be digest pinned
+and identical with or without the retained host override. Bind-file changes require
+the operator to include their services in the explicit forced-recreation subset.
+
+This is not a universal manifest, launcher, plan, receipt, database migration path or
+new deployment approval. The activation task is not a public standalone playbook.
 
 ## Retained caller and recovery inventory
 
 | Path | What it prepares or owns | Current activation boundary |
 | --- | --- | --- |
-| `deploy-compose.yml` / `compose_native:deploy` | Clean committed source, deterministic hash-addressed artifact, host-only environment decryption, same-content environment check, normalized topology/service comparison and explicit canary recreation scope | Uses the extracted native generation interface. This is the only migrated caller in the first slice. |
+| `deploy-compose.yml` / `compose_native:deploy` | Clean committed source, exact reviewed artifact paths and requested/forced-recreation service subsets, host-only environment decryption, same-content environment check and native normalized-model comparison | Uses the extracted native generation interface. Source accepts any existing service subset, but broader live qualification remains pending. |
 | `stage-compose.yml`, `review-compose-stage.yml` / `compose_stage` | Exact legacy artifact/environment, Nextcloud secret files and protected desired/runtime inventories for three allowlisted retained operations | General staging remains refused. The obsolete Calibre operation is no longer allowlisted; retained inventories still feed Nextcloud/Restic deployment and archive-recovery preflight. |
 | `deploy-nextcloud-migration.yml` / `compose_deploy` | Historical Nextcloud writer/path migration and latent exact Restic-policy recovery | Retained pending caller-by-caller retirement. The applied Nextcloud migration must not be rerun. The obsolete Calibre authorization/resume and NFS-to-local reconciliation branch was removed after verified private-staging restore. There is no general deploy entrypoint. |
 | `rollback-compose.yml`, `rollback-nextcloud-migration.yml` / `compose_rollback` | Exact reviewed previous artifact/environment/image locks, optional historical Nextcloud service removal and rollback action identity | Retained unchanged. Both plays still depend on the custom action-plan and image-lock helpers until a native preview can preserve their exact service-removal and pre-publication recovery semantics. |
@@ -84,8 +93,11 @@ authorization is consumed. Commit `b93919a3` then passed the reusable role's cor
 same-commit check and separately authorized normal canary run. The role recreated only
 `flaresolverr`, admitted the exact replacement action pair, settled it without
 dependency recreation, consumed its fresh checkpoint and finished with zero-change
-observation. This live qualification covers only the exact canary scope; broader
-service adoption remains pending.
+observation. That live qualification covers only the exact historical canary scope. The later
+general-caller refactor is source-only: no broader service deployment is authorized
+or qualified yet. The retained host image override must remain semantically neutral;
+a source image change that it masks is refused and requires separate override
+ownership work.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production
@@ -93,10 +105,16 @@ coordination remain unresolved prerequisites.
 
 ## Next slices
 
-Migrate one recovery caller at a time only after its operation-specific preparation
-can hand the activation seam a complete, validated generation. Preserve explicit
-Nextcloud and archive-recovery data logic outside the seam. The separate historical
-Calibre/Caro preserved-data play remains blocked pending its own recovery review. A later slice
-may add narrowly reviewed publication strategies for previous-generation rollback or
-fresh-host recovery; it must not generalize database migration, data activation,
-locks, journals or approval into a universal transaction format.
+First qualify the general caller without expanding its boundary: same environment,
+same service set, unchanged top-level topology, exact reviewed paths and explicit
+service/recreation sets. Start with a no-change check, then separately authorize one
+stateless service and one bind-file recreation. Image updates remain blocked when the
+retained host override changes effective image resolution.
+
+Migrate recovery callers only after the general forward path is qualified and each
+operation-specific preparation can hand the activation seam a complete validated
+generation. Preserve explicit Nextcloud and archive-recovery data logic outside the
+seam. The separate historical Calibre/Caro preserved-data play remains blocked
+pending its own recovery review. Any later rollback or fresh-host slice must not
+generalize database migration, data activation, locks, journals or approval into a
+universal transaction format.
