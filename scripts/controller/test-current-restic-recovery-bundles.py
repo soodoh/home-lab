@@ -18,6 +18,8 @@ PLANNER = ROOT / "scripts/prepare-restic-recovery-bundle-metadata"
 PAIR_BUILDER = ROOT / "scripts/build-current-restic-recovery-bundles"
 GENERIC_BUILDER = ROOT / "scripts/build-restic-recovery-bundle"
 RESTORE_RUNNER = ROOT / "scripts/restore-critical-backup"
+SCOPE_RESOLVER = ROOT / "scripts/recovery-scope.py"
+SCOPE_CONFIG = ROOT / "recovery/groups.json"
 PYTHON = [sys.executable, "-B", "-E", "-s", "-S"]
 RECIPIENT = "age1ddk0qtwjclc2za5afrz5pl4j5kley02rqv2vh0s07c27a8t5u58sph58qm"
 BUILD_CONFIRMATION = "build-two-current-encrypted-restic-recovery-bundles"
@@ -164,7 +166,14 @@ class CurrentBundlePairBuilderTests(unittest.TestCase):
             self.builder = PAIR_BUILDER
         shutil.copy2(GENERIC_BUILDER, self.scripts / GENERIC_BUILDER.name)
         shutil.copy2(RESTORE_RUNNER, self.scripts / RESTORE_RUNNER.name)
-        for path in (self.scripts / GENERIC_BUILDER.name, self.scripts / RESTORE_RUNNER.name):
+        shutil.copy2(SCOPE_RESOLVER, self.scripts / SCOPE_RESOLVER.name)
+        (self.base / "recovery").mkdir(mode=0o700)
+        shutil.copy2(SCOPE_CONFIG, self.base / "recovery/groups.json")
+        for path in (
+            self.scripts / GENERIC_BUILDER.name,
+            self.scripts / RESTORE_RUNNER.name,
+            self.scripts / SCOPE_RESOLVER.name,
+        ):
             path.chmod(0o755)
         self.bin = self.base / "bin"
         self.bin.mkdir(mode=0o700)

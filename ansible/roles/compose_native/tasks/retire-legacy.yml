@@ -1,0 +1,100 @@
+---
+- name: Verify active artifact identity before legacy Compose state retirement
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/bash
+      - -c
+      - >-
+        set -euo pipefail;
+        current=$1;
+        marker=$2;
+        actual=$(/usr/bin/python3 "$current/scripts/compose-artifact.py" --root "$current" --no-git hash);
+        expected=$(/usr/bin/cat "$marker");
+        test "$actual" = "$expected"
+      - compose-legacy-retirement
+      - "{{ compose_native_current_dir }}"
+      - "{{ compose_native_artifact_identity_path }}"
+  become: true
+  changed_when: false
+  no_log: true
+
+- name: Inventory top-level Compose deployment state
+  ansible.builtin.find:
+    paths: "{{ item.path }}"
+    recurse: false
+    hidden: true
+    file_type: any
+  become: true
+  register: compose_native_legacy_inventory
+  loop:
+    - path: /srv/docker-compose
+      protected: [current]
+      removable: [previous, staging, interrupted-nextcloud-2d28b68d, pre-php-memory-9bf3a450]
+    - path: /etc/docker-compose
+      protected: [credentials, production.env]
+      removable: [previous.env, staging]
+    - path: /var/lib/docker-compose
+      protected: [current-artifact.sha256]
+      removable:
+        - retained-images
+        - current-images.json
+        - previous-images.json
+        - cleanup-manifests
+        - backup-local-cleanup-manifest.json
+        - backup-s3-cleanup-manifest.json
+        - backup-s3-post-start-manifest.json
+        - runtime-model.json
+        - staged-model.json
+        - nextcloud-maintenance-repair-2026-08-23.log
+        - deploy-0e863ce65c5fa436a8d85fe5c4237f386810e5c5787ddd7422eddcf35d53b812.log
+        - deploy-0ef839aa85803fa20d39c31327fcdf48159f70ba66d21459407c361205cd5e17.log
+        - deploy-16f76d7969f5a7be9ebd1b6c80ed567296c39c04ba6d486ec76130fa7e07554b.log
+        - deploy-2468c26a15c921877da3d1ca6887cd9c2e81be1f467873d9f9edc1386782c6db.log
+        - deploy-2f12e384fdc0ce759d23b0bd9e16ad402d3ecd2985b4ecdfe048127f1c5748be.log
+        - deploy-31a2fe455d849ab38d373709ee39cd6378406708c1de29e43b6e410eb21ca213.log
+        - deploy-3cb265945f9b52b6d79a735f816a88556f05c3b5769477d766ac2d3a347254f5.log
+        - deploy-58ab2c3c330fa49991fd2966f03d8caa89f99a906f8f9a3dbe1ed3551b1faa4e.log
+        - deploy-61520ffc90c780deffbb72ed8483109299f17476dab121b5597d13ac281b6c45.log
+        - deploy-d0244fa970384b8ba51a500ba1add56d8b43ddb86dd26f66a5a8e93224e48009.log
+        - .litellm-707141dc68aff38afce415dbc9d624758235dfbf1fbf22ba9f59047ac610b849
+        - .litellm-f531ec670cb32e274f52ad8df0d04c183d747069cb6b630632cf6ed587198500
+        - .litellm-f70da7465033c72ea30f5d589406a778b00c123bef53cd1c18333092340f56e5
+        - litellm-0752da8bb1e240b09a27b07dfbed077c-capture
+        - litellm-5dff7023d91a46bf99f82b0ab99b269c-capture
+        - litellm-8e9a5528690745729393aab258b643b9-capture
+  no_log: true
+
+- name: Refuse unknown Compose state during legacy retirement
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.files | map(attribute='path') | map('basename') |
+        difference(item.item.protected + item.item.removable) | length == 0
+      - >-
+        item.item.protected |
+        difference(item.files | map(attribute='path') | map('basename') | list) | length == 0
+    fail_msg: Legacy Compose retirement found unknown or missing protected top-level state.
+  loop: "{{ compose_native_legacy_inventory.results }}"
+  no_log: true
+
+- name: Remove only inventoried legacy Compose state
+  ansible.builtin.file:
+    path: "{{ item.0.item.path }}/{{ item.1 }}"
+    state: absent
+  become: true
+  loop: "{{ compose_native_legacy_inventory.results | subelements('item.removable') }}"
+  when: >-
+    item.1 in (item.0.files | map(attribute='path') | map('basename') | list)
+  no_log: true
+
+- name: Remove exact legacy Compose ownership records
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  become: true
+  loop:
+    - /var/lib/home-lab/compose-staging
+    - /var/lib/home-lab/debian-compose-staged.json
+    - /var/lib/home-lab/production-image-lock.json
+    - /var/lib/home-lab/production-image-override.json
+  no_log: true

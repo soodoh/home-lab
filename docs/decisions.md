@@ -77,8 +77,8 @@ dated outcomes and supported scope, including
 [unit-state exclusions](operations.md#backup-unit-definitions),
 [existing-account refusal](operations.md#confined-backup-account) and
 [same-content metadata limits](operations.md#same-content-backup-runtime-files).
-These adoptions confer no general host convergence, upgrade, restart, reboot,
-firewall, data migration or backup-health authority. The
+These adoptions now feed one native Docker-host site convergence, but confer no
+Proxmox upgrade, restart, reboot, firewall, data migration or backup-health authority. The
 [native Proxmox capability observation](operations.md#native-proxmox-capability-observation)
 now checks protected identities without installed Nix helpers or prior runner
 artifacts. Native maintenance variables also replace selected Nix data reads in
@@ -90,8 +90,8 @@ Historically, the first
 fresh tracked source plus actual remote state and limited mutation to an explicit
 `flaresolverr` canary. That canary-only service scope is superseded by the
 bounded ordinary lane described below. Its host-side SOPS decryption, production
-ownership and current/previous artifact/environment publication remain; the current
-lane no longer uses image locks. It creates no approval receipt and consumes no
+ownership and current/previous artifact/environment publication remained; that
+lane no longer used image locks. It created no approval receipt and consumed no
 previous runner result. After exact forward recovery closed the interrupted publication, commit
 `b93919a3` passed the repaired reusable role's corrected same-commit check, separately
 authorized normal canary activation and zero-change post-observation. Only
@@ -120,41 +120,34 @@ the source-only unit with a host-local before-image, converged all 38 services,
 required zero post-preview actions, consumed its checkpoint and released ownership.
 Immediate ordinary observation reported `ok=40 changed=0 failed=0 unreachable=0`.
 No image identity, database, environment, secret, topology, volume, Restic policy or
-artifact generation changed. The former override and image locks remain recovery
-evidence but the override is no longer a runtime input. The consumed cutover play and
+artifact generation changed. At that point the former override and image locks remained recovery
+evidence but the override was no longer a runtime input. The consumed cutover play and
 transitional comparison/preinstalled-image branches are removed rather than retained
 as a second authority. Commit `0e3c018` passed the simplified ordinary observation
 with `ok=35 changed=0 failed=0 unreachable=0` and tracked-digest authority.
 
-The bounded ordinary lane is now qualified for existing-service forward changes,
-not unrestricted convergence. Commit `ba998f2` recreated only stateless/dependent
-`flaresolverr`; commit `7e64899` published one exact bind-file change and forcibly
-recreated only Caddy; commit `233a582` pulled and automatically activated only the
-reviewed Recyclarr 8.7.2 repository digest. Their normal runs passed respectively
-`ok=100 changed=10`, `ok=133 changed=24`, and `ok=134 changed=25`; each ended with
-38 running services, zero full-project actions, consumed checkpoint and released
-owner. Caddy config validation, Recyclarr's running version and zero-change ordinary
-observations passed. The decision remains explicit-subset deployment with exact
-reviewed paths, immutable service set/protected topology and separate production
-authorization. Approved environment changes use the same native resolved-model
-mechanics but require a separate explicit confirmation. Database/storage/secret and
-Restic operations remain outside this qualification.
+Those bounded qualifications established the native mechanics. The current decision
+is one authoritative Docker-host site: it derives the complete service and artifact
+scope from clean tracked source, converges backup definitions, weekly image pruning
+and the full Compose project under one durable owner, and verifies zero drift.
+`deploy-compose.yml` remains a lower-level exceptional subset interface, not the
+normal operator contract. Environment changes still require separate confirmation;
+database, storage, file-secret and restore activation remain outside normal site
+authority.
 
-Ordinary rollback is a Git revert followed by the latest reviewed
-`ansible/playbooks/deploy-compose.yml` forward path. Tracked repository digests are
-the sole image authority; an absent old image is repulled by exact digest and
-registry/network access is an accepted rollback dependency. The generic
-previous-artifact rollback play, image checkpoints, image-lock rotation and
-registry-independent guarantee are retired. Current/previous artifact/environment
-pointers remain only because Nextcloud migration and archive recovery still consume
-them. The former override and host image-lock files remain untouched evidence.
+Ordinary rollback is a Git revert followed by the same authoritative site convergence.
+Tracked repository digests are the sole image authority; an absent old image is
+repulled by exact digest. Previous-artifact pointers, image locks/checkpoints,
+overrides and service-specific migration/archive recovery are retired and cleaned
+from the host after successful convergence. Disaster recovery has one generic Restic
+flow with declarative full/partial groups and no alternate service-specific path.
 
 ## Why legacy code remains
 
 | Retained source | Actual reason / retirement boundary |
 | --- | --- |
 | `infrastructure/contract/`, schema, renderers and validators | OpenTofu roots now own typed root-local inputs and Omada has left the contract. Retained host lifecycle, Restic, Compose/Nextcloud recovery and whole-document plan bindings still consume the compatibility document. Follow the [consumer inventory and deletion gate](contract-ownership.md) rather than adding another global field. |
-| Compose artifact/model/action/diff/image helpers, operation-specific staging/deploy/rollback roles | Legacy migration and archive recovery remain. General staging/deployment and generic rollback are refused/removed. `compose-action-plan.py` and `compose-image-lock.py` remain only for Nextcloud migration/rollback and archive recovery; image-lock pruning is retired. September 19 restore evidence closed the stale Calibre NFS-to-local lane without deleting either data generation. The coupled Calibre/Caro preserved-data play remains blocked pending separate review. |
+| Compose artifact/model helpers and generic Restic recovery groups | Native site convergence owns the complete Compose generation. Service-specific staging/deploy/rollback/archive roles and image-lock/action-plan helpers are retired. September 19 restore evidence closed the stale Calibre NFS-to-local lane without deleting either data generation; the coupled Calibre/Caro preserved-data play remains blocked pending separate review. |
 | Restic runner, bootstrap/init/first-run/qualification helpers and recovery plays | Writer quiescence, interrupted-backup recovery, repository identity, pending-copy retention and retained operation journals remain real dependencies. |
 | Proxmox deploy activator/transport | The final read found all boot/network/storage/NFS/Tailscale/package ownership journals committed. The retained prepared package record is preserved as historical evidence. The installed activator was removed in the approved September 17 cleanup; the later VM9900 closure retired the remaining Restic-only deploy transport, account capability and source. |
 | Installed Proxmox observer/private preparer/plan transport | Active source callers and installed helper/access generations are retired. The approved cleanup preserved root-only before-images, removed obsolete helpers/sudo, disabled obsolete shells and passed a zero-change second normal run. The known PVE root key remains inert behind the checked root-specific effective sshd public-key/root-login refusals and is checked by native observation. |

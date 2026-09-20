@@ -12,8 +12,9 @@ recovery_expected_rclone_sha256: ""
 recovery_expected_original_snapshot_id: ""
 recovery_target_approved_empty: false
 recovery_restore_confirmed: false
-recovery_retain_existing_bind_data: false
-recovery_retained_bind_review_confirmed: false
+# Select exactly one mode: all groups, or one or more names from groups.json.
+recovery_all_groups: true
+recovery_groups: []
 
 # Environment-only Proton recovery fields are supplied separately as protected
 # RCLONE_CONFIG_PROTON_BACKUP_* values; never put them in this example or Git.

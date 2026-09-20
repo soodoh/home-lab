@@ -2,11 +2,18 @@
 - name: Validate the bounded native Compose deployment request
   ansible.builtin.assert:
     that:
-      - compose_native_requested_services | length > 0
-      - compose_native_force_recreate_services | difference(compose_native_requested_services) | length == 0
+      - compose_native_authoritative_reconcile | bool or compose_native_requested_services | length > 0
+      - >-
+        compose_native_authoritative_reconcile | bool or
+        compose_native_force_recreate_services | difference(compose_native_requested_services) | length == 0
       - compose_native_requested_services | unique | length == compose_native_requested_services | length
       - compose_native_force_recreate_services | unique | length == compose_native_force_recreate_services | length
       - compose_native_expected_changed_paths | unique | length == compose_native_expected_changed_paths | length
+      - >-
+        not (compose_native_authoritative_reconcile | bool) or
+        (compose_native_requested_services | length == 0 and
+         compose_native_force_recreate_services | length == 0 and
+         compose_native_expected_changed_paths | length == 0)
       - compose_native_protected_service_fields | length > 0
       - >-
         compose_native_protected_service_fields | unique | length ==
@@ -15,11 +22,13 @@
         compose_native_protected_service_fields |
         select('match', '^[a-z][a-z0-9_]*$') | list | length ==
         compose_native_protected_service_fields | length
-      - compose_native_expected_source_commit is match('^[0-9a-f]{40}$')
+      - >-
+        compose_native_authoritative_reconcile | bool or
+        compose_native_expected_source_commit is match('^[0-9a-f]{40}$')
       - ansible_check_mode or compose_native_apply_confirmed | bool
     fail_msg: >-
-      Native Compose deployment requires an explicit unique service set, an optional subset for forced
-      recreation, exact expected artifact paths, an exact source commit, and confirmation outside check mode.
+      Native Compose deployment requires either authoritative full reconciliation or an explicit unique
+      service/path scope, plus a clean source checkout and confirmation outside check mode.
 
 - name: Refuse unsafe expected artifact paths
   ansible.builtin.assert:
@@ -95,7 +104,9 @@
   ansible.builtin.assert:
     that:
       - compose_native_controller_status.stdout == ''
-      - compose_native_controller_commit.stdout == compose_native_expected_source_commit
+      - >-
+        compose_native_authoritative_reconcile | bool or
+        compose_native_controller_commit.stdout == compose_native_expected_source_commit
     fail_msg: The controller checkout is dirty or differs from the explicitly authorized source commit.
 
 - name: Compute the reviewed tracked-source Compose artifact identity
@@ -145,7 +156,9 @@
       candidate_hash: "{{ compose_native_candidate_hash }}"
       active_hash: "{{ compose_native_active_artifact.stdout }}"
       artifact_change: "{{ compose_native_candidate_hash != compose_native_active_artifact.stdout }}"
-      requested_services: "{{ compose_native_requested_services }}"
+      requested_services: >-
+        {{ ['all-declared-services'] if compose_native_authoritative_reconcile | bool
+           else compose_native_requested_services }}
       forced_recreation: "{{ compose_native_force_recreate_services }}"
       note: Check mode does not stage protected inputs or mutate the host; apply repeats every live check.
   changed_when: compose_native_candidate_hash != compose_native_active_artifact.stdout or compose_native_force_recreate_services | length > 0
@@ -296,20 +309,25 @@
           - compose_native_host_candidate_artifact.stdout == compose_native_candidate_hash
         fail_msg: Existing host staging does not match the reviewed source artifact.
 
-    - name: Inventory artifact byte differences against the active generation
+    - name: Inventory exact selected artifact differences against the active generation
       ansible.builtin.command:
         argv:
-          - /usr/bin/diff
-          - --brief
-          - --recursive
-          - --no-dereference
-          - --
+          - "{{ ansible_python_interpreter }}"
+          - "{{ compose_native_candidate_dir }}/scripts/compose-artifact.py"
+          - --root
           - "{{ compose_native_current_dir }}"
+          - --no-git
+          - compare
           - "{{ compose_native_candidate_dir }}"
       become: true
       register: compose_native_artifact_differences
       changed_when: false
-      failed_when: compose_native_artifact_differences.rc not in [0, 1]
+      no_log: true
+
+    - name: Bind authoritative reconciliation to every tracked artifact difference
+      ansible.builtin.set_fact:
+        compose_native_expected_changed_paths: "{{ compose_native_artifact_differences.stdout | from_json }}"
+      when: compose_native_authoritative_reconcile | bool
       no_log: true
 
     - name: Require the reviewed artifact-change boundary
@@ -318,23 +336,10 @@
           - >-
             (compose_native_candidate_hash == compose_native_active_artifact.stdout) ==
             (compose_native_expected_changed_paths | length == 0)
-        fail_msg: Expected artifact paths do not match whether the reviewed generation changed.
-      no_log: true
-
-    - name: Refuse unreviewed artifact differences
-      ansible.builtin.assert:
-        that:
-          - compose_native_expected_changed_paths | select('in', item) | list | length == 1
-        fail_msg: The candidate contains an artifact difference outside the explicitly reviewed paths.
-      loop: "{{ compose_native_artifact_differences.stdout_lines }}"
-      no_log: true
-
-    - name: Require every reviewed artifact path to differ exactly once
-      ansible.builtin.assert:
-        that:
-          - compose_native_artifact_differences.stdout_lines | select('search', item | regex_escape) | list | length == 1
-        fail_msg: An expected artifact path is absent or ambiguous in the candidate difference.
-      loop: "{{ compose_native_expected_changed_paths }}"
+          - >-
+            compose_native_expected_changed_paths | sort ==
+            compose_native_artifact_differences.stdout | from_json | sort
+        fail_msg: Expected artifact paths differ from the exact selected generation changes.
       no_log: true
 
     - name: Keep Restic policy source outside general Compose deployment
@@ -492,6 +497,12 @@
         fail_msg: Candidate source images must all be digest pinned.
       no_log: true
 
+    - name: Select the complete declared service set for authoritative reconciliation
+      ansible.builtin.set_fact:
+        compose_native_requested_services: "{{ compose_native_candidate_services.stdout_lines }}"
+      when: compose_native_authoritative_reconcile | bool
+      no_log: true
+
     - name: Require requested services to exist in both complete models
       ansible.builtin.assert:
         that:
@@ -551,6 +562,12 @@
         selectattr('source', 'defined') |
         selectattr('source', 'equalto', compose_native_current_dir ~ '/' ~ item.1) |
         list | length > 0
+      no_log: true
+
+    - name: Select exact changed bind owners for authoritative forced recreation
+      ansible.builtin.set_fact:
+        compose_native_force_recreate_services: "{{ compose_native_changed_bind_services }}"
+      when: compose_native_authoritative_reconcile | bool
       no_log: true
 
     - name: Require explicit forced recreation for changed bind-mounted files
@@ -645,6 +662,7 @@
           environment_path: "{{ compose_native_candidate_env_path }}"
           services: "{{ compose_native_requested_services }}"
           force_recreate_services: "{{ compose_native_force_recreate_services }}"
+          dependency_isolation: "{{ not (compose_native_authoritative_reconcile | bool) }}"
           action_container_names: "{{ compose_native_requested_container_names }}"
           expected_services: "{{ compose_native_candidate_services.stdout_lines }}"
           expected_service_count: "{{ compose_native_expected_service_count }}"

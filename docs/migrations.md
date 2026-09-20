@@ -120,32 +120,19 @@ retention decision. It is mounted in place and is never copied into, restored ov
 or deleted with managed application state. The other four mounts hold managed
 application code, config, custom apps and themes under `/srv/home-lab-state`.
 
-### Historical staging and five-mount migration
+### Historical five-mount migration
 
-The original forward procedure is in Git (`1165675`, former
-`docs/nextcloud-34-configuration.md`). Its paired `stage-compose.yml` and
-`deploy-nextcloud-migration.yml` plays remain source/recovery dependencies, not a
-supported deployment path. Generic staging now refuses execution unless
-`compose_stage_retained_operation` names an allowlisted recovery case; the retained
-`compose_deploy` role likewise refuses every non-operation-specific plan.
-The procedure required an exact `compose_artifact_hash` and
-`compose_artifact_controller_dir`, lock-held metadata-preserving/checksum
-synchronization, stopped writers, activation of four local paths and proof that
-the external-data device/inode was unchanged. It allowed no image-version changes
-or removal of old NFS application/config copies. It required an explicit Caddy
-restart for changed bind-mounted configuration and initially stopped cron/backup
-schedulers. These requirements are not completed acceptance proof.
+The original forward procedure remains in Git history (`1165675`, former
+`docs/nextcloud-34-configuration.md`). The migration is complete; its staging,
+deployment and rollback playbooks and roles are retired. They are not disaster
+recovery interfaces. Native site convergence now owns the active Compose generation
+and root-owned database secret files.
 
-Staging confines canonical SOPS decryption to a root-only temporary directory and
-materializes these root-owned mode-0600 files without logging values:
-
-- `/etc/docker-compose/credentials/nextcloud-mysql-password`;
-- `/etc/docker-compose/credentials/nextcloud-mariadb-root-password`.
-
-Retain the selected artifact hash, current/previous artifacts and environments,
-image locks, old paths, database recovery point and any migration journal before
-reviewing rollback. Reconcile actual service/timer state rather than substituting
-new names into the historical procedure.
+Nextcloud application state participates in the generic `nextcloud` recovery group.
+That group stages database, config, custom-app and theme paths plus the common
+protected environment through the same verified Restic flow as every other group.
+External `/mnt/storage/media/nextcloud/data` remains outside Restic and must be
+admitted separately. Generic production activation is not yet qualified.
 
 ### Web acceptance
 
@@ -199,20 +186,10 @@ upload-directory cleanup remain scope exclusions.
 
 ### Rollback
 
-The retained `ansible/playbooks/rollback-nextcloud-migration.yml` requires a reviewed
-rollback plan, the old paths and previous artifact, and:
-
-```text
-compose_rollback_nextcloud_migration_confirmation=rollback-reviewed-nextcloud-five-mount-migration
-```
-
-Its historical bounded rollback stops cron/web/backup writers, removes only the
-new cron container and converges the previous **41-service** artifact against the
-untouched old parent mount, retaining new paths for diagnosis and never modifying
-external user data. That service count and its Offen scheduler assumptions are
-historical, not a currently runnable recovery recipe. A separately reviewed
-invocation must reconcile these with actual retained inputs; do not guess a
-replacement or run the play unchanged merely because it remains in source.
+There is no service-specific migration rollback. Configuration rollback is a Git
+revert followed by authoritative native site convergence. Data loss or corruption
+uses the generic Restic recovery-group flow. Neither path modifies external
+Nextcloud user data automatically.
 
 ### Recovery and cleanup gate
 
@@ -221,7 +198,7 @@ Before old-path deletion:
 - preserve the completed [Nextcloud and Calibre private-staging restore rehearsal](../recovery/nextcloud-calibre-restore-rehearsal.md) and its exact snapshot/manifests;
 - keep the passing focused `scripts/test-restic-recovery-bundle` and `scripts/test-restic-restore-branch` checks;
 - review and separately authorize the [Nextcloud isolated logical recovery plan](../recovery/nextcloud-isolated-recovery-plan.md) with SOPS-backed secret files, pinned application code and no production external-data mount;
-- prove the previous-artifact rollback;
+- prove the generic `nextcloud` recovery group in isolated staging;
 - confirm representative user-file counts and hashes are unchanged;
 - retain old copies for seven days after these proofs.
 
@@ -277,23 +254,19 @@ retirement.
 The NFS generation remains retained until a separately reviewed disposition; source
 retirement does not declare it deletable. The coupled historical
 `migrate-preserved-backup-data.yml` play still includes Calibre and Caro and remains
-blocked from replay pending a separate Caro/recovery review. The general deploy
-entrypoint remains non-operational; direct role invocation is not a substitute.
+blocked from replay pending a separate Caro/recovery review. Native site convergence
+does not activate or remove preserved data copies.
 
 ## Retired LiteLLM deployment lane
 
 The callback/config remain; the dedicated source-only approval/transport lane is
 removed rather than carried into native delivery. Its installed success was not
-established. Preserve any `/var/lib/docker-compose/.litellm-<document-sha256>`
-attempts and `/srv/docker-compose/.litellm-<plan-sha256>/` recovery sets, current
-and previous artifacts/environments, image locks/override and old marker. The
-previous generation was deliberately untouched by that lane. Failure after
-publication can leave new files with old/failed processes; a lost result does not
-prove the host failed. There was no automatic rollback/resume lane. Inspect actual
-host/process/owner state and get a recovery decision; never retry or clear an owner
-based only on delivery failure. Native replacement must explicitly recreate
-LiteLLM for changed bind-file contents and distinguish liveness from provider/model
-usability.
+established. Historical LiteLLM transport attempts and generic Compose
+artifact/image-lock state are no longer recovery inputs and are removed by successful
+authoritative site convergence. Failure after publication retains only the current
+transaction's before-images and owner for exact inspection. Native replacement must
+explicitly recreate LiteLLM for changed bind-file contents and distinguish liveness
+from provider/model usability.
 
 The September 18 native canary attempt found commit `a43c4b17`'s model update still
 undeployed: active config SHA-256 remained

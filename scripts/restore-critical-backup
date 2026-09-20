@@ -4,6 +4,8 @@ umask 077
 
 restic_snapshot_id=
 confirmed_empty=false
+recovery_all=false
+recovery_groups=()
 while (($#)); do
   case "$1" in
     --restic-snapshot-id)
@@ -15,11 +17,48 @@ while (($#)); do
       confirmed_empty=true
       shift
       ;;
+    --all)
+      recovery_all=true
+      shift
+      ;;
+    --recovery-group)
+      (($# >= 2)) || exit 64
+      recovery_groups+=("$2")
+      shift 2
+      ;;
     *) exit 64 ;;
   esac
 done
 [[ $restic_snapshot_id =~ ^[0-9a-f]{64}$ ]] || exit 64
+[[ $recovery_all == true || ${#recovery_groups[@]} -gt 0 ]] || exit 64
+[[ ! ($recovery_all == true && ${#recovery_groups[@]} -gt 0) ]] || exit 64
 : "${RECOVERY_TARGET:?RECOVERY_TARGET is required}"
+
+runner_dir=$(cd -- "$(dirname -- "$0")" && pwd -P)
+scope_resolver="$runner_dir/recovery-scope.py"
+scope_file="$runner_dir/../recovery/groups.json"
+[[ -f $scope_resolver && ! -L $scope_resolver && -x $scope_resolver ]] || exit 1
+[[ -f $scope_file && ! -L $scope_file ]] || exit 1
+scope_arguments=("$scope_resolver" "$scope_file")
+if [[ $recovery_all == true ]]; then
+  scope_arguments+=(--all)
+else
+  for group in "${recovery_groups[@]}"; do
+    scope_arguments+=(--group "$group")
+  done
+fi
+scope_json=$(python3 "${scope_arguments[@]}") || exit 1
+recovery_paths=()
+while IFS= read -r recovery_path; do
+  recovery_paths+=("$recovery_path")
+done < <(
+  SCOPE_JSON="$scope_json" python3 - <<'PY'
+import json
+import os
+for path in json.loads(os.environ["SCOPE_JSON"])["paths"]:
+    print(path)
+PY
+)
 
 [[ $confirmed_empty == true ]]
 [[ -d $RECOVERY_TARGET && ! -L $RECOVERY_TARGET ]]
@@ -153,6 +192,19 @@ required = {
 if not required <= tags:
     raise SystemExit("Restic snapshot policy or artifact identity differs")
 PY
-  "$restic_path" restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify
-  printf 'recovery_restore=verified backend=restic snapshot=%s\n' "$restic_snapshot_id"
+  restore_arguments=(restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify)
+  if [[ $recovery_all != true ]]; then
+    for path in "${recovery_paths[@]}"; do
+      restore_arguments+=(--include "$path")
+    done
+  fi
+  "$restic_path" "${restore_arguments[@]}"
+  selected_groups=$(SCOPE_JSON="$scope_json" python3 - <<'PY'
+import json
+import os
+print(",".join(json.loads(os.environ["SCOPE_JSON"])["groups"]))
+PY
+)
+  printf 'recovery_restore=verified backend=restic snapshot=%s groups=%s\n' \
+    "$restic_snapshot_id" "$selected_groups"
   exit 0

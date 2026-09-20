@@ -51,6 +51,24 @@ class ComposeArtifactCompatibilityTests(unittest.TestCase):
         self.assertEqual(cli('--root', str(copied), '--no-git', 'hash'), source_hash)
         self.assertEqual((copied / 'services/data/hook.sh').stat().st_mode & 0o777, 0o755)
 
+    def test_compare_reports_exact_selected_path_changes(self):
+        paths = sorted(artifact.EXPLICIT_PATHS | {'services/apps.yml'})
+        left = self.root / 'left'
+        right = self.root / 'right'
+        for root in (left, right):
+            for name in paths:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(b'same\n')
+        (right / 'services/apps.yml').write_bytes(b'changed\n')
+        extra = right / 'services/data/new.conf'
+        extra.parent.mkdir(parents=True, exist_ok=True)
+        extra.write_bytes(b'new\n')
+        self.assertEqual(
+            artifact.changed_paths(left, right),
+            ['services/apps.yml', 'services/data/new.conf'],
+        )
+
     def test_legacy_diff_cli_keeps_canary_and_manual_only_results(self):
         diff = load('compose-deployment-diff')
         for name, value in {

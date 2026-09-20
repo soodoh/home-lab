@@ -47,7 +47,7 @@ def secure_source(path: Path, expected: str, executable: bool) -> bytes:
     mode = stat.S_IMODE(metadata.st_mode)
     if executable and mode != 0o755:
         raise ValueError("bundle executable mode differs")
-    if not executable and mode not in {0o400, 0o600}:
+    if not executable and mode not in {0o400, 0o600, 0o644}:
         raise ValueError("bundle protected source mode differs")
     content = path.read_bytes()
     if digest(content) != expected:
@@ -77,6 +77,8 @@ def main() -> None:
     parser.add_argument("--restic", required=True)
     parser.add_argument("--rclone", required=True)
     parser.add_argument("--restore-runner", required=True)
+    parser.add_argument("--scope-resolver", required=True)
+    parser.add_argument("--scope-config", required=True)
     parser.add_argument("--age", required=True)
     parser.add_argument("--age-sha256", required=True)
     parser.add_argument("--recipient", required=True)
@@ -121,6 +123,12 @@ def main() -> None:
     restic = secure_source(Path(arguments.restic), metadata["restic_sha256"], True)
     rclone = secure_source(Path(arguments.rclone), metadata["rclone_sha256"], True)
     runner = secure_source(Path(arguments.restore_runner), metadata["restore_runner_sha256"], True)
+    scope_resolver_path = Path(arguments.scope_resolver)
+    scope_config_path = Path(arguments.scope_config)
+    scope_resolver = secure_source(
+        scope_resolver_path, digest(scope_resolver_path.read_bytes()), True
+    )
+    scope_config = secure_source(scope_config_path, digest(scope_config_path.read_bytes()), False)
     age_path = Path(arguments.age)
     age_parent = age_path.parent.lstat()
     if (not stat.S_ISDIR(age_parent.st_mode) or age_parent.st_uid != os.geteuid()
@@ -144,7 +152,9 @@ def main() -> None:
         "bin/rclone": (rclone, 0o755),
         "bin/restic": (restic, 0o755),
         "bin/restore-critical-backup": (runner, 0o755),
+        "bin/recovery-scope.py": (scope_resolver, 0o755),
         "metadata.json": (canonical(metadata), 0o600),
+        "recovery/groups.json": (scope_config, 0o600),
         "private/proton-login-password": (secrets["RECOVERY_BUNDLE_PROTON_LOGIN_PASSWORD"].encode() + b"\n", 0o600),
         "private/proton-username": (secrets["RECOVERY_BUNDLE_PROTON_USERNAME"].encode() + b"\n", 0o600),
         "private/restic-password": (secrets["RECOVERY_BUNDLE_RESTIC_PASSWORD"].encode() + b"\n", 0o600),

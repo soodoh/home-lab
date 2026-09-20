@@ -4,10 +4,8 @@ compose_native_project_name: docker-compose
 compose_native_home: /home/docker
 compose_native_deployment_root: /srv/docker-compose
 compose_native_current_dir: /srv/docker-compose/current
-compose_native_previous_dir: /srv/docker-compose/previous
 compose_native_staging_root: /srv/docker-compose/staging
 compose_native_runtime_env_path: /etc/docker-compose/production.env
-compose_native_previous_env_path: /etc/docker-compose/previous.env
 compose_native_staged_env_root: /etc/docker-compose/staging
 compose_native_artifact_identity_path: /var/lib/docker-compose/current-artifact.sha256
 compose_native_apply_lock_path: /var/lib/iac-ansible-production.lock
@@ -39,6 +37,7 @@ compose_native_required_healthy_containers: []
 compose_native_wait_timeout: 600
 compose_native_apply_confirmed: false
 compose_native_environment_change_confirmed: false
+compose_native_authoritative_reconcile: false
 compose_native_generation: {}
 compose_native_sops_path: /usr/local/bin/sops
 compose_native_sops_sha256: ""

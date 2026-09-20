@@ -3,6 +3,7 @@
 
 from argparse import ArgumentParser, Namespace
 import hashlib
+import json
 import os
 from pathlib import Path, PurePosixPath
 import shutil
@@ -24,7 +25,6 @@ EXPLICIT_PATHS = {
     "docker-compose.yml",
     "scripts/check-sops-env.py",
     "scripts/compose-artifact.py",
-    "scripts/compose-image-lock.py",
     "scripts/compose-model-inventory.py",
     "scripts/materialize-compose-secret-files.py",
     "scripts/restore-dotenv-layout.py",
@@ -108,6 +108,18 @@ def artifact_hash(root: Path, paths: list[str]) -> str:
     return digest.hexdigest()
 
 
+def changed_paths(left_root: Path, right_root: Path) -> list[str]:
+    left_paths = set(selected_paths(left_root, require_git_tracked=False))
+    right_paths = set(selected_paths(right_root, require_git_tracked=False))
+    changed = left_paths ^ right_paths
+    for relative_path in left_paths & right_paths:
+        left = left_root / relative_path
+        right = right_root / relative_path
+        if left.is_symlink() != right.is_symlink() or path_bytes(left_root, relative_path) != path_bytes(right_root, relative_path):
+            changed.add(relative_path)
+    return sorted(changed)
+
+
 def copy_artifact(root: Path, destination: Path, paths: list[str]) -> None:
     if destination.exists() and any(destination.iterdir()):
         raise SystemExit("artifact destination must be absent or empty")
@@ -134,6 +146,8 @@ def parse_args() -> Namespace:
     subparsers.add_parser("hash")
     copy_parser = subparsers.add_parser("copy")
     copy_parser.add_argument("destination", type=Path)
+    compare_parser = subparsers.add_parser("compare")
+    compare_parser.add_argument("other_root", type=Path)
     return parser.parse_args()
 
 
@@ -159,6 +173,9 @@ def main() -> None:
         if artifact_hash(destination, copied_paths) != source_hash:
             raise SystemExit("copied artifact hash differs from the source")
         print(source_hash)
+        return
+    if args.command == "compare":
+        print(json.dumps(changed_paths(root, args.other_root.resolve()), separators=(",", ":")))
         return
     raise SystemExit("unsupported artifact command")
 

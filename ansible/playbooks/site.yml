@@ -1,164 +1,78 @@
 ---
-- name: Check or converge the approved Docker host state
-  hosts: docker_host
+- name: Converge the complete native Docker host state
+  hosts: docker-host
   gather_facts: true
+  gather_subset: ["!all", min]
   any_errors_fatal: true
-  vars_files:
-    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
-    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   pre_tasks:
-    - name: Require an explicit Debian lifecycle profile
-      ansible.builtin.assert:
-        that:
-          - lifecycle_profile is defined
-          - lifecycle_profile in ['inert', 'recovery', 'production']
-        fail_msg: Set lifecycle_profile explicitly through the selected inventory; implicit production activation is forbidden.
-      tags:
-        - always
-
-    - name: Enforce lifecycle-specific Debian safety boundaries
+    - name: Observe coordination and active Compose state before convergence
       ansible.builtin.import_role:
-        name: debian_lifecycle_guard
-      tags:
-        - always
-    - name: Enforce the apply safety contract
-      ansible.builtin.import_role:
-        name: apply_guard
-      tags:
-        - always
+        name: compose_native
+        tasks_from: observe
 
-    - name: Enforce production lifecycle invariants before production convergence
-      ansible.builtin.import_role:
-        name: lifecycle_state
-      vars:
-        lifecycle_state_enforce: true
-        lifecycle_state_emit_observation: false
-      when: lifecycle_profile == 'production'
-      tags:
-        - always
-
-    - name: Acquire the host-side production apply lock
+    - name: Acquire production ownership for native site convergence
       ansible.builtin.import_role:
         name: apply_lock
       vars:
         apply_lock_action: acquire
-      tags:
-        - always
-  roles:
-    - role: base
-      tags:
-        - base
-    - role: tailscale
-      when: lifecycle_profile == 'production'
-      tags:
-        - tailscale
-    - role: firewall_nfs_canary
-      when: lifecycle_profile == 'production'
-      tags:
-        - storage
-    - role: storage
-      when: lifecycle_profile == 'production'
-      tags:
-        - storage
-    - role: docker
-      when: lifecycle_profile == 'production'
-      tags:
-        - docker
-    - role: human_access
-      when: lifecycle_profile == 'production'
-      tags:
-        - ssh
-    - role: sops_age
-      when: lifecycle_profile == 'production'
-      tags:
-        - sops_age
-    - role: restic_backup
-      when: lifecycle_profile == 'production'
-      tags:
-        - restic_backup
-    - role: hardware
-      when: lifecycle_profile == 'production'
-      tags:
-        - hardware
-    - role: ssh
-      vars:
-        ssh_service_name: sshd.service
-        ssh_password_authentication: false
-        ssh_pubkey_authentication: false
-        ssh_permit_root_login: "{{ vm_100.access.permit_root_login | ternary('yes', 'no') }}"
-        ssh_allow_users:
-          - ansible-plan
-          - ansible-deploy
-          - ansible-package-apply
-      when: lifecycle_profile == 'production'
-      tags:
-        - ssh
-    - role: host_files
-      when: lifecycle_profile == 'production'
-      tags:
-        - host_files
-    - role: compose
-      when: lifecycle_profile == 'production'
-      tags:
-        - compose
-    - role: health
-      when: lifecycle_profile == 'production'
-      tags:
-        - health
-  tasks:
-    - name: Converge inactive sops_age tools only
-      ansible.builtin.import_role:
-        name: sops_age
-        tasks_from: tools
-      when: lifecycle_profile in ['inert', 'recovery']
-      tags:
-        - sops_age
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: native-site-convergence
 
-    - name: Converge inactive restic_backup tools only
+  tasks:
+    - name: Converge pinned backup tools
       ansible.builtin.import_role:
         name: restic_backup
-        tasks_from: tools
-      when: lifecycle_profile in ['inert', 'recovery']
-      tags:
-        - restic_backup
+        tasks_from: tools-native
 
-    - name: Converge inactive tailscale tools only
+    - name: Preserve the confined backup account
       ansible.builtin.import_role:
-        name: tailscale
-        tasks_from: tools
-      when: lifecycle_profile in ['inert', 'recovery']
-      tags:
-        - tailscale
+        name: restic_backup
+        tasks_from: identity-native
 
-    - name: Converge inactive storage declarations only
+    - name: Converge protected backup runtime files
       ansible.builtin.import_role:
-        name: storage
-        tasks_from: inactive
-      when: lifecycle_profile in ['inert', 'recovery']
-      tags:
-        - storage
+        name: restic_backup
+        tasks_from: runtime-native
 
-    - name: Converge inactive Docker dependency declarations only
+    - name: Converge backup systemd definitions
       ansible.builtin.import_role:
-        name: docker
-        tasks_from: inactive
-      when: lifecycle_profile in ['inert', 'recovery']
-      tags:
-        - docker
+        name: restic_backup
+        tasks_from: systemd
 
-    - name: Converge inactive Compose and retained guard declarations only
+    - name: Converge native Docker maintenance
       ansible.builtin.import_role:
-        name: compose
-        tasks_from: inactive
-      when: lifecycle_profile in ['inert', 'recovery']
-      tags:
-        - compose
+        name: docker_maintenance
+
+    - name: Reconcile the complete tracked Compose generation
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: deploy
+      vars:
+        compose_native_authoritative_reconcile: true
+        compose_native_apply_confirmed: true
+
+    - name: Retire superseded Compose recovery and image state
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: retire-legacy
+      when: not ansible_check_mode
 
   post_tasks:
-    - name: Release the host-side production apply lock after success
+    - name: Release production ownership after complete native convergence
       ansible.builtin.import_role:
         name: apply_lock
       vars:
         apply_lock_action: release
-      tags:
-        - always
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: native-site-convergence
+
+- name: Verify the converged native Docker host state
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  tasks:
+    - name: Observe final coordination and active Compose state
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe

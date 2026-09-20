@@ -14,7 +14,7 @@ const tasks = readYaml("ansible/roles/lifecycle_state/tasks/main.yml");
 const observePlaybook = readYaml("ansible/playbooks/lifecycle-observe.yml");
 const assertPlaybook = readYaml("ansible/playbooks/lifecycle-assert.yml");
 const inventory = readYaml("ansible/inventory/production.yml");
-const sitePlaybook = readYaml("ansible/playbooks/site.yml")[0];
+const sitePlaybook = readYaml("ansible/playbooks/legacy-debian-site.yml")[0];
 const contract = readYaml("infrastructure/contract/home-lab.yml");
 
 function task(name) {

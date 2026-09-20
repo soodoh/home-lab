@@ -16,7 +16,7 @@ const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
 const yaml = (p) => load(read(p));
 const hash = (s) => crypto.createHash("sha256").update(s).digest("hex");
 const contract = yaml("infrastructure/contract/home-lab.yml");
-const site = yaml("ansible/playbooks/site.yml")[0];
+const site = yaml("ansible/playbooks/legacy-debian-site.yml")[0];
 const tasks = yaml("ansible/roles/storage/tasks/inactive.yml");
 const template = read("ansible/roles/storage/templates/inactive-mount.j2");
 const helper = read("ansible/roles/debian_lifecycle_guard/files/debian-inactive-path.py");

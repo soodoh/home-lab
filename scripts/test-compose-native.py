@@ -16,7 +16,7 @@ DEPLOY = ROOT / "ansible/roles/compose_native/tasks/deploy.yml"
 GENERATION = ROOT / "ansible/roles/compose_native/tasks/generation.yml"
 DEFAULTS = ROOT / "ansible/roles/compose_native/defaults/main.yml"
 HOST = ROOT / "ansible/inventory/host_vars/docker-host.yml"
-MAINTENANCE = ROOT / "ansible/roles/maintenance/tasks/main.yml"
+MAINTENANCE = ROOT / "ansible/roles/docker_maintenance/tasks/main.yml"
 
 
 class NativeComposeSourceTests(unittest.TestCase):
@@ -43,7 +43,6 @@ class NativeComposeSourceTests(unittest.TestCase):
         required = {
             "compose_native_project_name": "docker-compose",
             "compose_native_current_dir": "/srv/docker-compose/current",
-            "compose_native_previous_dir": "/srv/docker-compose/previous",
             "compose_native_runtime_env_path": "/etc/docker-compose/production.env",
             "compose_native_expected_service_count": "38",
         }
@@ -105,12 +104,13 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertGreaterEqual(modules, 4)
         for required in (
             "project_name: \"{{ compose_native_project_name }}\"",
-            "policy: missing", "pull: never", "build: never", "recreate: auto", "dependencies: false",
+            "policy: missing", "pull: never", "build: never", "recreate: auto",
+            "compose_native_dependency_isolation",
             "recreate: always", "remove_orphans: false", "renew_anon_volumes: false",
             "wait: true", "wait_timeout:", "compose_native_force_recreate_services",
             "SOPS_AGE_KEY_FILE", "/usr/bin/cmp", "compose_native_runtime_env_path",
-            "compose_native_previous_dir", "compose_native_previous_env_path",
             "compose_native_environment_change_confirmed", "compose_native_backup_lock_path",
+            "compose_native_authoritative_reconcile",
             "compose_native_expected_changed_paths", "compose_native_requested_container_names",
             "compose_native_changed_bind_services",
             "compose_native_protected_service_fields", "Refuse protected topology changes inside requested services",
@@ -170,7 +170,7 @@ class NativeComposeSourceTests(unittest.TestCase):
         for key in (
             "operation", "artifact_hash", "active_artifact_hash", "artifact_dir",
             "environment_path", "services",
-            "force_recreate_services", "action_container_names", "expected_services",
+            "force_recreate_services", "dependency_isolation", "action_container_names", "expected_services",
             "expected_service_count", "required_healthy_containers",
         ):
             self.assertRegex(prepared, rf"(?m)^          {key}:")
@@ -180,7 +180,7 @@ class NativeComposeSourceTests(unittest.TestCase):
             "compose_native_staging_root ~ '/' ~ (compose_native_generation.artifact_hash | default(''))",
             "compose_native_staged_env_root ~ '/' ~ (compose_native_generation.artifact_hash | default('')) ~ '.env'",
             "Recheck the existing backup mutex immediately before publication",
-            "Publish a changed source generation while retaining current and previous inputs",
+            "Publish a changed source generation with transaction-local before-images",
             "Preview the full published model before container changes",
             "Preview the complete model after requested-service convergence",
             "Refuse post-recreation actions outside exact replacement containers",
@@ -213,8 +213,8 @@ class NativeComposeSourceTests(unittest.TestCase):
         deploy = self.text(DEPLOY)
         for boundary in (
             "Refuse unsafe expected artifact paths",
-            "Refuse unreviewed artifact differences",
-            "Require every reviewed artifact path to differ exactly once",
+            "Inventory exact selected artifact differences against the active generation",
+            "Bind authoritative reconciliation to every tracked artifact difference",
             "Refuse mutable source candidate images",
             "Require requested services to exist in both complete models",
             "Refuse changes to non-service Compose topology",
@@ -262,67 +262,50 @@ class NativeComposeSourceTests(unittest.TestCase):
     def test_interrupted_deployment_documentation_matches_native_boundary(self):
         operations = " ".join(self.text(ROOT / "docs/operations.md").split())
         for marker in (
-            "durable production ownership",
-            "Do not clear the owner",
-            "exact committed desired state",
-            "apply_lock",
-            "artifact publication",
-            "partial container convergence",
-            "No image checkpoint",
+            "durable production owner",
+            "Do not clear them",
+            "exact owner",
+            "transaction-local",
+            "before-images",
+            "zero-change final preview",
+            "No generic resume",
         ):
             self.assertIn(marker, operations)
 
-    def test_general_legacy_deployment_is_retired_but_recovery_consumers_remain(self):
-        stage = self.text(ROOT / "ansible/roles/compose_stage/tasks/main.yml")
-        deploy = self.text(ROOT / "ansible/roles/compose_deploy/tasks/main.yml")
-        review = self.text(ROOT / "ansible/playbooks/review-compose-stage.yml")
-        for marker in (
-            "compose_stage_retained_operation",
-            "nextcloud-five-mount-recovery",
-            "restic-policy-recovery",
-            "archive-compose-recovery",
-            "General Compose staging is retired",
+    def test_service_specific_recovery_consumers_are_retired(self):
+        for relative in (
+            "ansible/playbooks/deploy-nextcloud-migration.yml",
+            "ansible/playbooks/rollback-nextcloud-migration.yml",
+            "ansible/playbooks/stage-compose.yml",
+            "ansible/playbooks/review-compose-stage.yml",
+            "ansible/playbooks/plan-compose-recovery.yml",
+            "ansible/playbooks/recover-compose.yml",
+            "ansible/roles/compose_deploy",
+            "ansible/roles/compose_rollback",
+            "ansible/roles/compose_stage",
+            "ansible/roles/compose_recovery",
+            "ansible/roles/compose_recovery_preflight",
+            "scripts/compose-action-plan.py",
+            "scripts/compose-image-lock.py",
+            "scripts/compose-recovery-plan.py",
+            "scripts/activate-recovered-data.py",
         ):
-            self.assertIn(marker, stage)
-        self.assertIn("compose_stage_retained_operation", review)
-        self.assertIn("Refuse the retired general Compose deployment lane", deploy)
-        self.assertIn("not (compose_deploy_resume | default(false)", deploy)
-        for marker in (
-            "compose_deploy_nextcloud_migration",
-            "compose_deploy_restic_policy_artifact",
-            "General legacy Compose deployment is retired",
-        ):
-            self.assertIn(marker, deploy)
-        for retired in (
-            "calibre-local-rollback",
-            "compose_deploy_calibre_local_rollback",
-            "rollback-calibre-to-local:",
-        ):
-            self.assertNotIn(retired, stage)
-            self.assertNotIn(retired, review)
-            self.assertNotIn(retired, deploy)
-
-        self.assertFalse((ROOT / "ansible/playbooks/rollback-compose.yml").exists())
-        rollback = self.text(ROOT / "ansible/roles/compose_rollback/tasks/main.yml")
-        self.assertIn("retained only for the exact reviewed Nextcloud five-mount rollback", rollback)
-        self.assertIn("rollback-reviewed-nextcloud-five-mount-migration", rollback)
-        expected = [
-            ("ansible/playbooks/deploy-nextcloud-migration.yml", "role: compose_deploy"),
-            ("ansible/playbooks/rollback-nextcloud-migration.yml", "role: compose_rollback"),
-            ("ansible/playbooks/recover-compose.yml", "role: compose_recovery"),
-            ("ansible/roles/maintenance/tasks/main.yml", "home-lab-safe-image-prune"),
-            ("scripts/compose-artifact.py", '"scripts/compose-image-lock.py"'),
-        ]
-        for relative, marker in expected:
-            self.assertIn(marker, self.text(ROOT / relative), relative)
+            self.assertFalse((ROOT / relative).exists(), relative)
+        site = self.text(ROOT / "ansible/playbooks/site.yml")
+        self.assertIn("hosts: docker-host", site)
+        self.assertIn("name: docker_maintenance", site)
+        self.assertIn("compose_native_authoritative_reconcile: true", site)
+        self.assertIn("tasks_from: retire-legacy", site)
         recovery = " ".join(self.text(ROOT / "recovery/README.md").split())
-        self.assertIn("never point that activator at a Restic staging tree", recovery)
+        self.assertIn("recovery groups", recovery)
         self.assertIn("Git revert", recovery)
 
     def test_safe_prune_no_longer_depends_on_rollback_image_locks(self):
         source = self.text(MAINTENANCE)
-        self.assertIn("docker image prune --all --force --filter until=168h", source)
-        self.assertIn("operation=native-unused-image-prune", source)
+        self.assertIn("docker image prune --all --force --filter until=", source)
+        self.assertIn("operation=docker-image-prune", source)
+        self.assertIn("Persistent=true", source)
+        self.assertIn("RandomizedDelaySec=", source)
         for retired in (
             "compose-image-lock.py", "maintenance_image_lock_bootstrap_confirmed",
             "maintenance_compose_current_image_lock_path", "maintenance_compose_previous_image_lock_path",
@@ -330,11 +313,11 @@ class NativeComposeSourceTests(unittest.TestCase):
         ):
             self.assertNotIn(retired, source)
 
-    def test_generic_rollback_is_git_revert_plus_forward_deployment(self):
+    def test_generic_rollback_is_git_revert_plus_authoritative_site_convergence(self):
         for relative in ("README.md", "docs/operations.md", "docs/decisions.md"):
             source = " ".join(self.text(ROOT / relative).split())
             self.assertIn("Git revert", source, relative)
-            self.assertIn("deploy-compose.yml", source, relative)
+            self.assertIn("site", source, relative)
 
 
 if __name__ == "__main__":

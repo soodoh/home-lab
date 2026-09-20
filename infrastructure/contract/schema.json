@@ -999,7 +999,7 @@
     "nextcloudPolicy": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["web_service", "cron_service", "database_service", "redis_service", "application_network", "image", "image_digest", "managed_state_root", "trusted_proxy", "hsts_max_age", "maintenance_window_start", "php_memory_limit", "default_phone_region", "logging", "secrets", "paths", "writer_stop_order", "expected_compose_service_count", "expected_image_reference_count", "expected_image_lock_service_count", "rollback_window_days", "old_path_cleanup_gate"],
+      "required": ["web_service", "cron_service", "database_service", "redis_service", "application_network", "image", "image_digest", "managed_state_root", "trusted_proxy", "hsts_max_age", "maintenance_window_start", "php_memory_limit", "default_phone_region", "logging", "secrets", "paths", "writer_stop_order", "expected_compose_service_count", "expected_image_reference_count", "rollback_window_days", "old_path_cleanup_gate"],
       "properties": {
         "web_service": { "const": "nextcloud" },
         "cron_service": { "const": "nextcloud-cron" },
@@ -1049,7 +1049,6 @@
         },
         "expected_compose_service_count": { "const": 38 },
         "expected_image_reference_count": { "const": 33 },
-        "expected_image_lock_service_count": { "const": 37 },
         "rollback_window_days": { "const": 7 },
         "old_path_cleanup_gate": { "const": "nextcloud-old-paths-reviewed-after-recovery-proof" }
       }

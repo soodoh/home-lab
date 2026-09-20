@@ -2,22 +2,35 @@
 
 ## What is available now
 
-Supported native scope is observation, manual-update policy, Proxmox repository/
-chrony convergence, guarded existing-host backup configuration (tools, account,
-same-content runtime files and nine unit definitions), and native Compose
-observation. Native Proxmox package maintenance and reboot have source-qualified
-entrypoints but retain separate live cutover gates below.
-[Dated host-configuration outcomes](#latest-host-configuration-deployment) do not
-expand that scope. There is no supported general host-convergence command.
-The native Compose entrypoint is qualified for separately authorized, explicitly
-bounded updates to existing services: unchanged environment/service set/topology,
-exact reviewed artifact paths, requested services and explicit bind-file recreation.
-Stateless/dependent recreation, bind-file publication and a digest-pinned image update
-have completed with zero-change post-observation. This is not permission for service,
-secret, database/filesystem, mount/topology or Restic-policy changes, nor an unattended
-lane. Debian `site.yml` still includes lifecycle, lock and backup prerequisites.
-Directly invoking retained mutation roles is not an approved replacement for the
-removed controller.
+The native Docker host has one authoritative convergence entrypoint:
+
+```sh
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
+  -i ansible/inventory/hosts.yml ansible/playbooks/site.yml --check
+# Review the exact output and obtain separate apply authority, then repeat without --check.
+```
+
+The play derives the clean controller commit, complete tracked Compose service set,
+exact artifact differences and changed bind-file owners. Under one durable production
+owner it converges the adopted Restic runtime, installs weekly image pruning,
+publishes the Compose artifact, reconciles the complete project and removes retired
+Compose recovery state. It releases ownership only after verification and then runs a
+final observation. Operators do not remember or supply service, path, artifact or
+source-SHA arguments for normal convergence.
+
+Tracked digest references are the sole image authority. Ordinary rollback is a Git
+revert plus the same site convergence. The previous-artifact, image-lock, override,
+checkpoint and service-specific recovery model is retired. Disaster restore uses the
+generic recovery groups in [`recovery/groups.json`](../recovery/groups.json); full
+and partial restores share one verified private-staging runner. Generic production
+activation remains unqualified.
+
+The lower-level `deploy-compose.yml`, backup configuration plays and observation
+plays remain bounded diagnostic/exception interfaces; they are not competing normal
+convergence paths. Native Proxmox package maintenance, reboot, provider changes,
+database/storage migration and recovery activation retain separate authority.
+Historical dated outcomes below record what happened and do not reinstate retired
+interfaces.
 
 ## Latest host-configuration deployment
 
@@ -356,91 +369,40 @@ changes described below, but not unrestricted Compose convergence.
 
 ### Native Compose qualification
 
-`ansible/playbooks/observe-compose.yml` is the intended read-only entrypoint for a
-fresh runner. It loads only native inventory variables, not the global contract or
-legacy `docker_host` group variables. It checks the active root-owned artifact and
-environment; installed SOPS/age identities; actual games, state and NFS mounts;
-backup files, writer units, interruption journal and mutex; production/reconciliation
-ownership paths; systemd jobs; declared/running services, digest-pinned images and
-required health; and a `community.docker.docker_compose_v2` dry run against live
-containers. It does not inspect the former image override or any current, previous,
-retained or interrupted image-lock file. Its bounded summary explicitly does not
-claim restore readiness. It consumes no receipt, `.local`, `.reconcile` or prior
-runner result.
+`ansible/playbooks/observe-compose.yml` is the read-only diagnostic entrypoint. It
+checks the active root-owned artifact/environment, protected identities and mounts,
+backup coordination, durable ownership, complete declared/running service set,
+digest-pinned images, required health and a native full-project dry run. It neither
+reads nor preserves retired image locks, overrides or previous artifacts.
 
-`ansible/playbooks/deploy-compose.yml` accepts only an explicit subset of the existing
-service set and requires a same-commit check before each separately authorized normal
-run. It re-runs observation, acquires the durable production owner lock, derives an
-artifact hash directly from tracked checkout bytes, stages only the deterministic
-artifact selection and decrypts SOPS only on the host. Environment changes are
-refused unless separately approved with
-`compose_native_environment_change_confirmed=true`; the resolved model still limits
-the effect to requested services. File-backed secret publication, service-set,
-database migration, mount/topology and Restic-policy changes remain out of scope.
-Every non-requested normalized service plus top-level network/volume/config/secret
-topology must equal active state. Every changed artifact path and impacted service
-must be named explicitly. If an exact changed path is a service bind source, that
-service must also be in the explicit forced-recreation subset.
+Normal mutation uses `ansible/playbooks/site.yml`, not an operator-authored deployment
+manifest. It derives every tracked service and artifact difference, uses
+`policy: missing` only to fetch absent digest-pinned images, and uses `pull: never`
+for previews and convergence. It publishes transaction-local candidate inputs,
+reconciles the complete project with dependencies, forces recreation only for exact
+changed bind-file owners, verifies health and requires a zero-change final preview.
+After success it removes transaction-local before-images and retired recovery state.
 
-The module calls fix `project_name=docker-compose`, disable builds, pull only the
-explicitly requested services with `policy: missing`, and then use `pull: never` for
-full-project preview and convergence. They prohibit orphan and anonymous-volume
-replacement, wait for running/healthy state, and use automatic recreation for
-resolved model changes, including image digests and approved environment values.
-Only unchanged-path content cases such as bind-mounted files use explicit forced
-recreation. A full-project preview may contain only requested-container actions
-before convergence, and the full-project post-preview must be zero-change. The role
-preserves `current`, `previous` and hash-addressed older artifacts/environments for
-relative bind paths, atomic publication and surviving operation-specific recovery
-consumers. It does not create, rotate, activate or verify image locks or deployment
-image checkpoints.
+A failed mutation preserves the durable production owner and only that transaction's
+hash-bound before-images/candidate inputs. Do not clear them. Inspect the exact owner,
+source/artifact/environment identities, running containers, preview, health and
+Restic state, then use a narrow source-bound adoption path if needed. No generic
+resume, previous-artifact or local-image rollback framework exists.
 
-Tracked repository digest references are the sole ordinary image authority. A
-missing old image may be pulled again by exact digest; registry/network availability
-is an accepted dependency. Generic rollback means creating and reviewing a new Git
-revert commit and running the latest reviewed `deploy-compose.yml` automation against
-that commit with the same explicit service/path/recreation, health and final
-zero-change gates. The generic `rollback-compose.yml` previous-artifact entrypoint is
-retired. The Nextcloud migration rollback and database/storage/archive recovery paths
-remain operation-specific and unchanged.
+A fresh runner needs reviewed Ansible Core 2.21.x, the pinned collections from
+`ansible/collections/requirements.yml`, Tailscale connectivity and the trusted
+`docker-host` host key. The production SOPS identity remains host-only. Check mode
+stages nothing and performs no host mutation; it proves the clean source/live
+boundary rather than pretending to preview unpublished protected bytes.
 
-A failed mutation preserves durable production ownership. No image checkpoint is
-created. Do not clear the owner, watchdogs or evidence. After artifact publication or
-partial container convergence, inspect the exact owner, source/artifact/environment
-identities, running containers, native preview, health and Restic state. Prefer
-converging the exact committed desired state with current automation. If adoption is
-required, add a narrow reviewed recovery entrypoint using existing `apply_lock`
-`adopt` semantics and bind it to the exact owner SHA-256, operation, controller and
-source/artifact identities. Release only after bounded convergence, health and a
-zero-change full-project preview; do not create a generic resume framework.
+The lower-level `deploy-compose.yml` remains for a separately reviewed explicit
+subset. Its service/path/recreation arguments are exceptional operator inputs and do
+not change the normal authoritative site contract. See
+[`compose-generation-activation.md`](compose-generation-activation.md).
 
-A fresh runner needs reviewed Ansible Core 2.21.x, the pinned collections installed
-from `ansible/collections/requirements.yml`, Tailscale connectivity and the trusted
-`docker-host` known-host entry. It does not need a SOPS private key. Check mode
-intentionally does not stage protected inputs; it reports the source/active identity
-boundary rather than pretending to preview an unpublished generation. Any future
-check and normal run must use the same explicit clean source commit. No GitHub
-workflow exists until short-lived Tailscale identity, authoritative host-key custody
-and protected-environment approval are decided. The production SOPS identity
-remains host-only.
-
-The caller hands its prepared and validated hash-addressed inputs to the small
-[`compose_native` generation activation interface](compose-generation-activation.md).
-That interface centralizes native full-project preview, requested-service activation,
-health/idempotence checks and current/previous artifact/environment publication. It
-does not select operations, decrypt inputs, migrate data, retain rollback images or
-grant authority. The retained caller/recovery inventory explains the narrower legacy
-migration and archive consumers.
-
-The caller accepts any explicit subset of services that already exists in both
-complete models. It uses native Compose configuration output to validate the service
-set and derive configured container names. All candidate images must be repository
-digest references; the native pull module fetches only missing images for the
-requested services before `pull: never` preview and convergence. A reviewed
-changed-path list and forced-recreation subset remain explicit inputs; no service
-catalogue, impact analyzer or deployment manifest was added. Service set, protected
-per-service topology, top-level networks/volumes/configs/secrets and Restic policy
-inputs remain immutable; environment changes require their separate confirmation.
+The following dated records describe historical qualification and incidents. Their
+old service lists, artifact pointers, image locks and operation-specific consumers
+are no longer current interfaces.
 
 At commit `0b75750d`, a separately authorized read-only observation passed with
 `ok=35 changed=0 failed=0 unreachable=0`: all 38 services were declared and running,
@@ -681,34 +643,24 @@ interface was therefore live-qualified for this exact canary scope at that point
 the later bounded ordinary deployments above supersede that canary-only scope.
 Broader changes still require separate source review and operational authorization.
 
-The general legacy stage/deploy lane is retired: `compose_stage` and its review
-entrypoint now require an explicit allowlisted retained operation, and
-`compose_deploy` refuses every plan that is not its historical Nextcloud migration
-or Restic-policy recovery lane. A September 19 read-only retirement audit reconfirmed
-the applied Nextcloud and Calibre layouts and found the active Calibre library had
-59 more files and 67,416,991 more logical bytes than the retained NFS copy. After the
-verified private-staging restore, the obsolete Calibre staging allowlist entry,
-authorization/resume gates and NFS-to-local checksum/delete tasks were removed. No
-host, live/NFS data, Restic policy, timer or retained staging tree changed during
-source retirement. The coupled Calibre/Caro preserved-data play remains blocked
-pending separate Caro/recovery review. The remaining internals are retained only
-while recovery and acceptance callers are closed individually. The generic rollback
-play is retired; `rollback-nextcloud-migration.yml` still uses `compose_rollback`,
-and archive recovery still uses `compose_recovery`. `compose-artifact.py` remains a
-first-run/retirement dependency. `compose-image-lock.py` is retained only for those
-explicit migration/recovery capture, verify, difference and activation consumers;
-its prune command is removed. `compose-action-plan.py` likewise remains required by
-Nextcloud migration/deployment rollback semantics.
+A September 19 read-only retirement audit reconfirmed the applied Nextcloud and
+Calibre layouts and found the active Calibre library had 59 more files and 67,416,991
+more logical bytes than the retained NFS copy. After the verified private-staging
+restore, the obsolete Calibre staging lane was removed. No host, live/NFS data,
+Restic policy, timer or retained staging tree changed during that source retirement.
+The coupled Calibre/Caro preserved-data play remains blocked pending separate
+Caro/recovery review.
 
-The historical maintenance role has no active playbook caller. Its source prune
-wrapper now delegates directly to `docker image prune --all --filter until=168h`
-under the existing production lock.
-It no longer bootstraps, verifies or protects image-lock generations and does not
-query a registry. A September 19 live read found
-`/usr/local/sbin/home-lab-safe-image-prune`, `/usr/bin/crontab` and matching installed
-systemd/cron/helper references absent, so there was no installed prune consumer to
-change. No host helper, artifact, environment, image-lock file or journal was removed.
-Installing the source wrapper or changing host cleanup remains separately authorized.
+Subsequent source retirement removed all remaining service-specific Compose staging,
+deployment, rollback and archive-recovery consumers plus their action-plan and image-
+lock helpers. The generic Restic recovery-group flow is now the only data-disaster
+interface. The native site also owns a persistent Sunday 04:00 systemd image-prune
+timer using the existing coordination locks; its first installation and old-state
+cleanup require the normal separately authorized site apply.
+
+The pre-change September 19 live audit found no installed prune helper/timer and found
+historical Compose image locks, overrides, artifacts and evidence. That observation
+is the baseline for the pending authoritative cleanup, not current desired state.
 
 At the start of this simplification, ordinary check-mode observation passed
 `ok=35 changed=0 failed=0 unreachable=0`: 38 services were declared and running,
@@ -1190,9 +1142,9 @@ From the repository root, without deployment or secret decryption:
 ```sh
 docker compose config --quiet
 python3 -B scripts/test-compose-artifact.py
-python3 -B scripts/test-compose-action-plan.py
-python3 -B scripts/test-compose-image-lock.py
 python3 -B scripts/test-compose-native.py
+python3 -B scripts/test-recovery-scope.py
+scripts/test-restic-recovery-bundle
 ```
 
 Bare Compose validation requires interpolation inputs already available locally;
@@ -1264,7 +1216,7 @@ resource deletes, but their states, predecessor generations and recovery inputs 
 preserved as historical lineage. Working logging/backup configuration and operational
 safety gates remain unchanged.
 
-## Intended native adoption workflow — not deployment authorization
+## Native operational principles
 
 1. Independently verify current SSH host keys, privileged accounts, console access,
    outstanding operations, mounts, timers and backups. Keep the old access route
@@ -1284,35 +1236,30 @@ safety gates remain unchanged.
    check-mode limitations and the full changed scope. Keep storage, network,
    packages and reboot in separate maintenance windows. A second run should be
    genuinely idempotent, not merely match a normalized log.
-5. Qualify one native Compose role with explicit project identity, protected
-   environment, health waiting, no builds, reviewed pull/recreation policy and no
-   implicit orphan/volume deletion. Bind-file changes require explicit service
-   restart decisions. Database upgrades remain separate migrations.
+5. Use the authoritative native site for Compose with explicit project identity,
+   protected environment, health waiting, no builds, digest-only pulls and no implicit
+   orphan/volume deletion. The site derives bind-file recreation. Database upgrades
+   remain separate migrations.
 
 ## Stable application and host identities
 
-The project name is `docker-compose`. Legacy delivery and recovery select these
-paths explicitly, not the repository checkout or a checkout `.env`:
+The project name is `docker-compose`. Native site convergence owns these stable
+paths:
 
 ```text
 /srv/docker-compose/current
-/srv/docker-compose/previous
-/srv/docker-compose/staging/<artifact-sha256>
 /etc/docker-compose/production.env
-/etc/docker-compose/previous.env
-/etc/docker-compose/staging/<artifact-sha256>.env
-/var/lib/docker-compose/current-images.json
-/var/lib/docker-compose/previous-images.json
-/var/lib/home-lab/production-image-override.json
+/var/lib/docker-compose/current-artifact.sha256
+/var/lib/iac-ansible-production.lock
+/usr/local/libexec/home-lab-docker-image-prune
+/etc/systemd/system/home-lab-docker-image-prune.{service,timer}
 ```
 
-Environment files remain `root:root 0600`. Current/previous artifacts and
-environments remain operation-specific recovery inputs; the ordinary rollback
-interface is a Git revert plus `deploy-compose.yml`. The former override and existing
-current/previous/retained/interrupted image-lock files are preserved host evidence but
-are not ordinary image authority. Unused images may be pruned and repulled by exact
-digest; never prune volumes. Source preparation does not authorize installing or
-running the prune wrapper.
+Environment files remain `root:root 0600`. Staging paths and `.before-<sha256>` files
+are transaction-local and are consumed after verified success or retained with the
+exact failed owner. There is no standing previous generation, image lock or override.
+Unused images are pruned weekly and repulled by exact digest when needed; volumes are
+never pruned. Ordinary rollback is a Git revert plus authoritative site convergence.
 
 VM100's source identity is Debian 13 `docker-host`, LAN `192.168.0.100`, tailnet
 `100.116.163.42`. The deployment account is `ansible-deploy`; `docker` is the

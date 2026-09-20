@@ -9,7 +9,7 @@ another top-level contract field.
 
 | Domain | Owned input | Consumers | Status |
 | --- | --- | --- | --- |
-| Compose source assets | `docker-compose.yml`, `services/*.yml` and the tracked files they reference | Compose artifact tooling and runtime-specific installers | Migrated. The unused `compose_deployment` inventory and schema were deleted rather than replaced; existing narrow installers and audit variables remain the owners of host-consumed files. |
+| Compose source assets | `docker-compose.yml`, `services/*.yml` and the tracked files they reference | Native site convergence and deterministic Compose artifact tooling | Migrated. The unused `compose_deployment` inventory/schema and service-specific installers were deleted; `ansible/playbooks/site.yml` owns ordinary host-consumed state. |
 | Production Proxmox VM | `infrastructure/tofu/proxmox/vm.auto.tfvars.json` plus the typed `proxmox_endpoint` and `proxmox_vm` variables | The Proxmox OpenTofu root | Migrated. The root owns its API endpoint. Resource addresses, disk indexes, VMID, MAC, hardware mappings and cloud-init references are unchanged. |
 | Omada | `infrastructure/tofu/omada/domain.auto.tfvars.json` plus the typed `omada_domain` variable | The Omada OpenTofu root and `scripts/configure-local-provider-credentials` | Migrated. The obsolete global `omada` subtree and schema have been removed. The ignored export remains an explicit `omada_export_path` input. |
 | Tailscale policy | `infrastructure/tofu/tailscale/policy.auto.tfvars.json` plus the typed `tailscale_policy_identity` variable | The Tailscale OpenTofu root | Migrated. The root owns the policy owner and tags. The global contract no longer carries the provider-only owner or an unused endpoint summary. |
@@ -79,21 +79,17 @@ rollback:
   `scripts/test-restic-first-run.py`,
   `scripts/test-restic-repository-initialization.py`,
   `scripts/test-restic-tools.py` and `scripts/prove-aws-recovery-hold`
-- Compose and migration recovery:
-  `stage-compose.yml`, `review-compose-stage.yml`,
-  `verify-active-compose-artifact.yml`, `plan-compose-recovery.yml`,
-  `recover-compose.yml`, `deploy-nextcloud-migration.yml`,
-  `rollback-nextcloud-migration.yml`,
-  `migrate-preserved-backup-data.yml`,
-  `infrastructure/tofu/nextcloud-recovery-qualification/`,
+- Generic recovery and retained data migration:
+  `migrate-preserved-backup-data.yml`, `build-current-restic-recovery-bundles.yml`,
+  `scripts/restore-critical-backup`, `scripts/recovery-scope.py`,
+  `recovery/groups.json`, `infrastructure/tofu/nextcloud-recovery-qualification/`,
   `scripts/controller/test-nextcloud-recovery-foundation.py` and
   `scripts/test-nextcloud-config`
 
-The semantic consumers behind those playbooks include `compose_stage`,
-`compose_deploy`, `compose_recovery`, `compose_rollback`,
-`nextcloud_path_migration`, `nextcloud_configuration`, `restic_backup` and the
-shared Docker-host variables. Their backup scope, project/volume identity, storage
-identity and rollback rules remain unchanged.
+Service-specific Compose staging, deployment, rollback and old archive activation
+consumers are retired. `restic_backup`, the generic bundle/restore tools and the
+shared Docker-host variables retain backup scope and storage identity. Recovery-group
+metadata selects partial staging restores without introducing per-service workflows.
 
 ### Deliberately retained compatibility consumers
 
@@ -109,7 +105,7 @@ reboot or firewall compatibility paths:
 - `ansible/playbooks/plan-controller-audit.yml`
 - `ansible/playbooks/reboot-plan.yml`
 - `ansible/playbooks/reconcile-tailscale-baseline.yml`
-- `ansible/playbooks/site.yml`
+- `ansible/playbooks/legacy-debian-site.yml`
 - `scripts/controller/debian-access-cleanup.py`
 - `scripts/controller/debian-package-activation.py`
 - `scripts/controller/debian-reboot-activation.py`

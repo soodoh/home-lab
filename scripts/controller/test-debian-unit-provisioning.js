@@ -19,7 +19,7 @@ const yaml = (p) => load(read(p));
 const hash = (s) => crypto.createHash("sha256").update(s).digest("hex");
 const contract = yaml("infrastructure/contract/home-lab.yml");
 const schema = JSON.parse(read("infrastructure/contract/schema.json"));
-const site = yaml("ansible/playbooks/site.yml")[0];
+const site = yaml("ansible/playbooks/legacy-debian-site.yml")[0];
 const group = yaml("ansible/group_vars/docker_host.yml");
 const guardTasks = yaml("ansible/roles/debian_lifecycle_guard/tasks/main.yml");
 const prefix = "ansible/roles/debian_lifecycle_transaction/tasks/";

@@ -86,6 +86,8 @@
         - {name: pair_builder, path: "{{ playbook_dir }}/../../scripts/build-current-restic-recovery-bundles"}
         - {name: generic_builder, path: "{{ playbook_dir }}/../../scripts/build-restic-recovery-bundle"}
         - {name: restore_runner, path: "{{ playbook_dir }}/../../scripts/restore-critical-backup"}
+        - {name: scope_resolver, path: "{{ playbook_dir }}/../../scripts/recovery-scope.py"}
+        - {name: scope_config, path: "{{ playbook_dir }}/../../recovery/groups.json"}
         - {name: output_parent, path: "{{ restic_recovery_bundle_output_root | dirname }}"}
         - {name: output_root, path: "{{ restic_recovery_bundle_output_root }}"}
       delegate_to: localhost
@@ -124,6 +126,12 @@
           - by_name.generic_builder.stat.executable | default(false)
           - by_name.restore_runner.stat.isreg | default(false)
           - by_name.restore_runner.stat.executable | default(false)
+          - by_name.scope_resolver.stat.isreg | default(false)
+          - by_name.scope_resolver.stat.executable | default(false)
+          - by_name.scope_config.stat.isreg | default(false)
+          - not (by_name.scope_config.stat.islnk | default(false))
+          - not (by_name.scope_config.stat.wgrp | default(true))
+          - not (by_name.scope_config.stat.woth | default(true))
           - by_name.output_parent.stat.isdir | default(false)
           - not (by_name.output_parent.stat.islnk | default(false))
           - by_name.output_parent.stat.mode == '0700'
@@ -318,6 +326,8 @@
             - {src: "{{ playbook_dir }}/../../scripts/build-current-restic-recovery-bundles", dest: build-current-restic-recovery-bundles, mode: "0755"}
             - {src: "{{ playbook_dir }}/../../scripts/build-restic-recovery-bundle", dest: build-restic-recovery-bundle, mode: "0755"}
             - {src: "{{ playbook_dir }}/../../scripts/restore-critical-backup", dest: restore-critical-backup, mode: "0755"}
+            - {src: "{{ playbook_dir }}/../../scripts/recovery-scope.py", dest: recovery-scope.py, mode: "0755"}
+            - {src: "{{ playbook_dir }}/../../recovery/groups.json", dest: recovery-groups.json, mode: "0644"}
           no_log: true
 
         - name: Build two encrypted bundles under the backup lock and pristine SOPS environment

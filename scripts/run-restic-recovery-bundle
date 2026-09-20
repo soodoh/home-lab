@@ -22,7 +22,9 @@ EXPECTED_MODES = {
     "bin/rclone": 0o755,
     "bin/restic": 0o755,
     "bin/restore-critical-backup": 0o755,
+    "bin/recovery-scope.py": 0o755,
     "metadata.json": 0o600,
+    "recovery/groups.json": 0o600,
     "private/proton-login-password": 0o600,
     "private/proton-username": 0o600,
     "private/restic-password": 0o600,
@@ -64,6 +66,7 @@ def main() -> None:
     parser.add_argument("--expected-policy-sha256", required=True)
     parser.add_argument("--expected-artifact-sha256", required=True)
     parser.add_argument("--target", required=True)
+    parser.add_argument("--recovery-group", action="append", default=[])
     arguments = parser.parse_args()
     for value in (
         arguments.expected_plaintext_sha256, arguments.expected_snapshot_id,
@@ -230,11 +233,29 @@ def main() -> None:
         }
         if obscured_totp is not None:
             environment["RCLONE_CONFIG_PROTON_BACKUP_OTP_SECRET_KEY"] = obscured_totp
+        scope = json.loads(contents["recovery/groups.json"])
+        available_groups = set(scope.get("groups", {}))
+        if arguments.recovery_group:
+            selected_groups = sorted(set(arguments.recovery_group))
+            if len(selected_groups) != len(arguments.recovery_group) or any(
+                group not in available_groups for group in selected_groups
+            ):
+                fail("recovery group selection differs")
+            scope_arguments = [
+                argument
+                for group in selected_groups
+                for argument in ("--recovery-group", group)
+            ]
+        else:
+            selected_groups = sorted(available_groups)
+            scope_arguments = ["--all"]
         blocked_signals = {signal.SIGINT, signal.SIGTERM}
         signal.pthread_sigmask(signal.SIG_BLOCK, blocked_signals)
         try:
             child = subprocess.Popen(
-                [str(workspace / "bin/restore-critical-backup"), "--restic-snapshot-id", metadata["snapshot_id"], "--confirmed-empty-target"],
+                [str(workspace / "bin/restore-critical-backup"),
+                 "--restic-snapshot-id", metadata["snapshot_id"],
+                 "--confirmed-empty-target", *scope_arguments],
                 env=environment,
                 text=True,
                 stdout=subprocess.PIPE,
@@ -244,7 +265,10 @@ def main() -> None:
         finally:
             signal.pthread_sigmask(signal.SIG_UNBLOCK, blocked_signals)
         stdout, stderr = child.communicate()
-        expected_restore_line = f"recovery_restore=verified backend=restic snapshot={metadata['snapshot_id']}\n"
+        expected_restore_line = (
+            f"recovery_restore=verified backend=restic snapshot={metadata['snapshot_id']} "
+            f"groups={','.join(selected_groups)}\n"
+        )
         if child.returncode != 0 or not stdout.endswith(expected_restore_line):
             reasons = {
                 "Pinned Restic version identity failed": "restic-version",

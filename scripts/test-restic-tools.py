@@ -706,9 +706,11 @@ def main() -> None:
     assert "pgrep -x restic" not in restic_role_tasks
     assert "Require no interrupted backup before scheduling convergence" not in restic_role_tasks
 
-    compose_deploy = (ROOT / "ansible/roles/compose_deploy/tasks/main.yml").read_text()
-    compose_rollback = (ROOT / "ansible/roles/compose_rollback/tasks/main.yml").read_text()
-    assert "current-artifact.sha256" in compose_deploy
+    for retired_compose_role in (
+        "compose_deploy", "compose_rollback", "compose_stage",
+        "compose_recovery", "compose_recovery_preflight",
+    ):
+        assert not (ROOT / "ansible/roles" / retired_compose_role).exists()
     retired_offen_tooling = [
         ROOT / "scripts/retire-offen-local",
         ROOT / "scripts/retire-offen-aws-object",
@@ -740,29 +742,10 @@ def main() -> None:
     assert "Require restarted migration owners to become healthy or running" in migration
     assert "preserved_migration_token" in migration and ".home-lab-migration-owner" in migration
     assert all(name in migration for name in ("preserved_migration_findmnt", "preserved_migration_active_findmnt", "preserved_migration_activation_findmnt"))
-    assert "--operation up" in compose_deploy
-    assert "action_services | difference(compose_deploy_plan.recreate_services)" in compose_deploy
-    assert "start_services | difference(compose_deploy_plan.recreate_services)" in compose_deploy
-    assert "stop_services | difference(compose_deploy_plan.recreate_services)" in compose_deploy
-    assert "compose_deploy_post_plan.action_count == 0" in compose_deploy
-    assert "deploy-reviewed-restic-policy:" in compose_deploy
-    assert "services/data/restic/excludes" in compose_deploy
-    assert "services/data/restic/files-from" in compose_deploy
-    for retired_calibre_lane in (
-        "rollback-calibre-to-local:",
-        "Verify the live Calibre rollback boundary",
-        "Reconcile the authoritative NFS Calibre library into retained local storage",
-        "compose_deploy_calibre_local_rollback",
-        "Stop Restic timers during Calibre authority reconciliation",
-        "Install reconciled Restic source policy files",
-        "Restrict Compose deployment resume to the exact interrupted Calibre transaction",
-    ):
-        assert retired_calibre_lane not in compose_deploy
-    assert "compose_deploy_dependency_args" not in compose_deploy
-    assert "current-artifact.sha256" in compose_rollback
-
     restore = (ROOT / "scripts/restore-critical-backup").read_text()
-    assert '"$restic_path" restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify' in restore
+    assert 'restore_arguments=(restore "$restic_snapshot_id" --target "$RECOVERY_TARGET" --verify)' in restore
+    assert '--recovery-group' in restore
+    assert 'restore_arguments+=(--include "$path")' in restore
     assert "restore --delete" not in restore
     assert "RECOVERY_EXPECTED_RESTIC_REPOSITORY_ID" in restore
     assert "RECOVERY_EXPECTED_POLICY_SHA256" in restore

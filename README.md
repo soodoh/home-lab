@@ -4,31 +4,25 @@ OpenTofu for infrastructure, Ansible for hosts, Docker Compose for applications.
 The direction is **adopt the existing server first**, using standard SSH and
 Ansible become—not rebuild the installation around a custom controller.
 
-This checkout is in an **incremental native-tool transition**. The universal
-controller, abandoned Compose admission implementation, reporting platform and
-completed one-shot entrypoints have been removed. The legacy general Compose lane
-refuses execution while its exact migration/recovery consumers remain preserved. A
-manual native Compose entrypoint accepts explicit subsets of the existing service set;
-each production invocation still requires reviewed paths, exact source and separate
-authorization. Tracked repository digests are the sole ordinary image authority;
-native deployment and observation do not consult image-lock or override files.
+The Docker host has one authoritative native Ansible convergence interface:
+[`ansible/playbooks/site.yml`](ansible/playbooks/site.yml). It derives the clean
+tracked source, complete Compose service set, artifact changes and bind-file owners;
+converges adopted backup definitions, Docker image maintenance and Compose; retires
+superseded host state; and performs final observation. Tracked repository digests are
+the sole image authority. No image lock, override, previous-artifact rollback or
+service-specific recovery interface participates.
 
-Supported native scope includes read-only host and Compose observation, manual-update
-policy and existing-host backup configuration. Native Compose completed its canary
-qualification and the attended all-service transfer from the former host image
-override to tracked digest references. Immediate post-cutover observation was
-zero-change. The ordinary bounded path then qualified stateless/dependent recreation,
-tracked bind-file publication and a reviewed digest-pinned image update, each with
-zero-change post-observation. Every future production run still requires exact scope
-review and separate authorization; this is not unrestricted live use. Historical
-interrupted/refused attempts and their consumed authorities remain documented in
+Normal usage is one source-bound check followed by the same site play without
+`--check`; no service/path/hash argument set is required. The lower-level bounded
+Compose play remains for exceptional reviewed subsets. Historical interrupted/refused
+attempts and their consumed authorities remain documented in
 [operations](docs/operations.md).
 
-Ordinary rollback is a Git revert followed by the same bounded
-[`deploy-compose.yml`](ansible/playbooks/deploy-compose.yml) forward deployment from
-the latest reviewed automation. Missing old images are pulled again by exact digest.
-The generic previous-artifact rollback entrypoint is retired; operation-specific
-Nextcloud, database, storage and archive recovery paths remain separate.
+Ordinary rollback is a Git revert followed by authoritative site convergence from the
+latest reviewed automation. Missing old images are pulled again by exact digest.
+Disaster recovery uses one generic Restic flow with declarative recovery groups for
+all or partial private-staging restores. Production restore activation remains
+honestly unqualified; there are no Nextcloud-specific or archive-specific alternatives.
 
 - [Operations](docs/operations.md): local checks, intended native workflow and retained implementation.
 - [Recovery](recovery/README.md): snapshot staging, independent credentials and rollback boundaries.
@@ -39,9 +33,17 @@ Applications remain in [`docker-compose.yml`](docker-compose.yml) and
 [`services/`](services/). Infrastructure roots are under
 [`infrastructure/tofu/`](infrastructure/tofu/); host definitions under
 [`ansible/`](ansible/). Service images, persistent paths, resource identities and
-backup/firewall policy are unchanged by this simplification.
+backup/firewall policy remain explicit source-owned state.
 
-For a local configuration check only:
+For native Docker-host convergence:
+
+```sh
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
+  -i ansible/inventory/hosts.yml ansible/playbooks/site.yml --check
+# Review, then repeat without --check.
+```
+
+For a local Compose configuration check only:
 
 ```sh
 docker compose config --quiet

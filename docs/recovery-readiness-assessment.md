@@ -129,8 +129,8 @@ Success additionally requires:
 
 - an exact base-OS and container-runtime build path independent of VM100 and the
   retired VM9900 source;
-- independent retrieval of the application generation and image lock matching the
-  selected snapshot's artifact identity;
+- independent retrieval of the tracked application generation matching the selected
+  snapshot's artifact identity, with every image bound by repository digest;
 - an explicit mapping from every Restic path class (`replace-tree`,
   `replace-entries`, `preserve`, `regenerate`, `retain`, `external`) into a new
   empty recovery root without weakening the old archive activator's guards;
@@ -251,8 +251,8 @@ plan or destroy evidence merely to obtain a passing result.
 2. Select the isolation platform and fault-domain acceptance criteria.
 3. Define a periodic read-only verification and media-replacement cadence for the
    confirmed USB without recording its physical location in Git.
-4. Define independent custody for the matching source checkpoint, image lock and
-   application generation.
+4. Define independent custody for the matching source checkpoint and application
+   generation; image references remain exact repository digests.
 5. Decide how excluded/external data affects acceptable degraded service.
 6. Define encrypted evidence retention and the target cleanup authority.
 7. Approve a bounded implementation pass for the new target owner and, for Gate 2,

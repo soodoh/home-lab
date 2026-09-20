@@ -1,0 +1,12 @@
+---
+docker_maintenance_prune_helper_path: /usr/local/libexec/home-lab-docker-image-prune
+docker_maintenance_prune_service: home-lab-docker-image-prune.service
+docker_maintenance_prune_timer: home-lab-docker-image-prune.timer
+docker_maintenance_prune_calendar: Sun *-*-* 04:00:00
+docker_maintenance_prune_randomized_delay: 30m
+docker_maintenance_prune_until: 168h
+docker_maintenance_apply_lock_path: /var/lib/iac-ansible-production.lock
+docker_maintenance_backup_lock_path: /run/lock/home-lab-backup.lock
+docker_maintenance_reconciliation_locks:
+  - /var/lib/home-lab/reconciliation/apply.lock
+  - /var/lib/home-lab/reconciliation/operation.lock

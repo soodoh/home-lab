@@ -16,7 +16,7 @@ const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
 const yaml = (p) => load(read(p));
 const contract = yaml("infrastructure/contract/home-lab.yml");
 const group = yaml("ansible/group_vars/docker_host.yml");
-const site = yaml("ansible/playbooks/site.yml")[0];
+const site = yaml("ansible/playbooks/legacy-debian-site.yml")[0];
 const sharedRoles = ["sops_age", "restic_backup"];
 const roles = [...sharedRoles, "tailscale"];
 const mains = Object.fromEntries(roles.map((r) => [r, yaml(`ansible/roles/${r}/tasks/main.yml`)]));

@@ -1,76 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_root=$(cd "$(dirname "$0")/.." && pwd -P)
-work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
-
-WORK="$work" REPO_ROOT="$repo_root" python3 - <<'PY'
-import contextlib
-import importlib.util
-import io
-import os
-from pathlib import Path
-import sys
-
-repo = Path(os.environ["REPO_ROOT"])
-root = Path(os.environ["WORK"], "plan-fixture")
-recovery_root = root / "recovery"
-target = recovery_root / "target"
-backup = target / "backup"
-staged = root / "staged"
-for required in ("vaultwarden-data", "omada-data", "hass-data", "nextcloud-config", "nextcloud-custom-apps", "nextcloud-themes", "wolf/cfg", ".ssh"):
-    (backup / required).mkdir(parents=True, exist_ok=True)
-(backup / ".env").write_text("fixture")
-staged.mkdir(parents=True)
-(staged / ".env").write_text("fixture")
-
-spec = importlib.util.spec_from_file_location("compose_recovery_plan", repo / "scripts/compose-recovery-plan.py")
-module = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-spec.loader.exec_module(module)
-module.RECOVERY_ROOT = recovery_root.resolve()
-module.run = lambda arguments: '{"services":{}}' if "config" in arguments else ""
-
-common = [
-    "compose-recovery-plan.py",
-    "--artifact-hash", "a" * 64,
-    "--backup-id-sha256", "b" * 64,
-    "--backup-sha256", "c" * 64,
-    "--target", str(target),
-    "--current-dir", str(root / "current"),
-    "--runtime-env", str(root / "runtime.env"),
-    "--staged-dir", str(staged),
-    "--staged-env", str(staged / ".env"),
-    "--project", "recovery-fixture",
-]
-
-def derive(source: str, version: str = "") -> str:
-    sys.argv = common + ["--backup-source", source]
-    if version:
-        sys.argv += ["--backup-version-id-sha256", version]
-    output = io.StringIO()
-    with contextlib.redirect_stdout(output):
-        module.main()
-    return output.getvalue().strip()
-
-local_plan = derive("local")
-remote_plan = derive("remote", "d" * 64)
-assert local_plan.startswith("compose_recovery_plan_sha256=")
-assert remote_plan.startswith("compose_recovery_plan_sha256=")
-assert local_plan != remote_plan
-
-sys.argv = common + ["--backup-source", "local", "--backup-version-id-sha256", "d" * 64]
-with contextlib.redirect_stderr(io.StringIO()):
-    try:
-        module.main()
-    except SystemExit:
-        pass
-    else:
-        raise SystemExit("local recovery plan unexpectedly accepted a remote version")
-PY
-
-# Shared recovery surfaces remain executable after Offen-only retirement.
-python3 -m py_compile "$repo_root/scripts/compose-recovery-plan.py" "$repo_root/scripts/compose-action-plan.py" "$repo_root/scripts/compose-model-inventory.py"
+# Generic recovery surfaces remain executable after service-specific retirement.
+python3 -m py_compile "$repo_root/scripts/recovery-scope.py" "$repo_root/scripts/compose-model-inventory.py"
+python3 -B "$repo_root/scripts/test-recovery-scope.py"
 python3 -B "$repo_root/scripts/controller/test-aws-recovery-bundle-access.py"
 python3 -B "$repo_root/scripts/controller/test-current-restic-recovery-bundles.py"
 python3 -B "$repo_root/scripts/controller/test-current-restic-recovery-controller.py"

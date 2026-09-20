@@ -2,16 +2,22 @@
 
 ## Honest capability boundary
 
-The retained Restic path restores an **exact snapshot into private staging** with
-native `restic restore --verify`. It is not a qualified fresh-server rebuild or
-production activation procedure. `compose_recovery`/`activate-recovered-data.py`
-still expect the older `backup/` archive layout; **never point that activator at a
-Restic staging tree** or relax its guards. The contract advertises staging only.
-The old generic controller is removed, not an alternative recovery path.
+The generic Restic path restores an **exact snapshot into private staging** with
+native `restic restore --verify`. It is not yet a qualified fresh-server rebuild or
+production activation procedure. It is the only supported Compose-data disaster
+recovery flow: the older archive activator and service-specific migration recovery
+paths are retired rather than retained as competing interfaces.
 
-Keep independent recovery access, protected state, credentials, current/previous
-application generations and all retained operation journals. A failed or ambiguous
-operation requires inspection and a specific recovery decision, not lock deletion.
+`recovery/groups.json` declares recovery groups as data. `restore-critical-backup`
+accepts either `--all` or one or more `--recovery-group NAME` arguments. A partial
+restore includes the selected groups' exact Restic paths plus common protected
+Compose environment input; it does not imply production activation. The encrypted
+bundle consumer accepts the same repeated group option and defaults to all groups.
+
+Keep independent recovery access, protected state, credentials, the matching tracked
+application generation and all retained operation journals. Preserve transaction-local
+before-images while an owner is retained. A failed or ambiguous operation requires
+inspection and a specific recovery decision, not lock deletion.
 The [custody decision](../docs/decisions.md#custody-is-separate-from-receipt-cleanup)
 separates remote provider state, independently held key material and actual bundle
 retrieval. The operator-confirmed offsite USB closes age-key location custody, but
@@ -23,26 +29,24 @@ artifacts or committed success receipts. Re-observe current host state and prese
 durable ownership, journals, before-images and independently available protected
 recovery state so runner loss is recoverable. The current
 [native generation activation](../docs/compose-generation-activation.md) keeps
-artifact/environment publication, coordination, Compose health and final zero-change
-checks, but no longer creates or consumes deployment image checkpoints.
+transaction-local artifact/environment publication, coordination, Compose health and
+final zero-change checks, but no longer creates or consumes deployment image
+checkpoints.
 
-Ordinary Compose rollback is a Git revert plus the same bounded
-`ansible/playbooks/deploy-compose.yml` forward deployment from the latest reviewed
-automation. Missing old images are pulled by their tracked exact digest; registry and
-network availability are accepted dependencies. Do not activate an old automation
-checkout or local image ID as a generic rollback transaction. The generic
-`rollback-compose.yml` entrypoint is retired.
+Ordinary Compose rollback is a Git revert plus authoritative
+`ansible/playbooks/site.yml` convergence from the latest reviewed automation. Missing
+old images are pulled by their tracked exact digest; registry and network availability
+are accepted dependencies. Do not activate an old automation checkout or local image
+ID as a generic rollback transaction.
 
-This does not retire operation-specific recovery. General legacy deployment remains
-refused, while `rollback-nextcloud-migration.yml`, archive `compose_recovery`, database
-and storage semantics retain their exact previous artifact/environment and image-lock
-inputs until separately reviewed. `compose-action-plan.py` and
-`compose-image-lock.py` remain only for those explicit consumers. Existing host image
-locks, the former override, old artifacts and historical checkpoints are evidence;
-source simplification does not authorize deleting them. The historical September 19
-canary checkpoint and owner were consumed only after its separately authorized exact
-forward recovery proved full-project idempotence and health. This history does not
-establish independent custody or make a healthy service a restore test. See the
+Service-specific Nextcloud migration rollback, older archive activation, Compose
+image locks/action plans and previous-artifact activation are retired. Ordinary
+configuration rollback remains a Git revert plus authoritative native site
+convergence. Disaster recovery remains the generic Restic staging flow above;
+database ordering and production activation must be implemented generically from
+recovery-group metadata before they can be claimed as qualified. Historical
+September 19 recovery results do not establish independent custody or make a healthy
+service a restore test. See the
 [disposable-controller decision](../docs/decisions.md#disposable-controllers-and-live-validation).
 
 ## Select and restore to staging
@@ -70,7 +74,12 @@ This procedure requires separate operational approval; it is not a source check.
    [`restore-critical-backup`](../scripts/restore-critical-backup), then run:
 
    ```sh
-   scripts/restore-critical-backup --restic-snapshot-id <64-hex-id> --confirmed-empty-target
+   scripts/restore-critical-backup --restic-snapshot-id <64-hex-id> \
+     --confirmed-empty-target --all
+
+   # Or restore one or more declared groups:
+   scripts/restore-critical-backup --restic-snapshot-id <64-hex-id> \
+     --confirmed-empty-target --recovery-group nextcloud
    ```
 
    `RECOVERY_TARGET`, `RECOVERY_RESTIC_REPOSITORY`, password-file path, expected

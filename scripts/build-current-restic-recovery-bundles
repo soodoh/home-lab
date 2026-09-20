@@ -137,8 +137,14 @@ def main() -> None:
     source_root = Path(__file__).resolve().parent
     generic = source_root / "build-restic-recovery-bundle"
     runner = source_root / "restore-critical-backup"
+    scope_resolver = source_root / "recovery-scope.py"
+    scope_config = source_root.parent / "recovery/groups.json"
+    if not scope_config.exists():
+        scope_config = source_root / "recovery-groups.json"
     protected(generic, executable=True)
     protected(runner, executable=True)
+    protected(scope_resolver, executable=True)
+    protected(scope_config)
     restic = binary("HOME_LAB_RESTIC_BINARY", "restic")
     rclone = binary("HOME_LAB_RCLONE_BINARY", "rclone")
     age = binary("HOME_LAB_AGE_BINARY", "age")
@@ -164,7 +170,9 @@ def main() -> None:
     }
     common = [
         str(generic), "--metadata", str(metadata_path), "--restic", str(restic),
-        "--rclone", str(rclone), "--restore-runner", str(runner), "--age", str(age),
+        "--rclone", str(rclone), "--restore-runner", str(runner),
+        "--scope-resolver", str(scope_resolver), "--scope-config", str(scope_config),
+        "--age", str(age),
         "--age-sha256", age_sha256, "--recipient", RECIPIENT,
     ]
     results = []

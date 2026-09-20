@@ -9,14 +9,16 @@
 
 ## Current boundary
 
-This is an OpenTofu/Ansible/Compose repository in an incremental native-tool transition.
-Read [operations](docs/operations.md) for supported observation, manual-update and
-backup-configuration scope and dated outcomes before invoking any playbook.
-Backup adoption requires existing identities, tool-policy equality and same-content
-runtime files; it leaves enabled/active states untouched. Broader adoption is
-pending; there is no general deploy command.
-Surviving legacy playbooks may mutate hosts even under check mode; inspect them
-before invocation. Source deletion does not retire installed helpers or timers.
+This OpenTofu/Ansible/Compose repository uses native tools. Read
+[operations](docs/operations.md) before host, provider, deployment or recovery work.
+`ansible/playbooks/site.yml` is the sole normal Docker-host convergence entrypoint; run
+its source-bound check first and obtain separate authority before applying. It owns
+adopted Restic definitions, Docker image maintenance, the complete Compose generation
+and retirement of obsolete Compose recovery state. Provider, package/reboot,
+database/storage migration and recovery activation remain separate operations.
+The retained `legacy-debian-site.yml` serves lifecycle provisioning only and owns no
+Compose deployment. Source deletion does not retire installed helpers or timers;
+authorized site convergence performs the declared cleanup.
 
 Preserve service images, project/volume names, storage identities, HCL addresses,
 imports, firewall behavior and backup scope unless that change is explicitly approved.
@@ -33,7 +35,9 @@ recovery bundles intact. Never clear locks or disable watchdogs to pass a check.
 
 Use two-space YAML indentation and existing domain groupings. Keep executable helper
 modes. Prefer native tool definitions and narrow runtime helpers over new launchers,
-transaction manifests or receipt frameworks. CLAUDE.md remains an alias here.
+transaction manifests or receipt frameworks. Treat `recovery/groups.json` as the
+single full/partial data-recovery scope; add no service-specific recovery lane.
+CLAUDE.md remains an alias here.
 
 ## Verify and report
 

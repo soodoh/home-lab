@@ -1,0 +1,162 @@
+---
+- name: Validate native Docker image-prune policy
+  ansible.builtin.assert:
+    that:
+      - docker_maintenance_prune_helper_path == '/usr/local/libexec/home-lab-docker-image-prune'
+      - docker_maintenance_prune_service == 'home-lab-docker-image-prune.service'
+      - docker_maintenance_prune_timer == 'home-lab-docker-image-prune.timer'
+      - docker_maintenance_prune_until is match('^[0-9]+h$')
+      - docker_maintenance_reconciliation_locks | length > 0
+      - >-
+        docker_maintenance_reconciliation_locks | unique | length ==
+        docker_maintenance_reconciliation_locks | length
+    fail_msg: Native Docker maintenance policy is incomplete or unsafe.
+
+- name: Install coordinated native Docker image-prune helper
+  ansible.builtin.copy:
+    dest: "{{ docker_maintenance_prune_helper_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      umask 077
+
+      apply_lock={{ docker_maintenance_apply_lock_path | quote }}
+      backup_lock={{ docker_maintenance_backup_lock_path | quote }}
+      success=false
+      owned=false
+      staging=
+      owner_sha256=
+
+      cleanup() {
+        status=$?
+        trap - EXIT HUP INT TERM
+        if [[ -n $staging && -d $staging ]]; then
+          /usr/bin/rm --force -- "$staging/owner"
+          /usr/bin/rmdir -- "$staging"
+        fi
+        if [[ $owned == true && $success == true ]]; then
+          owner="$apply_lock/owner"
+          [[ $(/usr/bin/stat --format='%U:%G:%a:%F' -- "$apply_lock") == 'root:root:700:directory' ]]
+          [[ $(/usr/bin/stat --format='%U:%G:%a:%h:%F' -- "$owner") == 'root:root:600:1:regular file' ]]
+          [[ $(/usr/bin/sha256sum "$owner" | /usr/bin/cut --delimiter=' ' --fields=1) == "$owner_sha256" ]]
+          tombstone="${apply_lock}.released.$$"
+          [[ ! -e $tombstone ]]
+          /usr/bin/mv --no-target-directory -- "$apply_lock" "$tombstone"
+          /usr/bin/rm -- "$tombstone/owner"
+          /usr/bin/rmdir -- "$tombstone"
+        elif [[ $owned == true ]]; then
+          /usr/bin/printf '%s\n' 'Docker image prune failed; production ownership retained.' >&2
+        fi
+        exit "$status"
+      }
+      trap cleanup EXIT HUP INT TERM
+
+      exec 9< "$backup_lock"
+      /usr/bin/flock --exclusive --nonblock 9
+      {% for path in docker_maintenance_reconciliation_locks %}
+      [[ ! -e {{ path | quote }} && ! -L {{ path | quote }} ]]
+      {% endfor %}
+
+      staging=$(/usr/bin/mktemp --directory "${apply_lock}.acquiring.XXXXXXXXXX")
+      /usr/bin/printf 'controller=systemd\noperation=docker-image-prune\nstarted=%s\n' \
+        "$(/usr/bin/date --utc +%Y-%m-%dT%H:%M:%SZ)" >"$staging/owner"
+      /usr/bin/chown root:root "$staging" "$staging/owner"
+      /usr/bin/chmod 0700 "$staging"
+      /usr/bin/chmod 0600 "$staging/owner"
+      owner_sha256=$(/usr/bin/sha256sum "$staging/owner" | /usr/bin/cut --delimiter=' ' --fields=1)
+      /usr/bin/mv --no-target-directory -- "$staging" "$apply_lock"
+      staging=
+      owned=true
+
+      /usr/bin/docker image prune --all --force --filter until={{ docker_maintenance_prune_until | quote }}
+      success=true
+  become: true
+
+- name: Install native Docker image-prune service
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ docker_maintenance_prune_service }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Prune unused Home Lab Docker images
+      After=docker.service
+      Requires=docker.service
+
+      [Service]
+      Type=oneshot
+      ExecStart={{ docker_maintenance_prune_helper_path }}
+      UMask=0077
+      NoNewPrivileges=true
+      PrivateTmp=true
+  become: true
+  register: docker_maintenance_prune_service_definition
+
+- name: Install native weekly Docker image-prune timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ docker_maintenance_prune_timer }}"
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Schedule weekly Home Lab Docker image pruning
+
+      [Timer]
+      OnCalendar={{ docker_maintenance_prune_calendar }}
+      RandomizedDelaySec={{ docker_maintenance_prune_randomized_delay }}
+      Persistent=true
+      Unit={{ docker_maintenance_prune_service }}
+
+      [Install]
+      WantedBy=timers.target
+  become: true
+  register: docker_maintenance_prune_timer_definition
+
+- name: Inspect native Docker image-prune timer state
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/systemctl
+      - show
+      - --property=LoadState
+      - --property=ActiveState
+      - --property=UnitFileState
+      - "{{ docker_maintenance_prune_timer }}"
+  become: true
+  register: docker_maintenance_prune_timer_state
+  changed_when: false
+  check_mode: false
+
+- name: Report native Docker image-prune activation drift in check mode
+  ansible.builtin.debug:
+    msg: The native Docker image-prune timer will be reloaded, enabled, and started.
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - >-
+      docker_maintenance_prune_service_definition.changed or
+      docker_maintenance_prune_timer_definition.changed or
+      docker_maintenance_prune_timer_state.stdout_lines | sort !=
+      ['ActiveState=active', 'LoadState=loaded', 'UnitFileState=enabled']
+
+- name: Reload systemd after native Docker maintenance definition changes
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  become: true
+  when:
+    - not ansible_check_mode
+    - >-
+      docker_maintenance_prune_service_definition.changed or
+      docker_maintenance_prune_timer_definition.changed
+
+- name: Enable and start the native Docker image-prune timer
+  ansible.builtin.systemd_service:
+    name: "{{ docker_maintenance_prune_timer }}"
+    enabled: true
+    state: started
+  become: true
+  when: not ansible_check_mode

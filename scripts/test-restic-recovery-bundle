@@ -16,12 +16,12 @@ done
 cat >"$work/restore-critical-backup" <<'SH'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ $1 == --restic-snapshot-id && $3 == --confirmed-empty-target ]]
+[[ $1 == --restic-snapshot-id && $3 == --confirmed-empty-target && $4 == --all ]]
 [[ $RECOVERY_RESTIC_REPOSITORY == rclone:proton_backup:Backups/home-lab-restic ]]
 if [[ $RECOVERY_TARGET == *interrupt* ]]; then sleep 60; fi
 mkdir -p "$RECOVERY_TARGET/srv/home-lab-state"
 printf verified >"$RECOVERY_TARGET/srv/home-lab-state/fixture"
-printf 'recovery_restore=verified backend=restic snapshot=%s\n' "$2"
+printf 'recovery_restore=verified backend=restic snapshot=%s groups=applications,books,gaming,home-automation,identity,infrastructure,media,nextcloud\n' "$2"
 SH
 chmod 0755 "$work/restore-critical-backup"
 cat >"$work/age" <<'SH'
@@ -50,11 +50,15 @@ common=(
   RECOVERY_BUNDLE_PROTON_USERNAME=fixture-user
   RECOVERY_BUNDLE_PROTON_LOGIN_PASSWORD=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmn1234567890
 )
+scope_args=(
+  --scope-resolver "$repo_root/scripts/recovery-scope.py"
+  --scope-config "$repo_root/recovery/groups.json"
+)
 build() {
   local recipient=$1 output=$2
   env "${common[@]}" "$repo_root/scripts/build-restic-recovery-bundle" \
     --metadata "$work/metadata.json" --restic "$work/restic" --rclone "$work/rclone" \
-    --restore-runner "$work/restore-critical-backup" --age "$work/age" --age-sha256 "$age_sha" \
+    --restore-runner "$work/restore-critical-backup" "${scope_args[@]}" --age "$work/age" --age-sha256 "$age_sha" \
     --recipient "$recipient" --output "$output"
 }
 result_a=$(build "$recipient_a" "$work/out/a.age")
@@ -119,7 +123,7 @@ totp_secret=JBSWY3DPEHPK3PXP
 env "${common[@]}" RECOVERY_BUNDLE_PROTON_TOTP_SECRET="$totp_secret" \
   "$repo_root/scripts/build-restic-recovery-bundle" \
   --metadata "$work/metadata.json" --restic "$work/restic" --rclone "$work/rclone" \
-  --restore-runner "$work/restore-critical-backup" --age "$work/age" --age-sha256 "$age_sha" \
+  --restore-runner "$work/restore-critical-backup" "${scope_args[@]}" --age "$work/age" --age-sha256 "$age_sha" \
   --recipient "$recipient_a" --output "$work/out/totp.age" >/dev/null
 tail -n +2 "$work/out/totp.age" >"$work/totp-plaintext.tar"
 TOTP_TAR="$work/totp-plaintext.tar" TOTP_SECRET="$totp_secret" python3 - <<'PY'
@@ -194,7 +198,7 @@ fi
 if env "${common[@]}" RECOVERY_BUNDLE_PROTON_MAILBOX_PASSWORD=forbidden \
   "$repo_root/scripts/build-restic-recovery-bundle" --metadata "$work/metadata.json" \
   --restic "$work/restic" --rclone "$work/rclone" --restore-runner "$work/restore-critical-backup" \
-  --age "$work/age" --age-sha256 "$age_sha" --recipient "$recipient_a" --output "$work/out/forbidden.age" >/dev/null 2>&1; then
+  "${scope_args[@]}" --age "$work/age" --age-sha256 "$age_sha" --recipient "$recipient_a" --output "$work/out/forbidden.age" >/dev/null 2>&1; then
   echo 'forbidden recovery bundle field unexpectedly passed' >&2
   exit 1
 fi
@@ -202,7 +206,7 @@ fi
 
 if env "${common[@]}" FAIL_AGE=true "$repo_root/scripts/build-restic-recovery-bundle" \
   --metadata "$work/metadata.json" --restic "$work/restic" --rclone "$work/rclone" \
-  --restore-runner "$work/restore-critical-backup" --age "$work/age" --age-sha256 "$age_sha" \
+  --restore-runner "$work/restore-critical-backup" "${scope_args[@]}" --age "$work/age" --age-sha256 "$age_sha" \
   --recipient "$recipient_a" --output "$work/out/failed.age" >/dev/null 2>&1; then
   echo 'failed age encryption unexpectedly passed' >&2
   exit 1
