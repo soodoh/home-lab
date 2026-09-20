@@ -50,8 +50,19 @@
           {{ ansible_python_interpreter }} {{ compose_native_current_dir | quote }}/scripts/compose-artifact.py \
             --root {{ compose_native_current_dir | quote }} --no-git hash
         )" = "{{ authentik_recovery_active_artifact }}"
-        test ! -e {{ compose_native_staging_root | quote }}/{{ authentik_recovery_candidate_artifact }}
-        test ! -e {{ compose_native_staged_env_root | quote }}/{{ authentik_recovery_candidate_artifact }}.env
+        candidate={{ compose_native_staging_root | quote }}/{{ authentik_recovery_candidate_artifact }}
+        candidate_env={{ compose_native_staged_env_root | quote }}/{{ authentik_recovery_candidate_artifact }}.env
+        if test -e "$candidate"; then
+          test "$(
+            {{ ansible_python_interpreter }} "$candidate/scripts/compose-artifact.py" \
+              --root "$candidate" --no-git hash
+          )" = "{{ authentik_recovery_candidate_artifact }}"
+        else
+          test ! -e "$candidate_env"
+        fi
+        if test -e "$candidate_env"; then
+          cmp --silent -- "$candidate_env" {{ compose_native_runtime_env_path | quote }}
+        fi
         test ! -e {{ compose_native_current_dir | quote }}.before-{{ authentik_recovery_candidate_artifact }}
         test ! -e {{ compose_native_runtime_env_path | quote }}.before-{{ authentik_recovery_candidate_artifact }}
         test ! -e {{ compose_native_backup_journal_path | quote }}
@@ -71,6 +82,17 @@
       args:
         executable: /bin/bash
       become: true
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: List the active declared services without rendering configuration
+      ansible.builtin.command:
+        argv: "{{ compose_native_runtime_cli + ['config', '--services'] }}"
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      register: compose_native_declared_services
       changed_when: false
       check_mode: false
       no_log: true
