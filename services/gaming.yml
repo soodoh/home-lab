@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   wolf:
-    image: ghcr.io/games-on-whales/wolf:stable@sha256:ff82c125c9b79b2e9443de2b0eaec40c904edb03291680d408cccd57c1d59c76
+    image: ghcr.io/games-on-whales/wolf:stable@sha256:edb348d7440e5716081830c241e536a17ea8c5b9f5a6275dfda6c775b9a2204f
     container_name: wolf
     restart: unless-stopped
     logging: *default-logging
