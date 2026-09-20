@@ -456,8 +456,12 @@ mode does not require confirmation; a normal run requires
 and separate attended maintenance authorization. The first source-bound check refused
 safely because a raw preview count changed from 76 to 75 between observations even
 though the complete project remained healthy, drift-free and image-neutral. Raw action
-count is therefore diagnostic rather than authority; the corrected model/action
-invariants have not yet been rerun. The cutover has **not** been run or check-qualified.
+count is therefore diagnostic rather than authority. The corrected model/action
+invariants passed on the next check, which then refused the unit because the recorded
+before-image used current contract dependency ordering rather than the installed
+historical ordering. A private read-only unit capture proved ordering was the only
+byte difference; the corrected reviewed before-image now matches its SHA-256 exactly
+and awaits another check. The cutover has **not** been run or check-qualified.
 Its expected broad container recreation is a deliberate one-time
 image-authority transfer, not general deployment authority. The retained override,
 current/previous image locks and rollback artifacts are not deleted.

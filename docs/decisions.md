@@ -109,8 +109,11 @@ exact pre-unit identity, host-local unit backup, durable production owner, sourc
 effective models equal except for image references, preview actions confined to
 existing containers, and the existing generation seam. The first source-bound check
 refused safely when the raw preview count varied from 76 to 75; count is no longer an
-authority input. It has not been run. The override and image locks remain recovery
-evidence after authority transfers to tracked digest references.
+authority input. The semantic guards passed on the next check, which then refused an
+incorrectly ordered unit before-image. Read-only capture proved ordering was its only
+byte difference and the source before-image now matches the installed SHA-256. It has
+not been run. The override and image locks remain recovery evidence after authority
+transfers to tracked digest references.
 
 ## Why legacy code remains
 

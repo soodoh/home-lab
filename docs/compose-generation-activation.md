@@ -113,8 +113,11 @@ with a host-local before-image, then reuses the same generation seam with the ov
 disabled. It retains the override and all image locks as rollback evidence. No normal
 run has occurred. The first source-bound check refused when a raw preview count
 changed from 76 to 75; source now gates semantic model/action boundaries instead of
-that unstable diagnostic count, and the corrected check remains pending. The all-
-service recreation and systemd ownership transfer require a separately authorized
+that unstable diagnostic count. Those guards passed on the next check, which then
+refused because the recorded pre-cutover unit dependency order differed from the
+installed historical order. A private read-only capture proved that was the only byte
+difference; the corrected before-image matches its SHA-256 and awaits another check.
+The all-service recreation and systemd ownership transfer require a separately authorized
 attended maintenance window.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,

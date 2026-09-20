@@ -1,7 +1,7 @@
 [Unit]
 Description=Home lab production Compose stack
-Requires=docker.service home-lab-production-guard.service mnt-games.mount mnt-storage.mount srv-home\x2dlab\x2dstate.mount
-After=docker.service home-lab-production-guard.service mnt-games.mount mnt-storage.mount srv-home\x2dlab\x2dstate.mount network-online.target
+Requires=home-lab-production-guard.service docker.service srv-home\x2dlab\x2dstate.mount mnt-games.mount mnt-storage.mount
+After=home-lab-production-guard.service docker.service srv-home\x2dlab\x2dstate.mount mnt-games.mount mnt-storage.mount network-online.target
 Wants=network-online.target
 
 [Service]
