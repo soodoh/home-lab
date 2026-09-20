@@ -273,7 +273,7 @@ services:
           create_host_path: false
 
   unpackerr:
-    image: golift/unpackerr:0.15.2@sha256:057e34740d26c34d81ec8e2faf8ec11f8dbfc77489b7a42826f52b37e5ee1b6c
+    image: golift/unpackerr:0.16.1@sha256:244fc45cb207308f60e8f52dd703c2b3463385752de0f9517c58ff9d331ed15e
     container_name: unpackerr
     restart: unless-stopped
     logging: *default-logging
