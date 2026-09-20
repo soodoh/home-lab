@@ -72,8 +72,9 @@ Runtime policy, backup scope and retained-journal reconciliation remain legacy
 responsibilities: tool upgrades and content rollout need coordinated policy/journal
 review, not independent pin bumps or receipt regeneration.
 
-[Operations](operations.md#latest-scoped-deployment) is canonical for dated outcomes
-and supported scope, including [unit-state exclusions](operations.md#backup-unit-definitions),
+[Operations](operations.md#latest-host-configuration-deployment) is canonical for
+dated outcomes and supported scope, including
+[unit-state exclusions](operations.md#backup-unit-definitions),
 [existing-account refusal](operations.md#confined-backup-account) and
 [same-content metadata limits](operations.md#same-content-backup-runtime-files).
 These adoptions confer no general host convergence, upgrade, restart, reboot,
@@ -84,19 +85,23 @@ artifacts. Native maintenance variables also replace selected Nix data reads in
 current source, but that activator change is not deployed and the wider legacy
 audit/maintenance/recovery consumers remain.
 
-The [native Compose workflow](operations.md#native-compose-qualification) uses
-fresh tracked source plus actual remote state and limits mutation to an explicit
-`flaresolverr` canary. Host-side SOPS decryption, same-content environment refusal,
-production ownership, current/previous generations and image locks remain the
-safety boundary. It creates no approval receipt and consumes no previous runner
-result. After exact forward recovery closed the interrupted publication, commit
+Historically, the first
+[native Compose workflow](operations.md#native-compose-qualification) slice used
+fresh tracked source plus actual remote state and limited mutation to an explicit
+`flaresolverr` canary. That canary-only service scope is superseded by the
+bounded ordinary lane described below; its host-side SOPS decryption, same-content
+environment refusal, production ownership, current/previous generations and image
+locks remain the safety boundary. It creates no approval receipt and consumes no
+previous runner result. After exact forward recovery closed the interrupted publication, commit
 `b93919a3` passed the repaired reusable role's corrected same-commit check, separately
 authorized normal canary activation and zero-change post-observation. Only
 `flaresolverr` was recreated; the exact Compose 2.26 replacement pair was settled
 through dependency-aware automatic convergence, and no database, Restic policy,
-secret or artifact generation changed. This qualifies the exact canary mechanism,
-not a general deployment lane or other service scope. It is sufficient to refuse the
-legacy **general** deployment lane, but not to remove operation-specific
+secret or artifact generation changed. At that point this qualified the exact
+canary mechanism, not a general deployment lane or other service scope. The later
+ordinary-lane qualification supersedes that service-scope limit without authorizing
+unrestricted convergence. The canary result was sufficient to refuse the legacy
+**general** deployment lane, but not to remove operation-specific
 migration/recovery code or the installed image-pruning helper.
 
 Tracked repository digests are the native runtime image authority. A September 19

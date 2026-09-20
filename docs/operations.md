@@ -6,8 +6,9 @@ Supported native scope is observation, manual-update policy, Proxmox repository/
 chrony convergence, guarded existing-host backup configuration (tools, account,
 same-content runtime files and nine unit definitions), and native Compose
 observation. Native Proxmox package maintenance and reboot have source-qualified
-entrypoints but retain separate live cutover gates below. [Dated outcomes](#latest-scoped-deployment)
-do not expand that scope. There is no supported general host-convergence command.
+entrypoints but retain separate live cutover gates below.
+[Dated host-configuration outcomes](#latest-host-configuration-deployment) do not
+expand that scope. There is no supported general host-convergence command.
 The native Compose entrypoint is qualified for separately authorized, explicitly
 bounded updates to existing services: unchanged environment/service set/topology,
 exact reviewed artifact paths, requested services and explicit bind-file recreation.
@@ -18,11 +19,12 @@ lane. Debian `site.yml` still includes lifecycle, lock and backup prerequisites.
 Directly invoking retained mutation roles is not an approved replacement for the
 removed controller.
 
-## Latest scoped deployment
+## Latest host-configuration deployment
 
-On September 15, 2026 (PDT), commit `154659cf` was pushed to `main` and deployed
-through native Ansible. `update-policy.yml` ran on both hosts and
-`configure-backups.yml` ran on `docker-host`, after fresh zero-change previews.
+For the host-configuration lane, the latest deployment was on September 15, 2026
+(PDT): commit `154659cf` was pushed to `main` and deployed through native Ansible.
+`update-policy.yml` ran on both hosts and `configure-backups.yml` ran on
+`docker-host`, after fresh zero-change previews.
 Both normal applies and their second normal runs reported `changed=0`, `failed=0`
 and `unreachable=0`. Backup unit states/execution timestamps and runner/policy/input
 hashes were unchanged; update checks and Tailscale SSH remained enabled.
@@ -345,10 +347,12 @@ This is neither comprehensive host health nor a standing maintenance window;
 Docker, hardware/API policy, backups and independent recovery access were outside
 this inspection. Do not turn this dated result into a future workflow gate.
 
-Ordinary OpenTofu saved plans remain a next target. Source now contains a pinned
-`community.docker.docker_compose_v2` observation and canary deployment role. Live
-observation and a check-mode source/active boundary run have qualified its read
-path on `docker-host`; this does not authorize configuration changes.
+Ordinary OpenTofu saved plans remain a next target. Source now contains pinned
+`community.docker.docker_compose_v2` observation and bounded deployment roles.
+Live observation and a check-mode source/active boundary run qualify only the read
+and preview paths on `docker-host`; they do not themselves authorize mutation.
+Separately authorized normal runs have qualified the explicit existing-service
+changes described below, but not unrestricted Compose convergence.
 
 ### Native Compose qualification
 
@@ -658,8 +662,9 @@ required the final full-project preview to be zero-change. No artifact generatio
 environment, database or Restic policy changed. A final native observation passed 38
 tasks with `changed=0`, all 38 services running, required health checks passing,
 rollback images available and no ownership or active-model drift. The repaired
-interface is therefore live-qualified for this exact canary scope only; broader
-service adoption remains a separate source and operational decision.
+interface was therefore live-qualified for this exact canary scope at that point;
+the later bounded ordinary deployments above supersede that canary-only scope.
+Broader changes still require separate source review and operational authorization.
 
 The general legacy stage/deploy lane is retired: `compose_stage` and its review
 entrypoint now require an explicit allowlisted retained operation, and
