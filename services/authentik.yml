@@ -31,7 +31,7 @@ services:
       - authentik
 
   redis:
-    image: redis:8.2-m01-alpine@sha256:73785dd3f61435fbea1a14bafd2c6509f9df112f50953e09eb31c94717c77e76
+    image: redis:8.10.1-alpine@sha256:bd999b5cfee25fb24b8320a31fddbd69f462df44c8138c66e369582937beebc0
     container_name: authentik-redis
     command: --save 60 1 --loglevel warning
     restart: unless-stopped
