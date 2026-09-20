@@ -177,21 +177,22 @@
       check_mode: true
       no_log: true
 
-    - name: Require only the exact interrupted replacement pair
+    - name: Require only the exact pending or already-settled replacement state
       ansible.builtin.assert:
         that:
-          - compose_recovery_preview.changed
-          - compose_recovery_preview.actions | default([]) | length == 2
+          - compose_recovery_preview.actions | default([]) | length in [0, 2]
           - >-
+            not compose_recovery_preview.changed or
             compose_recovery_preview.actions | map(attribute='status') |
             select('equalto', 'Recreate') | list | length == 1
           - >-
+            not compose_recovery_preview.changed or
             compose_recovery_preview.actions | map(attribute='status') |
             select('equalto', 'Starting') | list | length == 1
           - >-
-            compose_recovery_preview.actions | map(attribute='id') |
+            compose_recovery_preview.actions | default([]) | map(attribute='id') |
             reject('match', '^(?:flaresolverr|[0-9a-f]{12}_flaresolverr)$') | list | length == 0
-        fail_msg: Live interrupted actions no longer match the reviewed flaresolverr replacement pair.
+        fail_msg: Live recovery state is neither the reviewed pair nor its exact settled result.
       no_log: true
 
   tasks:
@@ -224,7 +225,9 @@
       become: true
       environment:
         HOME: /root
-      when: not ansible_check_mode
+      when:
+        - not ansible_check_mode
+        - compose_recovery_preview.changed
       no_log: true
 
     - name: Require the recovered full model to be idempotent
@@ -287,7 +290,7 @@
           - "{{ item }}"
       become: true
       register: compose_recovery_health
-      loop: [nextcloud-app, vaultwarden]
+      loop: "{{ compose_native_required_healthy_containers }}"
       changed_when: false
       retries: 30
       delay: 10
