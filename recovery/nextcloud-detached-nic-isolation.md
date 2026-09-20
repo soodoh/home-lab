@@ -84,24 +84,30 @@ and the stopped VM attributes. It also exposed that NIC removal must use an expl
 `net0`. The source and refusal test now require the explicit empty-list transition.
 Provider installation warned that the publisher GPG key is expired.
 
-The root has not been planned or applied, and no state exists for it. Do not add the
-recovery guest to the VM100 root, reuse retired VM9900 state, adopt historical local
-state, or issue direct `qm`/`pvesh` mutations around provider ownership.
+The root now fixes its only state path at
+`.local/nextcloud-recovery-qualification.tfstate`; the root README excludes copying,
+importing or sharing state. Provider SSH is explicit: the existing `proxmox` operator,
+controller SSH agent and exact tailnet address support sudo-backed snippet upload and
+image import without placing a password or private key in variables or state. The
+backend has not been initialized, the root has not been planned or applied, and no
+state exists for it. Do not add the recovery guest to the VM100 root, reuse retired
+VM9900 state, adopt historical local state, or issue direct `qm`/`pvesh` mutations
+around provider ownership.
 
 Before any provider plan, review and complete:
 
-- exact resource addresses for one stopped VM, one blank disk, one cloud-init snippet,
-  one NIC, VM firewall options and fixed ordered rules;
-- a dedicated state backend and ownership marker with no overlap with production or
-  retired qualification roots;
+- the fixed five-resource address set for one stopped VM, one new root disk, one
+  cloud-init snippet, VM firewall options and fixed ordered rules;
+- the dedicated local state path and absent-state admission, with no overlap with
+  production or retired qualification roots;
 - one ephemeral guest SSH key and exact controller IPv4, neither equal to VM100 or
   the Proxmox host;
 - the fixed 6 GiB guest allocation plus a required post-allocation host-memory
   reserve; the survey's 13,829,181,440 free bytes does not itself admit startup;
 - `on_boot=false`, `protection=false`, no production pool, no backup/replication,
   unique disk serials and destroy limited to the admitted resources; and
-- creation stopped by default, with starting controlled by a separate explicit input
-  and plan.
+- creation stopped by default; this root has no startup input, so a separate future
+  interface and authorization are required for retrieval startup.
 
 The first apply, if ever authorized, must create only the stopped foundation. A
 second fresh plan must report zero drift before startup can be considered.
@@ -202,8 +208,9 @@ failure. Stop rather than reattach the NIC to a running recovery stack.
 
 The detached-NIC design is not executable until all of these are closed:
 
-- the stopped-only provider root has a provider lock and successful local schema
-  validation, but no reviewed state ownership or plan evidence;
+- the stopped-only provider root has a provider lock, successful local schema
+  validation and a dedicated state path, but no backend initialization or plan
+  evidence;
 - the 6 GiB allocation lacks a fresh startup-time host-memory reserve admission;
 - no current bundle is bound to the September 19 copied snapshot;
 - the exact base image/runtime/tool input and independent application-artifact path

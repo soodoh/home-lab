@@ -1,0 +1,9 @@
+# Copy to an explicitly named, ignored input only after separate plan authorization.
+# These placeholders are intentionally invalid and must never be used as evidence.
+proxmox_endpoint                 = "https://proxmox:8006/api2/json"
+enable_foundation               = true
+retrieval_nic_enabled           = true
+controller_ipv4                 = "REPLACE_WITH_EPHEMERAL_CONTROLLER_IPV4"
+recovery_ssh_public_key         = "REPLACE_WITH_DEDICATED_ED25519_PUBLIC_KEY"
+recovery_ssh_public_key_sha256  = "REPLACE_WITH_REVIEWED_SHA256"
+isolation_attestation_sha256    = "REPLACE_WITH_REVIEWED_SHA256"

@@ -103,9 +103,14 @@ tests, `tofu fmt -check` and provider-backed `tofu validate` pass. A separately
 authorized `tofu init -backend=false` locked `bpg/proxmox` 0.111.1; provider schema
 inspection in a disposable empty-backend copy required explicit
 `network_device = []` for provider-managed NIC deletion, which the source and tests
-now enforce. Provider installation warned that its publisher GPG key is expired. No
-plan, state read, apply or Proxmox contact occurred, and no state exists. This source
-does not change the survey's blocked operational status.
+now enforce. The root fixes its state at the ignored, root-specific
+`.local/nextcloud-recovery-qualification.tfstate` path and documents that state may
+never be copied, imported or shared. Provider SSH uses the existing `proxmox`
+operator and controller SSH agent for sudo-backed snippet upload and image import;
+no private key or password is accepted by the root. Provider installation warned
+that its publisher GPG key is expired. The backend remains uninitialized: no plan,
+state read, apply or Proxmox contact occurred, and no state exists. This source does
+not change the survey's blocked operational status.
 
 Native repository/keyring/chrony declarations replace direct Nix projection
 reads. Desired bytes/hashes are unchanged. The low-risk controller, deploy

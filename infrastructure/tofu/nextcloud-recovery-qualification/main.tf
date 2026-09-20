@@ -42,6 +42,18 @@ locals {
 provider "proxmox" {
   endpoint = var.proxmox_endpoint
   insecure = false
+
+  # Snippet upload and image import require SSH. The existing bounded Proxmox
+  # operator uses sudo for stream uploads; credentials remain in the agent.
+  ssh {
+    agent    = true
+    username = "proxmox"
+
+    node {
+      name    = local.node_name
+      address = "proxmox.tailea1a78.ts.net"
+    }
+  }
 }
 
 check "stopped_foundation_scope" {

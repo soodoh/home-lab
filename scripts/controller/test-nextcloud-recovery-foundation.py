@@ -21,12 +21,16 @@ def main() -> None:
     versions = (TOFU / "versions.tf").read_text()
     outputs = (TOFU / "outputs.tf").read_text()
     provider_lock = (TOFU / ".terraform.lock.hcl").read_text()
+    example_inputs = (TOFU / "foundation.tfvars.example").read_text()
+    readme = (TOFU / "README.md").read_text()
     combined = "\n".join((main_source, variables, versions, outputs))
 
     require('version = "= 0.111.1"' in versions, "provider version must remain exact")
     require('version     = "0.111.1"' in provider_lock, "provider lock must match the source pin")
     require('h1:' in provider_lock and 'zh:' in provider_lock, "provider lock must retain package hashes")
-    require('backend "local" {}' in versions, "foundation must not share remote production state")
+    require('backend "local" {' in versions, "foundation must use dedicated local state")
+    require('path = ".local/nextcloud-recovery-qualification.tfstate"' in versions, "state path must remain root-specific and ignored")
+    require(not list(TOFU.glob("*.tfstate*")), "root must contain no state")
     require(re.search(r"^\s*vm_id\s*=\s*9000$", main_source, re.MULTILINE) is not None, "VMID 9000 must remain fixed")
     require(re.search(r"^\s*started\s*=\s*false$", main_source, re.MULTILINE) is not None, "provider root must never start the guest")
     require(re.search(r"^\s*on_boot\s*=\s*false$", main_source, re.MULTILINE) is not None, "guest must not start at boot")
@@ -35,6 +39,10 @@ def main() -> None:
     require(re.search(r'^\s*disk_datastore\s*=\s*"local-lvm"$', main_source, re.MULTILINE) is not None, "production ZFS pool must not hold the guest disk")
     require('retrieval_bridge = "vmbr0"' in main_source, "temporary bridge must remain explicit")
     require('proxmox_endpoint = "https://proxmox:8006/api2/json"' in main_source, "provider endpoint must remain exact")
+    require('agent    = true' in main_source, "provider file operations must use the existing SSH agent")
+    require('username = "proxmox"' in main_source, "provider SSH identity must remain bounded")
+    require('address = "proxmox.tailea1a78.ts.net"' in main_source, "provider SSH address must remain exact")
+    require('private_key' not in main_source and 'password' not in main_source, "provider credentials must not enter source or state")
     require('network_device = var.retrieval_nic_enabled ? [{' in main_source, "NIC presence must use one boolean seam")
     require('}] : []' in main_source, "NIC removal must use an explicit empty list")
     require('dynamic "network_device"' not in main_source, "zero dynamic blocks would preserve net0 instead of deleting it")
@@ -102,6 +110,8 @@ def main() -> None:
 
     require('retrieval_nic_enabled = var.retrieval_nic_enabled' in outputs, "output must report NIC presence")
     require('started               = false' in outputs, "output must attest stopped-only scope")
+    require("REPLACE_WITH_EPHEMERAL_CONTROLLER_IPV4" in example_inputs, "example inputs must remain unusable placeholders")
+    require("must never be copied from, imported into or shared" in readme, "state ownership refusal must remain documented")
     print("nextcloud_recovery_foundation=verified stopped_only=true resources=5")
 
 
