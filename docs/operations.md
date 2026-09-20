@@ -366,7 +366,8 @@ Its bounded summary explicitly does not claim restore readiness. It consumes no
 receipt, `.local`, `.reconcile` or prior runner result.
 
 `ansible/playbooks/deploy-compose.yml` is check-mode qualified but has not performed
-a normal deployment. Its initial mutation allowlist contains only `flaresolverr`.
+a normal generalized deployment. Its source accepts only an explicit subset of the
+existing service set; live mutation qualification remains limited to `flaresolverr`.
 It re-runs observation, acquires the durable production owner lock,
 derives an artifact hash directly from tracked checkout bytes, stages only the
 existing deterministic artifact selection, decrypts SOPS only on the host and
@@ -414,8 +415,9 @@ Only the canary caller was migrated in that first source slice.
 
 The caller source now accepts any explicit subset of services that already exists in
 both complete models. It uses native Compose configuration output to validate the
-service set, derive configured container names and compare digest-pinned image
-resolution with and without the retained host override. A reviewed changed-path list
+service set and derive configured container names, then resolves source and retained-
+override references with native `docker image inspect` before comparing local image
+IDs. A reviewed changed-path list
 and forced-recreation subset remain explicit inputs; no service catalogue, impact
 analyzer or deployment manifest was added. The environment, service set, protected
 per-service topology, top-level networks/volumes/configs/secrets and Restic policy
@@ -433,6 +435,27 @@ artifact were both `3e5600bf…`, requested service `flaresolverr`, and forced
 recreation and changed-path sets were empty. Check mode deliberately skipped all
 normal staging, decryption, image-equivalence, normalized-model and activation tasks,
 so this proves the clean source/live boundary only—not general deployment behavior.
+
+A follow-up September 19 observation corrected an initially misleading string-level
+comparison: the retained override uses 37 local image IDs while tracked Compose uses
+repository digests, but native inspection proved every pair resolves to the same
+local image. The override is therefore image-neutral. A source-only native Compose
+preview nevertheless proposed 76 actions because Compose records the reference form
+in container configuration. Removing the override is not a no-op and must not be
+folded into an ordinary service deployment.
+
+Source now contains a dedicated one-time
+`retire-compose-image-override.yml` cutover. It first repeats override-backed
+observation, requires the exact neutral 76-action preview and all 38 existing
+services, acquires the production owner, publishes the reviewed source-only systemd
+unit with a host-local before-image, and hands all services to the existing native
+generation seam without pulls, builds, orphan removal or volume replacement. Check
+mode does not require confirmation; a normal run requires
+`compose_native_override_retirement_confirmed=true`, an exact clean source commit,
+and separate attended maintenance authorization. The cutover has **not** been run or
+check-qualified. Its expected broad container recreation is a deliberate one-time
+image-authority transfer, not general deployment authority. The retained override,
+current/previous image locks and rollback artifacts are not deleted.
 
 On September 18, 2026, live observation passed with all 38 declared services
 running, 38 immutable image references, both required health checks, exact canary

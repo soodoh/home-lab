@@ -1,0 +1,68 @@
+---
+- name: Require the exact one-time image-authority cutover boundary
+  ansible.builtin.assert:
+    that:
+      - not ansible_check_mode or not (compose_native_override_retirement_confirmed | bool)
+      - ansible_check_mode or (compose_native_override_retirement_confirmed | bool)
+      - compose_native_override_changed_services | length == 0
+      - compose_native_source_only_preview.changed
+      - compose_native_source_only_preview.actions | length == compose_native_override_retirement_expected_actions | int
+      - compose_native_declared_services.stdout_lines | length == compose_native_expected_service_count | int
+    fail_msg: >-
+      Override retirement requires explicit normal-mode confirmation, image-ID neutrality,
+      and the exact reviewed all-service source-only preview.
+  no_log: true
+
+- name: Inspect the installed Compose unit before ownership transfer
+  ansible.builtin.stat:
+    path: /etc/systemd/system/home-lab-compose.service
+    follow: false
+    checksum_algorithm: sha256
+    get_mime: false
+    get_attributes: false
+  become: true
+  register: compose_native_installed_unit
+
+- name: Require the exact retained pre-cutover Compose unit
+  ansible.builtin.assert:
+    that:
+      - compose_native_installed_unit.stat.isreg | default(false)
+      - not (compose_native_installed_unit.stat.islnk | default(false))
+      - compose_native_installed_unit.stat.nlink == 1
+      - compose_native_installed_unit.stat.uid == 0
+      - compose_native_installed_unit.stat.gid == 0
+      - compose_native_installed_unit.stat.mode == '0644'
+      - >-
+        compose_native_installed_unit.stat.checksum ==
+        lookup('ansible.builtin.file', role_path ~ '/files/home-lab-compose.service.before-image-authority', rstrip=False) |
+        hash('sha256')
+    fail_msg: Installed Compose unit differs from the reviewed pre-cutover bytes.
+  no_log: true
+
+- name: Publish the source-image Compose unit with a host-local before-image
+  ansible.builtin.template:
+    src: home-lab-compose.service.j2
+    dest: /etc/systemd/system/home-lab-compose.service
+    owner: root
+    group: root
+    mode: "0644"
+    backup: true
+  become: true
+  register: compose_native_unit_cutover
+  diff: false
+
+- name: Reload systemd after publishing the source-image Compose unit
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  become: true
+  when: compose_native_unit_cutover.changed
+
+- name: Publish the bounded image-authority cutover summary
+  ansible.builtin.debug:
+    msg:
+      services: "{{ compose_native_declared_services.stdout_lines | length }}"
+      image_ids_unchanged: true
+      source_only_actions: "{{ compose_native_source_only_preview.actions | length }}"
+      unit_changed: "{{ compose_native_unit_cutover.changed }}"
+      unit_backup: "{{ compose_native_unit_cutover.backup_file | default('not-created') }}"
+      containers_changed: false

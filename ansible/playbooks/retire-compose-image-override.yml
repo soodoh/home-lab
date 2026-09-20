@@ -1,0 +1,47 @@
+---
+- name: Transfer Compose image authority from the neutral host override to tracked source
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  vars_files:
+    - ../../infrastructure/contract/home-lab.yml
+  pre_tasks:
+    - name: Re-observe the override-backed runtime before the cutover
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+      vars:
+        compose_native_use_image_override: true
+
+    - name: Acquire the durable production ownership lock
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: compose-native-image-authority-cutover
+  tasks:
+    - name: Publish the reviewed source-image systemd invocation
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: retire_image_override
+
+    - name: Converge every existing service onto the source-image invocation
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: deploy
+      vars:
+        compose_native_use_image_override: false
+        compose_native_requested_services: "{{ compose_native_declared_services.stdout_lines }}"
+        compose_native_force_recreate_services: []
+        compose_native_expected_changed_paths: []
+        compose_native_apply_confirmed: "{{ compose_native_override_retirement_confirmed }}"
+  post_tasks:
+    - name: Release exact production ownership only after complete success
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: compose-native-image-authority-cutover

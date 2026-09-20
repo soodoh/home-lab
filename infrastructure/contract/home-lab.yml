@@ -1372,7 +1372,7 @@ debian:
         tag: compose
       compose_unit:
         path: /etc/systemd/system/home-lab-compose.service
-        source: compose/templates/home-lab-compose.service.j2
+        source: compose_native/templates/home-lab-compose.service.j2
         mode: "0644"
         tag: compose
       docker_dependencies:
@@ -1478,7 +1478,7 @@ debian:
     storage_activation_path: /etc/home-lab/allow-storage-activation
     state_disk_journal_root: /var/lib/home-lab/debian-state-disk-transactions
     host_apply_lock_path: /var/lib/iac-ansible-production.lock
-    compose_command: [/usr/bin/docker, compose, --project-name, docker-compose, --project-directory, /srv/docker-compose/current, --env-file, /etc/docker-compose/production.env, --file, /srv/docker-compose/current/docker-compose.yml, --file, /var/lib/home-lab/production-image-override.json]
+    compose_command: [/usr/bin/docker, compose, --project-name, docker-compose, --project-directory, /srv/docker-compose/current, --env-file, /etc/docker-compose/production.env, --file, /srv/docker-compose/current/docker-compose.yml]
     compose_artifact_path: /srv/docker-compose/current/docker-compose.yml
     compose_image_lock_path: /var/lib/home-lab/production-image-override.json
     root_environment_path: /etc/docker-compose/production.env

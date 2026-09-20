@@ -35,8 +35,9 @@ canary-specific mount manifest. `deploy.yml` still owns source selection, SOPS
 handling, normalized-model comparison and operation authorization. It requires an
 exact reviewed changed-path list, refuses service-set and top-level topology changes,
 keeps the decrypted environment byte-identical, derives container names from native
-`docker compose config --format json`, and requires source images to be digest pinned
-and identical with or without the retained host override. Bind-file changes require
+`docker compose config --format json`, and requires source images to be digest pinned.
+While the retained override remains active, requested source and effective references
+must resolve through native Docker inspection to the same local image ID. Bind-file changes require
 the operator to include their services in the explicit forced-recreation subset.
 
 This is not a universal manifest, launcher, plan, receipt, database migration path or
@@ -98,9 +99,19 @@ general-caller refactor is source-only: no broader service deployment is authori
 or qualified yet. At commit `0b75750d`, fresh native observation and a same-commit
 check passed with zero changes and equal candidate/active artifact identity. Check
 mode intentionally skipped normal staging, decryption, model comparison and
-activation, so it did not qualify those generalized branches. The retained host image
-override must remain semantically neutral; a source image change that it masks is
-refused and requires separate override ownership work.
+activation, so it did not qualify those generalized branches. Native inspection later
+proved the retained host override semantically image-neutral for all 38 services, but
+a source-only Compose preview proposed 76 container actions because its image-ID
+references differ textually from tracked repository digests.
+
+A separate one-time `retire-compose-image-override.yml` source path now models that
+boundary explicitly. It accepts only the complete observed service set, the exact
+neutral 76-action preview, unchanged tracked artifact/environment inputs and a clean
+source commit. It publishes the source-only systemd invocation with a host-local
+before-image, then reuses the same generation seam with the override disabled. It
+retains the override and all image locks as rollback evidence. No check or normal run
+has occurred; the all-service recreation and systemd ownership transfer require a
+separately authorized attended maintenance window.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production
@@ -108,11 +119,12 @@ coordination remain unresolved prerequisites.
 
 ## Next slices
 
-First qualify the general caller without expanding its boundary: same environment,
-same service set, unchanged top-level topology, exact reviewed paths and explicit
-service/recreation sets. Start with a no-change check, then separately authorize one
-stateless service and one bind-file recreation. Image updates remain blocked when the
-retained host override changes effective image resolution.
+First check and, only with separate authorization, complete the one-time image-
+authority cutover. Then remove the transitional override branch from the ordinary
+native role and qualify the general caller without expanding its boundary: same
+environment, same service set, unchanged top-level topology, exact reviewed paths and
+explicit service/recreation sets. Start with one stateless service, one bind-file
+recreation and one digest-pinned image update.
 
 Migrate recovery callers only after the general forward path is qualified and each
 operation-specific preparation can hand the activation seam a complete validated

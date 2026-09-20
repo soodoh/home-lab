@@ -150,8 +150,8 @@ Type=oneshot
 RemainAfterExit=yes
 Environment=HOME=/root
 WorkingDirectory=/srv/docker-compose/current
-ExecStart=/usr/bin/docker compose --project-name docker-compose --project-directory /srv/docker-compose/current --env-file /etc/docker-compose/production.env --file /srv/docker-compose/current/docker-compose.yml --file /var/lib/home-lab/production-image-override.json up --detach --pull never --remove-orphans
-ExecStop=/usr/bin/docker compose --project-name docker-compose --project-directory /srv/docker-compose/current --env-file /etc/docker-compose/production.env --file /srv/docker-compose/current/docker-compose.yml --file /var/lib/home-lab/production-image-override.json stop --timeout 120
+ExecStart=/usr/bin/docker compose --project-name docker-compose --project-directory /srv/docker-compose/current --env-file /etc/docker-compose/production.env --file /srv/docker-compose/current/docker-compose.yml up --detach --pull never --remove-orphans
+ExecStop=/usr/bin/docker compose --project-name docker-compose --project-directory /srv/docker-compose/current --env-file /etc/docker-compose/production.env --file /srv/docker-compose/current/docker-compose.yml stop --timeout 120
 TimeoutStartSec=1200
 TimeoutStopSec=300
 
@@ -169,8 +169,9 @@ let success = false, runs = 0;
 const write = (p, value) => fs.writeFileSync(path.join(fixture, p), typeof value === "string" ? value : JSON.stringify(value));
 try {
   for (const p of ["home", "tmp", "collections", "action_plugins", "runs", "ansible/playbooks", "infrastructure/contract",
-    "ansible/roles/docker/tasks", "ansible/roles/docker/templates", "ansible/roles/compose/tasks", "ansible/roles/compose/templates",
-    "ansible/roles/debian_lifecycle_transaction/tasks", "ansible/roles/debian_lifecycle_transaction/files", "ansible/roles/debian_lifecycle_transaction/templates"])
+    "ansible/roles/docker/tasks", "ansible/roles/docker/templates", "ansible/roles/compose/tasks",
+    "ansible/roles/compose_native/templates", "ansible/roles/debian_lifecycle_transaction/tasks",
+    "ansible/roles/debian_lifecycle_transaction/files", "ansible/roles/debian_lifecycle_transaction/templates"])
     fs.mkdirSync(path.join(fixture, p), { recursive: true });
   write("inventory", "fixture-debian ansible_connection=local\n");
   write("ansible.cfg", `[defaults]\nroles_path = ${fixture}/ansible/roles\naction_plugins = ${fixture}/action_plugins\ncollections_path = ${fixture}/collections\nlocal_tmp = ${fixture}/tmp\nretry_files_enabled = False\nstdout_callback = default\n[privilege_escalation]\nbecome = False\n`);

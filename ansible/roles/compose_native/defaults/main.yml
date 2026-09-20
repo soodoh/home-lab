@@ -10,6 +10,9 @@ compose_native_runtime_env_path: /etc/docker-compose/production.env
 compose_native_previous_env_path: /etc/docker-compose/previous.env
 compose_native_staged_env_root: /etc/docker-compose/staging
 compose_native_image_override_path: /var/lib/home-lab/production-image-override.json
+compose_native_use_image_override: true
+compose_native_override_retirement_confirmed: false
+compose_native_override_retirement_expected_actions: 76
 compose_native_current_image_lock_path: /var/lib/docker-compose/current-images.json
 compose_native_previous_image_lock_path: /var/lib/docker-compose/previous-images.json
 compose_native_retained_image_root: /var/lib/docker-compose/retained-images
@@ -55,19 +58,15 @@ compose_native_backup_writer_units: []
 compose_native_backup_lock_path: /run/lock/home-lab-backup.lock
 compose_native_backup_journal_path: /var/lib/home-lab-restic/interruption.json
 compose_native_backup_policy_path: /etc/home-lab/restic-policy.json
-compose_native_files:
-  - docker-compose.yml
-  - "{{ compose_native_image_override_path }}"
-compose_native_runtime_cli:
-  - /usr/bin/docker
-  - compose
-  - --project-name
-  - "{{ compose_native_project_name }}"
-  - --project-directory
-  - "{{ compose_native_current_dir }}"
-  - --env-file
-  - "{{ compose_native_runtime_env_path }}"
-  - --file
-  - "{{ compose_native_current_dir }}/docker-compose.yml"
-  - --file
-  - "{{ compose_native_image_override_path }}"
+compose_native_files: >-
+  {{ ['docker-compose.yml'] +
+     ([compose_native_image_override_path] if compose_native_use_image_override else []) }}
+compose_native_override_cli_args: >-
+  {{ ['--file', compose_native_image_override_path] if compose_native_use_image_override else [] }}
+compose_native_runtime_cli: >-
+  {{ ['/usr/bin/docker', 'compose',
+      '--project-name', compose_native_project_name,
+      '--project-directory', compose_native_current_dir,
+      '--env-file', compose_native_runtime_env_path,
+      '--file', compose_native_current_dir ~ '/docker-compose.yml'] +
+     compose_native_override_cli_args }}

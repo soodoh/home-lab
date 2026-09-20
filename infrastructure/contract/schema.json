@@ -88,7 +88,7 @@
             "assets": {
               "guard_helper": { "path": "/usr/local/sbin/home-lab-production-guard", "source": "debian_lifecycle_transaction/files/home-lab-production-guard", "mode": "0755", "tag": "compose" },
               "guard_unit": { "path": "/etc/systemd/system/home-lab-production-guard.service", "source": "debian_lifecycle_transaction/templates/home-lab-production-guard.service.j2", "mode": "0644", "tag": "compose" },
-              "compose_unit": { "path": "/etc/systemd/system/home-lab-compose.service", "source": "compose/templates/home-lab-compose.service.j2", "mode": "0644", "tag": "compose" },
+              "compose_unit": { "path": "/etc/systemd/system/home-lab-compose.service", "source": "compose_native/templates/home-lab-compose.service.j2", "mode": "0644", "tag": "compose" },
               "docker_dependencies": { "path": "/etc/systemd/system/docker.service.d/10-home-lab-storage.conf", "source": "docker/templates/10-home-lab-storage.conf.j2", "mode": "0644", "tag": "docker" }
             },
             "guard": {
@@ -287,7 +287,7 @@
             "storage_activation_path": { "const": "/etc/home-lab/allow-storage-activation" },
             "state_disk_journal_root": { "const": "/var/lib/home-lab/debian-state-disk-transactions" },
             "host_apply_lock_path": { "const": "/var/lib/iac-ansible-production.lock" },
-            "compose_command": { "const": ["/usr/bin/docker", "compose", "--project-name", "docker-compose", "--project-directory", "/srv/docker-compose/current", "--env-file", "/etc/docker-compose/production.env", "--file", "/srv/docker-compose/current/docker-compose.yml", "--file", "/var/lib/home-lab/production-image-override.json"] },
+            "compose_command": { "const": ["/usr/bin/docker", "compose", "--project-name", "docker-compose", "--project-directory", "/srv/docker-compose/current", "--env-file", "/etc/docker-compose/production.env", "--file", "/srv/docker-compose/current/docker-compose.yml"] },
             "compose_artifact_path": { "const": "/srv/docker-compose/current/docker-compose.yml" },
             "compose_image_lock_path": { "const": "/var/lib/home-lab/production-image-override.json" },
             "root_environment_path": { "const": "/etc/docker-compose/production.env" },

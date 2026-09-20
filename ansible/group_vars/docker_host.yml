@@ -139,8 +139,6 @@ compose_runtime_cli:
   - "{{ compose_runtime_env_path }}"
   - --file
   - "{{ compose_current_dir }}/docker-compose.yml"
-  - --file
-  - "{{ compose_image_override_path }}"
 compose_staged_inventory_path: /var/lib/docker-compose/staged-model.json
 compose_runtime_inventory_path: /var/lib/docker-compose/runtime-model.json
 maintenance_compose_current_image_lock_path: /var/lib/docker-compose/current-images.json

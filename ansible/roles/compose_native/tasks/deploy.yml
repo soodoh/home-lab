@@ -426,21 +426,13 @@
 
     - name: Validate the candidate Compose model without rendering it
       ansible.builtin.command:
-        argv:
-          - /usr/bin/docker
-          - compose
-          - --project-name
-          - "{{ compose_native_project_name }}"
-          - --project-directory
-          - "{{ compose_native_candidate_dir }}"
-          - --env-file
-          - "{{ compose_native_candidate_env_path }}"
-          - --file
-          - "{{ compose_native_candidate_dir }}/docker-compose.yml"
-          - --file
-          - "{{ compose_native_image_override_path }}"
-          - config
-          - --quiet
+        argv: >-
+          {{ ['/usr/bin/docker', 'compose',
+              '--project-name', compose_native_project_name,
+              '--project-directory', compose_native_candidate_dir,
+              '--env-file', compose_native_candidate_env_path,
+              '--file', compose_native_candidate_dir ~ '/docker-compose.yml'] +
+             compose_native_override_cli_args + ['config', '--quiet'] }}
       become: true
       environment:
         HOME: "{{ compose_native_home }}"
@@ -449,21 +441,13 @@
 
     - name: List candidate services without rendering configuration
       ansible.builtin.command:
-        argv:
-          - /usr/bin/docker
-          - compose
-          - --project-name
-          - "{{ compose_native_project_name }}"
-          - --project-directory
-          - "{{ compose_native_candidate_dir }}"
-          - --env-file
-          - "{{ compose_native_candidate_env_path }}"
-          - --file
-          - "{{ compose_native_candidate_dir }}/docker-compose.yml"
-          - --file
-          - "{{ compose_native_image_override_path }}"
-          - config
-          - --services
+        argv: >-
+          {{ ['/usr/bin/docker', 'compose',
+              '--project-name', compose_native_project_name,
+              '--project-directory', compose_native_candidate_dir,
+              '--env-file', compose_native_candidate_env_path,
+              '--file', compose_native_candidate_dir ~ '/docker-compose.yml'] +
+             compose_native_override_cli_args + ['config', '--services'] }}
       become: true
       environment:
         HOME: "{{ compose_native_home }}"
@@ -548,22 +532,13 @@
 
     - name: Read the candidate model as it will resolve from the published directory
       ansible.builtin.command:
-        argv:
-          - /usr/bin/docker
-          - compose
-          - --project-name
-          - "{{ compose_native_project_name }}"
-          - --project-directory
-          - "{{ compose_native_current_dir }}"
-          - --env-file
-          - "{{ compose_native_candidate_env_path }}"
-          - --file
-          - "{{ compose_native_candidate_dir }}/docker-compose.yml"
-          - --file
-          - "{{ compose_native_image_override_path }}"
-          - config
-          - --format
-          - json
+        argv: >-
+          {{ ['/usr/bin/docker', 'compose',
+              '--project-name', compose_native_project_name,
+              '--project-directory', compose_native_current_dir,
+              '--env-file', compose_native_candidate_env_path,
+              '--file', compose_native_candidate_dir ~ '/docker-compose.yml'] +
+             compose_native_override_cli_args + ['config', '--format', 'json'] }}
       become: true
       environment:
         HOME: "{{ compose_native_home }}"
