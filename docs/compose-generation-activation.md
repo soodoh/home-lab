@@ -35,10 +35,10 @@ canary-specific mount manifest. `deploy.yml` still owns source selection, SOPS
 handling, normalized-model comparison and operation authorization. It requires an
 exact reviewed changed-path list, refuses service-set and top-level topology changes,
 keeps the decrypted environment byte-identical, derives container names from native
-`docker compose config --format json`, and requires source images to be digest pinned.
-While the retained override remains active, requested source and effective references
-must resolve through native Docker inspection to the same local image ID. Bind-file changes require
-the operator to include their services in the explicit forced-recreation subset.
+`docker compose config --format json`, and requires source images to be repository
+digest pinned. Native pull fetches only missing requested-service images before all
+previews and convergence switch to `pull: never`. Bind-file changes require the
+operator to include their services in the explicit forced-recreation subset.
 
 This is not a universal manifest, launcher, plan, receipt, database migration path or
 new deployment approval. The activation task is not a public standalone playbook.
@@ -47,7 +47,7 @@ new deployment approval. The activation task is not a public standalone playbook
 
 | Path | What it prepares or owns | Current activation boundary |
 | --- | --- | --- |
-| `deploy-compose.yml` / `compose_native:deploy` | Clean committed source, exact reviewed artifact paths and requested/forced-recreation service subsets, host-only environment decryption, same-content environment check and native normalized-model comparison | Uses the extracted native generation interface. Source accepts any existing service subset, but broader live qualification remains pending. |
+| `deploy-compose.yml` / `compose_native:deploy` | Clean committed source, exact reviewed artifact paths and requested/forced-recreation service subsets, host-only environment decryption, same-content environment check and native normalized-model comparison | Uses the extracted native generation interface. The all-service reference cutover qualified activation of all existing services; representative ordinary config, bind-file and image changes remain pending. |
 | `stage-compose.yml`, `review-compose-stage.yml` / `compose_stage` | Exact legacy artifact/environment, Nextcloud secret files and protected desired/runtime inventories for three allowlisted retained operations | General staging remains refused. The obsolete Calibre operation is no longer allowlisted; retained inventories still feed Nextcloud/Restic deployment and archive-recovery preflight. |
 | `deploy-nextcloud-migration.yml` / `compose_deploy` | Historical Nextcloud writer/path migration and latent exact Restic-policy recovery | Retained pending caller-by-caller retirement. The applied Nextcloud migration must not be rerun. The obsolete Calibre authorization/resume and NFS-to-local reconciliation branch was removed after verified private-staging restore. There is no general deploy entrypoint. |
 | `rollback-compose.yml`, `rollback-nextcloud-migration.yml` / `compose_rollback` | Exact reviewed previous artifact/environment/image locks, optional historical Nextcloud service removal and rollback action identity | Retained unchanged. Both plays still depend on the custom action-plan and image-lock helpers until a native preview can preserve their exact service-removal and pre-publication recovery semantics. |
@@ -104,26 +104,17 @@ proved the retained host override semantically image-neutral for all 38 services
 a source-only Compose preview proposed 76 container actions because its image-ID
 references differ textually from tracked repository digests.
 
-A separate one-time `retire-compose-image-override.yml` source path now models that
-boundary explicitly. It accepts only the complete observed service set, image-ID
-neutrality, models identical except for image references, a non-empty native preview
-confined to existing container identities, unchanged tracked artifact/environment
-inputs and a clean source commit. It publishes the source-only systemd invocation
-with a host-local before-image, then reuses the same generation seam with the override
-disabled. It retains the override and all image locks as rollback evidence. No normal
-run has occurred. The first source-bound check refused when a raw preview count
-changed from 76 to 75; source now gates semantic model/action boundaries instead of
-that unstable diagnostic count. Those guards passed on the next check, which then
-refused because the recorded pre-cutover unit dependency order differed from the
-installed historical order. A private read-only capture proved that was the only byte
-difference. At commit `80b09aa`, the corrected source-bound check passed with
-`ok=63 changed=2 failed=0 unreachable=0`; its two changes were check-mode previews
-only. No unit, lock, artifact, environment or container changed. Ordinary native
-observation/deployment now defaults to tracked source-image authority; the cutover
-play alone forces the old override-backed observation before transferring ownership.
-Do not invoke the ordinary entrypoints until the normal cutover completes. The all-
-service recreation and systemd ownership transfer require a separately authorized
-attended maintenance window.
+The one-time image-authority cutover at commit `6efbec4` passed same-commit check
+mode (`ok=63 changed=2 failed=0 unreachable=0`) and its separately authorized normal
+run (`ok=117 changed=11 failed=0 unreachable=0`). It published the source-only unit
+with a host-local before-image, converged all 38 existing services without changing
+image identity or data/topology, required a zero-change post-preview, consumed the
+checkpoint and released ownership. Immediate ordinary observation passed
+`ok=40 changed=0 failed=0 unreachable=0`. Tracked repository digests are now the
+runtime image authority. The former host override and all image locks remain recovery
+evidence but are not Compose inputs. The consumed cutover play, exact before-unit
+fixture, duplicate model comparison and local-image precondition are removed from
+callable source.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production
@@ -131,12 +122,10 @@ coordination remain unresolved prerequisites.
 
 ## Next slices
 
-First check and, only with separate authorization, complete the one-time image-
-authority cutover. Then remove the transitional override branch from the ordinary
-native role and qualify the general caller without expanding its boundary: same
-environment, same service set, unchanged top-level topology, exact reviewed paths and
-explicit service/recreation sets. Start with one stateless service, one bind-file
-recreation and one digest-pinned image update.
+Qualify the ordinary general caller without expanding its boundary: same environment,
+same service set, unchanged top-level topology, exact reviewed paths and explicit
+service/recreation sets. Start with one stateless service, one bind-file recreation
+and one digest-pinned image update.
 
 Migrate recovery callers only after the general forward path is qualified and each
 operation-specific preparation can hand the activation seam a complete validated

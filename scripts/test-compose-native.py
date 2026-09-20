@@ -17,9 +17,6 @@ GENERATION = ROOT / "ansible/roles/compose_native/tasks/generation.yml"
 DEFAULTS = ROOT / "ansible/roles/compose_native/defaults/main.yml"
 HOST = ROOT / "ansible/inventory/host_vars/docker-host.yml"
 RELEASE = ROOT / "ansible/playbooks/release-failed-compose-canary.yml"
-CUTOVER = ROOT / "ansible/playbooks/retire-compose-image-override.yml"
-CUTOVER_TASKS = ROOT / "ansible/roles/compose_native/tasks/retire_image_override.yml"
-COMPOSE_UNIT = ROOT / "ansible/roles/compose_native/templates/home-lab-compose.service.j2"
 
 
 class NativeComposeSourceTests(unittest.TestCase):
@@ -74,10 +71,7 @@ class NativeComposeSourceTests(unittest.TestCase):
         for required in (
             "findmnt", "list-jobs", "systemctl", "compose-image-lock.py",
             "config', '--quiet", "config', '--services", "config', '--images",
-            "Identify unavailable or different source image IDs behind the retained override",
-            "Ask Compose for a source-only dry run without the retained override",
-            "image_override_neutral", "override_divergent_services",
-            "source_only_preview_changed", "source_only_preview_actions",
+            "image_authority: tracked_digest_references",
             "community.docker.docker_compose_v2", "check_mode: true",
             "compose_native_backup_journal_path", "compose_native_apply_lock_path",
             "compose_native_reconciliation_lock_paths", "restore_readiness_proven: false",
@@ -121,7 +115,7 @@ class NativeComposeSourceTests(unittest.TestCase):
             "compose_native_interrupted_image_path", "compose_native_retained_image_root", "compose_native_backup_lock_path",
             "compose_native_expected_changed_paths", "compose_native_requested_container_names",
             "compose_native_protected_service_fields", "Refuse protected topology changes inside requested services",
-            "compose_native_source_candidate_images", "compose_native_requested_image_id_checks",
+            "compose_native_source_candidate_images",
             "services/data/restic/files-from",
             "database_migration_performed: false", "restic_activation_performed: false",
         ):
@@ -221,7 +215,7 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertIn("compose_native_expected_changed_paths", deploy)
         self.assertIn("compose_native_requested_container_names", deploy)
         self.assertIn("Candidate source images must all be digest pinned", deploy)
-        self.assertIn("resolves to a different image ID", deploy)
+        self.assertNotIn("compose_native_requested_image_id_checks", deploy)
         self.assertNotIn("compose-impact", deploy)
         self.assertIn("compose_native_active_model.services[item]", deploy)
         self.assertIn("compose_native_candidate_model.services[item]", deploy)
@@ -231,7 +225,7 @@ class NativeComposeSourceTests(unittest.TestCase):
         )[1].split("- name:", 1)[0]
         self.assertIn("compose_native_current_dir", candidate_model)
         self.assertIn("compose_native_candidate_dir ~ '/docker-compose.yml'", candidate_model)
-        self.assertIn("compose_native_override_cli_args", candidate_model)
+        self.assertNotIn("compose_native_image_override_path", candidate_model)
 
         release = self.text(RELEASE)
         for marker in (
@@ -251,40 +245,6 @@ class NativeComposeSourceTests(unittest.TestCase):
             self.assertIn(marker, release)
         self.assertGreaterEqual(release.count("check_mode: false"), 3)
         self.assertNotIn("state: absent", release)
-
-    def test_one_time_override_retirement_is_explicit_and_all_service(self):
-        play = self.text(CUTOVER)
-        tasks = self.text(CUTOVER_TASKS)
-        unit = self.text(COMPOSE_UNIT)
-        defaults = self.text(DEFAULTS)
-        for required in (
-            "tasks_from: observe", "compose_native_use_image_override: true",
-            "apply_lock_operation: compose-native-image-authority-cutover",
-            "tasks_from: retire_image_override", "tasks_from: deploy",
-            "compose_native_use_image_override: false",
-            "compose_native_requested_services: \"{{ compose_native_declared_services.stdout_lines }}\"",
-            "compose_native_force_recreate_services: []",
-            "compose_native_expected_changed_paths: []",
-        ):
-            self.assertIn(required, play)
-        for required in (
-            "compose_native_override_retirement_confirmed",
-            "compose_native_override_changed_services | length == 0",
-            "compose_native_source_only_preview.actions | length > 0",
-            "Require image references to be the only per-service model difference",
-            "Refuse source-only preview actions outside existing containers",
-            "compose_native_cutover_action_pattern",
-            "home-lab-compose.service.before-image-authority",
-            "backup: true", "daemon_reload: true",
-        ):
-            self.assertIn(required, tasks)
-        self.assertIn("compose_native_use_image_override: false", defaults)
-        self.assertIn("compose_native_override_cli_args", defaults)
-        self.assertNotIn("production-image-override.json", unit)
-        self.assertIn("debian.transaction.compose_command", unit)
-        contract = self.text(ROOT / "infrastructure/contract/home-lab.yml")
-        command = contract.split("    compose_command:", 1)[1].splitlines()[0]
-        self.assertNotIn("production-image-override.json", command)
 
     def test_failure_and_authorization_documentation_matches_boundaries(self):
         operations = " ".join(self.text(ROOT / "docs/operations.md").split())

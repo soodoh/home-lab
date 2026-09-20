@@ -325,74 +325,6 @@
   loop: "{{ compose_native_declared_images.stdout_lines }}"
   no_log: true
 
-- name: Read the source model without the retained host override
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/docker
-      - compose
-      - --project-name
-      - "{{ compose_native_project_name }}"
-      - --project-directory
-      - "{{ compose_native_current_dir }}"
-      - --env-file
-      - "{{ compose_native_runtime_env_path }}"
-      - --file
-      - "{{ compose_native_current_dir }}/docker-compose.yml"
-      - config
-      - --format
-      - json
-  become: true
-  environment:
-    HOME: "{{ compose_native_home }}"
-  register: compose_native_source_model_raw
-  changed_when: false
-  check_mode: false
-  no_log: true
-
-- name: Read the effective model with the retained host override
-  ansible.builtin.command:
-    argv: "{{ compose_native_runtime_cli + ['config', '--format', 'json'] }}"
-  become: true
-  environment:
-    HOME: "{{ compose_native_home }}"
-  register: compose_native_effective_model_raw
-  changed_when: false
-  check_mode: false
-  no_log: true
-
-- name: Resolve source and effective image references to local image IDs
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/docker
-      - image
-      - inspect
-      - --format
-      - "{% raw %}{{.Id}}{% endraw %}"
-      - "{{ (compose_native_source_model_raw.stdout | from_json).services[item].image }}"
-      - "{{ (compose_native_effective_model_raw.stdout | from_json).services[item].image }}"
-  become: true
-  register: compose_native_override_image_id_checks
-  loop: "{{ compose_native_declared_services.stdout_lines }}"
-  changed_when: false
-  failed_when: false
-  check_mode: false
-  no_log: true
-
-- name: Start the override-changed service set
-  ansible.builtin.set_fact:
-    compose_native_override_changed_services: []
-  no_log: true
-
-- name: Identify unavailable or different source image IDs behind the retained override
-  ansible.builtin.set_fact:
-    compose_native_override_changed_services: >-
-      {{ compose_native_override_changed_services + [item.item] }}
-  loop: "{{ compose_native_override_image_id_checks.results }}"
-  when: >-
-    item.rc != 0 or item.stdout_lines | length != 2 or
-    item.stdout_lines | unique | length != 1
-  no_log: true
-
 - name: Check active container health postconditions
   ansible.builtin.command:
     argv:
@@ -460,28 +392,6 @@
     fail_msg: Live Compose configuration, mounts, images, or container state differ from the active model.
   no_log: true
 
-- name: Ask Compose for a source-only dry run without the retained override
-  community.docker.docker_compose_v2:
-    project_src: "{{ compose_native_current_dir }}"
-    project_name: "{{ compose_native_project_name }}"
-    files:
-      - docker-compose.yml
-    env_files:
-      - "{{ compose_native_runtime_env_path }}"
-    state: present
-    pull: never
-    build: never
-    recreate: auto
-    remove_orphans: false
-    renew_anon_volumes: false
-    wait: false
-  become: true
-  environment:
-    HOME: "{{ compose_native_home }}"
-  register: compose_native_source_only_preview
-  check_mode: true
-  no_log: true
-
 - name: Publish only a bounded live Compose observation summary
   ansible.builtin.debug:
     msg:
@@ -490,10 +400,7 @@
       running_services: "{{ compose_native_running_services.stdout_lines | length }}"
       digest_pinned_images: "{{ compose_native_declared_images.stdout_lines | length }}"
       required_health_checks: "{{ compose_native_required_healthy_containers | length }}"
-      image_override_neutral: "{{ compose_native_override_changed_services | length == 0 }}"
-      override_divergent_services: "{{ compose_native_override_changed_services }}"
-      source_only_preview_changed: "{{ compose_native_source_only_preview.changed }}"
-      source_only_preview_actions: "{{ compose_native_source_only_preview.actions | length }}"
+      image_authority: tracked_digest_references
       backup_writers: inactive
       active_model_drift: false
       restore_readiness_proven: false

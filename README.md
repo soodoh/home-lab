@@ -6,17 +6,20 @@ Ansible become—not rebuild the installation around a custom controller.
 
 This checkout is in an **incremental native-tool transition**. The universal
 controller, abandoned Compose admission implementation, reporting platform and
-completed one-shot entrypoints have been removed. There is no supported general
-application deployment entrypoint: the legacy general Compose lane now refuses
-execution, while its exact migration/recovery consumers remain preserved.
+completed one-shot entrypoints have been removed. The legacy general Compose lane
+refuses execution while its exact migration/recovery consumers remain preserved. A
+manual native Compose entrypoint accepts explicit subsets of the existing service set;
+each production invocation still requires reviewed paths, exact source and separate
+authorization.
 
 Supported native scope includes read-only host and Compose observation, manual-update
-policy and existing-host backup configuration. The repaired native Compose canary
-completed generation activation and zero-change post-observation. The forward caller
-source now accepts any explicit subset of the existing service set while retaining
-same-environment, same-topology and explicit recreation boundaries; broader live use
-is not yet qualified or authorized. Historical interrupted/refused attempts and their
-consumed authorities remain documented in [operations](docs/operations.md).
+policy and existing-host backup configuration. Native Compose completed its canary
+qualification and the attended all-service transfer from the former host image
+override to tracked digest references. Immediate post-cutover observation was
+zero-change. Representative ordinary stateless, bind-file and image updates remain to
+be qualified before claiming unrestricted live use. Historical interrupted/refused
+attempts and their consumed authorities remain documented in
+[operations](docs/operations.md).
 
 - [Operations](docs/operations.md): local checks, intended native workflow and retained implementation.
 - [Recovery](recovery/README.md): snapshot staging, independent credentials and rollback boundaries.

@@ -415,15 +415,13 @@ Only the canary caller was migrated in that first source slice.
 
 The caller source now accepts any explicit subset of services that already exists in
 both complete models. It uses native Compose configuration output to validate the
-service set and derive configured container names, then resolves source and retained-
-override references with native `docker image inspect` before comparing local image
-IDs. A reviewed changed-path list
-and forced-recreation subset remain explicit inputs; no service catalogue, impact
-analyzer or deployment manifest was added. The environment, service set, protected
-per-service topology, top-level networks/volumes/configs/secrets and Restic policy
-inputs remain immutable. This is a source refactor only: broader live qualification,
-retry or deployment authority is not added, and override-masked image changes are
-refused.
+service set and derive configured container names. All candidate images must be
+repository digest references; the native pull module fetches only missing images for
+the requested services before `pull: never` preview and convergence. A reviewed
+changed-path list and forced-recreation subset remain explicit inputs; no service
+catalogue, impact analyzer or deployment manifest was added. The environment, service
+set, protected per-service topology, top-level networks/volumes/configs/secrets and
+Restic policy inputs remain immutable.
 
 At commit `0b75750d`, a separately authorized read-only observation passed with
 `ok=35 changed=0 failed=0 unreachable=0`: all 38 services were declared and running,
@@ -444,32 +442,27 @@ preview nevertheless proposed 76 actions because Compose records the reference f
 in container configuration. Removing the override is not a no-op and must not be
 folded into an ordinary service deployment.
 
-Source now contains a dedicated one-time
-`retire-compose-image-override.yml` cutover. It first repeats override-backed
-observation, requires image-ID neutrality, identical models except for image
-references, a non-empty preview confined to the existing service/container identities,
-and all 38 existing services. It acquires the production owner, publishes the reviewed source-only systemd
-unit with a host-local before-image, and hands all services to the existing native
-generation seam without pulls, builds, orphan removal or volume replacement. Check
-mode does not require confirmation; a normal run requires
-`compose_native_override_retirement_confirmed=true`, an exact clean source commit,
-and separate attended maintenance authorization. The first source-bound check refused
-safely because a raw preview count changed from 76 to 75 between observations even
-though the complete project remained healthy, drift-free and image-neutral. Raw action
-count is therefore diagnostic rather than authority. The corrected model/action
-invariants passed on the next check, which then refused the unit because the recorded
-before-image used current contract dependency ordering rather than the installed
-historical ordering. A private read-only unit capture proved ordering was the only
-byte difference. At commit `80b09aa`, the corrected source-bound check then passed
-with `ok=63 changed=2 failed=0 unreachable=0`; both reported changes were check-mode
-previews for the source-only Compose model and unit file. It published no unit, lock,
-artifact, environment or container change. The ordinary native path now defaults to
-tracked source-image authority; the one-time play explicitly forces override-backed
-observation before mutation. Until the normal cutover completes, use only that
-cutover entrypoint—not ordinary Compose observation or deployment. The cutover has
-**not** been run normally. Its expected broad container recreation is a deliberate one-time
-image-authority transfer, not general deployment authority. The retained override,
-current/previous image locks and rollback artifacts are not deleted.
+The one-time override retirement first refused two unsafe assumptions without host
+mutation: raw preview action count varied from 76 to 75, and the proposed before-unit
+used current contract dependency ordering rather than the installed historical order.
+The corrected boundary compared semantic models/actions and the exact installed unit.
+At commit `6efbec4`, its same-commit check passed with
+`ok=63 changed=2 failed=0 unreachable=0`; both changes were previews only.
+
+The separately authorized normal cutover then passed with
+`ok=117 changed=11 failed=0 unreachable=0`. It acquired production ownership, wrote
+the source-only systemd unit with a host-local before-image, captured an interruption
+image checkpoint, converged all 38 existing services through tracked digest references,
+required a zero-change full-project post-preview, verified both required health checks,
+kept the active artifact at `3e5600bf…`, consumed the checkpoint and released ownership.
+No image identity, database, environment, secret, topology, volume, Restic policy or
+artifact generation changed. Immediate ordinary observation passed with
+`ok=40 changed=0 failed=0 unreachable=0`, 38 declared/running services, 38 digest-
+pinned images, zero model actions and no ownership or interruption marker. The host
+override and current/previous/retained image locks remain untouched recovery evidence,
+but the override is no longer part of runtime invocation. The consumed one-time play,
+before-unit fixture and transitional comparison branches are removed from callable
+source.
 
 On September 18, 2026, live observation passed with all 38 declared services
 running, 38 immutable image references, both required health checks, exact canary

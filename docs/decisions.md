@@ -99,25 +99,21 @@ not a general deployment lane or other service scope. It is sufficient to refuse
 legacy **general** deployment lane, but not to remove operation-specific
 migration/recovery code or the installed image-pruning helper.
 
-The retained production image override is a transitional authority, not the future
-native interface. A September 19 native read proved its 37 local image-ID entries
-resolve to the same images as all 38 tracked digest references; a source-only preview
-still proposed broad container recreation. The selected simple boundary is therefore
-one explicit attended all-service reference cutover, rather than per-service generated
-overlays or indefinite config-only deployment. Source now models that cutover with an
-exact pre-unit identity, host-local unit backup, durable production owner, source/
-effective models equal except for image references, preview actions confined to
-existing containers, and the existing generation seam. The first source-bound check
-refused safely when the raw preview count varied from 76 to 75; count is no longer an
-authority input. The semantic guards passed on the next check, which then refused an
-incorrectly ordered unit before-image. Read-only capture proved ordering was its only
-byte difference. The corrected commit `80b09aa` then passed source-bound check mode
-with `ok=63 changed=2 failed=0 unreachable=0`; the two changes were previews only and
-production remained untouched. Ordinary native operations now default to tracked
-source images, while the cutover play explicitly observes the old override-backed
-state first; ordinary entrypoints are intentionally unavailable until the normal
-cutover completes. It has not been run normally. The override and image locks remain
-recovery evidence after authority transfers to tracked digest references.
+Tracked repository digests are the native runtime image authority. A September 19
+read first proved the former override's 37 local image-ID entries resolved to the same
+images as all 38 tracked references. After two safe check refusals corrected an
+unstable raw action count and the historical unit dependency order, commit `6efbec4`
+passed same-commit check mode and the separately authorized normal all-service
+cutover. The normal run reported `ok=117 changed=11 failed=0 unreachable=0`; it wrote
+the source-only unit with a host-local before-image, converged all 38 services,
+required zero post-preview actions, consumed its checkpoint and released ownership.
+Immediate ordinary observation reported `ok=40 changed=0 failed=0 unreachable=0`.
+No image identity, database, environment, secret, topology, volume, Restic policy or
+artifact generation changed. The former override and image locks remain recovery
+evidence but the override is no longer a runtime input. The consumed cutover play and
+transitional comparison/preinstalled-image branches are removed rather than retained
+as a second authority. This qualifies the all-service reference transfer, not yet a
+representative ordinary config, bind-file or image update.
 
 ## Why legacy code remains
 
