@@ -654,13 +654,20 @@ Caro/recovery review.
 Subsequent source retirement removed all remaining service-specific Compose staging,
 deployment, rollback and archive-recovery consumers plus their action-plan and image-
 lock helpers. The generic Restic recovery-group flow is now the only data-disaster
-interface. The native site also owns a persistent Sunday 04:00 systemd image-prune
-timer using the existing coordination locks; its first installation and old-state
-cleanup require the normal separately authorized site apply.
+interface. The native site owns a persistent Sunday 04:00 systemd image-prune timer
+using the existing coordination locks.
 
 The pre-change September 19 live audit found no installed prune helper/timer and found
-historical Compose image locks, overrides, artifacts and evidence. That observation
-is the baseline for the pending authoritative cleanup, not current desired state.
+historical Compose image locks, overrides, artifacts and evidence. Commit `38e23d8`
+then passed the exact source-bound site check with `ok=115 changed=5 failed=0` and was
+pushed. Its separately authorized site apply passed `ok=195 changed=26 failed=0`: it
+installed and enabled the timer, published artifact `0797243c…`, preserved all 38
+running digest-pinned services, and removed only the inventoried old Compose state.
+The timer is loaded/active/enabled with its first randomized Sunday trigger at 04:20
+PDT; it has not yet fired. Only `current`, `production.env`, credentials and the
+current artifact marker remain in the three Compose runtime roots. The exact retired
+`/var/lib/home-lab` records and production owner are absent. A fresh same-commit site
+check passed `ok=114 changed=0 failed=0`, including final native Compose observation.
 
 At the start of this simplification, ordinary check-mode observation passed
 `ok=35 changed=0 failed=0 unreachable=0`: 38 services were declared and running,
