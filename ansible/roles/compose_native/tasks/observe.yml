@@ -325,7 +325,7 @@
   loop: "{{ compose_native_declared_images.stdout_lines }}"
   no_log: true
 
-- name: List source images without the retained host override
+- name: Read the source model without the retained host override
   ansible.builtin.command:
     argv:
       - /usr/bin/docker
@@ -339,20 +339,39 @@
       - --file
       - "{{ compose_native_current_dir }}/docker-compose.yml"
       - config
-      - --images
+      - --format
+      - json
   become: true
   environment:
     HOME: "{{ compose_native_home }}"
-  register: compose_native_source_images
+  register: compose_native_source_model_raw
   changed_when: false
   check_mode: false
   no_log: true
 
-- name: Require the retained image override to be semantically neutral
-  ansible.builtin.assert:
-    that:
-      - compose_native_source_images.stdout_lines | sort == compose_native_declared_images.stdout_lines | sort
-    fail_msg: The retained host image override changes effective source image resolution.
+- name: Read the effective model with the retained host override
+  ansible.builtin.command:
+    argv: "{{ compose_native_runtime_cli + ['config', '--format', 'json'] }}"
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  register: compose_native_effective_model_raw
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Start the override-changed service set
+  ansible.builtin.set_fact:
+    compose_native_override_changed_services: []
+  no_log: true
+
+- name: Identify services whose source image is changed by the retained override
+  ansible.builtin.set_fact:
+    compose_native_override_changed_services: "{{ compose_native_override_changed_services + [item] }}"
+  loop: "{{ compose_native_declared_services.stdout_lines }}"
+  when: >-
+    (compose_native_source_model_raw.stdout | from_json).services[item].image !=
+    (compose_native_effective_model_raw.stdout | from_json).services[item].image
   no_log: true
 
 - name: Check active container health postconditions
@@ -430,6 +449,8 @@
       running_services: "{{ compose_native_running_services.stdout_lines | length }}"
       digest_pinned_images: "{{ compose_native_declared_images.stdout_lines | length }}"
       required_health_checks: "{{ compose_native_required_healthy_containers | length }}"
+      image_override_neutral: "{{ compose_native_override_changed_services | length == 0 }}"
+      override_changed_services: "{{ compose_native_override_changed_services }}"
       backup_writers: inactive
       active_model_drift: false
       restore_readiness_proven: false
