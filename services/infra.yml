@@ -6,7 +6,7 @@ x-logging: &default-logging
 
 services:
   omada:
-    image: mbentley/omada-controller:6.2@sha256:d281c115461bd5969e6e1864483e7bf57ca966bddde69d6a3b9a770f3289e273
+    image: mbentley/omada-controller:6.3.0.45@sha256:bf81f0456f74c6ceb84d1bf708141f42423a1b1eb74f3b187a12f5965af8a818
     container_name: omada
     restart: always
     logging: *default-logging
