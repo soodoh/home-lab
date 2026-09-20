@@ -21,7 +21,10 @@ with `community.docker.docker_compose_v2_pull` and `policy: missing`; every prev
 convergence call then uses `pull: never`. Native Compose automatically recreates
 services whose resolved models changed, including image digest or approved environment
 value changes. Explicit `recreate: always` is reserved for requested services whose
-exact bind-mounted files changed.
+exact bind-mounted files changed. Either automatic or forced dependency-isolated
+convergence may leave Compose 2.26 replacement metadata pending. The activation seam
+admits only the exact requested-container recreate/start pairs, settles requested
+services through dependency-aware automatic convergence, and then requires zero drift.
 
 A full-project preview before convergence may act only on explicitly requested
 container identities. The final full-project preview must be zero-change. Builds,
@@ -128,6 +131,25 @@ simplification, live check-mode observation again reported 38 declared/running
 services, 38 digest-pinned images, required health, no owner/interruption and zero
 Compose drift; the active artifact was `57c7326a463a560fee93fb45b729552fa8a9181d01b1f5292b2756558b21aa0d`
 and Recyclarr reported v8.7.2.
+
+The first authorized simplification deployment published artifact `d35539c7…` and
+converged `flaresolverr`, then correctly retained production ownership when the
+post-preview exposed the automatic isolated-convergence variant of the known Compose
+2.26 recreate/start pair. The guard had incorrectly enabled settlement only when the
+forced-recreation subset was non-empty. Commit `f7cdd91` generalized the exact action
+guard and dependency-aware settlement to every requested service. The exact-owner
+recovery initially settled the pair but stopped before marker publication and owner
+release because its temporary health list was wrong; commit `c8dd472` made that
+one-off recovery resumable from the already-settled state and reused the authoritative
+`compose_native_required_healthy_containers` list. Its check passed with zero changes,
+the normal recovery passed `ok=24 changed=1 failed=0`, advanced the marker, and
+released only the retained owner. The consumed recovery play was then removed.
+
+Fresh observation passed `ok=34 changed=0 failed=0`: all 38 services were running,
+all 38 images were digest pinned, both required health checks passed, backup writers
+were inactive, ownership/interruption state was absent, and the full preview was
+zero-change. A source-bound check at `c8dd472` reported candidate and active artifact
+`d35539c7…` with `ok=45 changed=0 failed=0`.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production

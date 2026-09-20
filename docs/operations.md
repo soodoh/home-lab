@@ -720,6 +720,42 @@ and Recyclarr v8.7.2. The failed prune audit command still returned those two va
 but exited nonzero because the expected helper and `crontab` were absent; a corrected
 read then confirmed no installed references. Both reads were observation only.
 
+After commits `43c1fcf` and `341c471` were pushed, the ordinary observation passed
+`ok=34 changed=0 failed=0 unreachable=0`, and the same-commit source check passed
+`ok=46 changed=1 failed=0 unreachable=0` with candidate artifact `d35539c7…` and no
+host mutation. The separately authorized normal deployment then published that
+artifact and converged only `flaresolverr`, but the full post-preview proposed its
+exact recreate/start pair. The play stopped at the guard with
+`ok=115 changed=19 failed=1`, preserved current `d35539c7…`, previous and marker
+`57c7326a…`, byte-identical environments and retained owner SHA-256 `82c05f0f…`.
+No image lock or checkpoint participated.
+
+The diagnosis reproduced that exact pair with a native dry run. The simplification
+had correctly switched resolved-model changes to automatic recreation, but retained
+the earlier Compose 2.26 settlement gate only for a non-empty forced-recreation set.
+Dependency-isolated automatic convergence can leave the same replacement metadata.
+Commit `f7cdd91` generalized the exact action guard and dependency-aware automatic
+settlement to all requested services and extended the disposable regression fixture
+to cover both automatic and forced isolated convergence.
+
+The exact-owner recovery check then passed `ok=15 changed=1 failed=0`. Its first
+normal run settled the pair and proved a zero-change full preview plus 38 running
+services, but stopped before marker publication and owner release because the one-off
+play used the wrong health-container names. This did not disturb the already-settled
+model. Commit `c8dd472` bound the recovery to either the exact pending pair or its
+settled state and reused the authoritative required-health list. Its second check
+passed `ok=15 changed=0 failed=0`; normal recovery passed
+`ok=24 changed=1 failed=0`, verified both required health checks, advanced the marker
+to `d35539c7…` and released only owner `82c05f0f…`.
+
+Fresh ordinary observation passed `ok=34 changed=0 failed=0`: all 38 services were
+declared/running on digest-pinned references, both required checks were healthy,
+backup writers were inactive, ownership/interruption state was absent and the full
+preview was zero-change. The final source-bound `c8dd472` check reported active and
+candidate `d35539c7…` with `ok=45 changed=0 failed=0`. The one-off recovery authority
+is consumed and its callable play is removed; current automation retains the
+generalized settlement fix.
+
 ## Manual-update policy
 
 The operator approved and applied this narrow native playbook on September 14:

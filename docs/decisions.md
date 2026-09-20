@@ -97,7 +97,13 @@ previous runner result. After exact forward recovery closed the interrupted publ
 authorized normal canary activation and zero-change post-observation. Only
 `flaresolverr` was recreated; the exact Compose 2.26 replacement pair was settled
 through dependency-aware automatic convergence, and no database, Restic policy,
-secret or artifact generation changed. At that point this qualified the exact
+secret or artifact generation changed. The later image-lock simplification exposed
+that dependency-isolated **automatic** convergence can leave the same pair as forced
+convergence. Current generation activation therefore guards the exact requested
+container action shape and settles all requested services—not only the forced subset—
+through dependency-aware automatic convergence before the final zero-change preview.
+The exact-owner recovery advanced artifact `d35539c7…`, released the retained owner,
+and was removed after use. At that point this qualified the exact
 canary mechanism, not a general deployment lane or other service scope. The later
 ordinary-lane qualification supersedes that service-scope limit without authorizing
 unrestricted convergence. The canary result was sufficient to refuse the legacy
