@@ -184,7 +184,7 @@ class NativeComposeSourceTests(unittest.TestCase):
             "Preview the full published model before container changes",
             "Preview the complete model after requested-service convergence",
             "Refuse post-recreation actions outside exact replacement containers",
-            "Settle Compose 2.26 replacement metadata through dependency-aware auto convergence",
+            "Settle isolated Compose replacement metadata through dependency-aware auto convergence",
             "Require the complete published model to be idempotent",
             "Recheck required container health after native convergence",
             "Assert complete post-deployment convergence",
@@ -198,12 +198,16 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertNotIn("nextcloud", generation.lower())
         self.assertNotIn("calibre", generation.lower())
         settle = generation.split(
-            "- name: Settle Compose 2.26 replacement metadata through dependency-aware auto convergence", 1
+            "- name: Settle isolated Compose replacement metadata through dependency-aware auto convergence", 1
         )[1].split("- name:", 1)[0]
-        self.assertIn("services: \"{{ compose_native_force_recreate_services }}\"", settle)
+        self.assertIn("services: \"{{ compose_native_requested_services }}\"", settle)
         self.assertIn("dependencies: true", settle)
         self.assertIn("recreate: auto", settle)
         self.assertIn("when: compose_native_post_preview.changed", settle)
+        post_guard = generation.split(
+            "- name: Require the exact post-isolated-convergence action count and statuses", 1
+        )[1].split("- name:", 1)[0]
+        self.assertNotIn("compose_native_force_recreate_services | length > 0", post_guard)
 
     def test_deployment_refuses_unbounded_model_and_path_changes(self):
         deploy = self.text(DEPLOY)

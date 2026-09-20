@@ -394,10 +394,9 @@
   check_mode: true
   no_log: true
 
-- name: Require the exact post-recreation action count and statuses
+- name: Require the exact post-isolated-convergence action count and statuses
   ansible.builtin.assert:
     that:
-      - compose_native_force_recreate_services | length > 0
       - >-
         compose_native_post_preview.actions | default([]) | length ==
         compose_native_action_container_names | length * 2
@@ -409,7 +408,7 @@
         compose_native_post_preview.actions | default([]) | map(attribute='status') |
         select('equalto', 'Starting') | list | length ==
         compose_native_action_container_names | length
-    fail_msg: Post-recreation convergence did not propose the exact replacement action shape.
+    fail_msg: Isolated convergence did not propose the exact replacement action shape.
   when: compose_native_post_preview.changed
   no_log: true
 
@@ -425,14 +424,14 @@
   loop: "{{ compose_native_post_preview.actions | default([]) }}"
   no_log: true
 
-- name: Settle Compose 2.26 replacement metadata through dependency-aware auto convergence
+- name: Settle isolated Compose replacement metadata through dependency-aware auto convergence
   community.docker.docker_compose_v2:
     project_src: "{{ compose_native_current_dir }}"
     project_name: "{{ compose_native_project_name }}"
     files: "{{ compose_native_files }}"
     env_files:
       - "{{ compose_native_runtime_env_path }}"
-    services: "{{ compose_native_force_recreate_services }}"
+    services: "{{ compose_native_requested_services }}"
     dependencies: true
     state: present
     pull: never

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Opt-in disposable regression for Compose 2.26 forced replacement settling.
+"""Opt-in disposable regression for Compose 2.26 isolated replacement settling.
 
-This test creates and removes two Alpine containers and one private Docker network.
+This test covers both automatic and forced isolated service convergence. It creates
+and removes two Alpine containers and one private Docker network.
 It never pulls images. Callers must provide an exact Compose 2.26.1 binary, an
 already-local image, and the explicitly approved non-production Docker context.
 """
@@ -114,14 +115,47 @@ def main() -> None:
                 "--pull",
                 "never",
                 "--no-deps",
+                "--wait",
+                "canary",
+            ]
+        )
+        automatic_red_output = dry_run_actions(binary, project, root)
+        if not re.search(r"Container .*canary\s+Recreate", automatic_red_output):
+            raise SystemExit("fixture did not reproduce automatic isolated replacement drift")
+
+        run(
+            compose
+            + [
+                "up",
+                "--detach",
+                "--no-build",
+                "--pull",
+                "never",
+                "--wait",
+                "canary",
+            ]
+        )
+        automatic_green_output = dry_run_actions(binary, project, root)
+        if re.search(r"Container .* (Recreate|Starting)", automatic_green_output):
+            raise SystemExit("automatic replacement drift remained after dependency-aware convergence")
+
+        run(
+            compose
+            + [
+                "up",
+                "--detach",
+                "--no-build",
+                "--pull",
+                "never",
+                "--no-deps",
                 "--force-recreate",
                 "--wait",
                 "canary",
             ]
         )
-        red_output = dry_run_actions(binary, project, root)
-        if not re.search(r"Container .*canary\s+Recreate", red_output):
-            raise SystemExit("fixture did not reproduce the Compose 2.26 replacement drift")
+        forced_red_output = dry_run_actions(binary, project, root)
+        if not re.search(r"Container .*canary\s+Recreate", forced_red_output):
+            raise SystemExit("fixture did not reproduce forced isolated replacement drift")
 
         run(
             compose
@@ -141,16 +175,17 @@ def main() -> None:
         if dependency_before != dependency_after:
             raise SystemExit("dependency-aware auto convergence recreated the dependency")
 
-        green_output = dry_run_actions(binary, project, root)
-        if re.search(r"Container .* (Recreate|Starting)", green_output):
-            raise SystemExit("replacement drift remained after dependency-aware auto convergence")
+        forced_green_output = dry_run_actions(binary, project, root)
+        if re.search(r"Container .* (Recreate|Starting)", forced_green_output):
+            raise SystemExit("forced replacement drift remained after dependency-aware convergence")
         print(
             json.dumps(
                 {
+                    "automatic_replacement_drift": True,
                     "compose_version": version,
                     "context": actual_context,
                     "dependency_recreated": False,
-                    "initial_replacement_drift": True,
+                    "forced_replacement_drift": True,
                     "post_settle_idempotent": True,
                 },
                 sort_keys=True,

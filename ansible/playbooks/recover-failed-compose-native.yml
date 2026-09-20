@@ -1,0 +1,327 @@
+---
+- name: Recover the exact interrupted native Compose deployment
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  vars:
+    compose_recovery_failed_artifact: d35539c7d3f68a09104b318c02938faf7e7e29041d4abcf340eed0c810b6cb37
+    compose_recovery_previous_artifact: 57c7326a463a560fee93fb45b729552fa8a9181d01b1f5292b2756558b21aa0d
+    compose_recovery_owner_sha256: 82c05f0facc3e2dce95c88e0f8fe3f95a4001a21925d41600d50d018f0cd110d
+    compose_recovery_service: flaresolverr
+    compose_recovery_expected_services: 38
+    compose_recovery_root: /srv/docker-compose
+    compose_recovery_env_root: /etc/docker-compose
+    compose_recovery_state_root: /var/lib/docker-compose
+    compose_recovery_apply_lock: /var/lib/iac-ansible-production.lock
+    compose_recovery_backup_lock: /run/lock/home-lab-backup.lock
+    compose_recovery_cli:
+      - /usr/bin/docker
+      - compose
+      - --project-name
+      - docker-compose
+      - --project-directory
+      - /srv/docker-compose/current
+      - --env-file
+      - /etc/docker-compose/production.env
+      - --file
+      - /srv/docker-compose/current/docker-compose.yml
+  pre_tasks:
+    - name: Validate exact recovery authorization
+      ansible.builtin.assert:
+        that:
+          - compose_recovery_expected_source_commit | default('') is match('^[0-9a-f]{40}$')
+          - ansible_check_mode or (compose_recovery_apply_confirmed | default(false) | bool)
+        fail_msg: Supply the exact reviewed source commit and explicit apply confirmation outside check mode.
+
+    - name: Inspect the tracked controller checkout
+      ansible.builtin.command:
+        argv: [git, status, --porcelain, --untracked-files=no]
+        chdir: "{{ playbook_dir }}/../.."
+      delegate_to: localhost
+      become: false
+      register: compose_recovery_source_status
+      changed_when: false
+      check_mode: false
+
+    - name: Read the controller source commit
+      ansible.builtin.command:
+        argv: [git, rev-parse, HEAD]
+        chdir: "{{ playbook_dir }}/../.."
+      delegate_to: localhost
+      become: false
+      register: compose_recovery_source_commit
+      changed_when: false
+      check_mode: false
+
+    - name: Require the exact clean recovery source
+      ansible.builtin.assert:
+        that:
+          - compose_recovery_source_status.stdout | length == 0
+          - compose_recovery_source_commit.stdout == compose_recovery_expected_source_commit
+        fail_msg: Recovery must run from the exact clean reviewed source commit.
+
+    - name: Verify exact retained owner and interrupted generation identities
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/bash
+          - -c
+          - >-
+            set -euo pipefail;
+            owner=$1;
+            current=$2;
+            previous=$3;
+            marker=$4;
+            expected_owner=$5;
+            expected_current=$6;
+            expected_previous=$7;
+            test "$(/usr/bin/sha256sum "$owner" | /usr/bin/cut --delimiter=' ' --fields=1)" = "$expected_owner";
+            /usr/bin/grep --fixed-strings --line-regexp 'controller=ansible-deploy' "$owner" >/dev/null;
+            /usr/bin/grep --fixed-strings --line-regexp 'operation=compose-native-deploy' "$owner" >/dev/null;
+            test "$(/usr/bin/python3 "$current/scripts/compose-artifact.py" --root "$current" --no-git hash)" = "$expected_current";
+            test "$(/usr/bin/python3 "$previous/scripts/compose-artifact.py" --root "$previous" --no-git hash)" = "$expected_previous";
+            test "$(/usr/bin/cat "$marker")" = "$expected_previous"
+          - compose-native-recovery-identity
+          - "{{ compose_recovery_apply_lock }}/owner"
+          - "{{ compose_recovery_root }}/current"
+          - "{{ compose_recovery_root }}/previous"
+          - "{{ compose_recovery_state_root }}/current-artifact.sha256"
+          - "{{ compose_recovery_owner_sha256 }}"
+          - "{{ compose_recovery_failed_artifact }}"
+          - "{{ compose_recovery_previous_artifact }}"
+      become: true
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require unchanged protected environments
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/bash
+          - -c
+          - >-
+            set -euo pipefail;
+            /usr/bin/cmp --silent -- "$1" "$2";
+            /usr/bin/cmp --silent -- "$1" "$3"
+          - compose-native-recovery-environment
+          - "{{ compose_recovery_env_root }}/production.env"
+          - "{{ compose_recovery_env_root }}/previous.env"
+          - "{{ compose_recovery_env_root }}/staging/{{ compose_recovery_failed_artifact }}.env"
+      become: true
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require the existing backup mutex to be immediately available
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/bash
+          - -c
+          - >-
+            set -euo pipefail;
+            exec 9< "$1";
+            /usr/bin/flock --exclusive --nonblock 9 /usr/bin/true
+          - compose-native-recovery-backup-lock
+          - "{{ compose_recovery_backup_lock }}"
+      become: true
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Validate the interrupted current Compose model
+      ansible.builtin.command:
+        argv: "{{ compose_recovery_cli + ['config', '--quiet'] }}"
+      become: true
+      environment:
+        HOME: /root
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: List declared services in the interrupted current model
+      ansible.builtin.command:
+        argv: "{{ compose_recovery_cli + ['config', '--services'] }}"
+      become: true
+      environment:
+        HOME: /root
+      register: compose_recovery_declared_services
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require the exact retained service set
+      ansible.builtin.assert:
+        that:
+          - compose_recovery_declared_services.stdout_lines | length == compose_recovery_expected_services
+          - compose_recovery_service in compose_recovery_declared_services.stdout_lines
+        fail_msg: Interrupted current model service identity changed.
+
+    - name: Preview the exact interrupted replacement action
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_recovery_root }}/current"
+        project_name: docker-compose
+        files: [docker-compose.yml]
+        env_files:
+          - "{{ compose_recovery_env_root }}/production.env"
+        state: present
+        pull: never
+        build: never
+        recreate: auto
+        remove_orphans: false
+        renew_anon_volumes: false
+        wait: false
+      become: true
+      environment:
+        HOME: /root
+      register: compose_recovery_preview
+      check_mode: true
+      no_log: true
+
+    - name: Require only the exact interrupted replacement pair
+      ansible.builtin.assert:
+        that:
+          - compose_recovery_preview.changed
+          - compose_recovery_preview.actions | default([]) | length == 2
+          - >-
+            compose_recovery_preview.actions | map(attribute='status') |
+            select('equalto', 'Recreate') | list | length == 1
+          - >-
+            compose_recovery_preview.actions | map(attribute='status') |
+            select('equalto', 'Starting') | list | length == 1
+          - >-
+            compose_recovery_preview.actions | map(attribute='id') |
+            reject('match', '^(?:flaresolverr|[0-9a-f]{12}_flaresolverr)$') | list | length == 0
+        fail_msg: Live interrupted actions no longer match the reviewed flaresolverr replacement pair.
+      no_log: true
+
+  tasks:
+    - name: Adopt only the exact retained production owner
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: adopt
+        apply_lock_path: "{{ compose_recovery_apply_lock }}"
+        apply_lock_operation: compose-native-deploy
+        apply_lock_expected_owner_sha256: "{{ compose_recovery_owner_sha256 }}"
+
+    - name: Settle exact interrupted service through dependency-aware auto convergence
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_recovery_root }}/current"
+        project_name: docker-compose
+        files: [docker-compose.yml]
+        env_files:
+          - "{{ compose_recovery_env_root }}/production.env"
+        services: ["{{ compose_recovery_service }}"]
+        dependencies: true
+        state: present
+        pull: never
+        build: never
+        recreate: auto
+        remove_orphans: false
+        renew_anon_volumes: false
+        wait: true
+        wait_timeout: 300
+      become: true
+      environment:
+        HOME: /root
+      when: not ansible_check_mode
+      no_log: true
+
+    - name: Require the recovered full model to be idempotent
+      community.docker.docker_compose_v2:
+        project_src: "{{ compose_recovery_root }}/current"
+        project_name: docker-compose
+        files: [docker-compose.yml]
+        env_files:
+          - "{{ compose_recovery_env_root }}/production.env"
+        state: present
+        pull: never
+        build: never
+        recreate: auto
+        remove_orphans: false
+        renew_anon_volumes: false
+        wait: false
+      become: true
+      environment:
+        HOME: /root
+      register: compose_recovery_final_preview
+      check_mode: true
+      when: not ansible_check_mode
+      no_log: true
+
+    - name: Assert complete recovered convergence
+      ansible.builtin.assert:
+        that:
+          - not compose_recovery_final_preview.changed
+          - compose_recovery_final_preview.containers | length == compose_recovery_expected_services
+        fail_msg: Recovered Compose model still proposes changes.
+      when: not ansible_check_mode
+      no_log: true
+
+    - name: List running services after recovery
+      ansible.builtin.command:
+        argv: "{{ compose_recovery_cli + ['ps', '--status', 'running', '--services'] }}"
+      become: true
+      environment:
+        HOME: /root
+      register: compose_recovery_running_services
+      changed_when: false
+      when: not ansible_check_mode
+      no_log: true
+
+    - name: Require the complete running service set after recovery
+      ansible.builtin.assert:
+        that:
+          - compose_recovery_running_services.stdout_lines | sort == compose_recovery_declared_services.stdout_lines | sort
+        fail_msg: Recovery did not preserve the complete running service set.
+      when: not ansible_check_mode
+      no_log: true
+
+    - name: Recheck required healthy containers
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - inspect
+          - --format
+          - "{% raw %}{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}{% endraw %}"
+          - "{{ item }}"
+      become: true
+      register: compose_recovery_health
+      loop: [nextcloud-app, vaultwarden]
+      changed_when: false
+      retries: 30
+      delay: 10
+      until: compose_recovery_health.stdout == 'healthy'
+      when: not ansible_check_mode
+      no_log: true
+
+    - name: Publish the recovered active artifact identity
+      ansible.builtin.copy:
+        content: "{{ compose_recovery_failed_artifact }}\n"
+        dest: "{{ compose_recovery_state_root }}/current-artifact.sha256"
+        owner: root
+        group: root
+        mode: "0444"
+      become: true
+      when: not ansible_check_mode
+      no_log: true
+
+    - name: Release only the exact recovered production owner
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_recovery_apply_lock }}"
+        apply_lock_operation: compose-native-deploy
+        apply_lock_expected_owner_sha256: "{{ compose_recovery_owner_sha256 }}"
+      when: not ansible_check_mode
+
+  post_tasks:
+    - name: Report bounded recovery outcome
+      ansible.builtin.debug:
+        msg:
+          operation: compose-native-deploy-recovery
+          failed_artifact: "{{ compose_recovery_failed_artifact }}"
+          retained_previous_artifact: "{{ compose_recovery_previous_artifact }}"
+          service: "{{ compose_recovery_service }}"
+          check_mode: "{{ ansible_check_mode }}"
