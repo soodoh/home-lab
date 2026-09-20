@@ -71,8 +71,8 @@ class NativeComposeSourceTests(unittest.TestCase):
         for required in (
             "findmnt", "list-jobs", "systemctl", "compose-image-lock.py",
             "config', '--quiet", "config', '--services", "config', '--images",
-            "Identify services whose source image is changed by the retained override",
-            "image_override_neutral", "override_changed_services",
+            "Identify unavailable or different source image IDs behind the retained override",
+            "image_override_neutral", "override_divergent_services",
             "community.docker.docker_compose_v2", "check_mode: true",
             "compose_native_backup_journal_path", "compose_native_apply_lock_path",
             "compose_native_reconciliation_lock_paths", "restore_readiness_proven: false",
@@ -116,7 +116,7 @@ class NativeComposeSourceTests(unittest.TestCase):
             "compose_native_interrupted_image_path", "compose_native_retained_image_root", "compose_native_backup_lock_path",
             "compose_native_expected_changed_paths", "compose_native_requested_container_names",
             "compose_native_protected_service_fields", "Refuse protected topology changes inside requested services",
-            "compose_native_source_candidate_images", "compose_native_effective_candidate_images",
+            "compose_native_source_candidate_images", "compose_native_requested_image_id_checks",
             "services/data/restic/files-from",
             "database_migration_performed: false", "restic_activation_performed: false",
         ):
@@ -215,7 +215,8 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertNotIn("services/nextcloud.yml", deploy)
         self.assertIn("compose_native_expected_changed_paths", deploy)
         self.assertIn("compose_native_requested_container_names", deploy)
-        self.assertIn("Candidate images must be digest pinned and identical", deploy)
+        self.assertIn("Candidate source images must all be digest pinned", deploy)
+        self.assertIn("resolves to a different image ID", deploy)
         self.assertNotIn("compose-impact", deploy)
         self.assertIn("compose_native_active_model.services[item]", deploy)
         self.assertIn("compose_native_candidate_model.services[item]", deploy)

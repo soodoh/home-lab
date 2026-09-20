@@ -493,31 +493,7 @@
       changed_when: false
       no_log: true
 
-    - name: List effective candidate images with the host override
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/docker
-          - compose
-          - --project-name
-          - "{{ compose_native_project_name }}"
-          - --project-directory
-          - "{{ compose_native_candidate_dir }}"
-          - --env-file
-          - "{{ compose_native_candidate_env_path }}"
-          - --file
-          - "{{ compose_native_candidate_dir }}/docker-compose.yml"
-          - --file
-          - "{{ compose_native_image_override_path }}"
-          - config
-          - --images
-      become: true
-      environment:
-        HOME: "{{ compose_native_home }}"
-      register: compose_native_effective_candidate_images
-      changed_when: false
-      no_log: true
-
-    - name: Refuse mutable or override-masked candidate images
+    - name: Refuse mutable source candidate images
       ansible.builtin.assert:
         that:
           - compose_native_source_candidate_images.stdout_lines | length > 0
@@ -525,12 +501,30 @@
             compose_native_source_candidate_images.stdout_lines |
             select('match', '^(?:.+@)?sha256:[0-9a-f]{64}$') | list | length ==
             compose_native_source_candidate_images.stdout_lines | length
-          - >-
-            compose_native_source_candidate_images.stdout_lines | sort ==
-            compose_native_effective_candidate_images.stdout_lines | sort
-        fail_msg: >-
-          Candidate images must be digest pinned and identical with or without the retained host override.
-          Image-override changes remain a separate operation.
+        fail_msg: Candidate source images must all be digest pinned.
+      no_log: true
+
+    - name: Read the source candidate model without the host override
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - compose
+          - --project-name
+          - "{{ compose_native_project_name }}"
+          - --project-directory
+          - "{{ compose_native_current_dir }}"
+          - --env-file
+          - "{{ compose_native_candidate_env_path }}"
+          - --file
+          - "{{ compose_native_candidate_dir }}/docker-compose.yml"
+          - config
+          - --format
+          - json
+      become: true
+      environment:
+        HOME: "{{ compose_native_home }}"
+      register: compose_native_source_candidate_model_raw
+      changed_when: false
       no_log: true
 
     - name: Require requested services to exist in both complete models
@@ -577,10 +571,40 @@
       changed_when: false
       no_log: true
 
-    - name: Parse the protected normalized active and candidate models
+    - name: Parse the protected active source and effective candidate models
       ansible.builtin.set_fact:
         compose_native_active_model: "{{ compose_native_active_model_raw.stdout | from_json }}"
+        compose_native_source_candidate_model: "{{ compose_native_source_candidate_model_raw.stdout | from_json }}"
         compose_native_candidate_model: "{{ compose_native_candidate_model_raw.stdout | from_json }}"
+      no_log: true
+
+    - name: Resolve requested source and effective images to local IDs
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - image
+          - inspect
+          - --format
+          - "{% raw %}{{.Id}}{% endraw %}"
+          - "{{ compose_native_source_candidate_model.services[item].image }}"
+          - "{{ compose_native_candidate_model.services[item].image }}"
+      become: true
+      register: compose_native_requested_image_id_checks
+      loop: "{{ compose_native_requested_services }}"
+      changed_when: false
+      failed_when: false
+      no_log: true
+
+    - name: Refuse requested images that the retained override masks to a different local image
+      ansible.builtin.assert:
+        that:
+          - item.rc == 0
+          - item.stdout_lines | length == 2
+          - item.stdout_lines | unique | length == 1
+        fail_msg: >-
+          A requested source image is unavailable locally or resolves to a different image ID
+          behind the retained host override; align image authority before deployment.
+      loop: "{{ compose_native_requested_image_id_checks.results }}"
       no_log: true
 
     - name: Refuse changes to non-service Compose topology
