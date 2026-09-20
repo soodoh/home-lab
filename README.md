@@ -16,9 +16,11 @@ Supported native scope includes read-only host and Compose observation, manual-u
 policy and existing-host backup configuration. Native Compose completed its canary
 qualification and the attended all-service transfer from the former host image
 override to tracked digest references. Immediate post-cutover observation was
-zero-change. Representative ordinary stateless, bind-file and image updates remain to
-be qualified before claiming unrestricted live use. Historical interrupted/refused
-attempts and their consumed authorities remain documented in
+zero-change. The ordinary bounded path then qualified stateless/dependent recreation,
+tracked bind-file publication and a reviewed digest-pinned image update, each with
+zero-change post-observation. Every future production run still requires exact scope
+review and separate authorization; this is not unrestricted live use. Historical
+interrupted/refused attempts and their consumed authorities remain documented in
 [operations](docs/operations.md).
 
 - [Operations](docs/operations.md): local checks, intended native workflow and retained implementation.

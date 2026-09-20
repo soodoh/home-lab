@@ -47,7 +47,7 @@ new deployment approval. The activation task is not a public standalone playbook
 
 | Path | What it prepares or owns | Current activation boundary |
 | --- | --- | --- |
-| `deploy-compose.yml` / `compose_native:deploy` | Clean committed source, exact reviewed artifact paths and requested/forced-recreation service subsets, host-only environment decryption, same-content environment check and native normalized-model comparison | Uses the extracted native generation interface. The all-service reference cutover qualified activation of all existing services; representative ordinary config, bind-file and image changes remain pending. |
+| `deploy-compose.yml` / `compose_native:deploy` | Clean committed source, exact reviewed artifact paths and requested/forced-recreation service subsets, host-only environment decryption, same-content environment check and native normalized-model comparison | Uses the extracted native generation interface. Ordinary stateless/dependent recreation, bind-file publication and a repository-digest image update are live-qualified for separately authorized existing-service changes. |
 | `stage-compose.yml`, `review-compose-stage.yml` / `compose_stage` | Exact legacy artifact/environment, Nextcloud secret files and protected desired/runtime inventories for three allowlisted retained operations | General staging remains refused. The obsolete Calibre operation is no longer allowlisted; retained inventories still feed Nextcloud/Restic deployment and archive-recovery preflight. |
 | `deploy-nextcloud-migration.yml` / `compose_deploy` | Historical Nextcloud writer/path migration and latent exact Restic-policy recovery | Retained pending caller-by-caller retirement. The applied Nextcloud migration must not be rerun. The obsolete Calibre authorization/resume and NFS-to-local reconciliation branch was removed after verified private-staging restore. There is no general deploy entrypoint. |
 | `rollback-compose.yml`, `rollback-nextcloud-migration.yml` / `compose_rollback` | Exact reviewed previous artifact/environment/image locks, optional historical Nextcloud service removal and rollback action identity | Retained unchanged. Both plays still depend on the custom action-plan and image-lock helpers until a native preview can preserve their exact service-removal and pre-publication recovery semantics. |
@@ -117,16 +117,27 @@ fixture, duplicate model comparison and local-image precondition are removed fro
 callable source. Commit `0e3c018` then passed the simplified ordinary observation
 with `ok=35 changed=0 failed=0 unreachable=0` and explicit tracked-digest authority.
 
+The ordinary path subsequently completed three bounded shapes. Commit `ba998f2`
+forced only stateless/dependent `flaresolverr` and passed `ok=100 changed=10` with its
+artifact unchanged. Commit `7e64899` published the exact Caddy bind-file change,
+forced only `caddy`, passed `ok=133 changed=24`, and advanced to artifact `b9eafc60…`;
+in-container Caddy validation and zero-change observation passed. Commit `233a582`
+pulled only reviewed Recyclarr 8.7.2 digest `sha256:6e69e009…`, admitted only its
+automatic replacement, passed `ok=134 changed=25`, and advanced to artifact
+`57c7326a…`; the running binary and zero-change observation passed. Each operation
+preserved all 38 running services, protected topology/environment/data and Restic
+policy, rotated rollback generations where the artifact changed, consumed its image
+checkpoint and released production ownership.
+
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production
 coordination remain unresolved prerequisites.
 
 ## Next slices
 
-Qualify the ordinary general caller without expanding its boundary: same environment,
-same service set, unchanged top-level topology, exact reviewed paths and explicit
-service/recreation sets. Start with one stateless service, one bind-file recreation
-and one digest-pinned image update.
+Add behavioral fixture coverage for mixed multi-service requests and refusal cases,
+then qualify representative generic rollback and partial-failure recovery without
+expanding the forward boundary.
 
 Migrate recovery callers only after the general forward path is qualified and each
 operation-specific preparation can hand the activation seam a complete validated

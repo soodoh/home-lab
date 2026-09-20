@@ -7,15 +7,16 @@ chrony convergence, guarded existing-host backup configuration (tools, account,
 same-content runtime files and nine unit definitions), and native Compose
 observation. Native Proxmox package maintenance and reboot have source-qualified
 entrypoints but retain separate live cutover gates below. [Dated outcomes](#latest-scoped-deployment)
-do not expand that scope. Broader host/application adoption is pending: there is
-**no supported general deploy or host-convergence command**. The native Compose
-`flaresolverr` canary has now passed source-bound check mode, normal generation
-activation and zero-change post-observation through the repaired native interface.
-That qualification covers only the exact bounded canary; it does not authorize other
-services, database/filesystem migration, Restic policy activation or an unattended
-deployment lane. Debian `site.yml` still includes lifecycle, lock and backup
-prerequisites. Directly invoking retained mutation roles is not an approved
-replacement for the removed controller.
+do not expand that scope. There is no supported general host-convergence command.
+The native Compose entrypoint is qualified for separately authorized, explicitly
+bounded updates to existing services: unchanged environment/service set/topology,
+exact reviewed artifact paths, requested services and explicit bind-file recreation.
+Stateless/dependent recreation, bind-file publication and a digest-pinned image update
+have completed with zero-change post-observation. This is not permission for service,
+secret, database/filesystem, mount/topology or Restic-policy changes, nor an unattended
+lane. Debian `site.yml` still includes lifecycle, lock and backup prerequisites.
+Directly invoking retained mutation roles is not an approved replacement for the
+removed controller.
 
 ## Latest scoped deployment
 
@@ -365,24 +366,24 @@ check; deployment observation does not consume unauthenticated registry quota.
 Its bounded summary explicitly does not claim restore readiness. It consumes no
 receipt, `.local`, `.reconcile` or prior runner result.
 
-`ansible/playbooks/deploy-compose.yml` is check-mode qualified but has not performed
-a normal generalized deployment. Its source accepts only an explicit subset of the
-existing service set; live mutation qualification remains limited to `flaresolverr`.
-It re-runs observation, acquires the durable production owner lock,
-derives an artifact hash directly from tracked checkout bytes, stages only the
-existing deterministic artifact selection, decrypts SOPS only on the host and
-requires the resulting environment to be byte-identical to production. Credential,
-service-set, database migration, mount/topology and Restic-policy changes are out
-of scope. LiteLLM config bytes are frozen, and every non-requested normalized
-service plus top-level network/volume/config/secret topology must equal active
-state. Any changed artifact requires explicit canary recreation.
+`ansible/playbooks/deploy-compose.yml` accepts only an explicit subset of the existing
+service set and requires a same-commit check before each separately authorized normal
+run. It re-runs observation, acquires the durable production owner lock, derives an
+artifact hash directly from tracked checkout bytes, stages only the existing
+deterministic artifact selection, decrypts SOPS only on the host and requires the
+resulting environment to be byte-identical to production. Credential, service-set,
+database migration, mount/topology and Restic-policy changes are out of scope.
+LiteLLM config bytes are frozen, and every non-requested normalized service plus
+top-level network/volume/config/secret topology must equal active state. Every
+changed artifact path and impacted service must be named explicitly; bind-file byte
+changes additionally require explicit forced recreation.
 
 The module calls fix `project_name=docker-compose`, disable builds, pull only the
-explicit canary services with `policy=missing`, and then use `pull=never` for
+explicitly requested services with `policy=missing`, and then use `pull=never` for
 full-project preview and convergence. They prohibit orphan and anonymous-volume
 replacement, wait for running/healthy state, and use automatic recreation except
 for an explicitly supplied forced-recreation subset. A full-project module preview
-must contain only canary-container actions before convergence, and a full-project
+must contain only requested-container actions before convergence, and a full-project
 post-preview must be idempotent. The role preserves `current`, `previous`,
 hash-addressed older artifacts/environments and a durable pre-deployment image
 checkpoint. The narrow image-lock helper extension makes prune protect
@@ -465,6 +466,36 @@ before-unit fixture and transitional comparison branches are removed from callab
 source. After that cleanup, commit `0e3c018` passed the simplified ordinary
 observation with `ok=35 changed=0 failed=0 unreachable=0` and reported
 `image_authority=tracked_digest_references`.
+
+Three September 19 operations then qualified the ordinary bounded deployment shapes:
+
+- At commit `ba998f2`, an unchanged-artifact forced recreation of stateless
+  `flaresolverr` qualified a service with `network_mode: service:gluetun` and a
+  healthy dependency without recreating that dependency. Check mode passed
+  `ok=46 changed=1`; the normal run passed `ok=100 changed=10`, retained artifact
+  `3e5600bf…`, settled the Compose 2.26 replacement metadata, consumed its checkpoint
+  and released ownership.
+- Commit `7e64899` added only an operational comment to the bind-mounted
+  `services/data/Caddyfile`. The exact-path/`caddy` forced-recreation check passed
+  `ok=47 changed=1`; the normal run passed `ok=133 changed=24`, advanced the artifact
+  to `b9eafc60…`, rotated rollback generations and released ownership. In-container
+  `caddy validate` returned `Valid configuration`, and ordinary observation passed
+  `ok=35 changed=0`.
+- Commit `233a582` updated Recyclarr from 8.7.0 to 8.7.2 at reviewed OCI-index digest
+  `sha256:6e69e009…`. Upstream 8.7.1/8.7.2 describe cache and Docker permission fixes
+  with no documented migration, breaking, config-format or database effects. The
+  exact-path/`recyclarr` check passed `ok=47 changed=1`; the normal run pulled only
+  that requested image, admitted only the Recyclarr replacement pair, passed
+  `ok=134 changed=25`, advanced the artifact to `57c7326a…`, rotated rollback image
+  generations, consumed the checkpoint and released ownership. The running binary
+  reported `v8.7.2`, and ordinary observation again passed `ok=35 changed=0`.
+
+All three operations kept 38 services running, both required health checks passing,
+full-project post-preview empty, and environment, secrets, service set, protected
+topology, storage, database and Restic policy unchanged. This qualifies bounded
+existing-service recreation, dependency handling, bind-file publication and
+repository-digest image updates; it does not generalize migrations or remove the
+per-operation review and authorization boundary.
 
 On September 18, 2026, live observation passed with all 38 declared services
 running, 38 immutable image references, both required health checks, exact canary

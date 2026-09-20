@@ -113,9 +113,20 @@ artifact generation changed. The former override and image locks remain recovery
 evidence but the override is no longer a runtime input. The consumed cutover play and
 transitional comparison/preinstalled-image branches are removed rather than retained
 as a second authority. Commit `0e3c018` passed the simplified ordinary observation
-with `ok=35 changed=0 failed=0 unreachable=0` and tracked-digest authority. This
-qualifies the all-service reference transfer, not yet a representative ordinary
-config, bind-file or image update.
+with `ok=35 changed=0 failed=0 unreachable=0` and tracked-digest authority.
+
+The bounded ordinary lane is now qualified for existing-service forward changes,
+not unrestricted convergence. Commit `ba998f2` recreated only stateless/dependent
+`flaresolverr`; commit `7e64899` published one exact bind-file change and forcibly
+recreated only Caddy; commit `233a582` pulled and automatically activated only the
+reviewed Recyclarr 8.7.2 repository digest. Their normal runs passed respectively
+`ok=100 changed=10`, `ok=133 changed=24`, and `ok=134 changed=25`; each ended with
+38 running services, zero full-project actions, consumed checkpoint and released
+owner. Caddy config validation, Recyclarr's running version and zero-change ordinary
+observations passed. The decision remains explicit-subset deployment with exact
+reviewed paths, immutable environment/service set/protected topology and separate
+production authorization. Database/storage/secret/Restic operations and generic
+rollback remain outside this qualification.
 
 ## Why legacy code remains
 
