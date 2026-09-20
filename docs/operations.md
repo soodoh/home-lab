@@ -460,8 +460,10 @@ count is therefore diagnostic rather than authority. The corrected model/action
 invariants passed on the next check, which then refused the unit because the recorded
 before-image used current contract dependency ordering rather than the installed
 historical ordering. A private read-only unit capture proved ordering was the only
-byte difference; the corrected reviewed before-image now matches its SHA-256 exactly
-and awaits another check. The cutover has **not** been run or check-qualified.
+byte difference. At commit `80b09aa`, the corrected source-bound check then passed
+with `ok=63 changed=2 failed=0 unreachable=0`; both reported changes were check-mode
+previews for the source-only Compose model and unit file. It published no unit, lock,
+artifact, environment or container change. The cutover has **not** been run normally.
 Its expected broad container recreation is a deliberate one-time
 image-authority transfer, not general deployment authority. The retained override,
 current/previous image locks and rollback artifacts are not deleted.

@@ -116,9 +116,11 @@ changed from 76 to 75; source now gates semantic model/action boundaries instead
 that unstable diagnostic count. Those guards passed on the next check, which then
 refused because the recorded pre-cutover unit dependency order differed from the
 installed historical order. A private read-only capture proved that was the only byte
-difference; the corrected before-image matches its SHA-256 and awaits another check.
-The all-service recreation and systemd ownership transfer require a separately authorized
-attended maintenance window.
+difference. At commit `80b09aa`, the corrected source-bound check passed with
+`ok=63 changed=2 failed=0 unreachable=0`; its two changes were check-mode previews
+only. No unit, lock, artifact, environment or container changed. The all-service
+recreation and systemd ownership transfer require a separately authorized attended
+maintenance window.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production
