@@ -248,7 +248,7 @@ services:
 
   # Readarr replacement
   bookshelf:
-    image: ghcr.io/pennydreadful/bookshelf:hardcover-v0.4.20@sha256:388eecc94362580eae31ee0a454be6af516f8a311f8432a521c202fb475f4359
+    image: ghcr.io/pennydreadful/bookshelf:hardcover-v0.4.21.182@sha256:67498dd5ece516867d72ee642abd6c1a66b36a135c8f7da0127109564372beb1
     container_name: bookshelf
     restart: unless-stopped
     logging: *default-logging
