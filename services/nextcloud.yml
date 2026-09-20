@@ -4,7 +4,7 @@ x-logging: &default-logging
     max-size: 10m
     max-file: 3
 
-x-nextcloud-image: &nextcloud-image nextcloud:34.0.2-apache@sha256:d7666d54d87c58d52869ddda36d1acbd4a7f53faf8ab6b91293daf204f3434e8
+x-nextcloud-image: &nextcloud-image nextcloud:34.0.4-apache@sha256:a5ace30c695afe48c2c406e940ee7886a81e13fa382e57cd68b2416d1a66914c
 
 x-nextcloud-smtp-environment: &nextcloud-smtp-environment
   SMTP_HOST: $NEXTCLOUD_SMTP_HOST
