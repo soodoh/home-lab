@@ -98,7 +98,7 @@ class NativeComposeSourceTests(unittest.TestCase):
             "compose_native_controller_status.stdout == ''",
             "compose_native_controller_commit.stdout == compose_native_expected_source_commit",
             "--porcelain=v1",
-            "--untracked-files=all",
+            "--untracked-files=no",
         ):
             self.assertIn(required, source)
         modules = source.count("community.docker.docker_compose_v2:")
