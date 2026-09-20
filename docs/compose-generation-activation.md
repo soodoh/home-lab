@@ -95,9 +95,12 @@ same-commit check and separately authorized normal canary run. The role recreate
 dependency recreation, consumed its fresh checkpoint and finished with zero-change
 observation. That live qualification covers only the exact historical canary scope. The later
 general-caller refactor is source-only: no broader service deployment is authorized
-or qualified yet. The retained host image override must remain semantically neutral;
-a source image change that it masks is refused and requires separate override
-ownership work.
+or qualified yet. At commit `0b75750d`, fresh native observation and a same-commit
+check passed with zero changes and equal candidate/active artifact identity. Check
+mode intentionally skipped normal staging, decryption, model comparison and
+activation, so it did not qualify those generalized branches. The retained host image
+override must remain semantically neutral; a source image change that it masks is
+refused and requires separate override ownership work.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production

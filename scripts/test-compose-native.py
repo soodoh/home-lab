@@ -71,6 +71,7 @@ class NativeComposeSourceTests(unittest.TestCase):
         for required in (
             "findmnt", "list-jobs", "systemctl", "compose-image-lock.py",
             "config', '--quiet", "config', '--services", "config', '--images",
+            "Require the retained image override to be semantically neutral",
             "community.docker.docker_compose_v2", "check_mode: true",
             "compose_native_backup_journal_path", "compose_native_apply_lock_path",
             "compose_native_reconciliation_lock_paths", "restore_readiness_proven: false",

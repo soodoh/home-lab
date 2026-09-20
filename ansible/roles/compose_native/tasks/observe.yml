@@ -325,6 +325,36 @@
   loop: "{{ compose_native_declared_images.stdout_lines }}"
   no_log: true
 
+- name: List source images without the retained host override
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/docker
+      - compose
+      - --project-name
+      - "{{ compose_native_project_name }}"
+      - --project-directory
+      - "{{ compose_native_current_dir }}"
+      - --env-file
+      - "{{ compose_native_runtime_env_path }}"
+      - --file
+      - "{{ compose_native_current_dir }}/docker-compose.yml"
+      - config
+      - --images
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  register: compose_native_source_images
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Require the retained image override to be semantically neutral
+  ansible.builtin.assert:
+    that:
+      - compose_native_source_images.stdout_lines | sort == compose_native_declared_images.stdout_lines | sort
+    fail_msg: The retained host image override changes effective source image resolution.
+  no_log: true
+
 - name: Check active container health postconditions
   ansible.builtin.command:
     argv:

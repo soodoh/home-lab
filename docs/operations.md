@@ -417,10 +417,22 @@ both complete models. It uses native Compose configuration output to validate th
 service set, derive configured container names and compare digest-pinned image
 resolution with and without the retained host override. A reviewed changed-path list
 and forced-recreation subset remain explicit inputs; no service catalogue, impact
-analyzer or deployment manifest was added. The environment, service set, top-level
-networks/volumes/configs/secrets and Restic policy inputs remain immutable. This is a
-source refactor only: broader live qualification, retry or deployment authority is
-not added, and override-masked image changes are refused.
+analyzer or deployment manifest was added. The environment, service set, protected
+per-service topology, top-level networks/volumes/configs/secrets and Restic policy
+inputs remain immutable. This is a source refactor only: broader live qualification,
+retry or deployment authority is not added, and override-masked image changes are
+refused.
+
+At commit `0b75750d`, a separately authorized read-only observation passed with
+`ok=35 changed=0 failed=0 unreachable=0`: all 38 services were declared and running,
+all 38 effective images were digest pinned, both required health checks passed,
+backup writers were inactive, ownership paths and interruption journal were absent,
+and the full-project native preview reported no drift. A source-bound general-caller
+check then passed with `ok=46 changed=0 failed=0 unreachable=0`; candidate and active
+artifact were both `3e5600bf…`, requested service `flaresolverr`, and forced
+recreation and changed-path sets were empty. Check mode deliberately skipped all
+normal staging, decryption, image-equivalence, normalized-model and activation tasks,
+so this proves the clean source/live boundary only—not general deployment behavior.
 
 On September 18, 2026, live observation passed with all 38 declared services
 running, 38 immutable image references, both required health checks, exact canary
