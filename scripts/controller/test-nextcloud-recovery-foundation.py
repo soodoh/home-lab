@@ -20,9 +20,12 @@ def main() -> None:
     variables = (TOFU / "variables.tf").read_text()
     versions = (TOFU / "versions.tf").read_text()
     outputs = (TOFU / "outputs.tf").read_text()
+    provider_lock = (TOFU / ".terraform.lock.hcl").read_text()
     combined = "\n".join((main_source, variables, versions, outputs))
 
     require('version = "= 0.111.1"' in versions, "provider version must remain exact")
+    require('version     = "0.111.1"' in provider_lock, "provider lock must match the source pin")
+    require('h1:' in provider_lock and 'zh:' in provider_lock, "provider lock must retain package hashes")
     require('backend "local" {}' in versions, "foundation must not share remote production state")
     require(re.search(r"^\s*vm_id\s*=\s*9000$", main_source, re.MULTILINE) is not None, "VMID 9000 must remain fixed")
     require(re.search(r"^\s*started\s*=\s*false$", main_source, re.MULTILINE) is not None, "provider root must never start the guest")
@@ -32,9 +35,10 @@ def main() -> None:
     require(re.search(r'^\s*disk_datastore\s*=\s*"local-lvm"$', main_source, re.MULTILINE) is not None, "production ZFS pool must not hold the guest disk")
     require('retrieval_bridge = "vmbr0"' in main_source, "temporary bridge must remain explicit")
     require('proxmox_endpoint = "https://proxmox:8006/api2/json"' in main_source, "provider endpoint must remain exact")
-    require('dynamic "network_device"' in main_source, "retrieval NIC must be removable from provider state")
-    require('for_each = var.retrieval_nic_enabled ? [true] : []' in main_source, "NIC presence must use one boolean seam")
-    require('firewall = true' in main_source, "retrieval NIC must enable the PVE firewall")
+    require('network_device = var.retrieval_nic_enabled ? [{' in main_source, "NIC presence must use one boolean seam")
+    require('}] : []' in main_source, "NIC removal must use an explicit empty list")
+    require('dynamic "network_device"' not in main_source, "zero dynamic blocks would preserve net0 instead of deleting it")
+    require(re.search(r"^\s*firewall\s*=\s*true$", main_source, re.MULTILINE) is not None, "retrieval NIC must enable the PVE firewall")
     require('condition     = can(cidrhost("${var.controller_ipv4}/32", 0))' in main_source, "enabled firewall must require an exact controller IPv4")
 
     expected_variables = {

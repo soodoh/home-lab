@@ -14,7 +14,7 @@ locals {
     #cloud-config
     hostname: nextcloud-recovery-qualification
     manage_etc_hosts: true
-    timezone: ${local.contract.system_timezone}
+    timezone: ${local.contract.lifecycle.maintenance.reboot_plan.debian_window.timezone}
     locale: ${local.contract.debian.locale}
     package_update: false
     package_upgrade: false
@@ -167,14 +167,22 @@ resource "proxmox_virtual_environment_vm" "foundation" {
     }
   }
 
-  dynamic "network_device" {
-    for_each = var.retrieval_nic_enabled ? [true] : []
-    content {
-      bridge   = local.retrieval_bridge
-      firewall = true
-      model    = "virtio"
-    }
-  }
+  # The pinned provider distinguishes an explicit [] from an omitted value. The
+  # explicit empty list is required to delete net0 rather than merely stop
+  # managing it when retrieval is complete.
+  network_device = var.retrieval_nic_enabled ? [{
+    bridge       = local.retrieval_bridge
+    disconnected = null
+    enabled      = null
+    firewall     = true
+    mac_address  = null
+    model        = "virtio"
+    mtu          = null
+    queues       = null
+    rate_limit   = null
+    trunks       = null
+    vlan_id      = null
+  }] : []
 
   serial_device { device = "socket" }
   operating_system { type = "l26" }

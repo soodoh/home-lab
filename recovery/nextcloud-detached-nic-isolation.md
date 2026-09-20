@@ -76,10 +76,17 @@ checksum-pinned Debian image, root-owned cloud-init snippet, DROP/DROP VM firewa
 and optional retrieval NIC. Its interface deliberately exposes no startup input.
 Pinned tools remain later retrieval inputs rather than mutable cloud-init packages.
 
-The root has not been initialized, validated against a downloaded provider schema,
-planned or applied, and no lock/state exists for it. Do not add the recovery guest to
-the VM100 root, reuse retired VM9900 state, adopt historical local state, or issue
-direct `qm`/`pvesh` mutations around provider ownership.
+A separately authorized local `tofu init -backend=false` selected and locked
+`bpg/proxmox` 0.111.1, and `tofu validate` now passes. Schema inspection ran only in
+a disposable copy with an empty local backend. It confirmed the five resource types
+and the stopped VM attributes. It also exposed that NIC removal must use an explicit
+`network_device = []`; zero dynamic blocks merely omit the value and can preserve
+`net0`. The source and refusal test now require the explicit empty-list transition.
+Provider installation warned that the publisher GPG key is expired.
+
+The root has not been planned or applied, and no state exists for it. Do not add the
+recovery guest to the VM100 root, reuse retired VM9900 state, adopt historical local
+state, or issue direct `qm`/`pvesh` mutations around provider ownership.
 
 Before any provider plan, review and complete:
 
@@ -195,23 +202,26 @@ failure. Stop rather than reattach the NIC to a running recovery stack.
 
 The detached-NIC design is not executable until all of these are closed:
 
-- the stopped-only provider root has no initialized provider lock, reviewed state
-  ownership, schema validation or plan evidence;
+- the stopped-only provider root has a provider lock and successful local schema
+  validation, but no reviewed state ownership or plan evidence;
 - the 6 GiB allocation lacks a fresh startup-time host-memory reserve admission;
 - no current bundle is bound to the September 19 copied snapshot;
 - the exact base image/runtime/tool input and independent application-artifact path
   are not assembled;
 - the ephemeral controller identity and address are not admitted;
-- VM-firewall ordering, IPv6 denial and negative probes lack current source tests;
+- VM-firewall ordering and IPv6 denial have static source tests, but lack plan and
+  live negative-probe evidence;
 - no reviewed provider-only NIC-removal plan or post-detach observer exists; and
 - external Nextcloud user data remains outside Restic.
 
 The local static test
 `scripts/controller/test-nextcloud-recovery-foundation.py` verifies the stopped-only
-interface, exact five-resource set, disabled defaults, disk/memory identities,
-firewall ordering, IPv6 refusal and absence of package/start authority. `tofu fmt
--check` also passes. These checks do not validate provider semantics.
+interface, exact five-resource set, disabled defaults, provider lock,
+disk/memory identities, explicit empty-list NIC removal, firewall ordering, IPv6
+refusal and absence of package/start authority. `tofu fmt -check` and provider-backed
+`tofu validate` also pass. These checks do not prove a live provider plan or API
+behavior.
 
-Closing the remaining blockers requires review and local provider-schema validation
-before any operational work. It does not implicitly authorize provider init/plan,
-guest creation or live firewall changes.
+Closing the remaining blockers requires state-ownership review and separate plan
+authorization before any operational work. It does not implicitly authorize provider
+plan, guest creation or live firewall changes.

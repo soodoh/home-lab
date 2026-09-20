@@ -99,9 +99,13 @@ The follow-on source-only design adds a disabled-by-default stopped-foundation r
 at `infrastructure/tofu/nextcloud-recovery-qualification/`. It fixes VMID 9000, 6 GiB
 memory, a 64 GiB `local-lvm` disk, DROP/DROP VM firewall and optional retrieval NIC;
 it exposes no startup input and installs no cloud-init packages. Local static refusal
-tests and `tofu fmt -check` pass. The root has not been initialized, provider-schema
-validated, planned or applied, and owns no lock or state. This source does not change
-the survey's blocked operational status.
+tests, `tofu fmt -check` and provider-backed `tofu validate` pass. A separately
+authorized `tofu init -backend=false` locked `bpg/proxmox` 0.111.1; provider schema
+inspection in a disposable empty-backend copy required explicit
+`network_device = []` for provider-managed NIC deletion, which the source and tests
+now enforce. Provider installation warned that its publisher GPG key is expired. No
+plan, state read, apply or Proxmox contact occurred, and no state exists. This source
+does not change the survey's blocked operational status.
 
 Native repository/keyring/chrony declarations replace direct Nix projection
 reads. Desired bytes/hashes are unchanged. The low-risk controller, deploy
