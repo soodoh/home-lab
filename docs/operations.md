@@ -446,14 +446,19 @@ folded into an ordinary service deployment.
 
 Source now contains a dedicated one-time
 `retire-compose-image-override.yml` cutover. It first repeats override-backed
-observation, requires the exact neutral 76-action preview and all 38 existing
-services, acquires the production owner, publishes the reviewed source-only systemd
+observation, requires image-ID neutrality, identical models except for image
+references, a non-empty preview confined to the existing service/container identities,
+and all 38 existing services. It acquires the production owner, publishes the reviewed source-only systemd
 unit with a host-local before-image, and hands all services to the existing native
 generation seam without pulls, builds, orphan removal or volume replacement. Check
 mode does not require confirmation; a normal run requires
 `compose_native_override_retirement_confirmed=true`, an exact clean source commit,
-and separate attended maintenance authorization. The cutover has **not** been run or
-check-qualified. Its expected broad container recreation is a deliberate one-time
+and separate attended maintenance authorization. The first source-bound check refused
+safely because a raw preview count changed from 76 to 75 between observations even
+though the complete project remained healthy, drift-free and image-neutral. Raw action
+count is therefore diagnostic rather than authority; the corrected model/action
+invariants have not yet been rerun. The cutover has **not** been run or check-qualified.
+Its expected broad container recreation is a deliberate one-time
 image-authority transfer, not general deployment authority. The retained override,
 current/previous image locks and rollback artifacts are not deleted.
 

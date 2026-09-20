@@ -1,16 +1,71 @@
 ---
-- name: Require the exact one-time image-authority cutover boundary
+- name: Require the one-time image-authority cutover boundary
   ansible.builtin.assert:
     that:
       - not ansible_check_mode or not (compose_native_override_retirement_confirmed | bool)
       - ansible_check_mode or (compose_native_override_retirement_confirmed | bool)
       - compose_native_override_changed_services | length == 0
       - compose_native_source_only_preview.changed
-      - compose_native_source_only_preview.actions | length == compose_native_override_retirement_expected_actions | int
+      - compose_native_source_only_preview.actions | length > 0
       - compose_native_declared_services.stdout_lines | length == compose_native_expected_service_count | int
     fail_msg: >-
       Override retirement requires explicit normal-mode confirmation, image-ID neutrality,
-      and the exact reviewed all-service source-only preview.
+      and a non-empty all-service source-only preview.
+  no_log: true
+
+- name: Parse the observed source and override-backed models
+  ansible.builtin.set_fact:
+    compose_native_cutover_source_model: "{{ compose_native_source_model_raw.stdout | from_json }}"
+    compose_native_cutover_effective_model: "{{ compose_native_effective_model_raw.stdout | from_json }}"
+    compose_native_cutover_container_names: []
+  no_log: true
+
+- name: Require identical non-service Compose models
+  ansible.builtin.assert:
+    that:
+      - >-
+        (compose_native_cutover_source_model | dict2items |
+         rejectattr('key', 'equalto', 'services') | sort(attribute='key')) ==
+        (compose_native_cutover_effective_model | dict2items |
+         rejectattr('key', 'equalto', 'services') | sort(attribute='key'))
+    fail_msg: The retained override changes non-service Compose model content.
+  no_log: true
+
+- name: Require image references to be the only per-service model difference
+  ansible.builtin.assert:
+    that:
+      - >-
+        (compose_native_cutover_source_model.services[item] | dict2items |
+         rejectattr('key', 'equalto', 'image') | sort(attribute='key')) ==
+        (compose_native_cutover_effective_model.services[item] | dict2items |
+         rejectattr('key', 'equalto', 'image') | sort(attribute='key'))
+  loop: "{{ compose_native_declared_services.stdout_lines }}"
+  no_log: true
+
+- name: Derive every admitted container identity from the observed source model
+  ansible.builtin.set_fact:
+    compose_native_cutover_container_names: >-
+      {{ compose_native_cutover_container_names +
+         [compose_native_cutover_source_model.services[item].container_name | default(item, true)] }}
+  loop: "{{ compose_native_declared_services.stdout_lines }}"
+  no_log: true
+
+- name: Bind the cutover preview to existing service and container identities
+  ansible.builtin.set_fact:
+    compose_native_cutover_action_pattern: >-
+      ^(?:{{ (compose_native_declared_services.stdout_lines + compose_native_cutover_container_names) |
+              unique | map('regex_escape') | join('|') }}|[0-9a-f]{12}_(?:{{
+              (compose_native_declared_services.stdout_lines + compose_native_cutover_container_names) |
+              unique | map('regex_escape') | join('|') }}))$
+  no_log: true
+
+- name: Refuse source-only preview actions outside existing containers
+  ansible.builtin.assert:
+    that:
+      - item.what == 'container'
+      - item.id is match(compose_native_cutover_action_pattern)
+    fail_msg: Source-only cutover proposes an action outside existing containers.
+  loop: "{{ compose_native_source_only_preview.actions }}"
   no_log: true
 
 - name: Inspect the installed Compose unit before ownership transfer

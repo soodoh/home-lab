@@ -105,13 +105,17 @@ a source-only Compose preview proposed 76 container actions because its image-ID
 references differ textually from tracked repository digests.
 
 A separate one-time `retire-compose-image-override.yml` source path now models that
-boundary explicitly. It accepts only the complete observed service set, the exact
-neutral 76-action preview, unchanged tracked artifact/environment inputs and a clean
-source commit. It publishes the source-only systemd invocation with a host-local
-before-image, then reuses the same generation seam with the override disabled. It
-retains the override and all image locks as rollback evidence. No check or normal run
-has occurred; the all-service recreation and systemd ownership transfer require a
-separately authorized attended maintenance window.
+boundary explicitly. It accepts only the complete observed service set, image-ID
+neutrality, models identical except for image references, a non-empty native preview
+confined to existing container identities, unchanged tracked artifact/environment
+inputs and a clean source commit. It publishes the source-only systemd invocation
+with a host-local before-image, then reuses the same generation seam with the override
+disabled. It retains the override and all image locks as rollback evidence. No normal
+run has occurred. The first source-bound check refused when a raw preview count
+changed from 76 to 75; source now gates semantic model/action boundaries instead of
+that unstable diagnostic count, and the corrected check remains pending. The all-
+service recreation and systemd ownership transfer require a separately authorized
+attended maintenance window.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production

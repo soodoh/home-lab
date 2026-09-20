@@ -12,7 +12,6 @@ compose_native_staged_env_root: /etc/docker-compose/staging
 compose_native_image_override_path: /var/lib/home-lab/production-image-override.json
 compose_native_use_image_override: true
 compose_native_override_retirement_confirmed: false
-compose_native_override_retirement_expected_actions: 76
 compose_native_current_image_lock_path: /var/lib/docker-compose/current-images.json
 compose_native_previous_image_lock_path: /var/lib/docker-compose/previous-images.json
 compose_native_retained_image_root: /var/lib/docker-compose/retained-images

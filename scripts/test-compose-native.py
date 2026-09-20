@@ -270,7 +270,10 @@ class NativeComposeSourceTests(unittest.TestCase):
         for required in (
             "compose_native_override_retirement_confirmed",
             "compose_native_override_changed_services | length == 0",
-            "compose_native_source_only_preview.actions | length",
+            "compose_native_source_only_preview.actions | length > 0",
+            "Require image references to be the only per-service model difference",
+            "Refuse source-only preview actions outside existing containers",
+            "compose_native_cutover_action_pattern",
             "home-lab-compose.service.before-image-authority",
             "backup: true", "daemon_reload: true",
         ):
