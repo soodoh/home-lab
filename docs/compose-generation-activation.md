@@ -114,7 +114,8 @@ checkpoint and released ownership. Immediate ordinary observation passed
 runtime image authority. The former host override and all image locks remain recovery
 evidence but are not Compose inputs. The consumed cutover play, exact before-unit
 fixture, duplicate model comparison and local-image precondition are removed from
-callable source.
+callable source. Commit `0e3c018` then passed the simplified ordinary observation
+with `ok=35 changed=0 failed=0 unreachable=0` and explicit tracked-digest authority.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production

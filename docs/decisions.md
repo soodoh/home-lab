@@ -112,8 +112,10 @@ No image identity, database, environment, secret, topology, volume, Restic polic
 artifact generation changed. The former override and image locks remain recovery
 evidence but the override is no longer a runtime input. The consumed cutover play and
 transitional comparison/preinstalled-image branches are removed rather than retained
-as a second authority. This qualifies the all-service reference transfer, not yet a
-representative ordinary config, bind-file or image update.
+as a second authority. Commit `0e3c018` passed the simplified ordinary observation
+with `ok=35 changed=0 failed=0 unreachable=0` and tracked-digest authority. This
+qualifies the all-service reference transfer, not yet a representative ordinary
+config, bind-file or image update.
 
 ## Why legacy code remains
 

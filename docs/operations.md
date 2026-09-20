@@ -462,7 +462,9 @@ pinned images, zero model actions and no ownership or interruption marker. The h
 override and current/previous/retained image locks remain untouched recovery evidence,
 but the override is no longer part of runtime invocation. The consumed one-time play,
 before-unit fixture and transitional comparison branches are removed from callable
-source.
+source. After that cleanup, commit `0e3c018` passed the simplified ordinary
+observation with `ok=35 changed=0 failed=0 unreachable=0` and reported
+`image_authority=tracked_digest_references`.
 
 On September 18, 2026, live observation passed with all 38 declared services
 running, 38 immutable image references, both required health checks, exact canary
