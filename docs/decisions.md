@@ -113,8 +113,11 @@ authority input. The semantic guards passed on the next check, which then refuse
 incorrectly ordered unit before-image. Read-only capture proved ordering was its only
 byte difference. The corrected commit `80b09aa` then passed source-bound check mode
 with `ok=63 changed=2 failed=0 unreachable=0`; the two changes were previews only and
-production remained untouched. It has not been run normally. The override and image
-locks remain recovery evidence after authority transfers to tracked digest references.
+production remained untouched. Ordinary native operations now default to tracked
+source images, while the cutover play explicitly observes the old override-backed
+state first; ordinary entrypoints are intentionally unavailable until the normal
+cutover completes. It has not been run normally. The override and image locks remain
+recovery evidence after authority transfers to tracked digest references.
 
 ## Why legacy code remains
 

@@ -118,9 +118,12 @@ refused because the recorded pre-cutover unit dependency order differed from the
 installed historical order. A private read-only capture proved that was the only byte
 difference. At commit `80b09aa`, the corrected source-bound check passed with
 `ok=63 changed=2 failed=0 unreachable=0`; its two changes were check-mode previews
-only. No unit, lock, artifact, environment or container changed. The all-service
-recreation and systemd ownership transfer require a separately authorized attended
-maintenance window.
+only. No unit, lock, artifact, environment or container changed. Ordinary native
+observation/deployment now defaults to tracked source-image authority; the cutover
+play alone forces the old override-backed observation before transferring ownership.
+Do not invoke the ordinary entrypoints until the normal cutover completes. The all-
+service recreation and systemd ownership transfer require a separately authorized
+attended maintenance window.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production

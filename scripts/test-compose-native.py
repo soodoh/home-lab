@@ -278,7 +278,7 @@ class NativeComposeSourceTests(unittest.TestCase):
             "backup: true", "daemon_reload: true",
         ):
             self.assertIn(required, tasks)
-        self.assertIn("compose_native_use_image_override: true", defaults)
+        self.assertIn("compose_native_use_image_override: false", defaults)
         self.assertIn("compose_native_override_cli_args", defaults)
         self.assertNotIn("production-image-override.json", unit)
         self.assertIn("debian.transaction.compose_command", unit)
