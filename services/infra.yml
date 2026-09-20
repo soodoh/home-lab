@@ -38,7 +38,7 @@ services:
       - proxy
 
   caddy:
-    image: caddy:2.11.4@sha256:844f60b64e4724a5aa8245e019dace0d3f199f7433ce6c57676cb30a920dbad9
+    image: caddy:2.11.4@sha256:14a9c00d4e833ebc2b65d36515b37bde3b73f0b323a2663aaafc88953d8c4e3f
     container_name: caddy
     restart: always
     logging: *default-logging
