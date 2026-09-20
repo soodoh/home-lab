@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture and protect current, previous, and retained Compose image generations."""
+"""Retained image-lock support for explicit migration and recovery operations."""
 
 from argparse import ArgumentParser, Namespace
 from datetime import datetime, timezone
@@ -96,37 +96,20 @@ def read_lock(path: Path, label: str) -> list[dict[str, Any]]:
     return document["images"]
 
 
-def retained_lock_paths(args: Namespace) -> list[Path]:
-    root = getattr(args, "retained_root", None) or args.current.parent / "retained-images"
-    paths = sorted(root.glob("*.json")) if root.is_dir() else []
-    paths.extend(sorted(args.current.parent.glob("deploy-*-previous-images.json")))
-    excluded = {args.current.resolve(), args.previous.resolve()}
-    return [path for path in paths if path.resolve() not in excluded]
-
-
-def verified_locks(
-    args: Namespace, include_retained: bool = False
-) -> list[tuple[str, list[dict[str, Any]]]]:
-    locks = [("current", read_lock(args.current, "current")),
-             ("previous", read_lock(args.previous, "previous"))]
-    if include_retained:
-        locks.extend((f"retained_{index}", read_lock(path, f"retained_{index}"))
-                     for index, path in enumerate(retained_lock_paths(args)))
+def verified_locks(args: Namespace) -> list[tuple[str, list[dict[str, Any]]]]:
+    locks = [
+        ("current", read_lock(args.current, "current")),
+        ("previous", read_lock(args.previous, "previous")),
+    ]
     if not locks[0][1]:
         fail("current_lock_empty")
     if not locks[1][1]:
         fail("previous_lock_empty")
-    if any(not records for _, records in locks[2:]):
-        fail("retained_lock_empty")
     return locks
 
 
-def verify(
-    args: Namespace, include_retained: bool | None = None
-) -> list[tuple[str, list[dict[str, Any]]]]:
-    if include_retained is None:
-        include_retained = getattr(args, "retained_root", None) is not None
-    locks = verified_locks(args, include_retained=include_retained)
+def verify(args: Namespace) -> list[tuple[str, list[dict[str, Any]]]]:
+    locks = verified_locks(args)
     checked_ids: set[str] = set()
     checked_digests: set[str] = set()
     for lock_name, records in locks:
@@ -167,8 +150,7 @@ def verify(
     print(
         "compose_image_lock=verified "
         f"current_services={len(locks[0][1])} previous_services={len(locks[1][1])} "
-        f"retained_locks={len(locks) - 2} local_images={len(checked_ids)} "
-        f"registry_digests={len(checked_digests)}"
+        f"local_images={len(checked_ids)} registry_digests={len(checked_digests)}"
     )
     return locks
 
@@ -218,45 +200,6 @@ def difference(args: Namespace) -> None:
     print(json.dumps(changed, separators=(",", ":")))
 
 
-def prune(args: Namespace) -> None:
-    locks = verify(args, include_retained=True)
-    records = [record for _, lock in locks for record in lock]
-    image_ids = sorted({record["image_id"] for record in records})
-    protection_containers: list[str] = []
-    try:
-        for index, image_id in enumerate(image_ids):
-            result = subprocess.run(
-                [
-                    "docker",
-                    "create",
-                    "--label",
-                    "home-lab.prune-protection=true",
-                    "--name",
-                    f"home-lab-prune-protection-{index}",
-                    image_id,
-                ],
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-            )
-            protection_containers.append(result.stdout.strip())
-        subprocess.run(
-            ["docker", "image", "prune", "--all", "--force", "--filter", f"until={args.until}"],
-            check=True,
-        )
-    except subprocess.SubprocessError:
-        fail("protected_image_prune_error")
-    finally:
-        if protection_containers:
-            subprocess.run(
-                ["docker", "container", "rm", "--force", *protection_containers],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-    print(f"compose_image_lock=pruned protected_images={len(image_ids)}")
-
 def main() -> None:
     parser = ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -270,7 +213,6 @@ def main() -> None:
     verify_parser.add_argument("--current", type=Path, required=True)
     verify_parser.add_argument("--previous", type=Path, required=True)
     verify_parser.add_argument("--check-registry", action="store_true")
-    verify_parser.add_argument("--retained-root", type=Path)
     verify_parser.set_defaults(handler=verify)
 
     activate_parser = subparsers.add_parser("activate")
@@ -282,14 +224,6 @@ def main() -> None:
     diff_parser.add_argument("--previous", type=Path, required=True)
     diff_parser.add_argument("--allow-removed-service")
     diff_parser.set_defaults(handler=difference)
-
-    prune_parser = subparsers.add_parser("prune")
-    prune_parser.add_argument("--current", type=Path, required=True)
-    prune_parser.add_argument("--previous", type=Path, required=True)
-    prune_parser.add_argument("--check-registry", action="store_true")
-    prune_parser.add_argument("--retained-root", type=Path)
-    prune_parser.add_argument("--until", default="168h")
-    prune_parser.set_defaults(handler=prune)
 
     args = parser.parse_args()
     args.handler(args)

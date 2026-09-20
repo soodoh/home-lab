@@ -10,7 +10,8 @@ completed one-shot entrypoints have been removed. The legacy general Compose lan
 refuses execution while its exact migration/recovery consumers remain preserved. A
 manual native Compose entrypoint accepts explicit subsets of the existing service set;
 each production invocation still requires reviewed paths, exact source and separate
-authorization.
+authorization. Tracked repository digests are the sole ordinary image authority;
+native deployment and observation do not consult image-lock or override files.
 
 Supported native scope includes read-only host and Compose observation, manual-update
 policy and existing-host backup configuration. Native Compose completed its canary
@@ -22,6 +23,12 @@ zero-change post-observation. Every future production run still requires exact s
 review and separate authorization; this is not unrestricted live use. Historical
 interrupted/refused attempts and their consumed authorities remain documented in
 [operations](docs/operations.md).
+
+Ordinary rollback is a Git revert followed by the same bounded
+[`deploy-compose.yml`](ansible/playbooks/deploy-compose.yml) forward deployment from
+the latest reviewed automation. Missing old images are pulled again by exact digest.
+The generic previous-artifact rollback entrypoint is retired; operation-specific
+Nextcloud, database, storage and archive recovery paths remain separate.
 
 - [Operations](docs/operations.md): local checks, intended native workflow and retained implementation.
 - [Recovery](recovery/README.md): snapshot staging, independent credentials and rollback boundaries.

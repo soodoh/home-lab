@@ -18,76 +18,7 @@
       - "'linux-headers ' ~ audit_expected_packages['linux-headers'] in maintenance_kernel_packages.stdout_lines"
     fail_msg: "Kernel package or running-kernel state changed; reboot remains separately reviewed."
 
-- name: Inspect current and previous image locks
-  ansible.builtin.stat:
-    path: "{{ item }}"
-    get_checksum: false
-  loop:
-    - "{{ maintenance_compose_current_image_lock_path }}"
-    - "{{ maintenance_compose_previous_image_lock_path }}"
-  register: maintenance_image_locks
-  when: maintenance_manage_root_cron | bool
-
-- name: Require an explicit one-time image-lock bootstrap
-  ansible.builtin.assert:
-    that:
-      - >-
-        (maintenance_image_locks.results | map(attribute='stat.exists') | min) or
-        (maintenance_image_lock_bootstrap_confirmed | bool)
-    fail_msg: "Current/previous image locks are missing; review and confirm one-time bootstrap."
-  when: maintenance_manage_root_cron | bool
-
-- name: Bootstrap only missing image locks from the current running set
-  ansible.builtin.command:
-    argv:
-      - "{{ ansible_python_interpreter }}"
-      - "{{ compose_current_dir }}/scripts/compose-image-lock.py"
-      - capture
-      - --project
-      - "{{ compose_project_name }}"
-      - --output
-      - "{{ item }}"
-  loop:
-    - "{{ maintenance_compose_current_image_lock_path }}"
-    - "{{ maintenance_compose_previous_image_lock_path }}"
-  loop_control:
-    index_var: maintenance_image_lock_index
-  changed_when: true
-  when:
-    - maintenance_manage_root_cron | bool
-    - maintenance_image_lock_bootstrap_confirmed | bool
-    - not ansible_check_mode
-    - not maintenance_image_locks.results[maintenance_image_lock_index].stat.exists
-
-- name: Report one-time image-lock bootstrap during check mode
-  ansible.builtin.debug:
-    msg: Missing image locks will be captured from the reviewed current running set.
-  changed_when: true
-  when:
-    - maintenance_manage_root_cron | bool
-    - maintenance_image_lock_bootstrap_confirmed | bool
-    - ansible_check_mode
-    - not (maintenance_image_locks.results | map(attribute='stat.exists') | min)
-
-- name: Verify rollback image locks before enabling prune
-  ansible.builtin.command:
-    argv:
-      - "{{ ansible_python_interpreter }}"
-      - "{{ compose_current_dir }}/scripts/compose-image-lock.py"
-      - verify
-      - --current
-      - "{{ maintenance_compose_current_image_lock_path }}"
-      - --previous
-      - "{{ maintenance_compose_previous_image_lock_path }}"
-      - --check-registry
-  changed_when: false
-  when:
-    - maintenance_manage_root_cron | bool
-    - >-
-      (maintenance_image_locks.results | map(attribute='stat.exists') | min) or
-      (maintenance_image_lock_bootstrap_confirmed | bool and not ansible_check_mode)
-
-- name: Install rollback-safe prune helper
+- name: Install native unused-image prune helper
   ansible.builtin.copy:
     dest: /usr/local/sbin/home-lab-safe-image-prune
     owner: root
@@ -98,7 +29,7 @@
       set -euo pipefail
       success=false
       /usr/bin/mkdir --mode=0700 -- {{ apply_lock_path }}
-      /usr/bin/printf '%s\n' 'operation=rollback-safe-image-prune' >{{ apply_lock_path }}/owner
+      /usr/bin/printf '%s\n' 'operation=native-unused-image-prune' >{{ apply_lock_path }}/owner
       /usr/bin/chmod 0600 {{ apply_lock_path }}/owner
       cleanup() {
         if [[ $success == true ]]; then
@@ -110,11 +41,7 @@
       }
       trap cleanup EXIT
       /usr/bin/docker system df
-      {{ ansible_python_interpreter }} {{ compose_current_dir }}/scripts/compose-image-lock.py prune \
-        --current {{ maintenance_compose_current_image_lock_path }} \
-        --previous {{ maintenance_compose_previous_image_lock_path }} \
-        --check-registry \
-        --until 168h
+      /usr/bin/docker image prune --all --force --filter until=168h
       /usr/bin/docker system df
       success=true
   when: maintenance_manage_root_cron | bool
@@ -134,9 +61,9 @@
     - maintenance_manage_root_cron | bool
     - maintenance_legacy_root_cron.stat.exists | default(false)
 
-- name: Manage rollback-safe weekly image cleanup without replacing root cron
+- name: Manage native weekly unused-image cleanup without replacing root cron
   ansible.builtin.cron:
-    name: home-lab rollback-safe image cleanup
+    name: home-lab native unused-image cleanup
     user: root
     minute: "0"
     hour: "4"

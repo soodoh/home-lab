@@ -17,6 +17,3 @@ recovery_retained_bind_review_confirmed: false
 
 # Environment-only Proton recovery fields are supplied separately as protected
 # RCLONE_CONFIG_PROTON_BACKUP_* values; never put them in this example or Git.
-
-# Enable only after reviewing the first recovered running image set.
-maintenance_image_lock_bootstrap_confirmed: false

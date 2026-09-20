@@ -82,8 +82,8 @@ rollback:
 - Compose and migration recovery:
   `stage-compose.yml`, `review-compose-stage.yml`,
   `verify-active-compose-artifact.yml`, `plan-compose-recovery.yml`,
-  `recover-compose.yml`, `rollback-compose.yml`,
-  `deploy-nextcloud-migration.yml`, `rollback-nextcloud-migration.yml`,
+  `recover-compose.yml`, `deploy-nextcloud-migration.yml`,
+  `rollback-nextcloud-migration.yml`,
   `migrate-preserved-backup-data.yml`,
   `infrastructure/tofu/nextcloud-recovery-qualification/`,
   `scripts/controller/test-nextcloud-recovery-foundation.py` and

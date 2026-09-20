@@ -41,7 +41,7 @@
       - core.fsmonitor=false
       - status
       - --porcelain=v1
-      - --untracked-files=no
+      - --untracked-files=all
       - --ignore-submodules=none
     chdir: "{{ compose_native_controller_root }}"
   delegate_to: localhost
@@ -123,7 +123,6 @@
     compose_native_candidate_hash: "{{ compose_native_controller_artifact.stdout }}"
     compose_native_candidate_dir: "{{ compose_native_staging_root }}/{{ compose_native_controller_artifact.stdout }}"
     compose_native_candidate_env_path: "{{ compose_native_staged_env_root }}/{{ compose_native_controller_artifact.stdout }}.env"
-    compose_native_interrupted_image_path: "/var/lib/docker-compose/deploy-{{ compose_native_controller_artifact.stdout }}-previous-images.json"
 
 - name: Recompute the active artifact identity from live host state
   ansible.builtin.command:
@@ -169,7 +168,6 @@
         - {path: /etc/docker-compose, mode: "0700"}
         - {path: "{{ compose_native_staged_env_root }}", mode: "0700"}
         - {path: /var/lib/docker-compose, mode: "0711"}
-        - {path: "{{ compose_native_retained_image_root }}", mode: "0700"}
 
     - name: Inspect immutable candidate paths
       ansible.builtin.stat:
@@ -182,13 +180,6 @@
       loop:
         - "{{ compose_native_candidate_dir }}"
         - "{{ compose_native_candidate_env_path }}"
-        - "{{ compose_native_interrupted_image_path }}"
-
-    - name: Refuse an unresolved deployment image checkpoint
-      ansible.builtin.assert:
-        that:
-          - not (compose_native_candidate_paths.results[2].stat.exists | default(false))
-        fail_msg: Preserve and inspect the existing deployment image checkpoint before retrying.
 
     - name: Materialize a missing deterministic candidate
       when: not (compose_native_candidate_paths.results[0].stat.exists | default(false))
@@ -400,7 +391,7 @@
       changed_when: true
       no_log: true
 
-    - name: Refuse credential or environment changes in the initial native scope
+    - name: Compare the candidate and active protected environments
       ansible.builtin.command:
         argv:
           - /usr/bin/cmp
@@ -409,7 +400,20 @@
           - "{{ compose_native_decrypt_workspace.path }}/production.env"
           - "{{ compose_native_runtime_env_path }}"
       become: true
+      register: compose_native_environment_comparison
       changed_when: false
+      failed_when: compose_native_environment_comparison.rc not in [0, 1]
+      no_log: true
+
+    - name: Require exact separate authorization for an environment change
+      ansible.builtin.assert:
+        that:
+          - >-
+            (compose_native_environment_comparison.rc == 1) ==
+            (compose_native_environment_change_confirmed | bool)
+        fail_msg: >-
+          Candidate environment drift must be separately authorized with
+          compose_native_environment_change_confirmed=true; unused broad authorization is refused.
       no_log: true
 
     - name: Install the same-content root-only candidate environment
@@ -529,6 +533,37 @@
         compose_native_candidate_model: "{{ compose_native_candidate_model_raw.stdout | from_json }}"
       no_log: true
 
+    - name: Start the changed bind-file owner set
+      ansible.builtin.set_fact:
+        compose_native_changed_bind_services: []
+      no_log: true
+
+    - name: Derive services whose exact bind-mounted files changed
+      ansible.builtin.set_fact:
+        compose_native_changed_bind_services: >-
+          {{ (compose_native_changed_bind_services + [item.0]) | unique }}
+      loop: >-
+        {{ compose_native_candidate_services.stdout_lines |
+           product(compose_native_expected_changed_paths) | list }}
+      when: >-
+        compose_native_candidate_model.services[item.0].volumes | default([]) |
+        selectattr('type', 'equalto', 'bind') |
+        selectattr('source', 'defined') |
+        selectattr('source', 'equalto', compose_native_current_dir ~ '/' ~ item.1) |
+        list | length > 0
+      no_log: true
+
+    - name: Require explicit forced recreation for changed bind-mounted files
+      ansible.builtin.assert:
+        that:
+          - >-
+            compose_native_changed_bind_services |
+            difference(compose_native_force_recreate_services) | length == 0
+        fail_msg: >-
+          Every service owning an exact changed bind-mounted file must be included in
+          compose_native_force_recreate_services.
+      no_log: true
+
     - name: Refuse changes to non-service Compose topology
       ansible.builtin.assert:
         that:
@@ -608,7 +643,6 @@
           active_artifact_hash: "{{ compose_native_active_artifact.stdout }}"
           artifact_dir: "{{ compose_native_candidate_dir }}"
           environment_path: "{{ compose_native_candidate_env_path }}"
-          image_checkpoint_path: "{{ compose_native_interrupted_image_path }}"
           services: "{{ compose_native_requested_services }}"
           force_recreate_services: "{{ compose_native_force_recreate_services }}"
           action_container_names: "{{ compose_native_requested_container_names }}"

@@ -2,147 +2,133 @@
 
 ## Purpose and boundary
 
-Compose delivery is moving toward one native Ansible activation seam, not a new
-controller. Operation-specific workflows remain responsible for selecting and
-preparing an artifact and environment, validating service/data changes, coordinating
-writers, and performing any database or filesystem migration. The small
-`compose_native` generation input starts only after those checks.
+Ordinary Compose delivery uses one native Ansible activation seam, not a custom
+transaction controller. `ansible/playbooks/deploy-compose.yml` selects and validates
+an exact clean Git commit, stages immutable source inputs, decrypts the environment on
+the host, validates the resolved model and then calls
+`ansible/roles/compose_native/tasks/generation.yml`.
 
-The first slice extracts the already check-qualified canary's activation mechanics
-into `ansible/roles/compose_native/tasks/generation.yml`. It accepts one prepared
-`compose_native_generation` mapping containing:
+The prepared `compose_native_generation` mapping contains only:
 
 - an operation name and exact candidate/current artifact hashes;
-- the hash-addressed staged artifact, environment and interruption-image paths;
-- the explicit service and forced-recreation sets; and
+- the hash-addressed staged artifact and environment paths;
+- explicit requested and forced-recreation service sets; and
 - the complete expected service set/count and required healthy containers.
 
-The task file rejects paths that do not derive from the supplied artifact hash. It
-then captures a durable pre-change image checkpoint, rechecks the backup mutex,
-preserves older hash-addressed artifact/environment/image generations, publishes
-`current` and `previous`, pulls only the requested missing images, previews the
-complete published project with `community.docker.docker_compose_v2`, converges only
-the requested services, waits for health, requires a zero-change full-project
-post-preview, verifies the complete running set, rotates image locks, publishes the
-active artifact identity, and consumes the checkpoint only after full success.
-Builds, orphan removal, anonymous-volume replacement and automatic rollback remain
-disabled.
+It does **not** contain an image checkpoint. Tracked repository digest references are
+the sole ordinary image authority. The activation task pulls missing requested images
+with `community.docker.docker_compose_v2_pull` and `policy: missing`; every preview and
+convergence call then uses `pull: never`. Native Compose automatically recreates
+services whose resolved models changed, including image digest or approved environment
+value changes. Explicit `recreate: always` is reserved for requested services whose
+exact bind-mounted files changed.
 
-This began as a refactor of the qualified canary behavior. The current source now
-uses the same seam for an explicit subset of any service already present in both the
-active and candidate models; it does not carry a separate service catalogue or
-canary-specific mount manifest. `deploy.yml` still owns source selection, SOPS
-handling, normalized-model comparison and operation authorization. It requires an
-exact reviewed changed-path list, refuses service-set and top-level topology changes,
-keeps the decrypted environment byte-identical, derives container names from native
-`docker compose config --format json`, and requires source images to be repository
-digest pinned. Native pull fetches only missing requested-service images before all
-previews and convergence switch to `pull: never`. Bind-file changes require the
-operator to include their services in the explicit forced-recreation subset.
+A full-project preview before convergence may act only on explicitly requested
+container identities. The final full-project preview must be zero-change. Builds,
+orphan removal, anonymous-volume renewal and automatic rollback remain disabled.
 
-This is not a universal manifest, launcher, plan, receipt, database migration path or
-new deployment approval. The activation task is not a public standalone playbook.
+## Publication and authorization
+
+The caller requires an exact clean source commit, unique requested services, exact
+reviewed changed paths and an optional forced-recreation subset. It refuses mutable
+images, service-set changes, top-level network/volume/config/secret changes, protected
+per-service topology changes, non-requested service-model changes and unreviewed paths.
+A separately approved plaintext environment difference additionally requires
+`compose_native_environment_change_confirmed=true`; unused broad confirmation is
+refused. File-backed secret publication remains outside this ordinary entrypoint.
+
+Immutable staging and `current` publication remain necessary because Compose resolves
+relative bind mounts from a stable project path. The `previous` artifact and decrypted
+environment pointers, plus older hash-addressed artifacts/environments, remain because
+the explicit Nextcloud migration rollback and archive recovery callers still consume
+them. Their retention is not a generic rollback interface.
+
+Current/previous/retained image locks, the former host override and historical
+interruption checkpoints are not read, written, rotated, activated or verified by the
+native deploy or observe paths. Existing host files remain historical/recovery evidence
+until separately authorized cleanup.
+
+## Rollback model
+
+Generic Compose rollback is an ordinary forward deployment:
+
+1. Create and review a new Git revert commit for the undesired Compose, image,
+   environment or bind-file change.
+2. Keep deployment automation at the latest reviewed version.
+3. Run `ansible/playbooks/deploy-compose.yml` against that exact clean revert commit,
+   naming only the affected services and reviewed paths.
+4. Pull a missing old image by its exact tracked repository digest.
+5. Let native Compose identify resolved-model recreation; explicitly force only
+   unchanged-path content cases such as bind-mounted files.
+6. Require the same running-service, health and zero-change full-project checks.
+
+There is no ordinary “activate previous artifact” action and no registry-independent
+rollback promise. Registry/network access is an accepted dependency when an exact old
+digest is absent locally.
+
+## Interrupted deployment
+
+The durable production owner and Restic mutex checks remain the coordination boundary.
+Failure leaves ownership in place. No image checkpoint is created. Do not clear the
+owner, watchdogs or host evidence to retry.
+
+After a failure following artifact publication or partial container convergence:
+
+1. stop and inspect the exact owner, source commit, `current`/`previous` and staged
+   artifact/environment identities, running containers, full-project native preview,
+   health and Restic state;
+2. decide whether the exact committed desired state can be safely completed with the
+   latest automation;
+3. if adoption is needed, create a narrow reviewed recovery entrypoint using the
+   existing `apply_lock` `adopt` semantics, bound to the exact owner SHA-256,
+   operation, controller and source/artifact identities;
+4. converge only the explicitly affected services, then require complete health and a
+   zero-change full-project preview before releasing that exact owner.
+
+Do not add image retention checkpoints or a generalized resume/receipt framework.
+No standing resume entrypoint exists because production currently has no unresolved
+owner.
 
 ## Retained caller and recovery inventory
 
-| Path | What it prepares or owns | Current activation boundary |
-| --- | --- | --- |
-| `deploy-compose.yml` / `compose_native:deploy` | Clean committed source, exact reviewed artifact paths and requested/forced-recreation service subsets, host-only environment decryption, same-content environment check and native normalized-model comparison | Uses the extracted native generation interface. Ordinary stateless/dependent recreation, bind-file publication and a repository-digest image update are live-qualified for separately authorized existing-service changes. |
-| `stage-compose.yml`, `review-compose-stage.yml` / `compose_stage` | Exact legacy artifact/environment, Nextcloud secret files and protected desired/runtime inventories for three allowlisted retained operations | General staging remains refused. The obsolete Calibre operation is no longer allowlisted; retained inventories still feed Nextcloud/Restic deployment and archive-recovery preflight. |
-| `deploy-nextcloud-migration.yml` / `compose_deploy` | Historical Nextcloud writer/path migration and latent exact Restic-policy recovery | Retained pending caller-by-caller retirement. The applied Nextcloud migration must not be rerun. The obsolete Calibre authorization/resume and NFS-to-local reconciliation branch was removed after verified private-staging restore. There is no general deploy entrypoint. |
-| `rollback-compose.yml`, `rollback-nextcloud-migration.yml` / `compose_rollback` | Exact reviewed previous artifact/environment/image locks, optional historical Nextcloud service removal and rollback action identity | Retained unchanged. Both plays still depend on the custom action-plan and image-lock helpers until a native preview can preserve their exact service-removal and pre-publication recovery semantics. |
-| `plan-compose-recovery.yml`, `recover-compose.yml` / `compose_recovery` | Selected archive identity, empty recovery target, first-host path/volume admission, explicit recovered-data activation, host-file reconciliation and ordered Nextcloud startup | Retained unchanged. It still consumes `compose_recovery_preflight`, `prepare-recovery-volumes.py`, `activate-recovered-data.py`, `host_files`, `health`, staging inventories and image locks. It accepts the older `backup/` archive layout only; it must never consume a Restic staging tree. |
-| `compose-artifact.py`, `compose-image-lock.py` and installed safe-image-prune | Deterministic generation identity and retained/interrupted rollback-image protection | Retained. The native slice calls them for identities and image generations; the installed prune consumer remains supported. |
+| Path | Current boundary |
+| --- | --- |
+| `deploy-compose.yml` / `compose_native:deploy` | Ordinary bounded forward deployment using tracked digests and native recreation. |
+| `stage-compose.yml`, `review-compose-stage.yml` / `compose_stage` | Retained only for allowlisted Nextcloud/Restic/archive recovery preparation; general staging is refused. |
+| `deploy-nextcloud-migration.yml` / `compose_deploy` | Historical Nextcloud migration and latent exact Restic-policy recovery semantics; general deployment is refused. |
+| `rollback-nextcloud-migration.yml` / `compose_rollback` | Operation-specific Nextcloud migration rollback. It still consumes previous artifact/environment pointers, `compose-action-plan.py` and image locks. It is not the ordinary rollback model. |
+| `plan-compose-recovery.yml`, `recover-compose.yml` / `compose_recovery` | Archive recovery with explicit recovered-data activation and ordered startup. It still seeds recovery image locks and must never consume a Restic staging tree. |
+| `compose-artifact.py` | Deterministic artifact identity and publication. |
+| `compose-image-lock.py` | Retained only for explicit migration/recovery capture, verification, difference and local-ID activation consumers. Its generic prune command is retired. |
+| `compose-action-plan.py` | Retained only for explicit migration/recovery planning consumers. The generic rollback playbook is removed. |
 
-Current/previous artifacts and environments, hash-addressed staging, current/previous/
-retained image locks, interruption checkpoints, production ownership, Restic mutex
-and journal, migration journals, rollback inputs and installed recovery consumers
-remain intact. No helper is retired by this slice.
+The consumed failed-canary release play and generic `rollback-compose.yml` entrypoint
+are removed from callable source. Nextcloud/database/storage/archive recovery semantics
+remain unchanged pending separate review.
 
-## Local controller capability
+## Safe prune boundary
 
-A fresh local controller can perform the bounded native path when it has the reviewed
-Ansible Core 2.21.x line, pinned `community.docker` collection, explicit inventory,
-trusted Docker-host key, Tailscale connectivity and the exact clean source commit.
-The host retains the SOPS age identity; the controller does not need the production
-private key. Check mode deliberately reports the source/active generation boundary
-without staging or decrypting protected inputs. A normal run still requires explicit
-operation confirmation and separate authorization, and repeats live coordination and
-model checks before activation.
+The historical maintenance role has no active playbook caller. Its source now installs
+a narrow `docker image prune --all --filter until=168h` wrapper under the existing production
+coordination lock. It does not inspect image locks, create protection containers or
+query registries. Docker naturally preserves images referenced by containers; unused
+historical images may be removed and later repulled by digest.
 
-Controller-local source tests parse the role and verify the generation input/path
-contract, native Compose preview/convergence, health/idempotence checks, retained
-publication/image state and the untouched recovery callers. On September 19, 2026,
-the local controller reported Ansible Core 2.21.2 and the pinned `community.docker`
-5.3.0 collection; syntax checks for both `deploy-compose.yml` and
-`observe-compose.yml` passed without contacting a host. This confirms the bounded
-controller toolchain and playbook parsing only—not SSH connectivity, live check-mode
-behavior or deployment readiness. Neither check initializes a provider or authorizes
-deployment. The separately authorized live attempt documented in
-[operations](operations.md#native-compose-qualification) reached this interface but
-failed its immediate full-project idempotence assertion after publication and the
-bounded canary recreation. A disposable Compose 2.26.1 regression isolated the
-`--force-recreate --no-deps` interaction with a named service that has a dependency.
-The interface now permits only the exact requested replacement actions and settles
-them through dependency-aware automatic convergence before requiring a final
-zero-change preview. Commit `bc870b8e` bound an exact forward completion to the
-retained owner and generations. Its separately authorized normal run completed the
-interrupted publication, preserved rollback image generations, advanced the marker,
-consumed the checkpoint and released ownership; fresh native observation then passed
-with 38 running services and a zero-change preview. That operation-specific recovery
-authorization is consumed. Commit `b93919a3` then passed the reusable role's corrected
-same-commit check and separately authorized normal canary run. The role recreated only
-`flaresolverr`, admitted the exact replacement action pair, settled it without
-dependency recreation, consumed its fresh checkpoint and finished with zero-change
-observation. That live qualification covers only the exact historical canary scope. The later
-general-caller refactor is source-only: no broader service deployment is authorized
-or qualified yet. At commit `0b75750d`, fresh native observation and a same-commit
-check passed with zero changes and equal candidate/active artifact identity. Check
-mode intentionally skipped normal staging, decryption, model comparison and
-activation, so it did not qualify those generalized branches. Native inspection later
-proved the retained host override semantically image-neutral for all 38 services, but
-a source-only Compose preview proposed 76 container actions because its image-ID
-references differ textually from tracked repository digests.
+A live read on September 19 found `/usr/local/sbin/home-lab-safe-image-prune`, the
+`crontab` binary and installed systemd/cron/helper references absent on `docker-host`.
+No installed prune behavior or host file was changed. Any future installation remains
+a separate production mutation requiring authorization.
 
-The one-time image-authority cutover at commit `6efbec4` passed same-commit check
-mode (`ok=63 changed=2 failed=0 unreachable=0`) and its separately authorized normal
-run (`ok=117 changed=11 failed=0 unreachable=0`). It published the source-only unit
-with a host-local before-image, converged all 38 existing services without changing
-image identity or data/topology, required a zero-change post-preview, consumed the
-checkpoint and released ownership. Immediate ordinary observation passed
-`ok=40 changed=0 failed=0 unreachable=0`. Tracked repository digests are now the
-runtime image authority. The former host override and all image locks remain recovery
-evidence but are not Compose inputs. The consumed cutover play, exact before-unit
-fixture, duplicate model comparison and local-image precondition are removed from
-callable source. Commit `0e3c018` then passed the simplified ordinary observation
-with `ok=35 changed=0 failed=0 unreachable=0` and explicit tracked-digest authority.
+## Qualification status
 
-The ordinary path subsequently completed three bounded shapes. Commit `ba998f2`
-forced only stateless/dependent `flaresolverr` and passed `ok=100 changed=10` with its
-artifact unchanged. Commit `7e64899` published the exact Caddy bind-file change,
-forced only `caddy`, passed `ok=133 changed=24`, and advanced to artifact `b9eafc60…`;
-in-container Caddy validation and zero-change observation passed. Commit `233a582`
-pulled only reviewed Recyclarr 8.7.2 digest `sha256:6e69e009…`, admitted only its
-automatic replacement, passed `ok=134 changed=25`, and advanced to artifact
-`57c7326a…`; the running binary and zero-change observation passed. Each operation
-preserved all 38 running services, protected topology/environment/data and Restic
-policy, rotated rollback generations where the artifact changed, consumed its image
-checkpoint and released production ownership.
+The historical canary, image-authority cutover, Caddy bind-file publication and
+Recyclarr digest deployment outcomes remain recorded in
+[operations](operations.md#native-compose-qualification). At the start of this
+simplification, live check-mode observation again reported 38 declared/running
+services, 38 digest-pinned images, required health, no owner/interruption and zero
+Compose drift; the active artifact was `57c7326a463a560fee93fb45b729552fa8a9181d01b1f5292b2756558b21aa0d`
+and Recyclarr reported v8.7.2.
 
 No GitHub deployment workflow is included. Short-lived Tailscale identity,
 authoritative SSH host-key custody, protected-environment approval and production
 coordination remain unresolved prerequisites.
-
-## Next slices
-
-Add behavioral fixture coverage for mixed multi-service requests and refusal cases,
-then qualify representative generic rollback and partial-failure recovery without
-expanding the forward boundary.
-
-Migrate recovery callers only after the general forward path is qualified and each
-operation-specific preparation can hand the activation seam a complete validated
-generation. Preserve explicit Nextcloud and archive-recovery data logic outside the
-seam. The separate historical Calibre/Caro preserved-data play remains blocked
-pending its own recovery review. Any later rollback or fresh-host slice must not
-generalize database migration, data activation, locks, journals or approval into a
-universal transaction format.

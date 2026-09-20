@@ -12,10 +12,6 @@
       - >-
         compose_native_generation.environment_path | default('') ==
         compose_native_staged_env_root ~ '/' ~ (compose_native_generation.artifact_hash | default('')) ~ '.env'
-      - >-
-        compose_native_generation.image_checkpoint_path | default('') ==
-        '/var/lib/docker-compose/deploy-' ~ (compose_native_generation.artifact_hash | default('')) ~
-        '-previous-images.json'
       - compose_native_generation.services | default([]) | length > 0
       - >-
         compose_native_generation.services | default([]) | unique | length ==
@@ -53,14 +49,13 @@
       - not ansible_check_mode
     fail_msg: >-
       compose_native generation activation accepts only an operation-prepared hash-addressed
-      artifact/environment/checkpoint and explicit unique service, recreation, and health inputs.
+      artifact/environment and explicit unique service, recreation, and health inputs.
 
 - name: Bind the small generation interface to private implementation facts
   ansible.builtin.set_fact:
     compose_native_candidate_hash: "{{ compose_native_generation.artifact_hash }}"
     compose_native_candidate_dir: "{{ compose_native_generation.artifact_dir }}"
     compose_native_candidate_env_path: "{{ compose_native_generation.environment_path }}"
-    compose_native_interrupted_image_path: "{{ compose_native_generation.image_checkpoint_path }}"
     compose_native_requested_services: "{{ compose_native_generation.services }}"
     compose_native_force_recreate_services: "{{ compose_native_generation.force_recreate_services | default([]) }}"
     compose_native_action_container_names: "{{ compose_native_generation.action_container_names }}"
@@ -79,20 +74,6 @@
   ansible.builtin.set_fact:
     compose_native_action_container_pattern: >-
       ^(?:{{ compose_native_action_container_expression }}|[0-9a-f]{12}_(?:{{ compose_native_action_container_expression }}))$
-  no_log: true
-
-- name: Capture the live pre-deployment image generation durably
-  ansible.builtin.command:
-    argv:
-      - "{{ ansible_python_interpreter }}"
-      - "{{ compose_native_current_dir }}/scripts/compose-image-lock.py"
-      - capture
-      - --project
-      - "{{ compose_native_project_name }}"
-      - --output
-      - "{{ compose_native_interrupted_image_path }}"
-  become: true
-  changed_when: true
   no_log: true
 
 - name: Recheck the existing backup mutex immediately before publication
@@ -531,101 +512,6 @@
   until: compose_native_post_health.stdout == 'healthy'
   no_log: true
 
-- name: Archive the older previous image generation before pointer rotation
-  ansible.builtin.copy:
-    src: "{{ compose_native_previous_image_lock_path }}"
-    dest: "{{ compose_native_retained_image_root }}/{{ compose_native_previous_artifact.stdout }}.json"
-    remote_src: true
-    owner: root
-    group: root
-    mode: "0600"
-    force: false
-  become: true
-  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
-  no_log: true
-
-- name: Require the archived older previous image generation to match
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/cmp
-      - --silent
-      - --
-      - "{{ compose_native_previous_image_lock_path }}"
-      - "{{ compose_native_retained_image_root }}/{{ compose_native_previous_artifact.stdout }}.json"
-  become: true
-  changed_when: false
-  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
-  no_log: true
-
-- name: Preserve the pre-deployment current images under their artifact identity
-  ansible.builtin.copy:
-    src: "{{ compose_native_interrupted_image_path }}"
-    dest: "{{ compose_native_retained_image_root }}/{{ compose_native_active_artifact.stdout }}.json"
-    remote_src: true
-    owner: root
-    group: root
-    mode: "0600"
-    force: false
-  become: true
-  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
-  no_log: true
-
-- name: Require the retained pre-deployment current image generation to match
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/cmp
-      - --silent
-      - --
-      - "{{ compose_native_interrupted_image_path }}"
-      - "{{ compose_native_retained_image_root }}/{{ compose_native_active_artifact.stdout }}.json"
-  become: true
-  changed_when: false
-  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
-  no_log: true
-
-- name: Retain the pre-deployment image set as the rollback generation
-  ansible.builtin.copy:
-    src: "{{ compose_native_interrupted_image_path }}"
-    dest: "{{ compose_native_previous_image_lock_path }}"
-    remote_src: true
-    owner: root
-    group: root
-    mode: "0600"
-  become: true
-  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
-  no_log: true
-
-- name: Capture the converged current image generation
-  ansible.builtin.command:
-    argv:
-      - "{{ ansible_python_interpreter }}"
-      - "{{ compose_native_current_dir }}/scripts/compose-image-lock.py"
-      - capture
-      - --project
-      - "{{ compose_native_project_name }}"
-      - --output
-      - "{{ compose_native_current_image_lock_path }}"
-  become: true
-  changed_when: true
-  when: compose_native_candidate_hash != compose_native_active_artifact.stdout
-  no_log: true
-
-- name: Verify current previous and retained image generations after convergence
-  ansible.builtin.command:
-    argv:
-      - "{{ ansible_python_interpreter }}"
-      - "{{ compose_native_current_dir }}/scripts/compose-image-lock.py"
-      - verify
-      - --current
-      - "{{ compose_native_current_image_lock_path }}"
-      - --previous
-      - "{{ compose_native_previous_image_lock_path }}"
-      - --retained-root
-      - "{{ compose_native_retained_image_root }}"
-  become: true
-  changed_when: false
-  no_log: true
-
 - name: Publish the exact active artifact identity for backup acceptance
   ansible.builtin.copy:
     content: "{{ compose_native_candidate_hash }}\n"
@@ -633,13 +519,6 @@
     owner: root
     group: root
     mode: "0444"
-  become: true
-  no_log: true
-
-- name: Remove the consumed interruption image checkpoint after complete success
-  ansible.builtin.file:
-    path: "{{ compose_native_interrupted_image_path }}"
-    state: absent
   become: true
   no_log: true
 

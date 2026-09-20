@@ -6,10 +6,6 @@
       - compose_native_expected_service_count | int > 0
       - compose_native_current_dir == '/srv/docker-compose/current'
       - compose_native_runtime_env_path == '/etc/docker-compose/production.env'
-      - compose_native_image_override_path == '/var/lib/home-lab/production-image-override.json'
-      - compose_native_current_image_lock_path == '/var/lib/docker-compose/current-images.json'
-      - compose_native_previous_image_lock_path == '/var/lib/docker-compose/previous-images.json'
-      - compose_native_retained_image_root == '/var/lib/docker-compose/retained-images'
       - compose_native_sops_sha256 is match('^[0-9a-f]{64}$')
       - compose_native_age_sha256 is match('^[0-9a-f]{64}$')
     fail_msg: Native Compose observation requires the adopted production identities.
@@ -26,9 +22,6 @@
   loop:
     - {path: "{{ compose_native_current_dir }}", kind: directory, mode: "0755"}
     - {path: "{{ compose_native_runtime_env_path }}", kind: file, mode: "0600"}
-    - {path: "{{ compose_native_image_override_path }}", kind: file, mode: "0644"}
-    - {path: "{{ compose_native_current_image_lock_path }}", kind: file, mode: "0600"}
-    - {path: "{{ compose_native_previous_image_lock_path }}", kind: file, mode: "0600"}
     - {path: "{{ compose_native_sops_path }}", kind: file, mode: "0755", checksum: true, sha256: "{{ compose_native_sops_sha256 }}"}
     - {path: "{{ compose_native_age_path }}", kind: file, mode: "0755", checksum: true, sha256: "{{ compose_native_age_sha256 }}"}
     - {path: "{{ compose_native_age_identity_path | dirname }}", kind: directory, mode: "0700"}
@@ -348,19 +341,6 @@
   loop: "{{ compose_native_required_health.results }}"
   loop_control:
     label: "{{ item.item }}"
-  no_log: true
-
-- name: Verify current previous and retained rollback images are locally available
-  ansible.builtin.script:
-    cmd: >-
-      {{ role_path }}/../../../scripts/compose-image-lock.py verify
-      --current {{ compose_native_current_image_lock_path }}
-      --previous {{ compose_native_previous_image_lock_path }}
-      --retained-root {{ compose_native_retained_image_root }}
-    executable: "{{ ansible_python_interpreter }}"
-  become: true
-  changed_when: false
-  check_mode: false
   no_log: true
 
 - name: Ask Compose for an active-model dry run

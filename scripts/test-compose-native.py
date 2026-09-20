@@ -16,7 +16,7 @@ DEPLOY = ROOT / "ansible/roles/compose_native/tasks/deploy.yml"
 GENERATION = ROOT / "ansible/roles/compose_native/tasks/generation.yml"
 DEFAULTS = ROOT / "ansible/roles/compose_native/defaults/main.yml"
 HOST = ROOT / "ansible/inventory/host_vars/docker-host.yml"
-RELEASE = ROOT / "ansible/playbooks/release-failed-compose-canary.yml"
+MAINTENANCE = ROOT / "ansible/roles/maintenance/tasks/main.yml"
 
 
 class NativeComposeSourceTests(unittest.TestCase):
@@ -45,9 +45,6 @@ class NativeComposeSourceTests(unittest.TestCase):
             "compose_native_current_dir": "/srv/docker-compose/current",
             "compose_native_previous_dir": "/srv/docker-compose/previous",
             "compose_native_runtime_env_path": "/etc/docker-compose/production.env",
-            "compose_native_current_image_lock_path": "/var/lib/docker-compose/current-images.json",
-            "compose_native_previous_image_lock_path": "/var/lib/docker-compose/previous-images.json",
-            "compose_native_retained_image_root": "/var/lib/docker-compose/retained-images",
             "compose_native_expected_service_count": "38",
         }
         for key, value in required.items():
@@ -69,28 +66,30 @@ class NativeComposeSourceTests(unittest.TestCase):
     def test_observation_uses_live_state_not_receipts(self):
         source = self.text(OBSERVE)
         for required in (
-            "findmnt", "list-jobs", "systemctl", "compose-image-lock.py",
+            "findmnt", "list-jobs", "systemctl",
             "config', '--quiet", "config', '--services", "config', '--images",
             "image_authority: tracked_digest_references",
             "community.docker.docker_compose_v2", "check_mode: true",
             "compose_native_backup_journal_path", "compose_native_apply_lock_path",
             "compose_native_reconciliation_lock_paths", "restore_readiness_proven: false",
-            "compose_native_backup_lock_state", "exec 9<", "--retained-root",
+            "compose_native_backup_lock_state", "exec 9<",
         ):
             self.assertIn(required, source)
         for forbidden in (".local", ".reconcile", "receipt", "historical-evidence", "activate-recovered-data"):
             self.assertNotIn(forbidden, source)
         self.assertNotIn("state: absent", source)
         self.assertNotIn("ansible.builtin.systemd_service", source)
+        for retired in (
+            "compose-image-lock.py", "compose_native_image_override_path",
+            "compose_native_current_image_lock_path", "compose_native_previous_image_lock_path",
+            "compose_native_retained_image_root", "--retained-root",
+        ):
+            self.assertNotIn(retired, source)
         mutex = source.split("- name: Require the existing backup mutex to be immediately available", 1)[1].split("- name:", 1)[0]
         self.assertIn("/usr/bin/bash", mutex)
         self.assertIn('exec 9< "$1"', mutex)
         self.assertIn("/usr/bin/flock --exclusive --nonblock 9", mutex)
         self.assertNotIn("/usr/bin/flock\n      - --exclusive", mutex)
-        image_verify = source.split("- name: Verify current previous and retained rollback images are locally available", 1)[1].split("- name:", 1)[0]
-        self.assertIn("ansible.builtin.script:", image_verify)
-        self.assertIn("{{ role_path }}/../../../scripts/compose-image-lock.py", image_verify)
-        self.assertNotIn("{{ compose_native_current_dir }}/scripts/compose-image-lock.py", image_verify)
 
     def test_deployment_has_deliberate_compose_and_secret_policy(self):
         source = self.text(DEPLOY) + self.text(GENERATION)
@@ -99,7 +98,7 @@ class NativeComposeSourceTests(unittest.TestCase):
             "compose_native_controller_status.stdout == ''",
             "compose_native_controller_commit.stdout == compose_native_expected_source_commit",
             "--porcelain=v1",
-            "--untracked-files=no",
+            "--untracked-files=all",
         ):
             self.assertIn(required, source)
         modules = source.count("community.docker.docker_compose_v2:")
@@ -111,9 +110,9 @@ class NativeComposeSourceTests(unittest.TestCase):
             "wait: true", "wait_timeout:", "compose_native_force_recreate_services",
             "SOPS_AGE_KEY_FILE", "/usr/bin/cmp", "compose_native_runtime_env_path",
             "compose_native_previous_dir", "compose_native_previous_env_path",
-            "compose_native_current_image_lock_path", "compose_native_previous_image_lock_path",
-            "compose_native_interrupted_image_path", "compose_native_retained_image_root", "compose_native_backup_lock_path",
+            "compose_native_environment_change_confirmed", "compose_native_backup_lock_path",
             "compose_native_expected_changed_paths", "compose_native_requested_container_names",
+            "compose_native_changed_bind_services",
             "compose_native_protected_service_fields", "Refuse protected topology changes inside requested services",
             "compose_native_source_candidate_images",
             "services/data/restic/files-from",
@@ -141,9 +140,19 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertIn("item.id is match(compose_native_action_container_pattern)", action_guard)
         self.assertNotIn("image-layer", action_guard)
 
-        final_verify = source.split("- name: Verify current previous and retained image generations after convergence", 1)[1].split("- name:", 1)[0]
-        self.assertIn("--retained-root", final_verify)
-        self.assertNotIn("--check-registry", final_verify)
+        for retired in (
+            "compose-image-lock.py", "image_checkpoint_path", "compose_native_interrupted_image_path",
+            "compose_native_current_image_lock_path", "compose_native_previous_image_lock_path",
+            "compose_native_retained_image_root", "production-image-override.json",
+        ):
+            self.assertNotIn(retired, self.text(OBSERVE) + source)
+
+        automatic = source.split("- name: Converge requested services with automatic recreation", 1)[1].split("- name:", 1)[0]
+        self.assertIn("recreate: auto", automatic)
+        forced = source.split("- name: Converge explicitly selected bind-file restart services", 1)[1].split("- name:", 1)[0]
+        self.assertIn("recreate: always", forced)
+        bind_guard = source.split("- name: Require explicit forced recreation for changed bind-mounted files", 1)[1].split("- name:", 1)[0]
+        self.assertIn("difference(compose_native_force_recreate_services)", bind_guard)
 
     def test_generation_activation_has_one_small_prepared_input_interface(self):
         deploy = self.text(DEPLOY)
@@ -160,7 +169,7 @@ class NativeComposeSourceTests(unittest.TestCase):
         )
         for key in (
             "operation", "artifact_hash", "active_artifact_hash", "artifact_dir",
-            "environment_path", "image_checkpoint_path", "services",
+            "environment_path", "services",
             "force_recreate_services", "action_container_names", "expected_services",
             "expected_service_count", "required_healthy_containers",
         ):
@@ -170,7 +179,6 @@ class NativeComposeSourceTests(unittest.TestCase):
             "Validate the prepared native Compose generation",
             "compose_native_staging_root ~ '/' ~ (compose_native_generation.artifact_hash | default(''))",
             "compose_native_staged_env_root ~ '/' ~ (compose_native_generation.artifact_hash | default('')) ~ '.env'",
-            "Capture the live pre-deployment image generation durably",
             "Recheck the existing backup mutex immediately before publication",
             "Publish a changed source generation while retaining current and previous inputs",
             "Preview the full published model before container changes",
@@ -180,7 +188,6 @@ class NativeComposeSourceTests(unittest.TestCase):
             "Require the complete published model to be idempotent",
             "Recheck required container health after native convergence",
             "Assert complete post-deployment convergence",
-            "Archive the older previous image generation before pointer rotation",
             "Publish the exact active artifact identity for backup acceptance",
         ):
             self.assertIn(boundary, generation)
@@ -198,7 +205,26 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertIn("recreate: auto", settle)
         self.assertIn("when: compose_native_post_preview.changed", settle)
 
-    def test_general_caller_uses_native_models_and_preserves_exact_historical_release(self):
+    def test_deployment_refuses_unbounded_model_and_path_changes(self):
+        deploy = self.text(DEPLOY)
+        for boundary in (
+            "Refuse unsafe expected artifact paths",
+            "Refuse unreviewed artifact differences",
+            "Require every reviewed artifact path to differ exactly once",
+            "Refuse mutable source candidate images",
+            "Require requested services to exist in both complete models",
+            "Refuse changes to non-service Compose topology",
+            "Refuse normalized model changes outside requested services",
+            "Refuse protected topology changes inside requested services",
+            "Refuse service additions removals or renames",
+        ):
+            self.assertIn(boundary, deploy)
+        self.assertIn(
+            "compose_native_candidate_services.stdout_lines | sort == compose_native_declared_services.stdout_lines | sort",
+            deploy,
+        )
+
+    def test_general_caller_uses_native_models_and_retires_consumed_release(self):
         host = self.text(HOST)
         self.assertIn("compose_native_backup_lock_path: /run/lock/home-lab-backup.lock", host)
         self.assertNotIn("compose_native_canary", host)
@@ -227,41 +253,20 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertIn("compose_native_candidate_dir ~ '/docker-compose.yml'", candidate_model)
         self.assertNotIn("compose_native_image_override_path", candidate_model)
 
-        release = self.text(RELEASE)
-        for marker in (
-            "compose_native_failed_owner_sha256",
-            "compose_native_failed_release_confirmed",
-            "compose_native_failed_candidate_hash",
-            "compose_native_failed_active_hash",
-            "apply_lock_action: adopt",
-            "apply_lock_action: release",
-            "compose-native-canary",
-            "candidate_environment_exists: false",
-            "interruption_checkpoint_exists: false",
-            "Check mode validated the retained boundary but did not release ownership",
-            "compose_native_artifact_identity_path",
-            "compose_native_backup_lock_path",
-        ):
-            self.assertIn(marker, release)
-        self.assertGreaterEqual(release.count("check_mode: false"), 3)
-        self.assertNotIn("state: absent", release)
+        self.assertFalse((ROOT / "ansible/playbooks/release-failed-compose-canary.yml").exists())
 
-    def test_failure_and_authorization_documentation_matches_boundaries(self):
+    def test_interrupted_deployment_documentation_matches_native_boundary(self):
         operations = " ".join(self.text(ROOT / "docs/operations.md").split())
-        self.assertIn("Failures after checkpoint capture retain the production owner and checkpoint", operations)
-        self.assertIn("A refusal before checkpoint capture retains the owner but creates no checkpoint", operations)
-        self.assertIn("one authorized normal attempt", operations)
-        self.assertIn("At that point the authorized attempt was consumed", operations)
-        self.assertIn("retry, lock release, candidate deletion and container mutation were not authorized", operations)
-        self.assertIn("same explicit clean source commit", operations)
-        self.assertIn("fbd84ff2fd70b0a7cd6a560930db0a66f8f88b56cd5472a9fe167bc404fe04b5", operations)
-        self.assertIn("5af8bb373ce87c55ad50b3237805c9b8413f5f2bf8df5bd11671d6fc66329706", operations)
-        self.assertIn("That release authority is consumed", operations)
-        self.assertIn("performed no container mutation", operations)
-        self.assertIn("3e5600bfa5ff9441d729e4e81634854435cea13f15568337adbc87911468569e", operations)
-        self.assertIn("stopped after 12 successful tasks with `changed=0`", operations)
-        self.assertIn("That attempt is consumed", operations)
-        self.assertIn("The audit performed no recovery", operations)
+        for marker in (
+            "durable production ownership",
+            "Do not clear the owner",
+            "exact committed desired state",
+            "apply_lock",
+            "artifact publication",
+            "partial container convergence",
+            "No image checkpoint",
+        ):
+            self.assertIn(marker, operations)
 
     def test_general_legacy_deployment_is_retired_but_recovery_consumers_remain(self):
         stage = self.text(ROOT / "ansible/roles/compose_stage/tasks/main.yml")
@@ -293,19 +298,39 @@ class NativeComposeSourceTests(unittest.TestCase):
             self.assertNotIn(retired, review)
             self.assertNotIn(retired, deploy)
 
+        self.assertFalse((ROOT / "ansible/playbooks/rollback-compose.yml").exists())
+        rollback = self.text(ROOT / "ansible/roles/compose_rollback/tasks/main.yml")
+        self.assertIn("retained only for the exact reviewed Nextcloud five-mount rollback", rollback)
+        self.assertIn("rollback-reviewed-nextcloud-five-mount-migration", rollback)
         expected = [
             ("ansible/playbooks/deploy-nextcloud-migration.yml", "role: compose_deploy"),
-            ("ansible/playbooks/rollback-compose.yml", "role: compose_rollback"),
             ("ansible/playbooks/rollback-nextcloud-migration.yml", "role: compose_rollback"),
             ("ansible/playbooks/recover-compose.yml", "role: compose_recovery"),
             ("ansible/roles/maintenance/tasks/main.yml", "home-lab-safe-image-prune"),
-            ("ansible/roles/maintenance/tasks/main.yml", "compose-image-lock.py prune"),
             ("scripts/compose-artifact.py", '"scripts/compose-image-lock.py"'),
         ]
         for relative, marker in expected:
             self.assertIn(marker, self.text(ROOT / relative), relative)
         recovery = " ".join(self.text(ROOT / "recovery/README.md").split())
         self.assertIn("never point that activator at a Restic staging tree", recovery)
+        self.assertIn("Git revert", recovery)
+
+    def test_safe_prune_no_longer_depends_on_rollback_image_locks(self):
+        source = self.text(MAINTENANCE)
+        self.assertIn("docker image prune --all --force --filter until=168h", source)
+        self.assertIn("operation=native-unused-image-prune", source)
+        for retired in (
+            "compose-image-lock.py", "maintenance_image_lock_bootstrap_confirmed",
+            "maintenance_compose_current_image_lock_path", "maintenance_compose_previous_image_lock_path",
+            "--check-registry", "home-lab-prune-protection",
+        ):
+            self.assertNotIn(retired, source)
+
+    def test_generic_rollback_is_git_revert_plus_forward_deployment(self):
+        for relative in ("README.md", "docs/operations.md", "docs/decisions.md"):
+            source = " ".join(self.text(ROOT / relative).split())
+            self.assertIn("Git revert", source, relative)
+            self.assertIn("deploy-compose.yml", source, relative)
 
 
 if __name__ == "__main__":

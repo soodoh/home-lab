@@ -19,24 +19,30 @@ metadata and key possession alone do not qualify AWS access, bundle retrieval or
 recovery.
 
 Future native actions must not depend on a previous runner's local validation
-artifacts or committed success receipts. Re-observe current host state; retain
-necessary interruption/rollback state on the host or in independently available
-protected storage so runner loss is recoverable. The [native Compose canary](../docs/operations.md#native-compose-qualification)
-follows that boundary by retaining host generations, ownership and image state;
-its live observation/check qualification did not activate recovered data, consume
-Restic staging or prove restore readiness. General legacy deployment now refuses
-execution, while exact operation-specific staging/deployment internals remain as
-recovery inputs. The first [native generation-activation slice](../docs/compose-generation-activation.md)
-extracts only the qualified canary's publication, Compose, health and idempotence
-mechanics; it does not replace archive data activation, rollback planning, migration
-journals or installed recovery consumers. The September 19 canary owner and
-checkpoint were consumed only after the separately authorized exact forward recovery
-proved full-project idempotence, service health and image-generation preservation.
-The marker now identifies the recovered candidate and fresh native observation is
-zero-change. Commit `bc870b8e` records the consumed exact recovery; its callable
-one-off play was removed after postconditions passed and must not be reconstructed or
-rerun. This distinction does not waive existing legacy recovery inputs,
-establish independent custody, or make a healthy service a restore test. See the
+artifacts or committed success receipts. Re-observe current host state and preserve
+durable ownership, journals, before-images and independently available protected
+recovery state so runner loss is recoverable. The current
+[native generation activation](../docs/compose-generation-activation.md) keeps
+artifact/environment publication, coordination, Compose health and final zero-change
+checks, but no longer creates or consumes deployment image checkpoints.
+
+Ordinary Compose rollback is a Git revert plus the same bounded
+`ansible/playbooks/deploy-compose.yml` forward deployment from the latest reviewed
+automation. Missing old images are pulled by their tracked exact digest; registry and
+network availability are accepted dependencies. Do not activate an old automation
+checkout or local image ID as a generic rollback transaction. The generic
+`rollback-compose.yml` entrypoint is retired.
+
+This does not retire operation-specific recovery. General legacy deployment remains
+refused, while `rollback-nextcloud-migration.yml`, archive `compose_recovery`, database
+and storage semantics retain their exact previous artifact/environment and image-lock
+inputs until separately reviewed. `compose-action-plan.py` and
+`compose-image-lock.py` remain only for those explicit consumers. Existing host image
+locks, the former override, old artifacts and historical checkpoints are evidence;
+source simplification does not authorize deleting them. The historical September 19
+canary checkpoint and owner were consumed only after its separately authorized exact
+forward recovery proved full-project idempotence and health. This history does not
+establish independent custody or make a healthy service a restore test. See the
 [disposable-controller decision](../docs/decisions.md#disposable-controllers-and-live-validation).
 
 ## Select and restore to staging
@@ -114,7 +120,7 @@ evidence below. The September 19
 matched one current, fully copied September 18 games → NFS → Proton chain with zero
 pending entries and a source age below 24 hours. It used `--no-lock --no-cache` reads
 and ran no backup or maintenance; it is point-in-time chain/RPO evidence, not restore
-integrity. Other [operational outcomes](../docs/operations.md#latest-scoped-deployment)
+integrity. Other [operational outcomes](../docs/operations.md#latest-host-configuration-deployment)
 and [mount probes](../docs/operations.md#proton-maintenance-unit) likewise do not
 prove snapshot integrity, full maintenance success or restore readiness.
 `restic-proton` stays UID/GID **60000**, without login, supplementary groups or
@@ -224,6 +230,15 @@ Proxmox Restic transport and its snippet staging/removal path are retired; do no
 reconstruct them. The Docker-host `ansible-deploy` lifecycle/recovery route remains,
 but it is not independent recovery access. A network-disconnected controller cannot
 execute Ansible rescue; the firewall's persistent watchdog must remain available.
+
+For an interrupted native Compose deployment, keep the durable production owner.
+After artifact publication or partial container convergence, inspect exact owner,
+source/artifact/environment identities, running containers, native preview, health
+and Restic state. Prefer completing the exact committed desired state with current
+automation. If owner adoption is necessary, create a narrow reviewed entrypoint using
+`apply_lock` `adopt`, bound to the exact owner SHA-256, operation, controller and
+source/artifact identities; release only after health and a zero-change full preview.
+Do not clear ownership or recreate an image checkpoint.
 
 For a failed `restic_backup` convergence, inspect the exact owner at
 `/var/lib/iac-ansible-production.lock`. The retained `clear-failed-apply-lock.yml`

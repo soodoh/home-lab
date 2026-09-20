@@ -1,15 +1,19 @@
 ---
-- name: Validate the previous-artifact rollback contract
+- name: Validate the operation-specific Nextcloud rollback contract
   ansible.builtin.assert:
     that:
+      - >-
+        (compose_rollback_nextcloud_migration_confirmation | default('')) ==
+        'rollback-reviewed-nextcloud-five-mount-migration'
       - compose_artifact_hash is match('^[0-9a-f]{64}$')
       - compose_rollback_target_hash is match('^[0-9a-f]{64}$')
       - compose_artifact_hash != compose_rollback_target_hash
       - ansible_check_mode or (compose_rollback_confirmed | default(false) | ansible.builtin.bool)
       - ansible_check_mode or compose_rollback_expected_plan_hash is match('^[0-9a-f]{64}$')
     fail_msg: >-
-      Compose rollback requires distinct current and previous artifact hashes, the exact reviewed plan
-      hash, and compose_rollback_confirmed=true outside check mode.
+      compose_rollback is retained only for the exact reviewed Nextcloud five-mount rollback;
+      it requires distinct current and previous artifact hashes, the reviewed plan hash, and
+      compose_rollback_confirmed=true outside check mode.
 
 - name: Inspect current and previous deployment inputs
   ansible.builtin.stat:

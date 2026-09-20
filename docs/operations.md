@@ -358,46 +358,61 @@ changes described below, but not unrestricted Compose convergence.
 
 `ansible/playbooks/observe-compose.yml` is the intended read-only entrypoint for a
 fresh runner. It loads only native inventory variables, not the global contract or
-legacy `docker_host` group variables. It checks the active root-owned artifact,
-environment, override and image locks; installed SOPS/age identities; actual games,
-state and NFS mounts; backup files, writer units, interruption journal and mutex;
-production/reconciliation ownership paths; systemd jobs; declared/running services,
-digest-pinned images and required health; local availability of every image in
-current, previous, retained and interrupted locks; and a
-`community.docker.docker_compose_v2` dry run against live containers. Registry
-availability is not treated as recovery proof and remains a fail-closed prune-time
-check; deployment observation does not consume unauthenticated registry quota.
-Its bounded summary explicitly does not claim restore readiness. It consumes no
-receipt, `.local`, `.reconcile` or prior runner result.
+legacy `docker_host` group variables. It checks the active root-owned artifact and
+environment; installed SOPS/age identities; actual games, state and NFS mounts;
+backup files, writer units, interruption journal and mutex; production/reconciliation
+ownership paths; systemd jobs; declared/running services, digest-pinned images and
+required health; and a `community.docker.docker_compose_v2` dry run against live
+containers. It does not inspect the former image override or any current, previous,
+retained or interrupted image-lock file. Its bounded summary explicitly does not
+claim restore readiness. It consumes no receipt, `.local`, `.reconcile` or prior
+runner result.
 
 `ansible/playbooks/deploy-compose.yml` accepts only an explicit subset of the existing
 service set and requires a same-commit check before each separately authorized normal
 run. It re-runs observation, acquires the durable production owner lock, derives an
-artifact hash directly from tracked checkout bytes, stages only the existing
-deterministic artifact selection, decrypts SOPS only on the host and requires the
-resulting environment to be byte-identical to production. Credential, service-set,
-database migration, mount/topology and Restic-policy changes are out of scope.
-LiteLLM config bytes are frozen, and every non-requested normalized service plus
-top-level network/volume/config/secret topology must equal active state. Every
-changed artifact path and impacted service must be named explicitly; bind-file byte
-changes additionally require explicit forced recreation.
+artifact hash directly from tracked checkout bytes, stages only the deterministic
+artifact selection and decrypts SOPS only on the host. Environment changes are
+refused unless separately approved with
+`compose_native_environment_change_confirmed=true`; the resolved model still limits
+the effect to requested services. File-backed secret publication, service-set,
+database migration, mount/topology and Restic-policy changes remain out of scope.
+Every non-requested normalized service plus top-level network/volume/config/secret
+topology must equal active state. Every changed artifact path and impacted service
+must be named explicitly. If an exact changed path is a service bind source, that
+service must also be in the explicit forced-recreation subset.
 
 The module calls fix `project_name=docker-compose`, disable builds, pull only the
-explicitly requested services with `policy=missing`, and then use `pull=never` for
+explicitly requested services with `policy: missing`, and then use `pull: never` for
 full-project preview and convergence. They prohibit orphan and anonymous-volume
-replacement, wait for running/healthy state, and use automatic recreation except
-for an explicitly supplied forced-recreation subset. A full-project module preview
-must contain only requested-container actions before convergence, and a full-project
-post-preview must be idempotent. The role preserves `current`, `previous`,
-hash-addressed older artifacts/environments and a durable pre-deployment image
-checkpoint. The narrow image-lock helper extension makes prune protect
-hash-addressed retained and interrupted generations in addition to current/previous;
-it neither prunes volumes nor changes the installed cron wrapper. Failures after
-checkpoint capture retain the production owner and checkpoint for inspection. A
-refusal before checkpoint capture retains the owner but creates no checkpoint
-because no deployment generation has changed. The workflow never clears a lock or
-attempts database rollback. Only complete success updates current/previous image
-locks and releases ownership.
+replacement, wait for running/healthy state, and use automatic recreation for
+resolved model changes, including image digests and approved environment values.
+Only unchanged-path content cases such as bind-mounted files use explicit forced
+recreation. A full-project preview may contain only requested-container actions
+before convergence, and the full-project post-preview must be zero-change. The role
+preserves `current`, `previous` and hash-addressed older artifacts/environments for
+relative bind paths, atomic publication and surviving operation-specific recovery
+consumers. It does not create, rotate, activate or verify image locks or deployment
+image checkpoints.
+
+Tracked repository digest references are the sole ordinary image authority. A
+missing old image may be pulled again by exact digest; registry/network availability
+is an accepted dependency. Generic rollback means creating and reviewing a new Git
+revert commit and running the latest reviewed `deploy-compose.yml` automation against
+that commit with the same explicit service/path/recreation, health and final
+zero-change gates. The generic `rollback-compose.yml` previous-artifact entrypoint is
+retired. The Nextcloud migration rollback and database/storage/archive recovery paths
+remain operation-specific and unchanged.
+
+A failed mutation preserves durable production ownership. No image checkpoint is
+created. Do not clear the owner, watchdogs or evidence. After artifact publication or
+partial container convergence, inspect the exact owner, source/artifact/environment
+identities, running containers, native preview, health and Restic state. Prefer
+converging the exact committed desired state with current automation. If adoption is
+required, add a narrow reviewed recovery entrypoint using existing `apply_lock`
+`adopt` semantics and bind it to the exact owner SHA-256, operation, controller and
+source/artifact identities. Release only after bounded convergence, health and a
+zero-change full-project preview; do not create a generic resume framework.
 
 A fresh runner needs reviewed Ansible Core 2.21.x, the pinned collections installed
 from `ansible/collections/requirements.yml`, Tailscale connectivity and the trusted
@@ -409,24 +424,23 @@ workflow exists until short-lived Tailscale identity, authoritative host-key cus
 and protected-environment approval are decided. The production SOPS identity
 remains host-only.
 
-The canary now hands its already prepared and validated hash-addressed inputs to the
-small [`compose_native` generation activation interface](compose-generation-activation.md).
+The caller hands its prepared and validated hash-addressed inputs to the small
+[`compose_native` generation activation interface](compose-generation-activation.md).
 That interface centralizes native full-project preview, requested-service activation,
-health/idempotence checks and current/previous artifact, environment and image
-publication. It does not select operations, decrypt inputs, migrate data or grant
-authority. The retained caller/recovery inventory documents why `compose_stage`,
-`compose_deploy`, `compose_rollback`, `compose_recovery` and their helpers remain.
-Only the canary caller was migrated in that first source slice.
+health/idempotence checks and current/previous artifact/environment publication. It
+does not select operations, decrypt inputs, migrate data, retain rollback images or
+grant authority. The retained caller/recovery inventory explains the narrower legacy
+migration and archive consumers.
 
-The caller source now accepts any explicit subset of services that already exists in
-both complete models. It uses native Compose configuration output to validate the
-service set and derive configured container names. All candidate images must be
-repository digest references; the native pull module fetches only missing images for
-the requested services before `pull: never` preview and convergence. A reviewed
+The caller accepts any explicit subset of services that already exists in both
+complete models. It uses native Compose configuration output to validate the service
+set and derive configured container names. All candidate images must be repository
+digest references; the native pull module fetches only missing images for the
+requested services before `pull: never` preview and convergence. A reviewed
 changed-path list and forced-recreation subset remain explicit inputs; no service
-catalogue, impact analyzer or deployment manifest was added. The environment, service
-set, protected per-service topology, top-level networks/volumes/configs/secrets and
-Restic policy inputs remain immutable.
+catalogue, impact analyzer or deployment manifest was added. Service set, protected
+per-service topology, top-level networks/volumes/configs/secrets and Restic policy
+inputs remain immutable; environment changes require their separate confirmation.
 
 At commit `0b75750d`, a separately authorized read-only observation passed with
 `ok=35 changed=0 failed=0 unreachable=0`: all 38 services were declared and running,
@@ -549,10 +563,10 @@ adds only the helper and comment paths to the artifact allowlist, freezes LiteLL
 bytes, and requires every non-requested normalized service plus network/volume/
 config/secret topology to equal the active model. Its source-only candidate hash is
 `3e5600bfa5ff9441d729e4e81634854435cea13f15568337adbc87911468569e`;
-that is not a live qualification or deployment approval.
-`ansible/playbooks/release-failed-compose-canary.yml` binds the exact owner,
-active and failed-candidate hashes, requires the audited pre-publication state,
-adopts/releases only that owner and preserves the staged evidence. After commit
+that is not a live qualification or deployment approval. The now-consumed
+`release-failed-compose-canary.yml` play bound the exact owner, active and
+failed-candidate hashes, required the audited pre-publication state, adopted/released
+only that owner and preserved the staged evidence. After commit
 `1676a419` was pushed, its separately authorized check-mode run passed 13 tasks
 with one expected preview change and no failures. The separately authorized normal
 run then passed 17 tasks with one reported change: it released only owner SHA-256
@@ -560,7 +574,8 @@ run then passed 17 tasks with one reported change: it released only owner SHA-25
 It preserved failed candidate
 `fbd84ff2fd70b0a7cd6a560930db0a66f8f88b56cd5472a9fe167bc404fe04b5`,
 found no candidate environment or interruption checkpoint, and performed no
-container mutation. That release authority is consumed.
+container mutation. That release authority is consumed, and the obsolete callable
+play is removed by the current source simplification.
 
 Commit `c5df0686` recorded that closure and was pushed from a clean checkout.
 Fresh observation then passed 38 tasks with `changed=0`: all 38 services were
@@ -677,13 +692,33 @@ authorization/resume gates and NFS-to-local checksum/delete tasks were removed. 
 host, live/NFS data, Restic policy, timer or retained staging tree changed during
 source retirement. The coupled Calibre/Caro preserved-data play remains blocked
 pending separate Caro/recovery review. The remaining internals are retained only
-while recovery and acceptance callers are closed individually. Both rollback plays
-still use `compose_rollback`, and archive recovery still uses `compose_recovery`.
-`compose-artifact.py` remains a first-run/retirement dependency.
-`compose-image-lock.py` remains consumed by those roles and by installed
-`/usr/local/sbin/home-lab-safe-image-prune`; that helper continues image-only
-pruning and protects retained/interrupted generation locks. No installed helper,
-artifact, environment, lock or journal was removed.
+while recovery and acceptance callers are closed individually. The generic rollback
+play is retired; `rollback-nextcloud-migration.yml` still uses `compose_rollback`,
+and archive recovery still uses `compose_recovery`. `compose-artifact.py` remains a
+first-run/retirement dependency. `compose-image-lock.py` is retained only for those
+explicit migration/recovery capture, verify, difference and activation consumers;
+its prune command is removed. `compose-action-plan.py` likewise remains required by
+Nextcloud migration/deployment rollback semantics.
+
+The historical maintenance role has no active playbook caller. Its source prune
+wrapper now delegates directly to `docker image prune --all --filter until=168h`
+under the existing production lock.
+It no longer bootstraps, verifies or protects image-lock generations and does not
+query a registry. A September 19 live read found
+`/usr/local/sbin/home-lab-safe-image-prune`, `/usr/bin/crontab` and matching installed
+systemd/cron/helper references absent, so there was no installed prune consumer to
+change. No host helper, artifact, environment, image-lock file or journal was removed.
+Installing the source wrapper or changing host cleanup remains separately authorized.
+
+At the start of this simplification, ordinary check-mode observation passed
+`ok=35 changed=0 failed=0 unreachable=0`: 38 services were declared and running,
+38 images were digest pinned, required health passed, backup writers were inactive,
+no production/reconciliation owner or Restic interruption was present, and the full
+preview was zero-change. A separate bounded read confirmed active artifact
+`57c7326a463a560fee93fb45b729552fa8a9181d01b1f5292b2756558b21aa0d`
+and Recyclarr v8.7.2. The failed prune audit command still returned those two values
+but exited nonzero because the expected helper and `crontab` were absent; a corrected
+read then confirmed no installed references. Both reads were observation only.
 
 ## Manual-update policy
 
@@ -1235,10 +1270,13 @@ paths explicitly, not the repository checkout or a checkout `.env`:
 /var/lib/home-lab/production-image-override.json
 ```
 
-Environment files remain `root:root 0600`. Preserve current/previous artifacts,
-image sets and overrides independently; images cannot restore migrated databases.
-The installed prune helper keeps rollback images and fails closed on missing or
-ambiguous locks. Never substitute `docker image prune -a` or volume pruning.
+Environment files remain `root:root 0600`. Current/previous artifacts and
+environments remain operation-specific recovery inputs; the ordinary rollback
+interface is a Git revert plus `deploy-compose.yml`. The former override and existing
+current/previous/retained/interrupted image-lock files are preserved host evidence but
+are not ordinary image authority. Unused images may be pruned and repulled by exact
+digest; never prune volumes. Source preparation does not authorize installing or
+running the prune wrapper.
 
 VM100's source identity is Debian 13 `docker-host`, LAN `192.168.0.100`, tailnet
 `100.116.163.42`. The deployment account is `ansible-deploy`; `docker` is the

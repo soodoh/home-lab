@@ -1,5 +1,2 @@
 ---
 maintenance_manage_root_cron: false
-maintenance_image_lock_bootstrap_confirmed: false
-maintenance_compose_current_image_lock_path: /var/lib/docker-compose/current-images.json
-maintenance_compose_previous_image_lock_path: /var/lib/docker-compose/previous-images.json
