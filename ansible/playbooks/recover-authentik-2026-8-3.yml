@@ -16,7 +16,12 @@
         set -euo pipefail
         test "$(/usr/bin/git status --porcelain=v1 --untracked-files=no)" = ""
         /usr/bin/git merge-base --is-ancestor "{{ authentik_recovery_desired_commit }}" HEAD
-        test "$(/usr/bin/git diff --name-only "{{ authentik_recovery_desired_commit }}"..HEAD)" = "{{ authentik_recovery_playbook }}"
+        actual_changes=$(/usr/bin/git diff --name-only "{{ authentik_recovery_desired_commit }}"..HEAD)
+        expected_changes=$(/usr/bin/printf '%s\n' \
+          '{{ authentik_recovery_playbook }}' \
+          'ansible/roles/compose_native/tasks/deploy.yml' \
+          'scripts/test-compose-native.py')
+        test "$actual_changes" = "$expected_changes"
         test "$(
           {{ ansible_playbook_python }} scripts/compose-artifact.py --root . hash
         )" = "{{ authentik_recovery_candidate_artifact }}"

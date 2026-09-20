@@ -242,6 +242,10 @@
             mode: preserve
             directory_mode: "0755"
           become: true
+          # Ansible Core 2.21 can remove its shared remote task directory between
+          # per-file copy invocations when recursive copy and pipelining interact.
+          vars:
+            ansible_pipelining: false
 
         - name: Verify the incoming candidate identity on the host
           ansible.builtin.command:

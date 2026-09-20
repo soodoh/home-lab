@@ -126,6 +126,12 @@ class NativeComposeSourceTests(unittest.TestCase):
         ):
             self.assertNotIn(forbidden, source)
 
+        transfer = self.text(DEPLOY).split(
+            "- name: Transfer only the deterministic artifact", 1
+        )[1].split("- name:", 1)[0]
+        self.assertIn("ansible.builtin.copy:", transfer)
+        self.assertIn("ansible_pipelining: false", transfer)
+
         pull = source.split("- name: Pull only operation-approved generation images", 1)[1].split("- name:", 1)[0]
         self.assertIn("community.docker.docker_compose_v2_pull:", pull)
         self.assertIn("services: \"{{ compose_native_requested_services }}\"", pull)
