@@ -460,6 +460,28 @@
     fail_msg: Live Compose configuration, mounts, images, or container state differ from the active model.
   no_log: true
 
+- name: Ask Compose for a source-only dry run without the retained override
+  community.docker.docker_compose_v2:
+    project_src: "{{ compose_native_current_dir }}"
+    project_name: "{{ compose_native_project_name }}"
+    files:
+      - docker-compose.yml
+    env_files:
+      - "{{ compose_native_runtime_env_path }}"
+    state: present
+    pull: never
+    build: never
+    recreate: auto
+    remove_orphans: false
+    renew_anon_volumes: false
+    wait: false
+  become: true
+  environment:
+    HOME: "{{ compose_native_home }}"
+  register: compose_native_source_only_preview
+  check_mode: true
+  no_log: true
+
 - name: Publish only a bounded live Compose observation summary
   ansible.builtin.debug:
     msg:
@@ -470,6 +492,8 @@
       required_health_checks: "{{ compose_native_required_healthy_containers | length }}"
       image_override_neutral: "{{ compose_native_override_changed_services | length == 0 }}"
       override_divergent_services: "{{ compose_native_override_changed_services }}"
+      source_only_preview_changed: "{{ compose_native_source_only_preview.changed }}"
+      source_only_preview_actions: "{{ compose_native_source_only_preview.actions | length }}"
       backup_writers: inactive
       active_model_drift: false
       restore_readiness_proven: false
