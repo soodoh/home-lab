@@ -26,6 +26,7 @@
       delegate_to: localhost
       become: false
       changed_when: false
+      check_mode: false
 
     - name: Inspect the retained owner and pre-publication host boundary
       ansible.builtin.shell: |
@@ -66,6 +67,7 @@
         executable: /bin/bash
       become: true
       changed_when: false
+      check_mode: false
       no_log: true
 
     - name: Adopt only the exact interrupted native site owner
@@ -106,3 +108,4 @@
       ansible.builtin.import_role:
         name: compose_native
         tasks_from: observe
+      when: not ansible_check_mode
