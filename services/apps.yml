@@ -40,7 +40,7 @@ services:
       - proxy
 
   calibre:
-    image: ghcr.io/linuxserver/calibre:9.11.0@sha256:a65e85852ae4dfec58ff6b65ffa0717fd5d2c21dddf0f5683e778365d87c588d
+    image: ghcr.io/linuxserver/calibre:9.15.0@sha256:8c7b77ada7133cbac1519791035ac7e305e37adae5cd06038270a90f99f4b4d6
     container_name: calibre
     restart: unless-stopped
     logging: *default-logging
