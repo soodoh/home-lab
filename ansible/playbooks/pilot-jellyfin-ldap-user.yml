@@ -1,7 +1,8 @@
 ---
 - name: Move one preserved Jellyfin identity to the qualified LDAP provider
   hosts: docker-host
-  gather_facts: false
+  gather_facts: true
+  gather_subset: ["!all", min]
   any_errors_fatal: true
   vars:
     jellyfin_ldap_pilot_username: ""
