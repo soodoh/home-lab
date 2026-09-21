@@ -18,7 +18,7 @@ SPEC.loader.exec_module(EXPORTER)
 
 class FakeOmada:
     controller_id = "controller-id"
-    controller_version = "6.2.14.11"
+    controller_version = "6.3.0.45"
 
     def __init__(self) -> None:
         self.responses: dict[str, list[dict[str, Any]]] = {
@@ -82,7 +82,7 @@ class OmadaExportTests(unittest.TestCase):
     def test_projects_exact_selected_live_domain(self) -> None:
         value = EXPORTER.build_export(FakeOmada(), "Selected", "Default")
 
-        self.assertEqual(value["controller_version"], "6.2.14.11")
+        self.assertEqual(value["controller_version"], "6.3.0.45")
         self.assertEqual(value["site"], {"id": "site-id", "name": "Selected"})
         self.assertEqual(value["network"]["id"], "network-id")
         self.assertEqual(

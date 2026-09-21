@@ -14,7 +14,7 @@ The required shape is:
 ```json
 {
   "exported_at": "RFC3339",
-  "controller_version": "6.2.14.11",
+  "controller_version": "6.3.0.45",
   "site": { "id": "controller-id", "name": "site-name" },
   "network": {
     "id": "network-id",
