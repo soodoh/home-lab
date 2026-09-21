@@ -101,10 +101,10 @@ uses [recovery](../recovery/README.md).
 
 [`configure-backups.yml`](../ansible/playbooks/configure-backups.yml) is a narrower
 existing-host interface. [`services/data/restic/policy.json`](../services/data/restic/policy.json)
-defines active desired policy; the role compares that projection to the installed
-policy while tolerating only installed historical fields pending the documented
-normalization migration. It preserves unit activation and does not bootstrap
-repositories or run a backup.
+defines the complete active desired policy; the role requires the installed policy
+to match it exactly. It preserves unit activation and does not bootstrap repositories
+or run a backup. Runner or policy content changes require a separately reviewed,
+lock-protected coordinated rollout before ordinary convergence can resume.
 
 [`deploy-compose.yml`](../ansible/playbooks/deploy-compose.yml) is an exceptional
 bounded Compose interface. Prefer the complete site play so partial ownership does
@@ -153,6 +153,5 @@ scratch space. They are not validation inputs and may be removed after confirmin
 3. no live resource is owned only by local state;
 4. required credentials or recovery payloads exist in independent protected storage.
 
-Do not archive scratch space as evidence. This repository change intentionally does
-not delete existing ignored directories because their ownership has not been checked
-against the live systems in this run.
+Do not archive scratch space as evidence. The reviewed controller scratch was removed
+only after these checks completed; apply the same checks to any future ignored state.

@@ -59,15 +59,16 @@ as part of an explicit provider/state migration.
 
 ## Restic runtime policy normalization
 
-Desired state: the installed policy and runner contain only recurring backup and
-recovery behavior. The source-only first-run, initialization and qualification
-entrypoints are retired, but the installed runner still carries fail-closed
-compatibility for a historical first-run policy shape.
+The installed policy and runner now contain only recurring backup and recovery
+behavior. First-run, initialization and qualification compatibility was removed in a
+coordinated rollout under the production and backup locks, and terminal host evidence
+was removed. Backup admission now requires a complete chain bound to the exact current
+policy and Compose artifact.
 
-The native role intentionally permits same-content adoption only. Observe the live
-policy hash, units, owners, repository chain and current runner hash before designing
-a coordinated policy/runner rollout. Do not bypass that guard by changing an
-installed hash or copying a new runner independently.
+The native role permits same-content adoption only and requires the installed policy
+to match reviewed source exactly. Future runner or policy changes require another
+coordinated rollout; do not bypass the guard by changing an installed hash or copying
+a new runner independently.
 
 ## Recovery activation
 
@@ -80,10 +81,11 @@ observations from an earlier attempt.
 
 ## Controller artifact retirement
 
-Desired state: ignored `.local/`, `.reconcile/`, saved plans and obsolete local state
-can be deleted without losing ownership or recovery material.
+Ignored controller state was retired after refreshing every active remote-backed
+OpenTofu root, observing host owners and journals, resolving historical provider
+identities, proving recovery resources absent, and confirming independent custody of
+the encrypted recovery bundle and decryption identity.
 
-Before deletion, initialize and refresh every active remote-backed OpenTofu root,
-observe all host owners/journals, and identify any live resource referenced only by
-local state. Migrate or retire that ownership first. Existing ignored artifacts were
-not inspected or deleted by the repository cleanup.
+Repeat those live checks before deleting future `.local/`, `.reconcile/`, saved plans
+or obsolete local state. Migrate or retire any live identity first, and preserve any
+ambiguous or nonterminal operation until live inspection resolves it.
