@@ -47,16 +47,6 @@ Observe both generations live, verify the active library through a fresh snapsho
 isolated restore, then prepare an exact private disposition list. Never treat the NFS
 copy as a current mirror or replay an old synchronization command.
 
-## Proxmox VM disk ownership
-
-Desired state: the production OpenTofu root and remote state fully express the VM's
-current managed disks without changing existing bus addresses or importing an
-unexplained disk.
-
-Observe the live VM configuration, remote state and a fresh provider plan together.
-The source contains an intentional list-position tombstone; remove or reorder it only
-as part of an explicit provider/state migration.
-
 ## Restic runtime policy normalization
 
 The installed policy and runner now contain only recurring backup and recovery
