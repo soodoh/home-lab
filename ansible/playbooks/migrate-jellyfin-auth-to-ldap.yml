@@ -321,7 +321,9 @@
       ansible.builtin.set_fact:
         jellyfin_ldap_plugin_record: "{{ item }}"
       loop: "{{ jellyfin_plugins.json }}"
-      when: (item.Id | default(item.id)) == jellyfin_ldap_plugin_id
+      when: >-
+        (item.Id | default(item.id) | lower) ==
+        (jellyfin_ldap_plugin_id | replace('-', '') | lower)
       no_log: true
 
     - name: Require exact loaded LDAP plugin compatibility
