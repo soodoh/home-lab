@@ -78,6 +78,11 @@ import os
 from pathlib import Path
 source = Path(os.environ["RESTORE_SOURCE"]).read_text()
 source = source.replace("/srv/home-lab-recovery", os.environ["RECOVERY_ROOT"])
+for path_variable in ("recovery_parent", "RECOVERY_TARGET"):
+    source = source.replace(
+        f'$(stat -c %u "${path_variable}") == 0',
+        f'$(stat -c %u "${path_variable}") == {os.geteuid()}',
+    )
 target = Path(os.environ["RESTORE_TARGET"])
 target.write_text(source)
 target.chmod(0o755)

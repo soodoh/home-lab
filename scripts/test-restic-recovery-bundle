@@ -85,7 +85,7 @@ with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
         assert len(content) == expected["size"]
         assert hashlib.sha256(content).hexdigest() == expected["sha256"]
 PY
-[[ $(stat -f '%Lp' "$work/out/a.age" 2>/dev/null || stat -c '%a' "$work/out/a.age") == 600 ]]
+[[ $(stat -c '%a' "$work/out/a.age" 2>/dev/null || stat -f '%Lp' "$work/out/a.age") == 600 ]]
 
 recovery_parent="$work/recovery"
 recovery_target="$recovery_parent/restic-proton-proof"

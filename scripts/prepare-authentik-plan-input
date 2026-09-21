@@ -32,7 +32,7 @@ PY
 
 client_secrets_parent=$(dirname "$TF_VAR_authentik_client_secrets_path")
 [[ -d $client_secrets_parent && ! -L $client_secrets_parent ]]
-[[ $(stat -f '%Lp' "$client_secrets_parent" 2>/dev/null || stat -c '%a' "$client_secrets_parent") == 700 ]]
+[[ $(stat -c '%a' "$client_secrets_parent" 2>/dev/null || stat -f '%Lp' "$client_secrets_parent") == 700 ]]
 client_secrets=$(mktemp "$client_secrets_parent/client-secrets.XXXXXX")
 trap 'rm -f "$client_secrets"' EXIT INT TERM
 SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE sops --decrypt --output-type json \

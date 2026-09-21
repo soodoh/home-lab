@@ -26,7 +26,9 @@ jobs:
           python-version: "3.13"
 
       - name: Install validation dependencies
-        run: python -m pip install --disable-pip-version-check ansible-core==2.21.2
+        run: |
+          python -m pip install --disable-pip-version-check ansible-core==2.21.2
+          ansible-galaxy collection install -r ansible/collections/requirements.yml
 
       - name: Enforce disposable-controller boundaries
         run: python scripts/check-source-boundaries.py

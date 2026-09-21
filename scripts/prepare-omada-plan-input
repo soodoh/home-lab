@@ -44,7 +44,7 @@ done
 
 output_parent=$(dirname "$TF_VAR_omada_export_path")
 [[ -d $output_parent && ! -L $output_parent ]]
-[[ $(stat -f '%Lp' "$output_parent" 2>/dev/null || stat -c '%a' "$output_parent") == 700 ]]
+[[ $(stat -c '%a' "$output_parent" 2>/dev/null || stat -f '%Lp' "$output_parent") == 700 ]]
 ca_file=$(mktemp "$output_parent/omada-ca.XXXXXX")
 trap 'rm -f "$ca_file"' EXIT INT TERM
 printf '%s' "$OMADA_CA_PEM" >"$ca_file"
