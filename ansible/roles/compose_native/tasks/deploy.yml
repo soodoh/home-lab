@@ -156,6 +156,15 @@
           become: true
           register: compose_native_incoming_source
 
+        - name: Set the incoming Compose source directory identity
+          ansible.builtin.file:
+            path: "{{ compose_native_incoming_source.path }}"
+            state: directory
+            owner: root
+            group: root
+            mode: "0755"
+          become: true
+
         - name: Extract committed Compose source
           ansible.builtin.unarchive:
             src: "{{ compose_native_source_candidate_path }}"
