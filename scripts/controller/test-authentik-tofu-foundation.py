@@ -75,6 +75,25 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             }),
         )
 
+    def test_omada_proxy_forces_http1_upstream(self) -> None:
+        provider = DESIRED["proxyProviders"]["23"]
+        self.assertEqual(provider["internal_host"], "http://caddy:18043")
+        self.assertTrue(provider["internal_host_ssl_validation"])
+
+        caddyfile = (REPO / "services" / "data" / "Caddyfile").read_text()
+        self.assertIn(
+            """http://:18043 {
+\treverse_proxy https://172.23.0.1:8043 {
+\t\ttransport http {
+\t\t\ttls_insecure_skip_verify
+\t\t\tversions 1.1
+\t\t}
+\t}
+}
+""",
+            caddyfile,
+        )
+
     def test_nonsecret_desired_inventory_has_no_secret_fields(self) -> None:
         forbidden_keys = {"client_secret", "cookie_secret", "password", "token"}
 

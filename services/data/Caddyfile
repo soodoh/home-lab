@@ -21,6 +21,18 @@ zwave.diloreto.com {
 	reverse_proxy authentik-server:9000
 }
 
+# Omada uses host networking, so it has no Docker DNS name on the proxy network.
+# Bridge through the proxy network's host gateway and pin the Omada-facing hop to
+# HTTP/1.1 because Omada 6.3 resets Authentik's HTTP/2 upstream streams.
+http://:18043 {
+	reverse_proxy https://172.23.0.1:8043 {
+		transport http {
+			tls_insecure_skip_verify
+			versions 1.1
+		}
+	}
+}
+
 hass.diloreto.com {
 	reverse_proxy 172.23.0.1:8123
 }

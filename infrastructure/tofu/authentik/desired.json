@@ -1224,8 +1224,8 @@
       "cookie_domain": "",
       "external_host": "https://omada.diloreto.com",
       "intercept_header_auth": true,
-      "internal_host": "https://192.168.0.100:8043",
-      "internal_host_ssl_validation": false,
+      "internal_host": "http://caddy:18043",
+      "internal_host_ssl_validation": true,
       "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
       "jwt_federation_providers": [],
       "jwt_federation_sources": [],
@@ -1512,6 +1512,6 @@
     "complete": true,
     "customConfigurationSha256": "325690bd24ce0e639574150549497e10e117aa6f1a70e5bf4603422aa7c02fe1",
     "oauthProvidersSha256": "8d526eac6322b6ff9f0e28cc55ecb43615cad999cf1bdace0e1399e25c5c3c90",
-    "proxyProvidersSha256": "d0e46d471126599c276d6f65403a04030c4fabf910ad8f24561811a295c07652"
+    "proxyProvidersSha256": "5756b4fb1b1a2aadac1b02f9b3095c8b7013a28c04f7eeba9ecb8fe5a3e300e8"
   }
 }
