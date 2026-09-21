@@ -56,6 +56,9 @@ credentials and encrypted bundles live outside Git.
 - Compose convergence archives committed Git source and reconciles the complete
   project with the native Compose module. Git revert followed by convergence is
   configuration rollback.
+- Omada remote state owns the default LAN and exported DHCP reservations. A fresh
+  private controller export supplies desired values, and declarative import blocks
+  preserve bootstrap from an empty state without imperative state scripts.
 - Data recovery stages into a new private directory before any production decision.
 - External Nextcloud user data is outside the managed Restic recovery group and must
   be handled independently.

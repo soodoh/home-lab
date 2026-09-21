@@ -47,18 +47,6 @@ Observe both generations live, verify the active library through a fresh snapsho
 isolated restore, then prepare an exact private disposition list. Never treat the NFS
 copy as a current mirror or replay an old synchronization command.
 
-## Omada provider ownership
-
-Desired state: the Omada OpenTofu root and remote state own the existing default LAN
-and every exported DHCP reservation without changing controller configuration.
-
-Create a fresh private export with the read-only provider identity. The declarative
-import blocks bind the LAN by `<site>/<network-id>` and reservations by
-`<site>/<MAC>`. The initial saved plan must contain imports only: any create, update,
-replace or delete is a refusal. Apply that exact inspected plan with the separate
-administrator identity, then require a fresh zero-change plan before removing the
-private export and session credentials.
-
 ## Proxmox VM disk ownership
 
 Desired state: the production OpenTofu root and remote state fully express the VM's
