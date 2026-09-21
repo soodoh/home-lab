@@ -20,14 +20,11 @@ done
 
 echo "$LOG_PREFIX Updating qBittorrent's Listening Port..."
 
-wget --method=POST \
+if wget --method=POST \
   --header="Content-Type: application/x-www-form-urlencoded" \
   --body-data="json={\"listen_port\": $FORWARDED_PORT}" \
   --quiet \
-  "${QBITTORRENT_BASE_URL}/api/v2/app/setPreferences"
-
-# Check wget's exit status
-if [ $? -eq 0 ]; then
+  "${QBITTORRENT_BASE_URL}/api/v2/app/setPreferences"; then
   echo "$LOG_PREFIX Successfully updated qBittorrent's port to $FORWARDED_PORT"
 else
   echo "$LOG_PREFIX Failed to update qBittorrent's port"

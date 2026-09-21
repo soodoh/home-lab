@@ -44,7 +44,7 @@
     lock_timeout: 0
     dpkg_options: force-confold
   when: not proxmox_package_dist_upgrade
-  register: proxmox_package_selected_result
+  register: proxmox_package_selected_result # noqa: var-naming[no-role-prefix]
   no_log: true
   diff: false
 
@@ -66,7 +66,7 @@
     lock_timeout: 0
     dpkg_options: force-confold
   when: proxmox_package_dist_upgrade
-  register: proxmox_package_dist_result
+  register: proxmox_package_dist_result # noqa: var-naming[no-role-prefix]
   no_log: true
   diff: false
 

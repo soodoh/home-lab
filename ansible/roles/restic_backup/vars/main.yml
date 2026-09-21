@@ -1,5 +1,6 @@
 ---
-restic_systemd_unit_names:
+# Shared by adoption checks and rendering; retain the established internal name.
+restic_systemd_unit_names: # noqa: var-naming[no-role-prefix]
   - home-lab-restic-daily-local.service
   - home-lab-restic-daily-proton.service
   - home-lab-restic-daily.target

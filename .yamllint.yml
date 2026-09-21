@@ -1,6 +1,10 @@
 ---
 extends: default
 
+ignore: |
+  .git/
+  node_modules/
+
 rules:
   braces:
     max-spaces-inside: 1

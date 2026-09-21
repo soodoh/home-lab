@@ -32,8 +32,7 @@ if [ -z "$CURRENT_IP" ]; then
 fi
 
 make_request() {
-  grep mam_id "$COOKIE_FILE" >/dev/null 2>/dev/null
-  if [ $? -ne 0 ]; then
+  if ! grep mam_id "$COOKIE_FILE" >/dev/null 2>/dev/null; then
     echo "$LOG_PREFIX No cookie file found, please reinitialize with a new MAM_ID"
     exit 1
   fi

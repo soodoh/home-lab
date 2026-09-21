@@ -16,7 +16,7 @@
 - name: Check dpkg for unfinished package configuration without repairing it
   ansible.builtin.command:
     argv: [/usr/bin/dpkg, --audit]
-  register: proxmox_package_audit
+  register: proxmox_package_audit # noqa: var-naming[no-role-prefix]
   changed_when: false
   check_mode: false
   no_log: true
@@ -34,7 +34,7 @@
 - name: Read held package selections without changing them
   ansible.builtin.command:
     argv: [/usr/bin/apt-mark, showhold]
-  register: proxmox_package_holds
+  register: proxmox_package_holds # noqa: var-naming[no-role-prefix]
   changed_when: false
   check_mode: false
   no_log: true

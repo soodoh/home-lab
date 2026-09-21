@@ -32,7 +32,11 @@ Host inventory and playbooks are under [`ansible/`](ansible/).
 ```sh
 python3 scripts/check-source-boundaries.py
 python3 scripts/check-compose-image-pins.py
-scripts/test-compose-secret-files
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-lint ansible/playbooks ansible/roles
+yamllint . --no-warnings
+shellcheck $(find . -type f \( -name '*.sh' -o -name '*.bash' \) -not -path './.git/*' -print)
+docker compose config --no-env-resolution --no-interpolate --quiet
+tofu fmt -check -recursive
 # With the current decrypted environment in a private temporary file:
 docker compose --env-file "$runtime_env" config --quiet
 

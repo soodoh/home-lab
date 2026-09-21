@@ -16,7 +16,7 @@
     - /usr/local
     - /usr/local/libexec
     - /usr/local/libexec/home-lab
-  register: restic_runtime_ancestors
+  register: restic_runtime_ancestors # noqa: var-naming[no-role-prefix]
 
 - name: Require existing root-controlled Restic runtime ancestors
   ansible.builtin.assert:
@@ -38,7 +38,7 @@
     follow: false
     get_checksum: false
     get_mime: false
-  register: restic_runtime_policy_file
+  register: restic_runtime_policy_file # noqa: var-naming[no-role-prefix]
 
 - name: Require a protected existing regular Restic policy file
   ansible.builtin.assert:
@@ -56,7 +56,7 @@
 - name: Read the existing policy for Restic runtime-file adoption
   ansible.builtin.slurp:
     src: /etc/home-lab/restic-policy.json
-  register: restic_runtime_policy
+  register: restic_runtime_policy # noqa: var-naming[no-role-prefix]
   no_log: true
 
 - name: Require the installed Restic policy to match reviewed source exactly
@@ -108,7 +108,7 @@
       dest: /etc/home-lab/restic/files-from
     - src: "{{ playbook_dir }}/../../services/data/restic/excludes"
       dest: /etc/home-lab/restic/excludes
-  register: restic_runtime_files
+  register: restic_runtime_files # noqa: var-naming[no-role-prefix]
 
 - name: Refuse missing unsafe or content-drifted Restic runtime files before any copy
   ansible.builtin.assert:
