@@ -1,13 +1,5 @@
 {
   "$schema": "./desired.schema.json",
-  "appPasswordTokens": {
-    "jellyfin-ldap-bind": {
-      "description": "Jellyfin LDAP search bind credential",
-      "expiring": false,
-      "identifier": "jellyfin-ldap-bind",
-      "user_ref": "jellyfin-ldap-bind"
-    }
-  },
   "applicationPolicyBindings": {
     "01d9c9fd-76de-4dc9-a0bf-01601f45fd40": {
       "application_slug": "prowlarr",

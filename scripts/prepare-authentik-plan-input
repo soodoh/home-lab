@@ -39,7 +39,8 @@ jq -e '
     type == "object" and
     (keys == ["client_secret"]) and
     (.client_secret | type == "string" and length > 0 and . != "REPLACE-DURING-BOOTSTRAP")) and
-  (.ldap | type == "object" and (keys == ["certificate_private_key"]) and
+  (.ldap | type == "object" and (keys == ["bind_password", "certificate_private_key"]) and
+    (.bind_password | type == "string" and length >= 48) and
     (.certificate_private_key | type == "string" and startswith("-----BEGIN PRIVATE KEY-----")))
 ' "$client_secrets" >/dev/null
 chmod 0600 "$client_secrets"

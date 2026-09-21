@@ -8,7 +8,6 @@ locals {
 
   applications                  = var.authentik_enable_management ? local.desired.applications : {}
   application_policy_bindings   = var.authentik_enable_management ? local.desired.applicationPolicyBindings : {}
-  app_password_tokens           = var.authentik_enable_management ? local.desired.appPasswordTokens : {}
   authenticator_validate_stages = var.authentik_enable_management ? local.desired.authenticatorValidateStages : {}
   certificates                  = var.authentik_enable_management ? local.desired.certificates : {}
   custom_blueprints             = var.authentik_enable_management ? local.desired.customBlueprints : {}
@@ -44,7 +43,6 @@ check "desired_inventory" {
         length(local.desired.oauthProviders) == 5 &&
         length(local.desired.retainedOAuthProviders) == 1 &&
         length(local.desired.applicationPolicyBindings) == 28 &&
-        length(local.desired.appPasswordTokens) == 1 &&
         length(local.desired.authenticatorValidateStages) == 1 &&
         length(local.desired.certificates) == 1 &&
         length(local.desired.customFlows) == 2 &&
@@ -86,6 +84,7 @@ check "oauth_client_secrets" {
         for provider in values(local.client_secrets.oauthProviders) :
         trimspace(provider.client_secret) != "" && provider.client_secret != "REPLACE-DURING-BOOTSTRAP"
       ]) &&
+      trimspace(local.client_secrets.ldap.bind_password) != "" &&
       trimspace(local.client_secrets.ldap.certificate_private_key) != ""
     )
     error_message = "The decrypted SOPS input must contain one non-placeholder client_secret for every OAuth2 provider."
@@ -292,21 +291,7 @@ resource "authentik_user" "service_accounts" {
   type      = each.value.type
   is_active = each.value.is_active
   roles     = [for role_ref in each.value.role_refs : authentik_rbac_role.roles[role_ref].id]
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-resource "authentik_token" "app_passwords" {
-  for_each = local.app_password_tokens
-
-  identifier   = each.value.identifier
-  description  = each.value.description
-  intent       = "app_password"
-  user         = authentik_user.service_accounts[each.value.user_ref].id
-  expiring     = each.value.expiring
-  retrieve_key = true
+  password  = local.client_secrets.ldap.bind_password
 
   lifecycle {
     prevent_destroy = true
@@ -481,7 +466,7 @@ import {
 
 output "jellyfin_ldap_bind_password" {
   description = "Generated Authentik app password used only by Jellyfin for LDAP directory searches."
-  value       = authentik_token.app_passwords["jellyfin-ldap-bind"].key
+  value       = local.client_secrets.ldap.bind_password
   sensitive   = true
 }
 

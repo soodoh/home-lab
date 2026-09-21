@@ -135,7 +135,8 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         for provider in encrypted["oauthProviders"].values():
             self.assertEqual(set(provider), {"client_secret"})
             self.assertRegex(provider["client_secret"], r"^ENC\[AES256_GCM,")
-        self.assertEqual(set(encrypted["ldap"]), {"certificate_private_key"})
+        self.assertEqual(set(encrypted["ldap"]), {"bind_password", "certificate_private_key"})
+        self.assertRegex(encrypted["ldap"]["bind_password"], r"^ENC\[AES256_GCM,")
         self.assertRegex(encrypted["ldap"]["certificate_private_key"], r"^ENC\[AES256_GCM,")
         self.assertIn("sops", encrypted)
         self.assertEqual(len(encrypted["sops"]["age"]), 2)
@@ -167,11 +168,10 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             "authentik_rbac_permission_role",
             "authentik_rbac_role",
             "authentik_stage_authenticator_validate",
-            "authentik_token",
             "authentik_user",
         ):
             self.assertIn(f'resource "{resource}"', main)
-        self.assertEqual(main.count("prevent_destroy = true"), 17)
+        self.assertEqual(main.count("prevent_destroy = true"), 16)
         self.assertEqual(main.count("import {"), 9)
         self.assertIn("for_each = local.existing_custom_flows", main)
         self.assertIn("for_each = local.existing_flow_stage_bindings", main)
@@ -183,7 +183,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertIn("local.client_secrets.ldap.certificate_private_key", main)
         self.assertIn("ignore_changes = [client_secret]", main)
         self.assertIn('permission = each.value.permission', main)
-        self.assertIn('intent       = "app_password"', main)
+        self.assertIn("local.client_secrets.ldap.bind_password", main)
         proxy_block = main[main.index('resource "authentik_provider_proxy"'):main.index('resource "authentik_provider_oauth2"')]
         self.assertNotIn("property_mappings", proxy_block)
         self.assertIn("url      = var.authentik_url", main)
@@ -209,11 +209,10 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             *(f'authentik_property_mapping_provider_scope.scope_mappings["{key}"]' for key in DESIRED["scopeMappings"]),
             *(f'authentik_rbac_permission_role.ldap_directory_search["{key}"]' for key in DESIRED["ldapSearchPermissions"]),
             *(f'authentik_rbac_role.roles["{key}"]' for key in DESIRED["rbacRoles"]),
-            *(f'authentik_token.app_passwords["{key}"]' for key in DESIRED["appPasswordTokens"]),
             *(f'authentik_user.service_accounts["{key}"]' for key in DESIRED["serviceAccounts"]),
         }
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 91)
+        self.assertEqual(len(allow), 90)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()

@@ -21,7 +21,6 @@
     "ldapProviders",
     "rbacRoles",
     "serviceAccounts",
-    "appPasswordTokens",
     "ldapSearchPermissions",
     "serviceApplicationBindings",
     "outposts",
@@ -193,14 +192,6 @@
       "maxProperties": 1,
       "additionalProperties": {
         "$ref": "#/$defs/serviceAccount"
-      }
-    },
-    "appPasswordTokens": {
-      "type": "object",
-      "minProperties": 1,
-      "maxProperties": 1,
-      "additionalProperties": {
-        "$ref": "#/$defs/appPasswordToken"
       }
     },
     "ldapSearchPermissions": {
@@ -1094,33 +1085,6 @@
             "type": "string",
             "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
           }
-        }
-      }
-    },
-    "appPasswordToken": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "identifier",
-        "description",
-        "expiring",
-        "user_ref"
-      ],
-      "properties": {
-        "identifier": {
-          "type": "string",
-          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
-        },
-        "description": {
-          "type": "string",
-          "minLength": 1
-        },
-        "expiring": {
-          "const": false
-        },
-        "user_ref": {
-          "type": "string",
-          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
         }
       }
     },
