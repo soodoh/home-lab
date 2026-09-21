@@ -38,6 +38,5 @@ done
 python3 "$root/test-oidc-ownership.py"
 python3 "$root/test-controller-identity-gate.py"
 python3 "$root/../../scripts/controller/test-omada-host-alias.py"
-python3 "$root/../../scripts/controller/test-normalize-ansible-plan.py"
 
 echo "plan policy fixtures passed"

@@ -1,42 +1,17 @@
-# Repository work
+# Repository guidance
 
-## Start here
+Prefer declarative OpenTofu, Ansible, Docker Compose, systemd and Restic
+functionality over custom scripts. Add custom code only for a demonstrated tool gap;
+keep adapters small and test behavior rather than source text.
 
-- For host, provider, deployment or validation work, read
-  [operations](docs/operations.md).
-- For backup, secrets, rollback or storage work, read
-  [recovery](recovery/README.md) and [security](docs/security.md).
-- For database, access or resource adoption, read
-  [migrations](docs/migrations.md).
-- For authority and ownership questions, read
-  [architecture](docs/architecture.md).
+For infrastructure work, read [operations](docs/operations.md) and follow its links
+for recovery, secrets, migrations or ownership.
 
-## Authority
+Git defines desired state. Base operational decisions on fresh host or provider
+observations.
 
-Use Git for desired state and fresh host/provider observations for current state.
-Treat controller files and observation output as disposable. Preserve a managed
-host's nonterminal owner, journal or before-image until live inspection resolves it.
-Use Git history for completed actions.
+Keep decrypted secrets, resolved Compose output, OpenTofu state, saved plans and plan
+JSON out of logs and Git. Preserve nonterminal host locks, journals and before-images
+until live inspection resolves them.
 
-Run `python3 scripts/check-source-boundaries.py` after changing operational sources.
-
-## Safety
-
-- Never print decrypted SOPS data, resolved Compose configuration, OpenTofu state or
-  saved plans.
-- Refresh live state in the current run. A prior result, receipt or plan is not
-  admission evidence.
-- Revalidate after acquiring the mutation lock.
-- Keep saved plans and protected output in private temporary directories and remove
-  them when the run ends.
-- Migrate or retire local-state ownership before deleting ignored controller files.
-
-## Layout
-
-- `docker-compose.yml` includes domain-grouped `services/*.yml`; application config
-  lives under `services/data/`.
-- `infrastructure/tofu/` contains independent remote-backed provider roots.
-- `ansible/inventory/hosts.yml` and `ansible/playbooks/` are the host interfaces.
-- `recovery/groups.json` is the declarative recovery scope.
-- `scripts/` contains source checks and reusable operational helpers. Inspect a test's
-  subprocesses and fixtures before running it.
+Run the native validators relevant to the files changed.
