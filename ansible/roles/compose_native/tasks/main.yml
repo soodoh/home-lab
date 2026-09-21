@@ -1,6 +1,4 @@
 ---
-- name: Refuse an implicit native Compose role action
+- name: Refuse an implicit Compose role action
   ansible.builtin.fail:
-    msg: >-
-      Import compose_native with tasks_from=observe or tasks_from=deploy. The generation task file
-      is an internal activation interface for an operation that already prepared and validated inputs.
+    msg: Import compose_native with tasks_from=observe or tasks_from=deploy.

@@ -4,57 +4,24 @@ compose_native_project_name: docker-compose
 compose_native_home: /home/docker
 compose_native_deployment_root: /srv/docker-compose
 compose_native_current_dir: /srv/docker-compose/current
-compose_native_staging_root: /srv/docker-compose/staging
-compose_native_runtime_env_path: /etc/docker-compose/production.env
-compose_native_staged_env_root: /etc/docker-compose/staging
+compose_native_previous_dir: /srv/docker-compose/previous
+compose_native_source_archive_path: /var/lib/docker-compose/source.tar
+compose_native_source_candidate_path: /var/lib/docker-compose/source-candidate.tar
 compose_native_artifact_identity_path: /var/lib/docker-compose/current-artifact.sha256
+compose_native_runtime_env_path: /etc/docker-compose/production.env
 compose_native_apply_lock_path: /var/lib/iac-ansible-production.lock
-compose_native_reconciliation_lock_paths: []
 compose_native_expected_service_count: 0
-compose_native_observation_expected_service_count: "{{ compose_native_expected_service_count }}"
-compose_native_expected_service_additions: []
-compose_native_expected_network_additions: []
-compose_native_expected_protected_service_changes: []
-compose_native_expected_changed_paths: []
-compose_native_protected_service_fields:
-  - cap_add
-  - cap_drop
-  - configs
-  - devices
-  - group_add
-  - ipc
-  - network_mode
-  - networks
-  - pid
-  - ports
-  - privileged
-  - read_only
-  - secrets
-  - security_opt
-  - tmpfs
-  - userns_mode
-  - volumes
-compose_native_expected_source_commit: ""
-compose_native_requested_services: []
-compose_native_force_recreate_services: []
 compose_native_required_healthy_containers: []
 compose_native_wait_timeout: 600
 compose_native_apply_confirmed: false
-compose_native_environment_change_confirmed: false
-compose_native_authoritative_reconcile: false
-compose_native_generation: {}
 compose_native_sops_path: /usr/local/bin/sops
 compose_native_sops_sha256: ""
-compose_native_age_path: /usr/local/bin/age
-compose_native_age_sha256: ""
 compose_native_age_identity_path: /etc/sops/age/keys.txt
 compose_native_secret_files: []
-compose_native_mounts: []
-compose_native_backup_paths: []
-compose_native_backup_writer_units: []
-compose_native_backup_lock_path: /run/lock/home-lab-backup.lock
-compose_native_backup_journal_path: /var/lib/home-lab-restic/interruption.json
-compose_native_backup_policy_path: /etc/home-lab/restic-policy.json
+compose_native_source_paths:
+  - docker-compose.yml
+  - services
+  - secrets/production.sops.env
 compose_native_files:
   - docker-compose.yml
 compose_native_runtime_cli:

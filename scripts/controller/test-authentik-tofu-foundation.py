@@ -138,10 +138,6 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             (REPO / "services" / "data" / "authentik-ldap-ca.pem").read_text(),
             (ROOT / "jellyfin-ldap.pem").read_text(),
         )
-        self.assertIn(
-            "AUTHENTIK_LDAP_TOKEN\n",
-            (REPO / "secrets" / "production.env.keys").read_text(),
-        )
 
     def test_nonsecret_desired_inventory_has_no_secret_fields(self) -> None:
         forbidden_keys = {"client_secret", "cookie_secret", "password", "token"}

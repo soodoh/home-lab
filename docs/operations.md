@@ -13,7 +13,6 @@ Tailscale access without writing credentials into the repository.
 git status --short
 python3 scripts/check-source-boundaries.py
 python3 scripts/check-compose-image-pins.py
-scripts/test-compose-secret-files
 ```
 
 After decrypting the current environment into a mode-0600 file in this run's private
@@ -41,12 +40,12 @@ scripts/configure-local-provider-credentials
 The generated `plan-credentials.json` and `apply-credentials.json` are inputs for this
 controller run only. Do not copy them into `$HOME`, another checkout or a later session.
 
-Focused source tests:
+Focused behavior and native validation:
 
 ```sh
-python3 scripts/test-compose-native.py
+python3 scripts/check-compose-image-pins.py
 python3 scripts/test-restic-runtime.py
-python3 scripts/test-restic-systemd.py
+python3 scripts/test-restic-observer.py
 scripts/test-recovery-tools
 infrastructure/policy/test-policy.sh
 ```
@@ -104,11 +103,11 @@ a new plan; zero proposed changes is the completion criterion.
 
 The complete host interface is [`ansible/playbooks/site.yml`](../ansible/playbooks/site.yml).
 It observes before taking ownership, converges adopted backup files and units, Docker
-maintenance and the complete Compose generation, then observes the result.
+maintenance and the complete committed Compose project, then observes the result.
 
 ```sh
 ansible-playbook ansible/playbooks/site.yml --check
-# Review all current observations and proposed changes.
+# Check mode validates active state; apply archives committed Git source and converges it.
 ansible-playbook ansible/playbooks/site.yml
 ```
 
@@ -124,9 +123,14 @@ It preserves unit activation and does not bootstrap repositories or run a backup
 Runner or policy content changes require a separately reviewed, lock-protected
 coordinated rollout before ordinary convergence can resume.
 
-[`deploy-compose.yml`](../ansible/playbooks/deploy-compose.yml) is an exceptional
-bounded Compose interface. Prefer the complete site play so partial ownership does
-not become normal operation.
+[`deploy-compose.yml`](../ansible/playbooks/deploy-compose.yml) is the narrower
+Compose-only interface. It requires `compose_native_apply_confirmed=true`, replaces
+changed committed source as one project, and uses native Compose convergence with
+orphan removal. A source change recreates the complete project. An interrupted source
+swap preserves `/srv/docker-compose/previous`; inspect and resolve it before retrying.
+The first migration publishes a new Compose artifact digest, so complete a fresh
+backup cycle before treating recovery observations as current. Prefer the complete
+site play.
 
 ## 5. Maintain Proxmox
 

@@ -1,11 +1,11 @@
 ---
-- name: Deploy an explicitly bounded Compose service set through native Ansible
+- name: Deploy the complete committed Compose project through native Ansible
   hosts: docker-host
   gather_facts: true
   gather_subset: ["!all", min]
   any_errors_fatal: true
   pre_tasks:
-    - name: Re-observe live Compose backup and coordination state
+    - name: Re-observe the active Compose state
       ansible.builtin.import_role:
         name: compose_native
         tasks_from: observe
@@ -18,7 +18,7 @@
         apply_lock_path: "{{ compose_native_apply_lock_path }}"
         apply_lock_operation: compose-native-deploy
   tasks:
-    - name: Stage publish and converge the reviewed Compose generation
+    - name: Archive and converge committed Compose source
       ansible.builtin.import_role:
         name: compose_native
         tasks_from: deploy

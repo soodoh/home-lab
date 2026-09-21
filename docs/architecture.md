@@ -53,8 +53,9 @@ credentials and encrypted bundles live outside Git.
 
 - The existing hosts are adopted through standard SSH and Ansible privilege
   escalation; there is no custom controller state machine.
-- Compose convergence is generation-based and source-bound. Git revert followed by
-  convergence is configuration rollback.
+- Compose convergence archives committed Git source and reconciles the complete
+  project with the native Compose module. Git revert followed by convergence is
+  configuration rollback.
 - Data recovery stages into a new private directory before any production decision.
 - External Nextcloud user data is outside the managed Restic recovery group and must
   be handled independently.

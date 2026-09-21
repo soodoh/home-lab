@@ -80,7 +80,7 @@
           - --exclusive
           - --nonblock
           - --
-          - "{{ compose_native_backup_lock_path }}"
+          - "{{ restic_systemd.lock_path }}"
           - /usr/bin/bash
           - -c
           - >-

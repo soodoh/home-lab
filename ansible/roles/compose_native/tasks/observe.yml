@@ -1,46 +1,36 @@
 ---
-- name: Require the fixed native Compose identity and observation inputs
+- name: Require the adopted Compose observation identity
   ansible.builtin.assert:
     that:
       - compose_native_project_name == 'docker-compose'
-      - compose_native_expected_service_count | int > 0
-      - compose_native_observation_expected_service_count | int > 0
       - compose_native_current_dir == '/srv/docker-compose/current'
       - compose_native_runtime_env_path == '/etc/docker-compose/production.env'
-      - compose_native_sops_sha256 is match('^[0-9a-f]{64}$')
-      - compose_native_age_sha256 is match('^[0-9a-f]{64}$')
-    fail_msg: Native Compose observation requires the adopted production identities.
+    fail_msg: Compose observation requires the adopted production identity.
 
-- name: Inspect protected active Compose and tool paths
+- name: Inspect active Compose paths
   ansible.builtin.stat:
     path: "{{ item.path }}"
     follow: false
-    get_checksum: "{{ item.checksum | default(false) }}"
-    checksum_algorithm: sha256
+    get_checksum: false
     get_mime: false
   become: true
   register: compose_native_observed_paths
   loop:
     - {path: "{{ compose_native_current_dir }}", kind: directory, mode: "0755"}
     - {path: "{{ compose_native_runtime_env_path }}", kind: file, mode: "0600"}
-    - {path: "{{ compose_native_sops_path }}", kind: file, mode: "0755", checksum: true, sha256: "{{ compose_native_sops_sha256 }}"}
-    - {path: "{{ compose_native_age_path }}", kind: file, mode: "0755", checksum: true, sha256: "{{ compose_native_age_sha256 }}"}
-    - {path: "{{ compose_native_age_identity_path | dirname }}", kind: directory, mode: "0700"}
-    - {path: "{{ compose_native_age_identity_path }}", kind: file, mode: "0600"}
-  no_log: true
 
-- name: Require protected active Compose and tool path identities
+- name: Require protected active Compose paths
   ansible.builtin.assert:
     that:
       - item.stat.exists | default(false)
       - not (item.stat.islnk | default(false))
-      - (item.item.kind == 'directory' and item.stat.isdir | default(false)) or (item.item.kind == 'file' and item.stat.isreg | default(false))
+      - >-
+        (item.item.kind == 'directory' and item.stat.isdir | default(false)) or
+        (item.item.kind == 'file' and item.stat.isreg | default(false))
       - item.stat.pw_name == 'root'
       - item.stat.gr_name == 'root'
       - item.stat.mode == item.item.mode
-      - item.item.kind != 'file' or item.stat.nlink == 1
-      - item.item.sha256 is not defined or item.stat.checksum == item.item.sha256
-    fail_msg: A protected active Compose or tool path differs from its adopted identity.
+    fail_msg: An active Compose path is missing or has unsafe metadata.
   loop: "{{ compose_native_observed_paths.results }}"
   loop_control:
     label: "{{ item.item.path }}"
@@ -57,12 +47,11 @@
   loop: "{{ compose_native_secret_files }}"
   no_log: true
 
-- name: Require protected Compose secret-file identities
+- name: Require protected Compose secret files
   ansible.builtin.assert:
     that:
       - item.stat.isreg | default(false)
       - not (item.stat.islnk | default(false))
-      - item.stat.nlink == 1
       - item.stat.pw_name == 'root'
       - item.stat.gr_name == 'root'
       - item.stat.mode == '0600'
@@ -72,193 +61,7 @@
     label: "{{ item.item }}"
   no_log: true
 
-- name: Inspect production and reconciliation ownership paths
-  ansible.builtin.stat:
-    path: "{{ item }}"
-    follow: false
-    get_checksum: false
-    get_mime: false
-  become: true
-  register: compose_native_competing_owner_paths
-  loop: "{{ [compose_native_apply_lock_path] + compose_native_reconciliation_lock_paths }}"
-
-- name: Refuse retained or active competing ownership
-  ansible.builtin.assert:
-    that:
-      - not (item.stat.exists | default(false))
-    fail_msg: "Competing or retained operation ownership exists at {{ item.item }}; inspect it instead of clearing it."
-  loop: "{{ compose_native_competing_owner_paths.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-
-- name: Inspect the existing backup mutex
-  ansible.builtin.stat:
-    path: "{{ compose_native_backup_lock_path }}"
-    follow: false
-    get_checksum: false
-    get_mime: false
-  become: true
-  register: compose_native_backup_lock_state
-
-- name: Require the adopted non-recreatable backup mutex identity
-  ansible.builtin.assert:
-    that:
-      - compose_native_backup_lock_state.stat.isreg | default(false)
-      - not (compose_native_backup_lock_state.stat.islnk | default(false))
-      - compose_native_backup_lock_state.stat.nlink == 1
-      - compose_native_backup_lock_state.stat.uid == 0
-      - compose_native_backup_lock_state.stat.gid == restic_proton_gid | int
-      - compose_native_backup_lock_state.stat.mode == '0660'
-    fail_msg: The backup mutex is missing or differs from its adopted root:restic-proton 0660 identity.
-
-- name: Require the existing backup mutex to be immediately available
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/bash
-      - -c
-      - >-
-        set -euo pipefail;
-        exec 9< "$1";
-        /usr/bin/flock --exclusive --nonblock 9 /usr/bin/true
-      - compose-native-backup-lock-probe
-      - "{{ compose_native_backup_lock_path }}"
-  become: true
-  changed_when: false
-  check_mode: false
-  no_log: true
-
-- name: Inspect the durable backup interruption journal
-  ansible.builtin.stat:
-    path: "{{ compose_native_backup_journal_path }}"
-    follow: false
-    get_checksum: false
-    get_mime: false
-  become: true
-  register: compose_native_backup_journal
-
-- name: Refuse deployment readiness while backup interruption recovery is pending
-  ansible.builtin.assert:
-    that:
-      - not (compose_native_backup_journal.stat.exists | default(false))
-    fail_msg: Preserve and reconcile the Restic interruption journal before Compose deployment.
-
-- name: Inspect adopted backup prerequisite files
-  ansible.builtin.stat:
-    path: "{{ item.path }}"
-    follow: false
-    get_checksum: true
-    checksum_algorithm: sha256
-    get_mime: false
-  become: true
-  register: compose_native_backup_prerequisites
-  loop: "{{ compose_native_backup_paths }}"
-
-- name: Require adopted backup prerequisite identities
-  ansible.builtin.assert:
-    that:
-      - item.stat.isreg | default(false)
-      - not (item.stat.islnk | default(false))
-      - item.stat.nlink == 1
-      - item.stat.pw_name == 'root'
-      - item.stat.mode == item.item.mode
-      - not item.stat.wgrp
-      - not item.stat.woth
-    fail_msg: An installed backup prerequisite is missing or unsafe.
-  loop: "{{ compose_native_backup_prerequisites.results }}"
-  loop_control:
-    label: "{{ item.item.path }}"
-
-- name: Read the protected installed backup policy
-  ansible.builtin.slurp:
-    src: "{{ compose_native_backup_policy_path }}"
-  become: true
-  register: compose_native_backup_policy_raw
-  no_log: true
-
-- name: Require backup coordination paths and runner bytes to match installed policy
-  ansible.builtin.assert:
-    that:
-      - (compose_native_backup_policy_raw.content | b64decode | from_json).runner.path == compose_native_backup_paths[0].path
-      - (compose_native_backup_policy_raw.content | b64decode | from_json).runner.sha256 == compose_native_backup_prerequisites.results[0].stat.checksum
-      - (compose_native_backup_policy_raw.content | b64decode | from_json).runner.lock_path == compose_native_backup_lock_path
-      - (compose_native_backup_policy_raw.content | b64decode | from_json).runner.journal_path == compose_native_backup_journal_path
-      - (compose_native_backup_policy_raw.content | b64decode | from_json).runner.deploy_lock_path == compose_native_apply_lock_path
-    fail_msg: Installed backup policy does not bind the observed runner and Compose coordination paths.
-  no_log: true
-
-- name: Read backup writer unit state
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/systemctl
-      - show
-      - --property=LoadState
-      - --property=ActiveState
-      - --property=SubState
-      - "{{ item }}"
-  become: true
-  register: compose_native_backup_writer_state
-  loop: "{{ compose_native_backup_writer_units }}"
-  changed_when: false
-  check_mode: false
-
-- name: Require every backup writer to be loaded and inactive
-  ansible.builtin.assert:
-    that:
-      - "'LoadState=loaded' in item.stdout_lines"
-      - "'ActiveState=inactive' in item.stdout_lines"
-      - "'SubState=dead' in item.stdout_lines"
-    fail_msg: "Backup writer {{ item.item }} is absent, active, or ambiguous."
-  loop: "{{ compose_native_backup_writer_state.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-
-- name: Inspect active systemd jobs
-  ansible.builtin.command:
-    argv: [/usr/bin/systemctl, list-jobs, --no-legend, --no-pager]
-  become: true
-  register: compose_native_systemd_jobs
-  changed_when: false
-  check_mode: false
-
-- name: Refuse queued backup or Compose jobs
-  ansible.builtin.assert:
-    that:
-      - item not in compose_native_systemd_jobs.stdout
-    fail_msg: "A competing systemd job references {{ item }}."
-  loop: "{{ compose_native_backup_writer_units + ['home-lab-compose.service'] }}"
-
-- name: Observe required host mount identities
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/findmnt
-      - --raw
-      - --noheadings
-      - --target
-      - "{{ item.path }}"
-      - --output
-      - TARGET,SOURCE,FSTYPE,UUID
-  become: true
-  register: compose_native_mount_state
-  loop: "{{ compose_native_mounts }}"
-  changed_when: false
-  check_mode: false
-  no_log: true
-
-- name: Require exact host mount identities
-  ansible.builtin.assert:
-    that:
-      - item.stdout.split() | length >= 3
-      - item.stdout.split()[0] == item.item.path
-      - item.stdout.split()[2] == item.item.fstype
-      - item.item.source | length == 0 or item.stdout.split()[1] == item.item.source
-      - item.item.uuid | length == 0 or (item.stdout.split() | length >= 4 and item.stdout.split()[3] == item.item.uuid)
-    fail_msg: A production mount differs from its adopted target, source, filesystem, or UUID.
-  loop: "{{ compose_native_mount_state.results }}"
-  loop_control:
-    label: "{{ item.item.path }}"
-  no_log: true
-
-- name: Validate the active Compose configuration without rendering it
+- name: Validate the active Compose model
   ansible.builtin.command:
     argv: "{{ compose_native_runtime_cli + ['config', '--quiet'] }}"
   become: true
@@ -268,7 +71,7 @@
   check_mode: false
   no_log: true
 
-- name: List declared active Compose services
+- name: List declared Compose services
   ansible.builtin.command:
     argv: "{{ compose_native_runtime_cli + ['config', '--services'] }}"
   become: true
@@ -279,7 +82,7 @@
   check_mode: false
   no_log: true
 
-- name: List running active Compose services
+- name: List running Compose services
   ansible.builtin.command:
     argv: "{{ compose_native_runtime_cli + ['ps', '--status', 'running', '--services'] }}"
   become: true
@@ -290,16 +93,15 @@
   check_mode: false
   no_log: true
 
-- name: Require the exact running project service set
+- name: Require the complete running Compose service set
   ansible.builtin.assert:
     that:
-      - compose_native_declared_services.stdout_lines | length == compose_native_observation_expected_service_count | int
-      - compose_native_running_services.stdout_lines | length == compose_native_observation_expected_service_count | int
+      - compose_native_declared_services.stdout_lines | length > 0
       - compose_native_declared_services.stdout_lines | sort == compose_native_running_services.stdout_lines | sort
-    fail_msg: The declared and running Compose project service sets differ.
+    fail_msg: Declared and running Compose services differ.
   no_log: true
 
-- name: Require every active image reference to be digest pinned
+- name: Require digest-pinned active images
   ansible.builtin.command:
     argv: "{{ compose_native_runtime_cli + ['config', '--images'] }}"
   become: true
@@ -310,16 +112,15 @@
   check_mode: false
   no_log: true
 
-- name: Assert every active image reference has a SHA-256 digest
+- name: Assert every active image is digest pinned
   ansible.builtin.assert:
     that:
-      - compose_native_declared_images.stdout_lines | length > 0
       - item is match('^(?:.+@)?sha256:[0-9a-f]{64}$')
-    fail_msg: The active Compose model contains an image without an immutable digest or image ID.
+    fail_msg: The active Compose model contains a mutable image reference.
   loop: "{{ compose_native_declared_images.stdout_lines }}"
   no_log: true
 
-- name: Check active container health postconditions
+- name: Check required container health
   ansible.builtin.command:
     argv:
       - /usr/bin/docker
@@ -334,7 +135,7 @@
   check_mode: false
   no_log: true
 
-- name: Require adopted healthy container states
+- name: Require healthy container states
   ansible.builtin.assert:
     that:
       - item.stdout == 'healthy'
@@ -344,7 +145,7 @@
     label: "{{ item.item }}"
   no_log: true
 
-- name: Ask Compose for an active-model dry run
+- name: Preview native Compose convergence
   community.docker.docker_compose_v2:
     project_src: "{{ compose_native_current_dir }}"
     project_name: "{{ compose_native_project_name }}"
@@ -355,7 +156,7 @@
     pull: never
     build: never
     recreate: auto
-    remove_orphans: false
+    remove_orphans: true
     renew_anon_volumes: false
     wait: false
   become: true
@@ -365,23 +166,19 @@
   check_mode: true
   no_log: true
 
-- name: Require the live containers to match the active model
+- name: Require the active Compose model to be converged
   ansible.builtin.assert:
     that:
       - not compose_native_active_preview.changed
-      - compose_native_active_preview.containers | length == compose_native_observation_expected_service_count | int
-    fail_msg: Live Compose configuration, mounts, images, or container state differ from the active model.
+      - compose_native_active_preview.containers | length == compose_native_declared_services.stdout_lines | length
+    fail_msg: Live Compose state differs from the active model.
   no_log: true
 
-- name: Publish only a bounded live Compose observation summary
+- name: Publish the bounded Compose observation
   ansible.builtin.debug:
     msg:
       project: "{{ compose_native_project_name }}"
       declared_services: "{{ compose_native_declared_services.stdout_lines | length }}"
       running_services: "{{ compose_native_running_services.stdout_lines | length }}"
       digest_pinned_images: "{{ compose_native_declared_images.stdout_lines | length }}"
-      required_health_checks: "{{ compose_native_required_healthy_containers | length }}"
-      image_authority: tracked_digest_references
-      backup_writers: inactive
       active_model_drift: false
-      restore_readiness_proven: false

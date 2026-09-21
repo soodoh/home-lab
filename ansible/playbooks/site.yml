@@ -5,14 +5,10 @@
   gather_subset: ["!all", min]
   any_errors_fatal: true
   pre_tasks:
-    - name: Observe coordination and active Compose state before convergence
+    - name: Observe active Compose state before convergence
       ansible.builtin.import_role:
         name: compose_native
         tasks_from: observe
-      vars:
-        compose_native_observation_expected_service_count: >-
-          {{ (compose_native_expected_service_count | int) -
-             (compose_native_expected_service_additions | length) }}
 
     - name: Acquire production ownership for native site convergence
       ansible.builtin.import_role:
@@ -47,19 +43,12 @@
       ansible.builtin.import_role:
         name: docker_maintenance
 
-    - name: Reconcile the complete tracked Compose generation
+    - name: Reconcile the complete committed Compose project
       ansible.builtin.import_role:
         name: compose_native
         tasks_from: deploy
       vars:
-        compose_native_authoritative_reconcile: true
         compose_native_apply_confirmed: true
-
-    - name: Retire superseded Compose recovery and image state
-      ansible.builtin.import_role:
-        name: compose_native
-        tasks_from: retire-legacy
-      when: not ansible_check_mode
 
   post_tasks:
     - name: Release production ownership after complete native convergence
@@ -76,12 +65,7 @@
   gather_subset: ["!all", min]
   any_errors_fatal: true
   tasks:
-    - name: Observe final coordination and active Compose state
+    - name: Observe final Compose state
       ansible.builtin.import_role:
         name: compose_native
         tasks_from: observe
-      vars:
-        compose_native_observation_expected_service_count: >-
-          {{ ((compose_native_expected_service_count | int) -
-              (compose_native_expected_service_additions | length))
-             if ansible_check_mode else (compose_native_expected_service_count | int) }}
