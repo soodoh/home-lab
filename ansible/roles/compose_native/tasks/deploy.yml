@@ -74,12 +74,12 @@
       become: false
       register: compose_native_controller_archive
 
-    - name: Archive only committed Compose source
+    - name: Archive only committed Compose source deterministically
       ansible.builtin.command:
         argv: >-
           {{ ['/usr/bin/git', '--no-optional-locks', 'archive', '--format=tar',
-              '--output=' ~ compose_native_controller_archive.path, 'HEAD', '--'] +
-             compose_native_source_paths }}
+              '--mtime=@0', '--output=' ~ compose_native_controller_archive.path,
+              'HEAD^{tree}', '--'] + compose_native_source_paths }}
         chdir: "{{ compose_native_controller_root }}"
       delegate_to: localhost
       become: false
