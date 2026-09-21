@@ -2,20 +2,41 @@
 
 ## Start here
 
-- For host, provider, deployment or validation work, read [operations](docs/operations.md).
-- For backup, secrets, rollback or storage changes, read [recovery](recovery/README.md).
-- For database, access or resource adoption, read [migrations](docs/migrations.md).
-- Before retiring helpers or changing ownership, read [decisions](docs/decisions.md) and trace callers, installers and recovery consumers together.
+- For host, provider, deployment or validation work, read
+  [operations](docs/operations.md).
+- For backup, secrets, rollback or storage work, read
+  [recovery](recovery/README.md) and [security](docs/security.md).
+- For database, access or resource adoption, read
+  [migrations](docs/migrations.md).
+- For authority and ownership questions, read
+  [architecture](docs/architecture.md).
 
-## Current boundary
+## Authority
 
-- This OpenTofu/Ansible/Compose repository uses native tools. Read[operations](docs/operations.md) before host, provider, deployment or recovery work.
-- Never print decrypted SOPS data, resolved Compose config, state or saved plans.
+Use Git for desired state and fresh host/provider observations for current state.
+Treat controller files and observation output as disposable. Preserve a managed
+host's nonterminal owner, journal or before-image until live inspection resolves it.
+Use Git history for completed actions.
 
-## Layout and editing
+Run `python3 scripts/check-source-boundaries.py` after changing operational sources.
 
-- `docker-compose.yml` includes domain-grouped `services/*.yml`; runtime hooks and app config live in `services/data/`.
-- `infrastructure/tofu/` contains separate provider roots and locks.
-- `ansible/` contains inventories, variables, roles and retained migration/recovery plays.
-- `infrastructure/contract/` still feeds legacy consumers; change those dependencies together rather than rewriting hashes to admit a change.
-- `scripts/` contains local tests and surviving runtime/recovery helpers. Tests are not all read-only: inspect their subprocesses and fixtures first.
+## Safety
+
+- Never print decrypted SOPS data, resolved Compose configuration, OpenTofu state or
+  saved plans.
+- Refresh live state in the current run. A prior result, receipt or plan is not
+  admission evidence.
+- Revalidate after acquiring the mutation lock.
+- Keep saved plans and protected output in private temporary directories and remove
+  them when the run ends.
+- Migrate or retire local-state ownership before deleting ignored controller files.
+
+## Layout
+
+- `docker-compose.yml` includes domain-grouped `services/*.yml`; application config
+  lives under `services/data/`.
+- `infrastructure/tofu/` contains independent remote-backed provider roots.
+- `ansible/inventory/hosts.yml` and `ansible/playbooks/` are the host interfaces.
+- `recovery/groups.json` is the declarative recovery scope.
+- `scripts/` contains source checks and reusable operational helpers. Inspect a test's
+  subprocesses and fixtures before running it.
