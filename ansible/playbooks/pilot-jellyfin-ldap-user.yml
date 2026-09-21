@@ -1,0 +1,241 @@
+---
+- name: Move one preserved Jellyfin identity to the qualified LDAP provider
+  hosts: docker-host
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    jellyfin_ldap_pilot_username: ""
+    jellyfin_ldap_provider: Jellyfin.Plugin.LDAP_Auth.LdapAuthenticationProviderPlugin
+    jellyfin_default_provider: Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider
+    jellyfin_default_reset_provider: Jellyfin.Server.Implementations.Users.DefaultPasswordResetProvider
+    jellyfin_ldap_pilot_root: >-
+      /srv/home-lab-state/jellyfin-upgrades/ldap-pilot-{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}
+  pre_tasks:
+    - name: Validate the exact pilot input
+      ansible.builtin.assert:
+        that:
+          - jellyfin_ldap_pilot_username in ['paul', 'carodilo']
+          - compose_native_expected_service_count | int == 39
+        fail_msg: Select exactly one preserved non-administrator Jellyfin identity.
+
+    - name: Require a clean committed controller source
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test "$(/usr/bin/git status --porcelain=v1 --untracked-files=no)" = ""
+        test -n "$(/usr/bin/git rev-parse HEAD)"
+      args:
+        chdir: "{{ playbook_dir }}/../.."
+        executable: /bin/bash
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      check_mode: false
+
+    - name: Acquire production ownership for the LDAP pilot
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: jellyfin-ldap-user-pilot
+
+    - name: Require healthy Jellyfin and LDAP outpost containers
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test "$(docker inspect jellyfin | {{ ansible_python_interpreter }} -c \
+          'import json,sys; print(json.load(sys.stdin)[0]["State"]["Health"]["Status"])')" = healthy
+        test "$(docker inspect authentik-ldap | {{ ansible_python_interpreter }} -c \
+          'import json,sys; print(json.load(sys.stdin)[0]["State"]["Status"])')" = running
+      args:
+        executable: /bin/bash
+      become: true
+      changed_when: false
+      no_log: true
+
+  tasks:
+    - name: Read the existing Jellyfin API key only into memory
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - -c
+          - >-
+            import sqlite3;
+            c=sqlite3.connect('file:/srv/home-lab-state/jellyfin-data/config/data/jellyfin.db?mode=ro',uri=True);
+            rows=c.execute('select AccessToken from ApiKeys').fetchall();
+            assert len(rows)==1 and isinstance(rows[0][0],str) and len(rows[0][0])>=32;
+            print(rows[0][0])
+      become: true
+      register: jellyfin_api_key
+      changed_when: false
+      no_log: true
+
+    - name: Discover the private Jellyfin API endpoint
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - inspect
+          - --format
+          - "{% raw %}{{range .NetworkSettings.Networks}}{{.IPAddress}}{{\"\\n\"}}{{end}}{% endraw %}"
+          - jellyfin
+      become: true
+      register: jellyfin_private_addresses
+      changed_when: false
+      no_log: true
+
+    - name: Select one exact private Jellyfin API address
+      ansible.builtin.set_fact:
+        jellyfin_api_url: "http://{{ jellyfin_private_addresses.stdout_lines | first }}:8096"
+      no_log: true
+
+    - name: Read all Jellyfin users before the pilot
+      ansible.builtin.uri:
+        url: "{{ jellyfin_api_url }}/Users"
+        method: GET
+        headers:
+          Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
+        return_content: true
+        status_code: 200
+      register: jellyfin_users_before
+      no_log: true
+
+    - name: Read the preserved OIDC-linked Jellyfin IDs
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - -c
+          - >-
+            import sys,xml.etree.ElementTree as E;
+            r=E.parse(sys.argv[1]).getroot();
+            values=sorted({(x.text or '').replace('-','').lower() for x in r.iter('guid') if x.text});
+            assert len(values)==2; print('\n'.join(values))
+          - /srv/home-lab-state/jellyfin-upgrades/10.11.11-20260920T214510Z/plugins-disabled/configurations/SSO-Auth.xml
+      become: true
+      register: jellyfin_oidc_linked_ids
+      changed_when: false
+      no_log: true
+
+    - name: Start the exact pilot user record
+      ansible.builtin.set_fact:
+        jellyfin_ldap_pilot_user: {}
+      no_log: true
+
+    - name: Select the exact pilot user record
+      ansible.builtin.set_fact:
+        jellyfin_ldap_pilot_user: "{{ item }}"
+      loop: "{{ jellyfin_users_before.json }}"
+      when: item.Name == jellyfin_ldap_pilot_username
+      no_log: true
+
+    - name: Require preserved identity and break-glass boundaries before the pilot
+      ansible.builtin.assert:
+        that:
+          - jellyfin_users_before.json | length == 3
+          - jellyfin_ldap_pilot_user | length > 0
+          - jellyfin_ldap_pilot_user.Id in jellyfin_oidc_linked_ids.stdout_lines
+          - not (jellyfin_ldap_pilot_user.Policy.IsAdministrator | bool)
+          - jellyfin_ldap_pilot_user.Policy.AuthenticationProviderId == jellyfin_default_provider
+          - jellyfin_ldap_pilot_user.Policy.PasswordResetProviderId == jellyfin_default_reset_provider
+          - >-
+            jellyfin_users_before.json |
+            selectattr('Policy.IsAdministrator', 'equalto', true) |
+            selectattr('Policy.AuthenticationProviderId', 'equalto', jellyfin_default_provider) |
+            list | length == 1
+        fail_msg: Pilot identity or local break-glass boundaries differ from the reviewed state.
+      no_log: true
+
+    - name: Build the exact LDAP pilot policy while preserving all permissions
+      ansible.builtin.set_fact:
+        jellyfin_ldap_pilot_policy: >-
+          {{ jellyfin_ldap_pilot_user.Policy | combine({
+            'AuthenticationProviderId': jellyfin_ldap_provider,
+            'PasswordResetProviderId': jellyfin_ldap_provider
+          }, recursive=true) }}
+      no_log: true
+
+    - name: Create the root-only pilot rollback directory
+      ansible.builtin.file:
+        path: "{{ jellyfin_ldap_pilot_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      become: true
+
+    - name: Preserve the exact pre-pilot user record
+      ansible.builtin.copy:
+        content: "{{ jellyfin_ldap_pilot_user | to_nice_json }}\n"
+        dest: "{{ jellyfin_ldap_pilot_root }}/user-before.json"
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      no_log: true
+
+    - name: Assign only the pilot identity to LDAP authentication
+      ansible.builtin.uri:
+        url: "{{ jellyfin_api_url }}/Users/{{ jellyfin_ldap_pilot_user.Id }}/Policy"
+        method: POST
+        headers:
+          Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
+        body_format: json
+        body: "{{ jellyfin_ldap_pilot_policy }}"
+        status_code: 204
+      no_log: true
+
+    - name: Re-read the exact pilot identity
+      ansible.builtin.uri:
+        url: "{{ jellyfin_api_url }}/Users/{{ jellyfin_ldap_pilot_user.Id }}"
+        method: GET
+        headers:
+          Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
+        return_content: true
+        status_code: 200
+      register: jellyfin_ldap_pilot_after
+      no_log: true
+
+    - name: Require unchanged identity and permissions with only LDAP providers changed
+      ansible.builtin.assert:
+        that:
+          - jellyfin_ldap_pilot_after.json.Id == jellyfin_ldap_pilot_user.Id
+          - jellyfin_ldap_pilot_after.json.Name == jellyfin_ldap_pilot_user.Name
+          - jellyfin_ldap_pilot_after.json.Policy == jellyfin_ldap_pilot_policy
+          - not (jellyfin_ldap_pilot_after.json.Policy.IsAdministrator | bool)
+        fail_msg: Pilot migration changed the Jellyfin identity or policy outside provider selection.
+      no_log: true
+
+    - name: Re-read all Jellyfin users after the pilot
+      ansible.builtin.uri:
+        url: "{{ jellyfin_api_url }}/Users"
+        method: GET
+        headers:
+          Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
+        return_content: true
+        status_code: 200
+      register: jellyfin_users_after
+      no_log: true
+
+    - name: Require the local administrator to remain on the default provider
+      ansible.builtin.assert:
+        that:
+          - jellyfin_users_after.json | length == 3
+          - >-
+            jellyfin_users_after.json |
+            selectattr('Policy.IsAdministrator', 'equalto', true) |
+            selectattr('Policy.AuthenticationProviderId', 'equalto', jellyfin_default_provider) |
+            selectattr('Policy.PasswordResetProviderId', 'equalto', jellyfin_default_reset_provider) |
+            list | length == 1
+          - >-
+            jellyfin_users_after.json |
+            selectattr('Policy.AuthenticationProviderId', 'equalto', jellyfin_ldap_provider) |
+            list | length == 1
+        fail_msg: Break-glass or single-pilot authentication boundaries were not preserved.
+      no_log: true
+
+  post_tasks:
+    - name: Release production ownership after the exact LDAP pilot assignment
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: jellyfin-ldap-user-pilot
