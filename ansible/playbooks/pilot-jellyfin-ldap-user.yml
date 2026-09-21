@@ -6,6 +6,7 @@
   any_errors_fatal: true
   vars:
     jellyfin_ldap_pilot_username: ""
+    jellyfin_ldap_existing_user_count: -1
     jellyfin_ldap_provider: Jellyfin.Plugin.LDAP_Auth.LdapAuthenticationProviderPlugin
     jellyfin_default_provider: Jellyfin.Server.Implementations.Users.DefaultAuthenticationProvider
     jellyfin_default_reset_provider: Jellyfin.Server.Implementations.Users.DefaultPasswordResetProvider
@@ -16,6 +17,7 @@
       ansible.builtin.assert:
         that:
           - jellyfin_ldap_pilot_username in ['paul', 'carodilo']
+          - jellyfin_ldap_existing_user_count | int in [0, 1]
           - compose_native_expected_service_count | int == 39
         fail_msg: Select exactly one preserved non-administrator Jellyfin identity.
 
@@ -141,6 +143,10 @@
             selectattr('Policy.IsAdministrator', 'equalto', true) |
             selectattr('Policy.AuthenticationProviderId', 'equalto', jellyfin_default_provider) |
             list | length == 1
+          - >-
+            jellyfin_users_before.json |
+            selectattr('Policy.AuthenticationProviderId', 'equalto', jellyfin_ldap_provider) |
+            list | length == jellyfin_ldap_existing_user_count | int
         fail_msg: Pilot identity or local break-glass boundaries differ from the reviewed state.
       no_log: true
 
@@ -228,8 +234,8 @@
           - >-
             jellyfin_users_after.json |
             selectattr('Policy.AuthenticationProviderId', 'equalto', jellyfin_ldap_provider) |
-            list | length == 1
-        fail_msg: Break-glass or single-pilot authentication boundaries were not preserved.
+            list | length == (jellyfin_ldap_existing_user_count | int) + 1
+        fail_msg: Break-glass or bounded LDAP authentication boundaries were not preserved.
       no_log: true
 
   post_tasks:
