@@ -36,6 +36,13 @@ check "export_identity" {
   }
 }
 
+import {
+  for_each = var.omada_enable_management ? { lan = local.export.network.id } : {}
+
+  to = omada_network.lan[0]
+  id = "${local.export.site.name}/${each.value}"
+}
+
 resource "omada_network" "lan" {
   count = var.omada_enable_management ? 1 : 0
 
@@ -51,6 +58,13 @@ resource "omada_network" "lan" {
   lifecycle {
     prevent_destroy = true
   }
+}
+
+import {
+  for_each = local.reservations
+
+  to = omada_dhcp_reservation.reservation[each.key]
+  id = "${local.export.site.name}/${each.value.mac}"
 }
 
 resource "omada_dhcp_reservation" "reservation" {
