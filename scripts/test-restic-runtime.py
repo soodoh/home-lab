@@ -98,7 +98,7 @@ class ResticRuntimeTests(unittest.TestCase):
 
         self.assertEqual(select([current, stale], policy, current_artifact, 7), [current])
         self.assertEqual(select([stale], policy, current_artifact, 7), [stale])
-        self.assertEqual(select([incompatible], policy, current_artifact, 7), [])
+        self.assertEqual(select([incompatible], policy, current_artifact, 7), [incompatible])
 
     def test_runner_refuses_deployment_after_acquiring_backup_lock(self):
         with tempfile.TemporaryDirectory(prefix="restic-deploy-lock-test-") as directory:

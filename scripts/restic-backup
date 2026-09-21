@@ -460,8 +460,8 @@ def select_pending_replication(
     pending: list[dict[str, Any]], policy_hash: str, current_artifact: str, limit: int,
 ) -> list[dict[str, Any]]:
     current = [item for item in pending if item["policy"] == policy_hash and item["artifact"] == current_artifact]
-    compatible = current or [item for item in pending if item["policy"] == policy_hash]
-    return compatible[:limit]
+    same_policy = [item for item in pending if item["policy"] == policy_hash]
+    return (current or same_policy or pending)[:limit]
 
 
 def snapshot_copy_bound(policy: dict[str, Any], snapshot: str) -> int:
