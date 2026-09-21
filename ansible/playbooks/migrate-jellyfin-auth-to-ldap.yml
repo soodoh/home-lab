@@ -298,7 +298,7 @@
         url: "{{ jellyfin_api_url }}/Plugins"
         method: GET
         headers:
-          X-Emby-Token: "{{ jellyfin_api_key.stdout }}"
+          Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
         return_content: true
         status_code: 200
       register: jellyfin_plugins
@@ -368,7 +368,7 @@
             url: "{{ jellyfin_api_url }}/Plugins/{{ jellyfin_ldap_plugin_id }}/Configuration"
             method: GET
             headers:
-              X-Emby-Token: "{{ jellyfin_api_key.stdout }}"
+              Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
             return_content: true
             status_code: 200
           register: jellyfin_ldap_current_configuration
@@ -412,7 +412,7 @@
             url: "{{ jellyfin_api_url }}/Plugins/{{ jellyfin_ldap_plugin_id }}/Configuration"
             method: POST
             headers:
-              X-Emby-Token: "{{ jellyfin_api_key.stdout }}"
+              Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
             body_format: json
             body: "{{ jellyfin_ldap_configuration }}"
             status_code: 204
@@ -423,7 +423,7 @@
             url: "{{ jellyfin_api_url }}/Ldap/TestServerBind"
             method: POST
             headers:
-              X-Emby-Token: "{{ jellyfin_api_key.stdout }}"
+              Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
             body_format: json
             body:
               LdapServer: authentik-ldap
@@ -467,7 +467,7 @@
             url: "{{ jellyfin_api_url }}/Ldap/TestLdapFilters"
             method: POST
             headers:
-              X-Emby-Token: "{{ jellyfin_api_key.stdout }}"
+              Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
             body_format: json
             body:
               LdapSearchFilter: "{{ jellyfin_ldap_user_filter }}"
@@ -498,7 +498,7 @@
             url: "{{ jellyfin_api_url }}/Ldap/LdapUserSearch"
             method: POST
             headers:
-              X-Emby-Token: "{{ jellyfin_api_key.stdout }}"
+              Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
             body_format: json
             body:
               LdapSearchAttributes: cn, mail
@@ -511,7 +511,7 @@
             url: "{{ jellyfin_api_url }}/Plugins/{{ jellyfin_ldap_plugin_id }}/Configuration"
             method: GET
             headers:
-              X-Emby-Token: "{{ jellyfin_api_key.stdout }}"
+              Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
             return_content: true
             status_code: 200
           register: jellyfin_ldap_effective_configuration
