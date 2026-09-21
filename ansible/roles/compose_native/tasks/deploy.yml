@@ -507,13 +507,22 @@
       when: compose_native_authoritative_reconcile | bool
       no_log: true
 
-    - name: Require requested services to exist in both complete models
+    - name: Require the exact reviewed service-set transition
       ansible.builtin.assert:
         that:
-          - compose_native_requested_services | difference(compose_native_declared_services.stdout_lines) | length == 0
+          - compose_native_expected_service_additions | unique | length == compose_native_expected_service_additions | length
+          - >-
+            compose_native_expected_service_additions |
+            select('match', '^[A-Za-z0-9][A-Za-z0-9_.-]+$') | list | length ==
+            compose_native_expected_service_additions | length
           - compose_native_requested_services | difference(compose_native_candidate_services.stdout_lines) | length == 0
-          - compose_native_candidate_services.stdout_lines | sort == compose_native_declared_services.stdout_lines | sort
-        fail_msg: Requested services must exist in unchanged active and candidate service sets.
+          - >-
+            compose_native_candidate_services.stdout_lines |
+            difference(compose_native_declared_services.stdout_lines) | sort ==
+            compose_native_expected_service_additions | sort
+          - compose_native_declared_services.stdout_lines | difference(compose_native_candidate_services.stdout_lines) | length == 0
+          - compose_native_candidate_services.stdout_lines | length == compose_native_expected_service_count | int
+        fail_msg: Candidate services must contain only the exact reviewed additions and no removals.
       no_log: true
 
     - name: Read the protected normalized active model for narrow safety assertions
@@ -585,12 +594,21 @@
           compose_native_force_recreate_services.
       no_log: true
 
-    - name: Refuse changes to non-service Compose topology
+    - name: Refuse unreviewed changes to non-service Compose topology
       ansible.builtin.assert:
         that:
+          - compose_native_expected_network_additions | unique | length == compose_native_expected_network_additions | length
           - >-
-            (compose_native_candidate_model.networks | default({})) ==
-            (compose_native_active_model.networks | default({}))
+            compose_native_expected_network_additions |
+            select('match', '^[A-Za-z0-9][A-Za-z0-9_.-]+$') | list | length ==
+            compose_native_expected_network_additions | length
+          - >-
+            (compose_native_candidate_model.networks | default({})).keys() | list |
+            difference((compose_native_active_model.networks | default({})).keys() | list) | sort ==
+            compose_native_expected_network_additions | sort
+          - >-
+            (compose_native_active_model.networks | default({})).keys() | list |
+            difference((compose_native_candidate_model.networks | default({})).keys() | list) | length == 0
           - >-
             (compose_native_candidate_model.volumes | default({})) ==
             (compose_native_active_model.volumes | default({}))
@@ -600,7 +618,15 @@
           - >-
             (compose_native_candidate_model.secrets | default({})) ==
             (compose_native_active_model.secrets | default({}))
-        fail_msg: General deployment does not permit top-level network volume config or secret changes.
+        fail_msg: General deployment permits only exact reviewed network additions and no other top-level changes.
+      no_log: true
+
+    - name: Require retained network definitions to remain unchanged
+      ansible.builtin.assert:
+        that:
+          - compose_native_active_model.networks[item] == compose_native_candidate_model.networks[item]
+        fail_msg: "Retained network {{ item }} changed during a network-addition transition."
+      loop: "{{ (compose_native_active_model.networks | default({})).keys() | list }}"
       no_log: true
 
     - name: Refuse normalized model changes outside requested services
@@ -611,16 +637,47 @@
       loop: "{{ compose_native_declared_services.stdout_lines | difference(compose_native_requested_services) }}"
       no_log: true
 
-    - name: Refuse protected topology changes inside requested services
+    - name: Require unique exact protected-service transition references
+      ansible.builtin.assert:
+        that:
+          - >-
+            compose_native_expected_protected_service_changes | unique | length ==
+            compose_native_expected_protected_service_changes | length
+          - >-
+            compose_native_expected_protected_service_changes |
+            select('match', '^[A-Za-z0-9][A-Za-z0-9_.-]+:[a-z_]+$') | list | length ==
+            compose_native_expected_protected_service_changes | length
+        fail_msg: Protected-service transition references must be unique service:field pairs.
+      no_log: true
+
+    - name: Refuse unreviewed protected topology changes inside requested services
       ansible.builtin.assert:
         that:
           - >-
             (compose_native_active_model.services[item.0][item.1] | default(none)) ==
             (compose_native_candidate_model.services[item.0][item.1] | default(none))
         fail_msg: >-
-          Requested service {{ item.0 }} changes protected Compose field {{ item.1 }};
-          use a separate topology operation.
-      loop: "{{ compose_native_requested_services | product(compose_native_protected_service_fields) | list }}"
+          Requested service {{ item.0 }} changes protected Compose field {{ item.1 }}
+          without an exact transition reference.
+      loop: >-
+        {{ compose_native_requested_services |
+           difference(compose_native_expected_service_additions) |
+           product(compose_native_protected_service_fields) | list }}
+      when: (item.0 ~ ':' ~ item.1) not in compose_native_expected_protected_service_changes
+      no_log: true
+
+    - name: Require every reviewed protected-service transition to be exact and used
+      ansible.builtin.assert:
+        that:
+          - (item.split(':') | length) == 2
+          - item.split(':')[0] in compose_native_requested_services
+          - item.split(':')[0] not in compose_native_expected_service_additions
+          - item.split(':')[1] in compose_native_protected_service_fields
+          - >-
+            (compose_native_active_model.services[item.split(':')[0]][item.split(':')[1]] | default(none)) !=
+            (compose_native_candidate_model.services[item.split(':')[0]][item.split(':')[1]] | default(none))
+        fail_msg: "Protected-service transition {{ item }} is invalid or unused."
+      loop: "{{ compose_native_expected_protected_service_changes }}"
       no_log: true
 
     - name: Start the requested service-to-container identity set
@@ -648,12 +705,42 @@
         fail_msg: Requested services do not resolve to unique safe container identities.
       no_log: true
 
-    - name: Refuse service additions removals or renames
+    - name: Start the reviewed network-action identity set
+      ansible.builtin.set_fact:
+        compose_native_expected_network_action_names: []
+      no_log: true
+
+    - name: Derive reviewed network action identities from the candidate model
+      ansible.builtin.set_fact:
+        compose_native_expected_network_action_names: >-
+          {{ compose_native_expected_network_action_names +
+             [compose_native_candidate_model.networks[item].name | default(item, true)] }}
+      loop: "{{ compose_native_expected_network_additions }}"
+      no_log: true
+
+    - name: Require unique safe reviewed network action identities
+      ansible.builtin.assert:
+        that:
+          - >-
+            compose_native_expected_network_action_names | unique | length ==
+            compose_native_expected_network_action_names | length
+          - >-
+            compose_native_expected_network_action_names |
+            select('match', '^[A-Za-z0-9][A-Za-z0-9_.-]+$') | list | length ==
+            compose_native_expected_network_action_names | length
+        fail_msg: Reviewed network additions do not resolve to unique safe action identities.
+      no_log: true
+
+    - name: Reconfirm the exact reviewed service additions before activation
       ansible.builtin.assert:
         that:
           - compose_native_candidate_services.stdout_lines | length == compose_native_expected_service_count | int
-          - compose_native_candidate_services.stdout_lines | sort == compose_native_declared_services.stdout_lines | sort
-        fail_msg: The initial native scope does not permit service-set changes.
+          - >-
+            compose_native_candidate_services.stdout_lines |
+            difference(compose_native_declared_services.stdout_lines) | sort ==
+            compose_native_expected_service_additions | sort
+          - compose_native_declared_services.stdout_lines | difference(compose_native_candidate_services.stdout_lines) | length == 0
+        fail_msg: The service-set transition no longer matches the exact reviewed additions.
       no_log: true
 
     - name: Prepare the bounded native generation activation input
@@ -668,6 +755,7 @@
           force_recreate_services: "{{ compose_native_force_recreate_services }}"
           dependency_isolation: "{{ not (compose_native_authoritative_reconcile | bool) }}"
           action_container_names: "{{ compose_native_requested_container_names }}"
+          expected_network_action_names: "{{ compose_native_expected_network_action_names }}"
           expected_services: "{{ compose_native_candidate_services.stdout_lines }}"
           expected_service_count: "{{ compose_native_expected_service_count }}"
           required_healthy_containers: "{{ compose_native_required_healthy_containers }}"

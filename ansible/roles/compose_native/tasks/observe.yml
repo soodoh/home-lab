@@ -4,6 +4,7 @@
     that:
       - compose_native_project_name == 'docker-compose'
       - compose_native_expected_service_count | int > 0
+      - compose_native_observation_expected_service_count | int > 0
       - compose_native_current_dir == '/srv/docker-compose/current'
       - compose_native_runtime_env_path == '/etc/docker-compose/production.env'
       - compose_native_sops_sha256 is match('^[0-9a-f]{64}$')
@@ -292,8 +293,8 @@
 - name: Require the exact running project service set
   ansible.builtin.assert:
     that:
-      - compose_native_declared_services.stdout_lines | length == compose_native_expected_service_count | int
-      - compose_native_running_services.stdout_lines | length == compose_native_expected_service_count | int
+      - compose_native_declared_services.stdout_lines | length == compose_native_observation_expected_service_count | int
+      - compose_native_running_services.stdout_lines | length == compose_native_observation_expected_service_count | int
       - compose_native_declared_services.stdout_lines | sort == compose_native_running_services.stdout_lines | sort
     fail_msg: The declared and running Compose project service sets differ.
   no_log: true
@@ -368,7 +369,7 @@
   ansible.builtin.assert:
     that:
       - not compose_native_active_preview.changed
-      - compose_native_active_preview.containers | length == compose_native_expected_service_count | int
+      - compose_native_active_preview.containers | length == compose_native_observation_expected_service_count | int
     fail_msg: Live Compose configuration, mounts, images, or container state differ from the active model.
   no_log: true
 

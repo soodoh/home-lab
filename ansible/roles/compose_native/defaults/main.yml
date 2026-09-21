@@ -11,6 +11,10 @@ compose_native_artifact_identity_path: /var/lib/docker-compose/current-artifact.
 compose_native_apply_lock_path: /var/lib/iac-ansible-production.lock
 compose_native_reconciliation_lock_paths: []
 compose_native_expected_service_count: 0
+compose_native_observation_expected_service_count: "{{ compose_native_expected_service_count }}"
+compose_native_expected_service_additions: []
+compose_native_expected_network_additions: []
+compose_native_expected_protected_service_changes: []
 compose_native_expected_changed_paths: []
 compose_native_protected_service_fields:
   - cap_add

@@ -44,7 +44,7 @@ class NativeComposeSourceTests(unittest.TestCase):
             "compose_native_project_name": "docker-compose",
             "compose_native_current_dir": "/srv/docker-compose/current",
             "compose_native_runtime_env_path": "/etc/docker-compose/production.env",
-            "compose_native_expected_service_count": "38",
+            "compose_native_expected_service_count": "39",
         }
         for key, value in required.items():
             self.assertRegex(source, rf"(?m)^{re.escape(key)}: {re.escape(value)}$")
@@ -110,10 +110,12 @@ class NativeComposeSourceTests(unittest.TestCase):
             "wait: true", "wait_timeout:", "compose_native_force_recreate_services",
             "SOPS_AGE_KEY_FILE", "/usr/bin/cmp", "compose_native_runtime_env_path",
             "compose_native_environment_change_confirmed", "compose_native_backup_lock_path",
-            "compose_native_authoritative_reconcile",
+            "compose_native_authoritative_reconcile", "compose_native_expected_service_additions",
+            "compose_native_expected_network_additions",
+            "compose_native_expected_protected_service_changes",
             "compose_native_expected_changed_paths", "compose_native_requested_container_names",
             "compose_native_changed_bind_services",
-            "compose_native_protected_service_fields", "Refuse protected topology changes inside requested services",
+            "compose_native_protected_service_fields", "Refuse unreviewed protected topology changes inside requested services",
             "compose_native_source_candidate_images",
             "services/data/restic/files-from",
             "database_migration_performed: false", "restic_activation_performed: false",
@@ -141,9 +143,11 @@ class NativeComposeSourceTests(unittest.TestCase):
         preview = source.split("- name: Preview the full published model before container changes", 1)[1].split("- name:", 1)[0]
         self.assertIn("pull: never", preview)
         self.assertNotIn("pull: missing", preview)
-        action_guard = source.split("- name: Refuse full-project actions outside the requested containers", 1)[1].split("- name:", 1)[0]
+        action_guard = source.split("- name: Refuse full-project actions outside requested containers and reviewed networks", 1)[1].split("- name:", 1)[0]
         self.assertIn("item.what == 'container'", action_guard)
         self.assertIn("item.id is match(compose_native_action_container_pattern)", action_guard)
+        self.assertIn("item.what == 'network'", action_guard)
+        self.assertIn("compose_native_expected_network_action_names", action_guard)
         self.assertNotIn("image-layer", action_guard)
 
         for retired in (
@@ -176,7 +180,8 @@ class NativeComposeSourceTests(unittest.TestCase):
         for key in (
             "operation", "artifact_hash", "active_artifact_hash", "artifact_dir",
             "environment_path", "services",
-            "force_recreate_services", "dependency_isolation", "action_container_names", "expected_services",
+            "force_recreate_services", "dependency_isolation", "action_container_names",
+            "expected_network_action_names", "expected_services",
             "expected_service_count", "required_healthy_containers",
         ):
             self.assertRegex(prepared, rf"(?m)^          {key}:")
@@ -222,15 +227,22 @@ class NativeComposeSourceTests(unittest.TestCase):
             "Inventory exact selected artifact differences against the active generation",
             "Bind authoritative reconciliation to every tracked artifact difference",
             "Refuse mutable source candidate images",
-            "Require requested services to exist in both complete models",
-            "Refuse changes to non-service Compose topology",
+            "Require the exact reviewed service-set transition",
+            "Refuse unreviewed changes to non-service Compose topology",
+            "Require retained network definitions to remain unchanged",
             "Refuse normalized model changes outside requested services",
-            "Refuse protected topology changes inside requested services",
-            "Refuse service additions removals or renames",
+            "Require unique exact protected-service transition references",
+            "Refuse unreviewed protected topology changes inside requested services",
+            "Require every reviewed protected-service transition to be exact and used",
+            "Reconfirm the exact reviewed service additions before activation",
         ):
             self.assertIn(boundary, deploy)
         self.assertIn(
-            "compose_native_candidate_services.stdout_lines | sort == compose_native_declared_services.stdout_lines | sort",
+            "difference(compose_native_declared_services.stdout_lines) | sort ==",
+            deploy,
+        )
+        self.assertIn(
+            "difference(compose_native_candidate_services.stdout_lines) | length == 0",
             deploy,
         )
 
@@ -241,6 +253,10 @@ class NativeComposeSourceTests(unittest.TestCase):
 
         defaults = self.text(DEFAULTS)
         self.assertIn("compose_native_expected_changed_paths: []", defaults)
+        self.assertIn("compose_native_expected_service_additions: []", defaults)
+        self.assertIn("compose_native_expected_network_additions: []", defaults)
+        self.assertIn("compose_native_expected_protected_service_changes: []", defaults)
+        self.assertIn("compose_native_observation_expected_service_count:", defaults)
         for protected in ("volumes", "networks", "network_mode", "devices", "ports", "privileged", "secrets"):
             self.assertRegex(defaults, rf"(?m)^  - {protected}$")
         self.assertNotIn("compose_native_allowed_services", defaults)

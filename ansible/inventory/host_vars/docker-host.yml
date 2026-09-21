@@ -44,7 +44,7 @@ compose_native_backup_lock_path: /run/lock/home-lab-backup.lock
 compose_native_reconciliation_lock_paths:
   - /var/lib/home-lab/reconciliation/apply.lock
   - /var/lib/home-lab/reconciliation/operation.lock
-compose_native_expected_service_count: 38
+compose_native_expected_service_count: 39
 compose_native_required_healthy_containers:
   - gluetun
   - seerr

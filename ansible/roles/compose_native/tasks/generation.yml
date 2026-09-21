@@ -39,6 +39,13 @@
         select('match', '^[A-Za-z0-9][A-Za-z0-9_.-]+$') | list | length ==
         compose_native_generation.action_container_names | default([]) | length
       - >-
+        compose_native_generation.expected_network_action_names | default([]) | unique | length ==
+        compose_native_generation.expected_network_action_names | default([]) | length
+      - >-
+        compose_native_generation.expected_network_action_names | default([]) |
+        select('match', '^[A-Za-z0-9][A-Za-z0-9_.-]+$') | list | length ==
+        compose_native_generation.expected_network_action_names | default([]) | length
+      - >-
         compose_native_generation.expected_services | default([]) | sort ==
         compose_native_generation.expected_services | default([]) | unique | sort
       - >-
@@ -61,6 +68,7 @@
     compose_native_force_recreate_services: "{{ compose_native_generation.force_recreate_services | default([]) }}"
     compose_native_dependency_isolation: "{{ compose_native_generation.dependency_isolation }}"
     compose_native_action_container_names: "{{ compose_native_generation.action_container_names }}"
+    compose_native_expected_network_action_names: "{{ compose_native_generation.expected_network_action_names | default([]) }}"
     compose_native_action_container_expression: >-
       {{ (compose_native_generation.services + compose_native_generation.action_container_names) |
          unique | map('regex_escape') | join('|') }}
@@ -240,12 +248,14 @@
   check_mode: true
   no_log: true
 
-- name: Refuse full-project actions outside the requested containers
+- name: Refuse full-project actions outside requested containers and reviewed networks
   ansible.builtin.assert:
     that:
-      - item.what == 'container'
-      - item.id is match(compose_native_action_container_pattern)
-    fail_msg: The published model proposes an action outside the operation-approved containers.
+      - >-
+        (item.what == 'container' and item.id is match(compose_native_action_container_pattern))
+        or
+        (item.what == 'network' and item.id in compose_native_expected_network_action_names)
+    fail_msg: The published model proposes an action outside operation-approved containers and networks.
   loop: "{{ compose_native_published_preview.actions }}"
   no_log: true
 

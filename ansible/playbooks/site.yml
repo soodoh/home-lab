@@ -9,6 +9,10 @@
       ansible.builtin.import_role:
         name: compose_native
         tasks_from: observe
+      vars:
+        compose_native_observation_expected_service_count: >-
+          {{ (compose_native_expected_service_count | int) -
+             (compose_native_expected_service_additions | length) }}
 
     - name: Acquire production ownership for native site convergence
       ansible.builtin.import_role:
@@ -76,3 +80,8 @@
       ansible.builtin.import_role:
         name: compose_native
         tasks_from: observe
+      vars:
+        compose_native_observation_expected_service_count: >-
+          {{ ((compose_native_expected_service_count | int) -
+              (compose_native_expected_service_additions | length))
+             if ansible_check_mode else (compose_native_expected_service_count | int) }}
