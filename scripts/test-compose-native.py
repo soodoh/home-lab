@@ -271,11 +271,14 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertNotIn("compose-impact", deploy)
         self.assertIn("compose_native_active_model.services[item]", deploy)
         self.assertIn("compose_native_candidate_model.services[item]", deploy)
+        self.assertIn("'--project-directory', compose_native_candidate_dir", deploy)
+        self.assertIn("replace(compose_native_candidate_dir, compose_native_current_dir)", deploy)
         self.assertIn("compose_native_requested_services", deploy)
         candidate_model = deploy.split(
             "- name: Read the candidate model as it will resolve from the published directory", 1
         )[1].split("- name:", 1)[0]
-        self.assertIn("compose_native_current_dir", candidate_model)
+        self.assertIn("compose_native_candidate_dir", candidate_model)
+        self.assertNotIn("'--project-directory', compose_native_current_dir", candidate_model)
         self.assertIn("compose_native_candidate_dir ~ '/docker-compose.yml'", candidate_model)
         self.assertNotIn("compose_native_image_override_path", candidate_model)
 

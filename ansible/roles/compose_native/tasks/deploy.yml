@@ -540,7 +540,7 @@
         argv: >-
           {{ ['/usr/bin/docker', 'compose',
               '--project-name', compose_native_project_name,
-              '--project-directory', compose_native_current_dir,
+              '--project-directory', compose_native_candidate_dir,
               '--env-file', compose_native_candidate_env_path,
               '--file', compose_native_candidate_dir ~ '/docker-compose.yml',
               'config', '--format', 'json'] }}
@@ -554,7 +554,9 @@
     - name: Parse the protected active and candidate models
       ansible.builtin.set_fact:
         compose_native_active_model: "{{ compose_native_active_model_raw.stdout | from_json }}"
-        compose_native_candidate_model: "{{ compose_native_candidate_model_raw.stdout | from_json }}"
+        compose_native_candidate_model: >-
+          {{ compose_native_candidate_model_raw.stdout |
+             replace(compose_native_candidate_dir, compose_native_current_dir) | from_json }}
       no_log: true
 
     - name: Start the changed bind-file owner set
