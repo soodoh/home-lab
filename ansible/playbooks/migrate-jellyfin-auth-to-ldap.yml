@@ -161,15 +161,24 @@
           register: jellyfin_ldap_plugin_incoming
           when: not (jellyfin_ldap_plugin_path.stat.exists | default(false))
 
-        - name: Extract the official LDAP plugin into its private incoming directory
-          ansible.builtin.unarchive:
-            src: /var/tmp/jellyfin-ldap-authentication-24.0.0.0.zip
-            dest: "{{ jellyfin_ldap_plugin_incoming.path }}"
-            remote_src: true
-            owner: root
-            group: root
-            mode: "0644"
+        - name: Extract only the exact LDAP plugin files with Python
+          ansible.builtin.command:
+            argv:
+              - "{{ ansible_python_interpreter }}"
+              - -c
+              - >-
+                import pathlib,sys,zipfile;
+                source=pathlib.Path(sys.argv[1]); destination=pathlib.Path(sys.argv[2]);
+                expected=['LDAP-Auth.dll','Novell.Directory.Ldap.NETStandard.dll','meta.json'];
+                archive=zipfile.ZipFile(source);
+                names=sorted(item.filename for item in archive.infolist());
+                assert names == expected;
+                assert all(not item.is_dir() and '/' not in item.filename and '\\' not in item.filename for item in archive.infolist());
+                archive.extractall(destination)
+              - /var/tmp/jellyfin-ldap-authentication-24.0.0.0.zip
+              - "{{ jellyfin_ldap_plugin_incoming.path }}"
           become: true
+          changed_when: true
           when: not (jellyfin_ldap_plugin_path.stat.exists | default(false))
 
         - name: Set the incoming LDAP plugin directory identity
