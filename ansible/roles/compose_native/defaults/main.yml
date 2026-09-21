@@ -22,6 +22,7 @@ compose_native_source_paths:
   - docker-compose.yml
   - services
   - secrets/production.sops.yaml
+  - ":(exclude)services/data/restic"
 compose_native_files:
   - docker-compose.yml
 compose_native_runtime_cli:

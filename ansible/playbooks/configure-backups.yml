@@ -20,7 +20,7 @@
         apply_lock_operation: backup-runtime-convergence
 
   tasks:
-    - name: Converge pinned tools only when compatible with installed backup policy
+    - name: Converge reviewed pinned backup tools
       ansible.builtin.import_role:
         name: restic_backup
         tasks_from: tools-native
@@ -30,7 +30,7 @@
         name: restic_backup
         tasks_from: identity-native
 
-    - name: Adopt existing same-content Restic runtime files
+    - name: Converge reviewed Restic runtime files
       ansible.builtin.import_role:
         name: restic_backup
         tasks_from: runtime-native

@@ -62,13 +62,16 @@ as part of an explicit provider/state migration.
 The installed policy and runner now contain only recurring backup and recovery
 behavior. First-run, initialization and qualification compatibility was removed in a
 coordinated rollout under the production and backup locks, and terminal host evidence
-was removed. Backup admission now requires a complete chain bound to the exact current
-policy and Compose artifact.
+was removed. The runner retains only the consistency adapter that pauses and recovers
+Compose writers. Restic directly creates the local snapshot, copies it to NFS and
+Proton, and performs monthly forget, prune and data checks; no parallel replication
+queue or custom retention planner remains. Backup admission requires a complete chain
+bound to the exact current policy and Compose artifact.
 
-The native role permits same-content adoption only and requires the installed policy
-to match reviewed source exactly. Future runner or policy changes require another
-coordinated rollout; do not bypass the guard by changing an installed hash or copying
-a new runner independently.
+The native role validates the adopted files and interruption journal, then converges
+reviewed policy, runner and tool pins while the production lock excludes backup
+writers. Use `site.yml` or `configure-backups.yml`; do not copy runtime files
+independently.
 
 ## Recovery activation
 

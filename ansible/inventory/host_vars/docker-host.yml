@@ -8,7 +8,6 @@ restic_systemd:
   runner_path: /usr/local/libexec/home-lab/restic-backup
   lock_path: /run/lock/home-lab-backup.lock
   journal_path: /var/lib/home-lab-restic/interruption.json
-  accepted_path: /var/lib/home-lab-restic/replication/accepted.json
   games_mountpoint: /mnt/games
   games_repository_path: /mnt/games/restic/home-lab
   nfs_mountpoint: /mnt/storage

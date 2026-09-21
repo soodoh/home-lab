@@ -120,12 +120,17 @@ uses [recovery](../recovery/README.md).
 
 [`configure-backups.yml`](../ansible/playbooks/configure-backups.yml) is a narrower
 existing-host interface. [`services/data/restic/policy.json`](../services/data/restic/policy.json)
-defines the complete active desired policy; the role requires the installed policy
+defines repository, retention and runtime policy; `files-from` and `excludes` are the
+native Restic path inputs. The role requires the installed policy
 to match it exactly. The play observes first, acquires production ownership while
 checking the backup mutex, and revalidates adopted files after ownership is published.
-It preserves unit activation and does not bootstrap repositories or run a backup.
-Runner or policy content changes require a separately reviewed, lock-protected
-coordinated rollout before ordinary convergence can resume.
+It converges reviewed policy and runner changes while that ownership is held, preserves
+unit activation, and does not bootstrap repositories or run a backup.
+The runner is only the consistency adapter around native Restic commands: daily work
+creates one local snapshot and copies it to NFS and Proton; monthly maintenance owns
+forget, prune and randomized 10% repository data checks. The percentage check avoids
+an external subset cursor, trading guaranteed ten-run coverage for native stateless
+selection. There is no separate replication queue.
 
 [`deploy-compose.yml`](../ansible/playbooks/deploy-compose.yml) is the narrower
 Compose-only interface. It requires `compose_native_apply_confirmed=true`, replaces

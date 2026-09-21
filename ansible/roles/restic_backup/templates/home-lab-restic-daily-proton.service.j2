@@ -2,7 +2,6 @@
 Description=Home Lab Restic daily Proton replication
 Requires=home-lab-restic-daily-local.service
 After=home-lab-restic-daily-local.service network-online.target
-ConditionPathExists={{ restic_systemd.accepted_path }}
 
 [Service]
 Type=oneshot
@@ -29,4 +28,4 @@ TemporaryFileSystem=/mnt/games:ro
 BindReadOnlyPaths={{ restic_systemd.games_repository_path }}
 BindPaths={{ restic_systemd.games_repository_path }}/locks
 ReadOnlyPaths=/etc/home-lab/restic
-ReadWritePaths=/var/lib/home-lab-restic/replication /var/lib/restic-proton {{ restic_systemd.lock_path }}
+ReadWritePaths=/var/lib/restic-proton {{ restic_systemd.lock_path }}

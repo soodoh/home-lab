@@ -29,4 +29,4 @@ TemporaryFileSystem=/mnt/games:ro
 BindReadOnlyPaths={{ restic_systemd.games_repository_path }}
 BindPaths={{ restic_systemd.games_repository_path }}/locks
 ReadOnlyPaths=/etc/home-lab/restic
-ReadWritePaths=/var/lib/home-lab-restic/replication /var/lib/restic-proton {{ restic_systemd.lock_path }}
+ReadWritePaths=/var/lib/restic-proton {{ restic_systemd.lock_path }}

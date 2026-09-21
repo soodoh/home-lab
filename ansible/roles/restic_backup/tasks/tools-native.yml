@@ -1,5 +1,5 @@
 ---
-- name: Require the existing Debian amd64 Python 3 backup tools platform
+- name: Require the existing Debian amd64 backup tools platform
   ansible.builtin.assert:
     that:
       - restic_tools_existing_host | default(false) == true
@@ -8,24 +8,18 @@
       - ansible_facts.distribution == 'Debian'
       - ansible_python_interpreter == '/usr/bin/python3'
       - ansible_facts.python.version.major == 3
-    fail_msg: Native tool adoption requires an existing Debian amd64 backup host with Python 3.
+    fail_msg: Native tool convergence requires the adopted Debian amd64 backup host.
     quiet: true
 
-# The unchanged runner uses policy tool paths/version lines in preflight. Never
-# install incompatible pins or bootstrap/rewrite policy through this path.
-- name: Read the existing Restic runtime policy without exposing its contents
-  ansible.builtin.slurp:
-    src: /etc/home-lab/restic-policy.json
-  register: restic_backup_runtime_policy
-  no_log: true
-
-- name: Require native tool pins to match only the installed runtime policy tools
+- name: Require reviewed policy tool pins to match inventory
   ansible.builtin.assert:
     that:
-      - (restic_backup_runtime_policy.content | b64decode | from_json).tools == desired_tools
-    fail_msg: Tool pins must match installed runtime policy; upgrades require coordinated policy changes.
+      - desired_policy.tools == desired_tools
+    fail_msg: Reviewed policy and inventory must declare the same pinned Restic tools.
     quiet: true
   vars:
+    desired_policy: >-
+      {{ lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/policy.json') | from_json }}
     desired_tools:
       restic:
         version: "{{ restic_version }}"
