@@ -92,6 +92,8 @@
           - --property=Result
           - --property=NextElapseUSecRealtime
           - --property=LastTriggerUSec
+          - --property=ExecMainStartTimestamp
+          - --property=ExecMainExitTimestamp
           - "{{ item }}"
       loop: "{{ restic_observe_unit_names }}"
       register: restic_observe_units
@@ -135,6 +137,10 @@
     - name: Observe live Proton repository identity
       ansible.builtin.command:
         argv:
+          - /usr/sbin/runuser
+          - --user
+          - restic-proton
+          - --
           - /usr/bin/env
           - RESTIC_PASSWORD_FILE=/etc/home-lab/restic/credentials/proton-password
           - RESTIC_CACHE_DIR=/var/lib/restic-proton/cache
@@ -145,7 +151,6 @@
           - "{{ restic_proton_repository }}"
           - cat
           - config
-      become_user: restic-proton
       register: restic_observe_proton_config
       changed_when: false
       check_mode: false
@@ -154,6 +159,10 @@
     - name: Observe latest live Proton snapshot
       ansible.builtin.command:
         argv:
+          - /usr/sbin/runuser
+          - --user
+          - restic-proton
+          - --
           - /usr/bin/env
           - RESTIC_PASSWORD_FILE=/etc/home-lab/restic/credentials/proton-password
           - RESTIC_CACHE_DIR=/var/lib/restic-proton/cache
@@ -166,10 +175,22 @@
           - --json
           - --latest
           - "1"
-      become_user: restic-proton
       register: restic_observe_proton_snapshot
       changed_when: false
       check_mode: false
+      no_log: true
+
+    - name: Select the newest snapshot across Restic path groups
+      ansible.builtin.set_fact:
+        restic_observe_latest_games: >-
+          {{ restic_observe_local_snapshots.results[0].stdout |
+             from_json | sort(attribute='time') | last }}
+        restic_observe_latest_nfs: >-
+          {{ restic_observe_local_snapshots.results[1].stdout |
+             from_json | sort(attribute='time') | last }}
+        restic_observe_latest_proton: >-
+          {{ restic_observe_proton_snapshot.stdout |
+             from_json | sort(attribute='time') | last }}
       no_log: true
 
     - name: Read current policy and Compose artifact identities
@@ -182,6 +203,56 @@
       changed_when: false
       check_mode: false
 
+    - name: Summarize backup-chain admission checks
+      ansible.builtin.debug:
+        msg:
+          games_snapshot_id: "{{ restic_observe_latest_games.id }}"
+          nfs_snapshot_id: "{{ restic_observe_latest_nfs.id }}"
+          proton_snapshot_id: "{{ restic_observe_latest_proton.id }}"
+          snapshot_time: "{{ restic_observe_latest_games.time }}"
+          age_seconds: "{{ (current_epoch | int) - (snapshot_epoch | int) }}"
+          nfs_ancestry_matches: >-
+            {{ restic_observe_latest_nfs.original | default('') == restic_observe_latest_games.id }}
+          proton_ancestry_matches: >-
+            {{ restic_observe_latest_proton.original | default('') == restic_observe_latest_games.id }}
+          cadence_matches: "{{ 'cadence=daily' in restic_observe_latest_games.tags }}"
+          policy_matches: "{{ 'policy=' ~ policy_sha256 in restic_observe_latest_games.tags }}"
+          artifact_matches: "{{ 'artifact=' ~ artifact_sha256 in restic_observe_latest_games.tags }}"
+          nfs_tags_match: "{{ restic_observe_latest_nfs.tags == restic_observe_latest_games.tags }}"
+          proton_tags_match: "{{ restic_observe_latest_proton.tags == restic_observe_latest_games.tags }}"
+      vars:
+        policy_sha256: "{{ restic_observe_bindings.results[0].stdout.split()[0] }}"
+        artifact_sha256: "{{ restic_observe_bindings.results[1].stdout | trim }}"
+        snapshot_time: >-
+          {{ restic_observe_latest_games.time | regex_replace('\.[0-9]+Z$', 'Z') }}
+        snapshot_epoch: >-
+          {{ (snapshot_time | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int }}
+        current_epoch: "{{ now(utc=true, fmt='%s') | int }}"
+
+    - name: Require a fresh complete repository chain bound to current host state
+      ansible.builtin.assert:
+        that:
+          - restic_observe_latest_nfs.original | default('') == restic_observe_latest_games.id
+          - restic_observe_latest_proton.original | default('') == restic_observe_latest_games.id
+          - (current_epoch | int) >= (snapshot_epoch | int)
+          - ((current_epoch | int) - (snapshot_epoch | int)) < 172800
+          - "'cadence=daily' in restic_observe_latest_games.tags"
+          - "'policy=' ~ policy_sha256 in restic_observe_latest_games.tags"
+          - "'artifact=' ~ artifact_sha256 in restic_observe_latest_games.tags"
+          - restic_observe_latest_nfs.tags == restic_observe_latest_games.tags
+          - restic_observe_latest_proton.tags == restic_observe_latest_games.tags
+        fail_msg: The newest live backup chain is stale, incomplete, or bound to superseded host state.
+        quiet: true
+      vars:
+        policy_sha256: "{{ restic_observe_bindings.results[0].stdout.split()[0] }}"
+        artifact_sha256: "{{ restic_observe_bindings.results[1].stdout | trim }}"
+        snapshot_time: >-
+          {{ restic_observe_latest_games.time | regex_replace('\.[0-9]+Z$', 'Z') }}
+        snapshot_epoch: >-
+          {{ (snapshot_time | to_datetime('%Y-%m-%dT%H:%M:%SZ')).strftime('%s') | int }}
+        current_epoch: "{{ now(utc=true, fmt='%s') | int }}"
+      no_log: true
+
     - name: Summarize fresh live backup state
       ansible.builtin.debug:
         msg:
@@ -192,10 +263,18 @@
           repositories:
             games:
               id: "{{ (restic_observe_local_configs.results[0].stdout | from_json).id }}"
-              latest: "{{ (restic_observe_local_snapshots.results[0].stdout | from_json)[0] }}"
+              snapshot_id: "{{ restic_observe_latest_games.id }}"
+              snapshot_time: "{{ restic_observe_latest_games.time }}"
+              tags: "{{ restic_observe_latest_games.tags }}"
             nfs:
               id: "{{ (restic_observe_local_configs.results[1].stdout | from_json).id }}"
-              latest: "{{ (restic_observe_local_snapshots.results[1].stdout | from_json)[0] }}"
+              snapshot_id: "{{ restic_observe_latest_nfs.id }}"
+              original_snapshot_id: "{{ restic_observe_latest_nfs.original }}"
+              snapshot_time: "{{ restic_observe_latest_nfs.time }}"
+              tags: "{{ restic_observe_latest_nfs.tags }}"
             proton:
               id: "{{ (restic_observe_proton_config.stdout | from_json).id }}"
-              latest: "{{ (restic_observe_proton_snapshot.stdout | from_json)[0] }}"
+              snapshot_id: "{{ restic_observe_latest_proton.id }}"
+              original_snapshot_id: "{{ restic_observe_latest_proton.original }}"
+              snapshot_time: "{{ restic_observe_latest_proton.time }}"
+              tags: "{{ restic_observe_latest_proton.tags }}"
