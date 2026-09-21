@@ -18,6 +18,11 @@
         apply_lock_path: "{{ compose_native_apply_lock_path }}"
         apply_lock_operation: compose-native-deploy
   tasks:
+    - name: Re-observe active Compose state under production ownership
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
     - name: Archive and converge committed Compose source
       ansible.builtin.import_role:
         name: compose_native

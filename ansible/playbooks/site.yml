@@ -19,6 +19,11 @@
         apply_lock_operation: native-site-convergence
 
   tasks:
+    - name: Re-observe active Compose state under production ownership
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
     - name: Converge pinned backup tools
       ansible.builtin.import_role:
         name: restic_backup
