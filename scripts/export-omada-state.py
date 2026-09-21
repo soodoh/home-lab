@@ -107,49 +107,20 @@ def normalize_mac(value: Any) -> str:
     return "-".join(compact[index : index + 2] for index in range(0, 12, 2))
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--connect-host", required=True)
-    parser.add_argument("--ca-file", type=Path, required=True)
-    parser.add_argument("--network", default="")
-    parser.add_argument("--gateway-subnet", default="")
-    args = parser.parse_args()
-
-    url = os.environ.get("OMADA_URL", "")
-    username = os.environ.get("OMADA_USERNAME", "")
-    password = os.environ.get("OMADA_PASSWORD", "")
-    site_name = os.environ.get("OMADA_SITE", "")
-    if not url or not username or not password:
-        raise SystemExit("OMADA_URL, OMADA_USERNAME, and OMADA_PASSWORD are required")
-
-    client = Omada(url, args.connect_host, args.ca_file, username, password)
+def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, Any]:
     sites = client.list_all(f"/{client.controller_id}/api/v2/sites")
-    matching_sites = [
-        site
-        for site in sites
-        if (site_name and site.get("name") == site_name)
-        or (not site_name and site.get("primary") is True)
-    ]
+    matching_sites = [site for site in sites if site.get("name") == site_name]
     if len(matching_sites) != 1:
-        raise SystemExit("exactly one Omada site must match OMADA_SITE or the primary-site rule")
+        raise SystemExit("exactly one Omada site must match --site")
     site = matching_sites[0]
     site_id = required_string(site, "id")
     canonical_site_name = required_string(site, "name")
 
     base = f"/{client.controller_id}/api/v2/sites/{site_id}"
     networks = client.list_all(f"{base}/setting/lan/networks")
-    if args.gateway_subnet:
-        matching_networks = [
-            network for network in networks if network.get("gatewaySubnet") == args.gateway_subnet
-        ]
-        selector = "--gateway-subnet"
-    else:
-        network_name = args.network or "LAN"
-        matching_networks = [network for network in networks if network.get("name") == network_name]
-        selector = "--network"
+    matching_networks = [network for network in networks if network.get("name") == network_name]
     if len(matching_networks) != 1:
-        raise SystemExit(f"exactly one Omada network must match {selector}")
+        raise SystemExit("exactly one Omada network must match --network")
     network = matching_networks[0]
     network_id = required_string(network, "id")
     dhcp = network.get("dhcpSettings")
@@ -186,7 +157,26 @@ def main() -> None:
     }
     if not isinstance(export["network"]["vlan_id"], int):
         raise SystemExit("Omada network VLAN is invalid")
+    return export
 
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--connect-host", required=True)
+    parser.add_argument("--ca-file", type=Path, required=True)
+    parser.add_argument("--site", required=True)
+    parser.add_argument("--network", required=True)
+    args = parser.parse_args()
+
+    url = os.environ.get("OMADA_URL", "")
+    username = os.environ.get("OMADA_USERNAME", "")
+    password = os.environ.get("OMADA_PASSWORD", "")
+    if not url or not username or not password:
+        raise SystemExit("OMADA_URL, OMADA_USERNAME, and OMADA_PASSWORD are required")
+
+    client = Omada(url, args.connect_host, args.ca_file, username, password)
+    export = build_export(client, args.site, args.network)
     output = args.output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.NamedTemporaryFile("w", dir=output.parent, delete=False) as temporary:
@@ -195,7 +185,7 @@ def main() -> None:
         temporary_path = Path(temporary.name)
     temporary_path.chmod(0o600)
     temporary_path.replace(output)
-    print(f"omada_export=created reservations={len(selected_reservations)}")
+    print(f"omada_export=created reservations={len(export['reservations'])}")
 
 
 if __name__ == "__main__":

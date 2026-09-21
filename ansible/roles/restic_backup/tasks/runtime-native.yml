@@ -59,6 +59,19 @@
   register: restic_runtime_policy
   no_log: true
 
+- name: Require the installed Restic policy to match reviewed source exactly
+  ansible.builtin.assert:
+    that:
+      - installed == desired
+    fail_msg: Installed Restic policy differs from reviewed desired source.
+    quiet: true
+  vars:
+    installed: "{{ restic_runtime_policy.content | b64decode | from_json }}"
+    desired: >-
+      {{ lookup('ansible.builtin.file',
+         playbook_dir + '/../../services/data/restic/policy.json') | from_json }}
+  no_log: true
+
 - name: Require reviewed runtime source and fixed bindings to match installed policy
   ansible.builtin.assert:
     that:

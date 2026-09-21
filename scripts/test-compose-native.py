@@ -287,13 +287,11 @@ class NativeComposeSourceTests(unittest.TestCase):
     def test_interrupted_deployment_documentation_matches_native_boundary(self):
         operations = " ".join(self.text(ROOT / "docs/operations.md").split())
         for marker in (
-            "durable production owner",
-            "Do not clear them",
-            "exact owner",
-            "transaction-local",
-            "before-images",
-            "zero-change final preview",
-            "No generic resume",
+            "/var/lib/iac-ansible-production.lock",
+            "host-local owners",
+            "Never delete an owner",
+            "associated process/journal",
+            "clear-failed-apply-lock.yml",
         ):
             self.assertIn(marker, operations)
 
@@ -322,7 +320,7 @@ class NativeComposeSourceTests(unittest.TestCase):
         self.assertIn("compose_native_authoritative_reconcile: true", site)
         self.assertIn("tasks_from: retire-legacy", site)
         recovery = " ".join(self.text(ROOT / "recovery/README.md").split())
-        self.assertIn("recovery groups", recovery)
+        self.assertIn("groups.json", recovery)
         self.assertIn("Git revert", recovery)
 
     def test_safe_prune_no_longer_depends_on_rollback_image_locks(self):
@@ -339,7 +337,7 @@ class NativeComposeSourceTests(unittest.TestCase):
             self.assertNotIn(retired, source)
 
     def test_generic_rollback_is_git_revert_plus_authoritative_site_convergence(self):
-        for relative in ("README.md", "docs/operations.md", "docs/decisions.md"):
+        for relative in ("README.md", "docs/operations.md"):
             source = " ".join(self.text(ROOT / relative).split())
             self.assertIn("Git revert", source, relative)
             self.assertIn("site", source, relative)

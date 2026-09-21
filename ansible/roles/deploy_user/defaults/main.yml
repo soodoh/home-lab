@@ -1,7 +1,0 @@
----
-deploy_user_account_name: "{{ deploy_user_name }}"
-deploy_user_account_comment: Ansible deployment user
-deploy_user_account_home: "{{ deploy_user_home }}"
-deploy_user_account_shell: "{{ deploy_user_shell }}"
-deploy_user_account_sudoers_path: "{{ deploy_user_sudoers_path }}"
-deploy_user_account_sudoers_content: "{{ deploy_user_sudoers_content }}"

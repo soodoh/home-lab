@@ -1,56 +1,52 @@
 # Home lab
 
-OpenTofu for infrastructure, Ansible for hosts, Docker Compose for applications.
-The direction is **adopt the existing server first**, using standard SSH and
-Ansible become—not rebuild the installation around a custom controller.
+OpenTofu owns provider resources, Ansible owns the two hosts, and Docker Compose
+owns applications. Controllers are disposable: every run starts from reviewed Git
+source and observes the live systems again.
 
-The Docker host has one authoritative native Ansible convergence interface:
-[`ansible/playbooks/site.yml`](ansible/playbooks/site.yml). It derives the clean
-tracked source, complete Compose service set, artifact changes and bind-file owners;
-converges adopted backup definitions, Docker image maintenance and Compose; retires
-superseded host state; and performs final observation. Tracked repository digests are
-the sole image authority. No image lock, override, previous-artifact rollback or
-service-specific recovery interface participates.
+## Authority
 
-Normal usage is one source-bound check followed by the same site play without
-`--check`; no service/path/hash argument set is required. The lower-level bounded
-Compose play remains for exceptional reviewed subsets. Historical interrupted/refused
-attempts and their consumed authorities remain documented in
-[operations](docs/operations.md).
+- Git defines desired configuration, pins, recovery groups and safety policy.
+- Proxmox, the Docker host and provider APIs define current state.
+- OpenTofu remote backends define provider-resource ownership.
+- A managed host may retain an active operation lock, interruption journal or
+  before-image until that operation is resolved.
+- Git history supplies historical context. Historical outcomes are not operational
+  inputs.
 
-Ordinary rollback is a Git revert followed by authoritative site convergence from the
-latest reviewed automation. Missing old images are pulled again by exact digest.
-Disaster recovery uses one generic Restic flow with declarative recovery groups for
-all or partial private-staging restores. Production restore activation remains
-honestly unqualified; there are no Nextcloud-specific or archive-specific alternatives.
+See [architecture](docs/architecture.md) for the complete boundary.
 
-- [Operations](docs/operations.md): local checks, intended native workflow and retained implementation.
-- [Recovery](recovery/README.md): snapshot staging, independent credentials and rollback boundaries.
-- [Migrations](docs/migrations.md): unresolved database, storage, access and provider adoption.
-- [Decisions](docs/decisions.md): ownership, safeguards and deliberate legacy dependencies.
+## Start here
 
-Applications remain in [`docker-compose.yml`](docker-compose.yml) and
-[`services/`](services/). Infrastructure roots are under
-[`infrastructure/tofu/`](infrastructure/tofu/); host definitions under
-[`ansible/`](ansible/). Service images, persistent paths, resource identities and
-backup/firewall policy remain explicit source-owned state.
+- [Operations](docs/operations.md): source checks, live observation and mutation.
+- [Recovery](recovery/README.md): fresh snapshot discovery and private staging.
+- [Migrations](docs/migrations.md): unresolved live conditions only.
+- [Security](docs/security.md): secrets, state and protected output.
 
-For native Docker-host convergence:
+Applications are in [`docker-compose.yml`](docker-compose.yml) and
+[`services/`](services/). OpenTofu roots are under [`infrastructure/tofu/`](infrastructure/tofu/).
+Host inventory and playbooks are under [`ansible/`](ansible/).
+
+## Normal host workflow
 
 ```sh
-ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook \
-  -i ansible/inventory/hosts.yml ansible/playbooks/site.yml --check
-# Review, then repeat without --check.
+python3 scripts/check-source-boundaries.py
+python3 scripts/check-compose-image-pins.py
+scripts/test-compose-secret-files
+# With the current decrypted environment in a private temporary file:
+docker compose --env-file "$runtime_env" config --quiet
+
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-hosts.yml
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-compose.yml
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-backups.yml
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-proxmox.yml
+
+ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/site.yml --check
+# Review current output, then repeat without --check.
 ```
 
-For a local Compose configuration check only:
+A Git revert followed by authoritative site convergence is configuration rollback;
+data recovery remains a separate operation.
 
-```sh
-docker compose config --quiet
-```
-
-Do not print the rendered configuration: it can contain secrets. Merge approval
-is not deployment approval. Authentik was observed already running PostgreSQL 18;
-retain the old cluster until the [remaining migration/rollback checks](docs/migrations.md)
-are resolved rather than rerunning the migration. A fresh rebuild and production
-restore activation remain unproved.
+Do not print resolved Compose configuration, decrypted SOPS data, OpenTofu state or
+saved plans. Merge approval is not deployment approval.

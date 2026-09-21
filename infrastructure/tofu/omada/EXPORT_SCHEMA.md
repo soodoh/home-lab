@@ -1,9 +1,15 @@
-# Required ignored Omada export
+# Omada live export input
 
 This root owns its non-secret controller version and endpoint in
-`domain.auto.tfvars.json`. `omada_export_path` remains a separate explicit input
-and must point to a root-only, ignored JSON file with this shape.
-Values below are synthetic examples, not desired reservation identities:
+`domain.auto.tfvars.json`, including the exact site and network selectors.
+`omada_export_path` is an explicit absolute path to a
+mode-0600 JSON export created from the current controller session in a new private
+temporary directory. [`scripts/prepare-omada-plan-input`](../../../scripts/prepare-omada-plan-input)
+uses the read-only provider identity to fetch it directly from the live controller.
+Delete it after the plan/apply session; never retain the export in controller
+credential files.
+
+The required shape is:
 
 ```json
 {
@@ -25,4 +31,7 @@ Values below are synthetic examples, not desired reservation identities:
 }
 ```
 
-Do not add import blocks until this export is supplied and reviewed. Import the network by its confirmed ID first, then each reservation as `<site>/<MAC>`.
+Values above are synthetic. The preparation helper requires
+`TF_VAR_omada_export_path` to name a nonexistent file in a mode-0700 directory,
+verifies the managed `Omada` host alias and private CA, and creates the export
+without replacement. Never carry the export into another session.

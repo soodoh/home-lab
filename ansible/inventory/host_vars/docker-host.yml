@@ -3,6 +3,7 @@
 restic_systemd_existing_host: true
 restic_proton_uid: 60000
 restic_proton_gid: 60000
+restic_proton_repository: rclone:proton-backup:Backups/home-lab-restic
 restic_systemd:
   runner_path: /usr/local/libexec/home-lab/restic-backup
   lock_path: /run/lock/home-lab-backup.lock
@@ -11,6 +12,7 @@ restic_systemd:
   games_mountpoint: /mnt/games
   games_repository_path: /mnt/games/restic/home-lab
   nfs_mountpoint: /mnt/storage
+  nfs_repository_path: /mnt/storage/restic/home-lab
   daily_calendar: "*-*-* 05:00:00"
   maintenance_calendar: monthly
 
@@ -28,8 +30,7 @@ rclone_archive_sha256: "8d836165cfc92b273f8735dc91e4158c55267dfa69f9e35ed8388058
 rclone_binary_sha256: "acd2c7aca2996c884a8cd0012b27d74213bc7d02c514d9711166b5023e51ca49"
 rclone_version_output: "rclone v1.76.0-beta.10267.220fe7619"
 
-# Native Compose adoption. This is deliberately independent of the legacy
-# docker_host group variables and global contract.
+# Native Compose ownership for the existing host.
 compose_native_project_name: docker-compose
 compose_native_controller_root: "{{ playbook_dir }}/../.."
 compose_native_home: /home/docker

@@ -1,0 +1,42 @@
+---
+- name: Observe one complete live backup chain under the host backup lock
+  hosts: docker-host
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    restic_reviewed_policy: >-
+      {{ lookup('ansible.builtin.file',
+         playbook_dir + '/../../services/data/restic/policy.json') | from_json }}
+  tasks:
+    - name: Observe and admit one live repository chain under a single lock
+      ansible.builtin.script:
+        cmd: >-
+          {{ playbook_dir }}/../../scripts/observe-restic-backups.py
+          --runner-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../scripts/restic-backup', rstrip=false, lstrip=false) | hash('sha256') }}
+          --policy-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/policy.json', rstrip=false, lstrip=false) | hash('sha256') }}
+          --files-from-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/files-from', rstrip=false, lstrip=false) | hash('sha256') }}
+          --excludes-sha256 {{ lookup('ansible.builtin.file', playbook_dir + '/../../services/data/restic/excludes', rstrip=false, lstrip=false) | hash('sha256') }}
+          --restic-sha256 {{ restic_binary_sha256 }}
+          --rclone-sha256 {{ rclone_binary_sha256 }}
+          --games-id {{ restic_reviewed_policy.repositories.games.id }}
+          --nfs-id {{ restic_reviewed_policy.repositories.nfs.id }}
+          --proton-id {{ restic_reviewed_policy.repositories.proton.id }}
+        executable: /usr/bin/python3
+      register: restic_observation_command
+      changed_when: false
+      check_mode: false
+      become: true
+
+    - name: Parse the bounded current backup observation
+      ansible.builtin.set_fact:
+        restic_observation: "{{ restic_observation_command.stdout | from_json }}"
+      no_log: true
+
+    - name: Summarize fresh live backup state
+      ansible.builtin.debug:
+        msg:
+          observed_at: "{{ restic_observation.observed_at }}"
+          policy_sha256: "{{ restic_observation.policy_sha256 }}"
+          compose_artifact_sha256: "{{ restic_observation.artifact_sha256 }}"
+          units: "{{ restic_observation.units }}"
+          repositories: "{{ restic_observation.repositories }}"

@@ -1,7 +1,0 @@
-# Contract-owned minimum edges; never reset vendor or retained guard dependencies.
-[Unit]
-{% for property in ['Requires', 'After'] %}
-{% if debian.transaction.production_systemd_dependencies[item][property] | length > 0 %}
-{{ property }}={{ debian.transaction.production_systemd_dependencies[item][property] | join(' ') }}
-{% endif %}
-{% endfor %}

@@ -1,342 +1,91 @@
-# Outstanding migrations and adoption
+# Outstanding migrations
 
-These are retained hazards and next adoption boundaries, not permission to run
-mutations. The [September 14 read-only observation](operations.md#observed-baseline--2026-09-14)
-updates selected installed-state assumptions; it does not close migration or
-rollback-retirement checks. The check-qualified
-[native Compose canary](operations.md#native-compose-qualification) refuses
-database, service-set, mount, credential and Restic-policy changes; it neither
-completes nor retires any migration below.
+This file records unresolved live predicates, not completed actions. Observe every
+condition again before deciding whether work remains.
 
-## Authentik PostgreSQL
+## Authentik PostgreSQL rollback retirement
 
-**PostgreSQL 18 is already in use.** On September 14 the running Authentik database
-container mounted `/srv/home-lab-state/authentik-data/postgresql` at
-`/var/lib/postgresql`, containing `18/docker/PG_VERSION=18`. The retained
-`postgresql-16/PG_VERSION=16` was also present. Do not rerun the forward migration.
+Desired state: PostgreSQL 18 is healthy and the PostgreSQL 16 rollback generation is
+removed only after rollback is no longer required.
 
-PostgreSQL 16 used `/var/lib/postgresql/data`; 18 uses
-`PGDATA=/var/lib/postgresql/18/docker` and the parent mount `/var/lib/postgresql`.
-18 cannot open a 16 cluster directly. This was a logical dump/restore, not an
-image-only update. Original forward commands are in Git (`1165675`, former
-`docs/authentik-postgres-18-migration.md`). They stopped Authentik/Redis writers,
-validated the dump table of contents, stopped PostgreSQL and preserved the old
-cluster, then restored into 18 with exit-on-error, rebuilt optimizer statistics
-and compared extensions, public-table and `django_migrations` counts against the
-stopped source. This provenance does not prove acceptance.
+Observe:
 
-### Acceptance and custody
+- the active database image, mount and `PG_VERSION`;
+- Authentik server, worker and Redis health;
+- admin and representative protected-application authentication;
+- current database/application logs without printing private values;
+- a fresh Restic snapshot containing the active database and a successful isolated
+  restore.
 
-Preserve all three sensitive root-only rollback inputs:
+Until all checks pass in one reviewed window, retain the old cluster and independent
+rollback material. Never start PostgreSQL 16 against the PostgreSQL 18 directory.
+Cleanup requires an exact live path inventory and separate authorization.
 
-1. `authentik-postgres-16.dump` and validated `.toc` under
-   `/var/lib/authentik-postgres-migration/<candidate-hash>`;
-2. the original `postgresql-16` cluster under `authentik-data`;
-3. the cold copy in `authentik-postgres-16-backup-<first-12-candidate-hash>`.
+## Nextcloud recovery and old application copies
 
-Keep before/after extension/count records, the exact digest-pinned
-`postgres:16-alpine@sha256:*` image, both generations' artifacts/environments/image
-locks and the failed 18 cluster. The historical 18 image was
-`postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15`.
-The old Docker volume had the `authentik-data` Compose label; its identity came
-from the stopped 16 container, not today's bind mount. The original cold-copy
-operation used no network and a read-only source and refused existing backup
-volume or `postgresql-16` destinations. Do not recreate or overwrite them.
+Desired state: current database, config, custom apps and themes are restorable through
+the generic `nextcloud` recovery group; superseded application copies are then
+removed. External user data remains independently managed.
 
-Before acceptance or rollback retirement, verify:
+Observe:
 
-- PostgreSQL health, `PG_VERSION=18` and the exact PGDATA above;
-- Redis/server health and a running worker;
-- retained extension/schema-count comparisons;
-- Authentik admin login and dashboard/directory objects;
-- authentication through at least one protected application;
-- PostgreSQL/server/worker logs free of restore/migration errors, without exposing sensitive output;
-- Home Assistant health;
-- active artifact idempotence, with no further PostgreSQL recreation proposed;
-- a new encrypted scheduled backup containing 18, with independently verified
-  integrity and [restore coverage](../recovery/README.md), not old archive-replica checks.
+- `occ status --output=json`, cron PID 1 and current mounts;
+- login, WebDAV, representative read and upload behavior;
+- a fresh isolated restore of the `nextcloud` group;
+- current external-data identity and representative hashes without mounting it into
+  the restore target.
 
-### Rollback limits
+`/mnt/storage/media/nextcloud/data` is outside Restic and outside automated cleanup.
+Any old-path deletion requires a fresh exact-path allowlist that excludes user data.
 
-There is no qualified post-promotion invocation or general deploy command here.
-No generic Compose update or automatic database rollback is safe. Review actual
-retained inputs before separately approving artifact publication or recovery; the
-removed controller and retained roles are not implicit replacements.
+## Calibre NFS generation
 
-An invocation must recover the old volume/image identity from retained evidence,
-verify the exact 64-hex candidate artifact/content and existing paths, root:root
-0600 environments and root-only migration directory. Use root, fail-fast shell
-handling (`set -euo pipefail`) and `umask 077`. The original current/candidate
-environments had to be byte-equal: do not combine database migration with secret
-or configuration changes. Bind the explicit
-[project/artifact/environment paths](operations.md#stable-application-and-host-identities).
-After promotion, “current” no longer means 16 and “candidate” no longer reliably
-means the retained 18 generation.
+Desired state: `/srv/home-lab-state/calibre-data/books` remains the active library and
+the older NFS generation has an explicit retain-or-delete decision.
 
-Rollback loses writes accepted by 18 after cutover. Stop all Authentik/Redis/database
-writers and keep users out throughout the reviewed window. Preserve the failed 18
-cluster separately (the old pre-promotion procedure used `postgresql-18-failed`
-and refused an existing destination), restore the exact 16 artifact and old
-cluster, and verify database health before admitting writers. Never start 16
-against the 18 directory; images cannot undo database migration.
+Observe both generations live, verify the active library through a fresh snapshot and
+isolated restore, then prepare an exact private disposition list. Never treat the NFS
+copy as a current mirror or replay an old synchronization command.
 
-Both clusters consume backup space until explicit rollback retirement. Only after
-all acceptance and new-backup proofs may an approved exact old subdirectory,
-backup volume and root-only migration directory be removed. Never use unrestricted
-volume prune.
+## Proxmox VM disk ownership
 
-References: [Authentik upgrade guidance](https://docs.goauthentik.io/troubleshooting/postgres/upgrade_docker/),
-[image PGDATA change](https://github.com/docker-library/docs/blob/master/postgres/README.md#pgdata),
-[PostgreSQL 18 upgrade](https://www.postgresql.org/docs/18/upgrading.html).
+Desired state: the production OpenTofu root and remote state fully express the VM's
+current managed disks without changing existing bus addresses or importing an
+unexplained disk.
 
-## Nextcloud
+Observe the live VM configuration, remote state and a fresh provider plan together.
+The source contains an intentional list-position tombstone; remove or reorder it only
+as part of an explicit provider/state migration.
 
-On September 14 both Nextcloud and cron were running with the five intended
-mounts. **Do not rerun forward migration or initial activation.** A September 19
-read-only retirement audit reconfirmed `nextcloud`, `nextcloud-cron` and
-`nextcloud-db` running with zero restarts, exact application/database mounts and
-read-only secret mounts. `occ status --output=json` reported Nextcloud 34.0.2.1
-installed, outside maintenance mode and requiring no database upgrade; cron retained
-`/cron.sh` as its entrypoint. The four local application paths and external data
-path exist, while all old NFS application/config/custom-app/theme paths remain.
-Application login/WebDAV/upload acceptance, fresh restore proof and rollback
-retirement remain outstanding. Keep the paired migration/configuration/rollback
-playbooks and roles as recovery inputs for now, not a supported standalone native
-deployment path.
+## Restic runtime policy normalization
 
-### Review boundary
+The installed policy and runner now contain only recurring backup and recovery
+behavior. First-run, initialization and qualification compatibility was removed in a
+coordinated rollout under the production and backup locks, and terminal host evidence
+was removed. Backup admission now requires a complete chain bound to the exact current
+policy and Compose artifact.
 
-Any separately approved recovery or maintenance requires:
+The native role permits same-content adoption only and requires the installed policy
+to match reviewed source exactly. Future runner or policy changes require another
+coordinated rollout; do not bypass the guard by changing an installed hash or copying
+a new runner independently.
 
-- a clean reviewed commit and clean working tree;
-- the independently restored pre-change config/theme recovery point;
-- the current reduced database backup and canonical SOPS/recovery material;
-- no active deployment, backup, restore, database maintenance, or storage migration;
-- at least 2 GiB free under `/srv/home-lab-state`;
-- old `/mnt/storage/media/nextcloud` application copies retained for seven days after full proof.
+## Recovery activation
 
-The external `/mnt/storage/media/nextcloud/data` tree remains under its existing
-retention decision. It is mounted in place and is never copied into, restored over,
-or deleted with managed application state. The other four mounts hold managed
-application code, config, custom apps and themes under `/srv/home-lab-state`.
+Desired state: a complete production restore has a reviewed activation and rollback
+procedure.
 
-### Historical five-mount migration
+Current supported scope stops at verified private staging. Qualification must begin
+from newly discovered repository and snapshot identities and must not reuse stored
+observations from an earlier attempt.
 
-The original forward procedure remains in Git history (`1165675`, former
-`docs/nextcloud-34-configuration.md`). The migration is complete; its staging,
-deployment and rollback playbooks and roles are retired. They are not disaster
-recovery interfaces. Native site convergence now owns the active Compose generation
-and root-owned database secret files.
+## Controller artifact retirement
 
-Nextcloud application state participates in the generic `nextcloud` recovery group.
-That group stages database, config, custom-app and theme paths plus the common
-protected environment through the same verified Restic flow as every other group.
-External `/mnt/storage/media/nextcloud/data` remains outside Restic and must be
-admitted separately. Generic production activation is not yet qualified.
+Ignored controller state was retired after refreshing every active remote-backed
+OpenTofu root, observing host owners and journals, resolving historical provider
+identities, proving recovery resources absent, and confirming independent custody of
+the encrypted recovery bundle and decryption identity.
 
-### Web acceptance
-
-These remain acceptance checks, not instructions to start already-running cron:
-
-- `occ status --output=json` reports installed, not in maintenance mode, and no database upgrade;
-- `/var/www/html/data` resolves to `/mnt/storage/media/nextcloud/data`;
-- config, current themes, and any custom apps are visible;
-- login, representative file listing/read, WebDAV, and a representative upload succeed;
-- HTTPS URL generation remains correct;
-- only Caddy at `172.23.0.250` is trusted and real client addresses are correct;
-- the external response contains exactly `Strict-Transport-Security: max-age=15552000`;
-- Compose inspection and logs contain file references, not password values.
-
-### Cron and native maintenance acceptance
-
-Initial cron startup is historical. Verify `/cron.sh` as PID 1 and the installed
-five-minute `cron.php` schedule; observe at least two cadences under separate
-operational approval. Do not manually execute arbitrary queued job IDs.
-Record only aggregate, secret-free evidence:
-
-- last-cron timestamp and pending-job count;
-- class counts and last-run values for native upload cleanup and `OC\Log\Rotate` when registered;
-- upload-staging bytes and oldest timestamp;
-- current and rotated log sizes.
-
-The pre-change queue contained metadata jobs but no registered `UploadCleanup`
-class. Let normal cron register or run the current native cleanup path. Never use
-`rm` in user upload directories. Investigate permissions or exact job errors if
-stale chunks are not removed natively. Delete the oversized rotated log only after
-native rotation is proven and an exact private cleanup manifest is separately approved.
-
-### Database maintenance
-
-Each operation requires separate approval during the UTC maintenance window
-beginning at hour `6`, fresh setup checks and a proven database recovery point.
-The historical sequence was `occ setupchecks --output=json`,
-`occ db:add-missing-indices`, `occ maintenance:repair --include-expensive`, then
-setup checks again, as `www-data`. A reviewed invocation must bind the explicit
-[production project/artifact/environment](operations.md#stable-application-and-host-identities),
-not checkout Compose defaults.
-
-For non-DYNAMIC tables, use only the documentation URL and exact affected table
-names emitted by the installed Nextcloud 34 setup check. Do not copy SQL from an
-older release. Re-run setup checks immediately afterward and restore the database
-on any database error through a separately reviewed recovery invocation.
-
-Classify recent log errors without recording private paths, filenames, tokens or
-user content. AppAPI, single-server ID, SMTP, 2FA enforcement, monitoring and direct
-upload-directory cleanup remain scope exclusions.
-
-### Rollback
-
-There is no service-specific migration rollback. Configuration rollback is a Git
-revert followed by authoritative native site convergence. Data loss or corruption
-uses the generic Restic recovery-group flow. Neither path modifies external
-Nextcloud user data automatically.
-
-### Recovery and cleanup gate
-
-Before old-path deletion:
-
-- preserve the completed [Nextcloud and Calibre private-staging restore rehearsal](../recovery/nextcloud-calibre-restore-rehearsal.md) and its exact snapshot/manifests;
-- keep the passing focused `scripts/test-restic-recovery-bundle` and `scripts/test-restic-restore-branch` checks;
-- review and separately authorize the [Nextcloud isolated logical recovery plan](../recovery/nextcloud-isolated-recovery-plan.md) with SOPS-backed secret files, pinned application code and no production external-data mount;
-- prove the generic `nextcloud` recovery group in isolated staging;
-- confirm representative user-file counts and hashes are unchanged;
-- retain old copies for seven days after these proofs.
-
-Build a private exact-path cleanup manifest with device, inode, size, mtime and
-path identities. Its allowlist may include only stale old application/config/
-custom-app/theme copies and an approved legacy rotated log. It must exclude
-`data`, `files`, `files_versions` and `files_trashbin`. Apply only after approval
-of the manifest hash.
-
-The original final restart of `daily-local-backup` and `weekly-remote-backup` is
-obsolete: Offen is retired; do not reinstall or start it. Recovery must separately
-review restoration of actual Restic timer state outside trigger windows, verifying
-no unintended immediate run.
-
-## Calibre and Caro
-
-The complete Calibre library (`metadata.db`, books and covers) belongs at
-`/srv/home-lab-state/calibre-data/books` and is included in Restic. The NFS copy is
-retained as a rollback source. Caro application/database state belongs at
-`/srv/home-lab-state/caro-tachidesk-data`; only downloads use
-`${MEDIA_PATH}/caro-tachidesk`. The preserved-data forward migration is historical;
-do not rerun it simply because its recovery-dependent role remains.
-
-The 2026-08-27 Calibre local correction recorded artifact
-`2468c26a15c921877da3d1ca6887cd9c2e81be1f467873d9f9edc1386782c6db`,
-2,195 files, 8,004,800,651 bytes and 1,063 ebooks plus `metadata.db`, with snapshots:
-
-- games `91e4e2378de3ae97efa075468ac0334fec80b324c7c8df664b05089f1254390f`;
-- NFS `32f2e3c378df0238c3e99da59701dc7e33fe73a13f88eda01b02f0c1e2f4e9ed`;
-- Proton `41f4fac702126014bb6989b09dd158a2f9a3c56e4a99440df799bb55e4a28d55`.
-
-The legacy `compose_deploy` role formerly contained the historical
-`rollback-calibre-to-local:<artifact-hash>` lane. A September 19 read-only retirement
-audit found no retained production owner and found `calibre`,
-`calibre-web-automated` and `bookshelf` running with zero restarts and exact local
-library mounts. The installed Restic source list includes the four intended local
-Calibre paths and excludes the NFS library. The active local library now contains
-2,254 files and 8,072,213,522 logical bytes, while the retained NFS copy still has
-the historical 2,195 files and 8,004,796,531 bytes. Both contain `metadata.db`.
-The NFS generation is therefore a historical rollback source, not a current mirror;
-replaying the old checksum/delete lane would discard newer local data.
-
-The completed
-[private-staging restore rehearsal](../recovery/nextcloud-calibre-restore-rehearsal.md)
-proved native verified restoration, SQLite integrity, and exact snapshot manifests;
-all 2,254 current live library path/size records occur in the restored snapshot.
-The restored snapshot also contains five older files totaling 4,071,565 bytes. The
-obsolete Compose staging allowlist entry, authorization/resume gates and NFS-to-local
-checksum/delete tasks are removed, so that lane can no longer be invoked. No live or
-NFS data, Restic policy, timer or retained staging tree was changed by source
-retirement.
-
-The NFS generation remains retained until a separately reviewed disposition; source
-retirement does not declare it deletable. The coupled historical
-`migrate-preserved-backup-data.yml` play still includes Calibre and Caro and remains
-blocked from replay pending a separate Caro/recovery review. Native site convergence
-does not activate or remove preserved data copies.
-
-## Retired LiteLLM deployment lane
-
-The callback/config remain; the dedicated source-only approval/transport lane is
-removed rather than carried into native delivery. Its installed success was not
-established. Historical LiteLLM transport attempts and generic Compose
-artifact/image-lock state are no longer recovery inputs and are removed by successful
-authoritative site convergence. Failure after publication retains only the current
-transaction's before-images and owner for exact inspection. Native replacement must
-explicitly recreate LiteLLM for changed bind-file contents and distinguish liveness
-from provider/model usability.
-
-The September 18 native canary attempt found commit `a43c4b17`'s model update still
-undeployed: active config SHA-256 remained
-`6a93d7caee70b924d80c628250441a78be5ebe9844735982ab9c532e4f4595d2`,
-LiteLLM was running with zero restarts, and three retained transport workspaces plus
-three capture-attempt markers remained under `/var/lib/docker-compose`. No matching
-`/srv/docker-compose/.litellm-*` recovery directory existed. The canary refused
-before publication or container mutation. Current source restores the active config
-bytes and defers the model update rather than admitting it through the canary. The
-historical commit remains in Git; reintroduction requires an explicit native
-LiteLLM recreation and separate liveness/provider-model acceptance decision.
-
-## Provider and host adoption gaps
-
-- **Proxmox VM100:** `scsi1` games, `scsi2` state, `scsi3` boot and `ide2` cloud-init
-  identities stay fixed. The production HCL does not fully model the boot disk;
-  ignored disk-list positions encode adoption history. Do not reorder/remove the
-  tombstone or change addresses/imports. Remote state now contains only
-  `proxmox_virtual_environment_vm.debian`; the stale candidate move is retired.
-- **Tailscale:** remote state contains only native
-  `tailscale_acl.policy[0]`, the full-policy owner. Import used the dedicated OAuth
-  client and changed state only; live policy bytes and ETag remained unchanged. A
-  separately authorized, inspected apply then removed the retired `ansible-plan`
-  identity from two SSH grants and moved its policy test from accept to deny.
-  Protected post-apply reads matched the planned policy and the ETag changed. The
-  redundant `terraform_data` placeholder was then explicitly removed from state and
-  source without changing live policy; a fresh native-only provider plan reported
-  zero changes. The universal reconciler and its unused ETag evidence helpers are
-  removed. Provider updates do not use an ETag precondition, so future changes
-  require a fresh live comparison, frozen dashboard edits and separate apply
-  authorization.
-- **AWS controller identities:** the independent owner created and attached distinct
-  action-ceiling boundaries to both Roles Anywhere roles, archived the complete
-  managed-policy version set, removed oldest nondefault apply-policy version 9 and
-  published reduced version 14. A reviewed refresh-only saved plan recorded exactly
-  those three owner changes in the retained foundation state. Both controller
-  identities still issue successfully and live boundary/policy hashes match the
-  controller-local manifest. The separately authorized state-bucket lifecycle apply
-  removed ten rules for five already absent retired keys while preserving all five
-  active lock-history rules unchanged. A post-apply exact-key audit found no
-  unexpected versions or delete markers, and a fresh foundation plan reported zero
-  changes.
-- **Omada:** the LAN/reservation root reads a private export in the
-  [required input shape](../infrastructure/tofu/omada/EXPORT_SCHEMA.md). Its remote
-  state contains exactly one network and eight reservations, and a fresh provider
-  plan reported zero changes. Preserve TLS/CA and certificate hostname (`Omada`)
-  when replacing that input. Setting management false after adoption may propose
-  destruction.
-- **Authentik API:** source expects 23 applications/18 proxies/5 OAuth providers/
-  28 bindings. Remote state contains exactly the 79 current managed addresses plus
-  two data lookups, and a fresh provider plan reported zero changes. Factory objects and
-  users/groups/runtime identities remain database-owned. Proxy factory mapping
-  membership is deliberately omitted from resource configuration. Client secrets
-  remain encrypted separately and also occur in protected resource state; tokens
-  are ephemeral inputs. Historical token expiry was `2026-11-25T19:16:43Z`—verify
-  current credentials privately rather than assuming they still work. The one-shot
-  account-creation bootstrap and hard-coded inventory normalizer are retired; they
-  could neither rotate existing identities nor establish current desired state.
-  Their historical implementation remains in Git, not as a current recovery path.
-- **Access/host convergence:** native SSH/become observation now works over the
-  existing Tailscale route; no account/key changes were needed. Retain other routes
-  and verify independent console access before risky work. The approved native
-  [manual-update policy](operations.md#manual-update-policy) supersedes legacy
-  automatic-install settings. Other host domains and legacy bootstrap policy
-  still need adoption.
-- **Recovery/VM9900:** the September 18 bounded audit established exact Debian and
-  Restic ownership before separately approved retirement. Exact saved plans removed
-  the stopped VM, its LVs/firewall/image and the distinct Restic image through their
-  owning states; both states are now empty. The dedicated Proxmox capability and
-  Tailscale grants are retired, callable source is removed, and VM100 remains
-  unchanged. Preserve all ignored state/cache generations, journals, plans, receipts,
-  diagnostics and evidence. Never apply historical plans or reuse VMID 9900. Fresh
-  boot and end-to-end production activation remain unqualified.
+Repeat those live checks before deleting future `.local/`, `.reconcile/`, saved plans
+or obsolete local state. Migrate or retire any live identity first, and preserve any
+ambiguous or nonterminal operation until live inspection resolves it.

@@ -38,6 +38,8 @@ case "${1:-}" in
     ;;
   restore)
     [[ ${2:-} == "$FIXTURE_SNAPSHOT" && ${3:-} == --target && ${5:-} == --verify ]]
+    printf 'private restore path must stay bounded\n'
+    printf 'private verification path must stay bounded\n' >&2
     mkdir -p "$4/srv/home-lab-state"
     printf verified >"$4/srv/home-lab-state/fixture"
     ;;
@@ -76,6 +78,11 @@ import os
 from pathlib import Path
 source = Path(os.environ["RESTORE_SOURCE"]).read_text()
 source = source.replace("/srv/home-lab-recovery", os.environ["RECOVERY_ROOT"])
+for path_variable in ("recovery_parent", "RECOVERY_TARGET"):
+    source = source.replace(
+        f'$(stat -c %u "${path_variable}") == 0',
+        f'$(stat -c %u "${path_variable}") == {os.geteuid()}',
+    )
 target = Path(os.environ["RESTORE_TARGET"])
 target.write_text(source)
 target.chmod(0o755)
@@ -122,6 +129,7 @@ run_restore() {
 success="$recovery_root/restic-success"
 output=$(run_restore "$success")
 grep -q "^recovery_restore=verified backend=restic snapshot=$snapshot groups=" <<<"$output"
+[[ $output != *'private restore path'* && $output != *'private verification path'* ]]
 [[ $(cat "$success/srv/home-lab-state/fixture") == verified ]]
 [[ ! -e $success.proof-lock ]]
 

@@ -1,9 +1,0 @@
-[Unit]
-Description={{ debian.systemd.guard.description }}
-After={{ debian.systemd.guard.after | join(' ') }}
-Before={{ debian.systemd.guard.before | join(' ') }}
-
-[Service]
-Type={{ debian.systemd.service_type }}
-ExecStart={{ debian.systemd.assets.guard_helper.path }}
-RemainAfterExit={{ debian.systemd.remain_after_exit | ternary('yes', 'no') }}

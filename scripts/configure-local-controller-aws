@@ -6,7 +6,7 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 config_dir=${HOME_LAB_CONTROLLER_CONFIG_DIR:-$HOME/.config/home-lab/controller}
 [[ -d $config_dir && ! -L $config_dir ]]
-[[ $(stat -f '%Lp' "$config_dir" 2>/dev/null || stat -c '%a' "$config_dir") == 700 ]]
+[[ $(stat -c '%a' "$config_dir" 2>/dev/null || stat -f '%Lp' "$config_dir") == 700 ]]
 helper="$config_dir/bin/aws_signing_helper"
 [[ -x $helper ]]
 for file in roles-anywhere-plan.pem roles-anywhere-plan-key.pem roles-anywhere-apply.pem roles-anywhere-apply-key.pem; do

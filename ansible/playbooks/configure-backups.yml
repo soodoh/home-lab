@@ -1,23 +1,61 @@
 ---
 # Existing-host configuration only: no bootstrap, activation or backup execution.
-- name: Configure the adopted backup tools runtime files and systemd definitions
+- name: Configure adopted backup state under production ownership
   hosts: docker-host
   gather_facts: true
   gather_subset: ["!all", min]
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Observe coordination and backup writers before backup convergence
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+    - name: Acquire production ownership for backup convergence
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: backup-runtime-convergence
+
   tasks:
     - name: Converge pinned tools only when compatible with installed backup policy
       ansible.builtin.import_role:
         name: restic_backup
         tasks_from: tools-native
+
     - name: Preserve the existing confined backup account
       ansible.builtin.import_role:
         name: restic_backup
         tasks_from: identity-native
+
     - name: Adopt existing same-content Restic runtime files
       ansible.builtin.import_role:
         name: restic_backup
         tasks_from: runtime-native
+
     - name: Configure existing Restic units without changing active or enabled state
       ansible.builtin.import_role:
         name: restic_backup
         tasks_from: systemd
+
+  post_tasks:
+    - name: Release production ownership after backup convergence
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: backup-runtime-convergence
+
+- name: Verify adopted backup coordination after convergence
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  tasks:
+    - name: Observe final coordination and inactive backup writers
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe

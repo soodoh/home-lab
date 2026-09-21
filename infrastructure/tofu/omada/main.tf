@@ -22,12 +22,17 @@ check "export_identity" {
     condition = !var.omada_enable_management || (
       local.export.controller_version == var.omada_domain.controller_version &&
       local.export.site.id != "" &&
-      local.export.site.name != "" &&
+      local.export.site.name == var.omada_domain.site_name &&
       local.export.network.id != "" &&
-      local.export.network.name != "" &&
+      local.export.network.name == var.omada_domain.network_name &&
+      try(
+        timecmp(local.export.exported_at, timeadd(plantimestamp(), "-15m")) >= 0 &&
+        timecmp(local.export.exported_at, plantimestamp()) <= 0,
+        false,
+      ) &&
       length(local.export.reservations) > 0
     )
-    error_message = "The ignored Omada export is incomplete or does not match the contracted controller version."
+    error_message = "The ignored Omada export is stale, incomplete, or outside the contracted controller, site, and network domain."
   }
 }
 

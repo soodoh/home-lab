@@ -1,20 +1,14 @@
 ---
 - name: Clear one separately inspected failed production apply lock
-  hosts: docker_host
+  hosts: docker-host
   gather_facts: false
   any_errors_fatal: true
-  vars_files:
-    - "{{ playbook_dir }}/../../infrastructure/contract/home-lab.yml"
-    - "{{ playbook_dir }}/../group_vars/docker_host.yml"
   tasks:
     - name: Require exact failed-lock clearance inputs
       ansible.builtin.assert:
         that:
           - ansible_check_mode or (iac_lock_clear_confirmed | default(false) | ansible.builtin.bool)
           - iac_failed_lock_expected_operation | default('') is match('^[a-z0-9_-]+$')
-          - >-
-            iac_failed_lock_expected_operation not in
-            ['proton-qualification', 'restic-repository-initialization', 'restic-first-run', 'offen-retirement-local']
         fail_msg: >-
           Failed production lock clearance requires confirmation and the exact inspected non-transactional operation.
 
@@ -26,12 +20,12 @@
       become: true
       register: iac_failed_lock_paths
       loop:
-        - "{{ apply_lock_path }}"
-        - "{{ apply_lock_path }}/owner"
+        - "{{ compose_native_apply_lock_path }}"
+        - "{{ compose_native_apply_lock_path }}/owner"
 
     - name: Inspect failed production lock contents
       ansible.builtin.find:
-        paths: "{{ apply_lock_path }}"
+        paths: "{{ compose_native_apply_lock_path }}"
         hidden: true
         recurse: false
         file_type: any
@@ -41,7 +35,7 @@
 
     - name: Read the exact failed-lock owner record
       ansible.builtin.slurp:
-        src: "{{ apply_lock_path }}/owner"
+        src: "{{ compose_native_apply_lock_path }}/owner"
       become: true
       register: iac_failed_lock_owner
       no_log: true
@@ -72,7 +66,7 @@
     - name: Report the exact failed-lock clearance plan
       ansible.builtin.debug:
         msg:
-          lock_path: "{{ apply_lock_path }}"
+          lock_path: "{{ compose_native_apply_lock_path }}"
           controller: ansible-deploy
           operation: "{{ iac_failed_lock_expected_operation }}"
           entry_count: 1
@@ -86,7 +80,7 @@
           - --exclusive
           - --nonblock
           - --
-          - "{{ backups.restic.runner.lock_path }}"
+          - "{{ compose_native_backup_lock_path }}"
           - /usr/bin/bash
           - -c
           - >-
@@ -106,7 +100,7 @@
             /usr/bin/rm -- "$tombstone/owner";
             /usr/bin/rmdir -- "$tombstone"
           - clear-failed-apply-lock
-          - "{{ apply_lock_path }}"
+          - "{{ compose_native_apply_lock_path }}"
           - "{{ iac_failed_lock_expected_operation }}"
       become: true
       changed_when: true
