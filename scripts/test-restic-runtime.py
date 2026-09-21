@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import runpy
 import shutil
 import subprocess
 import tempfile
@@ -85,6 +86,19 @@ class ResticRuntimeTests(unittest.TestCase):
             "initialize-restic-repositories", "run-first-restic-backup", "qualify-proton-backup"
         ):
             self.assertFalse((ROOT / "scripts" / retired).exists())
+
+    def test_proton_replication_drains_compatible_stale_acceptance(self):
+        runner = runpy.run_path(str(ROOT / "scripts/restic-backup"))
+        select = runner["select_pending_replication"]
+        policy = "1" * 64
+        current_artifact = "2" * 64
+        current = {"policy": policy, "artifact": current_artifact, "source_snapshot": "3" * 64}
+        stale = {"policy": policy, "artifact": "4" * 64, "source_snapshot": "5" * 64}
+        incompatible = {"policy": "6" * 64, "artifact": "7" * 64, "source_snapshot": "8" * 64}
+
+        self.assertEqual(select([current, stale], policy, current_artifact, 7), [current])
+        self.assertEqual(select([stale], policy, current_artifact, 7), [stale])
+        self.assertEqual(select([incompatible], policy, current_artifact, 7), [])
 
     def test_runner_refuses_deployment_after_acquiring_backup_lock(self):
         with tempfile.TemporaryDirectory(prefix="restic-deploy-lock-test-") as directory:

@@ -83,7 +83,7 @@
   },
   "runner": {
     "path": "/usr/local/libexec/home-lab/restic-backup",
-    "sha256": "d96f6551dd6121ca384afab1c72a2044bb2ca928fd30cf8d0b2123b6c646d988",
+    "sha256": "dd34970a65285a8414b8ef39fd6c3d68e42edb83db905526d281c8ffb4e28ad5",
     "identity_local": "root",
     "identity_proton": "restic-proton",
     "policy_path": "/etc/home-lab/restic-policy.json",

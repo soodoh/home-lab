@@ -456,6 +456,14 @@ def pending_entry(policy: dict[str, Any], entry: object) -> dict[str, Any]:
     return entry
 
 
+def select_pending_replication(
+    pending: list[dict[str, Any]], policy_hash: str, current_artifact: str, limit: int,
+) -> list[dict[str, Any]]:
+    current = [item for item in pending if item["policy"] == policy_hash and item["artifact"] == current_artifact]
+    compatible = current or [item for item in pending if item["policy"] == policy_hash]
+    return compatible[:limit]
+
+
 def snapshot_copy_bound(policy: dict[str, Any], snapshot: str) -> int:
     result = restic_result(policy, "games", ["stats", "--mode", "raw-data", "--json", snapshot])
     require_success(result, "snapshot_transfer_bound")
@@ -603,11 +611,12 @@ def daily_proton(policy: dict[str, Any], policy_hash: str) -> None:
         raise WorkflowError("accepted_schema")
     pending = sorted((pending_entry(policy, item) for item in value["pending"]), key=lambda item: item["accepted_at"], reverse=True)
     current_artifact = artifact_hash(policy)
-    current = [item for item in pending if item["policy"] == policy_hash and item["artifact"] == current_artifact]
-    if pending and not current:
+    selected = select_pending_replication(
+        pending, policy_hash, current_artifact, policy["proton"]["backlog_limit"],
+    )
+    if pending and not selected:
         raise WorkflowError("pending_current_acceptance_missing")
     copied: dict[str, str] = {}
-    selected = current[: policy["proton"]["backlog_limit"]]
     for entry in selected:
         source = entry["source_snapshot"]
         quota(policy, snapshot_copy_bound(policy, source))
