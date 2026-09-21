@@ -78,7 +78,8 @@
       ansible.builtin.command:
         argv: >-
           {{ ['/usr/bin/git', '--no-optional-locks', 'archive', '--format=tar',
-              '--mtime=@0', '--output=' ~ compose_native_controller_archive.path,
+              '--mtime=2000-01-01T00:00:00Z',
+              '--output=' ~ compose_native_controller_archive.path,
               'HEAD^{tree}', '--'] + compose_native_source_paths }}
         chdir: "{{ compose_native_controller_root }}"
       delegate_to: localhost
