@@ -1,19 +1,30 @@
 locals {
   desired = jsondecode(file("${path.module}/desired.json"))
   client_secrets = var.authentik_enable_management ? jsondecode(file(var.authentik_client_secrets_path)) : {
-    schemaVersion  = 1
+    schemaVersion  = 2
     oauthProviders = {}
+    ldap           = {}
   }
 
   applications                  = var.authentik_enable_management ? local.desired.applications : {}
   application_policy_bindings   = var.authentik_enable_management ? local.desired.applicationPolicyBindings : {}
+  app_password_tokens           = var.authentik_enable_management ? local.desired.appPasswordTokens : {}
   authenticator_validate_stages = var.authentik_enable_management ? local.desired.authenticatorValidateStages : {}
+  certificates                  = var.authentik_enable_management ? local.desired.certificates : {}
   custom_blueprints             = var.authentik_enable_management ? local.desired.customBlueprints : {}
   custom_flows                  = var.authentik_enable_management ? local.desired.customFlows : {}
+  existing_custom_flows         = { for key, value in local.custom_flows : key => value if value.import_existing }
   flow_stage_bindings           = var.authentik_enable_management ? local.desired.flowStageBindings : {}
+  existing_flow_stage_bindings  = { for key, value in local.flow_stage_bindings : key => value if value.import_existing }
+  ldap_providers                = var.authentik_enable_management ? local.desired.ldapProviders : {}
+  ldap_search_permissions       = var.authentik_enable_management ? local.desired.ldapSearchPermissions : {}
   oauth_providers               = var.authentik_enable_management ? local.desired.oauthProviders : {}
+  outposts                      = var.authentik_enable_management ? local.desired.outposts : {}
   proxy_providers               = var.authentik_enable_management ? local.desired.proxyProviders : {}
+  rbac_roles                    = var.authentik_enable_management ? local.desired.rbacRoles : {}
   scope_mappings                = var.authentik_enable_management ? local.desired.scopeMappings : {}
+  service_accounts              = var.authentik_enable_management ? local.desired.serviceAccounts : {}
+  service_application_bindings  = var.authentik_enable_management ? local.desired.serviceApplicationBindings : {}
 }
 
 provider "authentik" {
@@ -25,17 +36,26 @@ provider "authentik" {
 check "desired_inventory" {
   assert {
     condition = (
-      local.desired.schemaVersion == 2 &&
+      local.desired.schemaVersion == 3 &&
       length(local.desired.applications) == 23 &&
       length(local.desired.proxyProviders) == 18 &&
       (!var.authentik_enable_management || (
         local.desired.sourceInventory.complete &&
         length(local.desired.oauthProviders) == 5 &&
+        length(local.desired.retainedOAuthProviders) == 1 &&
         length(local.desired.applicationPolicyBindings) == 28 &&
+        length(local.desired.appPasswordTokens) == 1 &&
         length(local.desired.authenticatorValidateStages) == 1 &&
-        length(local.desired.customFlows) == 1 &&
-        length(local.desired.flowStageBindings) == 2 &&
-        length(local.desired.scopeMappings) == 1
+        length(local.desired.certificates) == 1 &&
+        length(local.desired.customFlows) == 2 &&
+        length(local.desired.flowStageBindings) == 5 &&
+        length(local.desired.ldapProviders) == 1 &&
+        length(local.desired.ldapSearchPermissions) == 1 &&
+        length(local.desired.outposts) == 1 &&
+        length(local.desired.rbacRoles) == 1 &&
+        length(local.desired.scopeMappings) == 1 &&
+        length(local.desired.serviceAccounts) == 1 &&
+        length(local.desired.serviceApplicationBindings) == 1
       ))
     )
     error_message = "The enabled Authentik inventory must contain every reviewed application, provider, access binding, and custom flow object."
@@ -48,29 +68,48 @@ check "provider_ownership" {
       for application in values(local.applications) :
       application.provider_type == "proxy" ?
       contains(keys(local.proxy_providers), tostring(application.provider_id)) :
-      contains(keys(local.oauth_providers), tostring(application.provider_id))
+      application.provider_type == "oauth2" ?
+      contains(keys(local.oauth_providers), tostring(application.provider_id)) :
+      application.provider_type == "ldap" &&
+      contains(keys(local.ldap_providers), tostring(application.provider_id))
     ])
-    error_message = "Every managed application must reference a managed proxy or OAuth2 provider."
+    error_message = "Every managed application must reference a managed proxy, OAuth2, or LDAP provider."
   }
 }
 
 check "oauth_client_secrets" {
   assert {
     condition = !var.authentik_enable_management || (
-      local.client_secrets.schemaVersion == 1 &&
+      local.client_secrets.schemaVersion == 2 &&
       toset(keys(local.client_secrets.oauthProviders)) == toset(keys(local.oauth_providers)) &&
       alltrue([
         for provider in values(local.client_secrets.oauthProviders) :
         trimspace(provider.client_secret) != "" && provider.client_secret != "REPLACE-DURING-BOOTSTRAP"
-      ])
+      ]) &&
+      trimspace(local.client_secrets.ldap.certificate_private_key) != ""
     )
     error_message = "The decrypted SOPS input must contain one non-placeholder client_secret for every OAuth2 provider."
   }
 }
 
+data "authentik_stage" "default_authentication_identification" {
+  count = var.authentik_enable_management ? 1 : 0
+  name  = "default-authentication-identification"
+}
+
 data "authentik_stage" "default_authentication_login" {
   count = var.authentik_enable_management ? 1 : 0
   name  = "default-authentication-login"
+}
+
+data "authentik_stage" "default_authentication_password" {
+  count = var.authentik_enable_management ? 1 : 0
+  name  = "default-authentication-password"
+}
+
+data "authentik_flow" "default_provider_invalidation" {
+  count = var.authentik_enable_management ? 1 : 0
+  slug  = "default-provider-invalidation-flow"
 }
 
 data "authentik_stage" "default_authenticator_webauthn_setup" {
@@ -154,6 +193,38 @@ resource "authentik_provider_oauth2" "providers" {
   }
 }
 
+resource "authentik_certificate_key_pair" "certificates" {
+  for_each = local.certificates
+
+  name             = each.value.name
+  certificate_data = file("${path.module}/${each.value.certificate_file}")
+  key_data         = local.client_secrets.ldap.certificate_private_key
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "authentik_provider_ldap" "providers" {
+  for_each = local.ldap_providers
+
+  name             = each.value.name
+  base_dn          = each.value.base_dn
+  bind_flow        = authentik_flow.custom[each.value.bind_flow_ref].uuid
+  unbind_flow      = data.authentik_flow.default_provider_invalidation[0].id
+  bind_mode        = each.value.bind_mode
+  search_mode      = each.value.search_mode
+  certificate      = authentik_certificate_key_pair.certificates[each.value.certificate_ref].id
+  tls_server_name  = each.value.tls_server_name
+  mfa_support      = each.value.mfa_support
+  uid_start_number = each.value.uid_start_number
+  gid_start_number = each.value.gid_start_number
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 resource "authentik_application" "applications" {
   for_each = local.applications
 
@@ -163,7 +234,9 @@ resource "authentik_application" "applications" {
   protocol_provider = (
     each.value.provider_type == "proxy" ?
     authentik_provider_proxy.providers[tostring(each.value.provider_id)].id :
-    authentik_provider_oauth2.providers[tostring(each.value.provider_id)].id
+    each.value.provider_type == "oauth2" ?
+    authentik_provider_oauth2.providers[tostring(each.value.provider_id)].id :
+    authentik_provider_ldap.providers[tostring(each.value.provider_id)].id
   )
   backchannel_providers = each.value.backchannel_provider_ids
   meta_launch_url       = each.value.meta_launch_url
@@ -191,6 +264,88 @@ resource "authentik_policy_binding" "application_access" {
   negate         = each.value.negate
   failure_result = each.value.failure_result
   timeout        = each.value.timeout
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "authentik_rbac_role" "roles" {
+  for_each = local.rbac_roles
+
+  name = each.value.name
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "authentik_user" "service_accounts" {
+  for_each = local.service_accounts
+
+  username  = each.value.username
+  name      = each.value.name
+  path      = each.value.path
+  type      = each.value.type
+  is_active = each.value.is_active
+  roles     = [for role_ref in each.value.role_refs : authentik_rbac_role.roles[role_ref].id]
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "authentik_token" "app_passwords" {
+  for_each = local.app_password_tokens
+
+  identifier   = each.value.identifier
+  description  = each.value.description
+  intent       = "app_password"
+  user         = authentik_user.service_accounts[each.value.user_ref].id
+  expiring     = each.value.expiring
+  retrieve_key = true
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "authentik_rbac_permission_role" "ldap_directory_search" {
+  for_each = local.ldap_search_permissions
+
+  role       = authentik_rbac_role.roles[each.value.role_ref].id
+  model      = "authentik_providers_ldap.ldapprovider"
+  permission = each.value.permission
+  object_id  = authentik_provider_ldap.providers[each.value.provider_ref].id
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "authentik_policy_binding" "service_application_access" {
+  for_each = local.service_application_bindings
+
+  target         = authentik_application.applications[each.value.application_slug].uuid
+  user           = authentik_user.service_accounts[each.value.user_ref].id
+  order          = each.value.order
+  enabled        = each.value.enabled
+  negate         = each.value.negate
+  failure_result = each.value.failure_result
+  timeout        = each.value.timeout
+
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
+resource "authentik_outpost" "outposts" {
+  for_each = local.outposts
+
+  name               = each.value.name
+  type               = each.value.type
+  protocol_providers = [for provider_ref in each.value.provider_refs : authentik_provider_ldap.providers[provider_ref].id]
+  config             = jsonencode(each.value.config)
 
   lifecycle {
     prevent_destroy = true
@@ -240,12 +395,13 @@ resource "authentik_stage_authenticator_validate" "custom" {
 resource "authentik_flow_stage_binding" "custom" {
   for_each = local.flow_stage_bindings
 
-  target = authentik_flow.custom["passwordless-authentication"].uuid
-  stage = (
-    each.value.stage_ref == "passwordless-webauthn" ?
-    authentik_stage_authenticator_validate.custom["passwordless-webauthn"].id :
-    data.authentik_stage.default_authentication_login[0].id
-  )
+  target = authentik_flow.custom[each.value.flow_ref].uuid
+  stage = {
+    "passwordless-webauthn"                 = authentik_stage_authenticator_validate.custom["passwordless-webauthn"].id
+    "default-authentication-identification" = data.authentik_stage.default_authentication_identification[0].id
+    "default-authentication-password"       = data.authentik_stage.default_authentication_password[0].id
+    "default-authentication-login"          = data.authentik_stage.default_authentication_login[0].id
+  }[each.value.stage_ref]
   order                   = each.value.order
   evaluate_on_plan        = each.value.evaluate_on_plan
   invalid_response_action = each.value.invalid_response_action
@@ -303,7 +459,7 @@ import {
 }
 
 import {
-  for_each = local.custom_flows
+  for_each = local.existing_custom_flows
   to       = authentik_flow.custom[each.key]
   id       = each.value.slug
 }
@@ -315,9 +471,20 @@ import {
 }
 
 import {
-  for_each = local.flow_stage_bindings
+  for_each = local.existing_flow_stage_bindings
   to       = authentik_flow_stage_binding.custom[each.key]
   id       = each.value.pk
+}
+
+output "jellyfin_ldap_bind_password" {
+  description = "Generated Authentik app password used only by Jellyfin for LDAP directory searches."
+  value       = authentik_token.app_passwords["jellyfin-ldap-bind"].key
+  sensitive   = true
+}
+
+output "jellyfin_ldap_outpost_id" {
+  description = "Authentik LDAP outpost identifier used to retrieve its deployment token without exposing it in plans."
+  value       = authentik_outpost.outposts["jellyfin-ldap"].id
 }
 
 import {

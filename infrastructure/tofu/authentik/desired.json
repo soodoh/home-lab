@@ -1,5 +1,13 @@
 {
   "$schema": "./desired.schema.json",
+  "appPasswordTokens": {
+    "jellyfin-ldap-bind": {
+      "description": "Jellyfin LDAP search bind credential",
+      "expiring": false,
+      "identifier": "jellyfin-ldap-bind",
+      "user_ref": "jellyfin-ldap-bind"
+    }
+  },
   "applicationPolicyBindings": {
     "01d9c9fd-76de-4dc9-a0bf-01601f45fd40": {
       "application_slug": "prowlarr",
@@ -441,13 +449,13 @@
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/Jellyfin_icon.png",
-      "meta_launch_url": "https://watch.diloreto.com/sso/OID/start/authentik",
+      "meta_launch_url": "https://watch.diloreto.com",
       "meta_publisher": "",
       "name": "Jellyfin",
       "open_in_new_tab": false,
       "policy_engine_mode": "any",
-      "provider_id": 15,
-      "provider_type": "oauth2",
+      "provider_id": "jellyfin",
+      "provider_type": "ldap",
       "slug": "jellyfin",
       "uuid": "46a236d6-4f6e-4b22-b4b3-49759a9bc22e"
     },
@@ -730,14 +738,34 @@
       "webauthn_user_verification": "required"
     }
   },
+  "certificates": {
+    "jellyfin-ldap": {
+      "certificate_file": "jellyfin-ldap.pem",
+      "name": "Jellyfin LDAP TLS"
+    }
+  },
   "customBlueprints": {},
   "customFlows": {
+    "jellyfin-ldap-authentication": {
+      "authentication": "require_unauthenticated",
+      "background": "",
+      "compatibility_mode": false,
+      "denied_action": "message_continue",
+      "designation": "authentication",
+      "import_existing": false,
+      "layout": "stacked",
+      "name": "Jellyfin LDAP Authentication",
+      "policy_engine_mode": "any",
+      "slug": "jellyfin-ldap-authentication",
+      "title": "Jellyfin LDAP Authentication"
+    },
     "passwordless-authentication": {
       "authentication": "none",
       "background": "",
       "compatibility_mode": false,
       "denied_action": "message_continue",
       "designation": "authentication",
+      "import_existing": true,
       "layout": "stacked",
       "name": "Passwordless Authentication Flow",
       "pk": "01a885c9-228e-4339-b9a5-ad94e256f9b5",
@@ -749,6 +777,8 @@
   "flowStageBindings": {
     "203f448a-ec0f-4484-846c-36aad7d25c61": {
       "evaluate_on_plan": false,
+      "flow_ref": "passwordless-authentication",
+      "import_existing": true,
       "invalid_response_action": "retry",
       "order": 30,
       "pk": "203f448a-ec0f-4484-846c-36aad7d25c61",
@@ -758,12 +788,66 @@
     },
     "c21afdfb-25f8-4220-8eb2-da647bc0919f": {
       "evaluate_on_plan": false,
+      "flow_ref": "passwordless-authentication",
+      "import_existing": true,
       "invalid_response_action": "retry",
       "order": 20,
       "pk": "c21afdfb-25f8-4220-8eb2-da647bc0919f",
       "policy_engine_mode": "any",
       "re_evaluate_policies": true,
       "stage_ref": "passwordless-webauthn"
+    },
+    "jellyfin-ldap-identification": {
+      "evaluate_on_plan": false,
+      "flow_ref": "jellyfin-ldap-authentication",
+      "import_existing": false,
+      "invalid_response_action": "retry",
+      "order": 10,
+      "policy_engine_mode": "any",
+      "re_evaluate_policies": true,
+      "stage_ref": "default-authentication-identification"
+    },
+    "jellyfin-ldap-login": {
+      "evaluate_on_plan": false,
+      "flow_ref": "jellyfin-ldap-authentication",
+      "import_existing": false,
+      "invalid_response_action": "retry",
+      "order": 100,
+      "policy_engine_mode": "any",
+      "re_evaluate_policies": true,
+      "stage_ref": "default-authentication-login"
+    },
+    "jellyfin-ldap-password": {
+      "evaluate_on_plan": false,
+      "flow_ref": "jellyfin-ldap-authentication",
+      "import_existing": false,
+      "invalid_response_action": "retry",
+      "order": 20,
+      "policy_engine_mode": "any",
+      "re_evaluate_policies": true,
+      "stage_ref": "default-authentication-password"
+    }
+  },
+  "ldapProviders": {
+    "jellyfin": {
+      "base_dn": "dc=jellyfin,dc=ldap,dc=diloreto,dc=com",
+      "bind_flow_ref": "jellyfin-ldap-authentication",
+      "bind_mode": "direct",
+      "certificate_ref": "jellyfin-ldap",
+      "gid_start_number": 4000,
+      "mfa_support": false,
+      "name": "Jellyfin LDAP",
+      "search_mode": "direct",
+      "tls_server_name": "authentik-ldap",
+      "uid_start_number": 2000,
+      "unbind_flow_slug": "default-provider-invalidation-flow"
+    }
+  },
+  "ldapSearchPermissions": {
+    "jellyfin": {
+      "permission": "search_full_directory",
+      "provider_ref": "jellyfin",
+      "role_ref": "jellyfin-ldap-directory-search"
     }
   },
   "oauthProviders": {
@@ -987,6 +1071,16 @@
       "refresh_token_validity": "days=30",
       "signing_key": "d5259cb9-db22-467a-9d72-6911b16a459f",
       "sub_mode": "hashed_user_id"
+    }
+  },
+  "outposts": {
+    "jellyfin-ldap": {
+      "config": {},
+      "name": "Jellyfin LDAP Outpost",
+      "provider_refs": [
+        "jellyfin"
+      ],
+      "type": "ldap"
     }
   },
   "proxyProviders": {
@@ -1495,7 +1589,15 @@
       "skip_path_regex": ""
     }
   },
-  "schemaVersion": 2,
+  "rbacRoles": {
+    "jellyfin-ldap-directory-search": {
+      "name": "Jellyfin LDAP directory search"
+    }
+  },
+  "retainedOAuthProviders": [
+    "15"
+  ],
+  "schemaVersion": 3,
   "scopeMappings": {
     "vaultwarden-email": {
       "description": "",
@@ -1505,12 +1607,35 @@
       "scope_name": "email"
     }
   },
+  "serviceAccounts": {
+    "jellyfin-ldap-bind": {
+      "is_active": true,
+      "name": "Jellyfin LDAP bind",
+      "path": "goauthentik.io/service-accounts",
+      "role_refs": [
+        "jellyfin-ldap-directory-search"
+      ],
+      "type": "service_account",
+      "username": "jellyfin-ldap-bind"
+    }
+  },
+  "serviceApplicationBindings": {
+    "jellyfin-ldap-bind": {
+      "application_slug": "jellyfin",
+      "enabled": true,
+      "failure_result": false,
+      "negate": false,
+      "order": 10,
+      "timeout": 30,
+      "user_ref": "jellyfin-ldap-bind"
+    }
+  },
   "sourceInventory": {
     "applicationPolicyBindingsSha256": "5da858e95d6f54858a2bd411a83f7c25b5f7fbdcb275d48e2afcebf73d7f2ef6",
-    "applicationsSha256": "29e4984d8c7744d1fce1b350e86bf21ce94d382b58183fd4d0a689c614a90e1e",
+    "applicationsSha256": "f6c6a575ccdb8107305f2724d2e406478029731ec8f27b60ff2009b5830dc017",
     "capturedAt": "2026-08-27T18:16:12Z",
     "complete": true,
-    "customConfigurationSha256": "325690bd24ce0e639574150549497e10e117aa6f1a70e5bf4603422aa7c02fe1",
+    "customConfigurationSha256": "db14ff46815791d05a17017cb22fffcb4e40d14f153181bcf6f166d5373cc1a4",
     "oauthProvidersSha256": "8d526eac6322b6ff9f0e28cc55ecb43615cad999cf1bdace0e1399e25c5c3c90",
     "proxyProvidersSha256": "5756b4fb1b1a2aadac1b02f9b3095c8b7013a28c04f7eeba9ecb8fe5a3e300e8"
   }

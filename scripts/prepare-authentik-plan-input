@@ -33,12 +33,14 @@ trap 'rm -f "$client_secrets"' EXIT
 SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE sops --decrypt --output-type json \
   infrastructure/tofu/authentik/client-secrets.sops.json >"$client_secrets"
 jq -e '
-  .schemaVersion == 1 and
+  .schemaVersion == 2 and
   (.oauthProviders | type == "object" and (keys | sort) == ["15", "21", "37", "47", "49"]) and
   all(.oauthProviders[];
     type == "object" and
     (keys == ["client_secret"]) and
-    (.client_secret | type == "string" and length > 0 and . != "REPLACE-DURING-BOOTSTRAP"))
+    (.client_secret | type == "string" and length > 0 and . != "REPLACE-DURING-BOOTSTRAP")) and
+  (.ldap | type == "object" and (keys == ["certificate_private_key"]) and
+    (.certificate_private_key | type == "string" and startswith("-----BEGIN PRIVATE KEY-----")))
 ' "$client_secrets" >/dev/null
 chmod 0600 "$client_secrets"
 mv -f "$client_secrets" .local/authentik/client-secrets.json

@@ -15,16 +15,24 @@ OAUTH_PROVIDER_IDS = {"15", "21", "37", "47", "49"}
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_live_inventory_is_complete(self) -> None:
-        self.assertEqual(DESIRED["schemaVersion"], 2)
+        self.assertEqual(DESIRED["schemaVersion"], 3)
         self.assertTrue(DESIRED["sourceInventory"]["complete"])
         self.assertEqual(len(DESIRED["applications"]), 23)
         self.assertEqual(len(DESIRED["proxyProviders"]), 18)
         self.assertEqual(set(DESIRED["oauthProviders"]), OAUTH_PROVIDER_IDS)
+        self.assertEqual(DESIRED["retainedOAuthProviders"], ["15"])
         self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 28)
         self.assertEqual(set(DESIRED["authenticatorValidateStages"]), {"passwordless-webauthn"})
-        self.assertEqual(set(DESIRED["customFlows"]), {"passwordless-authentication"})
-        self.assertEqual(len(DESIRED["flowStageBindings"]), 2)
+        self.assertEqual(
+            set(DESIRED["customFlows"]),
+            {"passwordless-authentication", "jellyfin-ldap-authentication"},
+        )
+        self.assertEqual(len(DESIRED["flowStageBindings"]), 5)
         self.assertEqual(set(DESIRED["scopeMappings"]), {"vaultwarden-email"})
+        self.assertEqual(set(DESIRED["certificates"]), {"jellyfin-ldap"})
+        self.assertEqual(set(DESIRED["ldapProviders"]), {"jellyfin"})
+        self.assertEqual(set(DESIRED["outposts"]), {"jellyfin-ldap"})
+        self.assertEqual(set(DESIRED["serviceAccounts"]), {"jellyfin-ldap-bind"})
         self.assertEqual(DESIRED["customBlueprints"], {})
 
         referenced_proxy_ids = {
@@ -37,8 +45,18 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             for application in DESIRED["applications"].values()
             if application["provider_type"] == "oauth2"
         }
+        referenced_ldap_ids = {
+            str(application["provider_id"])
+            for application in DESIRED["applications"].values()
+            if application["provider_type"] == "ldap"
+        }
         self.assertEqual(referenced_proxy_ids, set(DESIRED["proxyProviders"]))
-        self.assertEqual(referenced_oauth_ids, OAUTH_PROVIDER_IDS)
+        self.assertEqual(
+            referenced_oauth_ids | set(DESIRED["retainedOAuthProviders"]),
+            OAUTH_PROVIDER_IDS,
+        )
+        self.assertEqual(referenced_ldap_ids, set(DESIRED["ldapProviders"]))
+        self.assertEqual(DESIRED["applications"]["jellyfin"]["provider_id"], "jellyfin")
         self.assertEqual(
             {binding["application_slug"] for binding in DESIRED["applicationPolicyBindings"].values()},
             set(DESIRED["applications"]),
@@ -108,16 +126,23 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
 
         walk(DESIRED)
 
-    def test_oauth_secrets_are_sops_ciphertext(self) -> None:
+    def test_authentik_secrets_are_sops_ciphertext(self) -> None:
         encrypted_text = (ROOT / "client-secrets.sops.json").read_text()
         encrypted = json.loads(encrypted_text)
         self.assertEqual(set(encrypted["oauthProviders"]), OAUTH_PROVIDER_IDS)
         self.assertNotIn("REPLACE-DURING-BOOTSTRAP", encrypted_text)
+        self.assertNotIn("-----BEGIN PRIVATE KEY-----", encrypted_text)
         for provider in encrypted["oauthProviders"].values():
             self.assertEqual(set(provider), {"client_secret"})
             self.assertRegex(provider["client_secret"], r"^ENC\[AES256_GCM,")
+        self.assertEqual(set(encrypted["ldap"]), {"certificate_private_key"})
+        self.assertRegex(encrypted["ldap"]["certificate_private_key"], r"^ENC\[AES256_GCM,")
         self.assertIn("sops", encrypted)
         self.assertEqual(len(encrypted["sops"]["age"]), 2)
+
+        certificate = (ROOT / "jellyfin-ldap.pem").read_text()
+        self.assertIn("-----BEGIN CERTIFICATE-----", certificate)
+        self.assertNotIn("PRIVATE KEY", certificate)
 
     def test_root_is_import_first_and_secret_aware(self) -> None:
         versions = (ROOT / "versions.tf").read_text()
@@ -130,23 +155,34 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         for resource in (
             "authentik_application",
             "authentik_blueprint",
+            "authentik_certificate_key_pair",
             "authentik_flow",
             "authentik_flow_stage_binding",
+            "authentik_outpost",
             "authentik_policy_binding",
             "authentik_property_mapping_provider_scope",
+            "authentik_provider_ldap",
             "authentik_provider_oauth2",
             "authentik_provider_proxy",
+            "authentik_rbac_permission_role",
+            "authentik_rbac_role",
             "authentik_stage_authenticator_validate",
+            "authentik_token",
+            "authentik_user",
         ):
             self.assertIn(f'resource "{resource}"', main)
-        self.assertEqual(main.count("prevent_destroy = true"), 9)
+        self.assertEqual(main.count("prevent_destroy = true"), 17)
         self.assertEqual(main.count("import {"), 9)
-        self.assertIn("to       = authentik_flow.custom[each.key]\n  id       = each.value.slug", main)
+        self.assertIn("for_each = local.existing_custom_flows", main)
+        self.assertIn("for_each = local.existing_flow_stage_bindings", main)
         self.assertIn("length(local.desired.applicationPolicyBindings) == 28", main)
         self.assertIn("data.authentik_stage.default_authentication_login", main)
         self.assertIn("data.authentik_stage.default_authenticator_webauthn_setup", main)
         self.assertIn("local.client_secrets.oauthProviders[each.key].client_secret", main)
         self.assertIn("authentik_property_mapping_provider_scope.scope_mappings", main)
+        self.assertIn("local.client_secrets.ldap.certificate_private_key", main)
+        self.assertIn('permission = each.value.permission', main)
+        self.assertIn('intent       = "app_password"', main)
         proxy_block = main[main.index('resource "authentik_provider_proxy"'):main.index('resource "authentik_provider_oauth2"')]
         self.assertNotIn("property_mappings", proxy_block)
         self.assertIn("url      = var.authentik_url", main)
@@ -158,17 +194,25 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         allow = set((REPO / "infrastructure" / "policy" / "allow" / "authentik.txt").read_text().splitlines())
         expected = {
             *(f'authentik_application.applications["{key}"]' for key in DESIRED["applications"]),
+            *(f'authentik_certificate_key_pair.certificates["{key}"]' for key in DESIRED["certificates"]),
+            *(f'authentik_outpost.outposts["{key}"]' for key in DESIRED["outposts"]),
             *(f'authentik_policy_binding.application_access["{key}"]' for key in DESIRED["applicationPolicyBindings"]),
+            *(f'authentik_policy_binding.service_application_access["{key}"]' for key in DESIRED["serviceApplicationBindings"]),
             *(f'authentik_stage_authenticator_validate.custom["{key}"]' for key in DESIRED["authenticatorValidateStages"]),
             *(f'authentik_blueprint.custom["{key}"]' for key in DESIRED["customBlueprints"]),
             *(f'authentik_flow.custom["{key}"]' for key in DESIRED["customFlows"]),
             *(f'authentik_flow_stage_binding.custom["{key}"]' for key in DESIRED["flowStageBindings"]),
+            *(f'authentik_provider_ldap.providers["{key}"]' for key in DESIRED["ldapProviders"]),
             *(f'authentik_provider_oauth2.providers["{key}"]' for key in DESIRED["oauthProviders"]),
             *(f'authentik_provider_proxy.providers["{key}"]' for key in DESIRED["proxyProviders"]),
             *(f'authentik_property_mapping_provider_scope.scope_mappings["{key}"]' for key in DESIRED["scopeMappings"]),
+            *(f'authentik_rbac_permission_role.ldap_directory_search["{key}"]' for key in DESIRED["ldapSearchPermissions"]),
+            *(f'authentik_rbac_role.roles["{key}"]' for key in DESIRED["rbacRoles"]),
+            *(f'authentik_token.app_passwords["{key}"]' for key in DESIRED["appPasswordTokens"]),
+            *(f'authentik_user.service_accounts["{key}"]' for key in DESIRED["serviceAccounts"]),
         }
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 79)
+        self.assertEqual(len(allow), 91)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()

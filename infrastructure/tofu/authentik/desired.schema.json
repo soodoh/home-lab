@@ -16,14 +16,23 @@
     "flowStageBindings",
     "oauthProviders",
     "proxyProviders",
-    "scopeMappings"
+    "scopeMappings",
+    "certificates",
+    "ldapProviders",
+    "rbacRoles",
+    "serviceAccounts",
+    "appPasswordTokens",
+    "ldapSearchPermissions",
+    "serviceApplicationBindings",
+    "outposts",
+    "retainedOAuthProviders"
   ],
   "properties": {
     "$schema": {
       "const": "./desired.schema.json"
     },
     "schemaVersion": {
-      "const": 2
+      "const": 3
     },
     "sourceInventory": {
       "type": "object",
@@ -64,16 +73,16 @@
     },
     "applications": {
       "type": "object",
-      "minProperties": 25,
-      "maxProperties": 25,
+      "minProperties": 23,
+      "maxProperties": 23,
       "additionalProperties": {
         "$ref": "#/$defs/application"
       }
     },
     "proxyProviders": {
       "type": "object",
-      "minProperties": 19,
-      "maxProperties": 19,
+      "minProperties": 18,
+      "maxProperties": 18,
       "propertyNames": {
         "pattern": "^[1-9][0-9]*$"
       },
@@ -83,13 +92,14 @@
     },
     "oauthProviders": {
       "type": "object",
-      "maxProperties": 6,
+      "maxProperties": 5,
       "propertyNames": {
         "pattern": "^[1-9][0-9]*$"
       },
       "additionalProperties": {
         "$ref": "#/$defs/oauthProvider"
-      }
+      },
+      "minProperties": 5
     },
     "customBlueprints": {
       "type": "object",
@@ -103,8 +113,8 @@
     },
     "applicationPolicyBindings": {
       "type": "object",
-      "minProperties": 30,
-      "maxProperties": 30,
+      "minProperties": 28,
+      "maxProperties": 28,
       "propertyNames": {
         "$ref": "#/$defs/uuid"
       },
@@ -125,21 +135,18 @@
     },
     "customFlows": {
       "type": "object",
-      "minProperties": 1,
-      "maxProperties": 1,
-      "propertyNames": {
-        "const": "passwordless-authentication"
-      },
+      "minProperties": 2,
+      "maxProperties": 2,
       "additionalProperties": {
         "$ref": "#/$defs/customFlow"
       }
     },
     "flowStageBindings": {
       "type": "object",
-      "minProperties": 2,
-      "maxProperties": 2,
+      "minProperties": 5,
+      "maxProperties": 5,
       "propertyNames": {
-        "$ref": "#/$defs/uuid"
+        "pattern": "^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9]+(?:-[a-z0-9]+)*)$"
       },
       "additionalProperties": {
         "$ref": "#/$defs/flowStageBinding"
@@ -154,6 +161,78 @@
       },
       "additionalProperties": {
         "$ref": "#/$defs/scopeMapping"
+      }
+    },
+    "certificates": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/certificate"
+      }
+    },
+    "ldapProviders": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/ldapProvider"
+      }
+    },
+    "rbacRoles": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/rbacRole"
+      }
+    },
+    "serviceAccounts": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/serviceAccount"
+      }
+    },
+    "appPasswordTokens": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/appPasswordToken"
+      }
+    },
+    "ldapSearchPermissions": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/ldapSearchPermission"
+      }
+    },
+    "serviceApplicationBindings": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/serviceApplicationBinding"
+      }
+    },
+    "outposts": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/outpost"
+      }
+    },
+    "retainedOAuthProviders": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[1-9][0-9]*$"
       }
     }
   },
@@ -216,11 +295,20 @@
           "type": "string"
         },
         "provider_id": {
-          "type": "integer",
-          "minimum": 1
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "string",
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+            }
+          ]
         },
         "provider_type": {
           "enum": [
+            "ldap",
             "oauth2",
             "proxy"
           ]
@@ -724,7 +812,6 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "pk",
         "name",
         "title",
         "slug",
@@ -734,7 +821,8 @@
         "compatibility_mode",
         "denied_action",
         "layout",
-        "policy_engine_mode"
+        "policy_engine_mode",
+        "import_existing"
       ],
       "properties": {
         "pk": {
@@ -749,7 +837,8 @@
           "minLength": 1
         },
         "slug": {
-          "const": "passwordless-authentication-flow"
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
         },
         "designation": {
           "enum": [
@@ -785,6 +874,9 @@
             "all",
             "any"
           ]
+        },
+        "import_existing": {
+          "type": "boolean"
         }
       }
     },
@@ -792,13 +884,14 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "pk",
         "stage_ref",
         "order",
         "evaluate_on_plan",
         "invalid_response_action",
         "policy_engine_mode",
-        "re_evaluate_policies"
+        "re_evaluate_policies",
+        "flow_ref",
+        "import_existing"
       ],
       "properties": {
         "pk": {
@@ -807,6 +900,8 @@
         "stage_ref": {
           "enum": [
             "passwordless-webauthn",
+            "default-authentication-identification",
+            "default-authentication-password",
             "default-authentication-login"
           ]
         },
@@ -831,6 +926,13 @@
           ]
         },
         "re_evaluate_policies": {
+          "type": "boolean"
+        },
+        "flow_ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "import_existing": {
           "type": "boolean"
         }
       }
@@ -861,6 +963,257 @@
         "expression": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "certificate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "certificate_file"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "certificate_file": {
+          "type": "string",
+          "pattern": "^[a-z0-9-]+[.]pem$"
+        }
+      }
+    },
+    "ldapProvider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "base_dn",
+        "bind_flow_ref",
+        "unbind_flow_slug",
+        "bind_mode",
+        "search_mode",
+        "certificate_ref",
+        "tls_server_name",
+        "mfa_support",
+        "uid_start_number",
+        "gid_start_number"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "base_dn": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bind_flow_ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "unbind_flow_slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "bind_mode": {
+          "const": "direct"
+        },
+        "search_mode": {
+          "const": "direct"
+        },
+        "certificate_ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "tls_server_name": {
+          "const": "authentik-ldap"
+        },
+        "mfa_support": {
+          "type": "boolean"
+        },
+        "uid_start_number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "gid_start_number": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "rbacRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "username",
+        "name",
+        "path",
+        "type",
+        "is_active",
+        "role_refs"
+      ],
+      "properties": {
+        "username": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "const": "service_account"
+        },
+        "is_active": {
+          "const": true
+        },
+        "role_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          }
+        }
+      }
+    },
+    "appPasswordToken": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "identifier",
+        "description",
+        "expiring",
+        "user_ref"
+      ],
+      "properties": {
+        "identifier": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expiring": {
+          "const": false
+        },
+        "user_ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        }
+      }
+    },
+    "ldapSearchPermission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider_ref",
+        "role_ref",
+        "permission"
+      ],
+      "properties": {
+        "provider_ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "role_ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "permission": {
+          "const": "search_full_directory"
+        }
+      }
+    },
+    "serviceApplicationBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application_slug",
+        "user_ref",
+        "order",
+        "enabled",
+        "negate",
+        "failure_result",
+        "timeout"
+      ],
+      "properties": {
+        "application_slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "user_ref": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "negate": {
+          "type": "boolean"
+        },
+        "failure_result": {
+          "type": "boolean"
+        },
+        "timeout": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "outpost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "type",
+        "provider_refs",
+        "config"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "const": "ldap"
+        },
+        "provider_refs": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          }
+        },
+        "config": {
+          "type": "object"
         }
       }
     }
