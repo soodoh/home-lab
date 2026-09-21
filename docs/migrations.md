@@ -73,6 +73,11 @@ reviewed policy, runner and tool pins while the production lock excludes backup
 writers. Use `site.yml` or `configure-backups.yml`; do not copy runtime files
 independently.
 
+The simplified workflow was qualified live with idempotent convergence, a fresh
+local → NFS → Proton chain bound to the current policy and Compose artifact, and a
+verified private `identity` restore. The restore workspace and obsolete accepted and
+maintenance replication state were removed after verification.
+
 ## Recovery activation
 
 Desired state: a complete production restore has a reviewed activation and rollback
