@@ -104,7 +104,7 @@
       loop:
         - {path: "{{ compose_native_deployment_root }}", mode: "0755"}
         - {path: /etc/docker-compose, mode: "0700"}
-        - {path: /var/lib/docker-compose, mode: "0700"}
+        - {path: /var/lib/docker-compose, mode: "0711"}
 
     - name: Transfer the committed source archive
       ansible.builtin.copy:

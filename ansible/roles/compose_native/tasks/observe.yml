@@ -18,6 +18,7 @@
   loop:
     - {path: "{{ compose_native_current_dir }}", kind: directory, mode: "0755"}
     - {path: "{{ compose_native_runtime_env_path }}", kind: file, mode: "0600"}
+    - {path: "{{ compose_native_artifact_identity_path | dirname }}", kind: directory, mode: "0711"}
 
 - name: Require protected active Compose paths
   ansible.builtin.assert:
