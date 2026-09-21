@@ -200,13 +200,16 @@
               expected=$'LDAP-Auth.dll\nNovell.Directory.Ldap.NETStandard.dll\njellyfin-plugin-ldapauth.png\nmeta.json'
               echo 'e6673206517bed1184b918f1c04b645310730230a5eedd52d42df45a3f13c2e5  jellyfin-plugin-ldapauth.png' | \
                 (cd "$plugin" && sha256sum --check --status)
+              echo '00dadffb77cccedbfc5427e854d89480324fafdbd288aa3e922c03db412187cc  meta.json' | \
+                (cd "$plugin" && sha256sum --check --status)
+            else
+              echo '950cd855fefebd90153613e34cf413643010dc6f765d3829b97664c23e1ab2c4  meta.json' | \
+                (cd "$plugin" && sha256sum --check --status)
             fi
             test "$(find "$plugin" -mindepth 1 -maxdepth 1 -type f -printf '%f\n' | sort)" = "$expected"
             echo '79b5d443a3ef3da9dff79a3a7df5620804b39d8e590f756b074b679e85c800cf  LDAP-Auth.dll' | \
               (cd "$plugin" && sha256sum --check --status)
             echo '85918b6f9e91acffac9bd081b70404b0456c7a6f0c9c5666ccda8951bd8120d4  Novell.Directory.Ldap.NETStandard.dll' | \
-              (cd "$plugin" && sha256sum --check --status)
-            echo '950cd855fefebd90153613e34cf413643010dc6f765d3829b97664c23e1ab2c4  meta.json' | \
               (cd "$plugin" && sha256sum --check --status)
           args:
             executable: /bin/bash
