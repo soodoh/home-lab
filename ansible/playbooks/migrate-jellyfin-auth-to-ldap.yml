@@ -18,7 +18,7 @@
     jellyfin_ldap_user_filter: >-
       (memberOf=cn=Jellyfin,ou=groups,dc=jellyfin,dc=ldap,dc=diloreto,dc=com)
     jellyfin_ldap_backup_root: >-
-      /srv/home-lab-state/jellyfin-upgrades/ldap-migration-{{ ansible_date_time.iso8601_basic_short }}
+      /srv/home-lab-state/jellyfin-upgrades/ldap-migration-{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}
     jellyfin_ldap_lock_action: acquire
     jellyfin_ldap_expected_owner_sha256: ""
   pre_tasks:
