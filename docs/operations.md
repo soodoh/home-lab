@@ -26,6 +26,21 @@ docker compose --env-file "$runtime_env" config --quiet
 Treat a dirty checkout, failed boundary check or unreviewed lock-file change as a
 refusal.
 
+When establishing non-AWS provider credentials, create a new private session directory
+and remove it on exit. The credential helper refuses durable or reused targets:
+
+```sh
+provider_session=$(mktemp -d)
+chmod 0700 "$provider_session"
+trap 'rm -rf "$provider_session"' EXIT
+export HOME_LAB_PROVIDER_SESSION_DIR=$provider_session
+# Supply the current protected hardware observation and Omada CA, then run:
+scripts/configure-local-provider-credentials
+```
+
+The generated `plan-credentials.json` and `apply-credentials.json` are inputs for this
+controller run only. Do not copy them into `$HOME`, another checkout or a later session.
+
 Focused source tests:
 
 ```sh
@@ -49,10 +64,11 @@ ansible-playbook ansible/playbooks/observe-proxmox.yml
 ansible-playbook ansible/playbooks/observe-proxmox-packages.yml
 ```
 
-The backup observer takes the backup lock nonblockingly, refuses retained operation
-owners, opens all three live repositories and reports their current identities and
-latest snapshots. Its output is for the current review only; do not save it in Git or
-feed it to a later session.
+The backup observer holds the backup lock nonblockingly across the complete
+observation, refuses retained operation owners and drifted runtime bytes, validates
+all three repository identities and timer cadence, and selects the newest complete
+current-policy games → NFS → Proton chain. Its output is for the current review only;
+do not save it in Git or feed it to a later session.
 
 An unknown owner, interruption journal, repository identity, mount, service count or
 host key is a refusal. Inspect it on the authoritative host instead of updating source
@@ -102,9 +118,11 @@ uses [recovery](../recovery/README.md).
 [`configure-backups.yml`](../ansible/playbooks/configure-backups.yml) is a narrower
 existing-host interface. [`services/data/restic/policy.json`](../services/data/restic/policy.json)
 defines the complete active desired policy; the role requires the installed policy
-to match it exactly. It preserves unit activation and does not bootstrap repositories
-or run a backup. Runner or policy content changes require a separately reviewed,
-lock-protected coordinated rollout before ordinary convergence can resume.
+to match it exactly. The play observes first, acquires production ownership while
+checking the backup mutex, and revalidates adopted files after ownership is published.
+It preserves unit activation and does not bootstrap repositories or run a backup.
+Runner or policy content changes require a separately reviewed, lock-protected
+coordinated rollout before ordinary convergence can resume.
 
 [`deploy-compose.yml`](../ansible/playbooks/deploy-compose.yml) is an exceptional
 bounded Compose interface. Prefer the complete site play so partial ownership does

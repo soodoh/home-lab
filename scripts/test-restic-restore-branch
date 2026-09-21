@@ -38,6 +38,8 @@ case "${1:-}" in
     ;;
   restore)
     [[ ${2:-} == "$FIXTURE_SNAPSHOT" && ${3:-} == --target && ${5:-} == --verify ]]
+    printf 'private restore path must stay bounded\n'
+    printf 'private verification path must stay bounded\n' >&2
     mkdir -p "$4/srv/home-lab-state"
     printf verified >"$4/srv/home-lab-state/fixture"
     ;;
@@ -122,6 +124,7 @@ run_restore() {
 success="$recovery_root/restic-success"
 output=$(run_restore "$success")
 grep -q "^recovery_restore=verified backend=restic snapshot=$snapshot groups=" <<<"$output"
+[[ $output != *'private restore path'* && $output != *'private verification path'* ]]
 [[ $(cat "$success/srv/home-lab-state/fixture") == verified ]]
 [[ ! -e $success.proof-lock ]]
 

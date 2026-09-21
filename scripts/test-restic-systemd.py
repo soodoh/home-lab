@@ -127,11 +127,19 @@ class ResticSystemdTests(unittest.TestCase):
                 self.assertEqual(self.unit(name), expected[name])
 
     def test_native_route_keeps_existing_host_render_and_reload_seam(self):
-        play, = load(ROOT / "ansible/playbooks/configure-backups.yml")
-        self.assertEqual(set(play), {"name", "hosts", "gather_facts", "gather_subset", "tasks"})
+        play, verification = load(ROOT / "ansible/playbooks/configure-backups.yml")
+        self.assertEqual(
+            set(play),
+            {"name", "hosts", "gather_facts", "gather_subset", "any_errors_fatal", "pre_tasks", "tasks", "post_tasks"},
+        )
         self.assertEqual(play["hosts"], "docker-host")
         self.assertIs(play["gather_facts"], True)
         self.assertEqual(play["gather_subset"], ["!all", "min"])
+        observe, acquire = play["pre_tasks"]
+        self.assertEqual(observe["ansible.builtin.import_role"], {"name": "compose_native", "tasks_from": "observe"})
+        self.assertEqual(acquire["ansible.builtin.import_role"], {"name": "apply_lock"})
+        self.assertEqual(acquire["vars"]["apply_lock_action"], "acquire")
+        self.assertEqual(acquire["vars"]["apply_lock_operation"], "backup-runtime-convergence")
         tools, identity, runtime, entry = play["tasks"]
         self.assertEqual(set(tools), {"name", "ansible.builtin.import_role"})
         self.assertEqual(tools["ansible.builtin.import_role"], {"name": "restic_backup", "tasks_from": "tools-native"})
@@ -141,6 +149,14 @@ class ResticSystemdTests(unittest.TestCase):
         self.assertEqual(runtime["ansible.builtin.import_role"], {"name": "restic_backup", "tasks_from": "runtime-native"})
         self.assertEqual(set(entry), {"name", "ansible.builtin.import_role"})
         self.assertEqual(entry["ansible.builtin.import_role"], {"name": "restic_backup", "tasks_from": "systemd"})
+        release, = play["post_tasks"]
+        self.assertEqual(release["ansible.builtin.import_role"], {"name": "apply_lock"})
+        self.assertEqual(release["vars"]["apply_lock_action"], "release")
+        self.assertEqual(release["vars"]["apply_lock_operation"], "backup-runtime-convergence")
+        self.assertEqual(
+            verification["tasks"][0]["ansible.builtin.import_role"],
+            {"name": "compose_native", "tasks_from": "observe"},
+        )
         tasks = load(ROLE / "tasks/systemd.yml")
         actions = [[key for key in task if key.startswith("ansible.builtin.")] for task in tasks]
         self.assertEqual(actions, [["ansible.builtin." + action] for action in (

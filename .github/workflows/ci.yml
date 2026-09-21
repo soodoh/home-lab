@@ -40,6 +40,7 @@ jobs:
       - name: Validate backup and recovery source
         run: |
           python scripts/test-restic-runtime.py
+          python scripts/test-restic-observer.py
           python scripts/test-restic-systemd.py
           scripts/test-recovery-tools
 

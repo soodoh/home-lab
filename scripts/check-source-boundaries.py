@@ -60,6 +60,11 @@ def main() -> None:
         for reference in FORBIDDEN_REFERENCES:
             if reference in source:
                 failures.append(f"retired source dependency: {rendered}: {reference}")
+    provider_helper = (ROOT / "scripts/configure-local-provider-credentials").read_text(encoding="utf-8")
+    if "HOME_LAB_PROVIDER_SESSION_DIR" not in provider_helper:
+        failures.append("provider credentials lack an explicit session directory")
+    if "$HOME/.config/home-lab/controller" in provider_helper:
+        failures.append("provider credentials retain a durable controller default")
     if failures:
         raise SystemExit("\n".join(failures))
     print("source_boundaries=verified disposable-controller")

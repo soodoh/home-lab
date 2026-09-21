@@ -198,7 +198,10 @@ PY
       restore_arguments+=(--include "$path")
     done
   fi
-  "$restic_path" "${restore_arguments[@]}"
+  if ! "$restic_path" "${restore_arguments[@]}" >/dev/null 2>&1; then
+    echo "Restic restore verification failed" >&2
+    exit 1
+  fi
   selected_groups=$(SCOPE_JSON="$scope_json" python3 - <<'PY'
 import json
 import os

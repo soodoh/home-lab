@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = Path(__file__).with_name("export-omada-state.py")
 SPEC = importlib.util.spec_from_file_location("export_omada_state", MODULE_PATH)
 assert SPEC is not None and SPEC.loader is not None
@@ -68,6 +69,16 @@ class FakeOmada:
 
 
 class OmadaExportTests(unittest.TestCase):
+    def test_root_admits_only_fresh_selected_domain_exports(self) -> None:
+        source = (ROOT / "infrastructure/tofu/omada/main.tf").read_text()
+        for required in (
+            "local.export.site.name == var.omada_domain.site_name",
+            "local.export.network.name == var.omada_domain.network_name",
+            'timeadd(plantimestamp(), "-15m")',
+            "timecmp(local.export.exported_at, plantimestamp()) <= 0",
+        ):
+            self.assertIn(required, source)
+
     def test_projects_exact_selected_live_domain(self) -> None:
         value = EXPORTER.build_export(FakeOmada(), "Selected", "Default")
 
