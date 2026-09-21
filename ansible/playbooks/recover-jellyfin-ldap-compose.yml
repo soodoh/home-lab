@@ -137,7 +137,7 @@
       vars:
         compose_native_authoritative_reconcile: true
         compose_native_apply_confirmed: true
-        compose_native_environment_change_confirmed: true
+        compose_native_environment_change_confirmed: false
         compose_native_expected_service_additions: []
         compose_native_expected_network_additions: []
         compose_native_expected_protected_service_changes:
