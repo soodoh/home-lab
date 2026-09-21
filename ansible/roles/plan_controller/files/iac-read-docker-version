@@ -1,9 +1,0 @@
-#!/bin/sh
-set -eu
-
-if [ "$#" -ne 0 ]; then
-  echo "This read-only helper accepts no arguments." >&2
-  exit 64
-fi
-
-exec /usr/bin/docker version --format '{{.Client.Version}}|{{.Server.Version}}'

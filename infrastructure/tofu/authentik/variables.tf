@@ -6,7 +6,7 @@ variable "authentik_enable_management" {
 
 variable "authentik_client_secrets_path" {
   type        = string
-  description = "Absolute path to the mode-0600 JSON decrypted from client-secrets.sops.json by the trusted local controller."
+  description = "Absolute path to a mode-0600 JSON decrypted into this run's private temporary directory."
   default     = ""
 }
 

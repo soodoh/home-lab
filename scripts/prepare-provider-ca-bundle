@@ -3,23 +3,27 @@ set -euo pipefail
 umask 077
 
 : "${PROXMOX_CA_PEM:?PROXMOX_CA_PEM is required}"
+: "${HOME_LAB_PROVIDER_CA_DIR:?HOME_LAB_PROVIDER_CA_DIR is required}"
+[[ $HOME_LAB_PROVIDER_CA_DIR = /* ]]
+[[ ! -e $HOME_LAB_PROVIDER_CA_DIR && ! -L $HOME_LAB_PROVIDER_CA_DIR ]]
 if [[ ${TF_VAR_omada_enable_management:-false} == true ]]; then
   : "${OMADA_CA_PEM:?OMADA_CA_PEM is required when Omada management is enabled}"
 fi
 
 command -v openssl >/dev/null || { echo "missing command: openssl" >&2; exit 69; }
+install -d -m 0700 "$HOME_LAB_PROVIDER_CA_DIR"
+proxmox_ca=$HOME_LAB_PROVIDER_CA_DIR/proxmox.pem
+bundle=$HOME_LAB_PROVIDER_CA_DIR/bundle.pem
+printf '%s' "$PROXMOX_CA_PEM" >"$proxmox_ca"
+openssl verify -CAfile "$proxmox_ca" "$proxmox_ca" >/dev/null
 
-install -d -m 0700 .local/provider-ca
-printf '%s' "$PROXMOX_CA_PEM" >.local/provider-ca/proxmox.pem
-openssl verify -CAfile .local/provider-ca/proxmox.pem .local/provider-ca/proxmox.pem >/dev/null
-
-: >.local/provider-ca/bundle.pem
+: >"$bundle"
 if [[ -n ${NIX_SSL_CERT_FILE:-} && -r $NIX_SSL_CERT_FILE ]]; then
-  cat "$NIX_SSL_CERT_FILE" >>.local/provider-ca/bundle.pem
-  printf '\n' >>.local/provider-ca/bundle.pem
+  cat "$NIX_SSL_CERT_FILE" >>"$bundle"
+  printf '\n' >>"$bundle"
 elif [[ -f /etc/ssl/certs/ca-certificates.crt ]]; then
-  cat /etc/ssl/certs/ca-certificates.crt >>.local/provider-ca/bundle.pem
-  printf '\n' >>.local/provider-ca/bundle.pem
+  cat /etc/ssl/certs/ca-certificates.crt >>"$bundle"
+  printf '\n' >>"$bundle"
 elif [[ $(uname -s) == Darwin ]]; then
   command -v security >/dev/null || { echo "missing command: security" >&2; exit 69; }
   for keychain in \
@@ -27,20 +31,22 @@ elif [[ $(uname -s) == Darwin ]]; then
     /Library/Keychains/System.keychain \
     "$HOME/Library/Keychains/login.keychain-db"; do
     [[ -r $keychain ]] || continue
-    security find-certificate -a -p "$keychain" >>.local/provider-ca/bundle.pem
+    security find-certificate -a -p "$keychain" >>"$bundle"
   done
-  printf '\n' >>.local/provider-ca/bundle.pem
+  printf '\n' >>"$bundle"
 fi
-cat .local/provider-ca/proxmox.pem >>.local/provider-ca/bundle.pem
-printf '\n' >>.local/provider-ca/bundle.pem
+cat "$proxmox_ca" >>"$bundle"
+printf '\n' >>"$bundle"
 if [[ ${TF_VAR_omada_enable_management:-false} == true ]]; then
-  printf '%s' "$OMADA_CA_PEM" >.local/provider-ca/omada.pem
-  openssl verify -CAfile .local/provider-ca/omada.pem .local/provider-ca/omada.pem >/dev/null
-  cat .local/provider-ca/omada.pem >>.local/provider-ca/bundle.pem
-  printf '\n' >>.local/provider-ca/bundle.pem
+  omada_ca=$HOME_LAB_PROVIDER_CA_DIR/omada.pem
+  printf '%s' "$OMADA_CA_PEM" >"$omada_ca"
+  openssl verify -CAfile "$omada_ca" "$omada_ca" >/dev/null
+  cat "$omada_ca" >>"$bundle"
+  printf '\n' >>"$bundle"
 fi
-openssl verify -CAfile .local/provider-ca/bundle.pem .local/provider-ca/proxmox.pem >/dev/null
+openssl verify -CAfile "$bundle" "$proxmox_ca" >/dev/null
 if [[ ${TF_VAR_omada_enable_management:-false} == true ]]; then
-  openssl verify -CAfile .local/provider-ca/bundle.pem .local/provider-ca/omada.pem >/dev/null
+  openssl verify -CAfile "$bundle" "$omada_ca" >/dev/null
 fi
-chmod 0600 .local/provider-ca/*.pem
+chmod 0600 "$HOME_LAB_PROVIDER_CA_DIR"/*.pem
+printf 'provider_ca_bundle=prepared directory=%s\n' "$HOME_LAB_PROVIDER_CA_DIR"

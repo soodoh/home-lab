@@ -131,7 +131,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
 
         apps = (REPO / "services" / "apps.yml").read_text()
         jellyfin = apps.split("  jellyfin:", 1)[1].split("\n  calibre:", 1)[0]
-        self.assertIn("source: ./services/data/authentik-ldap-ca.pem", jellyfin)
+        self.assertIn("source: ./data/authentik-ldap-ca.pem", jellyfin)
         self.assertIn("target: /etc/ssl/certs/authentik-ldap.pem", jellyfin)
         self.assertIn("      - jellyfin-auth", jellyfin)
         self.assertEqual(

@@ -1,6 +1,6 @@
 ---
 - name: Install the inert Proxmox firewall NFS canary on Debian
-  hosts: docker_host
+  hosts: docker-host
   gather_facts: true
   any_errors_fatal: true
   vars:

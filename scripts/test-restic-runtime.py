@@ -35,25 +35,33 @@ class ResticRuntimeTests(unittest.TestCase):
         tasks = load(TASKS / "runtime-native.yml")
         self.assertEqual([[k for k in t if k.startswith("ansible.builtin.")] for t in tasks], [
             ["ansible.builtin." + action] for action in
-            ("stat", "assert", "stat", "assert", "slurp", "assert", "stat", "assert", "import_tasks", "import_tasks")
+            ("stat", "assert", "stat", "assert", "slurp", "assert", "assert", "assert",
+             "assert", "stat", "assert", "import_tasks", "import_tasks")
         ])
         for task in tasks:
             self.assertLessEqual(set(task), {"name", "register", "loop", "loop_control", "vars", "no_log"} |
                                  {k for k in task if k.startswith("ansible.builtin.")})
         self.assertEqual(tasks[0]["loop"], ["/", "/etc", "/etc/home-lab", "/etc/home-lab/restic",
                                           "/usr", "/usr/local", "/usr/local/libexec", "/usr/local/libexec/home-lab"])
-        for index in (0, 2, 6):
+        for index in (0, 2, 9):
             self.assertIs(tasks[index]["ansible.builtin.stat"]["follow"], False)
             self.assertIs(tasks[index]["ansible.builtin.stat"]["get_mime"], False)
         self.assertEqual(tasks[2]["ansible.builtin.stat"]["path"], "/etc/home-lab/restic-policy.json")
         self.assertEqual(tasks[4]["ansible.builtin.slurp"], {"src": "/etc/home-lab/restic-policy.json"})
         self.assertIs(tasks[4]["no_log"], True)
         self.assertIs(tasks[5]["no_log"], True)
-        self.assertEqual(tasks[6]["ansible.builtin.stat"]["checksum_algorithm"], "sha256")
+        self.assertEqual(tasks[9]["ansible.builtin.stat"]["checksum_algorithm"], "sha256")
         expected = [{"src": "{{ playbook_dir }}/../../" + src, "dest": dest}
                     for src, dest in zip(SOURCES, DESTINATIONS)]
-        self.assertEqual(tasks[6]["loop"], expected)
-        self.assertEqual([t["ansible.builtin.import_tasks"] for t in tasks[8:]], ["inputs.yml", "runner.yml"])
+        self.assertEqual(tasks[9]["loop"], expected)
+        self.assertEqual([t["ansible.builtin.import_tasks"] for t in tasks[11:]], ["inputs.yml", "runner.yml"])
+        desired = json.loads((ROOT / "services/data/restic/policy.json").read_text())
+        self.assertFalse({"qualification", "initialization", "first_run", "credentials", "credential_refs"} & set(desired))
+        self.assertEqual(hashlib.sha256((ROOT / "scripts/restic-backup").read_bytes()).hexdigest(),
+                         desired["runner"]["sha256"])
+        self.assertEqual((ROOT / "services/data/restic/files-from").read_text().splitlines(),
+                         [entry["path"] for entry in desired["sources"]])
+        self.assertEqual((ROOT / "services/data/restic/excludes").read_text().splitlines(), desired["excludes"])
         self.assertNotIn("backups.", (TASKS / "runtime-native.yml").read_text())
         inputs, = load(TASKS / "inputs.yml")
         runner, = load(TASKS / "runner.yml")
@@ -68,21 +76,18 @@ class ResticRuntimeTests(unittest.TestCase):
             "group": "{{ item.group | default('root') }}", "mode": "{{ item.mode }}",
         })
         self.assertEqual(runner["loop"], [dict(expected[0], mode="0755")])
-        legacy = load(TASKS / "main.yml")  # Parse only; never execute legacy effects.
-        index = next(i for i, t in enumerate(legacy) if t.get("ansible.builtin.import_tasks") == "inputs.yml")
-        self.assertEqual(legacy[index + 1]["ansible.builtin.copy"]["dest"], "/etc/home-lab/restic-policy.json")
-        self.assertEqual(legacy[index + 2]["ansible.builtin.import_tasks"], "runner.yml")
-        self.assertEqual([row["dest"] for row in legacy[index + 3]["loop"]], [
-            "/usr/local/libexec/home-lab/" + name for name in
-            ("bootstrap-restic-credentials", "initialize-restic-repositories", "run-first-restic-backup", "qualify-proton-backup")
-        ])
+        self.assertFalse((TASKS / "main.yml").exists())
+        for retired in (
+            "initialize-restic-repositories", "run-first-restic-backup", "qualify-proton-backup"
+        ):
+            self.assertFalse((ROOT / "scripts" / retired).exists())
 
     def test_runtime_native_assertions_fail_closed(self):
         executable = shutil.which("ansible-playbook")
         if not executable:
             self.skipTest("Ansible CLI unavailable: runtime assertions not executed")
         tasks = load(TASKS / "runtime-native.yml")
-        guards = [tasks[i] for i in (1, 3, 5, 7)]
+        guards = [tasks[i] for i in (1, 3, 8, 10)]
         self.assertTrue(all("ansible.builtin.assert" in task for task in guards))
         originals = [(ROOT / src).read_bytes() for src in SOURCES]
         cases = ["matching", "metadata-only", "systemd-path", "malformed-policy", "missing-policy-content"]

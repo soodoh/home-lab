@@ -107,10 +107,9 @@ def main() -> None:
     metadata_path = Path(arguments.metadata)
     metadata = json.loads(secure_source(metadata_path, digest(metadata_path.read_bytes()), False))
     required = {
-        "artifact_sha256", "first_run_evidence_sha256", "original_snapshot_id",
-        "policy_sha256", "qualification_evidence_sha256", "rclone_sha256",
-        "repository", "repository_id", "restic_sha256", "restore_runner_sha256",
-        "snapshot_id", "version",
+        "artifact_sha256", "original_snapshot_id", "policy_sha256",
+        "rclone_sha256", "repository", "repository_id", "restic_sha256",
+        "restore_runner_sha256", "snapshot_id", "version",
     }
     if set(metadata) != required or type(metadata["version"]) is not int or metadata["version"] != 1:
         raise ValueError("bundle metadata keys differ")

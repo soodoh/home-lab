@@ -238,7 +238,7 @@ class ResticSystemdTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0 if case == "matching" else 2,
                                      result.stdout + result.stderr)
 
-    def test_render_seam_is_shared_without_legacy_activation(self):
+    def test_render_seam_has_only_native_entrypoints(self):
         render, = load(ROLE / "tasks/units.yml")
         self.assertEqual(set(render), {"name", "ansible.builtin.template", "loop", "register"})
         self.assertEqual(render["ansible.builtin.template"], {
@@ -247,13 +247,9 @@ class ResticSystemdTests(unittest.TestCase):
         })
         self.assertEqual(render["loop"], "{{ restic_systemd_unit_names }}")
         self.assertEqual(render["register"], "restic_backup_units")
-        legacy = load(ROLE / "tasks/main.yml")  # Source parsing only: never run legacy main.
-        self.assertEqual([task["ansible.builtin.import_tasks"] for task in legacy if "ansible.builtin.import_tasks" in task], ["tools.yml", "identity.yml", "inputs.yml", "runner.yml", "units.yml"])
-        self.assertFalse(any("ansible.builtin.template" in task for task in legacy))
-        bridge = load(ROOT / "ansible/group_vars/docker_host.yml")
-        self.assertEqual(bridge["restic_systemd"], "{{ restic_systemd_legacy_contract }}")
-        self.assertEqual(set(bridge["restic_systemd_legacy_contract"]), set(self.config))
-        # Native configuration remains independent of legacy desired values and receipt hashes.
+        self.assertFalse((ROLE / "tasks/main.yml").exists())
+        native = load(ROOT / "ansible/inventory/host_vars/docker-host.yml")
+        self.assertEqual(set(native["restic_systemd"]), set(self.config))
         native_source = (ROOT / "ansible/inventory/host_vars/docker-host.yml").read_text()
         self.assertNotIn("backups.", native_source)
         self.assertNotIn("lookup(", native_source)

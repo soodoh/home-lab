@@ -1,0 +1,201 @@
+---
+- name: Observe live backup state without changing host configuration
+  hosts: docker-host
+  gather_facts: false
+  any_errors_fatal: true
+  vars:
+    restic_observe_local_repositories:
+      - name: games
+        path: "{{ restic_systemd.games_repository_path }}"
+      - name: nfs
+        path: "{{ restic_systemd.nfs_repository_path }}"
+    restic_observe_unit_names:
+      - home-lab-restic-daily.timer
+      - home-lab-restic-daily.target
+      - home-lab-restic-daily-local.service
+      - home-lab-restic-daily-proton.service
+      - home-lab-restic-maintenance.timer
+      - home-lab-restic-maintenance.target
+      - home-lab-restic-maintenance-local.service
+      - home-lab-restic-maintenance-proton.service
+  tasks:
+    - name: Inspect installed backup tools and protected runtime inputs
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        checksum_algorithm: sha256
+        follow: false
+      loop:
+        - {name: restic, path: /usr/local/bin/restic, checksum: "{{ restic_binary_sha256 }}", mode: "0755"}
+        - {name: rclone, path: /usr/local/bin/rclone, checksum: "{{ rclone_binary_sha256 }}", mode: "0755"}
+        - {name: runner, path: /usr/local/libexec/home-lab/restic-backup, mode: "0755"}
+        - {name: policy, path: /etc/home-lab/restic-policy.json, mode: "0440"}
+        - {name: files_from, path: /etc/home-lab/restic/files-from, mode: "0440"}
+        - {name: excludes, path: /etc/home-lab/restic/excludes, mode: "0440"}
+      register: restic_observe_runtime
+      no_log: true
+
+    - name: Require protected installed backup inputs and pinned tools
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.uid == 0
+          - item.stat.mode == item.item.mode
+          - (item.stat.nlink | default(0) | int) == 1
+          - item.item.checksum is not defined or item.stat.checksum == item.item.checksum
+        fail_msg: Installed backup tools or runtime inputs differ from reviewed source.
+        quiet: true
+      loop: "{{ restic_observe_runtime.results }}"
+      no_log: true
+
+    - name: Refuse active backup ownership before repository observation
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/flock
+          - --exclusive
+          - --nonblock
+          - --close
+          - "{{ restic_systemd.lock_path }}"
+          - /usr/bin/true
+      changed_when: false
+      check_mode: false
+
+    - name: Inspect interruption and deployment owners
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+      loop:
+        - "{{ restic_systemd.journal_path }}"
+        - "{{ compose_native_apply_lock_path }}"
+        - /var/lib/home-lab/reconciliation/apply.lock
+        - /var/lib/home-lab/reconciliation/operation.lock
+      register: restic_observe_owners
+      no_log: true
+
+    - name: Refuse interrupted or concurrently owned state
+      ansible.builtin.assert:
+        that:
+          - not (item.stat.exists | default(false))
+        fail_msg: Inspect and resolve the live interruption or operation owner before relying on backup status.
+        quiet: true
+      loop: "{{ restic_observe_owners.results }}"
+      no_log: true
+
+    - name: Observe backup unit state and timer schedules
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/systemctl
+          - show
+          - --property=LoadState
+          - --property=ActiveState
+          - --property=SubState
+          - --property=Result
+          - --property=NextElapseUSecRealtime
+          - --property=LastTriggerUSec
+          - "{{ item }}"
+      loop: "{{ restic_observe_unit_names }}"
+      register: restic_observe_units
+      changed_when: false
+      check_mode: false
+
+    - name: Observe live local repository identities
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/env
+          - RESTIC_PASSWORD_FILE=/etc/home-lab/restic/credentials/local-password
+          - /usr/local/bin/restic
+          - --repo
+          - "{{ item.path }}"
+          - cat
+          - config
+      loop: "{{ restic_observe_local_repositories }}"
+      register: restic_observe_local_configs
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Observe latest live local snapshots
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/env
+          - RESTIC_PASSWORD_FILE=/etc/home-lab/restic/credentials/local-password
+          - /usr/local/bin/restic
+          - --repo
+          - "{{ item.path }}"
+          - snapshots
+          - --json
+          - --latest
+          - "1"
+      loop: "{{ restic_observe_local_repositories }}"
+      register: restic_observe_local_snapshots
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Observe live Proton repository identity
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/env
+          - RESTIC_PASSWORD_FILE=/etc/home-lab/restic/credentials/proton-password
+          - RESTIC_CACHE_DIR=/var/lib/restic-proton/cache
+          - RCLONE_CONFIG=/var/lib/restic-proton/rclone.conf
+          - HOME=/var/lib/restic-proton
+          - /usr/local/bin/restic
+          - --repo
+          - "{{ restic_proton_repository }}"
+          - cat
+          - config
+      become_user: restic-proton
+      register: restic_observe_proton_config
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Observe latest live Proton snapshot
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/env
+          - RESTIC_PASSWORD_FILE=/etc/home-lab/restic/credentials/proton-password
+          - RESTIC_CACHE_DIR=/var/lib/restic-proton/cache
+          - RCLONE_CONFIG=/var/lib/restic-proton/rclone.conf
+          - HOME=/var/lib/restic-proton
+          - /usr/local/bin/restic
+          - --repo
+          - "{{ restic_proton_repository }}"
+          - snapshots
+          - --json
+          - --latest
+          - "1"
+      become_user: restic-proton
+      register: restic_observe_proton_snapshot
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Read current policy and Compose artifact identities
+      ansible.builtin.command:
+        argv: "{{ item }}"
+      loop:
+        - [/usr/bin/sha256sum, /etc/home-lab/restic-policy.json]
+        - [/usr/bin/cat, /var/lib/docker-compose/current-artifact.sha256]
+      register: restic_observe_bindings
+      changed_when: false
+      check_mode: false
+
+    - name: Summarize fresh live backup state
+      ansible.builtin.debug:
+        msg:
+          observed_at: "{{ now(utc=true, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+          policy_sha256: "{{ restic_observe_bindings.results[0].stdout.split()[0] }}"
+          compose_artifact_sha256: "{{ restic_observe_bindings.results[1].stdout | trim }}"
+          units: "{{ dict(restic_observe_unit_names | zip(restic_observe_units.results | map(attribute='stdout_lines'))) }}"
+          repositories:
+            games:
+              id: "{{ (restic_observe_local_configs.results[0].stdout | from_json).id }}"
+              latest: "{{ (restic_observe_local_snapshots.results[0].stdout | from_json)[0] }}"
+            nfs:
+              id: "{{ (restic_observe_local_configs.results[1].stdout | from_json).id }}"
+              latest: "{{ (restic_observe_local_snapshots.results[1].stdout | from_json)[0] }}"
+            proton:
+              id: "{{ (restic_observe_proton_config.stdout | from_json).id }}"
+              latest: "{{ (restic_observe_proton_snapshot.stdout | from_json)[0] }}"

@@ -9,7 +9,10 @@ cd "$repo_root"
 : "${AUTHENTIK_URL:?AUTHENTIK_URL is required when Authentik management is enabled}"
 : "${AUTHENTIK_TOKEN:?AUTHENTIK_TOKEN is required when Authentik management is enabled}"
 : "${SOPS_AGE_KEY_FILE:?SOPS_AGE_KEY_FILE is required when Authentik management is enabled}"
+: "${TF_VAR_authentik_client_secrets_path:?TF_VAR_authentik_client_secrets_path is required}"
 [[ $AUTHENTIK_URL == https://auth.diloreto.com ]]
+[[ $TF_VAR_authentik_client_secrets_path = /* ]]
+[[ ! -e $TF_VAR_authentik_client_secrets_path && ! -L $TF_VAR_authentik_client_secrets_path ]]
 for command in jq python3 sops; do
   command -v "$command" >/dev/null || { echo "missing command: $command" >&2; exit 69; }
 done
@@ -27,9 +30,11 @@ if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o600:
     raise SystemExit("SOPS age identity must be owned by the controller user with mode 0600")
 PY
 
-install -d -m 0700 .local/authentik
-client_secrets=$(mktemp .local/authentik/client-secrets.XXXXXX)
-trap 'rm -f "$client_secrets"' EXIT
+client_secrets_parent=$(dirname "$TF_VAR_authentik_client_secrets_path")
+[[ -d $client_secrets_parent && ! -L $client_secrets_parent ]]
+[[ $(stat -f '%Lp' "$client_secrets_parent" 2>/dev/null || stat -c '%a' "$client_secrets_parent") == 700 ]]
+client_secrets=$(mktemp "$client_secrets_parent/client-secrets.XXXXXX")
+trap 'rm -f "$client_secrets"' EXIT INT TERM
 SOPS_AGE_KEY_FILE=$SOPS_AGE_KEY_FILE sops --decrypt --output-type json \
   infrastructure/tofu/authentik/client-secrets.sops.json >"$client_secrets"
 jq -e '
@@ -44,5 +49,5 @@ jq -e '
     (.certificate_private_key | type == "string" and startswith("-----BEGIN PRIVATE KEY-----")))
 ' "$client_secrets" >/dev/null
 chmod 0600 "$client_secrets"
-mv -f "$client_secrets" .local/authentik/client-secrets.json
-trap - EXIT
+mv "$client_secrets" "$TF_VAR_authentik_client_secrets_path"
+trap - EXIT INT TERM

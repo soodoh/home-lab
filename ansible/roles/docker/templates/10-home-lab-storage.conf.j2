@@ -1,4 +1,0 @@
-[Unit]
-Requires={{ debian.transaction.production_systemd_dependencies['docker.service'].Requires | join(' ') }}
-After={{ (debian.transaction.production_systemd_dependencies['docker.service'].After + [debian.systemd.network_online]) | join(' ') }}
-Wants={{ debian.systemd.network_online }}
