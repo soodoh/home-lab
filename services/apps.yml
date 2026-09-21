@@ -20,7 +20,7 @@ services:
         source: /srv/home-lab-state/jellyfin-data/cache
         target: /cache
       - type: bind
-        source: ./services/data/authentik-ldap-ca.pem
+        source: ./data/authentik-ldap-ca.pem
         target: /etc/ssl/certs/authentik-ldap.pem
         read_only: true
       - ${MEDIA_PATH}/tv_shows:/tv_shows

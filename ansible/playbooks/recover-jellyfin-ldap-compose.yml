@@ -7,8 +7,9 @@
   vars:
     jellyfin_ldap_recovery_base_commit: be14411
     jellyfin_ldap_recovery_owner_sha256: 1be8a12b91bf30bf6be759068ca8b231c84852a3c8da0b4516f84ac283567b76
-    jellyfin_ldap_recovery_active_artifact: e15090e2ae7088b5daffde931981ccf3f0a11c3c4b0b0af06bc07657c86fb210
-    jellyfin_ldap_recovery_candidate_artifact: 0ecafe6da030d526538df56ccb0e35e6c66e44aaa64a6c8b459b1bfad0a05822
+    jellyfin_ldap_recovery_original_artifact: e15090e2ae7088b5daffde931981ccf3f0a11c3c4b0b0af06bc07657c86fb210
+    jellyfin_ldap_recovery_published_artifact: 0ecafe6da030d526538df56ccb0e35e6c66e44aaa64a6c8b459b1bfad0a05822
+    jellyfin_ldap_recovery_candidate_artifact: 4add9f19c96e2b3cf14367bc3c5adcc842ee8d3bfdcd5f658fe40c909ac3959d
     jellyfin_ldap_recovery_playbook: ansible/playbooks/recover-jellyfin-ldap-compose.yml
   pre_tasks:
     - name: Inspect the exact controller recovery source boundary
@@ -25,7 +26,8 @@
           'ansible/roles/compose_native/tasks/deploy.yml' \
           'ansible/roles/compose_native/tasks/generation.yml' \
           'ansible/roles/compose_native/tasks/observe.yml' \
-          'scripts/test-compose-native.py')
+          'scripts/test-compose-native.py' \
+          'services/apps.yml')
         test "$actual_changes" = "$expected_changes"
         test "$(
           {{ ansible_playbook_python }} scripts/compose-artifact.py --root . hash
@@ -50,20 +52,47 @@
         grep --fixed-strings --line-regexp 'controller={{ ansible_user }}' "$owner" >/dev/null
         grep --fixed-strings --line-regexp 'operation=native-site-convergence' "$owner" >/dev/null
         test "$(grep --extended-regexp --count '^started=[0-9]{4}-[0-9]{2}-[0-9]{2}T' "$owner")" -eq 1
-        test "$(cat {{ compose_native_artifact_identity_path | quote }})" = "{{ jellyfin_ldap_recovery_active_artifact }}"
+        test "$(cat {{ compose_native_artifact_identity_path | quote }})" = "{{ jellyfin_ldap_recovery_original_artifact }}"
         test "$(
           {{ ansible_python_interpreter }} {{ compose_native_current_dir | quote }}/scripts/compose-artifact.py \
             --root {{ compose_native_current_dir | quote }} --no-git hash
-        )" = "{{ jellyfin_ldap_recovery_active_artifact }}"
+        )" = "{{ jellyfin_ldap_recovery_published_artifact }}"
+        published={{ compose_native_staging_root | quote }}/{{ jellyfin_ldap_recovery_published_artifact }}
+        published_env={{ compose_native_staged_env_root | quote }}/{{ jellyfin_ldap_recovery_published_artifact }}.env
+        test "$(
+          {{ ansible_python_interpreter }} "$published/scripts/compose-artifact.py" \
+            --root "$published" --no-git hash
+        )" = "{{ jellyfin_ldap_recovery_published_artifact }}"
+        test "$(stat --format='%U:%G:%a:%h:%F' -- "$published_env")" = 'root:root:600:1:regular file'
+        cmp --silent -- "$published_env" {{ compose_native_runtime_env_path | quote }}
+        original={{ (compose_native_deployment_root ~ '/.before-' ~ jellyfin_ldap_recovery_original_artifact) | quote }}
+        original_env={{ ((compose_native_runtime_env_path | dirname) ~ '/.before-' ~ jellyfin_ldap_recovery_original_artifact ~ '.env') | quote }}
+        test "$(
+          {{ ansible_python_interpreter }} "$original/scripts/compose-artifact.py" \
+            --root "$original" --no-git hash
+        )" = "{{ jellyfin_ldap_recovery_original_artifact }}"
+        test "$(stat --format='%U:%G:%a:%h:%F' -- "$original_env")" = 'root:root:600:1:regular file'
+        test ! -e {{ (compose_native_deployment_root ~ '/.before-' ~ jellyfin_ldap_recovery_published_artifact) | quote }}
+        test ! -e {{ ((compose_native_runtime_env_path | dirname) ~ '/.before-' ~ jellyfin_ldap_recovery_published_artifact ~ '.env') | quote }}
         candidate={{ compose_native_staging_root | quote }}/{{ jellyfin_ldap_recovery_candidate_artifact }}
         candidate_env={{ compose_native_staged_env_root | quote }}/{{ jellyfin_ldap_recovery_candidate_artifact }}.env
-        test "$(
-          {{ ansible_python_interpreter }} "$candidate/scripts/compose-artifact.py" \
-            --root "$candidate" --no-git hash
-        )" = "{{ jellyfin_ldap_recovery_candidate_artifact }}"
-        test "$(stat --format='%U:%G:%a:%h:%F' -- "$candidate_env")" = 'root:root:600:1:regular file'
-        test ! -e {{ (compose_native_deployment_root ~ '/.before-' ~ jellyfin_ldap_recovery_active_artifact) | quote }}
-        test ! -e {{ ((compose_native_runtime_env_path | dirname) ~ '/.before-' ~ jellyfin_ldap_recovery_active_artifact ~ '.env') | quote }}
+        if test -e "$candidate"; then
+          test "$(
+            {{ ansible_python_interpreter }} "$candidate/scripts/compose-artifact.py" \
+              --root "$candidate" --no-git hash
+          )" = "{{ jellyfin_ldap_recovery_candidate_artifact }}"
+        else
+          test ! -e "$candidate_env"
+        fi
+        if test -e "$candidate_env"; then
+          test "$(stat --format='%U:%G:%a:%h:%F' -- "$candidate_env")" = 'root:root:600:1:regular file'
+        fi
+        docker network inspect docker-compose_jellyfin-auth >/dev/null
+        test "$(docker inspect authentik-ldap | {{ ansible_python_interpreter }} -c \
+          'import json,sys; print(json.load(sys.stdin)[0]["State"]["Status"])')" = created
+        test "$(docker inspect authentik-ldap | {{ ansible_python_interpreter }} -c \
+          'import json,sys; print(json.load(sys.stdin)[0]["Config"]["Image"])')" = \
+          'ghcr.io/goauthentik/ldap:2026.8.3@sha256:7114c560be4e24dc61080fe5bd7684cf0ebf4b0a6230a8247943ffa8957b73d4'
         test ! -e {{ compose_native_backup_journal_path | quote }}
         flock --exclusive --nonblock -- {{ compose_native_backup_lock_path | quote }} /bin/true
         for unit in {{ compose_native_backup_writer_units | join(' ') }}; do
@@ -109,15 +138,39 @@
         compose_native_authoritative_reconcile: true
         compose_native_apply_confirmed: true
         compose_native_environment_change_confirmed: true
-        compose_native_expected_service_additions:
-          - authentik-ldap
-        compose_native_expected_network_additions:
-          - jellyfin-auth
+        compose_native_expected_service_additions: []
+        compose_native_expected_network_additions: []
         compose_native_expected_protected_service_changes:
-          - jellyfin:networks
           - jellyfin:volumes
 
   post_tasks:
+    - name: Verify the retained original before-images before consuming them
+      ansible.builtin.shell: |
+        set -euo pipefail
+        original={{ (compose_native_deployment_root ~ '/.before-' ~ jellyfin_ldap_recovery_original_artifact) | quote }}
+        original_env={{ ((compose_native_runtime_env_path | dirname) ~ '/.before-' ~ jellyfin_ldap_recovery_original_artifact ~ '.env') | quote }}
+        test "$(
+          {{ ansible_python_interpreter }} "$original/scripts/compose-artifact.py" \
+            --root "$original" --no-git hash
+        )" = "{{ jellyfin_ldap_recovery_original_artifact }}"
+        test "$(stat --format='%U:%G:%a:%h:%F' -- "$original_env")" = 'root:root:600:1:regular file'
+        test "$(cat {{ compose_native_artifact_identity_path | quote }})" = "{{ jellyfin_ldap_recovery_candidate_artifact }}"
+      args:
+        executable: /bin/bash
+      become: true
+      changed_when: false
+      no_log: true
+
+    - name: Remove the consumed original before-images after complete convergence
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      become: true
+      loop:
+        - "{{ compose_native_deployment_root }}/.before-{{ jellyfin_ldap_recovery_original_artifact }}"
+        - "{{ compose_native_runtime_env_path | dirname }}/.before-{{ jellyfin_ldap_recovery_original_artifact }}.env"
+      no_log: true
+
     - name: Release only the adopted owner after complete convergence
       ansible.builtin.import_role:
         name: apply_lock
