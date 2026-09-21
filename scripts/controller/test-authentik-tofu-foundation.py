@@ -181,6 +181,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertIn("local.client_secrets.oauthProviders[each.key].client_secret", main)
         self.assertIn("authentik_property_mapping_provider_scope.scope_mappings", main)
         self.assertIn("local.client_secrets.ldap.certificate_private_key", main)
+        self.assertIn("ignore_changes = [client_secret]", main)
         self.assertIn('permission = each.value.permission', main)
         self.assertIn('intent       = "app_password"', main)
         proxy_block = main[main.index('resource "authentik_provider_proxy"'):main.index('resource "authentik_provider_oauth2"')]

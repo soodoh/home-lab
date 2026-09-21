@@ -190,6 +190,9 @@ resource "authentik_provider_oauth2" "providers" {
 
   lifecycle {
     prevent_destroy = true
+    # Authentik never returns OAuth client-secret material. Preserve the
+    # separately encrypted source value without planning a rewrite on refresh.
+    ignore_changes = [client_secret]
   }
 }
 
