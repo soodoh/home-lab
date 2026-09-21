@@ -65,7 +65,7 @@
       - item.value == installed[item.key]
       - >-
         installed.keys() | list | difference(desired.keys() | list) | sort ==
-        ['credential_refs', 'credentials', 'first_run', 'initialization', 'qualification']
+        ['credential_refs', 'credentials', 'first_run', 'initialization', 'qualification', 'restore']
       - >-
         installed.runner.keys() | list | difference(desired.runner.keys() | list) | sort ==
         ['first_run_sha256']
