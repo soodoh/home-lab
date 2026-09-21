@@ -116,6 +116,33 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             caddyfile,
         )
 
+    def test_jellyfin_ldap_runtime_is_private_and_pinned(self) -> None:
+        authentik = (REPO / "services" / "authentik.yml").read_text()
+        outpost = authentik.split("  authentik-ldap:", 1)[1].split("\nnetworks:", 1)[0]
+        self.assertIn(
+            "ghcr.io/goauthentik/ldap:2026.8.3@sha256:7114c560be4e24dc61080fe5bd7684cf0ebf4b0a6230a8247943ffa8957b73d4",
+            outpost,
+        )
+        self.assertIn("AUTHENTIK_HOST: http://authentik-server:9000", outpost)
+        self.assertIn("AUTHENTIK_TOKEN: ${AUTHENTIK_LDAP_TOKEN:?", outpost)
+        self.assertIn("      - jellyfin-auth", outpost)
+        self.assertNotIn("\n    ports:", outpost)
+        self.assertIn("  jellyfin-auth:\n    internal: true", authentik)
+
+        apps = (REPO / "services" / "apps.yml").read_text()
+        jellyfin = apps.split("  jellyfin:", 1)[1].split("\n  calibre:", 1)[0]
+        self.assertIn("source: ./services/data/authentik-ldap-ca.pem", jellyfin)
+        self.assertIn("target: /etc/ssl/certs/authentik-ldap.pem", jellyfin)
+        self.assertIn("      - jellyfin-auth", jellyfin)
+        self.assertEqual(
+            (REPO / "services" / "data" / "authentik-ldap-ca.pem").read_text(),
+            (ROOT / "jellyfin-ldap.pem").read_text(),
+        )
+        self.assertIn(
+            "AUTHENTIK_LDAP_TOKEN\n",
+            (REPO / "secrets" / "production.env.keys").read_text(),
+        )
+
     def test_nonsecret_desired_inventory_has_no_secret_fields(self) -> None:
         forbidden_keys = {"client_secret", "cookie_secret", "password", "token"}
 

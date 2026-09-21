@@ -139,6 +139,22 @@ services:
       - authentik
       - proxy
 
+  authentik-ldap:
+    image: ghcr.io/goauthentik/ldap:2026.8.3@sha256:7114c560be4e24dc61080fe5bd7684cf0ebf4b0a6230a8247943ffa8957b73d4
+    container_name: authentik-ldap
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      AUTHENTIK_HOST: http://authentik-server:9000
+      AUTHENTIK_INSECURE: "false"
+      AUTHENTIK_TOKEN: ${AUTHENTIK_LDAP_TOKEN:?Set AUTHENTIK_LDAP_TOKEN in .env}
+    depends_on:
+      authentik-server:
+        condition: service_healthy
+    networks:
+      - authentik
+      - jellyfin-auth
+
 networks:
   authentik:
     ipam:
@@ -146,3 +162,5 @@ networks:
       config:
         # Keep authentik network addresses stable for service-to-service integrations.
         - subnet: "172.20.0.0/16"
+  jellyfin-auth:
+    internal: true

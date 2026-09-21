@@ -19,6 +19,10 @@ services:
       - type: bind
         source: /srv/home-lab-state/jellyfin-data/cache
         target: /cache
+      - type: bind
+        source: ./services/data/authentik-ldap-ca.pem
+        target: /etc/ssl/certs/authentik-ldap.pem
+        read_only: true
       - ${MEDIA_PATH}/tv_shows:/tv_shows
       - ${MEDIA_PATH}/movies:/movies
       - ${MEDIA_PATH}/anime:/anime
@@ -38,6 +42,7 @@ services:
       JELLYFIN_PublishedServerUrl: $JELLYFIN_PublishedServerUrl
     networks:
       - proxy
+      - jellyfin-auth
 
   calibre:
     image: ghcr.io/linuxserver/calibre:9.15.0@sha256:8c7b77ada7133cbac1519791035ac7e305e37adae5cd06038270a90f99f4b4d6
