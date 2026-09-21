@@ -1,0 +1,173 @@
+---
+- name: Remove the retired Jellyfin SSO login branding
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  vars:
+    jellyfin_sso_branding_backup_root: >-
+      /srv/home-lab-state/jellyfin-upgrades/sso-branding-{{ lookup('ansible.builtin.pipe', 'date -u +%Y%m%dT%H%M%SZ') }}
+  pre_tasks:
+    - name: Require a clean committed controller source
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test "$(/usr/bin/git status --porcelain=v1 --untracked-files=no)" = ""
+        test -n "$(/usr/bin/git rev-parse HEAD)"
+      args:
+        chdir: "{{ playbook_dir }}/../.."
+        executable: /bin/bash
+      delegate_to: localhost
+      become: false
+      changed_when: false
+      check_mode: false
+
+    - name: Acquire production ownership for SSO branding removal
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: jellyfin-sso-branding-removal
+
+  tasks:
+    - name: Read the existing Jellyfin API key only into memory
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter }}"
+          - -c
+          - >-
+            import sqlite3;
+            c=sqlite3.connect('file:/srv/home-lab-state/jellyfin-data/config/data/jellyfin.db?mode=ro',uri=True);
+            rows=c.execute('select AccessToken from ApiKeys').fetchall();
+            assert len(rows)==1 and isinstance(rows[0][0],str) and len(rows[0][0])>=32;
+            print(rows[0][0])
+      become: true
+      register: jellyfin_api_key
+      changed_when: false
+      no_log: true
+
+    - name: Discover the private Jellyfin API endpoint
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/docker
+          - inspect
+          - --format
+          - "{% raw %}{{range .NetworkSettings.Networks}}{{.IPAddress}}{{\"\\n\"}}{{end}}{% endraw %}"
+          - jellyfin
+      become: true
+      register: jellyfin_private_addresses
+      changed_when: false
+      no_log: true
+
+    - name: Select one exact private Jellyfin API address
+      ansible.builtin.set_fact:
+        jellyfin_api_url: "http://{{ jellyfin_private_addresses.stdout_lines | first }}:8096"
+      no_log: true
+
+    - name: Read the current Jellyfin branding
+      ansible.builtin.uri:
+        url: "{{ jellyfin_api_url }}/Branding/Configuration"
+        method: GET
+        headers:
+          Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
+        return_content: true
+        status_code: 200
+      register: jellyfin_branding_before
+      no_log: true
+
+    - name: Require only the reviewed retired SSO branding
+      ansible.builtin.assert:
+        that:
+          - "'/sso/OID/start/authentik' in jellyfin_branding_before.json.LoginDisclaimer"
+          - "'Sign in with SSO' in jellyfin_branding_before.json.LoginDisclaimer"
+          - "'.disclaimerContainer' in jellyfin_branding_before.json.CustomCss"
+          - not (jellyfin_branding_before.json.SplashscreenEnabled | bool)
+        fail_msg: Live Jellyfin branding differs from the reviewed retired SSO injection.
+      no_log: true
+
+    - name: Build branding with only the retired SSO fields cleared
+      ansible.builtin.set_fact:
+        jellyfin_branding_after: >-
+          {{ jellyfin_branding_before.json | combine({
+            'LoginDisclaimer': '',
+            'CustomCss': ''
+          }, recursive=true) }}
+      no_log: true
+
+    - name: Create the root-only branding rollback directory
+      ansible.builtin.file:
+        path: "{{ jellyfin_sso_branding_backup_root }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      become: true
+
+    - name: Preserve the exact pre-removal branding
+      ansible.builtin.copy:
+        content: "{{ jellyfin_branding_before.json | to_nice_json }}\n"
+        dest: "{{ jellyfin_sso_branding_backup_root }}/branding-before.json"
+        owner: root
+        group: root
+        mode: "0600"
+      become: true
+      no_log: true
+
+    - name: Remove the retired SSO login branding through Jellyfin
+      ansible.builtin.uri:
+        url: "{{ jellyfin_api_url }}/System/Configuration/Branding"
+        method: POST
+        headers:
+          Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
+        body_format: json
+        body: "{{ jellyfin_branding_after }}"
+        status_code: 204
+      no_log: true
+
+    - name: Re-read the effective Jellyfin branding
+      ansible.builtin.uri:
+        url: "{{ jellyfin_api_url }}/Branding/Configuration"
+        method: GET
+        headers:
+          Authorization: "MediaBrowser Token=\"{{ jellyfin_api_key.stdout }}\""
+        return_content: true
+        status_code: 200
+      register: jellyfin_branding_effective
+      no_log: true
+
+    - name: Require the SSO form and CSS to be absent
+      ansible.builtin.assert:
+        that:
+          - jellyfin_branding_effective.json.LoginDisclaimer | default('', true) == ''
+          - jellyfin_branding_effective.json.CustomCss | default('', true) == ''
+          - not (jellyfin_branding_effective.json.SplashscreenEnabled | bool)
+          - "'/sso/OID' not in (jellyfin_branding_effective.content | default(''))"
+        fail_msg: Retired Jellyfin SSO branding remains effective.
+      no_log: true
+
+    - name: Require the retired SSO endpoint to be absent from live branding XML
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/grep
+          - -F
+          - /sso/OID
+          - /srv/home-lab-state/jellyfin-data/config/config/branding.xml
+      become: true
+      register: jellyfin_live_sso_branding
+      changed_when: false
+      failed_when: jellyfin_live_sso_branding.rc not in [0, 1]
+
+    - name: Require no retired SSO endpoint in the live branding file
+      ansible.builtin.assert:
+        that:
+          - jellyfin_live_sso_branding.rc == 1
+        fail_msg: The Jellyfin API no longer advertises SSO, but branding.xml still contains /sso/OID.
+
+  post_tasks:
+    - name: Release production ownership after SSO branding removal
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: jellyfin-sso-branding-removal
