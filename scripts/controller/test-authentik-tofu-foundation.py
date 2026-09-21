@@ -33,6 +33,10 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(set(DESIRED["ldapProviders"]), {"jellyfin"})
         self.assertEqual(set(DESIRED["outposts"]), {"jellyfin-ldap"})
         self.assertEqual(set(DESIRED["serviceAccounts"]), {"jellyfin-ldap-bind"})
+        self.assertEqual(
+            DESIRED["ldapSearchPermissions"]["jellyfin"]["permission"],
+            "authentik_providers_ldap.search_full_directory",
+        )
         self.assertEqual(DESIRED["customBlueprints"], {})
 
         referenced_proxy_ids = {

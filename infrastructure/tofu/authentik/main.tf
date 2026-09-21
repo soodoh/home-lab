@@ -301,10 +301,11 @@ resource "authentik_user" "service_accounts" {
 resource "authentik_rbac_permission_role" "ldap_directory_search" {
   for_each = local.ldap_search_permissions
 
+  # The pinned provider cannot assign an object permission to the LDAP
+  # provider's numeric primary key on Authentik 2026.8. This global permission
+  # is held only by the dedicated bind role; Jellyfin is the only LDAP provider.
   role       = authentik_rbac_role.roles[each.value.role_ref].id
-  model      = "authentik_providers_ldap.ldapprovider"
   permission = each.value.permission
-  object_id  = authentik_provider_ldap.providers[each.value.provider_ref].id
 
   lifecycle {
     prevent_destroy = true

@@ -837,8 +837,7 @@
   },
   "ldapSearchPermissions": {
     "jellyfin": {
-      "permission": "search_full_directory",
-      "provider_ref": "jellyfin",
+      "permission": "authentik_providers_ldap.search_full_directory",
       "role_ref": "jellyfin-ldap-directory-search"
     }
   },

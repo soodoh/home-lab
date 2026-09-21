@@ -1092,21 +1092,16 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "provider_ref",
         "role_ref",
         "permission"
       ],
       "properties": {
-        "provider_ref": {
-          "type": "string",
-          "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
-        },
         "role_ref": {
           "type": "string",
           "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
         },
         "permission": {
-          "const": "search_full_directory"
+          "const": "authentik_providers_ldap.search_full_directory"
         }
       }
     },
