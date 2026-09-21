@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Focused tests for the fresh Omada observation projection."""
+
+from __future__ import annotations
+
+import importlib.util
+import unittest
+from pathlib import Path
+from typing import Any
+
+MODULE_PATH = Path(__file__).with_name("export-omada-state.py")
+SPEC = importlib.util.spec_from_file_location("export_omada_state", MODULE_PATH)
+assert SPEC is not None and SPEC.loader is not None
+EXPORTER = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(EXPORTER)
+
+
+class FakeOmada:
+    controller_id = "controller-id"
+    controller_version = "6.2.14.11"
+
+    def __init__(self) -> None:
+        self.responses: dict[str, list[dict[str, Any]]] = {
+            "/controller-id/api/v2/sites": [
+                {"id": "other-site", "name": "Other"},
+                {"id": "site-id", "name": "Selected"},
+            ],
+            "/controller-id/api/v2/sites/site-id/setting/lan/networks": [
+                {
+                    "id": "network-id",
+                    "name": "Default",
+                    "vlan": 1,
+                    "gatewaySubnet": "192.0.2.1/24",
+                    "dhcpSettings": {
+                        "enable": True,
+                        "ipaddrStart": "192.0.2.10",
+                        "ipaddrEnd": "192.0.2.99",
+                    },
+                }
+            ],
+            "/controller-id/api/v2/sites/site-id/setting/service/dhcp": [
+                {
+                    "netId": "network-id",
+                    "clientName": "second",
+                    "mac": "aa:bb:cc:dd:ee:02",
+                    "ip": "192.0.2.12",
+                    "status": False,
+                },
+                {
+                    "netId": "another-network",
+                    "name": "excluded",
+                    "mac": "aa:bb:cc:dd:ee:03",
+                    "ip": "192.0.2.13",
+                    "status": True,
+                },
+                {
+                    "netId": "network-id",
+                    "name": "first",
+                    "mac": "AA-BB-CC-DD-EE-01",
+                    "ip": "192.0.2.11",
+                    "status": True,
+                },
+            ],
+        }
+
+    def list_all(self, path: str) -> list[dict[str, Any]]:
+        return self.responses[path]
+
+
+class OmadaExportTests(unittest.TestCase):
+    def test_projects_exact_selected_live_domain(self) -> None:
+        value = EXPORTER.build_export(FakeOmada(), "Selected", "Default")
+
+        self.assertEqual(value["controller_version"], "6.2.14.11")
+        self.assertEqual(value["site"], {"id": "site-id", "name": "Selected"})
+        self.assertEqual(value["network"]["id"], "network-id")
+        self.assertEqual(
+            [reservation["mac"] for reservation in value["reservations"]],
+            ["AA-BB-CC-DD-EE-01", "AA-BB-CC-DD-EE-02"],
+        )
+        self.assertEqual(
+            [reservation["enable"] for reservation in value["reservations"]],
+            [True, False],
+        )
+
+    def test_refuses_an_unknown_site(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "exactly one Omada site"):
+            EXPORTER.build_export(FakeOmada(), "Missing", "Default")
+
+    def test_normalizes_supported_mac_formats(self) -> None:
+        self.assertEqual(EXPORTER.normalize_mac("aabb.ccdd.eeff"), "AA-BB-CC-DD-EE-FF")
+        with self.assertRaisesRegex(SystemExit, "invalid MAC"):
+            EXPORTER.normalize_mac("not-a-mac")
+
+
+if __name__ == "__main__":
+    unittest.main()

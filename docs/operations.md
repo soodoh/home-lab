@@ -71,15 +71,18 @@ work=$(mktemp -d)
 chmod 0700 "$work"
 trap 'rm -rf "$work"' EXIT
 
-tofu -chdir="$root" init
+: "${TF_BACKEND_BUCKET:?load the current plan credential environment first}"
+tofu -chdir="$root" init -backend-config="bucket=$TF_BACKEND_BUCKET"
 tofu -chdir="$root" plan -out="$work/plan"
 TOFU_PLAN_CHDIR="$root" scripts/inspect-tofu-plan "$work/plan"
 ```
 
-Use root-specific protected-input helpers where required. Do not print `tofu show
--json`, state, private exports or saved plans. Apply only the saved plan inspected in
-the same session. After apply, run a new plan; zero proposed changes is the completion
-criterion.
+Use root-specific protected-input helpers where required. For Omada, set
+`TF_VAR_omada_export_path` to a nonexistent path in the private temporary directory,
+then run `scripts/prepare-omada-plan-input`; it obtains a fresh live export using the
+read-only provider identity. Do not print `tofu show -json`, state, private exports or
+saved plans. Apply only the saved plan inspected in the same session. After apply, run
+a new plan; zero proposed changes is the completion criterion.
 
 ## 4. Converge the Docker host
 

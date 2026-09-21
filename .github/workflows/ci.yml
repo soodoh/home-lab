@@ -43,6 +43,9 @@ jobs:
           python scripts/test-restic-systemd.py
           scripts/test-recovery-tools
 
+      - name: Validate provider observation inputs
+        run: python scripts/test-omada-export.py
+
       - name: Validate infrastructure policy
         run: infrastructure/policy/test-policy.sh
 
