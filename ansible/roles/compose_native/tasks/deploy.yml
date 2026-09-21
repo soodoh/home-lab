@@ -6,6 +6,7 @@
       - compose_native_source_paths | length > 0
       - compose_native_source_paths | unique | length == compose_native_source_paths | length
       - ansible_check_mode or compose_native_apply_confirmed | bool
+      - ansible_check_mode or compose_native_sops_age_keyfile | length > 0
     fail_msg: Compose deployment requires explicit apply confirmation and a nonempty source set.
 
 - name: Inspect tracked controller checkout state
@@ -45,6 +46,26 @@
 - name: Archive and converge committed Compose source
   when: not ansible_check_mode
   block:
+    - name: Inspect the controller age identity
+      ansible.builtin.stat:
+        path: "{{ compose_native_sops_age_keyfile }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      delegate_to: localhost
+      become: false
+      register: compose_native_controller_age_identity
+      no_log: true
+
+    - name: Require a protected controller age identity
+      ansible.builtin.assert:
+        that:
+          - compose_native_controller_age_identity.stat.isreg | default(false)
+          - not (compose_native_controller_age_identity.stat.islnk | default(false))
+          - compose_native_controller_age_identity.stat.mode in ['0400', '0600']
+        fail_msg: SOPS deployment requires a protected controller age identity.
+      no_log: true
+
     - name: Create a private controller archive
       ansible.builtin.tempfile:
         state: file
@@ -166,64 +187,14 @@
           become: true
           changed_when: true
 
-    - name: Verify the SOPS executable and age identity
-      ansible.builtin.stat:
-        path: "{{ item.path }}"
-        follow: false
-        get_checksum: "{{ item.checksum | default(false) }}"
-        checksum_algorithm: sha256
-        get_mime: false
-      become: true
-      register: compose_native_secret_tools
-      loop:
-        - {path: "{{ compose_native_sops_path }}", mode: "0755", checksum: true, sha256: "{{ compose_native_sops_sha256 }}"}
-        - {path: "{{ compose_native_age_identity_path }}", mode: "0600"}
-      no_log: true
-
-    - name: Require protected SOPS deployment inputs
-      ansible.builtin.assert:
-        that:
-          - item.stat.isreg | default(false)
-          - not (item.stat.islnk | default(false))
-          - item.stat.pw_name == 'root'
-          - item.stat.mode == item.item.mode
-          - item.item.sha256 is not defined or item.stat.checksum == item.item.sha256
-        fail_msg: A protected SOPS deployment input is missing or has an unexpected identity.
-      loop: "{{ compose_native_secret_tools.results }}"
-      no_log: true
-
-    - name: Create a private environment workspace
-      ansible.builtin.tempfile:
-        state: directory
-        path: /etc/docker-compose
-        prefix: .decrypt-
-      become: true
-      register: compose_native_environment_workspace
-      no_log: true
-
-    - name: Decrypt the production environment on the managed host
-      ansible.builtin.command:
-        argv:
-          - "{{ compose_native_sops_path }}"
-          - decrypt
-          - --input-type
-          - dotenv
-          - --output-type
-          - dotenv
-          - --output
-          - "{{ compose_native_environment_workspace.path }}/production.env"
-          - "{{ compose_native_current_dir }}/secrets/production.sops.env"
-      environment:
-        SOPS_AGE_KEY_FILE: "{{ compose_native_age_identity_path }}"
-      become: true
-      changed_when: false
-      no_log: true
-
-    - name: Install the protected production environment
+    - name: Install the protected production environment through community.sops
       ansible.builtin.copy:
-        src: "{{ compose_native_environment_workspace.path }}/production.env"
+        content: >-
+          {{ lookup('community.sops.sops', compose_native_sops_file,
+             input_type='yaml', output_type='dotenv',
+             age_keyfile=compose_native_sops_age_keyfile,
+             sops_binary=compose_native_sops_binary, rstrip=false) }}
         dest: "{{ compose_native_runtime_env_path }}"
-        remote_src: true
         owner: root
         group: root
         mode: "0600"
@@ -331,11 +302,3 @@
         state: absent
       become: true
       when: compose_native_incoming_source.path | default('') | length > 0
-
-    - name: Remove the private environment workspace
-      ansible.builtin.file:
-        path: "{{ compose_native_environment_workspace.path | default('/nonexistent-compose-environment') }}"
-        state: absent
-      become: true
-      no_log: true
-      when: compose_native_environment_workspace.path | default('') | length > 0

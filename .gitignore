@@ -9,7 +9,6 @@ __pycache__/
 # local env files
 .env
 *.env
-!secrets/production.sops.env
 
 # local worktrees
 .worktrees/

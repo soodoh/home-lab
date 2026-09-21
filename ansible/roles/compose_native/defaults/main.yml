@@ -14,14 +14,14 @@ compose_native_expected_service_count: 0
 compose_native_required_healthy_containers: []
 compose_native_wait_timeout: 600
 compose_native_apply_confirmed: false
-compose_native_sops_path: /usr/local/bin/sops
-compose_native_sops_sha256: ""
-compose_native_age_identity_path: /etc/sops/age/keys.txt
+compose_native_sops_file: "{{ compose_native_controller_root }}/secrets/production.sops.yaml"
+compose_native_sops_binary: sops
+compose_native_sops_age_keyfile: "{{ lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') }}"
 compose_native_secret_files: []
 compose_native_source_paths:
   - docker-compose.yml
   - services
-  - secrets/production.sops.env
+  - secrets/production.sops.yaml
 compose_native_files:
   - docker-compose.yml
 compose_native_runtime_cli:

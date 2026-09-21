@@ -47,9 +47,6 @@ compose_native_required_healthy_containers:
   - gluetun
   - seerr
 compose_native_wait_timeout: 600
-compose_native_sops_path: /usr/local/bin/sops
-compose_native_sops_sha256: e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
-compose_native_age_identity_path: /etc/sops/age/keys.txt
 compose_native_secret_files:
   - /etc/docker-compose/credentials/nextcloud-mysql-password
   - /etc/docker-compose/credentials/nextcloud-mariadb-root-password

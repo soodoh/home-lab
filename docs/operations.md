@@ -15,11 +15,13 @@ python3 scripts/check-source-boundaries.py
 python3 scripts/check-compose-image-pins.py
 ```
 
-After decrypting the current environment into a mode-0600 file in this run's private
-temporary directory, validate interpolation without exposing resolved values:
+Provide the controller age identity and validate interpolation through SOPS without
+persisting plaintext or exposing resolved values:
 
 ```sh
-docker compose --env-file "$runtime_env" config --quiet
+export SOPS_AGE_KEY_FILE=/protected/path/to/age-identity
+sops exec-file --no-fifo --input-type yaml --output-type dotenv \
+  secrets/production.sops.yaml 'docker compose --env-file {} config --quiet'
 ```
 
 Treat a dirty checkout, failed boundary check or unreviewed lock-file change as a
@@ -104,6 +106,8 @@ a new plan; zero proposed changes is the completion criterion.
 The complete host interface is [`ansible/playbooks/site.yml`](../ansible/playbooks/site.yml).
 It observes before taking ownership, converges adopted backup files and units, Docker
 maintenance and the complete committed Compose project, then observes the result.
+Compose apply decrypts `secrets/production.sops.yaml` on the controller through
+`community.sops`; `SOPS_AGE_KEY_FILE` must reference the protected age identity.
 
 ```sh
 ansible-playbook ansible/playbooks/site.yml --check

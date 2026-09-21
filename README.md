@@ -37,8 +37,9 @@ yamllint . --no-warnings
 shellcheck $(find . -type f \( -name '*.sh' -o -name '*.bash' \) -not -path './.git/*' -print)
 docker compose config --no-env-resolution --no-interpolate --quiet
 tofu fmt -check -recursive
-# With the current decrypted environment in a private temporary file:
-docker compose --env-file "$runtime_env" config --quiet
+export SOPS_AGE_KEY_FILE=/protected/path/to/age-identity
+sops exec-file --no-fifo --input-type yaml --output-type dotenv \
+  secrets/production.sops.yaml 'docker compose --env-file {} config --quiet'
 
 ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-hosts.yml
 ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-compose.yml

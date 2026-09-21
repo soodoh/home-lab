@@ -6,3 +6,6 @@ collections:
   - name: community.general
     # renovate: datasource=github-tags depName=ansible-collections/community.general
     version: 13.2.0
+  - name: community.sops
+    # renovate: datasource=github-tags depName=ansible-collections/community.sops
+    version: 2.4.0

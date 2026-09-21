@@ -14,10 +14,11 @@ private temporary output when the current run ends.
 
 ## Secrets
 
-`secrets/production.sops.env` is the encrypted application source. The Docker host
-uses `/etc/sops/age/keys.txt`; the identity is root-owned and is not copied into Git.
-Provider credentials are supplied to the current process by the relevant setup
-helper or credential store.
+`secrets/production.sops.yaml` is the structured encrypted application source.
+Compose deployment decrypts it through `community.sops` on the controller; provide
+the age identity through `SOPS_AGE_KEY_FILE`. The identity is never copied into Git
+or to deployment artifacts. Provider credentials are supplied to the current process
+by the relevant setup helper or credential store.
 
 The repository may contain public age recipients, public certificates and CA
 certificates when they are trust inputs rather than proof of a completed action.
