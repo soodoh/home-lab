@@ -32,12 +32,12 @@ operator-created configuration:
 | Tunnel pool | `10.88.0.1/24` |
 | Clients | none |
 
-OpenTofu imports this server and owns only the fields exposed by the pinned Omada
-provider: name and enabled state. The provider reads the purpose code and
-preserves unmodelled fields during an update, but it cannot configure or verify
-the WireGuard protocol, interface, keys, service port, tunnel pool or clients.
-The initial UI configuration therefore remains an explicit provider gap rather
-than falsely modelled desired state.
+A fresh read-only API observation proved that the pinned Omada provider's
+`/setting/vpns` endpoint does not expose client-to-site WireGuard servers. The
+server therefore cannot be imported or managed by `omada_vpn`, even for name or
+enabled state. It is an explicit, operator-approved UI-owned exception until the
+provider gains a dedicated client-to-site WireGuard resource. OpenTofu must not
+claim partial ownership through the unrelated VPN endpoint.
 
 Do not add a client until its routes and gateway ACLs are reviewed together. A
 future deployment peer needs only:

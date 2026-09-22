@@ -106,12 +106,12 @@ Use root-specific protected-input helpers where required. Pass an allowlist only
 that root has a reviewed file under `infrastructure/policy/allow/`; omit the argument
 otherwise. For Omada, set `TF_VAR_omada_export_path` to a nonexistent path in the
 private temporary directory, then run `scripts/prepare-omada-plan-input`; it obtains a
-fresh live export over the LAN using the read-only provider identity. The imported VPN
-ownership is intentionally limited to name and enabled state; see
-[deployment access](deployment-access.md). Do not print `tofu show -json`, state,
-private exports or saved plans. Apply only the saved plan inspected in the same
-session. After apply, run a new plan; zero proposed changes is the completion
-criterion.
+fresh live export over the LAN using the read-only provider identity. The
+client-to-site WireGuard server is a documented UI-owned provider gap and is not
+included in the export; see [deployment access](deployment-access.md). Do not print
+`tofu show -json`, state, private exports or saved plans. Apply only the saved plan
+inspected in the same session. After apply, run a new plan; zero proposed changes is
+the completion criterion.
 
 ## 4. Converge managed hosts
 

@@ -1,8 +1,7 @@
 # Omada live export input
 
 This root owns its non-secret controller version and endpoint in
-`domain.auto.tfvars.json`, including the exact site, network and UI-bootstrapped
-VPN selectors.
+`domain.auto.tfvars.json`, including the exact site and network selectors.
 `omada_export_path` is an explicit absolute path to a
 mode-0600 JSON export created from the current controller session in a new private
 temporary directory. [`scripts/prepare-omada-plan-input`](../../../scripts/prepare-omada-plan-input)
@@ -26,12 +25,6 @@ The required shape is:
     "dhcp_start": "192.168.0.10",
     "dhcp_end": "192.168.0.99"
   },
-  "vpn": {
-    "id": "vpn-id",
-    "name": "home_lab_deploy",
-    "enable": true,
-    "purpose": 4
-  },
   "reservations": [
     { "name": "arch", "mac": "AA-BB-CC-DD-EE-FF", "ip": "192.168.0.100", "enable": true }
   ]
@@ -41,7 +34,7 @@ The required shape is:
 Values above are synthetic. The preparation helper requires
 `TF_VAR_omada_export_path` to name a nonexistent file in a mode-0700 directory,
 verifies the managed `Omada` host alias and private CA, and creates the export
-without replacement. The provider can preserve and import the selected VPN, but
-models only its name, enabled state and read-only purpose. It does not prove or
-manage the WireGuard protocol, keys, port, pool or clients. Never carry the
-export into another session.
+without replacement. The client-to-site WireGuard server is not exposed by the
+provider's VPN endpoint and is intentionally absent from this export; see
+[deployment access](../../../docs/deployment-access.md). Never carry the export
+into another session.
