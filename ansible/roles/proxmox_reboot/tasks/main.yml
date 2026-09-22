@@ -176,7 +176,7 @@
         reboot_timeout: 900
         pre_reboot_delay: 0
         post_reboot_delay: 20
-        test_command: /usr/sbin/pveversion
+        test_command: /usr/bin/pveversion
         msg: Approved native home-lab maintenance reboot
 
     - name: Recheck protected host capabilities after reboot
