@@ -52,7 +52,7 @@
   loop_control:
     label: "{{ item.item }}"
 
-- name: Read loaded autonomous firewall watchdog properties
+- name: Read retired custom firewall watchdog properties
   ansible.builtin.command:
     argv:
       - /usr/bin/systemctl
@@ -64,23 +64,12 @@
   changed_when: false
   check_mode: false
 
-- name: Verify a bounded firewall-recovery transition state
+- name: Require the custom firewall watchdog to remain retired
   ansible.builtin.assert:
     that:
-      - >-
-        (
-          'LoadState=loaded' in proxmox_observe_watchdog.stdout_lines and
-          'ActiveState=active' in proxmox_observe_watchdog.stdout_lines and
-          'UnitFileState=enabled' in proxmox_observe_watchdog.stdout_lines
-        ) or (
-          'LoadState=loaded' in proxmox_observe_watchdog.stdout_lines and
-          'ActiveState=inactive' in proxmox_observe_watchdog.stdout_lines and
-          'UnitFileState=disabled' in proxmox_observe_watchdog.stdout_lines
-        ) or (
-          'LoadState=not-found' in proxmox_observe_watchdog.stdout_lines and
-          'ActiveState=inactive' in proxmox_observe_watchdog.stdout_lines
-        )
-    fail_msg: Firewall recovery is neither active, staged for retirement nor absent.
+      - "'LoadState=not-found' in proxmox_observe_watchdog.stdout_lines"
+      - "'ActiveState=inactive' in proxmox_observe_watchdog.stdout_lines"
+    fail_msg: The retired custom firewall watchdog is present.
 
 - name: Observe the native firewall policy independently
   ansible.builtin.import_tasks: firewall.yml
@@ -189,12 +178,7 @@
       native_ssh_become: verified
       required_services: active
       firewall_policy: matches
-      firewall_watchdog: >-
-        {{
-          'enabled-active'
-          if 'ActiveState=active' in proxmox_observe_watchdog.stdout_lines
-          else ('staged-inactive' if 'LoadState=loaded' in proxmox_observe_watchdog.stdout_lines else 'absent')
-        }}
+      firewall_watchdog: absent
       persistent_owners: absent
       protected_access: matches
       protected_hardware: matches

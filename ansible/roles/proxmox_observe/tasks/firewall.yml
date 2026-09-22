@@ -103,7 +103,7 @@
     stdin_add_newline: false
   environment:
     HOME_LAB_FIREWALL_POLICY: >-
-      {{ lookup('ansible.builtin.file', role_path ~ '/../../../infrastructure/proxmox-firewall/host/proxmox-firewall-policy.json') }}
+      {{ lookup('ansible.builtin.file', role_path ~ '/../../../infrastructure/policy/proxmox-firewall.json') }}
     http_proxy: ''
     https_proxy: ''
     all_proxy: ''

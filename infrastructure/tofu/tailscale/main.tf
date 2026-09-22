@@ -59,13 +59,7 @@ locals {
         action = "accept"
         src    = ["autogroup:owner"]
         dst    = [local.tags.proxmox]
-        users  = ["proxmox", "firewall-apply"]
-      },
-      {
-        action = "accept"
-        src    = ["autogroup:admin"]
-        dst    = [local.tags.proxmox]
-        users  = ["firewall-apply"]
+        users  = ["proxmox"]
       },
     ]
 
@@ -107,8 +101,8 @@ locals {
       {
         src    = local.owner_identity
         dst    = [local.tags.proxmox]
-        accept = ["proxmox", "firewall-apply"]
-        deny   = ["ansible-deploy", "ansible-plan", "docker", "qualification-apply", "root", "tofu-plan", "tofu-apply"]
+        accept = ["proxmox"]
+        deny   = ["ansible-deploy", "ansible-plan", "docker", "firewall-apply", "qualification-apply", "root", "tofu-plan", "tofu-apply"]
       },
     ]
   }

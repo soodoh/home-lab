@@ -62,7 +62,7 @@ ROOT_KEY_LINK = Path("/root/.ssh/authorized_keys")
 AUTHORIZED_KEY_ABSENCE_CATALOG = tuple(sorted({
     PVE_ROOT + "/priv/authorized_keys2",
     "/root/.ssh/authorized_keys2",
-    *(f"/home/{account}" + SSH_DIRECTORY + "/" + name for account in ("proxmox", "firewall-apply", "ansible-plan", "ansible-deploy", "tofu-plan", "tofu-apply") for name in KEY_NAMES),
+    *(f"/home/{account}" + SSH_DIRECTORY + "/" + name for account in ("proxmox", "ansible-plan", "ansible-deploy", "tofu-plan", "tofu-apply") for name in KEY_NAMES),
 }))
 
 def canonical(value):

@@ -62,7 +62,8 @@ credentials and encrypted bundles live outside Git.
 - Proxmox remote state owns the adopted VM, its managed disks and its PCI and USB
   hardware mappings. The inert first disk block preserves provider list indexes after
   retirement of its former bus slot; changing that tombstone requires an explicit
-  provider/state migration.
+  provider/state migration. Native Proxmox services persist the firewall policy; the
+  observer reads the API and requires the reviewed policy and both backends to match.
 - Data recovery stages into a new private directory before any production decision.
 - External Nextcloud user data is outside the managed Restic recovery group and must
   be handled independently.

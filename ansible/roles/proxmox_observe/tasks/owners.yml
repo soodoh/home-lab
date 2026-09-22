@@ -11,7 +11,6 @@
     - /var/lib/home-lab/reconciliation/apply.lock
     - /var/lib/home-lab/reconciliation/owner.lock
     - /var/lib/home-lab/reconciliation/nix.lock
-    - /var/lib/home-lab/firewall-transaction/active.json
   register: proxmox_observe_owners
 
 - name: Refuse a retained operation owner without reconciling it
