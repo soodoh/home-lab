@@ -6,16 +6,12 @@ reviewed checkout and observations made during the current run.
 ## 1. Prepare a disposable controller
 
 Use a clean checkout with `tofu`, Ansible, Docker Compose, Python and the pinned
-JavaScript package manager available. Connect to the home LAN and expose the existing
-Bitwarden SSH agent without writing credentials into the repository. Tailscale is an
-independent personal recovery path, not a deployment prerequisite.
+JavaScript package manager available. Establish provider credentials and authenticated
+Tailscale access without writing credentials into the repository.
 
 ```sh
 git status --short
-test "$SSH_AUTH_SOCK" = "$HOME/.bitwarden-ssh-agent.sock"
-test "$(ssh-add -L | wc -l | tr -d ' ')" = 1
-ssh-add -L | ssh-keygen -lf - -E sha256 | grep --fixed-strings \
-  'SHA256:UKIt1zHVexMpz9we72AErUd+DBrQh4cyoGa1gqOGPmA' >/dev/null
+tailscale status
 python3 scripts/check-source-boundaries.py
 python3 scripts/check-compose-image-pins.py
 ```
@@ -40,7 +36,7 @@ provider_session=$(mktemp -d)
 chmod 0700 "$provider_session"
 trap 'rm -rf "$provider_session"' EXIT
 export HOME_LAB_PROVIDER_SESSION_DIR=$provider_session
-# Supply the current protected hardware observation and Omada CA, then run:
+# Supply the current protected hardware observation and provider identities, then run:
 scripts/configure-local-provider-credentials
 ```
 
@@ -106,32 +102,38 @@ Use root-specific protected-input helpers where required. Pass an allowlist only
 that root has a reviewed file under `infrastructure/policy/allow/`; omit the argument
 otherwise. For Omada, set `TF_VAR_omada_export_path` to a nonexistent path in the
 private temporary directory, then run `scripts/prepare-omada-plan-input`; it obtains a
-fresh live export over the LAN using the read-only provider identity, including all
-port-forwarding rules in the selected site. The client-to-site WireGuard server is a
-documented UI-owned provider gap and is not included in the export; see
-[deployment access](deployment-access.md). Do not print
+fresh live export through the Docker host's tailnet-only Tailscale Serve endpoint on
+TCP 8443 using the system trust store and read-only provider identity, including all
+port-forwarding rules in the selected site. Do not print
 `tofu show -json`, state, private exports or saved plans. Apply only the saved plan
 inspected in the same session. After apply, run a new plan; zero proposed changes is
 the completion criterion.
 
 ## 4. Converge managed hosts
 
-Native SSH identity, sshd and sudo policy for both hosts is owned by
-[`configure-native-ssh.yml`](../ansible/playbooks/configure-native-ssh.yml). Run its
-check mode before apply. During the one-time Tailscale-to-LAN migration, use a private
-temporary inventory that preserves the reviewed old Tailscale endpoints only for this
-bootstrap; do not commit or reuse that inventory. Validate the normal inventory over
-LAN immediately afterward.
+Tailscale SSH account, sudo policy and native-key retirement for both hosts are owned
+by [`configure-tailscale-ssh.yml`](../ansible/playbooks/configure-tailscale-ssh.yml).
+The Docker host's complete node-level Serve configuration is owned by
+[`configure-tailscale-serve.yml`](../ansible/playbooks/configure-tailscale-serve.yml).
+It requires tailnet HTTPS certificates to be enabled, exact host identity and an empty
+or matching ownership boundary; convergence replaces any extra node-level Serve route.
+Its only TLS-verification exception is the encrypted loopback hop to Omada on 8043;
+controllers and runners strictly verify the Serve certificate with system trust.
+Apply the Tailscale policy first, verify both MagicDNS endpoints through Tailscale, then
+run the focused plays in check mode before apply.
 
 ```sh
-ansible-playbook ansible/playbooks/configure-native-ssh.yml --check
-ansible-playbook ansible/playbooks/configure-native-ssh.yml
+ansible-playbook ansible/playbooks/configure-tailscale-ssh.yml --check
+ansible-playbook ansible/playbooks/configure-tailscale-ssh.yml
+ansible-playbook ansible/playbooks/configure-tailscale-serve.yml --check
+ansible-playbook ansible/playbooks/configure-tailscale-serve.yml
 ansible-playbook ansible/playbooks/observe-hosts.yml
 ```
 
 The complete Docker-host interface is [`ansible/playbooks/site.yml`](../ansible/playbooks/site.yml).
-It observes before taking ownership, converges adopted backup files and units, Docker
-maintenance and the complete committed Compose project, then observes the result.
+It observes before taking ownership, converges deployment access, Tailscale Serve,
+adopted backup files and units, Docker maintenance and the complete committed Compose
+project, then observes the result.
 Compose apply decrypts `secrets/production.sops.yaml` on the controller through
 `community.sops`; `SOPS_AGE_KEY_FILE` must reference the protected age identity.
 

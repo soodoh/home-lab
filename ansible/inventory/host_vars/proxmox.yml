@@ -78,9 +78,8 @@ proxmox_maintenance_policy:
 # Existing sealed host inputs supply identities/credentials, never runner artifacts.
 # Keep this policy aligned with the separately managed PVE access declarations.
 proxmox_observe_protected_spec:
-  conventionalKeyPolicy: single-deploy-key-plus-inert-pve-root-key
+  conventionalKeyPolicy: single-inert-pve-root-key
   permittedRootKeyFingerprint: SHA256:Je+jcqxxdCTlcMc8sZToiF3oZrLIJ+N6mxNhiosUIXw
-  deployKeyFingerprint: SHA256:UKIt1zHVexMpz9we72AErUd+DBrQh4cyoGa1gqOGPmA
   node: proxmox
   pool: storage
   protectedAccessExpectedCount: 3

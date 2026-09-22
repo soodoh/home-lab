@@ -1,5 +1,5 @@
 ---
-- name: Converge native deployment SSH access
+- name: Converge Tailscale deployment SSH access
   hosts: home_lab
   gather_facts: true
   gather_subset: ['!all', min]
@@ -13,13 +13,13 @@
         name: apply_lock
       vars:
         apply_lock_action: acquire
-        apply_lock_operation: native-ssh-access
+        apply_lock_operation: tailscale-deployment-access
   roles:
-    - role: native_ssh_access
+    - role: tailscale_deploy_access
   post_tasks:
     - name: Release host mutation ownership after successful convergence
       ansible.builtin.import_role:
         name: apply_lock
       vars:
         apply_lock_action: release
-        apply_lock_operation: native-ssh-access
+        apply_lock_operation: tailscale-deployment-access

@@ -19,9 +19,13 @@
         apply_lock_operation: native-site-convergence
 
   tasks:
-    - name: Converge native deployment SSH access
+    - name: Converge Tailscale deployment SSH access
       ansible.builtin.import_role:
-        name: native_ssh_access
+        name: tailscale_deploy_access
+
+    - name: Converge tailnet-only Omada HTTPS
+      ansible.builtin.import_role:
+        name: tailscale_serve
 
     - name: Re-observe active Compose state under production ownership
       ansible.builtin.import_role:

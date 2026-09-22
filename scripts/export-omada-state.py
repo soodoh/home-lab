@@ -28,11 +28,11 @@ class RoutedHTTPSConnection(http.client.HTTPSConnection):
 
 
 class Omada:
-    def __init__(self, url: str, connect_host: str, ca_file: Path, username: str, password: str):
+    def __init__(self, url: str, connect_host: str, username: str, password: str):
         parsed = urlparse(url)
         if parsed.scheme != "https" or not parsed.hostname or parsed.path not in ("", "/"):
             raise SystemExit("OMADA_URL must be an HTTPS origin without a path")
-        context = ssl.create_default_context(cafile=str(ca_file))
+        context = ssl.create_default_context()
         self.connection = RoutedHTTPSConnection(
             parsed.hostname, connect_host, parsed.port or 443, context
         )
@@ -194,7 +194,6 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--connect-host", required=True)
-    parser.add_argument("--ca-file", type=Path, required=True)
     parser.add_argument("--site", required=True)
     parser.add_argument("--network", required=True)
     args = parser.parse_args()
@@ -205,7 +204,7 @@ def main() -> None:
     if not url or not username or not password:
         raise SystemExit("OMADA_URL, OMADA_USERNAME, and OMADA_PASSWORD are required")
 
-    client = Omada(url, args.connect_host, args.ca_file, username, password)
+    client = Omada(url, args.connect_host, username, password)
     export = build_export(client, args.site, args.network)
     output = args.output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)

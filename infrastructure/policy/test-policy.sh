@@ -37,6 +37,5 @@ for fixture in delete replace protection-disable ct-create ct-recreate root-disk
 done
 python3 "$root/test-oidc-ownership.py"
 python3 "$root/test-controller-identity-gate.py"
-python3 "$root/../../scripts/controller/test-omada-host-alias.py"
 
 echo "plan policy fixtures passed"

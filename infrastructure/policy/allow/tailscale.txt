@@ -1,2 +1,3 @@
-# Reviewed personal Tailscale policy. Deletion remains forbidden.
+# Reviewed Tailscale deployment policy and GitHub workload identity. Deletion remains forbidden.
 tailscale_acl.policy[0]
+tailscale_federated_identity.ci_deploy[0]

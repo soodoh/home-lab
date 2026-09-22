@@ -21,21 +21,28 @@ or to deployment artifacts. Provider credentials are supplied to the current pro
 by the relevant setup helper or credential store.
 
 The repository may contain public age recipients, public certificates and CA
-certificates when they are trust inputs rather than proof of a completed action.
+certificates when they are trust inputs rather than proof of a completed action. The
+Omada provider and export helper use the Docker host's tailnet-only Tailscale Serve
+endpoint on TCP 8443. Controllers strictly verify its publicly trusted certificate
+with the system trust store and hold no Omada CA or server private key. Omada forces
+API login from HTTP to its private-CA HTTPS listener, so the one bounded exception is
+Serve's encrypted but unauthenticated `https+insecure://127.0.0.1:8043` backend hop.
+That hop cannot leave the Docker host; accepting it treats local host compromise as
+already inside the provider trust boundary. Do not broaden the exception to a LAN or
+tailnet address, restore a hostname alias, expose a loopback listener, or disable
+client-side TLS verification.
 
 ## SSH and privilege
 
-[`ansible/inventory/hosts.yml`](../ansible/inventory/hosts.yml) fixes the
-Omada-reserved LAN addresses, `ansible-deploy` users, host-key aliases and
-noninteractive native OpenSSH policy. The selected public identity is committed as a
-trust input; its private key remains in the Bitwarden SSH agent and is selected
-through `${SSH_AUTH_SOCK}`. Host changes use Ansible become. Tailscale is personal
-access only and is not a deployment transport. See
-[deployment access](deployment-access.md) for the current path and future CI
-boundary.
+[`ansible/inventory/hosts.yml`](../ansible/inventory/hosts.yml) fixes the Tailscale
+MagicDNS names, `ansible-deploy` users, host-key aliases and credential-free OpenSSH
+client policy. Tailscale authenticates the source identity and Tailscale SSH maps it
+to the local account; native authorized keys remain absent. Host changes use Ansible
+become. See [deployment access](deployment-access.md) for the local path and the
+narrow GitHub workload-identity boundary.
 
-Observe independent console or personal Tailscale access before work that can change
-networking, firewall, storage or boot behavior.
+Observe independent console access before work that can change Tailscale, networking,
+firewall, storage or boot behavior.
 
 ## OpenTofu state and plans
 

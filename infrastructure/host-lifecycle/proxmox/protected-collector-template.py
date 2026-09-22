@@ -59,13 +59,10 @@ PVE_ROOT_KEY = Path(PVE_ROOT + "/priv/authorized_keys")
 
 ROOT_KEY_LINK = Path("/root/.ssh/authorized_keys")
 
-DEPLOY_KEY = Path("/home/ansible-deploy/.ssh/authorized_keys")
-
 AUTHORIZED_KEY_ABSENCE_CATALOG = tuple(sorted({
     PVE_ROOT + "/priv/authorized_keys2",
     "/root/.ssh/authorized_keys2",
-    "/home/ansible-deploy/.ssh/authorized_keys2",
-    *(f"/home/{account}" + SSH_DIRECTORY + "/" + name for account in ("proxmox", "ansible-plan", "tofu-plan", "tofu-apply") for name in KEY_NAMES),
+    *(f"/home/{account}" + SSH_DIRECTORY + "/" + name for account in ("proxmox", "ansible-plan", "ansible-deploy", "tofu-plan", "tofu-apply") for name in KEY_NAMES),
 }))
 
 def canonical(value):
@@ -476,34 +473,13 @@ def inert_root_key_ok():
     except (OSError, UnicodeError, ValueError):
         return False
 
-def deploy_key_ok():
-    try:
-        account = pwd.getpwnam("ansible-deploy")
-        text = read_fixed(DEPLOY_KEY, owner_name="ansible-deploy")
-        active = [line.split() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")] if text is not None else []
-        observed = ssh_key_fingerprint(active[0]) if len(active) == 1 else None
-        sudoers = read_fixed(Path("/etc/sudoers.d/ansible-deploy"), required_mode=0o440)
-        sshd = run(("/usr/sbin/sshd", "-T", "-C", "user=ansible-deploy,host=proxmox,addr=127.0.0.1,laddr=127.0.0.1,lport=22"))
-        effective = set(sshd.decode("utf-8", "strict").splitlines()) if sshd is not None else set()
-        return account.pw_dir == "/home/ansible-deploy" and account.pw_shell == "/bin/bash" and \
-            observed == SPEC["deployKeyFingerprint"] and \
-            sudoers == "ansible-deploy ALL=(root) NOPASSWD: ALL\n" and \
-            "pubkeyauthentication yes" in effective and \
-            "authenticationmethods publickey" in effective and \
-            "passwordauthentication no" in effective and \
-            "kbdinteractiveauthentication no" in effective and \
-            "permitrootlogin no" in effective
-    except (OSError, KeyError, UnicodeError, ValueError):
-        return False
-
 def summaries():
     try:
         state = runtime_state()
         access = state["access"]
-        if SPEC["conventionalKeyPolicy"] != "single-deploy-key-plus-inert-pve-root-key":
+        if SPEC["conventionalKeyPolicy"] != "single-inert-pve-root-key":
             raise ValueError("protected conventional-key policy differs")
-        conventional_ok = inert_root_key_ok() and deploy_key_ok() and \
-            all(absent_fixed(Path(path)) for path in AUTHORIZED_KEY_ABSENCE_CATALOG)
+        conventional_ok = inert_root_key_ok() and all(absent_fixed(Path(path)) for path in AUTHORIZED_KEY_ABSENCE_CATALOG)
         escrow = Path("/root") / ".config" / "home-lab"
         plan_escrow = read_fixed(escrow / "proxmox-plan-token.env")
         apply_escrow = read_fixed(escrow / "proxmox-apply-token.env")

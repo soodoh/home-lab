@@ -1,0 +1,22 @@
+---
+- name: Converge tailnet-only Omada HTTPS
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ['!all', min]
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Acquire host mutation ownership
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: tailscale-serve
+  roles:
+    - role: tailscale_serve
+  post_tasks:
+    - name: Release host mutation ownership after successful convergence
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: tailscale-serve

@@ -6,10 +6,6 @@ umask 077
 : "${HOME_LAB_PROVIDER_CA_DIR:?HOME_LAB_PROVIDER_CA_DIR is required}"
 [[ $HOME_LAB_PROVIDER_CA_DIR = /* ]]
 [[ ! -e $HOME_LAB_PROVIDER_CA_DIR && ! -L $HOME_LAB_PROVIDER_CA_DIR ]]
-if [[ ${TF_VAR_omada_enable_management:-false} == true ]]; then
-  : "${OMADA_CA_PEM:?OMADA_CA_PEM is required when Omada management is enabled}"
-fi
-
 command -v openssl >/dev/null || { echo "missing command: openssl" >&2; exit 69; }
 install -d -m 0700 "$HOME_LAB_PROVIDER_CA_DIR"
 proxmox_ca=$HOME_LAB_PROVIDER_CA_DIR/proxmox.pem
@@ -37,16 +33,6 @@ elif [[ $(uname -s) == Darwin ]]; then
 fi
 cat "$proxmox_ca" >>"$bundle"
 printf '\n' >>"$bundle"
-if [[ ${TF_VAR_omada_enable_management:-false} == true ]]; then
-  omada_ca=$HOME_LAB_PROVIDER_CA_DIR/omada.pem
-  printf '%s' "$OMADA_CA_PEM" >"$omada_ca"
-  openssl verify -CAfile "$omada_ca" "$omada_ca" >/dev/null
-  cat "$omada_ca" >>"$bundle"
-  printf '\n' >>"$bundle"
-fi
 openssl verify -CAfile "$bundle" "$proxmox_ca" >/dev/null
-if [[ ${TF_VAR_omada_enable_management:-false} == true ]]; then
-  openssl verify -CAfile "$bundle" "$omada_ca" >/dev/null
-fi
 chmod 0600 "$HOME_LAB_PROVIDER_CA_DIR"/*.pem
 printf 'provider_ca_bundle=prepared directory=%s\n' "$HOME_LAB_PROVIDER_CA_DIR"

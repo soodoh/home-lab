@@ -4,53 +4,21 @@ umask 077
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
-action=${1:-prepare}
-alias_helper=$repo_root/scripts/controller/omada-host-alias.py
-
-case "$action" in
-  configure-alias)
-    python_path=$(command -v python3) || { echo "missing command: python3" >&2; exit 69; }
-    command -v sudo >/dev/null || { echo "missing command: sudo" >&2; exit 69; }
-    exec sudo "$python_path" "$alias_helper" configure
-    ;;
-  verify-alias)
-    command -v python3 >/dev/null || { echo "missing command: python3" >&2; exit 69; }
-    exec python3 "$alias_helper" verify
-    ;;
-  remove-alias)
-    python_path=$(command -v python3) || { echo "missing command: python3" >&2; exit 69; }
-    command -v sudo >/dev/null || { echo "missing command: sudo" >&2; exit 69; }
-    exec sudo "$python_path" "$alias_helper" remove
-    ;;
-  prepare) ;;
-  *)
-    echo "usage: scripts/prepare-omada-plan-input [prepare|configure-alias|verify-alias|remove-alias]" >&2
-    exit 64
-    ;;
-esac
+[[ $# == 0 ]] || { echo "usage: scripts/prepare-omada-plan-input" >&2; exit 64; }
 
 [[ ${TF_VAR_omada_enable_management:-false} == true ]] || exit 0
-: "${OMADA_CA_PEM:?OMADA_CA_PEM is required when Omada management is enabled}"
 : "${OMADA_URL:?OMADA_URL is required when Omada management is enabled}"
 : "${OMADA_USERNAME:?OMADA_USERNAME is required when Omada management is enabled}"
 : "${OMADA_PASSWORD:?OMADA_PASSWORD is required when Omada management is enabled}"
 : "${TF_VAR_omada_export_path:?TF_VAR_omada_export_path is required}"
-[[ $OMADA_URL == https://Omada:8043 ]]
+[[ $OMADA_URL == https://docker-host.tailea1a78.ts.net:8443 ]]
 [[ $TF_VAR_omada_export_path = /* ]]
 [[ ! -e $TF_VAR_omada_export_path && ! -L $TF_VAR_omada_export_path ]]
-for command in openssl python3; do
-  command -v "$command" >/dev/null || { echo "missing command: $command" >&2; exit 69; }
-done
+command -v python3 >/dev/null || { echo "missing command: python3" >&2; exit 69; }
 
 output_parent=$(dirname "$TF_VAR_omada_export_path")
 [[ -d $output_parent && ! -L $output_parent ]]
 [[ $(stat -c '%a' "$output_parent" 2>/dev/null || stat -f '%Lp' "$output_parent") == 700 ]]
-ca_file=$(mktemp "$output_parent/omada-ca.XXXXXX")
-trap 'rm -f "$ca_file"' EXIT INT TERM
-printf '%s' "$OMADA_CA_PEM" >"$ca_file"
-chmod 0600 "$ca_file"
-openssl verify -CAfile "$ca_file" "$ca_file" >/dev/null
-python3 "$alias_helper" verify
 omada_site=$(python3 - "$repo_root/infrastructure/tofu/omada/domain.auto.tfvars.json" site_name <<'PY'
 import json
 import sys
@@ -73,7 +41,6 @@ PY
 )
 python3 "$repo_root/scripts/export-omada-state.py" \
   --output "$TF_VAR_omada_export_path" \
-  --connect-host Omada \
-  --ca-file "$ca_file" \
+  --connect-host docker-host.tailea1a78.ts.net \
   --site "$omada_site" \
   --network "$omada_network"

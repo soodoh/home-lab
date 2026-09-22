@@ -1,0 +1,151 @@
+---
+- name: Validate the exact node-level Tailscale Serve interface
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname == 'docker-host'
+      - tailscale_serve_hostname is match('^[a-z0-9-]+\.[a-z0-9]+\.ts\.net$')
+      - tailscale_serve_https_port | int == 8443
+      - tailscale_serve_backend_url == 'https+insecure://127.0.0.1:8043'
+      - tailscale_serve_health_path == '/api/info'
+    fail_msg: Tailscale Serve requires the reviewed Docker-host Omada endpoint.
+
+- name: Read Tailscale node identity and capabilities
+  ansible.builtin.command:
+    argv: [/usr/bin/tailscale, status, --json]
+  register: tailscale_serve_node_status
+  changed_when: false
+  check_mode: false
+
+- name: Define the exact owned Serve configuration
+  ansible.builtin.set_fact:
+    tailscale_serve_node: "{{ tailscale_serve_node_status.stdout | from_json }}"
+    tailscale_serve_expected_config: >-
+      {{
+        {
+          'TCP': {
+            (tailscale_serve_https_port | string): {'HTTPS': true}
+          },
+          'Web': {
+            tailscale_serve_hostname ~ ':' ~ (tailscale_serve_https_port | string): {
+              'Handlers': {
+                '/': {'Proxy': tailscale_serve_backend_url}
+              }
+            }
+          }
+        }
+      }}
+
+- name: Require the reviewed Tailscale identity and HTTPS capability
+  ansible.builtin.assert:
+    that:
+      - tailscale_serve_node.BackendState == 'Running'
+      - tailscale_serve_node.Self.DNSName | trim('.') == tailscale_serve_hostname
+      - "'https' in tailscale_serve_node.Self.CapMap"
+      - >-
+        tailscale_serve_node.Self.TailscaleIPs |
+        select('match', '^[0-9.]+$') | list | length == 1
+    fail_msg: The Docker host lacks its reviewed Tailscale identity or tailnet HTTPS capability.
+
+- name: Read the active node-level Serve configuration
+  ansible.builtin.command:
+    argv: [/usr/bin/tailscale, serve, status, --json]
+  register: tailscale_serve_current_status
+  changed_when: false
+  check_mode: false
+
+- name: Decide whether the exact Serve configuration needs convergence
+  ansible.builtin.set_fact:
+    tailscale_serve_current_config: "{{ tailscale_serve_current_status.stdout | from_json }}"
+    tailscale_serve_requires_change: >-
+      {{
+        (tailscale_serve_current_status.stdout | from_json) !=
+        tailscale_serve_expected_config
+      }}
+
+- name: Report Serve drift during check mode
+  ansible.builtin.debug:
+    msg: The complete node-level Tailscale Serve configuration would be replaced.
+  changed_when: true
+  when:
+    - ansible_check_mode
+    - tailscale_serve_requires_change
+
+- name: Reset drifted node-level Serve configuration
+  ansible.builtin.command:
+    argv: [/usr/bin/tailscale, serve, reset]
+  become: true
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - tailscale_serve_requires_change
+    - tailscale_serve_current_config | length > 0
+
+- name: Publish Omada through tailnet-only HTTPS
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/tailscale
+      - serve
+      - --bg
+      - "--https={{ tailscale_serve_https_port }}"
+      - --yes
+      - "{{ tailscale_serve_backend_url }}"
+  become: true
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - tailscale_serve_requires_change
+
+- name: Read the converged node-level Serve configuration
+  ansible.builtin.command:
+    argv: [/usr/bin/tailscale, serve, status, --json]
+  register: tailscale_serve_converged_status
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode or not tailscale_serve_requires_change
+
+- name: Require the complete exact Serve configuration
+  ansible.builtin.assert:
+    that:
+      - >-
+        (tailscale_serve_converged_status.stdout | from_json) ==
+        tailscale_serve_expected_config
+    fail_msg: Node-level Tailscale Serve configuration differs from the reviewed Omada proxy.
+  when: not ansible_check_mode or not tailscale_serve_requires_change
+
+- name: Verify Omada through strict Tailscale Serve TLS
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/curl
+      - --fail-with-body
+      - --silent
+      - --show-error
+      - --connect-timeout
+      - '10'
+      - --max-time
+      - '30'
+      - --output
+      - /dev/null
+      - --resolve
+      - >-
+        {{ tailscale_serve_hostname }}:{{ tailscale_serve_https_port }}:{{
+          tailscale_serve_node.Self.TailscaleIPs |
+          select('match', '^[0-9.]+$') | first
+        }}
+      - >-
+        https://{{ tailscale_serve_hostname }}:{{ tailscale_serve_https_port }}{{ tailscale_serve_health_path }}
+  register: tailscale_serve_health
+  changed_when: false
+  check_mode: false
+  retries: 12
+  delay: 5
+  until: tailscale_serve_health.rc == 0
+  when: not ansible_check_mode
+
+- name: Summarize Tailscale Serve convergence
+  ansible.builtin.debug:
+    msg:
+      endpoint: "https://{{ tailscale_serve_hostname }}:{{ tailscale_serve_https_port }}"
+      backend: "{{ tailscale_serve_backend_url }}"
+      client_tls_trust: system
+      backend_tls_authentication: disabled-loopback-only
+      tailnet_only: true

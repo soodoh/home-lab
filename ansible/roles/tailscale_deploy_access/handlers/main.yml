@@ -3,10 +3,10 @@
   ansible.builtin.command:
     argv: [/usr/sbin/sshd, -t]
   changed_when: false
-  listen: Reload native SSH daemon
+  listen: Reload OpenSSH after retiring native deployment access
 
 - name: Reload native SSH daemon after validation
   ansible.builtin.systemd_service:
     name: ssh.service
     state: reloaded
-  listen: Reload native SSH daemon
+  listen: Reload OpenSSH after retiring native deployment access

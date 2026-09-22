@@ -7,13 +7,8 @@
       - ansible_become | bool
       - proxmox_observe_protected_spec.node == 'proxmox'
       - proxmox_observe_protected_spec.pool == 'storage'
-      - >-
-        proxmox_observe_protected_spec.conventionalKeyPolicy ==
-        'single-deploy-key-plus-inert-pve-root-key'
+      - proxmox_observe_protected_spec.conventionalKeyPolicy == 'single-inert-pve-root-key'
       - proxmox_observe_protected_spec.permittedRootKeyFingerprint == 'SHA256:Je+jcqxxdCTlcMc8sZToiF3oZrLIJ+N6mxNhiosUIXw'
-      - >-
-        proxmox_observe_protected_spec.deployKeyFingerprint ==
-        'SHA256:UKIt1zHVexMpz9we72AErUd+DBrQh4cyoGa1gqOGPmA'
       - proxmox_observe_protected_spec.protectedAccessExpectedCount == 3
     fail_msg: Native observation requires the reviewed Proxmox SSH/become inventory.
 

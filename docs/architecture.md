@@ -51,19 +51,20 @@ credentials and encrypted bundles live outside Git.
 
 ## Durable design decisions
 
-- The existing hosts are adopted through native LAN OpenSSH with the reviewed
-  Bitwarden-agent identity and Ansible privilege escalation; there is no custom
-  controller state machine. Tailscale remains personal access and is not a deploy
-  transport.
+- The existing hosts are adopted through Tailscale SSH and Ansible privilege
+  escalation; there is no custom controller state machine or native deployment key.
+  GitHub workload identity federation can create a narrowly tagged ephemeral CI node
+  without a reusable Tailscale credential.
 - Compose convergence archives committed Git source and reconciles the complete
   project with the native Compose module. Git revert followed by convergence is
   configuration rollback.
 - Omada remote state owns the default LAN, exported DHCP reservations and exported
   port-forwarding rules. A fresh private controller export supplies desired values,
   and declarative import blocks preserve bootstrap from an empty state without
-  imperative state scripts. The
-  UI-bootstrapped client-to-site WireGuard server is an explicit exception because
-  the provider API surface does not expose it.
+  imperative state scripts. Local and CI controllers use one tailnet-only Tailscale
+  Serve endpoint with public TLS trust; Ansible owns its exact node-level proxy to the
+  Omada loopback HTTPS listener. Omada's forced HTTPS redirect requires that one
+  encrypted loopback hop to accept the private certificate without authentication.
 - Proxmox remote state owns the adopted VM, its managed disks and its PCI and USB
   hardware mappings. The inert first disk block preserves provider list indexes after
   retirement of its former bus slot; changing that tombstone requires an explicit

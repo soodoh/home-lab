@@ -48,8 +48,5 @@ The required shape is:
 
 Values above are synthetic. The preparation helper requires
 `TF_VAR_omada_export_path` to name a nonexistent file in a mode-0700 directory,
-verifies the managed `Omada` host alias and private CA, and creates the export
-without replacement. The client-to-site WireGuard server is not exposed by the
-provider's VPN endpoint and is intentionally absent from this export; see
-[deployment access](../../../docs/deployment-access.md). Never carry the export
-into another session.
+verifies the tailnet-only Tailscale Serve endpoint through the system trust store and
+creates the export without replacement. Never carry the export into another session.

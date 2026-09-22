@@ -2,74 +2,57 @@
 
 ## Current controller path
 
-Local deployment uses native OpenSSH over the LAN. The inventory targets the two
-fixed Omada DHCP reservations and pins each machine through its existing
-`HostKeyAlias` entry. Both hosts expose the `ansible-deploy` account through
-public-key authentication only, with noninteractive root escalation. Password,
-keyboard-interactive and root login remain disabled.
+Deployment reaches both managed hosts through Tailscale SSH. The production
+inventory uses their MagicDNS names, pins the existing host-key aliases and sends no
+OpenSSH identity. Tailscale policy maps authorized owner and administrator devices to
+the local `ansible-deploy` account; the account has noninteractive root escalation for
+Ansible.
 
-The only authorized key is the public half of the existing Bitwarden SSH-agent
-identity in [`ansible/inventory/keys/bitwarden-controller.pub`](../ansible/inventory/keys/bitwarden-controller.pub).
-OpenSSH selects that public identity from `${SSH_AUTH_SOCK}` with
-`IdentitiesOnly=yes`; the private key is not stored in this repository or on the
-controller filesystem. Local operators must keep `SSH_AUTH_SOCK` pointed at
-`~/.bitwarden-ssh-agent.sock`. Do not generate a replacement controller key as
-part of deployment.
+The hosts do not accept a deployment public key through native OpenSSH. The
+`tailscale_deploy_access` role preserves the local account and sudo policy while
+removing the retired native authorized key and its user-specific sshd exception.
+Password, keyboard-interactive and root login remain disabled. Keep independent
+console access available before changing Tailscale, networking or host SSH policy.
 
-Tailscale remains installed for personal access. Its policy may permit personal
-SSH and web access, but no repository deployment command, inventory endpoint or
-provider preparation step relies on Tailscale.
+The deployment network policy is limited to:
 
-## Staged WireGuard server
+| Source | Destination | Ports |
+| --- | --- | --- |
+| Owner and administrator devices | Docker host | TCP 22 and direct Omada TLS on TCP 8043 |
+| Owner and administrator devices | Proxmox host | TCP 22 and TCP 8006 |
+| Ephemeral CI deployment nodes | Docker host | TCP 22 and Tailscale Serve HTTPS on TCP 8443 |
+| Ephemeral CI deployment nodes | Proxmox host | TCP 22 and TCP 8006 |
 
-The Omada gateway has an enabled client-to-site WireGuard server with this
-operator-created configuration:
+CI is explicitly denied Omada's direct TLS port 8043 and loopback HTTP port 8088.
+Tailscale SSH separately permits only `ansible-deploy` for deployment identities.
+Personal account mappings remain distinct. The tracked Omada interface uses the same
+system-trusted Serve endpoint from local controllers and future CI runners.
 
-| Setting | Value |
-| --- | --- |
-| Name | `home_lab_deploy` |
-| Endpoint for future peers | `home.diloreto.com:51820` |
-| Tunnel pool | `10.88.0.1/24` |
-| Clients | none |
+## GitHub-hosted runners
 
-A fresh read-only API observation proved that the pinned Omada provider's
-`/setting/vpns` endpoint does not expose client-to-site WireGuard servers. The
-server therefore cannot be imported or managed by `omada_vpn`, even for name or
-enabled state. It is an explicit, operator-approved UI-owned exception until the
-provider gains a dedicated client-to-site WireGuard resource. OpenTofu must not
-claim partial ownership through the unrelated VPN endpoint.
+The Tailscale root declares a federated identity for the exact GitHub OIDC subject:
 
-Do not add a client until its routes and gateway ACLs are reviewed together. A
-future deployment peer needs only:
+```text
+Issuer:  https://token.actions.githubusercontent.com
+Subject: repo:soodoh/home-lab:environment:infrastructure-deploy
+Claims:  repository_id=751127419, repository_owner_id=18269267, ref=refs/heads/main
+Scope:   auth_keys
+Tag:     tag:ci-deploy
+```
 
-- Docker host: TCP 22 and TCP 8043;
-- Proxmox host: TCP 22 and TCP 8006.
+The numeric claims bind trust to the current GitHub owner and repository identities,
+not only their mutable names. The identity's client ID and audience are non-secret
+OpenTofu outputs. No auth key, OAuth client secret or host private key is stored in
+GitHub. A future protected job
+can request `id-token: write`, pass the client ID, audience and `tag:ci-deploy` to the
+pinned `tailscale/github-action`, and receive a new ephemeral node for that job. The
+action logs the node out when the job completes and Tailscale removes it from the
+tailnet.
 
-The current provider cannot express the required port-level VPN ACL. Install and
-validate that ACL in the same future change that creates the first peer, or first
-extend the provider so Git can own both.
+The tag receives only the destination ports above and Tailscale SSH access as
+`ansible-deploy`. The runner must still verify the pinned host keys before Ansible
+runs. Configure the GitHub environment and workflow only in the same reviewed change;
+do not broaden the federated subject or use a long-lived fallback credential.
 
-## Future GitHub-hosted runners
-
-Do not copy the local Bitwarden private key or a long-lived WireGuard profile into
-GitHub secrets. The intended design requires an identity broker and host SSH CA:
-
-1. A protected GitHub environment grants `id-token: write` only to the deploy
-   job. The broker validates token issuer, audience, repository, workflow, ref,
-   environment and run identifiers.
-2. The runner generates ephemeral WireGuard and SSH key pairs. This does not
-   create or replace a key on the local operator machine.
-3. The broker installs the WireGuard public key as a bounded Omada peer and
-   returns only the server public data, assigned client address, endpoint and
-   narrow routes. The peer must have a short expiry and fail-closed cleanup.
-4. The broker signs the ephemeral SSH public key with a short-lived certificate
-   whose only principal is `ansible-deploy`. The hosts must trust a dedicated CA
-   before this path is enabled.
-5. The runner verifies pinned SSH host keys, performs the reviewed deployment,
-   tears down the tunnel and destroys private keys. The broker removes the peer
-   even when the job is cancelled.
-
-Omada currently has neither provider-managed client peers nor native OIDC
-exchange, so this is a future control-plane project, not an active deployment
-path. Until the broker, SSH CA, gateway ACL and cancellation cleanup are built
-and tested, GitHub-hosted runners are not authorized to deploy.
+This repository currently stages the network and identity boundary only. It does not
+yet authorize an automated deployment workflow.
