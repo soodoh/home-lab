@@ -90,7 +90,7 @@
 
 - name: Read protected ZFS pool health before reboot
   ansible.builtin.command:
-    argv: [/usr/sbin/zpool, status, -x, storage]
+    argv: [/usr/sbin/zpool, list, -H, -o, health, storage]
   register: proxmox_reboot_zpool_before
   changed_when: false
   check_mode: false
@@ -99,7 +99,7 @@
 - name: Require a healthy protected ZFS pool before reboot
   ansible.builtin.assert:
     that:
-      - "(proxmox_reboot_zpool_before.stdout | trim) == \"pool 'storage' is healthy\""
+      - proxmox_reboot_zpool_before.stdout == 'ONLINE'
       - proxmox_reboot_zpool_before.stderr == ''
     fail_msg: Protected ZFS pool health differs; no reboot was attempted.
 
@@ -185,7 +185,7 @@
 
     - name: Read protected ZFS pool health after reboot
       ansible.builtin.command:
-        argv: [/usr/sbin/zpool, status, -x, storage]
+        argv: [/usr/sbin/zpool, list, -H, -o, health, storage]
       register: proxmox_reboot_zpool_after
       changed_when: false
       timeout: 30
@@ -193,7 +193,7 @@
     - name: Require a healthy protected ZFS pool after reboot
       ansible.builtin.assert:
         that:
-          - "(proxmox_reboot_zpool_after.stdout | trim) == \"pool 'storage' is healthy\""
+          - proxmox_reboot_zpool_after.stdout == 'ONLINE'
           - proxmox_reboot_zpool_after.stderr == ''
 
     - name: Wait for VM 100 automatic boot recovery
