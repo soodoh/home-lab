@@ -1,4 +1,1 @@
-# One-run adoption allowlist; empty immediately after the reviewed no-op imports.
-omada_port_forward.port_forward["66070a8de9df67148ee4fa14"]
-omada_port_forward.port_forward["66070aaae9df67148ee4fa16"]
-omada_port_forward.port_forward["669c38a81336b665b1b93dad"]
+# Empty after the reviewed no-op port-forward imports completed.
