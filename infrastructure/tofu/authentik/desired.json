@@ -1105,9 +1105,58 @@
     }
   },
   "outposts": {
+    "authentik-embedded": {
+      "config": {
+        "authentik_host": "https://auth.diloreto.com",
+        "authentik_host_browser": "",
+        "authentik_host_insecure": false,
+        "container_image": null,
+        "docker_labels": null,
+        "docker_map_ports": true,
+        "docker_network": null,
+        "kubernetes_disabled_components": [],
+        "kubernetes_image_pull_secrets": [],
+        "kubernetes_ingress_annotations": {},
+        "kubernetes_ingress_class_name": null,
+        "kubernetes_ingress_secret_name": "authentik-outpost-tls",
+        "kubernetes_json_patches": null,
+        "kubernetes_namespace": "default",
+        "kubernetes_replicas": 1,
+        "kubernetes_service_type": "ClusterIP",
+        "log_level": "info",
+        "object_naming_template": "ak-outpost-%(name)s",
+        "refresh_interval": "minutes=5"
+      },
+      "import_existing": true,
+      "name": "authentik Embedded Outpost",
+      "pk": "b53322f4-5b89-49ea-87fb-0353adb96e4a",
+      "provider_refs": [
+        "29",
+        "2",
+        "7",
+        "39",
+        "14",
+        "17",
+        "5",
+        "19",
+        "43",
+        "13",
+        "3",
+        "23",
+        "41",
+        "20",
+        "18",
+        "8",
+        "11",
+        "25"
+      ],
+      "type": "proxy"
+    },
     "jellyfin-ldap": {
       "config": {},
+      "import_existing": false,
       "name": "Jellyfin LDAP Outpost",
+      "pk": null,
       "provider_refs": [
         "jellyfin"
       ],

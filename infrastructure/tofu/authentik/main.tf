@@ -19,13 +19,16 @@ locals {
   ldap_providers                = var.authentik_enable_management ? local.desired.ldapProviders : {}
   ldap_search_permissions       = var.authentik_enable_management ? local.desired.ldapSearchPermissions : {}
   oauth_providers               = var.authentik_enable_management ? local.desired.oauthProviders : {}
-  outposts                      = var.authentik_enable_management ? local.desired.outposts : {}
-  proxy_providers               = var.authentik_enable_management ? local.desired.proxyProviders : {}
-  existing_proxy_providers      = { for key, value in local.proxy_providers : key => value if value.import_existing }
-  rbac_roles                    = var.authentik_enable_management ? local.desired.rbacRoles : {}
-  scope_mappings                = var.authentik_enable_management ? local.desired.scopeMappings : {}
-  service_accounts              = var.authentik_enable_management ? local.desired.serviceAccounts : {}
-  service_application_bindings  = var.authentik_enable_management ? local.desired.serviceApplicationBindings : {}
+  outposts                      = var.authentik_enable_management ? toset(keys(local.desired.outposts)) : toset([])
+  existing_outposts = var.authentik_enable_management ? toset([
+    for key, value in local.desired.outposts : key if value.import_existing
+  ]) : toset([])
+  proxy_providers              = var.authentik_enable_management ? local.desired.proxyProviders : {}
+  existing_proxy_providers     = { for key, value in local.proxy_providers : key => value if value.import_existing }
+  rbac_roles                   = var.authentik_enable_management ? local.desired.rbacRoles : {}
+  scope_mappings               = var.authentik_enable_management ? local.desired.scopeMappings : {}
+  service_accounts             = var.authentik_enable_management ? local.desired.serviceAccounts : {}
+  service_application_bindings = var.authentik_enable_management ? local.desired.serviceApplicationBindings : {}
 }
 
 provider "authentik" {
@@ -51,7 +54,7 @@ check "desired_inventory" {
         length(local.desired.flowStageBindings) == 5 &&
         length(local.desired.ldapProviders) == 1 &&
         length(local.desired.ldapSearchPermissions) == 1 &&
-        length(local.desired.outposts) == 1 &&
+        length(local.desired.outposts) == 2 &&
         length(local.desired.rbacRoles) == 1 &&
         length(local.desired.scopeMappings) == 1 &&
         length(local.desired.serviceAccounts) == 2 &&
@@ -72,9 +75,13 @@ check "desired_import_boundaries" {
       alltrue([
         for provider in values(local.desired.proxyProviders) :
         provider.import_existing == (provider.pk != null)
+      ]) &&
+      alltrue([
+        for outpost in values(local.desired.outposts) :
+        outpost.import_existing == (outpost.pk != null)
       ])
     )
-    error_message = "Only observed Authentik applications and proxy providers with live IDs may be imported."
+    error_message = "Only observed Authentik applications, proxy providers, and outposts with live IDs may be imported."
   }
 }
 
@@ -90,6 +97,24 @@ check "provider_ownership" {
       contains(keys(local.ldap_providers), tostring(application.provider_id))
     ])
     error_message = "Every managed application must reference a managed proxy, OAuth2, or LDAP provider."
+  }
+}
+
+check "outpost_provider_ownership" {
+  assert {
+    condition = !var.authentik_enable_management || (
+      alltrue([
+        for outpost in values(local.desired.outposts) :
+        outpost.type == "ldap" ? alltrue([
+          for provider_ref in outpost.provider_refs :
+          contains(keys(local.ldap_providers), provider_ref)
+          ]) : alltrue([
+          for provider_ref in outpost.provider_refs :
+          contains(keys(local.proxy_providers), provider_ref)
+        ])
+      ])
+    )
+    error_message = "Managed outposts must reference managed providers of the matching type."
   }
 }
 
@@ -352,10 +377,14 @@ resource "authentik_policy_binding" "service_application_access" {
 resource "authentik_outpost" "outposts" {
   for_each = local.outposts
 
-  name               = each.value.name
-  type               = each.value.type
-  protocol_providers = [for provider_ref in each.value.provider_refs : authentik_provider_ldap.providers[provider_ref].id]
-  config             = jsonencode(each.value.config)
+  name = local.desired.outposts[each.key].name
+  type = local.desired.outposts[each.key].type
+  protocol_providers = local.desired.outposts[each.key].type == "ldap" ? [
+    for provider_ref in local.desired.outposts[each.key].provider_refs : authentik_provider_ldap.providers[provider_ref].id
+    ] : [
+    for provider_ref in local.desired.outposts[each.key].provider_refs : authentik_provider_proxy.providers[provider_ref].id
+  ]
+  config = jsonencode(local.desired.outposts[each.key].config)
 
   lifecycle {
     prevent_destroy = true
@@ -466,6 +495,12 @@ import {
   for_each = local.application_policy_bindings
   to       = authentik_policy_binding.application_access[each.key]
   id       = each.value.pk
+}
+
+import {
+  for_each = local.existing_outposts
+  to       = authentik_outpost.outposts[each.value]
+  id       = local.desired.outposts[each.value].pk
 }
 
 import {

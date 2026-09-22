@@ -212,8 +212,8 @@
     },
     "outposts": {
       "type": "object",
-      "minProperties": 1,
-      "maxProperties": 1,
+      "minProperties": 2,
+      "maxProperties": 2,
       "additionalProperties": {
         "$ref": "#/$defs/outpost"
       }
@@ -1185,7 +1185,9 @@
         "name",
         "type",
         "provider_refs",
-        "config"
+        "config",
+        "pk",
+        "import_existing"
       ],
       "properties": {
         "name": {
@@ -1193,7 +1195,10 @@
           "minLength": 1
         },
         "type": {
-          "const": "ldap"
+          "enum": [
+            "ldap",
+            "proxy"
+          ]
         },
         "provider_refs": {
           "type": "array",
@@ -1201,11 +1206,24 @@
           "uniqueItems": true,
           "items": {
             "type": "string",
-            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+            "pattern": "^(?:[1-9][0-9]*|[a-z0-9]+(?:-[a-z0-9]+)*)$"
           }
         },
         "config": {
           "type": "object"
+        },
+        "pk": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "import_existing": {
+          "type": "boolean"
         }
       }
     }

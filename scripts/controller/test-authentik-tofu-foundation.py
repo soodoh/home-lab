@@ -31,7 +31,10 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(set(DESIRED["scopeMappings"]), {"vaultwarden-email"})
         self.assertEqual(set(DESIRED["certificates"]), {"jellyfin-ldap"})
         self.assertEqual(set(DESIRED["ldapProviders"]), {"jellyfin"})
-        self.assertEqual(set(DESIRED["outposts"]), {"jellyfin-ldap"})
+        self.assertEqual(
+            set(DESIRED["outposts"]),
+            {"authentik-embedded", "jellyfin-ldap"},
+        )
         self.assertEqual(
             set(DESIRED["serviceAccounts"]),
             {"jellyfin-ldap-bind", "tailscale-control-proxy"},
@@ -166,6 +169,14 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             1,
         )
 
+        embedded_outpost = DESIRED["outposts"]["authentik-embedded"]
+        self.assertTrue(embedded_outpost["import_existing"])
+        self.assertEqual(embedded_outpost["type"], "proxy")
+        self.assertEqual(
+            set(embedded_outpost["provider_refs"]),
+            set(DESIRED["proxyProviders"]) - {"tailscale-control"},
+        )
+
         infra = (REPO / "services" / "infra.yml").read_text()
         self.assertIn("gogost/gost:3.3.0@sha256:", infra)
         proxy_service = infra.split("  tailscale-control-proxy:", 1)[1].split("\n  caddy:", 1)[0]
@@ -263,7 +274,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         ):
             self.assertIn(f'resource "{resource}"', main)
         self.assertEqual(main.count("prevent_destroy = true"), 16)
-        self.assertEqual(main.count("import {"), 9)
+        self.assertEqual(main.count("import {"), 10)
         self.assertIn("for_each = local.existing_custom_flows", main)
         self.assertIn("for_each = local.existing_flow_stage_bindings", main)
         self.assertIn("length(local.desired.applicationPolicyBindings) == 28", main)
@@ -305,7 +316,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             *(f'authentik_user.service_accounts["{key}"]' for key in DESIRED["serviceAccounts"]),
         }
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 94)
+        self.assertEqual(len(allow), 95)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()
