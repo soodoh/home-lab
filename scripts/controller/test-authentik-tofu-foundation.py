@@ -174,7 +174,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(embedded_outpost["type"], "proxy")
         self.assertEqual(
             set(embedded_outpost["provider_refs"]),
-            set(DESIRED["proxyProviders"]) - {"tailscale-control"},
+            set(DESIRED["proxyProviders"]),
         )
 
         infra = (REPO / "services" / "infra.yml").read_text()

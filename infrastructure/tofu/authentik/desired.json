@@ -1148,7 +1148,8 @@
         "18",
         "8",
         "11",
-        "25"
+        "25",
+        "tailscale-control"
       ],
       "type": "proxy"
     },

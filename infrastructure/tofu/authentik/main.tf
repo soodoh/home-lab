@@ -112,9 +112,13 @@ check "outpost_provider_ownership" {
           for provider_ref in outpost.provider_refs :
           contains(keys(local.proxy_providers), provider_ref)
         ])
-      ])
+      ]) &&
+      toset(flatten([
+        for outpost in values(local.desired.outposts) :
+        outpost.type == "proxy" ? outpost.provider_refs : []
+      ])) == toset(keys(local.proxy_providers))
     )
-    error_message = "Managed outposts must reference managed providers of the matching type."
+    error_message = "Managed outposts must reference managed providers, and proxy outposts must cover every proxy provider."
   }
 }
 
