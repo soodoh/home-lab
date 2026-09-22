@@ -345,6 +345,7 @@
         name: apply_lock
       vars:
         apply_lock_action: release
+        apply_lock_operation: "proxmox-firewall-recovery-retirement-{{ proxmox_firewall_retirement_phase }}"
 
   post_tasks:
     - name: Observe Proxmox after the retirement phase
@@ -403,3 +404,4 @@
         name: apply_lock
       vars:
         apply_lock_action: release
+        apply_lock_operation: proxmox-firewall-nfs-canary-retirement
