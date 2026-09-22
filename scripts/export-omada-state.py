@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read the adopted Omada LAN and DHCP reservations into the ignored export schema."""
+"""Read the adopted Omada LAN, DHCP reservations, and port forwards."""
 
 from __future__ import annotations
 
@@ -107,6 +107,31 @@ def normalize_mac(value: Any) -> str:
     return "-".join(compact[index : index + 2] for index in range(0, 12, 2))
 
 
+def normalize_port_forward(value: dict[str, Any]) -> dict[str, Any]:
+    protocols = {0: "tcp_udp", 1: "tcp", 2: "udp"}
+    protocol = value.get("protocol")
+    if protocol not in protocols:
+        raise SystemExit("Omada port forward has an invalid protocol")
+    wan_port_ids = value.get("interfaceWanPortId")
+    if not isinstance(wan_port_ids, list) or not wan_port_ids or not all(
+        isinstance(port_id, str) and port_id for port_id in wan_port_ids
+    ):
+        raise SystemExit("Omada port forward has invalid WAN port bindings")
+    if not isinstance(value.get("status"), bool) or not isinstance(value.get("dMZ"), bool):
+        raise SystemExit("Omada port forward has invalid boolean settings")
+    return {
+        "id": required_string(value, "id"),
+        "name": required_string(value, "name"),
+        "enable": value["status"],
+        "external_port": required_string(value, "externalPort"),
+        "forward_ip": required_string(value, "forwardIp"),
+        "forward_port": required_string(value, "forwardPort"),
+        "protocol": protocols[protocol],
+        "wan_port_ids": wan_port_ids,
+        "dmz": value["dMZ"],
+    }
+
+
 def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, Any]:
     sites = client.list_all(f"/{client.controller_id}/api/v2/sites")
     matching_sites = [site for site in sites if site.get("name") == site_name]
@@ -129,6 +154,7 @@ def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, 
 
     reservations = client.list_all(f"{base}/setting/service/dhcp")
     selected_reservations = [reservation for reservation in reservations if reservation.get("netId") == network_id]
+    port_forwards = client.list_all(f"{base}/setting/transmission/portForwardings")
     export = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "controller_version": client.controller_version,
@@ -153,6 +179,10 @@ def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, 
                 for reservation in selected_reservations
             ),
             key=lambda reservation: reservation["mac"],
+        ),
+        "port_forwards": sorted(
+            (normalize_port_forward(port_forward) for port_forward in port_forwards),
+            key=lambda port_forward: port_forward["id"],
         ),
     }
     if not isinstance(export["network"]["vlan_id"], int):
@@ -185,7 +215,11 @@ def main() -> None:
         temporary_path = Path(temporary.name)
     temporary_path.chmod(0o600)
     temporary_path.replace(output)
-    print(f"omada_export=created reservations={len(export['reservations'])}")
+    print(
+        "omada_export=created "
+        f"reservations={len(export['reservations'])} "
+        f"port_forwards={len(export['port_forwards'])}"
+    )
 
 
 if __name__ == "__main__":

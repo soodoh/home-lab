@@ -62,6 +62,30 @@ class FakeOmada:
                     "status": True,
                 },
             ],
+            "/controller-id/api/v2/sites/site-id/setting/transmission/portForwardings": [
+                {
+                    "id": "forward-2",
+                    "name": "combined",
+                    "status": False,
+                    "interfaceWanPortId": ["wan-1"],
+                    "externalPort": "8000-8010",
+                    "forwardIp": "192.0.2.22",
+                    "forwardPort": "8000-8010",
+                    "protocol": 0,
+                    "dMZ": False,
+                },
+                {
+                    "id": "forward-1",
+                    "name": "https",
+                    "status": True,
+                    "interfaceWanPortId": ["wan-1", "wan-2"],
+                    "externalPort": "443",
+                    "forwardIp": "192.0.2.21",
+                    "forwardPort": "8443",
+                    "protocol": 1,
+                    "dMZ": False,
+                },
+            ],
         }
 
     def list_all(self, path: str) -> list[dict[str, Any]]:
@@ -76,6 +100,8 @@ class OmadaExportTests(unittest.TestCase):
             "local.export.network.name == var.omada_domain.network_name",
             'timeadd(plantimestamp(), "-15m")',
             "timecmp(local.export.exported_at, plantimestamp()) <= 0",
+            "length(local.export.port_forwards) > 0",
+            "to = omada_port_forward.port_forward[each.key]",
         ):
             self.assertIn(required, source)
 
@@ -93,6 +119,25 @@ class OmadaExportTests(unittest.TestCase):
             [reservation["enable"] for reservation in value["reservations"]],
             [True, False],
         )
+        self.assertEqual(
+            [port_forward["id"] for port_forward in value["port_forwards"]],
+            ["forward-1", "forward-2"],
+        )
+        self.assertEqual(
+            value["port_forwards"][0],
+            {
+                "id": "forward-1",
+                "name": "https",
+                "enable": True,
+                "external_port": "443",
+                "forward_ip": "192.0.2.21",
+                "forward_port": "8443",
+                "protocol": "tcp",
+                "wan_port_ids": ["wan-1", "wan-2"],
+                "dmz": False,
+            },
+        )
+        self.assertEqual(value["port_forwards"][1]["protocol"], "tcp_udp")
 
     def test_refuses_an_unknown_site(self) -> None:
         with self.assertRaisesRegex(SystemExit, "exactly one Omada site"):
@@ -102,6 +147,19 @@ class OmadaExportTests(unittest.TestCase):
         self.assertEqual(EXPORTER.normalize_mac("aabb.ccdd.eeff"), "AA-BB-CC-DD-EE-FF")
         with self.assertRaisesRegex(SystemExit, "invalid MAC"):
             EXPORTER.normalize_mac("not-a-mac")
+
+    def test_refuses_invalid_port_forward_protocols_and_bindings(self) -> None:
+        value = FakeOmada().responses[
+            "/controller-id/api/v2/sites/site-id/setting/transmission/portForwardings"
+        ][0].copy()
+        value["protocol"] = 3
+        with self.assertRaisesRegex(SystemExit, "invalid protocol"):
+            EXPORTER.normalize_port_forward(value)
+
+        value["protocol"] = 2
+        value["interfaceWanPortId"] = []
+        with self.assertRaisesRegex(SystemExit, "invalid WAN port bindings"):
+            EXPORTER.normalize_port_forward(value)
 
 
 if __name__ == "__main__":

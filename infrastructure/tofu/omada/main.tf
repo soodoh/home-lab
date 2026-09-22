@@ -5,9 +5,13 @@ locals {
     site               = { id = "", name = "" }
     network            = { id = "", name = "", vlan_id = 1, gateway_subnet = "", dhcp_enabled = false, dhcp_start = "", dhcp_end = "" }
     reservations       = []
+    port_forwards      = []
   }
   reservations = var.omada_enable_management ? {
     for reservation in local.export.reservations : lower(replace(reservation.mac, "-", ":")) => reservation
+  } : {}
+  port_forwards = var.omada_enable_management ? {
+    for port_forward in local.export.port_forwards : port_forward.id => port_forward
   } : {}
 }
 
@@ -30,7 +34,8 @@ check "export_identity" {
         timecmp(local.export.exported_at, plantimestamp()) <= 0,
         false,
       ) &&
-      length(local.export.reservations) > 0
+      length(local.export.reservations) > 0 &&
+      length(local.export.port_forwards) > 0
     )
     error_message = "The ignored Omada export is stale, incomplete, or outside the contracted controller, site, and network domain."
   }
@@ -76,4 +81,25 @@ resource "omada_dhcp_reservation" "reservation" {
   ip         = each.value.ip
   name       = each.value.name
   enable     = each.value.enable
+}
+
+import {
+  for_each = local.port_forwards
+
+  to = omada_port_forward.port_forward[each.key]
+  id = "${local.export.site.name}/${each.value.id}"
+}
+
+resource "omada_port_forward" "port_forward" {
+  for_each = local.port_forwards
+
+  site          = local.export.site.name
+  name          = each.value.name
+  enable        = each.value.enable
+  external_port = each.value.external_port
+  forward_ip    = each.value.forward_ip
+  forward_port  = each.value.forward_port
+  protocol      = each.value.protocol
+  wan_port_ids  = each.value.wan_port_ids
+  dmz           = each.value.dmz
 }
