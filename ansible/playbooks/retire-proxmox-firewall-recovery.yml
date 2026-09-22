@@ -128,6 +128,12 @@
       no_log: true
 
   tasks:
+    - name: Gather the timestamp required by the shared apply lock
+      ansible.builtin.setup:
+        gather_subset: ['!all', 'min']
+        filter: ansible_date_time
+      no_log: true
+
     - name: Acquire exclusive Proxmox mutation ownership
       ansible.builtin.import_role:
         name: apply_lock
