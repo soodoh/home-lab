@@ -20,7 +20,6 @@ services:
       - type: bind
         source: /srv/home-lab-state/authentik-data/postgresql
         # PostgreSQL 18+ stores versioned clusters below this mount.
-        # See docs/migrations.md#authentik-postgresql before changing major versions.
         target: /var/lib/postgresql
     environment:
       TZ: $TZ

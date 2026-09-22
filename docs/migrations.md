@@ -3,24 +3,6 @@
 This file records unresolved live predicates, not completed actions. Observe every
 condition again before deciding whether work remains.
 
-## Authentik PostgreSQL rollback retirement
-
-Desired state: PostgreSQL 18 is healthy and the PostgreSQL 16 rollback generation is
-removed only after rollback is no longer required.
-
-Observe:
-
-- the active database image, mount and `PG_VERSION`;
-- Authentik server, worker and Redis health;
-- admin and representative protected-application authentication;
-- current database/application logs without printing private values;
-- a fresh Restic snapshot containing the active database and a successful isolated
-  restore.
-
-Until all checks pass in one reviewed window, retain the old cluster and independent
-rollback material. Never start PostgreSQL 16 against the PostgreSQL 18 directory.
-Cleanup requires an exact live path inventory and separate authorization.
-
 ## Nextcloud recovery and old application copies
 
 Desired state: current database, config, custom apps and themes are restorable through
