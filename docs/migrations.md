@@ -3,32 +3,6 @@
 This file records unresolved live predicates, not completed actions. Observe every
 condition again before deciding whether work remains.
 
-## Nextcloud recovery and old application copies
-
-Desired state: current database, config, custom apps and themes are restorable through
-the generic `nextcloud` recovery group; superseded application copies are then
-removed. External user data remains independently managed.
-
-Observe:
-
-- `occ status --output=json`, cron PID 1 and current mounts;
-- login, WebDAV, representative read and upload behavior;
-- a fresh isolated restore of the `nextcloud` group;
-- current external-data identity and representative hashes without mounting it into
-  the restore target.
-
-`/mnt/storage/media/nextcloud/data` is outside Restic and outside automated cleanup.
-Any old-path deletion requires a fresh exact-path allowlist that excludes user data.
-
-## Calibre NFS generation
-
-Desired state: `/srv/home-lab-state/calibre-data/books` remains the active library and
-the older NFS generation has an explicit retain-or-delete decision.
-
-Observe both generations live, verify the active library through a fresh snapshot and
-isolated restore, then prepare an exact private disposition list. Never treat the NFS
-copy as a current mirror or replay an old synchronization command.
-
 ## Restic runtime policy normalization
 
 The installed policy and runner now contain only recurring backup and recovery

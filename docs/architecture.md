@@ -67,5 +67,9 @@ credentials and encrypted bundles live outside Git.
 - Data recovery stages into a new private directory before any production decision.
 - External Nextcloud user data is outside the managed Restic recovery group and must
   be handled independently.
+- The Git-declared local Calibre library is active. Two NFS generations are retained
+  as historical archives because they contain format bytes absent from the active
+  library. They are not current mirrors, backup inputs or synchronization sources;
+  future disposition requires a fresh private inventory and explicit authorization.
 - Host-side autonomous rollback may outlive a controller only where loss of
   connectivity could otherwise strand the host.
