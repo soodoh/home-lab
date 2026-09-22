@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read the adopted Omada LAN and DHCP reservations into the ignored export schema."""
+"""Read the adopted Omada LAN, reservations and VPN identity into a private export."""
 
 from __future__ import annotations
 
@@ -107,7 +107,9 @@ def normalize_mac(value: Any) -> str:
     return "-".join(compact[index : index + 2] for index in range(0, 12, 2))
 
 
-def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, Any]:
+def build_export(
+    client: Omada, site_name: str, network_name: str, vpn_name: str
+) -> dict[str, Any]:
     sites = client.list_all(f"/{client.controller_id}/api/v2/sites")
     matching_sites = [site for site in sites if site.get("name") == site_name]
     if len(matching_sites) != 1:
@@ -129,6 +131,16 @@ def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, 
 
     reservations = client.list_all(f"{base}/setting/service/dhcp")
     selected_reservations = [reservation for reservation in reservations if reservation.get("netId") == network_id]
+    vpns = client.list_all(f"{base}/setting/vpns")
+    matching_vpns = [vpn for vpn in vpns if vpn.get("name") == vpn_name]
+    if len(matching_vpns) != 1:
+        raise SystemExit("exactly one Omada VPN must match --vpn")
+    vpn = matching_vpns[0]
+    vpn_id = required_string(vpn, "id")
+    vpn_purpose = vpn.get("purpose")
+    if not isinstance(vpn.get("status"), bool) or not isinstance(vpn_purpose, int):
+        raise SystemExit("Omada VPN identity has an unexpected shape")
+
     export = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "controller_version": client.controller_version,
@@ -141,6 +153,12 @@ def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, 
             "dhcp_enabled": dhcp.get("enable"),
             "dhcp_start": required_string(dhcp, "ipaddrStart"),
             "dhcp_end": required_string(dhcp, "ipaddrEnd"),
+        },
+        "vpn": {
+            "id": vpn_id,
+            "name": required_string(vpn, "name"),
+            "enable": vpn["status"],
+            "purpose": vpn_purpose,
         },
         "reservations": sorted(
             (
@@ -167,6 +185,7 @@ def main() -> None:
     parser.add_argument("--ca-file", type=Path, required=True)
     parser.add_argument("--site", required=True)
     parser.add_argument("--network", required=True)
+    parser.add_argument("--vpn", required=True)
     args = parser.parse_args()
 
     url = os.environ.get("OMADA_URL", "")
@@ -176,7 +195,7 @@ def main() -> None:
         raise SystemExit("OMADA_URL, OMADA_USERNAME, and OMADA_PASSWORD are required")
 
     client = Omada(url, args.connect_host, args.ca_file, username, password)
-    export = build_export(client, args.site, args.network)
+    export = build_export(client, args.site, args.network, args.vpn)
     output = args.output.expanduser().resolve()
     output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.NamedTemporaryFile("w", dir=output.parent, delete=False) as temporary:
@@ -185,7 +204,7 @@ def main() -> None:
         temporary_path = Path(temporary.name)
     temporary_path.chmod(0o600)
     temporary_path.replace(output)
-    print(f"omada_export=created reservations={len(export['reservations'])}")
+    print(f"omada_export=created reservations={len(export['reservations'])} vpn=selected")
 
 
 if __name__ == "__main__":

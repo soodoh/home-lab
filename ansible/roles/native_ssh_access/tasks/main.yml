@@ -1,0 +1,209 @@
+---
+- name: Validate native SSH access policy
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname in ['docker-host', 'proxmox']
+      - ansible_connection == 'ssh'
+      - ansible_become | bool
+      - native_ssh_access_user == 'ansible-deploy'
+      - >-
+        native_ssh_access_public_key_path ==
+        playbook_dir ~ '/../inventory/keys/bitwarden-controller.pub'
+      - >-
+        native_ssh_access_public_key_fingerprint ==
+        'SHA256:UKIt1zHVexMpz9we72AErUd+DBrQh4cyoGa1gqOGPmA'
+      - native_ssh_access_sshd_dropin == '/etc/ssh/sshd_config.d/70-home-lab-native-deploy.conf'
+      - native_ssh_access_sudoers_path == '/etc/sudoers.d/ansible-deploy'
+    fail_msg: Native SSH access requires the reviewed hosts, account and Bitwarden-agent public identity.
+
+- name: Read the reviewed controller public key
+  ansible.builtin.set_fact:
+    native_ssh_access_public_key: >-
+      {{ lookup('ansible.builtin.file', native_ssh_access_public_key_path, rstrip=true, lstrip=false) }}
+  no_log: true
+
+- name: Verify the reviewed public key fingerprint on the controller
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/ssh-keygen
+      - -lf
+      - "{{ native_ssh_access_public_key_path }}"
+      - -E
+      - sha256
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: native_ssh_access_controller_fingerprint
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Require the exact reviewed controller public key
+  ansible.builtin.assert:
+    that:
+      - native_ssh_access_public_key is match('^ssh-ed25519 [A-Za-z0-9+/]+={0,2} GitHub$')
+      - >-
+        native_ssh_access_public_key_fingerprint in
+        native_ssh_access_controller_fingerprint.stdout.split()
+    fail_msg: The committed controller public key does not match its reviewed fingerprint.
+  no_log: true
+
+- name: Define exact native SSH access files
+  ansible.builtin.set_fact:
+    native_ssh_access_sudoers_content: "{{ native_ssh_access_user }} ALL=(root) NOPASSWD: ALL\n"
+    native_ssh_access_sshd_content: |
+      Match User {{ native_ssh_access_user }}
+          PubkeyAuthentication yes
+          AuthenticationMethods publickey
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          AllowTcpForwarding no
+          X11Forwarding no
+          PermitTunnel no
+          GatewayPorts no
+  no_log: true
+
+- name: Read the existing deployment account
+  ansible.builtin.command:
+    argv: [/usr/bin/getent, passwd, ansible-deploy]
+  register: native_ssh_access_existing_account
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Inspect existing native SSH access paths
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  loop:
+    - "/home/{{ native_ssh_access_user }}/.ssh"
+    - "/home/{{ native_ssh_access_user }}/.ssh/authorized_keys"
+    - "{{ native_ssh_access_sudoers_path }}"
+    - "{{ native_ssh_access_sshd_dropin }}"
+  register: native_ssh_access_existing_paths
+
+- name: Read existing managed files without logging key material
+  ansible.builtin.slurp:
+    path: "{{ item.item }}"
+  loop: "{{ native_ssh_access_existing_paths.results }}"
+  when:
+    - item.stat.exists
+    - item.stat.isreg | default(false)
+  register: native_ssh_access_existing_content
+  no_log: true
+
+- name: Admit only the legacy or already-converged access state
+  ansible.builtin.assert:
+    that:
+      - native_ssh_access_existing_account.stdout.split(':') | length == 7
+      - native_ssh_access_existing_account.stdout.split(':')[5] == '/home/ansible-deploy'
+      - native_ssh_access_existing_account.stdout.split(':')[6] in ['/bin/bash', '/usr/sbin/nologin']
+      - >-
+        not native_ssh_access_existing_paths.results[0].stat.exists or
+        (native_ssh_access_existing_paths.results[0].stat.isdir and
+         native_ssh_access_existing_paths.results[0].stat.pw_name == native_ssh_access_user and
+         native_ssh_access_existing_paths.results[0].stat.gr_name == native_ssh_access_user and
+         native_ssh_access_existing_paths.results[0].stat.mode == '0700')
+      - >-
+        not native_ssh_access_existing_paths.results[1].stat.exists or
+        ((native_ssh_access_existing_content.results |
+          selectattr('item.item', 'equalto', '/home/' ~ native_ssh_access_user ~ '/.ssh/authorized_keys') |
+          map(attribute='content') | first | b64decode) == native_ssh_access_public_key ~ '\n')
+      - >-
+        not native_ssh_access_existing_paths.results[2].stat.exists or
+        ((native_ssh_access_existing_content.results |
+          selectattr('item.item', 'equalto', native_ssh_access_sudoers_path) |
+          map(attribute='content') | first | b64decode) == native_ssh_access_sudoers_content)
+      - >-
+        not native_ssh_access_existing_paths.results[3].stat.exists or
+        ((native_ssh_access_existing_content.results |
+          selectattr('item.item', 'equalto', native_ssh_access_sshd_dropin) |
+          map(attribute='content') | first | b64decode) == native_ssh_access_sshd_content)
+    fail_msg: Existing native SSH access differs from both the reviewed legacy and desired states.
+  no_log: true
+
+- name: Activate the existing native deployment account
+  ansible.builtin.user:
+    name: "{{ native_ssh_access_user }}"
+    create_home: true
+    shell: /bin/bash
+    password_lock: true
+    state: present
+
+- name: Own the native deployment SSH directory
+  ansible.builtin.file:
+    path: "/home/{{ native_ssh_access_user }}/.ssh"
+    state: directory
+    owner: "{{ native_ssh_access_user }}"
+    group: "{{ native_ssh_access_user }}"
+    mode: '0700'
+
+- name: Own the exclusive Bitwarden-agent public key
+  ansible.builtin.copy:
+    dest: "/home/{{ native_ssh_access_user }}/.ssh/authorized_keys"
+    content: "{{ native_ssh_access_public_key }}\n"
+    owner: "{{ native_ssh_access_user }}"
+    group: "{{ native_ssh_access_user }}"
+    mode: '0600'
+    follow: false
+  no_log: true
+
+- name: Grant the native deployment account noninteractive root escalation
+  ansible.builtin.copy:
+    dest: "{{ native_ssh_access_sudoers_path }}"
+    content: "{{ native_ssh_access_sudoers_content }}"
+    owner: root
+    group: root
+    mode: '0440'
+    follow: false
+    validate: /usr/sbin/visudo -cf %s
+
+- name: Enable native public-key authentication only for the deployment account
+  ansible.builtin.copy:
+    dest: "{{ native_ssh_access_sshd_dropin }}"
+    content: "{{ native_ssh_access_sshd_content }}"
+    owner: root
+    group: root
+    mode: '0644'
+    follow: false
+    validate: /usr/sbin/sshd -t -f %s
+  notify: Reload native SSH daemon
+
+- name: Apply validated native SSH daemon configuration
+  ansible.builtin.meta: flush_handlers
+
+- name: Read effective deployment-account SSH policy
+  ansible.builtin.command:
+    argv:
+      - /usr/sbin/sshd
+      - -T
+      - -C
+      - user=ansible-deploy,host={{ inventory_hostname }},addr=127.0.0.1,laddr=127.0.0.1,lport=22
+  register: native_ssh_access_effective
+  changed_when: false
+  check_mode: false
+  when: not ansible_check_mode
+
+- name: Verify effective native SSH authentication policy
+  ansible.builtin.assert:
+    that:
+      - "'pubkeyauthentication yes' in native_ssh_access_effective.stdout_lines"
+      - "'authenticationmethods publickey' in native_ssh_access_effective.stdout_lines"
+      - "'passwordauthentication no' in native_ssh_access_effective.stdout_lines"
+      - "'kbdinteractiveauthentication no' in native_ssh_access_effective.stdout_lines"
+      - "'permitrootlogin no' in native_ssh_access_effective.stdout_lines"
+    fail_msg: Effective native SSH policy does not match the reviewed deployment boundary.
+  when: not ansible_check_mode
+
+- name: Summarize native SSH access convergence
+  ansible.builtin.debug:
+    msg:
+      account: ansible-deploy
+      authentication: exclusive-public-key
+      controller_key: reviewed-fingerprint
+      password_authentication: disabled
+      privilege_escalation: noninteractive-root
+      source_restriction: reachable-networks

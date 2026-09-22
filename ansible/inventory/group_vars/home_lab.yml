@@ -1,0 +1,6 @@
+---
+native_ssh_access_user: ansible-deploy
+native_ssh_access_public_key_path: "{{ playbook_dir }}/../inventory/keys/bitwarden-controller.pub"
+native_ssh_access_public_key_fingerprint: SHA256:UKIt1zHVexMpz9we72AErUd+DBrQh4cyoGa1gqOGPmA
+native_ssh_access_sshd_dropin: /etc/ssh/sshd_config.d/70-home-lab-native-deploy.conf
+native_ssh_access_sudoers_path: /etc/sudoers.d/ansible-deploy

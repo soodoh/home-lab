@@ -22,6 +22,7 @@ See [architecture](docs/architecture.md) for the complete boundary.
 - [Recovery](recovery/README.md): fresh snapshot discovery and private staging.
 - [Migrations](docs/migrations.md): unresolved live conditions only.
 - [Security](docs/security.md): secrets, state and protected output.
+- [Deployment access](docs/deployment-access.md): native LAN SSH, WireGuard staging and future CI.
 
 Applications are in [`docker-compose.yml`](docker-compose.yml) and
 [`services/`](services/). OpenTofu roots are under [`infrastructure/tofu/`](infrastructure/tofu/).

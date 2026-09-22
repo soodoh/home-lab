@@ -6,11 +6,16 @@ reviewed checkout and observations made during the current run.
 ## 1. Prepare a disposable controller
 
 Use a clean checkout with `tofu`, Ansible, Docker Compose, Python and the pinned
-JavaScript package manager available. Establish provider credentials and authenticated
-Tailscale access without writing credentials into the repository.
+JavaScript package manager available. Connect to the home LAN and expose the existing
+Bitwarden SSH agent without writing credentials into the repository. Tailscale is an
+independent personal recovery path, not a deployment prerequisite.
 
 ```sh
 git status --short
+test "$SSH_AUTH_SOCK" = "$HOME/.bitwarden-ssh-agent.sock"
+test "$(ssh-add -L | wc -l | tr -d ' ')" = 1
+ssh-add -L | ssh-keygen -lf - -E sha256 | grep --fixed-strings \
+  'SHA256:UKIt1zHVexMpz9we72AErUd+DBrQh4cyoGa1gqOGPmA' >/dev/null
 python3 scripts/check-source-boundaries.py
 python3 scripts/check-compose-image-pins.py
 ```
@@ -91,19 +96,39 @@ trap 'rm -rf "$work"' EXIT
 : "${TF_BACKEND_BUCKET:?load the current plan credential environment first}"
 tofu -chdir="$root" init -backend-config="bucket=$TF_BACKEND_BUCKET"
 tofu -chdir="$root" plan -out="$work/plan"
-TOFU_PLAN_CHDIR="$root" scripts/inspect-tofu-plan "$work/plan"
+policy_args=()
+allow_file="infrastructure/policy/allow/$(basename "$root").txt"
+[[ ! -f $allow_file ]] || policy_args+=(--allow-change-file="$allow_file")
+TOFU_PLAN_CHDIR="$root" scripts/inspect-tofu-plan "$work/plan" "${policy_args[@]}"
 ```
 
-Use root-specific protected-input helpers where required. For Omada, set
-`TF_VAR_omada_export_path` to a nonexistent path in the private temporary directory,
-then run `scripts/prepare-omada-plan-input`; it obtains a fresh live export using the
-read-only provider identity. Do not print `tofu show -json`, state, private exports or
-saved plans. Apply only the saved plan inspected in the same session. After apply, run
-a new plan; zero proposed changes is the completion criterion.
+Use root-specific protected-input helpers where required. Pass an allowlist only when
+that root has a reviewed file under `infrastructure/policy/allow/`; omit the argument
+otherwise. For Omada, set `TF_VAR_omada_export_path` to a nonexistent path in the
+private temporary directory, then run `scripts/prepare-omada-plan-input`; it obtains a
+fresh live export over the LAN using the read-only provider identity. The imported VPN
+ownership is intentionally limited to name and enabled state; see
+[deployment access](deployment-access.md). Do not print `tofu show -json`, state,
+private exports or saved plans. Apply only the saved plan inspected in the same
+session. After apply, run a new plan; zero proposed changes is the completion
+criterion.
 
-## 4. Converge the Docker host
+## 4. Converge managed hosts
 
-The complete host interface is [`ansible/playbooks/site.yml`](../ansible/playbooks/site.yml).
+Native SSH identity, sshd and sudo policy for both hosts is owned by
+[`configure-native-ssh.yml`](../ansible/playbooks/configure-native-ssh.yml). Run its
+check mode before apply. During the one-time Tailscale-to-LAN migration, use a private
+temporary inventory that preserves the reviewed old Tailscale endpoints only for this
+bootstrap; do not commit or reuse that inventory. Validate the normal inventory over
+LAN immediately afterward.
+
+```sh
+ansible-playbook ansible/playbooks/configure-native-ssh.yml --check
+ansible-playbook ansible/playbooks/configure-native-ssh.yml
+ansible-playbook ansible/playbooks/observe-hosts.yml
+```
+
+The complete Docker-host interface is [`ansible/playbooks/site.yml`](../ansible/playbooks/site.yml).
 It observes before taking ownership, converges adopted backup files and units, Docker
 maintenance and the complete committed Compose project, then observes the result.
 Compose apply decrypts `secrets/production.sops.yaml` on the controller through

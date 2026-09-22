@@ -71,9 +71,20 @@ if not isinstance(value, str) or not value.strip() or "\n" in value:
 print(value)
 PY
 )
+omada_vpn=$(python3 - "$repo_root/infrastructure/tofu/omada/domain.auto.tfvars.json" wireguard_server_name <<'PY'
+import json
+import sys
+
+value = json.load(open(sys.argv[1], encoding="utf-8"))["omada_domain"][sys.argv[2]]
+if not isinstance(value, str) or not value.strip() or "\n" in value:
+    raise SystemExit(f"invalid tracked Omada selector: {sys.argv[2]}")
+print(value)
+PY
+)
 python3 "$repo_root/scripts/export-omada-state.py" \
   --output "$TF_VAR_omada_export_path" \
   --connect-host Omada \
   --ca-file "$ca_file" \
   --site "$omada_site" \
-  --network "$omada_network"
+  --network "$omada_network" \
+  --vpn "$omada_vpn"

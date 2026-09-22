@@ -1,0 +1,25 @@
+---
+- name: Converge native deployment SSH access
+  hosts: home_lab
+  gather_facts: true
+  gather_subset: ['!all', min]
+  serial: 1
+  any_errors_fatal: true
+  vars_files:
+    - ../inventory/group_vars/home_lab.yml
+  pre_tasks:
+    - name: Acquire host mutation ownership
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: native-ssh-access
+  roles:
+    - role: native_ssh_access
+  post_tasks:
+    - name: Release host mutation ownership after successful convergence
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_operation: native-ssh-access

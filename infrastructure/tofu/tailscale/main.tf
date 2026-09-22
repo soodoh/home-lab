@@ -45,12 +45,6 @@ locals {
       },
       {
         action = "accept"
-        src    = ["autogroup:owner", "autogroup:admin"]
-        dst    = [local.tags.docker_host]
-        users  = ["ansible-deploy", "ansible-package-apply"]
-      },
-      {
-        action = "accept"
         src    = ["autogroup:owner"]
         dst    = ["autogroup:self"]
         users  = ["pauldiloreto", "paul.diloreto"]
@@ -89,7 +83,7 @@ locals {
       {
         src    = local.owner_identity
         dst    = [local.tags.docker_host]
-        accept = ["docker", "ansible-deploy", "ansible-package-apply"]
+        accept = ["docker"]
         deny   = ["proxmox", "root"]
       },
       {
@@ -102,7 +96,7 @@ locals {
         src    = local.owner_identity
         dst    = [local.tags.proxmox]
         accept = ["proxmox"]
-        deny   = ["ansible-deploy", "ansible-plan", "docker", "firewall-apply", "qualification-apply", "root", "tofu-plan", "tofu-apply"]
+        deny   = ["docker", "root"]
       },
     ]
   }

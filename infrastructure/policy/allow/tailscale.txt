@@ -1,6 +1,2 @@
-# Reviewed Tailscale management-plane resources. Deletion remains forbidden.
+# Reviewed personal Tailscale policy. Deletion remains forbidden.
 tailscale_acl.policy[0]
-tailscale_federated_identity.ci_plan[0]
-tailscale_federated_identity.ci_apply[0]
-tailscale_federated_identity.provider_plan[0]
-tailscale_federated_identity.provider_apply[0]

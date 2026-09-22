@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manage and verify the trusted controller's Omada hostname alias."""
+"""Manage and verify the trusted LAN alias for the Omada controller."""
 
 from __future__ import annotations
 
@@ -13,33 +13,33 @@ import sys
 import tempfile
 
 ALIAS = "Omada"
-DOCKER_HOST = "docker-host"
+DOCKER_HOST_IPV4 = "192.168.0.100"
+LAN_IPV4 = ipaddress.IPv4Network("192.168.0.0/24")
 MARKER = "# home-lab-omada"
-TAILSCALE_IPV4 = ipaddress.IPv4Network("100.64.0.0/10")
 
 
 class AliasError(ValueError):
     """Raised when the managed hostname alias is unsafe or inconsistent."""
 
 
-def require_tailscale_ipv4(value: str) -> str:
+def require_docker_ipv4(value: str) -> str:
     try:
         address = ipaddress.IPv4Address(value)
     except ipaddress.AddressValueError as error:
         raise AliasError("Docker host did not resolve to an IPv4 address") from error
-    if address not in TAILSCALE_IPV4:
-        raise AliasError("Docker host IPv4 address is outside the Tailscale CGNAT range")
+    if address not in LAN_IPV4 or str(address) != DOCKER_HOST_IPV4:
+        raise AliasError("Docker host IPv4 address differs from its fixed LAN reservation")
     return str(address)
 
 
-def resolve_tailscale_ipv4(hostname: str) -> str:
+def resolve_ipv4(hostname: str) -> str:
     addresses = {
         entry[4][0]
         for entry in socket.getaddrinfo(hostname, None, family=socket.AF_INET)
     }
     if len(addresses) != 1:
-        raise AliasError(f"{hostname} must resolve only to one Tailscale IPv4 address")
-    return require_tailscale_ipv4(addresses.pop())
+        raise AliasError(f"{hostname} must resolve to exactly one IPv4 address")
+    return require_docker_ipv4(addresses.pop())
 
 
 def line_has_alias(line: str) -> bool:
@@ -64,7 +64,7 @@ def render_hosts(content: str, docker_ip: str | None = None) -> str:
     if marker_count > 1:
         raise AliasError("the hosts file contains duplicate managed Omada entries")
     if docker_ip is not None:
-        retained.append(f"{require_tailscale_ipv4(docker_ip)}\t{ALIAS} {MARKER}")
+        retained.append(f"{require_docker_ipv4(docker_ip)}\t{ALIAS} {MARKER}")
     return "\n".join(retained) + "\n"
 
 
@@ -108,13 +108,11 @@ def remove(path: Path) -> None:
 def verify(path: Path) -> None:
     content = path.read_text()
     render_hosts(content)
-    docker_ip = resolve_tailscale_ipv4(DOCKER_HOST)
-    expected = f"{docker_ip}\t{ALIAS} {MARKER}"
+    expected = f"{DOCKER_HOST_IPV4}\t{ALIAS} {MARKER}"
     if content.splitlines().count(expected) != 1:
-        raise AliasError("the exact managed Omada hosts entry is missing or stale")
-    omada_ip = resolve_tailscale_ipv4(ALIAS)
-    if omada_ip != docker_ip:
-        raise AliasError("Omada and docker-host resolve to different Tailscale addresses")
+        raise AliasError("the exact managed Omada LAN hosts entry is missing or stale")
+    if resolve_ipv4(ALIAS) != DOCKER_HOST_IPV4:
+        raise AliasError("Omada does not resolve to the fixed Docker host LAN reservation")
 
 
 def parse_args() -> argparse.Namespace:
@@ -129,7 +127,7 @@ def main() -> int:
     args = parse_args()
     try:
         if args.action == "configure":
-            docker_ip = require_tailscale_ipv4(args.docker_ip) if args.docker_ip else resolve_tailscale_ipv4(DOCKER_HOST)
+            docker_ip = require_docker_ipv4(args.docker_ip or DOCKER_HOST_IPV4)
             configure(args.hosts_file, docker_ip)
         elif args.action == "verify":
             if args.docker_ip is not None:

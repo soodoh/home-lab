@@ -25,10 +25,17 @@ certificates when they are trust inputs rather than proof of a completed action.
 
 ## SSH and privilege
 
-[`ansible/inventory/hosts.yml`](../ansible/inventory/hosts.yml) fixes the Tailscale
-hostnames, users, host-key aliases and noninteractive SSH policy. Host changes use
-Ansible become. Observe independent console or recovery access before work that can
-change networking, firewall, storage or boot behavior.
+[`ansible/inventory/hosts.yml`](../ansible/inventory/hosts.yml) fixes the
+Omada-reserved LAN addresses, `ansible-deploy` users, host-key aliases and
+noninteractive native OpenSSH policy. The selected public identity is committed as a
+trust input; its private key remains in the Bitwarden SSH agent and is selected
+through `${SSH_AUTH_SOCK}`. Host changes use Ansible become. Tailscale is personal
+access only and is not a deployment transport. See
+[deployment access](deployment-access.md) for the current path and future CI
+boundary.
+
+Observe independent console or personal Tailscale access before work that can change
+networking, firewall, storage or boot behavior.
 
 ## OpenTofu state and plans
 

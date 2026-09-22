@@ -39,6 +39,15 @@ class FakeOmada:
                     },
                 }
             ],
+            "/controller-id/api/v2/sites/site-id/setting/vpns": [
+                {"id": "other-vpn", "name": "personal", "status": True, "purpose": 4},
+                {
+                    "id": "wireguard-vpn",
+                    "name": "home_lab_deploy",
+                    "status": True,
+                    "purpose": 4,
+                },
+            ],
             "/controller-id/api/v2/sites/site-id/setting/service/dhcp": [
                 {
                     "netId": "network-id",
@@ -74,17 +83,30 @@ class OmadaExportTests(unittest.TestCase):
         for required in (
             "local.export.site.name == var.omada_domain.site_name",
             "local.export.network.name == var.omada_domain.network_name",
+            "local.export.vpn.name == var.omada_domain.wireguard_server_name",
+            "local.export.vpn.enable == true",
             'timeadd(plantimestamp(), "-15m")',
             "timecmp(local.export.exported_at, plantimestamp()) <= 0",
         ):
             self.assertIn(required, source)
 
     def test_projects_exact_selected_live_domain(self) -> None:
-        value = EXPORTER.build_export(FakeOmada(), "Selected", "Default")
+        value = EXPORTER.build_export(
+            FakeOmada(), "Selected", "Default", "home_lab_deploy"
+        )
 
         self.assertEqual(value["controller_version"], "6.3.0.45")
         self.assertEqual(value["site"], {"id": "site-id", "name": "Selected"})
         self.assertEqual(value["network"]["id"], "network-id")
+        self.assertEqual(
+            value["vpn"],
+            {
+                "id": "wireguard-vpn",
+                "name": "home_lab_deploy",
+                "enable": True,
+                "purpose": 4,
+            },
+        )
         self.assertEqual(
             [reservation["mac"] for reservation in value["reservations"]],
             ["AA-BB-CC-DD-EE-01", "AA-BB-CC-DD-EE-02"],
@@ -96,7 +118,13 @@ class OmadaExportTests(unittest.TestCase):
 
     def test_refuses_an_unknown_site(self) -> None:
         with self.assertRaisesRegex(SystemExit, "exactly one Omada site"):
-            EXPORTER.build_export(FakeOmada(), "Missing", "Default")
+            EXPORTER.build_export(
+                FakeOmada(), "Missing", "Default", "home_lab_deploy"
+            )
+
+    def test_refuses_an_unknown_vpn(self) -> None:
+        with self.assertRaisesRegex(SystemExit, "exactly one Omada VPN"):
+            EXPORTER.build_export(FakeOmada(), "Selected", "Default", "missing")
 
     def test_normalizes_supported_mac_formats(self) -> None:
         self.assertEqual(EXPORTER.normalize_mac("aabb.ccdd.eeff"), "AA-BB-CC-DD-EE-FF")

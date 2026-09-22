@@ -1,1 +1,2 @@
-# Empty until the ignored controller export and live qualification are reviewed.
+# Reviewed adoption of the UI-bootstrapped WireGuard server identity.
+omada_vpn.wireguard[0]
