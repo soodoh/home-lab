@@ -361,6 +361,12 @@
       ansible.builtin.meta: end_play
       when: proxmox_firewall_retirement_phase != 'finalize'
 
+    - name: Gather the timestamp required by the Docker-host apply lock
+      ansible.builtin.setup:
+        gather_subset: ['!all', 'min']
+        filter: ansible_date_time
+      no_log: true
+
     - name: Acquire Docker-host mutation ownership
       ansible.builtin.import_role:
         name: apply_lock
