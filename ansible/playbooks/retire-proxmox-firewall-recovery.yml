@@ -1,0 +1,399 @@
+---
+- name: Stage or finalize native Proxmox firewall recovery retirement
+  hosts: proxmox
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  vars:
+    firewall_retirement_sources:
+      - source: infrastructure/proxmox-firewall/host/proxmox-firewall-transaction.py
+        dest: /usr/local/libexec/home-lab/proxmox-firewall-transaction
+        mode: '0755'
+      - source: infrastructure/proxmox-firewall/host/proxmox-firewall-boot-recovery
+        dest: /usr/local/libexec/home-lab/proxmox-firewall-boot-recovery
+        mode: '0755'
+      - source: infrastructure/proxmox-firewall/host/proxmox-firewall-transport
+        dest: /usr/local/libexec/home-lab/proxmox-firewall-transport
+        mode: '0755'
+      - source: infrastructure/proxmox-firewall/host/proxmox-firewall-policy.json
+        dest: /usr/local/share/home-lab/proxmox-firewall-policy.json
+        mode: '0644'
+      - source: infrastructure/proxmox-firewall/host/home-lab-proxmox-firewall-backend-stop.service
+        dest: /etc/systemd/system/home-lab-proxmox-firewall-backend-stop.service
+        mode: '0644'
+      - source: infrastructure/proxmox-firewall/host/home-lab-proxmox-firewall-config-recovery.service
+        dest: /etc/systemd/system/home-lab-proxmox-firewall-config-recovery.service
+        mode: '0644'
+      - source: infrastructure/proxmox-firewall/host/home-lab-proxmox-firewall-post-recovery.service
+        dest: /etc/systemd/system/home-lab-proxmox-firewall-post-recovery.service
+        mode: '0644'
+      - source: infrastructure/proxmox-firewall/host/home-lab-proxmox-firewall-rollback.service
+        dest: /etc/systemd/system/home-lab-proxmox-firewall-rollback.service
+        mode: '0644'
+      - source: infrastructure/proxmox-firewall/host/home-lab-proxmox-firewall-rollback.timer
+        dest: /etc/systemd/system/home-lab-proxmox-firewall-rollback.timer
+        mode: '0644'
+      - source: infrastructure/proxmox-firewall/host/50-home-lab-firewall-recovery.conf
+        dest: /etc/systemd/system/pve-firewall.service.d/50-home-lab-firewall-recovery.conf
+        mode: '0644'
+      - source: infrastructure/proxmox-firewall/host/50-home-lab-firewall-recovery.conf
+        dest: /etc/systemd/system/proxmox-firewall.service.d/50-home-lab-firewall-recovery.conf
+        mode: '0644'
+    firewall_retirement_custom_units:
+      - home-lab-proxmox-firewall-backend-stop.service
+      - home-lab-proxmox-firewall-config-recovery.service
+      - home-lab-proxmox-firewall-post-recovery.service
+      - home-lab-proxmox-firewall-rollback.service
+      - home-lab-proxmox-firewall-rollback.timer
+    firewall_retirement_installed_paths:
+      - /usr/local/libexec/home-lab/proxmox-firewall-transaction
+      - /usr/local/libexec/home-lab/proxmox-firewall-boot-recovery
+      - /usr/local/libexec/home-lab/proxmox-firewall-transport
+      - /usr/local/share/home-lab/proxmox-firewall-policy.json
+      - /etc/systemd/system/home-lab-proxmox-firewall-backend-stop.service
+      - /etc/systemd/system/home-lab-proxmox-firewall-config-recovery.service
+      - /etc/systemd/system/home-lab-proxmox-firewall-post-recovery.service
+      - /etc/systemd/system/home-lab-proxmox-firewall-rollback.service
+      - /etc/systemd/system/home-lab-proxmox-firewall-rollback.timer
+      - /etc/systemd/system/pve-firewall.service.d/50-home-lab-firewall-recovery.conf
+      - /etc/systemd/system/proxmox-firewall.service.d/50-home-lab-firewall-recovery.conf
+      - /etc/sudoers.d/firewall-apply
+      - /var/lib/home-lab/firewall-transaction
+    firewall_retirement_marker: /var/lib/home-lab/firewall-retirement-staged-boot-id
+  pre_tasks:
+    - name: Require the fixed retirement phase and explicit human prerequisites
+      ansible.builtin.assert:
+        that:
+          - proxmox_firewall_retirement_phase in ['stage', 'finalize']
+          - proxmox_firewall_retirement_confirmed is boolean
+          - proxmox_firewall_retirement_console_confirmed is boolean
+          - proxmox_firewall_retirement_confirmed
+          - proxmox_firewall_retirement_console_confirmed
+        fail_msg: Firewall recovery retirement requires an explicit phase, approval and independent console access.
+
+    - name: Observe the host before firewall recovery retirement
+      ansible.builtin.include_role:
+        name: proxmox_observe
+
+    - name: Read installed firewall recovery source metadata
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.stat:
+        path: "{{ item.dest }}"
+        follow: false
+        checksum_algorithm: sha256
+        get_checksum: true
+        get_mime: false
+        get_attributes: false
+      loop: "{{ firewall_retirement_sources }}"
+      register: firewall_retirement_source_state
+      no_log: true
+
+    - name: Require the staged installation to match reviewed source
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.uid == 0
+          - item.stat.gid == 0
+          - item.stat.mode == item.item.mode
+          - item.stat.nlink == 1
+          - >-
+            item.stat.checksum == (
+              lookup('ansible.builtin.file', playbook_dir ~ '/../../' ~ item.item.source, rstrip=false) |
+              hash('sha256')
+            )
+        quiet: true
+      loop: "{{ firewall_retirement_source_state.results | default([]) }}"
+      no_log: true
+
+    - name: Read the terminal transaction before taking ownership
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/home-lab/proxmox-firewall-transaction, status]
+      register: firewall_retirement_status_before
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require an exact committed terminal transaction
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.assert:
+        that:
+          - (firewall_retirement_status_before.stdout | from_json).format == 'home-lab-proxmox-firewall-result-v1'
+          - (firewall_retirement_status_before.stdout | from_json).status == 'committed'
+          - (firewall_retirement_status_before.stdout | from_json).planSha256 is string
+          - (firewall_retirement_status_before.stdout | from_json).sessionId is string
+        fail_msg: Only an exact committed firewall transaction can be retired.
+      no_log: true
+
+  tasks:
+    - name: Acquire exclusive Proxmox mutation ownership
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: "proxmox-firewall-recovery-retirement-{{ proxmox_firewall_retirement_phase }}"
+
+    - name: Revalidate the committed transaction after taking ownership
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/home-lab/proxmox-firewall-transaction, status]
+      register: firewall_retirement_status_locked
+      changed_when: false
+      check_mode: false
+      no_log: true
+
+    - name: Require the same committed transaction after taking ownership
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.assert:
+        that:
+          - (firewall_retirement_status_locked.stdout | from_json) == (firewall_retirement_status_before.stdout | from_json)
+        fail_msg: Firewall transaction state changed while ownership was acquired.
+      no_log: true
+
+    - name: Read the pre-retirement boot identity
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.slurp:
+        src: /proc/sys/kernel/random/boot_id
+      register: firewall_retirement_boot_before
+      no_log: true
+
+    - name: Publish the private staged boot identity
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.copy:
+        content: "{{ firewall_retirement_boot_before.content | b64decode | trim }}\n"
+        dest: "{{ firewall_retirement_marker }}"
+        owner: root
+        group: root
+        mode: '0600'
+      no_log: true
+
+    - name: Disable custom recovery units without stopping native firewalls
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        enabled: false
+      loop:
+        - home-lab-proxmox-firewall-config-recovery.service
+        - home-lab-proxmox-firewall-post-recovery.service
+        - home-lab-proxmox-firewall-rollback.timer
+
+    - name: Remove custom native-firewall boot dependencies
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/pve-firewall.service.d/50-home-lab-firewall-recovery.conf
+        - /etc/systemd/system/proxmox-firewall.service.d/50-home-lab-firewall-recovery.conf
+
+    - name: Reload systemd after staging native boot ownership
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
+    - name: Stop now-inert custom recovery units
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - home-lab-proxmox-firewall-rollback.timer
+        - home-lab-proxmox-firewall-post-recovery.service
+        - home-lab-proxmox-firewall-config-recovery.service
+
+    - name: Recheck native firewall state after staging
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.include_role:
+        name: proxmox_observe
+        tasks_from: firewall
+
+    - name: Read staged custom-unit state
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/systemctl
+          - show
+          - "{{ item }}"
+          - --no-pager
+          - --property=LoadState,ActiveState,UnitFileState
+      loop:
+        - home-lab-proxmox-firewall-config-recovery.service
+        - home-lab-proxmox-firewall-post-recovery.service
+        - home-lab-proxmox-firewall-rollback.timer
+      register: firewall_retirement_staged_units
+      changed_when: false
+      check_mode: false
+
+    - name: Require custom boot recovery to be staged inactive
+      when: proxmox_firewall_retirement_phase == 'stage'
+      ansible.builtin.assert:
+        that:
+          - "'LoadState=loaded' in item.stdout_lines"
+          - "'ActiveState=inactive' in item.stdout_lines"
+          - "'UnitFileState=disabled' in item.stdout_lines"
+        quiet: true
+      loop: "{{ firewall_retirement_staged_units.results | default([]) }}"
+
+    - name: Read the staged boot identity before final removal
+      when: proxmox_firewall_retirement_phase == 'finalize'
+      ansible.builtin.slurp:
+        src: "{{ firewall_retirement_marker }}"
+      register: firewall_retirement_staged_boot
+      no_log: true
+
+    - name: Read the current boot identity before final removal
+      when: proxmox_firewall_retirement_phase == 'finalize'
+      ansible.builtin.slurp:
+        src: /proc/sys/kernel/random/boot_id
+      register: firewall_retirement_current_boot
+      no_log: true
+
+    - name: Require successful boot without custom recovery dependencies
+      when: proxmox_firewall_retirement_phase == 'finalize'
+      ansible.builtin.assert:
+        that:
+          - firewall_retirement_staged_boot.content | b64decode | trim != firewall_retirement_current_boot.content | b64decode | trim
+        fail_msg: Final removal requires a completed reboot after staging.
+      no_log: true
+
+    - name: Recheck native firewall state before final removal
+      when: proxmox_firewall_retirement_phase == 'finalize'
+      ansible.builtin.include_role:
+        name: proxmox_observe
+        tasks_from: firewall
+
+    - name: Run a fresh NFS canary before final removal
+      ansible.builtin.command:
+        argv: [/usr/local/libexec/home-lab/proxmox-firewall-nfs-canary, check]
+      delegate_to: docker-host
+      register: firewall_retirement_canary
+      changed_when: false
+      check_mode: false
+      timeout: 30
+
+    - name: Require the fixed NFS canary result
+      ansible.builtin.assert:
+        that:
+          - firewall_retirement_canary.rc == 0
+          - firewall_retirement_canary.stderr == ''
+          - firewall_retirement_canary.stdout == 'proxmox-firewall-nfs-canary=passed'
+
+    - name: Remove obsolete firewall recovery files and terminal state
+      when: proxmox_firewall_retirement_phase == 'finalize'
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ firewall_retirement_installed_paths }}"
+
+    - name: Remove the obsolete firewall transport account
+      when: proxmox_firewall_retirement_phase == 'finalize'
+      ansible.builtin.user:
+        name: firewall-apply
+        state: absent
+        remove: true
+
+    - name: Reload systemd after final firewall recovery removal
+      when: proxmox_firewall_retirement_phase == 'finalize'
+      ansible.builtin.systemd_service:
+        daemon_reload: true
+
+    - name: Remove the staged boot marker after successful final removal
+      when: proxmox_firewall_retirement_phase == 'finalize'
+      ansible.builtin.file:
+        path: "{{ firewall_retirement_marker }}"
+        state: absent
+
+    - name: Recheck native firewall state after final removal
+      when: proxmox_firewall_retirement_phase == 'finalize'
+      ansible.builtin.include_role:
+        name: proxmox_observe
+        tasks_from: firewall
+
+    - name: Read removed custom unit state
+      when: proxmox_firewall_retirement_phase == 'finalize'
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/systemctl
+          - show
+          - "{{ item }}"
+          - --no-pager
+          - --property=LoadState,ActiveState
+      loop: "{{ firewall_retirement_custom_units }}"
+      register: firewall_retirement_removed_units
+      changed_when: false
+      check_mode: false
+
+    - name: Require every custom firewall recovery unit to be absent
+      when: proxmox_firewall_retirement_phase == 'finalize'
+      ansible.builtin.assert:
+        that:
+          - "'LoadState=not-found' in item.stdout_lines"
+          - "'ActiveState=inactive' in item.stdout_lines"
+        quiet: true
+      loop: "{{ firewall_retirement_removed_units.results | default([]) }}"
+
+    - name: Release exclusive Proxmox mutation ownership
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+
+  post_tasks:
+    - name: Observe Proxmox after the retirement phase
+      ansible.builtin.include_role:
+        name: proxmox_observe
+
+- name: Remove the obsolete Docker-host NFS canary after final qualification
+  hosts: docker-host
+  gather_facts: false
+  any_errors_fatal: true
+  tasks:
+    - name: End this play unless finalizing
+      ansible.builtin.meta: end_play
+      when: proxmox_firewall_retirement_phase != 'finalize'
+
+    - name: Acquire Docker-host mutation ownership
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_operation: proxmox-firewall-nfs-canary-retirement
+
+    - name: Read the installed NFS canary metadata
+      ansible.builtin.stat:
+        path: /usr/local/libexec/home-lab/proxmox-firewall-nfs-canary
+        follow: false
+        checksum_algorithm: sha256
+        get_checksum: true
+        get_mime: false
+        get_attributes: false
+      register: firewall_retirement_canary_source
+
+    - name: Require the installed NFS canary to match reviewed source
+      ansible.builtin.assert:
+        that:
+          - firewall_retirement_canary_source.stat.isreg | default(false)
+          - not (firewall_retirement_canary_source.stat.islnk | default(false))
+          - firewall_retirement_canary_source.stat.uid == 0
+          - firewall_retirement_canary_source.stat.gid == 0
+          - firewall_retirement_canary_source.stat.mode == '0755'
+          - firewall_retirement_canary_source.stat.nlink == 1
+          - >-
+            firewall_retirement_canary_source.stat.checksum == (
+              lookup('ansible.builtin.file', playbook_dir ~ '/../roles/firewall_nfs_canary/files/proxmox-firewall-nfs-canary.py', rstrip=false) |
+              hash('sha256')
+            )
+        quiet: true
+
+    - name: Remove the obsolete NFS canary
+      ansible.builtin.file:
+        path: /usr/local/libexec/home-lab/proxmox-firewall-nfs-canary
+        state: absent
+
+    - name: Release Docker-host mutation ownership
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release

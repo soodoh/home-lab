@@ -64,13 +64,26 @@
   changed_when: false
   check_mode: false
 
-- name: Verify the autonomous watchdog remains enabled and active
+- name: Verify a bounded firewall-recovery transition state
   ansible.builtin.assert:
     that:
-      - "'LoadState=loaded' in proxmox_observe_watchdog.stdout_lines"
-      - "'ActiveState=active' in proxmox_observe_watchdog.stdout_lines"
-      - "'UnitFileState=enabled' in proxmox_observe_watchdog.stdout_lines"
-    fail_msg: Native observation does not replace or repair the firewall watchdog.
+      - >-
+        (
+          'LoadState=loaded' in proxmox_observe_watchdog.stdout_lines and
+          'ActiveState=active' in proxmox_observe_watchdog.stdout_lines and
+          'UnitFileState=enabled' in proxmox_observe_watchdog.stdout_lines
+        ) or (
+          'LoadState=loaded' in proxmox_observe_watchdog.stdout_lines and
+          'ActiveState=inactive' in proxmox_observe_watchdog.stdout_lines and
+          'UnitFileState=disabled' in proxmox_observe_watchdog.stdout_lines
+        ) or (
+          'LoadState=not-found' in proxmox_observe_watchdog.stdout_lines and
+          'ActiveState=inactive' in proxmox_observe_watchdog.stdout_lines
+        )
+    fail_msg: Firewall recovery is neither active, staged for retirement nor absent.
+
+- name: Observe the native firewall policy independently
+  ansible.builtin.import_tasks: firewall.yml
 
 - name: Read native repository-file metadata and content hashes
   ansible.builtin.stat:
@@ -175,7 +188,13 @@
     msg:
       native_ssh_become: verified
       required_services: active
-      firewall_watchdog: enabled-active
+      firewall_policy: matches
+      firewall_watchdog: >-
+        {{
+          'enabled-active'
+          if 'ActiveState=active' in proxmox_observe_watchdog.stdout_lines
+          else ('staged-inactive' if 'LoadState=loaded' in proxmox_observe_watchdog.stdout_lines else 'absent')
+        }}
       persistent_owners: absent
       protected_access: matches
       protected_hardware: matches

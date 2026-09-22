@@ -47,6 +47,19 @@ Observe both generations live, verify the active library through a fresh snapsho
 isolated restore, then prepare an exact private disposition list. Never treat the NFS
 copy as a current mirror or replay an old synchronization command.
 
+## Proxmox firewall recovery retirement
+
+Desired state: native Proxmox firewall services persist the reviewed active policy
+without the completed one-off transaction, rollback timer, boot helpers, terminal
+journal or dedicated transport account.
+
+Retirement is staged under production ownership. First disable the custom timer and
+boot dependencies without restarting either native firewall backend. With independent
+console access, reboot through the attended native reboot play and require the current
+policy, both backends, host access, VM recovery and a fresh NFS canary to pass. Only
+then remove the inert helpers, units, terminal state and canary. Preserve the reviewed
+policy as an observation input, and separately remove obsolete provider access grants.
+
 ## Restic runtime policy normalization
 
 The installed policy and runner now contain only recurring backup and recovery
