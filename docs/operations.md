@@ -130,6 +130,77 @@ ansible-playbook ansible/playbooks/configure-tailscale-serve.yml
 ansible-playbook ansible/playbooks/observe-hosts.yml
 ```
 
+### Tailscale coordination proxy rollout
+
+The coordination proxy has three independently recoverable layers: the Authentik
+identity objects, the private GOST/Caddy service, and the work-Mac client. Keep
+independent console access to the Docker host and do not alter the Mac's active
+Tailscale daemon until the first two layers pass their checks.
+
+1. Plan and apply the `authentik` OpenTofu root using the fresh-plan procedure in
+   section 3. The plan must add only the `tailscale-control` provider/application,
+   the `tailscale-control-proxy` service account, and its exact application binding.
+2. Converge Compose and confirm `https://ts-control.diloreto.com` presents Caddy's
+   public certificate and an Authentik authentication response. The private GOST
+   container must publish no host port.
+3. In the Authentik Admin interface, open **Directory → Tokens and App passwords**,
+   select **Create**, use identifier `tailscale-control-proxy`, select user
+   `tailscale-control-proxy`, choose intent **App password**, disable expiry, and
+   copy the value once into the protected work-Mac session. Do not put it in this
+   repository, shell history or an OpenTofu input.
+4. In the clean `~/Projects/dotfiles` checkout, age-encrypt the fixed username and
+   prompt securely for the app password:
+
+   ```sh
+   mise set --file mise.work-macos.toml --age-encrypt \
+     GOST_AUTH_USERNAME=tailscale-control-proxy
+   mise set --file mise.work-macos.toml --age-encrypt --prompt GOST_AUTH_PASSWORD
+   mise --env work-macos run validate:fast
+   ```
+
+5. After reviewing and committing that ciphertext, apply only the work profile's
+   package, privileged-file and LaunchAgent resources from the work Mac:
+
+   ```sh
+   MISE_ENV=work-macos mise bootstrap \
+     --only packages,files,macos-launchd-agents
+   ```
+
+6. Before restarting Tailscale, require the positive and negative proxy checks:
+
+   ```sh
+   curl --proxy http://127.0.0.1:1055 \
+     https://controlplane.tailscale.com/
+   ! curl --fail-with-body --proxy http://127.0.0.1:1055 \
+     https://example.com/
+   ```
+
+   Any normal Tailscale HTTP response proves transport; an Authentik login page,
+   `401`, `403`, Zscaler block page or TLS error is a refusal. The negative request
+   must be denied by GOST.
+7. Restart the Homebrew Tailscale daemon, then verify control and peer state:
+
+   ```sh
+   sudo brew services restart tailscale
+   tailscale status
+   tailscale netcheck
+   ```
+
+Soak beyond the previous failure interval with Zscaler enabled. Direct UDP peer
+traffic should remain direct; the local HTTP proxy is for Tailscale coordination
+and HTTPS relay fallback only.
+
+For immediate client rollback, remove the managed proxy environment before
+restarting Tailscale, and stop the LaunchAgent. Revert Git and reconverge both
+repositories before treating rollback as complete:
+
+```sh
+launchctl bootout "gui/$UID" \
+  "$HOME/Library/LaunchAgents/dev.mise.tailscale-control-proxy.plist" || true
+sudo rm -f /etc/tailscale/tailscaled-env.txt
+sudo brew services restart tailscale
+```
+
 The complete Docker-host interface is [`ansible/playbooks/site.yml`](../ansible/playbooks/site.yml).
 It observes before taking ownership, converges deployment access, Tailscale Serve,
 adopted backup files and units, Docker maintenance and the complete committed Compose

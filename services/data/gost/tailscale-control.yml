@@ -1,0 +1,19 @@
+services:
+  - name: tailscale-control-proxy
+    addr: ":8080"
+    bypass: tailscale-control-destinations
+    handler:
+      type: http
+    listener:
+      type: ws
+      metadata:
+        path: /tailscale-control
+
+bypasses:
+  - name: tailscale-control-destinations
+    whitelist: true
+    matchers:
+      - "tailscale.com:80"
+      - "tailscale.com:443"
+      - "*.tailscale.com:80"
+      - "*.tailscale.com:443"

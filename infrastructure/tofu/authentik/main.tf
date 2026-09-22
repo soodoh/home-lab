@@ -7,6 +7,7 @@ locals {
   }
 
   applications                  = var.authentik_enable_management ? local.desired.applications : {}
+  existing_applications         = { for key, value in local.applications : key => value if value.import_existing }
   application_policy_bindings   = var.authentik_enable_management ? local.desired.applicationPolicyBindings : {}
   authenticator_validate_stages = var.authentik_enable_management ? local.desired.authenticatorValidateStages : {}
   certificates                  = var.authentik_enable_management ? local.desired.certificates : {}
@@ -20,6 +21,7 @@ locals {
   oauth_providers               = var.authentik_enable_management ? local.desired.oauthProviders : {}
   outposts                      = var.authentik_enable_management ? local.desired.outposts : {}
   proxy_providers               = var.authentik_enable_management ? local.desired.proxyProviders : {}
+  existing_proxy_providers      = { for key, value in local.proxy_providers : key => value if value.import_existing }
   rbac_roles                    = var.authentik_enable_management ? local.desired.rbacRoles : {}
   scope_mappings                = var.authentik_enable_management ? local.desired.scopeMappings : {}
   service_accounts              = var.authentik_enable_management ? local.desired.serviceAccounts : {}
@@ -36,8 +38,8 @@ check "desired_inventory" {
   assert {
     condition = (
       local.desired.schemaVersion == 3 &&
-      length(local.desired.applications) == 23 &&
-      length(local.desired.proxyProviders) == 18 &&
+      length(local.desired.applications) == 24 &&
+      length(local.desired.proxyProviders) == 19 &&
       (!var.authentik_enable_management || (
         local.desired.sourceInventory.complete &&
         length(local.desired.oauthProviders) == 5 &&
@@ -52,11 +54,27 @@ check "desired_inventory" {
         length(local.desired.outposts) == 1 &&
         length(local.desired.rbacRoles) == 1 &&
         length(local.desired.scopeMappings) == 1 &&
-        length(local.desired.serviceAccounts) == 1 &&
-        length(local.desired.serviceApplicationBindings) == 1
+        length(local.desired.serviceAccounts) == 2 &&
+        length(local.desired.serviceApplicationBindings) == 2
       ))
     )
     error_message = "The enabled Authentik inventory must contain every reviewed application, provider, access binding, and custom flow object."
+  }
+}
+
+check "desired_import_boundaries" {
+  assert {
+    condition = (
+      alltrue([
+        for application in values(local.desired.applications) :
+        application.import_existing == (application.uuid != null)
+      ]) &&
+      alltrue([
+        for provider in values(local.desired.proxyProviders) :
+        provider.import_existing == (provider.pk != null)
+      ])
+    )
+    error_message = "Only observed Authentik applications and proxy providers with live IDs may be imported."
   }
 }
 
@@ -291,7 +309,10 @@ resource "authentik_user" "service_accounts" {
   type      = each.value.type
   is_active = each.value.is_active
   roles     = [for role_ref in each.value.role_refs : authentik_rbac_role.roles[role_ref].id]
-  password  = local.client_secrets.ldap.bind_password
+  password = (
+    each.value.password_ref == "ldap-bind" ?
+    local.client_secrets.ldap.bind_password : null
+  )
 
   lifecycle {
     prevent_destroy = true
@@ -424,9 +445,9 @@ import {
 }
 
 import {
-  for_each = local.proxy_providers
+  for_each = local.existing_proxy_providers
   to       = authentik_provider_proxy.providers[each.key]
-  id       = each.key
+  id       = each.value.pk
 }
 
 import {
@@ -436,7 +457,7 @@ import {
 }
 
 import {
-  for_each = local.applications
+  for_each = local.existing_applications
   to       = authentik_application.applications[each.key]
   id       = each.key
 }

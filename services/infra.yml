@@ -37,6 +37,20 @@ services:
     networks:
       - proxy
 
+  tailscale-control-proxy:
+    image: gogost/gost:3.3.0@sha256:f7a958c451928fbe1b99046d25bd0c9bf42019d4c60a82200f50dc8e617b7580
+    container_name: tailscale-control-proxy
+    restart: always
+    logging: *default-logging
+    command: ["-C", "/etc/gost/tailscale-control.yml"]
+    volumes:
+      - type: bind
+        source: ./data/gost/tailscale-control.yml
+        target: /etc/gost/tailscale-control.yml
+        read_only: true
+    networks:
+      - proxy
+
   caddy:
     image: caddy:2.11.4@sha256:14a9c00d4e833ebc2b65d36515b37bde3b73f0b323a2663aaafc88953d8c4e3f
     container_name: caddy

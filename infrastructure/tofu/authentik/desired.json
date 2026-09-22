@@ -342,6 +342,7 @@
     "calibre": {
       "backchannel_provider_ids": [],
       "group": "Media",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/calibre.png",
@@ -358,6 +359,7 @@
     "calibre-web-automated": {
       "backchannel_provider_ids": [],
       "group": "Media",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/calibre-web.png",
@@ -374,6 +376,7 @@
     "caro-tachidesk": {
       "backchannel_provider_ids": [],
       "group": "Media",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/tachidesk.png",
@@ -390,6 +393,7 @@
     "ddns-updater": {
       "backchannel_provider_ids": [],
       "group": "Home",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/ddns_y9nGult.png",
@@ -406,6 +410,7 @@
     "frigate": {
       "backchannel_provider_ids": [],
       "group": "Home",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/Frigate_NVR_Icon.png",
@@ -422,6 +427,7 @@
     "hass-oidc": {
       "backchannel_provider_ids": [],
       "group": "Home",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": true,
       "meta_icon": "application-icons/hass.png",
@@ -438,6 +444,7 @@
     "jellyfin": {
       "backchannel_provider_ids": [],
       "group": "Media",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/Jellyfin_icon.png",
@@ -454,6 +461,7 @@
     "karaoke-eternal": {
       "backchannel_provider_ids": [],
       "group": "Home",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/karaoke-icon-microphone-clip-art-stag-beer-0c90545caec033f89449feff0fa2972d.png",
@@ -470,6 +478,7 @@
     "omada": {
       "backchannel_provider_ids": [],
       "group": "Home",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/omada.png",
@@ -486,6 +495,7 @@
     "openfit": {
       "backchannel_provider_ids": [],
       "group": "Other",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "",
@@ -502,6 +512,7 @@
     "prowlarr": {
       "backchannel_provider_ids": [],
       "group": "Arr",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/Prowlarr_icon.svg",
@@ -518,6 +529,7 @@
     "proxmox": {
       "backchannel_provider_ids": [],
       "group": "Home",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/proxmox.png",
@@ -534,6 +546,7 @@
     "qbittorrent": {
       "backchannel_provider_ids": [],
       "group": "Arr",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/qBittorrent_icon.svg",
@@ -550,6 +563,7 @@
     "radarr": {
       "backchannel_provider_ids": [],
       "group": "Arr",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/radarr_RufXat6_0AkfvvK.png",
@@ -566,6 +580,7 @@
     "radarr-4k": {
       "backchannel_provider_ids": [],
       "group": "Arr",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/radarr_RufXat6.png",
@@ -582,6 +597,7 @@
     "readarr": {
       "backchannel_provider_ids": [],
       "group": "Arr",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/Readarr_icon.svg",
@@ -598,6 +614,7 @@
     "sabnzbd": {
       "backchannel_provider_ids": [],
       "group": "Arr",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/webp/sabnzbd.webp",
@@ -614,6 +631,7 @@
     "seerr": {
       "backchannel_provider_ids": [],
       "group": "Arr",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "https://github.com/seerr-team/seerr/blob/develop/public/android-chrome-512x512.png?raw=true",
@@ -630,6 +648,7 @@
     "sonarr": {
       "backchannel_provider_ids": [],
       "group": "Arr",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/sonarr.png",
@@ -646,6 +665,7 @@
     "tachidesk": {
       "backchannel_provider_ids": [],
       "group": "Media",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/tachidesk.png",
@@ -659,9 +679,27 @@
       "slug": "tachidesk",
       "uuid": "6733f1dd-946d-4b09-a1a6-c053113609a7"
     },
+    "tailscale-control": {
+      "backchannel_provider_ids": [],
+      "group": "Infrastructure",
+      "import_existing": false,
+      "meta_description": "Authenticated relay for Tailscale coordination traffic",
+      "meta_hide": true,
+      "meta_icon": "",
+      "meta_launch_url": "",
+      "meta_publisher": "",
+      "name": "Tailscale Control Proxy",
+      "open_in_new_tab": false,
+      "policy_engine_mode": "all",
+      "provider_id": "tailscale-control",
+      "provider_type": "proxy",
+      "slug": "tailscale-control",
+      "uuid": null
+    },
     "vaultwarden": {
       "backchannel_provider_ids": [],
       "group": "Other",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/webp/vaultwarden-light.webp",
@@ -678,6 +716,7 @@
     "vikunja": {
       "backchannel_provider_ids": [],
       "group": "Other",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/vikunja.svg",
@@ -694,6 +733,7 @@
     "zwave": {
       "backchannel_provider_ids": [],
       "group": "Home",
+      "import_existing": true,
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/zwave.png",
@@ -1084,6 +1124,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://prowlarr.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://gluetun:9696",
       "internal_host_ssl_validation": true,
@@ -1112,6 +1153,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://qb.diloreto.com/",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://gluetun:8081",
       "internal_host_ssl_validation": false,
@@ -1140,6 +1182,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://calibre.diloreto.com/",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://calibre:8080",
       "internal_host_ssl_validation": true,
@@ -1168,6 +1211,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://seerr.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://gluetun:5055",
       "internal_host_ssl_validation": true,
@@ -1196,6 +1240,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://proxmox.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "https://192.168.0.123:8006",
       "internal_host_ssl_validation": false,
@@ -1224,6 +1269,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://radarr.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://gluetun:7878",
       "internal_host_ssl_validation": true,
@@ -1252,6 +1298,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://frigate.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://frigate:5000",
       "internal_host_ssl_validation": true,
@@ -1280,6 +1327,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://zwave.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://zwave:8091",
       "internal_host_ssl_validation": false,
@@ -1308,6 +1356,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://omada.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://caddy:18043",
       "internal_host_ssl_validation": true,
@@ -1336,6 +1385,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://ddns.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://ddns-updater:8000",
       "internal_host_ssl_validation": true,
@@ -1364,6 +1414,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://karaoke.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://karaoke-eternal:8080",
       "internal_host_ssl_validation": true,
@@ -1392,6 +1443,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://readarr.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://gluetun:8787",
       "internal_host_ssl_validation": true,
@@ -1420,6 +1472,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://caromanga.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://gluetun:4568",
       "internal_host_ssl_validation": true,
@@ -1448,6 +1501,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://openfit.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://openfit:3000",
       "internal_host_ssl_validation": true,
@@ -1476,6 +1530,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://sabnzbd.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://gluetun:8080",
       "internal_host_ssl_validation": true,
@@ -1504,6 +1559,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://comics.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://gluetun:4567",
       "internal_host_ssl_validation": true,
@@ -1532,6 +1588,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://sonarr.diloreto.com",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://gluetun:8989",
       "internal_host_ssl_validation": true,
@@ -1560,6 +1617,7 @@
       "basic_auth_user_attribute": "",
       "cookie_domain": "",
       "external_host": "https://radarr-4k.diloreto.com/",
+      "import_existing": true,
       "intercept_header_auth": true,
       "internal_host": "http://gluetun:7879",
       "internal_host_ssl_validation": true,
@@ -1569,6 +1627,35 @@
       "mode": "proxy",
       "name": "Radarr 4k",
       "pk": 8,
+      "property_mappings": [
+        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
+        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
+        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
+        "8f00714d-dbb0-472a-9a78-8b755baa7915",
+        "f371dd37-1069-4154-823e-01efd372eb06"
+      ],
+      "refresh_token_validity": "days=30",
+      "skip_path_regex": ""
+    },
+    "tailscale-control": {
+      "access_token_validity": "hours=24",
+      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
+      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
+      "basic_auth_enabled": false,
+      "basic_auth_password_attribute": "",
+      "basic_auth_user_attribute": "",
+      "cookie_domain": "",
+      "external_host": "https://ts-control.diloreto.com",
+      "import_existing": false,
+      "intercept_header_auth": true,
+      "internal_host": "http://tailscale-control-proxy:8080",
+      "internal_host_ssl_validation": true,
+      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
+      "jwt_federation_providers": [],
+      "jwt_federation_sources": [],
+      "mode": "proxy",
+      "name": "Tailscale Control Proxy",
+      "pk": null,
       "property_mappings": [
         "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
         "e72b12d8-ef3e-4b73-b172-0df830d666d7",
@@ -1602,12 +1689,22 @@
     "jellyfin-ldap-bind": {
       "is_active": true,
       "name": "Jellyfin LDAP bind",
+      "password_ref": "ldap-bind",
       "path": "goauthentik.io/service-accounts",
       "role_refs": [
         "jellyfin-ldap-directory-search"
       ],
       "type": "service_account",
       "username": "jellyfin-ldap-bind"
+    },
+    "tailscale-control-proxy": {
+      "is_active": true,
+      "name": "Tailscale control proxy",
+      "password_ref": null,
+      "path": "goauthentik.io/service-accounts",
+      "role_refs": [],
+      "type": "service_account",
+      "username": "tailscale-control-proxy"
     }
   },
   "serviceApplicationBindings": {
@@ -1619,15 +1716,24 @@
       "order": 10,
       "timeout": 30,
       "user_ref": "jellyfin-ldap-bind"
+    },
+    "tailscale-control-proxy": {
+      "application_slug": "tailscale-control",
+      "enabled": true,
+      "failure_result": false,
+      "negate": false,
+      "order": 10,
+      "timeout": 30,
+      "user_ref": "tailscale-control-proxy"
     }
   },
   "sourceInventory": {
     "applicationPolicyBindingsSha256": "5da858e95d6f54858a2bd411a83f7c25b5f7fbdcb275d48e2afcebf73d7f2ef6",
-    "applicationsSha256": "f6c6a575ccdb8107305f2724d2e406478029731ec8f27b60ff2009b5830dc017",
+    "applicationsSha256": "8bc5ba9d487d7a757da7d1d7f09b4893bcb70a2c91e0b56b9ab365dc3fb5406d",
     "capturedAt": "2026-08-27T18:16:12Z",
     "complete": true,
     "customConfigurationSha256": "db14ff46815791d05a17017cb22fffcb4e40d14f153181bcf6f166d5373cc1a4",
     "oauthProvidersSha256": "8d526eac6322b6ff9f0e28cc55ecb43615cad999cf1bdace0e1399e25c5c3c90",
-    "proxyProvidersSha256": "5756b4fb1b1a2aadac1b02f9b3095c8b7013a28c04f7eeba9ecb8fe5a3e300e8"
+    "proxyProvidersSha256": "6ed74e7fccff166d1fa5c34932ac74ac10bc5d633e287521bb542681e3e8f2a2"
   }
 }

@@ -17,8 +17,8 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_live_inventory_is_complete(self) -> None:
         self.assertEqual(DESIRED["schemaVersion"], 3)
         self.assertTrue(DESIRED["sourceInventory"]["complete"])
-        self.assertEqual(len(DESIRED["applications"]), 23)
-        self.assertEqual(len(DESIRED["proxyProviders"]), 18)
+        self.assertEqual(len(DESIRED["applications"]), 24)
+        self.assertEqual(len(DESIRED["proxyProviders"]), 19)
         self.assertEqual(set(DESIRED["oauthProviders"]), OAUTH_PROVIDER_IDS)
         self.assertEqual(DESIRED["retainedOAuthProviders"], ["15"])
         self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 28)
@@ -32,7 +32,10 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(set(DESIRED["certificates"]), {"jellyfin-ldap"})
         self.assertEqual(set(DESIRED["ldapProviders"]), {"jellyfin"})
         self.assertEqual(set(DESIRED["outposts"]), {"jellyfin-ldap"})
-        self.assertEqual(set(DESIRED["serviceAccounts"]), {"jellyfin-ldap-bind"})
+        self.assertEqual(
+            set(DESIRED["serviceAccounts"]),
+            {"jellyfin-ldap-bind", "tailscale-control-proxy"},
+        )
         self.assertEqual(
             DESIRED["ldapSearchPermissions"]["jellyfin"]["permission"],
             "authentik_providers_ldap.search_full_directory",
@@ -60,11 +63,28 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             OAUTH_PROVIDER_IDS,
         )
         self.assertEqual(referenced_ldap_ids, set(DESIRED["ldapProviders"]))
-        self.assertEqual(DESIRED["applications"]["jellyfin"]["provider_id"], "jellyfin")
-        self.assertEqual(
-            {binding["application_slug"] for binding in DESIRED["applicationPolicyBindings"].values()},
-            set(DESIRED["applications"]),
+        self.assertTrue(
+            all(
+                application["import_existing"] == (application["uuid"] is not None)
+                for application in DESIRED["applications"].values()
+            )
         )
+        self.assertTrue(
+            all(
+                provider["import_existing"] == (provider["pk"] is not None)
+                for provider in DESIRED["proxyProviders"].values()
+            )
+        )
+        self.assertEqual(DESIRED["applications"]["jellyfin"]["provider_id"], "jellyfin")
+        bound_applications = {
+            binding["application_slug"]
+            for bindings in (
+                DESIRED["applicationPolicyBindings"],
+                DESIRED["serviceApplicationBindings"],
+            )
+            for binding in bindings.values()
+        }
+        self.assertEqual(bound_applications, set(DESIRED["applications"]))
 
     def test_source_inventory_hashes_bind_normalized_state(self) -> None:
         def digest(value: object) -> str:
@@ -115,6 +135,50 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
 """,
             caddyfile,
         )
+
+    def test_tailscale_control_proxy_is_private_and_destination_limited(self) -> None:
+        provider = DESIRED["proxyProviders"]["tailscale-control"]
+        application = DESIRED["applications"]["tailscale-control"]
+        account = DESIRED["serviceAccounts"]["tailscale-control-proxy"]
+        binding = DESIRED["serviceApplicationBindings"]["tailscale-control-proxy"]
+
+        self.assertFalse(provider["import_existing"])
+        self.assertTrue(provider["intercept_header_auth"])
+        self.assertEqual(provider["internal_host"], "http://tailscale-control-proxy:8080")
+        self.assertEqual(application["provider_id"], "tailscale-control")
+        self.assertTrue(application["meta_hide"])
+        self.assertIsNone(account["password_ref"])
+        self.assertEqual(account["role_refs"], [])
+        self.assertEqual(binding["application_slug"], "tailscale-control")
+        self.assertEqual(binding["user_ref"], "tailscale-control-proxy")
+        self.assertNotIn(
+            "tailscale-control",
+            {
+                policy_binding["application_slug"]
+                for policy_binding in DESIRED["applicationPolicyBindings"].values()
+            },
+        )
+        self.assertEqual(
+            sum(
+                policy_binding["application_slug"] == "tailscale-control"
+                for policy_binding in DESIRED["serviceApplicationBindings"].values()
+            ),
+            1,
+        )
+
+        infra = (REPO / "services" / "infra.yml").read_text()
+        self.assertIn("gogost/gost:3.3.0@sha256:", infra)
+        proxy_service = infra.split("  tailscale-control-proxy:", 1)[1].split("\n  caddy:", 1)[0]
+        self.assertNotIn("\n    ports:", proxy_service)
+        self.assertIn("      - proxy", proxy_service)
+
+        gost = (REPO / "services" / "data" / "gost" / "tailscale-control.yml").read_text()
+        self.assertIn('      - "*.tailscale.com:80"', gost)
+        self.assertIn('      - "*.tailscale.com:443"', gost)
+        self.assertNotIn("allow all", gost)
+
+        caddyfile = (REPO / "services" / "data" / "Caddyfile").read_text()
+        self.assertIn("ts-control.diloreto.com,", caddyfile)
 
     def test_jellyfin_ldap_runtime_is_private_and_pinned(self) -> None:
         authentik = (REPO / "services" / "authentik.yml").read_text()
@@ -177,7 +241,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         variables = (ROOT / "variables.tf").read_text()
         main = (ROOT / "main.tf").read_text()
 
-        self.assertIn('version = "= 2026.5.1"', versions)
+        self.assertIn('version = "= 2026.8.0"', versions)
         self.assertIn('key          = "home-lab/authentik/tofu.tfstate"', versions)
         self.assertRegex(variables, r'variable "authentik_enable_management"[\s\S]+default\s+= false')
         for resource in (
@@ -203,6 +267,8 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertIn("for_each = local.existing_custom_flows", main)
         self.assertIn("for_each = local.existing_flow_stage_bindings", main)
         self.assertIn("length(local.desired.applicationPolicyBindings) == 28", main)
+        self.assertIn("for_each = local.existing_proxy_providers", main)
+        self.assertIn("for_each = local.existing_applications", main)
         self.assertIn("data.authentik_stage.default_authentication_login", main)
         self.assertIn("data.authentik_stage.default_authenticator_webauthn_setup", main)
         self.assertIn("local.client_secrets.oauthProviders[each.key].client_secret", main)
@@ -239,7 +305,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             *(f'authentik_user.service_accounts["{key}"]' for key in DESIRED["serviceAccounts"]),
         }
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 90)
+        self.assertEqual(len(allow), 94)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()

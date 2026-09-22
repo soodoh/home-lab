@@ -72,18 +72,18 @@
     },
     "applications": {
       "type": "object",
-      "minProperties": 23,
-      "maxProperties": 23,
+      "minProperties": 24,
+      "maxProperties": 24,
       "additionalProperties": {
         "$ref": "#/$defs/application"
       }
     },
     "proxyProviders": {
       "type": "object",
-      "minProperties": 18,
-      "maxProperties": 18,
+      "minProperties": 19,
+      "maxProperties": 19,
       "propertyNames": {
-        "pattern": "^[1-9][0-9]*$"
+        "pattern": "^(?:[1-9][0-9]*|[a-z0-9]+(?:-[a-z0-9]+)*)$"
       },
       "additionalProperties": {
         "$ref": "#/$defs/proxyProvider"
@@ -188,8 +188,8 @@
     },
     "serviceAccounts": {
       "type": "object",
-      "minProperties": 1,
-      "maxProperties": 1,
+      "minProperties": 2,
+      "maxProperties": 2,
       "additionalProperties": {
         "$ref": "#/$defs/serviceAccount"
       }
@@ -204,8 +204,8 @@
     },
     "serviceApplicationBindings": {
       "type": "object",
-      "minProperties": 1,
-      "maxProperties": 1,
+      "minProperties": 2,
+      "maxProperties": 2,
       "additionalProperties": {
         "$ref": "#/$defs/serviceApplicationBinding"
       }
@@ -268,7 +268,8 @@
         "meta_publisher",
         "policy_engine_mode",
         "open_in_new_tab",
-        "meta_hide"
+        "meta_hide",
+        "import_existing"
       ],
       "properties": {
         "name": {
@@ -280,7 +281,14 @@
           "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
         },
         "uuid": {
-          "$ref": "#/$defs/uuid"
+          "oneOf": [
+            {
+              "$ref": "#/$defs/uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "group": {
           "type": "string"
@@ -330,6 +338,9 @@
         },
         "meta_hide": {
           "type": "boolean"
+        },
+        "import_existing": {
+          "type": "boolean"
         }
       }
     },
@@ -356,12 +367,20 @@
         "refresh_token_validity",
         "property_mappings",
         "jwt_federation_sources",
-        "jwt_federation_providers"
+        "jwt_federation_providers",
+        "import_existing"
       ],
       "properties": {
         "pk": {
-          "type": "integer",
-          "minimum": 1
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "name": {
           "type": "string",
@@ -435,6 +454,9 @@
         },
         "jwt_federation_providers": {
           "$ref": "#/$defs/numberArray"
+        },
+        "import_existing": {
+          "type": "boolean"
         }
       }
     },
@@ -1056,7 +1078,8 @@
         "path",
         "type",
         "is_active",
-        "role_refs"
+        "role_refs",
+        "password_ref"
       ],
       "properties": {
         "username": {
@@ -1079,12 +1102,22 @@
         },
         "role_refs": {
           "type": "array",
-          "minItems": 1,
+          "minItems": 0,
           "uniqueItems": true,
           "items": {
             "type": "string",
             "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
           }
+        },
+        "password_ref": {
+          "oneOf": [
+            {
+              "const": "ldap-bind"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },

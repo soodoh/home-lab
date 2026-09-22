@@ -47,7 +47,7 @@ compose_native_source_candidate_path: /var/lib/docker-compose/source-candidate.t
 compose_native_artifact_identity_path: /var/lib/docker-compose/current-artifact.sha256
 compose_native_runtime_env_path: /etc/docker-compose/production.env
 compose_native_apply_lock_path: /var/lib/iac-ansible-production.lock
-compose_native_expected_service_count: 39
+compose_native_expected_service_count: 40
 compose_native_required_healthy_containers:
   - gluetun
   - seerr
