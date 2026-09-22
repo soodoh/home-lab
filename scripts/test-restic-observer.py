@@ -59,6 +59,38 @@ class ResticObserverTests(unittest.TestCase):
         with self.assertRaisesRegex(OBSERVER.ObservationError, "snapshot_mapping_ambiguous"):
             OBSERVER.select_chain(games, nfs, proton, POLICY, ARTIFACT)
 
+    def test_accepts_scheduled_daily_history(self):
+        parsed = {"home-lab-restic-daily.timer": {"LastTriggerUSec": "scheduled"}}
+        self.assertTrue(OBSERVER.daily_history_present(parsed))
+
+    def test_accepts_completed_manual_daily_chain_after_reboot(self):
+        parsed = {
+            "home-lab-restic-daily.timer": {"LastTriggerUSec": ""},
+            "home-lab-restic-daily-local.service": {
+                "ExecMainStartTimestamp": "started",
+                "ExecMainExitTimestamp": "finished",
+            },
+            "home-lab-restic-daily-proton.service": {
+                "ExecMainStartTimestamp": "started",
+                "ExecMainExitTimestamp": "finished",
+            },
+        }
+        self.assertTrue(OBSERVER.daily_history_present(parsed))
+
+    def test_refuses_incomplete_manual_daily_history(self):
+        parsed = {
+            "home-lab-restic-daily.timer": {"LastTriggerUSec": ""},
+            "home-lab-restic-daily-local.service": {
+                "ExecMainStartTimestamp": "started",
+                "ExecMainExitTimestamp": "finished",
+            },
+            "home-lab-restic-daily-proton.service": {
+                "ExecMainStartTimestamp": "started",
+                "ExecMainExitTimestamp": "",
+            },
+        }
+        self.assertFalse(OBSERVER.daily_history_present(parsed))
+
 
 if __name__ == "__main__":
     unittest.main()

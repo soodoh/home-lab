@@ -191,6 +191,15 @@ def proton_restic(policy: dict[str, Any], arguments: list[str]) -> str:
     )
 
 
+def daily_history_present(parsed: dict[str, dict[str, str]]) -> bool:
+    if parsed["home-lab-restic-daily.timer"].get("LastTriggerUSec"):
+        return True
+    return all(
+        parsed[unit].get("ExecMainStartTimestamp") and parsed[unit].get("ExecMainExitTimestamp")
+        for unit in ("home-lab-restic-daily-local.service", "home-lab-restic-daily-proton.service")
+    )
+
+
 def validate_units(policy: dict[str, Any]) -> dict[str, list[str]]:
     properties = [
         "LoadState", "ActiveState", "SubState", "Result", "NextElapseUSecRealtime",
@@ -210,7 +219,7 @@ def validate_units(policy: dict[str, Any]) -> dict[str, list[str]]:
             raise ObservationError("timer_state")
         if not parsed[timer].get("NextElapseUSecRealtime"):
             raise ObservationError("timer_schedule")
-    if not parsed["home-lab-restic-daily.timer"].get("LastTriggerUSec"):
+    if not daily_history_present(parsed):
         raise ObservationError("daily_cadence_history")
     for unit in UNITS:
         if unit.endswith(".timer"):
