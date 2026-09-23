@@ -42,7 +42,15 @@ runtime config. The management UI has no account-only role: its key can read,
 replace or delete OAuth auth files and change settings. Treat UI settings edits
 as drift from Git and SOPS. OAuth refresh/session files in the bind mount are
 sensitive and intentionally enter the encrypted local/NFS/Proton backup chain.
-Never expose the OAuth callback port on any host network interface.
+Never expose the OAuth callback port on any host network interface. The public
+`gost.diloreto.com` WebSocket proxy also permits a CONNECT to this exact
+Serve hostname and port, but does not publish an unauthenticated HTTP route to
+CLIProxyAPI. Authentik gates the proxy handshake with the existing service-account
+app password; the API and management keys remain separate service credentials.
+Anyone who holds the proxy credential can reach all paths on the Serve endpoint,
+including management, subject to the distinct management key. The proxy cannot
+restrict paths inside the HTTPS tunnel. Treat loss of that credential as loss of
+this network boundary and revoke it as described below.
 
 ## SSH and privilege
 
@@ -58,17 +66,20 @@ firewall, storage or boot behavior.
 
 ## Tailscale coordination proxy
 
-The public `ts-control.diloreto.com` endpoint reaches GOST only through the
+The public `gost.diloreto.com` endpoint reaches GOST only through the
 Authentik embedded proxy. Authentik intercepts HTTP Basic credentials on the
-WebSocket handshake and authorizes only the dedicated service account's exact
-application binding. The app password is created manually, has no expiry, and
-is stored only as age ciphertext in the work-Mac dotfiles profile; it is not a
-Compose or OpenTofu input. Revoke it in Authentik and terminate the active
-WebSocket when immediate invalidation is required.
+WebSocket handshake and authorizes only the `gost-proxy-user` service account's
+exact application binding. Its `gost-proxy` app password is created manually,
+has no expiry, and is stored only as age ciphertext in the work-Mac dotfiles
+profile; it is not a Compose or OpenTofu input. Revoke both the old
+`tailscale-control-proxy` app password and the new app password when applicable;
+terminate active WebSockets when immediate invalidation is required.
 
 GOST has no published host port and no reusable server-side credential. Its
-whitelist permits only `tailscale.com` and subdomains on TCP ports 80 and 443.
-Keep both the Authentik identity gate and the GOST destination boundary: either
+whitelist permits only `tailscale.com` and subdomains on TCP ports 80 and 443,
+plus `docker-host.tailea1a78.ts.net:8444` for CLIProxyAPI. Do not turn this
+into a general-purpose forward proxy or admit other tailnet destinations. Keep
+both the Authentik identity gate and the GOST destination boundary: either
 control alone is insufficient for an Internet-facing relay.
 
 ## OpenTofu state and plans

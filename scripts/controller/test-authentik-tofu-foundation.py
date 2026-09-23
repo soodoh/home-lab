@@ -37,7 +37,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         )
         self.assertEqual(
             set(DESIRED["serviceAccounts"]),
-            {"jellyfin-ldap-bind", "tailscale-control-proxy"},
+            {"jellyfin-ldap-bind", "gost-proxy-user"},
         )
         self.assertEqual(
             DESIRED["ldapSearchPermissions"]["jellyfin"]["permission"],
@@ -142,18 +142,20 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_tailscale_control_proxy_is_private_and_destination_limited(self) -> None:
         provider = DESIRED["proxyProviders"]["tailscale-control"]
         application = DESIRED["applications"]["tailscale-control"]
-        account = DESIRED["serviceAccounts"]["tailscale-control-proxy"]
-        binding = DESIRED["serviceApplicationBindings"]["tailscale-control-proxy"]
+        account = DESIRED["serviceAccounts"]["gost-proxy-user"]
+        binding = DESIRED["serviceApplicationBindings"]["gost-proxy-user"]
 
         self.assertFalse(provider["import_existing"])
         self.assertTrue(provider["intercept_header_auth"])
         self.assertEqual(provider["internal_host"], "http://tailscale-control-proxy:8080")
+        self.assertEqual(provider["external_host"], "https://gost.diloreto.com")
         self.assertEqual(application["provider_id"], "tailscale-control")
+        self.assertEqual(account["username"], "gost-proxy-user")
         self.assertTrue(application["meta_hide"])
         self.assertIsNone(account["password_ref"])
         self.assertEqual(account["role_refs"], [])
         self.assertEqual(binding["application_slug"], "tailscale-control")
-        self.assertEqual(binding["user_ref"], "tailscale-control-proxy")
+        self.assertEqual(binding["user_ref"], "gost-proxy-user")
         self.assertNotIn(
             "tailscale-control",
             {
@@ -186,10 +188,13 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         gost = (REPO / "services" / "data" / "gost" / "tailscale-control.yml").read_text()
         self.assertIn('      - "*.tailscale.com:80"', gost)
         self.assertIn('      - "*.tailscale.com:443"', gost)
+        self.assertIn('      - "docker-host.tailea1a78.ts.net:8444"', gost)
+        self.assertNotIn('      - "*.ts.net:', gost)
         self.assertNotIn("allow all", gost)
 
         caddyfile = (REPO / "services" / "data" / "Caddyfile").read_text()
-        self.assertIn("ts-control.diloreto.com,", caddyfile)
+        self.assertIn("gost.diloreto.com,", caddyfile)
+        self.assertNotIn("ts-control.diloreto.com,", caddyfile)
 
     def test_jellyfin_ldap_runtime_is_private_and_pinned(self) -> None:
         authentik = (REPO / "services" / "authentik.yml").read_text()

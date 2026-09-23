@@ -130,36 +130,43 @@ ansible-playbook ansible/playbooks/configure-tailscale-serve.yml
 ansible-playbook ansible/playbooks/observe-hosts.yml
 ```
 
-### Tailscale coordination proxy rollout
+### GOST relay hostname and account cutover
 
-The coordination proxy has three independently recoverable layers: the Authentik
-identity objects, the private GOST/Caddy service, and the work-Mac client. Keep
-independent console access to the Docker host and do not alter the Mac's active
-Tailscale daemon until the first two layers pass their checks.
+The relay has three independently recoverable layers: the Authentik identity
+objects, the private GOST/Caddy service, and the work-Mac client. This cutover
+intentionally removes `ts-control.diloreto.com` and renames the existing
+Authentik user to `gost-proxy-user` without a parallel old route. Expect a
+brief loss of work-Mac Tailscale coordination until the new app password and
+client are active. Keep independent console access to the Docker host and do
+not restart the Mac's active Tailscale daemon until the first two layers pass.
 
-1. Plan and apply the `authentik` OpenTofu root using the fresh-plan procedure in
-   section 3. The plan must add only the `tailscale-control` provider/application,
-   the `tailscale-control-proxy` service account, and its exact application binding.
-2. Converge Compose and confirm `https://ts-control.diloreto.com` presents Caddy's
-   public certificate and an Authentik authentication response. The private GOST
-   container must publish no host port.
+1. Verify public DNS for `gost.diloreto.com` points to the current Caddy ingress.
+   Observe the live Authentik user and provider, then plan the `authentik` root
+   using section 3. The moved state addresses must retain the existing user and
+   binding IDs; the provider's external host and the user's username must update
+   **in place**. Any replacement, unexpected deletion, or plan refusal is a
+   stop: never bypass `prevent_destroy` to complete this rename. Apply only the
+   reviewed plan, then verify the old route/username no longer authenticate.
+2. Converge Compose and confirm `https://gost.diloreto.com` presents Caddy's
+   public certificate and an Authentik authentication response. Confirm the old
+   hostname is not served by Caddy. The private GOST container must publish no
+   host port. Caddy's bind-mounted configuration requires explicit recreation.
 3. In the Authentik Admin interface, open **Directory → Tokens and App passwords**,
-   select **Create**, use identifier `tailscale-control-proxy`, select user
-   `tailscale-control-proxy`, choose intent **App password**, disable expiry, and
-   copy the value once into the protected work-Mac session. Do not put it in this
-   repository, shell history or an OpenTofu input.
-4. In the clean `~/Projects/dotfiles` checkout, age-encrypt the fixed username and
-   prompt securely for the app password:
+   select **Create**, use identifier `gost-proxy`, select user `gost-proxy-user`,
+   choose intent **App password**, disable expiry, and copy the value once into
+   the protected work-Mac session. Do not put it in this repository, shell
+   history or an OpenTofu input.
+4. The work-Mac dotfiles checkout already holds the age-encrypted new username
+   and the new endpoint, but **still holds the old encrypted app password**.
+   Replace that value securely and validate before launching the updated client:
 
    ```sh
-   mise set --file mise.work-macos.toml --age-encrypt \
-     GOST_AUTH_USERNAME=tailscale-control-proxy
    mise set --file mise.work-macos.toml --age-encrypt --prompt GOST_AUTH_PASSWORD
    mise --env work-macos run validate:fast
    ```
 
-5. After reviewing and committing that ciphertext, apply only the work profile's
-   package, privileged-file and LaunchAgent resources from the work Mac:
+5. After reviewing and committing the new ciphertext, apply only the work
+   profile's package, privileged-file and LaunchAgent resources from the work Mac:
 
    ```sh
    MISE_ENV=work-macos mise bootstrap \
@@ -188,11 +195,16 @@ Tailscale daemon until the first two layers pass their checks.
 
 Soak beyond the previous failure interval with Zscaler enabled. Direct UDP peer
 traffic should remain direct; the local HTTP proxy is for Tailscale coordination
-and HTTPS relay fallback only.
+and HTTPS relay fallback only. After successful new-token verification, revoke
+`tailscale-control-proxy` in Authentik: renaming the user does **not** revoke its
+old app password. Terminate any old WebSocket and confirm old credentials are
+refused. The exact CLIProxyAPI CONNECT test follows below.
 
 For immediate client rollback, remove the managed proxy environment before
 restarting Tailscale, and stop the LaunchAgent. Revert Git and reconverge both
-repositories before treating rollback as complete:
+repositories before treating rollback as complete. If the old app password was
+revoked, reverting source cannot restore it: issue a fresh password for the
+restored identity before reconnecting the client.
 
 ```sh
 launchctl bootout "gui/$UID" \
@@ -200,6 +212,43 @@ launchctl bootout "gui/$UID" \
 sudo rm -f /etc/tailscale/tailscaled-env.txt
 sudo brew services restart tailscale
 ```
+
+### CLIProxyAPI through the authenticated WebSocket proxy
+
+The `gost.diloreto.com` Authentik/GOST relay permits one additional
+CONNECT destination: `docker-host.tailea1a78.ts.net:8444`. It uses the same
+service-account app password as Tailscale coordination, not the CLIProxyAPI API
+or management key. GOST must continue to refuse all other non-Tailscale
+destinations. This is an authenticated public relay to the whole Serve endpoint,
+**including management paths**; it is not a path-filtered API-only ingress.
+The service still publishes no public HTTP port, and the OAuth callback port
+must stay private. Confirm work-device policy permits this use before rollout.
+
+After a reviewed Compose deployment and fresh host observation, verify from the
+work Mac with Zscaler enabled and the existing local GOST client running. Force
+`curl` through the proxy even if `NO_PROXY` names the tailnet host; keep responses
+and credentials out of logs:
+
+```sh
+curl --proxy http://127.0.0.1:1055 --noproxy '' \
+  --silent --show-error --connect-timeout 10 --max-time 30 \
+  --output /dev/null --write-out '%{http_code}\n' \
+  https://docker-host.tailea1a78.ts.net:8444/v1/models
+! curl --proxy http://127.0.0.1:1055 --noproxy '' \
+  --fail --silent --show-error --connect-timeout 10 --max-time 30 \
+  --output /dev/null https://example.com/
+```
+
+The first request should complete strict TLS and return an API authentication
+refusal (without an API key); a connection failure, proxy denial, Authentik
+redirect, Zscaler block or TLS error is not success. The second request must
+remain denied. If the first request fails, observe GOST-container DNS and routing
+to the exact tailnet Serve address and the host's Tailscale access policy; do not
+broaden the GOST allowlist or publish the backend to make the check pass. Then
+verify an API-key-authenticated request from the actual Pi client configured to
+use this proxy, without printing the key. A working `curl` CONNECT alone does
+not establish that Pi supports the WebSocket-backed local proxy. Keep the
+separate management key private; the relay does not filter management paths.
 
 ### CLIProxyAPI first rollout
 

@@ -17,7 +17,7 @@ sabnzbd.diloreto.com,
 seerr.diloreto.com,
 sonarr-4k.diloreto.com,
 sonarr.diloreto.com,
-ts-control.diloreto.com,
+gost.diloreto.com,
 zwave.diloreto.com {
 	reverse_proxy authentik-server:9000
 }
