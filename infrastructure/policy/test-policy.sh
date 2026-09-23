@@ -3,7 +3,6 @@ set -euo pipefail
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 policy="$root/inspect-plan.py"
 fixtures="$root/fixtures"
-export TF_VAR_games_disk_by_id=/dev/disk/by-id/PROTECTED-GAMES-DISK
 
 expect_rejection() {
   local fixture=$1 mode=$2

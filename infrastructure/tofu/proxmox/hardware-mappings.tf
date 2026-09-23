@@ -3,7 +3,7 @@ locals {
     gpu       = local.vm.pci.gpu
     gpu_audio = local.vm.pci.gpu_audio
   } : {}
-  serial_usb_paths = var.serial_usb_paths
+  serial_usb_paths = { for item in local.expected_hardware.usbMappings : item.mapping => item.port }
   usb_mappings = local.use_hardware_mappings ? {
     zigbee    = local.vm.usb.zigbee
     zwave     = local.vm.usb.zwave
@@ -37,7 +37,7 @@ resource "proxmox_hardware_mapping_usb" "device" {
   map = [{
     id   = each.value.vendor_device
     node = local.node
-    path = contains(keys(local.serial_usb_paths), each.key) ? local.serial_usb_paths[each.key] : null
+    path = local.serial_usb_paths[each.value.mapping]
   }]
 
   lifecycle {

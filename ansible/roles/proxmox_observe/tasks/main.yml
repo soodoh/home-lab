@@ -107,6 +107,12 @@
 - name: Check retained ownership using shared native observations
   ansible.builtin.import_tasks: owners.yml
 
+- name: Read reviewed Proxmox hardware identities
+  ansible.builtin.set_fact:
+    proxmox_observe_desired_hardware: >-
+      {{ lookup('ansible.builtin.file', role_path ~ '/../../../infrastructure/tofu/proxmox/expected-hardware.json') | from_json }}
+  no_log: true
+
 - name: Read the source-owned protected collector without building an artifact
   ansible.builtin.set_fact:
     proxmox_observe_collector_source: >-
@@ -124,7 +130,12 @@
   ansible.builtin.command:
     argv: [/usr/bin/python3, -I, -B, '-', summary]
     stdin: >-
-      {{ proxmox_observe_collector_source.replace("'@PROTECTED_SPEC@'", proxmox_observe_protected_spec | to_json | to_json) }}
+      {{
+        proxmox_observe_collector_source.replace(
+          "'@PROTECTED_SPEC@'",
+          (proxmox_observe_protected_spec | combine({'desiredHardware': proxmox_observe_desired_hardware})) | to_json | to_json
+        )
+      }}
     stdin_add_newline: false
   environment:
     http_proxy: ''

@@ -7,7 +7,26 @@ reviewed checkout and observations made during the current run.
 
 Use a clean checkout with `tofu`, Ansible, Docker Compose, Python and the pinned
 JavaScript package manager available. Establish provider credentials and authenticated
-Tailscale access without writing credentials into the repository.
+Tailscale access without committing credentials. For a local
+controller, copy [`.env.example`](../.env.example) to gitignored `.env`, fill
+in the protected age-identity path and separate plan/apply provider credentials,
+and keep the file private (`chmod 0600 .env`). These are persistent plaintext
+controller credentials: protect and rotate them as such; Gitignore is not access
+control or a backup. Never put decrypted SOPS values or live observations in it.
+Neither Ansible nor OpenTofu automatically loads this file; from the repo root,
+load the trusted local file into the current shell before running the commands
+below:
+
+```sh
+set -a
+. ./.env
+set +a
+```
+
+Do not source an untrusted `.env` or commit it. A fresh controller can instead
+export the same values from protected storage. The helper consumes these exported
+provider identities without prompting and creates only current-run credential
+files. Proxmox hardware identity checks are separate from provider credentials.
 
 ```sh
 git status --short
@@ -20,7 +39,7 @@ Provide the controller age identity and validate interpolation through SOPS with
 persisting plaintext or exposing resolved values:
 
 ```sh
-export SOPS_AGE_KEY_FILE=/protected/path/to/age-identity
+# If you did not load .env, export SOPS_AGE_KEY_FILE from protected storage.
 sops exec-file --no-fifo --input-type yaml --output-type dotenv \
   secrets/production.sops.yaml 'docker compose --env-file {} config --quiet'
 ```
@@ -36,8 +55,12 @@ provider_session=$(mktemp -d)
 chmod 0700 "$provider_session"
 trap 'rm -rf "$provider_session"' EXIT
 export HOME_LAB_PROVIDER_SESSION_DIR=$provider_session
-# Supply the current protected hardware observation and provider identities, then run:
+# Export the provider variables from .env or protected storage before this step.
 scripts/configure-local-provider-credentials
+# The per-run files now hold the credentials; do not pass both identities to later tools.
+unset AUTHENTIK_PLAN_TOKEN AUTHENTIK_APPLY_TOKEN \
+  TAILSCALE_PLAN_ID TAILSCALE_PLAN_SECRET TAILSCALE_APPLY_ID TAILSCALE_APPLY_SECRET \
+  OMADA_PLAN_USERNAME OMADA_PLAN_PASSWORD OMADA_APPLY_USERNAME OMADA_APPLY_PASSWORD
 ```
 
 The generated `plan-credentials.json` and `apply-credentials.json` are inputs for this
@@ -81,13 +104,21 @@ to match an unexplained observation.
 Active roots are `authentik`, `aws-foundation`, `omada`, `proxmox` and `tailscale`
 under `infrastructure/tofu/`. Each has an S3 backend.
 
+For the selected root, run fresh host observation first. In particular,
+`observe-proxmox.yml` compares the live disk and USB devices, the host's sealed
+hardware expectations and the reviewed
+[`expected-hardware.json`](../infrastructure/tofu/proxmox/expected-hardware.json).
+It refuses disagreement; never update Git automatically from a live observation.
+Only the Proxmox root uses these identities. Reobserve immediately before its
+plan/apply if the host or USB topology may have changed.
+
 For the selected root:
 
 ```sh
 root=infrastructure/tofu/proxmox
-work=$(mktemp -d)
+work=$(mktemp -d "$provider_session/plan.XXXXXX")
 chmod 0700 "$work"
-trap 'rm -rf "$work"' EXIT
+# The section 1 EXIT trap removes this work directory with the provider session.
 
 : "${TF_BACKEND_BUCKET:?load the current plan credential environment first}"
 tofu -chdir="$root" init -backend-config="bucket=$TF_BACKEND_BUCKET"

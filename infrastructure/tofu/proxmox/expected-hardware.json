@@ -1,0 +1,15 @@
+{
+  "gamesDiskIdentity": "/dev/disk/by-id/nvme-CT4000P3PSSD8_2412E8A04266",
+  "usbMappings": [
+    {
+      "mapping": "zigbee-cp210x",
+      "port": "1-6",
+      "serial": "5075bd467fc9eb11a783914f1d69213e"
+    },
+    {
+      "mapping": "zwave-cp210x",
+      "port": "1-7",
+      "serial": "0001"
+    }
+  ]
+}

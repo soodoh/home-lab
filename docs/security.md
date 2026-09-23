@@ -17,8 +17,14 @@ private temporary output when the current run ends.
 `secrets/production.sops.yaml` is the structured encrypted application source.
 Compose deployment decrypts it through `community.sops` on the controller; provide
 the age identity through `SOPS_AGE_KEY_FILE`. The identity is never copied into Git
-or to deployment artifacts. Provider credentials are supplied to the current process
-by the relevant setup helper or credential store.
+or to deployment artifacts. For a local controller, separate plan/apply provider
+identities may be exported from a mode-0600 gitignored `.env` or a protected
+credential store. The local file is persistent plaintext: protect it independently,
+never commit or log it, and rotate credentials if it is exposed. The non-AWS helper
+reads exported provider variables without prompting and creates disposable
+per-run credential files. Do not keep those files across sessions. Proxmox disk
+and USB identities are reviewed in Git; fresh read-only host observation must
+match them and the host's sealed hardware inputs before planning Proxmox changes.
 
 The repository may contain public age recipients, public certificates and CA
 certificates when they are trust inputs rather than proof of a completed action. The

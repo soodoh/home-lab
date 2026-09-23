@@ -320,6 +320,20 @@ def token_identity(value):
     match = TOKEN.fullmatch(value) if isinstance(value, str) else None
     return match.group(1) if match is not None else None
 
+def reviewed_hardware_matches(hardware, desired):
+    exact(desired, {"gamesDiskIdentity", "usbMappings"}, "reviewed hardware")
+    if not isinstance(desired["gamesDiskIdentity"], str) or BY_ID.fullmatch(desired["gamesDiskIdentity"]) is None:
+        raise ValueError("reviewed disk identity differs")
+    mappings = desired["usbMappings"]
+    if not isinstance(mappings, list) or len(mappings) != 2:
+        raise ValueError("reviewed USB identities differ")
+    for mapping in mappings:
+        exact(mapping, {"mapping", "port", "serial"}, "reviewed USB mapping")
+        if not all(isinstance(mapping[key], str) for key in ("mapping", "port", "serial")) or \
+                USB_PORT.fullmatch(mapping["port"]) is None or not mapping["serial"]:
+            raise ValueError("reviewed USB mapping differs")
+    return hardware["gamesDiskIdentity"] == desired["gamesDiskIdentity"] and hardware["usbMappings"] == mappings
+
 def runtime_state():
     value = secure_json(PROTECTED, 256 * 1024)
     supplied_mac = read_fixed(PROTECTED_MAC)
@@ -360,6 +374,8 @@ def runtime_state():
         names.append(mapping["mapping"]); ports.append(mapping["port"]); serials.append(mapping["serial"])
     if any(len(values) != len(set(values)) for values in (names, ports, serials)):
         raise ValueError("protected USB identities are not unique")
+    if not reviewed_hardware_matches(hardware, SPEC["desiredHardware"]):
+        raise ValueError("protected hardware differs from reviewed Git source")
     return value
 
 def summary_record(checks):

@@ -2,6 +2,7 @@ locals {
   vm                    = var.proxmox_vm.vm
   node                  = var.proxmox_vm.node
   use_hardware_mappings = local.vm.hardware_attachment_mode == "managed"
+  expected_hardware     = jsondecode(file("${path.module}/expected-hardware.json"))
 }
 
 resource "proxmox_virtual_environment_vm" "debian" {
@@ -59,7 +60,7 @@ resource "proxmox_virtual_environment_vm" "debian" {
 
   disk {
     datastore_id      = ""
-    path_in_datastore = var.games_disk_by_id
+    path_in_datastore = local.expected_hardware.gamesDiskIdentity
     file_format       = "raw"
     interface         = local.vm.games_disk.interface
     backup            = local.vm.games_disk.backup
@@ -108,12 +109,12 @@ resource "proxmox_virtual_environment_vm" "debian" {
   }
 
   usb {
-    host    = local.use_hardware_mappings ? null : local.serial_usb_paths.zigbee
+    host    = local.use_hardware_mappings ? null : local.serial_usb_paths[local.vm.usb.zigbee.mapping]
     mapping = local.use_hardware_mappings ? local.vm.usb.zigbee.mapping : null
   }
 
   usb {
-    host    = local.use_hardware_mappings ? null : local.serial_usb_paths.zwave
+    host    = local.use_hardware_mappings ? null : local.serial_usb_paths[local.vm.usb.zwave.mapping]
     mapping = local.use_hardware_mappings ? local.vm.usb.zwave.mapping : null
   }
 
@@ -170,5 +171,22 @@ resource "proxmox_virtual_environment_vm" "debian" {
   lifecycle {
     prevent_destroy = true
     ignore_changes  = [disk[0], disk[1].file_format]
+
+    precondition {
+      condition = (
+        startswith(local.expected_hardware.gamesDiskIdentity, "/dev/disk/by-id/") &&
+        length(local.expected_hardware.usbMappings) == 2 &&
+        toset(keys(local.serial_usb_paths)) == toset([
+          local.vm.usb.zigbee.mapping,
+          local.vm.usb.zwave.mapping,
+        ]) &&
+        length(toset(values(local.serial_usb_paths))) == 2 &&
+        alltrue([
+          for item in local.expected_hardware.usbMappings :
+          can(regex("^[0-9]+-[0-9]+(?:\\.[0-9]+)*$", item.port)) && length(item.serial) > 0
+        ])
+      )
+      error_message = "The reviewed disk and USB identities must be complete and unique."
+    }
   }
 }
