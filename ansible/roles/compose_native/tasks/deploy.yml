@@ -105,6 +105,7 @@
       loop:
         - {path: "{{ compose_native_deployment_root }}", mode: "0755"}
         - {path: /etc/docker-compose, mode: "0700"}
+        - {path: /etc/docker-compose/credentials, mode: "0700"}
         - {path: /var/lib/docker-compose, mode: "0711"}
 
     - name: Transfer the committed source archive
@@ -208,6 +209,32 @@
         owner: root
         group: root
         mode: "0600"
+      become: true
+      diff: false
+      no_log: true
+
+    - name: Create the protected CLIProxyAPI OAuth directory
+      ansible.builtin.file:
+        path: /srv/home-lab-state/cli-proxy-api/auths
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      become: true
+
+    - name: Install the protected CLIProxyAPI configuration
+      ansible.builtin.template:
+        src: "{{ compose_native_controller_root }}/services/data/cli-proxy-api/config.yaml.j2"
+        dest: "{{ compose_native_cli_proxy_config_path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      vars:
+        cli_proxy_api_secrets: >-
+          {{ lookup('community.sops.sops', compose_native_cli_proxy_sops_file,
+             input_type='yaml', output_type='yaml',
+             age_keyfile=compose_native_sops_age_keyfile,
+             sops_binary=compose_native_sops_binary) | from_yaml }}
       become: true
       diff: false
       no_log: true

@@ -1,5 +1,5 @@
 ---
-- name: Converge tailnet-only Omada HTTPS
+- name: Converge tailnet-only Omada and CLIProxyAPI HTTPS
   hosts: docker-host
   gather_facts: true
   gather_subset: ['!all', min]

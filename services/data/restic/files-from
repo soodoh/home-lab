@@ -16,6 +16,7 @@
 /srv/home-lab-state/seerr-data
 /srv/home-lab-state/karaoke-eternal-data
 /srv/home-lab-state/litellm-data
+/srv/home-lab-state/cli-proxy-api/auths
 /srv/home-lab-state/mosquitto-data/config
 /srv/home-lab-state/mosquitto-data/data
 /srv/home-lab-state/nextcloud-db-data

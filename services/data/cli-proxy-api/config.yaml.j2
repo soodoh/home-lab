@@ -1,0 +1,13 @@
+# Git owns service settings; the UI is for OAuth/account operations only.
+# This protected runtime file is rendered from encrypted keys by Ansible.
+host: ""
+port: 8317
+remote-management:
+  allow-remote: true
+  secret-key: {{ cli_proxy_api_secrets.MANAGEMENT_KEY | to_json }}
+  disable-control-panel: false
+auth-dir: /root/.cli-proxy-api
+api-keys:
+  - {{ cli_proxy_api_secrets.API_KEY | to_json }}
+debug: false
+logging-to-file: false

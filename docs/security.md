@@ -32,6 +32,18 @@ already inside the provider trust boundary. Do not broaden the exception to a LA
 tailnet address, restore a hostname alias, expose a loopback listener, or disable
 client-side TLS verification.
 
+## CLIProxyAPI tailnet boundary
+
+Tailscale Serve terminates HTTPS for CLIProxyAPI on the Docker host's tailnet
+identity at port 8444; Docker publishes its backend only on 127.0.0.1:8317.
+The API key and separate full-privilege management key are age-encrypted in
+`secrets/cli-proxy-api.sops.yaml` and rendered only to a root-owned protected
+runtime config. The management UI has no account-only role: its key can read,
+replace or delete OAuth auth files and change settings. Treat UI settings edits
+as drift from Git and SOPS. OAuth refresh/session files in the bind mount are
+sensitive and intentionally enter the encrypted local/NFS/Proton backup chain.
+Never expose the OAuth callback port on any host network interface.
+
 ## SSH and privilege
 
 [`ansible/inventory/hosts.yml`](../ansible/inventory/hosts.yml) fixes the Tailscale

@@ -15,6 +15,8 @@ compose_native_required_healthy_containers: []
 compose_native_wait_timeout: 600
 compose_native_apply_confirmed: false
 compose_native_sops_file: "{{ compose_native_controller_root }}/secrets/production.sops.yaml"
+compose_native_cli_proxy_sops_file: "{{ compose_native_controller_root }}/secrets/cli-proxy-api.sops.yaml"
+compose_native_cli_proxy_config_path: /etc/docker-compose/credentials/cli-proxy-api-config.yaml
 compose_native_sops_binary: sops
 compose_native_sops_age_keyfile: "{{ lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') }}"
 compose_native_secret_files: []
@@ -22,6 +24,7 @@ compose_native_source_paths:
   - docker-compose.yml
   - services
   - secrets/production.sops.yaml
+  - secrets/cli-proxy-api.sops.yaml
   - ":(exclude)services/data/restic"
 compose_native_files:
   - docker-compose.yml

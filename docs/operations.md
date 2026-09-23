@@ -201,6 +201,49 @@ sudo rm -f /etc/tailscale/tailscaled-env.txt
 sudo brew services restart tailscale
 ```
 
+### CLIProxyAPI first rollout
+
+The committed Compose project adds CLIProxyAPI alongside LiteLLM. Its API and
+management UI share `https://docker-host.tailea1a78.ts.net:8444`; Tailscale Serve
+owns this route and Omada's separate `:8443` route as one exact node-level
+configuration. Compose publishes the backend on host loopback only. A changed
+Serve route resets and republishes both routes: check the Omada path before
+and after convergence. Apply the reviewed `tailscale` OpenTofu policy change
+first: only owner/admin devices may reach port 8444, not CI nodes. Do not
+publish port 8317 or the OAuth callback port to
+LAN or the public Internet.
+
+`secrets/cli-proxy-api.sops.yaml` holds two independent keys: `API_KEY` for
+clients and `MANAGEMENT_KEY` for the UI. The controller needs its protected age
+identity for deployment; Ansible renders a root-owned mode-0600 runtime config
+at `/etc/docker-compose/credentials/cli-proxy-api-config.yaml`, mounted read-only
+in the container. Never print either key, the rendered file, a decrypted secret,
+or resolved Compose output. The management key grants **full** configuration and
+auth-file access: use the UI only for OAuth/account operations, keep Git/SOPS as
+the config source, and treat any UI edit to settings or keys as drift requiring
+review and reconvergence. The UI's Codex login callback-forwarding flow must be
+verified over tailnet HTTPS with the dedicated, permitted account; do not open
+port 1455 on the host.
+
+After a reviewed source commit and fresh host/backup observation, run
+`ansible/playbooks/site.yml --check`, then apply the site play as described
+below. The post-convergence play verifies the UI through strict TLS. Confirm
+without logging credentials that an unauthenticated API request is rejected,
+an API-key-authenticated Codex request works from a temporary Pi client setup,
+and management requires its distinct key. Authenticate via the tailnet UI and
+verify the auth directory is populated before depending on the service. The
+OAuth directory `/srv/home-lab-state/cli-proxy-api/auths` is included in the
+existing encrypted Restic chain, including off-site copies; observe a complete
+new backup chain before counting it as recoverable. Recovery staging is not
+production activation (see [recovery](../recovery/README.md)). Do not put the
+API key in Pi's permanent configuration as part of this change.
+
+Keep LiteLLM and its secrets, config, backup path and recovery mapping intact
+for now. After successful real Pi sessions and an operator decision, remove
+those resources in a separate reviewed change; no fixed soak threshold or
+restore test was selected. Revocation of the dedicated provider account and
+rotation of both gateway keys remain manual incident-response actions.
+
 The complete Docker-host interface is [`ansible/playbooks/site.yml`](../ansible/playbooks/site.yml).
 It observes before taking ownership, converges deployment access, Tailscale Serve,
 adopted backup files and units, Docker maintenance and the complete committed Compose

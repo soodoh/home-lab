@@ -37,6 +37,37 @@
     label: "{{ item.item.path }}"
   no_log: true
 
+- name: Detect whether the active Compose source owns CLIProxyAPI
+  ansible.builtin.stat:
+    path: "{{ compose_native_current_dir }}/services/data/cli-proxy-api/config.yaml.j2"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  become: true
+  register: compose_native_cli_proxy_source
+
+- name: Inspect the CLIProxyAPI OAuth directory
+  ansible.builtin.stat:
+    path: /srv/home-lab-state/cli-proxy-api/auths
+    follow: false
+    get_checksum: false
+    get_mime: false
+  become: true
+  register: compose_native_cli_proxy_auth_dir
+  when: compose_native_cli_proxy_source.stat.exists | default(false)
+
+- name: Require the protected CLIProxyAPI OAuth directory
+  ansible.builtin.assert:
+    that:
+      - compose_native_cli_proxy_auth_dir.stat.isdir | default(false)
+      - not (compose_native_cli_proxy_auth_dir.stat.islnk | default(false))
+      - compose_native_cli_proxy_auth_dir.stat.pw_name == 'root'
+      - compose_native_cli_proxy_auth_dir.stat.gr_name == 'root'
+      - compose_native_cli_proxy_auth_dir.stat.mode == '0700'
+    fail_msg: The CLIProxyAPI OAuth directory has unsafe metadata.
+  no_log: true
+  when: compose_native_cli_proxy_source.stat.exists | default(false)
+
 - name: Inspect protected Compose secret files
   ansible.builtin.stat:
     path: "{{ item }}"
@@ -45,7 +76,9 @@
     get_mime: false
   become: true
   register: compose_native_observed_secret_files
-  loop: "{{ compose_native_secret_files }}"
+  loop: >-
+    {{ compose_native_secret_files +
+       ([compose_native_cli_proxy_config_path] if compose_native_cli_proxy_source.stat.exists | default(false) else []) }}
   no_log: true
 
 - name: Require protected Compose secret files

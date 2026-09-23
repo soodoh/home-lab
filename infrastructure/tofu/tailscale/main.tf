@@ -27,6 +27,11 @@ locals {
         ip  = ["tcp:8443"]
       },
       {
+        src = ["autogroup:owner", "autogroup:admin"]
+        dst = [local.tags.docker_host]
+        ip  = ["tcp:8444"]
+      },
+      {
         src = ["autogroup:owner"]
         dst = ["autogroup:self"]
         ip  = ["tcp:22"]
@@ -95,6 +100,7 @@ locals {
           "${local.owner_identity}:22",
           "${local.tags.docker_host}:8043",
           "${local.tags.docker_host}:8443",
+          "${local.tags.docker_host}:8444",
         ]
       },
       {
@@ -109,6 +115,7 @@ locals {
         deny = [
           "${local.tags.docker_host}:8088",
           "${local.tags.docker_host}:8043",
+          "${local.tags.docker_host}:8444",
           "${local.tags.proxmox}:8007",
         ]
       },

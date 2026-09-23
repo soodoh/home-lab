@@ -7,6 +7,8 @@
       - tailscale_serve_https_port | int == 8443
       - tailscale_serve_backend_url == 'https+insecure://127.0.0.1:8043'
       - tailscale_serve_health_path == '/api/info'
+      - tailscale_serve_cli_proxy_https_port | int == 8444
+      - tailscale_serve_cli_proxy_backend_url == 'http://127.0.0.1:8317'
     fail_msg: Tailscale Serve requires the reviewed Docker-host Omada endpoint.
 
 - name: Read Tailscale node identity and capabilities
@@ -23,12 +25,18 @@
       {{
         {
           'TCP': {
-            (tailscale_serve_https_port | string): {'HTTPS': true}
+            (tailscale_serve_https_port | string): {'HTTPS': true},
+            (tailscale_serve_cli_proxy_https_port | string): {'HTTPS': true}
           },
           'Web': {
             tailscale_serve_hostname ~ ':' ~ (tailscale_serve_https_port | string): {
               'Handlers': {
                 '/': {'Proxy': tailscale_serve_backend_url}
+              }
+            },
+            tailscale_serve_hostname ~ ':' ~ (tailscale_serve_cli_proxy_https_port | string): {
+              'Handlers': {
+                '/': {'Proxy': tailscale_serve_cli_proxy_backend_url}
               }
             }
           }
@@ -95,6 +103,21 @@
     - not ansible_check_mode
     - tailscale_serve_requires_change
 
+- name: Publish CLIProxyAPI through tailnet-only HTTPS
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/tailscale
+      - serve
+      - --bg
+      - "--https={{ tailscale_serve_cli_proxy_https_port }}"
+      - --yes
+      - "{{ tailscale_serve_cli_proxy_backend_url }}"
+  become: true
+  changed_when: true
+  when:
+    - not ansible_check_mode
+    - tailscale_serve_requires_change
+
 - name: Read the converged node-level Serve configuration
   ansible.builtin.command:
     argv: [/usr/bin/tailscale, serve, status, --json]
@@ -109,7 +132,7 @@
       - >-
         (tailscale_serve_converged_status.stdout | from_json) ==
         tailscale_serve_expected_config
-    fail_msg: Node-level Tailscale Serve configuration differs from the reviewed Omada proxy.
+    fail_msg: Node-level Tailscale Serve configuration differs from the reviewed endpoints.
   when: not ansible_check_mode or not tailscale_serve_requires_change
 
 - name: Verify Omada through strict Tailscale Serve TLS
@@ -149,3 +172,5 @@
       client_tls_trust: system
       backend_tls_authentication: disabled-loopback-only
       tailnet_only: true
+      cli_proxy_endpoint: "https://{{ tailscale_serve_hostname }}:{{ tailscale_serve_cli_proxy_https_port }}"
+      cli_proxy_backend: "{{ tailscale_serve_cli_proxy_backend_url }}"

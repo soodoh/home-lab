@@ -4,6 +4,8 @@ tailscale_serve_hostname: docker-host.tailea1a78.ts.net
 tailscale_serve_https_port: 8443
 tailscale_serve_backend_url: https+insecure://127.0.0.1:8043
 tailscale_serve_health_path: /api/info
+tailscale_serve_cli_proxy_https_port: 8444
+tailscale_serve_cli_proxy_backend_url: http://127.0.0.1:8317
 
 # Native ownership of unit configuration on the existing server, not backup bootstrap.
 restic_systemd_existing_host: true
@@ -47,7 +49,7 @@ compose_native_source_candidate_path: /var/lib/docker-compose/source-candidate.t
 compose_native_artifact_identity_path: /var/lib/docker-compose/current-artifact.sha256
 compose_native_runtime_env_path: /etc/docker-compose/production.env
 compose_native_apply_lock_path: /var/lib/iac-ansible-production.lock
-compose_native_expected_service_count: 40
+compose_native_expected_service_count: 41
 compose_native_required_healthy_containers:
   - gluetun
   - seerr

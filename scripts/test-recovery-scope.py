@@ -18,7 +18,7 @@ class RecoveryScopeTests(unittest.TestCase):
         selected = module.resolve(scope, ["all"])
         files_from = set((ROOT / "services/data/restic/files-from").read_text().splitlines())
         self.assertEqual(set(selected["paths"]), files_from)
-        self.assertEqual(len(selected["services"]), 38)
+        self.assertEqual(len(selected["services"]), 39)
 
     def test_partial_group_includes_common_inputs(self):
         scope = module.load_scope(ROOT / "recovery/groups.json")

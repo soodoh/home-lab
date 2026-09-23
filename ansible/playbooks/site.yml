@@ -23,7 +23,7 @@
       ansible.builtin.import_role:
         name: tailscale_deploy_access
 
-    - name: Converge tailnet-only Omada HTTPS
+    - name: Converge tailnet-only Omada and CLIProxyAPI HTTPS
       ansible.builtin.import_role:
         name: tailscale_serve
 
@@ -31,6 +31,16 @@
       ansible.builtin.import_role:
         name: compose_native
         tasks_from: observe
+
+    - name: Create CLIProxyAPI OAuth directory before extending backup policy
+      ansible.builtin.file:
+        path: /srv/home-lab-state/cli-proxy-api/auths
+        state: directory
+        owner: root
+        group: root
+        mode: "0700"
+      become: true
+      when: not ansible_check_mode
 
     - name: Converge pinned backup tools
       ansible.builtin.import_role:
@@ -82,3 +92,32 @@
       ansible.builtin.import_role:
         name: compose_native
         tasks_from: observe
+
+    - name: Verify CLIProxyAPI management UI through strict tailnet TLS
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/curl
+          - --fail
+          - --silent
+          - --show-error
+          - --connect-timeout
+          - '10'
+          - --max-time
+          - '30'
+          - --output
+          - /dev/null
+          - --resolve
+          - >-
+            {{ tailscale_serve_hostname }}:{{ tailscale_serve_cli_proxy_https_port }}:{{
+              tailscale_serve_node.Self.TailscaleIPs |
+              select('match', '^[0-9.]+$') | first
+            }}
+          - >-
+            https://{{ tailscale_serve_hostname }}:{{ tailscale_serve_cli_proxy_https_port }}/management.html
+      changed_when: false
+      check_mode: false
+      retries: 12
+      delay: 5
+      register: cli_proxy_ui_health
+      until: cli_proxy_ui_health.rc == 0
+      when: not ansible_check_mode

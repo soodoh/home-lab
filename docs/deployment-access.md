@@ -18,12 +18,12 @@ The deployment network policy is limited to:
 
 | Source | Destination | Ports |
 | --- | --- | --- |
-| Owner and administrator devices | Docker host | TCP 22 and direct Omada TLS on TCP 8043 |
+| Owner and administrator devices | Docker host | TCP 22, direct Omada TLS on TCP 8043, and CLIProxyAPI Tailscale Serve HTTPS on TCP 8444 |
 | Owner and administrator devices | Proxmox host | TCP 22 and TCP 8006 |
 | Ephemeral CI deployment nodes | Docker host | TCP 22 and Tailscale Serve HTTPS on TCP 8443 |
 | Ephemeral CI deployment nodes | Proxmox host | TCP 22 and TCP 8006 |
 
-CI is explicitly denied Omada's direct TLS port 8043 and loopback HTTP port 8088.
+CI is explicitly denied Omada's direct TLS port 8043, CLIProxyAPI HTTPS port 8444, and loopback HTTP port 8088.
 Tailscale SSH separately permits only `ansible-deploy` for deployment identities.
 Personal account mappings remain distinct. The tracked Omada interface uses the same
 system-trusted Serve endpoint from local controllers and future CI runners.

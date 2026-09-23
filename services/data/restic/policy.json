@@ -94,6 +94,7 @@
       "jellyfin",
       "karaoke-eternal",
       "litellm",
+      "cli-proxy-api",
       "mosquitto",
       "omada",
       "openfit",
