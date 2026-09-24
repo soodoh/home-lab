@@ -83,10 +83,16 @@ terminate active WebSockets when immediate invalidation is required.
 
 GOST has no published host port and no reusable server-side credential. Its
 whitelist permits only `tailscale.com` and subdomains on TCP ports 80 and 443,
-plus `docker-host.tailea1a78.ts.net:8444` for CLIProxyAPI. Do not turn this
-into a general-purpose forward proxy or admit other tailnet destinations. Keep
-both the Authentik identity gate and the GOST destination boundary: either
-control alone is insufficient for an Internet-facing relay.
+plus `docker-host.tailea1a78.ts.net:8444` for CLIProxyAPI. Only the GOST
+container has a Docker `extra_hosts` entry for this name, pinned to the
+Docker host's observed tailnet IP; other destinations retain normal DNS.
+The site and Serve plays refuse convergence if the pinned IP differs from
+the host's current Tailscale IPv4 address. The client still verifies the
+original Serve hostname
+and certificate through the HTTPS tunnel. Do not turn this into a general-purpose
+forward proxy or admit other tailnet destinations. Keep both the Authentik
+identity gate and the GOST destination boundary: either control alone is
+insufficient for an Internet-facing relay.
 
 ## OpenTofu state and plans
 

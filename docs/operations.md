@@ -254,6 +254,14 @@ destinations. This is an authenticated public relay to the whole Serve endpoint,
 **including management paths**; it is not a path-filtered API-only ingress.
 The service still publishes no public HTTP port, and the OAuth callback port
 must stay private. Confirm work-device policy permits this use before rollout.
+Docker's default DNS cannot resolve this MagicDNS name. The GOST container alone
+pins it through `extra_hosts` in `services/infra.yml` to the Docker host's
+observed tailnet IPv4 address. The `tailscale_serve` role in the site play
+refuses a stale pin; use the site play for this change, not the narrower
+Compose-only deployment. If the host identity changes, observe its new address
+and update the reviewed Compose source rather than weakening the allowlist,
+changing global DNS or publishing the backend. The HTTPS client still verifies
+the original hostname.
 
 After a reviewed Compose deployment and fresh host observation, verify from the
 work Mac with Zscaler enabled and the existing local GOST client running. Force
@@ -263,16 +271,18 @@ and credentials out of logs:
 ```sh
 curl --proxy http://127.0.0.1:1055 --noproxy '' \
   --silent --show-error --connect-timeout 10 --max-time 30 \
-  --output /dev/null --write-out '%{http_code}\n' \
+  --output /dev/null \
+  --write-out 'connect=%{http_connect} http=%{http_code} tls=%{ssl_verify_result}\n' \
   https://docker-host.tailea1a78.ts.net:8444/v1/models
 ! curl --proxy http://127.0.0.1:1055 --noproxy '' \
   --fail --silent --show-error --connect-timeout 10 --max-time 30 \
   --output /dev/null https://example.com/
 ```
 
-The first request should complete strict TLS and return an API authentication
-refusal (without an API key); a connection failure, proxy denial, Authentik
-redirect, Zscaler block or TLS error is not success. The second request must
+The first request should show CONNECT `200`, TLS verification `0`, and an API
+authentication refusal (normally HTTP `401`, without an API key); a connection
+failure, proxy denial, Authentik redirect, Zscaler block or TLS error is not
+success. The second request must
 remain denied. If the first request fails, observe GOST-container DNS and routing
 to the exact tailnet Serve address and the host's Tailscale access policy; do not
 broaden the GOST allowlist or publish the backend to make the check pass. Then

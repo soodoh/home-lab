@@ -43,6 +43,10 @@ services:
     restart: always
     logging: *default-logging
     command: ["-C", "/etc/gost/tailscale-control.yml"]
+    # Docker DNS cannot resolve this MagicDNS name. Keep the single tailnet
+    # destination pinned to the freshly observed host IP; Ansible refuses drift.
+    extra_hosts:
+      - "docker-host.tailea1a78.ts.net=100.116.163.42"
     volumes:
       - type: bind
         source: ./data/gost/tailscale-control.yml

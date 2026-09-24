@@ -80,6 +80,8 @@ credentials and encrypted bundles live outside Git.
   public TLS, Authentik admits only the `gost-proxy-user` service account,
   and the private GOST service permits `tailscale.com` destinations on TCP
   ports 80 and 443, plus the exact Docker-host CLIProxyAPI Serve endpoint on
-  TCP 8444. It is not a general-purpose forward proxy: the added CONNECT carries
-  CLIProxyAPI traffic through the authenticated public relay, while Tailscale
-  coordination remains limited to its original destinations.
+  TCP 8444. Docker cannot resolve that MagicDNS name by default, so only the
+  GOST container pins it to the observed Docker-host tailnet IP; the site play
+  refuses a stale pin. It is not a general-purpose forward proxy: the added
+  CONNECT carries CLIProxyAPI traffic through the authenticated public relay, while
+  Tailscale coordination remains limited to its original destinations.

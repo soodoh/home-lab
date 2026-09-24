@@ -54,6 +54,17 @@
         select('match', '^[0-9.]+$') | list | length == 1
     fail_msg: The Docker host lacks its reviewed Tailscale identity or tailnet HTTPS capability.
 
+- name: Require the GOST DNS alias to match the observed host tailnet IP
+  ansible.builtin.assert:
+    that:
+      - >-
+        (tailscale_serve_hostname ~ '=' ~
+         (tailscale_serve_node.Self.TailscaleIPs |
+          select('match', '^[0-9.]+$') | first)) in
+        ((lookup('ansible.builtin.file', playbook_dir ~ '/../../services/infra.yml') |
+          from_yaml).services['tailscale-control-proxy'].extra_hosts | default([]))
+    fail_msg: The GOST-only MagicDNS alias is stale; review the host IP before convergence.
+
 - name: Read the active node-level Serve configuration
   ansible.builtin.command:
     argv: [/usr/bin/tailscale, serve, status, --json]
