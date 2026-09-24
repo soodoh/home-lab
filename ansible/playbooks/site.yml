@@ -93,6 +93,18 @@
         name: compose_native
         tasks_from: observe
 
+    - name: Verify GOST resolves both MagicDNS peers and the public control plane
+      ansible.builtin.command:
+        argv: [/usr/bin/docker, exec, tailscale-control-proxy, getent, hosts, "{{ item }}"]
+      loop:
+        - "{{ hostvars['docker-host'].ansible_host }}"
+        - "{{ hostvars['proxmox'].ansible_host }}"
+        - controlplane.tailscale.com
+      become: true
+      changed_when: false
+      check_mode: false
+      when: not ansible_check_mode
+
     - name: Verify CLIProxyAPI management UI through strict tailnet TLS
       ansible.builtin.command:
         argv:

@@ -3,7 +3,7 @@
   ansible.builtin.assert:
     that:
       - inventory_hostname == 'docker-host'
-      - tailscale_serve_hostname is match('^[a-z0-9-]+\.[a-z0-9]+\.ts\.net$')
+      - tailscale_serve_hostname is match('^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$')
       - tailscale_serve_https_port | int == 8443
       - tailscale_serve_backend_url == 'https+insecure://127.0.0.1:8043'
       - tailscale_serve_health_path == '/api/info'
@@ -54,16 +54,25 @@
         select('match', '^[0-9.]+$') | list | length == 1
     fail_msg: The Docker host lacks its reviewed Tailscale identity or tailnet HTTPS capability.
 
-- name: Require the GOST DNS alias to match the observed host tailnet IP
+- name: Read the Docker host's public resolver
+  ansible.builtin.command:
+    argv: [/usr/bin/resolvectl, dns]
+  register: tailscale_serve_host_resolver
+  changed_when: false
+  check_mode: false
+
+- name: Require the GOST-only DNS pair to match the observed host resolver
   ansible.builtin.assert:
     that:
+      - "tailscale_serve_host_resolver.stdout is search('(?m)^Link [0-9]+ \\(ens18\\): 1\\.1\\.1\\.1(?: |$)')"
       - >-
-        (tailscale_serve_hostname ~ '=' ~
-         (tailscale_serve_node.Self.TailscaleIPs |
-          select('match', '^[0-9.]+$') | first)) in
         ((lookup('ansible.builtin.file', playbook_dir ~ '/../../services/infra.yml') |
-          from_yaml).services['tailscale-control-proxy'].extra_hosts | default([]))
-    fail_msg: The GOST-only MagicDNS alias is stale; review the host IP before convergence.
+          from_yaml).services['tailscale-control-proxy'].dns | default([])) ==
+        ['100.100.100.100', '1.1.1.1']
+      - >-
+        ((lookup('ansible.builtin.file', playbook_dir ~ '/../../services/infra.yml') |
+          from_yaml).services['tailscale-control-proxy'].extra_hosts | default([])) | length == 0
+    fail_msg: GOST must use the reviewed tailnet and observed public resolvers without a stale host alias.
 
 - name: Read the active node-level Serve configuration
   ansible.builtin.command:

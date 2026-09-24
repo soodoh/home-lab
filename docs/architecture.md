@@ -78,10 +78,10 @@ credentials and encrypted bundles live outside Git.
 - `gost.diloreto.com` is an authenticated WebSocket transport for the
   work Mac's Tailscale coordination and CLIProxyAPI traffic. Caddy terminates
   public TLS, Authentik admits only the `gost-proxy-user` service account,
-  and the private GOST service permits `tailscale.com` destinations on TCP
-  ports 80 and 443, plus the exact Docker-host CLIProxyAPI Serve endpoint on
-  TCP 8444. Docker cannot resolve that MagicDNS name by default, so only the
-  GOST container pins it to the observed Docker-host tailnet IP; the site play
-  refuses a stale pin. It is not a general-purpose forward proxy: the added
-  CONNECT carries CLIProxyAPI traffic through the authenticated public relay, while
-  Tailscale coordination remains limited to its original destinations.
+  and the private GOST service permits `tailscale.com` on TCP 80/443 plus
+  `*.mora-rattlesnake.ts.net` on any TCP port. This owner-approved expansion
+  exposes all host-reachable tailnet peers and ports to the relay credential;
+  Tailscale evaluates relay egress as the Docker-host node, not the work Mac.
+  GOST alone uses the host-observed MagicDNS and public resolvers because Docker's
+  default DNS cannot resolve tailnet peers. Other Internet destinations remain
+  denied by the remote relay; the work-Mac client dials nonmatches locally.

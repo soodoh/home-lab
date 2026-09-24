@@ -49,14 +49,16 @@ replace or delete OAuth auth files and change settings. Treat UI settings edits
 as drift from Git and SOPS. OAuth refresh/session files in the bind mount are
 sensitive and intentionally enter the encrypted local/NFS/Proton backup chain.
 Never expose the OAuth callback port on any host network interface. The public
-`gost.diloreto.com` WebSocket proxy also permits a CONNECT to this exact
-Serve hostname and port, but does not publish an unauthenticated HTTP route to
-CLIProxyAPI. Authentik gates the proxy handshake with the existing service-account
-app password; the API and management keys remain separate service credentials.
-Anyone who holds the proxy credential can reach all paths on the Serve endpoint,
-including management, subject to the distinct management key. The proxy cannot
-restrict paths inside the HTTPS tunnel. Treat loss of that credential as loss of
-this network boundary and revoke it as described below.
+`gost.diloreto.com` WebSocket proxy permits CONNECT to all MagicDNS peers
+under `*.mora-rattlesnake.ts.net` on any TCP port, including this Serve endpoint,
+but does not publish an unauthenticated HTTP route to CLIProxyAPI. Authentik
+gates the proxy handshake with the existing service-account app password; the
+API and management keys remain separate service credentials. Anyone holding the
+proxy credential can reach host-accessible tailnet services, including management
+paths and other peers (for example Proxmox on port 8006). Tailscale evaluates
+those egress connections as the Docker-host node, not the work Mac. GOST cannot
+filter paths inside HTTPS tunnels. Treat loss of the proxy credential as loss of
+this broader network boundary and revoke it as described below.
 
 ## SSH and privilege
 
@@ -82,17 +84,16 @@ profile; it is not a Compose or OpenTofu input. Revoke both the old
 terminate active WebSockets when immediate invalidation is required.
 
 GOST has no published host port and no reusable server-side credential. Its
-whitelist permits only `tailscale.com` and subdomains on TCP ports 80 and 443,
-plus `docker-host.tailea1a78.ts.net:8444` for CLIProxyAPI. Only the GOST
-container has a Docker `extra_hosts` entry for this name, pinned to the
-Docker host's observed tailnet IP; other destinations retain normal DNS.
-The site and Serve plays refuse convergence if the pinned IP differs from
-the host's current Tailscale IPv4 address. The client still verifies the
-original Serve hostname
-and certificate through the HTTPS tunnel. Do not turn this into a general-purpose
-forward proxy or admit other tailnet destinations. Keep both the Authentik
-identity gate and the GOST destination boundary: either control alone is
-insufficient for an Internet-facing relay.
+whitelist permits `tailscale.com` and subdomains on TCP 80/443, plus every
+subdomain of `mora-rattlesnake.ts.net` on any TCP port. This intentionally admits
+other tailnet peers and admin ports; it does not admit arbitrary Internet hosts
+or the apex `mora-rattlesnake.ts.net`. Docker's default DNS cannot resolve
+MagicDNS. Only GOST uses `100.100.100.100` for peer names and the host-observed
+`1.1.1.1` fallback for public Tailscale control names; site convergence checks
+the resolver pair and host's current DNS. Do not disable client TLS verification
+or remove Authentik's identity gate. A stolen relay credential now grants the
+Docker host's network reachability within the tailnet, subject to each service's
+separate authentication and Tailscale policy for the Docker-host identity.
 
 ## OpenTofu state and plans
 

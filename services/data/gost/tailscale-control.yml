@@ -17,5 +17,6 @@ bypasses:
       - "tailscale.com:443"
       - "*.tailscale.com:80"
       - "*.tailscale.com:443"
-      # Exact tailnet Serve endpoint; do not permit other tailnet services or ports.
-      - "docker-host.tailea1a78.ts.net:8444"
+      # Intentional owner-approved expansion: every MagicDNS peer and TCP port.
+      # The Authentik app password now gates host-reachable tailnet services.
+      - "*.mora-rattlesnake.ts.net"

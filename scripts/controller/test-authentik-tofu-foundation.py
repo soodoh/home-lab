@@ -188,8 +188,8 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         gost = (REPO / "services" / "data" / "gost" / "tailscale-control.yml").read_text()
         self.assertIn('      - "*.tailscale.com:80"', gost)
         self.assertIn('      - "*.tailscale.com:443"', gost)
-        self.assertIn('      - "docker-host.tailea1a78.ts.net:8444"', gost)
-        self.assertNotIn('      - "*.ts.net:', gost)
+        self.assertIn('      - "*.mora-rattlesnake.ts.net"', gost)
+        self.assertNotIn('      - "*.ts.net"', gost)
         self.assertNotIn("allow all", gost)
 
         caddyfile = (REPO / "services" / "data" / "Caddyfile").read_text()

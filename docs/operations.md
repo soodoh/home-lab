@@ -204,18 +204,19 @@ not restart the Mac's active Tailscale daemon until the first two layers pass.
      --only packages,files,macos-launchd-agents
    ```
 
-6. Before restarting Tailscale, require the positive and negative proxy checks:
+6. Before restarting Tailscale, check control-plane transport:
 
    ```sh
    curl --proxy http://127.0.0.1:1055 \
      https://controlplane.tailscale.com/
-   ! curl --fail-with-body --proxy http://127.0.0.1:1055 \
-     https://example.com/
    ```
 
    Any normal Tailscale HTTP response proves transport; an Authentik login page,
-   `401`, `403`, Zscaler block page or TLS error is a refusal. The negative request
-   must be denied by GOST.
+   `401`, `403`, Zscaler block page or TLS error is a refusal. The work-Mac
+   client's first-hop bypass now dials nonmatching destinations locally, so a
+   negative `example.com` request through that client does **not** test the
+   remote GOST allowlist. Test that boundary separately with an isolated,
+   authenticated client that has no first-hop bypass.
 7. Restart the Homebrew Tailscale daemon, then verify control and peer state:
 
    ```sh
@@ -246,22 +247,23 @@ sudo brew services restart tailscale
 
 ### CLIProxyAPI through the authenticated WebSocket proxy
 
-The `gost.diloreto.com` Authentik/GOST relay permits one additional
-CONNECT destination: `docker-host.tailea1a78.ts.net:8444`. It uses the same
-service-account app password as Tailscale coordination, not the CLIProxyAPI API
-or management key. GOST must continue to refuse all other non-Tailscale
-destinations. This is an authenticated public relay to the whole Serve endpoint,
-**including management paths**; it is not a path-filtered API-only ingress.
-The service still publishes no public HTTP port, and the OAuth callback port
-must stay private. Confirm work-device policy permits this use before rollout.
-Docker's default DNS cannot resolve this MagicDNS name. The GOST container alone
-pins it through `extra_hosts` in `services/infra.yml` to the Docker host's
-observed tailnet IPv4 address. The `tailscale_serve` role in the site play
-refuses a stale pin; use the site play for this change, not the narrower
-Compose-only deployment. If the host identity changes, observe its new address
-and update the reviewed Compose source rather than weakening the allowlist,
-changing global DNS or publishing the backend. The HTTPS client still verifies
-the original hostname.
+The `gost.diloreto.com` Authentik/GOST relay permits `tailscale.com` on TCP
+80/443 and all subdomains of `mora-rattlesnake.ts.net` on **any TCP port**.
+This owner-approved expansion uses the same service-account app password as
+Tailscale coordination, not the CLIProxyAPI API or management key. A holder of
+that password can attempt to reach other tailnet services with the Docker host's
+network identity, including admin ports; Tailscale's grants for that identity
+and each service's authentication still apply. GOST continues to refuse other
+Internet destinations. It is not a path-filtered API-only ingress. The service
+still publishes no public HTTP port, and the OAuth callback port must stay
+private. Confirm work-device policy permits this use before rollout.
+Docker's default DNS cannot resolve MagicDNS peers. Only the GOST container uses
+the Tailscale resolver `100.100.100.100` and the host-observed public resolver
+`1.1.1.1`, instead of a single static host alias. The `tailscale_serve` role
+checks that DNS pair and the observed host resolver. Use the site play for this
+change, not the narrower Compose-only deployment. The HTTPS client still
+verifies the renamed Serve hostname; the site play replaces both old Serve
+routes together and tests Omada and CLIProxyAPI afterward.
 
 After a reviewed Compose deployment and fresh host observation, verify from the
 work Mac with Zscaler enabled and the existing local GOST client running. Force
@@ -273,19 +275,17 @@ curl --proxy http://127.0.0.1:1055 --noproxy '' \
   --silent --show-error --connect-timeout 10 --max-time 30 \
   --output /dev/null \
   --write-out 'connect=%{http_connect} http=%{http_code} tls=%{ssl_verify_result}\n' \
-  https://docker-host.tailea1a78.ts.net:8444/v1/models
-! curl --proxy http://127.0.0.1:1055 --noproxy '' \
-  --fail --silent --show-error --connect-timeout 10 --max-time 30 \
-  --output /dev/null https://example.com/
+  https://docker-host.mora-rattlesnake.ts.net:8444/v1/models
 ```
 
-The first request should show CONNECT `200`, TLS verification `0`, and an API
+This request should show CONNECT `200`, TLS verification `0`, and an API
 authentication refusal (normally HTTP `401`, without an API key); a connection
 failure, proxy denial, Authentik redirect, Zscaler block or TLS error is not
-success. The second request must
-remain denied. If the first request fails, observe GOST-container DNS and routing
-to the exact tailnet Serve address and the host's Tailscale access policy; do not
-broaden the GOST allowlist or publish the backend to make the check pass. Then
+success. The local client's first-hop whitelist dials nonmatching sites directly;
+a successful negative `example.com` request through it does not prove the
+remote relay refuses non-tailnet destinations. If the first request fails,
+observe GOST-container DNS for both MagicDNS peers and public control names,
+Serve TLS, and the host's Tailscale policy; do not publish the backend. Then
 verify an API-key-authenticated request from the actual Pi client configured to
 use this proxy, without printing the key. A working `curl` CONNECT alone does
 not establish that Pi supports the WebSocket-backed local proxy. Keep the
@@ -294,7 +294,7 @@ separate management key private; the relay does not filter management paths.
 ### CLIProxyAPI first rollout
 
 The committed Compose project adds CLIProxyAPI alongside LiteLLM. Its API and
-management UI share `https://docker-host.tailea1a78.ts.net:8444`; Tailscale Serve
+management UI share `https://docker-host.mora-rattlesnake.ts.net:8444`; Tailscale Serve
 owns this route and Omada's separate `:8443` route as one exact node-level
 configuration. Compose publishes the backend on host loopback only. A changed
 Serve route resets and republishes both routes: check the Omada path before
