@@ -37,7 +37,8 @@ resource "proxmox_hardware_mapping_usb" "device" {
   map = [{
     id   = each.value.vendor_device
     node = local.node
-    path = local.serial_usb_paths[each.value.mapping]
+    # Bluetooth is matched by vendor/device ID; only serial adapters have sealed ports.
+    path = each.key == "bluetooth" ? null : local.serial_usb_paths[each.value.mapping]
   }]
 
   lifecycle {
