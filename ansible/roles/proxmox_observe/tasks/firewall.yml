@@ -87,11 +87,11 @@
           "enable": enabled(options.get("enable"), False),
           "policy_in": options.get("policy_in", "ACCEPT"),
           "policy_out": options.get("policy_out", "ACCEPT"),
+          "policy_forward": options.get("policy_forward", "ACCEPT"),
       }
       normalized = [normalize_rule(rule) for rule in rules]
-      canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"))
-      if observed_options != policy["options"] or sorted(map(canonical, normalized)) != sorted(map(canonical, policy["rules"])):
-          raise RuntimeError("native firewall policy differs")
+      if observed_options != policy["options"] or normalized != policy["rules"]:
+          raise RuntimeError("native firewall policy or rule order differs")
       for service in ("pve-firewall.service", "proxmox-firewall.service"):
           result = run(["/usr/bin/systemctl", "is-active", service])
           if result.stderr or result.stdout.strip() != b"active":

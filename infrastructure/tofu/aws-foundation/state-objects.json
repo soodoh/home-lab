@@ -3,6 +3,7 @@
     "home-lab/authentik/tofu.tfstate",
     "home-lab/aws-foundation/tofu.tfstate",
     "home-lab/omada/tofu.tfstate",
+    "home-lab/proxmox-firewall/tofu.tfstate",
     "home-lab/proxmox/tofu.tfstate",
     "home-lab/tailscale/tofu.tfstate"
   ],

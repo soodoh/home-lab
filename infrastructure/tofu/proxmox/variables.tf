@@ -7,12 +7,6 @@ variable "proxmox_endpoint" {
   }
 }
 
-variable "proxmox_manage_cluster_firewall" {
-  type        = bool
-  description = "Stage cluster firewall adoption only after an independently verified no-op import and console rollback path."
-  default     = false
-}
-
 variable "proxmox_vm" {
   type = object({
     boot_order = list(string)

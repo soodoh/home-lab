@@ -101,8 +101,9 @@ to match an unexplained observation.
 
 ## 3. Plan provider changes
 
-Active roots are `authentik`, `aws-foundation`, `omada`, `proxmox` and `tailscale`
-under `infrastructure/tofu/`. Each has an S3 backend.
+Roots are `authentik`, `aws-foundation`, `omada`, `proxmox`, `proxmox-firewall`
+(staged, disabled pending backend authorization and adoption), and `tailscale`
+under `infrastructure/tofu/`. Each declares an S3 backend.
 
 For the selected root, run fresh host observation first. In particular,
 `observe-proxmox.yml` compares the live disk and USB devices, the host's sealed
@@ -395,26 +396,56 @@ independent access path.
 
 ### Staged Proxmox cluster firewall ownership
 
-`infrastructure/tofu/proxmox/firewall.tf` describes the existing cluster options
-and complete ordered rules from the same `infrastructure/policy/proxmox-firewall.json`
-that the independent host observer verifies. Management defaults **off**; no
-firewall import or mutation is authorized by this checkout. Do not set
-`TF_VAR_proxmox_manage_cluster_firewall=true` or change its default for an apply
+`infrastructure/tofu/proxmox-firewall/` isolates cluster options and complete ordered
+rules from VM/hardware provider-planned updates. The root reads the same
+`infrastructure/policy/proxmox-firewall.json` that the independent host observer
+checks **in order**. Management defaults **off**. The live default forward policy
+is omitted by PVE's API but supplied as `ACCEPT` by the pinned provider on import;
+OpenTofu ignores only that non-round-tripping attribute while the observer checks
+that it is absent (the native default) or explicitly `ACCEPT`. Never treat that
+exception as permission to stop observing the forward policy.
+
+The AWS foundation manifest declares a new state key, but its plan/apply roles do
+not have access yet. The plan inspector unconditionally forbids managed IAM policy
+mutation, and the controller apply role lacks IAM write privileges. An independent
+AWS owner must review and update the exact plan/apply state-key permissions, then
+inspect any IAM drift and reconcile ownership through a separate owner-reviewed
+state procedure before requiring a no-op `aws-foundation` plan. The identity gate
+may refuse an ordinary plan when it sees externally changed IAM policy. Do not
+bypass that refusal, initialize the firewall root against local state or reuse the
+VM root's state key. The preexisting
+`proxmox` root independently proposes provider updates to two USB mappings and the
+VM even with firewall ownership disabled; do not target around or apply those
+changes as part of firewall adoption.
+
+No firewall import or mutation is authorized by this checkout. Do not set
+`TF_VAR_proxmox_firewall_enable_management=true` for an apply or change its default
 until a separate reviewed adoption confirms all of the following:
 
-1. Fresh native host and provider observations show the exact policy and active
-   backends, with no retained mutation owner. Confirm independent console access
-   and a tested way to restore the native policy if network access is lost.
-2. With read-only provider credentials, preview the two declarative imports against
-   the remote backend. The cluster options and **all six ordered rules** must import
-   with `no-op` actions; any replacement, rule reorder, unexpected attribute change
-   or access refusal stops adoption. Use a narrowly reviewed import allowlist for
-   those two addresses only, and run the plan policy inspector. Do not apply a
-   plan with firewall changes as part of adoption.
-3. After that proof, commit the management enablement and reviewed import allowlist
-   in a separate change. Apply only the inspected saved plan from the same session
-   with console recovery ready, then reobserve both backends and run a fresh no-op
-   plan. Subsequent firewall changes require their own reviewed allowlist and
+1. Fresh native host and provider observations show the **exact order** of the
+   reviewed rules, the reviewed options, both active backends and no retained
+   mutation owner. Confirm independent console access and a tested way to restore
+   the native policy if network access is lost.
+2. Have the independent AWS owner authorize only
+   `home-lab/proxmox-firewall/tofu.tfstate` and its `.tflock` object in the
+   existing controller plan/apply policies, and verify the owner-controlled
+   permissions boundaries still apply. Obtain protected AWS foundation inputs
+   from their independent owner, resolve any identity-drift refusal through a
+   separate owner-reviewed reconciliation, and require a fresh **no-op**
+   foundation plan. The ordinary controller cannot perform this IAM change.
+   Reobserve before the firewall plan.
+3. Supply only the selected Proxmox plan identity as `PROXMOX_VE_API_TOKEN`
+   from protected storage (`PROXMOX_PLAN_TOKEN` is not wired by the current
+   non-AWS credential helper); remove the apply identity from the plan session.
+   Preview the two declarative imports against the new remote backend. Both the
+   options and **all six ordered
+   rules** must import with `no-op` actions and no other mutations. Any replacement,
+   reorder, unexpected attribute change or access refusal stops adoption. Add and
+   review an import-only allowlist for those two addresses before policy inspection.
+4. After that proof, commit management enablement and the narrowly reviewed
+   allowlist separately. Apply only the inspected saved plan from the same session
+   with console recovery ready, then reobserve both backends and require a fresh
+   no-op plan. Subsequent firewall changes need their own reviewed allowlist and
    independent console/rollback preparation. Ansible must never also write the
    cluster firewall.
 

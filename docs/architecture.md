@@ -71,11 +71,14 @@ credentials and encrypted bundles live outside Git.
   hardware mappings. The inert first disk block preserves provider list indexes after
   retirement of its former bus slot; changing that tombstone requires an explicit
   provider/state migration. Native Proxmox services persist the firewall policy; the
-  observer reads the API and requires the reviewed policy and both backends to match.
-  A cluster firewall OpenTofu owner is staged but disabled until the pinned provider
-  imports the existing options and complete ordered rules with a no-op plan, and
-  independent access and rollback have been verified. The host observer remains an
-  independent check, not another firewall writer.
+  observer reads the API and requires the reviewed policy, exact rule order, default
+  forward policy and both backends to match. A separate `proxmox-firewall` OpenTofu
+  root stages ownership without inheriting the VM/hardware root's provider-planned
+  updates. It remains disabled until the new remote state key is authorized and the
+  pinned provider imports both cluster resources with a no-op plan. The provider
+  does not round-trip PVE's omitted default forward policy, so only that attribute
+  is ignored by OpenTofu and independently enforced by the host observer. Ansible
+  is never a second firewall writer.
 - Data recovery stages into a new private directory before any production decision.
 - External Nextcloud user data is outside the managed Restic recovery group and must
   be handled independently.
