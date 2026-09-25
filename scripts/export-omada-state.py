@@ -144,8 +144,8 @@ def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, 
     base = f"/{client.controller_id}/api/v2/sites/{site_id}"
     networks = client.list_all(f"{base}/setting/lan/networks")
     matching_networks = [network for network in networks if network.get("name") == network_name]
-    if len(matching_networks) != 1:
-        raise SystemExit("exactly one Omada network must match --network")
+    if len(networks) != 1 or len(matching_networks) != 1:
+        raise SystemExit("the selected Omada site must contain exactly the managed network")
     network = matching_networks[0]
     network_id = required_string(network, "id")
     dhcp = network.get("dhcpSettings")
@@ -154,6 +154,8 @@ def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, 
 
     reservations = client.list_all(f"{base}/setting/service/dhcp")
     selected_reservations = [reservation for reservation in reservations if reservation.get("netId") == network_id]
+    if len(selected_reservations) != len(reservations):
+        raise SystemExit("the selected Omada site has reservations outside the managed network")
     port_forwards = client.list_all(f"{base}/setting/transmission/portForwardings")
     export = {
         "exported_at": datetime.now(timezone.utc).isoformat(),

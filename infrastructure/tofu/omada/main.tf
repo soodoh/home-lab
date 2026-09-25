@@ -1,18 +1,38 @@
 locals {
+  desired = jsondecode(file("${path.module}/desired.json"))
   export = var.omada_enable_management ? jsondecode(file(var.omada_export_path)) : {
     exported_at        = ""
     controller_version = ""
     site               = { id = "", name = "" }
-    network            = { id = "", name = "", vlan_id = 1, gateway_subnet = "", dhcp_enabled = false, dhcp_start = "", dhcp_end = "" }
+    network            = { id = "", name = "" }
     reservations       = []
     port_forwards      = []
   }
-  reservations = var.omada_enable_management ? {
+  live_reservations = {
     for reservation in local.export.reservations : lower(replace(reservation.mac, "-", ":")) => reservation
-  } : {}
-  port_forwards = var.omada_enable_management ? {
+  }
+  live_port_forwards = {
     for port_forward in local.export.port_forwards : port_forward.id => port_forward
-  } : {}
+  }
+  reservations  = var.omada_enable_management ? local.desired.reservations : {}
+  port_forwards = var.omada_enable_management ? local.desired.port_forwards : {}
+  export_matches_boundary = !var.omada_enable_management || (
+    local.export.controller_version == var.omada_domain.controller_version &&
+    local.export.site.id != "" &&
+    local.export.site.name == var.omada_domain.site_name &&
+    local.export.network.id != "" &&
+    local.export.network.name == var.omada_domain.network_name &&
+    local.desired.network.name == var.omada_domain.network_name &&
+    try(
+      timecmp(local.export.exported_at, timeadd(plantimestamp(), "-15m")) >= 0 &&
+      timecmp(local.export.exported_at, plantimestamp()) <= 0,
+      false,
+    ) &&
+    length(local.export.reservations) > 0 &&
+    length(local.export.port_forwards) > 0 &&
+    toset(keys(local.live_reservations)) == toset(keys(local.reservations)) &&
+    toset(keys(local.live_port_forwards)) == toset(keys(local.port_forwards))
+  )
 }
 
 provider "omada" {
@@ -23,21 +43,8 @@ provider "omada" {
 
 check "export_identity" {
   assert {
-    condition = !var.omada_enable_management || (
-      local.export.controller_version == var.omada_domain.controller_version &&
-      local.export.site.id != "" &&
-      local.export.site.name == var.omada_domain.site_name &&
-      local.export.network.id != "" &&
-      local.export.network.name == var.omada_domain.network_name &&
-      try(
-        timecmp(local.export.exported_at, timeadd(plantimestamp(), "-15m")) >= 0 &&
-        timecmp(local.export.exported_at, plantimestamp()) <= 0,
-        false,
-      ) &&
-      length(local.export.reservations) > 0 &&
-      length(local.export.port_forwards) > 0
-    )
-    error_message = "The ignored Omada export is stale, incomplete, or outside the contracted controller, site, and network domain."
+    condition     = local.export_matches_boundary
+    error_message = "The fresh Omada inventory must match the reviewed site, network, reservations, and port-forward identities."
   }
 }
 
@@ -52,16 +59,21 @@ resource "omada_network" "lan" {
   count = var.omada_enable_management ? 1 : 0
 
   site           = local.export.site.name
-  name           = local.export.network.name
-  vlan_id        = local.export.network.vlan_id
+  name           = local.desired.network.name
+  vlan_id        = local.desired.network.vlan_id
   purpose        = "interface"
-  gateway_subnet = local.export.network.gateway_subnet
-  dhcp_enabled   = local.export.network.dhcp_enabled
-  dhcp_start     = local.export.network.dhcp_start
-  dhcp_end       = local.export.network.dhcp_end
+  gateway_subnet = local.desired.network.gateway_subnet
+  dhcp_enabled   = local.desired.network.dhcp_enabled
+  dhcp_start     = local.desired.network.dhcp_start
+  dhcp_end       = local.desired.network.dhcp_end
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition     = local.export_matches_boundary
+      error_message = "Refusing Omada management without a fresh matching inventory of every owned identity."
+    }
   }
 }
 
@@ -69,7 +81,7 @@ import {
   for_each = local.reservations
 
   to = omada_dhcp_reservation.reservation[each.key]
-  id = "${local.export.site.name}/${each.value.mac}"
+  id = "${local.export.site.name}/${upper(replace(each.key, ":", "-"))}"
 }
 
 resource "omada_dhcp_reservation" "reservation" {
@@ -77,7 +89,7 @@ resource "omada_dhcp_reservation" "reservation" {
 
   site       = local.export.site.name
   network_id = omada_network.lan[0].id
-  mac        = upper(replace(each.value.mac, ":", "-"))
+  mac        = upper(replace(each.key, ":", "-"))
   ip         = each.value.ip
   name       = each.value.name
   enable     = each.value.enable
@@ -87,7 +99,7 @@ import {
   for_each = local.port_forwards
 
   to = omada_port_forward.port_forward[each.key]
-  id = "${local.export.site.name}/${each.value.id}"
+  id = "${local.export.site.name}/${each.key}"
 }
 
 resource "omada_port_forward" "port_forward" {

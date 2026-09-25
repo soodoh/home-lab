@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import unittest
 from pathlib import Path
 from typing import Any
@@ -48,13 +49,6 @@ class FakeOmada:
                     "status": False,
                 },
                 {
-                    "netId": "another-network",
-                    "name": "excluded",
-                    "mac": "aa:bb:cc:dd:ee:03",
-                    "ip": "192.0.2.13",
-                    "status": True,
-                },
-                {
                     "netId": "network-id",
                     "name": "first",
                     "mac": "AA-BB-CC-DD-EE-01",
@@ -93,17 +87,27 @@ class FakeOmada:
 
 
 class OmadaExportTests(unittest.TestCase):
-    def test_root_admits_only_fresh_selected_domain_exports(self) -> None:
-        source = (ROOT / "infrastructure/tofu/omada/main.tf").read_text()
-        for required in (
-            "local.export.site.name == var.omada_domain.site_name",
-            "local.export.network.name == var.omada_domain.network_name",
-            'timeadd(plantimestamp(), "-15m")',
-            "timecmp(local.export.exported_at, plantimestamp()) <= 0",
-            "length(local.export.port_forwards) > 0",
-            "to = omada_port_forward.port_forward[each.key]",
-        ):
-            self.assertIn(required, source)
+    def test_committed_desired_settings_have_stable_ownership_keys(self) -> None:
+        desired = json.loads((ROOT / "infrastructure/tofu/omada/desired.json").read_text())
+        domain = json.loads((ROOT / "infrastructure/tofu/omada/domain.auto.tfvars.json").read_text())
+        self.assertEqual(set(desired), {"network", "reservations", "port_forwards"})
+        self.assertEqual(desired["network"]["name"], domain["omada_domain"]["network_name"])
+        self.assertEqual(set(desired["network"]), {
+            "name", "vlan_id", "gateway_subnet", "dhcp_enabled", "dhcp_start", "dhcp_end",
+        })
+        self.assertTrue(desired["reservations"])
+        self.assertTrue(desired["port_forwards"])
+        for mac, reservation in desired["reservations"].items():
+            self.assertEqual(mac, mac.lower())
+            self.assertEqual(len(mac.split(":")), 6)
+            self.assertEqual(set(reservation), {"name", "ip", "enable"})
+        for rule_id, forward in desired["port_forwards"].items():
+            self.assertTrue(rule_id)
+            self.assertEqual(set(forward), {
+                "name", "enable", "external_port", "forward_ip", "forward_port",
+                "protocol", "wan_port_ids", "dmz",
+            })
+            self.assertTrue(forward["wan_port_ids"])
 
     def test_projects_exact_selected_live_domain(self) -> None:
         value = EXPORTER.build_export(FakeOmada(), "Selected", "Default")
@@ -142,6 +146,21 @@ class OmadaExportTests(unittest.TestCase):
     def test_refuses_an_unknown_site(self) -> None:
         with self.assertRaisesRegex(SystemExit, "exactly one Omada site"):
             EXPORTER.build_export(FakeOmada(), "Missing", "Default")
+
+    def test_refuses_unmanaged_networks_and_reservations(self) -> None:
+        client = FakeOmada()
+        base = "/controller-id/api/v2/sites/site-id"
+        client.responses[f"{base}/setting/lan/networks"].append({"id": "other", "name": "Other"})
+        with self.assertRaisesRegex(SystemExit, "exactly the managed network"):
+            EXPORTER.build_export(client, "Selected", "Default")
+
+        client = FakeOmada()
+        client.responses[f"{base}/setting/service/dhcp"].append({
+            "netId": "other", "name": "unmanaged", "mac": "AA-BB-CC-DD-EE-03",
+            "ip": "192.0.2.13", "status": True,
+        })
+        with self.assertRaisesRegex(SystemExit, "outside the managed network"):
+            EXPORTER.build_export(client, "Selected", "Default")
 
     def test_normalizes_supported_mac_formats(self) -> None:
         self.assertEqual(EXPORTER.normalize_mac("aabb.ccdd.eeff"), "AA-BB-CC-DD-EE-FF")

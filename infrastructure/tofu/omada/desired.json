@@ -1,0 +1,78 @@
+{
+  "network": {
+    "dhcp_enabled": true,
+    "dhcp_end": "192.168.0.254",
+    "dhcp_start": "192.168.0.1",
+    "gateway_subnet": "192.168.0.1/24",
+    "name": "Default",
+    "vlan_id": 1
+  },
+  "port_forwards": {
+    "66070a8de9df67148ee4fa14": {
+      "dmz": false,
+      "enable": true,
+      "external_port": "80",
+      "forward_ip": "192.168.0.100",
+      "forward_port": "80",
+      "name": "HTTP Proxy",
+      "protocol": "tcp_udp",
+      "wan_port_ids": [
+        "1_d5e6238e8a1e48179e527468719ebffc"
+      ]
+    },
+    "66070aaae9df67148ee4fa16": {
+      "dmz": false,
+      "enable": true,
+      "external_port": "443",
+      "forward_ip": "192.168.0.100",
+      "forward_port": "443",
+      "name": "HTTPS Proxy",
+      "protocol": "tcp_udp",
+      "wan_port_ids": [
+        "1_d5e6238e8a1e48179e527468719ebffc"
+      ]
+    }
+  },
+  "reservations": {
+    "8c:4f:00:e6:53:14": {
+      "enable": true,
+      "ip": "192.168.0.30",
+      "name": "Prusa Core One+"
+    },
+    "ec:71:db:1e:38:1c": {
+      "enable": true,
+      "ip": "192.168.0.132",
+      "name": "Studio Camera"
+    },
+    "ec:71:db:28:84:0e": {
+      "enable": true,
+      "ip": "192.168.0.22",
+      "name": "EC-71-DB-28-84-0E"
+    },
+    "ec:71:db:7d:52:c2": {
+      "enable": true,
+      "ip": "192.168.0.23",
+      "name": "Backyard Camera"
+    },
+    "ec:71:db:9b:f3:72": {
+      "enable": true,
+      "ip": "192.168.0.20",
+      "name": "Doorbell Camera"
+    },
+    "ec:71:db:c8:cf:bd": {
+      "enable": true,
+      "ip": "192.168.0.21",
+      "name": "EC-71-DB-C8-CF-BD"
+    },
+    "ec:71:db:e4:ba:5d": {
+      "enable": true,
+      "ip": "192.168.0.130",
+      "name": "Back House Camera"
+    },
+    "ec:71:db:f2:10:7d": {
+      "enable": true,
+      "ip": "192.168.0.158",
+      "name": "Back Studio Duo Camera"
+    }
+  }
+}

@@ -1,11 +1,20 @@
 # Omada live export input
 
-This root owns its non-secret controller version and endpoint in
-`domain.auto.tfvars.json`, including the exact site and network selectors.
-`omada_export_path` is an explicit absolute path to a
-mode-0600 JSON export created from the current controller session in a new private
-temporary directory. The export includes every port-forwarding rule in the selected
-site so existing rules can be adopted without recreation.
+`domain.auto.tfvars.json` selects the controller, site, and network.
+`desired.json` is the reviewed Git-owned configuration of that network, all its
+DHCP reservations, and every port-forwarding rule in the selected site. To change
+those settings, edit `desired.json`; never regenerate it as a routine planning step.
+Reservation MACs and port-forward IDs are stable state-address keys. If changing
+a key, review a state-address migration before planning a resource replacement.
+
+`omada_export_path` is an explicit absolute path to a mode-0600 JSON export from
+the current controller session in a new private temporary directory. It supplies
+identities for imports and a completeness check against the desired keys, **not**
+the settings for managed resources. An unexpected or missing identity refuses the
+plan; a changed setting with the same identity produces drift against Git. The
+export includes every port-forwarding rule in the selected site so existing rules
+can be adopted without recreation. This boundary does not yet manage other sites
+or networks, WLAN, WAN, or switch configuration.
 [`scripts/prepare-omada-plan-input`](../../../scripts/prepare-omada-plan-input) uses
 the read-only provider identity to fetch it directly from the live controller.
 Delete it after the plan/apply session; never retain the export in controller

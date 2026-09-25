@@ -58,11 +58,13 @@ credentials and encrypted bundles live outside Git.
 - Compose convergence archives committed Git source and reconciles the complete
   project with the native Compose module. Git revert followed by convergence is
   configuration rollback.
-- Omada remote state owns the default LAN, exported DHCP reservations and exported
-  port-forwarding rules. A fresh private controller export supplies desired values,
-  and declarative import blocks preserve bootstrap from an empty state without
-  imperative state scripts. Local and CI controllers use one tailnet-only Tailscale
-  Serve endpoint with public TLS trust; Ansible owns its exact node-level proxy to the
+- Omada remote state owns the default LAN, its DHCP reservations and all
+  port-forwarding rules in the selected site. Reviewed `desired.json` supplies
+  their settings; a fresh private controller export supplies import identities and
+  checks completeness, never desired settings. Declarative import blocks preserve
+  bootstrap from an empty state without imperative state scripts. Local and CI
+  controllers use one tailnet-only Tailscale Serve endpoint with public TLS trust;
+  Ansible owns its exact node-level proxy to the
   Omada loopback HTTPS listener. Omada's forced HTTPS redirect requires that one
   encrypted loopback hop to accept the private certificate without authentication.
 - Proxmox remote state owns the adopted VM, its managed disks and its PCI and USB
@@ -70,6 +72,10 @@ credentials and encrypted bundles live outside Git.
   retirement of its former bus slot; changing that tombstone requires an explicit
   provider/state migration. Native Proxmox services persist the firewall policy; the
   observer reads the API and requires the reviewed policy and both backends to match.
+  A cluster firewall OpenTofu owner is staged but disabled until the pinned provider
+  imports the existing options and complete ordered rules with a no-op plan, and
+  independent access and rollback have been verified. The host observer remains an
+  independent check, not another firewall writer.
 - Data recovery stages into a new private directory before any production decision.
 - External Nextcloud user data is outside the managed Restic recovery group and must
   be handled independently.

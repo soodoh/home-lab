@@ -131,11 +131,15 @@ TOFU_PLAN_CHDIR="$root" scripts/inspect-tofu-plan "$work/plan" "${policy_args[@]
 
 Use root-specific protected-input helpers where required. Pass an allowlist only when
 that root has a reviewed file under `infrastructure/policy/allow/`; omit the argument
-otherwise. For Omada, set `TF_VAR_omada_export_path` to a nonexistent path in the
-private temporary directory, then run `scripts/prepare-omada-plan-input`; it obtains a
-fresh live export through the Docker host's tailnet-only Tailscale Serve endpoint on
-TCP 8443 using the system trust store and read-only provider identity, including all
-port-forwarding rules in the selected site. Do not print
+otherwise. For Omada, review `infrastructure/tofu/omada/desired.json` as the intended LAN,
+DHCP-reservation and port-forward settings. Set `TF_VAR_omada_export_path` to a
+nonexistent path in the private temporary directory, then run
+`scripts/prepare-omada-plan-input`; it obtains a fresh live export through the Docker
+host's tailnet-only Tailscale Serve endpoint on TCP 8443 using the system trust store
+and read-only provider identity, including all port-forwarding rules in the selected
+site. The export must match every reviewed resource identity, but its settings are
+not desired state. A changed live setting must appear as drift against Git; do not
+copy it into `desired.json` to make a plan pass. Do not print
 `tofu show -json`, state, private exports or saved plans. Apply only the saved plan
 inspected in the same session. After apply, run a new plan; zero proposed changes is
 the completion criterion.
@@ -388,6 +392,31 @@ ansible-playbook ansible/playbooks/maintain-proxmox-packages.yml --check
 A reboot requires its playbook's explicit inputs and a current package/host
 observation. Networking, firewall, storage and boot changes also require an
 independent access path.
+
+### Staged Proxmox cluster firewall ownership
+
+`infrastructure/tofu/proxmox/firewall.tf` describes the existing cluster options
+and complete ordered rules from the same `infrastructure/policy/proxmox-firewall.json`
+that the independent host observer verifies. Management defaults **off**; no
+firewall import or mutation is authorized by this checkout. Do not set
+`TF_VAR_proxmox_manage_cluster_firewall=true` or change its default for an apply
+until a separate reviewed adoption confirms all of the following:
+
+1. Fresh native host and provider observations show the exact policy and active
+   backends, with no retained mutation owner. Confirm independent console access
+   and a tested way to restore the native policy if network access is lost.
+2. With read-only provider credentials, preview the two declarative imports against
+   the remote backend. The cluster options and **all six ordered rules** must import
+   with `no-op` actions; any replacement, rule reorder, unexpected attribute change
+   or access refusal stops adoption. Use a narrowly reviewed import allowlist for
+   those two addresses only, and run the plan policy inspector. Do not apply a
+   plan with firewall changes as part of adoption.
+3. After that proof, commit the management enablement and reviewed import allowlist
+   in a separate change. Apply only the inspected saved plan from the same session
+   with console recovery ready, then reobserve both backends and run a fresh no-op
+   plan. Subsequent firewall changes require their own reviewed allowlist and
+   independent console/rollback preparation. Ansible must never also write the
+   cluster firewall.
 
 ## Operation ownership
 
