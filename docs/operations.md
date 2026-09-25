@@ -172,9 +172,10 @@ client are active. Keep independent console access to the Docker host and do
 not restart the Mac's active Tailscale daemon until the first two layers pass.
 
 1. Verify public DNS for `gost.diloreto.com` points to the current Caddy ingress.
-   Observe the live Authentik user and provider, then plan the `authentik` root
-   using section 3. The moved state addresses must retain the existing user and
-   binding IDs; the provider's external host and the user's username must update
+   Observe the live Authentik user and provider, and confirm remote state tracks
+   the user and binding at their `gost-proxy-user` addresses before planning the
+   `authentik` root using section 3. The existing user and binding IDs must be
+   preserved; the provider's external host and the user's username must update
    **in place**. Any replacement, unexpected deletion, or plan refusal is a
    stop: never bypass `prevent_destroy` to complete this rename. Apply only the
    reviewed plan, then verify the old route/username no longer authenticate.
