@@ -1,10 +1,12 @@
 # Legacy AWS recovery retirement: owner cutover
 
-This is a **plan, not authorization to apply it**. The reviewed source cutover
-removes legacy desired resources, but remote state and live AWS retain them
-until the independent owner finishes the migration. The normal OpenTofu plan
-inspector forbids deletions and managed IAM mutations; the
-controller apply role cannot write IAM. Do not target around either refusal,
+This records the owner cutover, **not authorization to replay it**. At the
+post-handoff checkpoint, the recovery bucket, alias and managed IAM user are
+absent; the recovery KMS key is pending deletion under independent owner custody.
+Remote state no longer tracks them. The separate `s3-backup-user` and its
+inactive key remain until AWS confirms final KMS deletion. The normal OpenTofu
+plan inspector forbids deletions and managed IAM mutations; the controller
+apply role cannot write IAM. Do not target around either refusal,
 remove `prevent_destroy` to force an apply, or silently abandon a live resource
 in state. Use an independent AWS owner and private, versioned remote-state
 before-images. Reobserve every predicate below in the cutover session; an old
@@ -18,6 +20,11 @@ inventory or a saved plan from this design session is not evidence.
 - The legacy bucket is to be **deleted**, not reserved empty. Its globally
   unique name may be reused by another account. Verify all clients are stopped;
   never assume a stale request to that name is safe after deletion.
+- The managed `home-lab-recovery` user's sole inline policy also granted access
+  to the **active state bucket and KMS key**. Its deletion removed that dormant,
+  keyless recovery path, not the controller roles' state access; the owner
+  explicitly accepted that loss after verifying it had no credentials or other
+  attachments.
 - The separately supplied `s3-backup-user` is **not** the managed
   `home-lab-recovery` user. Keep its single key inactive and retain that user
   until the recovery KMS key has actually finished its deletion window. Only
@@ -115,8 +122,11 @@ inventory or a saved plan from this design session is not evidence.
 
    Review the two recovery output removals separately. Then inspect a fresh saved
    `-refresh-only` plan: it may record only the two owner-approved controller
-   policy documents and reviewed output removals, with no cloud action or other
-   identity drift. Apply that **same** state-only plan only after owner approval.
+   policy documents, their two computed `data.aws_iam_policy_document.state_*`
+   entries, and the reviewed output removals, with no cloud action or other
+   identity drift. The computed documents must remove only the same legacy
+   references as the owner-approved policies. Apply that **same** state-only plan
+   only after owner approval.
    Require a fresh, driftless, normal `aws-foundation` plan and native policy
    admission before calling the root converged.
 6. Once no remote recovery address remains in state, remove the transitional

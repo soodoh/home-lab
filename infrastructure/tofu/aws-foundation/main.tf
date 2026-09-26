@@ -9,21 +9,6 @@ provider "aws" {
   }
 }
 
-
-# Transitional provider: retain until externally retired recovery resources are
-# verified absent and removed from the versioned remote state by the owner.
-provider "aws" {
-  alias  = "recovery"
-  region = var.recovery_bucket_region
-
-  default_tags {
-    tags = {
-      ManagedBy = "OpenTofu"
-      System    = "home-lab-recovery"
-    }
-  }
-}
-
 locals {
   state_object_manifest = jsondecode(file("${path.module}/state-objects.json"))
   active_state_keys     = local.state_object_manifest.active
@@ -54,7 +39,6 @@ resource "aws_kms_key" "opentofu" {
     prevent_destroy = true
   }
 }
-
 
 resource "aws_kms_alias" "opentofu" {
   name          = "alias/home-lab-opentofu"

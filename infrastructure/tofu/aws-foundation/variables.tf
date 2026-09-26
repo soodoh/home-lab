@@ -26,13 +26,6 @@ variable "aws_region" {
   type = string
 }
 
-
-# Transitional provider input: remove only after externally retired resources
-# are verified absent and removed from remote state by the independent owner.
-variable "recovery_bucket_region" {
-  type = string
-}
-
 variable "state_bucket_name" {
   type = string
 }

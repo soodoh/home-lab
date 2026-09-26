@@ -27,19 +27,17 @@ maintenance replication state were removed after verification.
 ## Legacy AWS recovery-stack retirement
 
 Desired state: recurring managed Restic backups remain local → NFS → Proton. The
-AWS recovery bucket is not a Restic destination. Remote `aws-foundation` state
-still tracks the versioned bucket, recovery KMS key and alias, and managed IAM
-recovery principal even after the source cutover. Treat these as retained
-recovery material, not disposable drift, until an independent owner completes
-the gates below. Use the separate
-[owner cutover plan](aws-recovery-retirement.md) for the exact ordering and
-state-tracking boundary; it is not authorization to perform the cutover. This
-retirement is separate from Proxmox firewall adoption. An owner may explicitly retain the **unchanged** legacy
-AWS resources during firewall adoption: privately verify the temporary foundation
-inputs against tracked state and live provider, reconcile only reviewed identity
-tracking, and require a no-op foundation plan. This is not renewed approval for an
-S3 Restic writer, broader access, or deletion. Return to the retirement gates once
-firewall adoption is complete.
+AWS recovery bucket was not a Restic destination. At the owner handoff, the
+bucket, alias and keyless managed IAM user were removed; the recovery KMS key is
+pending deletion, with its identity and due date in independent protected owner
+custody. `aws-foundation` remote state no longer tracks those resources. The
+separate `s3-backup-user` and its inactive key must remain until AWS confirms
+final KMS deletion and a separately approved owner cutover removes them. See the
+[owner cutover plan](aws-recovery-retirement.md) for the reviewed gates and
+remaining ordering; it is not authorization to replay the migration. This
+retirement is separate from the completed Proxmox firewall adoption.
+
+The reviewed cutover required these gates:
 
 1. Reobserve the current Restic chain and AWS recovery resources. Privately inspect
    **all** bucket versions, delete markers, multipart uploads, retention controls,
