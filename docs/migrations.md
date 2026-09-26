@@ -75,7 +75,7 @@ firewall adoption is complete.
    state-tracking changes with the independent owner; retain the active state
    bucket, its KMS key, and the firewall state-key grants. Require fresh provider
    observations and a no-op `aws-foundation` plan before firewall adoption, even
-   if retirement is temporarily deferred. The staged firewall root must not treat
+   if retirement is temporarily deferred. The firewall root must not treat
    legacy recovery values as an approved new backup design or bypass its
    foundation no-op prerequisite.
 
