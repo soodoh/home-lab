@@ -65,7 +65,7 @@ VM_BOOT_LIFECYCLE_FIELDS = {
     "tpm_state",
     "vga",
 }
-STORAGE_RESOURCE_MARKERS = ("zfs", "filesystem", "disk", "mount", "storage")
+STORAGE_RESOURCE_MARKERS = ("zfs", "filesystem", "disk", "mount", "storage", "s3_bucket")
 NETWORK_RESOURCE_MARKERS = ("firewall", "network", "acl", "ruleset", "federated_identity")
 VM_ADDRESS = "proxmox_virtual_environment_vm.debian"
 VM_RESOURCE_TYPE = "proxmox_virtual_environment_vm"

@@ -21,6 +21,9 @@ python3 "$policy" "$fixtures/candidate-disk-attach.json"
 expect_rejection tailscale-acl-update normal
 python3 "$policy" "$fixtures/tailscale-acl-update.json" \
   --allow-change-file "$root/allow/tailscale.txt"
+expect_rejection aws-s3-lifecycle-update normal
+python3 "$policy" "$fixtures/aws-s3-lifecycle-update.json" \
+  --allow-change-file "$root/allow/aws-foundation.txt"
 expect_rejection import normal
 import_allow=$(mktemp)
 trap 'rm -f "$import_allow"' EXIT

@@ -394,6 +394,35 @@ A reboot requires its playbook's explicit inputs and a current package/host
 observation. Networking, firewall, storage and boot changes also require an
 independent access path.
 
+### AWS foundation owner-only state reconciliation
+
+An externally updated IAM policy can match Git and still appear as `resource_drift`
+in an `aws-foundation` plan. The normal plan inspector correctly **refuses** this;
+never add an IAM allowlist or describe that plan as admitted. This is a separate,
+one-time owner intervention, not an ordinary controller apply:
+
+1. Require a clean reviewed checkout, fresh provider observations and protected
+   foundation inputs cross-checked against both remote state and live AWS. Confirm
+   that the independent owner retains the remote S3 state-object version as a
+   private before-image. Keep the version identity and any saved plan outside Git
+   and logs; check for concurrent state changes before applying.
+2. With only the controller **plan** identity, save a `tofu plan -refresh-only` in a
+   private current-run directory. Inspect its JSON privately. It must be complete
+   and state-only, with exactly the externally owner-approved IAM policy-document
+   refreshes and any separately explained provider-computed bucket fields. For
+   `aws_s3_bucket.state.lifecycle_rule`, compare against the separately owned
+   lifecycle resource and live S3 rules. No import, tracking move, unknown identity
+   result, unrelated drift or cloud-resource mutation is acceptable. Have the
+   independent owner explicitly approve those exact before/after state changes;
+   an inspector refusal is not an approval.
+3. Only after that review, use the controller **apply** identity to apply the
+   **same saved refresh-only plan** while the S3 backend holds its lock. The
+   controller apply identity still has no IAM writer privilege. Verify a new state
+   version, reobserve live IAM/bucket identities and require a fresh ordinary plan
+   with **no identity drift**. A proposed S3 lifecycle change is a separate normal
+   reviewed plan/apply, never smuggled into the state-only intervention. Stop on
+   any failed predicate and preserve the before-image for independent recovery.
+
 ### Staged Proxmox cluster firewall ownership
 
 `infrastructure/tofu/proxmox-firewall/` isolates cluster options and complete ordered
@@ -405,18 +434,23 @@ OpenTofu ignores only that non-round-tripping attribute while the observer check
 that it is absent (the native default) or explicitly `ACCEPT`. Never treat that
 exception as permission to stop observing the forward policy.
 
-The AWS foundation manifest declares a new state key, but its plan/apply roles do
-not have access yet. The plan inspector unconditionally forbids managed IAM policy
-mutation, and the controller apply role lacks IAM write privileges. An independent
-AWS owner must review and update the exact plan/apply state-key permissions, then
-inspect any IAM drift and reconcile ownership through a separate owner-reviewed
-state procedure before requiring a no-op `aws-foundation` plan. The identity gate
-may refuse an ordinary plan when it sees externally changed IAM policy. Do not
-bypass that refusal, initialize the firewall root against local state or reuse the
-VM root's state key. The preexisting
-`proxmox` root independently proposes provider updates to two USB mappings and the
-VM even with firewall ownership disabled; do not target around or apply those
-changes as part of firewall adoption.
+The AWS foundation manifest declares a new state key. Verify live that the plan
+and apply policies **and** their owner-controlled boundaries authorize only the
+reviewed key and lock actions. The plan inspector unconditionally forbids managed
+IAM policy mutation, and the controller apply role lacks IAM write privileges. An
+independent AWS owner must review any IAM changes and reconcile identity drift
+through a separate owner-reviewed state procedure before requiring a no-op
+`aws-foundation` plan. The identity gate may refuse an ordinary plan when it sees
+externally changed IAM policy. Do not bypass that refusal, initialize the firewall
+root against local state or reuse the VM root's state key. The separate
+[legacy AWS recovery-stack retirement](migrations.md#legacy-aws-recovery-stack-retirement)
+may remain pending only with explicit owner approval to **retain unchanged** legacy
+AWS ownership while firewall adoption proceeds. Compare protected inputs to the
+tracked resources and live provider privately; retention is not approval of a new
+S3 Restic writer, changed grants, or deletion. The preexisting `proxmox` root
+independently proposes provider updates to two USB mappings and the VM even with
+firewall ownership disabled; do not target around or apply those changes as part
+of firewall adoption.
 
 No firewall import or mutation is authorized by this checkout. Do not set
 `TF_VAR_proxmox_firewall_enable_management=true` for an apply or change its default

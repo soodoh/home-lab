@@ -1,0 +1,1 @@
+{"format_version":"1.2","complete":true,"errored":false,"resource_changes":[{"address":"aws_s3_bucket_lifecycle_configuration.state","mode":"managed","type":"aws_s3_bucket_lifecycle_configuration","change":{"actions":["update"],"before":{"rule":[{"id":"existing-lock-cleanup"}]},"after":{"rule":[{"id":"existing-lock-cleanup"},{"id":"new-lock-cleanup"}]},"after_unknown":{}}}]}
