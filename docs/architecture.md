@@ -73,9 +73,9 @@ credentials and encrypted bundles live outside Git.
   provider/state migration. Native Proxmox services persist the firewall policy; the
   observer reads the API and requires the reviewed policy, exact rule order, default
   forward policy and both backends to match. A separate `proxmox-firewall` OpenTofu
-  root stages ownership without inheriting the VM/hardware root's provider-planned
-  updates. It remains disabled until the new remote state key is authorized and the
-  pinned provider imports both cluster resources with a no-op plan. The provider
+  root owns the adopted cluster policy without inheriting the VM/hardware root's
+  provider-planned updates. Both resources were imported with a remote-backed no-op
+  plan; subsequent changes require separately reviewed firewall plans. The provider
   does not round-trip PVE's omitted default forward policy, so only that attribute
   is ignored by OpenTofu and independently enforced by the host observer. Ansible
   is never a second firewall writer.

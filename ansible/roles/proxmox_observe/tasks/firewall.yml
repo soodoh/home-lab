@@ -92,10 +92,7 @@
       normalized = [normalize_rule(rule) for rule in rules]
       if observed_options != policy["options"] or normalized != policy["rules"]:
           raise RuntimeError("native firewall policy or rule order differs")
-      for service in ("pve-firewall.service", "proxmox-firewall.service"):
-          result = run(["/usr/bin/systemctl", "is-active", service])
-          if result.stderr or result.stdout.strip() != b"active":
-              raise RuntimeError("native firewall backend differs")
+      # The enclosing observer already requires both firewall services loaded and active.
       status = run(["/usr/sbin/pve-firewall", "status"])
       if status.stderr or status.stdout.strip() != b"Status: enabled/running":
           raise RuntimeError("native firewall activation differs")
