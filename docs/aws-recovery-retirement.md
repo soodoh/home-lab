@@ -82,10 +82,26 @@ inventory or a saved plan from this design session is not evidence.
    externally retired managed-resource addresses from remote OpenTofu state using
    the controller state writer and its backend lock. This is a deliberate owner
    handoff of the pending key, not a silent `state rm` shortcut: retain the
-   encrypted before-image and a private pending-deletion owner record. Remove
-   only the two obsolete `data.aws_iam_policy_document.recovery*` state entries
-   if they remain; review the two recovery output removals separately. Then
-   inspect a fresh saved
+   encrypted before-image and a private pending-deletion owner record. Verify
+   each address individually against live AWS before the state write:
+
+   ```text
+   aws_iam_user.recovery
+   aws_iam_user_policy.recovery
+   aws_kms_alias.recovery
+   aws_kms_key.recovery
+   aws_s3_bucket.recovery
+   aws_s3_bucket_lifecycle_configuration.recovery
+   aws_s3_bucket_ownership_controls.recovery
+   aws_s3_bucket_policy.recovery
+   aws_s3_bucket_public_access_block.recovery
+   aws_s3_bucket_server_side_encryption_configuration.recovery
+   aws_s3_bucket_versioning.recovery
+   ```
+
+   Remove only the two obsolete `data.aws_iam_policy_document.recovery*`
+   state entries if they remain; review the two recovery output removals
+   separately. Then inspect a fresh saved
    `-refresh-only` plan: it may record only the two owner-approved controller
    policy documents and reviewed output removals, with no cloud action or other
    identity drift. Apply that **same** state-only plan only after owner approval.
