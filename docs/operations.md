@@ -102,7 +102,7 @@ to match an unexplained observation.
 ## 3. Plan provider changes
 
 Roots are `authentik`, `aws-foundation`, `omada`, `proxmox`, `proxmox-firewall`
-(staged, disabled pending backend authorization and adoption), and `tailscale`
+(staged; do not apply without a reviewed import-only plan and separate approval), and `tailscale`
 under `infrastructure/tofu/`. Each declares an S3 backend.
 
 For the selected root, run fresh host observation first. In particular,
@@ -428,9 +428,12 @@ one-time owner intervention, not an ordinary controller apply:
 `infrastructure/tofu/proxmox-firewall/` isolates cluster options and complete ordered
 rules from VM/hardware provider-planned updates. The root reads the same
 `infrastructure/policy/proxmox-firewall.json` that the independent host observer
-checks **in order**. Management defaults **off**. The live default forward policy
-is omitted by PVE's API but supplied as `ACCEPT` by the pinned provider on import;
-OpenTofu ignores only that non-round-tripping attribute while the observer checks
+checks **in order**. The variable defaults **off**; the committed auto tfvars
+stages management enablement after a production-backed no-op import preview, but
+does **not** authorize an apply. The live default forward policy
+is omitted by PVE's API; without the narrow ignore rule the pinned provider
+would propose `ACCEPT` on import. OpenTofu ignores only that non-round-tripping
+attribute while the observer checks
 that it is absent (the native default) or explicitly `ACCEPT`. Never treat that
 exception as permission to stop observing the forward policy.
 
@@ -448,13 +451,13 @@ may remain pending only with explicit owner approval to **retain unchanged** leg
 AWS ownership while firewall adoption proceeds. Compare protected inputs to the
 tracked resources and live provider privately; retention is not approval of a new
 S3 Restic writer, changed grants, or deletion. The preexisting `proxmox` root
-independently proposes provider updates to two USB mappings and the VM even with
-firewall ownership disabled; do not target around or apply those changes as part
+independently proposes provider updates to two USB mappings and the VM even though
+firewall ownership is isolated here; do not target around or apply those changes as part
 of firewall adoption.
 
-No firewall import or mutation is authorized by this checkout. Do not set
-`TF_VAR_proxmox_firewall_enable_management=true` for an apply or change its default
-until a separate reviewed adoption confirms all of the following:
+No firewall import **apply** or mutation is authorized merely by this checkout.
+The auto tfvars stages the reviewed adoption input; a separate approval for the
+fresh saved plan is required after confirming all of the following:
 
 1. Fresh native host and provider observations show the **exact order** of the
    reviewed rules, the reviewed options, both active backends and no retained
@@ -477,8 +480,8 @@ until a separate reviewed adoption confirms all of the following:
    reorder, unexpected attribute change or access refusal stops adoption. The
    reviewed [`import:`-only allowlist](../infrastructure/policy/allow/proxmox-firewall.txt)
    permits only those two no-op imports, never later firewall mutations.
-4. After that proof, commit management enablement separately from the import-only
-   allowlist. Apply only the inspected saved plan from the same session
+4. Stage management enablement in a separate reviewed commit after that proof.
+   Apply only the inspected saved plan from the same session
    with console recovery ready, then reobserve both backends and require a fresh
    no-op plan. Subsequent firewall changes need their own reviewed allowlist and
    independent console/rollback preparation. Ansible must never also write the

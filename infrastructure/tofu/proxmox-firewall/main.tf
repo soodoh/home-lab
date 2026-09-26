@@ -1,5 +1,5 @@
 # Cluster firewall ownership is separate from VM and hardware mapping state.
-# Adoption stays disabled until backend IAM and a no-op import are verified.
+# An import apply still requires a separately approved remote-backed no-op plan.
 locals {
   policy = jsondecode(file("${path.module}/../../policy/proxmox-firewall.json"))
 }
