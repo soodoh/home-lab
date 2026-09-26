@@ -50,8 +50,13 @@ inventory or a saved plan from this design session is not evidence.
    state policies and both external permissions boundaries. Remove only recovery
    bucket/KMS grants. Keep the previous defaults available, preserve exact state
    object and lock permissions for all six active roots, and privately simulate
-   plan/apply access before and after each default-version switch. IAM changes
-   belong to the independent owner, not an ordinary controller apply.
+   plan/apply access before and after each default-version switch. Check the
+   exact state/lock Get/Put/Delete matrix, state-key KMS crypto, and denial of
+   legacy S3 object/list and recovery-key cryptographic access. The apply
+   boundary's generic read-only KMS inventory permission can still allow
+   `DescribeKey` on the pending recovery key; do not broaden this cutover to
+   remove unrelated inventory access. IAM changes belong to the independent
+   owner, not an ordinary controller apply.
 
 ## Bounded owner cutover (separate approvals for each destructive phase)
 
