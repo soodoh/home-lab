@@ -2,19 +2,9 @@ output "state_bucket" {
   value = aws_s3_bucket.state.id
 }
 
-output "recovery_bucket" {
-  value = aws_s3_bucket.recovery.id
-}
-
 output "kms_key_arn" {
   value = aws_kms_key.opentofu.arn
 }
-
-
-output "recovery_kms_key_arn" {
-  value = aws_kms_key.recovery.arn
-}
-
 
 output "controller_plan_role_arn" {
   value = aws_iam_role.controller_plan.arn

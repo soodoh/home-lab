@@ -1,8 +1,9 @@
 # Legacy AWS recovery retirement: owner cutover
 
-This is a **plan, not authorization to apply it**. Git still owns the legacy
-recovery resources until a separate, reviewed source cutover. The normal
-OpenTofu plan inspector forbids deletions and managed IAM mutations; the
+This is a **plan, not authorization to apply it**. The reviewed source cutover
+removes legacy desired resources, but remote state and live AWS retain them
+until the independent owner finishes the migration. The normal OpenTofu plan
+inspector forbids deletions and managed IAM mutations; the
 controller apply role cannot write IAM. Do not target around either refusal,
 remove `prevent_destroy` to force an apply, or silently abandon a live resource
 in state. Use an independent AWS owner and private, versioned remote-state

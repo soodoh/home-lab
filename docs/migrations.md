@@ -27,13 +27,14 @@ maintenance replication state were removed after verification.
 ## Legacy AWS recovery-stack retirement
 
 Desired state: recurring managed Restic backups remain local → NFS → Proton. The
-AWS recovery bucket is not a Restic destination. The `aws-foundation` root still
-owns a separate versioned bucket, recovery KMS key and alias, and IAM recovery
-principal. Treat these as retained recovery material, not disposable drift, until
-an independent owner completes the gates below. Use the separate
+AWS recovery bucket is not a Restic destination. Remote `aws-foundation` state
+still tracks the versioned bucket, recovery KMS key and alias, and managed IAM
+recovery principal even after the source cutover. Treat these as retained
+recovery material, not disposable drift, until an independent owner completes
+the gates below. Use the separate
 [owner cutover plan](aws-recovery-retirement.md) for the exact ordering and
-state-tracking boundary; it is not authorization to perform the cutover. This retirement is separate from
-Proxmox firewall adoption. An owner may explicitly retain the **unchanged** legacy
+state-tracking boundary; it is not authorization to perform the cutover. This
+retirement is separate from Proxmox firewall adoption. An owner may explicitly retain the **unchanged** legacy
 AWS resources during firewall adoption: privately verify the temporary foundation
 inputs against tracked state and live provider, reconcile only reviewed identity
 tracking, and require a no-op foundation plan. This is not renewed approval for an
@@ -64,10 +65,11 @@ firewall adoption is complete.
    ordering: freeze and verify writes to the recovery bucket without revoking an
    external principal used elsewhere, resolve recovery-only access, dispose of
    every approved bucket version only after custody is verified, and retire KMS
-   **last** so retained copies remain decryptable. Both bucket and key have
-   `prevent_destroy`; do not remove those safeguards to force an OpenTofu apply.
-   The controller plan gate forbids IAM identity mutation or drift. Use a bounded
-   independent-owner procedure and separately reviewed state reconciliation;
+   **last** so retained copies remain decryptable. The former bucket and key
+   declarations had `prevent_destroy`; their source removal is **not** permission
+   to apply a delete plan. The controller gate forbids deletes and IAM identity
+   mutation or drift. Use a bounded independent-owner procedure and separately
+   reviewed state reconciliation;
    if its attached policy is broad, replace it only through a separate reviewed
    access migration that preserves other consumers; remove obsolete recovery-only
    grants after attribution. Guard against stale clients writing to a reused

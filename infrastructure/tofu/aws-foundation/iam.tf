@@ -126,7 +126,7 @@ data "aws_iam_policy_document" "state_plan" {
   }
   statement {
     actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
-    resources = [aws_kms_key.opentofu.arn, aws_kms_key.recovery.arn]
+    resources = [aws_kms_key.opentofu.arn]
   }
 
   statement {
@@ -150,7 +150,7 @@ data "aws_iam_policy_document" "state_plan" {
       "s3:ListBucket",
       "s3:ListBucketVersions",
     ]
-    resources = [aws_s3_bucket.state.arn, aws_s3_bucket.recovery.arn]
+    resources = [aws_s3_bucket.state.arn]
   }
   statement {
     actions = [
@@ -159,7 +159,7 @@ data "aws_iam_policy_document" "state_plan" {
       "kms:GetKeyRotationStatus",
       "kms:ListResourceTags",
     ]
-    resources = [aws_kms_key.opentofu.arn, aws_kms_key.recovery.arn]
+    resources = [aws_kms_key.opentofu.arn]
   }
   statement {
     actions   = ["kms:ListAliases"]
@@ -226,7 +226,7 @@ data "aws_iam_policy_document" "state_apply" {
       "s3:PutEncryptionConfiguration",
       "s3:PutLifecycleConfiguration",
     ]
-    resources = [aws_s3_bucket.state.arn, aws_s3_bucket.recovery.arn]
+    resources = [aws_s3_bucket.state.arn]
   }
   statement {
     actions   = ["s3:CreateBucket"]
@@ -277,40 +277,4 @@ resource "aws_iam_role_policy_attachment" "controller_plan" {
 resource "aws_iam_role_policy_attachment" "controller_apply" {
   role       = aws_iam_role.controller_apply.name
   policy_arn = aws_iam_policy.state_apply.arn
-}
-
-resource "aws_iam_user" "recovery" {
-  name = "home-lab-recovery"
-
-  lifecycle {
-    prevent_destroy = true
-  }
-}
-
-data "aws_iam_policy_document" "recovery" {
-  statement {
-    actions   = ["s3:ListBucket", "s3:ListBucketVersions"]
-    resources = [aws_s3_bucket.recovery.arn, aws_s3_bucket.state.arn]
-  }
-  statement {
-    actions = [
-      "s3:GetObject",
-      "s3:GetObjectVersion",
-      "s3:PutObject",
-    ]
-    resources = [
-      "${aws_s3_bucket.recovery.arn}/*",
-      "${aws_s3_bucket.state.arn}/*",
-    ]
-  }
-  statement {
-    actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
-    resources = [aws_kms_key.opentofu.arn, aws_kms_key.recovery.arn]
-  }
-}
-
-resource "aws_iam_user_policy" "recovery" {
-  name   = "home-lab-recovery"
-  user   = aws_iam_user.recovery.name
-  policy = data.aws_iam_policy_document.recovery.json
 }
