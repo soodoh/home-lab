@@ -413,7 +413,8 @@ def main() -> int:
             return 1
         print("plan policy passed: mode=vm-start-prerequisite actions=1")
         return 0
-    allow = set()
+    allow: set[str] = set()
+    import_only: set[str] = set()
     mapping_resources: dict[str, list[dict[str, Any]]] = {}
     for resource in plan.get("resource_changes", []):
         if resource.get("type") not in {"proxmox_hardware_mapping_pci", "proxmox_hardware_mapping_usb"}:
@@ -425,11 +426,13 @@ def main() -> int:
         if all(isinstance(entry, dict) for entry in entries):
             mapping_resources[after["name"]] = entries
     if args.allow_change_file:
-        allow = {
+        entries = {
             line.strip()
             for line in args.allow_change_file.read_text().splitlines()
             if line.strip() and not line.startswith("#")
         }
+        allow = {entry for entry in entries if not entry.startswith("import:")}
+        import_only = {entry.removeprefix("import:") for entry in entries if entry.startswith("import:")}
 
     failures: list[str] = []
     observed_actions = 0
@@ -442,7 +445,7 @@ def main() -> int:
 
         if importing:
             observed_actions += 1
-            if address not in allow:
+            if address not in allow and address not in import_only:
                 failures.append(f"{address}: import is not explicitly allowlisted")
             elif actions != ["no-op"]:
                 failures.append(f"{address}: allowlisted import must be read-only")

@@ -31,6 +31,14 @@ printf 'example.imported\n' >"$import_allow"
 python3 "$policy" "$fixtures/import.json" --allow-change-file "$import_allow"
 rm -f "$import_allow"
 trap - EXIT
+expect_rejection proxmox-firewall-import normal
+python3 "$policy" "$fixtures/proxmox-firewall-import.json" \
+  --allow-change-file "$root/allow/proxmox-firewall.txt"
+if python3 "$policy" "$fixtures/proxmox-firewall-update.json" \
+  --allow-change-file "$root/allow/proxmox-firewall.txt" >/dev/null 2>&1; then
+  echo 'import-only firewall allowlist must not permit later mutation' >&2
+  exit 1
+fi
 for fixture in noop protection-enable custom-rom-removal hardware-mapping-transition delete replace protection-disable ct-create ct-recreate root-disk-size-change network-device-change hardware-mapping-partial; do
   expect_rejection "$fixture" vm-start-prerequisite
 done

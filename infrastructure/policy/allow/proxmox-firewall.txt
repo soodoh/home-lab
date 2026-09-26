@@ -1,0 +1,3 @@
+# Adoption only: permit these two no-op imports, not subsequent firewall mutations.
+import:proxmox_virtual_environment_cluster_firewall.policy[0]
+import:proxmox_virtual_environment_firewall_rules.cluster[0]

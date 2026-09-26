@@ -474,10 +474,11 @@ until a separate reviewed adoption confirms all of the following:
    Preview the two declarative imports against the new remote backend. Both the
    options and **all six ordered
    rules** must import with `no-op` actions and no other mutations. Any replacement,
-   reorder, unexpected attribute change or access refusal stops adoption. Add and
-   review an import-only allowlist for those two addresses before policy inspection.
-4. After that proof, commit management enablement and the narrowly reviewed
-   allowlist separately. Apply only the inspected saved plan from the same session
+   reorder, unexpected attribute change or access refusal stops adoption. The
+   reviewed [`import:`-only allowlist](../infrastructure/policy/allow/proxmox-firewall.txt)
+   permits only those two no-op imports, never later firewall mutations.
+4. After that proof, commit management enablement separately from the import-only
+   allowlist. Apply only the inspected saved plan from the same session
    with console recovery ready, then reobserve both backends and require a fresh
    no-op plan. Subsequent firewall changes need their own reviewed allowlist and
    independent console/rollback preparation. Ansible must never also write the
