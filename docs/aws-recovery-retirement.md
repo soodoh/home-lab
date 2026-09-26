@@ -105,9 +105,15 @@ inventory or a saved plan from this design session is not evidence.
    aws_s3_bucket_versioning.recovery
    ```
 
-   Remove only the two obsolete `data.aws_iam_policy_document.recovery*`
-   state entries if they remain; review the two recovery output removals
-   separately. Then inspect a fresh saved
+   Remove only these three obsolete data-source state entries if they remain:
+
+   ```text
+   data.aws_iam_policy_document.recovery
+   data.aws_iam_policy_document.recovery_kms
+   data.aws_iam_policy_document.tls_only_recovery
+   ```
+
+   Review the two recovery output removals separately. Then inspect a fresh saved
    `-refresh-only` plan: it may record only the two owner-approved controller
    policy documents and reviewed output removals, with no cloud action or other
    identity drift. Apply that **same** state-only plan only after owner approval.
