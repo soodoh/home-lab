@@ -98,11 +98,14 @@ The operator reports off-tailnet access blocked; actual CI access is explicitly
 deferred, not proven. The approved `b6e04a49` host site convergence narrowed
 the live GOST matcher to `*.ts.diloreto.com:443` and retained all 42 Compose
 services. Strict TLS, explicit private routers, Serve and the running config
-checksum passed after apply. Dotfiles commit `e9c745f` is **not deployed** on
-the work Mac; authenticated relay access and denied targets remain unverified.
-The new Compose artifact needs a complete observed backup chain before further
-ordinary host changes. Work-Mac migration and Serve retirement require separate
-review; no past AWS, TLS, backup or grant approval authorizes them.
+checksum passed after apply. The operator reports that dotfiles commit
+`e9c745f` on the actual work Mac passed strict-TLS LLM access, a real API-key
+request, Omada login and Tailscale coordination. System PAC remains off;
+browser access and the remote server's denied-target boundary are unverified.
+A post-apply backup observation refused with `complete_chain_missing`; the
+changed Compose artifact needs a complete observed chain before further ordinary
+host changes. Serve retirement still requires actual CI and WAN/LAN negative
+checks and a separate approval.
 
 The owner chose to redesign the IAM gate rather than manually provision the
 ACME identity. Treat this as an independently reviewed security migration:
@@ -173,15 +176,14 @@ stop and reconsider independent owner provisioning rather than bypass the gate.
    runner exists; never infer them from policy tests.
 4. The Omada provider URL and protected export helper have moved, with an
    authenticated export and no-op plan. The separately approved host GOST
-   matcher change is deployed. Test LLM and Omada CONNECT with strict TLS,
-   application authentication and refusal of MagicDNS/other public hosts,
-   the private-zone apex and alternate ports using a client without local
-   bypasses, then separately approve and roll out the work-Mac first-hop,
-   base URL and PAC changes.
-   Verify a real authenticated work-Mac request before treating the old LLM
-   endpoint as unused. The work-Mac dotfiles are a separate authority; keep
-   Tailscale coordination available. Update security, operations,
-   deployment-access and architecture docs.
+   matcher and work-Mac first-hop/base-URL changes have been rolled out; the
+   operator reports real authenticated work-Mac access and Tailscale control
+   working. PAC remains off. An isolated authenticated client **without local
+   bypasses** must still verify remote LLM/Omada CONNECT and refusal of
+   MagicDNS/other public hosts, the private-zone apex, IP literals and alternate
+   ports. Work-Mac positivity does not establish these server negatives or make
+   old LLM endpoints unused for CI. The dotfiles are a separate authority;
+   retain Tailscale coordination and Serve.
 5. Only after the actual CI runner, application clients, work Mac and denied
    WAN/LAN paths are verified, separately approve Serve retirement. Remove the
    Serve role/play and reset **only its observed owned node-level config**,

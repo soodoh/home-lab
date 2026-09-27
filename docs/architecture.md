@@ -95,9 +95,9 @@ credentials and encrypted bundles live outside Git.
   and the deployed GOST service permits `tailscale.com` on TCP 80/443 plus
   `*.ts.diloreto.com:443`, not the old any-port MagicDNS matcher. The boundary
   includes both current private routes, including Omada; future services need
-  explicit private routers and their own authorization. The work-Mac client
-  change is committed but not deployed or verified. Tailscale evaluates relay
-  egress as the Docker-host node, not the work Mac.
+  explicit private routers and their own authorization. The operator reports
+  work-Mac first-hop access working; its system PAC remains off. Tailscale
+  evaluates relay egress as the Docker-host node, not the work Mac.
   GOST alone uses the host-observed MagicDNS and public resolvers because Docker's
   default DNS cannot resolve tailnet peers. Other Internet destinations remain
   denied by the remote relay; the work-Mac client dials nonmatches locally.

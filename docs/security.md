@@ -70,10 +70,10 @@ Omada uses its own login; future routes need separately configured application
 authorization, including Authentik where intended. The relay handshake does not
 authenticate a backend. Tailscale evaluates relay egress as the Docker-host
 node, not the work Mac. GOST cannot filter paths inside HTTPS tunnels. The
-work-Mac first-hop and PAC changes are committed but **not deployed or
-verified**; remote authenticated whitelist refusal remains untested. Treat
-loss of the proxy credential as loss of this network boundary and revoke it as
-described below.
+operator reports work-Mac first-hop LLM/Omada application access and Tailscale
+coordination working, but its system PAC is **off** and remote authenticated
+whitelist refusal remains untested. Treat loss of the proxy credential as loss
+of this network boundary and revoke it as described below.
 
 ## SSH and privilege
 
