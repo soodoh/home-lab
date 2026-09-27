@@ -133,6 +133,24 @@ class AcmeApprovalTests(unittest.TestCase):
         for change in ({"complete": False}, {"errored": True}):
             self.assertNotEqual(self.inspect(plan=dict(self.plan, **change), approval=approval).returncode, 0)
 
+        # OpenTofu 1.12's documented plan JSON omits `complete`: a successful,
+        # non-deferred 1.x plan is complete unless it explicitly says otherwise.
+        native = deepcopy(self.plan)
+        del native["complete"]
+        native["format_version"] = "1.2"
+        native["terraform_version"] = "1.12.6"
+        accepted = self.inspect(plan=native, approval=approval)
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        for change in ({"complete": False}, {"errored": True},
+                       {"deferred_changes": [{"resource_change": deepcopy(RESOURCES[0])}]},
+                       {"format_version": "2.0"}, {"format_version": None},
+                       {"terraform_version": "1.12.7"}, {"terraform_version": None}):
+            with self.subTest(change=change):
+                self.assertNotEqual(self.inspect(plan=dict(native, **change), approval=approval).returncode, 0)
+        missing_version = deepcopy(native)
+        del missing_version["format_version"]
+        self.assertNotEqual(self.inspect(plan=missing_version, approval=approval).returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

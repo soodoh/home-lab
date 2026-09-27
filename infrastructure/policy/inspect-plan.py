@@ -333,6 +333,15 @@ def known_identity_result(value: Any) -> bool:
     return False
 
 
+def complete_for_identity_approval(plan: dict[str, Any]) -> bool:
+    if "complete" in plan:
+        return plan["complete"] is True
+    # OpenTofu 1.12.6's saved-plan JSON has no `complete` field. This exact
+    # observed format is complete when planning succeeded and no deferrals
+    # exist; reject unknown producer/format versions until reviewed.
+    return plan.get("format_version") == "1.2" and plan.get("terraform_version") == "1.12.6"
+
+
 def approved_identity_mutations(
     args: argparse.Namespace, plan: dict[str, Any]
 ) -> set[tuple[str, str, tuple[str, ...]]]:
@@ -349,7 +358,7 @@ def approved_identity_mutations(
     if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
         raise ValueError("identity approval must be a mode-0600 regular file")
     approval = json.loads(path.read_text(), object_pairs_hook=reject_duplicate_keys)
-    if plan.get("complete") is not True or plan.get("errored") is not False or plan.get("deferred_changes"):
+    if not complete_for_identity_approval(plan) or plan.get("errored") is not False or plan.get("deferred_changes"):
         raise ValueError("identity approval requires a complete, error-free, non-deferred plan")
     if not isinstance(approval, dict) or set(approval) != {"root", "saved_plan_sha256", "identity_mutations"} or (
         approval["root"] != args.plan_root or approval["saved_plan_sha256"] != args.saved_plan_sha256

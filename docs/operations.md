@@ -183,7 +183,11 @@ to the exact saved-plan SHA-256 and listing every changed IAM identity resource
 by address, type and actions. This is not an allowlist or a general IAM
 bootstrap mechanism. Managed OIDC providers, access keys, imports, tracking
 moves, drift, deferred or incomplete plans, deletion/replacement and unrelated
-IAM identities remain forbidden.
+IAM identities remain forbidden. [OpenTofu 1.12's plan JSON](https://opentofu.org/docs/v1.12/internals/json-format/#plan-representation)
+omits a `complete` field; the pinned 1.12.6 binary does so as well. For identity approval the inspector recognizes only that
+exact producer version and JSON format 1.2 when the field is absent, planning
+succeeded, and no deferrals exist. An explicit incomplete result or another
+producer/format version still requires a separate gate review.
 
 Do **not** use this proposed exception until the independent AWS owner has
 reviewed the [migration](ts-ingress-migration.md), the IAM policy changes and
