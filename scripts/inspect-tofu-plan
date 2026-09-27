@@ -35,5 +35,9 @@ print(checksum.hexdigest())
 PY
 )
 printf 'saved_plan_sha256=%s\n' "$plan_sha256"
+plan_root=unknown
+if [[ -n $tofu_chdir ]] && [[ $(cd "$tofu_chdir" && pwd -P) == "$repo_root/infrastructure/tofu/aws-foundation" ]]; then
+  plan_root=aws-foundation
+fi
 python3 "$repo_root/infrastructure/policy/inspect-plan.py" "$json" "$@" \
-  --saved-plan-sha256="$plan_sha256"
+  --saved-plan-sha256="$plan_sha256" --plan-root="$plan_root"

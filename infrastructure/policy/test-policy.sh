@@ -48,5 +48,6 @@ done
 python3 "$root/test-deletion-approval.py"
 python3 "$root/test-oidc-ownership.py"
 python3 "$root/test-controller-identity-gate.py"
+python3 "$root/test-acme-identity-approval.py"
 
 echo "plan policy fixtures passed"

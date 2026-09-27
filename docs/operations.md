@@ -173,6 +173,54 @@ copy it into `desired.json` to make a plan pass. Do not print
 inspected in the same session. After apply, run a new plan; zero proposed changes is
 the completion criterion.
 
+### Proposed ACME IAM identity exception (owner review required)
+
+The plan inspector's default still refuses **all** managed IAM/Roles Anywhere
+mutations. A narrow exception exists only for the reviewed `aws-foundation`
+ACME DNS-01 user, policy, user-policy attachment and controller plan/apply
+policy updates. It requires a current-run mode-0600 file **outside Git**, bound
+to the exact saved-plan SHA-256 and listing every changed IAM identity resource
+by address, type and actions. This is not an allowlist or a general IAM
+bootstrap mechanism. Managed OIDC providers, access keys, imports, tracking
+moves, drift, deferred or incomplete plans, deletion/replacement and unrelated
+IAM identities remain forbidden.
+
+Do **not** use this proposed exception until the independent AWS owner has
+reviewed the [migration](ts-ingress-migration.md), the IAM policy changes and
+the external plan/apply permissions boundaries. In particular, the apply role
+currently cannot update its own IAM policy: it cannot self-bootstrap the new
+permissions. The owner must independently establish the required access and
+reconcile any state drift through a separate reviewed procedure; a normal plan
+cannot be used to disguise that drift. Do not target around this refusal.
+No ACME identity is declared in source yet and no approval is currently valid.
+
+For the later owner-reviewed saved plan only, create a private approval file
+with this exact structure; include only the actual changed subset of the named
+resources, not a blanket list:
+
+```json
+{
+  "root": "aws-foundation",
+  "saved_plan_sha256": "<digest printed by inspect-tofu-plan>",
+  "identity_mutations": [
+    { "address": "aws_iam_user.tail_ingress_acme", "type": "aws_iam_user", "actions": ["create"] },
+    { "address": "aws_iam_policy.tail_ingress_acme", "type": "aws_iam_policy", "actions": ["create"] },
+    { "address": "aws_iam_user_policy_attachment.tail_ingress_acme", "type": "aws_iam_user_policy_attachment", "actions": ["create"] },
+    { "address": "aws_iam_policy.state_plan", "type": "aws_iam_policy", "actions": ["update"] },
+    { "address": "aws_iam_policy.state_apply", "type": "aws_iam_policy", "actions": ["update"] }
+  ]
+}
+```
+
+The file grants approval only after the owner privately verifies the *entire*
+plan, exact IAM policy JSON, scoped TXT-record permissions, external boundary,
+identity and unrelated changes. Run the normal inspector first, then rerun on
+**the same saved plan** with `--approve-identity-file="$work/identity-approval.json"`.
+A passing inspector does not itself authorize apply. Any new plan needs a new
+approval. Do not generate an IAM access key through OpenTofu: its secret would
+enter state. Keep this approval out of Git and remove it with the private
+session.
+
 ### Approved destructive plans
 
 OpenTofu `prevent_destroy` was removed from all roots: it cannot stop a destroy

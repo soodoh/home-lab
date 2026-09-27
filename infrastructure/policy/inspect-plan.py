@@ -69,6 +69,17 @@ NETWORK_RESOURCE_MARKERS = ("firewall", "network", "acl", "ruleset", "federated_
 VM_ADDRESS = "proxmox_virtual_environment_vm.debian"
 VM_RESOURCE_TYPE = "proxmox_virtual_environment_vm"
 OIDC_RESOURCE_TYPE = "aws_iam_openid_connect_provider"
+# This is an exception for one reviewed service identity, not a general IAM allowlist.
+ACME_IDENTITY_CREATES = {
+    ("aws_iam_user.tail_ingress_acme", "aws_iam_user"),
+    ("aws_iam_policy.tail_ingress_acme", "aws_iam_policy"),
+    ("aws_iam_user_policy_attachment.tail_ingress_acme", "aws_iam_user_policy_attachment"),
+}
+ACME_IDENTITY_UPDATES = {
+    ("aws_iam_policy.state_plan", "aws_iam_policy"),
+    ("aws_iam_policy.state_apply", "aws_iam_policy"),
+}
+ACME_IDENTITY_NAME = "home-lab-ts-ingress-acme"
 
 
 def parse_args() -> argparse.Namespace:
@@ -81,7 +92,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--allow-change-file", type=Path)
     parser.add_argument("--approve-deletion-file", type=Path)
+    parser.add_argument("--approve-identity-file", type=Path)
     parser.add_argument("--saved-plan-sha256")
+    parser.add_argument("--plan-root", default="unknown")
     return parser.parse_args()
 
 
@@ -324,9 +337,84 @@ def known_identity_result(value: Any) -> bool:
     return False
 
 
+def approved_identity_mutations(
+    args: argparse.Namespace, plan: dict[str, Any]
+) -> set[tuple[str, str, tuple[str, ...]]]:
+    if args.approve_identity_file is None:
+        return set()
+    if args.mode != "normal" or args.plan_root != "aws-foundation" or not args.saved_plan_sha256 or len(args.saved_plan_sha256) != 64 or any(
+        char not in "0123456789abcdef" for char in args.saved_plan_sha256
+    ):
+        raise ValueError("identity approval requires a normal-mode saved-plan SHA-256 digest")
+    path = args.approve_identity_file
+    if path.is_symlink() or path.resolve().is_relative_to(Path(__file__).resolve().parents[2]):
+        raise ValueError("identity approval must be a private file outside the checkout")
+    metadata = path.stat()
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
+        raise ValueError("identity approval must be a mode-0600 regular file")
+    approval = json.loads(path.read_text(), object_pairs_hook=reject_duplicate_keys)
+    if plan.get("complete") is not True or plan.get("errored") is not False or plan.get("deferred_changes"):
+        raise ValueError("identity approval requires a complete, error-free, non-deferred plan")
+    if not isinstance(approval, dict) or set(approval) != {"root", "saved_plan_sha256", "identity_mutations"} or (
+        approval["root"] != args.plan_root or approval["saved_plan_sha256"] != args.saved_plan_sha256
+    ) or not isinstance(approval["identity_mutations"], list):
+        raise ValueError("identity approval must match the exact saved plan")
+    entries: set[tuple[str, str, tuple[str, ...]]] = set()
+    for item in approval["identity_mutations"]:
+        if not isinstance(item, dict) or set(item) != {"address", "type", "actions"} or (
+            not isinstance(item["address"], str) or not isinstance(item["type"], str) or
+            not isinstance(item["actions"], list)
+        ):
+            raise ValueError("identity approval contains a malformed resource/action")
+        identity = (item["address"], item["type"])
+        actions = item["actions"]
+        if not ((identity in ACME_IDENTITY_CREATES and actions == ["create"]) or
+                (identity in ACME_IDENTITY_UPDATES and actions == ["update"])):
+            raise ValueError("identity approval permits only the dedicated ACME identity and controller policy updates")
+        entry = (*identity, tuple(actions))
+        if entry in entries:
+            raise ValueError("identity approval contains duplicate resources")
+        entries.add(entry)
+    if plan.get("resource_drift"):
+        raise ValueError("identity approval cannot mask provider drift")
+    actual: set[tuple[str, str, tuple[str, ...]]] = set()
+    for item in plan.get("resource_changes", []):
+        if not isinstance(item, dict) or not isinstance(item.get("type"), str):
+            raise ValueError("identity approval requires well-formed resources")
+        if not item["type"].startswith(("aws_iam_", "aws_rolesanywhere_")) or item.get("mode") == "data":
+            continue
+        change = item.get("change")
+        if not isinstance(change, dict) or not isinstance(change.get("actions"), list) or not all(
+            isinstance(action, str) for action in change["actions"]
+        ) or not isinstance(item.get("address"), str):
+            raise ValueError("identity approval requires well-formed identity changes")
+        if change["actions"] in (["no-op"], ["read"]):
+            continue
+        entry = (item["address"], item["type"], tuple(change["actions"]))
+        if entry in actual:
+            raise ValueError("identity approval contains duplicate plan resources")
+        actual.add(entry)
+    if not actual or entries != actual:
+        raise ValueError("identity approval must enumerate every identity mutation, and no others")
+    return entries
+
+
+def known_acme_create_unknowns(resource_type: str, value: Any) -> bool:
+    allowed = {
+        "aws_iam_user": {"arn", "id", "unique_id"},
+        "aws_iam_policy": {"arn", "id", "policy_id", "attachment_count"},
+        "aws_iam_user_policy_attachment": {"id", "policy_arn"},
+    }
+    return isinstance(value, dict) and set(value) <= allowed[resource_type] and all(
+        isinstance(item, bool) for item in value.values()
+    )
+
+
 def controller_identity_failures(
-    plan: dict[str, Any], envelopes: list[tuple[str, dict[str, Any]]]
+    plan: dict[str, Any], envelopes: list[tuple[str, dict[str, Any]]],
+    approved: set[tuple[str, str, tuple[str, ...]]] | None = None,
 ) -> list[str]:
+    approved = approved or set()
     failures: list[str] = []
     # Absent flags support older complete plan documents; explicit uncertainty
     # cannot be used to hide identity work deferred by the plan producer.
@@ -359,7 +447,39 @@ def controller_identity_failures(
             elif change.get("importing") is not None:
                 failures.append(f"{label} identity import is forbidden")
             elif actions not in (["no-op"], ["read"]):
-                failures.append(f"{label} identity mutation, drift, or unknown actions are forbidden")
+                entry = (resource["address"], resource["type"], tuple(actions)) if isinstance(actions, list) and all(
+                    isinstance(action, str) for action in actions
+                ) else None
+                before, after = change.get("before"), change.get("after")
+                expected_name = ACME_IDENTITY_NAME if resource["type"] == "aws_iam_user" else ACME_IDENTITY_NAME + "-dns01"
+                valid_create = (
+                    entry is not None and entry[:2] in ACME_IDENTITY_CREATES and actions == ["create"]
+                    and before is None and isinstance(after, dict)
+                    and (after.get("name") == expected_name if resource["type"] != "aws_iam_user_policy_attachment"
+                         else after.get("user") == ACME_IDENTITY_NAME)
+                    and known_acme_create_unknowns(resource["type"], change.get("after_unknown", {}))
+                    and (resource["type"] != "aws_iam_user_policy_attachment" or (
+                        after.get("policy_arn") is None and
+                        change.get("after_unknown", {}).get("policy_arn") is True
+                    ))
+                    and (resource["type"] != "aws_iam_policy" or isinstance(after.get("policy"), str))
+                )
+                valid_update = (
+                    entry is not None and entry[:2] in ACME_IDENTITY_UPDATES and actions == ["update"]
+                    and isinstance(before, dict) and isinstance(after, dict)
+                    and before.get("name") == after.get("name") == (
+                        "home-lab-opentofu-state-plan" if resource["address"] == "aws_iam_policy.state_plan"
+                        else "home-lab-opentofu-state-apply"
+                    )
+                    and changed_keys(before, after) == {("policy",)}
+                    and isinstance(after.get("policy"), str)
+                    and known_identity_result(change.get("after_unknown", {}))
+                )
+                if location != "resource_changes" or entry not in approved or not (valid_create or valid_update) or (
+                    not known_identity_result(change.get("after_sensitive", {})) or
+                    not known_identity_result(change.get("before_sensitive", {}))
+                ):
+                    failures.append(f"{label} identity mutation, drift, or unknown actions are forbidden")
             elif not known_identity_result(change.get("after_unknown", {})):
                 failures.append(f"{label} unknown or malformed identity result")
             elif "before" not in change or not isinstance(change.get("after"), dict) or (
@@ -445,7 +565,12 @@ def main() -> int:
         for failure in sorted(set(ownership_failures)):
             print(f"DENY: {failure}", file=sys.stderr)
         return 1
-    identity_failures = controller_identity_failures(plan, envelopes)
+    try:
+        approved_identity = approved_identity_mutations(args, plan)
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        print(f"DENY: invalid identity approval: {error}", file=sys.stderr)
+        return 1
+    identity_failures = controller_identity_failures(plan, envelopes, approved_identity)
     if identity_failures:
         for failure in sorted(set(identity_failures)):
             print(f"DENY: {failure}; owner intervention required: independently verify source/state/plan, "
