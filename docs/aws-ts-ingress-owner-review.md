@@ -159,7 +159,8 @@ the live DDNS identity or revoke its key.
 4. Separately reviewed credential issuance, staging and production-CA
    deployments are complete. DNS-01 issued a production wildcard certificate,
    host-local strict TLS and public ingress passed, and Serve is retained. The
-   backup observer now reports no complete chain for the changed production
-   Compose artifact. Obtain a new admitted chain and separately review grants,
-   actual client/application access and negative network paths before migration
+   changed production Compose artifact gained a complete admitted backup chain
+   after a separately approved manual native cycle. Reobserve it before further
+   changes, and separately review grants, actual client/application access and
+   negative network paths before migration
    or Serve retirement. See [the ingress migration](ts-ingress-migration.md).

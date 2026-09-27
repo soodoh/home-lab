@@ -83,11 +83,13 @@ A separately approved host convergence deployed staging, followed by another
 approval to issue a production Let's Encrypt wildcard into a separate protected
 store. Serve is unchanged. Both explicit routes answered over host-local strict
 TLS with the trusted production certificate, and an unlisted route returned
-404. The staging certificate store remains for rollback. A complete chain was
-admitted for the 42-service staging artifact, but the backup observer now
-reports **no complete chain for the new production-CA artifact**. Client grants,
-real client/application verification, migration and Serve retirement each
-require their own review; no past AWS or TLS approval authorizes them.
+404. The staging certificate store remains for rollback. A separately approved
+manual native backup cycle produced a complete, admitted chain for the new
+production-CA artifact. A scoped Tailscale TCP 443 grant for owner/admin and CI
+is proposed in source but **not applied**; an owner controller resolves both
+hostnames to the reviewed IP but currently times out on that port. Real client
+and application verification, migration and Serve retirement each require their
+own review; no past AWS, TLS or backup approval authorizes them.
 
 The owner chose to redesign the IAM gate rather than manually provision the
 ACME identity. Treat this as an independently reviewed security migration:

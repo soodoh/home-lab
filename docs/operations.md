@@ -325,10 +325,14 @@ a trusted wildcard certificate; an unlisted host returned 404. Public ingress
 still passes strict TLS and Serve 8443/8444 has no drift. **Do not migrate
 Omada/LLM clients or remove Serve** until tailnet grants, actual client access,
 application authentication and negative network paths pass separate reviews.
-The previously admitted chain covers the staging artifact, **not** the new
-production-CA Compose artifact; the backup observer now reports a missing
-complete chain. Obtain and admit one before another operation requiring
-current-state backup admission.
+The staging chain did not cover the new production-CA artifact. A separately
+approved manual run of the native daily systemd target completed local and
+Proton units successfully; after live owner/journal inspection, the backup
+observer admitted the complete current-artifact games → NFS → Proton chain.
+Reobserve before another apply; admission from an earlier run is not reusable.
+The proposed Tailscale TCP 443 grant is **not applied**. An owner controller
+resolves both private hostnames to the reviewed IP but currently times out on
+TCP 443, consistent with the current tailnet policy.
 
 Before any further host change, reobserve host identity/IP, TCP 443 ownership,
 Compose, backups, source artifact and Route 53 record/credential scope. Run
@@ -751,6 +755,20 @@ Never delete an owner because the controller that created it is gone. Observe it
 contents and associated process/journal first. The bounded
 [`clear-failed-apply-lock.yml`](../ansible/playbooks/clear-failed-apply-lock.yml)
 removes only one separately inspected terminal owner.
+
+## Sonarr and Radarr application preferences
+
+Keep **Settings → Media Management → File Management → Download Proper & Repacks**
+set to **Do Not Prefer** (`downloadPropersAndRepacks: doNotPrefer`) in Sonarr,
+Radarr and Radarr-4k. Enable **Show Advanced** at the top of the settings page
+to see the option. A higher-revision PROPER/REPACK can otherwise be grabbed with
+a lower custom-format score than the existing file, only for the import rule to
+reject it. Use custom-format scores if a PROPER/REPACK should be preferred.
+These preferences live in the three backed-up application databases, not in
+Recyclarr or Compose; after restoring a database, check the live setting rather
+than assuming Compose convergence will enforce it. Verify each value in the
+application and inspect a read-only interactive search for a lower-score
+PROPER/REPACK rejection; do not start a real download just to test the setting.
 
 ## Manual update policy
 

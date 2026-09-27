@@ -23,6 +23,15 @@ The deployment network policy is limited to:
 | Ephemeral CI deployment nodes | Docker host | TCP 22 and Tailscale Serve HTTPS on TCP 8443 |
 | Ephemeral CI deployment nodes | Proxmox host | TCP 22 and TCP 8006 |
 
+A proposed, **not yet applied**, OpenTofu grant adds Docker-host TCP 443 for
+owner/admin and CI while keeping the old Serve grants. This permits both new
+private routes at the network layer, subject to separate application credentials.
+The owner controller currently resolves both new names to the reviewed tailnet
+address but times out on TCP 443. Review the exact saved Tailscale policy plan,
+retain independent console access, and verify owner/CI and unauthorized-source
+paths before calling this grant live; the work Mac's authenticated GOST exception
+is separate.
+
 CI is explicitly denied Omada's direct TLS port 8043, CLIProxyAPI HTTPS port 8444, and loopback HTTP port 8088.
 Tailscale SSH separately permits only `ansible-deploy` for deployment identities.
 Personal account mappings remain distinct. The tracked Omada interface uses the same
