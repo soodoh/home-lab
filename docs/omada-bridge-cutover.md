@@ -1,10 +1,14 @@
-# Omada bridge and public-route retirement (staged, not authorized to deploy)
+# Omada bridge and public-route retirement
 
-This checkout describes the **post-cutover** state. Do not converge Compose or apply
-any provider root solely because this source validates. The current host still runs
-Omada in host mode and the public Authentik objects still exist. See
-[operations](operations.md) for the production locks, observation, plans and backup
-requirements; retain independent Docker-host and gateway console access throughout.
+The bridge-mode, DHCP option 138, Caddy route, and Authentik resource changes were
+applied and verified on 2026-09-27. A fresh Authentik plan was no-op, host/Compose/backup
+observations passed, and Omada's tailnet Serve endpoint returned HTTP 200. The
+obsolete public DNS record for `omada.diloreto.com` remains pending identification
+and removal by its actual DNS owner; do not infer DNS ownership from the public
+nameservers alone. The steps below record the separately gated cutover procedure,
+not permission to replay it. See [operations](operations.md) for production locks,
+observations, plans and backup requirements; retain independent Docker-host and
+gateway console access for any future changes.
 
 ## Preconditions — observe live, do not infer from Git
 
@@ -14,7 +18,7 @@ requirements; retain independent Docker-host and gateway console access througho
    blocks convergence. Have an independent recovery path if device management or
    DHCP fails. Confirm the controller's **live** listener ports and device types.
 2. Observe the complete **live DHCP options** for the managed `Default` LAN. This
-   staged source specifies only option 138 (`192.168.0.100`); do not apply if it
+   reviewed source specifies only option 138 (`192.168.0.100`); do not apply if it
    would replace other options. Review a fresh Omada plan and retain any existing
    options in Git before proceeding. Verify option 138 is supported by the actual
    device firmware and the correct DHCP server/relay on every relevant device VLAN.
@@ -54,7 +58,7 @@ requirements; retain independent Docker-host and gateway console access througho
 3. The Authentik application `omada`, proxy provider `23`, and group policy binding
    `1574fabc-e9fb-4ab7-a345-9ccec64157d7` are omitted from post-cutover desired
    state. The embedded outpost's provider list and the allowlist are updated. **They
-   are not yet deleted live.** The plan inspector denies deletes by default;
+   were deleted live after separate exact-plan approval.** The plan inspector denies deletes by default;
    `prevent_destroy` would not protect a removed `for_each` instance anyway.
    After verifying Serve and device health, separately inspect a fresh saved
    Authentik plan and issue an exact-plan, exact-action private deletion approval
