@@ -1,7 +1,7 @@
 ---
-# Staging-only private instance: bind ONLY the reviewed Docker-host Tailscale
-# IPv4. Promote to production ACME with a separate certificate store only
-# after DNS-01 succeeds and a distinct deployment is approved.
+# Private instance: bind ONLY the reviewed Docker-host Tailscale IPv4.
+# Production ACME uses a separate protected store; retain the staging store
+# untouched for rollback until the strict-TLS cutover is independently verified.
 entryPoints:
   tailnet:
     address: "100.116.163.42:443/tcp"
@@ -16,7 +16,6 @@ providers:
 certificatesResolvers:
   tailnet:
     acme:
-      storage: /data/acme-staging.json
-      caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+      storage: /data/acme.json
       dnsChallenge:
         provider: route53

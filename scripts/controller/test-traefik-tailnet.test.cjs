@@ -12,13 +12,13 @@ const infra = readYaml('services/infra.yml');
 const recovery = JSON.parse(fs.readFileSync('recovery/groups.json', 'utf8')).groups.infrastructure;
 const ingressIp = JSON.parse(fs.readFileSync('infrastructure/tofu/aws-foundation/tail-ingress.auto.tfvars.json', 'utf8')).tail_ingress_ipv4;
 
-test('private TLS is bound to the reviewed tailnet address with its own DNS-01 store', () => {
+test('private TLS is bound to the reviewed tailnet address with its own production DNS-01 store', () => {
   assert.deepEqual(Object.keys(staticConfig.entryPoints), ['tailnet']);
   assert.equal(staticConfig.entryPoints.tailnet.address, `${ingressIp}:443/tcp`);
   assert.equal(staticConfig.entryPoints.tailnet.http.tls.certResolver, 'tailnet');
   assert.equal(staticConfig.certificatesResolvers.tailnet.acme.dnsChallenge.provider, 'route53');
-  assert.equal(staticConfig.certificatesResolvers.tailnet.acme.storage, '/data/acme-staging.json');
-  assert.equal(staticConfig.certificatesResolvers.tailnet.acme.caServer, 'https://acme-staging-v02.api.letsencrypt.org/directory');
+  assert.equal(staticConfig.certificatesResolvers.tailnet.acme.storage, '/data/acme.json');
+  assert.equal(staticConfig.certificatesResolvers.tailnet.acme.caServer, undefined);
   assert.equal(staticConfig.providers.file.filename, '/etc/traefik/routes.yml');
   assert.equal(staticConfig.providers.docker, undefined);
   assert.equal(publicConfig.certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint, 'web');

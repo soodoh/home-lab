@@ -82,10 +82,12 @@ now has one scoped access key encrypted in `secrets/production.sops.yaml`.
 A separately approved host convergence deployed the private staging runtime;
 Serve is unchanged. The wildcard staging certificate was issued, both explicit
 routes answered over host-local staging TLS, and an unlisted route returned 404.
-Strict client TLS correctly rejects the staging certificate. A new complete
-backup chain for the changed Compose artifact has not yet been admitted.
-Production-CA promotion, client grants/migration and Serve retirement each
-require their own review; no past AWS approval authorizes them.
+Strict client TLS correctly rejects the staging certificate. After the next
+scheduled cycle, the backup observer admitted a complete chain for the
+42-service staging artifact; reobserve before a later apply. Production-CA
+promotion is prepared in source but **not deployed**. Client grants/migration
+and Serve retirement each require their own review; no past AWS or staging
+approval authorizes them.
 
 The owner chose to redesign the IAM gate rather than manually provision the
 ACME identity. Treat this as an independently reviewed security migration:

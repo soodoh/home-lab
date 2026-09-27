@@ -158,7 +158,8 @@ the live DDNS identity or revoke its key.
    a fresh no-op plan. No approval file is reusable across plans.
 4. The separately reviewed credential issuance and private staging deployment
    are complete; DNS-01 issued a staging wildcard certificate. The changed
-   Compose artifact still needs a fresh admitted backup chain. Separately
+   Compose artifact gained a complete admitted backup chain after its next
+   scheduled cycle; reobserve it before further host changes. Separately
    review production-CA promotion, strict TLS and public-ingress negative
    tests before migrating clients or retiring Serve. See
    [the ingress migration](ts-ingress-migration.md).

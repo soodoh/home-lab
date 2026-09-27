@@ -204,6 +204,43 @@
     label: "{{ item.item.path }}"
   when: "'traefik-tailnet' in compose_native_declared_services.stdout_lines"
 
+- name: Read the active private Traefik resolver configuration
+  ansible.builtin.slurp:
+    src: "{{ compose_native_current_dir }}/services/data/traefik-tailnet/traefik.yml"
+  become: true
+  register: compose_native_tailnet_traefik_active_config
+  no_log: true
+  when: "'traefik-tailnet' in compose_native_declared_services.stdout_lines"
+
+- name: Inspect the active private Traefik production certificate store
+  ansible.builtin.stat:
+    path: /srv/home-lab-state/traefik-tailnet-data/acme.json
+    follow: false
+    get_checksum: false
+    get_mime: false
+  become: true
+  register: compose_native_tailnet_traefik_production_observed
+  when:
+    - "'traefik-tailnet' in compose_native_declared_services.stdout_lines"
+    - >-
+      (compose_native_tailnet_traefik_active_config.content | b64decode | from_yaml)
+      .certificatesResolvers.tailnet.acme.storage == '/data/acme.json'
+
+- name: Require the protected active private Traefik production certificate store
+  ansible.builtin.assert:
+    that:
+      - compose_native_tailnet_traefik_production_observed.stat.isreg | default(false)
+      - not (compose_native_tailnet_traefik_production_observed.stat.islnk | default(false))
+      - compose_native_tailnet_traefik_production_observed.stat.pw_name == 'root'
+      - compose_native_tailnet_traefik_production_observed.stat.gr_name == 'root'
+      - compose_native_tailnet_traefik_production_observed.stat.mode == '0600'
+    fail_msg: The private Traefik production certificate store is missing or has unsafe metadata.
+  when:
+    - "'traefik-tailnet' in compose_native_declared_services.stdout_lines"
+    - >-
+      (compose_native_tailnet_traefik_active_config.content | b64decode | from_yaml)
+      .certificatesResolvers.tailnet.acme.storage == '/data/acme.json'
+
 - name: Require digest-pinned active images
   ansible.builtin.command:
     argv: "{{ compose_native_runtime_cli + ['config', '--images'] }}"

@@ -319,6 +319,45 @@
       diff: false
       no_log: true
 
+    - name: Inspect the private Traefik production certificate store before provisioning
+      ansible.builtin.stat:
+        path: /srv/home-lab-state/traefik-tailnet-data/acme.json
+        follow: false
+        get_checksum: false
+        get_mime: false
+      become: true
+      register: compose_native_tailnet_traefik_production_store
+
+    - name: Refuse an unsafe existing private Traefik production certificate store
+      ansible.builtin.assert:
+        that:
+          - not (compose_native_tailnet_traefik_production_store.stat.islnk | default(false))
+          - >-
+            not (compose_native_tailnet_traefik_production_store.stat.exists | default(false)) or
+            (compose_native_tailnet_traefik_production_store.stat.isreg | default(false))
+          - >-
+            not (compose_native_tailnet_traefik_production_store.stat.exists | default(false)) or
+            compose_native_tailnet_traefik_production_store.stat.pw_name == 'root'
+          - >-
+            not (compose_native_tailnet_traefik_production_store.stat.exists | default(false)) or
+            compose_native_tailnet_traefik_production_store.stat.gr_name == 'root'
+          - >-
+            not (compose_native_tailnet_traefik_production_store.stat.exists | default(false)) or
+            compose_native_tailnet_traefik_production_store.stat.mode == '0600'
+        fail_msg: An existing private Traefik production certificate store is not protected; inspect it before convergence.
+
+    - name: Initialize the private Traefik production certificate store without overwriting it
+      ansible.builtin.copy:
+        content: "{}\n"
+        dest: /srv/home-lab-state/traefik-tailnet-data/acme.json
+        owner: root
+        group: root
+        mode: '0600'
+        force: false
+      become: true
+      diff: false
+      no_log: true
+
     - name: Install the protected CLIProxyAPI configuration
       ansible.builtin.template:
         src: "{{ compose_native_controller_root }}/services/data/cli-proxy-api/config.yaml.j2"

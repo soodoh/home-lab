@@ -322,22 +322,26 @@ both explicit routes returned 200 on host-local tests; an unlisted host returned
 404. Both served certificates are from the staging CA, and normal client TLS
 correctly refuses them. Public ingress still passes strict TLS and Serve
 8443/8444 has no drift. **Do not migrate Omada/LLM clients or remove Serve**
-until a separately approved production-CA promotion and strict-TLS test. The
-backup observer has not yet admitted a complete chain for the new 42-service
-artifact; wait for and observe one before any further operation that requires
-current-state backup admission.
+until a separately approved production-CA promotion and strict-TLS test. A
+complete chain for the 42-service staging artifact passed the backup observer
+after the next scheduled cycle. Reobserve before any further apply; that past
+admission is not reusable. The proposed promotion switches only the private
+resolver to the production CA and a separate `acme.json`, while retaining the
+staging certificate store for rollback. Git source preparation is **not**
+approval to converge the host.
 
-Before any host deployment, reobserve host identity/IP, TCP 443 ownership,
+Before production promotion, reobserve host identity/IP, TCP 443 ownership,
 Compose, backups, source artifact and Route 53 record/credential scope. Run
-source validation and the site/check-mode gates, review the complete project
-change from 41 to 42 services, and obtain separate operator approval. Ensure
-protected `/srv/home-lab-state/traefik-tailnet-data/acme-staging.json` and its
-parent are owned by root with modes 0600/0700. Keep the staging and later
-production ACME stores separate and excluded from Restic intentionally;
-recovering a lost store requires reissuance subject to CA limits. On a failed
-staging deployment, retain Serve and the prior Compose source for rollback;
-inspect the host lock, journal and before-images before retrying. Never use
-an untrusted staging certificate as evidence that client migration is ready.
+source validation and site check mode, review the 42-service Compose source
+swap and obtain separate operator approval. Retain the root-owned mode-0600
+`acme-staging.json`; initialize `acme.json` separately without overwriting an
+existing file. The parent must remain root-owned mode 0700. Both stores are
+excluded from Restic intentionally; recovering a lost store requires reissuance
+subject to CA limits. After any promotion, observe strict TLS, explicit and
+negative routes, public ingress and Serve before changing client access. A new
+Compose artifact requires another complete backup chain. On failure retain
+Serve, the prior Compose source and both stores; inspect the host lock, journal
+and before-images before retrying.
 
 ### Public ingress: Caddy to Traefik
 
