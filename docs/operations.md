@@ -307,7 +307,7 @@ ansible-playbook ansible/playbooks/configure-tailscale-serve.yml
 ansible-playbook ansible/playbooks/observe-hosts.yml
 ```
 
-### Private tailnet ingress: staging deployed, promotion pending
+### Private tailnet ingress: production TLS live, client cutover pending
 
 The separate `traefik-tailnet` service is staged in Compose with host networking
 but binds HTTPS only to the reviewed Docker-host Tailscale IPv4. It has explicit
@@ -317,31 +317,30 @@ Omada WAN forwards are unchanged. The dedicated ACME key is age-encrypted in
 `secrets/production.sops.yaml`, rendered through the existing root-only
 `/etc/docker-compose/production.env` at deployment, and passed only to
 the private container. It must not enter OpenTofu state, shell history, Docker
-logs or resolved Compose output. Staging issued the wildcard certificate and
-both explicit routes returned 200 on host-local tests; an unlisted host returned
-404. Both served certificates are from the staging CA, and normal client TLS
-correctly refuses them. Public ingress still passes strict TLS and Serve
-8443/8444 has no drift. **Do not migrate Omada/LLM clients or remove Serve**
-until a separately approved production-CA promotion and strict-TLS test. A
-complete chain for the 42-service staging artifact passed the backup observer
-after the next scheduled cycle. Reobserve before any further apply; that past
-admission is not reusable. The proposed promotion switches only the private
-resolver to the production CA and a separate `acme.json`, while retaining the
-staging certificate store for rollback. Git source preparation is **not**
-approval to converge the host.
+logs or resolved Compose output. Staging issued a wildcard certificate first;
+a separately approved promotion issued the production Let's Encrypt wildcard
+into protected `acme.json` and retained `acme-staging.json` for rollback.
+Host-local requests to both explicit routes returned 200 with strict TLS and
+a trusted wildcard certificate; an unlisted host returned 404. Public ingress
+still passes strict TLS and Serve 8443/8444 has no drift. **Do not migrate
+Omada/LLM clients or remove Serve** until tailnet grants, actual client access,
+application authentication and negative network paths pass separate reviews.
+The previously admitted chain covers the staging artifact, **not** the new
+production-CA Compose artifact; the backup observer now reports a missing
+complete chain. Obtain and admit one before another operation requiring
+current-state backup admission.
 
-Before production promotion, reobserve host identity/IP, TCP 443 ownership,
+Before any further host change, reobserve host identity/IP, TCP 443 ownership,
 Compose, backups, source artifact and Route 53 record/credential scope. Run
-source validation and site check mode, review the 42-service Compose source
-swap and obtain separate operator approval. Retain the root-owned mode-0600
-`acme-staging.json`; initialize `acme.json` separately without overwriting an
-existing file. The parent must remain root-owned mode 0700. Both stores are
-excluded from Restic intentionally; recovering a lost store requires reissuance
-subject to CA limits. After any promotion, observe strict TLS, explicit and
-negative routes, public ingress and Serve before changing client access. A new
-Compose artifact requires another complete backup chain. On failure retain
-Serve, the prior Compose source and both stores; inspect the host lock, journal
-and before-images before retrying.
+source validation and site check mode, review the full 42-service Compose
+source swap and obtain separate operator approval. Both root-owned mode-0600
+ACME stores and their mode-0700 parent must remain protected; neither store
+is in Restic. Losing either requires reissuance subject to CA limits. After
+any certificate change, test strict TLS, explicit and negative routes, public
+ingress and Serve before changing client access. A changed Compose artifact
+requires another complete backup chain. On failure retain Serve, the prior
+Compose source and both stores; inspect the host lock, journal and before-images
+before retrying.
 
 ### Public ingress: Caddy to Traefik
 

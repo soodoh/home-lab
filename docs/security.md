@@ -23,11 +23,13 @@ credential store. The local file is persistent plaintext: protect it independent
 never commit or log it, and rotate credentials if it is exposed. The dedicated
 tailnet Traefik ACME access key is held as ciphertext in
 `secrets/production.sops.yaml` and rendered into the root-owned
-`/etc/docker-compose/production.env` on the staging host. Only the private
+`/etc/docker-compose/production.env` on the Docker host. Only the private
 Traefik container
 receives its `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`; the public ingress
-must never inherit them. A staging-CA certificate is not trusted by ordinary
-clients and does not authorize endpoint migration. The non-AWS helper
+must never inherit them. Staging and production certificates have separate
+root-only ACME stores excluded from Restic. Production TLS alone does not
+authorize endpoint migration: tailnet grants, authenticated clients and
+negative network paths must be verified first. The non-AWS helper
 reads exported provider variables without prompting and creates disposable
 per-run credential files. Do not keep those files across sessions. Proxmox disk
 and USB identities are reviewed in Git; fresh read-only host observation must

@@ -156,10 +156,10 @@ the live DDNS identity or revoke its key.
    `--approve-identity-file` for that one saved plan. Apply only with the
    controller **apply** identity after separate explicit approval and require
    a fresh no-op plan. No approval file is reusable across plans.
-4. The separately reviewed credential issuance and private staging deployment
-   are complete; DNS-01 issued a staging wildcard certificate. The changed
-   Compose artifact gained a complete admitted backup chain after its next
-   scheduled cycle; reobserve it before further host changes. Separately
-   review production-CA promotion, strict TLS and public-ingress negative
-   tests before migrating clients or retiring Serve. See
-   [the ingress migration](ts-ingress-migration.md).
+4. Separately reviewed credential issuance, staging and production-CA
+   deployments are complete. DNS-01 issued a production wildcard certificate,
+   host-local strict TLS and public ingress passed, and Serve is retained. The
+   backup observer now reports no complete chain for the changed production
+   Compose artifact. Obtain a new admitted chain and separately review grants,
+   actual client/application access and negative network paths before migration
+   or Serve retirement. See [the ingress migration](ts-ingress-migration.md).
