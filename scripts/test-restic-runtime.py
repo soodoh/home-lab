@@ -144,6 +144,22 @@ class ResticRuntimeTests(unittest.TestCase):
         compose.assert_called_once_with(policy, ["stop", "--timeout", "120", "app"])
         self.assertEqual(restart.call_args.args[1]["running_services"], ["app", "db"])
 
+    def test_reviewed_network_namespace_services_restart_after_gluetun(self):
+        policy = json.loads(POLICY_PATH.read_text())
+        running = ["sonarr", "flaresolverr", "qbittorrent", "gluetun", "recyclarr", "postgres"]
+        journal = {"version": 1, "running_services": running}
+        compose = mock.Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+        with mock.patch.dict(self.runner["restart_recorded"].__globals__, {
+            "compose": compose,
+            "service_healthy": mock.Mock(return_value=True),
+            "journal_path": mock.Mock(return_value=Path("/tmp/journal")),
+            "durable_unlink": mock.Mock(),
+        }):
+            self.runner["restart_recorded"](policy, journal)
+
+        started = [call.args[1][1] for call in compose.call_args_list]
+        self.assertEqual(started, ["postgres", "gluetun", "qbittorrent", "flaresolverr", "sonarr", "recyclarr"])
+
     def test_failed_scan_still_restarts_services(self):
         daily_local = self.runner["daily_local"]
         policy = {

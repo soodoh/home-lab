@@ -211,7 +211,12 @@ an upper bound on the writer-stop window; the copy phases occur after restart.
 Compare several cycles before changing scope. The runner asks native Compose
 to stop the selected applications as one dependency-aware group, then stops the
 selected databases as a separate group; it restarts only the previously running
-services. If shutdown dominates, inspect slow graceful-stop behavior rather than
+services. Gluetun and Recyclarr are paused because their writable mounts include
+backed-up data. FlareSolverr is paused with Gluetun because it shares Gluetun's
+network namespace. The recorded reverse start order brings Gluetun up before
+qBittorrent (needed by Gluetun's port-forward hook) and the other namespace
+dependents, and Recyclarr after the Arr services. If shutdown dominates,
+inspect slow graceful-stop behavior rather than
 shortening the timeout or adding a filesystem snapshot layer by default. A
 source-level audit of the stop list found no *proven* safe removals: it
 covers databases, embedded application state, configuration writers and game

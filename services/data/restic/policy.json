@@ -80,6 +80,7 @@
   },
   "stop_groups": {
     "applications": [
+      "recyclarr",
       "nextcloud-cron",
       "nextcloud",
       "authentik-worker",
@@ -99,7 +100,6 @@
       "omada",
       "openfit",
       "prowlarr",
-      "qbittorrent",
       "radarr",
       "radarr-4k",
       "sabnzbd",
@@ -109,7 +109,10 @@
       "vikunja",
       "wolf",
       "zwave",
-      "ddns-updater"
+      "ddns-updater",
+      "flaresolverr",
+      "qbittorrent",
+      "gluetun"
     ],
     "databases": [
       "nextcloud-db",
