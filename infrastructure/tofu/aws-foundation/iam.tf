@@ -185,6 +185,10 @@ data "aws_iam_policy_document" "state_apply" {
     resources = [local.tail_ingress_zone_arn]
   }
   statement {
+    actions   = ["route53:GetChange"]
+    resources = ["arn:${data.aws_partition.current.partition}:route53:::change/*"]
+  }
+  statement {
     actions   = ["route53:ChangeResourceRecordSets"]
     resources = [local.tail_ingress_zone_arn]
     condition {
@@ -220,15 +224,8 @@ data "aws_iam_policy_document" "state_apply" {
       values   = [local.tail_ingress_policy_arn]
     }
   }
-  statement {
-    actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.state.arn]
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values   = concat(local.state_keys, [for key in local.state_keys : "${key}.tflock"])
-    }
-  }
+  # Bucket-management reads already allow ListBucket on this exact bucket without
+  # a prefix condition; object reads/writes remain scoped to the state keys.
   statement {
     actions   = ["s3:GetObject", "s3:PutObject"]
     resources = concat(local.state_arns, local.lock_arns)

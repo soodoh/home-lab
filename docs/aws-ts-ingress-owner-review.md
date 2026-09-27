@@ -49,6 +49,7 @@ mean the *one* ACME IAM user and managed policy in this account.
 | --- | --- | --- |
 | Plan | `route53:GetHostedZone`, `route53:ListResourceRecordSets`, `route53:ListTagsForResource` | `ZONE_ARN`; the data source looks up the reviewed zone **by ID** and the AWS provider also reads its tags (the provider returns `diloreto.com` without the trailing dot from Route 53's API) |
 | Apply | The plan Route 53 reads | Same scope |
+| Apply | `route53:GetChange` | `arn:aws:route53:::change/*`; the provider polls this after a submitted record change |
 | Apply | `route53:ChangeResourceRecordSets` | `ZONE_ARN`; **all** names `\052.ts.diloreto.com`, types `A`, actions `CREATE` or `UPSERT` via `ForAllValues:StringEquals` conditions |
 | Apply | `iam:CreateUser`, `iam:PutUserPermissionsBoundary`, `iam:TagUser` | `USER_ARN` only; the created user must receive the owner-controlled ACME boundary |
 | Apply | `iam:CreatePolicy`, `iam:TagPolicy` | `POLICY_ARN` only |
@@ -61,6 +62,41 @@ Do not add `iam:CreateAccessKey`, wildcard Route 53 writes, other IAM role
 writes, or a general IAM action wildcard. Existing owner identity guards still
 apply to the actual OpenTofu saved plan. Controller IAM policy version writes
 remain owner-only; the apply role does **not** gain those actions.
+
+## Post-creation controller GetChange correction
+
+The initial wildcard A-record write reached Route 53 and became `INSYNC`, but
+OpenTofu's apply identity could not poll `route53:GetChange`. The failed create
+left a taint marker even though the record, ACME IAM resources and protected
+remote state existed. A separately approved refresh-only state update and
+native `tofu untaint aws_route53_record.tail_ingress` recovered tracking; a
+fresh ordinary plan then had zero changes. **Never rerun the failed saved plan
+or approve its tainted record replacement.** The runtime ACME user already has
+its independently scoped `GetChange`; this correction concerns the controller
+**apply** role only.
+
+The owner-controlled apply boundary is nearly at the 6,144-character policy
+limit and its five version slots are occupied. The existing apply boundary and
+tracked state-apply policy both grant `s3:ListBucket` twice on the **same state
+bucket**: once with a key-prefix condition and again without a condition as
+part of the bucket-management reads. The conditional Allow is therefore
+redundant; removing only that statement changes no effective bucket-list
+permission and does not broaden object access to the six exact backend keys
+and locks in the manifest. Independently verify this equivalence against the
+live documents before removing it. The proposed owner correction removes the
+redundant statement from the apply boundary, adds `route53:GetChange` on
+`arn:aws:route53:::change/*` and adds the action to the existing explicit
+`Deny.NotAction` exemption. The in-repo apply policy makes the same grant and
+removes its own redundant bucket-list statement. Do **not** change the plan
+boundary/policy, widen Route 53 writes, or grant controller policy-version
+writes. Both changed owner policies need a free version slot: after preserving
+protected before-images and independently reviewing their histories, remove
+only one **nondefault** old version from each, never the current or immediately
+preceding rollback version. Review the exact deletions and new documents as a
+separate owner change, then reconcile the tracked state-apply policy through
+[owner-only refresh-only state reconciliation](operations.md#aws-foundation-owner-only-state-reconciliation).
+Until that correction is live and drift-free, do not use the controller apply
+role for another Route 53 record mutation.
 
 ## Independently owned ACME user boundary
 

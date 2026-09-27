@@ -622,6 +622,17 @@ separate, bounded owner intervention, not an ordinary controller apply:
    reviewed plan/apply, never smuggled into the state-only intervention. Stop on
    any failed predicate and preserve the before-image for independent recovery.
 
+A failed multi-step Route 53 create can leave a live `INSYNC` record **and** a
+tainted resource in state. A refresh-only reconciliation updates computed
+fields but does not remove the taint. Never apply the resulting record
+replacement as a shortcut. First inspect the exact live record, authoritative
+answer, remote state version and backend lock; after separate owner approval,
+use native `tofu untaint <exact address>` under the apply identity with locking.
+Keep the pre-untaint S3 version and require a new drift-free, zero-change plan.
+For the tail-ingress record, the owner-controlled apply role also needs a
+scoped `route53:GetChange` grant before any future DNS mutation; see the
+[owner correction](aws-ts-ingress-owner-review.md#post-creation-controller-getchange-correction).
+
 ### Proxmox cluster firewall ownership
 
 `infrastructure/tofu/proxmox-firewall/` isolates cluster options and complete ordered
