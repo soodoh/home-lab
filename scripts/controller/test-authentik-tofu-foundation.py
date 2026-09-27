@@ -79,6 +79,10 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             )
         )
         self.assertEqual(DESIRED["applications"]["jellyfin"]["provider_id"], "jellyfin")
+        self.assertEqual(
+            DESIRED["applications"]["radarr-4k"]["meta_launch_url"],
+            DESIRED["proxyProviders"]["8"]["external_host"],
+        )
         bound_applications = {
             binding["application_slug"]
             for bindings in (

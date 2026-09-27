@@ -555,7 +555,7 @@
       "meta_description": "",
       "meta_hide": false,
       "meta_icon": "application-icons/radarr_RufXat6.png",
-      "meta_launch_url": "https://radarr.diloreto.com/",
+      "meta_launch_url": "https://radarr-4k.diloreto.com/",
       "meta_publisher": "",
       "name": "Radarr 4k",
       "open_in_new_tab": false,
@@ -1720,7 +1720,7 @@
   },
   "sourceInventory": {
     "applicationPolicyBindingsSha256": "a93b1578a98200ad73fb9c8fcea1c3e115dd4720c69631f1219d0650b6c8bd48",
-    "applicationsSha256": "e0848e04d2ea30460fd9d98e499629d10644b807b4f0ef969cd6013ad10f3b2b",
+    "applicationsSha256": "ce56b24bcbdea382aae5185680a8f27ce5b4b78767785b8ada410a796802f690",
     "capturedAt": "2026-08-27T18:16:12Z",
     "complete": true,
     "customConfigurationSha256": "db14ff46815791d05a17017cb22fffcb4e40d14f153181bcf6f166d5373cc1a4",

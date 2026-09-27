@@ -279,9 +279,9 @@ available for rollback. Never apply a plan proposing unrelated Omada changes.
 
 During the approved window, apply only the reviewed Omada forwarding plan and
 converge committed Compose through `site.yml` (with the usual check/observe/lock
-gates). Verify from outside the LAN that the 25 named hosts receive valid public
-certificates and correct upstream responses, HTTP redirects to HTTPS without
-`:18443` in the Location, HSTS on every listed HTTPS host, Books' HTTPS
+gates). Verify from outside the LAN that the currently listed hosts receive
+valid public certificates and correct upstream responses, HTTP redirects to HTTPS
+without `:18443` in the Location, HSTS on every listed HTTPS host, Books' HTTPS
 redirects and generated links without `X-Scheme`, Home Assistant, WebSockets
 (notably the authenticated GOST relay), and HTTP/3 over UDP 443. The shared
 header policy and its upstream rationale are recorded in

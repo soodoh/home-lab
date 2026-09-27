@@ -13,7 +13,7 @@ const recovery = JSON.parse(fs.readFileSync('recovery/groups.json', 'utf8')).gro
 const authentikHosts = [
   'auth', 'calibre', 'caromanga', 'comics', 'ddns', 'frigate', 'openfit',
   'prowlarr', 'proxmox', 'qb', 'radarr-4k', 'radarr', 'readarr', 'sabnzbd',
-  'seerr', 'sonarr-4k', 'sonarr', 'gost',
+  'seerr', 'sonarr', 'gost',
 ];
 const directHosts = {
   hass: 'hass', vaultwarden: 'vaultwarden', watch: 'jellyfin', books: 'books',
@@ -26,7 +26,7 @@ test('the public host allowlist routes to the intended private backends', () => 
     ...Object.entries(directHosts),
   ]);
   assert.deepEqual(Object.keys(dynamic.routers).sort(), Object.keys(expected).sort());
-  assert.ok(!Object.values(dynamic.routers).some(({ rule }) => /omada\.diloreto\.com|ts-control\.diloreto\.com/.test(rule)));
+  assert.ok(!Object.values(dynamic.routers).some(({ rule }) => /omada\.diloreto\.com|ts-control\.diloreto\.com|sonarr-4k\.diloreto\.com/.test(rule)));
   for (const [host, service] of Object.entries(expected)) {
     const route = dynamic.routers[host];
     assert.equal(route.rule, `Host(\`${host}.diloreto.com\`)`);
