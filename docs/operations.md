@@ -220,8 +220,13 @@ certificates; HTTP redirects, HSTS, negative routes, and an HTTP/3 request throu
 the gateway passed. The operator verified the work-Mac GOST/CLIProxyAPI relay.
 A new complete games → NFS → Proton backup chain passed after Compose convergence.
 The old Caddy container, live data and temporary before-image were retired after
-explicit operator approval; Route 53 credentials were removed from SOPS/Compose,
-but any independently owned credentials still require a separate revocation review.
+explicit operator approval; Route 53 credentials were removed from SOPS/Compose.
+A fresh AWS owner lookup and protected host comparison found that the same IAM
+access key is still configured in the live `ddns-updater` data. **Do not revoke
+`route53-user` or its key as Caddy cleanup**: DDNS still depends on them, even
+if IAM last-used data appears old (its age alone does not prove inactivity).
+Rotate or retire that identity only after a separately reviewed DDNS credential
+migration and live update/backup verification.
 The file provider owns only the listed HTTPS hosts; no Docker socket, dashboard,
 DNS challenge, or wildcard certificate is needed. Omada continues to accept public
 80/443 and must forward TCP 80 to Docker-host TCP 18080, and TCP/UDP 443 to
@@ -258,9 +263,10 @@ recovery rather than reissuance is required. If any gate fails, restore the form
 reviewed Caddy Compose source under normal host ownership; do not delete the old
 certificate data during rollback. After the rollback window closes and a fresh
 live observation confirms the new ingress and backups, separately retire the
-old host `/srv/home-lab-state/caddy-data` and revoke any independently owned,
-now-unused Route 53 credentials. Inspect before deleting: Git removal is not
-permission to erase an unexplained live path or credential. Since the approved
+old host `/srv/home-lab-state/caddy-data` after confirming its ownership.
+Before revoking any credential, inspect independent consumers: the historical
+Caddy Route 53 key is **not unused**, because live DDNS shares it. Git removal
+is not permission to erase an unexplained live path or credential. Since the approved
 cleanup removed both Caddy stores, a future Caddy rollback cannot reuse its old
 certificates; it must reissue them and honor CA limits. The steps above record the
 cutover gates, not permission to replay a plan or delete additional resources.
