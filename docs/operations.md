@@ -213,7 +213,15 @@ ansible-playbook ansible/playbooks/observe-hosts.yml
 
 ### Public ingress: Caddy to Traefik
 
-The reviewed source replaces Caddy with Traefik, but **is not a live cutover**.
+The Caddy-to-Traefik cutover was applied and verified on 2026-09-27. The saved
+Omada plan changed only the two intended forwarding targets, and a fresh
+remote-backed plan was no-op. All 25 named HTTPS hosts served valid public
+certificates; HTTP redirects, HSTS, negative routes, and an HTTP/3 request through
+the gateway passed. The operator verified the work-Mac GOST/CLIProxyAPI relay.
+A new complete games → NFS → Proton backup chain passed after Compose convergence.
+The old Caddy container, live data and temporary before-image were retired after
+explicit operator approval; Route 53 credentials were removed from SOPS/Compose,
+but any independently owned credentials still require a separate revocation review.
 The file provider owns only the listed HTTPS hosts; no Docker socket, dashboard,
 DNS challenge, or wildcard certificate is needed. Omada continues to accept public
 80/443 and must forward TCP 80 to Docker-host TCP 18080, and TCP/UDP 443 to
@@ -225,8 +233,8 @@ recovery from a lost host requires new ACME issuance (subject to CA rate limits)
 The application configuration lives in Git. The proxy remains at `172.23.0.250`,
 Home Assistant's trusted address.
 
-Before any production action, obtain fresh host/Compose/backup and Omada observations
-as in sections 1–3. Confirm 18080/TCP and 18443/TCP+UDP are free on the host,
+For a future replay or rollback, obtain fresh host/Compose/backup and Omada
+observations as in sections 1–3. Confirm 18080/TCP and 18443/TCP+UDP are free on the host,
 that the gateway can map external 80/443 to those exact host ports (including UDP),
 and that external DNS reaches the gateway. Do not use the reviewed desired settings
 as proof of live forwarding. Confirm independent gateway and host access, a complete
@@ -252,7 +260,10 @@ certificate data during rollback. After the rollback window closes and a fresh
 live observation confirms the new ingress and backups, separately retire the
 old host `/srv/home-lab-state/caddy-data` and revoke any independently owned,
 now-unused Route 53 credentials. Inspect before deleting: Git removal is not
-permission to erase an unexplained live path or credential.
+permission to erase an unexplained live path or credential. Since the approved
+cleanup removed both Caddy stores, a future Caddy rollback cannot reuse its old
+certificates; it must reissue them and honor CA limits. The steps above record the
+cutover gates, not permission to replay a plan or delete additional resources.
 
 ### GOST relay hostname and account cutover (historical procedure)
 
