@@ -1,15 +1,16 @@
-# Tailnet Traefik ingress migration (proposal; not deployment approval)
+# Tailnet Traefik ingress migration (completed; historical design and outcome)
 
 Goal: replace the Docker host's Tailscale Serve routes with
 `https://omada.ts.diloreto.com` and `https://llm.ts.diloreto.com`, with no
 explicit client port. CI and local controllers may reach both. Public direct
-access must remain impossible. The work Mac may reach **only** the LLM hostname
-through the existing public, Authentik-authenticated GOST relay; that is a
-separate authenticated exception, not a claim that every caller is a tailnet
-member.
+access must remain impossible. The work Mac has an authenticated GOST
+exception for **both** private subdomains on TCP 443; that is not a claim that every caller is a tailnet
+member. Serve was retired on 2026-09-27, with actual CI, remote GOST denials
+and UDP/HTTP3 explicitly waived rather than proven.
 
-This document is a staged design, not permission to apply a plan, alter an
-AWS identity boundary, reset Serve, or converge Compose. Use
+This document records the staged design and completed steps; it is not
+permission to replay a plan, alter an AWS identity boundary, restore/reset
+Serve, or converge Compose. Use
 [operations](operations.md) for fresh host/provider observations, protected
 plans, backup admission, locks, rollback access, and check-mode gates.
 
@@ -20,8 +21,8 @@ plans, backup admission, locks, rollback access, and check-mode gates.
   The shared `*.diloreto.com` DNS CNAME currently also answers names below
   `ts.diloreto.com`; a more specific `*.ts.diloreto.com` record must override it.
   Verify the authoritative hosted-zone records before managing one in OpenTofu.
-- Serve owns both current tailnet routes (`:8443` Omada and `:8444`
-  CLIProxyAPI). Its Ansible role runs **before** Compose convergence in
+- At the initial stage, Serve owned both tailnet routes (`:8443` Omada and
+  `:8444` CLIProxyAPI). Its Ansible role runs **before** Compose convergence in
   `site.yml`, so removing Serve in the same first deployment as its replacement
   could interrupt Omada provider access. Keep Serve during the new ingress
   rollout and client migration; retire it in a separate convergence.
@@ -49,8 +50,9 @@ plans, backup admission, locks, rollback access, and check-mode gates.
 - The approved host convergence replaced GOST's any-port
   `*.mora-rattlesnake.ts.net` matcher with `*.ts.diloreto.com:443`, retaining
   Tailscale control-plane destinations. The separately committed work-Mac
-  client is not yet deployed. The new allowance includes Omada and LLM; each
-  route needs its own application credentials, and future services need
+  client was later deployed by the operator and positively reported. The new
+  allowance includes Omada and LLM; each route needs its own application
+  credentials, and future services need
   explicit private Traefik routers and appropriate Authentik protection where
   intended. GOST reaches private ingress using the Docker host's network
   identity; a holder of the relay app password can CONNECT from off-tailnet.
@@ -107,13 +109,26 @@ both private routes, direct Docker-host LAN-IP:443 timed out, and forced-public-
 probes from both LAN hairpin and an independent cellular hotspot returned 301
 on WAN port 80 and 404 on WAN port 443 for both private hostnames. The cellular
 client's public egress differed from the home WAN IP and its route did not use
-Tailscale. UDP/HTTP3 was not separately exercised. A post-apply backup
-observation refused with `complete_chain_missing`; the changed Compose artifact
-needs a complete observed chain before further ordinary host changes. Serve
-retirement was requested despite actual CI, isolated GOST denial and UDP/HTTP3
-checks remaining unverified. The operator accepted those residual risks; no
-verification success may be inferred from this waiver. Host backup admission,
-node-level ownership and exact Tailscale saved-plan approval still apply.
+Tailscale. UDP/HTTP3 was not separately exercised. A post-GOST-apply backup
+observation initially refused with `complete_chain_missing`. A later native
+manual backup completed and the observer admitted the current Compose artifact
+before Serve retirement. The operator accepted residual risk from actual CI,
+isolated GOST denial and UDP/HTTP3 checks remaining unverified; no verification
+success may be inferred from that waiver.
+
+On 2026-09-27, committed source `ab9442e2` and passing focused/site check modes
+preceded the focused host reset of exactly the two owned node-level Serve
+routes. A protected before-image was captured; both loopback backends stayed.
+Strict-TLS Omada returned 200, unauthenticated LLM 401 and an unlisted private
+host 404. The operator approved and applied the exact saved Tailscale plan
+SHA-256 `a8433c4e24e767d52e55f6d6a72857ae378005a93d122b8d59d82f612d14f5d5`:
+it removed only the two old port grants, not TCP 443 or SSH. A fresh provider
+plan had no changes. Both old ports timed out afterward; full-site check mode
+had zero drift, all 42 Compose services were running and current-artifact
+backup admission passed. One immediate post-reset health observation failed;
+required containers were healthy on direct inspection, and repeat observation
+passed. The cause was not established. Actual CI, isolated remote GOST denials,
+and UDP/HTTP3 remain unverified despite retirement.
 
 The owner chose to redesign the IAM gate rather than manually provision the
 ACME identity. Treat this as an independently reviewed security migration:
@@ -160,7 +175,7 @@ The first code change should be this **policy/identity ownership review**, not
 removal of Serve. If the owner cannot approve the revised IAM policy/boundary,
 stop and reconsider independent owner provisioning rather than bypass the gate.
 
-## Ordered deployment after AWS approval
+## Ordered deployment after AWS approval (historical checklist)
 
 1. Confirm current host/Compose/backup observations, the tailnet IPv4,
    authoritative Route 53 zone/record ownership, independent console access,
@@ -191,8 +206,9 @@ stop and reconsider independent owner provisioning rather than bypass the gate.
    MagicDNS/other public hosts, the private-zone apex, IP literals and alternate
    ports. Work-Mac positivity does not establish these server negatives or make
    old LLM endpoints unused for CI. The dotfiles are a separate authority;
-   retain Tailscale coordination and Serve.
-5. The operator requests Serve retirement while waiving actual ephemeral CI,
+   retain Tailscale coordination; Serve was retained until the separate
+   retirement stage.
+5. The operator requested Serve retirement while waiving actual ephemeral CI,
    isolated authenticated GOST denial and UDP/HTTP3 checks; preserve that
    residual risk explicitly. Before changing the host, admit a complete
    backup chain for its current Compose artifact and verify exact ownership of

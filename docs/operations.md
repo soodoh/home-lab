@@ -1,7 +1,13 @@
 # Operations
 
 This is the current operator path. Every admission decision uses source from the
-reviewed checkout and observations made during the current run.
+reviewed checkout and observations made during the current run. As of 2026-09-27,
+node-level Tailscale Serve is **absent**, its Docker-host TCP 8443/8444 grants
+are removed, and private Traefik serves Omada and LLM on tailnet TCP 443.
+Older stages below describe historical live states, not a rollback entitlement.
+Restoring Serve needs fresh admission, exact node-level ownership and separate
+host/policy approval. Actual CI, isolated remote GOST denials and UDP/HTTP3
+remain unverified by the approved retirement waiver.
 
 ## 1. Prepare a disposable controller
 
@@ -166,8 +172,8 @@ nonexistent path in the private temporary directory, then run
 `scripts/prepare-omada-plan-input`; it obtains a fresh live export through the
 private `https://omada.ts.diloreto.com` route on TCP 443 using the system trust
 store and read-only provider identity, including all port-forwarding rules in
-the selected site. The old Serve route remains available for rollback. The export must match every reviewed resource identity, but its settings are
-not desired state. A changed live setting must appear as drift against Git; do not
+the selected site. The old Serve route is no longer live. The export must
+match every reviewed resource identity, but its settings are not desired state. A changed live setting must appear as drift against Git; do not
 copy it into `desired.json` to make a plan pass. Do not print
 `tofu show -json`, state, private exports or saved plans. Apply only the saved plan
 inspected in the same session. After apply, run a new plan; zero proposed changes is
@@ -323,9 +329,9 @@ a separately approved promotion issued the production Let's Encrypt wildcard
 into protected `acme.json` and retained `acme-staging.json` for rollback.
 Host-local requests to both explicit routes returned 200 with strict TLS and
 a trusted wildcard certificate; an unlisted host returned 404. Public ingress
-still passes strict TLS and Serve 8443/8444 has no drift. At this earlier
+still passed strict TLS and Serve 8443/8444 had no drift. At that earlier
 production-CA stage, Omada/LLM client migration and Serve retirement still
-required separate access and negative-path reviews; Serve remains active now.
+required separate access and negative-path reviews; Serve remained active then.
 The staging chain did not cover the new production-CA artifact. A separately
 approved manual run of the native daily systemd target completed local and
 Proton units successfully; after live owner/journal inspection, the backup
@@ -345,11 +351,11 @@ source validation and site check mode, review the full 42-service Compose
 source swap and obtain separate operator approval. Both root-owned mode-0600
 ACME stores and their mode-0700 parent must remain protected; neither store
 is in Restic. Losing either requires reissuance subject to CA limits. After
-any certificate change, test strict TLS, explicit and negative routes, public
-ingress and Serve before changing client access. A changed Compose artifact
-requires another complete backup chain. On failure retain Serve, the prior
-Compose source and both stores; inspect the host lock, journal and before-images
-before retrying.
+any certificate change, test strict TLS, explicit and negative routes and public
+ingress before changing client access. A changed Compose artifact requires
+another complete backup chain. On failure retain the prior Compose source and
+both stores; inspect the host lock, journal and before-images before retrying.
+Serve is not a live rollback path after its separately approved retirement.
 
 ### Public ingress: Caddy to Traefik
 
@@ -450,20 +456,53 @@ still has no private router, but that configuration is not a UDP runtime test.
 These observations do not prove any later network state.
 
 The pre-apply backup chain protected the old Compose artifact. A read-only
-backup observation after host apply refused with `complete_chain_missing` on
-2026-09-27; the changed artifact is **not yet backup-admitted**. Observe a new
-complete chain before treating it as backed up or starting another ordinary
-host change requiring backup admission. Do not infer admission from the daily
-timer. The work-Mac rollout did not need to wait for that chain. Separately
+backup observation after the GOST host apply refused with
+`complete_chain_missing` on 2026-09-27. Later that day a separately authorized
+native manual backup completed local and Proton units; live observation admitted
+a complete games → NFS → Proton chain for the current Compose artifact
+`cdd05b1a7bad10787d3860a35002acb438fe77366d2437a4e0b43a28ac0cf9e4`.
+Reobserve before another host change; do not reuse this admission. The work-Mac
+rollout did not need to wait for that chain. Separately
 test the remote **server** whitelist with an authenticated client without a
 first-hop bypass: LLM and Omada CONNECT on port 443 must work with strict TLS,
 while MagicDNS peers, public destinations, the `ts.diloreto.com` apex,
 alternate ports and IP literals must be refused. The work-Mac client bypasses
 nonmatching destinations directly, so its negative request cannot prove the
 server boundary. GOST's [service-level whitelist and domain:port rules](https://gost.run/en/concepts/bypass/)
-are the server enforcement point. Keep Serve active. On failure, retain host locks, journals and source
-before-images until live inspection resolves them; reverting only one repo is
+are the server enforcement point. Serve has since been retired under an explicit
+verification waiver; these untested denials remain residual risk. On failure,
+retain host locks, journals and source before-images until live inspection
+resolves them; reverting only one repo is
 not a complete client rollback.
+
+### Tailscale Serve retirement: complete with waived client-path checks
+
+On 2026-09-27, the operator waived actual ephemeral CI, isolated authenticated
+GOST destination denials and UDP/HTTP3 tests and separately confirmed independent
+Docker-host console access. A native manual backup admitted the current Compose
+artifact before the change. With clean committed source `ab9442e2`, an exact
+protected two-route Serve before-image and passing focused/site check modes,
+the focused Ansible play reset only the owned node-level Serve configuration.
+The loopback Omada and CLIProxyAPI backends were not removed. Strict-TLS Omada
+returned 200, unauthenticated LLM returned 401, and an unlisted private host
+returned 404; both old ports refused connections before policy retirement.
+
+The operator then approved the exact inspected Tailscale saved plan SHA-256
+`a8433c4e24e767d52e55f6d6a72857ae378005a93d122b8d59d82f612d14f5d5`.
+Its one ACL update removed only the two old Serve grants and changed their
+policy tests, keeping SSH, TCP 443, direct owner Omada 8043, tag ownership and
+federation. A fresh provider read differed in ACL serialization only: the
+parsed live policy equaled the approved before-state. The exact saved plan
+applied with the separate apply identity; a fresh provider plan had zero changes.
+Afterward both old ports timed out and the three strict-TLS route checks passed.
+The Serve-role and full-site check modes had zero drift; all 42 Compose services
+were running, and the backup observer still admitted the same current artifact.
+One immediate post-reset Compose observation refused because a required
+container-health assertion failed under `no_log`; direct inspection then showed
+both required containers healthy, and repeat observation and site check mode
+passed. Do not claim a diagnosed cause for that transient failure. Preserve
+protected before-images until live inspection resolves any later anomaly; do
+not replay the old saved plan or treat deferred checks as passed.
 
 ### GOST relay hostname and account cutover (historical procedure)
 

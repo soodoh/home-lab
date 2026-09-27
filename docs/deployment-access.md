@@ -18,17 +18,16 @@ The deployment network policy is limited to:
 
 | Source | Destination | Ports |
 | --- | --- | --- |
-| Owner and administrator devices | Docker host | TCP 22, private ingress 443, direct Omada TLS 8043, and Tailscale Serve HTTPS 8443/8444 |
+| Owner and administrator devices | Docker host | TCP 22, private ingress 443, and direct Omada TLS 8043 |
 | Owner and administrator devices | Proxmox host | TCP 22 and TCP 8006 |
-| Ephemeral CI deployment nodes | Docker host | TCP 22, private ingress 443, and Tailscale Serve HTTPS 8443 |
+| Ephemeral CI deployment nodes | Docker host | TCP 22 and private ingress 443 |
 | Ephemeral CI deployment nodes | Proxmox host | TCP 22 and TCP 8006 |
 
-The live Tailscale policy still retains Serve grants until an exact saved-plan
-retirement is independently approved. The new desired policy removes only
-Docker-host TCP 8443/8444 and retains TCP 443, SSH and owner-only direct Omada
-8043. The earlier approved OpenTofu grant added Docker-host TCP 443 for
-owner/admin and CI while retaining Serve. This permits both private routes at
-the network layer, subject to separate application credentials. After apply,
+On 2026-09-27, the separately approved exact Tailscale saved plan removed
+Docker-host TCP 8443/8444 grants and retained TCP 443, SSH and owner-only
+direct Omada 8043. Its post-apply plan had no changes. The earlier approved
+grant had added Docker-host TCP 443 for owner/admin and CI. This permits both
+private routes at the network layer, subject to separate application credentials. After apply,
 the owner controller resolved both names to the reviewed address and reached
 both routes through strict TLS; a `tag:proxmox` source timed out on TCP 443.
 Provider policy tests and a fresh no-change plan passed. The operator reports
@@ -40,12 +39,14 @@ Docker-host LAN-IP:443 timed out. Forced-public-IP probes from both LAN and a
 cellular hotspot returned WAN TCP 80 redirects and TCP 443 404 for both names.
 UDP/HTTP3 was not separately exercised.
 
-CI is explicitly denied Omada's direct TLS port 8043, CLIProxyAPI HTTPS port 8444, and loopback HTTP port 8088.
+CI is explicitly denied Omada's direct TLS port 8043, retired Serve ports
+8443/8444, and loopback HTTP port 8088.
 Tailscale SSH separately permits only `ansible-deploy` for deployment identities.
 Personal account mappings remain distinct. The tracked Omada interface uses the system-trusted private Traefik hostname
-from local controllers; the old Serve endpoint remains for rollback. Future CI
-runners must use the new hostname and application credentials, but their actual
-path has been explicitly deferred rather than verified.
+from local controllers; the old Serve endpoints are absent. Reinstating them
+would require fresh backup/ownership checks and separate host and policy approval.
+Future CI runners must use the new hostname and application credentials, but
+their actual path has been explicitly deferred rather than verified.
 
 ## GitHub-hosted runners
 

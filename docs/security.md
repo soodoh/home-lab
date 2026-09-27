@@ -42,17 +42,18 @@ Omada provider and export helper use the private Traefik hostname
 publicly trusted certificate with the system trust store and hold no Omada CA
 or server private key. Omada forces API login from HTTP to its private-CA
 HTTPS listener, so the one bounded exception is Traefik's encrypted
-`https://127.0.0.1:8043` backend hop; the older Serve route retains its own
-loopback exception only for rollback. Neither hop leaves the Docker host;
-accepting them treats local host compromise as already inside the provider
-trust boundary. Do not broaden the exception to a LAN or
+`https://127.0.0.1:8043` backend hop. The retired Serve route's loopback
+exception remains only in rollback source; the live backend hop never leaves
+the Docker host. Accepting it treats local host compromise as already inside
+the provider trust boundary. Do not broaden the exception to a LAN or
 tailnet address, restore a hostname alias, expose a loopback listener, or disable
 client-side TLS verification.
 
 ## CLIProxyAPI tailnet boundary
 
-Tailscale Serve terminates HTTPS for CLIProxyAPI on the Docker host's tailnet
-identity at port 8444; Docker publishes its backend only on 127.0.0.1:8317.
+Private Traefik terminates HTTPS for CLIProxyAPI at `llm.ts.diloreto.com`
+on tailnet TCP 443; the old Tailscale Serve port 8444 is closed. Docker
+publishes its backend only on 127.0.0.1:8317.
 The API key and separate full-privilege management key are age-encrypted in
 `secrets/cli-proxy-api.sops.yaml` and rendered only to a root-owned protected
 runtime config. The management UI has no account-only role: its key can read,
