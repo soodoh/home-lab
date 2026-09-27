@@ -75,10 +75,6 @@ ACME_IDENTITY_CREATES = {
     ("aws_iam_policy.tail_ingress_acme", "aws_iam_policy"),
     ("aws_iam_user_policy_attachment.tail_ingress_acme", "aws_iam_user_policy_attachment"),
 }
-ACME_IDENTITY_UPDATES = {
-    ("aws_iam_policy.state_plan", "aws_iam_policy"),
-    ("aws_iam_policy.state_apply", "aws_iam_policy"),
-}
 ACME_IDENTITY_NAME = "home-lab-ts-ingress-acme"
 
 
@@ -368,9 +364,8 @@ def approved_identity_mutations(
             raise ValueError("identity approval contains a malformed resource/action")
         identity = (item["address"], item["type"])
         actions = item["actions"]
-        if not ((identity in ACME_IDENTITY_CREATES and actions == ["create"]) or
-                (identity in ACME_IDENTITY_UPDATES and actions == ["update"])):
-            raise ValueError("identity approval permits only the dedicated ACME identity and controller policy updates")
+        if identity not in ACME_IDENTITY_CREATES or actions != ["create"]:
+            raise ValueError("identity approval permits only creation of the dedicated ACME identity")
         entry = (*identity, tuple(actions))
         if entry in entries:
             raise ValueError("identity approval contains duplicate resources")
@@ -464,18 +459,7 @@ def controller_identity_failures(
                     ))
                     and (resource["type"] != "aws_iam_policy" or isinstance(after.get("policy"), str))
                 )
-                valid_update = (
-                    entry is not None and entry[:2] in ACME_IDENTITY_UPDATES and actions == ["update"]
-                    and isinstance(before, dict) and isinstance(after, dict)
-                    and before.get("name") == after.get("name") == (
-                        "home-lab-opentofu-state-plan" if resource["address"] == "aws_iam_policy.state_plan"
-                        else "home-lab-opentofu-state-apply"
-                    )
-                    and changed_keys(before, after) == {("policy",)}
-                    and isinstance(after.get("policy"), str)
-                    and known_identity_result(change.get("after_unknown", {}))
-                )
-                if location != "resource_changes" or entry not in approved or not (valid_create or valid_update) or (
+                if location != "resource_changes" or entry not in approved or not valid_create or (
                     not known_identity_result(change.get("after_sensitive", {})) or
                     not known_identity_result(change.get("before_sensitive", {}))
                 ):

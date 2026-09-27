@@ -23,9 +23,6 @@ RESOURCES = [
      "type": "aws_iam_user_policy_attachment", "mode": "managed",
      "change": {"actions": ["create"], "before": None, "after": {"user": USER, "policy_arn": None},
                 "after_unknown": {"policy_arn": True}}},
-    {"address": "aws_iam_policy.state_plan", "type": "aws_iam_policy", "mode": "managed",
-     "change": {"actions": ["update"], "before": {"name": "home-lab-opentofu-state-plan", "policy": "old"},
-                "after": {"name": "home-lab-opentofu-state-plan", "policy": "new"}}},
 ]
 
 
@@ -68,7 +65,8 @@ class AcmeApprovalTests(unittest.TestCase):
         for address, kind, actions in [
             ("aws_iam_access_key.tail_ingress_acme", "aws_iam_access_key", ["create"]),
             ("aws_iam_user.other", "aws_iam_user", ["create"]),
-            ("aws_iam_policy.state_apply", "aws_iam_policy", ["delete", "create"]),
+            ("aws_iam_policy.state_apply", "aws_iam_policy", ["update"]),
+            ("aws_iam_policy.state_plan", "aws_iam_policy", ["delete", "create"]),
         ]:
             with self.subTest(address=address):
                 extra = {"address": address, "type": kind, "mode": "managed", "change": {
@@ -117,9 +115,15 @@ class AcmeApprovalTests(unittest.TestCase):
         wrong_policy = deepcopy(self.plan)
         wrong_policy["resource_changes"][2]["change"]["after"]["policy_arn"] = "arn:aws:iam::123:policy/other"
         self.assertNotEqual(self.inspect(plan=wrong_policy, approval=self.approval()).returncode, 0)
-        extra_update = deepcopy(self.plan)
-        extra_update["resource_changes"][3]["change"]["after"]["description"] = "unexpected"
-        self.assertNotEqual(self.inspect(plan=extra_update, approval=self.approval()).returncode, 0)
+        controller_update = deepcopy(self.plan)
+        controller_update["resource_changes"].append({
+            "address": "aws_iam_policy.state_apply", "type": "aws_iam_policy", "mode": "managed",
+            "change": {"actions": ["update"],
+                       "before": {"name": "home-lab-opentofu-state-apply", "policy": "old"},
+                       "after": {"name": "home-lab-opentofu-state-apply", "policy": "new"}},
+        })
+        self.assertNotEqual(self.inspect(plan=controller_update,
+                                        approval=self.approval(controller_update["resource_changes"])).returncode, 0)
 
     def test_approval_shape_and_plan_completeness(self):
         approval = self.approval()

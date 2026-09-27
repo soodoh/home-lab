@@ -65,9 +65,10 @@ plans, backup admission, locks, rollback access, and check-mode gates.
 controller roles have external owner-controlled permissions boundaries, and
 `infrastructure/policy/inspect-plan.py` refuses managed IAM/Roles Anywhere
 mutations **by default**. A proposed, plan-bound exception now permits only
-exactly approved creation of this ACME user/policy/attachment and updates to
-the two named controller IAM policies. OpenTofu now declares those resources,
-but the exception alone does not provision an identity or credential.
+exactly approved creation of this ACME user/policy/attachment. Controller
+plan/apply IAM policy changes remain owner-only, including the initial
+bootstrap of the narrower DNS permissions. OpenTofu declares the identity,
+but the exception alone does not provision it or its credential.
 Neither a normal allowlist nor an exact-plan deletion approval overrides the
 identity gate. Do not add IAM users/keys/policies to a
 normal AWS plan or broaden the existing DDNS credential. The previous Route 53
@@ -87,7 +88,7 @@ ACME identity. Treat this as an independently reviewed security migration:
    controller's own IAM policies and the inspector as **one ownership
    protocol**, not merely an `aws_iam_*` address allowlist. The proposed
    inspector exception requires the verified root, resource type/address,
-   create/update-only operation, expected identity name and known fields,
+   create-only operation, expected identity name and known fields,
    complete drift-free plan and private exact-plan owner authorization. The
    owner must independently review the full policy document: an exact-plan
    approval does not itself prove least privilege. Retain absolute

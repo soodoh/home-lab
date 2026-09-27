@@ -47,21 +47,20 @@ mean the *one* ACME IAM user and managed policy in this account.
 
 | Role | Action(s) to add to `Allow` **and** `Deny.NotAction` exemption | Resource/condition |
 | --- | --- | --- |
-| Plan | `route53:ListHostedZonesByName` | `*` (AWS requires this resource scope) |
-| Plan | `route53:GetHostedZone`, `route53:ListResourceRecordSets` | `ZONE_ARN` |
-| Apply | The plan Route 53 reads | Same scopes |
+| Plan | `route53:GetHostedZone`, `route53:ListResourceRecordSets` | `ZONE_ARN`; the data source looks up the reviewed zone **by ID** |
+| Apply | The plan Route 53 reads | Same scope |
 | Apply | `route53:ChangeResourceRecordSets` | `ZONE_ARN`; **all** names `\052.ts.diloreto.com`, types `A`, actions `CREATE` or `UPSERT` via `ForAllValues:StringEquals` conditions |
 | Apply | `iam:CreateUser`, `iam:PutUserPermissionsBoundary`, `iam:TagUser` | `USER_ARN` only; the created user must receive the owner-controlled ACME boundary |
 | Apply | `iam:CreatePolicy`, `iam:TagPolicy` | `POLICY_ARN` only |
 | Apply | `iam:AttachUserPolicy` | `USER_ARN` only, conditioned with `iam:PolicyARN == POLICY_ARN` |
-| Apply | `iam:CreatePolicyVersion`, `iam:SetDefaultPolicyVersion`, `iam:DeletePolicyVersion` | Only `home-lab-opentofu-state-plan` and `home-lab-opentofu-state-apply` policy ARNs; required for their own declared updates |
 
 `\052` above represents a **literal backslash followed by 052** in the
 normalized Route 53 condition value. JSON encodes this as `\\052`. The DNS name is not an IAM glob: using `*.ts.diloreto.com` as the
 condition value would be wrong. See [AWS Route 53 condition normalization](https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/specifying-conditions-route53.html).
 Do not add `iam:CreateAccessKey`, wildcard Route 53 writes, other IAM role
 writes, or a general IAM action wildcard. Existing owner identity guards still
-apply to the actual OpenTofu saved plan.
+apply to the actual OpenTofu saved plan. Controller IAM policy version writes
+remain owner-only; the apply role does **not** gain those actions.
 
 ## Independently owned ACME user boundary
 
@@ -86,11 +85,18 @@ identity or revoke its key.
 
 1. Independently review the entire current external boundary documents and the
    generated in-repo controller policy deltas. The controller **apply** role
-   currently cannot write its own IAM policy; adding the Terraform source did
-   not grant anything. Prepare protected before-images and exact owner-approved
-   external policy versions, including the `Deny.NotAction` updates. Establish
-   the ACME user boundary independently. Stop on any unexpected existing
-   identity, public-zone record, policy version constraint or unrelated change.
+   cannot write its own IAM policy and must never gain that ability as part of
+   this change. Prepare protected before-images and exact owner-approved
+   external policy versions, including the `Deny.NotAction` updates. The apply
+   boundary is near AWS's [6,144-character managed-policy limit](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_iam-quotas.html#reference_iam-quotas-entity-length);
+   an additive seven-statement draft exceeded it. To fit while preserving
+   behavior, the owner must verify the equivalence of compacting existing
+   unconditional `Resource: "*"` Allow statements and combining new typed
+   user/policy-create actions on their exact two ARNs. Do **not** replace any
+   resource list with a wildcard, drop the explicit deny, or introduce
+   `iam:*`/`route53:*` exemptions merely to fit. Establish the ACME user
+   boundary independently. Stop on any unexpected existing identity,
+   public-zone record, policy size/version limit or unrelated change.
 2. After owner bootstrap, the tracked state policies may drift from the live
    owner-updated documents. The normal inspector must refuse such identity
    drift. Follow the separately reviewed *refresh-only* state reconciliation

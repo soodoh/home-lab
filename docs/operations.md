@@ -177,8 +177,8 @@ the completion criterion.
 
 The plan inspector's default still refuses **all** managed IAM/Roles Anywhere
 mutations. A narrow exception exists only for the reviewed `aws-foundation`
-ACME DNS-01 user, policy, user-policy attachment and controller plan/apply
-policy updates. It requires a current-run mode-0600 file **outside Git**, bound
+ACME DNS-01 user, policy and user-policy attachment **creations**. Controller
+plan/apply policy updates remain owner-only. It requires a current-run mode-0600 file **outside Git**, bound
 to the exact saved-plan SHA-256 and listing every changed IAM identity resource
 by address, type and actions. This is not an allowlist or a general IAM
 bootstrap mechanism. Managed OIDC providers, access keys, imports, tracking
@@ -212,9 +212,7 @@ resources, not a blanket list:
   "identity_mutations": [
     { "address": "aws_iam_user.tail_ingress_acme", "type": "aws_iam_user", "actions": ["create"] },
     { "address": "aws_iam_policy.tail_ingress_acme", "type": "aws_iam_policy", "actions": ["create"] },
-    { "address": "aws_iam_user_policy_attachment.tail_ingress_acme", "type": "aws_iam_user_policy_attachment", "actions": ["create"] },
-    { "address": "aws_iam_policy.state_plan", "type": "aws_iam_policy", "actions": ["update"] },
-    { "address": "aws_iam_policy.state_apply", "type": "aws_iam_policy", "actions": ["update"] }
+    { "address": "aws_iam_user_policy_attachment.tail_ingress_acme", "type": "aws_iam_user_policy_attachment", "actions": ["create"] }
   ]
 }
 ```

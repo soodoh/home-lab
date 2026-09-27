@@ -1,8 +1,7 @@
 # The public hosted zone is independently owned. Read its identity; do not
 # import or manage the zone or overwrite an unobserved record.
 data "aws_route53_zone" "public" {
-  name         = "diloreto.com."
-  private_zone = false
+  zone_id = var.tail_ingress_zone_id
 }
 
 locals {
@@ -23,8 +22,12 @@ resource "aws_route53_record" "tail_ingress" {
 
   lifecycle {
     precondition {
-      condition     = data.aws_route53_zone.public.zone_id == var.tail_ingress_zone_id
-      error_message = "The independently reviewed public hosted-zone ID does not match the authoritative zone lookup."
+      condition = (
+        data.aws_route53_zone.public.zone_id == var.tail_ingress_zone_id &&
+        data.aws_route53_zone.public.name == "diloreto.com." &&
+        !data.aws_route53_zone.public.private_zone
+      )
+      error_message = "The independently reviewed zone must be the public diloreto.com hosted zone."
     }
   }
 }
