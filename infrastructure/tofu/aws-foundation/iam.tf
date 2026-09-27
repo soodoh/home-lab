@@ -108,7 +108,7 @@ resource "aws_rolesanywhere_profile" "controller_apply" {
 
 data "aws_iam_policy_document" "state_plan" {
   statement {
-    actions   = ["route53:GetHostedZone", "route53:ListResourceRecordSets"]
+    actions   = ["route53:GetHostedZone", "route53:ListResourceRecordSets", "route53:ListTagsForResource"]
     resources = [local.tail_ingress_zone_arn]
   }
   statement {
@@ -181,7 +181,7 @@ data "aws_iam_policy_document" "state_plan" {
 
 data "aws_iam_policy_document" "state_apply" {
   statement {
-    actions   = ["route53:GetHostedZone", "route53:ListResourceRecordSets"]
+    actions   = ["route53:GetHostedZone", "route53:ListResourceRecordSets", "route53:ListTagsForResource"]
     resources = [local.tail_ingress_zone_arn]
   }
   statement {

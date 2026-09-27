@@ -47,7 +47,7 @@ mean the *one* ACME IAM user and managed policy in this account.
 
 | Role | Action(s) to add to `Allow` **and** `Deny.NotAction` exemption | Resource/condition |
 | --- | --- | --- |
-| Plan | `route53:GetHostedZone`, `route53:ListResourceRecordSets` | `ZONE_ARN`; the data source looks up the reviewed zone **by ID** |
+| Plan | `route53:GetHostedZone`, `route53:ListResourceRecordSets`, `route53:ListTagsForResource` | `ZONE_ARN`; the data source looks up the reviewed zone **by ID** and the AWS provider also reads its tags |
 | Apply | The plan Route 53 reads | Same scope |
 | Apply | `route53:ChangeResourceRecordSets` | `ZONE_ARN`; **all** names `\052.ts.diloreto.com`, types `A`, actions `CREATE` or `UPSERT` via `ForAllValues:StringEquals` conditions |
 | Apply | `iam:CreateUser`, `iam:PutUserPermissionsBoundary`, `iam:TagUser` | `USER_ARN` only; the created user must receive the owner-controlled ACME boundary |
@@ -94,8 +94,14 @@ identity or revoke its key.
    unconditional `Resource: "*"` Allow statements and combining new typed
    user/policy-create actions on their exact two ARNs. Do **not** replace any
    resource list with a wildcard, drop the explicit deny, or introduce
-   `iam:*`/`route53:*` exemptions merely to fit. Establish the ACME user
-   boundary independently. Stop on any unexpected existing identity,
+   `iam:*`/`route53:*` exemptions merely to fit. The zone-by-ID lookup also
+   requires `route53:ListTagsForResource` on `ZONE_ARN`; independently review
+   its incremental policy versions before updating the owner-controlled
+   boundaries and state policies. The compact apply boundary then has only a
+   few characters of quota headroom, and each fifth version fills the managed
+   policy version quota; preserve the older versions for rollback and redesign
+   rather than deleting a version without a new owner review. Establish the
+   ACME user boundary independently. Stop on any unexpected existing identity,
    public-zone record, policy size/version limit or unrelated change.
 2. After owner bootstrap, the tracked state policies may drift from the live
    owner-updated documents. The normal inspector must refuse such identity
