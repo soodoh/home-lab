@@ -102,10 +102,15 @@ checksum passed after apply. The operator reports that dotfiles commit
 `e9c745f` on the actual work Mac passed strict-TLS LLM access, a real API-key
 request, Omada login and Tailscale coordination. System PAC remains off;
 browser access and the remote server's denied-target boundary are unverified.
-A post-apply backup observation refused with `complete_chain_missing`; the
-changed Compose artifact needs a complete observed chain before further ordinary
-host changes. Serve retirement still requires actual CI and WAN/LAN negative
-checks and a separate approval.
+The TCP network negatives passed on 2026-09-27: `tag:proxmox` timed out on
+both private routes, direct Docker-host LAN-IP:443 timed out, and forced-public-IP
+probes from both LAN hairpin and an independent cellular hotspot returned 301
+on WAN port 80 and 404 on WAN port 443 for both private hostnames. The cellular
+client's public egress differed from the home WAN IP and its route did not use
+Tailscale. UDP/HTTP3 was not separately exercised. A post-apply backup
+observation refused with `complete_chain_missing`; the changed Compose artifact
+needs a complete observed chain before further ordinary host changes. Serve
+retirement still requires actual CI checks and a separate approval.
 
 The owner chose to redesign the IAM gate rather than manually provision the
 ACME identity. Treat this as an independently reviewed security migration:

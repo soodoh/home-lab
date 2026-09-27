@@ -28,9 +28,14 @@ owner/admin and CI while retaining Serve. This permits both private routes at
 the network layer, subject to separate application credentials. After apply,
 the owner controller resolved both names to the reviewed address and reached
 both routes through strict TLS; a `tag:proxmox` source timed out on TCP 443.
-Provider policy tests and a fresh no-change plan passed. Actual ephemeral CI
-access and application credentials still need verification. The work Mac's
-authenticated GOST exception is separate and is not yet migrated.
+Provider policy tests and a fresh no-change plan passed. The operator reports
+work-Mac GOST access, authenticated LLM and Omada operation and Tailscale
+coordination working; system PAC is off. Actual ephemeral CI access and its
+application credentials remain unverified. On 2026-09-27, a fresh
+`tag:proxmox` source timed out on both private names; LAN direct access to
+Docker-host LAN-IP:443 timed out. Forced-public-IP probes from both LAN and a
+cellular hotspot returned WAN TCP 80 redirects and TCP 443 404 for both names.
+UDP/HTTP3 was not separately exercised.
 
 CI is explicitly denied Omada's direct TLS port 8043, CLIProxyAPI HTTPS port 8444, and loopback HTTP port 8088.
 Tailscale SSH separately permits only `ansible-deploy` for deployment identities.

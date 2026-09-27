@@ -322,9 +322,9 @@ a separately approved promotion issued the production Let's Encrypt wildcard
 into protected `acme.json` and retained `acme-staging.json` for rollback.
 Host-local requests to both explicit routes returned 200 with strict TLS and
 a trusted wildcard certificate; an unlisted host returned 404. Public ingress
-still passes strict TLS and Serve 8443/8444 has no drift. **Do not migrate
-Omada/LLM clients or remove Serve** until tailnet grants, actual client access,
-application authentication and negative network paths pass separate reviews.
+still passes strict TLS and Serve 8443/8444 has no drift. At this earlier
+production-CA stage, Omada/LLM client migration and Serve retirement still
+required separate access and negative-path reviews; Serve remains active now.
 The staging chain did not cover the new production-CA artifact. A separately
 approved manual run of the native daily systemd target completed local and
 Proton units successfully; after live owner/journal inspection, the backup
@@ -333,9 +333,10 @@ Reobserve before another apply; admission from an earlier run is not reusable.
 A separately approved exact Tailscale saved plan added owner/admin and CI access
 to Docker-host TCP 443 without removing Serve grants. The owner controller
 reached both routes with strict TLS; `tag:proxmox` could not connect. The
-Tailscale provider policy tests and a fresh no-change plan passed. CI's actual
-application-authenticated path, WAN negatives, the GOST work-Mac exception and
-client migration remain unverified and separately reviewed.
+Tailscale provider policy tests and a fresh no-change plan passed. At this
+earlier grant stage, CI's actual application-authenticated path, WAN negatives
+and the GOST work-Mac exception were still unverified. Later sections record
+the work-Mac report and TCP negative observations; CI remains deferred.
 
 Before any further host change, reobserve host identity/IP, TCP 443 ownership,
 Compose, backups, source artifact and Route 53 record/credential scope. Run
@@ -433,6 +434,19 @@ the Tailscale daemon merely for this change. GOST admits both private routes,
 **including Omada**. Future services need separately reviewed private Traefik
 routers and application authentication; the Authentik relay handshake does not
 protect a backend (Omada has its own login).
+
+Read-only network negatives on 2026-09-27 passed for TCP: a live
+`tag:proxmox` source timed out reaching either private hostname on the
+Docker-host tailnet IP:443. From the LAN, direct Docker-host LAN-IP:443 timed
+out; forcing each private hostname to the observed public WAN IP returned
+301 on port 80 and 404 on port 443. After the controller moved to a cellular
+hotspot, its public egress IP differed from the home WAN IP and its WAN route
+used the cellular interface, not a Tailscale exit node. The same forced-WAN
+probes returned 301/404 for both hostnames. No redirect was followed, no
+application credential was sent, and response bodies were discarded. The
+443/UDP HTTP/3 path was **not separately exercised**; the public Traefik
+still has no private router, but that configuration is not a UDP runtime test.
+These observations do not prove any later network state.
 
 The pre-apply backup chain protected the old Compose artifact. A read-only
 backup observation after host apply refused with `complete_chain_missing` on
