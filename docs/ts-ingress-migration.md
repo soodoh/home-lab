@@ -59,7 +59,7 @@ plans, backup admission, locks, rollback access, and check-mode gates.
   listener. Do not change it merely for this ingress; verify the actual Docker
   VM/host firewall, Tailscale grants and Docker port/network behavior.
 
-## AWS ownership stage: reviewed bootstrap complete; runtime still pending
+## AWS ownership stage: reviewed bootstrap complete; staging runtime deployed
 
 `aws-foundation` does not own the public hosted zone; it now owns only the exact
 `*.ts.diloreto.com` A record in that zone. Its
@@ -78,11 +78,14 @@ The owner bootstrap, exact wildcard record and ACME IAM resources are live,
 with a fresh drift-free, no-change `aws-foundation` plan. A failed Route 53
 synchronization poll required separate state recovery and a scoped controller
 `GetChange` owner correction; both were independently reviewed. The ACME user
-now has one scoped access key encrypted in `secrets/production.sops.yaml` but
-**no private Traefik runtime is deployed**; Serve is unchanged. The staged
-private instance uses a separate ACME staging CA/store and cannot yet serve
-strictly trusted client TLS. No past plan approval authorizes host deployment
-or production-CA promotion.
+now has one scoped access key encrypted in `secrets/production.sops.yaml`.
+A separately approved host convergence deployed the private staging runtime;
+Serve is unchanged. The wildcard staging certificate was issued, both explicit
+routes answered over host-local staging TLS, and an unlisted route returned 404.
+Strict client TLS correctly rejects the staging certificate. A new complete
+backup chain for the changed Compose artifact has not yet been admitted.
+Production-CA promotion, client grants/migration and Serve retirement each
+require their own review; no past AWS approval authorizes them.
 
 The owner chose to redesign the IAM gate rather than manually provision the
 ACME identity. Treat this as an independently reviewed security migration:
@@ -141,7 +144,8 @@ stop and reconsider independent owner provisioning rather than bypass the gate.
 2. Add private Traefik as a separate host-network service. Bind only the
    reviewed Tailscale IP on TCP 443. Configure explicit Omada and LLM routers,
    DNS-01, distinct protected ACME state and scoped AWS credentials. Keep the
-   public Traefik untouched and Serve active. Verify Omada API authentication
+   public Traefik untouched and Serve active. Stage and verify DNS-01 first;
+   separately approve production-CA promotion and verify Omada API authentication
    and CLIProxyAPI management/API-key paths with strict client TLS. An Omada
    backend TLS exception must remain confined to `127.0.0.1:8043`.
 3. Change Tailscale grants to permit owner/admin and CI on Docker-host TCP

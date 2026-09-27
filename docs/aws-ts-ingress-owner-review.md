@@ -114,9 +114,10 @@ permissions are the intersection of its attachment and the boundary. Review
 ACME issuance and renewal behavior before optionally narrowing change actions.
 The boundary itself is not an OpenTofu-owned resource in this root. The runtime
 key was issued separately by the owner into protected SOPS deployment
-material, **never** state, Git plaintext or a command log. It has not yet
-been deployed to the host. Do not reuse the live DDNS identity or revoke its
-key.
+material, **never** state, Git plaintext or a command log. A separately
+approved staging deployment rendered it into the protected root-owned Compose
+environment on the Docker host, only for the private container. Do not reuse
+the live DDNS identity or revoke its key.
 
 ## Ownership sequence requiring separate approvals
 
@@ -155,7 +156,9 @@ key.
    `--approve-identity-file` for that one saved plan. Apply only with the
    controller **apply** identity after separate explicit approval and require
    a fresh no-op plan. No approval file is reusable across plans.
-4. A later, separately reviewed runtime credential issuance and private
-   Traefik deployment must pass DNS-01 staging, strict TLS, public-ingress
-   negative tests and fresh recovery admission before migrating clients or
-   retiring Serve. See [the ingress migration](ts-ingress-migration.md).
+4. The separately reviewed credential issuance and private staging deployment
+   are complete; DNS-01 issued a staging wildcard certificate. The changed
+   Compose artifact still needs a fresh admitted backup chain. Separately
+   review production-CA promotion, strict TLS and public-ingress negative
+   tests before migrating clients or retiring Serve. See
+   [the ingress migration](ts-ingress-migration.md).

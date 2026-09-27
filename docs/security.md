@@ -21,9 +21,10 @@ or to deployment artifacts. For a local controller, separate plan/apply provider
 identities may be exported from a mode-0600 gitignored `.env` or a protected
 credential store. The local file is persistent plaintext: protect it independently,
 never commit or log it, and rotate credentials if it is exposed. The dedicated
-tailnet Traefik ACME access key is held only as ciphertext in
-`secrets/production.sops.yaml` until deployment renders the root-owned
-`/etc/docker-compose/production.env`. Only the private Traefik container
+tailnet Traefik ACME access key is held as ciphertext in
+`secrets/production.sops.yaml` and rendered into the root-owned
+`/etc/docker-compose/production.env` on the staging host. Only the private
+Traefik container
 receives its `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`; the public ingress
 must never inherit them. A staging-CA certificate is not trusted by ordinary
 clients and does not authorize endpoint migration. The non-AWS helper
