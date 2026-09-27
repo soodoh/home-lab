@@ -1,3 +1,4 @@
+---
 services:
   - name: tailscale-control-proxy
     addr: ":8080"
@@ -17,6 +18,6 @@ bypasses:
       - "tailscale.com:443"
       - "*.tailscale.com:80"
       - "*.tailscale.com:443"
-      # Intentional owner-approved expansion: every MagicDNS peer and TCP port.
-      # The Authentik app password now gates host-reachable tailnet services.
-      - "*.mora-rattlesnake.ts.net"
+      # Authenticated off-tailnet exception: private ingress hostnames on HTTPS only.
+      # Each private Traefik route still needs its own application authorization.
+      - "*.ts.diloreto.com:443"

@@ -412,6 +412,43 @@ cleanup removed both Caddy stores, a future Caddy rollback cannot reuse its old
 certificates; it must reissue them and honor CA limits. The steps above record the
 cutover gates, not permission to replay a plan or delete additional resources.
 
+### Pending private-subdomain HTTPS GOST cutover
+
+The prepared proposal changes the Docker-host GOST whitelist from broad
+`*.mora-rattlesnake.ts.net` access to `*.ts.diloreto.com:443`, while retaining
+the four existing `tailscale.com` control-plane matchers. This admits both
+existing private routes, **including Omada**, not only LLM. The separate
+work-Mac dotfiles proposal changes its first-hop matcher and PAC routing to
+the same wildcard on HTTPS port 443; its CLIProxyAPI base URL and PAC activation
+check still target the specific LLM hostname. Neither proposal is deployed.
+Future services require separately reviewed explicit private Traefik routes and
+their own application authentication; the Authentik relay handshake does not
+add Authentik protection to a backend (Omada uses its own login). Use one
+separately approved host site convergence, then a separately approved work-Mac
+rollout; expect a short LLM interruption between the two. Do not restart the
+work-Mac Tailscale daemon merely for this change. Preserve the independent
+work-Mac control-plane transport throughout.
+
+Before host convergence, reobserve the Docker host, the current production
+backup chain and Compose state, validate both repository sources, run site check
+mode and confirm independent console/rollback access. A changed Compose artifact
+invalidates the prior backup-chain admission until a new complete chain is
+observed; the coordinated work-Mac rollout follows the verified server change
+without waiting for that new chain, but further host changes do not. After
+convergence, test the remote **server** whitelist with an isolated
+authenticated client that has no first-hop bypass: LLM and Omada CONNECT on
+port 443 with strict TLS must work, while MagicDNS peers, public destinations,
+the `ts.diloreto.com` apex, alternate ports and IP literals must be refused.
+A nonexistent private hostname must not gain a Traefik backend. Verify LLM API
+and Omada application authentication separately. The work-Mac client bypasses nonmatching destinations directly, so its negative
+request cannot prove the server boundary. GOST's
+[service-level whitelist and domain:port rules](https://gost.run/en/concepts/bypass/)
+are the server enforcement point. Only after server verification, apply the
+reviewed work-Mac profile changes and test real CLIProxyAPI API-key access plus
+Tailscale control-plane transport. Keep Serve active. On failure, retain host locks/journals and source before-images until
+live inspection resolves them; a Git revert of only one repo is not a complete
+client rollback.
+
 ### GOST relay hostname and account cutover (historical procedure)
 
 The relay has three independently recoverable layers: the Authentik identity

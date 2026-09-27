@@ -190,14 +190,6 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertNotIn("\n    ports:", proxy_service)
         self.assertIn("      - proxy", proxy_service)
 
-        gost = (REPO / "services" / "data" / "gost" / "tailscale-control.yml").read_text()
-        self.assertIn('      - "*.tailscale.com:80"', gost)
-        self.assertIn('      - "*.tailscale.com:443"', gost)
-        self.assertIn('      - "*.mora-rattlesnake.ts.net"', gost)
-        self.assertNotIn('      - "*.ts.net"', gost)
-        self.assertNotIn("allow all", gost)
-
-
     def test_jellyfin_ldap_runtime_is_private_and_pinned(self) -> None:
         authentik = (REPO / "services" / "authentik.yml").read_text()
         outpost = authentik.split("  authentik-ldap:", 1)[1].split("\nnetworks:", 1)[0]

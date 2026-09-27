@@ -47,11 +47,15 @@ plans, backup admission, locks, rollback access, and check-mode gates.
   grants until clients have migrated; remove `8443`/`8444` after Serve retirement.
   Decide separately whether direct Omada TCP 8043 is still needed for owners.
 - GOST's existing `*.mora-rattlesnake.ts.net` any-port matcher is broader than
-  this use case. After migrating the work-Mac client, replace it with the exact
-  `llm.ts.diloreto.com:443` destination, retain only the required Tailscale
-  control-plane destinations, and test the **remote** whitelist. GOST reaches
-  the private ingress using the Docker host's network identity; a client with
-  the relay app password can CONNECT without being on the tailnet. That
+  this use case. The separately approved tight cutover replaces the remote
+  matcher first with `*.ts.diloreto.com:443`, retains the required Tailscale
+  control-plane destinations, tests the **remote** whitelist, then switches
+  the work-Mac client. This includes Omada as well as LLM; each route needs
+  its own application credentials, and future services need explicit private
+  Traefik routers and appropriate Authentik protection where intended. A short
+  LLM interruption is acceptable. GOST reaches the private ingress using the
+  Docker host's network identity; a client with the relay app password can
+  CONNECT without being on the tailnet. That
   password is an ingress credential, not an API key. Do not call this path
   tailnet-only or unauthenticated. Check GOST DNS resolution of the new record,
   including resolver rebinding behavior, from inside its container.
@@ -93,7 +97,9 @@ plan passed. The local Omada provider/export source now uses the new hostname:
 authenticated exports through Serve and private Traefik returned identical
 managed state, and a fresh new-route Omada plan had zero actions and no drift.
 The operator reports off-tailnet access blocked; actual CI access is explicitly
-deferred, not proven. GOST/work-Mac and LLM application-authenticated access,
+deferred, not proven. The `*.ts.diloreto.com:443` GOST and work-Mac client
+changes are prepared across two repositories for a single coordinated cutover,
+**not applied**. LLM application-authenticated access through that relay,
 remaining client migration and Serve retirement still require separate review;
 no past AWS, TLS, backup or grant approval authorizes them.
 
@@ -162,17 +168,22 @@ stop and reconsider independent owner provisioning rather than bypass the gate.
    443; test both routes from owner and CI, and an unauthorized tailnet source.
    From outside the LAN, force each `*.ts.diloreto.com` hostname to the public
    IP and verify no application route; test from the LAN and against both WAN
-   forwards. Test GOST's exact CONNECT allowance, strict TLS, and refusal of
-   Omada/other tailnet destinations with a client lacking local bypasses.
-4. Move the Omada OpenTofu provider URL, protected export helper, local and CI
-   controllers, work-Mac client, site health checks and GOST whitelist to the
-   new names. Verify a fresh Omada export/plan and real work-Mac request before
-   treating old endpoints as unused. The work-Mac dotfiles are a separate
-   authority; coordinate their rollout without breaking its Tailscale control
-   proxy. Update security, operations, deployment-access and architecture docs.
-5. Only then remove the Serve role/play and reset **only its observed owned
-   node-level config**, drop the `8443`/`8444` grants and check that both old
-   routes are closed. Do not remove Omada loopback or CLIProxyAPI loopback
+   forwards. Actual ephemeral CI runner checks remain deferred until that
+   runner exists; never infer them from policy tests.
+4. The Omada provider URL and protected export helper have moved, with an
+   authenticated export and no-op plan. Separately approve the prepared GOST
+   server matcher change first, test LLM and Omada CONNECT with strict TLS,
+   application authentication and refusal of MagicDNS/other public hosts,
+   the private-zone apex and alternate ports using a client without local
+   bypasses, then roll out the work-Mac first-hop, base URL and PAC changes.
+   Verify a real authenticated work-Mac request before treating the old LLM
+   endpoint as unused. The work-Mac dotfiles are a separate authority; keep
+   Tailscale coordination available. Update security, operations,
+   deployment-access and architecture docs.
+5. Only after the actual CI runner, application clients, work Mac and denied
+   WAN/LAN paths are verified, separately approve Serve retirement. Remove the
+   Serve role/play and reset **only its observed owned node-level config**,
+   drop the `8443`/`8444` grants and check that both old routes are closed. Do not remove Omada loopback or CLIProxyAPI loopback
    publications if the new host-network Traefik still uses them. Reobserve
    Compose, backups and provider state; keep independent rollback access and
    preserved before-images until the new route is qualified.

@@ -94,7 +94,10 @@ credentials and encrypted bundles live outside Git.
   public TLS, Authentik admits only the `gost-proxy-user` service account,
   and the private GOST service permits `tailscale.com` on TCP 80/443 plus
   `*.mora-rattlesnake.ts.net` on any TCP port. This owner-approved expansion
-  exposes all host-reachable tailnet peers and ports to the relay credential;
+  exposes all host-reachable tailnet peers and ports to the relay credential
+  **until** the prepared `*.ts.diloreto.com:443` GOST and work-Mac source
+  changes are separately deployed and verified. That boundary includes both
+  current private routes and requires explicit routers for future services.
   Tailscale evaluates relay egress as the Docker-host node, not the work Mac.
   GOST alone uses the host-observed MagicDNS and public resolvers because Docker's
   default DNS cannot resolve tailnet peers. Other Internet destinations remain

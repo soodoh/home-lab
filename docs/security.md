@@ -67,9 +67,16 @@ gates the proxy handshake with the existing service-account app password; the
 API and management keys remain separate service credentials. Anyone holding the
 proxy credential can reach host-accessible tailnet services, including management
 paths and other peers (for example Proxmox on port 8006). Tailscale evaluates
-those egress connections as the Docker-host node, not the work Mac. GOST cannot
-filter paths inside HTTPS tunnels. Treat loss of the proxy credential as loss of
-this broader network boundary and revoke it as described below.
+those egress connections as the Docker-host node, not the work Mac. The
+prepared, **not yet deployed**, two-repository cutover narrows the remote and
+local GOST matchers to `*.ts.diloreto.com:443` while retaining Tailscale
+control-plane destinations. This includes the existing Omada and LLM private
+routes; Omada uses its own login, and future routes need separately configured
+application authorization (including Authentik where intended). The relay
+handshake alone does not authenticate access to a backend. Until server
+convergence, the broad live matcher remains authoritative. GOST cannot filter
+paths inside HTTPS tunnels. Treat loss of the proxy credential as loss of this
+network boundary and revoke it as described below.
 
 ## SSH and privilege
 
