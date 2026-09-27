@@ -90,12 +90,10 @@ http:
     books:
       rule: "Host(`books.diloreto.com`)"
       entryPoints: [websecure]
-      middlewares: [books-scheme]
       service: books
     nextcloud:
       rule: "Host(`nextcloud.diloreto.com`)"
       entryPoints: [websecure]
-      middlewares: [nextcloud-hsts]
       service: nextcloud
     todo:
       rule: "Host(`todo.diloreto.com`)"
@@ -107,15 +105,10 @@ http:
       service: karaoke
 
   middlewares:
-    books-scheme:
+    hsts:
       headers:
         # All application routes terminate TLS on websecure.
-        customRequestHeaders:
-          X-Scheme: https
-    nextcloud-hsts:
-      headers:
-        customResponseHeaders:
-          Strict-Transport-Security: "max-age=15552000"
+        stsSeconds: 15552000
 
   services:
     authentik:

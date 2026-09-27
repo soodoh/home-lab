@@ -32,13 +32,14 @@ test('the public host allowlist routes to the intended private backends', () => 
     assert.equal(route.rule, `Host(\`${host}.diloreto.com\`)`);
     assert.deepEqual(route.entryPoints, ['websecure']);
     assert.equal(route.service, service);
+    assert.equal(route.middlewares, undefined);
     assert.ok(dynamic.services[service].loadBalancer.servers[0].url.startsWith('http://'));
   }
   assert.equal(dynamic.services.authentik.loadBalancer.servers[0].url, 'http://authentik-server:9000');
   assert.equal(dynamic.services.hass.loadBalancer.servers[0].url, 'http://172.23.0.1:8123');
 });
 
-test('redirects, certificates, HTTP/3, and special headers preserve ingress behavior', () => {
+test('redirects, certificates, HTTP/3, and uniform HSTS preserve ingress policy', () => {
   const entries = staticConfig.entryPoints;
   assert.equal(entries.web.address, ':80');
   assert.equal(entries.web.http.redirections.entryPoint.to, 'websecure');
@@ -46,15 +47,13 @@ test('redirects, certificates, HTTP/3, and special headers preserve ingress beha
   assert.equal(entries.web.http.redirections.entryPoint.permanent, true);
   assert.equal(entries.websecure.address, ':443');
   assert.deepEqual(entries.websecure.http3, {});
+  assert.deepEqual(entries.websecure.http.middlewares, ['hsts@file']);
+  assert.deepEqual(dynamic.middlewares, { hsts: { headers: { stsSeconds: 15552000 } } });
   assert.equal(entries.websecure.http.tls.certResolver, 'letsencrypt');
   assert.equal(staticConfig.certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint, 'web');
   assert.equal(staticConfig.certificatesResolvers.letsencrypt.acme.storage, '/data/acme.json');
   assert.equal(staticConfig.providers.file.filename, '/etc/traefik/routes.yml');
   assert.equal(staticConfig.providers.docker, undefined);
-  assert.deepEqual(dynamic.routers.books.middlewares, ['books-scheme']);
-  assert.equal(dynamic.middlewares['books-scheme'].headers.customRequestHeaders['X-Scheme'], 'https');
-  assert.deepEqual(dynamic.routers.nextcloud.middlewares, ['nextcloud-hsts']);
-  assert.equal(dynamic.middlewares['nextcloud-hsts'].headers.customResponseHeaders['Strict-Transport-Security'], 'max-age=15552000');
 });
 
 test('NAT, Compose, trusted proxy, and certificate persistence agree', () => {

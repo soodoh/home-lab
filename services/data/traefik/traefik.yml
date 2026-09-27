@@ -13,6 +13,7 @@ entryPoints:
     address: ":443"
     http3: {}
     http:
+      middlewares: [hsts@file]
       tls:
         certResolver: letsencrypt
 
