@@ -92,13 +92,12 @@ credentials and encrypted bundles live outside Git.
 - `gost.diloreto.com` is an authenticated WebSocket transport for the
   work Mac's Tailscale coordination and CLIProxyAPI traffic. Traefik terminates
   public TLS, Authentik admits only the `gost-proxy-user` service account,
-  and the private GOST service permits `tailscale.com` on TCP 80/443 plus
-  `*.mora-rattlesnake.ts.net` on any TCP port. This owner-approved expansion
-  exposes all host-reachable tailnet peers and ports to the relay credential
-  **until** the prepared `*.ts.diloreto.com:443` GOST and work-Mac source
-  changes are separately deployed and verified. That boundary includes both
-  current private routes and requires explicit routers for future services.
-  Tailscale evaluates relay egress as the Docker-host node, not the work Mac.
+  and the deployed GOST service permits `tailscale.com` on TCP 80/443 plus
+  `*.ts.diloreto.com:443`, not the old any-port MagicDNS matcher. The boundary
+  includes both current private routes, including Omada; future services need
+  explicit private routers and their own authorization. The work-Mac client
+  change is committed but not deployed or verified. Tailscale evaluates relay
+  egress as the Docker-host node, not the work Mac.
   GOST alone uses the host-observed MagicDNS and public resolvers because Docker's
   default DNS cannot resolve tailnet peers. Other Internet destinations remain
   denied by the remote relay; the work-Mac client dials nonmatches locally.

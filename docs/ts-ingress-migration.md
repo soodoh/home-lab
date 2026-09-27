@@ -46,19 +46,17 @@ plans, backup admission, locks, rollback access, and check-mode gates.
   key, and distinct full-privilege management key remain required. Keep the old
   grants until clients have migrated; remove `8443`/`8444` after Serve retirement.
   Decide separately whether direct Omada TCP 8043 is still needed for owners.
-- GOST's existing `*.mora-rattlesnake.ts.net` any-port matcher is broader than
-  this use case. The separately approved tight cutover replaces the remote
-  matcher first with `*.ts.diloreto.com:443`, retains the required Tailscale
-  control-plane destinations, tests the **remote** whitelist, then switches
-  the work-Mac client. This includes Omada as well as LLM; each route needs
-  its own application credentials, and future services need explicit private
-  Traefik routers and appropriate Authentik protection where intended. A short
-  LLM interruption is acceptable. GOST reaches the private ingress using the
-  Docker host's network identity; a client with the relay app password can
-  CONNECT without being on the tailnet. That
-  password is an ingress credential, not an API key. Do not call this path
-  tailnet-only or unauthenticated. Check GOST DNS resolution of the new record,
-  including resolver rebinding behavior, from inside its container.
+- The approved host convergence replaced GOST's any-port
+  `*.mora-rattlesnake.ts.net` matcher with `*.ts.diloreto.com:443`, retaining
+  Tailscale control-plane destinations. The separately committed work-Mac
+  client is not yet deployed. The new allowance includes Omada and LLM; each
+  route needs its own application credentials, and future services need
+  explicit private Traefik routers and appropriate Authentik protection where
+  intended. GOST reaches private ingress using the Docker host's network
+  identity; a holder of the relay app password can CONNECT from off-tailnet.
+  That password is an ingress credential, not an API key. Do not call this
+  path tailnet-only or unauthenticated. DNS and TCP 443 from the GOST container
+  passed; authenticated CONNECT and denied-target checks remain pending.
 - The Proxmox *cluster* firewall protects Proxmox, not this Docker-host
   listener. Do not change it merely for this ingress; verify the actual Docker
   VM/host firewall, Tailscale grants and Docker port/network behavior.
@@ -97,11 +95,14 @@ plan passed. The local Omada provider/export source now uses the new hostname:
 authenticated exports through Serve and private Traefik returned identical
 managed state, and a fresh new-route Omada plan had zero actions and no drift.
 The operator reports off-tailnet access blocked; actual CI access is explicitly
-deferred, not proven. The `*.ts.diloreto.com:443` GOST and work-Mac client
-changes are prepared across two repositories for a single coordinated cutover,
-**not applied**. LLM application-authenticated access through that relay,
-remaining client migration and Serve retirement still require separate review;
-no past AWS, TLS, backup or grant approval authorizes them.
+deferred, not proven. The approved `b6e04a49` host site convergence narrowed
+the live GOST matcher to `*.ts.diloreto.com:443` and retained all 42 Compose
+services. Strict TLS, explicit private routers, Serve and the running config
+checksum passed after apply. Dotfiles commit `e9c745f` is **not deployed** on
+the work Mac; authenticated relay access and denied targets remain unverified.
+The new Compose artifact needs a complete observed backup chain before further
+ordinary host changes. Work-Mac migration and Serve retirement require separate
+review; no past AWS, TLS, backup or grant approval authorizes them.
 
 The owner chose to redesign the IAM gate rather than manually provision the
 ACME identity. Treat this as an independently reviewed security migration:
@@ -171,11 +172,12 @@ stop and reconsider independent owner provisioning rather than bypass the gate.
    forwards. Actual ephemeral CI runner checks remain deferred until that
    runner exists; never infer them from policy tests.
 4. The Omada provider URL and protected export helper have moved, with an
-   authenticated export and no-op plan. Separately approve the prepared GOST
-   server matcher change first, test LLM and Omada CONNECT with strict TLS,
+   authenticated export and no-op plan. The separately approved host GOST
+   matcher change is deployed. Test LLM and Omada CONNECT with strict TLS,
    application authentication and refusal of MagicDNS/other public hosts,
    the private-zone apex and alternate ports using a client without local
-   bypasses, then roll out the work-Mac first-hop, base URL and PAC changes.
+   bypasses, then separately approve and roll out the work-Mac first-hop,
+   base URL and PAC changes.
    Verify a real authenticated work-Mac request before treating the old LLM
    endpoint as unused. The work-Mac dotfiles are a separate authority; keep
    Tailscale coordination available. Update security, operations,

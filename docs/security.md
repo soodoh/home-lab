@@ -60,23 +60,20 @@ replace or delete OAuth auth files and change settings. Treat UI settings edits
 as drift from Git and SOPS. OAuth refresh/session files in the bind mount are
 sensitive and intentionally enter the encrypted local/NFS/Proton backup chain.
 Never expose the OAuth callback port on any host network interface. The public
-`gost.diloreto.com` WebSocket proxy permits CONNECT to all MagicDNS peers
-under `*.mora-rattlesnake.ts.net` on any TCP port, including this Serve endpoint,
-but does not publish an unauthenticated HTTP route to CLIProxyAPI. Authentik
+`gost.diloreto.com` WebSocket proxy is now configured for `tailscale.com` and
+its subdomains on ports 80/443 and `*.ts.diloreto.com:443` only; the old
+any-port MagicDNS matcher is removed from the running host config. Authentik
 gates the proxy handshake with the existing service-account app password; the
-API and management keys remain separate service credentials. Anyone holding the
-proxy credential can reach host-accessible tailnet services, including management
-paths and other peers (for example Proxmox on port 8006). Tailscale evaluates
-those egress connections as the Docker-host node, not the work Mac. The
-prepared, **not yet deployed**, two-repository cutover narrows the remote and
-local GOST matchers to `*.ts.diloreto.com:443` while retaining Tailscale
-control-plane destinations. This includes the existing Omada and LLM private
-routes; Omada uses its own login, and future routes need separately configured
-application authorization (including Authentik where intended). The relay
-handshake alone does not authenticate access to a backend. Until server
-convergence, the broad live matcher remains authoritative. GOST cannot filter
-paths inside HTTPS tunnels. Treat loss of the proxy credential as loss of this
-network boundary and revoke it as described below.
+API and management keys remain separate service credentials. The proxy
+credential permits attempts to reach both private routes, **including Omada**.
+Omada uses its own login; future routes need separately configured application
+authorization, including Authentik where intended. The relay handshake does not
+authenticate a backend. Tailscale evaluates relay egress as the Docker-host
+node, not the work Mac. GOST cannot filter paths inside HTTPS tunnels. The
+work-Mac first-hop and PAC changes are committed but **not deployed or
+verified**; remote authenticated whitelist refusal remains untested. Treat
+loss of the proxy credential as loss of this network boundary and revoke it as
+described below.
 
 ## SSH and privilege
 
