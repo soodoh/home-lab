@@ -113,9 +113,10 @@ calls. It should permit `route53:GetChange` on `arn:aws:route53:::change/*`,
 permissions are the intersection of its attachment and the boundary. Review
 ACME issuance and renewal behavior before optionally narrowing change actions.
 The boundary itself is not an OpenTofu-owned resource in this root. The runtime
-key, when issued separately by the owner, must enter protected SOPS deployment
-material, **never** state, Git or a command log. Do not reuse the live DDNS
-identity or revoke its key.
+key was issued separately by the owner into protected SOPS deployment
+material, **never** state, Git plaintext or a command log. It has not yet
+been deployed to the host. Do not reuse the live DDNS identity or revoke its
+key.
 
 ## Ownership sequence requiring separate approvals
 

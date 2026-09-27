@@ -203,9 +203,10 @@ that drift. Do not target around this refusal.
 The exact wildcard A record and dedicated ACME IAM user, policy and attachment
 are now live; a reviewed state-only recovery and native untaint followed the
 first DNS create, and a fresh `aws-foundation` plan passed with zero changes.
-No ACME access key has been issued, private Traefik is not deployed, and Serve
-remains active. This AWS completion does **not** authorize a runtime credential
-or host convergence. For future planning, the independent owner must supply
+One scoped ACME access key has since been issued into
+`secrets/production.sops.yaml`, outside OpenTofu state; private Traefik is
+**not deployed**, and Serve remains active. The key and staged Compose source
+do **not** authorize host convergence. For future planning, the independent owner must supply
 the public hosted-zone ID as `TF_VAR_tail_ingress_zone_id` and the independently owned ACME-user boundary
 ARN as `TF_VAR_tail_ingress_user_boundary_arn`. Verify the reviewed IPv4 in
 `infrastructure/tofu/aws-foundation/tail-ingress.auto.tfvars.json` against a
@@ -304,6 +305,32 @@ ansible-playbook ansible/playbooks/configure-tailscale-serve.yml --check
 ansible-playbook ansible/playbooks/configure-tailscale-serve.yml
 ansible-playbook ansible/playbooks/observe-hosts.yml
 ```
+
+### Private tailnet ingress: staging deployment pending
+
+The separate `traefik-tailnet` service is staged in Compose with host networking
+but binds HTTPS only to the reviewed Docker-host Tailscale IPv4. It has explicit
+Omada and LLM routes, loopback-only upstreams, a separately protected staging
+ACME store, and a Route 53 DNS-01 resolver. The public Traefik service and
+Omada WAN forwards are unchanged. The dedicated ACME key is age-encrypted in
+`secrets/production.sops.yaml`, rendered through the existing root-only
+`/etc/docker-compose/production.env` only at deployment, and passed only to
+the private container. It must not enter OpenTofu state, shell history, Docker
+logs or resolved Compose output. The staging CA certificate will **not** pass
+normal client TLS verification; do not migrate Omada/LLM clients or remove
+Serve until a separately approved production-CA promotion and strict-TLS test.
+
+Before any host deployment, reobserve host identity/IP, TCP 443 ownership,
+Compose, backups, source artifact and Route 53 record/credential scope. Run
+source validation and the site/check-mode gates, review the complete project
+change from 41 to 42 services, and obtain separate operator approval. Ensure
+protected `/srv/home-lab-state/traefik-tailnet-data/acme-staging.json` and its
+parent are owned by root with modes 0600/0700. Keep the staging and later
+production ACME stores separate and excluded from Restic intentionally;
+recovering a lost store requires reissuance subject to CA limits. On a failed
+staging deployment, retain Serve and the prior Compose source for rollback;
+inspect the host lock, journal and before-images before retrying. Never use
+an untrusted staging certificate as evidence that client migration is ready.
 
 ### Public ingress: Caddy to Traefik
 

@@ -268,6 +268,57 @@
       diff: false
       no_log: true
 
+    - name: Inspect the private Traefik staging certificate paths before provisioning
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      become: true
+      register: compose_native_tailnet_traefik_paths
+      loop:
+        - /srv/home-lab-state/traefik-tailnet-data
+        - /srv/home-lab-state/traefik-tailnet-data/acme-staging.json
+
+    - name: Refuse unsafe existing private Traefik staging paths
+      ansible.builtin.assert:
+        that:
+          - not (item.stat.islnk | default(false))
+          - >-
+            not (item.stat.exists | default(false)) or
+            (item.stat.isdir | default(false) if item.item == '/srv/home-lab-state/traefik-tailnet-data'
+             else item.stat.isreg | default(false))
+          - not (item.stat.exists | default(false)) or item.stat.pw_name == 'root'
+          - not (item.stat.exists | default(false)) or item.stat.gr_name == 'root'
+          - >-
+            not (item.stat.exists | default(false)) or
+            item.stat.mode == ('0700' if item.item == '/srv/home-lab-state/traefik-tailnet-data' else '0600')
+        fail_msg: An existing private Traefik staging certificate path is not protected; inspect it before convergence.
+      loop: "{{ compose_native_tailnet_traefik_paths.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Create the protected private Traefik staging certificate directory
+      ansible.builtin.file:
+        path: /srv/home-lab-state/traefik-tailnet-data
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+      become: true
+
+    - name: Initialize the private Traefik staging certificate store without overwriting it
+      ansible.builtin.copy:
+        content: "{}\n"
+        dest: /srv/home-lab-state/traefik-tailnet-data/acme-staging.json
+        owner: root
+        group: root
+        mode: '0600'
+        force: false
+      become: true
+      diff: false
+      no_log: true
+
     - name: Install the protected CLIProxyAPI configuration
       ansible.builtin.template:
         src: "{{ compose_native_controller_root }}/services/data/cli-proxy-api/config.yaml.j2"

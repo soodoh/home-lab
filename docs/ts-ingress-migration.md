@@ -78,9 +78,11 @@ The owner bootstrap, exact wildcard record and ACME IAM resources are live,
 with a fresh drift-free, no-change `aws-foundation` plan. A failed Route 53
 synchronization poll required separate state recovery and a scoped controller
 `GetChange` owner correction; both were independently reviewed. The ACME user
-still has **no access key**, no private Traefik runtime is deployed, and Serve
-is unchanged. No past plan approval can be reused for credential issuance or
-host deployment.
+now has one scoped access key encrypted in `secrets/production.sops.yaml` but
+**no private Traefik runtime is deployed**; Serve is unchanged. The staged
+private instance uses a separate ACME staging CA/store and cannot yet serve
+strictly trusted client TLS. No past plan approval authorizes host deployment
+or production-CA promotion.
 
 The owner chose to redesign the IAM gate rather than manually provision the
 ACME identity. Treat this as an independently reviewed security migration:

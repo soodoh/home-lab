@@ -1,3 +1,4 @@
+---
 x-logging: &default-logging
   driver: json-file
   options:
@@ -89,6 +90,24 @@ services:
       proxy:
         # Must match Home Assistant's trusted_proxies entry.
         ipv4_address: 172.23.0.250
+
+  traefik-tailnet:
+    image: traefik:v3.7.0@sha256:eb328e2c806c53aafbbace6c451fa54d268961261a85452fcf0fb752a30c17be
+    container_name: traefik-tailnet
+    restart: always
+    logging: *default-logging
+    # Host networking reaches ONLY the loopback backends; the static entry
+    # point binds the reviewed Tailscale IP, not :443 on LAN/WAN interfaces.
+    network_mode: host
+    environment:
+      AWS_ACCESS_KEY_ID: "${TRAEFIK_TAILNET_AWS_ACCESS_KEY_ID:?Set scoped ACME key in SOPS}"
+      AWS_SECRET_ACCESS_KEY: "${TRAEFIK_TAILNET_AWS_SECRET_ACCESS_KEY:?Set scoped ACME secret in SOPS}"
+      AWS_REGION: us-east-1
+      AWS_HOSTED_ZONE_ID: Z07741203I5VR48TBSMSA
+    volumes:
+      - /srv/home-lab-state/traefik-tailnet-data:/data
+      - ./data/traefik-tailnet/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./data/traefik-tailnet/routes.yml:/etc/traefik/routes.yml:ro
 
 networks:
   infra:

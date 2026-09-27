@@ -20,7 +20,13 @@ the age identity through `SOPS_AGE_KEY_FILE`. The identity is never copied into 
 or to deployment artifacts. For a local controller, separate plan/apply provider
 identities may be exported from a mode-0600 gitignored `.env` or a protected
 credential store. The local file is persistent plaintext: protect it independently,
-never commit or log it, and rotate credentials if it is exposed. The non-AWS helper
+never commit or log it, and rotate credentials if it is exposed. The dedicated
+tailnet Traefik ACME access key is held only as ciphertext in
+`secrets/production.sops.yaml` until deployment renders the root-owned
+`/etc/docker-compose/production.env`. Only the private Traefik container
+receives its `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`; the public ingress
+must never inherit them. A staging-CA certificate is not trusted by ordinary
+clients and does not authorize endpoint migration. The non-AWS helper
 reads exported provider variables without prompting and creates disposable
 per-run credential files. Do not keep those files across sessions. Proxmox disk
 and USB identities are reviewed in Git; fresh read-only host observation must

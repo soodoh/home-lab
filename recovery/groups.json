@@ -63,7 +63,7 @@
       ]
     },
     "infrastructure": {
-      "services": ["omada", "ddns-updater", "traefik"],
+      "services": ["omada", "ddns-updater", "traefik", "traefik-tailnet"],
       "paths": [
         "/srv/home-lab-state/ddns-updater-data",
         "/srv/home-lab-state/omada-data/data",
