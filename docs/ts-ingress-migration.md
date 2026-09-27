@@ -85,11 +85,13 @@ store. Serve is unchanged. Both explicit routes answered over host-local strict
 TLS with the trusted production certificate, and an unlisted route returned
 404. The staging certificate store remains for rollback. A separately approved
 manual native backup cycle produced a complete, admitted chain for the new
-production-CA artifact. A scoped Tailscale TCP 443 grant for owner/admin and CI
-is proposed in source but **not applied**; an owner controller resolves both
-hostnames to the reviewed IP but currently times out on that port. Real client
-and application verification, migration and Serve retirement each require their
-own review; no past AWS, TLS or backup approval authorizes them.
+production-CA artifact. A separately approved exact Tailscale saved plan added
+owner/admin and CI grants to Docker-host TCP 443, retaining old Serve ports.
+The owner controller reached both private routes with strict TLS, while a
+`tag:proxmox` source timed out; provider policy tests and a fresh no-change
+plan passed. Actual CI, GOST/work-Mac and application-authenticated access,
+WAN negatives, migration and Serve retirement still require separate review;
+no past AWS, TLS, backup or grant approval authorizes them.
 
 The owner chose to redesign the IAM gate rather than manually provision the
 ACME identity. Treat this as an independently reviewed security migration:

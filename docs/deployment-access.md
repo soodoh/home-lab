@@ -18,19 +18,19 @@ The deployment network policy is limited to:
 
 | Source | Destination | Ports |
 | --- | --- | --- |
-| Owner and administrator devices | Docker host | TCP 22, direct Omada TLS on TCP 8043, and CLIProxyAPI Tailscale Serve HTTPS on TCP 8444 |
+| Owner and administrator devices | Docker host | TCP 22, private ingress 443, direct Omada TLS 8043, and Tailscale Serve HTTPS 8443/8444 |
 | Owner and administrator devices | Proxmox host | TCP 22 and TCP 8006 |
-| Ephemeral CI deployment nodes | Docker host | TCP 22 and Tailscale Serve HTTPS on TCP 8443 |
+| Ephemeral CI deployment nodes | Docker host | TCP 22, private ingress 443, and Tailscale Serve HTTPS 8443 |
 | Ephemeral CI deployment nodes | Proxmox host | TCP 22 and TCP 8006 |
 
-A proposed, **not yet applied**, OpenTofu grant adds Docker-host TCP 443 for
-owner/admin and CI while keeping the old Serve grants. This permits both new
-private routes at the network layer, subject to separate application credentials.
-The owner controller currently resolves both new names to the reviewed tailnet
-address but times out on TCP 443. Review the exact saved Tailscale policy plan,
-retain independent console access, and verify owner/CI and unauthorized-source
-paths before calling this grant live; the work Mac's authenticated GOST exception
-is separate.
+The separately approved OpenTofu policy grant adds Docker-host TCP 443 for
+owner/admin and CI while retaining Serve. This permits both private routes at
+the network layer, subject to separate application credentials. After apply,
+the owner controller resolved both names to the reviewed address and reached
+both routes through strict TLS; a `tag:proxmox` source timed out on TCP 443.
+Provider policy tests and a fresh no-change plan passed. Actual ephemeral CI
+access and application credentials still need verification. The work Mac's
+authenticated GOST exception is separate and is not yet migrated.
 
 CI is explicitly denied Omada's direct TLS port 8043, CLIProxyAPI HTTPS port 8444, and loopback HTTP port 8088.
 Tailscale SSH separately permits only `ansible-deploy` for deployment identities.

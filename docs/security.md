@@ -27,9 +27,9 @@ tailnet Traefik ACME access key is held as ciphertext in
 Traefik container
 receives its `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`; the public ingress
 must never inherit them. Staging and production certificates have separate
-root-only ACME stores excluded from Restic. Production TLS alone does not
-authorize endpoint migration: tailnet grants, authenticated clients and
-negative network paths must be verified first. The non-AWS helper
+root-only ACME stores excluded from Restic. Production TLS and the reviewed TCP 443 tailnet grants do not alone
+authorize endpoint migration: actual CI/application authentication, the scoped
+GOST client path and negative WAN/network access must be verified first. The non-AWS helper
 reads exported provider variables without prompting and creates disposable
 per-run credential files. Do not keep those files across sessions. Proxmox disk
 and USB identities are reviewed in Git; fresh read-only host observation must

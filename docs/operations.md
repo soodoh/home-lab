@@ -330,9 +330,12 @@ approved manual run of the native daily systemd target completed local and
 Proton units successfully; after live owner/journal inspection, the backup
 observer admitted the complete current-artifact games → NFS → Proton chain.
 Reobserve before another apply; admission from an earlier run is not reusable.
-The proposed Tailscale TCP 443 grant is **not applied**. An owner controller
-resolves both private hostnames to the reviewed IP but currently times out on
-TCP 443, consistent with the current tailnet policy.
+A separately approved exact Tailscale saved plan added owner/admin and CI access
+to Docker-host TCP 443 without removing Serve grants. The owner controller
+reached both routes with strict TLS; `tag:proxmox` could not connect. The
+Tailscale provider policy tests and a fresh no-change plan passed. CI's actual
+application-authenticated path, WAN negatives, the GOST work-Mac exception and
+client migration remain unverified and separately reviewed.
 
 Before any further host change, reobserve host identity/IP, TCP 443 ownership,
 Compose, backups, source artifact and Route 53 record/credential scope. Run

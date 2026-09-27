@@ -161,6 +161,6 @@ the live DDNS identity or revoke its key.
    host-local strict TLS and public ingress passed, and Serve is retained. The
    changed production Compose artifact gained a complete admitted backup chain
    after a separately approved manual native cycle. Reobserve it before further
-   changes, and separately review grants, actual client/application access and
-   negative network paths before migration
-   or Serve retirement. See [the ingress migration](ts-ingress-migration.md).
+   changes. A separately approved tailnet TCP 443 grant now permits owner/admin
+   and CI at the network layer; actual CI/application access and remaining
+   negative network paths still require review before migration or Serve retirement. See [the ingress migration](ts-ingress-migration.md).
