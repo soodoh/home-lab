@@ -13,12 +13,22 @@ import unittest
 POLICY = Path(__file__).with_name("inspect-plan.py")
 DIGEST = "a" * 64
 USER = "home-lab-ts-ingress-acme"
+TAGS = {"System": "home-lab-tail-ingress"}
+ALL_TAGS = {"ManagedBy": "OpenTofu", **TAGS}
 RESOURCES = [
     {"address": "aws_iam_user.tail_ingress_acme", "type": "aws_iam_user", "mode": "managed",
-     "change": {"actions": ["create"], "before": None, "after": {"name": USER},
-                "after_unknown": {"arn": True}}},
+     "change": {"actions": ["create"], "before": None,
+                "after": {"name": USER, "tags": TAGS, "tags_all": ALL_TAGS},
+                "after_unknown": {"arn": True, "id": True, "unique_id": True,
+                                  "tags": {}, "tags_all": {}}}},
     {"address": "aws_iam_policy.tail_ingress_acme", "type": "aws_iam_policy", "mode": "managed",
-     "change": {"actions": ["create"], "before": None, "after": {"name": USER + "-dns01", "policy": "{\"Version\":\"2012-10-17\"}"}}},
+     "change": {"actions": ["create"], "before": None,
+                "after": {"name": USER + "-dns01", "name_prefix": None,
+                          "tags": TAGS, "tags_all": ALL_TAGS,
+                          "policy": "{\"Version\":\"2012-10-17\"}"},
+                "after_unknown": {"arn": True, "id": True, "policy_id": True,
+                                  "attachment_count": True, "name_prefix": True,
+                                  "tags": {}, "tags_all": {}}}},
     {"address": "aws_iam_user_policy_attachment.tail_ingress_acme",
      "type": "aws_iam_user_policy_attachment", "mode": "managed",
      "change": {"actions": ["create"], "before": None, "after": {"user": USER, "policy_arn": None},
@@ -104,6 +114,23 @@ class AcmeApprovalTests(unittest.TestCase):
             "address": "aws_iam_openid_connect_provider.bad", "type": "aws_iam_openid_connect_provider",
             "mode": "managed"}]}}
         self.assertNotEqual(self.inspect(plan=oidc, approval=self.approval()).returncode, 0)
+
+    def test_computed_tag_metadata_cannot_hide_identity_attributes(self):
+        approval = self.approval()
+        for resource_index, change in (
+            (0, {"after_unknown": {"tags": {"System": True}}}),
+            (1, {"after_unknown": {"tags_all": {"Other": True}}}),
+            (0, {"after": {"tags": {"System": "other"}}}),
+            (1, {"after": {"tags_all": {"ManagedBy": "other"}}}),
+            (1, {"after": {"name_prefix": "other-"}}),
+            (1, {"after_unknown": {"extra": True}}),
+        ):
+            with self.subTest(resource_index=resource_index, change=change):
+                plan = deepcopy(self.plan)
+                target = plan["resource_changes"][resource_index]["change"]
+                for key, fields in change.items():
+                    target[key].update(fields)
+                self.assertNotEqual(self.inspect(plan=plan, approval=approval).returncode, 0)
 
     def test_unknown_policy_and_attachment_target_are_denied(self):
         policy = deepcopy(self.plan)

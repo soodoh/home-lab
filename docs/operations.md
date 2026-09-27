@@ -187,7 +187,12 @@ IAM identities remain forbidden. [OpenTofu 1.12's plan JSON](https://opentofu.or
 omits a `complete` field; the pinned 1.12.6 binary does so as well. For identity approval the inspector recognizes only that
 exact producer version and JSON format 1.2 when the field is absent, planning
 succeeded, and no deferrals exist. An explicit incomplete result or another
-producer/format version still requires a separate gate review.
+producer/format version still requires a separate gate review. For the two
+ACME identity creations, the provider marks a policy `name_prefix` and empty
+tag unknown masks as computed even when the explicit name and both planned tag
+maps are known. The gate admits only those exact metadata shapes and the
+reviewed `System`/`ManagedBy` tags; unknown tag values or unrelated computed
+identity fields remain forbidden.
 
 Do **not** use this proposed exception until the independent AWS owner has
 reviewed the [migration](ts-ingress-migration.md), the IAM policy changes and

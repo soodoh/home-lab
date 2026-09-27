@@ -403,14 +403,29 @@ def approved_identity_mutations(
     return entries
 
 
-def known_acme_create_unknowns(resource_type: str, value: Any) -> bool:
-    allowed = {
+def known_acme_create_unknowns(resource_type: str, value: Any, after: dict[str, Any]) -> bool:
+    scalar_unknowns = {
         "aws_iam_user": {"arn", "id", "unique_id"},
-        "aws_iam_policy": {"arn", "id", "policy_id", "attachment_count"},
+        "aws_iam_policy": {"arn", "id", "policy_id", "attachment_count", "name_prefix"},
         "aws_iam_user_policy_attachment": {"id", "policy_arn"},
     }
-    return isinstance(value, dict) and set(value) <= allowed[resource_type] and all(
-        isinstance(item, bool) for item in value.values()
+    if not isinstance(value, dict):
+        return False
+    # The pinned provider emits empty unknown masks for known tag maps and a
+    # computed policy name_prefix alongside the explicit, known policy name.
+    metadata = {"tags", "tags_all"} if resource_type in {"aws_iam_user", "aws_iam_policy"} else set()
+    if set(value) - scalar_unknowns[resource_type] - metadata:
+        return False
+    if resource_type in {"aws_iam_user", "aws_iam_policy"}:
+        if after.get("tags") != {"System": "home-lab-tail-ingress"} or after.get("tags_all") != {
+            "ManagedBy": "OpenTofu", "System": "home-lab-tail-ingress"
+        }:
+            return False
+    if resource_type == "aws_iam_policy" and after.get("name_prefix") is not None:
+        return False
+    return all(
+        item is True if key in scalar_unknowns[resource_type] else item == {}
+        for key, item in value.items()
     )
 
 
@@ -461,7 +476,7 @@ def controller_identity_failures(
                     and before is None and isinstance(after, dict)
                     and (after.get("name") == expected_name if resource["type"] != "aws_iam_user_policy_attachment"
                          else after.get("user") == ACME_IDENTITY_NAME)
-                    and known_acme_create_unknowns(resource["type"], change.get("after_unknown", {}))
+                    and known_acme_create_unknowns(resource["type"], change.get("after_unknown", {}), after)
                     and (resource["type"] != "aws_iam_user_policy_attachment" or (
                         after.get("policy_arn") is None and
                         change.get("after_unknown", {}).get("policy_arn") is True
