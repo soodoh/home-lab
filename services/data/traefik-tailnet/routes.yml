@@ -1,0 +1,39 @@
+---
+# The private instance has only explicit host routes. Never mount this file in
+# the public Traefik instance or expose its entry point on a LAN/WAN address.
+http:
+  routers:
+    omada:
+      rule: "Host(`omada.ts.diloreto.com`)"
+      entryPoints: [tailnet]
+      service: omada
+      tls:
+        certResolver: tailnet
+        domains:
+          - main: "*.ts.diloreto.com"
+    llm:
+      rule: "Host(`llm.ts.diloreto.com`)"
+      entryPoints: [tailnet]
+      service: cli-proxy-api
+      tls:
+        certResolver: tailnet
+        domains:
+          - main: "*.ts.diloreto.com"
+
+  serversTransports:
+    omada-loopback:
+      # Omada's private-CA certificate is accepted ONLY on encrypted host
+      # loopback; retain the prior Serve exception's network boundary.
+      insecureSkipVerify: true
+      disableHTTP2: true
+
+  services:
+    omada:
+      loadBalancer:
+        serversTransport: omada-loopback
+        servers:
+          - url: https://127.0.0.1:8043
+    cli-proxy-api:
+      loadBalancer:
+        servers:
+          - url: http://127.0.0.1:8317

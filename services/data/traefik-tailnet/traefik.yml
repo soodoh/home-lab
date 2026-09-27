@@ -1,0 +1,20 @@
+---
+# Future private instance: use host networking and bind ONLY the reviewed
+# Docker-host Tailscale IPv4. Observe the node identity before deployment.
+entryPoints:
+  tailnet:
+    address: "100.116.163.42:443/tcp"
+    http:
+      tls:
+        certResolver: tailnet
+
+providers:
+  file:
+    filename: /etc/traefik/routes.yml
+
+certificatesResolvers:
+  tailnet:
+    acme:
+      storage: /data/acme.json
+      dnsChallenge:
+        provider: route53
