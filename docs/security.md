@@ -27,9 +27,9 @@ tailnet Traefik ACME access key is held as ciphertext in
 Traefik container
 receives its `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`; the public ingress
 must never inherit them. Staging and production certificates have separate
-root-only ACME stores excluded from Restic. Production TLS and the reviewed TCP 443 tailnet grants do not alone
-authorize endpoint migration: actual CI/application authentication, the scoped
-GOST client path and negative WAN/network access must be verified first. The non-AWS helper
+root-only ACME stores excluded from Restic. Production TLS and tailnet grants do not prove CI/application authentication,
+remote GOST destination denials or UDP/HTTP3 negative paths; verify these
+against current live state before relying on them. The non-AWS helper
 reads exported provider variables without prompting and creates disposable
 per-run credential files. Do not keep those files across sessions. Proxmox disk
 and USB identities are reviewed in Git; fresh read-only host observation must
@@ -42,9 +42,7 @@ Omada provider and export helper use the private Traefik hostname
 publicly trusted certificate with the system trust store and hold no Omada CA
 or server private key. Omada forces API login from HTTP to its private-CA
 HTTPS listener, so the one bounded exception is Traefik's encrypted
-`https://127.0.0.1:8043` backend hop. The retired Serve route's loopback
-exception remains only in rollback source; the live backend hop never leaves
-the Docker host. Accepting it treats local host compromise as already inside
+`https://127.0.0.1:8043` backend hop. The live backend hop never leaves the Docker host. Accepting it treats local host compromise as already inside
 the provider trust boundary. Do not broaden the exception to a LAN or
 tailnet address, restore a hostname alias, expose a loopback listener, or disable
 client-side TLS verification.
@@ -100,16 +98,17 @@ profile; it is not a Compose or OpenTofu input. Revoke both the old
 terminate active WebSockets when immediate invalidation is required.
 
 GOST has no published host port and no reusable server-side credential. Its
-whitelist permits `tailscale.com` and subdomains on TCP 80/443, plus every
-subdomain of `mora-rattlesnake.ts.net` on any TCP port. This intentionally admits
-other tailnet peers and admin ports; it does not admit arbitrary Internet hosts
-or the apex `mora-rattlesnake.ts.net`. Docker's default DNS cannot resolve
-MagicDNS. Only GOST uses `100.100.100.100` for peer names and the host-observed
-`1.1.1.1` fallback for public Tailscale control names; site convergence checks
-the resolver pair and host's current DNS. Do not disable client TLS verification
-or remove Authentik's identity gate. A stolen relay credential now grants the
-Docker host's network reachability within the tailnet, subject to each service's
-separate authentication and Tailscale policy for the Docker-host identity.
+reviewed whitelist permits `tailscale.com` and subdomains on TCP 80/443, plus
+`*.ts.diloreto.com:443`; it does not declare any-port MagicDNS access or arbitrary
+Internet destinations. Docker's default DNS cannot resolve MagicDNS. Only GOST
+uses `100.100.100.100` for peer names and the host-observed `1.1.1.1` fallback
+for public Tailscale control names; site convergence checks the resolver pair
+and host's current DNS. Do not disable client TLS verification or remove
+Authentik's identity gate. Check the **live** remote whitelist with an isolated
+authenticated client without a local bypass; source alone does not prove what
+that server currently denies. A stolen relay credential can attempt both
+private application routes through the Docker host's identity, subject to
+application authentication and Tailscale policy.
 
 ## OpenTofu state and plans
 

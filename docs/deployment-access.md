@@ -9,8 +9,8 @@ the local `ansible-deploy` account; the account has noninteractive root escalati
 Ansible.
 
 The hosts do not accept a deployment public key through native OpenSSH. The
-`tailscale_deploy_access` role preserves the local account and sudo policy while
-removing the retired native authorized key and its user-specific sshd exception.
+`tailscale_deploy_access` role preserves the local account and sudo policy and
+ensures native deployment keys are not active.
 Password, keyboard-interactive and root login remain disabled. Keep independent
 console access available before changing Tailscale, networking or host SSH policy.
 
@@ -23,28 +23,19 @@ The deployment network policy is limited to:
 | Ephemeral CI deployment nodes | Docker host | TCP 22 and private ingress 443 |
 | Ephemeral CI deployment nodes | Proxmox host | TCP 22 and TCP 8006 |
 
-On 2026-09-27, the separately approved exact Tailscale saved plan removed
-Docker-host TCP 8443/8444 grants and retained TCP 443, SSH and owner-only
-direct Omada 8043. Its post-apply plan had no changes. The earlier approved
-grant had added Docker-host TCP 443 for owner/admin and CI. This permits both
-private routes at the network layer, subject to separate application credentials. After apply,
-the owner controller resolved both names to the reviewed address and reached
-both routes through strict TLS; a `tag:proxmox` source timed out on TCP 443.
-Provider policy tests and a fresh no-change plan passed. The operator reports
-work-Mac GOST access, authenticated LLM and Omada operation and Tailscale
-coordination working; system PAC is off. Actual ephemeral CI access and its
-application credentials remain unverified. On 2026-09-27, a fresh
-`tag:proxmox` source timed out on both private names; LAN direct access to
-Docker-host LAN-IP:443 timed out. Forced-public-IP probes from both LAN and a
-cellular hotspot returned WAN TCP 80 redirects and TCP 443 404 for both names.
-UDP/HTTP3 was not separately exercised.
+These grants permit the two private routes at the network layer, subject to
+separate application credentials. Actual ephemeral CI access and its
+application credentials remain unverified. Recheck live host and provider
+state, including unauthorized and WAN paths, before relying on these boundaries.
+The work Mac's system PAC is off; reported client access does not qualify
+browser routing or the isolated remote GOST denial boundary.
 
 CI is explicitly denied Omada's direct TLS port 8043, retired Serve ports
 8443/8444, and loopback HTTP port 8088.
 Tailscale SSH separately permits only `ansible-deploy` for deployment identities.
 Personal account mappings remain distinct. The tracked Omada interface uses the system-trusted private Traefik hostname
-from local controllers; the old Serve endpoints are absent. Reinstating them
-would require fresh backup/ownership checks and separate host and policy approval.
+from local controllers. Adding a new ingress requires fresh backup/ownership
+checks and separate host and policy approval.
 Future CI runners must use the new hostname and application credentials, but
 their actual path has been explicitly deferred rather than verified.
 

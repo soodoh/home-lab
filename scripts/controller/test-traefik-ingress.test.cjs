@@ -58,7 +58,6 @@ test('redirects, certificates, HTTP/3, and uniform HSTS preserve ingress policy'
 
 test('NAT, Compose, trusted proxy, and certificate persistence agree', () => {
   const service = compose.services.traefik;
-  assert.equal(compose.services.caddy, undefined);
   assert.deepEqual(service.ports, ['18080:80/tcp', '18443:443/tcp', '18443:443/udp']);
   assert.equal(service.networks.proxy.ipv4_address, '172.23.0.250');
   assert.ok(service.volumes.includes('/srv/home-lab-state/traefik-data:/data'));

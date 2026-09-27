@@ -23,9 +23,44 @@
       ansible.builtin.import_role:
         name: tailscale_deploy_access
 
-    - name: Converge the reviewed absence of node-level Tailscale Serve
-      ansible.builtin.import_role:
-        name: tailscale_serve
+    - name: Observe the Docker host Tailscale identity for private ingress
+      ansible.builtin.command:
+        argv: [/usr/bin/tailscale, status, --json]
+      register: private_ingress_node_status
+      changed_when: false
+      check_mode: false
+
+    - name: Require the reviewed Docker host tailnet identity
+      ansible.builtin.assert:
+        that:
+          - private_ingress_node.BackendState == 'Running'
+          - private_ingress_node.Self.DNSName | trim('.') == hostvars['docker-host'].ansible_host
+          - >-
+            private_ingress_node.Self.TailscaleIPs |
+            select('match', '^[0-9.]+$') | list | length == 1
+        fail_msg: Private ingress requires the reviewed Docker host tailnet identity.
+      vars:
+        private_ingress_node: "{{ private_ingress_node_status.stdout | from_json }}"
+
+    - name: Read the Docker host's public resolver
+      ansible.builtin.command:
+        argv: [/usr/bin/resolvectl, dns]
+      register: private_ingress_host_resolver
+      changed_when: false
+      check_mode: false
+
+    - name: Require GOST DNS to match the observed host resolver
+      ansible.builtin.assert:
+        that:
+          - "private_ingress_host_resolver.stdout is search('(?m)^Link [0-9]+ \\(ens18\\): 1\\.1\\.1\\.1(?: |$)')"
+          - >-
+            ((lookup('ansible.builtin.file', playbook_dir ~ '/../../services/infra.yml') |
+              from_yaml).services['tailscale-control-proxy'].dns | default([])) ==
+            ['100.100.100.100', '1.1.1.1']
+          - >-
+            ((lookup('ansible.builtin.file', playbook_dir ~ '/../../services/infra.yml') |
+              from_yaml).services['tailscale-control-proxy'].extra_hosts | default([])) | length == 0
+        fail_msg: GOST must use the tailnet and observed public resolvers without a stale host alias.
 
     - name: Re-observe active Compose state under production ownership
       ansible.builtin.import_role:
@@ -121,7 +156,7 @@
           - --resolve
           - >-
             llm.ts.diloreto.com:443:{{
-              tailscale_serve_node.Self.TailscaleIPs |
+              (private_ingress_node_status.stdout | from_json).Self.TailscaleIPs |
               select('match', '^[0-9.]+$') | first
             }}
           - https://llm.ts.diloreto.com/management.html

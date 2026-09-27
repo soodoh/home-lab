@@ -52,25 +52,6 @@
   loop_control:
     label: "{{ item.item }}"
 
-- name: Read retired custom firewall watchdog properties
-  ansible.builtin.command:
-    argv:
-      - /usr/bin/systemctl
-      - show
-      - home-lab-proxmox-firewall-rollback.timer
-      - --no-pager
-      - --property=LoadState,ActiveState,UnitFileState
-  register: proxmox_observe_watchdog
-  changed_when: false
-  check_mode: false
-
-- name: Require the custom firewall watchdog to remain retired
-  ansible.builtin.assert:
-    that:
-      - "'LoadState=not-found' in proxmox_observe_watchdog.stdout_lines"
-      - "'ActiveState=inactive' in proxmox_observe_watchdog.stdout_lines"
-    fail_msg: The retired custom firewall watchdog is present.
-
 - name: Observe the native firewall policy independently
   ansible.builtin.import_tasks: firewall.yml
 
@@ -189,7 +170,6 @@
       native_ssh_become: verified
       required_services: active
       firewall_policy: matches
-      firewall_watchdog: absent
       persistent_owners: absent
       protected_access: matches
       protected_hardware: matches

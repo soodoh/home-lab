@@ -20,7 +20,7 @@ See [architecture](docs/architecture.md) for the complete boundary.
 
 - [Operations](docs/operations.md): source checks, live observation and mutation.
 - [Recovery](recovery/README.md): fresh snapshot discovery and private staging.
-- [Migrations](docs/migrations.md): unresolved live conditions only.
+- [Outstanding work](docs/migrations.md): unresolved decisions; reobserve before acting.
 - [Security](docs/security.md): secrets, state and protected output.
 - [Deployment access](docs/deployment-access.md): Tailscale SSH and ephemeral GitHub workload identity.
 
@@ -35,7 +35,7 @@ python3 scripts/check-source-boundaries.py
 python3 scripts/check-compose-image-pins.py
 ANSIBLE_CONFIG=ansible/ansible.cfg ansible-lint ansible/playbooks ansible/roles
 yamllint . --no-warnings
-shellcheck $(find . -type f \( -name '*.sh' -o -name '*.bash' \) -not -path './.git/*' -print)
+shellcheck $(git ls-files '*.sh' '*.bash')
 docker compose config --no-env-resolution --no-interpolate --quiet
 tofu fmt -check -recursive
 export SOPS_AGE_KEY_FILE=/protected/path/to/age-identity

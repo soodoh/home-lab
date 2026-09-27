@@ -65,14 +65,10 @@ credentials and encrypted bundles live outside Git.
   bootstrap from an empty state without imperative state scripts. The local
   controller uses private Traefik at `omada.ts.diloreto.com` with public TLS
   trust; future CI runners are intended to use the same route, but their real
-  path is not yet verified. The node-level Serve route was retired; Ansible
-  retains its exact prior settings as controlled rollback source, not a live
-  ingress. Private Traefik terminates at Omada's loopback HTTPS listener.
-  The staged bridge-mode cutover would publish device-management ports only
-  on the Docker host LAN address. Omada's forced HTTPS redirect
-  requires that encrypted loopback hop to accept its private certificate.
-  See [Omada bridge cutover](omada-bridge-cutover.md); the staged source is not
-  evidence that the devices or Authentik retirement have been migrated live.
+  path is not yet verified. Private Traefik terminates at Omada's loopback HTTPS
+  listener. Omada's forced HTTPS redirect requires that encrypted loopback hop
+  to accept its private certificate. Device adoption and port exposure require
+  fresh live checks, not an old cutover report.
 - Proxmox remote state owns the adopted VM, its managed disks and its PCI and USB
   hardware mappings. The inert first disk block preserves provider list indexes after
   retirement of its former bus slot; changing that tombstone requires an explicit

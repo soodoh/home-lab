@@ -56,13 +56,18 @@ jobs:
         run: |
           ansible-lint ansible/playbooks ansible/roles
           yamllint . --no-warnings
-          shellcheck $(find . -type f \( -name '*.sh' -o -name '*.bash' \) -not -path './.git/*' -print)
+          shellcheck $(git ls-files '*.sh' '*.bash')
           docker compose config --no-env-resolution --no-interpolate --quiet
           tofu fmt -check -recursive
 
       - name: Validate OpenTofu roots
+        env:
+          AWS_REGION: us-east-1
         run: |
-          for root in infrastructure/tofu/{aws-foundation,authentik,omada,proxmox,tailscale}; do
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          for root in infrastructure/tofu/{aws-foundation,authentik,omada,proxmox,proxmox-firewall,tailscale}; do
+            export TF_DATA_DIR="$work/$(basename "$root")"
             tofu -chdir="$root" init -backend=false -input=false -lockfile=readonly
             tofu -chdir="$root" validate
           done

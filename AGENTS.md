@@ -8,7 +8,12 @@ For infrastructure work, read [operations](docs/operations.md) and follow its li
 for recovery, secrets, migrations or ownership.
 
 Git defines desired state. Base operational decisions on fresh host or provider
-observations.
+observations. For migrations, keep one-off execution tools and receipts in a private
+per-run directory outside Git; execute and verify there. Commit only reusable
+configuration and behavior tests. After verification, remove transition-only
+allowlists, rollback implementations, absence assertions and completed runbooks;
+Git history preserves the explanation. Removing a resource declaration should
+produce a reviewed destroy plan, not an orphaned state entry or a tombstone.
 
 Keep decrypted secrets, resolved Compose output, OpenTofu state, saved plans and plan
 JSON out of logs and Git. Preserve nonterminal host locks, journals and before-images
