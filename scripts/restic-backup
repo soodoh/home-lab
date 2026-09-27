@@ -385,9 +385,10 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
     snapshot = None
     try:
         started = time.monotonic()
-        for service in stop_order:
-            if service in running:
-                require_success(compose(policy, ["stop", "--timeout", "120", service]), "service_stop")
+        for group in ("applications", "databases"):
+            services = [service for service in policy["stop_groups"][group] if service in running]
+            if services:
+                require_success(compose(policy, ["stop", "--timeout", "120", *services]), "service_stop")
         report_phase("stop", started)
         tags = ["cadence=daily", f"policy={policy_hash}", f"artifact={artifact}"]
         arguments = [

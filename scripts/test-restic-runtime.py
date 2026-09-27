@@ -98,6 +98,7 @@ class ResticRuntimeTests(unittest.TestCase):
         }), "")
         copy = mock.Mock(side_effect=lambda *args: (events.append("copy"), copied)[1])
         restart = mock.Mock(side_effect=lambda *args: events.append("restart"))
+        compose = mock.Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
         with mock.patch.dict(daily_local.__globals__, {
             "recover_interruption": mock.Mock(),
             "preflight": mock.Mock(),
@@ -105,16 +106,43 @@ class ResticRuntimeTests(unittest.TestCase):
             "service_running": mock.Mock(return_value=True),
             "atomic_json": mock.Mock(),
             "journal_path": mock.Mock(return_value=Path("/tmp/journal")),
-            "compose": mock.Mock(return_value=subprocess.CompletedProcess([], 0, "", "")),
+            "compose": compose,
             "restic_result": mock.Mock(return_value=result),
             "restart_recorded": restart,
             "copy_snapshot": copy,
         }), mock.patch("time.monotonic", side_effect=range(8)), mock.patch("builtins.print") as report:
             daily_local(policy, "1" * 64)
 
+        self.assertEqual(compose.call_args_list, [
+            mock.call(policy, ["stop", "--timeout", "120", "app"]),
+            mock.call(policy, ["stop", "--timeout", "120", "db"]),
+        ])
         self.assertEqual(events, ["restart", "copy"])
         for phase in ("stop", "scan", "restart", "nfs_copy"):
             self.assertIn(mock.call(f"restic_backup=phase name={phase} seconds=1.0"), report.call_args_list)
+
+    def test_failed_batch_stop_restarts_only_recorded_running_services(self):
+        daily_local = self.runner["daily_local"]
+        policy = {
+            "stop_groups": {"applications": ["app", "inactive"], "databases": ["db"]},
+            "runner": {"files_from_path": "/etc/files-from", "exclude_file_path": "/etc/excludes"},
+        }
+        compose = mock.Mock(return_value=subprocess.CompletedProcess([], 1, "", ""))
+        restart = mock.Mock()
+        with mock.patch.dict(daily_local.__globals__, {
+            "recover_interruption": mock.Mock(),
+            "preflight": mock.Mock(),
+            "artifact_hash": mock.Mock(return_value="2" * 64),
+            "service_running": mock.Mock(side_effect=lambda _policy, service: service != "inactive"),
+            "atomic_json": mock.Mock(),
+            "journal_path": mock.Mock(return_value=Path("/tmp/journal")),
+            "compose": compose,
+            "restart_recorded": restart,
+        }), mock.patch("builtins.print"):
+            with self.assertRaisesRegex(self.runner["WorkflowError"], "service_stop"):
+                daily_local(policy, "1" * 64)
+        compose.assert_called_once_with(policy, ["stop", "--timeout", "120", "app"])
+        self.assertEqual(restart.call_args.args[1]["running_services"], ["app", "db"])
 
     def test_failed_scan_still_restarts_services(self):
         daily_local = self.runner["daily_local"]

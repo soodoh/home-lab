@@ -208,16 +208,22 @@ staging, not production activation.
 The daily runner reports bounded `stop`, `scan`, `restart`, `nfs_copy` and
 `proton_copy` durations without paths or credentials. Sum the first three for
 an upper bound on the writer-stop window; the copy phases occur after restart.
-Compare several cycles before changing scope. A source-level audit of the stop
-list found no *proven* safe removals: it covers databases, embedded application
-state, configuration writers and game profiles. Do not leave a writer running
+Compare several cycles before changing scope. The runner asks native Compose
+to stop the selected applications as one dependency-aware group, then stops the
+selected databases as a separate group; it restarts only the previously running
+services. If shutdown dominates, inspect slow graceful-stop behavior rather than
+shortening the timeout or adding a filesystem snapshot layer by default. A
+source-level audit of the stop list found no *proven* safe removals: it
+covers databases, embedded application state, configuration writers and game
+profiles. Do not leave a writer running
 merely because it is not a database; require fresh mount/writer evidence and a
 private restore before narrowing the list. Keep the full daily chain and batch
 related reversible changes under the existing admission rule.
 
-Snapshot-backed scanning is a separate, approval-gated storage design, **not**
-a change to this runner yet. The observed `/srv/home-lab-state` and `/mnt/games`
-are separate ext4 filesystems on direct partitions, without a native mounted
+If the scan itself becomes the downtime bottleneck, snapshot-backed scanning
+is a separate, approval-gated storage design, **not** a change to this runner.
+The observed `/srv/home-lab-state` and `/mnt/games` are separate ext4
+filesystems on direct partitions, without a native mounted
 snapshot source. First restore a complete admitted chain and establish protected
 before-images, rollback access and capacity. Then evaluate a snapshot-capable
 storage layer for both included filesystems: under the backup lock, quiesce
