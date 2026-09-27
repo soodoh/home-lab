@@ -92,8 +92,36 @@ ansible-playbook ansible/playbooks/observe-proxmox-packages.yml
 The backup observer holds the backup lock nonblockingly across the complete
 observation, refuses retained operation owners and drifted runtime bytes, validates
 all three repository identities and timer cadence, and selects the newest complete
-current-policy games → NFS → Proton chain. Its output is for the current review only;
-do not save it in Git or feed it to a later session.
+current-policy and current-Compose-artifact games → NFS → Proton chain less than
+48 hours old. It observes a backup; it does not create one. Its output is for the
+current review only; do not save it in Git or feed it to a later session.
+
+### Backup admission for change batches
+
+A fresh observation is required for each admission decision, not a new snapshot
+before every apply. When the live policy and Compose artifact are unchanged, a
+complete chain admitted by the current observation can protect several related,
+reversible changes within its 48-hour freshness window. Reobserve the affected
+host/provider state and rerun the applicable check-mode or saved-plan gates for
+each apply; never reuse an earlier observation as permission for a later apply.
+Group related Compose source changes into one reviewed site convergence where
+possible: changing the Compose artifact or backup policy invalidates the old
+chain for *current-state* admission. Obtain and observe a new complete chain before
+treating the changed state as backed up or starting another ordinary change that
+requires current-state backup admission. Do not bypass the observer's artifact,
+policy, repository, ancestry or freshness checks to keep a batch moving.
+
+Before a destructive operation, data/schema migration, storage change or other
+change that could compromise production data, decide whether the last complete
+chain meets the acceptable data-loss window and whether a verified recovery path
+exists for the affected data (including external storage). If not, obtain a new
+complete chain and/or protected before-image before proceeding; a daily schedule
+alone is not evidence of a completed backup. Keep operation-specific approvals,
+console access and rollback gates. A Git revert restores configuration, not data;
+[recovery](../recovery/README.md) currently qualifies private staging, not
+production data activation. Extra Restic snapshots reuse unchanged chunks but
+still cost changed-data storage, transfer and a writer-stop consistency window;
+do not take them merely because several low-risk applies are consecutive.
 
 An unknown owner, interruption journal, repository identity, mount, service count or
 host key is a refusal. Inspect it on the authoritative host instead of updating source
