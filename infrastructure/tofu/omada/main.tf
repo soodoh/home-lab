@@ -4,9 +4,12 @@ locals {
     exported_at        = ""
     controller_version = ""
     site               = { id = "", name = "" }
-    network            = { id = "", name = "", dhcp_options = [] }
-    reservations       = []
-    port_forwards      = []
+    network = {
+      id           = "", name = "", vlan_id = 0, gateway_subnet = "",
+      dhcp_enabled = false, dhcp_start = "", dhcp_end = "", dhcp_options = []
+    }
+    reservations  = []
+    port_forwards = []
   }
   live_reservations = {
     for reservation in local.export.reservations : lower(replace(reservation.mac, "-", ":")) => reservation

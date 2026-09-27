@@ -1,1 +1,2 @@
-# Empty after the reviewed no-op port-forward imports completed.
+# Temporary reviewed DHCP option 138 cutover; remove after the Omada plan is no-op.
+omada_network.lan[0]

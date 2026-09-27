@@ -401,7 +401,7 @@ def approved_deletions(args: argparse.Namespace, plan: dict[str, Any]) -> set[tu
     if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
         raise ValueError("deletion approval must be a mode-0600 regular file")
     approval = json.loads(path.read_text(), object_pairs_hook=reject_duplicate_keys)
-    if plan.get("complete") is not True or plan.get("errored") is not False or plan.get("deferred_changes"):
+    if plan.get("complete", True) is not True or plan.get("errored", False) is not False or plan.get("deferred_changes"):
         raise ValueError("deletion approval requires a complete, error-free, non-deferred plan")
     if not isinstance(approval, dict) or set(approval) != {"saved_plan_sha256", "deletions"} or (
         approval["saved_plan_sha256"] != args.saved_plan_sha256
