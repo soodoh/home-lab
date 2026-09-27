@@ -79,9 +79,62 @@ class ResticRuntimeTests(unittest.TestCase):
         preflight.assert_called_once_with({}, ["games", "proton"])
         current_snapshot.assert_called_once_with({}, policy_hash, artifact)
         copy_snapshot.assert_called_once_with({}, "games", "proton", source)
-        report.assert_called_once_with(
+        self.assertEqual(report.call_args_list[-1], mock.call(
             f"restic_backup=proton source_snapshot={source} proton_snapshot={destination}"
-        )
+        ))
+        self.assertRegex(report.call_args_list[0].args[0], r"^restic_backup=phase name=proton_copy seconds=\d+\.\d$")
+
+    def test_daily_local_reports_bounded_phases_and_restarts_before_copy(self):
+        daily_local = self.runner["daily_local"]
+        snapshot = "3" * 64
+        copied = "4" * 64
+        policy = {
+            "stop_groups": {"applications": ["app"], "databases": ["db"]},
+            "runner": {"files_from_path": "/etc/files-from", "exclude_file_path": "/etc/excludes"},
+        }
+        events = []
+        result = subprocess.CompletedProcess([], 0, json.dumps({
+            "message_type": "summary", "snapshot_id": snapshot,
+        }), "")
+        copy = mock.Mock(side_effect=lambda *args: (events.append("copy"), copied)[1])
+        restart = mock.Mock(side_effect=lambda *args: events.append("restart"))
+        with mock.patch.dict(daily_local.__globals__, {
+            "recover_interruption": mock.Mock(),
+            "preflight": mock.Mock(),
+            "artifact_hash": mock.Mock(return_value="2" * 64),
+            "service_running": mock.Mock(return_value=True),
+            "atomic_json": mock.Mock(),
+            "journal_path": mock.Mock(return_value=Path("/tmp/journal")),
+            "compose": mock.Mock(return_value=subprocess.CompletedProcess([], 0, "", "")),
+            "restic_result": mock.Mock(return_value=result),
+            "restart_recorded": restart,
+            "copy_snapshot": copy,
+        }), mock.patch("time.monotonic", side_effect=range(8)), mock.patch("builtins.print") as report:
+            daily_local(policy, "1" * 64)
+
+        self.assertEqual(events, ["restart", "copy"])
+        for phase in ("stop", "scan", "restart", "nfs_copy"):
+            self.assertIn(mock.call(f"restic_backup=phase name={phase} seconds=1.0"), report.call_args_list)
+
+    def test_failed_scan_still_restarts_services(self):
+        daily_local = self.runner["daily_local"]
+        policy = {
+            "stop_groups": {"applications": [], "databases": []},
+            "runner": {"files_from_path": "/etc/files-from", "exclude_file_path": "/etc/excludes"},
+        }
+        restart = mock.Mock()
+        with mock.patch.dict(daily_local.__globals__, {
+            "recover_interruption": mock.Mock(),
+            "preflight": mock.Mock(),
+            "artifact_hash": mock.Mock(return_value="2" * 64),
+            "atomic_json": mock.Mock(),
+            "journal_path": mock.Mock(return_value=Path("/tmp/journal")),
+            "restic_result": mock.Mock(return_value=subprocess.CompletedProcess([], 3, "", "")),
+            "restart_recorded": restart,
+        }), mock.patch("builtins.print"):
+            with self.assertRaisesRegex(self.runner["WorkflowError"], "restic_partial_source"):
+                daily_local(policy, "1" * 64)
+        restart.assert_called_once()
 
     def test_monthly_retention_delegates_to_forget_and_prune(self):
         retention = self.runner["retention"]

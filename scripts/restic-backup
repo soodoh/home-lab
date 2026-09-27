@@ -109,6 +109,10 @@ def require_success(result: subprocess.CompletedProcess[str], reason: str) -> No
         raise WorkflowError("restic_partial_source" if result.returncode == 3 else reason)
 
 
+def report_phase(phase: str, started: float) -> None:
+    print(f"restic_backup=phase name={phase} seconds={time.monotonic() - started:.1f}")
+
+
 def proton_identity() -> tuple[int, int]:
     if testing():
         return os.getuid(), os.getgid()
@@ -380,9 +384,11 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
     atomic_json(journal_path(policy), journal, 0o600)
     snapshot = None
     try:
+        started = time.monotonic()
         for service in stop_order:
             if service in running:
                 require_success(compose(policy, ["stop", "--timeout", "120", service]), "service_stop")
+        report_phase("stop", started)
         tags = ["cadence=daily", f"policy={policy_hash}", f"artifact={artifact}"]
         arguments = [
             "backup", "--json", "--files-from", str(rooted(policy["runner"]["files_from_path"])),
@@ -390,15 +396,21 @@ def daily_local(policy: dict[str, Any], policy_hash: str) -> None:
         ]
         for tag in tags:
             arguments.extend(["--tag", tag])
+        started = time.monotonic()
         result = restic_result(policy, "games", arguments)
+        report_phase("scan", started)
         require_success(result, "backup")
         snapshot = parse_backup_snapshot(result)
     finally:
+        started = time.monotonic()
         restart_recorded(policy, journal)
+        report_phase("restart", started)
     if snapshot is None:
         raise WorkflowError("snapshot_not_committed")
     preflight(policy, ["games", "nfs"])
+    started = time.monotonic()
     nfs_snapshot = copy_snapshot(policy, "games", "nfs", snapshot)
+    report_phase("nfs_copy", started)
     print(f"restic_backup=local source_snapshot={snapshot} nfs_snapshot={nfs_snapshot}")
 
 
@@ -406,7 +418,9 @@ def daily_proton(policy: dict[str, Any], policy_hash: str) -> None:
     preflight(policy, ["games", "proton"])
     artifact = artifact_hash(policy)
     source = current_snapshot(policy, policy_hash, artifact)
+    started = time.monotonic()
     proton_snapshot = copy_snapshot(policy, "games", "proton", source)
+    report_phase("proton_copy", started)
     print(f"restic_backup=proton source_snapshot={source} proton_snapshot={proton_snapshot}")
 
 

@@ -203,6 +203,31 @@ before retrying. Do not delete host-local artifacts merely because a controller
 session ended. [Recovery](../recovery/README.md) currently supports private
 staging, not production activation.
 
+### Backup runtime and downtime
+
+The daily runner reports bounded `stop`, `scan`, `restart`, `nfs_copy` and
+`proton_copy` durations without paths or credentials. Sum the first three for
+an upper bound on the writer-stop window; the copy phases occur after restart.
+Compare several cycles before changing scope. A source-level audit of the stop
+list found no *proven* safe removals: it covers databases, embedded application
+state, configuration writers and game profiles. Do not leave a writer running
+merely because it is not a database; require fresh mount/writer evidence and a
+private restore before narrowing the list. Keep the full daily chain and batch
+related reversible changes under the existing admission rule.
+
+Snapshot-backed scanning is a separate, approval-gated storage design, **not**
+a change to this runner yet. The observed `/srv/home-lab-state` and `/mnt/games`
+are separate ext4 filesystems on direct partitions, without a native mounted
+snapshot source. First restore a complete admitted chain and establish protected
+before-images, rollback access and capacity. Then evaluate a snapshot-capable
+storage layer for both included filesystems: under the backup lock, quiesce
+writers, snapshot, restart, and scan immutable snapshots with native Restic.
+Preserve original recovery paths, policy/artifact tags, three-copy ancestry,
+interruption recovery and private restore validation. Handle external Nextcloud
+data independently. Any storage migration needs its own live observation, plan,
+destructive-data review and explicit approval; online database export is an
+alternative only with a qualified application-file restore.
+
 Private Traefik must bind only the currently reviewed Docker-host Tailscale IPv4
 on TCP 443. Public Traefik must own only the listed public routes and the
 reviewed TCP 18080 / TCP+UDP 18443 host ports forwarded by Omada from WAN
