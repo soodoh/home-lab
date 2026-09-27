@@ -192,7 +192,14 @@ currently cannot update its own IAM policy: it cannot self-bootstrap the new
 permissions. The owner must independently establish the required access and
 reconcile any state drift through a separate reviewed procedure; a normal plan
 cannot be used to disguise that drift. Do not target around this refusal.
-No ACME identity is declared in source yet and no approval is currently valid.
+The ACME IAM resources and wildcard A record are declared but **not applied**.
+Before planning, the independent owner must supply the public hosted-zone ID
+as `TF_VAR_tail_ingress_zone_id` and the independently owned ACME-user boundary
+ARN as `TF_VAR_tail_ingress_user_boundary_arn`. Verify the reviewed IPv4 in
+`infrastructure/tofu/aws-foundation/tail-ingress.auto.tfvars.json` against a
+fresh Docker-host Tailscale observation. Neither Git nor a controller lookup
+proves that the zone, record, role permissions or boundary are live. No IAM
+approval is currently valid.
 
 For the later owner-reviewed saved plan only, create a private approval file
 with this exact structure; include only the actual changed subset of the named

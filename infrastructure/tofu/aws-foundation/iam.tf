@@ -108,6 +108,14 @@ resource "aws_rolesanywhere_profile" "controller_apply" {
 
 data "aws_iam_policy_document" "state_plan" {
   statement {
+    actions   = ["route53:ListHostedZonesByName"]
+    resources = ["*"]
+  }
+  statement {
+    actions   = ["route53:GetHostedZone", "route53:ListResourceRecordSets"]
+    resources = [local.tail_ingress_zone_arn]
+  }
+  statement {
     actions   = ["s3:ListBucket"]
     resources = [aws_s3_bucket.state.arn]
     condition {
@@ -176,6 +184,29 @@ data "aws_iam_policy_document" "state_plan" {
 }
 
 data "aws_iam_policy_document" "state_apply" {
+  statement {
+    actions   = ["route53:ListHostedZonesByName"]
+    resources = ["*"]
+  }
+  statement {
+    actions   = ["route53:GetHostedZone", "route53:ListResourceRecordSets", "route53:ChangeResourceRecordSets"]
+    resources = [local.tail_ingress_zone_arn]
+  }
+  statement {
+    actions   = ["iam:CreateUser", "iam:PutUserPermissionsBoundary", "iam:TagUser", "iam:AttachUserPolicy"]
+    resources = [local.tail_ingress_user_arn]
+  }
+  statement {
+    actions   = ["iam:CreatePolicy", "iam:TagPolicy", "iam:AttachUserPolicy"]
+    resources = [local.tail_ingress_policy_arn]
+  }
+  statement {
+    actions = ["iam:CreatePolicyVersion", "iam:SetDefaultPolicyVersion", "iam:DeletePolicyVersion"]
+    resources = [
+      "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:policy/home-lab-opentofu-state-plan",
+      "arn:${data.aws_partition.current.partition}:iam::${data.aws_caller_identity.current.account_id}:policy/home-lab-opentofu-state-apply",
+    ]
+  }
   statement {
     actions   = ["s3:ListBucket"]
     resources = [aws_s3_bucket.state.arn]

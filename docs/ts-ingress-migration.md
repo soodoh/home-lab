@@ -66,7 +66,8 @@ controller roles have external owner-controlled permissions boundaries, and
 `infrastructure/policy/inspect-plan.py` refuses managed IAM/Roles Anywhere
 mutations **by default**. A proposed, plan-bound exception now permits only
 exactly approved creation of this ACME user/policy/attachment and updates to
-the two named controller IAM policies; it does not provision an identity.
+the two named controller IAM policies. OpenTofu now declares those resources,
+but the exception alone does not provision an identity or credential.
 Neither a normal allowlist nor an exact-plan deletion approval overrides the
 identity gate. Do not add IAM users/keys/policies to a
 normal AWS plan or broaden the existing DDNS credential. The previous Route 53
@@ -96,9 +97,15 @@ ACME identity. Treat this as an independently reviewed security migration:
 3. Separately review and enact the owner-controlled boundary change. The
    current apply role cannot update its own IAM permissions: owner bootstrap
    and separately reviewed state reconciliation are necessary before any
-   normal plan can pass. Then inspect a fresh `aws-foundation` saved plan under
-   the newly reviewed policy and
-   explicitly approve the exact IAM changes. Do not weaken the default gate
+   normal plan can pass. The independent owner must also supply the verified
+   existing public-zone ID (`TF_VAR_tail_ingress_zone_id`) and separately
+   owned ACME-user permissions boundary ARN
+   (`TF_VAR_tail_ingress_user_boundary_arn`). Compare the public-zone data
+   lookup and the reviewed `tail-ingress.auto.tfvars.json` IPv4 to fresh
+   authoritative provider and node observations, and inspect whether the
+   exact wildcard DNS record already exists before planning any creation.
+   Then inspect a fresh `aws-foundation` saved plan under the newly reviewed
+   policy and explicitly approve the exact IAM changes. Do not weaken the default gate
    merely to obtain a passing plan. Adopt/import existing resources only with
    verified identity and separately approved owner procedure; never silently
    overwrite a DNS record. Require a fresh no-op plan after apply.
