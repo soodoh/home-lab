@@ -21,4 +21,19 @@ if [[ -n $tofu_chdir ]]; then
 else
   tofu show -json "$plan" >"$json"
 fi
-python3 "$repo_root/infrastructure/policy/inspect-plan.py" "$json" "$@"
+# The approval is bound to these exact saved-plan bytes, not an address that can
+# be reused for a future, different plan. Do not print the plan or its JSON.
+plan_sha256=$(python3 - "$plan" <<'PY'
+import hashlib
+import sys
+
+checksum = hashlib.sha256()
+with open(sys.argv[1], "rb") as plan:
+    for chunk in iter(lambda: plan.read(1024 * 1024), b""):
+        checksum.update(chunk)
+print(checksum.hexdigest())
+PY
+)
+printf 'saved_plan_sha256=%s\n' "$plan_sha256"
+python3 "$repo_root/infrastructure/policy/inspect-plan.py" "$json" "$@" \
+  --saved-plan-sha256="$plan_sha256"

@@ -13,8 +13,11 @@ identities for imports and a completeness check against the desired keys, **not*
 the settings for managed resources. An unexpected or missing identity refuses the
 plan; a changed setting with the same identity produces drift against Git. The
 export includes every port-forwarding rule in the selected site so existing rules
-can be adopted without recreation. This boundary does not yet manage other sites
-or networks, WLAN, WAN, or switch configuration.
+can be adopted without recreation. The live network projection also includes DHCP
+options. Before adding option 138, the plan precondition refuses any other existing
+DHCP option not preserved in `desired.json`. Keep actual DHCP option values private.
+This boundary does not yet manage other sites or networks, WLAN, WAN, or switch
+configuration.
 [`scripts/prepare-omada-plan-input`](../../../scripts/prepare-omada-plan-input) uses
 the read-only provider identity to fetch it directly from the live controller.
 Delete it after the plan/apply session; never retain the export in controller
@@ -34,7 +37,8 @@ The required shape is:
     "gateway_subnet": "192.168.0.1/24",
     "dhcp_enabled": true,
     "dhcp_start": "192.168.0.10",
-    "dhcp_end": "192.168.0.99"
+    "dhcp_end": "192.168.0.99",
+    "dhcp_options": [{ "code": 138, "type": 1, "value": "192.168.0.100" }]
   },
   "reservations": [
     { "name": "arch", "mac": "AA-BB-CC-DD-EE-FF", "ip": "192.168.0.100", "enable": true }

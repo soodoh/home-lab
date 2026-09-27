@@ -151,6 +151,15 @@ def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, 
     dhcp = network.get("dhcpSettings")
     if not isinstance(dhcp, dict):
         raise SystemExit("Omada network is missing DHCP settings")
+    options = dhcp.get("options", [])
+    if not isinstance(options, list) or any(
+        not isinstance(option, dict)
+        or not isinstance(option.get("code"), int)
+        or not isinstance(option.get("type"), int)
+        or not isinstance(option.get("value"), str)
+        for option in options
+    ):
+        raise SystemExit("Omada network has invalid DHCP options")
 
     reservations = client.list_all(f"{base}/setting/service/dhcp")
     selected_reservations = [reservation for reservation in reservations if reservation.get("netId") == network_id]
@@ -169,6 +178,10 @@ def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, 
             "dhcp_enabled": dhcp.get("enable"),
             "dhcp_start": required_string(dhcp, "ipaddrStart"),
             "dhcp_end": required_string(dhcp, "ipaddrEnd"),
+            "dhcp_options": [
+                {"code": option["code"], "type": option["type"], "value": option["value"]}
+                for option in options
+            ],
         },
         "reservations": sorted(
             (

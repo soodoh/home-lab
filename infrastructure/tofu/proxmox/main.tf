@@ -169,8 +169,7 @@ resource "proxmox_virtual_environment_vm" "debian" {
   ]
 
   lifecycle {
-    prevent_destroy = true
-    ignore_changes  = [disk[0], disk[1].file_format]
+    ignore_changes = [disk[0], disk[1].file_format]
 
     precondition {
       condition = (

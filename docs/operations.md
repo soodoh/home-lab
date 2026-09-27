@@ -132,7 +132,7 @@ TOFU_PLAN_CHDIR="$root" scripts/inspect-tofu-plan "$work/plan" "${policy_args[@]
 
 Use root-specific protected-input helpers where required. Pass an allowlist only when
 that root has a reviewed file under `infrastructure/policy/allow/`; omit the argument
-otherwise. For Omada, review `infrastructure/tofu/omada/desired.json` as the intended LAN,
+otherwise. A normal allowlist **never** approves deletion. For Omada, review `infrastructure/tofu/omada/desired.json` as the intended LAN,
 DHCP-reservation and port-forward settings. Set `TF_VAR_omada_export_path` to a
 nonexistent path in the private temporary directory, then run
 `scripts/prepare-omada-plan-input`; it obtains a fresh live export through the Docker
@@ -145,6 +145,49 @@ copy it into `desired.json` to make a plan pass. Do not print
 inspected in the same session. After apply, run a new plan; zero proposed changes is
 the completion criterion.
 
+### Approved destructive plans
+
+OpenTofu `prevent_destroy` was removed from all roots: it cannot stop a destroy
+when its resource declaration is removed, and it prevents intentional in-place
+replacements. The separate plan inspector still **denies all delete/replacement
+operations by default**. It permits them only with a current-run, mode-0600 approval
+file **outside Git** bound to the exact SHA-256 of the saved plan, listing every
+resource address, type, and exact `actions` sequence involving `delete`. This is
+not the root's normal update/import allowlist; it does not override unconditional
+IAM identity/ownership, incomplete/deferred-plan, drift, or VM-start-prerequisite
+denials. Other protection/identity rules still apply. It does not authorize an
+unreviewed change to the provider's own deletion behavior or server-side safety
+settings.
+
+After observing live state and saving a new plan as in section 3, run the normal
+inspector first; it prints only a bounded saved-plan digest and a deletion refusal.
+An owner must privately inspect the saved plan (including exact before identity,
+changes besides deletion, replacement consequences and dependency order), verify
+recovery/console access and a protected state before-image, then create a private
+approval file for **this plan only**:
+
+```json
+{
+  "saved_plan_sha256": "<64-character digest printed by inspect-tofu-plan>",
+  "deletions": [
+    { "address": "<exact resource address>", "type": "<resource type>", "actions": ["delete"] }
+  ]
+}
+```
+
+A replacement uses its exact order, for example `["delete", "create"]`. Include
+**all** destructive actions; do not approve other or missing actions. The owner
+creates this file with `umask 077` in the existing private current-run directory,
+sets mode 0600, and never puts plan JSON, secrets, or approval receipts in Git.
+Rerun `TOFU_PLAN_CHDIR="$root" scripts/inspect-tofu-plan "$work/plan" \
+--approve-deletion-file="$work/delete-approval.json" "${policy_args[@]}"` and
+apply **only the same saved plan**, after a separate human confirmation of its
+exact changes. Any new plan needs a new approval; neither a passing policy check
+nor an approval file is an automatic apply. Remove the file with the private
+session and verify fresh live state and a no-op plan. A destructive AWS identity
+change or other owner-only boundary still requires its separately documented
+independent owner procedure; do not use this gate to bypass it.
+
 ## 4. Converge managed hosts
 
 Tailscale SSH account, sudo policy and native-key retirement for both hosts are owned
@@ -156,7 +199,9 @@ or matching ownership boundary; convergence replaces any extra node-level Serve 
 Its only TLS-verification exception is the encrypted loopback hop to Omada on 8043;
 controllers and runners strictly verify the Serve certificate with system trust.
 Apply the Tailscale policy first, verify both MagicDNS endpoints through Tailscale, then
-run the focused plays in check mode before apply.
+run the focused plays in check mode before apply. The staged
+[Omada bridge cutover](omada-bridge-cutover.md) requires separate DHCP/adoption and
+Authentik-retirement gates; do not deploy that source as an ordinary site apply.
 
 ```sh
 ansible-playbook ansible/playbooks/configure-tailscale-ssh.yml --check
@@ -182,8 +227,8 @@ not restart the Mac's active Tailscale daemon until the first two layers pass.
    `authentik` root using section 3. The existing user and binding IDs must be
    preserved; the provider's external host and the user's username must update
    **in place**. Any replacement, unexpected deletion, or plan refusal is a
-   stop: never bypass `prevent_destroy` to complete this rename. Apply only the
-   reviewed plan, then verify the old route/username no longer authenticate.
+   stop: do not issue a destructive-plan approval to complete this rename.
+   Apply only the reviewed plan, then verify the old route/username no longer authenticate.
 2. Converge Compose and confirm `https://gost.diloreto.com` presents Caddy's
    public certificate and an Authentik authentication response. Confirm the old
    hostname is not served by Caddy. The private GOST container must publish no

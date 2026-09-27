@@ -17,11 +17,11 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_live_inventory_is_complete(self) -> None:
         self.assertEqual(DESIRED["schemaVersion"], 3)
         self.assertTrue(DESIRED["sourceInventory"]["complete"])
-        self.assertEqual(len(DESIRED["applications"]), 24)
-        self.assertEqual(len(DESIRED["proxyProviders"]), 19)
+        self.assertEqual(len(DESIRED["applications"]), 23)
+        self.assertEqual(len(DESIRED["proxyProviders"]), 18)
         self.assertEqual(set(DESIRED["oauthProviders"]), OAUTH_PROVIDER_IDS)
         self.assertEqual(DESIRED["retainedOAuthProviders"], ["15"])
-        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 28)
+        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 27)
         self.assertEqual(set(DESIRED["authenticatorValidateStages"]), {"passwordless-webauthn"})
         self.assertEqual(
             set(DESIRED["customFlows"]),
@@ -120,24 +120,28 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             }),
         )
 
-    def test_omada_proxy_forces_http1_upstream(self) -> None:
-        provider = DESIRED["proxyProviders"]["23"]
-        self.assertEqual(provider["internal_host"], "http://caddy:18043")
-        self.assertTrue(provider["internal_host_ssl_validation"])
-
+    def test_omada_has_no_public_authentik_route(self) -> None:
+        self.assertNotIn("omada", DESIRED["applications"])
+        self.assertNotIn("23", DESIRED["proxyProviders"])
+        self.assertNotIn("23", DESIRED["outposts"]["authentik-embedded"]["provider_refs"])
+        self.assertFalse(any(
+            binding["application_slug"] == "omada"
+            for binding in DESIRED["applicationPolicyBindings"].values()
+        ))
         caddyfile = (REPO / "services" / "data" / "Caddyfile").read_text()
-        self.assertIn(
-            """http://:18043 {
-\treverse_proxy https://172.23.0.1:8043 {
-\t\ttransport http {
-\t\t\ttls_insecure_skip_verify
-\t\t\tversions 1.1
-\t\t}
-\t}
-}
-""",
-            caddyfile,
-        )
+        self.assertNotIn("omada.diloreto.com", caddyfile)
+        self.assertNotIn(":18043", caddyfile)
+
+    def test_omada_bridge_advertises_reachable_host(self) -> None:
+        network = json.loads((REPO / "infrastructure/tofu/omada/desired.json").read_text())["network"]
+        self.assertEqual(network["dhcp_options"], [{"code": 138, "value": "192.168.0.100"}])
+        infra = (REPO / "services/infra.yml").read_text()
+        omada = infra.split("  omada:", 1)[1].split("\n  ddns-updater:", 1)[0]
+        self.assertNotIn("network_mode: host", omada)
+        self.assertIn("      - proxy", omada)
+        self.assertIn("127.0.0.1:8043:8043", omada)
+        self.assertIn("29810:29810/udp", omada)
+        self.assertIn("29811-29817:29811-29817", omada)
 
     def test_tailscale_control_proxy_is_private_and_destination_limited(self) -> None:
         provider = DESIRED["proxyProviders"]["tailscale-control"]
@@ -278,11 +282,11 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             "authentik_user",
         ):
             self.assertIn(f'resource "{resource}"', main)
-        self.assertEqual(main.count("prevent_destroy = true"), 16)
+        self.assertNotIn("prevent_destroy", main)
         self.assertEqual(main.count("import {"), 10)
         self.assertIn("for_each = local.existing_custom_flows", main)
         self.assertIn("for_each = local.existing_flow_stage_bindings", main)
-        self.assertIn("length(local.desired.applicationPolicyBindings) == 28", main)
+        self.assertIn("length(local.desired.applicationPolicyBindings) == 27", main)
         self.assertIn("for_each = local.existing_proxy_providers", main)
         self.assertIn("for_each = local.existing_applications", main)
         self.assertIn("data.authentik_stage.default_authentication_login", main)
@@ -321,7 +325,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             *(f'authentik_user.service_accounts["{key}"]' for key in DESIRED["serviceAccounts"]),
         }
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 95)
+        self.assertEqual(len(allow), 92)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()

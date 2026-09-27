@@ -5,10 +5,11 @@ post-handoff checkpoint, the recovery bucket, alias and managed IAM user are
 absent; the recovery KMS key is pending deletion under independent owner custody.
 Remote state no longer tracks them. The separate `s3-backup-user` and its
 inactive key remain until AWS confirms final KMS deletion. The normal OpenTofu
-plan inspector forbids deletions and managed IAM mutations; the controller
-apply role cannot write IAM. Do not target around either refusal,
-remove `prevent_destroy` to force an apply, or silently abandon a live resource
-in state. Use an independent AWS owner and private, versioned remote-state
+plan inspector denies deletions without an exact saved-plan approval and
+unconditionally forbids managed IAM mutations; the controller apply role cannot
+write IAM. Even an approved destructive plan cannot authorize this owner-only
+retirement. Do not target around either refusal or silently abandon a live
+resource in state. Use an independent AWS owner and private, versioned remote-state
 before-images. Reobserve every predicate below in the cutover session; an old
 inventory or a saved plan from this design session is not evidence.
 

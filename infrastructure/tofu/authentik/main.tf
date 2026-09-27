@@ -41,13 +41,13 @@ check "desired_inventory" {
   assert {
     condition = (
       local.desired.schemaVersion == 3 &&
-      length(local.desired.applications) == 24 &&
-      length(local.desired.proxyProviders) == 19 &&
+      length(local.desired.applications) == 23 &&
+      length(local.desired.proxyProviders) == 18 &&
       (!var.authentik_enable_management || (
         local.desired.sourceInventory.complete &&
         length(local.desired.oauthProviders) == 5 &&
         length(local.desired.retainedOAuthProviders) == 1 &&
-        length(local.desired.applicationPolicyBindings) == 28 &&
+        length(local.desired.applicationPolicyBindings) == 27 &&
         length(local.desired.authenticatorValidateStages) == 1 &&
         length(local.desired.certificates) == 1 &&
         length(local.desired.customFlows) == 2 &&
@@ -170,10 +170,6 @@ resource "authentik_property_mapping_provider_scope" "scope_mappings" {
   scope_name  = each.value.scope_name
   description = each.value.description
   expression  = each.value.expression
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_provider_proxy" "providers" {
@@ -197,10 +193,6 @@ resource "authentik_provider_proxy" "providers" {
   refresh_token_validity        = each.value.refresh_token_validity
   jwt_federation_sources        = each.value.jwt_federation_sources
   jwt_federation_providers      = each.value.jwt_federation_providers
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_provider_oauth2" "providers" {
@@ -235,7 +227,6 @@ resource "authentik_provider_oauth2" "providers" {
   jwt_federation_providers = each.value.jwt_federation_providers
 
   lifecycle {
-    prevent_destroy = true
     # Authentik never returns OAuth client-secret material. Preserve the
     # separately encrypted source value without planning a rewrite on refresh.
     ignore_changes = [client_secret]
@@ -248,10 +239,6 @@ resource "authentik_certificate_key_pair" "certificates" {
   name             = each.value.name
   certificate_data = file("${path.module}/${each.value.certificate_file}")
   key_data         = local.client_secrets.ldap.certificate_private_key
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_provider_ldap" "providers" {
@@ -268,10 +255,6 @@ resource "authentik_provider_ldap" "providers" {
   mfa_support      = each.value.mfa_support
   uid_start_number = each.value.uid_start_number
   gid_start_number = each.value.gid_start_number
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_application" "applications" {
@@ -295,10 +278,6 @@ resource "authentik_application" "applications" {
   policy_engine_mode    = each.value.policy_engine_mode
   open_in_new_tab       = each.value.open_in_new_tab
   meta_hide             = each.value.meta_hide
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_policy_binding" "application_access" {
@@ -313,20 +292,12 @@ resource "authentik_policy_binding" "application_access" {
   negate         = each.value.negate
   failure_result = each.value.failure_result
   timeout        = each.value.timeout
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_rbac_role" "roles" {
   for_each = local.rbac_roles
 
   name = each.value.name
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_user" "service_accounts" {
@@ -342,10 +313,6 @@ resource "authentik_user" "service_accounts" {
     each.value.password_ref == "ldap-bind" ?
     local.client_secrets.ldap.bind_password : null
   )
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_rbac_permission_role" "ldap_directory_search" {
@@ -356,10 +323,6 @@ resource "authentik_rbac_permission_role" "ldap_directory_search" {
   # is held only by the dedicated bind role; Jellyfin is the only LDAP provider.
   role       = authentik_rbac_role.roles[each.value.role_ref].id
   permission = each.value.permission
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_policy_binding" "service_application_access" {
@@ -372,10 +335,6 @@ resource "authentik_policy_binding" "service_application_access" {
   negate         = each.value.negate
   failure_result = each.value.failure_result
   timeout        = each.value.timeout
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_outpost" "outposts" {
@@ -389,10 +348,6 @@ resource "authentik_outpost" "outposts" {
     for provider_ref in local.desired.outposts[each.key].provider_refs : authentik_provider_proxy.providers[provider_ref].id
   ]
   config = jsonencode(local.desired.outposts[each.key].config)
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_flow" "custom" {
@@ -408,10 +363,6 @@ resource "authentik_flow" "custom" {
   denied_action      = each.value.denied_action
   layout             = each.value.layout
   policy_engine_mode = each.value.policy_engine_mode
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_stage_authenticator_validate" "custom" {
@@ -429,10 +380,6 @@ resource "authentik_stage_authenticator_validate" "custom" {
   webauthn_allowed_device_types = each.value.webauthn_allowed_device_types
   webauthn_hints                = each.value.webauthn_hints
   webauthn_user_verification    = each.value.webauthn_user_verification
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "authentik_flow_stage_binding" "custom" {
@@ -450,10 +397,6 @@ resource "authentik_flow_stage_binding" "custom" {
   invalid_response_action = each.value.invalid_response_action
   policy_engine_mode      = each.value.policy_engine_mode
   re_evaluate_policies    = each.value.re_evaluate_policies
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 # Use database-backed blueprints only for custom configuration that has no
@@ -465,10 +408,6 @@ resource "authentik_blueprint" "custom" {
   content = file("${path.module}/${each.value.content_file}")
   context = jsonencode(each.value.context)
   enabled = each.value.enabled
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 import {

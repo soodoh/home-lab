@@ -10,8 +10,22 @@ services:
     container_name: omada
     restart: always
     logging: *default-logging
-    # Recommended for easier device discovery
-    network_mode: host
+    # Bridge mode requires DHCP option 138 to advertise the host LAN address to
+    # devices. Keep device-management ports on the LAN, never the public WAN.
+    networks:
+      - proxy
+    ports:
+      # Tailscale Serve still terminates HTTPS at the host's loopback:8043.
+      - 127.0.0.1:8043:8043
+      # Device firmware upgrades may use this HTTPS listener.
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:8043:8043
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:8044:8044
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:8088:8088
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:8843:8843
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:19810:19810/udp
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:27001:27001/udp
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:29810:29810/udp
+      - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:29811-29817:29811-29817
     environment:
       TZ: $TZ
     volumes:

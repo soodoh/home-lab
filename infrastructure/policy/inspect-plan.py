@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path, PurePosixPath
 import stat
 import sys
@@ -81,6 +80,8 @@ def parse_args() -> argparse.Namespace:
         default="normal",
     )
     parser.add_argument("--allow-change-file", type=Path)
+    parser.add_argument("--approve-deletion-file", type=Path)
+    parser.add_argument("--saved-plan-sha256")
     return parser.parse_args()
 
 
@@ -386,6 +387,50 @@ def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def approved_deletions(args: argparse.Namespace, plan: dict[str, Any]) -> set[tuple[str, str, tuple[str, ...]]]:
+    if args.approve_deletion_file is None:
+        return set()
+    if not args.saved_plan_sha256 or len(args.saved_plan_sha256) != 64 or any(
+        char not in "0123456789abcdef" for char in args.saved_plan_sha256
+    ):
+        raise ValueError("deletion approval requires a saved-plan SHA-256 digest")
+    path = args.approve_deletion_file
+    if path.is_symlink() or path.resolve().is_relative_to(Path(__file__).resolve().parents[2]):
+        raise ValueError("deletion approval must be a private file outside the checkout")
+    metadata = path.stat()
+    if not stat.S_ISREG(metadata.st_mode) or stat.S_IMODE(metadata.st_mode) != 0o600:
+        raise ValueError("deletion approval must be a mode-0600 regular file")
+    approval = json.loads(path.read_text(), object_pairs_hook=reject_duplicate_keys)
+    if plan.get("complete") is not True or plan.get("errored") is not False or plan.get("deferred_changes"):
+        raise ValueError("deletion approval requires a complete, error-free, non-deferred plan")
+    if not isinstance(approval, dict) or set(approval) != {"saved_plan_sha256", "deletions"} or (
+        approval["saved_plan_sha256"] != args.saved_plan_sha256
+    ) or not isinstance(approval["deletions"], list):
+        raise ValueError("deletion approval must match the exact saved plan")
+    entries: set[tuple[str, str, tuple[str, ...]]] = set()
+    for item in approval["deletions"]:
+        if not isinstance(item, dict) or set(item) != {"address", "type", "actions"} or (
+            not isinstance(item["address"], str) or not item["address"] or
+            not isinstance(item["type"], str) or not item["type"] or
+            item["actions"] not in (["delete"], ["delete", "create"], ["create", "delete"])
+        ):
+            raise ValueError("deletion approval contains a malformed resource/action")
+        entry = (item["address"], item["type"], tuple(item["actions"]))
+        if entry in entries:
+            raise ValueError("deletion approval contains duplicate resources")
+        entries.add(entry)
+    actual = {
+        (item["address"], item["type"], tuple(item["change"]["actions"]))
+        for item in plan.get("resource_changes", [])
+        if "delete" in item["change"]["actions"]
+    }
+    if any("delete" in item["change"]["actions"] for item in plan.get("resource_drift", [])):
+        raise ValueError("deletion approval cannot mask independently drifted resources")
+    if not actual or entries != actual:
+        raise ValueError("deletion approval must enumerate every destructive action, and no others")
+    return entries
+
+
 def main() -> int:
     args = parse_args()
     try:
@@ -406,7 +451,15 @@ def main() -> int:
             print(f"DENY: {failure}; owner intervention required: independently verify source/state/plan, "
                   "complete owner bootstrap or repair, and refresh/verify retained identity tracking before resuming", file=sys.stderr)
         return 1
+    try:
+        approved = approved_deletions(args, plan)
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        print(f"DENY: invalid deletion approval: {error}", file=sys.stderr)
+        return 1
     if args.mode == "vm-start-prerequisite":
+        if approved:
+            print("DENY: VM-start prerequisite cannot approve deletions", file=sys.stderr)
+            return 1
         failure = vm_start_prerequisite_failure(plan)
         if failure:
             print(f"DENY: {failure}", file=sys.stderr)
@@ -459,11 +512,14 @@ def main() -> int:
         if resource_type in {
             "proxmox_virtual_environment_vm",
             "proxmox_virtual_environment_container",
-        } and "create" in actions:
-            failures.append(f"{address}: creating or recreating compute is forbidden in steady state")
+        } and "create" in actions and (
+            "delete" not in actions or (address, resource_type, tuple(actions)) not in approved
+        ):
+            failures.append(f"{address}: compute creation is forbidden; replacement requires exact saved-plan approval")
             continue
         if "delete" in actions:
-            failures.append(f"{address}: delete or replacement is forbidden")
+            if (address, resource_type, tuple(actions)) not in approved:
+                failures.append(f"{address}: deletion/replacement requires exact saved-plan approval")
             continue
         before = change.get("before")
         after = change.get("after")

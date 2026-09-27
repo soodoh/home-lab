@@ -164,10 +164,6 @@ resource "tailscale_acl" "policy" {
   acl                        = local.policy_json
   overwrite_existing_content = false
   reset_acl_on_destroy       = false
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "tailscale_federated_identity" "ci_deploy" {
@@ -183,10 +179,6 @@ resource "tailscale_federated_identity" "ci_deploy" {
   }
   scopes = ["auth_keys"]
   tags   = [local.tags.ci_deploy]
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 output "ci_deploy_client_id" {

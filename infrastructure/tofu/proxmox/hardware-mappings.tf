@@ -23,10 +23,6 @@ resource "proxmox_hardware_mapping_pci" "device" {
     path         = each.value.bdf
     subsystem_id = each.value.subsystem_id
   }]
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "proxmox_hardware_mapping_usb" "device" {
@@ -40,8 +36,4 @@ resource "proxmox_hardware_mapping_usb" "device" {
     # Bluetooth is matched by vendor/device ID; only serial adapters have sealed ports.
     path = each.key == "bluetooth" ? null : local.serial_usb_paths[each.value.mapping]
   }]
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }

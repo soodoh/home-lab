@@ -37,6 +37,7 @@ class FakeOmada:
                         "enable": True,
                         "ipaddrStart": "192.0.2.10",
                         "ipaddrEnd": "192.0.2.99",
+                        "options": [{"code": 42, "type": 1, "value": "192.0.2.30"}],
                     },
                 }
             ],
@@ -93,8 +94,11 @@ class OmadaExportTests(unittest.TestCase):
         self.assertEqual(set(desired), {"network", "reservations", "port_forwards"})
         self.assertEqual(desired["network"]["name"], domain["omada_domain"]["network_name"])
         self.assertEqual(set(desired["network"]), {
-            "name", "vlan_id", "gateway_subnet", "dhcp_enabled", "dhcp_start", "dhcp_end",
+            "name", "vlan_id", "gateway_subnet", "dhcp_enabled", "dhcp_start", "dhcp_end", "dhcp_options",
         })
+        self.assertEqual(desired["network"]["dhcp_options"], [
+            {"code": 138, "value": "192.168.0.100"},
+        ])
         self.assertTrue(desired["reservations"])
         self.assertTrue(desired["port_forwards"])
         for mac, reservation in desired["reservations"].items():
@@ -115,6 +119,9 @@ class OmadaExportTests(unittest.TestCase):
         self.assertEqual(value["controller_version"], "6.3.0.45")
         self.assertEqual(value["site"], {"id": "site-id", "name": "Selected"})
         self.assertEqual(value["network"]["id"], "network-id")
+        self.assertEqual(value["network"]["dhcp_options"], [
+            {"code": 42, "type": 1, "value": "192.0.2.30"},
+        ])
         self.assertEqual(
             [reservation["mac"] for reservation in value["reservations"]],
             ["AA-BB-CC-DD-EE-01", "AA-BB-CC-DD-EE-02"],
@@ -160,6 +167,13 @@ class OmadaExportTests(unittest.TestCase):
             "ip": "192.0.2.13", "status": True,
         })
         with self.assertRaisesRegex(SystemExit, "outside the managed network"):
+            EXPORTER.build_export(client, "Selected", "Default")
+
+    def test_refuses_invalid_dhcp_options(self) -> None:
+        client = FakeOmada()
+        network = client.responses["/controller-id/api/v2/sites/site-id/setting/lan/networks"][0]
+        network["dhcpSettings"]["options"] = [{"code": 138, "value": "192.0.2.30"}]
+        with self.assertRaisesRegex(SystemExit, "invalid DHCP options"):
             EXPORTER.build_export(client, "Selected", "Default")
 
     def test_normalizes_supported_mac_formats(self) -> None:

@@ -4,7 +4,7 @@ locals {
     exported_at        = ""
     controller_version = ""
     site               = { id = "", name = "" }
-    network            = { id = "", name = "" }
+    network            = { id = "", name = "", dhcp_options = [] }
     reservations       = []
     port_forwards      = []
   }
@@ -23,6 +23,16 @@ locals {
     local.export.network.id != "" &&
     local.export.network.name == var.omada_domain.network_name &&
     local.desired.network.name == var.omada_domain.network_name &&
+    contains([
+      for option in local.desired.network.dhcp_options : "${option.code}:${option.value}"
+    ], "138:192.168.0.100") &&
+    alltrue([
+      for option in local.export.network.dhcp_options :
+      option.code == 138 || contains([
+        for desired_option in local.desired.network.dhcp_options :
+        "${desired_option.code}:${desired_option.value}"
+      ], "${option.code}:${option.value}")
+    ]) &&
     try(
       timecmp(local.export.exported_at, timeadd(plantimestamp(), "-15m")) >= 0 &&
       timecmp(local.export.exported_at, plantimestamp()) <= 0,
@@ -66,10 +76,9 @@ resource "omada_network" "lan" {
   dhcp_enabled   = local.desired.network.dhcp_enabled
   dhcp_start     = local.desired.network.dhcp_start
   dhcp_end       = local.desired.network.dhcp_end
+  dhcp_options   = local.desired.network.dhcp_options
 
   lifecycle {
-    prevent_destroy = true
-
     precondition {
       condition     = local.export_matches_boundary
       error_message = "Refusing Omada management without a fresh matching inventory of every owned identity."

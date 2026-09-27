@@ -64,9 +64,9 @@ The reviewed cutover required these gates:
    external principal used elsewhere, resolve recovery-only access, dispose of
    every approved bucket version only after custody is verified, and retire KMS
    **last** so retained copies remain decryptable. The former bucket and key
-   declarations had `prevent_destroy`; their source removal is **not** permission
-   to apply a delete plan. The controller gate forbids deletes and IAM identity
-   mutation or drift. Use a bounded independent-owner procedure and separately
+   declarations had `prevent_destroy`; their source removal was **not** permission
+   to apply a delete plan. The controller gate denies unapproved deletes and
+   unconditionally forbids IAM identity mutation or drift. Use a bounded independent-owner procedure and separately
    reviewed state reconciliation;
    if its attached policy is broad, replace it only through a separate reviewed
    access migration that preserves other consumers; remove obsolete recovery-only

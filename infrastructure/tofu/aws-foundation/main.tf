@@ -34,10 +34,6 @@ resource "aws_kms_key" "opentofu" {
   description             = "Home lab OpenTofu state and recovery bundle"
   enable_key_rotation     = true
   deletion_window_in_days = 30
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "aws_kms_alias" "opentofu" {
@@ -47,10 +43,6 @@ resource "aws_kms_alias" "opentofu" {
 
 resource "aws_s3_bucket" "state" {
   bucket = var.state_bucket_name
-
-  lifecycle {
-    prevent_destroy = true
-  }
 }
 
 resource "aws_s3_bucket_versioning" "state" {

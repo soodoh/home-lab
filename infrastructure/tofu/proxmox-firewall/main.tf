@@ -12,7 +12,6 @@ resource "proxmox_virtual_environment_cluster_firewall" "policy" {
   output_policy = local.policy.options.policy_out
 
   lifecycle {
-    prevent_destroy = true
     # PVE omits the default forward policy from GET, but the pinned provider
     # plans an update to ACCEPT on import. The host observer checks its value.
     ignore_changes = [forward_policy]
@@ -47,8 +46,6 @@ resource "proxmox_virtual_environment_firewall_rules" "cluster" {
   }
 
   lifecycle {
-    prevent_destroy = true
-
     precondition {
       condition = (
         length(local.policy.rules) > 0 &&
