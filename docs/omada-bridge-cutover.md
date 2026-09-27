@@ -3,9 +3,9 @@
 The bridge-mode, DHCP option 138, Caddy route, and Authentik resource changes were
 applied and verified on 2026-09-27. A fresh Authentik plan was no-op, host/Compose/backup
 observations passed, and Omada's tailnet Serve endpoint returned HTTP 200. The
-obsolete public DNS record for `omada.diloreto.com` remains pending identification
-and removal by its actual DNS owner; do not infer DNS ownership from the public
-nameservers alone. The steps below record the separately gated cutover procedure,
+public DNS still resolves `omada.diloreto.com` through the shared wildcard
+`*.diloreto.com` CNAME to `home.diloreto.com`; there is no dedicated Omada record
+to remove. The steps below record the separately gated cutover procedure,
 not permission to replay it. See [operations](operations.md) for production locks,
 observations, plans and backup requirements; retain independent Docker-host and
 gateway console access for any future changes.
@@ -68,12 +68,12 @@ gateway console access for any future changes.
    before-image, and post-apply provider/state reconciliation with a fresh no-op
    plan. Do not merely remove objects from state while they still exist in
    Authentik; do not approve their deletion before the public path is retired.
-4. Remove the obsolete **public DNS record** for `omada.diloreto.com` from its
-   actual DNS owner after observing that owner and verifying no other use; Caddy
-   route removal alone does not remove DNS or any previously issued certificate.
-   Do not delete DNS resources managed outside this repository by guessing their
-   owner. Verify external requests cannot reach Omada and the Serve path still
-   works. Require a new complete backup chain for the changed Compose artifact.
+4. The shared `*.diloreto.com` CNAME also resolves `omada.diloreto.com`; do
+   **not** remove it just to retire Omada's public route. DNS resolution does not
+   mean Caddy serves Omada, and removing the route does not revoke a previously
+   issued certificate. Verify external requests cannot reach Omada and the Serve
+   path still works. Require a new complete backup chain for the changed Compose
+   artifact.
 
 ## Rollback
 
@@ -82,8 +82,8 @@ stop the cutover. Restore the reviewed old host-mode Compose and Caddy route thr
 normal host ownership/convergence, while keeping option 138 pointing at the same
 host LAN IP (it is compatible with host mode). Reobserve all managed devices and
 both Serve endpoints. Revert option 138 only after verifying how devices will find
-host-mode Omada without it. Do not retire Authentik objects or public DNS until
-this observation succeeds. Revert Git and converge to complete configuration
+host-mode Omada without it. Do not retire Authentik objects until this observation
+succeeds. Revert Git and converge to complete configuration
 rollback; preserve any nonterminal host owner or journal for live resolution.
 
 References: [container bridge/adoption guidance](https://github.com/mbentley/docker-omada-controller/blob/master/DEVICE_ADOPTION.md), [Omada controller port reference](https://support.omadanetworks.com/en/document/13090/).
