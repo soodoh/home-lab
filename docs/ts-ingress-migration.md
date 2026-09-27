@@ -110,7 +110,10 @@ client's public egress differed from the home WAN IP and its route did not use
 Tailscale. UDP/HTTP3 was not separately exercised. A post-apply backup
 observation refused with `complete_chain_missing`; the changed Compose artifact
 needs a complete observed chain before further ordinary host changes. Serve
-retirement still requires actual CI checks and a separate approval.
+retirement was requested despite actual CI, isolated GOST denial and UDP/HTTP3
+checks remaining unverified. The operator accepted those residual risks; no
+verification success may be inferred from this waiver. Host backup admission,
+node-level ownership and exact Tailscale saved-plan approval still apply.
 
 The owner chose to redesign the IAM gate rather than manually provision the
 ACME identity. Treat this as an independently reviewed security migration:
@@ -189,10 +192,14 @@ stop and reconsider independent owner provisioning rather than bypass the gate.
    ports. Work-Mac positivity does not establish these server negatives or make
    old LLM endpoints unused for CI. The dotfiles are a separate authority;
    retain Tailscale coordination and Serve.
-5. Only after the actual CI runner, application clients, work Mac and denied
-   WAN/LAN paths are verified, separately approve Serve retirement. Remove the
-   Serve role/play and reset **only its observed owned node-level config**,
-   drop the `8443`/`8444` grants and check that both old routes are closed. Do not remove Omada loopback or CLIProxyAPI loopback
-   publications if the new host-network Traefik still uses them. Reobserve
-   Compose, backups and provider state; keep independent rollback access and
-   preserved before-images until the new route is qualified.
+5. The operator requests Serve retirement while waiving actual ephemeral CI,
+   isolated authenticated GOST denial and UDP/HTTP3 checks; preserve that
+   residual risk explicitly. Before changing the host, admit a complete
+   backup chain for its current Compose artifact and verify exact ownership of
+   the node-level two-route Serve configuration. Reset **only that observed
+   owned configuration**, then test both new routes and closure of the old
+   ports. Separately review and approve an exact saved Tailscale plan removing
+   only the `8443`/`8444` grants, keeping TCP 443 and SSH. Do not remove the
+   Omada or CLIProxyAPI loopback backends: private Traefik still uses them.
+   Reobserve Compose, backups and provider state; keep independent rollback
+   access and preserved before-images until the result is qualified.

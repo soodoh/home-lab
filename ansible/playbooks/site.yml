@@ -23,7 +23,7 @@
       ansible.builtin.import_role:
         name: tailscale_deploy_access
 
-    - name: Converge tailnet-only Omada and CLIProxyAPI HTTPS
+    - name: Converge the reviewed absence of node-level Tailscale Serve
       ansible.builtin.import_role:
         name: tailscale_serve
 
@@ -120,12 +120,11 @@
           - /dev/null
           - --resolve
           - >-
-            {{ tailscale_serve_hostname }}:{{ tailscale_serve_cli_proxy_https_port }}:{{
+            llm.ts.diloreto.com:443:{{
               tailscale_serve_node.Self.TailscaleIPs |
               select('match', '^[0-9.]+$') | first
             }}
-          - >-
-            https://{{ tailscale_serve_hostname }}:{{ tailscale_serve_cli_proxy_https_port }}/management.html
+          - https://llm.ts.diloreto.com/management.html
       changed_when: false
       check_mode: false
       retries: 12

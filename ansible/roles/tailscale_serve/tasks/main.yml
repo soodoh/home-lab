@@ -3,13 +3,14 @@
   ansible.builtin.assert:
     that:
       - inventory_hostname == 'docker-host'
+      - tailscale_serve_state in ['present', 'absent']
       - tailscale_serve_hostname is match('^[a-z0-9-]+\.[a-z0-9-]+\.ts\.net$')
       - tailscale_serve_https_port | int == 8443
       - tailscale_serve_backend_url == 'https+insecure://127.0.0.1:8043'
       - tailscale_serve_health_path == '/api/info'
       - tailscale_serve_cli_proxy_https_port | int == 8444
       - tailscale_serve_cli_proxy_backend_url == 'http://127.0.0.1:8317'
-    fail_msg: Tailscale Serve requires the reviewed Docker-host Omada endpoint.
+    fail_msg: Tailscale Serve ownership and desired state require the reviewed Docker-host routes.
 
 - name: Read Tailscale node identity and capabilities
   ansible.builtin.command:
@@ -21,7 +22,7 @@
 - name: Define the exact owned Serve configuration
   ansible.builtin.set_fact:
     tailscale_serve_node: "{{ tailscale_serve_node_status.stdout | from_json }}"
-    tailscale_serve_expected_config: >-
+    tailscale_serve_owned_config: >-
       {{
         {
           'TCP': {
@@ -81,18 +82,31 @@
   changed_when: false
   check_mode: false
 
+- name: Refuse unowned node-level Serve configuration before retirement
+  ansible.builtin.assert:
+    that:
+      - >-
+        (tailscale_serve_current_status.stdout | from_json) in
+        [tailscale_serve_owned_config, {}]
+    fail_msg: Refusing to reset an unreviewed node-level Serve configuration.
+  when: tailscale_serve_state == 'absent'
+
 - name: Decide whether the exact Serve configuration needs convergence
   ansible.builtin.set_fact:
     tailscale_serve_current_config: "{{ tailscale_serve_current_status.stdout | from_json }}"
+    tailscale_serve_target_config: >-
+      {{ tailscale_serve_owned_config if tailscale_serve_state == 'present' else {} }}
     tailscale_serve_requires_change: >-
       {{
         (tailscale_serve_current_status.stdout | from_json) !=
-        tailscale_serve_expected_config
+        (tailscale_serve_owned_config if tailscale_serve_state == 'present' else {})
       }}
 
 - name: Report Serve drift during check mode
   ansible.builtin.debug:
-    msg: The complete node-level Tailscale Serve configuration would be replaced.
+    msg: >-
+      The complete node-level Tailscale Serve configuration would be
+      {{ 'removed' if tailscale_serve_state == 'absent' else 'replaced' }}.
   changed_when: true
   when:
     - ansible_check_mode
@@ -122,6 +136,7 @@
   when:
     - not ansible_check_mode
     - tailscale_serve_requires_change
+    - tailscale_serve_state == 'present'
 
 - name: Publish CLIProxyAPI through tailnet-only HTTPS
   ansible.builtin.command:
@@ -137,6 +152,7 @@
   when:
     - not ansible_check_mode
     - tailscale_serve_requires_change
+    - tailscale_serve_state == 'present'
 
 - name: Read the converged node-level Serve configuration
   ansible.builtin.command:
@@ -151,7 +167,7 @@
     that:
       - >-
         (tailscale_serve_converged_status.stdout | from_json) ==
-        tailscale_serve_expected_config
+        tailscale_serve_target_config
     fail_msg: Node-level Tailscale Serve configuration differs from the reviewed endpoints.
   when: not ansible_check_mode or not tailscale_serve_requires_change
 
@@ -182,7 +198,9 @@
   retries: 12
   delay: 5
   until: tailscale_serve_health.rc == 0
-  when: not ansible_check_mode
+  when:
+    - not ansible_check_mode
+    - tailscale_serve_state == 'present'
 
 - name: Summarize Tailscale Serve convergence
   ansible.builtin.debug:
@@ -194,3 +212,9 @@
       tailnet_only: true
       cli_proxy_endpoint: "https://{{ tailscale_serve_hostname }}:{{ tailscale_serve_cli_proxy_https_port }}"
       cli_proxy_backend: "{{ tailscale_serve_cli_proxy_backend_url }}"
+  when: tailscale_serve_state == 'present'
+
+- name: Summarize retired node-level Serve
+  ansible.builtin.debug:
+    msg: The reviewed node-level Tailscale Serve routes are absent; loopback backends remain.
+  when: tailscale_serve_state == 'absent'

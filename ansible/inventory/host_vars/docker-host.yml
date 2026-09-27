@@ -1,5 +1,7 @@
 ---
 # Tailnet-only HTTPS termination for the Omada provider and export tools.
+# Desired node-level Serve state; retain the exact owned routes below for safe rollback.
+tailscale_serve_state: absent
 tailscale_serve_hostname: docker-host.mora-rattlesnake.ts.net
 tailscale_serve_https_port: 8443
 tailscale_serve_backend_url: https+insecure://127.0.0.1:8043

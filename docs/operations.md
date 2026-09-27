@@ -290,19 +290,20 @@ Tailscale SSH account, sudo policy and native-key retirement for both hosts are 
 by [`configure-tailscale-ssh.yml`](../ansible/playbooks/configure-tailscale-ssh.yml).
 The Docker host's complete node-level Serve configuration is owned by
 [`configure-tailscale-serve.yml`](../ansible/playbooks/configure-tailscale-serve.yml).
-It requires tailnet HTTPS certificates to be enabled, exact host identity and an empty
-or matching ownership boundary; convergence replaces any extra node-level Serve route.
-Its only TLS-verification exception is the encrypted loopback hop to Omada on 8043;
-controllers and runners strictly verify the Serve certificate with system trust.
-Apply the Tailscale policy first, verify both MagicDNS endpoints through Tailscale, then
-run the focused plays in check mode before apply. The staged
+Desired state is now **absent**. Before reset, the role requires the exact
+Docker-host identity and either the two reviewed owned routes or already-empty
+node-level state; it refuses additional/unrecognized routes. The previous
+Omada backend TLS exception on loopback is retained as rollback source, not as
+an externally reachable Serve route. For retirement, first admit the current
+backup chain, verify replacement routes and run the focused play in check mode.
+After host retirement, separately apply only the exact inspected Tailscale
+policy plan removing the old grants. The staged
 [Omada bridge cutover](omada-bridge-cutover.md) requires separate DHCP/adoption and
 Authentik-retirement gates; do not deploy that source as an ordinary site apply.
 
 ```sh
-ansible-playbook ansible/playbooks/configure-tailscale-ssh.yml --check
-ansible-playbook ansible/playbooks/configure-tailscale-ssh.yml
 ansible-playbook ansible/playbooks/configure-tailscale-serve.yml --check
+# After exact-ownership, backup and separate host approval only:
 ansible-playbook ansible/playbooks/configure-tailscale-serve.yml
 ansible-playbook ansible/playbooks/observe-hosts.yml
 ```

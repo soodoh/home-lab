@@ -23,7 +23,10 @@ The deployment network policy is limited to:
 | Ephemeral CI deployment nodes | Docker host | TCP 22, private ingress 443, and Tailscale Serve HTTPS 8443 |
 | Ephemeral CI deployment nodes | Proxmox host | TCP 22 and TCP 8006 |
 
-The separately approved OpenTofu policy grant adds Docker-host TCP 443 for
+The live Tailscale policy still retains Serve grants until an exact saved-plan
+retirement is independently approved. The new desired policy removes only
+Docker-host TCP 8443/8444 and retains TCP 443, SSH and owner-only direct Omada
+8043. The earlier approved OpenTofu grant added Docker-host TCP 443 for
 owner/admin and CI while retaining Serve. This permits both private routes at
 the network layer, subject to separate application credentials. After apply,
 the owner controller resolved both names to the reviewed address and reached
