@@ -189,16 +189,44 @@ data "aws_iam_policy_document" "state_apply" {
     resources = ["*"]
   }
   statement {
-    actions   = ["route53:GetHostedZone", "route53:ListResourceRecordSets", "route53:ChangeResourceRecordSets"]
+    actions   = ["route53:GetHostedZone", "route53:ListResourceRecordSets"]
     resources = [local.tail_ingress_zone_arn]
   }
   statement {
-    actions   = ["iam:CreateUser", "iam:PutUserPermissionsBoundary", "iam:TagUser", "iam:AttachUserPolicy"]
+    actions   = ["route53:ChangeResourceRecordSets"]
+    resources = [local.tail_ingress_zone_arn]
+    condition {
+      test     = "ForAllValues:StringEquals"
+      variable = "route53:ChangeResourceRecordSetsNormalizedRecordNames"
+      values   = ["\\052.ts.diloreto.com"]
+    }
+    condition {
+      test     = "ForAllValues:StringEquals"
+      variable = "route53:ChangeResourceRecordSetsRecordTypes"
+      values   = ["A"]
+    }
+    condition {
+      test     = "ForAllValues:StringEquals"
+      variable = "route53:ChangeResourceRecordSetsActions"
+      values   = ["CREATE", "UPSERT"]
+    }
+  }
+  statement {
+    actions   = ["iam:CreateUser", "iam:PutUserPermissionsBoundary", "iam:TagUser"]
     resources = [local.tail_ingress_user_arn]
   }
   statement {
-    actions   = ["iam:CreatePolicy", "iam:TagPolicy", "iam:AttachUserPolicy"]
+    actions   = ["iam:CreatePolicy", "iam:TagPolicy"]
     resources = [local.tail_ingress_policy_arn]
+  }
+  statement {
+    actions   = ["iam:AttachUserPolicy"]
+    resources = [local.tail_ingress_user_arn]
+    condition {
+      test     = "ArnEquals"
+      variable = "iam:PolicyARN"
+      values   = [local.tail_ingress_policy_arn]
+    }
   }
   statement {
     actions = ["iam:CreatePolicyVersion", "iam:SetDefaultPolicyVersion", "iam:DeletePolicyVersion"]
