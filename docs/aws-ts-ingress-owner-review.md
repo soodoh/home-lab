@@ -47,7 +47,7 @@ mean the *one* ACME IAM user and managed policy in this account.
 
 | Role | Action(s) to add to `Allow` **and** `Deny.NotAction` exemption | Resource/condition |
 | --- | --- | --- |
-| Plan | `route53:GetHostedZone`, `route53:ListResourceRecordSets`, `route53:ListTagsForResource` | `ZONE_ARN`; the data source looks up the reviewed zone **by ID** and the AWS provider also reads its tags |
+| Plan | `route53:GetHostedZone`, `route53:ListResourceRecordSets`, `route53:ListTagsForResource` | `ZONE_ARN`; the data source looks up the reviewed zone **by ID** and the AWS provider also reads its tags (the provider returns `diloreto.com` without the trailing dot from Route 53's API) |
 | Apply | The plan Route 53 reads | Same scope |
 | Apply | `route53:ChangeResourceRecordSets` | `ZONE_ARN`; **all** names `\052.ts.diloreto.com`, types `A`, actions `CREATE` or `UPSERT` via `ForAllValues:StringEquals` conditions |
 | Apply | `iam:CreateUser`, `iam:PutUserPermissionsBoundary`, `iam:TagUser` | `USER_ARN` only; the created user must receive the owner-controlled ACME boundary |

@@ -24,7 +24,7 @@ resource "aws_route53_record" "tail_ingress" {
     precondition {
       condition = (
         data.aws_route53_zone.public.zone_id == var.tail_ingress_zone_id &&
-        data.aws_route53_zone.public.name == "diloreto.com." &&
+        data.aws_route53_zone.public.name == "diloreto.com" &&
         !data.aws_route53_zone.public.private_zone
       )
       error_message = "The independently reviewed zone must be the public diloreto.com hosted zone."
