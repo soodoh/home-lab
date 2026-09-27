@@ -82,21 +82,21 @@ bucket**: once with a key-prefix condition and again without a condition as
 part of the bucket-management reads. The conditional Allow is therefore
 redundant; removing only that statement changes no effective bucket-list
 permission and does not broaden object access to the six exact backend keys
-and locks in the manifest. Independently verify this equivalence against the
-live documents before removing it. The proposed owner correction removes the
-redundant statement from the apply boundary, adds `route53:GetChange` on
-`arn:aws:route53:::change/*` and adds the action to the existing explicit
+and locks in the manifest. The owner verified this equivalence against the
+live documents before removing it. The reviewed owner correction removed the
+redundant statement from the apply boundary, added `route53:GetChange` on
+`arn:aws:route53:::change/*` and added the action to the existing explicit
 `Deny.NotAction` exemption. The in-repo apply policy makes the same grant and
 removes its own redundant bucket-list statement. Do **not** change the plan
 boundary/policy, widen Route 53 writes, or grant controller policy-version
-writes. Both changed owner policies need a free version slot: after preserving
-protected before-images and independently reviewing their histories, remove
-only one **nondefault** old version from each, never the current or immediately
-preceding rollback version. Review the exact deletions and new documents as a
-separate owner change, then reconcile the tracked state-apply policy through
+writes. Both changed owner policies needed a free version slot: after preserving
+protected before-images and independently reviewing their histories, the owner
+removed only one **nondefault** oldest version from each, retaining the
+preceding rollback versions. The tracked state-apply policy was reconciled via
 [owner-only refresh-only state reconciliation](operations.md#aws-foundation-owner-only-state-reconciliation).
-Until that correction is live and drift-free, do not use the controller apply
-role for another Route 53 record mutation.
+The apply role can now poll `GetChange`, the plan role cannot, and the
+`aws-foundation` ordinary plan is drift-free with zero changes. Future owner
+policy changes still require their own protected review and state reconciliation.
 
 ## Independently owned ACME user boundary
 

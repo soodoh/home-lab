@@ -59,13 +59,14 @@ plans, backup admission, locks, rollback access, and check-mode gates.
   listener. Do not change it merely for this ingress; verify the actual Docker
   VM/host firewall, Tailscale grants and Docker port/network behavior.
 
-## AWS ownership blocker: separate security change first
+## AWS ownership stage: reviewed bootstrap complete; runtime still pending
 
-`aws-foundation` does not own the public hosted zone or DNS records. Its
+`aws-foundation` does not own the public hosted zone; it now owns only the exact
+`*.ts.diloreto.com` A record in that zone. Its
 controller roles have external owner-controlled permissions boundaries, and
 `infrastructure/policy/inspect-plan.py` refuses managed IAM/Roles Anywhere
-mutations **by default**. A proposed, plan-bound exception now permits only
-exactly approved creation of this ACME user/policy/attachment. Controller
+mutations **by default**. A plan-bound exception permitted only the
+independently approved creation of this ACME user/policy/attachment. Controller
 plan/apply IAM policy changes remain owner-only, including the initial
 bootstrap of the narrower DNS permissions. OpenTofu declares the identity,
 but the exception alone does not provision it or its credential.
@@ -73,6 +74,13 @@ Neither a normal allowlist nor an exact-plan deletion approval overrides the
 identity gate. Do not add IAM users/keys/policies to a
 normal AWS plan or broaden the existing DDNS credential. The previous Route 53
 key is still used by live DDNS; do not rotate or revoke it incidentally.
+The owner bootstrap, exact wildcard record and ACME IAM resources are live,
+with a fresh drift-free, no-change `aws-foundation` plan. A failed Route 53
+synchronization poll required separate state recovery and a scoped controller
+`GetChange` owner correction; both were independently reviewed. The ACME user
+still has **no access key**, no private Traefik runtime is deployed, and Serve
+is unchanged. No past plan approval can be reused for credential issuance or
+host deployment.
 
 The owner chose to redesign the IAM gate rather than manually provision the
 ACME identity. Treat this as an independently reviewed security migration:

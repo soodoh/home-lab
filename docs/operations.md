@@ -173,19 +173,19 @@ copy it into `desired.json` to make a plan pass. Do not print
 inspected in the same session. After apply, run a new plan; zero proposed changes is
 the completion criterion.
 
-### Proposed ACME IAM identity exception (owner review required)
+### Scoped ACME IAM identity exception (exact-plan owner review required)
 
 The plan inspector's default still refuses **all** managed IAM/Roles Anywhere
 mutations. A narrow exception exists only for the reviewed `aws-foundation`
 ACME DNS-01 user, policy and user-policy attachment **creations**. Controller
-plan/apply policy updates remain owner-only. It requires a current-run mode-0600 file **outside Git**, bound
-to the exact saved-plan SHA-256 and listing every changed IAM identity resource
+plan/apply policy updates remain owner-only. It requires a current-run
+mode-0600 file **outside Git**, bound to the exact saved-plan SHA-256 and listing every changed IAM identity resource
 by address, type and actions. This is not an allowlist or a general IAM
 bootstrap mechanism. Managed OIDC providers, access keys, imports, tracking
 moves, drift, deferred or incomplete plans, deletion/replacement and unrelated
 IAM identities remain forbidden. [OpenTofu 1.12's plan JSON](https://opentofu.org/docs/v1.12/internals/json-format/#plan-representation)
-omits a `complete` field; the pinned 1.12.6 binary does so as well. For identity approval the inspector recognizes only that
-exact producer version and JSON format 1.2 when the field is absent, planning
+omits a `complete` field; the pinned 1.12.6 binary does so as well. For
+identity approval the inspector recognizes only that exact producer version and JSON format 1.2 when the field is absent, planning
 succeeded, and no deferrals exist. An explicit incomplete result or another
 producer/format version still requires a separate gate review. For the two
 ACME identity creations, the provider marks a policy `name_prefix` and empty
@@ -194,25 +194,29 @@ maps are known. The gate admits only those exact metadata shapes and the
 reviewed `System`/`ManagedBy` tags; unknown tag values or unrelated computed
 identity fields remain forbidden.
 
-Do **not** use this proposed exception until the independent AWS owner has
-reviewed the [migration](ts-ingress-migration.md), the IAM policy changes and
-the external plan/apply permissions boundaries. In particular, the apply role
-currently cannot update its own IAM policy: it cannot self-bootstrap the new
-permissions. The owner must independently establish the required access and
-reconcile any state drift through a separate reviewed procedure; a normal plan
-cannot be used to disguise that drift. Do not target around this refusal.
-The ACME IAM resources and wildcard A record are declared but **not applied**.
-Before planning, the independent owner must supply the public hosted-zone ID
-as `TF_VAR_tail_ingress_zone_id` and the independently owned ACME-user boundary
+The identity-creation exception was used only after the independent AWS owner
+reviewed the [migration](ts-ingress-migration.md), IAM policy and external
+plan/apply permissions boundaries. The apply role still cannot update its own
+IAM policy. Any future owner policy change requires independent bootstrap and
+separately reviewed state-only reconciliation; a normal plan cannot disguise
+that drift. Do not target around this refusal.
+The exact wildcard A record and dedicated ACME IAM user, policy and attachment
+are now live; a reviewed state-only recovery and native untaint followed the
+first DNS create, and a fresh `aws-foundation` plan passed with zero changes.
+No ACME access key has been issued, private Traefik is not deployed, and Serve
+remains active. This AWS completion does **not** authorize a runtime credential
+or host convergence. For future planning, the independent owner must supply
+the public hosted-zone ID as `TF_VAR_tail_ingress_zone_id` and the independently owned ACME-user boundary
 ARN as `TF_VAR_tail_ingress_user_boundary_arn`. Verify the reviewed IPv4 in
 `infrastructure/tofu/aws-foundation/tail-ingress.auto.tfvars.json` against a
 fresh Docker-host Tailscale observation. Neither Git nor a controller lookup
-proves that the zone, record, role permissions or boundary are live. No IAM
-approval is currently valid.
+proves that the zone, record, role permissions or boundary remain live. No
+plan-bound IAM approval can be reused for a later plan.
 
-For the later owner-reviewed saved plan only, create a private approval file
-with this exact structure; include only the actual changed subset of the named
-resources, not a blanket list:
+For any separately reviewed identity-creation saved plan, create a private
+approval file with this exact structure; include only the actual changed
+subset of the named resources, not a blanket list. The original approval is
+spent and cannot authorize another plan:
 
 ```json
 {
