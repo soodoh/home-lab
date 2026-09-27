@@ -132,8 +132,6 @@ services:
       SSO_CLIENT_CACHE_EXPIRATION: 0
       SSO_ONLY: true
       SSO_SIGNUPS_MATCH_EMAIL: true
-    extra_hosts:
-      - auth.diloreto.com:${INTERNAL_HOST_IP}
     volumes:
       - /srv/home-lab-state/vaultwarden-data:/data
     networks:
