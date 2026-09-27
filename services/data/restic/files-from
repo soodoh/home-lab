@@ -35,7 +35,6 @@
 /srv/home-lab-state/sabnzbd-data
 /srv/home-lab-state/sonarr-data
 /srv/home-lab-state/tachidesk-data
-/srv/home-lab-state/traefik-data
 /srv/home-lab-state/vaultwarden-data
 /srv/home-lab-state/vikunja-data
 /srv/home-lab-state/zwave-data

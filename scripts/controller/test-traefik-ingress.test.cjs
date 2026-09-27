@@ -57,7 +57,7 @@ test('redirects, certificates, HTTP/3, and special headers preserve ingress beha
   assert.equal(dynamic.middlewares['nextcloud-hsts'].headers.customResponseHeaders['Strict-Transport-Security'], 'max-age=15552000');
 });
 
-test('NAT, Compose, trusted proxy, and recoverable ACME state agree', () => {
+test('NAT, Compose, trusted proxy, and certificate persistence agree', () => {
   const service = compose.services.traefik;
   assert.equal(compose.services.caddy, undefined);
   assert.deepEqual(service.ports, ['18080:80/tcp', '18443:443/tcp', '18443:443/udp']);
@@ -72,6 +72,6 @@ test('NAT, Compose, trusted proxy, and recoverable ACME state agree', () => {
   assert.equal(byExternalPort['443'].forward_port, '18443');
   assert.equal(byExternalPort['443'].protocol, 'tcp_udp');
   assert.ok(recovery.services.includes('traefik'));
-  assert.ok(recovery.paths.includes('/srv/home-lab-state/traefik-data'));
-  assert.ok(fs.readFileSync('services/data/restic/files-from', 'utf8').split('\n').includes('/srv/home-lab-state/traefik-data'));
+  assert.ok(!recovery.paths.includes('/srv/home-lab-state/traefik-data'));
+  assert.ok(!fs.readFileSync('services/data/restic/files-from', 'utf8').split('\n').includes('/srv/home-lab-state/traefik-data'));
 });

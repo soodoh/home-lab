@@ -218,10 +218,12 @@ The file provider owns only the listed HTTPS hosts; no Docker socket, dashboard,
 DNS challenge, or wildcard certificate is needed. Omada continues to accept public
 80/443 and must forward TCP 80 to Docker-host TCP 18080, and TCP/UDP 443 to
 TCP/UDP 18443. Traefik listens on container 80/443. Its HTTP-01 challenge needs
-public TCP 80 even though the host publishes 18080. The protected
-`/srv/home-lab-state/traefik-data/acme.json` is included in the encrypted Restic
-chain; the application configuration lives in Git. The proxy remains at
-`172.23.0.250`, Home Assistant's trusted address.
+public TCP 80 even though the host publishes 18080. Traefik persists its private
+ACME account and certificates at `/srv/home-lab-state/traefik-data/acme.json`.
+Like Caddy's previous certificate store, this is not in the Restic files-from set;
+recovery from a lost host requires new ACME issuance (subject to CA rate limits).
+The application configuration lives in Git. The proxy remains at `172.23.0.250`,
+Home Assistant's trusted address.
 
 Before any production action, obtain fresh host/Compose/backup and Omada observations
 as in sections 1–3. Confirm 18080/TCP and 18443/TCP+UDP are free on the host,
@@ -242,8 +244,9 @@ certificates and correct upstream responses, HTTP redirects to HTTPS without
 WebSockets (notably the authenticated GOST relay), and HTTP/3 over UDP 443.
 Verify that unlisted hosts, including `omada.diloreto.com`, have no application
 route. Check Traefik's ACME state for successful issuance without printing it,
-and obtain a complete new backup chain before counting the new state as
-recoverable. If any gate fails, restore the former gateway forwards and the
+and obtain a complete new backup chain for the changed Compose artifact. The
+ACME store is not in that chain; preserve it independently if immediate certificate
+recovery rather than reissuance is required. If any gate fails, restore the former gateway forwards and the
 reviewed Caddy Compose source under normal host ownership; do not delete the old
 certificate data during rollback. After the rollback window closes and a fresh
 live observation confirms the new ingress and backups, separately retire the
