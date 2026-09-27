@@ -45,7 +45,7 @@ services:
       ZWAVEJS_EXTERNAL_CONFIG: /usr/src/app/store/.config-db
     ports:
       # HA is on host network and uses the Z-Wave JS websocket on localhost.
-      # The Z-Wave UI is reachable through Authentik/Caddy over the proxy network.
+      # The Z-Wave UI is reachable through Authentik/Traefik over the proxy network.
       - 127.0.0.1:3000:3000
     networks:
       - hass
@@ -115,7 +115,7 @@ services:
           size: 1000000000
     ports:
       # HA uses Frigate's internal unauthenticated API and RTSP restreams on localhost.
-      # The authenticated Frigate UI is reachable through Authentik/Caddy over the proxy network.
+      # The authenticated Frigate UI is reachable through Authentik/Traefik over the proxy network.
       - 127.0.0.1:5000:5000
       - 127.0.0.1:8554:8554 # RTSP feeds for HA camera streams
     networks:

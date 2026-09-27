@@ -19,7 +19,7 @@
       "enable": true,
       "external_port": "80",
       "forward_ip": "192.168.0.100",
-      "forward_port": "80",
+      "forward_port": "18080",
       "name": "HTTP Proxy",
       "protocol": "tcp_udp",
       "wan_port_ids": [
@@ -31,7 +31,7 @@
       "enable": true,
       "external_port": "443",
       "forward_ip": "192.168.0.100",
-      "forward_port": "443",
+      "forward_port": "18443",
       "name": "HTTPS Proxy",
       "protocol": "tcp_udp",
       "wan_port_ids": [

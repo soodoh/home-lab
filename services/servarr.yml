@@ -36,7 +36,7 @@ services:
     restart: always
     logging: *default-logging
     ports:
-      # Suwayomi for local OPDS. qBittorrent WebUI is reachable through Authentik/Caddy over the proxy network.
+      # Suwayomi for local OPDS. qBittorrent WebUI is reachable through Authentik/Traefik over the proxy network.
       - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:4567:4567
     cap_add:
       - NET_ADMIN

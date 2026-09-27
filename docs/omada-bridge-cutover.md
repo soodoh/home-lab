@@ -6,7 +6,10 @@ observations passed, and Omada's tailnet Serve endpoint returned HTTP 200. The
 public DNS still resolves `omada.diloreto.com` through the shared wildcard
 `*.diloreto.com` CNAME to `home.diloreto.com`; there is no dedicated Omada record
 to remove. The steps below record the separately gated cutover procedure,
-not permission to replay it. See [operations](operations.md) for production locks,
+not permission to replay it. The Caddy mentions below record that completed historical cutover;
+for the proposed replacement ingress and changed forward targets see
+[public ingress](operations.md#public-ingress-caddy-to-traefik). See
+[operations](operations.md) for production locks,
 observations, plans and backup requirements; retain independent Docker-host and
 gateway console access for any future changes.
 

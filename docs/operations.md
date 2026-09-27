@@ -211,17 +211,57 @@ ansible-playbook ansible/playbooks/configure-tailscale-serve.yml
 ansible-playbook ansible/playbooks/observe-hosts.yml
 ```
 
-### GOST relay hostname and account cutover
+### Public ingress: Caddy to Traefik
+
+The reviewed source replaces Caddy with Traefik, but **is not a live cutover**.
+The file provider owns only the listed HTTPS hosts; no Docker socket, dashboard,
+DNS challenge, or wildcard certificate is needed. Omada continues to accept public
+80/443 and must forward TCP 80 to Docker-host TCP 18080, and TCP/UDP 443 to
+TCP/UDP 18443. Traefik listens on container 80/443. Its HTTP-01 challenge needs
+public TCP 80 even though the host publishes 18080. The protected
+`/srv/home-lab-state/traefik-data/acme.json` is included in the encrypted Restic
+chain; the application configuration lives in Git. The proxy remains at
+`172.23.0.250`, Home Assistant's trusted address.
+
+Before any production action, obtain fresh host/Compose/backup and Omada observations
+as in sections 1–3. Confirm 18080/TCP and 18443/TCP+UDP are free on the host,
+that the gateway can map external 80/443 to those exact host ports (including UDP),
+and that external DNS reaches the gateway. Do not use the reviewed desired settings
+as proof of live forwarding. Confirm independent gateway and host access, a complete
+backup chain, the exact saved Omada plan and policy approval, and a protected Caddy
+certificate-store before-image outside Git. Plan for a short public ingress
+interruption: switching either the gateway forward or Compose first will interrupt
+the old endpoint until both layers have converged. Keep the old gateway mapping
+available for rollback. Never apply a plan proposing unrelated Omada changes.
+
+During the approved window, apply only the reviewed Omada forwarding plan and
+converge committed Compose through `site.yml` (with the usual check/observe/lock
+gates). Verify from outside the LAN that the 25 named hosts receive valid public
+certificates and correct upstream responses, HTTP redirects to HTTPS without
+`:18443` in the Location, Nextcloud's HSTS, Books' `X-Scheme`, Home Assistant,
+WebSockets (notably the authenticated GOST relay), and HTTP/3 over UDP 443.
+Verify that unlisted hosts, including `omada.diloreto.com`, have no application
+route. Check Traefik's ACME state for successful issuance without printing it,
+and obtain a complete new backup chain before counting the new state as
+recoverable. If any gate fails, restore the former gateway forwards and the
+reviewed Caddy Compose source under normal host ownership; do not delete the old
+certificate data during rollback. After the rollback window closes and a fresh
+live observation confirms the new ingress and backups, separately retire the
+old host `/srv/home-lab-state/caddy-data` and revoke any independently owned,
+now-unused Route 53 credentials. Inspect before deleting: Git removal is not
+permission to erase an unexplained live path or credential.
+
+### GOST relay hostname and account cutover (historical procedure)
 
 The relay has three independently recoverable layers: the Authentik identity
-objects, the private GOST/Caddy service, and the work-Mac client. This cutover
+objects, the private GOST/public ingress service, and the work-Mac client. This cutover
 intentionally removes `ts-control.diloreto.com` and renames the existing
 Authentik user to `gost-proxy-user` without a parallel old route. Expect a
 brief loss of work-Mac Tailscale coordination until the new app password and
 client are active. Keep independent console access to the Docker host and do
 not restart the Mac's active Tailscale daemon until the first two layers pass.
 
-1. Verify public DNS for `gost.diloreto.com` points to the current Caddy ingress.
+1. Verify public DNS for `gost.diloreto.com` points to the current public ingress.
    Observe the live Authentik user and provider, and confirm remote state tracks
    the user and binding at their `gost-proxy-user` addresses before planning the
    `authentik` root using section 3. The existing user and binding IDs must be
@@ -229,10 +269,11 @@ not restart the Mac's active Tailscale daemon until the first two layers pass.
    **in place**. Any replacement, unexpected deletion, or plan refusal is a
    stop: do not issue a destructive-plan approval to complete this rename.
    Apply only the reviewed plan, then verify the old route/username no longer authenticate.
-2. Converge Compose and confirm `https://gost.diloreto.com` presents Caddy's
+2. Converge Compose and confirm `https://gost.diloreto.com` presents the
    public certificate and an Authentik authentication response. Confirm the old
-   hostname is not served by Caddy. The private GOST container must publish no
-   host port. Caddy's bind-mounted configuration requires explicit recreation.
+   hostname has no application route. The private GOST container must publish no
+   host port. A change to the bind-mounted ingress configuration requires explicit
+   recreation (the site play recreates the complete project on source changes).
 3. In the Authentik Admin interface, open **Directory → Tokens and App passwords**,
    select **Create**, use identifier `gost-proxy`, select user `gost-proxy-user`,
    choose intent **App password**, disable expiry, and copy the value once into

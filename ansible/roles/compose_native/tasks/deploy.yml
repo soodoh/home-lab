@@ -222,6 +222,52 @@
         mode: "0700"
       become: true
 
+    - name: Inspect the Traefik certificate store before provisioning
+      ansible.builtin.stat:
+        path: "{{ item }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      become: true
+      register: compose_native_traefik_paths
+      loop:
+        - /srv/home-lab-state/traefik-data
+        - /srv/home-lab-state/traefik-data/acme.json
+
+    - name: Refuse unsafe existing Traefik certificate paths
+      ansible.builtin.assert:
+        that:
+          - not (item.stat.islnk | default(false))
+          - not (item.stat.exists | default(false)) or (item.stat.isdir | default(false) if item.item == '/srv/home-lab-state/traefik-data' else item.stat.isreg | default(false))
+          - not (item.stat.exists | default(false)) or item.stat.pw_name == 'root'
+          - not (item.stat.exists | default(false)) or item.stat.gr_name == 'root'
+          - not (item.stat.exists | default(false)) or item.stat.mode == ('0700' if item.item == '/srv/home-lab-state/traefik-data' else '0600')
+        fail_msg: An existing Traefik certificate path is not protected; inspect it before convergence.
+      loop: "{{ compose_native_traefik_paths.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    - name: Create the protected Traefik certificate directory
+      ansible.builtin.file:
+        path: /srv/home-lab-state/traefik-data
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+      become: true
+
+    - name: Initialize the Traefik certificate store without overwriting existing certificates
+      ansible.builtin.copy:
+        content: "{}\n"
+        dest: /srv/home-lab-state/traefik-data/acme.json
+        owner: root
+        group: root
+        mode: '0600'
+        force: false
+      become: true
+      diff: false
+      no_log: true
+
     - name: Install the protected CLIProxyAPI configuration
       ansible.builtin.template:
         src: "{{ compose_native_controller_root }}/services/data/cli-proxy-api/config.yaml.j2"

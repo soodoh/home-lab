@@ -89,7 +89,7 @@ credentials and encrypted bundles live outside Git.
 - Host-side autonomous rollback may outlive a controller only where loss of
   connectivity could otherwise strand the host.
 - `gost.diloreto.com` is an authenticated WebSocket transport for the
-  work Mac's Tailscale coordination and CLIProxyAPI traffic. Caddy terminates
+  work Mac's Tailscale coordination and CLIProxyAPI traffic. Traefik terminates
   public TLS, Authentik admits only the `gost-proxy-user` service account,
   and the private GOST service permits `tailscale.com` on TCP 80/443 plus
   `*.mora-rattlesnake.ts.net` on any TCP port. This owner-approved expansion

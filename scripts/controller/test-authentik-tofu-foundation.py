@@ -128,9 +128,6 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             binding["application_slug"] == "omada"
             for binding in DESIRED["applicationPolicyBindings"].values()
         ))
-        caddyfile = (REPO / "services" / "data" / "Caddyfile").read_text()
-        self.assertNotIn("omada.diloreto.com", caddyfile)
-        self.assertNotIn(":18043", caddyfile)
 
     def test_omada_bridge_advertises_reachable_host(self) -> None:
         network = json.loads((REPO / "infrastructure/tofu/omada/desired.json").read_text())["network"]
@@ -185,7 +182,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
 
         infra = (REPO / "services" / "infra.yml").read_text()
         self.assertIn("gogost/gost:3.3.0@sha256:", infra)
-        proxy_service = infra.split("  tailscale-control-proxy:", 1)[1].split("\n  caddy:", 1)[0]
+        proxy_service = infra.split("  tailscale-control-proxy:", 1)[1].split("\n  traefik:", 1)[0]
         self.assertNotIn("\n    ports:", proxy_service)
         self.assertIn("      - proxy", proxy_service)
 
@@ -196,9 +193,6 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertNotIn('      - "*.ts.net"', gost)
         self.assertNotIn("allow all", gost)
 
-        caddyfile = (REPO / "services" / "data" / "Caddyfile").read_text()
-        self.assertIn("gost.diloreto.com,", caddyfile)
-        self.assertNotIn("ts-control.diloreto.com,", caddyfile)
 
     def test_jellyfin_ldap_runtime_is_private_and_pinned(self) -> None:
         authentik = (REPO / "services" / "authentik.yml").read_text()

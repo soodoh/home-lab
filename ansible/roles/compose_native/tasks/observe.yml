@@ -68,6 +68,45 @@
   no_log: true
   when: compose_native_cli_proxy_source.stat.exists | default(false)
 
+- name: Detect whether the active Compose source owns Traefik
+  ansible.builtin.stat:
+    path: "{{ compose_native_current_dir }}/services/data/traefik/traefik.yml"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  become: true
+  register: compose_native_traefik_source
+
+- name: Inspect protected Traefik certificate paths
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  become: true
+  register: compose_native_traefik_observed_paths
+  loop:
+    - {path: /srv/home-lab-state/traefik-data, kind: directory, mode: '0700'}
+    - {path: /srv/home-lab-state/traefik-data/acme.json, kind: file, mode: '0600'}
+  when: compose_native_traefik_source.stat.exists | default(false)
+
+- name: Require protected Traefik certificate paths
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+      - not (item.stat.islnk | default(false))
+      - >-
+        (item.item.kind == 'directory' and item.stat.isdir | default(false)) or
+        (item.item.kind == 'file' and item.stat.isreg | default(false))
+      - item.stat.pw_name == 'root'
+      - item.stat.gr_name == 'root'
+      - item.stat.mode == item.item.mode
+    fail_msg: The Traefik certificate store is missing or has unsafe metadata.
+  loop: "{{ compose_native_traefik_observed_paths.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  when: compose_native_traefik_source.stat.exists | default(false)
+
 - name: Inspect protected Compose secret files
   ansible.builtin.stat:
     path: "{{ item }}"

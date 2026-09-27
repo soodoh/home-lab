@@ -71,25 +71,20 @@ services:
     networks:
       - proxy
 
-  caddy:
-    image: caddy:2.11.4@sha256:14a9c00d4e833ebc2b65d36515b37bde3b73f0b323a2663aaafc88953d8c4e3f
-    container_name: caddy
+  traefik:
+    image: traefik:v3.7.0@sha256:eb328e2c806c53aafbbace6c451fa54d268961261a85452fcf0fb752a30c17be
+    container_name: traefik
     restart: always
     logging: *default-logging
-    cap_add:
-      - NET_ADMIN
     ports:
-      - 80:80
-      - 443:443/tcp
-      - 443:443/udp
-    environment:
-      TZ: $TZ
-      ROUTE_53_ACCESS_KEY: $ROUTE_53_ACCESS_KEY
-      ROUTE_53_SECRET: $ROUTE_53_SECRET
-      ROUTE_53_ZONE_ID: $ROUTE_53_ZONE_ID
+      # Omada forwards public 80/443 to these host ports, including UDP for HTTP/3.
+      - 18080:80/tcp
+      - 18443:443/tcp
+      - 18443:443/udp
     volumes:
-      - /srv/home-lab-state/caddy-data:/data/caddy
-      - ./data/Caddyfile:/etc/caddy/Caddyfile
+      - /srv/home-lab-state/traefik-data:/data
+      - ./data/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./data/traefik/routes.yml:/etc/traefik/routes.yml:ro
     networks:
       proxy:
         # Must match Home Assistant's trusted_proxies entry.

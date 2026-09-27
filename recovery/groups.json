@@ -63,10 +63,11 @@
       ]
     },
     "infrastructure": {
-      "services": ["omada", "ddns-updater", "caddy"],
+      "services": ["omada", "ddns-updater", "traefik"],
       "paths": [
         "/srv/home-lab-state/ddns-updater-data",
         "/srv/home-lab-state/omada-data/data",
+        "/srv/home-lab-state/traefik-data",
         "/home/docker/.ssh"
       ]
     },

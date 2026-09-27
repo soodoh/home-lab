@@ -1,0 +1,152 @@
+---
+# Only listed hosts receive public routes and certificates. No Docker API access.
+http:
+  routers:
+    auth:
+      rule: "Host(`auth.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    calibre:
+      rule: "Host(`calibre.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    caromanga:
+      rule: "Host(`caromanga.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    comics:
+      rule: "Host(`comics.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    ddns:
+      rule: "Host(`ddns.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    frigate:
+      rule: "Host(`frigate.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    openfit:
+      rule: "Host(`openfit.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    prowlarr:
+      rule: "Host(`prowlarr.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    proxmox:
+      rule: "Host(`proxmox.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    qb:
+      rule: "Host(`qb.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    radarr-4k:
+      rule: "Host(`radarr-4k.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    radarr:
+      rule: "Host(`radarr.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    readarr:
+      rule: "Host(`readarr.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    sabnzbd:
+      rule: "Host(`sabnzbd.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    seerr:
+      rule: "Host(`seerr.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    sonarr-4k:
+      rule: "Host(`sonarr-4k.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    sonarr:
+      rule: "Host(`sonarr.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+    gost:
+      rule: "Host(`gost.diloreto.com`)"
+      entryPoints: [websecure]
+      service: authentik
+
+    hass:
+      rule: "Host(`hass.diloreto.com`)"
+      entryPoints: [websecure]
+      service: hass
+    vaultwarden:
+      rule: "Host(`vaultwarden.diloreto.com`)"
+      entryPoints: [websecure]
+      service: vaultwarden
+    watch:
+      rule: "Host(`watch.diloreto.com`)"
+      entryPoints: [websecure]
+      service: jellyfin
+    books:
+      rule: "Host(`books.diloreto.com`)"
+      entryPoints: [websecure]
+      middlewares: [books-scheme]
+      service: books
+    nextcloud:
+      rule: "Host(`nextcloud.diloreto.com`)"
+      entryPoints: [websecure]
+      middlewares: [nextcloud-hsts]
+      service: nextcloud
+    todo:
+      rule: "Host(`todo.diloreto.com`)"
+      entryPoints: [websecure]
+      service: vikunja
+    karaoke:
+      rule: "Host(`karaoke.diloreto.com`)"
+      entryPoints: [websecure]
+      service: karaoke
+
+  middlewares:
+    books-scheme:
+      headers:
+        # All application routes terminate TLS on websecure.
+        customRequestHeaders:
+          X-Scheme: https
+    nextcloud-hsts:
+      headers:
+        customResponseHeaders:
+          Strict-Transport-Security: "max-age=15552000"
+
+  services:
+    authentik:
+      loadBalancer:
+        servers:
+          - url: http://authentik-server:9000
+    hass:
+      loadBalancer:
+        servers:
+          - url: http://172.23.0.1:8123
+    vaultwarden:
+      loadBalancer:
+        servers:
+          - url: http://vaultwarden:80
+    jellyfin:
+      loadBalancer:
+        servers:
+          - url: http://jellyfin:8096
+    books:
+      loadBalancer:
+        servers:
+          - url: http://calibre-web-automated:8083
+    nextcloud:
+      loadBalancer:
+        servers:
+          - url: http://nextcloud:80
+    vikunja:
+      loadBalancer:
+        servers:
+          - url: http://vikunja:3456
+    karaoke:
+      loadBalancer:
+        servers:
+          - url: http://karaoke-eternal:8080
