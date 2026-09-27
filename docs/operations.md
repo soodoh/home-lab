@@ -163,10 +163,10 @@ that root has a reviewed file under `infrastructure/policy/allow/`; omit the arg
 otherwise. A normal allowlist **never** approves deletion. For Omada, review `infrastructure/tofu/omada/desired.json` as the intended LAN,
 DHCP-reservation and port-forward settings. Set `TF_VAR_omada_export_path` to a
 nonexistent path in the private temporary directory, then run
-`scripts/prepare-omada-plan-input`; it obtains a fresh live export through the Docker
-host's tailnet-only Tailscale Serve endpoint on TCP 8443 using the system trust store
-and read-only provider identity, including all port-forwarding rules in the selected
-site. The export must match every reviewed resource identity, but its settings are
+`scripts/prepare-omada-plan-input`; it obtains a fresh live export through the
+private `https://omada.ts.diloreto.com` route on TCP 443 using the system trust
+store and read-only provider identity, including all port-forwarding rules in
+the selected site. The old Serve route remains available for rollback. The export must match every reviewed resource identity, but its settings are
 not desired state. A changed live setting must appear as drift against Git; do not
 copy it into `desired.json` to make a plan pass. Do not print
 `tofu show -json`, state, private exports or saved plans. Apply only the saved plan

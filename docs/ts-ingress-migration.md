@@ -89,8 +89,12 @@ production-CA artifact. A separately approved exact Tailscale saved plan added
 owner/admin and CI grants to Docker-host TCP 443, retaining old Serve ports.
 The owner controller reached both private routes with strict TLS, while a
 `tag:proxmox` source timed out; provider policy tests and a fresh no-change
-plan passed. Actual CI, GOST/work-Mac and application-authenticated access,
-WAN negatives, migration and Serve retirement still require separate review;
+plan passed. The local Omada provider/export source now uses the new hostname:
+authenticated exports through Serve and private Traefik returned identical
+managed state, and a fresh new-route Omada plan had zero actions and no drift.
+The operator reports off-tailnet access blocked; actual CI access is explicitly
+deferred, not proven. GOST/work-Mac and LLM application-authenticated access,
+remaining client migration and Serve retirement still require separate review;
 no past AWS, TLS, backup or grant approval authorizes them.
 
 The owner chose to redesign the IAM gate rather than manually provision the

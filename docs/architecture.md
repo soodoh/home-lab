@@ -62,13 +62,14 @@ credentials and encrypted bundles live outside Git.
   port-forwarding rules in the selected site. Reviewed `desired.json` supplies
   their settings; a fresh private controller export supplies import identities and
   checks completeness, never desired settings. Declarative import blocks preserve
-  bootstrap from an empty state without imperative state scripts. Local and CI
-  controllers use one tailnet-only Tailscale Serve endpoint with public TLS trust;
-  Ansible owns its exact node-level proxy to the
-  Omada loopback HTTPS listener. The staged bridge-mode cutover retains the
-  host-loopback Serve backend while publishing device-management ports only on the
-  Docker host LAN address. Omada's forced HTTPS redirect requires that one
-  encrypted loopback hop to accept the private certificate without authentication.
+  bootstrap from an empty state without imperative state scripts. The local
+  controller uses private Traefik at `omada.ts.diloreto.com` with public TLS
+  trust; future CI runners are intended to use the same route, but their real
+  path is not yet verified. Ansible retains the exact node-level Tailscale
+  Serve route for rollback. Both ingress routes terminate at Omada's loopback
+  HTTPS listener. The staged bridge-mode cutover would publish device-management
+  ports only on the Docker host LAN address. Omada's forced HTTPS redirect
+  requires that encrypted loopback hop to accept its private certificate.
   See [Omada bridge cutover](omada-bridge-cutover.md); the staged source is not
   evidence that the devices or Authentik retirement have been migrated live.
 - Proxmox remote state owns the adopted VM, its managed disks and its PCI and USB

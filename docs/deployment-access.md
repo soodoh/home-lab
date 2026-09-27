@@ -34,8 +34,10 @@ authenticated GOST exception is separate and is not yet migrated.
 
 CI is explicitly denied Omada's direct TLS port 8043, CLIProxyAPI HTTPS port 8444, and loopback HTTP port 8088.
 Tailscale SSH separately permits only `ansible-deploy` for deployment identities.
-Personal account mappings remain distinct. The tracked Omada interface uses the same
-system-trusted Serve endpoint from local controllers and future CI runners.
+Personal account mappings remain distinct. The tracked Omada interface uses the system-trusted private Traefik hostname
+from local controllers; the old Serve endpoint remains for rollback. Future CI
+runners must use the new hostname and application credentials, but their actual
+path has been explicitly deferred rather than verified.
 
 ## GitHub-hosted runners
 

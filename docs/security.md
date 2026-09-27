@@ -37,13 +37,15 @@ match them and the host's sealed hardware inputs before planning Proxmox changes
 
 The repository may contain public age recipients, public certificates and CA
 certificates when they are trust inputs rather than proof of a completed action. The
-Omada provider and export helper use the Docker host's tailnet-only Tailscale Serve
-endpoint on TCP 8443. Controllers strictly verify its publicly trusted certificate
-with the system trust store and hold no Omada CA or server private key. Omada forces
-API login from HTTP to its private-CA HTTPS listener, so the one bounded exception is
-Serve's encrypted but unauthenticated `https+insecure://127.0.0.1:8043` backend hop.
-That hop cannot leave the Docker host; accepting it treats local host compromise as
-already inside the provider trust boundary. Do not broaden the exception to a LAN or
+Omada provider and export helper use the private Traefik hostname
+`omada.ts.diloreto.com` on tailnet TCP 443. Controllers strictly verify its
+publicly trusted certificate with the system trust store and hold no Omada CA
+or server private key. Omada forces API login from HTTP to its private-CA
+HTTPS listener, so the one bounded exception is Traefik's encrypted
+`https://127.0.0.1:8043` backend hop; the older Serve route retains its own
+loopback exception only for rollback. Neither hop leaves the Docker host;
+accepting them treats local host compromise as already inside the provider
+trust boundary. Do not broaden the exception to a LAN or
 tailnet address, restore a hostname alias, expose a loopback listener, or disable
 client-side TLS verification.
 
