@@ -91,16 +91,34 @@ http:
       rule: "Host(`nextcloud.diloreto.com`)"
       entryPoints: [websecure]
       service: nextcloud
+    todo-auth:
+      rule: "Host(`todo.diloreto.com`) && PathPrefix(`/outpost.goauthentik.io/`)"
+      entryPoints: [websecure]
+      priority: 100
+      service: authentik
+    todo-api:
+      # Native clients use the Cloud token; calendar subscriptions use their own URL token.
+      rule: "Host(`todo.diloreto.com`) && (Path(`/v1`) || PathPrefix(`/v1/`))"
+      entryPoints: [websecure]
+      priority: 90
+      service: mindwtr-cloud
     todo:
       rule: "Host(`todo.diloreto.com`)"
       entryPoints: [websecure]
-      service: vikunja
+      service: mindwtr-app
+      middlewares: [mindwtr-web-auth]
     karaoke:
       rule: "Host(`karaoke.diloreto.com`)"
       entryPoints: [websecure]
       service: karaoke
 
   middlewares:
+    mindwtr-web-auth:
+      forwardAuth:
+        address: http://authentik-server:9000/outpost.goauthentik.io/auth/traefik
+        trustForwardHeader: false
+        # Do not send sync Authorization credentials to the web login gateway.
+        authRequestHeaders: [Cookie]
     hsts:
       headers:
         # All application routes terminate TLS on websecure.
@@ -135,6 +153,14 @@ http:
       loadBalancer:
         servers:
           - url: http://vikunja:3456
+    mindwtr-app:
+      loadBalancer:
+        servers:
+          - url: http://mindwtr-app:5173
+    mindwtr-cloud:
+      loadBalancer:
+        servers:
+          - url: http://mindwtr-cloud:8787
     karaoke:
       loadBalancer:
         servers:

@@ -17,7 +17,8 @@ const authentikHosts = [
 ];
 const directHosts = {
   hass: 'hass', vaultwarden: 'vaultwarden', watch: 'jellyfin', books: 'books',
-  nextcloud: 'nextcloud', todo: 'vikunja', karaoke: 'karaoke',
+  nextcloud: 'nextcloud', todo: 'mindwtr-app', 'todo-api': 'mindwtr-cloud',
+  'todo-auth': 'authentik', karaoke: 'karaoke',
 };
 
 test('the public host allowlist routes to the intended private backends', () => {
@@ -29,14 +30,35 @@ test('the public host allowlist routes to the intended private backends', () => 
   assert.ok(!Object.values(dynamic.routers).some(({ rule }) => /omada\.diloreto\.com|ts-control\.diloreto\.com|sonarr-4k\.diloreto\.com/.test(rule)));
   for (const [host, service] of Object.entries(expected)) {
     const route = dynamic.routers[host];
-    assert.equal(route.rule, `Host(\`${host}.diloreto.com\`)`);
+    if (host !== 'todo-api' && host !== 'todo-auth') {
+      assert.equal(route.rule, `Host(\`${host}.diloreto.com\`)`);
+    }
     assert.deepEqual(route.entryPoints, ['websecure']);
     assert.equal(route.service, service);
-    assert.equal(route.middlewares, undefined);
+    assert.deepEqual(route.middlewares, host === 'todo' ? ['mindwtr-web-auth'] : undefined);
     assert.ok(dynamic.services[service].loadBalancer.servers[0].url.startsWith('http://'));
   }
   assert.equal(dynamic.services.authentik.loadBalancer.servers[0].url, 'http://authentik-server:9000');
   assert.equal(dynamic.services.hass.loadBalancer.servers[0].url, 'http://172.23.0.1:8123');
+});
+
+test('Mindwtr web requires Authentik; sync API and calendar feeds keep native credentials', () => {
+  const host = 'Host(`todo.diloreto.com`)';
+  assert.equal(dynamic.routers.todo.rule, host);
+  assert.equal(dynamic.routers['todo-api'].rule, `${host} && (Path(\`/v1\`) || PathPrefix(\`/v1/\`))`);
+  assert.equal(dynamic.routers['todo-auth'].rule, `${host} && PathPrefix(\`/outpost.goauthentik.io/\`)`);
+  assert.ok(dynamic.routers['todo-auth'].priority > dynamic.routers['todo-api'].priority);
+  assert.equal(dynamic.routers['todo-api'].middlewares, undefined);
+  assert.equal(dynamic.routers['todo-auth'].middlewares, undefined);
+  assert.deepEqual(dynamic.middlewares['mindwtr-web-auth'], {
+    forwardAuth: {
+      address: 'http://authentik-server:9000/outpost.goauthentik.io/auth/traefik',
+      trustForwardHeader: false,
+      authRequestHeaders: ['Cookie'],
+    },
+  });
+  assert.equal(dynamic.services['mindwtr-app'].loadBalancer.servers[0].url, 'http://mindwtr-app:5173');
+  assert.equal(dynamic.services['mindwtr-cloud'].loadBalancer.servers[0].url, 'http://mindwtr-cloud:8787');
 });
 
 test('redirects, certificates, HTTP/3, and uniform HSTS preserve ingress policy', () => {
@@ -48,7 +70,7 @@ test('redirects, certificates, HTTP/3, and uniform HSTS preserve ingress policy'
   assert.equal(entries.websecure.address, ':443');
   assert.deepEqual(entries.websecure.http3, {});
   assert.deepEqual(entries.websecure.http.middlewares, ['hsts@file']);
-  assert.deepEqual(dynamic.middlewares, { hsts: { headers: { stsSeconds: 15552000 } } });
+  assert.deepEqual(dynamic.middlewares.hsts, { headers: { stsSeconds: 15552000 } });
   assert.equal(entries.websecure.http.tls.certResolver, 'letsencrypt');
   assert.equal(staticConfig.certificatesResolvers.letsencrypt.acme.httpChallenge.entryPoint, 'web');
   assert.equal(staticConfig.certificatesResolvers.letsencrypt.acme.storage, '/data/acme.json');
