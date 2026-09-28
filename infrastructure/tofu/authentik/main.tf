@@ -6,20 +6,21 @@ locals {
     ldap           = {}
   }
 
-  applications                  = var.authentik_enable_management ? local.desired.applications : {}
-  existing_applications         = { for key, value in local.applications : key => value if value.import_existing }
-  application_policy_bindings   = var.authentik_enable_management ? local.desired.applicationPolicyBindings : {}
-  authenticator_validate_stages = var.authentik_enable_management ? local.desired.authenticatorValidateStages : {}
-  certificates                  = var.authentik_enable_management ? local.desired.certificates : {}
-  custom_blueprints             = var.authentik_enable_management ? local.desired.customBlueprints : {}
-  custom_flows                  = var.authentik_enable_management ? local.desired.customFlows : {}
-  existing_custom_flows         = { for key, value in local.custom_flows : key => value if value.import_existing }
-  flow_stage_bindings           = var.authentik_enable_management ? local.desired.flowStageBindings : {}
-  existing_flow_stage_bindings  = { for key, value in local.flow_stage_bindings : key => value if value.import_existing }
-  ldap_providers                = var.authentik_enable_management ? local.desired.ldapProviders : {}
-  ldap_search_permissions       = var.authentik_enable_management ? local.desired.ldapSearchPermissions : {}
-  oauth_providers               = var.authentik_enable_management ? local.desired.oauthProviders : {}
-  outposts                      = var.authentik_enable_management ? toset(keys(local.desired.outposts)) : toset([])
+  applications                         = var.authentik_enable_management ? local.desired.applications : {}
+  existing_applications                = { for key, value in local.applications : key => value if value.import_existing }
+  application_policy_bindings          = var.authentik_enable_management ? local.desired.applicationPolicyBindings : {}
+  existing_application_policy_bindings = { for key, value in local.application_policy_bindings : key => value if value.pk != null }
+  authenticator_validate_stages        = var.authentik_enable_management ? local.desired.authenticatorValidateStages : {}
+  certificates                         = var.authentik_enable_management ? local.desired.certificates : {}
+  custom_blueprints                    = var.authentik_enable_management ? local.desired.customBlueprints : {}
+  custom_flows                         = var.authentik_enable_management ? local.desired.customFlows : {}
+  existing_custom_flows                = { for key, value in local.custom_flows : key => value if value.import_existing }
+  flow_stage_bindings                  = var.authentik_enable_management ? local.desired.flowStageBindings : {}
+  existing_flow_stage_bindings         = { for key, value in local.flow_stage_bindings : key => value if value.import_existing }
+  ldap_providers                       = var.authentik_enable_management ? local.desired.ldapProviders : {}
+  ldap_search_permissions              = var.authentik_enable_management ? local.desired.ldapSearchPermissions : {}
+  oauth_providers                      = var.authentik_enable_management ? local.desired.oauthProviders : {}
+  outposts                             = var.authentik_enable_management ? toset(keys(local.desired.outposts)) : toset([])
   existing_outposts = var.authentik_enable_management ? toset([
     for key, value in local.desired.outposts : key if value.import_existing
   ]) : toset([])
@@ -41,13 +42,13 @@ check "desired_inventory" {
   assert {
     condition = (
       local.desired.schemaVersion == 3 &&
-      length(local.desired.applications) == 23 &&
-      length(local.desired.proxyProviders) == 18 &&
+      length(local.desired.applications) == 24 &&
+      length(local.desired.proxyProviders) == 19 &&
       (!var.authentik_enable_management || (
         local.desired.sourceInventory.complete &&
         length(local.desired.oauthProviders) == 5 &&
         length(local.desired.retainedOAuthProviders) == 1 &&
-        length(local.desired.applicationPolicyBindings) == 27 &&
+        length(local.desired.applicationPolicyBindings) == 28 &&
         length(local.desired.authenticatorValidateStages) == 1 &&
         length(local.desired.certificates) == 1 &&
         length(local.desired.customFlows) == 2 &&
@@ -435,7 +436,7 @@ import {
 }
 
 import {
-  for_each = local.application_policy_bindings
+  for_each = local.existing_application_policy_bindings
   to       = authentik_policy_binding.application_access[each.key]
   id       = each.value.pk
 }

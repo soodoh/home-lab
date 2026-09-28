@@ -72,16 +72,16 @@
     },
     "applications": {
       "type": "object",
-      "minProperties": 23,
-      "maxProperties": 23,
+      "minProperties": 24,
+      "maxProperties": 24,
       "additionalProperties": {
         "$ref": "#/$defs/application"
       }
     },
     "proxyProviders": {
       "type": "object",
-      "minProperties": 18,
-      "maxProperties": 18,
+      "minProperties": 19,
+      "maxProperties": 19,
       "propertyNames": {
         "pattern": "^(?:[1-9][0-9]*|[a-z0-9]+(?:-[a-z0-9]+)*)$"
       },
@@ -112,8 +112,8 @@
     },
     "applicationPolicyBindings": {
       "type": "object",
-      "minProperties": 27,
-      "maxProperties": 27,
+      "minProperties": 28,
+      "maxProperties": 28,
       "propertyNames": {
         "$ref": "#/$defs/uuid"
       },
@@ -713,7 +713,7 @@
           "minimum": 0
         },
         "pk": {
-          "$ref": "#/$defs/uuid"
+          "$ref": "#/$defs/nullableUuid"
         },
         "policy": {
           "$ref": "#/$defs/nullableUuid"

@@ -313,6 +313,18 @@
       "timeout": 30,
       "user": null
     },
+    "e1f79e5c-85e3-47f1-b94c-c49cb4442f05": {
+      "application_slug": "mindwtr",
+      "enabled": true,
+      "failure_result": false,
+      "group": "2b247c3f-fe19-4565-8f59-82f2c2429eb2",
+      "negate": false,
+      "order": 0,
+      "pk": null,
+      "policy": null,
+      "timeout": 30,
+      "user": null
+    },
     "e7747d8a-8153-49f0-948a-140bee74c6d1": {
       "application_slug": "readarr",
       "enabled": true,
@@ -649,6 +661,23 @@
       "provider_type": "proxy",
       "slug": "tachidesk",
       "uuid": "6733f1dd-946d-4b09-a1a6-c053113609a7"
+    },
+    "mindwtr": {
+      "backchannel_provider_ids": [],
+      "group": "Other",
+      "import_existing": false,
+      "meta_description": "Tasks (web access; sync clients use Cloud credentials)",
+      "meta_hide": true,
+      "meta_icon": "",
+      "meta_launch_url": "https://todo.diloreto.com",
+      "meta_publisher": "",
+      "name": "Mindwtr",
+      "open_in_new_tab": false,
+      "policy_engine_mode": "any",
+      "provider_id": "mindwtr",
+      "provider_type": "proxy",
+      "slug": "mindwtr",
+      "uuid": null
     },
     "tailscale-control": {
       "backchannel_provider_ids": [],
@@ -1119,7 +1148,8 @@
         "8",
         "11",
         "25",
-        "tailscale-control"
+        "tailscale-control",
+        "mindwtr"
       ],
       "type": "proxy"
     },
@@ -1135,6 +1165,35 @@
     }
   },
   "proxyProviders": {
+    "mindwtr": {
+      "access_token_validity": "hours=24",
+      "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
+      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
+      "basic_auth_enabled": false,
+      "basic_auth_password_attribute": "",
+      "basic_auth_user_attribute": "",
+      "cookie_domain": "",
+      "external_host": "https://todo.diloreto.com",
+      "import_existing": false,
+      "intercept_header_auth": false,
+      "internal_host": "http://mindwtr-app:80",
+      "internal_host_ssl_validation": true,
+      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
+      "jwt_federation_providers": [],
+      "jwt_federation_sources": [],
+      "mode": "forward_single",
+      "name": "Mindwtr",
+      "pk": null,
+      "property_mappings": [
+        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
+        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
+        "788cbce6-5e00-41e0-9bcf-0ab4a4956e64",
+        "8f00714d-dbb0-472a-9a78-8b755baa7915",
+        "f371dd37-1069-4154-823e-01efd372eb06"
+      ],
+      "refresh_token_validity": "days=30",
+      "skip_path_regex": ""
+    },
     "11": {
       "access_token_validity": "hours=24",
       "authentication_flow": "3a2e921e-3640-4091-8410-9a7231aa708f",
