@@ -71,13 +71,14 @@
       ]
     },
     "applications": {
-      "services": ["vaultwarden", "vikunja", "cli-proxy-api", "openfit", "karaoke-eternal"],
+      "services": ["vaultwarden", "vikunja", "mindwtr-cloud", "mindwtr-app", "cli-proxy-api", "openfit", "karaoke-eternal"],
       "paths": [
         "/srv/home-lab-state/karaoke-eternal-data",
         "/srv/home-lab-state/cli-proxy-api/auths",
         "/srv/home-lab-state/openfit-data",
         "/srv/home-lab-state/vaultwarden-data",
-        "/srv/home-lab-state/vikunja-data"
+        "/srv/home-lab-state/vikunja-data",
+        "/srv/home-lab-state/mindwtr-data"
       ]
     },
     "gaming": {

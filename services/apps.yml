@@ -137,6 +137,35 @@ services:
     networks:
       - proxy
 
+  mindwtr-cloud:
+    image: ghcr.io/dongdongbh/mindwtr-cloud:1.2.6@sha256:45cd92a1113df5924a2c94d68303e77dbbce8a237420d7949cf08e1812acd77c
+    container_name: mindwtr-cloud
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      MINDWTR_CLOUD_AUTH_TOKENS: $MINDWTR_CLOUD_AUTH_TOKENS
+      MINDWTR_CLOUD_CORS_ORIGIN: https://todo.diloreto.com
+      MINDWTR_CLOUD_DATA_DIR: /data
+    volumes:
+      - type: bind
+        source: /srv/home-lab-state/mindwtr-data
+        target: /data
+        bind:
+          create_host_path: false
+    networks:
+      - proxy
+
+  mindwtr-app:
+    image: ghcr.io/dongdongbh/mindwtr-app:1.2.6@sha256:9195824477d6502cde53b6629e2557e0578636270f907f89715c9fc6c200c728
+    container_name: mindwtr-app
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      mindwtr-cloud:
+        condition: service_healthy
+    networks:
+      - proxy
+
   vikunja:
     image: ghcr.io/go-vikunja/vikunja:2.6.0@sha256:417ada6f94e81f0267aa2f007d0a811fc82d38dd2aa58351e3ea520ca01c2ea5
     container_name: vikunja

@@ -222,6 +222,34 @@
         mode: "0700"
       become: true
 
+    - name: Inspect the Mindwtr cloud data directory before provisioning
+      ansible.builtin.stat:
+        path: /srv/home-lab-state/mindwtr-data
+        follow: false
+        get_checksum: false
+        get_mime: false
+      become: true
+      register: compose_native_mindwtr_data
+
+    - name: Refuse an unsafe existing Mindwtr data directory
+      ansible.builtin.assert:
+        that:
+          - not (compose_native_mindwtr_data.stat.islnk | default(false))
+          - not (compose_native_mindwtr_data.stat.exists | default(false)) or (compose_native_mindwtr_data.stat.isdir | default(false))
+          - not (compose_native_mindwtr_data.stat.exists | default(false)) or compose_native_mindwtr_data.stat.uid == 1000
+          - not (compose_native_mindwtr_data.stat.exists | default(false)) or compose_native_mindwtr_data.stat.gid == 1000
+          - not (compose_native_mindwtr_data.stat.exists | default(false)) or compose_native_mindwtr_data.stat.mode == '0700'
+        fail_msg: An existing Mindwtr data directory must be inspected before convergence.
+
+    - name: Create the Mindwtr cloud data directory
+      ansible.builtin.file:
+        path: /srv/home-lab-state/mindwtr-data
+        state: directory
+        owner: '1000'
+        group: '1000'
+        mode: '0700'
+      become: true
+
     - name: Inspect the Traefik certificate store before provisioning
       ansible.builtin.stat:
         path: "{{ item }}"

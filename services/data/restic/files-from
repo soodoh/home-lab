@@ -36,6 +36,7 @@
 /srv/home-lab-state/tachidesk-data
 /srv/home-lab-state/vaultwarden-data
 /srv/home-lab-state/vikunja-data
+/srv/home-lab-state/mindwtr-data
 /srv/home-lab-state/zwave-data
 /srv/home-lab-state/hass-data
 /mnt/games/wolf/cfg
