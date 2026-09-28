@@ -30,17 +30,6 @@ data "aws_caller_identity" "current" {}
 
 data "aws_partition" "current" {}
 
-resource "aws_kms_key" "opentofu" {
-  description             = "Home lab OpenTofu state and recovery bundle"
-  enable_key_rotation     = true
-  deletion_window_in_days = 30
-}
-
-resource "aws_kms_alias" "opentofu" {
-  name          = "alias/home-lab-opentofu"
-  target_key_id = aws_kms_key.opentofu.key_id
-}
-
 resource "aws_s3_bucket" "state" {
   bucket = var.state_bucket_name
 }
