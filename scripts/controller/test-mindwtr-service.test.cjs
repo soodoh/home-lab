@@ -28,6 +28,14 @@ test('Mindwtr runs a pinned, token-authenticated cloud without publishing a host
   assert.match(encrypted.MINDWTR_CLOUD_AUTH_TOKENS, /^ENC\[AES256_GCM,/);
 });
 
+test('the host admission count matches the complete included Compose project', () => {
+  const include = yaml.load(fs.readFileSync('docker-compose.yml', 'utf8')).include;
+  const declared = include.flatMap((path) => Object.keys(yaml.load(fs.readFileSync(path.slice(2), 'utf8')).services));
+  const host = yaml.load(fs.readFileSync('ansible/inventory/host_vars/docker-host.yml', 'utf8'));
+  assert.equal(new Set(declared).size, declared.length);
+  assert.equal(host.compose_native_expected_service_count, declared.length);
+});
+
 test('the only durable Mindwtr writer is stopped for backup and included in restore', () => {
   assert.ok(policy.stop_groups.applications.includes('mindwtr-cloud'));
   assert.ok(paths.includes('/srv/home-lab-state/mindwtr-data'));
