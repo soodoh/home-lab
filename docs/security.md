@@ -47,6 +47,15 @@ the provider trust boundary. Do not broaden the exception to a LAN or
 tailnet address, restore a hostname alias, expose a loopback listener, or disable
 client-side TLS verification.
 
+## Mindwtr access
+
+Authentik gates the web UI at `todo.diloreto.com`, not Cloud sync clients.
+`/v1/*` reaches Mindwtr Cloud without web forward-auth; regular API and sync
+requests require the fixed Cloud token. A calendar feed created through the
+authenticated API uses its own revocable URL token at `/v1/calendar/<token>.ics`.
+Treat that URL as a secret; do not require the fixed token on the feed route.
+Unknown and revoked feed URLs must not return task data.
+
 ## CLIProxyAPI tailnet boundary
 
 Private Traefik terminates HTTPS for CLIProxyAPI at `llm.ts.diloreto.com`

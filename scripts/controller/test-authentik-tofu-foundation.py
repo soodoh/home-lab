@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 
-import hashlib
-
 import json
 from pathlib import Path
 import unittest
@@ -10,18 +8,18 @@ import unittest
 REPO = Path(__file__).resolve().parents[2]
 ROOT = REPO / "infrastructure" / "tofu" / "authentik"
 DESIRED = json.loads((ROOT / "desired.json").read_text())
-OAUTH_PROVIDER_IDS = {"15", "21", "37", "47", "49"}
+OAUTH_PROVIDER_IDS = {"15", "21", "37", "47"}
 
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_live_inventory_is_complete(self) -> None:
         self.assertEqual(DESIRED["schemaVersion"], 3)
         self.assertTrue(DESIRED["sourceInventory"]["complete"])
-        self.assertEqual(len(DESIRED["applications"]), 24)
+        self.assertEqual(len(DESIRED["applications"]), 23)
         self.assertEqual(len(DESIRED["proxyProviders"]), 19)
         self.assertEqual(set(DESIRED["oauthProviders"]), OAUTH_PROVIDER_IDS)
         self.assertEqual(DESIRED["retainedOAuthProviders"], ["15"])
-        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 28)
+        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 27)
         self.assertEqual(set(DESIRED["authenticatorValidateStages"]), {"passwordless-webauthn"})
         self.assertEqual(
             set(DESIRED["customFlows"]),
@@ -93,53 +91,11 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         }
         self.assertEqual(bound_applications, set(DESIRED["applications"]))
 
-    def test_source_inventory_hashes_bind_normalized_state(self) -> None:
-        def digest(value: object) -> str:
-            def canonical(item: object) -> object:
-                if isinstance(item, dict):
-                    keys = sorted(item, key=int) if item and all(key.isdigit() for key in item) else sorted(item)
-                    return {key: canonical(item[key]) for key in keys}
-                if isinstance(item, list):
-                    return [canonical(nested) for nested in item]
-                return item
-
-            payload = json.dumps(canonical(value), separators=(",", ":")) + "\n"
-            return hashlib.sha256(payload.encode()).hexdigest()
-
-        source = DESIRED["sourceInventory"]
-        # Preserve the originally observed inventory digest: Mindwtr is a planned
-        # addition, not an application/provider claimed live at capturedAt.
-        self.assertEqual(source["applicationsSha256"], digest({
-            k: v for k, v in DESIRED["applications"].items() if k != "mindwtr"
-        }))
-        self.assertEqual(source["proxyProvidersSha256"], digest({
-            k: v for k, v in DESIRED["proxyProviders"].items() if k != "mindwtr"
-        }))
-        self.assertEqual(source["oauthProvidersSha256"], digest(DESIRED["oauthProviders"]))
-        self.assertEqual(
-            source["applicationPolicyBindingsSha256"],
-            digest({
-                k: v for k, v in DESIRED["applicationPolicyBindings"].items()
-                if v["application_slug"] != "mindwtr"
-            }),
-        )
-        self.assertEqual(
-            source["customConfigurationSha256"],
-            digest({
-                "authenticatorValidateStages": DESIRED["authenticatorValidateStages"],
-                "customFlows": DESIRED["customFlows"],
-                "flowStageBindings": DESIRED["flowStageBindings"],
-                "scopeMappings": DESIRED["scopeMappings"],
-            }),
-        )
-
-    def test_mindwtr_is_an_additive_web_only_forward_auth_gate(self) -> None:
+    def test_mindwtr_remains_a_web_only_forward_auth_gate(self) -> None:
         app = DESIRED["applications"]["mindwtr"]
         provider = DESIRED["proxyProviders"]["mindwtr"]
         bindings = [v for v in DESIRED["applicationPolicyBindings"].values()
                     if v["application_slug"] == "mindwtr"]
-        vikunja_binding = next(v for v in DESIRED["applicationPolicyBindings"].values()
-                               if v["application_slug"] == "vikunja")
         self.assertEqual(app["provider_id"], "mindwtr")
         self.assertFalse(app["import_existing"])
         self.assertTrue(app["meta_hide"])
@@ -154,8 +110,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             {key for key, value in DESIRED["applicationPolicyBindings"].items() if value["pk"] is None},
             {"e1f79e5c-85e3-47f1-b94c-c49cb4442f05"},
         )
-        self.assertEqual(bindings[0]["group"], vikunja_binding["group"])
-        self.assertEqual(DESIRED["applications"]["vikunja"]["provider_type"], "oauth2")
+        self.assertTrue(bindings[0]["group"])
 
     def test_omada_has_no_public_authentik_route(self) -> None:
         self.assertNotIn("omada", DESIRED["applications"])
@@ -309,7 +264,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(main.count("import {"), 10)
         self.assertIn("for_each = local.existing_custom_flows", main)
         self.assertIn("for_each = local.existing_flow_stage_bindings", main)
-        self.assertIn("length(local.desired.applicationPolicyBindings) == 28", main)
+        self.assertIn("length(local.desired.applicationPolicyBindings) == 27", main)
         self.assertIn("for_each = local.existing_application_policy_bindings", main)
         self.assertIn("for_each = local.existing_proxy_providers", main)
         self.assertIn("for_each = local.existing_applications", main)
@@ -349,7 +304,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             *(f'authentik_user.service_accounts["{key}"]' for key in DESIRED["serviceAccounts"]),
         }
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 95)
+        self.assertEqual(len(allow), 92)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()

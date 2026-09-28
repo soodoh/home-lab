@@ -149,10 +149,6 @@ http:
       loadBalancer:
         servers:
           - url: http://nextcloud:80
-    vikunja:
-      loadBalancer:
-        servers:
-          - url: http://vikunja:3456
     mindwtr-app:
       loadBalancer:
         servers:

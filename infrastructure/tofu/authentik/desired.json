@@ -61,18 +61,6 @@
       "timeout": 30,
       "user": null
     },
-    "279cc771-43ef-4026-8a3b-82a6eaba237a": {
-      "application_slug": "vikunja",
-      "enabled": true,
-      "failure_result": false,
-      "group": "2b247c3f-fe19-4565-8f59-82f2c2429eb2",
-      "negate": false,
-      "order": 0,
-      "pk": "279cc771-43ef-4026-8a3b-82a6eaba237a",
-      "policy": null,
-      "timeout": 30,
-      "user": null
-    },
     "279dc5f4-217e-4e8b-a133-6574658c1c6d": {
       "application_slug": "tachidesk",
       "enabled": true,
@@ -713,23 +701,6 @@
       "slug": "vaultwarden",
       "uuid": "14cefdcb-0c08-4cb3-94df-7b724af24c3d"
     },
-    "vikunja": {
-      "backchannel_provider_ids": [],
-      "group": "Other",
-      "import_existing": true,
-      "meta_description": "",
-      "meta_hide": false,
-      "meta_icon": "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/vikunja.svg",
-      "meta_launch_url": "https://todo.diloreto.com",
-      "meta_publisher": "",
-      "name": "Vikunja",
-      "open_in_new_tab": false,
-      "policy_engine_mode": "any",
-      "provider_id": 49,
-      "provider_type": "oauth2",
-      "slug": "vikunja",
-      "uuid": "c174801f-cf7d-42ba-8e86-63c7a51e28f6"
-    },
     "zwave": {
       "backchannel_provider_ids": [],
       "group": "Home",
@@ -1058,49 +1029,6 @@
       "refresh_token_threshold": "hours=1",
       "refresh_token_validity": "days=30",
       "signing_key": "a9cda053-bb5a-4787-9223-2806ac3d4a87",
-      "sub_mode": "hashed_user_id"
-    },
-    "49": {
-      "access_code_validity": "minutes=1",
-      "access_token_validity": "minutes=5",
-      "allowed_redirect_uris": [
-        {
-          "matching_mode": "strict",
-          "redirect_uri_type": "authorization",
-          "url": "https://todo.diloreto.com/auth/openid/authentik"
-        }
-      ],
-      "authentication_flow": null,
-      "authorization_flow": "0277d983-7cb2-470c-98fd-45e3fa80f5cb",
-      "client_id": "KbaCYSWhPxYgCk6qQKGeHpdagsmgdumYLSU1utXc",
-      "client_type": "confidential",
-      "encryption_key": null,
-      "grant_types": [
-        "authorization_code",
-        "hybrid",
-        "implicit",
-        "client_credentials",
-        "password",
-        "urn:ietf:params:oauth:grant-type:device_code",
-        "refresh_token"
-      ],
-      "include_claims_in_id_token": true,
-      "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
-      "issuer_mode": "per_provider",
-      "jwt_federation_providers": [],
-      "jwt_federation_sources": [],
-      "logout_method": "backchannel",
-      "logout_uri": "",
-      "name": "Vikunja OIDC",
-      "pk": 49,
-      "property_mappings": [
-        "36d7d782-9fa4-453a-8a65-d379d2f3ff73",
-        "e72b12d8-ef3e-4b73-b172-0df830d666d7",
-        "f371dd37-1069-4154-823e-01efd372eb06"
-      ],
-      "refresh_token_threshold": "hours=1",
-      "refresh_token_validity": "days=30",
-      "signing_key": "d5259cb9-db22-467a-9d72-6911b16a459f",
       "sub_mode": "hashed_user_id"
     }
   },

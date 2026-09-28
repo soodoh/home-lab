@@ -4,26 +4,6 @@ This lists unresolved **decisions**, not migration receipts. Reobserve the host,
 remote state, provider and backup repositories before acting; Git history is not
 proof of current state.
 
-## Vikunja to Mindwtr access and acceptance
-
-`todo.diloreto.com` serves Mindwtr, but user acceptance and Vikunja retirement
-remain outstanding. Authentik gates the web app. `/v1/*` reaches Mindwtr Cloud
-without web forward-auth so native sync clients can use their separate, fixed
-Cloud token. Do **not** require that token on every Cloud URL: a calendar
-feed explicitly created through the authenticated API uses its own revocable
-URL bearer token at `/v1/calendar/<token>.ics`. Blocking this path breaks
-calendar subscriptions. Treat feed URLs as secrets; test that an unknown or
-revoked feed token cannot retrieve task data. Authentik does not authenticate
-calendar subscribers or replace Cloud's token authentication.
-
-The imported task set was reconciled against the frozen source, but hands-on
-web and native-client acceptance is still required. Do not write to Vikunja
-while it is retained as a rollback source. Its service, OIDC resources, secrets
-and active data remain until **separate explicit approval** for destructive
-retirement. Reobserve the live source, Mindwtr, and backups before that step.
-Keep one-off exports and receipts outside Git; remove this section after the
-transition is complete.
-
 ## AWS recovery-key and separate backup identity
 
 The recovery KMS key was scheduled for deletion under independent AWS owner
