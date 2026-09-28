@@ -215,14 +215,16 @@ services. Gluetun and Recyclarr are paused because their writable mounts include
 backed-up data. FlareSolverr is paused with Gluetun because it shares Gluetun's
 network namespace. The recorded reverse start order brings Gluetun up before
 qBittorrent (needed by Gluetun's port-forward hook) and the other namespace
-dependents, and Recyclarr after the Arr services. If shutdown dominates,
-inspect slow graceful-stop behavior rather than
+dependents, and Recyclarr after the Arr services. It waits for Gluetun health
+before starting those dependents; a failed health gate retains the interruption
+journal. The systemd recovery unit needs access to both repositories and the
+local Restic cache to complete its native preflight after restoring services.
+If shutdown dominates, inspect slow graceful-stop behavior rather than
 shortening the timeout or adding a filesystem snapshot layer by default. A
-source-level audit of the stop list found no *proven* safe removals: it
-covers databases, embedded application state, configuration writers and game
-profiles. Do not leave a writer running
-merely because it is not a database; require fresh mount/writer evidence and a
-private restore before narrowing the list. Keep the full daily chain and batch
+source-level audit of the stop list found no *proven* safe removals: it covers
+databases, embedded application state, configuration writers and game profiles.
+Do not leave a writer running merely because it is not a database; require
+fresh mount/writer evidence and a private restore before narrowing the list. Keep the full daily chain and batch
 related reversible changes under the existing admission rule.
 
 If the scan itself becomes the downtime bottleneck, snapshot-backed scanning

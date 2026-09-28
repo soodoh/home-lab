@@ -160,6 +160,49 @@ class ResticRuntimeTests(unittest.TestCase):
         started = [call.args[1][1] for call in compose.call_args_list]
         self.assertEqual(started, ["postgres", "gluetun", "qbittorrent", "flaresolverr", "sonarr", "recyclarr"])
 
+    def test_gluetun_health_precedes_network_namespace_restart(self):
+        policy = {"stop_groups": {"applications": ["qbittorrent", "gluetun"], "databases": []}}
+        journal = {"running_services": ["qbittorrent", "gluetun"]}
+        events = []
+        responses = iter([False, True])
+
+        def healthy(_policy, service):
+            events.append(f"health:{service}")
+            return next(responses, True) if service == "gluetun" else True
+
+        def compose(_policy, arguments):
+            events.append(f"start:{arguments[1]}")
+            return subprocess.CompletedProcess([], 0, "", "")
+
+        with mock.patch.dict(self.runner["restart_recorded"].__globals__, {
+            "compose": compose,
+            "service_healthy": healthy,
+            "journal_path": mock.Mock(return_value=Path("/tmp/journal")),
+            "durable_unlink": mock.Mock(),
+        }), mock.patch("time.sleep", side_effect=lambda _: events.append("wait")):
+            self.runner["restart_recorded"](policy, journal)
+
+        self.assertEqual(events[:5], [
+            "start:gluetun", "health:gluetun", "wait", "health:gluetun", "start:qbittorrent",
+        ])
+
+    def test_unhealthy_gluetun_retains_journal_and_does_not_start_dependent(self):
+        policy = {"stop_groups": {"applications": ["qbittorrent", "gluetun"], "databases": []}}
+        journal = {"running_services": ["qbittorrent", "gluetun"]}
+        compose = mock.Mock(return_value=subprocess.CompletedProcess([], 0, "", ""))
+        unlink = mock.Mock()
+        with mock.patch.dict(self.runner["restart_recorded"].__globals__, {
+            "compose": compose,
+            "service_healthy": mock.Mock(return_value=False),
+            "durable_unlink": unlink,
+            "testing": mock.Mock(return_value=True),
+        }), mock.patch("time.monotonic", side_effect=[0, 1, 4]), mock.patch("time.sleep"):
+            with self.assertRaisesRegex(self.runner["WorkflowError"], "service_health"):
+                self.runner["restart_recorded"](policy, journal)
+
+        compose.assert_called_once_with(policy, ["start", "gluetun"])
+        unlink.assert_not_called()
+
     def test_failed_scan_still_restarts_services(self):
         daily_local = self.runner["daily_local"]
         policy = {

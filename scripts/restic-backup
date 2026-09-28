@@ -279,6 +279,15 @@ def restart_recorded(policy: dict[str, Any], journal: dict[str, Any]) -> None:
     for service in reversed(stop_order):
         if service in running:
             require_success(compose(policy, ["start", service]), "service_restart")
+            if service == "gluetun":
+                # Its network-namespace clients require a healthy VPN before start.
+                deadline = time.monotonic() + (3 if testing() else 300)
+                while time.monotonic() < deadline:
+                    if service_healthy(policy, service):
+                        break
+                    time.sleep(0.1 if testing() else 5)
+                else:
+                    raise WorkflowError("service_health")
     deadline = time.monotonic() + (3 if testing() else 300)
     while time.monotonic() < deadline:
         if all(service_healthy(policy, service) for service in running):

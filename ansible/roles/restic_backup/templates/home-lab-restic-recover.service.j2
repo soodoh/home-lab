@@ -14,7 +14,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectHome=read-only
 ProtectSystem=strict
-ReadWritePaths=/var/lib/home-lab-restic {{ restic_systemd.lock_path }} /run/docker.sock
+ReadWritePaths=-{{ restic_systemd.games_repository_path }} -{{ restic_systemd.nfs_repository_path }} /var/lib/home-lab-restic /var/cache/home-lab-restic {{ restic_systemd.lock_path }} /run/docker.sock
 
 [Install]
 WantedBy=multi-user.target
