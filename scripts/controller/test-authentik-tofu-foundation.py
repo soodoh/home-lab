@@ -146,6 +146,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(provider["mode"], "forward_single")
         self.assertEqual(provider["external_host"], "https://todo.diloreto.com")
         self.assertEqual(provider["internal_host"], "http://mindwtr-app:80")
+        self.assertTrue(provider["intercept_header_auth"])
         self.assertFalse(provider["import_existing"])
         self.assertEqual(DESIRED["outposts"]["authentik-embedded"]["provider_refs"].count("mindwtr"), 1)
         self.assertEqual(len(bindings), 1)

@@ -1175,7 +1175,7 @@
       "cookie_domain": "",
       "external_host": "https://todo.diloreto.com",
       "import_existing": false,
-      "intercept_header_auth": false,
+      "intercept_header_auth": true,
       "internal_host": "http://mindwtr-app:80",
       "internal_host_ssl_validation": true,
       "invalidation_flow": "fc7a2b42-79d4-4cb7-98f7-6d82dd34f227",
