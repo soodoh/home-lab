@@ -128,10 +128,6 @@ data "aws_iam_policy_document" "state_plan" {
     actions   = ["s3:PutObject", "s3:DeleteObject"]
     resources = local.lock_arns
   }
-  statement {
-    actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
-    resources = [aws_kms_key.opentofu.arn]
-  }
 
   statement {
     actions = [
@@ -155,19 +151,6 @@ data "aws_iam_policy_document" "state_plan" {
       "s3:ListBucketVersions",
     ]
     resources = [aws_s3_bucket.state.arn]
-  }
-  statement {
-    actions = [
-      "kms:DescribeKey",
-      "kms:GetKeyPolicy",
-      "kms:GetKeyRotationStatus",
-      "kms:ListResourceTags",
-    ]
-    resources = [aws_kms_key.opentofu.arn]
-  }
-  statement {
-    actions   = ["kms:ListAliases"]
-    resources = ["*"]
   }
   statement {
     actions   = ["iam:Get*", "iam:List*"]
@@ -234,10 +217,6 @@ data "aws_iam_policy_document" "state_apply" {
     actions   = ["s3:DeleteObject"]
     resources = local.lock_arns
   }
-  statement {
-    actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
-    resources = [aws_kms_key.opentofu.arn]
-  }
 
   statement {
     actions = [
@@ -271,22 +250,6 @@ data "aws_iam_policy_document" "state_apply" {
   }
   statement {
     actions   = ["s3:CreateBucket"]
-    resources = ["*"]
-  }
-  statement {
-    actions = [
-      "kms:CreateAlias",
-      "kms:CreateKey",
-      "kms:DescribeKey",
-      "kms:EnableKeyRotation",
-      "kms:GetKeyPolicy",
-      "kms:GetKeyRotationStatus",
-      "kms:ListResourceTags",
-      "kms:ListAliases",
-      "kms:PutKeyPolicy",
-      "kms:TagResource",
-      "kms:UpdateAlias",
-    ]
     resources = ["*"]
   }
   statement {
