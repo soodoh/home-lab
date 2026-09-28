@@ -73,7 +73,7 @@ jobs:
           done
 
       - name: Compile retained Python helpers
-        run: python -m compileall -q scripts infrastructure ansible/roles services/data/litellm
+        run: python -m compileall -q scripts infrastructure ansible/roles
 
       - name: Validate provider observation inputs
         run: |

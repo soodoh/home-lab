@@ -18,7 +18,7 @@ class RecoveryScopeTests(unittest.TestCase):
         selected = module.resolve(scope, ["all"])
         files_from = set((ROOT / "services/data/restic/files-from").read_text().splitlines())
         self.assertEqual(set(selected["paths"]), files_from)
-        self.assertEqual(len(selected["services"]), 40)
+        self.assertEqual(len(selected["services"]), 39)
         self.assertIn("traefik-tailnet", selected["services"])
         self.assertNotIn("/srv/home-lab-state/traefik-tailnet-data", selected["paths"])
 
