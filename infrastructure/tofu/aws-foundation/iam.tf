@@ -130,7 +130,7 @@ data "aws_iam_policy_document" "state_plan" {
   }
   statement {
     actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
-    resources = [aws_kms_key.opentofu.arn]
+    resources = [var.retiring_kms_key_arn]
   }
 
   statement {
@@ -163,7 +163,7 @@ data "aws_iam_policy_document" "state_plan" {
       "kms:GetKeyRotationStatus",
       "kms:ListResourceTags",
     ]
-    resources = [aws_kms_key.opentofu.arn]
+    resources = [var.retiring_kms_key_arn]
   }
   statement {
     actions   = ["kms:ListAliases"]
@@ -236,7 +236,7 @@ data "aws_iam_policy_document" "state_apply" {
   }
   statement {
     actions   = ["kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey", "kms:DescribeKey"]
-    resources = [aws_kms_key.opentofu.arn]
+    resources = [var.retiring_kms_key_arn]
   }
 
   statement {

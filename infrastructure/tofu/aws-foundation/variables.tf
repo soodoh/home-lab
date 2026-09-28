@@ -30,6 +30,19 @@ variable "state_bucket_name" {
   type = string
 }
 
+# Retain the existing IAM documents unchanged while OpenTofu schedules the
+# independently reviewed key deletion. Remove this input with the KMS grants
+# after the key is no longer a managed resource.
+variable "retiring_kms_key_arn" {
+  type     = string
+  nullable = false
+
+  validation {
+    condition     = can(regex("^arn:[a-z0-9-]+:kms:[a-z0-9-]+:[0-9]{12}:key/[0-9a-f-]+$", var.retiring_kms_key_arn))
+    error_message = "Supply the exact existing KMS key ARN from independent owner observation."
+  }
+}
+
 variable "tail_ingress_zone_id" {
   type        = string
   nullable    = false
