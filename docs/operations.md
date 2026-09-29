@@ -91,7 +91,7 @@ them. Observation output is current-run input, not a Git artifact.
 ## Plan and apply OpenTofu resources
 
 Active remote-backed roots under `infrastructure/tofu/` are `authentik`,
-`aws-foundation`, `omada`, `proxmox`, `proxmox-firewall` and `tailscale`.
+`aws-foundation`, `omada`, `proxmox`, `proxmox-firewall`, `servarr` and `tailscale`.
 Initialize against the **remote S3 backend**, refresh against the provider,
 review the whole saved plan and apply only that plan with the separate apply
 identity. A new plan after apply must have zero proposed changes. Never target
