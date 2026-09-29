@@ -51,35 +51,38 @@ resource "radarr_import_list_config" "uhd" {
   sync_level = "disabled"
 }
 
+# All 14 observed singleton /config resources have native API ID 1. Use a
+# nonempty ID in import blocks: the provider's CLI example uses "", but an
+# empty import-block ID planned a create instead of an adoption.
 import {
   to = sonarr_download_client_config.existing
-  id = ""
+  id = "1"
 }
 import {
   to = radarr_download_client_config.existing
-  id = ""
+  id = "1"
 }
 import {
   to = radarr_download_client_config.uhd
-  id = ""
+  id = "1"
 }
 import {
   to = sonarr_indexer_config.existing
-  id = ""
+  id = "1"
 }
 import {
   to = radarr_indexer_config.existing
-  id = ""
+  id = "1"
 }
 import {
   to = radarr_indexer_config.uhd
-  id = ""
+  id = "1"
 }
 import {
   to = radarr_import_list_config.existing
-  id = ""
+  id = "1"
 }
 import {
   to = radarr_import_list_config.uhd
-  id = ""
+  id = "1"
 }

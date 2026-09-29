@@ -32,13 +32,13 @@ resource "radarr_naming" "uhd" {
 
 import {
   to = sonarr_naming.existing
-  id = ""
+  id = "1"
 }
 import {
   to = radarr_naming.existing
-  id = ""
+  id = "1"
 }
 import {
   to = radarr_naming.uhd
-  id = ""
+  id = "1"
 }

@@ -68,13 +68,13 @@ resource "radarr_media_management" "uhd" {
 
 import {
   to = sonarr_media_management.existing
-  id = ""
+  id = "1"
 }
 import {
   to = radarr_media_management.existing
-  id = ""
+  id = "1"
 }
 import {
   to = radarr_media_management.uhd
-  id = ""
+  id = "1"
 }
