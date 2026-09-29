@@ -54,7 +54,7 @@
   ansible.builtin.set_fact:
     download_client_sab_keys: >-
       {{ (download_client_current.results[1].content | b64decode) |
-         regex_findall('(?m)^api_key\\s*=\\s*(\\S+)\\s*$') }}
+         regex_findall('(?m)^api_key\s*=\s*(\S+)\s*$') }}
   no_log: true
 
 - name: Refuse unknown application credentials or bridge topology
