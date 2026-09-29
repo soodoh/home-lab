@@ -241,16 +241,26 @@ data independently. Any storage migration needs its own live observation, plan,
 destructive-data review and explicit approval; online database export is an
 alternative only with a qualified application-file restore.
 
-Private Traefik must bind only the currently reviewed Docker-host Tailscale IPv4
-on TCP 443. Public Traefik must own only the listed public routes and the
-reviewed TCP 18080 / TCP+UDP 18443 host ports forwarded by Omada from WAN
+Docker must publish private Traefik TCP 443 only on the currently reviewed
+Docker-host Tailscale IPv4; the bridged container listens on TCP 443. Public
+Traefik must own only the listed public routes and the reviewed TCP 18080 / TCP+UDP 18443 host ports forwarded by Omada from WAN
 80/443. Its HTTP-01 resolver needs public TCP 80. Verify exact live forwarding,
 port ownership, strict TLS, listed/unlisted hosts, HSTS, HTTP redirects,
 WebSockets, and public UDP/HTTP3 from appropriate clients before an ingress
-change. [Ingress headers](ingress-headers.md) records the current HSTS policy.
+change. Proxmox's private route uses its fixed LAN address on TCP 8006 with a
+backend-only certificate verification exception for its untrusted native
+certificate. Omada's private backend now uses a dedicated Docker bridge with
+its observed self-signed certificate pinned as a trust input; compare the live
+certificate fingerprint and SAN before changing the host and after a rotation.
+Z-Wave's private route reaches Authentik on the proxy bridge without publishing
+its UI port 8091 or Authentik port 9000. Check Proxmox's native login and
+Z-Wave's Authentik group gate (including denial) and WebSocket flows before
+removing Proxmox's obsolete Authentik resources with a reviewed destroy plan.
+The public names must no longer reach either UI.
+[Ingress headers](ingress-headers.md) records the current HSTS policy.
 Keep private and public ACME stores protected; neither is in the Restic
 files-from set and reissuance is subject to CA limits. GOST is an authenticated
-transport, **not** authorization for either backend: test its allowlist with an
+transport, **not** authorization for private backends: test its allowlist with an
 isolated authenticated client without a local bypass as well as testing real
 client credentials. Actual ephemeral CI access, isolated GOST denials and
 UDP/HTTP3 private-route negatives must not be called verified until exercised

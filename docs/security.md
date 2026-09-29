@@ -36,16 +36,18 @@ and USB identities are reviewed in Git; fresh read-only host observation must
 match them and the host's sealed hardware inputs before planning Proxmox changes.
 
 The repository may contain public age recipients, public certificates and CA
-certificates when they are trust inputs rather than proof of a completed action. The
-Omada provider and export helper use the private Traefik hostname
-`omada.ts.diloreto.com` on tailnet TCP 443. Controllers strictly verify its
-publicly trusted certificate with the system trust store and hold no Omada CA
-or server private key. Omada forces API login from HTTP to its private-CA
-HTTPS listener, so the one bounded exception is Traefik's encrypted
-`https://127.0.0.1:8043` backend hop. The live backend hop never leaves the Docker host. Accepting it treats local host compromise as already inside
-the provider trust boundary. Do not broaden the exception to a LAN or
-tailnet address, restore a hostname alias, expose a loopback listener, or disable
-client-side TLS verification.
+certificates when they are trust inputs rather than proof of a completed action.
+The Omada provider and export helper use `omada.ts.diloreto.com` on tailnet
+TCP 443 and strictly verify private Traefik's publicly trusted certificate.
+For the separate backend hop, private Traefik trusts only the observed Omada
+self-signed public certificate in `services/data/traefik-tailnet/omada.pem` and
+verifies its `Omada` DNS name over a dedicated two-container Docker bridge.
+No Omada private key enters Git or the controller. Before deployment, compare
+the live backend certificate fingerprint and SAN against the committed trust
+input; certificate rotation must update the reviewed trust input before the
+old one expires (October 2028). A mismatch must fail closed; do not disable
+backend or client-side TLS verification, substitute a LAN/tailnet address, or
+restore a hostname alias.
 
 ## Mindwtr access
 
@@ -59,8 +61,9 @@ Unknown and revoked feed URLs must not return task data.
 ## CLIProxyAPI tailnet boundary
 
 Private Traefik terminates HTTPS for CLIProxyAPI at `llm.ts.diloreto.com`
-on tailnet TCP 443; the old Tailscale Serve port 8444 is closed. Docker
-publishes its backend only on 127.0.0.1:8317.
+on tailnet TCP 443; the old Tailscale Serve port 8444 is closed. Traefik
+reaches `cli-proxy-api:8317` on the Docker proxy bridge; the existing host
+binding remains limited to 127.0.0.1:8317.
 The API key and separate full-privilege management key are age-encrypted in
 `secrets/cli-proxy-api.sops.yaml` and rendered only to a root-owned protected
 runtime config. The management UI has no account-only role: its key can read,
@@ -73,11 +76,11 @@ its subdomains on ports 80/443 and `*.ts.diloreto.com:443` only; the old
 any-port MagicDNS matcher is removed from the running host config. Authentik
 gates the proxy handshake with the existing service-account app password; the
 API and management keys remain separate service credentials. The proxy
-credential permits attempts to reach both private routes, **including Omada**.
-Omada uses its own login; future routes need separately configured application
-authorization, including Authentik where intended. The relay handshake does not
-authenticate a backend. Tailscale evaluates relay egress as the Docker-host
-node, not the work Mac. GOST cannot filter paths inside HTTPS tunnels. The
+credential permits attempts to reach all listed private routes, including
+Omada, Proxmox and Z-Wave. Omada and Proxmox use their native logins; Z-Wave's
+private UI stays behind its existing Authentik application and group binding.
+The relay handshake does not authenticate a backend. Tailscale evaluates
+relay egress as the Docker-host node, not the work Mac. GOST cannot filter paths inside HTTPS tunnels. The
 operator reports work-Mac first-hop LLM/Omada application access and Tailscale
 coordination working, but its system PAC is **off** and remote authenticated
 whitelist refusal remains untested. Treat loss of the proxy credential as loss
@@ -115,9 +118,13 @@ for public Tailscale control names; site convergence checks the resolver pair
 and host's current DNS. Do not disable client TLS verification or remove
 Authentik's identity gate. Check the **live** remote whitelist with an isolated
 authenticated client without a local bypass; source alone does not prove what
-that server currently denies. A stolen relay credential can attempt both
+that server currently denies. A stolen relay credential can attempt all listed
 private application routes through the Docker host's identity, subject to
-application authentication and Tailscale policy.
+application authentication and Tailscale policy. Proxmox needs its native
+login; Z-Wave remains Authentik-protected. The bridged private Traefik reaches
+Authentik's embedded proxy at `authentik-server:9000` without a host port;
+Z-Wave's UI port 8091 has no published host binding. Docker publishes private
+Traefik's TCP 443 only on the reviewed Docker-host Tailscale IPv4.
 
 ## OpenTofu state and plans
 

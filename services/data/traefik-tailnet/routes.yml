@@ -19,21 +19,51 @@ http:
         certResolver: tailnet
         domains:
           - main: "*.ts.diloreto.com"
+    proxmox:
+      rule: "Host(`proxmox.ts.diloreto.com`)"
+      entryPoints: [tailnet]
+      service: proxmox
+      tls:
+        certResolver: tailnet
+        domains:
+          - main: "*.ts.diloreto.com"
+    zwave:
+      rule: "Host(`zwave.ts.diloreto.com`)"
+      entryPoints: [tailnet]
+      service: authentik
+      tls:
+        certResolver: tailnet
+        domains:
+          - main: "*.ts.diloreto.com"
 
   serversTransports:
-    omada-loopback:
-      # Omada's private-CA certificate is accepted ONLY on encrypted host
-      # loopback; retain the prior Serve exception's network boundary.
-      insecureSkipVerify: true
+    omada-backend:
+      # Trust only the observed Omada certificate on the dedicated bridge.
+      # Its DNS SAN is Omada; fail closed on certificate rotation.
+      rootCAs: [/etc/traefik/omada.pem]
+      serverName: Omada
       disableHTTP2: true
+    proxmox-lan:
+      # Proxmox serves its own untrusted certificate. Restrict this exception
+      # to the fixed LAN backend; the browser-to-Traefik hop remains verified.
+      insecureSkipVerify: true
 
   services:
     omada:
       loadBalancer:
-        serversTransport: omada-loopback
+        serversTransport: omada-backend
         servers:
-          - url: https://127.0.0.1:8043
+          - url: https://omada:8043
     cli-proxy-api:
       loadBalancer:
         servers:
-          - url: http://127.0.0.1:8317
+          - url: http://cli-proxy-api:8317
+    proxmox:
+      loadBalancer:
+        serversTransport: proxmox-lan
+        servers:
+          - url: https://192.168.0.123:8006
+    authentik:
+      loadBalancer:
+        servers:
+          - url: http://authentik-server:9000

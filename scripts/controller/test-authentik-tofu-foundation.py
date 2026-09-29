@@ -15,11 +15,11 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_live_inventory_is_complete(self) -> None:
         self.assertEqual(DESIRED["schemaVersion"], 3)
         self.assertTrue(DESIRED["sourceInventory"]["complete"])
-        self.assertEqual(len(DESIRED["applications"]), 23)
-        self.assertEqual(len(DESIRED["proxyProviders"]), 19)
+        self.assertEqual(len(DESIRED["applications"]), 22)
+        self.assertEqual(len(DESIRED["proxyProviders"]), 18)
         self.assertEqual(set(DESIRED["oauthProviders"]), OAUTH_PROVIDER_IDS)
         self.assertEqual(DESIRED["retainedOAuthProviders"], ["15"])
-        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 27)
+        self.assertEqual(len(DESIRED["applicationPolicyBindings"]), 26)
         self.assertEqual(set(DESIRED["authenticatorValidateStages"]), {"passwordless-webauthn"})
         self.assertEqual(
             set(DESIRED["customFlows"]),
@@ -121,13 +121,38 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             for binding in DESIRED["applicationPolicyBindings"].values()
         ))
 
+    def test_proxmox_is_not_an_authentik_app(self) -> None:
+        self.assertNotIn("proxmox", DESIRED["applications"])
+        self.assertNotIn("18", DESIRED["proxyProviders"])
+        self.assertNotIn("18", DESIRED["outposts"]["authentik-embedded"]["provider_refs"])
+        self.assertFalse(any(
+            binding["application_slug"] == "proxmox"
+            for binding in DESIRED["applicationPolicyBindings"].values()
+        ))
+
+    def test_zwave_keeps_its_access_policy_on_the_private_hostname(self) -> None:
+        app = DESIRED["applications"]["zwave"]
+        provider = DESIRED["proxyProviders"]["20"]
+        self.assertEqual(app["provider_id"], 20)
+        self.assertEqual(app["meta_launch_url"], "https://zwave.ts.diloreto.com")
+        self.assertEqual(provider["external_host"], app["meta_launch_url"])
+        self.assertEqual(provider["mode"], "proxy")
+        self.assertEqual(provider["internal_host"], "http://zwave:8091")
+        self.assertIn("20", DESIRED["outposts"]["authentik-embedded"]["provider_refs"])
+        self.assertEqual(
+            [binding["group"] for binding in DESIRED["applicationPolicyBindings"].values()
+             if binding["application_slug"] == "zwave"],
+            ["2b247c3f-fe19-4565-8f59-82f2c2429eb2"],
+        )
+
     def test_omada_bridge_advertises_reachable_host(self) -> None:
         network = json.loads((REPO / "infrastructure/tofu/omada/desired.json").read_text())["network"]
         self.assertEqual(network["dhcp_options"], [{"code": 138, "value": "192.168.0.100"}])
         infra = (REPO / "services/infra.yml").read_text()
         omada = infra.split("  omada:", 1)[1].split("\n  ddns-updater:", 1)[0]
         self.assertNotIn("network_mode: host", omada)
-        self.assertIn("      - proxy", omada)
+        self.assertIn("      - omada-backend", omada)
+        self.assertNotIn("      - proxy", omada)
         self.assertIn("127.0.0.1:8043:8043", omada)
         self.assertIn("29810:29810/udp", omada)
         self.assertIn("29811-29817:29811-29817", omada)
@@ -264,7 +289,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(main.count("import {"), 10)
         self.assertIn("for_each = local.existing_custom_flows", main)
         self.assertIn("for_each = local.existing_flow_stage_bindings", main)
-        self.assertIn("length(local.desired.applicationPolicyBindings) == 27", main)
+        self.assertIn("length(local.desired.applicationPolicyBindings) == 26", main)
         self.assertIn("for_each = local.existing_application_policy_bindings", main)
         self.assertIn("for_each = local.existing_proxy_providers", main)
         self.assertIn("for_each = local.existing_applications", main)
@@ -304,7 +329,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
             *(f'authentik_user.service_accounts["{key}"]' for key in DESIRED["serviceAccounts"]),
         }
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 92)
+        self.assertEqual(len(allow), 89)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()

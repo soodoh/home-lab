@@ -23,7 +23,7 @@ The deployment network policy is limited to:
 | Ephemeral CI deployment nodes | Docker host | TCP 22 and private ingress 443 |
 | Ephemeral CI deployment nodes | Proxmox host | TCP 22 and TCP 8006 |
 
-These grants permit the two private routes at the network layer, subject to
+These grants permit the listed private routes at the network layer, subject to
 separate application credentials. Actual ephemeral CI access and its
 application credentials remain unverified. Recheck live host and provider
 state, including unauthorized and WAN paths, before relying on these boundaries.

@@ -1,10 +1,10 @@
 ---
-# Private instance: bind ONLY the reviewed Docker-host Tailscale IPv4.
+# Private instance: Docker publishes TCP 443 ONLY on the reviewed Tailscale IPv4.
 # Production ACME uses a separate protected store; retain the staging store
 # untouched for rollback until the strict-TLS cutover is independently verified.
 entryPoints:
   tailnet:
-    address: "100.116.163.42:443/tcp"
+    address: ":443/tcp"
     http:
       tls:
         certResolver: tailnet

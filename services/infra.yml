@@ -14,9 +14,9 @@ services:
     # Bridge mode requires DHCP option 138 to advertise the host LAN address to
     # devices. Keep device-management ports on the LAN, never the public WAN.
     networks:
-      - proxy
+      - omada-backend
     ports:
-      # Tailscale Serve still terminates HTTPS at the host's loopback:8043.
+      # Retain host loopback until independent consumers are checked live.
       - 127.0.0.1:8043:8043
       # Device firmware upgrades may use this HTTPS listener.
       - ${INTERNAL_HOST_IP:?Set INTERNAL_HOST_IP in .env}:8043:8043
@@ -96,9 +96,13 @@ services:
     container_name: traefik-tailnet
     restart: always
     logging: *default-logging
-    # Host networking reaches ONLY the loopback backends; the static entry
-    # point binds the reviewed Tailscale IP, not :443 on LAN/WAN interfaces.
-    network_mode: host
+    # Publish only on the reviewed Tailscale IP; Docker DNS reaches the
+    # Authentik/CLI backends and a separate bridge reaches Omada.
+    ports:
+      - 100.116.163.42:443:443/tcp
+    networks:
+      - proxy
+      - omada-backend
     environment:
       AWS_ACCESS_KEY_ID: "${TRAEFIK_TAILNET_AWS_ACCESS_KEY_ID:?Set scoped ACME key in SOPS}"
       AWS_SECRET_ACCESS_KEY: "${TRAEFIK_TAILNET_AWS_SECRET_ACCESS_KEY:?Set scoped ACME secret in SOPS}"
@@ -108,6 +112,7 @@ services:
       - /srv/home-lab-state/traefik-tailnet-data:/data
       - ./data/traefik-tailnet/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./data/traefik-tailnet/routes.yml:/etc/traefik/routes.yml:ro
+      - ./data/traefik-tailnet/omada.pem:/etc/traefik/omada.pem:ro
 
 networks:
   infra:
@@ -120,3 +125,4 @@ networks:
       driver: default
       config:
         - subnet: "172.23.0.0/16"
+  omada-backend: {}

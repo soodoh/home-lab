@@ -34,10 +34,6 @@ http:
       rule: "Host(`prowlarr.diloreto.com`)"
       entryPoints: [websecure]
       service: authentik
-    proxmox:
-      rule: "Host(`proxmox.diloreto.com`)"
-      entryPoints: [websecure]
-      service: authentik
     qb:
       rule: "Host(`qb.diloreto.com`)"
       entryPoints: [websecure]

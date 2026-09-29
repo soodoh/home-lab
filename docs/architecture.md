@@ -65,10 +65,11 @@ credentials and encrypted bundles live outside Git.
   bootstrap from an empty state without imperative state scripts. The local
   controller uses private Traefik at `omada.ts.diloreto.com` with public TLS
   trust; future CI runners are intended to use the same route, but their real
-  path is not yet verified. Private Traefik terminates at Omada's loopback HTTPS
-  listener. Omada's forced HTTPS redirect requires that encrypted loopback hop
-  to accept its private certificate. Device adoption and port exposure require
-  fresh live checks, not an old cutover report.
+  path is not yet verified. Private Traefik runs on Docker bridges and publishes
+  TCP 443 only on the reviewed Tailscale IPv4. Its Omada backend uses a dedicated
+  two-container bridge and verifies the observed self-signed Omada certificate;
+  Omada's forced HTTPS redirect requires this encrypted backend hop. Device
+  adoption and port exposure require fresh live checks, not an old cutover report.
 - Proxmox remote state owns the adopted VM, its managed disks and its PCI and USB
   hardware mappings. The inert first disk block preserves provider list indexes after
   retirement of its former bus slot; changing that tombstone requires an explicit
@@ -91,8 +92,10 @@ credentials and encrypted bundles live outside Git.
   public TLS, Authentik admits only the `gost-proxy-user` service account,
   and the deployed GOST service permits `tailscale.com` on TCP 80/443 plus
   `*.ts.diloreto.com:443`, not the old any-port MagicDNS matcher. The boundary
-  includes both current private routes, including Omada; future services need
-  explicit private routers and their own authorization. The operator reports
+  includes the listed private routes, now including Proxmox and Z-Wave.
+  Proxmox uses native login; Z-Wave retains its Authentik group gate via the
+  existing embedded proxy. Future services need explicit private routers and
+  their own authorization. The operator reports
   work-Mac first-hop access working; its system PAC remains off. Tailscale
   evaluates relay egress as the Docker-host node, not the work Mac.
   GOST alone uses the host-observed MagicDNS and public resolvers because Docker's

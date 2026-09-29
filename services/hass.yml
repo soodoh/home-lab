@@ -45,7 +45,7 @@ services:
       ZWAVEJS_EXTERNAL_CONFIG: /usr/src/app/store/.config-db
     ports:
       # HA is on host network and uses the Z-Wave JS websocket on localhost.
-      # The Z-Wave UI is reachable through Authentik/Traefik over the proxy network.
+      # The UI is reachable only through Authentik on the proxy network.
       - 127.0.0.1:3000:3000
     networks:
       - hass
