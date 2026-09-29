@@ -48,6 +48,8 @@ jobs:
         run: |
           python scripts/test-restic-runtime.py
           python scripts/test-restic-observer.py
+          python scripts/test-qbittorrent-password.py
+          python scripts/test-servarr-variables.py
           scripts/test-recovery-tools
 
       - name: Run native source validators
@@ -66,7 +68,7 @@ jobs:
         run: |
           work=$(mktemp -d)
           trap 'rm -rf "$work"' EXIT
-          for root in infrastructure/tofu/{aws-foundation,authentik,omada,proxmox,proxmox-firewall,tailscale}; do
+          for root in infrastructure/tofu/{aws-foundation,authentik,omada,proxmox,proxmox-firewall,servarr,tailscale}; do
             export TF_DATA_DIR="$work/$(basename "$root")"
             tofu -chdir="$root" init -backend=false -input=false -lockfile=readonly
             tofu -chdir="$root" validate

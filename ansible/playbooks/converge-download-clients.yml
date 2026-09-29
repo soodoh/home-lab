@@ -1,0 +1,52 @@
+---
+# Credential rotation is a separate, approval-gated step before the saved Arr
+# OpenTofu plan is applied. No Compose environment receives these credentials.
+- name: Observe current host state before changing download clients
+  ansible.builtin.import_playbook: observe-hosts.yml
+
+- name: Observe current backup admission before changing download clients
+  ansible.builtin.import_playbook: observe-backups.yml
+
+- name: Converge application download-client credentials under production ownership
+  hosts: docker-host
+  gather_facts: true
+  gather_subset: ["!all", min]
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Require explicit approval for a live credential change
+      ansible.builtin.assert:
+        that: download_client_apply_confirmed | default(false) | bool
+        fail_msg: Live credential convergence requires download_client_apply_confirmed=true.
+      when: not ansible_check_mode
+
+    - name: Observe active Compose state
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+    - name: Acquire production ownership
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: acquire
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: download-client-credentials
+
+  tasks:
+    - name: Reobserve active Compose under production ownership
+      ansible.builtin.import_role:
+        name: compose_native
+        tasks_from: observe
+
+    - name: Converge download-client credentials
+      ansible.builtin.import_role:
+        name: download_client
+
+  post_tasks:
+    - name: Release production ownership only on complete success
+      ansible.builtin.import_role:
+        name: apply_lock
+      vars:
+        apply_lock_action: release
+        apply_lock_path: "{{ compose_native_apply_lock_path }}"
+        apply_lock_operation: download-client-credentials

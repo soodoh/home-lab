@@ -152,6 +152,47 @@ drift or VM-start prerequisites and does not itself authorize an apply. Obtain a
 separate human confirmation before applying the inspected plan. A new plan needs
 a new approval. Afterward verify provider reality and a fresh no-op plan.
 
+### Download-client credential rotation and Arr provider ownership
+
+For the Servarr root, use the [documented one-key Arr provider exception](security.md#opentofu-state-and-plans): there is no separate read-only Arr API key. In a fresh private provider session, run
+`python3 scripts/prepare-servarr-variables.py` after supplying a protected
+`SOPS_AGE_KEY_FILE`, then pass `-var-file="$HOME_LAB_PROVIDER_SESSION_DIR/servarr.auto.tfvars.json"`
+to a saved Servarr plan. Protect the generated mode-0600 file, saved plan and
+remote state; never print their contents. Do not initialize a new state key
+until its AWS state-key/IAM grants have independent owner approval. Reobserve
+hosts, Compose, backups and provider APIs, privately inspect the **whole**
+saved plan, and reject unreviewed imports, replacements or deletion.
+
+On an explicitly approved credential change, plan the Arr resources **before**
+rotating qBittorrent/SABnzbd. Then run
+`ansible-playbook ansible/playbooks/converge-download-clients.yml -e download_client_apply_confirmed=true`
+under the observed host/backup admission: it takes the production host lock,
+changes only credentials that differ, and verifies persistence/authentication.
+Immediately apply the reviewed saved Arr plan using the separate apply
+confirmation, then test every Sonarr, Radarr, Radarr-4k and Prowlarr download
+client and require a fresh no-op plan. These cross-application changes are **not
+atomic**: do not call a partial rotation complete or automatically restore an
+old credential when an apply fails. Preserve the lock and private evidence
+until live ownership and connectivity are resolved. An Arr application's
+**own** API key has a different order: `production.sops.yaml` is its single
+desired source for Compose and provider inputs. On an approved key rotation,
+converge Compose first so the application accepts the new key, then prepare a
+**new** private provider session and saved plan using that same SOPS revision;
+a saved plan made with the old provider key is not reusable. Prowlarr's
+application integration may briefly have the old key until its OpenTofu update.
+Verify all other consumers and do not claim a partial rotation complete.
+The Prowlarr indexers remain the sole writer of downstream synchronized
+indexers; Recyclarr remains the sole writer of its profiles and custom formats. Media catalogs are not
+OpenTofu-owned. Arr host settings are not provider-owned: Compose owns runtime
+ports/API-key injection, while native login settings remain in backed-up app
+databases; the provider host resource overlaps those owners and cannot read
+back the existing password. Radarr-4k's existing Radarr import list is
+OpenTofu-owned. Its top-level `rootFolderPath` is already `/data/movies/4k`;
+the separate `fields.rootFolderPaths` list is empty. The reviewed import plan
+must preserve the top-level root and must not treat the empty field list as
+permission to change it. Disabled metadata providers remain application
+defaults, not managed resources.
+
 ### Independently owned AWS identities
 
 The normal inspector refuses managed IAM/Roles Anywhere changes and drift. A

@@ -1,0 +1,162 @@
+---
+# Run only while the site's production ownership lock is held. The reviewed
+# SOPS source is decrypted on the controller; no credential enters Compose env.
+- name: Load desired download-client credentials on the controller
+  ansible.builtin.set_fact:
+    download_client_desired: >-
+      {{ lookup('community.sops.sops', playbook_dir ~ '/../../secrets/download-clients.sops.yaml',
+        input_type='yaml', age_keyfile=lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE')) | from_yaml }}
+  no_log: true
+
+- name: Require complete desired credentials
+  ansible.builtin.assert:
+    that:
+      - download_client_desired.qbittorrent_username | length > 0
+      - download_client_desired.qbittorrent_password | length >= 32
+      - download_client_desired.sabnzbd_api_key | length >= 32
+    fail_msg: Download-client SOPS source is incomplete.
+  no_log: true
+
+- name: Observe Gluetun's current bridge address
+  ansible.builtin.command:
+    argv: [docker, exec, gluetun, hostname, -i]
+  register: download_client_bridge_ips
+  changed_when: false
+  check_mode: false
+
+- name: Read current application credential settings
+  ansible.builtin.slurp:
+    src: "{{ item }}"
+  loop:
+    - /srv/home-lab-state/qbittorrent-data/qBittorrent/qBittorrent.conf
+    - /srv/home-lab-state/sabnzbd-data/sabnzbd.ini
+  register: download_client_current
+  check_mode: false
+  no_log: true
+
+- name: Compare the qBittorrent WebUI credential against the stored hash
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ playbook_dir }}/../../scripts/check-qbittorrent-password.py"
+    stdin: >-
+      {{ {'config': download_client_current.results[0].content | b64decode,
+          'username': download_client_desired.qbittorrent_username,
+          'password': download_client_desired.qbittorrent_password} | to_json }}
+  delegate_to: localhost
+  become: false
+  register: download_client_qbit_match
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Require exactly one existing SABnzbd API key
+  ansible.builtin.set_fact:
+    download_client_sab_keys: >-
+      {{ (download_client_current.results[1].content | b64decode) |
+         regex_findall('(?m)^api_key\\s*=\\s*(\\S+)\\s*$') }}
+  no_log: true
+
+- name: Refuse unknown application credentials or bridge topology
+  ansible.builtin.assert:
+    that:
+      - download_client_bridge_ips.stdout.split() | length >= 1
+      - download_client_qbit_match.stdout in ['in_sync', 'out_of_sync']
+      - download_client_sab_keys | length == 1
+    fail_msg: Download-client credential observation is incomplete.
+  no_log: true
+
+- name: Require qBittorrent WebUI preferences reachable through the existing private bridge
+  ansible.builtin.uri:
+    url: "http://{{ download_client_bridge_ips.stdout.split()[0] }}:8081/api/v2/app/preferences"
+    method: GET
+    status_code: 200
+    return_content: false
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Set both qBittorrent WebUI credentials only when the stored hash differs
+  ansible.builtin.uri:
+    url: "http://{{ download_client_bridge_ips.stdout.split()[0] }}:8081/api/v2/app/setPreferences"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      json: >-
+        {{ {'web_ui_username': download_client_desired.qbittorrent_username,
+            'web_ui_password': download_client_desired.qbittorrent_password} | to_json }}
+    status_code: 200
+  when:
+    - not ansible_check_mode
+    - download_client_qbit_match.stdout == 'out_of_sync'
+  no_log: true
+
+- name: Read back qBittorrent's persisted WebUI configuration after update
+  ansible.builtin.slurp:
+    src: /srv/home-lab-state/qbittorrent-data/qBittorrent/qBittorrent.conf
+  register: download_client_qbit_updated
+  when:
+    - not ansible_check_mode
+    - download_client_qbit_match.stdout == 'out_of_sync'
+  no_log: true
+
+- name: Verify persisted qBittorrent username and password hash
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ playbook_dir }}/../../scripts/check-qbittorrent-password.py"
+    stdin: >-
+      {{ {'config': download_client_qbit_updated.content | b64decode,
+          'username': download_client_desired.qbittorrent_username,
+          'password': download_client_desired.qbittorrent_password} | to_json }}
+  delegate_to: localhost
+  become: false
+  register: download_client_qbit_verified
+  changed_when: false
+  failed_when: download_client_qbit_verified.rc != 0 or download_client_qbit_verified.stdout != 'in_sync'
+  when:
+    - not ansible_check_mode
+    - download_client_qbit_match.stdout == 'out_of_sync'
+  no_log: true
+
+- name: Set SABnzbd's API key only when the existing key differs
+  ansible.builtin.uri:
+    url: "http://{{ download_client_bridge_ips.stdout.split()[0] }}:8080/api"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      mode: set_config
+      section: misc
+      keyword: api_key
+      value: "{{ download_client_desired.sabnzbd_api_key }}"
+      apikey: "{{ download_client_sab_keys[0] }}"
+      output: json
+    status_code: 200
+    return_content: true
+  register: download_client_sab_update
+  failed_when: >-
+    download_client_sab_update.status != 200 or
+    (download_client_sab_update.json | default({})).get('error') is not none
+  when:
+    - not ansible_check_mode
+    - download_client_sab_keys[0] != download_client_desired.sabnzbd_api_key
+  no_log: true
+
+- name: Verify SABnzbd authenticates the desired full API key
+  ansible.builtin.uri:
+    url: "http://{{ download_client_bridge_ips.stdout.split()[0] }}:8080/api"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      mode: auth
+      key: "{{ download_client_desired.sabnzbd_api_key }}"
+      output: json
+    status_code: 200
+    return_content: true
+  register: download_client_sab_verified
+  changed_when: false
+  failed_when: >-
+    download_client_sab_verified.status != 200 or
+    (download_client_sab_verified.json | default({})).get('auth') != 'apikey'
+  check_mode: false
+  no_log: true

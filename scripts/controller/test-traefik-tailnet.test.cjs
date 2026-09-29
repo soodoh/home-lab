@@ -59,12 +59,21 @@ test('private Compose ingress publishes only tailnet TCP on a bridge', () => {
 
 test('the private router allowlist has no catch-all backend or public routes', () => {
   const expected = { omada: 'omada', llm: 'cli-proxy-api', proxmox: 'proxmox', zwave: 'authentik' };
-  assert.deepEqual(Object.keys(routes.routers).sort(), Object.keys(expected).sort());
+  const apiRoutes = { 'sonarr-api': 'v3', 'radarr-api': 'v3', 'radarr-4k-api': 'v3', 'prowlarr-api': 'v1' };
+  assert.deepEqual(Object.keys(routes.routers).sort(), [...Object.keys(expected), ...Object.keys(apiRoutes)].sort());
   for (const [name, service] of Object.entries(expected)) {
     const router = routes.routers[name];
     assert.equal(router.rule, `Host(\`${name}.ts.diloreto.com\`)`);
     assert.deepEqual(router.entryPoints, ['tailnet']);
     assert.equal(router.service, service);
+    assert.deepEqual(router.tls, { certResolver: 'tailnet', domains: [{ main: '*.ts.diloreto.com' }] });
+  }
+  for (const [name, version] of Object.entries(apiRoutes)) {
+    const router = routes.routers[name];
+    const host = name.slice(0, -4);
+    assert.equal(router.rule, `Host(\`${host}.ts.diloreto.com\`) && (Path(\`/api/${version}\`) || PathPrefix(\`/api/${version}/\`))`);
+    assert.deepEqual(router.entryPoints, ['tailnet']);
+    assert.equal(router.service, name);
     assert.deepEqual(router.tls, { certResolver: 'tailnet', domains: [{ main: '*.ts.diloreto.com' }] });
   }
   assert.ok(Object.values(publicRoutes.routers).every(({ rule }) => !rule.includes('ts.diloreto.com')));
@@ -74,7 +83,9 @@ test('the private router allowlist has no catch-all backend or public routes', (
 test('Omada uses a pinned trusted certificate on its dedicated bridge', () => {
   const transport = routes.serversTransports['omada-backend'];
   const cert = new X509Certificate(fs.readFileSync('services/data/traefik-tailnet/omada.pem'));
-  assert.deepEqual(Object.keys(routes.services).sort(), ['authentik', 'cli-proxy-api', 'omada', 'proxmox']);
+  assert.deepEqual(Object.keys(routes.services).sort(), [
+    'authentik', 'cli-proxy-api', 'omada', 'proxmox', 'sonarr-api', 'radarr-api', 'radarr-4k-api', 'prowlarr-api',
+  ].sort());
   assert.deepEqual(Object.keys(routes.serversTransports).sort(), ['omada-backend', 'proxmox-lan']);
   assert.equal(routes.services.omada.loadBalancer.serversTransport, 'omada-backend');
   assert.equal(routes.services.omada.loadBalancer.servers[0].url, 'https://omada:8043');
@@ -92,6 +103,11 @@ test('Omada uses a pinned trusted certificate on its dedicated bridge', () => {
   assert.equal(routes.services.proxmox.loadBalancer.servers[0].url, 'https://192.168.0.123:8006');
   assert.equal(routes.services.authentik.loadBalancer.servers[0].url, 'http://authentik-server:9000');
   assert.equal(routes.services.authentik.loadBalancer.serversTransport, undefined);
+  assert.ok(readYaml('services/servarr.yml').services.gluetun.networks.includes('proxy'));
+  for (const [name, port] of Object.entries({ 'sonarr-api': 8989, 'radarr-api': 7878, 'radarr-4k-api': 7879, 'prowlarr-api': 9696 })) {
+    assert.equal(routes.services[name].loadBalancer.servers[0].url, `http://gluetun:${port}`);
+    assert.equal(routes.services[name].loadBalancer.serversTransport, undefined);
+  }
   const authentik = readYaml('services/authentik.yml').services['authentik-server'];
   assert.equal(authentik.ports, undefined);
   assert.ok(authentik.networks.includes('proxy'));

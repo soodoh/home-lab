@@ -136,6 +136,19 @@ for bounded policy inspection.
 A local-state-only root is not deployable. Migrate or retire its ownership before
 removing local state.
 
+The Arr applications expose only one full-privilege API key per instance. The
+owner explicitly accepts a narrow exception to separate plan/apply provider
+identities for the Servarr root: both operations use that same key, solely from
+a fresh mode-0700 controller session prepared from protected SOPS, with a
+reviewed saved plan and separately approved apply. This does **not** make a
+plan read-only; protect the controller accordingly. The qBittorrent and SABnzbd
+connection secrets become sensitive OpenTofu resource attributes, so protect
+remote state and private plans in addition to the encrypted SOPS sources.
+Private Arr provider routes should forward only native API paths over tailnet
+HTTPS. The native API key remains essential authorization: the GOST relay can
+attempt the permitted `*.ts.diloreto.com:443` private routes after its own
+handshake, so a private hostname or relay authentication alone is insufficient.
+
 ## Recovery material
 
 Restic passwords, Proton credentials, age identities and encrypted recovery bundles

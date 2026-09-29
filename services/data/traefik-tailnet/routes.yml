@@ -35,6 +35,39 @@ http:
         certResolver: tailnet
         domains:
           - main: "*.ts.diloreto.com"
+    # Provider access is limited to native API paths; UI routes remain public/Authentik-owned.
+    sonarr-api:
+      rule: "Host(`sonarr.ts.diloreto.com`) && (Path(`/api/v3`) || PathPrefix(`/api/v3/`))"
+      entryPoints: [tailnet]
+      service: sonarr-api
+      tls:
+        certResolver: tailnet
+        domains:
+          - main: "*.ts.diloreto.com"
+    radarr-api:
+      rule: "Host(`radarr.ts.diloreto.com`) && (Path(`/api/v3`) || PathPrefix(`/api/v3/`))"
+      entryPoints: [tailnet]
+      service: radarr-api
+      tls:
+        certResolver: tailnet
+        domains:
+          - main: "*.ts.diloreto.com"
+    radarr-4k-api:
+      rule: "Host(`radarr-4k.ts.diloreto.com`) && (Path(`/api/v3`) || PathPrefix(`/api/v3/`))"
+      entryPoints: [tailnet]
+      service: radarr-4k-api
+      tls:
+        certResolver: tailnet
+        domains:
+          - main: "*.ts.diloreto.com"
+    prowlarr-api:
+      rule: "Host(`prowlarr.ts.diloreto.com`) && (Path(`/api/v1`) || PathPrefix(`/api/v1/`))"
+      entryPoints: [tailnet]
+      service: prowlarr-api
+      tls:
+        certResolver: tailnet
+        domains:
+          - main: "*.ts.diloreto.com"
 
   serversTransports:
     omada-backend:
@@ -67,3 +100,20 @@ http:
       loadBalancer:
         servers:
           - url: http://authentik-server:9000
+    # Gluetun shares the proxy bridge with this private Traefik instance.
+    sonarr-api:
+      loadBalancer:
+        servers:
+          - url: http://gluetun:8989
+    radarr-api:
+      loadBalancer:
+        servers:
+          - url: http://gluetun:7878
+    radarr-4k-api:
+      loadBalancer:
+        servers:
+          - url: http://gluetun:7879
+    prowlarr-api:
+      loadBalancer:
+        servers:
+          - url: http://gluetun:9696
