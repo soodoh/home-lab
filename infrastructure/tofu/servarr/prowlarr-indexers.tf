@@ -33,7 +33,8 @@ resource "prowlarr_indexer" "myanonamouse" {
   tags            = [5]
   fields = [
     { name = "baseUrl", text_value = var.indexer_secrets["8"].baseUrl },
-    { name = "mamId", sensitive_value = var.indexer_secrets["8"].mamId },
+    { name = "mamId", text_value = var.indexer_secrets["8"].mamId },
+    { name = "searchLanguages", set_value = [] },
     { name = "searchType", number_value = 0 },
     { name = "searchInDescription", bool_value = false },
     { name = "searchInSeries", bool_value = false },
@@ -83,6 +84,7 @@ resource "prowlarr_indexer" "nzbgeek" {
     { name = "baseUrl", text_value = var.indexer_secrets["7"].baseUrl },
     { name = "apiPath", text_value = "/api" },
     { name = "apiKey", sensitive_value = var.indexer_secrets["7"].apiKey },
+    { name = "vipExpiration", text_value = "" },
     { name = "baseSettings.limitsUnit", number_value = 0 },
   ]
 }
