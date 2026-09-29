@@ -1,58 +1,94 @@
 # Home lab
 
-OpenTofu owns provider resources, Ansible owns the two hosts, and Docker Compose
-owns applications. Controllers are disposable: every run starts from reviewed Git
-source and observes the live systems again.
+This repository describes the desired state of an **existing** two-host home lab.
+OpenTofu manages provider resources, Ansible converges the adopted hosts, and
+Docker Compose defines applications. It is not a bare-metal bootstrap or an
+automated disaster-recovery system. CI validates source; it does **not** deploy.
 
-## Authority
-
-- Git defines desired configuration, pins, recovery groups and safety policy.
-- Proxmox, the Docker host and provider APIs define current state.
-- OpenTofu remote backends define provider-resource ownership.
-- A managed host may retain an active operation lock, interruption journal or
-  before-image until that operation is resolved.
-- Git history supplies historical context. Historical outcomes are not operational
-  inputs.
-
-See [architecture](docs/architecture.md) for the complete boundary.
+Git defines desired state, not proof of what is running. Base decisions on fresh
+host and provider observations and remote OpenTofu state. Merge approval is not
+deployment approval. A Git revert followed by approved site convergence can
+roll back configuration, **not application data**.
 
 ## Start here
 
-- [Operations](docs/operations.md): source checks, live observation and mutation.
-- [Recovery](recovery/README.md): fresh snapshot discovery and private staging.
-- [Outstanding work](docs/migrations.md): unresolved decisions; reobserve before acting.
-- [Security](docs/security.md): secrets, state and protected output.
-- [Deployment access](docs/deployment-access.md): Tailscale SSH and ephemeral GitHub workload identity.
+- [Operations](docs/operations.md): observe, review and converge live systems.
+- [Recovery](recovery/README.md): discover snapshots and stage a private restore;
+  production activation is not yet qualified.
+- [Security](docs/security.md): protect credentials, state and recovery material.
+- [Deployment access](docs/deployment-access.md): Tailscale SSH and controller access.
 
-Applications are in [`docker-compose.yml`](docker-compose.yml) and
-[`services/`](services/). OpenTofu roots are under [`infrastructure/tofu/`](infrastructure/tofu/).
-Host inventory and playbooks are under [`ansible/`](ansible/).
+## Initial manual setup (or a new controller)
 
-## Normal host workflow
+1. Obtain a reviewed checkout and independent console access to both hosts. From
+   the controller, join the authorized tailnet and verify Tailscale SSH access
+   and pinned host keys for the inventory's `ansible-deploy` accounts. These
+   identities and the existing hosts must be established before Ansible can
+   converge them. See [deployment access](docs/deployment-access.md).
+2. Recover the SOPS age identity, separate plan/apply provider credentials,
+   backend access, Restic passwords, Proton/rclone credentials and any recovery
+   bundle identity from **independent protected storage**. The tracked SOPS
+   ciphertext is not a substitute for the age identity. Follow
+   [security](docs/security.md) and [controller preparation](docs/operations.md#prepare-a-disposable-controller);
+   never commit a populated `.env`, print decrypted secrets, or reuse a
+   provider-session directory.
+3. Confirm live ownership before adopting anything: the remote S3 OpenTofu state
+   and independently owner-controlled AWS permissions boundaries, existing
+   Proxmox/Docker hosts, mounts and external storage, active Compose project,
+   backup repositories and host locks/journals. The site playbook assumes an
+   existing healthy deployment; it does not initialize Restic repositories,
+   provision the hosts or resolve an interrupted operation for you. Do not
+   create replacement state or repositories just because one is temporarily
+   unavailable. Use [operations](docs/operations.md) for fresh observation,
+   review and approved convergence.
+4. Independently verify a current complete backup chain and a private test
+   restore before depending on backups. The backup observer checks existing
+   snapshots; installing the timers is not a first backup. External Nextcloud
+   user data at `/mnt/storage/media/nextcloud/data` is **not** in the managed
+   Restic recovery group and needs its own protected backup and restore plan.
+   See [recovery](recovery/README.md).
 
-```sh
-python3 scripts/check-source-boundaries.py
-python3 scripts/check-compose-image-pins.py
-ANSIBLE_CONFIG=ansible/ansible.cfg ansible-lint ansible/playbooks ansible/roles
-yamllint . --no-warnings
-shellcheck $(git ls-files '*.sh' '*.bash')
-docker compose config --no-env-resolution --no-interpolate --quiet
-tofu fmt -check -recursive
-export SOPS_AGE_KEY_FILE=/protected/path/to/age-identity
-sops exec-file --no-fifo --input-type yaml --output-type dotenv \
-  secrets/production.sops.yaml 'docker compose --env-file {} config --quiet'
+## Disaster recovery and restore
 
-ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-hosts.yml
-ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-compose.yml
-ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-backups.yml
-ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/observe-proxmox.yml
+- **Lost controller:** Use a fresh checkout and recover access and credentials
+  from independent custody. Reobserve hosts, providers, remote state and backup
+  repositories; controller caches, old plans and previous snapshot IDs are not
+  recovery inputs. Follow [operations](docs/operations.md).
+- **Lost application data / host:** Preserve any surviving disks, remote state,
+  repository copies and nonterminal host locks, journals and before-images.
+  Determine the affected recovery groups and external-storage dependencies.
+  Follow [recovery](recovery/README.md): observe the live repositories, select
+  and verify a current snapshot chain, then use `scripts/restore-critical-backup`
+  to stage it into a new private root-owned directory. If recovering on a
+  disposable VM from an encrypted bundle, use the bundle procedure there.
+  Inspect database integrity and representative content privately. Recover
+  external Nextcloud data separately.
+- **Production activation is not automated or qualified.** Do not copy the
+  staged files into production or start services from the staging procedure.
+  Before activation, obtain an approved scope-specific plan for writer
+  exclusion, protected before-images, database checks, external data, rollback
+  and post-activation health. See
+  [recovery's activation boundary](recovery/README.md#production-activation).
 
-ANSIBLE_CONFIG=ansible/ansible.cfg ansible-playbook ansible/playbooks/site.yml --check
-# Review current output, then repeat without --check.
-```
+## Decisions that still require an operator
 
-A Git revert followed by authoritative site convergence is configuration rollback;
-data recovery remains a separate operation.
+Review fresh observations and the complete saved plan before any OpenTofu apply,
+particularly a deletion or replacement; obtain separate approval as described
+in [operations](docs/operations.md#plan-and-apply-opentofu-resources). Approve
+host changes only after a fresh observation and check run. Validate live
+application behavior and access boundaries from real clients; source checks
+and CI alone do not prove them. Some application state also lives outside the
+configuration: create/revoke the `gost-proxy` Authentik app password manually
+and protect the work-Mac client credential as described in
+[security](docs/security.md#tailscale-coordination-proxy); after a restore,
+verify Sonarr/Radarr/Radarr-4k's download-propers setting in their databases
+(see [operations](docs/operations.md#operation-ownership-and-cleanup)). See
+[outstanding work](docs/migrations.md) for unresolved recovery, identity and
+ingress qualifications.
 
-Do not print resolved Compose configuration, decrypted SOPS data, OpenTofu state or
-saved plans. Merge approval is not deployment approval.
+For routine validation and deployment commands use [operations](docs/operations.md)
+and [CI](.github/workflows/ci.yml). For ownership boundaries see
+[architecture](docs/architecture.md). Applications are defined in
+[`docker-compose.yml`](docker-compose.yml) and [`services/`](services/);
+provider roots in [`infrastructure/tofu/`](infrastructure/tofu/), and host
+configuration in [`ansible/`](ansible/).
