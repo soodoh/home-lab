@@ -6,7 +6,9 @@ directory. Production activation is not yet qualified.
 ## Scope
 
 [`groups.json`](groups.json) maps named service groups to managed paths. The common
-protected Compose environment is included in every scope. The `nextcloud` group does
+protected Compose interpolation environment and credential-file directory are
+included in every scope. Individual credentials remain plaintext after a restore;
+keep staging private and preserve their declared ownership/permissions. The `nextcloud` group does
 not include external user data at `/mnt/storage/media/nextcloud/data`; recover and
 validate that storage independently.
 

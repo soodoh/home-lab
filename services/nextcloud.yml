@@ -12,7 +12,7 @@ x-nextcloud-smtp-environment: &nextcloud-smtp-environment
   SMTP_SECURE: $NEXTCLOUD_SMTP_SECURE
   SMTP_AUTHTYPE: $NEXTCLOUD_SMTP_AUTHTYPE
   SMTP_NAME: $NEXTCLOUD_SMTP_USERNAME
-  SMTP_PASSWORD: $NEXTCLOUD_SMTP_PASSWORD
+  SMTP_PASSWORD_FILE: /run/secrets/nextcloud_smtp_password
   MAIL_FROM_ADDRESS: $NEXTCLOUD_MAIL_FROM_ADDRESS
   MAIL_DOMAIN: $NEXTCLOUD_MAIL_DOMAIN
 
@@ -65,6 +65,7 @@ services:
       PHP_MEMORY_LIMIT: 1G
     secrets:
       - nextcloud_mysql_password
+      - nextcloud_smtp_password
     depends_on:
       - nextcloud-db
       - nextcloud-redis
@@ -81,6 +82,8 @@ services:
     environment:
       <<: *nextcloud-smtp-environment
       PHP_MEMORY_LIMIT: 1G
+    secrets:
+      - nextcloud_smtp_password
     volumes: *nextcloud-volumes
     depends_on:
       - nextcloud-db
@@ -125,6 +128,8 @@ services:
       - nextcloud
 
 secrets:
+  nextcloud_smtp_password:
+    file: /etc/docker-compose/credentials/nextcloud-smtp-password
   nextcloud_mysql_password:
     file: /etc/docker-compose/credentials/nextcloud-mysql-password
   nextcloud_mariadb_root_password:

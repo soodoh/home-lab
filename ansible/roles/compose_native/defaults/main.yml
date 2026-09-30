@@ -22,6 +22,8 @@ compose_native_cli_proxy_config_path: /etc/docker-compose/credentials/cli-proxy-
 compose_native_sops_binary: sops
 compose_native_sops_age_keyfile: "{{ lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE') }}"
 compose_native_secret_files: []
+compose_native_credentials: "{{ lookup('ansible.builtin.file', compose_native_controller_root ~ '/services/credentials.json') | from_json }}"
+compose_native_oidc_desired: "{{ lookup('ansible.builtin.file', compose_native_authentik_desired_file) | from_json }}"
 compose_native_source_paths:
   - docker-compose.yml
   - services

@@ -85,6 +85,7 @@ jobs:
           python scripts/controller/test-authentik-tofu-foundation.py
           python scripts/controller/test-authentik-secret-readability.py
           python scripts/controller/test-compose-with-sops.py
+          python scripts/controller/test-compose-credential-files.py
 
       - name: Validate infrastructure policy
         run: infrastructure/policy/test-policy.sh

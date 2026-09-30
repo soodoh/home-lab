@@ -17,7 +17,10 @@ test('Mindwtr runs a pinned, token-authenticated cloud without publishing a host
     assert.deepEqual(service.networks, ['proxy']);
     assert.equal(service.ports, undefined);
   }
-  assert.equal(cloud.environment.MINDWTR_CLOUD_AUTH_TOKENS, '$MINDWTR_CLOUD_AUTH_TOKENS');
+  assert.equal(cloud.environment.MINDWTR_CLOUD_AUTH_TOKENS, undefined);
+  assert.equal(cloud.environment.MINDWTR_CLOUD_AUTH_TOKENS_FILE, '/run/secrets/mindwtr_cloud_tokens');
+  assert.equal(cloud.user, '0:0');
+  assert.deepEqual(cloud.secrets, ['mindwtr_cloud_tokens']);
   assert.equal(cloud.environment.MINDWTR_CLOUD_CORS_ORIGIN, 'https://todo.diloreto.com');
   assert.equal(cloud.environment.MINDWTR_CLOUD_DATA_DIR, '/data');
   assert.deepEqual(cloud.volumes, [{

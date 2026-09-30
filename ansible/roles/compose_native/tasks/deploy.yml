@@ -198,53 +198,8 @@
           become: true
           changed_when: true
 
-    - name: Require one encrypted source for Vaultwarden's OIDC client
-      ansible.builtin.assert:
-        that:
-          - oidc_secrets.schemaVersion == 2
-          - oidc_secrets.oauthProviders['47'].client_secret is match('^[A-Za-z0-9_-]{48,}$')
-          - oidc_desired.oauthProviders['47'].client_id is match('^[A-Za-z0-9_-]+$')
-          - production_secrets.VAULTWARDEN_SSO_CLIENT_ID is not defined
-          - production_secrets.VAULTWARDEN_SSO_CLIENT_SECRET is not defined
-        fail_msg: Vaultwarden OIDC credentials must come only from the Authentik source.
-      vars:
-        oidc_secrets: >-
-          {{ lookup('community.sops.sops', compose_native_authentik_sops_file,
-             input_type='json', output_type='json',
-             age_keyfile=compose_native_sops_age_keyfile,
-             sops_binary=compose_native_sops_binary) | from_json }}
-        oidc_desired: "{{ lookup('ansible.builtin.file', compose_native_authentik_desired_file) | from_json }}"
-        production_secrets: >-
-          {{ lookup('community.sops.sops', compose_native_sops_file,
-             input_type='yaml', output_type='yaml',
-             age_keyfile=compose_native_sops_age_keyfile,
-             sops_binary=compose_native_sops_binary) | from_yaml }}
-      no_log: true
-
-    - name: Install the protected production environment through community.sops
-      ansible.builtin.copy:
-        content: >-
-          {{ lookup('community.sops.sops', compose_native_sops_file,
-             input_type='yaml', output_type='dotenv',
-             age_keyfile=compose_native_sops_age_keyfile,
-             sops_binary=compose_native_sops_binary, rstrip=false)
-             ~ 'VAULTWARDEN_SSO_CLIENT_ID=' ~ oidc_desired.oauthProviders['47'].client_id ~ oidc_newline
-             ~ 'VAULTWARDEN_SSO_CLIENT_SECRET=' ~ oidc_secrets.oauthProviders['47'].client_secret ~ oidc_newline }}
-        dest: "{{ compose_native_runtime_env_path }}"
-        owner: root
-        group: root
-        mode: "0600"
-      vars:
-        oidc_secrets: >-
-          {{ lookup('community.sops.sops', compose_native_authentik_sops_file,
-             input_type='json', output_type='json',
-             age_keyfile=compose_native_sops_age_keyfile,
-             sops_binary=compose_native_sops_binary) | from_json }}
-        oidc_desired: "{{ lookup('ansible.builtin.file', compose_native_authentik_desired_file) | from_json }}"
-        oidc_newline: "\n"
-      become: true
-      diff: false
-      no_log: true
+    - name: Provision native credential files and minimal interpolation inputs
+      ansible.builtin.include_tasks: credentials.yml
 
     - name: Create the protected CLIProxyAPI OAuth directory
       ansible.builtin.file:
@@ -419,23 +374,6 @@
       diff: false
       no_log: true
 
-    - name: Install the protected CLIProxyAPI configuration
-      ansible.builtin.template:
-        src: "{{ compose_native_controller_root }}/services/data/cli-proxy-api/config.yaml.j2"
-        dest: "{{ compose_native_cli_proxy_config_path }}"
-        owner: root
-        group: root
-        mode: "0600"
-      vars:
-        cli_proxy_api_secrets: >-
-          {{ lookup('community.sops.sops', compose_native_cli_proxy_sops_file,
-             input_type='yaml', output_type='yaml',
-             age_keyfile=compose_native_sops_age_keyfile,
-             sops_binary=compose_native_sops_binary) | from_yaml }}
-      become: true
-      diff: false
-      no_log: true
-
     - name: Validate the published Compose model
       ansible.builtin.command:
         argv: "{{ compose_native_runtime_cli + ['config', '--quiet'] }}"
@@ -469,7 +407,8 @@
         state: present
         pull: never
         build: never
-        recreate: "{{ 'always' if compose_native_source_changed | bool else 'auto' }}"
+        # Atomic file replacement changes the inode, not Compose's model hash.
+        recreate: "{{ 'always' if (compose_native_source_changed | bool or compose_native_credentials_changed | bool) else 'auto' }}"
         remove_orphans: true
         renew_anon_volumes: false
         wait: true
@@ -522,6 +461,17 @@
           services: "{{ compose_native_convergence.containers | length }}"
           remove_orphans: true
   always:
+    - name: Clear protected credential facts after convergence or failure
+      ansible.builtin.set_fact:
+        compose_native_production_secrets: {}
+        compose_native_production_dotenv: ''
+        compose_native_oidc_secrets: {}
+        compose_native_cli_proxy_secrets: {}
+        compose_native_raw_credentials: {}
+        compose_native_structured_credentials: {}
+        cacheable: false
+      no_log: true
+
     - name: Remove the private controller archive
       ansible.builtin.file:
         path: "{{ compose_native_controller_archive.path | default('/nonexistent-compose-controller-archive') }}"

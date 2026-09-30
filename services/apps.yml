@@ -79,11 +79,13 @@ services:
       TZ: $TZ
       PUID: 1000
       PGID: 1000
-      HARDCOVER_TOKEN: $HARDCOVER_TOKEN
+      FILE__HARDCOVER_TOKEN: /run/secrets/hardcover_token
       # If your library is on a network share (e.g., NFS/SMB), disable WAL to reduce locking issues
       # Accepts: true/false (default: false)
       NETWORK_SHARE_MODE: false
       CWA_PORT_OVERRIDE: 8083
+    secrets:
+      - hardcover_token
     volumes:
       - /srv/home-lab-state/calibre-web-data:/config
       - type: bind
@@ -119,19 +121,22 @@ services:
       SMTP_PORT: $VAULTWARDEN_SMTP_PORT
       SMTP_SECURITY: $VAULTWARDEN_SMTP_SECURITY
       SMTP_USERNAME: $VAULTWARDEN_SMTP_USERNAME
-      SMTP_PASSWORD: $VAULTWARDEN_SMTP_PASSWORD
+      SMTP_PASSWORD_FILE: /run/secrets/vaultwarden_smtp_password
       SMTP_FROM: $VAULTWARDEN_SMTP_FROM
       SMTP_FROM_NAME: $VAULTWARDEN_SMTP_FROM_NAME
       DOMAIN: $VAULTWARDEN_DOMAIN
       SSO_AUTHORITY: $VAULTWARDEN_SSO_AUTHORITY
       SSO_CLIENT_ID: $VAULTWARDEN_SSO_CLIENT_ID
-      SSO_CLIENT_SECRET: $VAULTWARDEN_SSO_CLIENT_SECRET
+      SSO_CLIENT_SECRET_FILE: /run/secrets/vaultwarden_sso_client_secret
       SSO_ENABLED: true
       SSO_SCOPES: email profile offline_access
       SSO_ALLOW_UNKNOWN_EMAIL_VERIFICATION: false
       SSO_CLIENT_CACHE_EXPIRATION: 0
       SSO_ONLY: true
       SSO_SIGNUPS_MATCH_EMAIL: true
+    secrets:
+      - vaultwarden_smtp_password
+      - vaultwarden_sso_client_secret
     volumes:
       - /srv/home-lab-state/vaultwarden-data:/data
     networks:
@@ -142,8 +147,12 @@ services:
     container_name: mindwtr-cloud
     restart: unless-stopped
     logging: *default-logging
+    # The image reads the protected file as root, then drops the server to bun.
+    user: "0:0"
+    secrets:
+      - mindwtr_cloud_tokens
     environment:
-      MINDWTR_CLOUD_AUTH_TOKENS: $MINDWTR_CLOUD_AUTH_TOKENS
+      MINDWTR_CLOUD_AUTH_TOKENS_FILE: /run/secrets/mindwtr_cloud_tokens
       MINDWTR_CLOUD_CORS_ORIGIN: https://todo.diloreto.com
       MINDWTR_CLOUD_DATA_DIR: /data
     volumes:
@@ -165,3 +174,13 @@ services:
         condition: service_healthy
     networks:
       - proxy
+
+secrets:
+  hardcover_token:
+    file: /etc/docker-compose/credentials/hardcover-token
+  vaultwarden_smtp_password:
+    file: /etc/docker-compose/credentials/vaultwarden-smtp-password
+  vaultwarden_sso_client_secret:
+    file: /etc/docker-compose/credentials/vaultwarden-sso-client-secret
+  mindwtr_cloud_tokens:
+    file: /etc/docker-compose/credentials/mindwtr-cloud-tokens

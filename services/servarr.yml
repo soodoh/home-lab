@@ -49,8 +49,8 @@ services:
       TZ: $TZ
       VPN_PORT_FORWARDING_UP_COMMAND: /bin/sh /scripts/gluetun_up.sh
       VPN_TYPE: openvpn
-      OPENVPN_USER: $OPENVPN_USER
-      OPENVPN_PASSWORD: $OPENVPN_PASSWORD
+      OPENVPN_USER_SECRETFILE: /run/secrets/openvpn_user
+      OPENVPN_PASSWORD_SECRETFILE: /run/secrets/openvpn_password
       VPN_SERVICE_PROVIDER: $VPN_PROVIDER
       VPN_PORT_FORWARDING_PROVIDER: $VPN_PROVIDER
       VPN_PORT_FORWARDING: on
@@ -58,6 +58,9 @@ services:
       DNS_UPSTREAM_RESOLVER_TYPE: doh
       # Needed to maintain consistent ASN for MAM session
       SERVER_COUNTRIES: $SERVER_COUNTRIES
+    secrets:
+      - openvpn_user
+      - openvpn_password
     networks:
       - proxy
       - arr_network
@@ -163,8 +166,10 @@ services:
       TZ: $TZ
       PUID: 1000
       PGID: 1000
-      PROWLARR__AUTH__APIKEY: $PROWLARR_API_KEY
+      FILE__PROWLARR__AUTH__APIKEY: /run/secrets/prowlarr_api_key
       PROWLARR__SERVER__PORT: 9696
+    secrets:
+      - prowlarr_api_key
     volumes:
       - /srv/home-lab-state/prowlarr-data:/config
 
@@ -177,14 +182,14 @@ services:
       - arr_network
     volumes:
       - /srv/home-lab-state/recyclarr-data:/config
+    secrets:
+      - source: recyclarr_credentials
+        target: /config/secrets.yml
     environment:
       TZ: $TZ
       SONARR_URL: $SONARR_URL
-      SONARR_API_KEY: $SONARR_API_KEY
       RADARR_URL: $RADARR_URL
-      RADARR_API_KEY: $RADARR_API_KEY
       RADARR_4K_URL: $RADARR_4K_URL
-      RADARR_4K_API_KEY: $RADARR_4K_API_KEY
 
   sonarr:
     image: ghcr.io/linuxserver/sonarr:4.0.20@sha256:a5c1a5fecbef946927ab90ad68df319ac5fe644057e5fc18cd993f01ac07b2b2
@@ -200,8 +205,10 @@ services:
       TZ: $TZ
       PUID: 1000
       PGID: 1000
-      SONARR__AUTH__APIKEY: $SONARR_API_KEY
+      FILE__SONARR__AUTH__APIKEY: /run/secrets/sonarr_api_key
       SONARR__SERVER__PORT: 8989
+    secrets:
+      - sonarr_api_key
     volumes:
       - /srv/home-lab-state/sonarr-data:/config
       - ${MEDIA_PATH}:/data
@@ -220,8 +227,10 @@ services:
       TZ: $TZ
       PUID: 1000
       PGID: 1000
-      RADARR__AUTH__APIKEY: $RADARR_API_KEY
+      FILE__RADARR__AUTH__APIKEY: /run/secrets/radarr_api_key
       RADARR__SERVER__PORT: 7878
+    secrets:
+      - radarr_api_key
     volumes:
       - /srv/home-lab-state/radarr-data:/config
       - ${MEDIA_PATH}:/data
@@ -240,8 +249,10 @@ services:
       TZ: $TZ
       PUID: 1000
       PGID: 1000
-      RADARR__AUTH__APIKEY: $RADARR_4K_API_KEY
+      FILE__RADARR__AUTH__APIKEY: /run/secrets/radarr_4k_api_key
       RADARR__SERVER__PORT: 7879
+    secrets:
+      - radarr_4k_api_key
     volumes:
       - /srv/home-lab-state/radarr-4k-data:/config
       - ${MEDIA_PATH}:/data
@@ -261,8 +272,10 @@ services:
       TZ: $TZ
       PUID: 1000
       PGID: 1000
-      READARR__AUTH__APIKEY: $READARR_API_KEY
+      FILE__READARR__AUTH__APIKEY: /run/secrets/readarr_api_key
       READARR__SERVER__PORT: 8787
+    secrets:
+      - readarr_api_key
     volumes:
       - /srv/home-lab-state/bookshelf-data:/config
       - ${MEDIA_PATH}:/data
@@ -280,17 +293,22 @@ services:
     environment:
       TZ: $TZ
       UN_SONARR_0_URL: $SONARR_URL
-      UN_SONARR_0_API_KEY: $SONARR_API_KEY
+      UN_SONARR_0_API_KEY: filepath:/run/secrets/sonarr_api_key
       UN_SONARR_0_PATHS_0: /data/downloads/complete
       UN_RADARR_0_URL: $RADARR_URL
-      UN_RADARR_0_API_KEY: $RADARR_API_KEY
+      UN_RADARR_0_API_KEY: filepath:/run/secrets/radarr_api_key
       UN_RADARR_0_PATHS_0: /data/downloads/complete
       UN_RADARR_1_URL: $RADARR_4K_URL
-      UN_RADARR_1_API_KEY: $RADARR_4K_API_KEY
+      UN_RADARR_1_API_KEY: filepath:/run/secrets/radarr_4k_api_key
       UN_RADARR_1_PATHS_0: /data/downloads/complete
       UN_READARR_0_URL: $READARR_URL
-      UN_READARR_0_API_KEY: $READARR_API_KEY
+      UN_READARR_0_API_KEY: filepath:/run/secrets/readarr_api_key
       UN_READARR_0_PATHS_0: /data/downloads/complete
+    secrets:
+      - sonarr_api_key
+      - radarr_api_key
+      - radarr_4k_api_key
+      - readarr_api_key
     volumes:
       - ${MEDIA_PATH}/downloads:/data/downloads
     networks:
@@ -333,6 +351,24 @@ services:
     volumes:
       - /srv/home-lab-state/sabnzbd-data:/config
       - ${MEDIA_PATH}:/data
+
+secrets:
+  openvpn_user:
+    file: /etc/docker-compose/credentials/openvpn-user
+  openvpn_password:
+    file: /etc/docker-compose/credentials/openvpn-password
+  sonarr_api_key:
+    file: /etc/docker-compose/credentials/sonarr-api-key
+  radarr_api_key:
+    file: /etc/docker-compose/credentials/radarr-api-key
+  radarr_4k_api_key:
+    file: /etc/docker-compose/credentials/radarr-4k-api-key
+  prowlarr_api_key:
+    file: /etc/docker-compose/credentials/prowlarr-api-key
+  readarr_api_key:
+    file: /etc/docker-compose/credentials/readarr-api-key
+  recyclarr_credentials:
+    file: /etc/docker-compose/credentials/recyclarr-secrets.yml
 
 networks:
   arr_network:

@@ -162,7 +162,7 @@ secret reads without printing their values and refuses a masked identity. Run it
 in a private provider session, with the prepared secret file path supplied as
 `TF_VAR_authentik_client_secrets_path`; use the same SOPS revision for the saved
 plan and consumer update. The apply token remains separate. Vaultwarden's
-Compose environment and Home Assistant's existing `!secret` entry now derive
+protected client-secret file and Home Assistant's existing `!secret` entry derive
 from the same Authentik SOPS client secrets during site convergence; CWA's
 generic OAuth setting remains a manually verified admin UI step because its
 only observed HTTP writer is a bulk, CSRF-protected settings form. Do not assume an
@@ -239,7 +239,10 @@ never revoke it based on removal of an old ingress route.
 convergence: it observes active Compose, acquires the production host lock,
 checks Tailscale identity and GOST DNS, converges SSH access, backup tools and
 units, Docker maintenance and the complete committed Compose project, then
-observes the result. Source changes recreate the project. Check mode validates
+observes the result. Source changes or changed credential files recreate the
+complete project: atomic replacement otherwise leaves file bind mounts reading
+old inodes. This includes Openfit startup, but does not change its configuration
+or bootstrap credential. Check mode validates
 active state; do not apply after a refused observation or check. Do not claim a
 changed artifact is backed up until a fresh complete chain is admitted.
 

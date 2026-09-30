@@ -18,6 +18,7 @@
   loop:
     - {path: "{{ compose_native_current_dir }}", kind: directory, mode: "0755"}
     - {path: "{{ compose_native_runtime_env_path }}", kind: file, mode: "0600"}
+    - {path: /etc/docker-compose/credentials, kind: directory, mode: "0700"}
     - {path: "{{ compose_native_artifact_identity_path | dirname }}", kind: directory, mode: "0711"}
 
 - name: Require protected active Compose paths
@@ -133,6 +134,59 @@
   loop_control:
     label: "{{ item.item }}"
   no_log: true
+
+- name: Detect the credential bindings owned by active source
+  ansible.builtin.stat:
+    path: "{{ compose_native_current_dir }}/services/credentials.json"
+    follow: false
+    get_checksum: false
+    get_mime: false
+  become: true
+  register: compose_native_active_credentials_path
+
+- name: Inspect active native credential delivery
+  when: compose_native_active_credentials_path.stat.exists | default(false)
+  block:
+    - name: Require protected source metadata for credential bindings
+      ansible.builtin.assert:
+        that:
+          - compose_native_active_credentials_path.stat.isreg | default(false)
+          - not (compose_native_active_credentials_path.stat.islnk | default(false))
+          - compose_native_active_credentials_path.stat.uid == 0
+          - compose_native_active_credentials_path.stat.gid == 0
+          - compose_native_active_credentials_path.stat.mode == '0644'
+        fail_msg: Inspect unexpected active credential source metadata before observation.
+
+    - name: Read only active credential names and reader metadata
+      ansible.builtin.slurp:
+        src: "{{ compose_native_current_dir }}/services/credentials.json"
+      become: true
+      register: compose_native_active_credentials
+      no_log: true
+
+    - name: Inspect files granted to native credential readers
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+        follow: false
+        get_checksum: false
+        get_mime: false
+      become: true
+      loop: "{{ (compose_native_active_credentials.content | b64decode | from_json).files }}"
+      register: compose_native_active_credential_metadata
+      no_log: true
+
+    - name: Require exact least-privilege credential metadata
+      ansible.builtin.assert:
+        that:
+          - item.stat.isreg | default(false)
+          - not (item.stat.islnk | default(false))
+          - item.stat.nlink == 1
+          - item.stat.uid == item.item.owner | int
+          - item.stat.gid == item.item.group | int
+          - item.stat.mode == item.item.mode
+        fail_msg: A native credential file differs from its declared reader permissions.
+      loop: "{{ compose_native_active_credential_metadata.results }}"
+      no_log: true
 
 - name: Validate the active Compose model
   ansible.builtin.command:

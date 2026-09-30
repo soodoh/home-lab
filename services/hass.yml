@@ -38,10 +38,11 @@ services:
       - /dev/zwave:/dev/zwave
     volumes:
       - /srv/home-lab-state/zwave-data:/usr/src/app/store
+    secrets:
+      - source: zwave_session_secret
+        target: /usr/src/app/store/.session-secret
     environment:
       TZ: $TZ
-      ZWAVE_SECRET: $ZWAVE_SECRET
-      SESSION_SECRET: $SESSION_SECRET
       ZWAVEJS_EXTERNAL_CONFIG: /usr/src/app/store/.config-db
     ports:
       # HA is on host network and uses the Z-Wave JS websocket on localhost.
@@ -89,23 +90,24 @@ services:
     environment:
       TZ: $TZ
       LIBVA_DRIVER_NAME: "radeonsi"
-      FRIGATE_MQTT_USER: $FRIGATE_MQTT_USER
-      FRIGATE_MQTT_PASSWORD: $FRIGATE_MQTT_PASSWORD
-      FRIGATE_CAM_USER: $FRIGATE_CAM_USER
-      FRIGATE_BACKYARD: $FRIGATE_BACKYARD
-      FRIGATE_BACKYARD_PW: $FRIGATE_BACKYARD_PW
-      FRIGATE_DOORBELL: $FRIGATE_DOORBELL
-      FRIGATE_DOORBELL_PW: $FRIGATE_DOORBELL_PW
-      FRIGATE_DRIVEWAY: $FRIGATE_DRIVEWAY
-      FRIGATE_DRIVEWAY_PW: $FRIGATE_DRIVEWAY_PW
-      FRIGATE_BACK_STUDIO: $FRIGATE_BACK_STUDIO
-      FRIGATE_BACK_STUDIO_PW: $FRIGATE_BACK_STUDIO_PW
-      FRIGATE_FRONTYARD: $FRIGATE_FRONTYARD
-      FRIGATE_FRONTYARD_PW: $FRIGATE_FRONTYARD_PW
-      FRIGATE_STUDIO: $FRIGATE_STUDIO
-      FRIGATE_STUDIO_PW: $FRIGATE_STUDIO_PW
-      FRIGATE_BACK_HOUSE: $FRIGATE_BACK_HOUSE
-      FRIGATE_BACK_HOUSE_PW: $FRIGATE_BACK_HOUSE_PW
+    secrets:
+      - FRIGATE_MQTT_USER
+      - FRIGATE_MQTT_PASSWORD
+      - FRIGATE_CAM_USER
+      - FRIGATE_BACKYARD
+      - FRIGATE_BACKYARD_PW
+      - FRIGATE_DOORBELL
+      - FRIGATE_DOORBELL_PW
+      - FRIGATE_DRIVEWAY
+      - FRIGATE_DRIVEWAY_PW
+      - FRIGATE_BACK_STUDIO
+      - FRIGATE_BACK_STUDIO_PW
+      - FRIGATE_FRONTYARD
+      - FRIGATE_FRONTYARD_PW
+      - FRIGATE_STUDIO
+      - FRIGATE_STUDIO_PW
+      - FRIGATE_BACK_HOUSE
+      - FRIGATE_BACK_HOUSE_PW
     volumes:
       - /srv/home-lab-state/frigate-data:/config
       - ${MEDIA_PATH}/frigate:/media/frigate
@@ -121,6 +123,44 @@ services:
     networks:
       - hass
       - proxy
+
+secrets:
+  zwave_session_secret:
+    file: /etc/docker-compose/credentials/zwave-session-secret
+  FRIGATE_MQTT_USER:
+    file: /etc/docker-compose/credentials/FRIGATE_MQTT_USER
+  FRIGATE_MQTT_PASSWORD:
+    file: /etc/docker-compose/credentials/FRIGATE_MQTT_PASSWORD
+  FRIGATE_CAM_USER:
+    file: /etc/docker-compose/credentials/FRIGATE_CAM_USER
+  FRIGATE_BACKYARD:
+    file: /etc/docker-compose/credentials/FRIGATE_BACKYARD
+  FRIGATE_BACKYARD_PW:
+    file: /etc/docker-compose/credentials/FRIGATE_BACKYARD_PW
+  FRIGATE_DOORBELL:
+    file: /etc/docker-compose/credentials/FRIGATE_DOORBELL
+  FRIGATE_DOORBELL_PW:
+    file: /etc/docker-compose/credentials/FRIGATE_DOORBELL_PW
+  FRIGATE_DRIVEWAY:
+    file: /etc/docker-compose/credentials/FRIGATE_DRIVEWAY
+  FRIGATE_DRIVEWAY_PW:
+    file: /etc/docker-compose/credentials/FRIGATE_DRIVEWAY_PW
+  FRIGATE_BACK_STUDIO:
+    file: /etc/docker-compose/credentials/FRIGATE_BACK_STUDIO
+  FRIGATE_BACK_STUDIO_PW:
+    file: /etc/docker-compose/credentials/FRIGATE_BACK_STUDIO_PW
+  FRIGATE_FRONTYARD:
+    file: /etc/docker-compose/credentials/FRIGATE_FRONTYARD
+  FRIGATE_FRONTYARD_PW:
+    file: /etc/docker-compose/credentials/FRIGATE_FRONTYARD_PW
+  FRIGATE_STUDIO:
+    file: /etc/docker-compose/credentials/FRIGATE_STUDIO
+  FRIGATE_STUDIO_PW:
+    file: /etc/docker-compose/credentials/FRIGATE_STUDIO_PW
+  FRIGATE_BACK_HOUSE:
+    file: /etc/docker-compose/credentials/FRIGATE_BACK_HOUSE
+  FRIGATE_BACK_HOUSE_PW:
+    file: /etc/docker-compose/credentials/FRIGATE_BACK_HOUSE_PW
 
 networks:
   hass:

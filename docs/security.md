@@ -18,8 +18,8 @@ private temporary output when the current run ends.
 Authentik OAuth client secrets are instead authoritative in
 `infrastructure/tofu/authentik/client-secrets.sops.json`. Site convergence reads
 that source on the controller to render Home Assistant's protected `!secret`
-entry and append Vaultwarden's client ID and secret to the protected Compose
-environment. The client ID comes from Authentik's reviewed `desired.json`.
+entry and Vaultwarden's protected client-secret file. Only the public client ID
+is added to Compose's interpolation environment, from Authentik's reviewed `desired.json`.
 Calibre-Web-Automated's OIDC setting remains an explicitly manual admin step;
 do not treat an Authentik secret update as its completed rotation.
 Compose deployment decrypts SOPS inputs through `community.sops` on the controller; provide
@@ -29,11 +29,17 @@ identities may be exported from a mode-0600 gitignored `.env` or a protected
 credential store. The local file is persistent plaintext: protect it independently,
 never commit or log it, and rotate credentials if it is exposed. The dedicated
 tailnet Traefik ACME access key is held as ciphertext in
-`secrets/production.sops.yaml` and rendered into the root-owned
-`/etc/docker-compose/production.env` on the Docker host. Only the private
-Traefik container
-receives its `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`; the public ingress
-must never inherit them. Staging and production certificates have separate
+`secrets/production.sops.yaml` and rendered into a root-only AWS shared
+credentials file. Only private Traefik mounts it; public ingress must never
+inherit it. [`services/credentials.json`](../services/credentials.json) declares
+raw/structured credential files, actual host reader permissions and the explicit
+remaining interpolation inputs. Openfit is excluded: its two secrets remain in
+the protected `production.env` and its container environment. Other migrated
+inputs use existing application/image file interfaces, not custom entrypoints.
+LinuxServer and PostgreSQL still export file contents inside the process tree;
+file delivery is not universal memory or log redaction. Host files are plaintext,
+individually mounted read-only and included in encrypted backup/recovery scope.
+See the [delivery audit](compose-secrets.md) for native readers and caveats. Staging and production certificates have separate
 root-only ACME stores excluded from Restic. Production TLS and tailnet grants do not prove CI/application authentication,
 remote GOST destination denials or UDP/HTTP3 negative paths; verify these
 against current live state before relying on them. The non-AWS helper

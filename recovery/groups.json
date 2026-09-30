@@ -1,7 +1,8 @@
 {
   "version": 1,
   "common_paths": [
-    "/etc/docker-compose/production.env"
+    "/etc/docker-compose/production.env",
+    "/etc/docker-compose/credentials"
   ],
   "groups": {
     "identity": {

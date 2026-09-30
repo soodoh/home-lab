@@ -43,14 +43,17 @@ test('private Compose ingress publishes only tailnet TCP on a bridge', () => {
   assert.ok(privateIngress.volumes.includes('./data/traefik-tailnet/routes.yml:/etc/traefik/routes.yml:ro'));
   assert.ok(privateIngress.volumes.includes('./data/traefik-tailnet/omada.pem:/etc/traefik/omada.pem:ro'));
   assert.ok(!privateIngress.volumes.some((volume) => volume.includes('docker.sock')));
-  assert.equal(privateIngress.environment.AWS_ACCESS_KEY_ID, '${TRAEFIK_TAILNET_AWS_ACCESS_KEY_ID:?Set scoped ACME key in SOPS}');
-  assert.equal(privateIngress.environment.AWS_SECRET_ACCESS_KEY, '${TRAEFIK_TAILNET_AWS_SECRET_ACCESS_KEY:?Set scoped ACME secret in SOPS}');
+  assert.equal(privateIngress.environment.AWS_ACCESS_KEY_ID, undefined);
+  assert.equal(privateIngress.environment.AWS_SECRET_ACCESS_KEY, undefined);
+  assert.equal(privateIngress.environment.AWS_SHARED_CREDENTIALS_FILE, '/run/secrets/traefik_tailnet_aws_credentials');
+  assert.deepEqual(privateIngress.secrets, ['traefik_tailnet_aws_credentials']);
   assert.equal(privateIngress.environment.AWS_HOSTED_ZONE_ID, 'Z07741203I5VR48TBSMSA');
   assert.equal(privateIngress.environment.AWS_REGION, 'us-east-1');
   for (const [name, service] of Object.entries(infra.services)) {
     if (name === 'traefik-tailnet') continue;
     assert.equal(service.environment?.AWS_ACCESS_KEY_ID, undefined);
     assert.equal(service.environment?.AWS_SECRET_ACCESS_KEY, undefined);
+    assert.equal(service.environment?.AWS_SHARED_CREDENTIALS_FILE, undefined);
   }
   assert.deepEqual(infra.services.traefik.ports, ['18080:80/tcp', '18443:443/tcp', '18443:443/udp']);
   assert.ok(recovery.services.includes('traefik-tailnet'));

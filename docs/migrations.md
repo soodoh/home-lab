@@ -17,6 +17,23 @@ review its policy attachments and all consumers. Only the independent owner
 may approve credential revocation, policy detachment or deletion. Preserve
 protected state versions and any nonterminal owner records outside Git.
 
+## Compose credential delivery
+
+The native file declarations exclude Openfit, preserve credential authorities
+and require no custom entrypoints. They are not yet a live cutover: before first
+convergence, switch Recyclarr's API keys from `!env_var` to `!secret` and Frigate's
+camera userinfo to its native `{FRIGATE_*}` placeholders while their writers are
+stopped under production ownership. Privately preserve and verify exact current
+values, session-signing keys, reader permissions and application before-images.
+Keep one-off execution tools outside Git. Ordinary convergence against the old
+application references would remove required environment inputs too early.
+
+Review the committed-source check run and approve the complete-project restart
+window before applying. Extend the live backup inputs in the same admitted run;
+then require a fresh complete backup chain and private credential-file restore.
+See [credential delivery](compose-secrets.md) for supported readers and caveats.
+Remove this outstanding item only after live behavior and recovery verification.
+
 ## Recovery activation
 
 [Recovery](../recovery/README.md) supports fresh snapshot discovery and verified

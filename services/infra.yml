@@ -104,15 +104,20 @@ services:
       - proxy
       - omada-backend
     environment:
-      AWS_ACCESS_KEY_ID: "${TRAEFIK_TAILNET_AWS_ACCESS_KEY_ID:?Set scoped ACME key in SOPS}"
-      AWS_SECRET_ACCESS_KEY: "${TRAEFIK_TAILNET_AWS_SECRET_ACCESS_KEY:?Set scoped ACME secret in SOPS}"
+      AWS_SHARED_CREDENTIALS_FILE: /run/secrets/traefik_tailnet_aws_credentials
       AWS_REGION: us-east-1
       AWS_HOSTED_ZONE_ID: Z07741203I5VR48TBSMSA
+    secrets:
+      - traefik_tailnet_aws_credentials
     volumes:
       - /srv/home-lab-state/traefik-tailnet-data:/data
       - ./data/traefik-tailnet/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./data/traefik-tailnet/routes.yml:/etc/traefik/routes.yml:ro
       - ./data/traefik-tailnet/omada.pem:/etc/traefik/omada.pem:ro
+
+secrets:
+  traefik_tailnet_aws_credentials:
+    file: /etc/docker-compose/credentials/traefik-tailnet-aws-credentials
 
 networks:
   infra:

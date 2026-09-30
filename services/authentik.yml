@@ -25,7 +25,9 @@ services:
       TZ: $TZ
       POSTGRES_USER: $AUTHENTIK_DB_USER
       POSTGRES_DB: $AUTHENTIK_DB
-      POSTGRES_PASSWORD: $AUTHENTIK_DB_PASSWORD
+      POSTGRES_PASSWORD_FILE: /run/secrets/authentik_db_password
+    secrets:
+      - authentik_db_password
     networks:
       - authentik
 
@@ -66,18 +68,22 @@ services:
       TZ: $TZ
       AUTHENTIK_POSTGRESQL__USER: $AUTHENTIK_DB_USER
       AUTHENTIK_POSTGRESQL__NAME: $AUTHENTIK_DB
-      AUTHENTIK_POSTGRESQL__PASSWORD: $AUTHENTIK_DB_PASSWORD
+      AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/authentik_db_password
       AUTHENTIK_REDIS__HOST: $AUTHENTIK_REDIS__HOST
       AUTHENTIK_POSTGRESQL__HOST: $AUTHENTIK_POSTGRESQL__HOST
-      AUTHENTIK_SECRET_KEY: $AUTHENTIK_SECRET_KEY
+      AUTHENTIK_SECRET_KEY: file:///run/secrets/authentik_secret_key
       AUTHENTIK_EMAIL__HOST: $AUTHENTIK_EMAIL__HOST
       AUTHENTIK_EMAIL__PORT: $AUTHENTIK_EMAIL__PORT
       AUTHENTIK_EMAIL__USERNAME: $AUTHENTIK_EMAIL__USERNAME
-      AUTHENTIK_EMAIL__PASSWORD: $AUTHENTIK_EMAIL__PASSWORD
+      AUTHENTIK_EMAIL__PASSWORD: file:///run/secrets/authentik_smtp_password
       AUTHENTIK_EMAIL__FROM: $AUTHENTIK_EMAIL__FROM
       AUTHENTIK_EMAIL__USE_TLS: $AUTHENTIK_EMAIL__USE_TLS
       AUTHENTIK_EMAIL__USE_SSL: $AUTHENTIK_EMAIL__USE_SSL
       AUTHENTIK_EMAIL__TIMEOUT: $AUTHENTIK_EMAIL__TIMEOUT
+    secrets:
+      - authentik_db_password
+      - authentik_secret_key
+      - authentik_smtp_password
     volumes:
       - type: bind
         source: /srv/home-lab-state/authentik-data/media
@@ -104,18 +110,22 @@ services:
       TZ: $TZ
       AUTHENTIK_POSTGRESQL__USER: $AUTHENTIK_DB_USER
       AUTHENTIK_POSTGRESQL__NAME: $AUTHENTIK_DB
-      AUTHENTIK_POSTGRESQL__PASSWORD: $AUTHENTIK_DB_PASSWORD
+      AUTHENTIK_POSTGRESQL__PASSWORD: file:///run/secrets/authentik_db_password
       AUTHENTIK_REDIS__HOST: $AUTHENTIK_REDIS__HOST
       AUTHENTIK_POSTGRESQL__HOST: $AUTHENTIK_POSTGRESQL__HOST
-      AUTHENTIK_SECRET_KEY: $AUTHENTIK_SECRET_KEY
+      AUTHENTIK_SECRET_KEY: file:///run/secrets/authentik_secret_key
       AUTHENTIK_EMAIL__HOST: $AUTHENTIK_EMAIL__HOST
       AUTHENTIK_EMAIL__PORT: $AUTHENTIK_EMAIL__PORT
       AUTHENTIK_EMAIL__USERNAME: $AUTHENTIK_EMAIL__USERNAME
-      AUTHENTIK_EMAIL__PASSWORD: $AUTHENTIK_EMAIL__PASSWORD
+      AUTHENTIK_EMAIL__PASSWORD: file:///run/secrets/authentik_smtp_password
       AUTHENTIK_EMAIL__FROM: $AUTHENTIK_EMAIL__FROM
       AUTHENTIK_EMAIL__USE_TLS: $AUTHENTIK_EMAIL__USE_TLS
       AUTHENTIK_EMAIL__USE_SSL: $AUTHENTIK_EMAIL__USE_SSL
       AUTHENTIK_EMAIL__TIMEOUT: $AUTHENTIK_EMAIL__TIMEOUT
+    secrets:
+      - authentik_db_password
+      - authentik_secret_key
+      - authentik_smtp_password
     volumes:
       - type: bind
         source: /srv/home-lab-state/authentik-data/media
@@ -146,13 +156,25 @@ services:
     environment:
       AUTHENTIK_HOST: http://authentik-server:9000
       AUTHENTIK_INSECURE: "false"
-      AUTHENTIK_TOKEN: ${AUTHENTIK_LDAP_TOKEN:?Set AUTHENTIK_LDAP_TOKEN in .env}
+      AUTHENTIK_TOKEN: file:///run/secrets/authentik_ldap_token
+    secrets:
+      - authentik_ldap_token
     depends_on:
       authentik-server:
         condition: service_healthy
     networks:
       - authentik
       - jellyfin-auth
+
+secrets:
+  authentik_db_password:
+    file: /etc/docker-compose/credentials/authentik-db-password
+  authentik_secret_key:
+    file: /etc/docker-compose/credentials/authentik-secret-key
+  authentik_smtp_password:
+    file: /etc/docker-compose/credentials/authentik-smtp-password
+  authentik_ldap_token:
+    file: /etc/docker-compose/credentials/authentik-ldap-token
 
 networks:
   authentik:

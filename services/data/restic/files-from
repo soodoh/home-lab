@@ -43,4 +43,5 @@
 /mnt/games/wolf/profile-data/paul/WolfES-DE/.local/share
 /mnt/games/wolf/profile-data/paul/WolfES-DE/ES-DE
 /etc/docker-compose/production.env
+/etc/docker-compose/credentials
 /home/docker/.ssh
