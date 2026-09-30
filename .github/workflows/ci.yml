@@ -82,6 +82,9 @@ jobs:
           python scripts/test-omada-export.py
           python scripts/controller/test-local-provider-credentials.py
           python scripts/controller/test-proxmox-hardware-identities.py
+          python scripts/controller/test-authentik-tofu-foundation.py
+          python scripts/controller/test-authentik-secret-readability.py
+          python scripts/controller/test-compose-with-sops.py
 
       - name: Validate infrastructure policy
         run: infrastructure/policy/test-policy.sh

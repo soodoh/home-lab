@@ -33,8 +33,7 @@ refusal. Neither Ansible nor OpenTofu loads `.env` automatically. Provide
 resolved values:
 
 ```sh
-sops exec-file --no-fifo --input-type yaml --output-type dotenv \
-  secrets/production.sops.yaml 'docker compose --env-file {} config --quiet'
+python3 scripts/check-compose-with-sops.py
 ```
 
 For non-AWS providers, create a **new private session directory** and destroy it
@@ -151,6 +150,25 @@ arguments. Approval does not bypass IAM identity/ownership, incomplete plans,
 drift or VM-start prerequisites and does not itself authorize an apply. Obtain a
 separate human confirmation before applying the inspected plan. A new plan needs
 a new approval. Afterward verify provider reality and a fresh no-op plan.
+
+### Authentik OAuth client-secret rotation
+
+Before planning the managed Authentik root, obtain independent
+approval for the plan identity's provider-change grant: a view-only identity does
+not receive OAuth secrets from the API, so a secret plan would otherwise propose
+false updates even if the encrypted value is already live. Protect the plan token
+as a mutating credential. `scripts/prepare-authentik-plan-input` checks all four
+secret reads without printing their values and refuses a masked identity. Run it
+in a private provider session, with the prepared secret file path supplied as
+`TF_VAR_authentik_client_secrets_path`; use the same SOPS revision for the saved
+plan and consumer update. The apply token remains separate. Vaultwarden's
+Compose environment and Home Assistant's existing `!secret` entry now derive
+from the same Authentik SOPS client secrets during site convergence; CWA's
+generic OAuth setting remains a manually verified admin UI step because its
+only observed HTTP writer is a bulk, CSRF-protected settings form. Do not assume an
+Authentik plan or apply makes a consumer switch atomic; verify a fresh OIDC login
+and a no-op plan before declaring rotation complete. Do not count the CWA step
+as complete until its admin setting and fresh login have been checked.
 
 ### Download-client credential rotation and Arr provider ownership
 

@@ -15,7 +15,14 @@ private temporary output when the current run ends.
 ## Secrets
 
 `secrets/production.sops.yaml` is the structured encrypted application source.
-Compose deployment decrypts it through `community.sops` on the controller; provide
+Authentik OAuth client secrets are instead authoritative in
+`infrastructure/tofu/authentik/client-secrets.sops.json`. Site convergence reads
+that source on the controller to render Home Assistant's protected `!secret`
+entry and append Vaultwarden's client ID and secret to the protected Compose
+environment. The client ID comes from Authentik's reviewed `desired.json`.
+Calibre-Web-Automated's OIDC setting remains an explicitly manual admin step;
+do not treat an Authentik secret update as its completed rotation.
+Compose deployment decrypts SOPS inputs through `community.sops` on the controller; provide
 the age identity through `SOPS_AGE_KEY_FILE`. The identity is never copied into Git
 or to deployment artifacts. For a local controller, separate plan/apply provider
 identities may be exported from a mode-0600 gitignored `.env` or a protected
@@ -135,6 +142,18 @@ for bounded policy inspection.
 
 A local-state-only root is not deployable. Migrate or retire its ownership before
 removing local state.
+
+Authentik omits OAuth client secrets from its provider API response unless the
+caller has provider change permission. The Authentik OpenTofu plan identity
+therefore needs that permission on the four managed OAuth providers to plan
+secret rotations without false updates on every refresh. Grant it on those
+objects rather than globally if the live RBAC model permits. This is an
+explicit exception to a read-only plan identity:
+protect its credential as a mutating credential, and do not plan until the
+independently owned grant has been reviewed and installed. The plan-input
+preflight refuses an identity that cannot read all managed OAuth secrets without
+printing them. The apply identity remains separate. Both identities' provider
+reads and any saved plans/state can contain client secrets; keep them private.
 
 The Arr applications expose only one full-privilege API key per instance. The
 owner explicitly accepts a narrow exception to separate plan/apply provider

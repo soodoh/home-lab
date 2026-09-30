@@ -227,11 +227,9 @@ resource "authentik_provider_oauth2" "providers" {
   jwt_federation_sources   = each.value.jwt_federation_sources
   jwt_federation_providers = each.value.jwt_federation_providers
 
-  lifecycle {
-    # Authentik never returns OAuth client-secret material. Preserve the
-    # separately encrypted source value without planning a rewrite on refresh.
-    ignore_changes = [client_secret]
-  }
+  # The plan identity must have change_oauth2provider permission to read the
+  # current secret; the preparation step refuses a masked read. Unlike the
+  # previous ignore_changes rule, a changed SOPS value can now plan rotation.
 }
 
 resource "authentik_certificate_key_pair" "certificates" {

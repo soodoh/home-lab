@@ -67,6 +67,110 @@
         name: compose_native
         tasks_from: observe
 
+    - name: Inspect the existing Home Assistant secrets file
+      ansible.builtin.stat:
+        path: /srv/home-lab-state/hass-data/secrets.yaml
+        follow: false
+        get_checksum: false
+        get_mime: false
+      become: true
+      register: hass_secrets_file
+      no_log: true
+
+    - name: Refuse an absent or unexpectedly owned Home Assistant secrets file
+      ansible.builtin.assert:
+        that:
+          - hass_secrets_file.stat.isreg | default(false)
+          - not (hass_secrets_file.stat.islnk | default(false))
+          - hass_secrets_file.stat.uid == 0
+          - hass_secrets_file.stat.gid == 0
+        fail_msg: Inspect the existing Home Assistant secrets file before changing its permissions.
+
+    - name: Protect Home Assistant secrets from other host users
+      ansible.builtin.file:
+        path: /srv/home-lab-state/hass-data/secrets.yaml
+        state: file
+        owner: root
+        group: root
+        mode: "0600"
+        follow: false
+      become: true
+
+    - name: Inspect the Home Assistant OIDC configuration before managing its secret
+      ansible.builtin.slurp:
+        src: /srv/home-lab-state/hass-data/configuration.yaml
+      become: true
+      register: hass_oidc_configuration
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Require the existing Home Assistant OIDC client and secret reference
+      ansible.builtin.assert:
+        that:
+          - >-
+            (hass_oidc_configuration.content | b64decode) is search('(?m)^openid:\\s*$')
+          - >-
+            (hass_oidc_configuration.content | b64decode) is search('(?m)^  client_secret: !secret hass_oidc_client_secret\\s*$')
+          - >-
+            (hass_oidc_configuration.content | b64decode) is search('(?m)^  client_id: ' ~ oidc_desired.oauthProviders['21'].client_id ~ '\\s*$')
+        fail_msg: Home Assistant OIDC configuration differs from the reviewed client; inspect it before convergence.
+      vars:
+        oidc_desired: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/../../infrastructure/tofu/authentik/desired.json') | from_json }}"
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Inspect Home Assistant secret keys without logging their values
+      ansible.builtin.slurp:
+        src: /srv/home-lab-state/hass-data/secrets.yaml
+      become: true
+      register: hass_secret_entries
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Require exactly one existing Home Assistant OIDC secret entry
+      ansible.builtin.assert:
+        that:
+          - ((hass_secret_entries.content | b64decode) | regex_findall('(?m)^hass_oidc_client_secret:')) | length == 1
+        fail_msg: Inspect the existing Home Assistant OIDC secret entry before convergence.
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Require a single-line Home Assistant OIDC secret
+      ansible.builtin.assert:
+        that:
+          - oidc_secrets.schemaVersion == 2
+          - oidc_secrets.oauthProviders['21'].client_secret is match('^[A-Za-z0-9_-]{48,}$')
+        fail_msg: The encrypted OIDC secret must be safe for the existing Home Assistant YAML entry.
+      vars:
+        oidc_secrets: >-
+          {{ lookup('community.sops.sops', playbook_dir ~ '/../../infrastructure/tofu/authentik/client-secrets.sops.json',
+             input_type='json', output_type='json',
+             age_keyfile=lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE'),
+             sops_binary='sops') | from_json }}
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Converge the Home Assistant OIDC secret from Authentik's encrypted source
+      ansible.builtin.lineinfile:
+        path: /srv/home-lab-state/hass-data/secrets.yaml
+        regexp: '^hass_oidc_client_secret:'
+        line: "hass_oidc_client_secret: {{ oidc_secrets.oauthProviders['21'].client_secret }}"
+        state: present
+        create: false
+        owner: root
+        group: root
+        mode: "0600"
+      vars:
+        oidc_secrets: >-
+          {{ lookup('community.sops.sops', playbook_dir ~ '/../../infrastructure/tofu/authentik/client-secrets.sops.json',
+             input_type='json', output_type='json',
+             age_keyfile=lookup('ansible.builtin.env', 'SOPS_AGE_KEY_FILE'),
+             sops_binary='sops') | from_json }}
+      become: true
+      diff: false
+      no_log: true
+      when: not ansible_check_mode
+
     - name: Create CLIProxyAPI OAuth directory before extending backup policy
       ansible.builtin.file:
         path: /srv/home-lab-state/cli-proxy-api/auths

@@ -48,6 +48,11 @@ jq -e '
     (.bind_password | type == "string" and length >= 48) and
     (.certificate_private_key | type == "string" and startswith("-----BEGIN PRIVATE KEY-----")))
 ' "$client_secrets" >/dev/null
+
+# The Authentik API omits client_secret for identities without provider change
+# permission. Without this guard, removing ignore_changes can produce a false
+# rotation plan even when the SOPS secret is already live.
+python3 scripts/check-authentik-secret-readability.py
 chmod 0600 "$client_secrets"
 mv "$client_secrets" "$TF_VAR_authentik_client_secrets_path"
 trap - EXIT INT TERM
