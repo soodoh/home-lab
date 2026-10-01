@@ -37,12 +37,12 @@ two credentials remain environment-based. The unused `ZWAVE_SECRET` injection
 is removed, but its encrypted source is neither deleted nor revoked.
 `production.env` is CLI interpolation, not a blanket service `env_file`.
 
-These declarations are **not proof of live deployment**. Initial activation also
-requires the existing Frigate camera URLs and Recyclarr API-key references to use
-the native placeholders/tags described below. Perform that one-off cutover under
-production ownership with protected before-images and tools outside Git; do not
-run ordinary site convergence on the old application references. See
-[outstanding work](migrations.md#compose-credential-delivery).
+These declarations are **not proof of current live state**. Frigate camera
+URLs use its native credential placeholders, and Recyclarr API-key references
+use native `!secret` tags. Preserve those interfaces when editing or recovering
+application-owned configuration; mounting secret files alone does not rewrite
+application references. Reobserve native delivery, application behavior and the
+backup chain before each approved convergence.
 
 There are two different improvements:
 
