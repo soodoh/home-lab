@@ -15,6 +15,11 @@ private temporary output when the current run ends.
 ## Secrets
 
 `secrets/production.sops.yaml` is the structured encrypted application source.
+[`Omada mail`](omada-mail.md) has a separate desired authority in
+`secrets/omada-mail.sops.json`: dedicated SMTP token, server, sender and
+recipients. Capture and validation do not activate it. Omada has no documented
+SMTP password-file reader; do not inject these values into Compose or claim
+that a secret mount configures its native controller settings.
 Authentik OAuth client secrets are instead authoritative in
 `infrastructure/tofu/authentik/client-secrets.sops.json`. Site convergence reads
 that source on the controller to render Home Assistant's protected `!secret`
