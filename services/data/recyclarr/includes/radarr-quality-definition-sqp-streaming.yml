@@ -1,0 +1,4 @@
+# Native local include; upstream source (MIT):
+# https://github.com/recyclarr/config-templates/blob/4ae377bb704fc7fd69a544ad04e91357e0b09f62/radarr/includes/quality-definitions/sqp/radarr-quality-definition-sqp-streaming.yml
+quality_definition:
+  type: sqp-streaming

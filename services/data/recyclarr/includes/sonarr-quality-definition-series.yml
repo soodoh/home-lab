@@ -1,0 +1,4 @@
+# Native local include; upstream source (MIT):
+# https://github.com/recyclarr/config-templates/blob/4ae377bb704fc7fd69a544ad04e91357e0b09f62/sonarr/includes/quality-definitions/sonarr-quality-definition-series.yml
+quality_definition:
+  type: series

@@ -28,8 +28,8 @@
 /srv/home-lab-state/qbittorrent-data
 /srv/home-lab-state/radarr-4k-data
 /srv/home-lab-state/radarr-data
-/srv/home-lab-state/recyclarr-data/configs
-/srv/home-lab-state/recyclarr-data/includes
+/srv/docker-compose/current/services/data/recyclarr/configs
+/srv/docker-compose/current/services/data/recyclarr/includes
 /srv/home-lab-state/recyclarr-data/settings.yml
 /srv/home-lab-state/sabnzbd-data
 /srv/home-lab-state/sonarr-data

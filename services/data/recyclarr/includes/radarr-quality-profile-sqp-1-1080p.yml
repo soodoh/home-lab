@@ -1,0 +1,22 @@
+# Native local include; upstream source (MIT):
+# https://github.com/recyclarr/config-templates/blob/4ae377bb704fc7fd69a544ad04e91357e0b09f62/radarr/includes/quality-profiles/sqp/radarr-quality-profile-sqp-1-1080p.yml
+quality_profiles:
+  - name: SQP-1 (1080p)
+    reset_unmatched_scores:
+      enabled: true
+    upgrade:
+      allowed: true
+      until_quality: Bluray|WEB-1080p
+      until_score: 10000
+    min_format_score: 1000
+    score_set: sqp-1-1080p
+    quality_sort: top
+    qualities:
+      - name: Bluray|WEB-1080p
+        qualities:
+          - Bluray-1080p
+          - WEBDL-1080p
+          - WEBRip-1080p
+          - WEBDL-720p
+          - WEBRip-720p
+      - name: Bluray-720p

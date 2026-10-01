@@ -87,6 +87,20 @@ class ComposeDelivery(unittest.TestCase):
         self.assertNotIn("AWS_SECRET_ACCESS_KEY", private["environment"])
         self.assertNotIn("secrets", services["traefik"])
 
+    def test_recyclarr_uses_read_only_configuration_and_writable_native_state(self):
+        service = self.model["services"]["recyclarr"]
+        volumes = {v["target"]: v for v in service["volumes"]}
+        self.assertFalse(volumes["/config"].get("read_only", False))
+        for directory in ("configs", "includes"):
+            mount = volumes["/config/" + directory]
+            self.assertTrue(mount["read_only"])
+            self.assertEqual(Path(mount["source"]), ROOT / "services/data/recyclarr" / directory)
+            host_source = "/srv/docker-compose/current/" + str(Path(mount["source"]).relative_to(ROOT))
+            self.assertIn(host_source, (ROOT / "services/data/restic/files-from").read_text().splitlines())
+            self.assertIn(host_source, json.loads((ROOT / "recovery/groups.json").read_text())["groups"]["media"]["paths"])
+        self.assertNotIn("entrypoint", service)
+        self.assertEqual(service["secrets"][0]["target"], "/config/secrets.yml")
+
     def test_backup_and_every_recovery_group_include_the_credential_directory(self):
         backed_up = (ROOT / "services/data/restic/files-from").read_text().splitlines()
         common = json.loads((ROOT / "recovery/groups.json").read_text())["common_paths"]

@@ -182,6 +182,8 @@ services:
       - arr_network
     volumes:
       - /srv/home-lab-state/recyclarr-data:/config
+      - ./data/recyclarr/configs:/config/configs:ro
+      - ./data/recyclarr/includes:/config/includes:ro
     secrets:
       - source: recyclarr_credentials
         target: /config/secrets.yml
