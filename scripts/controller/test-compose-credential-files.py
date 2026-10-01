@@ -15,6 +15,8 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import tarfile
+import io
 
 import yaml
 
@@ -95,6 +97,38 @@ class ComposeDelivery(unittest.TestCase):
 
 
 class NativeFileRendering(unittest.TestCase):
+    def test_native_archive_extraction_protects_source_and_preserves_executables(self):
+        tar_version = subprocess.run(["tar", "--version"], capture_output=True).stdout
+        if b"GNU tar" not in tar_version:
+            self.skipTest("Native unarchive qualification requires GNU tar (executed on Linux CI)")
+        with tempfile.TemporaryDirectory(prefix="compose-source-permission-test-") as directory:
+            work = Path(directory)
+            archive = work / "source.tar"
+            with tarfile.open(archive, "w") as output:
+                for name, mode in [("credentials.json", 0o664), ("hook.sh", 0o775)]:
+                    item = tarfile.TarInfo(name)
+                    item.mode = mode
+                    content = b"synthetic source\n"
+                    item.size = len(content)
+                    output.addfile(item, io.BytesIO(content))
+            target = work / "source"
+            target.mkdir(mode=0o755)
+            deploy = yaml.safe_load((ROOT / "ansible/roles/compose_native/tasks/deploy.yml").read_text())
+            block = next(t["block"] for t in deploy if t["name"] == "Archive and converge committed Compose source")
+            publish = next(t["block"] for t in block if t["name"] == "Publish changed Compose source")
+            task = copy.deepcopy(next(t for t in publish if t["name"] == "Extract committed Compose source"))
+            task["become"] = False
+            task["ansible.builtin.unarchive"].update(src=str(archive), dest=str(target), owner=str(os.getuid()), group=str(os.getgid()))
+            playbook = [{"name": "Test native source permissions", "hosts": "localhost", "gather_facts": False,
+                "vars": {"ansible_become": False, "ansible_python_interpreter": shutil.which("python3")}, "tasks": [task]}]
+            path = work / "play.yml"
+            path.write_text(yaml.safe_dump(playbook, sort_keys=False))
+            result = subprocess.run(["ansible-playbook", "-i", "localhost,", "-c", "local", str(path)],
+                env={**os.environ, "ANSIBLE_CONFIG": str(ROOT / "ansible/ansible.cfg")}, cwd=ROOT, capture_output=True)
+            self.assertEqual(result.returncode, 0, "Synthetic native source extraction failed: " + (result.stdout + result.stderr).decode())
+            self.assertEqual((target / "credentials.json").stat().st_mode & 0o777, 0o644)
+            self.assertEqual((target / "hook.sh").stat().st_mode & 0o777, 0o755)
+
     def test_exact_values_serialization_permissions_idempotency_and_atomic_replacement(self):
         with tempfile.TemporaryDirectory(prefix="native-credential-test-") as directory:
             work = Path(directory)
