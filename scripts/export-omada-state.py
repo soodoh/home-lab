@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read the adopted Omada LAN, DHCP reservations, and port forwards."""
+"""Read the selected Omada domain; never project credential-bearing documents."""
 
 from __future__ import annotations
 
@@ -82,12 +82,26 @@ class Omada:
         while True:
             query = urlencode({"currentPage": page, "currentPageSize": 100})
             result = self.request("GET", f"{path}?{query}")
+            if isinstance(result, list):
+                if page != 1 or not all(isinstance(item, dict) for item in result):
+                    raise SystemExit("Omada list response has an unexpected shape")
+                return result
             if not isinstance(result, dict) or not isinstance(result.get("data"), list):
                 raise SystemExit("Omada list response has an unexpected shape")
             chunk = result["data"]
+            if not all(isinstance(item, dict) for item in chunk):
+                raise SystemExit("Omada list response has an unexpected shape")
+            if page == 1 and not any(
+                key in result for key in ("currentPage", "currentSize", "totalRows")
+            ):
+                # Native WLAN endpoints return a complete data envelope without
+                # pagination metadata; do not invent a missing totalRows value.
+                return chunk
             items.extend(chunk)
             total = result.get("totalRows")
-            if not chunk or not isinstance(total, int) or len(items) >= total:
+            if type(total) is not int or total < len(items) or (not chunk and len(items) < total):
+                raise SystemExit("Omada list response has an incomplete inventory")
+            if len(items) == total:
                 return items
             page += 1
 
@@ -166,6 +180,22 @@ def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, 
     if len(selected_reservations) != len(reservations):
         raise SystemExit("the selected Omada site has reservations outside the managed network")
     port_forwards = client.list_all(f"{base}/setting/transmission/portForwardings")
+    wireless = []
+    for group in client.list_all(f"{base}/setting/wlans"):
+        group_id = required_string(group, "id")
+        for ssid in client.list_all(f"{base}/setting/wlans/{group_id}/ssids"):
+            wireless.append({
+                "id": required_string(ssid, "id"),
+                "wlan_group_id": group_id,
+                "name": required_string(ssid, "name"),
+            })
+    gateways = [
+        device for device in client.list_all(f"{base}/devices")
+        if device.get("type") == "gateway"
+    ]
+    if len(gateways) != 1:
+        raise SystemExit("the selected Omada site must contain exactly one managed gateway")
+
     export = {
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "controller_version": client.controller_version,
@@ -195,6 +225,8 @@ def build_export(client: Omada, site_name: str, network_name: str) -> dict[str, 
             ),
             key=lambda reservation: reservation["mac"],
         ),
+        "wireless_networks": sorted(wireless, key=lambda ssid: ssid["id"]),
+        "gateway": {"mac": normalize_mac(gateways[0].get("mac"))},
         "port_forwards": sorted(
             (normalize_port_forward(port_forward) for port_forward in port_forwards),
             key=lambda port_forward: port_forward["id"],
@@ -232,7 +264,8 @@ def main() -> None:
     print(
         "omada_export=created "
         f"reservations={len(export['reservations'])} "
-        f"port_forwards={len(export['port_forwards'])}"
+        f"port_forwards={len(export['port_forwards'])} "
+        f"wireless_networks={len(export['wireless_networks'])}"
     )
 
 

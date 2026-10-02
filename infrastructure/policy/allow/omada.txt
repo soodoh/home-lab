@@ -1,2 +1,11 @@
-# Temporary reviewed DHCP option 138 cutover; remove after the Omada plan is no-op.
-omada_network.lan[0]
+# Pending adoption only: imports must have no create/update/delete actions.
+# Remove these transition-only entries after verified imports and a no-op plan.
+import:omada_wireless_network.ssid["66046c370466c95359e985b7"]
+import:omada_gateway.site[0]
+import:omada_upnp.site[0]
+import:omada_ssh_settings.site[0]
+import:omada_snmp.site[0]
+import:omada_site_settings.site[0]
+import:omada_attack_defense.site[0]
+import:omada_iptv.site[0]
+import:omada_notification_settings.site[0]

@@ -8,8 +8,10 @@ locals {
       id           = "", name = "", vlan_id = 0, gateway_subnet = "",
       dhcp_enabled = false, dhcp_start = "", dhcp_end = "", dhcp_options = []
     }
-    reservations  = []
-    port_forwards = []
+    reservations      = []
+    port_forwards     = []
+    wireless_networks = []
+    gateway           = { mac = "" }
   }
   live_reservations = {
     for reservation in local.export.reservations : lower(replace(reservation.mac, "-", ":")) => reservation
@@ -17,8 +19,12 @@ locals {
   live_port_forwards = {
     for port_forward in local.export.port_forwards : port_forward.id => port_forward
   }
-  reservations  = var.omada_enable_management ? local.desired.reservations : {}
-  port_forwards = var.omada_enable_management ? local.desired.port_forwards : {}
+  live_wireless_networks = {
+    for ssid in local.export.wireless_networks : ssid.id => ssid
+  }
+  wireless_networks = var.omada_enable_management ? local.desired.wireless_networks : {}
+  reservations      = var.omada_enable_management ? local.desired.reservations : {}
+  port_forwards     = var.omada_enable_management ? local.desired.port_forwards : {}
   export_matches_boundary = !var.omada_enable_management || (
     local.export.controller_version == var.omada_domain.controller_version &&
     local.export.site.id != "" &&
@@ -44,7 +50,13 @@ locals {
     length(local.export.reservations) > 0 &&
     length(local.export.port_forwards) > 0 &&
     toset(keys(local.live_reservations)) == toset(keys(local.reservations)) &&
-    toset(keys(local.live_port_forwards)) == toset(keys(local.port_forwards))
+    toset(keys(local.live_port_forwards)) == toset(keys(local.port_forwards)) &&
+    toset(keys(local.live_wireless_networks)) == toset(keys(local.wireless_networks)) &&
+    alltrue([
+      for id, ssid in local.live_wireless_networks :
+      try(ssid.wlan_group_id == local.wireless_networks[id].wlan_group_id, false)
+    ]) &&
+    local.export.gateway.mac == local.desired.gateway.mac
   )
 }
 
@@ -57,7 +69,7 @@ provider "omada" {
 check "export_identity" {
   assert {
     condition     = local.export_matches_boundary
-    error_message = "The fresh Omada inventory must match the reviewed site, network, reservations, and port-forward identities."
+    error_message = "The fresh Omada inventory must match the reviewed site, LAN, reservations, port forwards, SSIDs/groups, and gateway identities."
   }
 }
 
@@ -71,15 +83,20 @@ import {
 resource "omada_network" "lan" {
   count = var.omada_enable_management ? 1 : 0
 
-  site           = local.export.site.name
-  name           = local.desired.network.name
-  vlan_id        = local.desired.network.vlan_id
-  purpose        = "interface"
-  gateway_subnet = local.desired.network.gateway_subnet
-  dhcp_enabled   = local.desired.network.dhcp_enabled
-  dhcp_start     = local.desired.network.dhcp_start
-  dhcp_end       = local.desired.network.dhcp_end
-  dhcp_options   = local.desired.network.dhcp_options
+  site              = local.export.site.name
+  name              = local.desired.network.name
+  vlan_id           = local.desired.network.vlan_id
+  purpose           = "interface"
+  gateway_subnet    = local.desired.network.gateway_subnet
+  dhcp_enabled      = local.desired.network.dhcp_enabled
+  dhcp_start        = local.desired.network.dhcp_start
+  dhcp_end          = local.desired.network.dhcp_end
+  dhcp_options      = local.desired.network.dhcp_options
+  isolation         = local.desired.network.isolation
+  igmp_snoop_enable = local.desired.network.igmp_snoop_enable
+  ipv6              = local.desired.network.ipv6
+  dhcp_dns_mode     = local.desired.network.dhcp_dns_mode
+  dhcp_lease_time   = local.desired.network.dhcp_lease_time
 
   lifecycle {
     precondition {

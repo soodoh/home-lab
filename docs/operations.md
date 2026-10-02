@@ -114,8 +114,10 @@ Use only a currently reviewed allowlist, never a standing migration waiver.
 An ordinary allowlist does **not** authorize deletion. For Omada, compare a
 fresh private export made with `scripts/prepare-omada-plan-input` against every
 identity in the reviewed `desired.json`. Supply `TF_VAR_omada_export_path` as an
-unused path in the private session directory. The export validates ownership;
-its settings are not desired state. Drift against Git is a refusal to investigate,
+unused path in the private session directory. The export validates ownership of the LAN, reservations, port forwards, SSIDs/WLAN
+groups and gateway; its settings are not desired state. See the
+[selective ownership boundary](../infrastructure/tofu/omada/EXPORT_SCHEMA.md),
+including write-only Wi-Fi credentials and notification-selector import limits. Drift against Git is a refusal to investigate,
 not a reason to copy live settings into Git. For Proxmox, the host observer must
 compare live disk/USB topology, sealed host expectations and
 [`expected-hardware.json`](../infrastructure/tofu/proxmox/expected-hardware.json)

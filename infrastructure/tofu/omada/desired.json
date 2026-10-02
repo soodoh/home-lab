@@ -11,7 +11,90 @@
     "dhcp_start": "192.168.0.1",
     "gateway_subnet": "192.168.0.1/24",
     "name": "Default",
-    "vlan_id": 1
+    "vlan_id": 1,
+    "isolation": false,
+    "igmp_snoop_enable": false,
+    "ipv6": { "enable": false },
+    "dhcp_dns_mode": "auto",
+    "dhcp_lease_time": 120
+  },
+  "wireless_networks": {
+    "66046c370466c95359e985b7": {
+      "wlan_group_id": "66046c370466c95359e985b1",
+      "name": "Teddy's House",
+      "band": 3,
+      "security": 3,
+      "broadcast": true,
+      "vlan_enable": false,
+      "vlan_id": 0,
+      "guest_net": false,
+      "enable_11r": false,
+      "pmf_mode": 3,
+      "psk_version": 2,
+      "psk_encryption": 3,
+      "multicast_enable": true,
+      "multicast_channel_util": 100,
+      "multicast_arp_cast": false,
+      "multicast_ipv6_cast": false,
+      "multicast_filter": false
+    }
+  },
+  "gateway": {
+    "mac": "48-22-54-DE-F8-54",
+    "hw_offload_enable": true,
+    "lldp_enable": false
+  },
+  "upnp": {
+    "enable": false
+  },
+  "ssh_settings": {
+    "ssh_enable": false,
+    "layer3_access": false
+  },
+  "snmp": {
+    "v1_v2c_enable": false,
+    "v3_enable": false
+  },
+  "site_settings": {
+    "auto_upgrade_enable": false,
+    "mesh_enable": true,
+    "roaming_fast_roaming_enable": false
+  },
+  "attack_defense": {
+    "tcp_noflag_enable": true,
+    "tcp_winnuke_enable": true,
+    "tcp_fin_syn_enable": true,
+    "tcp_fin_noack_enable": true,
+    "ping_death_enable": true,
+    "ping_wan_enable": true,
+    "ip_option_enable": true,
+    "ipopt_secure_enable": true,
+    "ipopt_loose_route_enable": true,
+    "ipopt_strict_route_enable": true,
+    "ipopt_record_route_enable": true,
+    "ipopt_stream_enable": true,
+    "ipopt_timestamp_enable": true,
+    "ipopt_noop_enable": true
+  },
+  "iptv": {
+    "igmp_proxy_enable": true,
+    "igmp_version": "2",
+    "enable": false,
+    "enabled_port_ids": [
+      "2_e63d6c355af9445d817a434a3fd70c09",
+      "3_186f32b300454536a179274c4eaf150f",
+      "4_63e315c80a4d4f4098ee381b5ce46516",
+      "5_5935741e67e64165ab29357c8bb1c2cb"
+    ]
+  },
+  "notification_settings": {
+    "alert_email_enable": false,
+    "alert_email_delay_enable": false,
+    "alert_email_delay": 60,
+    "event_email_enable": false,
+    "event_email_delay_enable": false,
+    "event_email_delay": 60,
+    "webhook_enable": false
   },
   "port_forwards": {
     "66070a8de9df67148ee4fa14": {
