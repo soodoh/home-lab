@@ -44,7 +44,7 @@ provider "authentik" {
 check "desired_inventory" {
   assert {
     condition = (
-      local.desired.schemaVersion == 4 &&
+      local.desired.schemaVersion == 5 &&
       length(local.desired.applications) == 22 &&
       length(local.desired.proxyProviders) == 18 &&
       (!var.authentik_enable_management || (

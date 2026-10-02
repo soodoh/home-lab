@@ -89,8 +89,36 @@ run "authentication_and_onboarding_preserve_behavior" {
   }
 
   assert {
-    condition     = !authentik_group.managed["jellyfin"].is_superuser && length(authentik_group.managed["jellyfin"].users) == 5 && toset(authentik_group.managed["jellyfin"].users) == toset([for username in local.desired.groups.jellyfin.member_usernames : data.authentik_user.group_members[username].pk])
+    condition     = !authentik_group.managed["jellyfin"].is_superuser && length(authentik_group.managed["jellyfin"].users) == 5 && toset(authentik_group.managed["jellyfin"].users) == toset([for username in local.group_usernames_by_key["jellyfin"] : data.authentik_user.group_members[username].pk])
     error_message = "Group membership must resolve all declared independent users without elevation."
+  }
+
+  assert {
+    condition = alltrue([for key, members in {
+      "jellyfin"           = [5000, 5001, 5002, 5003, 5004]
+      "karaoke-users"      = [5000, 5001, 5002, 5003, 5004]
+      "caro-library-users" = [5000, 5001]
+      "cwa-users"          = [5003, 5004]
+      "camera-viewers"     = [5003, 5004]
+      "vaultwarden-users"  = [5003, 5004]
+    } : toset(authentik_group.managed[key].users) == toset(members)])
+    error_message = "Application entitlements must grant the exact reviewed user sets, including negative membership cases."
+  }
+
+  assert {
+    condition = alltrue([for group_key, binding_key in {
+      "karaoke-users"      = "b3104c79-adca-4847-b398-aaa7130cf25a"
+      "caro-library-users" = "2cde7ad7-35ee-4ff2-8c90-1edcc83f3e89"
+      "cwa-users"          = "cbbb8d4b-444e-4897-b915-2507a85334d4"
+      "camera-viewers"     = "9fcefd65-0127-45d3-8d48-31e7e0804683"
+      "vaultwarden-users"  = "182dbb79-78ab-4144-9625-8b042e985eaa"
+    } : authentik_policy_binding.application_access[binding_key].group == authentik_group.managed[group_key].id && authentik_policy_binding.application_access[binding_key].user == null && !authentik_policy_binding.application_access[binding_key].negate])
+    error_message = "New application grants must depend on the managed groups, not direct-user exceptions."
+  }
+
+  assert {
+    condition     = alltrue([for key, group in authentik_group.managed : !group.is_superuser && length(group.parents) == 0 && (key == "jellyfin" || length(group.roles) == 0)])
+    error_message = "Access groups must never inherit administrator privileges or acquire management roles."
   }
 
   assert {

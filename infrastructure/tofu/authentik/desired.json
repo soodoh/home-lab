@@ -133,18 +133,6 @@
       "timeout": 30,
       "user": null
     },
-    "4134d073-6817-4288-8717-fe07631e2011": {
-      "application_slug": "caro-tachidesk",
-      "enabled": true,
-      "failure_result": false,
-      "group": null,
-      "negate": false,
-      "order": 2,
-      "pk": "4134d073-6817-4288-8717-fe07631e2011",
-      "policy": null,
-      "timeout": 30,
-      "user": 10
-    },
     "48004f36-36ef-45ac-9048-7cb2a67538bc": {
       "application_slug": "calibre",
       "enabled": true,
@@ -156,18 +144,6 @@
       "policy": null,
       "timeout": 30,
       "user": null
-    },
-    "4beb279c-7da9-4f86-83d5-9ded4ce54293": {
-      "application_slug": "caro-tachidesk",
-      "enabled": true,
-      "failure_result": false,
-      "group": null,
-      "negate": false,
-      "order": 1,
-      "pk": "4beb279c-7da9-4f86-83d5-9ded4ce54293",
-      "policy": null,
-      "timeout": 30,
-      "user": 8
     },
     "51edd5fa-d699-4811-b67e-6d85356fc452": {
       "application_slug": "openfit",
@@ -193,18 +169,6 @@
       "timeout": 30,
       "user": null
     },
-    "737f1593-aa14-4930-84b9-53d73bf6780b": {
-      "application_slug": "frigate",
-      "enabled": true,
-      "failure_result": false,
-      "group": null,
-      "negate": false,
-      "order": 1,
-      "pk": "737f1593-aa14-4930-84b9-53d73bf6780b",
-      "policy": null,
-      "timeout": 30,
-      "user": 11
-    },
     "7a201cfb-c8c5-422e-9804-9771e4827999": {
       "application_slug": "radarr",
       "enabled": true,
@@ -216,30 +180,6 @@
       "policy": null,
       "timeout": 30,
       "user": null
-    },
-    "8c76316b-86ca-49fb-ac98-0d5efa0c45a7": {
-      "application_slug": "calibre-web-automated",
-      "enabled": true,
-      "failure_result": false,
-      "group": null,
-      "negate": false,
-      "order": 1,
-      "pk": "8c76316b-86ca-49fb-ac98-0d5efa0c45a7",
-      "policy": null,
-      "timeout": 30,
-      "user": 11
-    },
-    "980bbe7b-2b2c-4929-b36d-00cc7472b08f": {
-      "application_slug": "vaultwarden",
-      "enabled": true,
-      "failure_result": false,
-      "group": null,
-      "negate": false,
-      "order": 1,
-      "pk": "980bbe7b-2b2c-4929-b36d-00cc7472b08f",
-      "policy": null,
-      "timeout": 30,
-      "user": 11
     },
     "a6a50029-e999-4bfa-8ece-737ed5ec8ebc": {
       "application_slug": "sonarr",
@@ -309,6 +249,66 @@
       "negate": false,
       "order": 0,
       "pk": "e7747d8a-8153-49f0-948a-140bee74c6d1",
+      "policy": null,
+      "timeout": 30,
+      "user": null
+    },
+    "b3104c79-adca-4847-b398-aaa7130cf25a": {
+      "application_slug": "karaoke-eternal",
+      "enabled": true,
+      "failure_result": false,
+      "group": "653a9fd8-ea6e-4d83-bb6e-e8a1510bde46",
+      "negate": false,
+      "order": 1,
+      "pk": null,
+      "policy": null,
+      "timeout": 30,
+      "user": null
+    },
+    "2cde7ad7-35ee-4ff2-8c90-1edcc83f3e89": {
+      "application_slug": "caro-tachidesk",
+      "enabled": true,
+      "failure_result": false,
+      "group": "87b271e2-bab4-4a92-83d5-9ee1820d8d85",
+      "negate": false,
+      "order": 1,
+      "pk": null,
+      "policy": null,
+      "timeout": 30,
+      "user": null
+    },
+    "cbbb8d4b-444e-4897-b915-2507a85334d4": {
+      "application_slug": "calibre-web-automated",
+      "enabled": true,
+      "failure_result": false,
+      "group": "49b212c7-85d7-4ae7-b5f7-cbcc3df51fc2",
+      "negate": false,
+      "order": 1,
+      "pk": null,
+      "policy": null,
+      "timeout": 30,
+      "user": null
+    },
+    "9fcefd65-0127-45d3-8d48-31e7e0804683": {
+      "application_slug": "frigate",
+      "enabled": true,
+      "failure_result": false,
+      "group": "a36920f1-add7-4992-9b24-cc7dd74b8050",
+      "negate": false,
+      "order": 1,
+      "pk": null,
+      "policy": null,
+      "timeout": 30,
+      "user": null
+    },
+    "182dbb79-78ab-4144-9625-8b042e985eaa": {
+      "application_slug": "vaultwarden",
+      "enabled": true,
+      "failure_result": false,
+      "group": "72b46aee-5ee3-46f6-a6dc-6f197e76ae84",
+      "negate": false,
+      "order": 1,
+      "pk": null,
       "policy": null,
       "timeout": 30,
       "user": null
@@ -1684,7 +1684,7 @@
   "retainedOAuthProviders": [
     "15"
   ],
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "scopeMappings": {
     "vaultwarden-email": {
       "description": "",
@@ -1763,20 +1763,76 @@
     "jellyfin": {
       "attributes": {},
       "is_superuser": false,
-      "member_usernames": [
-        "paul",
-        "eabbado",
-        "parents",
-        "sarabeth",
-        "carodilo"
-      ],
       "name": "Jellyfin",
       "parents": [],
       "pk": "7cc8f9fe-b4e6-4762-be05-263403a828e9",
       "roles": [
         "f21af265-8e36-43b6-862d-87ee1591cb4d"
-      ]
+      ],
+      "membership_set": "family"
+    },
+    "karaoke-users": {
+      "attributes": {},
+      "is_superuser": false,
+      "membership_set": "family",
+      "name": "Karaoke Users",
+      "parents": [],
+      "pk": "653a9fd8-ea6e-4d83-bb6e-e8a1510bde46",
+      "roles": []
+    },
+    "caro-library-users": {
+      "attributes": {},
+      "is_superuser": false,
+      "membership_set": "caro",
+      "name": "Caro Library Users",
+      "parents": [],
+      "pk": "87b271e2-bab4-4a92-83d5-9ee1820d8d85",
+      "roles": []
+    },
+    "cwa-users": {
+      "attributes": {},
+      "is_superuser": false,
+      "membership_set": "personal",
+      "name": "CWA Users",
+      "parents": [],
+      "pk": "49b212c7-85d7-4ae7-b5f7-cbcc3df51fc2",
+      "roles": []
+    },
+    "camera-viewers": {
+      "attributes": {},
+      "is_superuser": false,
+      "membership_set": "personal",
+      "name": "Camera Viewers",
+      "parents": [],
+      "pk": "a36920f1-add7-4992-9b24-cc7dd74b8050",
+      "roles": []
+    },
+    "vaultwarden-users": {
+      "attributes": {},
+      "is_superuser": false,
+      "membership_set": "personal",
+      "name": "Vaultwarden Users",
+      "parents": [],
+      "pk": "72b46aee-5ee3-46f6-a6dc-6f197e76ae84",
+      "roles": []
     }
+  },
+  "membershipSets": {
+    "family": [
+      "paul",
+      "eabbado",
+      "parents",
+      "sarabeth",
+      "carodilo"
+    ],
+    "caro": [
+      "carodilo",
+      "eabbado"
+    ],
+    "personal": [
+      "paul",
+      "sarabeth"
+    ]
   },
   "identificationStages": {
     "default-authentication-identification": {

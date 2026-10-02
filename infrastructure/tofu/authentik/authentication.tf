@@ -16,7 +16,8 @@ locals {
     certificates  = {}
   }
 
-  group_member_usernames = toset(flatten([for group in values(local.groups) : group.member_usernames]))
+  group_usernames_by_key = { for key, group in local.groups : key => local.desired.membershipSets[group.membership_set] }
+  group_member_usernames = toset(flatten(values(local.group_usernames_by_key)))
   group_ids_by_pk        = { for key, group in local.groups : group.pk => authentik_group.managed[key].id }
   flow_ids_by_pk         = { for key, flow in local.custom_flows : flow.pk => authentik_flow.custom[key].uuid if try(flow.pk, null) != null }
   referenced_flow_slugs = toset(concat(
@@ -42,7 +43,7 @@ locals {
 check "authentication_ownership" {
   assert {
     condition = (
-      length(local.desired.groups) == 1 &&
+      length(local.desired.groups) == 6 &&
       length(local.desired.identificationStages) == 1 &&
       length(local.desired.webauthnStages) == 1 &&
       length(local.desired.invitationStages) == 1 &&
@@ -55,7 +56,14 @@ check "authentication_ownership" {
       length(local.desired.systemSettings) == 1 &&
       length(local.desired.signingCertificates) == 1 &&
       alltrue([for group in values(local.desired.groups) :
-        !group.is_superuser && length(group.member_usernames) == length(distinct(group.member_usernames))
+        !group.is_superuser && length(group.parents) == 0 &&
+        contains(keys(local.desired.membershipSets), group.membership_set)
+      ]) &&
+      alltrue([for key, group in local.desired.groups :
+        key == "jellyfin" || length(group.roles) == 0
+      ]) &&
+      alltrue([for members in values(local.desired.membershipSets) :
+        length(members) > 0 && length(members) == length(distinct(members))
       ])
     )
     error_message = "Authentication ownership must include the reviewed group, onboarding path, passkey settings, security defaults and signing certificate; never elevate the application group."
@@ -93,13 +101,13 @@ resource "authentik_group" "managed" {
   is_superuser = each.value.is_superuser
   parents      = each.value.parents
   roles        = each.value.roles
-  users        = [for username in each.value.member_usernames : data.authentik_user.group_members[username].pk]
+  users        = [for username in local.group_usernames_by_key[each.key] : data.authentik_user.group_members[username].pk]
 
   lifecycle {
     precondition {
       condition = length(distinct([
-        for username in each.value.member_usernames : data.authentik_user.group_members[username].pk
-      ])) == length(each.value.member_usernames)
+        for username in local.group_usernames_by_key[each.key] : data.authentik_user.group_members[username].pk
+      ])) == length(local.group_usernames_by_key[each.key])
       error_message = "Every declared application-group member must resolve to a distinct independently owned user."
     }
   }

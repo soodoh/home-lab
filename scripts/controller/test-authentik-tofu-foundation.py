@@ -16,7 +16,7 @@ OAUTH_PROVIDER_IDS = {"15", "21", "37", "47"}
 
 class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_desired_inventory_is_complete(self) -> None:
-        self.assertEqual(DESIRED["schemaVersion"], 4)
+        self.assertEqual(DESIRED["schemaVersion"], 5)
         self.assertNotIn("sourceInventory", DESIRED)
         self.assertEqual(len(DESIRED["applications"]), 22)
         self.assertEqual(len(DESIRED["proxyProviders"]), 18)
@@ -110,8 +110,9 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
     def test_authentication_and_enrollment_preserve_reviewed_behavior(self) -> None:
         group = DESIRED["groups"]["jellyfin"]
         self.assertFalse(group["is_superuser"])
-        self.assertEqual(len(group["member_usernames"]), 5)
-        self.assertEqual(len(group["member_usernames"]), len(set(group["member_usernames"])))
+        members = DESIRED["membershipSets"][group["membership_set"]]
+        self.assertEqual(len(members), 5)
+        self.assertEqual(len(members), len(set(members)))
         identification = DESIRED["identificationStages"]["default-authentication-identification"]
         self.assertEqual(identification["webauthn_stage_ref"], "passwordless-webauthn")
         self.assertIsNone(identification["enrollment_flow"])
@@ -135,6 +136,36 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertTrue(DESIRED["systemSettings"]["default"]["flags"]["core_default_app_access"])
         self.assertNotIn("eventRules", DESIRED)
 
+    def test_access_entitlements_preserve_the_authorized_matrix(self) -> None:
+        family = {"paul", "eabbado", "parents", "sarabeth", "carodilo"}
+        expected = {
+            "jellyfin": family, "seerr": family, "karaoke-eternal": family,
+            "caro-tachidesk": {"carodilo", "eabbado"},
+            "calibre-web-automated": {"paul", "sarabeth"},
+            "frigate": {"paul", "sarabeth"}, "vaultwarden": {"paul", "sarabeth"},
+        }
+        groups = {value["pk"]: value for value in DESIRED["groups"].values()}
+        for slug, members in expected.items():
+            bindings = [value for value in DESIRED["applicationPolicyBindings"].values()
+                        if value["application_slug"] == slug]
+            granted = set()
+            for binding in bindings:
+                self.assertTrue(binding["enabled"])
+                self.assertFalse(binding["negate"])
+                self.assertIsNone(binding["user"], "Direct-user grants bypass membership revocation")
+                if binding["group"] in groups:
+                    group = groups[binding["group"]]
+                    granted.update(DESIRED["membershipSets"][group["membership_set"]])
+            self.assertEqual(granted, members, slug)
+            self.assertEqual(DESIRED["applications"][slug]["policy_engine_mode"], "any")
+        for key, group in DESIRED["groups"].items():
+            self.assertFalse(group["is_superuser"])
+            self.assertEqual(group["parents"], [])
+            if key != "jellyfin":
+                self.assertEqual(group["roles"], [])
+        self.assertEqual(DESIRED["groups"]["jellyfin"]["name"], "Jellyfin")
+        self.assertEqual(DESIRED["groups"]["jellyfin"]["pk"], "7cc8f9fe-b4e6-4762-be05-263403a828e9")
+
     def test_mindwtr_remains_a_web_only_forward_auth_gate(self) -> None:
         app = DESIRED["applications"]["mindwtr"]
         provider = DESIRED["proxyProviders"]["mindwtr"]
@@ -151,7 +182,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         self.assertEqual(DESIRED["outposts"]["authentik-embedded"]["provider_refs"].count("mindwtr"), 1)
         self.assertEqual(len(bindings), 1)
         self.assertEqual(
-            {key for key, value in DESIRED["applicationPolicyBindings"].items() if value["pk"] is None},
+            {key for key, value in DESIRED["applicationPolicyBindings"].items() if value["pk"] is None and value["application_slug"] == "mindwtr"},
             {"e1f79e5c-85e3-47f1-b94c-c49cb4442f05"},
         )
         self.assertTrue(bindings[0]["group"])
@@ -406,7 +437,7 @@ class AuthentikTofuFoundationTests(unittest.TestCase):
         ):
             expected.update(f'{resource_type}.{resource_name}["{key}"]' for key in DESIRED[desired_key])
         self.assertEqual(allow, expected)
-        self.assertEqual(len(allow), 113)
+        self.assertEqual(len(allow), 118)
 
     def test_prepare_step_protects_sensitive_inputs(self) -> None:
         prepare = (REPO / "scripts" / "prepare-authentik-plan-input").read_text()

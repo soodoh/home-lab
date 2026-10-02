@@ -16,9 +16,31 @@ replace the live, remote-backed import plan.
 
 ## Directory and onboarding
 
-Jellyfin membership is Git-owned. `groups.jellyfin.member_usernames` resolves
-independently owned users through native provider data sources; the root never
-creates or changes those accounts, their passwords or their personal authenticators.
+Application-access membership is Git-owned. `membershipSets` defines the shared
+`family`, `caro` and `personal` username lists once; each `groups.*.membership_set`
+selects one list. Native provider data sources resolve independently owned users;
+the root never creates or changes those accounts, their passwords or their
+personal authenticators. These are flat groups with no parents or superuser status.
+
+| Access group | Membership set | Applications |
+| --- | --- | --- |
+| Jellyfin (existing media entitlement) | family | Jellyfin, Seerr |
+| Karaoke Users | family | Karaoke Eternal |
+| Caro Library Users | caro | Caro Tachidesk |
+| CWA Users | personal | Calibre-Web-Automated |
+| Camera Viewers | personal | Frigate |
+| Vaultwarden Users | personal | Vaultwarden |
+
+The existing `authentik Admins` application bindings remain independent access
+paths for the administrator; these groups never confer Authentik administration.
+Applications combine bindings using `any` (OR). Direct-user exceptions are not
+retained alongside the entitlement groups: they would bypass membership removal.
+GOST keeps its separate exact service-account binding.
+
+Nextcloud is not an Authentik application in this root. Its existing Paul/Sarabeth
+native accounts and data remain independently owned; no unused Nextcloud access
+group claims to enforce login. OIDC integration is a separate reviewed change that
+must preserve user IDs, data ownership and independent recovery.
 Every username must resolve to a distinct user. The group's existing external role
 association is preserved, but that role and administrator/break-glass memberships
 remain independently administered. Group updates send a complete membership list:
@@ -26,7 +48,8 @@ serialize applies against manual membership edits and review removals as access
 changes, even when the resource itself is not being deleted. After invitation
 enrollment, add the admitted user's username to desired membership before the next
 apply; otherwise Git-authoritative convergence will propose removing that new
-member. Enrollment's runtime addition is not a persistent membership authority.
+member. Adding a user to `family` grants both media and karaoke entitlements;
+review the complete access matrix when changing a shared membership set. Enrollment's runtime addition is not a persistent membership authority.
 
 The invitation-enrollment flow requires an invitation before collecting account
 fields, creates active external users in Jellyfin, then logs them in. Individual
